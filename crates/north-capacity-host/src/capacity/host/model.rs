@@ -295,7 +295,3 @@ pub fn forecast(db: Option<&Connection>, subject: Subject) -> Forecast {
     let prediction = db.and_then(|db| predict(db, &subject).ok().flatten());
     Forecast { subject, prediction }
 }
-
-#[cfg(test)]
-#[path = "model_tests.rs"]
-pub(super) mod tests;

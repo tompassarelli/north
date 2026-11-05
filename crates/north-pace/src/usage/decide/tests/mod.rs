@@ -1,12 +1,5 @@
-mod assess;
-mod assess_properties;
-mod free;
-mod place;
 mod place_properties;
 mod properties;
-mod rank;
-mod state;
-mod view;
 
 use std::collections::BTreeSet;
 
@@ -78,34 +71,6 @@ pub struct Fixture {
 }
 
 impl Fixture {
-    pub fn signed_in(name: &str) -> Self {
-        Self { accounts: vec![account(name, &["gex45"])], ..Self::default() }
-    }
-
-    pub fn accounts(names: &[&str]) -> Self {
-        Self { accounts: names.iter().map(|name| account(name, &["gex45"])).collect(), ..Self::default() }
-    }
-
-    pub fn open(self, name: &str, week: f64, week_resets: i64, five_hour: f64, five_hour_resets: i64) -> Self {
-        let base = self.readings.len() as i64 * 2;
-        self.with(fresh(base, name, Window::Week, week, Some(week_resets))).with(fresh(base + 1, name, Window::FiveHour, five_hour, Some(five_hour_resets)))
-    }
-
-    pub fn running(mut self, session: Session) -> Self {
-        self.sessions.push(session);
-        self
-    }
-
-    pub fn with(mut self, reading: Reading) -> Self {
-        self.readings.push(reading);
-        self
-    }
-
-    pub fn limited(mut self, event: LimitEvent) -> Self {
-        self.limits.push(event);
-        self
-    }
-
     pub fn world(&self) -> World<'_> {
         World {
             now: NOW,

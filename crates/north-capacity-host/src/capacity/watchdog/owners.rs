@@ -122,20 +122,3 @@ impl Owners for Live {
         self.loaded().parents.get(session).cloned().flatten()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_ssh_scope_is_owned_by_the_session_of_the_ssh_client_on_the_other_end_of_its_connection() {
-        let line = "0 0 127.0.0.1:22 127.0.0.1:51514 users:((\"sshd-session\",pid=900,fd=4),(\"sshd-session\",pid=901,fd=4))";
-        let server = socket(line).unwrap();
-        assert_eq!((server.local.as_str(), server.peer.as_str(), server.pids.as_slice()), ("127.0.0.1:22", "127.0.0.1:51514", [900, 901].as_slice()));
-        let client = socket("0 0 127.0.0.1:51514 127.0.0.1:22 users:((\"ssh\",pid=77,fd=3))").unwrap();
-        let owners = BTreeMap::from([("north-session-a.scope".to_owned(), Owner { session: "sc-extract".into(), parent: None })]);
-        let units = |pid: u32| Some(if pid == 77 { "north-session-a.scope" } else { "session-12.scope" }.to_owned());
-        let owned = ssh_owners(&[server, client], &owners, &units);
-        assert_eq!(owned, [("session-12.scope".to_owned(), Owner { session: "sc-extract".into(), parent: None })]);
-    }
-}

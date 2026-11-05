@@ -367,6 +367,7 @@ mod tests {
     use super::super::request::{Granted, Request};
     use super::{native_waiting_mark, scope};
 
+    // KEEP(bug): only a native start deferred on the GPU or its aperture holds gpu leases; regression of 635d3438d (a 1-CPU render waited 240 s)
     #[test]
     fn only_a_native_start_deferred_on_the_gpu_or_its_aperture_sets_the_marker_that_holds_gpu_leases() {
         for code in ["DEFER_GPU_BUSY", "DEFER_GPU_APERTURE", "DEFER_GPU_APERTURE_TIMEOUT"] {
@@ -380,6 +381,7 @@ mod tests {
         }
     }
 
+    // KEEP(bug): a model-sized lease throttles memory at the larger of its class and the model; regression of 9070d53db (MemoryHigh=2M stalled a repack)
     #[test]
     fn a_model_sized_lease_throttles_memory_at_its_declared_class_or_the_model_whichever_is_larger() {
         let granted = |model: f64| Granted { charged: Resources { cpus: 1.0, memory_mib: model }, clamped: None, declared: Some(Resources { cpus: 2.0, memory_mib: 2048.0 }), declared_clamped: None };

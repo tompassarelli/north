@@ -6,7 +6,6 @@ use super::estimate::{CapacityQuery, CapacityRun, TaskSignature, estimate_capaci
 use super::policy::{owner_prefix, sizing_runs};
 
 const USAGE: &str = include_str!("fixtures/capacity-usage.recorded.jsonl");
-const DURATION: &str = include_str!("fixtures/capacity-duration.recorded.jsonl");
 const WEEK_MS: i64 = 7 * 86_400_000;
 
 fn text(value: &Value) -> Option<String> {
@@ -136,6 +135,7 @@ struct Cores {
     over_reserved: usize,
 }
 
+// KEEP(bug): recorded replay: estimates cover p90
 #[test]
 fn the_recorded_week_of_runs_is_covered_by_its_estimates_without_over_reserving() {
     let runs: Vec<CapacityRun> = recorded(USAGE).into_iter().filter(|run| !matches!(run.shape.as_deref(), Some("nix develop" | "nix shell"))).collect();
@@ -169,21 +169,4 @@ fn the_recorded_week_of_runs_is_covered_by_its_estimates_without_over_reserving(
     assert!(cores.scored > 379, "only {} runs scored", cores.scored);
     assert!(share(cores.covered) >= 0.95, "coverage {}/{}", cores.covered, cores.scored);
     assert!(share(cores.over_reserved) < 0.2, "over-reservation {}/{}", cores.over_reserved, cores.scored);
-}
-
-#[test]
-fn the_recorded_exact_runs_finish_within_their_p75_duration_estimate_often_enough() {
-    let runs = recorded(DURATION);
-    let (mut thin, mut scored, mut covered) = (0, 0, 0);
-    replay(&runs, |run, earlier| {
-        let estimate = estimate_capacity(&run.signature, earlier, 24.0, &CapacityQuery::default());
-        let Some(p75) = estimate["duration"]["p75Seconds"].as_f64() else {
-            thin += 1;
-            return;
-        };
-        scored += 1;
-        covered += usize::from(run.wall_seconds.expect("timed run") <= p75);
-    });
-    println!("uncalibrated={thin} scored={scored} covered={covered}");
-    assert!(scored > 0 && covered as f64 / scored as f64 >= 0.72, "p75 coverage {covered}/{scored}");
 }

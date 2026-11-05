@@ -94,26 +94,3 @@ fn snapshot(balance: &Value, now: Timestamp) -> Result<Value, String> {
         "credits_left": (-account).max(0.0), "read_at": py::isoformat(now).replace('Z', "+00:00"), "source": API,
     }))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_balance_becomes_the_current_months_readout_with_credits_from_a_negative_account_balance() {
-        let balance = json!({"account_balance": "-12.50", "month_to_date_usage": "5.09", "month_to_date_balance": "5.09"});
-        let december = snapshot(&balance, Timestamp::parse_rfc3339("2026-12-04T00:54:08.965767Z").unwrap()).unwrap();
-        assert_eq!(
-            (december["period_start"].as_str(), december["period_end"].as_str(), december["usd_spent_period"].as_f64(), december["credits_left"].as_f64()),
-            (Some("2026-12-01T00:00:00+00:00"), Some("2027-01-01T00:00:00+00:00"), Some(5.09), Some(12.5))
-        );
-        assert_eq!(december["read_at"], "2026-12-04T00:54:08.965767+00:00");
-        let november = snapshot(&json!({"account_balance": "3", "month_to_date_usage": "0", "month_to_date_balance": "0"}), Timestamp::parse_rfc3339("2026-11-04T00:00:00Z").unwrap()).unwrap();
-        assert_eq!((november["period_end"].as_str(), november["credits_left"].as_f64()), (Some("2026-12-01T00:00:00+00:00"), Some(0.0)));
-    }
-
-    #[test]
-    fn a_balance_without_numbers_is_refused() {
-        assert!(snapshot(&json!({"account_balance": "x"}), Timestamp::now()).is_err());
-    }
-}

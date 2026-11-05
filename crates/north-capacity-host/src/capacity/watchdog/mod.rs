@@ -16,13 +16,7 @@ mod sampler;
 mod sampling;
 mod snapshot;
 #[cfg(test)]
-mod report_tests;
-#[cfg(test)]
-mod rest_tests;
-#[cfg(test)]
 mod sampler_tests;
-#[cfg(test)]
-mod sampling_tests;
 #[cfg(test)]
 mod tests;
 

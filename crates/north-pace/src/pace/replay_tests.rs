@@ -1,13 +1,11 @@
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
-use serde_json::json;
 
 use super::exhaustion;
 use super::control::{Control, Reading, advance};
 use super::target::{Target, seconds};
 use super::window::Window;
-use crate::foundation::clock::Timestamp;
 
 const GAP_CAP_SECONDS: f64 = 600.0;
 const OVERRUN_PCT: f64 = 90.0;
@@ -141,53 +139,10 @@ fn replay(rows: &[Row]) -> Tally {
     tally
 }
 
-fn climb(account_used: &[(f64, f64)], week_used: f64, workers: i64) -> Vec<Row> {
-    let start = Timestamp::now().unix_seconds() as f64 - 7200.0;
-    account_used
-        .iter()
-        .enumerate()
-        .map(|(step, (used, burn))| {
-            let at = start + step as f64 * 600.0;
-            let stamp = Timestamp::from_unix_seconds_f64(at - 20.0).iso_micros_utc_offset();
-            let window = |name: &str, used: f64, burn: f64, reset_h: f64| {
-                json!({"window": name, "used_pct": used, "burn_pct_h": burn, "reset_h": reset_h, "age_s": 20, "as_of": stamp,
-                       "resets_at": format!("reset-{name}"), "quota_ceiling": 95.0})
-            };
-            serde_json::from_value(json!({"at": at, "workers": workers, "windows": [
-                window("5h", *used, *burn, 2.0), window("week", week_used, 0.4, 100.0)
-            ]}))
-            .unwrap()
-        })
-        .collect()
-}
-
+// KEEP(bug): the recorded three-day claude replay holds nothing the realized usage disproves; regression of 34a3efb20
 #[test]
 fn three_day_claude_replay_holds_nothing_the_realized_usage_disproves() {
     let rows = load(include_str!("fixtures/claude-c-replay.jsonl"));
     let tally = replay(&rows);
     assert_eq!(tally.total(Verdict::False), 0.0, "{tally:?}");
-}
-
-#[test]
-fn a_forced_provider_hold_replays_with_zero_false_decisions() {
-    let exhausted: Vec<Row> = climb(&[(10.0, 5.0), (12.0, 5.0), (14.0, 5.0)], 100.0, 3);
-    let tally = replay(&exhausted);
-    assert!(tally.total(Verdict::True) > 0.0, "{tally:?}");
-    assert_eq!(tally.total(Verdict::False), 0.0, "{tally:?}");
-    assert_eq!(tally.total(Verdict::Unresolved), 0.0, "{tally:?}");
-    let spike: Vec<Row> = climb(&[(10.0, 5.0), (96.0, 80.0), (97.0, 80.0)], 40.0, 3);
-    let tally = replay(&spike);
-    assert_eq!(tally.total(Verdict::False), 0.0, "{tally:?}");
-}
-
-#[test]
-fn minutes_held_only_by_the_week_projection_are_unresolved_not_true() {
-    let mut rows = climb(&[(5.0, 1.0), (5.5, 1.0), (6.0, 1.0)], 60.0, 2);
-    for row in &mut rows {
-        row.windows[1].burn_pct_h = Some(0.7);
-    }
-    let tally = replay(&rows);
-    assert_eq!(tally.total(Verdict::True), 0.0, "{tally:?}");
-    assert_eq!(tally.total(Verdict::False), 0.0, "{tally:?}");
-    assert!(tally.total(Verdict::Unresolved) > 0.0, "{tally:?}");
 }

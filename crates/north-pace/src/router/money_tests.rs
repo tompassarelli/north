@@ -38,6 +38,7 @@ fn bills_money(ctx: &Ctx, name: &str, billing: &serde_json::Map<String, Value>) 
     used >= ctx.knobs.money_ceiling.as_f64().unwrap() && !overflow_free
 }
 
+// KEEP(mutant): no choice over the catalog tiers ever bills money across billing, credit, staleness and usage combinations
 #[test]
 fn no_choice_over_the_catalog_tiers_ever_bills_money() {
     let tiers = catalog_tiers();

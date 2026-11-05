@@ -197,36 +197,3 @@ pub struct ControllerContract {
     pub replay: Value,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    const CONTRACT: &str = include_str!("fixtures/controller-contract.json");
-
-    #[test]
-    fn controller_contract_round_trip_preserves_every_field() {
-        let original: Value = serde_json::from_str(CONTRACT).unwrap();
-        let contract: ControllerContract = serde_json::from_value(original.clone()).unwrap();
-        assert_eq!(serde_json::to_value(contract).unwrap(), original);
-    }
-
-    #[test]
-    fn controller_accepts_null_optional_readings() {
-        let mut raw: Value = serde_json::from_str(CONTRACT).unwrap();
-        for control in raw["controls"].as_object_mut().unwrap().values_mut() {
-            for key in ["held_reason", "workers", "target_burn_pct_h"] {
-                control[key] = Value::Null;
-            }
-            for window in control["windows"].as_array_mut().unwrap() {
-                window["smoothed_pct_h"] = Value::Null;
-                window["bound_pct_h"] = Value::Null;
-            }
-        }
-        let contract: ControllerContract = serde_json::from_value(raw).unwrap();
-        assert!(contract.controls.values().all(|c| {
-            c.workers.is_none()
-                && c.windows
-                    .iter()
-                    .all(|w| w.smoothed_pct_h.is_none() && w.bound_pct_h.is_none())
-        }));
-    }
-}

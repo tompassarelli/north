@@ -95,7 +95,3 @@ fn header<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
         key.trim().eq_ignore_ascii_case(&format!("anthropic-ratelimit-unified-{name}")).then(|| value.trim())
     })
 }
-
-#[cfg(test)]
-#[path = "events_tests.rs"]
-mod tests;

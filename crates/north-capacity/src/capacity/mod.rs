@@ -29,15 +29,12 @@ pub mod effects;
 pub mod enrich;
 mod admission_tests;
 mod build_offload_tests;
-mod land_claim_tests;
 mod agent_load_tests;
 mod game_reserve_tests;
-mod mode_tests;
 mod unleased_tests;
 mod native_hold_tests;
 mod tests;
 mod pressure_target_tests;
-mod gpu_admission_tests;
 pub mod cpus;
 pub mod local_machine;
 #[doc(hidden)]

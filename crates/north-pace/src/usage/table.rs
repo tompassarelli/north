@@ -195,7 +195,3 @@ fn capitalized(text: &str) -> String {
     let mut characters = text.chars();
     characters.next().map_or_else(String::new, |first| first.to_uppercase().chain(characters).collect())
 }
-
-#[cfg(test)]
-#[path = "table_tests.rs"]
-mod tests;

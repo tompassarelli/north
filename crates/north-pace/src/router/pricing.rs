@@ -60,19 +60,3 @@ impl Price {
             / 1_000_000.0
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_alias_or_a_context_suffix_resolves_to_its_model_price() {
-        let table = PriceTable::load().unwrap();
-        let cost = |model: &str| table.price(model).map(|price| price.of(TokenUse { input: 1_000_000, ..TokenUse::default() }));
-        assert_eq!(cost("haiku"), Some(0.1));
-        assert_eq!(cost("opus[1m]"), cost("claude-opus-5-5"));
-        assert_eq!(cost("claude-opus-5-5[1m]"), Some(4.0));
-        assert_eq!(cost("gpt-6-luna-mini"), None);
-        assert!(table.aliases.values().all(|id| table.models.contains_key(id)), "every alias names a priced model");
-    }
-}

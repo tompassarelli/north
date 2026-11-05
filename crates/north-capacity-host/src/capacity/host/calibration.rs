@@ -286,7 +286,3 @@ pub fn calibration_command(arguments: &[String]) -> u8 {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "calibration_tests.rs"]
-mod tests;

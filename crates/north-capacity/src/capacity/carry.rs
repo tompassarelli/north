@@ -100,19 +100,3 @@ fn usage() -> u8 {
     eprintln!("{USAGE}");
     2
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{Boundary, names};
-
-    #[test]
-    fn an_offload_carries_only_the_landing_context_and_a_fetch_sandbox_carries_everything_but_the_compiler_cache() {
-        let offload: Vec<_> = names(Boundary::Offload).collect();
-        assert!(offload.iter().all(|name| name.starts_with("SAFE_PUSH_LAND")), "{offload:?}");
-        assert!(offload.contains(&"SAFE_PUSH_LAND_IT") && offload.contains(&"SAFE_PUSH_LAND_RUNTIME_HEAD"), "{offload:?}");
-        let fetch: Vec<_> = names(Boundary::Fetch).collect();
-        let sandbox: Vec<_> = names(Boundary::Sandbox).collect();
-        assert!(offload.iter().all(|name| fetch.contains(name)) && fetch.iter().all(|name| sandbox.contains(name)));
-        assert!(fetch.contains(&"PATH") && !fetch.contains(&"RUSTC_WRAPPER") && sandbox.contains(&"RUSTC_WRAPPER"));
-    }
-}

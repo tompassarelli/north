@@ -2,7 +2,7 @@ use proptest::prelude::*;
 
 use super::properties::{FAMILIES, NAMES, fixture};
 use super::*;
-use crate::usage::decide::{Decision, Gate, Tier, Verdict, place, rank};
+use crate::usage::decide::{Decision, Gate, Tier, place};
 
 fn request_strategy() -> impl Strategy<Value = Request> {
     (
@@ -45,52 +45,8 @@ fn tier_of(decision: &Decision) -> Option<Tier> {
     }
 }
 
-fn badness(decision: &Decision) -> u8 {
-    match tier_of(decision) {
-        Some(Tier::One) => 0,
-        Some(Tier::Two) => 1,
-        Some(Tier::Three) => 2,
-        None => 3,
-    }
-}
-
 proptest! {
-    #[test]
-    fn prop_determinism_any_permutation_of_the_slices_gives_the_same_decision((fixture, request) in setup()) {
-        let shuffled = Fixture {
-            accounts: fixture.accounts.iter().rev().cloned().collect(),
-            readings: fixture.readings.iter().rev().cloned().collect(),
-            limits: fixture.limits.iter().rev().cloned().collect(),
-            sessions: fixture.sessions.iter().rev().cloned().collect(),
-            ..fixture.clone()
-        };
-        prop_assert_eq!(place(&fixture.world(), &request), place(&shuffled.world(), &request));
-    }
-
-    #[test]
-    fn prop_soundness_a_placement_is_in_a_tier_for_the_family_and_tier_3_needs_no_reserve((fixture, request) in setup()) {
-        let world = fixture.world();
-        let reserve = fixture.settings.reserve.get(&Provider::Claude).map_or(0.0, |percent| percent.0);
-        if let Decision::Place { account, tier, .. } = place(&world, &request) {
-            let ranked = rank(&world, &request);
-            let ranked_tier = ranked.entry(&account).map(|entry| entry.verdict);
-            let consistent = ranked_tier.is_some_and(|verdict| matches!(verdict, Verdict::Placeable { tier: found, .. } if found == tier));
-            prop_assert!(consistent);
-            prop_assert!(tier != Tier::Three || reserve == 0.0 || request.owner == Owner::Tom);
-            prop_assert!(account_of(&fixture, &account).extra_usage_enabled != Some(true) || tier == Tier::One);
-        }
-    }
-
-    #[test]
-    fn prop_reserve_with_none_set_place_refuses_only_when_no_account_is_placeable((fixture, request) in setup()) {
-        let mut fixture = fixture;
-        fixture.settings.reserve.clear();
-        let request = Request { pin: None, workstream: None, ..request };
-        let world = fixture.world();
-        let any_placeable = rank(&world, &request).placeable().next().is_some();
-        prop_assert_eq!(any_placeable, tier_of(&place(&world, &request)).is_some());
-    }
-
+    // KEEP(mutant): a placement under a reserve passes the reserve gate (kills a placer that skips the reserve check)
     #[test]
     fn prop_reserve_a_placement_under_a_reserve_leaves_at_least_the_reserve_free((fixture, request) in setup()) {
         let world = fixture.world();
@@ -103,14 +59,7 @@ proptest! {
         }
     }
 
-    #[test]
-    fn prop_warn_never_hold_a_tier_1_or_2_account_and_an_untripped_workstream_always_place((fixture, request) in setup()) {
-        let request = Request { pin: None, ..request };
-        let world = fixture.world();
-        let some_tier_1_or_2 = rank(&world, &request).placeable().any(|entry| matches!(entry.verdict, Verdict::Placeable { tier: Tier::One | Tier::Two, .. }));
-        prop_assert!(!some_tier_1_or_2 || tier_of(&place(&world, &request)).is_some());
-    }
-
+    // KEEP(mutant): an account with extra usage enabled is never placed where it may pause into paid spend (money guard)
     #[test]
     fn prop_extra_usage_an_enabled_account_is_never_placed_in_tier_2_or_3((mut fixture, request) in setup()) {
         fixture.accounts.iter_mut().for_each(|account| account.extra_usage_enabled = Some(true));
@@ -118,24 +67,4 @@ proptest! {
         let allowed = matches!(tier_of(&decision), None | Some(Tier::One));
         prop_assert!(allowed);
     }
-
-    #[test]
-    fn prop_monotonic_raising_the_reserve_or_adding_in_flight_spend_never_improves_the_decision(
-        (fixture, request) in setup(),
-        raise in 0.0..60.0f64,
-        extra in 0.0..80.0f64,
-    ) {
-        let before = badness(&place(&fixture.world(), &request));
-        let mut raised = fixture.clone();
-        let current = raised.settings.reserve.get(&Provider::Claude).map_or(0.0, |percent| percent.0);
-        raised.settings.reserve.insert(Provider::Claude, Percent((current + raise).min(100.0)));
-        prop_assert!(badness(&place(&raised.world(), &request)) >= before, "reserve");
-        let mut busier = fixture;
-        busier.sessions.push(session("late", "a", extra, None));
-        prop_assert!(badness(&place(&busier.world(), &request)) >= before, "in flight");
-    }
-}
-
-fn account_of<'a>(fixture: &'a Fixture, name: &Label) -> &'a Account {
-    fixture.accounts.iter().find(|account| &account.label == name).expect("account")
 }

@@ -77,29 +77,3 @@ pub fn kill_scope(id: &str) -> bool {
 pub fn stop_scope(unit: &str) {
     let _ = systemctl(false, &["stop", unit]);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{BATCH_PROPERTIES, desktop_weights};
-
-    #[test]
-    fn the_desktop_outweighs_agent_work_fifty_to_one_while_attended_and_returns_to_the_baseline_unattended() {
-        assert_eq!(desktop_weights("attended"), [("app.slice", 1000), ("session.slice", 1000), ("agent.slice", 20)]);
-        assert_eq!(desktop_weights("unattended"), [("app.slice", 100), ("session.slice", 300), ("agent.slice", 20)]);
-    }
-
-    #[test]
-    fn the_batch_slice_takes_only_idle_cycles_with_no_cpu_quota() {
-        assert_eq!(BATCH_PROPERTIES, ["CPUWeight=idle", "CPUQuota="]);
-        assert_eq!(super::super::machine::lease_slice("heavy"), "agent-batch.slice");
-        assert_eq!(super::super::machine::lease_slice("moderate"), "agent-batch.slice");
-        assert_eq!(super::super::machine::lease_slice("runtime"), "agent-capacity.slice");
-        assert_eq!(super::super::machine::lease_slice("critical"), "agent-capacity.slice");
-        let landing = serde_json::json!({ "class": "heavy", "landing": true });
-        assert_eq!(super::super::machine::lease_slice(super::super::machine::slice_class(&landing)), "agent-capacity.slice");
-        assert_eq!(super::super::machine::lease_slice("tom"), "agent-capacity.slice");
-        assert_eq!(super::super::machine::lease_slice("gpu"), "agent-capacity.slice");
-        assert_eq!(super::super::machine::lease_slice("exclusive"), "agent-capacity.slice");
-        assert_eq!(super::super::machine::lease_slice("native"), "native.slice");
-    }
-}

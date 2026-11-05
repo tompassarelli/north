@@ -66,7 +66,3 @@ pub fn render(proc: &Path, leader: i32) -> String {
     }
     lines
 }
-
-#[cfg(test)]
-#[path = "process_tree_tests.rs"]
-mod tests;

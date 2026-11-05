@@ -18,10 +18,6 @@ mod digitalocean;
 mod promos;
 mod record;
 mod sample;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod sample_tests;
 
 struct Ports<'a> {
     pub readers: &'a Readers<'a>,

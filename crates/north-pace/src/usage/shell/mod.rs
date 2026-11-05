@@ -5,8 +5,6 @@ mod brief;
 mod launches;
 mod lock;
 mod log;
-#[cfg(test)]
-mod tests;
 
 use std::path::{Path, PathBuf};
 

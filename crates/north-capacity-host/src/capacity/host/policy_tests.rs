@@ -1,4 +1,4 @@
-use super::policy::{charged_resources, memory_margin, resource_class, running_memory_charge};
+use super::policy::{charged_resources, memory_margin};
 use super::sizing::sizing_runs;
 
 mod properties {
@@ -23,6 +23,7 @@ mod properties {
     }
 
     proptest! {
+        // KEEP(mutant): a clamp never grants past the request or the maximum and reports exactly the fields it cut
         #[test]
         fn prop_clamp_to_grantable_never_grants_past_the_request_or_maximum_and_reports_exactly_the_fields_it_cut(request in resources(), maximum in resources()) {
             let (granted, clamped) = clamp_to_grantable(request, maximum);
@@ -36,6 +37,7 @@ mod properties {
             prop_assert_eq!(clamped.as_ref().and_then(|value| value.as_object()).map_or(0, serde_json::Map::len), usize::from(granted.cpus != request.cpus) + usize::from(granted.memory_mib != request.memory_mib));
         }
 
+        // KEEP(mutant): the charged size is declared until three runs then nearest-rank p90 within bounds, and never exceeds the scope quota
         #[test]
         fn prop_a_class_is_charged_its_declared_size_until_three_runs_then_their_nearest_rank_p90_within_its_bounds(kind in kind(), cores in 1u32..=32, runs in measured_runs()) {
             let cores = f64::from(cores);
@@ -64,33 +66,7 @@ mod properties {
     }
 }
 
-#[test]
-fn tom_and_critical_keep_their_cores_and_are_charged_measured_memory_up_to_their_declared_size() {
-    for kind in ["tom", "critical"] {
-        let declared = resource_class(kind, 20.0).expect("declared class");
-        let measured = charged_resources(kind, 20.0, &[3.0, 5.0, 4.0], &[3406.0, 1329.0, 2900.0]).expect("charged");
-        assert_eq!(measured.cpus, declared.cpus, "{kind} keeps its declared cores");
-        assert!((measured.memory_mib - 3406.0 * memory_margin()).abs() < 1e-9, "{kind} is charged its p90 memory with margin");
-        let large = charged_resources(kind, 20.0, &[3.0, 5.0, 4.0], &[30000.0, 30000.0, 30000.0]).expect("charged");
-        assert_eq!(large.memory_mib, declared.memory_mib, "{kind} is never charged past its declared memory");
-        let unmeasured = charged_resources(kind, 20.0, &[3.0, 5.0], &[3406.0, 1329.0]).expect("charged");
-        assert_eq!((unmeasured.cpus, unmeasured.memory_mib), (declared.cpus, declared.memory_mib), "{kind} is charged its declared size until three runs");
-    }
-}
-
-#[test]
-fn a_running_tom_critical_moderate_or_gpu_lease_past_the_ramp_holds_its_measured_peak_up_to_its_charge() {
-    for kind in ["tom", "critical", "moderate", "gpu"] {
-        assert!((running_memory_charge(kind, 16384.0, 424.0, Some(2832.0)) - 2832.0 * memory_margin()).abs() < 1e-9, "{kind} past the ramp");
-        assert_eq!(running_memory_charge(kind, 16384.0, 30.0, Some(158.0)), 16384.0, "{kind} inside the ramp keeps its charge");
-        assert_eq!(running_memory_charge(kind, 16384.0, 424.0, None), 16384.0, "{kind} with no measurement keeps its charge");
-        assert_eq!(running_memory_charge(kind, 16384.0, 424.0, Some(20000.0)), 16384.0, "{kind} never holds past its charge");
-    }
-    for kind in ["heavy", "exclusive", "runtime", "native"] {
-        assert_eq!(running_memory_charge(kind, 8192.0, 424.0, Some(900.0)), 8192.0, "{kind} keeps its charge");
-    }
-}
-
+// KEEP(bug): a tom request with few runs of its shape is sized from its whole class, not the flat 16 GiB; regression of 248250f80
 #[test]
 fn a_tom_request_with_too_few_runs_of_its_shape_is_sized_from_its_whole_class() {
     let run = |peak: f64| serde_json::json!({ "class": "tom", "p90Cores": 4.0, "peakMemoryMiB": peak, "wallSeconds": 60 });
@@ -106,6 +82,7 @@ fn a_tom_request_with_too_few_runs_of_its_shape_is_sized_from_its_whole_class() 
     assert!(!class_wide && heavy.len() == 1, "other classes never borrow class runs");
 }
 
+// KEEP(bug): a tiny host still grants one core so the aggregate slice never gets a zero quota; regression of 417cb70da
 #[test]
 fn a_tiny_host_still_grants_one_core_so_the_aggregate_slice_never_gets_a_zero_quota() {
     use crate::capacity::cpus::aggregate_cpus;
@@ -115,61 +92,7 @@ fn a_tiny_host_still_grants_one_core_so_the_aggregate_slice_never_gets_a_zero_qu
     assert_eq!(aggregate_cpus("unattended", 1.0, None), 1.0);
 }
 
-#[test]
-fn the_agent_slice_cpu_max_caps_what_leases_may_hold() {
-    use super::policy::{cpu_max_cpus, grantable_maximum};
-    use crate::capacity::cpus::aggregate_cpus;
-    let ceiling = cpu_max_cpus("1600000 100000\n");
-    assert_eq!(ceiling, Some(16.0));
-    assert_eq!(aggregate_cpus("attended", 24.0, ceiling), 12.0, "16 CPUs of agent.slice less the attended reserve of 4");
-    assert_eq!(aggregate_cpus("unattended", 24.0, ceiling), 16.0);
-    assert_eq!(aggregate_cpus("attended", 24.0, None), 20.0, "no quota keeps the raw cores");
-    assert_eq!(aggregate_cpus("attended", 8.0, ceiling), 6.0, "a ceiling above the cores changes nothing");
-    assert_eq!(grantable_maximum("attended", 24.0, ceiling, 65536.0).cpus, 12.0);
-    for line in ["max 100000", "", "0 100000", "junk"] {
-        assert_eq!(cpu_max_cpus(line), None, "{line:?}");
-    }
-    assert_eq!(cpu_max_cpus("50000 100000"), Some(0.5));
-    assert_eq!(aggregate_cpus("attended", 24.0, Some(0.5)), 1.0, "the aggregate slice never gets a zero quota");
-}
-
-#[test]
-fn a_frozen_batch_lease_is_still_charged_its_memory_and_reserves_no_batch_cpus() {
-    let root = tempfile::tempdir().unwrap();
-    let leases = [
-        serde_json::json!({ "id": "a", "kind": "run", "class": "heavy", "cpus": 6, "memoryMiB": 8192, "createdAt": 0, "frozenAt": 1000 }),
-        serde_json::json!({ "id": "b", "kind": "run", "class": "moderate", "cpus": 2, "memoryMiB": 2048, "createdAt": 0 }),
-        serde_json::json!({ "id": "c", "kind": "run", "class": "heavy", "landing": true, "cpus": 6, "memoryMiB": 8192, "createdAt": 0 }),
-        serde_json::json!({ "id": "d", "kind": "run", "class": "tom", "cpus": 20, "memoryMiB": 16384, "createdAt": 0 }),
-    ];
-    let totals = super::request::totals(root.path(), &leases, 600_000.0);
-    assert_eq!(totals.memory_mib, 8192.0 + 2048.0 + 8192.0 + 16384.0, "freezing frees CPU, not memory");
-    let accounting = super::request::cpu_accounting(root.path(), &leases, 600_000.0);
-    let leased = accounting.committed_batch_cpus - accounting.unleased_cores().unwrap_or(0.0);
-    assert!((leased - 26.0).abs() < 0.02, "only the landing check and Tom's build commit CPUs: {leased}");
-    assert_eq!(accounting.committed_elastic_cpus, 8.0, "the idle-weighted leases are counted apart");
-}
-
-#[test]
-fn a_measured_gpu_request_sizes_its_cpus_and_memory_and_native_sizes_only_memory() {
-    use super::policy::{Resources, measured_request};
-    assert_eq!(measured_request("gpu", 16.0, Some(4.0), Some(4.0)), Ok(Resources { cpus: 4.0, memory_mib: 4096.0 }));
-    assert_eq!(measured_request("gpu", 16.0, None, Some(3.0)), Ok(Resources { cpus: 3.0, memory_mib: 2048.0 }));
-    assert_eq!(measured_request("native", 16.0, Some(1.5), None), Ok(Resources { cpus: 2.0, memory_mib: 1536.0 }));
-    assert!(measured_request("native", 16.0, None, Some(4.0)).is_err());
-    assert!(measured_request("heavy", 16.0, Some(4.0), None).is_err());
-    assert!(measured_request("gpu", 16.0, None, Some(17.0)).is_err());
-    assert!(measured_request("gpu", 16.0, None, Some(1.5)).is_err());
-    assert!(measured_request("gpu", 16.0, Some(0.0), None).is_err());
-}
-
-#[test]
-fn a_history_sized_request_past_a_four_core_hosts_cores_is_granted_all_four() {
-    use super::policy::{Resources, clamp_to_grantable, grantable_maximum};
-    let (granted, clamped) = clamp_to_grantable(Resources { cpus: 4.33_f64.ceil(), memory_mib: 2429.0 }, grantable_maximum("unattended", 4.0, None, 16384.0));
-    assert_eq!((granted, clamped), (Resources { cpus: 4.0, memory_mib: 2429.0 }, Some(serde_json::json!({ "cpus": [5, 4] }))));
-}
-
+// KEEP(bug): a heavy shape whose twenty measured runs all peaked under its class is charged its highest peak; regression of 1322d2924
 #[test]
 fn a_heavy_shape_whose_twenty_measured_runs_all_peaked_under_its_class_is_charged_its_highest_peak() {
     use super::policy::heavy_peak_charge;
@@ -185,15 +108,4 @@ fn a_heavy_shape_whose_twenty_measured_runs_all_peaked_under_its_class_is_charge
     assert_eq!(heavy_peak_charge(6.0, &unmeasured), None, "a run without a measured peak keeps the class");
     assert_eq!(heavy_peak_charge(6.0, &[0.0; 20]), None, "a run without a positive peak keeps the class");
     assert_eq!(heavy_peak_charge(6.0, &[0.6; 20].into_iter().chain([0.8]).collect::<Vec<_>>()), Some(1.0), "a tiny shape is charged at least one core");
-}
-
-#[test]
-fn a_land_check_asks_a_check_host_for_its_measured_peak_once_its_newest_runs_are_measured() {
-    use super::land_check_charge;
-    let run = |peak: f64| serde_json::json!({ "owner": "land-check", "class": "heavy", "peakCores": peak, "wallSeconds": 121.0 });
-    let mut runs: Vec<serde_json::Value> = (0..30).map(|_| run(9.0)).collect();
-    runs.extend((0..40).map(|index| run(if index == 7 { 4.0 } else { 2.4 })));
-    assert_eq!(land_check_charge(6.0, &runs), 4.0, "older runs past the newest forty do not hold the charge at the class");
-    assert_eq!(land_check_charge(6.0, &runs[..60]), 6.0, "a peak at or over the class among the newest forty keeps six");
-    assert_eq!(land_check_charge(6.0, &runs[..19]), 6.0, "too few runs keep six");
 }

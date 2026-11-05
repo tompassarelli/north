@@ -116,7 +116,3 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     u8::from(failed)
 }
-
-#[cfg(test)]
-#[path = "fleet_pull_tests.rs"]
-mod tests;

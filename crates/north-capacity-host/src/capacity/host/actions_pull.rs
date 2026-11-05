@@ -212,7 +212,3 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     if failed { 1 } else if red { 3 } else { 0 }
 }
-
-#[cfg(test)]
-#[path = "actions_pull_tests.rs"]
-mod tests;

@@ -122,28 +122,22 @@ pub fn targets(table: &BTreeMap<i32, Entry>, names: &Names) -> Targets {
     Targets { game, launcher, native }
 }
 
-pub trait Signaller {
-    fn send(&mut self, pid: i32, signal: Signal);
-    fn alive(&self, pid: i32) -> bool;
-    fn wait(&mut self, step: Duration);
-}
-
 pub struct Live<'a> {
     pub proc: &'a Path,
 }
 
-impl Signaller for Live<'_> {
-    fn send(&mut self, pid: i32, signal: Signal) {
+impl Live<'_> {
+    pub fn send(&mut self, pid: i32, signal: Signal) {
         if let Some(pid) = Pid::from_raw(pid) {
             let _ = kill_process(pid, signal);
         }
     }
 
-    fn alive(&self, pid: i32) -> bool {
+    pub fn alive(&self, pid: i32) -> bool {
         fs::read_to_string(self.proc.join(pid.to_string()).join("stat")).is_ok_and(|stat| stat.rsplit_once(") ").is_some_and(|(_, rest)| !rest.starts_with('Z')))
     }
 
-    fn wait(&mut self, step: Duration) {
+    pub fn wait(&mut self, step: Duration) {
         std::thread::sleep(step);
     }
 }
@@ -154,7 +148,7 @@ pub struct Closed {
     pub killed: BTreeSet<i32>,
 }
 
-pub fn close(pids: &BTreeSet<i32>, signaller: &mut impl Signaller, grace: Duration) -> Closed {
+pub fn close(pids: &BTreeSet<i32>, signaller: &mut Live<'_>, grace: Duration) -> Closed {
     pids.iter().for_each(|pid| signaller.send(*pid, Signal::Term));
     let step = Duration::from_millis(100);
     let started = Instant::now();
@@ -182,7 +176,7 @@ pub fn describe(targets: &Targets, closed: &Closed) -> String {
     format!("closed {}{forced}", parts.join(", "))
 }
 
-pub fn run(proc: &Path, names: &Names, signaller: &mut impl Signaller, grace: Duration) -> String {
+pub fn run(proc: &Path, names: &Names, signaller: &mut Live<'_>, grace: Duration) -> String {
     let targets = targets(&table(proc), names);
     let closed = close(&targets.all(), signaller, grace);
     describe(&targets, &closed)

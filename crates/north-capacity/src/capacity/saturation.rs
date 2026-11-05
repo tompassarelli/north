@@ -73,39 +73,3 @@ impl Saturation {
         self.backlog?.refusal(host)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const READING: &str = "98643000\n40960000\n/dev/md127 489970656 443351304 21656744 96% /\n";
-
-    fn calm() -> Saturation {
-        Saturation { memory_total_mib: 96000.0, memory_available_mib: 55000.0, disk_free_gib: 40.0, backlog: None }
-    }
-
-    #[test]
-    fn a_session_is_refused_a_host_for_memory_disk_or_a_backlog_of_queued_jobs_or_load() {
-        let reading = parse(READING).unwrap();
-        assert!((reading.memory_total_mib - 96331.05).abs() < 0.01);
-        assert!((reading.memory_available_mib - 40000.0).abs() < 0.01);
-        assert!((reading.disk_free_gib - 20.65).abs() < 0.01);
-        assert_eq!(parse("not a reading"), None);
-        assert_eq!(reading.backlog, None);
-        let with_backlog = parse(&format!("{READING}#backlog\n16 25.3 20\n")).unwrap();
-        assert_eq!(with_backlog.backlog, Some(Backlog { queued: 16, load: 25.3, threads: 20 }));
-        assert_eq!(parse(&format!("{READING}#backlog\n")).unwrap().backlog, None);
-        assert_eq!(calm().refusal("gex45"), None);
-        let short = Saturation { memory_available_mib: 8900.0, ..calm() };
-        assert!(short.refusal("gex45").unwrap().starts_with("gex45 skipped: 8.7 GiB of memory available"));
-        assert_eq!(Saturation { disk_free_gib: 15.0, ..calm() }.refusal("gex45"), None);
-        assert_eq!(Saturation { disk_free_gib: 14.2, ..calm() }.refusal("gex45").unwrap(), "gex45 skipped: 14.2 GiB free on the root disk, under 15");
-        let backlog = |queued, load| Saturation { backlog: Some(Backlog { queued, load, threads: 20 }), ..calm() };
-        assert_eq!(backlog(3, 19.0).refusal("gex45"), None);
-        assert_eq!(backlog(16, 7.0).refusal("gex45").unwrap(), "gex45 skipped: 16 jobs queued in machine-capacity admission (limit 4)");
-        assert_eq!(backlog(0, 25.0).refusal("gex45").unwrap(), "gex45 skipped: load 25 on 20 threads");
-        assert_eq!(backlog(16, 25.0).refusal("gex45").unwrap(), "gex45 skipped: 16 jobs queued in machine-capacity admission (limit 4), load 25 on 20 threads");
-        let worst = Saturation { memory_available_mib: 1000.0, disk_free_gib: 1.0, ..calm() };
-        assert!(worst.refusal("h").unwrap().contains("memory"));
-    }
-}

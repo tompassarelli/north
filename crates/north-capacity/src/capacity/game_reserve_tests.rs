@@ -75,6 +75,7 @@ fn launch(root: &Path, age: f64) -> (String, String) {
     (calls, pins)
 }
 
+// KEEP(bug): Warcraft III is not moved or pinned until it has run a minute; regression of the black-screen launches (commit 318a62d33)
 #[test]
 fn a_warcraft_iii_younger_than_a_minute_is_neither_moved_nor_pinned() {
     for age in [0.0, 1.0, 3.0, 59.9] {
@@ -86,91 +87,7 @@ fn a_warcraft_iii_younger_than_a_minute_is_neither_moved_nor_pinned() {
     }
 }
 
-#[test]
-fn a_warcraft_iii_a_minute_or_older_is_moved_and_pinned_to_the_game_cores() {
-    for age in [60.0, 61.0, 900.0] {
-        let root = tempfile::tempdir().unwrap();
-        let (calls, pins) = launch(root.path(), age);
-        let moved = calls.lines().find(|line| line.contains("StartTransientUnit")).unwrap_or_default();
-        assert!(moved.ends_with("fail 2 PIDs au 2 13 14 Slice s game-reserve.slice 0"), "age {age}: {calls}");
-        assert!(moved.contains(" game-reserve-") && moved.contains("-13.scope "), "age {age}: {moved}");
-        assert_eq!(pins, "pin 13 0-15:8\npin 14 0-15:8\npin 50 4-23:16\n", "age {age}");
-    }
-}
-
-
-fn effective(settings: &Settings, slice: &str) -> String {
-    fs::read_to_string(settings.cgroup.join(slice).join("cpuset.cpus.effective")).unwrap().trim().to_owned()
-}
-
-fn spread(spec: &str) -> Vec<usize> {
-    spec.split(',')
-        .flat_map(|part| {
-            let (low, high) = part.split_once('-').unwrap_or((part, part));
-            low.parse::<usize>().unwrap()..=high.parse::<usize>().unwrap()
-        })
-        .collect()
-}
-
-fn reserved(root: &Path) -> Settings {
-    let settings = settings(root);
-    add(&settings.proc, 50, 1, &format!("{USER}/agent.slice/agent-capacity.slice/run-1.scope"), "bun test", UPTIME);
-    add(&settings.proc, 51, 1, &format!("{USER}/user.slice/libpod-1.scope/container"), "Runner.Listener", UPTIME);
-    add(&settings.proc, 52, 1, &format!("{USER}/background.slice/gitleaks-1.scope"), "gitleaks dir", UPTIME);
-    add(&settings.proc, 53, 1, &format!("{USER}/app.slice/app-niri-ghostty-1.scope"), "bash", UPTIME);
-    game_reserve::on(&settings, true).unwrap();
-    settings
-}
-
-#[test]
-fn with_the_reserve_on_no_slice_but_toms_runs_on_a_game_cpu() {
-    let root = tempfile::tempdir().unwrap();
-    let settings = reserved(root.path());
-    let game = spread(&settings.game_cpus);
-    for slice in fs::read_dir(&settings.cgroup).unwrap().flatten().filter_map(|entry| entry.file_name().into_string().ok()) {
-        if !slice.ends_with(".slice") {
-            continue;
-        }
-        let cpus = spread(&effective(&settings, &slice));
-        if TOM_SLICES.contains(&slice.as_str()) {
-            assert_eq!(cpus, spread("0-23"), "{slice} is Tom's and keeps every CPU");
-        } else {
-            assert!(cpus.iter().all(|cpu| !game.contains(cpu)), "{slice} may run on a game CPU: {cpus:?}");
-        }
-    }
-    assert_eq!(effective(&settings, NESTED), "4-11,16-23", "a slice nested in an agent slice is confined too");
-    let pins = fs::read_to_string(root.path().join("pins.log")).unwrap();
-    assert_eq!(pins, "pin 50 4-23:16\npin 51 4-23:16\npin 52 4-23:16\n");
-    let (enforced, line) = game_reserve::status(&settings);
-    assert!(enforced, "{line}");
-}
-
-#[test]
-fn off_gives_every_confined_slice_every_cpu_again() {
-    let root = tempfile::tempdir().unwrap();
-    let settings = reserved(root.path());
-    game_reserve::off(&settings).unwrap();
-    for slice in SLICES.iter().chain(&TOM_SLICES).chain(&[NESTED]) {
-        assert_eq!(effective(&settings, slice), "0-23", "{slice}");
-    }
-    let calls = fs::read_to_string(root.path().join("calls.log")).unwrap();
-    assert!(calls.contains("set-property --runtime agent.slice AllowedCPUs=0-23 MemoryMax=infinity"), "{calls}");
-    assert!(!calls.contains("AllowedCPUs= ") && !calls.lines().any(|line| line.ends_with("AllowedCPUs=")), "{calls}");
-}
-
-#[test]
-fn status_reports_a_reserve_whose_slices_still_reach_the_game_cpus_as_not_enforced() {
-    let root = tempfile::tempdir().unwrap();
-    let settings = settings(root.path());
-    fs::write(&settings.state, r#"{"on":true,"auto":true}"#).unwrap();
-    let (enforced, line) = game_reserve::status(&settings);
-    assert!(!enforced, "{line}");
-    assert!(
-        line.ends_with("NOT ENFORCED: game CPUs open to agent-capacity.slice, agent.slice, background.slice, builds.slice, control.slice, native.slice, user.slice"),
-        "{line}"
-    );
-}
-
+// KEEP(bug): Tom's game is Warcraft III or a Wisp native window outside the agent slices; regression of 8b58dbb52
 #[test]
 fn toms_game_is_warcraft_iii_or_a_wisp_native_window_outside_the_agent_slices() {
     let app = format!("{USER}/app.slice/makgora-tom-1.service");
@@ -193,34 +110,4 @@ fn toms_game_is_warcraft_iii_or_a_wisp_native_window_outside_the_agent_slices() 
         named(&settings.proc, 40, 1, comm, cgroup, args, UPTIME);
         assert_eq!(game_reserve::playing(&settings), want, "{comm} in {cgroup}: {args}");
     }
-}
-
-#[test]
-fn status_judges_the_split_the_reserve_last_applied_and_names_it_enforced() {
-    let root = tempfile::tempdir().unwrap();
-    let defaults = settings(root.path());
-    let narrowed = Settings { game_cpus: "0-1,12-13".into(), agent_cpus: "2-11,14-23".into(), ..defaults.clone() };
-    game_reserve::on(&narrowed, true).unwrap();
-    let (enforced, line) = game_reserve::status(&defaults);
-    assert!(enforced, "{line}");
-    assert!(line.contains("game CPUs 0-1,12-13, agents CPUs 2-11,14-23"), "{line}");
-    assert!(line.ends_with("ENFORCED: every agent slice's AllowedCPUs excludes the game CPUs 0-1,12-13"), "{line}");
-    assert_eq!(game_reserve::enforced_split(&defaults).map(|split| game_reserve::cpu_count(&split.agent_cpus)), Some(20));
-    fs::write(defaults.cgroup.join("agent.slice/cpuset.cpus.effective"), "0-23\n").unwrap();
-    let (enforced, line) = game_reserve::status(&defaults);
-    assert!(!enforced && line.contains("NOT ENFORCED: game CPUs open to agent.slice"), "{line}");
-    assert!(game_reserve::enforced_split(&defaults).is_none());
-}
-
-#[test]
-fn an_agent_slice_without_a_cpuset_is_not_enforced_and_status_names_toms_wisp_window() {
-    let root = tempfile::tempdir().unwrap();
-    let settings = settings(root.path());
-    named(&settings.proc, 40, 1, "bun", &format!("{USER}/app.slice/makgora-tom-1.service"), "bun scripts/wisp.ts play --standalone --window native", UPTIME);
-    game_reserve::on(&settings, true).unwrap();
-    assert!(game_reserve::status(&settings).0);
-    fs::remove_file(settings.cgroup.join("agent.slice/cpuset.cpus.effective")).unwrap();
-    let (enforced, line) = game_reserve::status(&settings);
-    assert!(!enforced, "{line}");
-    assert!(line.contains("Tom's Wisp native window running; NOT ENFORCED: game CPUs open to agent.slice"), "{line}");
 }

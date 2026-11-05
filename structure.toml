@@ -471,3 +471,9 @@ rule = "single-impl-trait"
 path = "crates/north-fleet/src/fleet/limit.rs"
 item = "AccountResets"
 reason = "a north-fleet seam the north binary implements; the crate cannot depend on the binary."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-pace/src/usage/shell/mod.rs"
+item = "Registry"
+reason = "Port defined by north-pace and implemented by north-fleet, which north-pace cannot depend on; the cull removed its only test double."
