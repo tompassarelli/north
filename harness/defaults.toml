@@ -224,6 +224,13 @@ source = "measured: flat: capacity_runs exact signatures walk-forward, 0 over-ch
 fallback = "fewer exact runs give medium confidence; no match gives low"
 consumers = ["crates/north-core/src/capacity/host/policy.rs"]
 
+[heavy_peak_charge_runs]
+value = 20
+unit = "runs of one owner prefix and command shape, every one measured, below which a heavy request keeps its declared cores; at or above it a shape whose every peak stayed under the declared cores is charged its highest peak"
+source = "measured: the last 40 land-check heavy runs on the laptop (2026-11-05) peaked at most 4.0 cores, p90 of per-run p90 2.8, mean wall 121 s, yet each was charged 6, so 3 of 5 lander check slots ran while 64 lanes waited and the laptop sat 31% busy; the 6-core floor (8f9546838) stays for shapes that peaked at or above it, because seven rust-port builds charged their 3.49-core p90 reached load 129 on 2026-10-15"
+fallback = "fewer runs, or any run without a measured peak, keep the declared heavy size"
+consumers = ["crates/north-core/src/capacity/host/policy.rs"]
+
 [pace_target_left_claude]
 value = 5
 unit = "percent a Claude account keeps at its weekly reset when orchestration.toml sets none"

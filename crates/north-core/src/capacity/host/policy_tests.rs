@@ -170,3 +170,20 @@ fn a_history_sized_request_past_a_four_core_hosts_cores_is_granted_all_four() {
     let (granted, clamped) = clamp_to_grantable(Resources { cpus: 4.33_f64.ceil(), memory_mib: 2429.0 }, grantable_maximum("unattended", 4.0, 16384.0));
     assert_eq!((granted, clamped), (Resources { cpus: 4.0, memory_mib: 2429.0 }, Some(serde_json::json!({ "cpus": [5, 4] }))));
 }
+
+#[test]
+fn a_heavy_shape_whose_twenty_measured_runs_all_peaked_under_its_class_is_charged_its_highest_peak() {
+    use super::policy::heavy_peak_charge;
+    let mut land_checks = vec![2.4; 39];
+    land_checks.push(4.0);
+    assert_eq!(heavy_peak_charge(6.0, &land_checks), Some(4.0), "the 2026-11-05 land-check runs fit five checks under the 20-CPU line, not three");
+    assert_eq!(heavy_peak_charge(6.0, &land_checks[..19]), None, "nineteen runs keep the declared six cores");
+    let mut burst = land_checks.clone();
+    burst.push(6.5);
+    assert_eq!(heavy_peak_charge(6.0, &burst), None, "a shape that ever peaked at its class keeps the class");
+    let mut unmeasured = land_checks.clone();
+    unmeasured.push(f64::NAN);
+    assert_eq!(heavy_peak_charge(6.0, &unmeasured), None, "a run without a measured peak keeps the class");
+    assert_eq!(heavy_peak_charge(6.0, &[0.0; 20]), None, "a run without a positive peak keeps the class");
+    assert_eq!(heavy_peak_charge(6.0, &[0.6; 20].into_iter().chain([0.8]).collect::<Vec<_>>()), Some(1.0), "a tiny shape is charged at least one core");
+}

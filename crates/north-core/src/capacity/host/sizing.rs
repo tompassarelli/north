@@ -5,7 +5,7 @@ use super::estimate::{CapacityQuery, CapacityRun, estimate_capacity, task_signat
 use super::fail;
 use super::json::{field, num, round2, text};
 use super::model::{Forecast, Prediction, Subject, current_cache_state, forecast, host_name};
-use super::policy::{Resources, charged_resources, learned_minimum_runs, memory_margin, owner_prefix, percentile, sized_class};
+use super::policy::{Resources, charged_resources, heavy_peak_charge, learned_minimum_runs, memory_margin, owner_prefix, percentile, sized_class};
 use super::request::Request;
 use super::shape::command_shape;
 
@@ -72,6 +72,11 @@ pub fn charge_from_usage(mut request: Request, owner: &str, command: &[String], 
     let run_memory: Vec<f64> = runs.iter().map(|run| field(run, "peakMemoryMiB").unwrap_or(f64::NAN)).collect();
     let declared = request.resources();
     let charged = charged_resources(&request.name, cores, &run_cores, &run_memory).unwrap_or(declared);
+    let run_peaks: Vec<f64> = runs.iter().map(|run| field(run, "peakCores").unwrap_or(f64::NAN)).collect();
+    let charged = match heavy_peak_charge(declared.cpus, &run_peaks) {
+        Some(cpus) if request.name == "heavy" && !class_wide => Resources { cpus, ..charged },
+        _ => charged,
+    };
     let forecast = forecast_of(owner, command);
     let memory_mib = model_memory(&request.name, forecast.prediction.as_ref(), declared.memory_mib).unwrap_or(charged.memory_mib);
     request.memory_from_model = forecast.prediction.as_ref().is_some_and(Prediction::sizes_memory);
