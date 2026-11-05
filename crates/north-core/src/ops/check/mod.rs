@@ -12,7 +12,7 @@ mod facts;
 mod tests;
 
 const SOURCE: &str = include_str!("../../../../../north-data/expectations.toml");
-const USAGE: &str = "usage: north ops check [--dry-run]";
+const USAGE: &str = "usage: north ops check [--dry-run | --synthetic]";
 const STATE: &str = "ops/state.json";
 
 pub trait Facts {
@@ -112,15 +112,25 @@ pub fn tick(roster: &Roster, role: &str, facts: &dyn Facts, notify: &mut dyn Not
     Tick { lines, failed }
 }
 
+pub fn synthetic(roster: &Roster, notify: &mut dyn Notify) -> Tick {
+    let mut lines = vec!["synthetic: BREACH drill; owner ops-observability; proves the phone and the proxy hear a breach".to_owned()];
+    let mut alert = Alert { notify, proxy: &roster.proxy, dry_run: false };
+    let breach = alert.send("north ops BREACH synthetic", "weekly drill: the alert path carries a breach; nothing to fix", &mut lines);
+    lines.push("synthetic: CLEARED drill".to_owned());
+    let cleared = alert.send("north ops cleared synthetic", "weekly drill over", &mut lines);
+    Tick { failed: breach.trouble || cleared.trouble || !breach.arrived || !cleared.arrived, lines }
+}
+
 fn load() -> Breaches {
     let stored = placement::pace_state(STATE);
     stored["breached"].as_object().into_iter().flatten().filter_map(|(name, since)| Some((name.clone(), since.as_f64()?))).collect()
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    let dry_run = match arguments {
-        [check] if check == "check" => false,
-        [check, flag] if check == "check" && flag == "--dry-run" => true,
+    let (dry_run, drill) = match arguments {
+        [check] if check == "check" => (false, false),
+        [check, flag] if check == "check" && flag == "--dry-run" => (true, false),
+        [check, flag] if check == "check" && flag == "--synthetic" => (false, true),
         _ => {
             eprintln!("{USAGE}");
             return 2;
@@ -133,6 +143,11 @@ pub fn run(arguments: &[String]) -> u8 {
             return 1;
         }
     };
+    if drill {
+        let outcome = synthetic(&roster, &mut Phone);
+        outcome.lines.iter().for_each(|line| println!("{line}"));
+        return u8::from(outcome.failed);
+    }
     let directory = placement::pace_directory();
     let host = host::name();
     let role = if host == "nexus" { "nexus" } else { "elsewhere" };

@@ -9,7 +9,7 @@ use super::measure::project_targets;
 use super::render::format_row;
 use super::stall::{Facts, Medians, verdict};
 use super::tests::at;
-use super::throughput::{Closed, Commit, DeadLane, Inputs, throughput};
+use super::throughput::{Closed, Commit, DeadLane, Inputs, sized_open, throughput};
 
 fn tip(state: &str, description: &str) -> Value {
     json!({"oid": "x", "status": {"contexts": [{"context": "autoland", "state": state, "description": description, "createdAt": "2026-10-12T03:00:00Z"}]}})
@@ -177,6 +177,19 @@ fn test_recorded_11_12_oct_landings_without_closures() {
     let claimed = BTreeMap::from([(514, failed + 60.0)]);
     let stuck = throughput(&Inputs { repo: "makgora", now, open_count: Some(78), closed: &closed, main_log: &main_log, landings: &landings, pushes: &pushes, target: None, dead_lanes: &lanes, claims: &claimed, pending_since: &[] });
     assert_eq!((stuck.needed_per_hour, stuck.failed_unowned), (None, 1));
+}
+
+#[test]
+fn a_size_label_on_a_release_or_bet_issue_changes_the_throughput_canary_expected_count() {
+    let now = at("2026-10-12T03:45:00Z");
+    let claims = BTreeMap::new();
+    let needed = |open| throughput(&Inputs { repo: "north", now, open_count: Some(open), closed: &[], main_log: &[], landings: &[], pushes: &[], target: Some(now + 12.0 * 3600.0), dead_lanes: &[], claims: &claims, pending_since: &[] }).needed_per_hour;
+    let labels = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<String>>();
+    assert_eq!(needed(sized_open(24, &[])), Some(2.0));
+    assert_eq!(needed(sized_open(24, &[labels(&["bet", "size:S"]), labels(&["release"])])), Some(2.0));
+    assert_eq!(needed(sized_open(24, &[labels(&["bet", "size:M"])])), Some(25.0 / 12.0));
+    assert_eq!(needed(sized_open(24, &[labels(&["release", "size:L"]), labels(&["bet", "size:M"])])), Some(28.0 / 12.0));
+    assert_eq!(needed(sized_open(24, &[labels(&["bug", "size:L"])])), Some(2.0));
 }
 
 fn recorded_autoland_latency() {

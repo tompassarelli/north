@@ -348,8 +348,9 @@ fn oldest_job(jobs: &[Job], now: f64) -> Value {
 fn issue_activity(host: &dyn Host, slug: &str, now: f64) -> (Option<u64>, Option<Vec<Closed>>) {
     let (owner, name) = slug.split_once('/').unwrap_or((slug, ""));
     let search = format!("repo:{slug} is:issue is:closed closed:>={}", iso(now - DAY));
+    let labels = throughput::SIZED_LABELS;
     let query = format!(
-        "{{ repository(owner:{owner:?}, name:{name:?}) {{ issues(states: OPEN) {{ totalCount }} }} search(query:{search:?}, type: ISSUE, first: 100) {{ nodes {{ ... on Issue {{ number closedAt comments(last: 20) {{ nodes {{ body }} }} }} }} }} }}"
+        "{{ repository(owner:{owner:?}, name:{name:?}) {{ issues(states: OPEN) {{ totalCount }} sized: issues(states: OPEN, labels: {labels:?}, first: 100) {{ nodes {{ labels(first: 20) {{ nodes {{ name }} }} }} }} }} search(query:{search:?}, type: ISSUE, first: 100) {{ nodes {{ ... on Issue {{ number closedAt comments(last: 20) {{ nodes {{ body }} }} }} }} }} }}"
     );
     let read = |response: &Value| -> Option<(u64, Vec<Closed>)> {
         let data = &response["data"];
@@ -362,7 +363,12 @@ fn issue_activity(host: &dyn Host, slug: &str, now: f64) -> (Option<u64>, Option
                 throughput::closed_from(item["number"].as_u64()?, item["closedAt"].as_str()?, comments)
             })
             .collect::<Option<Vec<_>>>()?;
-        Some((data["repository"]["issues"]["totalCount"].as_u64()?, closed))
+        let labelled = data["repository"]["sized"]["nodes"]
+            .as_array()?
+            .iter()
+            .map(|issue| issue["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|label| Some(label["name"].as_str()?.to_owned())).collect())
+            .collect::<Vec<Vec<String>>>();
+        Some((throughput::sized_open(data["repository"]["issues"]["totalCount"].as_u64()?, &labelled), closed))
     };
     match host.graphql(&query).as_ref().and_then(read) {
         Some((open, closed)) => (Some(open), Some(closed)),

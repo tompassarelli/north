@@ -109,6 +109,27 @@ pub fn throughput(inputs: &Inputs) -> Throughput {
     }
 }
 
+pub const SIZED_LABELS: [&str; 2] = ["release", "bet"];
+
+fn size_weight(label: &str) -> Option<u64> {
+    match label {
+        "size:S" => Some(1),
+        "size:M" => Some(2),
+        "size:L" => Some(4),
+        _ => None,
+    }
+}
+
+pub fn sized_open(total: u64, labelled: &[Vec<String>]) -> u64 {
+    let extra: u64 = labelled
+        .iter()
+        .filter(|labels| labels.iter().any(|label| SIZED_LABELS.contains(&label.as_str())))
+        .filter_map(|labels| labels.iter().filter_map(|label| size_weight(label)).max())
+        .map(|weight| weight - 1)
+        .sum();
+    total + extra
+}
+
 pub fn closed_from(number: u64, closed_at: &str, comments: Vec<String>) -> Option<Closed> {
     Some(Closed { number, closed_at: seconds(closed_at)?, comments })
 }

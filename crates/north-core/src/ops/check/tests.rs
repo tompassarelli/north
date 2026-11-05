@@ -1,6 +1,6 @@
-use super::expectations::{self, Direction, Expectation, Roster};
+use super::expectations::{self, Expectation, Roster};
 use super::facts::{Machine, write_heartbeat};
-use super::{Breaches, Facts, Notify, SOURCE, tick};
+use super::{Breaches, Facts, Notify, SOURCE, synthetic, tick};
 use std::cell::Cell;
 
 const NOW: f64 = 1_792_000_000.0;
@@ -55,11 +55,22 @@ fn shipped() -> Roster {
     expectations::parse(SOURCE).unwrap()
 }
 
-fn breaching_value(expectation: &Expectation) -> f64 {
-    match expectation.direction {
-        Direction::Below => expectation.threshold - 1.0,
-        Direction::Above => expectation.threshold + 1.0,
-    }
+#[derive(Debug)]
+struct Fixture {
+    breach: f64,
+    clear: f64,
+}
+
+fn fixtures() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ops/check/fixtures")
+}
+
+fn fixture(name: &str) -> Result<Fixture, String> {
+    let path = fixtures().join(format!("{name}.toml"));
+    let source = std::fs::read_to_string(&path).map_err(|error| format!("expectation {name} has no breach fixture at {}: {error}", path.display()))?;
+    let document: toml_edit::DocumentMut = source.parse().map_err(|error| format!("{}: {error}", path.display()))?;
+    let value = |key: &str| document.get(key).and_then(|item| item.as_float().or_else(|| item.as_integer().map(|whole| whole as f64))).ok_or_else(|| format!("{}: {key} is missing", path.display()));
+    Ok(Fixture { breach: value("breach")?, clear: value("clear")? })
 }
 
 fn only(roster: &Roster, name: &str) -> Roster {
@@ -67,10 +78,12 @@ fn only(roster: &Roster, name: &str) -> Roster {
 }
 
 #[test]
-fn every_shipped_expectation_replays_a_breach_once_and_a_clear_once() {
+fn every_shipped_expectation_replays_its_breach_fixture_once_and_its_clear_once() {
     for expectation in shipped().expectations {
+        let recorded = fixture(&expectation.name).unwrap();
+        assert!(expectation.breaching(recorded.breach) && !expectation.breaching(recorded.clear), "{} fixture must breach then clear", expectation.name);
         let roster = only(&shipped(), &expectation.name);
-        let facts = Fixed(Cell::new(breaching_value(&expectation)));
+        let facts = Fixed(Cell::new(recorded.breach));
         let (mut sent, mut breaches) = (Sent::default(), Breaches::new());
         for _ in 0..3 {
             let outcome = tick(&roster, &expectation.on, &facts, &mut sent, &mut breaches, false);
@@ -83,7 +96,7 @@ fn every_shipped_expectation_replays_a_breach_once_and_a_clear_once() {
         assert_eq!(sent.proxy[0].0, "proxy");
         assert!(breaches.contains_key(&expectation.name));
 
-        facts.0.set(expectation.threshold);
+        facts.0.set(recorded.clear);
         for _ in 0..3 {
             tick(&roster, &expectation.on, &facts, &mut sent, &mut breaches, false);
         }
@@ -91,6 +104,32 @@ fn every_shipped_expectation_replays_a_breach_once_and_a_clear_once() {
         assert!(sent.phone[1].0.contains("cleared") && sent.proxy[1].1.contains("cleared"));
         assert!(breaches.is_empty());
     }
+}
+
+#[test]
+fn every_breach_fixture_names_a_shipped_expectation_and_a_missing_one_fails() {
+    let names: Vec<String> = shipped().expectations.into_iter().map(|one| one.name).collect();
+    for entry in std::fs::read_dir(fixtures()).unwrap() {
+        let path = entry.unwrap().path();
+        let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
+        assert!(names.contains(&stem), "fixture {} names no expectation in north-data/expectations.toml", path.display());
+    }
+    assert!(fixture("an-expectation-with-no-fixture").unwrap_err().contains("has no breach fixture"));
+}
+
+#[test]
+fn a_synthetic_breach_alerts_both_channels_and_clears_and_keeps_no_state() {
+    let roster = shipped();
+    let mut sent = Sent::default();
+    let outcome = synthetic(&roster, &mut sent);
+    assert!(!outcome.failed, "{:?}", outcome.lines);
+    let titles: Vec<&str> = sent.phone.iter().map(|(title, _)| title.as_str()).collect();
+    assert_eq!(titles, ["north ops BREACH synthetic", "north ops cleared synthetic"]);
+    assert_eq!(sent.proxy.len(), 2);
+    assert!(sent.proxy.iter().all(|(session, _)| session == "proxy"));
+    let mut down = Sent { phone_down: true, ..Sent::default() };
+    let missed = synthetic(&roster, &mut down);
+    assert!(missed.failed && missed.lines.iter().any(|line| line.contains("phone push failed")));
 }
 
 #[test]
