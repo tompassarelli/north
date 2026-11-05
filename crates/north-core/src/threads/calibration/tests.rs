@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use rusqlite::Connection;
 
 use super::boxes::{BoxRun, box_chains, box_duration};
-use super::forward::{calibrate_box, calibrate_eta_pred, walk_forward_eta};
+use super::forward::{Figure, calibrate_box, calibrate_eta_pred, walk_forward_eta};
+use crate::usage::decide::world::Rate;
 use super::recommend::{asked_of, recommend, recommend_eta, recommend_usd};
 use super::verbs::{eta_line, since_start};
 use super::{Knobs, Run, median, quantile, scaled, tier_key, tier_rank};
@@ -541,4 +542,57 @@ fn the_eta_table_gives_each_category_and_tier_its_median_log_error_and_its_share
     assert_eq!(rows[0], ["category", "tier", "n", "median_abs_ln_error", "within_0.5_to_2x"]);
     assert_eq!(rows[1], ["feature", "claude:opus-medium", "1", "1.39", "0%"]);
     assert_eq!(rows[2], ["tooling", "claude:sonnet-high", "3", "0.69", "66%"]);
+}
+
+fn rate_db() -> Connection {
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch(
+        "CREATE TABLE usage(ts TEXT, provider TEXT, account TEXT, kind TEXT, name TEXT, used_pct REAL, window_min INTEGER, resets_at TEXT, amount REAL, source TEXT) STRICT;
+         CREATE TABLE run_costs(account TEXT NOT NULL, started TEXT NOT NULL, ended TEXT NOT NULL, agent TEXT NOT NULL, cost_usd REAL NOT NULL, PRIMARY KEY(account, started, ended, agent)) STRICT;
+         CREATE TABLE calibration(at TEXT NOT NULL, kind TEXT NOT NULL, cell TEXT NOT NULL, n INTEGER NOT NULL, p25 REAL, median REAL, p75 REAL, value REAL, source TEXT NOT NULL) STRICT;",
+    )
+    .unwrap();
+    db
+}
+
+fn hours_of_use(db: &Connection, account: &str, hours: usize, five_hour_rise: f64, week_rise: f64, usd: f64) {
+    for hour in 0..hours {
+        let day = 1 + hour / 24;
+        let at = |minute: u32| format!("2026-10-{day:02}T{:02}:{minute:02}:00Z", hour % 24);
+        for (name, rise) in [("session", five_hour_rise), ("weekly_all", week_rise)] {
+            for (minute, used) in [(0, 10.0), (30, 10.0 + rise)] {
+                db.execute("INSERT INTO usage VALUES(?1, 'claude', ?2, 'window', ?3, ?4, 0, ?5, NULL, 'header')", rusqlite::params![at(minute), account, name, used, format!("2026-11-0{}T00:00:00Z", if name == "session" { 1 } else { 2 })]).unwrap();
+            }
+        }
+        db.execute("INSERT INTO run_costs VALUES(?1, ?2, ?3, ?4, ?5)", rusqlite::params![format!("claude-{account}"), at(5), at(25), format!("w{hour}"), usd]).unwrap();
+    }
+}
+
+#[test]
+fn rates_land_per_account_and_window_with_n_and_the_pooled_fallback() {
+    let db = rate_db();
+    hours_of_use(&db, "a", 24, 4.0, 1.0, 2.0);
+    hours_of_use(&db, "b", 5, 3.0, 0.5, 1.0);
+    let rows = super::rates::calibrate_rates(&db, "2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z").unwrap();
+    let find = |cell: &str| rows.iter().find(|row| row.cell == cell).unwrap_or_else(|| panic!("no {cell}: {rows:?}"));
+    assert_eq!((find("a five_hour").n, find("a five_hour").value), (24, Some(Figure::Real(2.0))));
+    assert_eq!((find("a week").n, find("a week").value), (24, Some(Figure::Real(0.5))));
+    assert_eq!((find("b five_hour").n, find("b five_hour").value), (5, Some(Figure::Real(3.0))));
+    assert_eq!((find("pooled five_hour").n, find("pooled five_hour").value), (29, Some(Figure::Real((24.0 * 4.0 + 5.0 * 3.0) / (24.0 * 2.0 + 5.0)))));
+    assert_eq!(find("pooled week").n, 29);
+    for row in &rows {
+        db.execute("INSERT INTO calibration VALUES('2026-11-01T00:00:00Z', 'rate', ?1, ?2, NULL, NULL, NULL, ?3, 'measured')", rusqlite::params![row.cell, row.n as i64, row.value.unwrap().real()]).unwrap();
+    }
+    let own = super::rates_of(&db, "a").unwrap().unwrap();
+    assert_eq!((own.five_hour, own.week), (Rate::Account { points_per_usd: 2.0, n: 24 }, Rate::Account { points_per_usd: 0.5, n: 24 }));
+    let thin = super::rates_of(&db, "b").unwrap().unwrap();
+    assert!(matches!(thin.five_hour, Rate::Pooled { n: 29, .. }) && matches!(thin.week, Rate::Pooled { n: 29, .. }), "{thin:?}");
+}
+
+#[test]
+fn a_rise_across_a_window_reset_is_not_counted() {
+    let samples = [("2026-10-01T00:10:00Z", 90.0, "r1"), ("2026-10-01T00:40:00Z", 3.0, "r2")]
+        .map(|(at, used_pct, resets_at)| super::rates::Sample { account: "a".into(), window: "week", at: at.into(), used_pct, resets_at: resets_at.into() });
+    let costs = [super::rates::Cost { account: "a".into(), at: "2026-10-01T00:20:00Z".into(), usd: 1.0 }];
+    assert!(super::rates::measure(&samples, &costs).is_empty());
 }

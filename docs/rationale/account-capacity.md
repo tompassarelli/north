@@ -743,7 +743,10 @@ updates the integration tests (`tests/it/*`, 1.11) it breaks in the same change.
    Done when: `systemctl --user list-timers` on the laptop and gex45 shows the timer, and `select max(ts) from usage
    where account='d'` stays under 2 minutes old for 10 minutes.
 4c. **Rates.** Points per dollar per account and window, measured from rises and priced turns into the calibration
-   table with n and date, with the pooled fallback.
+   table with n and date, with the pooled fallback. `north threads calibrate --write` records kind `rate` rows,
+   cell `ACCOUNT five_hour|week` and `pooled five_hour|week`, n the hours holding both a rise (consecutive readings of
+   one window instance, `session` and `weekly_all`) and priced `run_costs` turns, value points per dollar, `at` the
+   date; `rates_of` reads an account's own rate at 20 or more hours and the pooled one below that (3.2's `Rate`).
    Done when: `calibration` holds a five-hour and a week rate per account, each with its n.
 5. **Shell and log.** `usage::world()`, the decision lock, launch records (registry for fleet launches, the hook
    file for Agent-tool spawns), `usage/decisions.jsonl`, and `north usage decide --dry-run BRIEF`.

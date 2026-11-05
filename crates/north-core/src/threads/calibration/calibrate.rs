@@ -6,6 +6,7 @@ use super::read::{box_rows, calibration_runs};
 use super::verbs::since_start;
 use super::{Knobs, Run};
 use super::boxes::box_chains;
+use super::rates::calibrate_rates;
 use super::forward::{calibrate_box, calibrate_eta, calibrate_eta_pred, calibrate_tier, calibrate_usd};
 use crate::threads::verb::{Args, Context, Failure, Outcome, immediate, open, table};
 
@@ -109,6 +110,7 @@ pub(super) fn run(argv: &[String], context: &Context) -> Outcome {
         rows.extend(calibrate(&knobs, &runs, &start, &end).into_iter().map(|row| Recorded { kind, source: format!("measured n={} {window}", row.n), row }));
     }
     rows.extend(calibrate_box(&knobs, &chains, &start, &end).into_iter().map(|row| Recorded { kind: "box", source: format!("measured n={} chains {window}", row.n), row }));
+    rows.extend(calibrate_rates(&db, &start, &end)?.into_iter().map(|row| Recorded { kind: "rate", source: format!("measured n={} hours {window}", row.n), row }));
     drop(db);
     if write {
         let values: Vec<Stored> = rows
