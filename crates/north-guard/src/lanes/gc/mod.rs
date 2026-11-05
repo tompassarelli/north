@@ -8,10 +8,13 @@ mod remote;
 mod report;
 mod state;
 mod strays;
+mod targets;
 mod trees;
 
 #[cfg(test)]
 mod strays_tests;
+#[cfg(test)]
+mod targets_tests;
 
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
@@ -49,6 +52,8 @@ pub(super) struct Counts {
     deleted_remote: usize,
     kept: usize,
     unlanded: usize,
+    dropped_targets: usize,
+    dropped_bytes: u64,
 }
 
 pub(super) struct Gc {
@@ -233,13 +238,15 @@ impl Gc {
         }
         let c = &self.counts;
         println!(
-            "lane-gc{}: retired {} worktrees, {} local branches, {} origin branches; kept {} ({} unlanded)",
+            "lane-gc{}: retired {} worktrees, {} local branches, {} origin branches; kept {} ({} unlanded); dropped {} build targets ({})",
             if self.options.dry_run { " (dry run)" } else { "" },
             c.retired_worktrees,
             c.deleted_branches,
             c.deleted_remote,
             c.kept,
-            c.unlanded
+            c.unlanded,
+            c.dropped_targets,
+            targets::gib(c.dropped_bytes)
         );
         0
     }

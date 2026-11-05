@@ -16,6 +16,9 @@ branch with no worktree passes the same idle check and, when superseded, the liv
 deleted when landed or superseded and not protected by an open PR, active Actions, Autoland,
 a land ticket, a claim, a live worktree or a push under 24h (4h for claude/land-*); --remote
 sweeps only origin branches.
+A worktree it keeps loses its build output: when its branch is landed or it has had no touch
+within --idle-hours, its git-ignored target/ is deleted unless the lane is locked or a process
+holds a file in it open, and the run prints the path and size freed.
 Everything else is kept whatever its age or uncommitted state: a lane whose issue is still
 open, a dirty worktree, and a branch that names no issue. Each is written to the unlanded report
 (default ~/.local/state/agents/lane-gc/unlanded.txt: age, container, path, branch, ahead count,

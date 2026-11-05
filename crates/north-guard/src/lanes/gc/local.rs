@@ -213,11 +213,19 @@ impl Gc {
         if flagged {
             self.flag(sweep, &lane)?;
         }
-        if lane.landed.landed && dirty.is_empty() {
-            self.retire_worktree(sweep, &lane, live, &lane.landed.how.clone());
+        let retired = if lane.landed.landed && dirty.is_empty() { self.retire_worktree(sweep, &lane, live, &lane.landed.how.clone()) } else { self.decide_worktree(sweep, &lane, live)? };
+        if retired || lane.locked || !lane.path.join("target").is_dir() {
             return Ok(());
         }
-        self.decide_worktree(sweep, &lane, live)
+        let basis = if lane.landed.landed {
+            "landed".to_string()
+        } else if self.idle_for(&lane, self.options.idle_hours) {
+            format!("idle {}h", lane.age_h.floor())
+        } else {
+            return Ok(());
+        };
+        self.drop_target(&sweep.name, &lane.path, live, &basis);
+        Ok(())
     }
 
     fn flag(&mut self, sweep: &mut Container, lane: &Worktree) -> Result<(), String> {
@@ -260,7 +268,7 @@ impl Gc {
         Ok(owner)
     }
 
-    fn decide_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf]) -> Result<(), String> {
+    fn decide_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf]) -> Result<bool, String> {
         let dirty = !lane.dirty.is_empty();
         let issues = named_issues(&sweep.main, &sweep.own, &sweep.base, &lane.tip).unwrap_or_default();
         let states = if dirty || lane.landed.landed { Vec::new() } else { self.issue_states(&issues) };
@@ -270,8 +278,7 @@ impl Gc {
         if class == LaneClass::Superseded {
             let why = if !held.is_empty() { held } else { self.superseded_hold(sweep, lane) };
             if why.is_empty() {
-                self.retire_worktree(sweep, lane, live, "issues closed");
-                return Ok(());
+                return Ok(self.retire_worktree(sweep, lane, live, "issues closed"));
             }
             if self.options.dry_run {
                 println!("{}: superseded {}: keep ({why})", sweep.name, lane.place);
@@ -284,7 +291,7 @@ impl Gc {
         if self.options.dry_run {
             println!("{}: {} {}: surface to {owner}{}", sweep.name, class.label(), lane.place, cited(&issues));
         }
-        Ok(())
+        Ok(false)
     }
 
     fn superseded_hold(&mut self, sweep: &Container, lane: &Worktree) -> String {
@@ -295,7 +302,7 @@ impl Gc {
         self.local_archive_guard(&sweep.main, &sweep.name, &sweep.base, &lane.branch, &lane.tip, Some(&lane.path))
     }
 
-    fn retire_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf], basis: &str) {
+    fn retire_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf], basis: &str) -> bool {
         let reason = if lane.landed.how != "ancestor" {
             self.held(lane, live)
         } else if lane.locked {
@@ -310,30 +317,33 @@ impl Gc {
         let facts = Facts { age: (sweep.cutoff_ms - lane.activity_ms).floor() as i64, minimum_age: 0, merged: true, equivalent: false, evil_merge: false, archive_age: None, protections: u32::from(!reason.is_empty()) };
         if retirement_verdict(&facts) == Verdict::Keep {
             let why = if reason.is_empty() { format!("touched within {}h", self.options.idle_hours) } else { reason };
-            return self.keep(sweep, &lane.path, &why);
+            self.keep(sweep, &lane.path, &why);
+            return false;
         }
         let read_only = command(&["find", &lane.path.to_string_lossy(), "-type", "d", "!", "-perm", "-u+w", "-print", "-quit"]).out;
         if !read_only.is_empty() {
             let why = format!("read-only directory {}", self.tilde(Path::new(&read_only)));
-            return self.keep(sweep, &lane.path, &why);
+            self.keep(sweep, &lane.path, &why);
+            return false;
         }
         if self.options.dry_run {
             println!("{}: retire {} ({}, {basis})", sweep.name, lane.place, if lane.branch.is_empty() { "detached" } else { &lane.branch });
             self.counts.retired_worktrees += 1;
             self.counts.deleted_branches += usize::from(!lane.branch.is_empty());
-            return;
+            return true;
         }
         let removed = git(&sweep.main, &["worktree", "remove", &lane.path.to_string_lossy()]);
         if !removed.ok {
             self.keep(sweep, &lane.path, &format!("worktree remove failed: {}", removed.last_err_line()));
             println!("{}: kept {}: {}", sweep.name, lane.place, removed.last_err_line());
-            return;
+            return false;
         }
         self.counts.retired_worktrees += 1;
         sweep.checked_out.remove(&lane.branch);
         if !lane.branch.is_empty() && lane.branch != "main" && self.delete_branch(&sweep.main, &lane.branch, &lane.tip) {
             self.counts.deleted_branches += 1;
         }
+        true
     }
 
     fn sweep_branch(&mut self, sweep: &mut Container, branch: &str, tip: &str) -> Result<(), String> {

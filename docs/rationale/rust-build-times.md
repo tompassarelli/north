@@ -225,6 +225,9 @@ grow by about 4.5 GiB each when next built, at most 36 GiB. The root disk had 12
 the change, so no lander override was added (it would forfeit the CPU cut where builds queue most), and
 lane-gc found one retirable worktree. The disk budget in south's `orchestration.toml` covers the shared
 cargo target, not worktree targets, so it does not move.
+Lane-gc bounds worktree targets instead: since 2026-11-05 it deletes the git-ignored `target/` of every
+worktree it keeps whose branch is landed or which has been idle for `--idle-hours`, unless a process holds
+a file in it open (north#589).
 
 ## Codegen cost of north-core, 2026-11-05
 
