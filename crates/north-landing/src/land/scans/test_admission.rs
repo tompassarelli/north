@@ -151,7 +151,7 @@ fn tests_only(hunk: &[&[u8]]) -> Vec<Vec<u8>> {
             Some(b'\\') => kept.push(line.to_vec()),
             Some(b'+') => {
                 let text = line[1..].trim_ascii();
-                let begins = starts(&line);
+                let begins = starts(line);
                 if skipping && !begins {
                     continue;
                 }
