@@ -26,6 +26,21 @@ health                 check the live runtime
 promote                update here, then deploy to every declared host
 follow --repo-dir DIR  after a landing: start promote in the background when DIR's origin is north";
 
+pub fn staged_on(host: &str, sha: &str) -> bool {
+    deploy::staged(host, sha)
+}
+
+pub fn stage_on(host: &str, sha: &str, runtime: &Path) -> Result<(), String> {
+    deploy::stage_runtime(host, sha, runtime).map_err(|failure| failure.message)
+}
+
+pub fn own_runtime() -> Option<(String, std::path::PathBuf)> {
+    let executable = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+    let directory = executable.parent()?;
+    let sha = directory.file_name()?.to_str()?;
+    (layout::is_sha(sha) && layout::has_programs(directory)).then(|| (sha.to_owned(), directory.to_path_buf()))
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     if arguments.iter().any(|argument| argument == "-h" || argument == "--help") {
         println!("{USAGE}");

@@ -1,3 +1,4 @@
+use super::bounded;
 use super::failure::{Failure, failed};
 use super::layout::{self, Layout, PROGRAMS};
 use super::remote::{limit, run, ssh};
@@ -12,6 +13,7 @@ use std::time::Duration;
 const LOCK_WAIT: Duration = Duration::from_secs(30 * 60);
 const REALISE: Duration = Duration::from_secs(10 * 60);
 const COPY: Duration = Duration::from_secs(10 * 60);
+const PROBE: Duration = Duration::from_secs(20);
 const PROMOTE: Duration = Duration::from_secs(15 * 60);
 
 pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
@@ -48,7 +50,16 @@ pub(super) fn ship_runtime(host: &str, target: &str, runtime: &Path) -> Result<(
     ship(host, target, runtime, &references(runtime)?)
 }
 
-fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
+pub(super) fn staged(host: &str, target: &str) -> bool {
+    let programs = PROGRAMS.map(|program| format!("test -x .local/state/north/runtimes/{target}/{program}")).join(" && ");
+    bounded::status(ssh(host).arg(programs).stdout(Stdio::null()), limit(PROBE)).is_ok_and(|status| status.success())
+}
+
+pub(super) fn stage_runtime(host: &str, target: &str, runtime: &Path) -> Result<(), Failure> {
+    stage(host, target, runtime, &references(runtime)?)
+}
+
+fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
     println!("north runtime deploy: {host}: nix-store --realise of {} store paths", references.len());
     let mut realise = vec!["nix-store", "--realise", "--quiet"];
     realise.extend(references.iter().map(String::as_str));
@@ -57,7 +68,11 @@ fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>)
     let destination = format!("{host}:.local/state/north/runtimes/{target}/");
     let mut copy = Command::new("rsync");
     copy.args(["-a", "--timeout=120", "--mkpath"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(destination);
-    run(host, "rsync", &mut copy, COPY)?;
+    run(host, "rsync", &mut copy, COPY)
+}
+
+fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
+    stage(host, target, runtime, references)?;
     println!("north runtime deploy: {host}: promoting {} with the shipped north", layout::short(target));
     let shipped = format!(".local/state/north/runtimes/{target}/north");
     run(host, &format!("north runtime update --sha {}", layout::short(target)), ssh(host).args([shipped.as_str(), "runtime", "update", "--sha", target]), PROMOTE)

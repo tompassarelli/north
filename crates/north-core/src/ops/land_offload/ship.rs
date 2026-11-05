@@ -12,7 +12,7 @@ pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 landing=${8:-} landref=${9:-} owner=${10:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 landing=${8:-} landref=${9:-} owner=${10:-} runtime=${11:-}
 root=@ROOT@
 mkdir -p "$root"
 waited=0
@@ -80,6 +80,11 @@ echo "offload: running $head in $slot"
 
 const RUN: &str = r#"cd "$slot"
 if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; export PATH; fi
+if [ -n "${runtime:-}" ]; then
+  runtime_dir=$HOME/.local/state/north/runtimes/$runtime
+  [ -x "$runtime_dir/north" ] || { echo "offload: the lander runtime $runtime is not on this host" >&2; exit @TRANSPORT_FAILED@; }
+  PATH="$runtime_dir:$PATH"; export PATH
+fi
 if [ "$landing" = 1 ]; then
   export SAFE_PUSH_LAND_BASE=$base SAFE_PUSH_LAND_HEAD=$head SAFE_PUSH_LAND_REF=$landref SAFE_PUSH_LANDING=1
 fi
@@ -149,6 +154,16 @@ fn job_ref(head: &CommitId) -> String {
     format!("refs/land-offload/{}-{}-{nanos}-{}", head.as_str(), std::process::id(), JOBS.fetch_add(1, Ordering::Relaxed))
 }
 
+#[cfg(test)]
+mod pinned;
+
+fn ensure_shipped(host: &str, sha: &str, present: impl FnOnce() -> bool, ship: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    if present() {
+        return Ok(());
+    }
+    ship().map_err(|why| format!("shipping the lander runtime {sha} to {host}: {why}"))
+}
+
 fn bundle(land: &Land, reference: &str) -> Result<File, String> {
     let git = || {
         let mut command = Command::new("git");
@@ -189,12 +204,20 @@ pub(super) fn run(land: &Land) -> u8 {
         .replace("@ROOT@", OFFLOAD_ROOT)
         .replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string())
         .replace("@SLOTS@", &SLOTS.to_string())
-        .replace("@WRONG_TREE@", &WRONG_TREE.to_string());
+        .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
+        .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string());
+    let own = crate::ops::runtime::own_runtime();
+    if let Some((sha, directory)) = &own
+        && let Err(why) = ensure_shipped(land.ssh, sha, || crate::ops::runtime::staged_on(land.ssh, sha), || crate::ops::runtime::stage_on(land.ssh, sha, directory))
+    {
+        return fail(&why);
+    }
+    let runtime = own.map_or_else(String::new, |(sha, _)| sha);
     let base = land.base.as_ref().map_or("", CommitId::as_str);
     let landing = if std::env::var("SAFE_PUSH_LANDING").is_ok_and(|value| value == "1") { "1" } else { "" };
     let landref = if landing == "1" { std::env::var("SAFE_PUSH_LAND_REF").unwrap_or_default() } else { String::new() };
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, landing, &landref, &owner].map(quote);
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, landing, &landref, &owner, &runtime].map(quote);
     let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
     let sent = Command::new("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])
