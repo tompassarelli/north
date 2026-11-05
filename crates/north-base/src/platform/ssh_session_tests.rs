@@ -15,6 +15,14 @@ fn the_remote_command_after_ssh_options_and_the_destination_is_wrapped_in_the_se
     assert_eq!(scope_session("north-ssh-n-626-0a1b2c3d.scope"), Some("n-626"));
 }
 
+// KEEP(contract): north#654, systemd-run expanded ${...} in an offloaded command before the far shell saw it
+#[test]
+fn a_remote_commands_parameter_expansions_reach_the_far_shell_unexpanded() {
+    let wrapped = scoped(&words(&["gex45", "t=\"${stamp%%-*}\"; echo \"${t#*-}\""]), "n-654", "0a1b2c3d");
+    assert!(wrapped[1].contains("systemd-run --user --scope --quiet --collect --expand-environment=no --unit="), "{}", wrapped[1]);
+    assert!(wrapped[1].contains(r"${stamp%%-*}") && wrapped[1].contains(r"${t#*-}"), "{}", wrapped[1]);
+}
+
 // KEEP(contract): logins, control and forwarding calls, git transport and the north protocol a peer's forced-command key parses reach ssh untouched
 #[test]
 fn logins_control_calls_git_transport_and_north_protocol_pass_through_unchanged() {
