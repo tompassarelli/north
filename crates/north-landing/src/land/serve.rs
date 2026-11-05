@@ -237,7 +237,7 @@ impl Lander {
             let log = logs.join(format!("{}-candidate.log", micros()));
             let mut stages = Stages::start();
             let taken = (limit == usize::MAX && !red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(tickets, &included));
-            let (verdict, mut stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref());
+            let (verdict, mut stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref(), included.iter().any(|(_, ticket)| ticket.red_fix.is_some()));
             stages.checked(&built.head);
             if matches!(verdict, Verdict::Green | Verdict::Refused(_)) {
                 pause::resume(&self.queue);

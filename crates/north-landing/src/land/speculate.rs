@@ -126,8 +126,8 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
     Ok(Some(Next { worktree: worktree.clone(), base: head.to_owned(), head: built.head, identity, tips, tickets, stages, check: Some(check), verdict: None }))
 }
 
-pub fn check(lander: &Lander, head: &str, base: &str, log: &Path, taken: Option<&Taken>) -> (Verdict, Vec<Next>) {
-    let mut started = match checks::start(&checks::Launch::of(lander), &lander.worktree, base, log, false) {
+pub fn check(lander: &Lander, head: &str, base: &str, log: &Path, taken: Option<&Taken>, red_fix: bool) -> (Verdict, Vec<Next>) {
+    let mut started = match checks::start(&checks::Launch { red_fix, ..checks::Launch::of(lander) }, &lander.worktree, base, log, false) {
         Ok(started) => started,
         Err(verdict) => return (verdict, Vec::new()),
     };

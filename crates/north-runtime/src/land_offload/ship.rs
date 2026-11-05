@@ -15,6 +15,7 @@ const POLL_SECONDS: &str = "2";
 const TARGET_CAP_MIB: u32 = 24 * 1024;
 const TARGET_FLOOR_MIB: u32 = 100 * 1024;
 pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
+pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const FREE: &str = r#"set -eu
@@ -30,7 +31,7 @@ echo "$free"
 "#;
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0} red_fix=${12:-}
 root=@ROOT@
 mkdir -p "$root"
 bundle=$(mktemp "$root/$name.bundle.XXXXXX")
@@ -57,7 +58,9 @@ nearest=$(
 )
 queue=$root/queue
 mkdir -p "$queue"
-ticket=$queue/$(date +%s%N)-$$
+rank=1
+[ -z "$red_fix" ] || rank=0
+ticket=$queue/$rank-$(date +%s%N)-$$
 exec 8>"$ticket"
 flock -n 8
 trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
@@ -72,7 +75,8 @@ first_in_line() {
   for t in $(ls "$queue" | sort); do
     f=$queue/$t
     [ "$f" != "$ticket" ] || return 0
-    if [ $((now - ${t%%-*})) -gt 5000000000 ] && (exec 7>>"$f"; flock -n 7) 2>/dev/null; then rm -f "$f"; else return 1; fi
+    stamp=${t#*-}
+    if [ $((now - ${stamp%%-*})) -gt 5000000000 ] && (exec 7>>"$f"; flock -n 7) 2>/dev/null; then rm -f "$f"; else return 1; fi
   done
   return 1
 }
@@ -320,7 +324,8 @@ pub(super) fn run(land: &Land) -> u8 {
     let base = land.base.as_ref().map_or("", CommitId::as_str);
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
     let cpus = (crate::capacity::host::land_check_cpus().ceil() as u32).to_string();
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus].map(quote);
+    let red_fix = std::env::var(RED_FIX_ENV).unwrap_or_default();
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix].map(quote);
     let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
     let sent = Command::new("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])

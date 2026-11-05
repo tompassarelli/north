@@ -243,11 +243,46 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
 }
 
 #[test]
+fn a_red_fix_land_check_takes_the_first_freed_slot_ahead_of_an_earlier_queued_regular_lane() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let log = home.path().join("order.log");
+    let script = super::remote_script("0.2");
+    let jobs: Vec<std::process::Child> = [("holder", ""), ("regular", ""), ("red-fix", "1")]
+        .iter()
+        .map(|(label, red_fix)| {
+            let pause = if *label == "holder" { 3 } else { 1 };
+            let command = format!("echo start-{label} >>{log}; sleep {pause}; echo end-{label} >>{log}", log = log.display());
+            let child = Command::new("setsid")
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0", red_fix])
+                .env("HOME", home.path())
+                .env("PATH", &path)
+                .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+                .env_remove("NORTH_OFFLOAD_ROOT")
+                .stdin(fs::File::open(&bundle).unwrap())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(900));
+            child
+        })
+        .collect();
+    for mut job in jobs {
+        assert!(job.wait().unwrap().success());
+    }
+    let order: Vec<String> = fs::read_to_string(&log).unwrap().lines().map(str::to_owned).collect();
+    assert_eq!(order, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-regular", "end-regular"], "the red fix queued after the regular lane and still took the slot the holder freed");
+}
+
+#[test]
 fn a_dead_job_leaves_no_ticket_that_blocks_the_queue() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let queue = home.path().join(".cache/land-offload/queue");
     fs::create_dir_all(&queue).unwrap();
-    fs::write(queue.join("1000000000000000000-1"), "").unwrap();
+    fs::write(queue.join("1-1000000000000000000-1"), "").unwrap();
     let script = super::remote_script("0.2");
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", "", "0"])
