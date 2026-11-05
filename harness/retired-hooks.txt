@@ -9,6 +9,7 @@ heavy-command-guard.sh
 modern-search-guard.sh
 native-item-guard.sh
 native-launch-guard.sh
+prompt-grounding.sh
 resource-safe-search-guard.sh
 session-kill-guard.sh
 spawn-capacity-guard.sh

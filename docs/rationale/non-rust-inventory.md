@@ -47,9 +47,6 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 | harness/hooks/firn-system-policy | 42 | stay | 42-line hook owned by Firn and installed from this tree; belongs in nixos-config, move there rather than port |
 | harness/hooks/language-guard.sh | 10 | stay | 10-line hook wrapper that execs `north guard language`; same condition |
 | harness/hooks/north-hook.sh | 9 | stay | 9-line hook wrapper that execs `north hook`; same condition |
-| harness/hooks/prompt-grounding-membership.test.sh | 29 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests the Rust grounding hook through its wrapper |
-| harness/hooks/prompt-grounding.sh | 32 | stay | 32-line hook wrapper that skips fleet sessions then calls `north grounding hook`; deleted with authoring-killswitch.sh when hook configs name `north hook` directly |
-| harness/hooks/prompt-grounding.test.sh | 94 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests the Rust grounding hook through its wrapper |
 | harness/lib/authoring-killswitch.sh | 41 | port: north#88 box "hook and harness shell to Rust" (family: tests) | sourced by hook wrappers to read kill switches; goes when provider hook configs name `north hook` directly (nixos-config change first) |
 | harness/lib/authoring-killswitch.test.sh | 24 | port: north#88 box "hook and harness shell to Rust" (family: tests) | test of authoring-killswitch.sh |
 | harness/lib/north-agent-activation.sh | 83 | port: north#88 box "hook and harness shell to Rust" (family: tests) | sourced activation reader; Rust reads the same generation |
