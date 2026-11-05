@@ -17,3 +17,6 @@ mod routing_tests;
 
 #[cfg(test)]
 mod money_tests;
+
+#[cfg(test)]
+mod admission_tests;
