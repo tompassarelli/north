@@ -122,6 +122,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("supply-chain-scan", Diagnosis),
     ("target-seed", Bookkeeping),
     ("task", Status),
+    ("tempo", Status),
     ("threads", Status),
     ("threads claim", Bookkeeping),
     ("threads close", Bookkeeping),

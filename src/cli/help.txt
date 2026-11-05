@@ -69,6 +69,7 @@ Commands:
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
   orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
   task [landed REF SHA | check REF -- CMD... | check [--dry-run] (--body-file FILE | REPO#N | --repo R)]   Record a verdict north observed itself, or tick issue boxes whose Observe: command exits 0
+  tempo [--repo NAME] [--window MINUTES] [--json] [--record]   How fast lanes reach main through the lander: landed, queued->main and first commit->main p50 and p90, refused alone, queued now; --record writes the last hour and day to the ledger (hourly timer)
   gate [open --session S --question Q --option O... --recommend N --default N --default-after D [--issue OWNER/REPO#N] | answer ID N [--note TEXT] | list [--json]]  Open or answer a decision gate
   digest [--since DURATION]  Print what landed, what is in flight, open gates with their recommendation and stalls from the fleet store
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land

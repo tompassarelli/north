@@ -1,6 +1,6 @@
-//! `north threads land-train record|check|red`: one row per lane a landing train decided, per check
-//! run on a candidate, and per red-main interval. The tables are created here, on first write; the
-//! readers in `tempo` tolerate a ledger that has none yet.
+//! `north threads land-train record|check|red|tempo`: one row per lane a landing train decided, per
+//! check run on a candidate, per red-main interval, and per `north tempo --record` reading. The tables
+//! are created here, on first write; the readers in `tempo` tolerate a ledger that has none yet.
 pub mod tempo;
 #[cfg(test)]
 mod tests;
@@ -62,11 +62,26 @@ CREATE TABLE IF NOT EXISTS main_red(
   cases TEXT NOT NULL DEFAULT '',
   revert_sha TEXT NOT NULL DEFAULT '',
   PRIMARY KEY(repo, sha)
+) STRICT;
+CREATE TABLE IF NOT EXISTS land_tempo(
+  repo TEXT NOT NULL,
+  at TEXT NOT NULL,
+  window_minutes INTEGER NOT NULL CHECK(window_minutes > 0),
+  landed INTEGER NOT NULL CHECK(landed >= 0),
+  queued_to_main_p50_minutes REAL,
+  queued_to_main_p90_minutes REAL,
+  first_commit_to_main_p50_minutes REAL,
+  first_commit_to_main_p90_minutes REAL,
+  first_commit_samples INTEGER NOT NULL CHECK(first_commit_samples >= 0),
+  refused_alone INTEGER NOT NULL CHECK(refused_alone >= 0),
+  conflicts INTEGER NOT NULL CHECK(conflicts >= 0),
+  queued_now INTEGER NOT NULL CHECK(queued_now >= 0),
+  PRIMARY KEY(repo, at, window_minutes)
 ) STRICT;";
 
 const ADDED_TO_LANDINGS: [&str; 3] = ["first_commit_at", "check_started_at", "check_finished_at"];
 
-const USAGE: &str = "usage: threads land-train record|check|red ...";
+const USAGE: &str = "usage: threads land-train record|check|red|tempo ...";
 
 /// Runs one verb, printing its result to `out` and a refusal to `err`; returns the exit code.
 pub fn run(argv: &[String], context: &Context, _: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
@@ -74,6 +89,7 @@ pub fn run(argv: &[String], context: &Context, _: &mut dyn Read, out: &mut dyn W
         Some("record") => record(&argv[2..], context),
         Some("check") => check(&argv[2..], context),
         Some("red") => red(&argv[2..], context),
+        Some("tempo") => tempo_row(&argv[2..], context),
         _ => Err(Failure::Usage(USAGE.into())),
     };
     report(&argv[0], result, out, err)
@@ -173,6 +189,34 @@ fn red(argv: &[String], context: &Context) -> Outcome {
             "INSERT INTO main_red(repo, sha, red_at, green_at, cause, cases, revert_sha) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
              ON CONFLICT(repo, sha) DO UPDATE SET green_at = coalesce(excluded.green_at, green_at), cause = excluded.cause, cases = excluded.cases, revert_sha = excluded.revert_sha",
             params![repo, sha, red_at, green_at, text("--cause"), text("--cases"), text("--revert-sha")],
+        )
+    })
+}
+
+fn figure(args: &Args, flag: &str) -> Result<Option<f64>, Failure> {
+    let Some(text) = args.get(flag) else { return Ok(None) };
+    text.parse::<f64>().ok().filter(|value| value.is_finite() && *value >= 0.0).map(Some).ok_or_else(|| Failure::Usage(format!("{flag} {text} is not a number of minutes")))
+}
+
+fn tempo_row(argv: &[String], context: &Context) -> Outcome {
+    let counts = ["--landed", "--first-commit-samples", "--refused-alone", "--conflicts", "--queued-now"];
+    let figures = ["--queued-p50", "--queued-p90", "--first-commit-p50", "--first-commit-p90"];
+    let valued: Vec<&str> = ["--repo", "--at", "--window-minutes"].into_iter().chain(counts).chain(figures).collect();
+    let args = Args::parse(argv, &valued, &[])?;
+    let repo = repo_name(&args)?;
+    let at = time(&args, "--at")?.ok_or_else(|| Failure::Usage("--at is required".into()))?;
+    let window = count(&args, "--window-minutes")?;
+    if window == 0 {
+        return Err(Failure::Usage("--window-minutes is required".into()));
+    }
+    let [landed, samples, refused, conflicts, queued] = counts.map(|flag| count(&args, flag));
+    let [queued_p50, queued_p90, first_p50, first_p90] = figures.map(|flag| figure(&args, flag));
+    let row = params![repo, at, window, landed?, queued_p50?, queued_p90?, first_p50?, first_p90?, samples?, refused?, conflicts?, queued?];
+    write(context, |db| {
+        db.execute(
+            "INSERT OR REPLACE INTO land_tempo(repo, at, window_minutes, landed, queued_to_main_p50_minutes, queued_to_main_p90_minutes, first_commit_to_main_p50_minutes, \
+             first_commit_to_main_p90_minutes, first_commit_samples, refused_alone, conflicts, queued_now) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            row,
         )
     })
 }

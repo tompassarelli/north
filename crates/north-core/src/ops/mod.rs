@@ -37,6 +37,7 @@ pub mod report;
 pub mod policy_replay;
 pub mod runtime;
 pub mod tune;
+pub mod tempo;
 pub mod timers;
 pub mod usage_web_read;
 pub mod watch;

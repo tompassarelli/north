@@ -189,3 +189,19 @@ fn a_ledger_written_before_the_timeline_columns_gains_them_on_the_next_record_an
     let after = tempo::tempo(&ledger.path, "north", NOW).unwrap();
     assert_eq!((&after["landings"], &after["first_commit_to_landed_p50_minutes"]), (&json!(2), &json!(16.0)));
 }
+
+#[test]
+fn a_tempo_reading_is_one_row_per_repo_time_and_window() {
+    let ledger = ledger();
+    let words = |window: &str, landed: &str| ["tempo", "--repo", "north", "--at", &NOW.to_string(), "--window-minutes", window, "--landed", landed, "--queued-p50", "6.2", "--first-commit-p50", "56", "--refused-alone", "1"].map(str::to_owned).to_vec();
+    ledger.ok(&words("60", "45"));
+    ledger.ok(&words("60", "46"));
+    ledger.ok(&words("1440", "300"));
+    let row: (i64, Option<f64>, Option<f64>, Option<f64>, i64) = Connection::open(&ledger.path)
+        .unwrap()
+        .query_row("SELECT landed, queued_to_main_p50_minutes, queued_to_main_p90_minutes, first_commit_to_main_p50_minutes, refused_alone FROM land_tempo WHERE window_minutes = 60", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
+        .unwrap();
+    assert_eq!(row, (46, Some(6.2), None, Some(56.0), 1));
+    assert_eq!(ledger.count("land_tempo"), 2);
+    assert_eq!(ledger.call(&["tempo", "--repo", "north", "--at", "1"].map(str::to_owned)).0, 2);
+}
