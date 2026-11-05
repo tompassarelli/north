@@ -160,10 +160,23 @@ fn a_deploy_that_cannot_take_the_update_lock_says_what_it_waits_on_and_fails_wit
     rustix::fs::flock(&held, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
     let output = host.north_with(&["runtime", "deploy", "far"], &[("NORTH_RUNTIME_STEP_SECONDS", "2")]);
     assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stdout).contains("waiting up to 2s for runtime-update.lock, held by another north runtime update"));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("runtime-update.lock stayed held by another north runtime update for 2s"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("waiting up to 2s for runtime-update.lock, held by another north runtime process"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("runtime-update.lock stayed held by another north runtime process for 2s"));
 }
 
+
+#[test]
+fn a_deploy_ships_without_holding_the_update_lock_so_this_host_can_promote_meanwhile() {
+    let host = Host::new();
+    host.built(&host.target);
+    let lock = host.path("state/north/runtime-update.lock");
+    script(&host.path("bin/ssh"), &format!("if flock -n {} true; then echo update-lock-free >>\"$TEST_ALERTS\"; else echo update-lock-held >>\"$TEST_ALERTS\"; fi\n", lock.display()));
+    script(&host.path("bin/rsync"), "true\n");
+    let output = host.north(&["runtime", "deploy", "far"], 0, 0);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let alerts = fs::read_to_string(host.path("alerts")).unwrap();
+    assert!(!alerts.is_empty() && alerts.lines().all(|line| line == "update-lock-free"), "every ship step ran while this host's update lock was free: {alerts}");
+}
 #[test]
 fn a_deploy_step_that_hangs_on_a_host_is_stopped_and_named_with_its_host_and_limit() {
     let host = Host::new();

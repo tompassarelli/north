@@ -3,7 +3,7 @@ use super::failure::{Failure, failed};
 use super::layout::{self, Layout, PROGRAMS};
 use super::remote::{limit, run, ssh};
 use super::store::references;
-use super::update::{built_main, checkout, lock_waiting};
+use super::update::{DEPLOY_LOCK, built_main, checkout, lock_waiting, named_lock_waiting};
 use crate::ops::land_offload;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -17,9 +17,11 @@ const PROBE: Duration = Duration::from_secs(20);
 const PROMOTE: Duration = Duration::from_secs(15 * 60);
 
 pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
-    let _lock = lock_waiting(layout, limit(LOCK_WAIT), "north runtime deploy")?;
-    let checkout = checkout();
-    let (target, runtime) = built_main(layout, &checkout)?;
+    let _shipping = named_lock_waiting(layout, DEPLOY_LOCK, limit(LOCK_WAIT), "north runtime deploy")?;
+    let (target, runtime) = {
+        let _building = lock_waiting(layout, limit(LOCK_WAIT), "north runtime deploy")?;
+        built_main(layout, &checkout())?
+    };
     let references = references(&runtime)?;
     let hosts = if hosts.is_empty() {
         let plan = land_offload::deployment();

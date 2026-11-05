@@ -27,6 +27,8 @@ const PINNED_LOCK_WAIT: Duration = Duration::from_secs(10 * 60);
 const ROLLBACK_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 
 const PASSES: usize = 5;
+const UPDATE_LOCK: &str = "runtime-update.lock";
+pub(super) const DEPLOY_LOCK: &str = "runtime-deploy.lock";
 
 enum Pass {
     Settled,
@@ -83,18 +85,22 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
 }
 
 pub(super) fn lock_waiting(layout: &Layout, limit: Duration, waiter: &str) -> Result<File, Failure> {
+    named_lock_waiting(layout, UPDATE_LOCK, limit, waiter)
+}
+
+pub(super) fn named_lock_waiting(layout: &Layout, name: &str, limit: Duration, waiter: &str) -> Result<File, Failure> {
     let started = Instant::now();
     let mut announced = false;
     loop {
-        if let Some(held) = lock(layout, FlockOperation::NonBlockingLockExclusive)? {
+        if let Some(held) = named_lock(layout, name, FlockOperation::NonBlockingLockExclusive)? {
             return Ok(held);
         }
         if !announced {
-            println!("{waiter}: waiting up to {}s for runtime-update.lock, held by another north runtime update", limit.as_secs());
+            println!("{waiter}: waiting up to {}s for {name}, held by another north runtime process", limit.as_secs());
             announced = true;
         }
         if started.elapsed() >= limit {
-            return Err(failed(1, format!("runtime-update.lock stayed held by another north runtime update for {}s", limit.as_secs())));
+            return Err(failed(1, format!("{name} stayed held by another north runtime process for {}s", limit.as_secs())));
         }
         std::thread::sleep(Duration::from_secs(1));
     }
@@ -209,8 +215,12 @@ fn next_build(layout: &Layout, checkout: &Path, target: &str, previous: Option<&
 }
 
 pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<File>, Failure> {
+    named_lock(layout, UPDATE_LOCK, operation)
+}
+
+fn named_lock(layout: &Layout, name: &str, operation: FlockOperation) -> Result<Option<File>, Failure> {
     fs::create_dir_all(layout.runtimes())?;
-    let lock = File::create(layout.state.join("runtime-update.lock"))?;
+    let lock = File::create(layout.state.join(name))?;
     Ok(flock(&lock, operation).is_ok().then_some(lock))
 }
 
