@@ -60,7 +60,6 @@ Read in three rings and stop at the first one that answers:
 - [docs/architecture.md](docs/architecture.md): the `north` app's owning boundaries.
 - [docs/features.md](docs/features.md): what each command does.
 - [docs/feedback-loop.md](docs/feedback-loop.md): each recorded signal, its writer and its reader.
-- [docs/python-port-order.md](docs/python-port-order.md): the order the remaining Python moves to Rust, from its import cycle.
 - [docs/references.md](docs/references.md): outside sources, what they shaped and what came of them.
 - [docs/nexus-run.md](docs/nexus-run.md): running a CPU job on Nexus from an owned worktree.
 - [docs/rationale/review-triggers.md](docs/rationale/review-triggers.md): why review is triggered by risk, not a landing trailer.

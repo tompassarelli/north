@@ -33,7 +33,7 @@ step 9b).
   deleted file or subcommand failed the next unrelated code landing instead.
 - A probe of backticked repository paths and relative links found living docs naming deleted files
   (`harness/scripts/routing-backtest.py` in feedback-loop.md, `harness/scripts/codex-route-propose.py`
-  in python-port-order.md). Rationale notes name many removed paths, correctly: they record a past
+  in the removed python-port-order.md). Rationale notes name many removed paths, correctly: they record a past
   state.
 
 ## Reading order
@@ -213,8 +213,7 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
    readme_links` passes with those files covered; `awk 'BEGIN{RS=""} length > 900'
    docs/harness.md` prints no paragraph; `north citation-check --root .` exits 0.
 
-Not required: a docs website, a prose style linter, rewriting rationale notes, moving
-`docs/python-port-order.md` (it is a living plan until the port ends), or moving south's docs.
+Not required: a docs website, a prose style linter, rewriting rationale notes, moving south's docs.
 
 ## Draft review, 2026-11-04
 
