@@ -118,6 +118,14 @@ a repository with no committed host still lands per lane today. That includes th
 8. **One release-tag predicate.** `tags::name::release_tag` (today `starts_with('v')`, from north#360's
    release verb). `--tag` refuses it, `--delete-tag` refuses it, and `north release` requires it. The
    in-flight `--delete-tag` (north#620) duplicates the rule inline, and P5 folds it into the predicate.
+9. **Every port box is a covered harness change.** south `agents/roles.toml` puts `north:bin/` under the
+   `harness-editor` role, with tiers Opus medium, high and xhigh and a review that is fresh, independent,
+   natively verified and created after the reviewed commit. The code these boxes move out of
+   `bin/safe-push` is the same harness code wherever it lives, so P4 adds `north:crates/north-safe-push/`
+   to the role's paths in south, and the role follows the code into the crate. Each box therefore names
+   its review in a line of its own, and the rule is stated once above the boxes. It lands with no
+   `Reviewed:` trailer. north retired that landing gate on 2026-11-04 (58df15b56, review-triggers.md),
+   and nothing reads a trailer now.
 
 Rejected, one line each:
 - Port the per-lane path to Rust: about 1,100 bash lines rebuilt for a path with no landing in a day,
@@ -135,9 +143,12 @@ module's decisions are pure functions over typed facts. Effects reach it only as
 passed in, so tests are properties over the pure functions plus recorded scenarios against
 `shell::recorded`, with real-git end-to-end tests at the argv[0] boundary only.
 
-- `lib.rs`: the entry. `pub fn run(arguments: &[String], shell: &Shell, host: &HostFacts) -> u8`
-  parses the request, picks the mode and calls the mode's module. It also re-exports
-  `tags::release::run` for the `north release` verb.
+- `lib.rs`: `pub mod` declarations only. structure.toml's `crate-roots` owns every `crates/*/src/lib.rs`,
+  so logic or `pub use` there would land outside the safe-push modules' edges.
+- `entry.rs`: the entry. `pub fn run(arguments: &[String], shell: &Shell, host: &HostFacts) -> u8`
+  parses the request, picks the mode and calls the mode's module. The argv[0] dispatch in
+  `src/main.rs` calls `north_safe_push::entry::run`, and the `north release` verb calls
+  `north_safe_push::tags::release::run`.
 - `request.rs` (+ `request/usage.txt`): argv to `Request`. Pure, with no effects at all.
   `parse(&[String]) -> Result<Request, Refusal>`. The variants are `Help`, `Abandon(args)`,
   `Enqueue(args)`, `Restore { commit, branch, dry_run }`, `PublicationScan { base, head }`,
@@ -212,9 +223,17 @@ passed in, so tests are properties over the pure functions plus recorded scenari
   `request`, `session`, `report` and `shell`.
 
 The edges form a DAG: `shell` at the bottom; then `request` and `report`; then `session` and `mode`;
-then `gates`; then `publication`, `tags` and `restore`; then `landing`; then `lib`. structure.toml gets
-one `[[module]]` per directory above with these `may_use` edges, and a `crate_dag` entry
-`north-safe-push` with `may_use = ["north-landing", "north-base"]`.
+then `gates`; then `publication`, `tags` and `restore`; then `landing`; then `entry`.
+
+structure.toml records this tree now, ahead of the code, directly under the existing `landing` module. It
+has one `[[module]]` per concern, named `landing.safe_push.<concern>` (`shell`, `request`, `report`,
+`session`, `mode`, `gates`, `publication`, `tags`, `restore`, `landing`, `entry`), each with the
+`may_use` edges above plus `foundation`. `shell` may also use north-base's `platform`. `gates`, `landing`
+and `entry` may use the existing `landing` module, which holds north-landing's scans, enqueue and land
+checks. `cli` may use it for the argv[0] dispatch and `north release`, and `tests` may use every one of
+them. A `crate_dag` entry `north-safe-push` has `may_use = ["north-landing", "north-base"]`. Every box
+that adds a file keeps it inside its module's paths, and `north code-health layers origin/main HEAD` is
+the check.
 
 What moves inside north-landing, so its scans have names of their own: `safe_push_state.rs`'s generic
 `Refused`, `Step` and `git_read` become `landing/step.rs`. `safe_push_guards.rs` becomes
@@ -230,21 +249,30 @@ box lands alone through safe-push. Scenario numbers are the `PASS:` lines of `bi
 file order. A Done when holds checks a worker runs before landing. "After landing" lines are observations
 the box's owner records once the landing reaches the host's runtime. They are not landing gates.
 
+The review rule, which applies to every box (decision 9; workers skill § Review):
+- The author is a `harness-editor` tier, which on the Claude side means the Opus `worker`.
+- Before safe-push, a fresh reviewer of a different tier (`worker-sonnet`) reads the box's final diff at
+  its sha and runs its Done when itself. The reviewer must be a session created after that commit.
+- Each code finding carries the command it ran and the output it got. The lead reruns the command, and
+  every finding that reproduces is fixed in the lane before landing.
+- The box's report names the reviewer session and its `Accepted flaws: N`.
+
 Kept scenarios that land today with a non-dry `--to main` and no lander config: 1, 2, 5, 8-11, 13, 17,
 21-23 and 31-38. The per-lane deletion would turn every one of them red, so P2a converts them first, while
 the per-lane code still exists.
 
-- **P1 argv[0] entry (the early falsifying check).** Files: `crates/north-base/src/platform/entry_points.rs`,
-  `src/main.rs`, `tests/it/safe_push_entry.rs`. Main dispatches a `safe-push` argv[0] to today's
-  `north safe-push` function, after `unset CODEX_HOME`. Done when:
+- **P1 argv[0] entry (the early falsifying check).** Covered harness change: review per the rule above.
+  Files: `crates/north-base/src/platform/entry_points.rs`, `src/main.rs`, `tests/it/safe_push_entry.rs`.
+  Main dispatches a `safe-push` argv[0] to today's `north safe-push` function, after `unset CODEX_HOME`.
+  Done when:
   1. A test links a temp `safe-push` to `CARGO_BIN_EXE_north` through two symlink hops, and
      `safe-push --help` exits 0 printing the usage that `north safe-push --help` prints.
   2. The same test shows `CODEX_HOME` unset in a child the entry runs.
   3. A property holds: any argv[0] whose basename is not in `ENTRY_POINTS` runs north.
-- **P2a Tests stop depending on per-lane landing.** Test-only. Files: `bin/safe-push.test.sh`,
-  `bin/follows-release.test.sh`, and the `tests/it` cases that run `bin/safe-push --to main` per lane
-  (`land_offload.rs:111-120`, and the per-lane cases in `land_actions.rs`, `land_publication.rs`,
-  `safe_push_land_branch.rs` and `land_route.rs:253-262`).
+- **P2a Tests stop depending on per-lane landing.** Covered harness change: review per the rule above.
+  Test-only. Files: `bin/safe-push.test.sh`, `bin/follows-release.test.sh`, and the `tests/it` cases that
+  run `bin/safe-push --to main` per lane (`land_offload.rs:111-120`, and the per-lane cases in
+  `land_actions.rs`, `land_publication.rs`, `safe_push_land_branch.rs` and `land_route.rs:253-262`).
   - Each kept scenario above switches to `--dry-run --to main`, `--check-candidate` or a branch
     publication, together with its assertion. Scenario 2's "publishes" becomes branch publication.
     Scenario 17 asserts the enqueue receipt. Scenario 22's `--direct` half is deleted.
@@ -253,43 +281,50 @@ the per-lane code still exists.
   - Done when: (1) the bash suite and `cargo test --test it land_ safe_push` pass against today's bash;
     (2) `rg -n -- "--to main" bin/safe-push.test.sh bin/follows-release.test.sh` lists only
     `--dry-run`, `--check-candidate` and the scenarios P2d deletes.
-- **P2b Route refuses instead of landing per lane.** Files: `crates/north-landing/src/land/route.rs`
-  and its tests, `land/enqueue.rs` (its "set landing.queue = direct" message), `harness/loops.toml`
-  (`route.rs::PER_LANE`). `Route::PerLane` goes. A repository or host the lander cannot take is refused,
-  naming `landing.lander-host` and `landing.remote-hosts`. A `landing.queue` other than `lander` is
-  refused, naming the lander. Done when: (1) `cargo test -p north-landing route` passes, with cases for
-  an uncommitted repository on an unnamed host and for `landing.queue = lock`; (2) the bash suite
-  passes.
-- **P2c Delete the lock, ticket queue and train.** Files: `bin/safe-push`, `bin/safe-push.test.sh`,
-  `crates/north-landing/src/watch/facts.rs` (it reads the tickets). Delete scenarios 24-30 and 44-48.
-  Done when: (1) `rg -c 'acquire_push_lock|run_train|collect_train|take_train_result' bin/safe-push`
-  prints nothing; (2) the bash suite and `cargo test --test it watch` pass.
-- **P2d Delete Autoland, sync and the verdict loop, the hook loop and the aftermath.** Files:
-  `bin/safe-push`, `bin/safe-push.test.sh`. Delete the `--to` landing block, `--direct`, the
-  NOT-landed terminal check, and scenarios 3, 6, 14-16, 18-20, 39-43 and 50-53. Name each in the commit
-  body. Done when: (1) `rg -c 'land_through_autoland|keep_verdict_through_moves|rebase_onto_destination|cleanup_landed_lane|auto_reap|release_follows' bin/safe-push`
-  prints nothing; (2) the bash suite and `cargo test --test it serve` pass.
-- **P2e Delete the verbs only that bash called.** For each of `autoland-wait`, `land-red-wait`,
-  `land-clean` and `land-train`, find its callers with `rg` over crates/, src/, tests/, bin/ and
-  harness/. Delete only a verb that no Rust caller uses (`land-train` has threads and tempo callers, so it
-  stays). Done when: `cargo test --workspace` passes, and the commit body lists each verb with its
-  caller count.
-- **P3 Name north-landing's shared pieces.** Mechanical `git mv`. `safe_push_state.rs` splits into
-  `landing/step.rs` (`Refused`, `Step`, `git_read`, `git_quiet`, `git_status`) and the rest, which stays
-  in place until P4. `safe_push_guards.rs` becomes
-  `land/scans/outgoing/{language,native_ref,secrets,email,denylist}.rs`. Done when: `cargo test
-  --workspace --lib` passes and `north code-health layers origin/main HEAD` is clean.
-- **P4 Crate, request, publication, route.** Create `crates/north-safe-push`: Cargo.toml, lib.rs, the
-  structure.toml crate and module entries, and the `tests/it/crates.txt` lines.
+- **P2b Route refuses instead of landing per lane.** Covered harness change: review per the rule above.
+  Files: `crates/north-landing/src/land/route.rs` and its tests, `land/enqueue.rs` (its "set
+  landing.queue = direct" message), `harness/loops.toml` (`route.rs::PER_LANE`). `Route::PerLane` goes. A
+  repository or host the lander cannot take is refused, naming `landing.lander-host` and
+  `landing.remote-hosts`. A `landing.queue` other than `lander` is refused, naming the lander. Done when:
+  (1) `cargo test -p north-landing route` passes, with cases for an uncommitted repository on an unnamed
+  host and for `landing.queue = lock`; (2) the bash suite passes.
+- **P2c Delete the lock, ticket queue and train.** Covered harness change: review per the rule above.
+  Files: `bin/safe-push`, `bin/safe-push.test.sh`, `crates/north-landing/src/watch/facts.rs` (it reads
+  the tickets). Delete scenarios 24-30 and 44-48. Done when: (1)
+  `rg -c 'acquire_push_lock|run_train|collect_train|take_train_result' bin/safe-push` prints nothing; (2)
+  the bash suite and `cargo test --test it watch` pass.
+- **P2d Delete Autoland, sync and the verdict loop, the hook loop and the aftermath.** Covered harness
+  change: review per the rule above. Files: `bin/safe-push`, `bin/safe-push.test.sh`. Delete the `--to`
+  landing block, `--direct`, the NOT-landed terminal check, and scenarios 3, 6, 14-16, 18-20, 39-43 and
+  50-53. Name each in the commit body. Done when: (1) this prints nothing:
+  `rg -c 'land_through_autoland|keep_verdict_through_moves|rebase_onto_destination|cleanup_landed_lane|auto_reap|release_follows' bin/safe-push`;
+  (2) the bash suite and `cargo test --test it serve` pass.
+- **P2e Delete the verbs only that bash called.** Covered harness change: review per the rule above. For
+  each of `autoland-wait`, `land-red-wait`, `land-clean` and `land-train`, find its callers with `rg`
+  over crates/, src/, tests/, bin/ and harness/. Delete only a verb that no Rust caller uses
+  (`land-train` has threads and tempo callers, so it stays). Done when: `cargo test --workspace` passes,
+  and the commit body lists each verb with its caller count.
+- **P3 Name north-landing's shared pieces.** Covered harness change: review per the rule above.
+  Mechanical `git mv`. `safe_push_state.rs` splits into `landing/step.rs` (`Refused`, `Step`, `git_read`,
+  `git_quiet`, `git_status`) and the rest, which stays in place until P4. `safe_push_guards.rs` becomes
+  `land/scans/outgoing/{language,native_ref,secrets,email,denylist}.rs`. Done when:
+  `cargo test --workspace --lib` passes and `north code-health layers origin/main HEAD` is clean.
+- **P4 Crate, request, publication, route.** Covered harness change: review per the rule above. Create
+  `crates/north-safe-push`: Cargo.toml, lib.rs, entry.rs and the `tests/it/crates.txt` lines. Every file
+  sits inside the `landing.safe_push.*` paths that structure.toml already records.
+  - In south, add `north:crates/north-safe-push/` to `agents/roles.toml` `harness-editor` paths, landed
+    through south safe-push alongside this box (decision 9).
   - `git mv` `safe_push_plan.rs` to `request.rs` and `publication/plan.rs`, `land/push.rs` to
     `publication/run.rs`, `land/route.rs`'s `decide` to `landing/route.rs`, and the rest of
     `safe_push_state.rs` to `session/identity.rs` and `session/cancel.rs`.
   - Add `crates/north-safe-push/` to `citation_check/config_keys.rs` `SAFE_PUSH_READERS` and to
     `land_model/features.rs` `LANDER_PATHS`.
   - Point `north land push` and `north land route` in `src/cli/tools.rs` at the crate.
-  - Done when: (1) `cargo test --workspace` passes; (2) code-health layers is clean; (3) `north
-    code-health` shows north-landing's non-test line count lower than before.
-- **P5 Tags, restore, south ledger, receipt.** `git mv` each file:
+  - Done when: (1) `cargo test --workspace` passes; (2) code-health layers is clean; (3)
+    `git -C ~/code/south/main show origin/main:agents/roles.toml | rg -c north:crates/north-safe-push/`
+    prints 1; (4) `north code-health` shows north-landing's non-test line count lower than before.
+- **P5 Tags, restore, south ledger, receipt.** Covered harness change: review per the rule above.
+  `git mv` each file:
   - `safe_push_tag.rs` to `tags/publish.rs`, `safe_push_tag_delete.rs` to `tags/delete.rs`, and
     `release.rs` to `tags/release.rs`. `tags/name.rs` holds the one `release_tag` predicate.
   - `land/restore.rs` to `restore.rs`.
@@ -299,41 +334,44 @@ the per-lane code still exists.
   - Done when: (1) `cargo test --test it safe_push_tag release safe_push_remote_land` and `cargo test -p
     north-safe-push` pass; (2) `rg -n "starts_with\('v'\)" crates/north-safe-push/src` prints only
     `tags/name.rs`.
-- **P6 The typed shell and publication on it.** Files: `shell/*`, `publication/run.rs`. Done when:
+- **P6 The typed shell and publication on it.** Covered harness change: review per the rule above. Files:
+  `shell/*`, `publication/run.rs`. Done when:
   1. `rg -n 'Command::new' crates/north-safe-push/src/publication` prints nothing.
   2. The property `push_command_env` passes: the only variables set are `SAFE_PUSH_ACTIVE` and
      `SAFE_PUSH_OUTPUT_CLAIMED`, with no `env_clear`, no `env_remove` and no `-c credential.*`.
   3. `cargo test --test it land_publication` passes.
-- **P7 Restore and tags on the shell.** Files: `restore.rs`, `tags/*`. The decisions (`source`,
-  `custody`, `release_tag`) are pure, with properties. Done when: (1) `rg -n 'Command::new'
-  crates/north-safe-push/src/{restore.rs,tags}` prints nothing; (2) the tag, release and restore tests
-  pass.
-- **P8 Report and session.** Files: `report/*`, `session/output_log.rs`, `session/cancel.rs`.
-  `Terminal` has no `Landed` or `TimedOut` variant, since only the deleted paths produced them. Done
-  when: (1) a golden test shows `event_line` equal to a line that bash's `safe_push_event_line` printed
-  for the same fields (the fixture is committed); (2) scenario 35, which now means SIGINT during a
-  dry-run's land check exits 130 and leaves no land-check process alive, passes against the argv[0]
-  link.
-- **P9a Gates: plan, verdict, in-process scans.** Files: `gates/plan.rs`, `gates/verdict.rs`,
-  `gates/run.rs`, and `--publication-scan` in `lib.rs`. bash's `--publication-scan` execs
-  `north safe-push`. Done when: (1) the properties for `plan` and `verdict` pass; (2) scenarios 9 and
-  12 pass in the bash suite.
-- **P9b Gates: land checks child, background scans, capacity.** Files: `gates/run.rs`,
-  `shell/processes.rs`. Scenarios 36-38 now mean that a dead, hung or frozen land check ends the dry
-  run refused within its deadline and leaves no child behind (the lock half went in P2c). Done when: (1)
-  the `reuse` property passes; (2) scenarios 10, 11 and 36-38 pass in the bash suite.
-- **P10 Preflight and candidate in Rust.** Files: `landing/preflight.rs`, `landing/candidate.rs`. bash
-  execs `north safe-push` for `--dry-run --to DEFAULT` and for `--check-candidate`. Done when: (1)
-  scenarios 1, 2, 7, 8, 13, 21 and 49 pass; (2) `cargo test --test it serve` passes. After landing:
-  `north health` on whiterabbit reports the land probe passing.
-- **P11 Rust takes every mode.** Files: `lib.rs`, `bin/safe-push`. `run` dispatches every `Request`,
-  with abandon and enqueue as in-process calls. bin/safe-push becomes `exec north safe-push "$@"` for the
-  time between this box and P14. Done when: (1) `rg -c '' bin/safe-push` prints 2; (2) the bash suite
-  and `cargo test --test it` pass. After landing: one real landing each in north and south goes through
-  it, each sha an ancestor of its origin/main.
-- **P12a-c Scenarios to cargo.** Files: `tests/it/safe_push/` (`publication.rs`, `gates.rs`,
-  `preflight.rs`, `candidate.rs`, `session.rs`) and a `safe_push()` helper that links
-  `CARGO_BIN_EXE_north` as `safe-push` in a temp dir.
+- **P7 Restore and tags on the shell.** Covered harness change: review per the rule above. Files:
+  `restore.rs`, `tags/*`. The decisions (`source`, `custody`, `release_tag`) are pure, with properties.
+  Done when: (1) `rg -n 'Command::new' crates/north-safe-push/src/{restore.rs,tags}` prints nothing; (2)
+  the tag, release and restore tests pass.
+- **P8 Report and session.** Covered harness change: review per the rule above. Files: `report/*`,
+  `session/output_log.rs`, `session/cancel.rs`. `Terminal` has no `Landed` or `TimedOut` variant, since
+  only the deleted paths produced them. Done when: (1) a golden test shows `event_line` equal to a line
+  that bash's `safe_push_event_line` printed for the same fields (the fixture is committed); (2) scenario
+  35, which now means SIGINT during a dry-run's land check exits 130 and leaves no land-check process
+  alive, passes against the argv[0] link.
+- **P9a Gates: plan, verdict, in-process scans.** Covered harness change: review per the rule above.
+  Files: `gates/plan.rs`, `gates/verdict.rs`, `gates/run.rs`, and `--publication-scan` in `entry.rs`.
+  bash's `--publication-scan` execs `north safe-push`. Done when: (1) the properties for `plan` and
+  `verdict` pass; (2) scenarios 9 and 12 pass in the bash suite.
+- **P9b Gates: land checks child, background scans, capacity.** Covered harness change: review per the
+  rule above. Files: `gates/run.rs`, `shell/processes.rs`. Scenarios 36-38 now mean that a dead, hung or
+  frozen land check ends the dry run refused within its deadline and leaves no child behind (the lock
+  half went in P2c). Done when: (1) the `reuse` property passes; (2) scenarios 10, 11 and 36-38 pass in
+  the bash suite.
+- **P10 Preflight and candidate in Rust.** Covered harness change: review per the rule above. Files:
+  `landing/preflight.rs`, `landing/candidate.rs`. bash execs `north safe-push` for
+  `--dry-run --to DEFAULT` and for `--check-candidate`. Done when: (1) scenarios 1, 2, 7, 8, 13, 21 and
+  49 pass; (2) `cargo test --test it serve` passes. After landing: `north health` on whiterabbit reports
+  the land probe passing.
+- **P11 Rust takes every mode.** Covered harness change: review per the rule above. Files: `entry.rs`,
+  `bin/safe-push`. `entry::run` dispatches every `Request`, with abandon and enqueue as in-process calls.
+  bin/safe-push becomes `exec north safe-push "$@"` for the time between this box and P14. Done when: (1)
+  `rg -c '' bin/safe-push` prints 2; (2) the bash suite and `cargo test --test it` pass. After landing:
+  one real landing each in north and south goes through it, each sha an ancestor of its origin/main.
+- **P12a-c Scenarios to cargo.** Covered harness change: review per the rule above. Files:
+  `tests/it/safe_push/` (`publication.rs`, `gates.rs`, `preflight.rs`, `candidate.rs`, `session.rs`) and
+  a `safe_push()` helper that links `CARGO_BIN_EXE_north` as `safe-push` in a temp dir.
   - Each box moves about eight of the kept scenarios (1, 2, 4, 5, 7-13, 17, 21-23, 31-38, 49) and
     deletes them from the bash suite.
   - The runtime-skew halves of 4, 5 and 54 are deleted, not ported: safe-push and north are one binary.
@@ -341,29 +379,29 @@ the per-lane code still exists.
     and `harness-tests.patch`) at another shell suite and drops the allowlist entry.
   - Done when (P12c): (1) `git ls-files bin/safe-push.test.sh` prints nothing; (2) `cargo test --test it
     -- --list safe_push` names each kept scenario.
-- **P13 The installer links entry points, and no caller canonicalizes safe-push.** Files:
-  `crates/north-runtime/src/runtime/update.rs` (`install`), `land/scans/tool_removal.rs`,
-  `land/slots/runner.rs`, `land/after/{follow,gates,mod}.rs`. Done when:
+- **P13 The installer links entry points, and no caller canonicalizes safe-push.** Covered harness
+  change: review per the rule above. Files: `crates/north-runtime/src/runtime/update.rs` (`install`),
+  `land/scans/tool_removal.rs`, `land/slots/runner.rs`, `land/after/{follow,gates,mod}.rs`. Done when:
   1. A runtime test installs a tree with no `bin/safe-push` and finds `tree/bin/safe-push` resolving to
      the runtime's `north`, and a second install changes nothing.
   2. A tool-removal test passes the removal of `bin/safe-push` and still refuses the removal of
      `bin/agents`.
   3. A runner test runs the land-check publication scan through a `safe-push` link whose canonical path
      is `north` and gets the scan's verdict.
-- **P14 The swap.** Precondition, checked by the worker before landing: `readlink
-  ~/.local/state/north/current` on whiterabbit and on gex45 (`ssh gex45`) names a runtime that contains
-  P13. Delete `bin/safe-push` and its allowlist entry. Point the `tests/it` callers at the helper.
-  Update AGENTS.md, `src/cli/help.txt`, docs/features and `runtime_floor_gate_tests.rs`. Done when: (1)
-  `git ls-files bin/safe-push` prints nothing; (2) `cargo test --workspace` passes. After landing, on
-  whiterabbit and gex45:
+- **P14 The swap.** Covered harness change: review per the rule above. Precondition, checked by the
+  worker before landing: `readlink ~/.local/state/north/current` on whiterabbit and on gex45
+  (`ssh gex45`) names a runtime that contains P13. Delete `bin/safe-push` and its allowlist entry. Point
+  the `tests/it` callers at the helper. Update AGENTS.md, `src/cli/help.txt`, docs/features and
+  `runtime_floor_gate_tests.rs`. Done when: (1) `git ls-files bin/safe-push` prints nothing; (2)
+  `cargo test --workspace` passes. After landing, on whiterabbit and gex45:
   - after `north runtime update`, `readlink -f ~/.local/bin/safe-push` ends in `/north` under
     `runtimes/`, and `safe-push --help` exits 0;
   - one real landing each in north and south goes through the link, each sha an ancestor of its
     origin/main;
   - `north health` reports the land probe passing.
-- **P15 Boundaries.** Delete the verbs that only bash called: `north land push`, `north land route`,
-  `north land restore`, `north remote-land` and `north safe-push-result`. Delete the test-only
-  environment hooks, and settle structure.toml. Done when:
+- **P15 Boundaries.** Covered harness change: review per the rule above. Delete the verbs that only bash
+  called: `north land push`, `north land route`, `north land restore`, `north remote-land` and
+  `north safe-push-result`. Delete the test-only environment hooks, and settle structure.toml. Done when:
   1. `north code-health layers origin/main HEAD` is clean.
   2. `rg -n 'Command::new' crates/north-safe-push/src --glob '!shell/**'` prints nothing.
   3. `rg -n 'SAFE_PUSH_(TEST_REAL_NORTH|WATCH|SELF)' crates src tests` prints nothing.
@@ -435,3 +473,10 @@ against the source and tried to break it. Findings and answers:
 The reviewer found no cycle in the module DAG and confirmed that the P13-before-P14 ordering keeps
 `~/.local/bin/safe-push` from dangling, that the scenario partition covers 1-54, and that the lander's
 `checker: safe-push` and absolute-path invocations survive the link.
+
+Later on 2026-11-06 the lead asked that every box state its harness-editor coverage, and that
+structure.toml record the module tree under the landing module. Both are in this revision: decision 9 and
+the review rule above the boxes, and eleven `landing.safe_push.*` modules plus the `north-safe-push`
+crate entry in structure.toml. Recording the tree moved the entry point out of `lib.rs` into `entry.rs`,
+because `crate-roots` owns every crate root. The request also named a `Reviewed:` trailer. The plan
+keeps none, because that gate was retired on 2026-11-04 and the live review rule records no trailer.

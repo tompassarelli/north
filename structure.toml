@@ -23,6 +23,11 @@ paths = ["crates/north-landing/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
+name = "north-safe-push"
+paths = ["crates/north-safe-push/src/**"]
+may_use = ["north-landing", "north-base"]
+
+[[crate_dag.crate]]
 name = "north-tui"
 paths = ["crates/north-tui/src/**"]
 may_use = ["north-providers"]
@@ -96,7 +101,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split"]
+may_use = ["cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "landing.safe_push.shell", "landing.safe_push.request", "landing.safe_push.report", "landing.safe_push.session", "landing.safe_push.mode", "landing.safe_push.gates", "landing.safe_push.publication", "landing.safe_push.tags", "landing.safe_push.restore", "landing.safe_push.landing", "landing.safe_push.entry", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split"]
 
 [[module]]
 name = "foundation"
@@ -157,6 +162,72 @@ name = "landing"
 paths = ["crates/north-landing/src/landing/**", "crates/north-landing/src/dep_gate.rs", "crates/north-landing/src/language_gate.rs", "crates/north-landing/src/build_cache_gate.rs", "crates/north-landing/src/build_cache_gate_tests.rs", "crates/north-landing/src/stub_exec_gate.rs", "crates/north-landing/src/stub_exec_gate_tests.rs", "crates/north-landing/src/runtime_floor_gate.rs", "crates/north-landing/src/runtime_floor_gate_tests.rs", "crates/north-landing/src/language_gate/**", "crates/north-landing/src/provenance.rs", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/issue_box_lint.rs", "crates/north-landing/src/land_abandon.rs", "crates/north-landing/src/land_abandon/**", "crates/north-landing/src/follows_release.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
 may_use = ["shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots"]
+
+[[module]]
+name = "landing.safe_push.shell"
+paths = ["crates/north-safe-push/src/shell/**"]
+responsibility = "safe-push's thin typed effect layer: the Git, Origin, GitHub, StateFiles, Processes and Settings traits, their live adapters and the recorded test double."
+may_use = ["platform", "foundation"]
+
+[[module]]
+name = "landing.safe_push.request"
+paths = ["crates/north-safe-push/src/request.rs", "crates/north-safe-push/src/request/**"]
+responsibility = "safe-push argv to a typed Request or a usage refusal; pure."
+may_use = ["foundation"]
+
+[[module]]
+name = "landing.safe_push.report"
+paths = ["crates/north-safe-push/src/report/**"]
+responsibility = "safe-push event lines, stage rows and the terminal receipt."
+may_use = ["landing.safe_push.shell", "foundation"]
+
+[[module]]
+name = "landing.safe_push.session"
+paths = ["crates/north-safe-push/src/session/**"]
+responsibility = "One safe-push per output log, cancellation of its children, and the repository-identity rule."
+may_use = ["landing.safe_push.shell", "landing.safe_push.report", "foundation"]
+
+[[module]]
+name = "landing.safe_push.mode"
+paths = ["crates/north-safe-push/src/mode.rs"]
+responsibility = "A Request and the repository facts to the mode safe-push runs; pure."
+may_use = ["landing.safe_push.request", "foundation"]
+
+[[module]]
+name = "landing.safe_push.gates"
+paths = ["crates/north-safe-push/src/gates/**"]
+responsibility = "Which pre-publication gates apply, running them through north-landing's scans and land checks, and the one verdict."
+may_use = ["landing", "landing.safe_push.shell", "landing.safe_push.report", "landing.safe_push.session", "foundation"]
+
+[[module]]
+name = "landing.safe_push.publication"
+paths = ["crates/north-safe-push/src/publication/**"]
+responsibility = "Publishing HEAD to a non-default branch: the snapshot, range, lease and fast-forward plan, then the gated push."
+may_use = ["landing.safe_push.request", "landing.safe_push.gates", "landing.safe_push.session", "landing.safe_push.report", "landing.safe_push.shell", "foundation"]
+
+[[module]]
+name = "landing.safe_push.tags"
+paths = ["crates/north-safe-push/src/tags/**"]
+responsibility = "The one release-tag rule, --tag, --delete-tag and north release."
+may_use = ["landing.safe_push.request", "landing.safe_push.gates", "landing.safe_push.session", "landing.safe_push.report", "landing.safe_push.shell", "foundation"]
+
+[[module]]
+name = "landing.safe_push.restore"
+paths = ["crates/north-safe-push/src/restore.rs"]
+responsibility = "--restore: the pure source decision for a reaped branch, then its push."
+may_use = ["landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.report", "landing.safe_push.shell", "foundation"]
+
+[[module]]
+name = "landing.safe_push.landing"
+paths = ["crates/north-safe-push/src/landing/**"]
+responsibility = "The default branch: route to the lander or the south ledger, the dry-run preflight and the lander's candidate check."
+may_use = ["landing", "landing.safe_push.request", "landing.safe_push.gates", "landing.safe_push.publication", "landing.safe_push.session", "landing.safe_push.report", "landing.safe_push.shell", "foundation"]
+
+[[module]]
+name = "landing.safe_push.entry"
+paths = ["crates/north-safe-push/src/entry.rs"]
+responsibility = "safe-push's entry: parse the request, pick the mode and run it; the argv[0] and north release callers reach it here."
+may_use = ["landing", "landing.safe_push.request", "landing.safe_push.mode", "landing.safe_push.gates", "landing.safe_push.publication", "landing.safe_push.tags", "landing.safe_push.restore", "landing.safe_push.landing", "landing.safe_push.session", "landing.safe_push.report", "landing.safe_push.shell", "foundation"]
 
 [[module]]
 name = "catalog"
@@ -241,7 +312,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split"]
+may_use = ["tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "landing.safe_push.entry", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split"]
 
 [[module]]
 name = "verify"
