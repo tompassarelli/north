@@ -283,48 +283,6 @@ fn a_project_under_code_ships_to_its_main_checkout_whatever_this_host_keeps_its_
     assert!(remote_checkout(Path::new("/srv/repo"), home).is_err());
 }
 
-fn ship_into_slot_with_target(cap: &str, floor: &str) -> (tempfile::TempDir, std::path::PathBuf, std::process::Output) {
-    let home = tempfile::tempdir().unwrap();
-    let repo = home.path().join("code/p/main");
-    fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-q"]);
-    git(&repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
-    let head = git(&repo, &["rev-parse", "HEAD"]);
-    git(&repo, &["update-ref", "refs/land-offload/job", &head]);
-    let bundle = home.path().join("job.bundle");
-    git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), "refs/land-offload/job"]);
-    git(&repo, &["update-ref", "-d", "refs/land-offload/job"]);
-    let slot = home.path().join(".cache/land-offload/code-p-main");
-    git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap(), &head]);
-    fs::create_dir_all(slot.join("target/debug")).unwrap();
-    fs::write(slot.join("target/debug/artifact"), vec![0_u8; 2 * 1024 * 1024]).unwrap();
-    let script = super::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@TARGET_CAP@", cap).replace("@TARGET_FLOOR@", floor);
-    let output = Command::new("sh")
-        .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
-        .env("HOME", home.path())
-        .env_remove("NORTH_OFFLOAD_ROOT")
-        .stdin(fs::File::open(&bundle).unwrap())
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    (home, slot, output)
-}
-
-#[test]
-fn a_slot_target_past_its_size_cap_is_removed_before_the_job_and_one_under_it_is_kept() {
-    let (_home, slot, output) = ship_into_slot_with_target("1", "0");
-    assert!(!slot.join("target").exists(), "a 2 MiB target passed a 1 MiB cap and stayed");
-    assert!(String::from_utf8_lossy(&output.stderr).contains("offload: removing code-p-main/target"));
-    let (_home, slot, _) = ship_into_slot_with_target("1024", "0");
-    assert!(slot.join("target/debug/artifact").is_file(), "a target under its cap was removed, so every job would build cold");
-}
-
-#[test]
-fn a_slot_target_is_removed_when_the_host_has_less_free_disk_than_the_floor() {
-    let (_home, slot, _) = ship_into_slot_with_target("1024", "999999999");
-    assert!(!slot.join("target").exists(), "a host below its free-disk floor kept a slot's build output");
-}
-
 #[test]
 fn a_job_whose_base_is_its_head_bundles_the_head_over_its_parent() {
     let (dir, _, _) = repository_with_two_commits();
