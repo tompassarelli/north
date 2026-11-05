@@ -1,5 +1,5 @@
 use crate::hook::{HookInput, Verdict};
-use crate::platform::{archive_tags, process};
+use crate::platform::{process, repo_names};
 use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,10 +24,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         container: cwd.and_then(|cwd| container(cwd, &home)),
         item: item.as_ref().map(|(repo, number)| (repo.as_str(), *number)),
     };
-    let mut text = stale_lanes_notice(&report_path(&home), &scope).unwrap_or_default();
-    if let Some((repo, number)) = &item {
-        text.push_str(&archive_tags::report(repo, *number, cwd));
-    }
+    let text = stale_lanes_notice(&report_path(&home), &scope).unwrap_or_default();
     match text.trim_end() {
         "" => Verdict::Allow,
         notice => Verdict::Advise(notice.to_owned()),
@@ -61,7 +58,7 @@ fn references(refs: &str, container: &str, (repo, number): (&str, u64)) -> bool 
         Some((named, n)) if n.parse() == Ok(number) => {
             let named = named.strip_prefix("tompassarelli/").unwrap_or(named);
             let named = if named.is_empty() { container } else { named };
-            archive_tags::repo_alias(named) == repo
+            repo_names::repo_alias(named) == repo
         }
         _ => false,
     })
@@ -124,5 +121,5 @@ fn session_item(input: &HookInput) -> Option<(String, u64)> {
         node["conversation"] == session && node["status"] != "exited"
     })?;
     let found = TASK_REF.captures(node["task_ref"].as_str()?)?;
-    Some((archive_tags::repo_alias(&found[1]).to_owned(), found[2].parse().ok()?))
+    Some((repo_names::repo_alias(&found[1]).to_owned(), found[2].parse().ok()?))
 }

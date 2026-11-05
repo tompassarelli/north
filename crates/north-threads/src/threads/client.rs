@@ -350,9 +350,6 @@ impl Client {
             if !(code == 0 && calibrate_write && has("--goal-row")) {
                 self.refresh_snapshot(dest, code == 0 && (first == Some("record-priors") || calibrate_write))?;
             }
-            if code == 0 && first == Some("show") && let Some((repo, number)) = shown_issue(&argv).filter(|(repo, _)| !crate::threads::catalog::CATALOG.is_native(repo)) {
-                print!("{}", crate::platform::archive_tags::report(&repo, number, None));
-            }
             return Ok(Some(code));
         }
         if first.is_some_and(|verb| READS.contains(&verb)) && self.snapshot.exists() {
@@ -494,9 +491,6 @@ impl Client {
         if matches!(first, Some("unowned" | "claim" | "list")) && let Some(owners) = self.fleet.live_owners() {
             remote.push(format!("THREADS_ALIVE_OWNERS={}", python_json(&owners.into_iter().collect::<Vec<_>>())));
         }
-        if first == Some("show") {
-            remote.push("THREADS_ARCHIVES_LOCAL=1".to_owned());
-        }
         if first == Some("queue") && args.get(1).map(String::as_str) == Some("follow") {
             remote.push(format!("{FORWARDED}=1"));
         }
@@ -557,12 +551,6 @@ impl Client {
     fn ssh_argv(&self, arguments: &[&str]) -> Vec<OsString> {
         crate::platform::ssh::argv(&self.ssh, &self.env, arguments)
     }
-}
-
-/// The issue a `show` names: its first word that is no option and no `--by` value.
-fn shown_issue(argv: &[String]) -> Option<(String, u64)> {
-    let word = argv.iter().zip(argv.iter().skip(1)).find(|(before, word)| !word.starts_with('-') && *before != "--by").map(|(_, word)| word)?;
-    crate::threads::catalog::CATALOG.parse_ref(word).ok()
 }
 
 fn agent_event_checks(argv: &[String]) -> Result<(), String> {
@@ -769,7 +757,7 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
         assert_eq!(call(&rig, &["list"], b"").0, 0);
         assert_eq!(log(&rig, "ssh.log"), [
-            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 THREADS_ARCHIVES_LOCAL=1 north threads show 'north#63'"),
+            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 north threads show 'north#63'"),
             format!("{PREFIX} north threads snapshot-pages"),
             format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' north threads unowned"),
             format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' north threads claim 'north#63'"),

@@ -13,6 +13,7 @@ pub struct Arguments {
     pub message: Option<String>,
     pub several_commits: Option<String>,
     pub tag: Option<String>,
+    pub delete_tag: Option<String>,
     pub to: Option<String>,
 }
 
@@ -78,7 +79,7 @@ pub fn arguments(arguments: &[String]) -> Result<Plan, Refusal> {
         rest = tail;
         match flag.as_str() {
             "-h" | "--help" => {
-                if !tail.is_empty() || parsed.dry_run || parsed.tag.is_some() || parsed.to.is_some() {
+                if !tail.is_empty() || parsed.dry_run || parsed.tag.is_some() || parsed.delete_tag.is_some() || parsed.to.is_some() {
                     return Err(usage_error("--help cannot be combined with other arguments"));
                 }
                 return Ok(Plan::Help);
@@ -87,6 +88,7 @@ pub fn arguments(arguments: &[String]) -> Result<Plan, Refusal> {
             "--keep-lane" => set_once(&mut parsed.keep_lane, "--keep-lane")?,
             "--direct" => set_once(&mut parsed.direct, "--direct")?,
             "--tag" => rest = take_value(&mut parsed.tag, "--tag", "--tag needs a name", tail)?,
+            "--delete-tag" => rest = take_value(&mut parsed.delete_tag, "--delete-tag", "--delete-tag needs a name", tail)?,
             "--to" => rest = take_value(&mut parsed.to, "--to", "--to needs a branch name", tail)?,
             "--message" => rest = take_value(&mut parsed.message, "--message", "--message needs a file", tail)?,
             "--several-commits" => {
@@ -127,6 +129,12 @@ fn take_value<'a>(
 }
 
 fn check_combination(parsed: &Arguments) -> Result<(), Refusal> {
+    if parsed.delete_tag.is_some() {
+        let others = parsed.tag.is_some() || parsed.to.is_some() || parsed.keep_lane || parsed.direct || parsed.message.is_some() || parsed.several_commits.is_some();
+        if others {
+            return Err(usage_error("--delete-tag cannot be combined with other arguments but --dry-run"));
+        }
+    }
     if parsed.tag.is_some() && parsed.to.is_some() {
         return Err(usage_error("--to cannot be combined with --tag"));
     }

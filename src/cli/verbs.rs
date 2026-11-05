@@ -14,7 +14,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("agent-runtime-update", Bookkeeping),
     ("agents", Status),
     ("agy-runtime-update", Bookkeeping),
-    ("archives", Diagnosis),
     ("autoland-status", Status),
     ("autoland-wait", Status),
     ("bin-references", Diagnosis),

@@ -56,7 +56,7 @@ fn env_prefix_refuses_unknown_keys_and_bad_values() {
     );
     for command in [
         "env LAPTOP_GRACE=1234567 north laptop status", "env LAPTOP_GRACE=-1 north laptop status",
-        "env LAPTOP_GRACE= north laptop status", "env THREADS_ACTOR= threads list", "env THREADS_ARCHIVES_LOCAL=0 threads list",
+        "env LAPTOP_GRACE= north laptop status", "env THREADS_ACTOR= threads list",
         "env 'THREADS_ALIVE_OWNERS=[1]' threads list", "env 'THREADS_ALIVE_OWNERS=[\"a b\"]' threads list",
         "env THREADS_ALIVE_OWNERS=nope threads list",
     ] {
@@ -72,11 +72,10 @@ fn env_prefix_refuses_unknown_keys_and_bad_values() {
 
 #[test]
 fn accepted_env_keys_reach_the_child() {
-    let env = env_of("env THREADS_ACTOR=w1 LAPTOP_BY=gex45 LAPTOP_GRACE=30 THREADS_ARCHIVES_LOCAL=1 threads list");
+    let env = env_of("env THREADS_ACTOR=w1 LAPTOP_BY=gex45 LAPTOP_GRACE=30 threads list");
     assert_eq!(env["THREADS_ACTOR"], "w1");
     assert_eq!(env["LAPTOP_BY"], "gex45");
     assert_eq!(env["LAPTOP_GRACE"], "30");
-    assert_eq!(env["THREADS_ARCHIVES_LOCAL"], "1");
     let owners = env_of("env 'THREADS_ALIVE_OWNERS=[\"a\",\"b@c:d\"]' threads list");
     assert_eq!(owners["THREADS_ALIVE_OWNERS"], "[\"a\",\"b@c:d\"]");
 }

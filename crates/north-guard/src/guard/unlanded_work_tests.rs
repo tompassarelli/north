@@ -1,7 +1,6 @@
 #![cfg(test)]
 
 use super::unlanded_work::{Scope, container, stale_lanes_notice};
-use crate::platform::archive_tags::{mentions, shell_quote};
 use std::path::Path;
 
 const REPORT: &str = "# header\n\
@@ -45,31 +44,4 @@ fn a_session_outside_a_code_container_or_with_no_stale_lane_gets_no_notice() {
     assert_eq!(stale_lanes_notice(&report, &at(Some("south"))), None);
     assert!(stale_lanes_notice(&report, &at(Some("wisp"))).unwrap().starts_with("1 unlanded wisp lanes"));
     assert_eq!(stale_lanes_notice(&dir.path().join("missing"), &at(Some("north"))), None);
-}
-
-#[test]
-fn an_archive_mentions_an_item_only_on_a_refs_line_naming_it() {
-    for (message, repo, number, expected) in [
-        ("Resume fixture\n\nRefs makgora#10", "makgora", 10, true),
-        ("Resume\n\nrefs: tompassarelli/makgora#10, wisp#3", "makgora", 10, true),
-        ("Resume\n\nREFS wisp#3 makgora#10", "makgora", 10, true),
-        ("Resume\n\nRefs nixos-config#7", "firn", 7, true),
-        ("Resume\n\nRefs makgora#10", "wisp", 10, false),
-        ("Resume\n\nRefs makgora#100", "makgora", 10, false),
-        ("Resume\n\nRefs makgora#10", "makgora", 1, false),
-        ("Mentions makgora#10 outside a Refs line", "makgora", 10, false),
-        ("Refs x/makgora#10", "makgora", 10, false),
-        ("Refs other/makgora#10", "makgora", 10, false),
-        ("Refs makgora#", "makgora", 10, false),
-    ] {
-        assert_eq!(mentions(message, repo, number), expected, "{message:?} for {repo}#{number}");
-    }
-}
-
-#[test]
-fn the_restore_command_is_quoted_like_a_shell_word() {
-    assert_eq!(shell_quote("archive/feature/x:refs/heads/feature/x"), "archive/feature/x:refs/heads/feature/x");
-    assert_eq!(shell_quote("archive/a b:refs/heads/a b"), "'archive/a b:refs/heads/a b'");
-    assert_eq!(shell_quote("it's"), "'it'\"'\"'s'");
-    assert_eq!(shell_quote(""), "''");
 }

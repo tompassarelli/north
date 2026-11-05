@@ -45,9 +45,6 @@ fn show(argv: &[String], context: &Context) -> Outcome {
     }
     shown += &owners(&db, &item, context)?;
     shown += &runs(&db, &item)?;
-    if !CATALOG.is_native(&repo) {
-        shown += &context.outside.archives(&repo, number);
-    }
     Ok(shown)
 }
 

@@ -32,7 +32,6 @@ fn filter(key: &str, value: &str) -> Result<Option<String>, Refusal> {
         "THREADS_ORIGIN" | "THREADS_NO_NATIVE" => return Ok(None),
         "THREADS_ACTOR" | "LAPTOP_BY" => actor(value),
         "THREADS_ALIVE_OWNERS" => owners(value),
-        "THREADS_ARCHIVES_LOCAL" => value == "1",
         "LAPTOP_GRACE" => GRACE_DIGITS.contains(&value.len()) && value.bytes().all(|b| b.is_ascii_digit()),
         _ => return Err(Refusal::EnvKey(key.to_string())),
     };

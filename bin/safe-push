@@ -13,6 +13,7 @@
 # Usage:  safe-push [--dry-run] [--to BRANCH] [--keep-lane]
 #         safe-push --restore [--dry-run] COMMIT BRANCH   (recreate a deleted branch at a commit that is already public)
 #         safe-push [--dry-run] --tag NAME
+#         safe-push [--dry-run] --delete-tag NAME
 # /proc is the host's even inside run-bounded's PID namespace, so peers are named by host PID.
 read -r self_pid _ </proc/self/stat
 safe_push_started_ms=$(( ${EPOCHREALTIME//./} / 1000 ))
@@ -153,6 +154,8 @@ plan_push() {
       message_file=""
       several_commits=""
       tag_seen=0
+      delete_tag=""
+      delete_tag_seen=0
       to=""
       to_seen=0
       publication_scan_range=()
@@ -165,7 +168,7 @@ plan_push() {
             shift 3
             ;;
           -h|--help)
-            if [ "$#" -ne 1 ] || [ "$dry" -eq 1 ] || [ "$tag_seen" -eq 1 ] || [ "$to_seen" -eq 1 ]; then
+            if [ "$#" -ne 1 ] || [ "$dry" -eq 1 ] || [ "$tag_seen" -eq 1 ] || [ "$delete_tag_seen" -eq 1 ] || [ "$to_seen" -eq 1 ]; then
               argument_error '--help cannot be combined with other arguments'
             fi
             usage
@@ -197,6 +200,16 @@ plan_push() {
             tag_seen=1
             shift 2
             ;;
+          --delete-tag)
+            [ "$delete_tag_seen" -eq 0 ] || argument_error 'duplicate --delete-tag'
+            [ "$#" -ge 2 ] || argument_error '--delete-tag needs a name'
+            case "$2" in
+              ''|-*) argument_error '--delete-tag needs a name' ;;
+            esac
+            delete_tag="$2"
+            delete_tag_seen=1
+            shift 2
+            ;;
           --to)
             [ "$to_seen" -eq 0 ] || argument_error 'duplicate --to'
             [ "$#" -ge 2 ] || argument_error '--to needs a branch name'
@@ -222,6 +235,8 @@ plan_push() {
         esac
       done
 
+      [ "$delete_tag_seen" -eq 0 ] || { [ "$tag_seen" -eq 0 ] && [ "$to_seen" -eq 0 ] && [ "$keep_lane" -eq 0 ] && [ "$direct" -eq 0 ] && [ -z "$message_file$several_commits" ]; } \
+        || argument_error '--delete-tag cannot be combined with other arguments but --dry-run'
       [ "$tag_seen" -eq 0 ] || [ "$to_seen" -eq 0 ] \
         || argument_error '--to cannot be combined with --tag'
       [ "$keep_lane" -eq 0 ] || [ "$to_seen" -eq 1 ] \
@@ -276,9 +291,9 @@ plan_push() {
 }
 
 plan_push arguments "$@"
-if [ "$tag_seen" -eq 1 ] || { north remote-land --help >/dev/null 2>&1 && north remote-land routes "${original_arguments[@]}" 2>/dev/null; }; then
+if [ "$tag_seen" -eq 1 ] || [ "$delete_tag_seen" -eq 1 ] || { north remote-land --help >/dev/null 2>&1 && north remote-land routes "${original_arguments[@]}" 2>/dev/null; }; then
   safe_push_internal=1
-  north safe-push --help >/dev/null 2>&1 || { echo "safe-push: tags and ledger-client south lands publish through north safe-push, which this host's north runtime lacks; run north runtime update; NOT pushed."; exit 1; }
+  north safe-push --help >/dev/null 2>&1 || { echo "safe-push: tags, tag deletions and ledger-client south lands publish through north safe-push, which this host's north runtime lacks; run north runtime update; NOT pushed."; exit 1; }
   exec north safe-push "${original_arguments[@]}"
 fi
 

@@ -44,7 +44,21 @@ nonzero|--several-commits --to main
 nonzero|--message m.txt --several-commits why --to main
 zero|--message m.txt --to main
 zero|--several-commits why --to main
-zero|--keep-lane -h";
+zero|--keep-lane -h
+zero|--delete-tag old-archive
+zero|--dry-run --delete-tag old-archive
+zero|--delete-tag old-archive --dry-run
+nonzero|--delete-tag
+nonzero|--delete-tag --dry-run
+nonzero|--delete-tag a --delete-tag b
+nonzero|--delete-tag a --tag b
+nonzero|--delete-tag a --to main
+nonzero|--delete-tag a --direct
+nonzero|--delete-tag a --keep-lane
+nonzero|--delete-tag a --message m.txt
+nonzero|--delete-tag a --several-commits why
+nonzero|--delete-tag a --help
+nonzero|--help --delete-tag a";
 
 struct Observed {
     status: i32,
@@ -94,7 +108,7 @@ fn shell_in(directory: &Path, body: &str, arguments: &[&str]) -> Observed {
 fn parsed_state(arguments: &Arguments) -> String {
     let flag = |set: bool| if set { "1" } else { "0" };
     format!(
-        "{}|{}|{}|{}|{}|{}|{}\n",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}\n",
         flag(arguments.dry_run),
         flag(arguments.keep_lane),
         flag(arguments.direct),
@@ -102,6 +116,8 @@ fn parsed_state(arguments: &Arguments) -> String {
         arguments.tag.as_deref().unwrap_or(""),
         flag(arguments.to.is_some()),
         arguments.to.as_deref().unwrap_or(""),
+        flag(arguments.delete_tag.is_some()),
+        arguments.delete_tag.as_deref().unwrap_or(""),
     )
 }
 
@@ -121,7 +137,7 @@ fn assert_same(case: &str, old: &Observed, new: &Observed) {
 }
 
 const PARSED_STATE: &str = "plan_push arguments \"$@\"\n\
-    printf '%s|%s|%s|%s|%s|%s|%s\\n' \"$dry\" \"$keep_lane\" \"$direct\" \"$tag_seen\" \"$tag\" \"$to_seen\" \"$to\"\n";
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\\n' \"$dry\" \"$keep_lane\" \"$direct\" \"$tag_seen\" \"$tag\" \"$to_seen\" \"$to\" \"$delete_tag_seen\" \"$delete_tag\"\n";
 
 #[test]
 fn safe_push_arguments_match_the_shell_planner_row_by_row() {

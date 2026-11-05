@@ -29,4 +29,5 @@ pub(crate) mod safe_push_guards;
 pub mod safe_push_plan;
 pub(crate) mod safe_push_state;
 pub mod safe_push_tag;
+pub(crate) mod safe_push_tag_delete;
 pub mod stale_revert;

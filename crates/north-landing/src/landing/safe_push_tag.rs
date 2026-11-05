@@ -5,6 +5,7 @@ use std::process::Command;
 
 use super::safe_push_guards::{self as guards, Denylist};
 use super::safe_push_plan::{self, Arguments, Plan, USAGE};
+use super::safe_push_tag_delete::{DeleteRequest, delete_tag};
 use super::safe_push_state::{
     Identity, OriginRefs, Refused, Step, watch_for_cancel, cancelled, git_quiet, git_read, refuse, remote_snapshot, state_changed,
 };
@@ -27,6 +28,7 @@ pub fn run(arguments: &[String]) -> u8 {
             Err(_) if cancelled().is_err() => Err(Refused(130)),
             Err(refused) => Err(refused),
         },
+        Ok(Plan::Push(Arguments { delete_tag: Some(tag), dry_run, .. })) => delete_tag(&DeleteRequest { tag: &tag, dry_run }),
         Ok(Plan::Push(_)) => {
             eprintln!("safe-push: north safe-push publishes tags only; land branches with bin/safe-push");
             Err(Refused(2))

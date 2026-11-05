@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::json;
 
-use super::audit::{Findings, named_issues, Repo, classify_tags, live_ticket, ref_names, render_tags, select_repos, tag_headline};
+use super::audit::{Findings, audited_branch, named_issues, pages_source, Repo, classify_tags, live_ticket, ref_names, render_tags, select_repos, tag_headline};
 use super::audit_rows::{Facts, age_text, fault, gc_problems, leftover_table, open_table, row};
 use super::evidence::IssueState;
 
@@ -144,4 +144,17 @@ fn lane_gc_problems_name_a_failed_unit_a_silent_state_and_landed_branches_stuck_
     assert_eq!(gc_problems(&ok, None, &recent), names(&["lane-gc has no state file"]));
     assert_eq!(gc_problems(&ok, Some(HOUR), &stuck), names(&["lane-gc retired nothing for a day while 1 landed branches still exist"]));
     assert_eq!(gc_problems(&ok, Some(HOUR), &calm), names(&["lane-gc retired nothing for a day while 1 landed branches still exist"]));
+}
+
+#[test]
+fn the_branch_github_pages_serves_is_expected_not_open_work_or_a_fault() {
+    let served = json!({"url": "https://tompassarelli.github.io/makgora/", "source": {"branch": "gh-pages", "path": "/"}, "build_type": "legacy"});
+    let pages = pages_source(&served);
+    assert_eq!(pages.as_deref(), Some("gh-pages"));
+    assert!(!audited_branch("gh-pages", "main", pages.as_deref()));
+    assert!(audited_branch("gh-pages", "main", None), "a repository without Pages still audits gh-pages");
+    assert!(audited_branch("feature", "main", pages.as_deref()));
+    assert!(!audited_branch("main", "main", pages.as_deref()));
+    assert_eq!(pages_source(&json!({"build_type": "workflow", "source": null})), None);
+    assert_eq!(pages_source(&json!({"source": {"branch": ""}})), None);
 }

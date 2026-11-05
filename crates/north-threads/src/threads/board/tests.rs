@@ -181,9 +181,8 @@ fn a_caller_that_may_not_read_native_items_is_shown_none() {
 }
 
 #[test]
-fn show_prints_an_issue_with_its_owner_handoffs_runs_and_archives() {
-    let mut rig = ledger();
-    rig.outside.archived = "  archived: archive/x\n";
+fn show_prints_an_issue_with_its_owner_handoffs_and_runs() {
+    let rig = ledger();
     rig.ready();
     rig.outside.calls.borrow_mut().clear();
     rig.exec("INSERT INTO claims VALUES ('makgora#3', 'bob', '2026-10-28T08:29:30Z', 45);
@@ -191,7 +190,7 @@ fn show_prints_an_issue_with_its_owner_handoffs_runs_and_archives() {
         INSERT INTO runs VALUES ('a222', 'makgora#3', 'a111', 'xhigh', '2026-10-08T02:00:00Z', 50, 45, 'done', 'Done: shipped', NULL), ('a111', 'makgora#3', NULL, 'high', '2026-10-08T01:00:00Z', 30, NULL, 'handoff', '', '~/h/a111.md')");
     assert_eq!(
         rig.out(&["show", "tompassarelli/makgora#3"]),
-        "makgora#3  T3\n  state: open\n  owner: bob for 30m of 45m ETA\n  owners:\n    2026-10-28T08:00:00Z  claim    alice\n    2026-10-28T08:02:00Z  handoff  alice -> bob\n  runs: 2, 80m in all\n    2026-10-08T01:00  a111 high  30m  handoff:   note ~/h/a111.md\n    2026-10-08T02:00  a222 xhigh follows a111  50m/45m ETA  done: Done: shipped\n  archived: archive/x\n"
+        "makgora#3  T3\n  state: open\n  owner: bob for 30m of 45m ETA\n  owners:\n    2026-10-28T08:00:00Z  claim    alice\n    2026-10-28T08:02:00Z  handoff  alice -> bob\n  runs: 2, 80m in all\n    2026-10-08T01:00  a111 high  30m  handoff:   note ~/h/a111.md\n    2026-10-08T02:00  a222 xhigh follows a111  50m/45m ETA  done: Done: shipped\n"
     );
     assert!(rig.calls().is_empty(), "the cached open issues answer it: {:?}", rig.calls());
 }

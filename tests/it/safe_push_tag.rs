@@ -429,3 +429,68 @@ fn safe_push_tag_scans_an_outgoing_tag_against_an_origin_with_thousands_of_refs(
     assert_eq!(observed.status, 0, "a stalled scan panics before this: {observed:#?}");
     assert!(published(&observed, &fixture, "release-bulk"), "{observed:#?}");
 }
+
+fn remote_has(observed: &Observed, name: &str) -> bool {
+    observed.remote.lines().any(|line| line.starts_with(&format!("refs/tags/{name} ")))
+}
+
+#[test]
+fn safe_push_delete_tag_deletes_only_a_held_non_release_tag_through_either_entry() {
+    let fixture = Fixture::new();
+    let repo = fixture.repo();
+    git(&repo, &["tag", "-a", "stray-merged", "-m", "merged stray", "origin/main"]);
+    git(&repo, &["tag", "stray-light", "origin/main"]);
+    git(&repo, &["tag", "-a", "v1.0.0", "-m", "release", "origin/main"]);
+    git(&repo, &["checkout", "-q", "-b", "side", "main"]);
+    commit(&repo, "side.txt", "side\n", "side only");
+    tag(&repo, "stray-unheld", "unheld stray");
+    git(&repo, &["checkout", "-q", "-b", "side-mirrored", "main"]);
+    commit(&repo, "mirrored.txt", "mirrored\n", "mirrored only");
+    tag(&repo, "stray-mirrored", "mirrored stray");
+    git(&repo, &["checkout", "-q", "main"]);
+    git(&repo, &["push", "-q", "origin", "stray-merged", "stray-light", "v1.0.0", "stray-unheld", "stray-mirrored"]);
+
+    let mirrors = fixture._scratch.path().join("mirrors");
+    let mirror = mirrors.join("remote.git");
+    std::fs::create_dir_all(&mirrors).unwrap();
+    git(&mirrors, &["init", "-q", "--bare", "remote.git"]);
+    git(&mirror, &["fetch", "-q", &repo.to_string_lossy(), "refs/tags/stray-mirrored:refs/tags/stray-mirrored"]);
+    let mirrors_path = mirrors.to_string_lossy().into_owned();
+    let empty = fixture._scratch.path().join("no-mirrors").to_string_lossy().into_owned();
+    let held = [("LANE_GC_MIRRORS", mirrors_path.as_str())];
+    let absent = [("LANE_GC_MIRRORS", empty.as_str())];
+
+    let cases = [
+        Case { environment: &absent, ..Case::new(&["--delete-tag", "stray-merged"]) },
+        Case { environment: &absent, ..Case::new(&["--delete-tag", "stray-light"]) },
+        Case { environment: &absent, ..Case::new(&["--dry-run", "--delete-tag", "stray-merged"]) },
+        Case { environment: &held, ..Case::new(&["--delete-tag", "stray-mirrored"]) },
+        Case { environment: &held, ..Case::new(&["--delete-tag", "v1.0.0"]) },
+        Case { environment: &absent, ..Case::new(&["--delete-tag", "stray-unheld"]) },
+        Case { environment: &held, ..Case::new(&["--delete-tag", "stray-unheld"]) },
+        Case { environment: &held, ..Case::new(&["--delete-tag", "missing"]) },
+        Case { environment: &held, ..Case::new(&["--delete-tag", "bad..name"]) },
+    ];
+    let staged: Vec<Staged> = cases.into_iter().map(|case| stage(&fixture, case)).collect();
+    let [merged, light, dry, mirrored, release, unheld, unheld_in_mirror, missing, invalid]: [Observed; 9] = all_entries(&staged).try_into().unwrap();
+
+    assert_eq!(merged.status, 0, "{merged:#?}");
+    assert!(!remote_has(&merged, "stray-merged") && remote_has(&merged, "v1.0.0"), "{merged:#?}");
+    assert!(merged.stdout.contains("deleted tag stray-merged from origin"), "{merged:#?}");
+    assert_eq!(light.status, 0, "{light:#?}");
+    assert!(!remote_has(&light, "stray-light"), "{light:#?}");
+    assert_eq!(dry.status, 0, "{dry:#?}");
+    assert!(remote_has(&dry, "stray-merged") && dry.stdout.contains("would delete tag stray-merged"), "{dry:#?}");
+    assert_eq!(mirrored.status, 0, "{mirrored:#?}");
+    assert!(!remote_has(&mirrored, "stray-mirrored") && mirrored.stdout.contains("is held by"), "{mirrored:#?}");
+    assert_eq!(release.status, 1, "{release:#?}");
+    assert!(remote_has(&release, "v1.0.0") && release.stdout.contains("is a release"), "{release:#?}");
+    assert_eq!(unheld.status, 1, "{unheld:#?}");
+    assert!(remote_has(&unheld, "stray-unheld") && unheld.stdout.contains("neither on origin's default branch nor held"), "{unheld:#?}");
+    assert_eq!(unheld_in_mirror.status, 1, "{unheld_in_mirror:#?}");
+    assert!(remote_has(&unheld_in_mirror, "stray-unheld"), "{unheld_in_mirror:#?}");
+    assert_eq!(missing.status, 1, "{missing:#?}");
+    assert!(missing.stdout.contains("origin has no tag"), "{missing:#?}");
+    assert_eq!(invalid.status, 1, "{invalid:#?}");
+    assert!(invalid.stdout.contains("not a valid tag name"), "{invalid:#?}");
+}

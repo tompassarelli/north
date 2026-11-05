@@ -22,7 +22,6 @@ pub struct Recorded {
     pub fleet_unread: bool,
     /// Each issue an open gate decides, with the gate's label.
     pub gated: Vec<(&'static str, &'static str)>,
-    pub archived: &'static str,
     pub refuse: Option<&'static str>,
     /// Answers a call from its joined arguments before `answers` and `reply` are tried.
     pub respond: Option<Respond>,
@@ -62,10 +61,6 @@ impl Outside for Recorded {
 
     fn gated_issues(&self) -> BTreeMap<String, String> {
         self.gated.iter().map(|(issue, gate)| ((*issue).to_owned(), (*gate).to_owned())).collect()
-    }
-
-    fn archives(&self, _repo: &str, _number: u64) -> String {
-        self.archived.to_owned()
     }
 
     fn costs_path(&self) -> std::path::PathBuf {

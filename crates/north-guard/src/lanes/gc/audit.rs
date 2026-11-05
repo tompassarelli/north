@@ -126,6 +126,26 @@ pub(super) fn tag_headline(name: &str, found: &Findings) -> String {
     format!("{name}: {} non-release tags, {} v-tags without release", families + found.strays.len(), found.unreleased.len())
 }
 
+pub(super) fn pages_source(response: &Value) -> Option<String> {
+    response["source"]["branch"].as_str().filter(|branch| !branch.is_empty()).map(str::to_string)
+}
+
+pub(super) fn audited_branch(branch: &str, default: &str, pages: Option<&str>) -> bool {
+    branch != default && pages != Some(branch)
+}
+
+fn pages_branch(repo: &str) -> Result<Option<String>, String> {
+    let ran = command(&["gh", "api", &format!("repos/{OWNER}/{repo}/pages")]);
+    if ran.ok {
+        let response: Value = serde_json::from_str(&ran.out).map_err(|error| error.to_string())?;
+        return Ok(pages_source(&response));
+    }
+    if ran.err.contains("404") || ran.err.contains("Not Found") {
+        return Ok(None);
+    }
+    Err(format!("Pages source unavailable: {}", ran.last_err_line()))
+}
+
 fn released_tags(repo: &str) -> Result<HashSet<String>, String> {
     let pages = api(&format!("repos/{OWNER}/{repo}/releases?per_page=100"))?;
     let releases = pages.as_array().into_iter().flatten().filter_map(Value::as_array).flatten();
@@ -175,7 +195,8 @@ fn compare(repo: &Repo, branch: &str) -> Result<(bool, Vec<String>), String> {
 
 fn audit_repo(repo: &Repo, workers: &HashMap<(String, String), String>, now: i64) -> Result<Audited, String> {
     let name = &repo.name;
-    let nodes: Vec<Value> = remote_branches(name)?.into_iter().filter(|node| node["name"].as_str().is_some_and(|branch| branch != repo.default)).collect();
+    let pages = pages_branch(name)?;
+    let nodes: Vec<Value> = remote_branches(name)?.into_iter().filter(|node| node["name"].as_str().is_some_and(|branch| audited_branch(branch, &repo.default, pages.as_deref()))).collect();
     let (pulls, active, active_tips) = if nodes.iter().any(|node| node["name"].as_str().is_some_and(|branch| branch.starts_with(LANDING))) {
         let (active, tips) = active_runs(name)?;
         (open_pull_heads(name)?, active, tips)

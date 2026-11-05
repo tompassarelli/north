@@ -24,7 +24,7 @@ pub static CATALOG: LazyLock<Catalog> = LazyLock::new(|| Catalog {
 });
 
 pub fn checkout(repo: &str) -> &str {
-    crate::platform::archive_tags::checkout_name(repo)
+    crate::platform::repo_names::checkout_name(repo)
 }
 
 pub fn canonical_topics(topics: Vec<crate::platform::frozen_topics::Topic>) -> Vec<crate::platform::frozen_topics::Topic> {

@@ -35,13 +35,12 @@ impl FleetView for Unread {
 pub struct Live {
     fleet: Arc<dyn FleetView>,
     relayed_owners: Vec<String>,
-    archives: bool,
     operator: PathBuf,
 }
 
 impl Live {
     /// The effects as this caller's environment shapes them: where the live sessions come from,
-    /// the owners a remote caller relayed, whether the caller prints archives itself, and the
+    /// the owners a remote caller relayed, and the
     /// operator directory holding costs.toml.
     pub fn new(env: &BTreeMap<String, String>, fleet: Arc<dyn FleetView>) -> Self {
         let var = |name: &str| env.get(name).map(String::as_str).filter(|value| !value.is_empty());
@@ -50,7 +49,7 @@ impl Live {
             .and_then(|value| value.as_array().map(|owners| owners.iter().filter_map(Value::as_str).map(str::to_owned).collect()))
             .unwrap_or_default();
         let operator = var("AGENTS_OPERATOR_DIR").map_or_else(|| PathBuf::from(var("HOME").unwrap_or_default()).join("code/south/main/agents"), PathBuf::from);
-        Self { fleet, relayed_owners, archives: var("THREADS_ARCHIVES_LOCAL").is_none(), operator }
+        Self { fleet, relayed_owners, operator }
     }
 }
 
@@ -81,10 +80,6 @@ impl super::verb::Outside for Live {
 
     fn gated_issues(&self) -> BTreeMap<String, String> {
         self.fleet.gated_issues()
-    }
-
-    fn archives(&self, repo: &str, number: u64) -> String {
-        if self.archives { crate::platform::archive_tags::report(repo, number, None) } else { String::new() }
     }
 
     fn costs_path(&self) -> PathBuf {

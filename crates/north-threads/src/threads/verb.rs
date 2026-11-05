@@ -26,8 +26,6 @@ pub trait Outside: Issues {
     fn alive_owners(&self) -> Option<BTreeSet<String>>;
     /// Each issue an open gate decides, with the gate's label.
     fn gated_issues(&self) -> BTreeMap<String, String>;
-    /// The archive tags naming an issue, with their restore commands, as `show` prints them.
-    fn archives(&self, repo: &str, number: u64) -> String;
     /// Each service's dollars per week from the operator's costs.toml.
     fn prices(&self) -> Result<BTreeMap<String, f64>, String>;
     /// The operator's costs.toml the prices come from.

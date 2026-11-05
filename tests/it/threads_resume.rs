@@ -1,5 +1,5 @@
 //! A claim past its ETA stays held while its exact holder session is alive and frees when it stops,
-//! here and through the ledger host, and `show` names the archive tag whose restore works.
+//! here and through the ledger host.
 use std::fs;
 use north_core::foundation::shim;
 use std::path::{Path, PathBuf};
@@ -21,15 +21,6 @@ fn bash(path: &Path, body: &str) {
     shim::write_executable(path, format!("#!/usr/bin/env bash\n{body}"));
 }
 
-fn git(directory: &Path, args: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(directory).args(args)
-        .env("GIT_AUTHOR_NAME", "fixture").env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
-        .env("GIT_COMMITTER_NAME", "fixture").env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
-        .output().unwrap();
-    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
-
 struct Rig {
     _scratch: tempfile::TempDir,
     root: PathBuf,
@@ -42,27 +33,9 @@ impl Rig {
         let root = scratch.path().to_path_buf();
         let home = root.join("home");
         fs::create_dir_all(root.join("bin")).unwrap();
-        fs::create_dir_all(home.join("code/makgora")).unwrap();
         fs::write(root.join("activation.active"), "hook north-hook\n").unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), root.join("bin/north")).unwrap();
         bash(&root.join("bin/gh"), GH);
-        let origin = root.join("origin.git");
-        let seed = root.join("seed");
-        git(&root, &["init", "-q", "--bare", "--initial-branch=main", origin.to_str().unwrap()]);
-        git(&root, &["init", "-q", "--initial-branch=main", seed.to_str().unwrap()]);
-        git(&seed, &["commit", "-qm", "base", "--allow-empty"]);
-        git(&seed, &["remote", "add", "origin", origin.to_str().unwrap()]);
-        git(&seed, &["push", "-q", "origin", "main"]);
-        git(&seed, &["checkout", "-qb", "feature/resume-10"]);
-        git(&seed, &["commit", "-qm", "Resume fixture\n\nRefs makgora#10", "--allow-empty"]);
-        git(&seed, &["tag", "archive/feature/resume-10"]);
-        git(&seed, &["push", "-q", "origin", "refs/tags/archive/feature/resume-10"]);
-        git(&seed, &["checkout", "-q", "main"]);
-        git(&seed, &["checkout", "-qb", "feature/other-10"]);
-        git(&seed, &["commit", "-qm", "Other repository fixture\n\nRefs wisp#10", "--allow-empty"]);
-        git(&seed, &["tag", "-a", "archive/feature/other-10", "-m", "archived fixture"]);
-        git(&seed, &["push", "-q", "origin", "refs/tags/archive/feature/other-10"]);
-        git(&root, &["clone", "-q", "--no-tags", origin.to_str().unwrap(), home.join("code/makgora/main").to_str().unwrap()]);
         Rig { _scratch: scratch, root, home }
     }
 
@@ -125,10 +98,4 @@ fn an_expired_claim_stays_held_for_its_live_holder_here_and_through_the_ledger_h
     assert!(trace.contains("THREADS_ALIVE_OWNERS=") && !trace.contains("pid"), "the proxy relays exact caller liveness without PIDs: {trace}");
     rig.holder(true);
     assert!(rig.threads(&["unowned"], false).contains(free));
-    let shown = rig.threads(&["show", "makgora#10"], false);
-    assert!(shown.contains("archive/feature/resume-10"), "{shown}");
-    let checkout = rig.home.join("code/makgora/main");
-    git(&checkout, &["push", "-q", "origin", "archive/feature/resume-10:refs/heads/feature/resume-10"]);
-    let origin = rig.root.join("origin.git");
-    assert_eq!(git(&origin, &["rev-parse", "refs/heads/feature/resume-10"]), git(&origin, &["rev-parse", "refs/tags/archive/feature/resume-10^{commit}"]));
 }

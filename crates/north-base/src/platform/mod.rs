@@ -1,7 +1,7 @@
 pub mod follows;
 pub mod reader_stamp;
 pub mod run_roles;
-pub mod archive_tags;
+pub mod repo_names;
 pub mod git;
 pub mod land_queue;
 pub mod gitleaks;
