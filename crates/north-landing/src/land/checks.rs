@@ -14,6 +14,7 @@ pub const INFRASTRUCTURE: &str = "infrastructure: the check host is unfit: ";
 const NORTH_MISSING: [&str; 4] = ["north: command not found", "north: not found", "north not on PATH", "north missing on PATH"];
 const OFFLOAD: &str = "north capacity offload: ";
 const OFFLOAD_EXIT: &str = "exited 255";
+const OFFLOADED: &str = "safe-push: offloading to ";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -45,7 +46,8 @@ pub fn unfit_host(log: &str) -> Option<String> {
     let offline = log.contains("--offline was specified");
     let crate_missing = || lines().find(|line| offline && line.contains("failed to download"));
     let north_missing = || lines().find(|line| NORTH_MISSING.iter().any(|signature| line.contains(signature)));
-    let transport = || lines().any(|line| line.contains(OFFLOAD_EXIT)).then(|| lines().rfind(|line| line.starts_with(OFFLOAD))).flatten();
+    let exit = || lines().find(|line| line.contains(OFFLOAD_EXIT));
+    let transport = || exit().and_then(|exit| lines().rfind(|line| line.starts_with(OFFLOAD)).or_else(|| lines().any(|line| line.starts_with(OFFLOADED)).then_some(exit)));
     crate_missing().or_else(north_missing).or_else(transport).map(str::to_owned)
 }
 

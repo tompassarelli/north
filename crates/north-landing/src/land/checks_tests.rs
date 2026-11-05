@@ -23,6 +23,9 @@ fn an_offload_transport_failure_that_exits_255_is_an_unfit_host() {
     assert_eq!(unfit_host(&format!("{line}\nsafe-push: land check check-owners exited 255; NOT pushed.\n")).as_deref(), Some(line));
     assert_eq!(unfit_host(&format!("{line}\nsafe-push: land check check-owners exited 1; NOT pushed.\n")), None, "only the transport's 255 exit names the host");
     assert_eq!(unfit_host("safe-push: land check cargo test exited 255; NOT pushed.\n"), None, "a 255 exit with no transport line is the lane's");
+    let dropped = "safe-push: land check cargo check --tests exited 255; log: /tmp/l.log; NOT pushed.";
+    assert_eq!(unfit_host(&format!("safe-push: offloading to cx53\noffload: running abc in /home/tom/.cache/land-offload/code-north-main\n{dropped}\n")).as_deref(), Some(dropped), "an offloaded check whose ssh dropped names its 255 exit");
+    assert_eq!(unfit_host("safe-push: offloading to cx53\nsafe-push: land check cargo check exited 101; NOT pushed.\n"), None, "an offloaded check that ran and failed is the lane's");
 }
 
 #[test]
