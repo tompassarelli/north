@@ -9,11 +9,12 @@ use crate::error::{NorthError, NorthResult};
 use crate::platform::hook_commands;
 
 use super::configuration;
+use super::live_refs_transport as transport;
 use super::paths::home;
 
 pub const SCHEMA: &str = "north.host-config-facts/v1";
 const DEFAULT_MAX_AGE_MS: u64 = 24 * 60 * 60 * 1000;
-const USAGE: &str = "usage: north config agents live-refs --record [--facts-dir DIR]\n       north config agents live-refs --path NAME [--facts-dir DIR] [--max-age 24h] [--hosts a,b,c]";
+const USAGE: &str = "usage: north config agents live-refs --record [--facts-dir DIR] [--repo DIR [--remote NAME]]\n       north config agents live-refs --path NAME [--facts-dir DIR | --repo DIR [--remote NAME]] [--max-age 24h] [--hosts a,b,c]";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Facts {
@@ -213,6 +214,8 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
     let mut record = false;
     let mut name = None;
     let mut directory = None;
+    let mut repo = None;
+    let mut remote = "origin".to_owned();
     let mut max_age = DEFAULT_MAX_AGE_MS;
     let mut hosts = Vec::new();
     let mut entries = arguments.iter();
@@ -226,6 +229,8 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
             "--record" => record = true,
             "--path" => name = Some(value()?),
             "--facts-dir" => directory = Some(PathBuf::from(value()?)),
+            "--repo" => repo = Some(PathBuf::from(value()?)),
+            "--remote" => remote = value()?,
             "--max-age" => max_age = parse_duration_ms(&value()?)?,
             "--hosts" => hosts = value()?.split(',').filter(|host| !host.is_empty()).map(str::to_owned).collect(),
             _ => return Err(NorthError::Usage(format!("unknown option {flag}\n{USAGE}"))),
@@ -239,10 +244,18 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
             let facts = collect(&host_name()?, now_ms(), &home, &state, &user_units()?);
             let path = write(&directory, &facts)?;
             println!("recorded {} hook paths and {} unit paths in {}", facts.hooks.len(), facts.unit_exec_starts.len(), path.display());
+            if let Some(repo) = &repo {
+                let commit = transport::publish(repo, &remote, &facts)?;
+                println!("published {commit} to {remote} {}", transport::reference(&facts.host));
+            }
             Ok(())
         }
         (false, Some(name)) => {
-            let report = hosts_naming(&directory, &name, &hosts, now_ms(), max_age)?;
+            let all = match &repo {
+                Some(repo) => transport::fetch_all(repo, &remote)?,
+                None => read_all(&directory)?,
+            };
+            let report = judge(&all, &name, &hosts, now_ms(), max_age);
             if report.is_clean() {
                 println!("no recorded host names {name}; fact ages: {}", report.ages.join(", "));
                 return Ok(());

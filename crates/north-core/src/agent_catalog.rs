@@ -11,6 +11,8 @@ mod files;
 mod guides;
 #[path = "catalog/generation.rs"]
 mod generation;
+#[path = "catalog/live_refs_transport.rs"]
+mod live_refs_transport;
 #[path = "catalog/live_refs.rs"]
 pub mod live_refs;
 #[path = "catalog/owner_modules.rs"]
