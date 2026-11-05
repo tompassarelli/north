@@ -70,7 +70,6 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | incident_guards (class, guard, landed_at, issue) | north incident guard; north incident import | crates/north-core/src/threads/incidents/mod.rs insert marks a later row of the class recurred_after_guard | read | |
 | replay sweep-*.jsonl | north policy-replay sweep (crates/north-core/src/ops/policy_replay/sweep.rs) | crates/north-core/src/agent_config_check/gate.rs | read | |
 | harness/model-catalog.toml | hand | crates/north-core/src/usage/settings.rs CATALOG; crates/north-core/src/providers/codex/runs/usage.rs run_usage; crates/north-core/src/providers/claude/runs/telemetry.rs Prices | read | |
-| S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |
 
 The runs activity signal, per worker run from its transcript (north#255): turns = assistant messages;
 tool_calls = tool_use blocks; active_min = the sum of gaps between consecutive transcript events inside an

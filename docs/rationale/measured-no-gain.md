@@ -148,10 +148,11 @@ Each row of [feedback-loop.md](../feedback-loop.md) not read by a decision, with
   only; the Still unread section and the two rows change to read. Box 9.
 - The pointer "Thresholds and priors ... belong to north#35 lane D": north#35 closed 2026-10-13 and the 350k
   decision moved to north#252, now done. Verdict: remove the line. Box 9.
-- south `agents/incident-baseline.toml`, read by "tick.md step 3": that routine no longer exists, so nothing
-  reads it; the 2026-11-04 harness review (south `agents/decisions/harness/harness-review-2026-11-04.md:122`)
-  names it as a regression bar. Verdict: defer, owner the harness review; it wires the count into its
-  regression check or deletes the file by 2026-11-18.
+- South's 2026-09-28..10-12 per-rule incident baseline, read by "tick.md step 3": that routine no longer exists,
+  so nothing read it. The 2026-11-04 harness review named it as a regression bar, but no check computes that bar,
+  and the weekly incident retro samples transcripts, so its counts cannot be compared with the baseline's full
+  mining of 215 sessions. Verdict: deleted 2026-11-05; the review's bar now compares `rule_ids` in
+  `agents/incidents.jsonl` from one retro to the last. Box 11.
 - Ten `harness/defaults.toml` entries carry `settles_when` but a source not starting `prior:`, so
   `north defaults-measure --priors` never prints them (`crates/north-core/src/ops/defaults_measure/priors.rs:18`):
   build_input_retention_hours, capacity_mode_play_cpus, capture_batch_retention_hours, three codex_tier_*,

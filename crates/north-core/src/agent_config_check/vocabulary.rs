@@ -4,7 +4,7 @@ use crate::platform::git;
 
 const PATTERNS: [&str; 2] = [r"(^|[^A-Za-z0-9_-])socrates/", "Socrates is the agent machinery"];
 
-const EXCLUDED: [&str; 4] = [":!*.jsonl", ":!agents/incident-baseline.toml", ":!agents/replay/placements/*", ":!src/agent_config_check/*"];
+const EXCLUDED: [&str; 3] = [":!*.jsonl", ":!agents/replay/placements/*", ":!src/agent_config_check/*"];
 
 fn lines(directory: &Path, args: &[&str]) -> Vec<String> {
     git::run(directory, args)
