@@ -2,6 +2,7 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+host=("${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}" capacity host)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/machine-capacity-test.XXXXXX")
 export XDG_STATE_HOME="$scratch/state" AGENT_CAPACITY_DB="$scratch/capacity.db" AGENT_CAPACITY_SUBSLICE="test$$" AGENT_CAPACITY_CORES=24 AGENT_CAPACITY_DISK_FREE_GIB=500 AGENT_CAPACITY_SETTLE_SECONDS=3 AGENT_CAPACITY_MEMINFO="$scratch/meminfo"
 fixture_pids=()
@@ -28,13 +29,11 @@ printf 'MemTotal: 98655232 kB\nMemAvailable: 71680000 kB\n' >"$scratch/meminfo"
 export AGENT_CAPACITY_GPU_BUSY="$scratch/gpu-busy" AGENT_CAPACITY_GPU_CLIENTS=0 AGENTS_ORCHESTRATION=/dev/null AGENT_CAPACITY_USAGE_LOG="$scratch/usage.jsonl" CAPACITY_WATCHDOG_DIR="$scratch/no-watchdog"
 echo 0 >"$AGENT_CAPACITY_GPU_BUSY"
 
-"$here/build-machine-capacity" "$scratch/machine-capacity.mjs"
-
 # Arguments: profile class available-MiB protected-slice-PSI memory-full-PSI
 # leased-CPU-ceilings leased-MiB [options]. Protected PSI is the session and
 # native slices' own CPU wait, not the system-wide figure batch work inflates.
 fixture() {
-  bun "$scratch/machine-capacity.mjs" fixture \
+  "${host[@]}" fixture \
     --profile "${1}" \
     --class "${2}" \
     --cores 24 \
@@ -146,36 +145,36 @@ fi
 fixture_runtime="$scratch/runtime"
 mkdir -p "$fixture_runtime"
 ln -s "$user_runtime_dir/systemd" "$fixture_runtime/systemd"
-reservation=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" reserve \
+reservation=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" reserve \
   --class agent --owner fixture:/capacity --timeout-seconds 5)
 lease=$(jq -r '.lease' <<<"$reservation")
 [[ $lease =~ ^[0-9a-f-]{36}$ ]]
-renewed=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" renew \
+renewed=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" renew \
   --lease "$lease" --owner fixture:/capacity --timeout-seconds 5)
 [[ $(jq -r '.decision' <<<"$renewed") == RENEWED ]]
-released=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" release \
+released=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" release \
   --lease "$lease" --owner fixture:/capacity)
 [[ $(jq -r '.decision' <<<"$released") == RELEASED ]]
 
 rejected_runtime="$scratch/rejected-runtime"
 set +e
-rejected=$(XDG_RUNTIME_DIR="$rejected_runtime" bun "$scratch/machine-capacity.mjs" reserve \
+rejected=$(XDG_RUNTIME_DIR="$rejected_runtime" "${host[@]}" reserve \
   --class heavy --owner fixture:/capacity --timeout-seconds 5 2>&1)
 rejected_status=$?
 set -e
 [[ $rejected_status -eq 2 ]]
 [[ ! -e "$rejected_runtime/agent-capacity-v1" ]]
 
-expiring=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" reserve \
+expiring=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" reserve \
   --class agent --owner fixture:/capacity --timeout-seconds 1)
 [[ $(jq -r '.decision' <<<"$expiring") == RESERVED ]]
 sleep 1.1
-reclaimed=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class agent)
+reclaimed=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class agent)
 [[ $(jq -r '.reclaimed' <<<"$reclaimed") == 1 ]]
 
 sleeper_pid_file="$scratch/sleeper.pid"
 set +e
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run \
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" run \
   --class heavy \
   --owner fixture:/capacity \
   --timeout-seconds 1 \
@@ -203,7 +202,7 @@ for number in 1 2 3 4; do
   else
     exec {sink}>"$scratch/err-$number"
   fi
-  XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run \
+  XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" run \
     --class heavy --owner fixture:/capacity --timeout-seconds 30 \
     -- bash -c 'IFS=: read -r _ _ group < /proc/self/cgroup; printf "%s\n" "$group" >"$1"; printf "ready\n" >"$1.receipt"; sleep 60 & wait' \
     fixture-scope "$scratch/group-$number" >"$scratch/out-$number" 2>&"$sink" &
@@ -228,7 +227,7 @@ for number in 1 2 3; do
 done
 [[ ! -s "$scratch/group-4" ]]
 [[ $(head -n 1 "$scratch/err-4" | jq -r '.decision + " " + .reason') == 'QUEUED DEFER_CPU_PRESSURE' ]]
-probe=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class exclusive || true)
+probe=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class exclusive || true)
 [[ $(jq -r '.reason' <<<"$probe") == DEFER_EXCLUSIVE ]]
 [[ $(jq -r '.leasedCpuCeilings' <<<"$probe") -eq 18 ]]
 [[ $(jq -r '.queuedAhead' <<<"$probe") -eq 1 ]]
@@ -246,23 +245,23 @@ for number in 1 2 3 4; do
   read -r group <"$scratch/group-$number"
   [[ ! -e "/sys/fs/cgroup$group" ]]
 done
-[[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class exclusive | jq -r '.decision') == RUN ]]
-[[ "$(AGENT_CAPACITY_GPU_CLIENTS=4 XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class native --memory-gib 1 | jq -r .reason) $(AGENT_CAPACITY_GPU_CLIENTS=4 XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class native --new-clients 0 --memory-gib 1 | jq -r .reason)" == 'DEFER_GPU_CLIENTS RUN' ]]
+[[ $(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class exclusive | jq -r '.decision') == RUN ]]
+[[ "$(AGENT_CAPACITY_GPU_CLIENTS=4 XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class native --memory-gib 1 | jq -r .reason) $(AGENT_CAPACITY_GPU_CLIENTS=4 XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class native --new-clients 0 --memory-gib 1 | jq -r .reason)" == 'DEFER_GPU_CLIENTS RUN' ]]
 export AGENT_CAPACITY_DB=$original_capacity_db AGENT_CAPACITY_USAGE_LOG=$original_usage_log
 
 # An agent allowance does not block its exclusive command, which then blocks peers.
-reservation=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" reserve \
+reservation=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" reserve \
   --class agent --owner fixture:/capacity --timeout-seconds 30)
 lease=$(jq -r '.lease' <<<"$reservation")
 mkfifo "$scratch/exclusive-ready.receipt"
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run \
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" run \
   --class exclusive --owner fixture:/capacity --timeout-seconds 30 \
   -- bash -c 'printf "ready\n" >"$1"; printf "ready\n" >"$1.receipt"; sleep 60 & wait' fixture-exclusive "$scratch/exclusive-ready" \
   >"$scratch/exclusive-out" 2>"$scratch/exclusive-err" &
 fixture_pids+=("$!")
 wait_for "$scratch/exclusive-ready"
 [[ -s "$scratch/exclusive-ready" ]]
-probe=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class moderate || true)
+probe=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class moderate || true)
 [[ $(jq -r '.reason' <<<"$probe") == DEFER_EXCLUSIVE ]]
 kill -TERM "${fixture_pids[0]}"
 wait "${fixture_pids[0]}" || true
@@ -270,7 +269,7 @@ fixture_pids=()
 for pid in "${collector_pids[@]}"; do wait "$pid"; done
 collector_pids=()
 [[ $(tail -n 1 "$scratch/exclusive-err" | jq -r '.decision') == RELEASED ]]
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" release \
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" release \
   --lease "$lease" --owner fixture:/capacity
 
 # Pressure holds a run in the queue until it eases; leaving the queue drops the ticket.
@@ -278,7 +277,7 @@ calm_pressure 90.00
 mkfifo "$scratch/held-ready.receipt" "$scratch/held-events"
 exec {sink}> >(tee "$scratch/held-err" >"$scratch/held-events")
 collector_pids+=("$!")
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run \
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" run \
   --class moderate --owner fixture:/capacity --timeout-seconds 30 \
   -- bash -c 'printf "ready\n" >"$1"; printf "ready\n" >"$1.receipt"; sleep 60 & wait' fixture-held "$scratch/held-ready" \
   >"$scratch/held-out" 2>&"$sink" &
@@ -289,7 +288,7 @@ receipt_fds+=("$held_events")
 IFS= read -r event <&"$held_events"
 [[ ! -s "$scratch/held-ready" ]]
 [[ $(head -n 1 "$scratch/held-err" | jq -r '.decision') == QUEUED ]]
-[[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class agent | jq -r '.queuedAhead') -eq 1 ]]
+[[ $(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class agent | jq -r '.queuedAhead') -eq 1 ]]
 calm_pressure 0.00
 wait_for "$scratch/held-ready"
 [[ -s "$scratch/held-ready" ]]
@@ -303,7 +302,7 @@ calm_pressure 90.00
 mkfifo "$scratch/cancel-events"
 exec {sink}> >(tee "$scratch/cancel-err" >"$scratch/cancel-events")
 collector_pids+=("$!")
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run \
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" run \
   --class heavy --owner fixture:/capacity --timeout-seconds 30 -- true 2>&"$sink" &
 fixture_pids+=("$!")
 exec {sink}>&-
@@ -322,7 +321,7 @@ calm_pressure 0.00
 # A batch session takes its class's default deadline and keeps its allowance
 # until its scope and descendants stop.
 mkfifo "$scratch/session-group.receipt" "$scratch/session-child.receipt"
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" session \
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" session \
   --class moderate --owner fixture:/capacity \
   -- bash -c 'IFS=: read -r _ _ group < /proc/self/cgroup; printf "%s\n" "$group" >"$1"; printf "ready\n" >"$1.receipt"; sleep 60 & printf "%s\n" "$!" >"$2"; printf "ready\n" >"$2.receipt"; wait' \
   fixture-session "$scratch/session-group" "$scratch/session-child" \
@@ -334,7 +333,7 @@ read -r group <"$scratch/session-group"
 read -r session_child <"$scratch/session-child"
 [[ $(systemctl --user show "${group##*/}" --property=RuntimeMaxUSec --value) == infinity && $(xargs -I{} cat /proc/{}/cmdline <"/sys/fs/cgroup$group/cgroup.procs" | tr '\0' ' ') == *'capacity deadline '*' 1800 --'* ]]
 [[ $(head -n 1 "$scratch/session-err" | jq -r '.expiresAt') != null ]]
-probe=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class exclusive || true)
+probe=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class exclusive || true)
 [[ $(jq -r '.reason' <<<"$probe") == DEFER_EXCLUSIVE ]]
 [[ $(jq -r '.leasedMemoryMiB' <<<"$probe") -eq 2048 ]]
 [[ $(jq -r '.reclaimed' <<<"$probe") -eq 0 ]]
@@ -347,17 +346,17 @@ collector_pids=()
 [[ ! -e "/sys/fs/cgroup$group" ]]
 ! kill -0 "$session_child" 2>/dev/null
 set +e
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" session \
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" session \
   --class moderate --owner fixture:/capacity -- bash -c 'exit 7' 2>"$scratch/session-exit"
 session_status=$?
 set -e
 [[ $session_status -eq 7 ]]
 [[ $(tail -n 1 "$scratch/session-exit" | jq -r '.decision') == RELEASED ]]
-[[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class agent | jq -r '.leasedMemoryMiB') -eq 0 ]]
+[[ $(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class agent | jq -r '.leasedMemoryMiB') -eq 0 ]]
 
 # A native client runs unthrottled at high weight beside the batch slice.
 mkfifo "$scratch/native-group.receipt"
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run \
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" run \
   --class native --owner fixture:/capacity --timeout-seconds 30 \
   -- bash -c 'IFS=: read -r _ _ group < /proc/self/cgroup; printf "%s\n" "$group" >"$1"; printf "ready\n" >"$1.receipt"; sleep 60 & wait' \
   fixture-native "$scratch/native-group" >"$scratch/native-out" 2>"$scratch/native-err" &
@@ -368,7 +367,7 @@ read -r group <"$scratch/native-group"
 [[ $(cat "/sys/fs/cgroup${group%/*}/cpu.weight") -eq 200 ]]
 [[ ! -e "/sys/fs/cgroup$group/cpu.max" || $(cut -d' ' -f1 "/sys/fs/cgroup$group/cpu.max") == max ]]
 [[ $(cat "/sys/fs/cgroup$group/memory.high") -eq $((4096 * 1024 * 1024)) ]]
-probe=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class heavy)
+probe=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class heavy)
 [[ $(jq -r '.decision' <<<"$probe") == RUN ]]
 [[ $(jq -r '.leasedNativeCpus' <<<"$probe") -eq 2 ]]
 kill -TERM "${fixture_pids[0]}"
@@ -383,7 +382,7 @@ for lifetime in run session; do
   options=()
   [[ $lifetime != run ]] || options=(--timeout-seconds 30)
   mkfifo "$scratch/memory-group-$lifetime.receipt"
-  XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" "$lifetime" \
+  XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" "$lifetime" \
     --class native --memory-gib 1.5 --owner fixture:/capacity "${options[@]}" \
     -- bash -c 'IFS=: read -r _ _ group < /proc/self/cgroup; printf "%s\n" "$group" >"$1"; printf "ready\n" >"$1.receipt"; sleep 60 & wait' \
     fixture-native-memory "$scratch/memory-group-$lifetime" \
@@ -397,7 +396,7 @@ for lifetime in run session; do
   [[ $(head -n 1 "$scratch/memory-err-$lifetime" | jq -r '.requestedMemoryMiB') -eq 1536 ]]
   lease=$(head -n 1 "$scratch/memory-err-$lifetime" | jq -r '.lease')
   [[ $(jq -r '.memoryMiB' "$fixture_runtime/agent-capacity-v1/leases/$lease.json") -eq 1536 ]]
-  probe=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class native --memory-gib 1.5)
+  probe=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class native --memory-gib 1.5)
   [[ $(jq -r '.leasedMemoryMiB' <<<"$probe") -eq 1536 ]]
   [[ $(jq -r '.requestedMemoryMiB' <<<"$probe") -eq 1536 ]]
   kill -TERM "${fixture_pids[0]}"
@@ -410,7 +409,7 @@ done
 for request in 'exclusive 901' 'heavy 3601'; do
   read -r class seconds <<<"$request"
   set +e
-  refused=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run \
+  refused=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" run \
     --class "$class" --owner fixture:/capacity --timeout-seconds "$seconds" -- true 2>&1)
   refused_status=$?
   set -e
@@ -422,7 +421,7 @@ held_run() {
   mkfifo "$scratch/$name-ready.receipt" "$scratch/$name-events"
   exec {sink}> >(tee "$scratch/$name-err" >"$scratch/$name-events")
   collector_pids+=("$!")
-  XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" "$@" \
+  XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" "$@" \
     --class "$class" --owner "fixture:/$owner" \
     -- bash -c 'IFS=: read -r _ _ group < /proc/self/cgroup; printf "%s\n" "$group" >"$1"; printf "ready\n" >"$1.receipt"; sleep 60 & wait' \
     fixture-drain "$scratch/$name-ready" >"$scratch/$name-out" 2>&"$sink" &
@@ -442,7 +441,7 @@ stop_run() {
   done
   [[ $(tail -n 1 "$scratch/$1-err" | jq -r .decision) == RELEASED ]]
 }
-status() { XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" status; }
+status() { XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" status; }
 # Two held moderate fixtures fill a 4-core host's batch job cap of two.
 export AGENT_CAPACITY_DB="$scratch/drain.db" AGENT_CAPACITY_USAGE_LOG="$scratch/drain-usage.jsonl"
 for sample in 1 2 3; do printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/seed","shape":"read","class":"moderate","meanCores":2,"p90Cores":2,"peakCores":2,"peakMemoryMiB":512,"wallSeconds":120}\n' "$sample"; done >>"$AGENT_CAPACITY_USAGE_LOG"
@@ -469,8 +468,8 @@ held_run exclusive drain second run --timeout-seconds 30
 IFS= read -r event <&"${event_of[second]}"
 held_run moderate build build run --timeout-seconds 30
 wait_for "$scratch/build-ready"
-AGENT_CAPACITY_CORES=4 SAFE_PUSH_LAND_HEAD=0123456 XDG_RUNTIME_DIR="$fixture_runtime" timeout 60 bun "$scratch/machine-capacity.mjs" run --class moderate --owner land-check --timeout-seconds 30 -- true 2>/dev/null
-status=0; AGENT_CAPACITY_CORES=4 XDG_RUNTIME_DIR="$fixture_runtime" timeout 8 bun "$scratch/machine-capacity.mjs" run --class moderate --owner land-check --timeout-seconds 30 -- true 2>"$scratch/saturated-err" || status=$?
+AGENT_CAPACITY_CORES=4 SAFE_PUSH_LAND_HEAD=0123456 XDG_RUNTIME_DIR="$fixture_runtime" timeout 60 "${host[@]}" run --class moderate --owner land-check --timeout-seconds 30 -- true 2>/dev/null
+status=0; AGENT_CAPACITY_CORES=4 XDG_RUNTIME_DIR="$fixture_runtime" timeout 8 "${host[@]}" run --class moderate --owner land-check --timeout-seconds 30 -- true 2>"$scratch/saturated-err" || status=$?
 [[ $status == 124 && $(head -n 1 "$scratch/saturated-err" | jq -r .reason) == DEFER_BATCH_JOBS ]]
 held_run heavy late late run --timeout-seconds 30
 IFS= read -r event <&"${event_of[late]}"
@@ -494,12 +493,12 @@ collector_pids=()
 export AGENT_CAPACITY_DB=$original_capacity_db AGENT_CAPACITY_USAGE_LOG=$original_usage_log
 
 # Mode selects the profile; auto without an away signal is attended.
-mode=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode away)
+mode=$(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" mode away)
 [[ $(jq -r '.profile' <<<"$mode") == unattended ]]
-[[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class agent | jq -r '.profile') == unattended ]]
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode auto >/dev/null
-[[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class agent | jq -r '.profile') == attended ]]
-[[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode present | jq -r '.profile') == attended ]]
+[[ $(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class agent | jq -r '.profile') == unattended ]]
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" mode auto >/dev/null
+[[ $(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class agent | jq -r '.profile') == attended ]]
+[[ $(XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" mode present | jq -r '.profile') == attended ]]
 
 # A lease scope throttled by its own CPUQuota stalls in /proc/pressure/cpu and
 # agent.slice; that wait must not hold the queue. Other slices' wait still does.
@@ -513,7 +512,7 @@ psi "$user_manager/agent.slice" 90.00
 psi "$lease_scope" 90.00
 throttled_probe() {
   env -u AGENT_CAPACITY_CPU_PRESSURE AGENT_CAPACITY_CGROUP_ROOT="$cgroups" XDG_RUNTIME_DIR="$fixture_runtime" \
-    bun "$scratch/machine-capacity.mjs" probe --class moderate | jq -r '.reason // .decision' || true
+    "${host[@]}" probe --class moderate | jq -r '.reason // .decision' || true
 }
 [[ $(throttled_probe) != DEFER_CPU_PRESSURE ]]
 psi "$user_manager/app.slice" 90.00
@@ -521,19 +520,19 @@ psi "$user_manager/app.slice" 90.00
 
 # A deferred native client holds new gpu leases until it is admitted; away, so
 # the busy GPU Tom would be using does not defer the gpu lease first.
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode away >/dev/null
-gpu_probe() { XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class "$1" | jq -r '.reason' || true; }
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" mode away >/dev/null
+gpu_probe() { XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" probe --class "$1" | jq -r '.reason' || true; }
 echo 95 >"$AGENT_CAPACITY_GPU_BUSY"
 [[ $(gpu_probe native) == DEFER_GPU_BUSY ]]
 [[ $(gpu_probe gpu) == DEFER_NATIVE_WAITING ]]
 echo 0 >"$AGENT_CAPACITY_GPU_BUSY"
 [[ $(gpu_probe native) == RUN ]]
 [[ $(gpu_probe gpu) == RUN ]]
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode present >/dev/null
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" mode present >/dev/null
 
 # Release records what the scope used: two busy loops in the idle-weighted batch
 # slice, whose share of the CPU depends on the host's other load.
-XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run --class moderate --owner fixture:/measure \
+XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" run --class moderate --owner fixture:/measure \
   --timeout-seconds 30 -- bash -c 'cd / && timeout 3 sh -c "while :; do :; done" & timeout 3 sh -c "while :; do :; done"; wait' 2>/dev/null
 measured=$(jq -c 'select(.owner == "fixture:/measure")' "$AGENT_CAPACITY_USAGE_LOG")
 [[ $(jq -r '.shape' <<<"$measured") == sh ]]
@@ -546,7 +545,7 @@ for sample in 1 2 3; do
 done >>"$AGENT_CAPACITY_USAGE_LOG"
 for program in fixturebuild fixturerender fixturenew; do printf '#!/bin/sh\n' >"$scratch/$program"; chmod +x "$scratch/$program"; done
 sized() {
-  XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run --owner fixture:/sized --timeout-seconds 30 \
+  XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" run --owner fixture:/sized --timeout-seconds 30 \
     -- "$scratch/$1" 2>&1 >/dev/null | head -1 | jq -c '{class, requestedCpus, requestedMemoryMiB}'
 }
 [[ $(sized fixturebuild) == '{"class":"heavy","requestedCpus":4,"requestedMemoryMiB":3840}' ]]
@@ -562,7 +561,7 @@ mkdir -p "$watchdog"
 printf '%s\n' '{"at":"1970-01-01T00:20:00.000Z","intervalSeconds":30,"cgroups":[{"cgroup":"app.slice","cores":2.5},{"cgroup":"app.slice/app-build.scope","cores":2},{"cgroup":"session.slice/niri.scope","cores":2},{"cgroup":"agent.slice","cores":4.6},{"cgroup":"agent.slice/agent-capacity.slice","cores":2},{"cgroup":"agent.slice/agent-capacity.slice/agent-capacity-0123abcd.scope","cores":2},{"cgroup":"agent.slice/run-p2-i2.scope","cores":0.6}],"top":[{"pid":7,"cores":2,"cgroup":"app.slice/app-build.scope","command":"make -j"}]}' >"$watchdog/samples.jsonl"
 unleased_sample() {
   env -u AGENT_CAPACITY_CPU_PRESSURE CAPACITY_WATCHDOG_DIR="$watchdog" AGENT_CAPACITY_NOW="$1" \
-    XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" "${@:2}"
+    XDG_RUNTIME_DIR="$fixture_runtime" "${host[@]}" "${@:2}"
 }
 [[ $(unleased_sample 1300000 status | jq -c '.unleasedHeavy') == null ]]
 [[ $(unleased_sample 1210000 status | jq -c '.unleasedHeavy | {cores, windowSeconds, heavy: [.heavy[] | {cgroup, cores}]}') == '{"cores":4.6,"windowSeconds":30,"heavy":[{"cgroup":"app.slice/app-build.scope","cores":2}]}' ]]

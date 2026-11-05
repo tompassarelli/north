@@ -60,7 +60,7 @@ fn a_hub_change_selects_the_modules_of_every_crate_that_uses_it() {
 
 #[test]
 fn a_root_base_build_input_or_harness_change_selects_every_module() {
-    for file in ["src/main.rs", "tests/it/fleet_send.rs", "crates/north-base/src/build_inputs.rs", "Cargo.lock", "harness/defaults.toml", "bin/safe-push", "harness/skills/machine-capacity/scripts/machine-capacity.mjs"] {
+    for file in ["src/main.rs", "tests/it/fleet_send.rs", "crates/north-base/src/build_inputs.rs", "Cargo.lock", "harness/defaults.toml", "bin/safe-push", "harness/skills/machine-capacity/scripts/capacity-run-queue-overload.recorded.json"] {
         assert_eq!(selection(&["crates/north-runtime/src/runtime/bounded.rs", file]), Selection::Every, "{file}");
     }
     assert_eq!(Selection::Every.arguments(), "--test it");

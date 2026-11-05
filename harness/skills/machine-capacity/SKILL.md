@@ -12,10 +12,10 @@ metadata:
 
 ## Wrap heavy work
 
-- Set `capacity="$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs"` and invoke the helper as `bun "$capacity"`, because every caller must reach the one shared admission state and no machine-capacity program is on PATH.
+- Invoke the helper as `north capacity host`, because every caller must reach the one shared admission state.
 - Admit sustained multi-core or >1 GiB work through it, never through worker slots, because idle slots measure neither CPU nor memory.
 - Run cargo build, full `bun test` suites (inside the landing, never as a pre-landing step), `bun wisp map build` and headless wisp renders (`view`, `headless --render`) through `run`; cargo test, tsc --build and multi-file bun test route through admission automatically; cargo check and single test files stay local.
-- Use `bun "$capacity" run --class CLASS --owner OWNER --timeout-seconds N -- COMMAND ARG...`, with the timeout covering setup and downloads, because every run needs a finite bound. Run `bun "$capacity" estimate -- CMD` before staffing local work, because leases size from it.
+- Use `north capacity host run --class CLASS --owner OWNER --timeout-seconds N -- COMMAND ARG...`, with the timeout covering setup and downloads, because every run needs a finite bound. Run `north capacity host estimate -- CMD` before staffing local work, because leases size from it.
 - Supervise the wrapper, queued or running, through terminal `RELEASED` and never detach its work, because a dropped wrapper drops its ticket and a killed one leaves its allowance charged.
 - Retry a DEFER after a known release or 30 seconds and never busy-poll, because polling adds the load the queue exists to avoid.
 - Treat RUN/RESERVED as permission to continue, NESTED as a run under the batch lease it started from, and RECLAIMED as expired leases, never as permission to kill peers, because peers belong to their owners.

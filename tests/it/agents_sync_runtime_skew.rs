@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use tempfile::TempDir;
 
-const SCRIPT: &str = "harness/skills/machine-capacity/scripts/machine-capacity.mjs";
+const SCRIPT: &str = "harness/skills/machine-capacity/scripts/sample.sh";
 const SKILL: &str = "---\nname: machine-capacity\ndescription: Bound local work.\ngrounded: 2026-10-01\nwritten: 2026-10-01\n---\n";
 const OPERATOR: &str = r#"{
   "rootOrder": ["machine-capacity"],
@@ -128,7 +128,7 @@ impl Host {
     }
 
     fn projected(&self) -> String {
-        fs::read_to_string(self.path("state/north/agents/current/skills/shared/machine-capacity/scripts/machine-capacity.mjs")).unwrap()
+        fs::read_to_string(self.path("state/north/agents/current/skills/shared/machine-capacity/scripts/sample.sh")).unwrap()
     }
 
     fn projected_revision(&self) -> String {

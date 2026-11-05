@@ -20,9 +20,9 @@ Resolve the helper as in `SKILL.md`. Reserve before admitting a
 compute-using child, renew before its bound expires, and retain the release:
 
 ```bash
-bun "$capacity" reserve --class agent --owner "codex:/root/task" --timeout-seconds 1800
-bun "$capacity" renew --lease LEASE --owner "codex:/root/task" --timeout-seconds 1800
-bun "$capacity" release --lease LEASE --owner "codex:/root/task"
+north capacity host reserve --class agent --owner "codex:/root/task" --timeout-seconds 1800
+north capacity host renew --lease LEASE --owner "codex:/root/task" --timeout-seconds 1800
+north capacity host release --lease LEASE --owner "codex:/root/task"
 ```
 
 These values illustrate a bounded run, not a deadline prediction. Persistent
@@ -117,7 +117,7 @@ the default 4 GiB when omitted. Offline Warcraft clients may request 1.5 GiB.
 Only native clients allow this override; batch and agent classes keep their
 class allowances. It applies to newly started scopes only.
 
-Use `bun "$capacity" session --class native --new-clients N --owner OWNER -- COMMAND ARG...`
+Use `north capacity host session --class native --new-clients N --owner OWNER -- COMMAND ARG...`
 for a foreground client or desktop intended to remain until explicitly
 stopped. It sets systemd's runtime limit to infinity but retains the same atomic
 admission, aggregate CPU quota, memory ceiling, and descendant containment.

@@ -26,7 +26,6 @@ mod capacity_native_clients;
 mod capacity_native_pair;
 mod capacity_native_quiet;
 mod capacity_native_wait;
-mod capacity_north_path;
 mod capacity_orphan_reaper;
 mod capacity_overload;
 mod capacity_queue_ticket;

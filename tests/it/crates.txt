@@ -33,7 +33,6 @@ capacity_native_clients north-capacity
 capacity_native_pair north-capacity
 capacity_native_quiet north-capacity
 capacity_native_wait north-capacity
-capacity_north_path north-capacity-host
 capacity_orphan_reaper north-capacity
 capacity_overload north-capacity
 capacity_queue_ticket north-capacity

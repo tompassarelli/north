@@ -4,7 +4,7 @@ use north_core::foundation::shim;
 use serde_json::Value;
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Output};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -109,10 +109,6 @@ impl Host {
 
     pub fn path(&self, name: &str) -> PathBuf {
         self.scratch.path().join(name)
-    }
-
-    pub fn bundle() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/skills/machine-capacity/scripts/machine-capacity.mjs")
     }
 
     pub fn launcher() -> String {

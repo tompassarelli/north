@@ -104,10 +104,6 @@ paths = ["crates/north-base/src/foundation/**", "crates/north-base/src/error.rs"
 responsibility = "Error type, clock port and time values, identifiers."
 may_use = []
 
-[[generated]]
-paths = ["harness/skills/machine-capacity/scripts/machine-capacity.mjs"]
-producer = "harness/skills/machine-capacity/scripts/build-machine-capacity"
-
 [[module]]
 name = "platform"
 paths = ["crates/north-base/src/platform/**"]
