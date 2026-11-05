@@ -10,6 +10,7 @@ pub mod wisp_payoff;
 pub mod frozen_topics;
 pub mod disk_budget;
 pub mod github;
+pub mod github_app;
 pub mod hook_commands;
 pub mod host;
 pub mod rolling_issue;

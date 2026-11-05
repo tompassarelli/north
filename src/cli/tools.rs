@@ -71,6 +71,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("watch", crate::watch::run),
     ("ssh-argv", crate::platform::ssh::run),
     ("provider-capacity", crate::ops::provider_capacity::run),
+    ("gh-app-token", crate::platform::github_app::run),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

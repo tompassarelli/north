@@ -7,7 +7,10 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
+base64.workspace = true
+percent-encoding.workspace = true
 regex.workspace = true
+ring.workspace = true
 rusqlite.workspace = true
 rustix.workspace = true
 ryu.workspace = true

@@ -58,6 +58,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("flow", Status),
     ("follows-release", Diagnosis),
     ("gate", TomFacing),
+    ("gh-app-token", Bookkeeping),
     ("git-maintenance-nightly", Bookkeeping),
     ("grounding", Diagnosis),
     ("guard", Diagnosis),
