@@ -268,6 +268,11 @@ fn promote(options: &Options) -> Result<Outcome, String> {
     }
     let shadowed = shadow(&binary, &repositories, &options.checker, options.shadow_minutes)?;
     println!("north land promote: shadow: {shadowed}");
+    let now = fs::read_link(runtime.current()).ok();
+    if now.as_deref() != Some(target.as_path()) {
+        let moved = now.map_or_else(|| "nothing".to_owned(), |link| link.display().to_string());
+        return Err(format!("{} moved from {} to {moved} while the candidate replayed", runtime.current().display(), target.display()));
+    }
     if options.dry_run {
         return Ok(Outcome::Settled(format!("dry run: {replayed} round(s) matched; {} would point at {}", runtime.lander().display(), target.display())));
     }

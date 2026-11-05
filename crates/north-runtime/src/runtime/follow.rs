@@ -30,9 +30,9 @@ pub(super) fn follow(layout: &Layout, repo: &Path) -> Result<(), Failure> {
 pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
     let here = update::update(layout);
     std::thread::scope(|scope| {
-        let lander = here.is_ok().then(|| scope.spawn(|| follow_lander(layout)));
+        let lander = scope.spawn(|| follow_lander(layout));
         let elsewhere = deploy::deploy(layout, &[]);
-        let lander = lander.map_or(Ok(()), |held| held.join().unwrap_or_else(|_| Err(failed(1, "lander promotion panicked"))));
+        let lander = lander.join().unwrap_or_else(|_| Err(failed(1, "lander promotion panicked")));
         here.and(elsewhere).and(lander)
     })
 }

@@ -5,8 +5,8 @@ use north_landing::land::queue::{self, Ticket};
 
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
 
-fn candidate_script(verdict: &str) -> String {
-    format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n[ \"$1 $2\" = \"land replay\" ] && echo 'replay: verdict {verdict}'\nexit 0\n")
+fn candidate_script(verdict: &str, during_replay: &str) -> String {
+    format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n[ \"$1 $2\" = \"land replay\" ] && {{ {during_replay} echo 'replay: verdict {verdict}'; }}\nexit 0\n")
 }
 
 const UNFIT_LOG: &str = "safe-push: land check (inferred): cargo clippy --all-targets --locked --offline -- -D warnings\nerror: failed to download `ahash v0.8.12`\n\nCaused by:\n  attempting to make an HTTP request, but --offline was specified\nsafe-push: land check cargo clippy exited 101; log: /tmp/land-check.log; NOT pushed.\nsafe-push: verdict refused\n";
@@ -30,6 +30,10 @@ struct Promoted {
 }
 
 fn dry_run(candidate_verdict: &str, lane_b_verdict: impl FnOnce(&Path) -> String) -> Promoted {
+    dry_run_while(candidate_verdict, ":;", lane_b_verdict)
+}
+
+fn dry_run_while(candidate_verdict: &str, during_replay: &str, lane_b_verdict: impl FnOnce(&Path) -> String) -> Promoted {
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
     std::fs::write(root.join("gitconfig"), "[user]\n\tname = t\n\temail = t@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n").unwrap();
@@ -59,7 +63,7 @@ fn dry_run(candidate_verdict: &str, lane_b_verdict: impl FnOnce(&Path) -> String
     decided(&done, 2, &ticket("lane-b", &unfit, lane_b_verdict(&log)));
     let candidate = state.join("north/runtimes/candidate/tree/bin/north");
     std::fs::create_dir_all(candidate.parent().unwrap()).unwrap();
-    north_base::foundation::shim::write_executable(&candidate, candidate_script(candidate_verdict));
+    north_base::foundation::shim::write_executable(&candidate, candidate_script(candidate_verdict, during_replay));
     std::os::unix::fs::symlink("runtimes/candidate", state.join("north/current")).unwrap();
     let arguments = ["promote", "--dry-run", "--shadow-minutes", "0", "--repo", checkout.to_str().unwrap()].join("\n");
     let output = Command::new(std::env::current_exe().unwrap())
@@ -109,4 +113,12 @@ fn promote_holds_the_lander_link_naming_the_round_when_the_candidate_refuses_a_l
     let stdout = &promoted.stdout;
     assert!(!promoted.status, "{stdout}");
     assert!(stdout.contains("north land promote: refused: round lane-a on ") && stdout.contains("recorded landed but the candidate replayed failed; the lander link is unchanged"), "{stdout}");
+}
+
+#[test]
+fn promote_leaves_the_lander_link_when_current_moves_while_the_candidate_replays() {
+    let promoted = dry_run_while("landed", "ln -sfn runtimes/newer \"$XDG_STATE_HOME/north/current\";", unfit_signature);
+    let stdout = &promoted.stdout;
+    assert!(!promoted.status, "{stdout}");
+    assert!(stdout.contains("refused: ") && stdout.contains("moved from runtimes/candidate to runtimes/newer while the candidate replayed; the lander link is unchanged"), "{stdout}");
 }
