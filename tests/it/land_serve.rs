@@ -502,7 +502,8 @@ fn serve_reaps_a_previous_landers_remote_offload_runs_before_it_serves() {
     fixture.enqueue(&a, None);
     assert!(fixture.serve().status.success());
     let calls = fixture.read("north-calls");
-    let reap = calls.lines().position(|line| line == "capacity offload reap --owner north-land").expect(&calls);
+    let owner = format!("capacity offload reap --owner north-land-{}", fixture.queue().file_name().unwrap().to_str().unwrap());
+    let reap = calls.lines().position(|line| line == owner).expect(&calls);
     let first_check = fixture.read("checks");
     assert!(!first_check.is_empty());
     assert_eq!(reap, 0, "the reap is the first thing the lander asks of north: {calls}");
@@ -514,7 +515,8 @@ fn serve_marks_its_checks_with_the_offload_owner_the_reaper_matches() {
     let a = fixture.lane("a", "a.txt", "a");
     fixture.enqueue(&a, None);
     assert!(fixture.serve().status.success());
-    assert!(fixture.read("env-1").lines().any(|line| line == "NORTH_OFFLOAD_OWNER=north-land"));
+    let owner = format!("NORTH_OFFLOAD_OWNER=north-land-{}", fixture.queue().file_name().unwrap().to_str().unwrap());
+    assert!(fixture.read("env-1").lines().any(|line| line == owner), "{}", fixture.read("env-1"));
 }
 
 #[test]

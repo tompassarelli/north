@@ -2,6 +2,9 @@ use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::atomic::Ordering;
+
+use super::lander::Lander;
 
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE"];
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
@@ -38,8 +41,8 @@ pub struct Started {
     log: PathBuf,
 }
 
-pub fn start(checker: &[String], worktree: &Path, base: &str, log: &Path, own_group: bool, round: &str, runner: Option<&str>) -> Result<Started, Verdict> {
-    let Some((program, prefix)) = checker.split_first() else {
+pub fn start(lander: &Lander, worktree: &Path, base: &str, log: &Path, own_group: bool, runner: Option<&str>) -> Result<Started, Verdict> {
+    let Some((program, prefix)) = lander.checker.split_first() else {
         return Err(Verdict::Transient("no checker configured".to_owned()));
     };
     if let Some(parent) = log.parent()
@@ -52,7 +55,7 @@ pub fn start(checker: &[String], worktree: &Path, base: &str, log: &Path, own_gr
         Err(error) => return Err(Verdict::Transient(format!("{}: {error}", log.display()))),
     };
     let mut command = Command::new(program);
-    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", super::lander::OFFLOAD_OWNER).env(ROUND, round);
+    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", &lander.offload_owner).env(ROUND, lander.round.load(Ordering::Relaxed).to_string());
     if own_group {
         command.process_group(0);
     }
@@ -104,8 +107,8 @@ impl Started {
     }
 }
 
-pub fn run(checker: &[String], worktree: &Path, base: &str, log: &Path, round: &str) -> Verdict {
-    match start(checker, worktree, base, log, false, round, None) {
+pub fn run(lander: &Lander, worktree: &Path, base: &str, log: &Path) -> Verdict {
+    match start(lander, worktree, base, log, false, None) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     }

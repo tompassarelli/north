@@ -7,6 +7,7 @@ pub mod credential;
 pub mod culprit;
 pub mod enqueue;
 pub mod first_commit;
+pub mod hold;
 pub mod incidents;
 pub mod lander;
 pub mod pause;

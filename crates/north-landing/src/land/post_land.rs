@@ -26,6 +26,7 @@ pub struct Run {
     pub log: PathBuf,
     pub outcome: PathBuf,
     pub ledger: PathBuf,
+    pub offload_owner: String,
 }
 
 pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>) {
@@ -38,6 +39,7 @@ pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>) {
         log: lander.queue.join("logs").join(format!("post-land-{short}.log")),
         outcome: lander.queue.join("logs").join(format!("post-land-{short}.outcome")),
         ledger: state_home().join("safe-push").join("post-land.tsv"),
+        offload_owner: lander.offload_owner.clone(),
     };
     std::thread::spawn(move || {
         let verdict = settle(&landed, &run, send);
@@ -80,7 +82,7 @@ fn execute(program: &str, prefix: &[String], landed: &Landed, run: &Run) -> Verd
         Err(error) => return Verdict::Transient(format!("{}: {error}", run.log.display())),
     };
     let mut command = Command::new(program);
-    command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", super::lander::OFFLOAD_OWNER);
+    command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner);
     for name in super::checks::SCRUBBED {
         command.env_remove(name);
     }

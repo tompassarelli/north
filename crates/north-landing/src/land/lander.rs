@@ -16,11 +16,16 @@ pub struct Lander {
     pub queue: PathBuf,
     pub checker: Vec<String>,
     pub app_token: Vec<String>,
+    pub offload_owner: String,
     pub round: std::sync::atomic::AtomicU64,
 }
 
 pub(crate) fn state_home() -> PathBuf {
     std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"))
+}
+
+pub fn offload_owner(queue: &Path) -> String {
+    format!("{OFFLOAD_OWNER}-{}", queue.file_name().and_then(|name| name.to_str()).unwrap_or_default())
 }
 
 fn plain(text: &str) -> bool {
@@ -38,11 +43,13 @@ fn ssh(host: &str, script: &str) -> Result<String, String> {
 impl Lander {
     pub fn new(repo: &Path, checker: Vec<String>, depth: usize) -> Result<Self, String> {
         let origin = git(repo, &["remote", "get-url", "--push", "origin"])?;
+        let queue = queue::directory(&state_home(), &origin);
         Ok(Self {
             repo: repo.to_owned(),
             worktree: candidate::lander_worktree(repo, "lander")?,
             spares: (2..=depth).map(|level| candidate::lander_worktree(repo, &format!("lander-{level}"))).collect::<Result<_, _>>()?,
-            queue: queue::directory(&state_home(), &origin),
+            offload_owner: offload_owner(&queue),
+            queue,
             checker,
             app_token: vec![super::credential::MINT.to_owned()],
             round: std::sync::atomic::AtomicU64::new(0),

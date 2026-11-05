@@ -22,6 +22,7 @@ fn fixture(root: &Path, script: &str) -> (Landed, Run) {
         log: root.join("logs/post-land.log"),
         outcome: root.join("logs/post-land.outcome"),
         ledger: root.join("post-land.tsv"),
+        offload_owner: "north-land-test".into(),
     };
     (landed, run)
 }

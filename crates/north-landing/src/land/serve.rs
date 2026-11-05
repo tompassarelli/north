@@ -14,6 +14,7 @@ use super::credential;
 use super::telemetry::Stages;
 use super::push_refusal::{self, Backoff, Refusal};
 use super::records::{self, Candidate, Decision};
+use super::hold::{self, Hold};
 use super::{incidents, pause, precheck, queue, red, sheriff, speculate, watchdog};
 use super::repositories;
 
@@ -395,7 +396,11 @@ fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
                 eprintln!("north land serve: {error}");
                 return 1;
             }
-            Err(error) => eprintln!("north land serve: {error}"),
+            Err(error) => {
+                eprintln!("north land serve: {}: {error}", lander.repo.display());
+                back_off(lander, &mut backoff, &error, retire);
+                continue;
+            }
         }
         std::thread::sleep(POLL);
     }
@@ -448,6 +453,23 @@ fn lander_for(repo: &Path, options: &Options) -> Result<Lander, String> {
     Ok(Lander { app_token: options.app_token.clone(), ..lander })
 }
 
+enum Opened {
+    Serving(Lander, Hold),
+    Held(String),
+}
+
+fn open(repo: &Path, options: &Options) -> Result<Opened, String> {
+    let lander = lander_for(repo, options)?;
+    match hold::take(&lander.queue, &lander.repo) {
+        Ok(hold) => {
+            reap_offloads(&lander);
+            Ok(Opened::Serving(lander, hold))
+        }
+        Err(reason) if options.all => Ok(Opened::Held(reason)),
+        Err(reason) => Err(reason),
+    }
+}
+
 fn exit_code(codes: impl IntoIterator<Item = u8>) -> u8 {
     codes.into_iter().fold(0, |worst, code| match (worst, code) {
         (1, _) | (_, 1) => 1,
@@ -469,23 +491,23 @@ fn targets(options: &Options) -> (Vec<PathBuf>, Vec<String>) {
     (repos, unserved)
 }
 
-fn reap_offloads() {
-    let status = std::process::Command::new(after::follow::program()).args(["capacity", "offload", "reap", "--owner", lander::OFFLOAD_OWNER]).stdin(std::process::Stdio::null()).status();
+fn reap_offloads(lander: &Lander) {
+    let status = std::process::Command::new(after::follow::program()).args(["capacity", "offload", "reap", "--owner", &lander.offload_owner]).stdin(std::process::Stdio::null()).status();
     if !status.is_ok_and(|status| status.success()) {
-        println!("north land: could not reap the remote offload runs of a previous lander");
+        println!("north land: could not reap the remote offload runs of a previous lander of {}", lander.repo.display());
     }
 }
 
 fn serve_once(options: &Options) -> u8 {
-    reap_offloads();
     let (repos, unserved) = targets(options);
     for reason in unserved {
         println!("north land: not serving: {reason}");
     }
     let mut landers = Vec::new();
     for repo in &repos {
-        match lander_for(repo, options) {
-            Ok(lander) => landers.push(lander),
+        match open(repo, options) {
+            Ok(Opened::Serving(lander, hold)) => landers.push((lander, hold)),
+            Ok(Opened::Held(reason)) => println!("north land: not serving: {reason}"),
             Err(error) => {
                 eprintln!("north land serve: {error}");
                 return 1;
@@ -494,13 +516,12 @@ fn serve_once(options: &Options) -> u8 {
     }
     let retire = AtomicBool::new(false);
     std::thread::scope(|scope| {
-        let handles: Vec<_> = landers.iter().map(|lander| scope.spawn(|| serve_repository(lander, true, &retire))).collect();
+        let handles: Vec<_> = landers.iter().map(|(lander, _)| scope.spawn(|| serve_repository(lander, true, &retire))).collect();
         exit_code(handles.into_iter().map(|handle| handle.join().unwrap_or(1)))
     })
 }
 
 fn serve_forever(options: &Options) -> u8 {
-    reap_offloads();
     let mut runtime = RuntimeWatch::new(runtime_link());
     let retire = Arc::new(AtomicBool::new(false));
     let mut running: HashMap<PathBuf, std::thread::JoinHandle<u8>> = HashMap::new();
@@ -529,10 +550,21 @@ fn serve_forever(options: &Options) -> u8 {
                 if running.contains_key(&repo) {
                     continue;
                 }
-                match lander_for(&repo, options) {
-                    Ok(lander) => {
+                match open(&repo, options) {
+                    Ok(Opened::Serving(lander, hold)) => {
                         let retire = Arc::clone(&retire);
-                        running.insert(repo, std::thread::spawn(move || serve_repository(&lander, false, &retire)));
+                        running.insert(
+                            repo,
+                            std::thread::spawn(move || {
+                                let _hold = hold;
+                                serve_repository(&lander, false, &retire)
+                            }),
+                        );
+                    }
+                    Ok(Opened::Held(reason)) => {
+                        if reported.insert(reason.clone()) {
+                            println!("north land: not serving: {reason}");
+                        }
                     }
                     Err(error) if !seeded => {
                         eprintln!("north land serve: {error}");
