@@ -8,6 +8,8 @@ mod digest;
 mod files;
 #[path = "catalog/generation.rs"]
 mod generation;
+#[path = "catalog/live_refs.rs"]
+pub mod live_refs;
 #[path = "catalog/owner_modules.rs"]
 pub mod owner_modules;
 #[cfg(test)]
@@ -83,6 +85,7 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
             );
         }
         "check-owners" => registration_checks::check_registered_owners(rest)?,
+        "live-refs" => live_refs::run(rest)?,
         "stale" => {
             let json = only_json(rest)?;
             let stale = stale_skills(&read_current()?)?;
@@ -393,7 +396,7 @@ fn configuration<T>(message: impl Into<String>) -> NorthResult<T> {
 }
 
 fn usage() -> String {
-    "usage: north config agents [sync|stale|status|on|off|path|inspect|check-hook-paths|check-owners] ...".into()
+    "usage: north config agents [sync|stale|status|on|off|path|inspect|check-hook-paths|check-owners|live-refs] ...".into()
 }
 
 #[cfg(test)]
