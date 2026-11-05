@@ -2,6 +2,7 @@ pub mod board;
 pub mod calibration;
 pub mod catalog;
 pub mod claims;
+pub mod fixtures;
 pub mod client;
 pub mod ingest_lock;
 pub mod ingest_log;

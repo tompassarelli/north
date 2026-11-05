@@ -1,0 +1,29 @@
+[package]
+name = "north-threads"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-pace = { path = "../north-pace" }
+regex.workspace = true
+rusqlite.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+toml_edit.workspace = true
+tokio.workspace = true
+
+[features]
+test-support = []
+
+[lints]
+workspace = true

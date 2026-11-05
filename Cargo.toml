@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/north-base", "crates/north-pace", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-runtime", "crates/north-dispatch"]
-default-members = [".", "crates/north-base", "crates/north-pace", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-runtime", "crates/north-dispatch"]
+members = ["crates/north-base", "crates/north-pace", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-runtime", "crates/north-dispatch"]
+default-members = [".", "crates/north-base", "crates/north-pace", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-runtime", "crates/north-dispatch"]
 
 [workspace.dependencies]
 crossterm = "0.28.1"

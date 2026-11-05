@@ -14,7 +14,7 @@ pub fn at(text: &str) -> i64 {
 
 pub fn ledger() -> Connection {
     let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(include_str!("../../threads/runs/fixtures/ledger.sql")).unwrap();
+    db.execute_batch(crate::threads::fixtures::LEDGER_SCHEMA).unwrap();
     db.execute_batch(crate::threads::landing::SCHEMA).unwrap();
     db.execute_batch(include_str!("fixtures/ledger.sql")).unwrap();
     db

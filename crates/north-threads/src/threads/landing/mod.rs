@@ -15,7 +15,7 @@ use crate::foundation::clock::Timestamp;
 
 pub const VERBS: [&str; 1] = ["land-train"];
 
-pub(crate) const SCHEMA: &str = "
+pub const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS landings(
   id INTEGER PRIMARY KEY,
   repo TEXT NOT NULL,

@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-pace = { path = "../north-pace" }
+north-threads = { path = "../north-threads", features = ["test-support"] }
 crossterm.workspace = true
 ratatui.workspace = true
 fancy-regex.workspace = true

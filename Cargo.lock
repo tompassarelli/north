@@ -1002,6 +1002,7 @@ dependencies = [
  "fancy-regex",
  "north-base",
  "north-pace",
+ "north-threads",
  "percent-encoding",
  "proptest",
  "ratatui",
@@ -1123,6 +1124,23 @@ dependencies = [
  "north-core",
  "north-dispatch",
  "percent-encoding",
+ "regex",
+ "rusqlite",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-threads"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-pace",
  "regex",
  "rusqlite",
  "rustix 0.38.44",

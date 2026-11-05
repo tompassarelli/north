@@ -408,10 +408,16 @@ of 17,002 CPU-s over the window (26%). Wall is the predicted leaf-edit `cargo te
 | 6 | north-dispatch | ops/dispatch, tune, check, dividend, pacing, laptop, resident_cap | 15.8k (7.4k) | 10k | 85 | runtime, ops, guard | 22.7 | 765 | 7.9 s (cloud 8.3 s, 25.9 CPU-s) |
 | 7 | north-capacity | capacity minus host, gate, watchdog | 6.2k (3.4k) | 10k | 68 | dispatch, capacity-host, runtime, guard, ops | 25.2 | 442 | 8.4 s |
 | 8 | north-providers | providers, codex, ledger | 7.1k (3.9k) | 10k | 50 | dispatch, runtime, guard, ops, tui | 25.2 | 325 | 8.5 s |
-| 9 | north-threads | threads, work_items | 10.8k (5.9k) | 10k | 62 | everything above it except capacity | 30.9 | 50 | 9.4 s |
+| 9 | north-threads | threads, work_items | 10.8k (5.9k) | 10k | 62 | everything above it except capacity | 30.9 | 50 | 9.4 s (cloud 12.3 s; `-p` 1.5 s) |
 | 10 | north-fleet | fleet, claude_stream | 15.9k (7.8k) | 10k | 91 | everything above it except capacity | 31.6 | 9 | 9.8 s |
 | 11 | north-pace | pace, router, usage | 11.1k (6.0k) | 10k | 30 | everything but capacity and landing | 34.9 | −96 | 10.7 s |
 | - | north-tui (landed) | tui | 3.4k (1.6k) | 25k | 10 | none | 8.5 | 232 | 5 s |
+
+Box 4-14 measured `north-threads` after its move, on a 4-CPU cloud worker at load 3.6 (Cranelift dev profile,
+median of 3, a blank line appended to `threads/withheld.rs`): `cargo test --workspace --no-run` 12.3 s, against
+12.7 s for the same edit on the parent main; `cargo test -p north-threads --no-run` 1.5 s, against 5.8 s for
+`-p north-core` on the parent. The workspace edit still rebuilds every crate above threads, as the model's 30.9 CPU-s
+per edit against 31.7 says, and the crate's own test loop is 3.9 times faster.
 
 The leaf moves (ranks 1 to 5) can land first, each depending on north-core the way `north-tui` does. The hubs
 (ranks 6 to 11) save little themselves. They leave north-core so the residual becomes a leaf, so north-core's

@@ -146,7 +146,7 @@ may_use = ["ledger", "fleet", "autoland_status", "ops", "usage", "capacity", "sh
 
 [[module]]
 name = "threads"
-paths = ["crates/north-core/src/threads/**", "crates/north-core/src/work_items.rs"]
+paths = ["crates/north-threads/src/threads/**", "crates/north-threads/src/work_items.rs"]
 responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, remote host access."
 may_use = ["domain", "platform", "foundation", "crate-roots"]
 
@@ -270,7 +270,7 @@ may_use = []
 name = "crate-roots"
 paths = ["crates/*/src/lib.rs"]
 responsibility = "Crate roots: module declarations and the re-exports that keep crate:: paths stable across the workspace split."
-may_use = ["foundation", "platform", "shell", "autoland_status", "domain", "usage"]
+may_use = ["foundation", "platform", "shell", "autoland_status", "domain", "usage", "threads"]
 
 [[registered]]
 id = "guard.corpus_scan"
@@ -360,7 +360,7 @@ reason = "Lazy claim and stranded caches behind a &self Env shared by every meas
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
-path = "crates/north-core/src/threads/board/issues.rs"
+path = "crates/north-threads/src/threads/board/issues.rs"
 reason = "rusqlite needs &mut Connection for transactions while Board hands out &self reads."
 
 [[rust_habits.allow]]
