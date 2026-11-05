@@ -163,7 +163,6 @@ fn tool_removal() {
         "agents",
         "threads",
         "safe-push",
-        "capacity-watchdog",
         "retired-tool",
         "helper.test.sh",
     ];

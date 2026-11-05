@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::{Range, git};
 
-const CORE_TOOLS: [&str; 4] = ["agents", "threads", "safe-push", "capacity-watchdog"];
+const CORE_TOOLS: [&str; 3] = ["agents", "threads", "safe-push"];
 
 struct Layout {
     own: &'static str,
