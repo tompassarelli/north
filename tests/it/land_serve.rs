@@ -12,6 +12,9 @@ mod sheriff;
 #[path = "land_serve/precheck.rs"]
 mod precheck;
 
+#[path = "land_serve/promote.rs"]
+mod promote;
+
 fn git(directory: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").arg("-C").arg(directory).args(arguments).output().unwrap();
     assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
@@ -161,10 +164,15 @@ impl Fixture {
     }
 
     fn command_with<const N: usize>(&self, selection: [&str; N]) -> Command {
+        let mut command = self.north();
+        command.args(["land", "serve", "--once"]).args(selection).args(["--checker", self.trace.join("checker").to_str().unwrap(), "--app-token", self.trace.join("mint").to_str().unwrap()]);
+        command
+    }
+
+    fn north(&self) -> Command {
         let path = format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap());
         let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
         command
-            .args(["land", "serve", "--once"]).args(selection).args(["--checker", self.trace.join("checker").to_str().unwrap(), "--app-token", self.trace.join("mint").to_str().unwrap()])
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("XDG_STATE_HOME", &self.state)

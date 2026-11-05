@@ -24,6 +24,7 @@ Commands:
   autoland-wait --sha SHA --branch BRANCH --destination BRANCH  Wait for its landed result
   land-abandon [BRANCH | --superseded BRANCH]    Delete a superseded or handed-back branch from origin
   land serve [--once] [--repo DIR] [--checker PROGRAM]  Land the queued lanes of this origin: one candidate, checked once by safe-push --check-candidate, pushed to main by lease
+  land promote [--dry-run] [--shadow-minutes N] [--repo DIR]  Replay recorded rounds and shadow the queue with the current runtime, then point the lander link at it
   land withdraw TICKET --reason TEXT [--repo DIR]  Move a queued ticket out of the landing queue, tell its session why and record the incident
   land scan dep-gate|tool-removal|test-integrity BASE..HEAD  Run one landing scan on an outgoing range: the dependency gate, a removed bin tool, or an added mutation marker or test skip
   land scan denylist|commit-email|native-ref|secrets|publication ARGS  Run one outgoing-change scan: the private-value deny-list, author and committer emails, native item references, gitleaks, or all publication scans
