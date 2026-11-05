@@ -1,3 +1,3 @@
-pub use north_core::{fleet, foundation, platform, shell, threads};
+pub use north_core::{fleet, foundation, nix_command, platform, shell, threads};
 
 pub mod capacity;

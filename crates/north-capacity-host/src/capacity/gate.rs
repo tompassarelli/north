@@ -4,9 +4,10 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 
 use super::effects::Host;
+use crate::nix_command::{self, Inner};
 use crate::shell;
 
-const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time", "env"];
+const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time"];
 const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
 const EXECUTED: &str = "NORTH_CAPACITY_GATE_EXECUTED";
 const TOOLCHAIN_MISSING: u8 = 75;
@@ -148,14 +149,11 @@ pub fn class_of(words: &[String], depth: usize) -> Option<Class> {
         "cargo" => cargo(args),
         "bun" => bun(args),
         "depbox" => args.iter().position(|word| word == "--").and_then(|marker| class_of(&args[marker + 1..], depth + 1)),
-        "nix" if args.first().is_some_and(|word| word == "develop") => {
-            args.iter().position(|word| word == "-c" || word == "--command").and_then(|marker| class_of(&args[marker + 1..], depth + 1))
-        }
-        "sh" | "bash" => {
-            let marker = args.iter().position(|word| word.starts_with('-') && !word.starts_with("--") && word.contains('c'))?;
-            script(args.get(marker + 1)?, depth + 1)
-        }
-        _ => None,
+        _ => match nix_command::unwrap(words)? {
+            Inner::Command { words, .. } => class_of(&words, depth + 1),
+            Inner::Script(source) => script(source, depth + 1),
+            Inner::NixBuild => Some(Class::Heavy),
+        },
     }
 }
 
@@ -172,7 +170,7 @@ fn cargo(args: &[String]) -> Option<Class> {
     let mut words = args.iter();
     let subcommand = loop {
         let word = words.next()?;
-        if matches!(word.as_str(), "-C" | "--config" | "-Z" | "--color") {
+        if matches!(word.as_str(), "-C" | "--manifest-path" | "--config" | "-Z" | "--color") {
             words.next();
         } else if !word.starts_with('-') && !word.starts_with('+') {
             break word.as_str();

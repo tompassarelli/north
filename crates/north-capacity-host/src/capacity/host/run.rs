@@ -258,7 +258,7 @@ fn timeout_text(timeout_seconds: Option<u64>) -> String {
 
 pub fn north_command() -> String {
     env("AGENT_CAPACITY_NORTH")
-        .or_else(|| std::env::current_exe().ok().map(|path| path.to_string_lossy().into_owned()))
+        .or_else(|| std::env::current_exe().ok().filter(|path| path.exists()).map(|path| path.to_string_lossy().into_owned()))
         .unwrap_or_else(|| format!("{}/.local/state/north/current/north", env("HOME").unwrap_or_default()))
 }
 

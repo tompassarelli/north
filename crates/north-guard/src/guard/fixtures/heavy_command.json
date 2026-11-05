@@ -1,242 +1,442 @@
 [
   [
     "cargo build --release",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "cargo test --locked",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "cargo check --offline",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "cargo check",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "cargo clippy --all-targets -- -D warnings",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "cargo clippy --all-targets --locked --offline -- -D warnings",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "cargo nextest run",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "cargo bench",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "cargo doc --no-deps",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "cargo run --bin north -- capacity status",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "cargo rustc -- -C opt-level=3",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "cargo llvm-cov --workspace",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "cargo mutants -p north-core",
-    "route"
+    "route",
+    "none"
   ],
   [
     "cargo +nightly clippy",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "cargo -C crates/north-core check",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "cargo --manifest-path crates/north-core/Cargo.toml clippy",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "cargo fmt --check",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "cargo metadata --format-version 1",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "cargo --version",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "cargo tree -p north-core",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "cargo --manifest-path crates/north-core/Cargo.toml fmt",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "tsc --build",
-    "route"
+    "route",
+    "none"
   ],
   [
     "bun run tsc -b",
-    "route"
+    "route",
+    "none"
   ],
   [
     "tsc --noEmit",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "bun test a.test.ts b.test.ts",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "bun test --timeout 1000 a.test.ts b.test.ts",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "bun test a.test.ts",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "bun test --preload setup.ts a.test.ts",
-    "allow"
+    "allow",
+    "moderate"
   ],
   [
     "bun test",
-    "refuse"
+    "refuse",
+    "moderate"
   ],
   [
     "bun test -t selected",
-    "refuse"
+    "refuse",
+    "moderate"
   ],
   [
     "bun wisp map build",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "bun wisp headless --render out --frames 3",
-    "route"
+    "route",
+    "none"
   ],
   [
     "bun wisp view scene out",
-    "route"
+    "route",
+    "none"
   ],
   [
     "bun wisp map rebuild",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "systemctl --user set-property unit.scope CPUQuota=50%",
-    "refuse"
+    "refuse",
+    "none"
   ],
   [
     "systemd-run --property=CPUWeight=20 -- echo ready",
-    "refuse"
+    "refuse",
+    "none"
   ],
   [
     "tee /sys/fs/cgroup/unit.scope/cpu.weight.nice",
-    "refuse"
+    "refuse",
+    "none"
   ],
   [
     "echo 20 >/sys/fs/cgroup/unit.scope/cpu.max",
-    "refuse"
+    "refuse",
+    "none"
   ],
   [
     "cat /sys/fs/cgroup/cpu.max",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "systemctl set-property unit.scope MemoryHigh=1G",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "echo 'cargo test; tsc --build; bun test a.ts b.ts'",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "cat <<'BODY'\ncargo build\nBODY",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "bun /opt/machine-capacity.mjs run --owner x --timeout-seconds 60 -- cargo build",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "machine-capacity run --owner x --timeout-seconds 60 -- bash -c 'bun test a.ts b.ts'",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "echo ready # > /sys/fs/cgroup/cpu.max",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "bunx tsc --build",
-    "route"
+    "route",
+    "none"
   ],
   [
     "bun test ./tests",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "bun test test/*.test.ts",
-    "route"
+    "route",
+    "moderate"
   ],
   [
     "echo $(true)#; cargo build",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "echo <(true)#; cargo build",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "echo $((1))#; cargo build",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "a=(1)#; cargo build",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "echo a\r#; cargo build",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "(true)#; cargo build",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "ls # <<EOF\ncargo build\nEOF",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "echo '<<EOF'\ncargo build\nEOF",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "ls # it's\n$(cargo build)",
-    "route"
+    "route",
+    "heavy"
   ],
   [
     "git commit -m \"$(cat <<'EOF'\nSay \"hi\ncargo build\nEOF\n)\"",
-    "allow"
+    "allow",
+    "none"
   ],
   [
     "echo `cargo build`",
-    "route"
+    "route",
+    "none"
   ],
   [
     "echo \"`cargo build`\"",
-    "route"
+    "route",
+    "none"
+  ],
+  [
+    "nix -L develop -c cargo build -p north-core",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix --offline develop -c cargo check",
+    "route",
+    "moderate"
+  ],
+  [
+    "nix --extra-experimental-features 'nix-command flakes' develop -c cargo test",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix --option cores 4 develop .#ci --impure --command cargo clippy",
+    "route",
+    "moderate"
+  ],
+  [
+    "nix develop -c cargo fmt --check",
+    "allow",
+    "none"
+  ],
+  [
+    "nix develop",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix shell nixpkgs#cargo -c cargo build",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix shell nixpkgs#jq --command jq .",
+    "allow",
+    "none"
+  ],
+  [
+    "nix shell nixpkgs#hello",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix run .#lander -- status",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix build .#north",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix -L --offline build .#north",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix flake check",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix flake --print-build-logs check",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix flake metadata",
+    "allow",
+    "none"
+  ],
+  [
+    "nix eval .#packages",
+    "allow",
+    "none"
+  ],
+  [
+    "nix --version",
+    "allow",
+    "none"
+  ],
+  [
+    "nix-build -A north",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix-shell --run 'cargo build'",
+    "route",
+    "heavy"
+  ],
+  [
+    "nix-shell -p jq --command 'jq .'",
+    "allow",
+    "none"
+  ],
+  [
+    "nix-shell -p cargo",
+    "route",
+    "heavy"
+  ],
+  [
+    "env CARGO_INCREMENTAL=0 cargo build",
+    "route",
+    "heavy"
+  ],
+  [
+    "env -C crates/north-core cargo test",
+    "route",
+    "heavy"
+  ],
+  [
+    "env -u FOO true",
+    "allow",
+    "none"
+  ],
+  [
+    "bash -c 'cargo build'",
+    "route",
+    "heavy"
+  ],
+  [
+    "sh -c 'cargo check && cargo fmt'",
+    "route",
+    "moderate"
+  ],
+  [
+    "bash -lc 'nix -L develop -c cargo build'",
+    "route",
+    "heavy"
+  ],
+  [
+    "sh -c 'nix-shell --run \"cargo test\"'",
+    "route",
+    "heavy"
   ]
 ]

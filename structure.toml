@@ -116,8 +116,8 @@ may_use = ["foundation"]
 
 [[module]]
 name = "shell"
-paths = ["crates/north-base/src/shell/**", "crates/north-base/src/shellcmd.rs"]
-responsibility = "One shell lexer and segmenter for every guard and gate."
+paths = ["crates/north-base/src/shell/**", "crates/north-base/src/shellcmd.rs", "crates/north-base/src/nix_command.rs"]
+responsibility = "One shell lexer and segmenter, and one Nix command reader, for every guard and gate."
 may_use = ["foundation"]
 
 [[module]]
@@ -194,9 +194,9 @@ may_use = ["threads", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "ops"
-paths = ["crates/north-dispatch/src/lib.rs", "crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-core/src/health.rs", "crates/north-core/src/health/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/tune/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/resident_cap/**"]
+paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-core/src/health.rs", "crates/north-core/src/health/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["ledger", "providers", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots"]
+may_use = ["ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots", "providers"]
 
 [[module]]
 name = "usage"

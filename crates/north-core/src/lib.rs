@@ -1,4 +1,4 @@
-pub use north_base::{autoland_status, error, foundation, platform, shell, test_inputs};
+pub use north_base::{autoland_status, error, foundation, nix_command, platform, shell, test_inputs};
 pub use north_pace::{pace, router, usage};
 
 pub mod agent_catalog;

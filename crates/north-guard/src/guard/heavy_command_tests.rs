@@ -2,9 +2,9 @@ use super::*;
 
 #[test]
 fn recorded_heavy_commands_use_admission_and_preserve_light_commands() {
-    let cases: Vec<(String, String)> =
+    let cases: Vec<(String, String, String)> =
         serde_json::from_str(include_str!("fixtures/heavy_command.json")).unwrap();
-    for (command, expected) in cases {
+    for (command, expected, _gate) in cases {
         for source in [
             command.clone(),
             format!("env FLAG=1 nix develop -c bash -lc {}", quote(&command)),

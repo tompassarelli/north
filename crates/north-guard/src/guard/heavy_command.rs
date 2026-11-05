@@ -1,4 +1,5 @@
 use crate::hook::{HookInput, Verdict};
+use crate::nix_command::{self, Inner};
 use crate::{platform::pyjson::Value, shell};
 use std::path::{Path, PathBuf};
 
@@ -113,8 +114,12 @@ fn fold(decision: Decision, refusals: &mut Vec<String>, routed: &mut bool) {
 }
 
 fn segment_decision(words: &[String], set: &[&str], cwd: &Path, leased: bool, depth: usize) -> Decision {
-    if let Some((source, directory, lease)) = nested(words, cwd, leased) {
-        decide(&source, &directory, lease, depth + 1)
+    if let Some(nested) = nested(words, cwd, leased) {
+        match nested {
+            Nested::Source(source, directory, lease) => decide(&source, &directory, lease, depth + 1),
+            Nested::NixBuild if leased => Decision::Allow,
+            Nested::NixBuild => Decision::Route,
+        }
     } else if let Some(reason) = farm_only(words, set, cwd) {
         Decision::Refuse(reason)
     } else if !leased && cpu_throttle(words) {
@@ -126,55 +131,31 @@ fn segment_decision(words: &[String], set: &[&str], cwd: &Path, leased: bool, de
     }
 }
 
-fn nested(words: &[String], cwd: &Path, leased: bool) -> Option<(String, PathBuf, bool)> {
-    let name = shell::basename(&words[0]);
+enum Nested {
+    Source(String, PathBuf, bool),
+    NixBuild,
+}
+
+fn nested(words: &[String], cwd: &Path, leased: bool) -> Option<Nested> {
     if let Some(i) = capacity(words) {
         if words
             .get(i + 1)
             .is_some_and(|s| matches!(s.as_str(), "run" | "session"))
         {
             let marker = words.iter().skip(i + 2).position(|s| s == "--")? + i + 2;
-            return Some((join(&words[marker + 1..]), cwd.into(), true));
+            return Some(Nested::Source(join(&words[marker + 1..]), cwd.into(), true));
         }
         return None;
     }
-    if name == "nix" && words.get(1).is_some_and(|s| s == "develop") {
-        let marker = words
-            .iter()
-            .position(|s| matches!(s.as_str(), "-c" | "--command"))?;
-        return Some((join(&words[marker + 1..]), cwd.into(), leased));
-    }
-    if matches!(name, "bash" | "sh") {
-        let marker = words
-            .iter()
-            .skip(1)
-            .position(|s| s.starts_with('-') && s[1..].contains('c'))?
-            + 1;
-        return Some((words.get(marker + 1)?.clone(), cwd.into(), leased));
-    }
-    if name == "env" {
-        let mut directory = cwd.to_path_buf();
-        let mut i = 1;
-        while let Some(word) = words.get(i) {
-            match word.as_str() {
-                "-u" | "--unset" => i += 2,
-                "-C" | "--chdir" => {
-                    directory = directory.join(words.get(i + 1)?);
-                    i += 2;
-                }
-                _ if word.starts_with("--chdir=") => {
-                    directory = directory.join(&word[8..]);
-                    i += 1;
-                }
-                _ if word.starts_with('-') || word.contains('=') => i += 1,
-                _ => break,
-            }
-        }
-        let assignments = words[1..i].iter().filter(|s| shell::assignment(s)).cloned();
-        let command: Vec<_> = assignments.chain(words[i..].iter().cloned()).collect();
-        return Some((join(&command), directory, leased));
-    }
-    None
+    Some(match nix_command::unwrap(words)? {
+        Inner::Command { words, directories } => Nested::Source(
+            join(&words),
+            directories.iter().fold(cwd.to_path_buf(), |directory, step| directory.join(step)),
+            leased,
+        ),
+        Inner::Script(source) => Nested::Source(source.to_owned(), cwd.into(), leased),
+        Inner::NixBuild => Nested::NixBuild,
+    })
 }
 
 fn classify(words: &[String]) -> Decision {
