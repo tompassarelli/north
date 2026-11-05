@@ -1,5 +1,4 @@
 use super::*;
-use crate::landing::land_test_selection::ChildEnv;
 use std::fs;
 use std::path::Path;
 
@@ -29,7 +28,7 @@ fn selected_tests_run_side_by_side_up_to_the_job_limit() {
     let dir = tempfile::tempdir().unwrap();
     let tests: Vec<String> = (0..4).map(|i| barrier(dir.path(), &format!("t{i}.test.sh"), 4)).collect();
     let mut out = Vec::new();
-    assert!(failed(run_all(&tests, NonZeroUsize::new(4).unwrap(), &ChildEnv::default(), &mut out)).is_empty());
+    assert!(failed(run_all(&tests, NonZeroUsize::new(4).unwrap(), &mut out)).is_empty());
     let out = String::from_utf8(out).unwrap();
     for test in &tests {
         assert_eq!(out.lines().filter(|line| *line == format!("land check: {test}")).count(), 1);
@@ -46,7 +45,7 @@ fn a_red_test_fails_the_run_while_every_other_test_still_runs_and_reports_its_ow
     let later = script(dir.path(), "later.test.sh", "printf 'later ran'\n");
     let tests = vec![red.clone(), green.clone(), later.clone()];
     let mut out = Vec::new();
-    assert_eq!(failed(run_all(&tests, NonZeroUsize::MIN, &ChildEnv::default(), &mut out)), vec![red.clone()]);
+    assert_eq!(failed(run_all(&tests, NonZeroUsize::MIN, &mut out)), vec![red.clone()]);
     let out = String::from_utf8(out).unwrap();
     assert!(out.contains(&format!("land check: {red}\nred says why\nland check: {red} exited 3 after ")), "{out}");
     assert!(out.contains(&format!("land check: {green}\ngreen ran under python\nland check: {green} passed")), "{out}");
@@ -60,7 +59,7 @@ fn a_built_test_executable_without_an_extension_runs_as_itself() {
     north_base::foundation::shim::write_script(&built_path, "echo ran as $0\nexit 4\n");
     let built = built_path.to_string_lossy().into_owned();
     let mut out = Vec::new();
-    assert_eq!(failed(run_all(std::slice::from_ref(&built), NonZeroUsize::MIN, &ChildEnv::default(), &mut out)), vec![built.clone()]);
+    assert_eq!(failed(run_all(std::slice::from_ref(&built), NonZeroUsize::MIN, &mut out)), vec![built.clone()]);
     let out = String::from_utf8(out).unwrap();
     assert!(out.contains(&format!("land check: {built}\nran as {built}\nland check: {built} exited 4 after ")), "{out}");
 }
@@ -113,7 +112,7 @@ fn cases_json_prints_rows_for_real_fixtures_in_argument_order() {
     let quiet = script(dir.path(), "c.test.sh", "echo hello\n");
     let tests = vec![shell.clone(), libtest.clone(), quiet.clone()];
     let mut out = Vec::new();
-    let outcomes = run_all(&tests, NonZeroUsize::new(3).unwrap(), &ChildEnv::default(), &mut out);
+    let outcomes = run_all(&tests, NonZeroUsize::new(3).unwrap(), &mut out);
     let rows: Vec<String> = tests
         .iter()
         .flat_map(|test| outcomes.iter().filter(move |outcome| outcome.test == *test))

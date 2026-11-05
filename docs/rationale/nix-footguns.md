@@ -362,7 +362,7 @@ What agents assume: the PATH of an ssh login, a fleet service, a systemd timer, 
 same. What happens: `machine-capacity` and `node`, which skills and messages tell agents to run, are not installed on
 gex45 (about 75 sessions); the `code-health-tick` unit had no Nix profile on PATH and its bun shim exited 127 hourly; a
 fleet service lacked `~/.local/bin`; a home-manager switch mid-run swapped `~/.nix-profile` under a land check
-(north#178, fixed by pinning PATH in the land-check runner, now `north land-tests --select`).
+(north#178, fixed by pinning PATH in `land-checks.sh`).
 
 Guard: a lint in `north config agents` resolves every program that a skill, a hook message or a deny message tells an
 agent to run against the installed runtime's `bin/` and the host's system closure, and refuses one that resolves
@@ -491,7 +491,7 @@ Marked risky or outdated, each with its box:
 - The offload `RUN` script (`ship.rs:61`): enters `nix develop "$slot"` unless the command starts with the literal
   text `nix develop`. Gaps: every `.safe-push` check starts with `CARGO_TARGET_DIR=` or `bash`, so each enters the
   shell here and again in land-shell; no `--offline`, no root, nix from PATH only.
-- `crates/north-landing/src/landing/land_test_selection.rs` (`pinned_path`): pins PATH directories to their store targets, which closed the mid-run profile
+- `harness/scripts/land-checks.sh:3`: pins PATH directories to their store targets, which closed the mid-run profile
   switch (north#178). No gap found.
 - Runtime GC roots (90618140a, 2d43dfc83) and the deployed-unit check (b7290d292): root every store path a promoted
   runtime loads, and refuse a landing that deletes a `bin/` entry a deployed unit runs. Gaps: dev shells of live

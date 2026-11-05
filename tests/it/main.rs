@@ -108,4 +108,3 @@ mod worker_ledger_resumed_session;
 mod proxy;
 mod land_clippy_first;
 mod land_squash;
-mod land_checks_script;

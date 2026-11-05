@@ -71,7 +71,7 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/gh-app-token.test.sh | 93 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | test of gh-app-token |
 | bin/gh-as-app | 4 | stay | 4-line glue: runs gh with the token printed by gh-app-token |
 | bin/job-run | 86 | port: north#88 box "run-bounded and job-run" (family: landing path, north#83) | never ported; deployed systemd units name bin/job-run (nixos-config modules/job-run, delivery-liveness, code-health-review, worker-ledger), so the nixos-config unit change lands first; tests/job_run.rs drives it |
-| bin/land-shell | 11 | stay | workflow-free 10-line wrapper that runs a land-check command inside depbox (and nix develop with --dev); used by .safe-push, bin/head-north and red_check.rs; glue |
+| bin/land-shell | 11 | stay | workflow-free 10-line wrapper that runs a land-check command inside depbox (and nix develop with --dev); used by .safe-push, land-checks.sh and red_check.rs; glue |
 | bin/mutant | 3 | stay | 3-line exec of `north mutant`; three skills document the bare `mutant record` command; delete when nixos-config provides the wrapper |
 | bin/nix | 14 | stay | same admission shadow for nix |
 | bin/north | 15 | stay | launcher: execs the promoted runtime (selected outside the Nix closure); cannot be Rust |
@@ -146,6 +146,11 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | harness/scripts/ci-diagnose.test.sh | 3 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | 3-line runner for the TS test |
 | harness/scripts/ci-diagnose.test.ts | 37 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun test of ci-diagnose.ts |
 | harness/scripts/ci-diagnose.ts | 153 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun TS over gh and claude calls |
+| harness/scripts/land-checks-binary.test.sh | 35 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests of land-checks.sh selection; they move to cargo test |
+| harness/scripts/land-checks-path.test.sh | 26 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests of land-checks.sh selection; they move to cargo test |
+| harness/scripts/land-checks-select.test.sh | 36 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests of land-checks.sh selection; they move to cargo test |
+| harness/scripts/land-checks.sh | 74 | stay | 74-line bootstrap that pins PATH and builds north before any `north` subcommand can run the land checks |
+| harness/scripts/land-checks.test.sh | 83 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests of land-checks.sh selection; they move to cargo test |
 | harness/scripts/main-red.test.sh | 12 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | runner for main-red.test.ts |
 | harness/scripts/main-red.test.ts | 15 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun test |
 | harness/scripts/main-red.ts | 112 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun TS; run by workflow main-red.yml |
