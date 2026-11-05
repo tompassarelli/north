@@ -1,9 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::json;
 
-use super::audit::{Findings, Repo, classify_tags, live_ticket, ref_names, render_tags, select_repos, tag_headline};
-use super::audit_rows::{Cleanup, Facts, age_text, gc_problems, row, table};
+use super::audit::{Findings, named_issues, Repo, classify_tags, live_ticket, ref_names, render_tags, select_repos, tag_headline};
+use super::audit_rows::{Facts, age_text, fault, gc_problems, leftover_table, open_table, row};
+use super::evidence::IssueState;
 
 const HOUR: i64 = 3_600_000;
 const NOW: i64 = 1_000 * HOUR;
@@ -13,7 +14,7 @@ fn names(items: &[&str]) -> Vec<String> {
 }
 
 fn facts(branch: &str, age_h: i64) -> Facts<'_> {
-    Facts { repo: "north", branch, committed_ms: NOW - age_h * HOUR, landed: false, landing_ref: false, session: None, ticket: false }
+    Facts { repo: "north", branch, committed_ms: NOW - age_h * HOUR, landed: false, session: None, ticket: false, issues: Vec::new() }
 }
 
 #[test]
@@ -66,31 +67,64 @@ fn released_v_tags_alone_are_clean() {
 }
 
 #[test]
-fn a_branch_is_explained_by_its_worker_ticket_landing_or_idle_deadline() {
-    let worker = row(&Facts { session: Some("w-1".into()), ..facts("lane", 30) }, NOW);
-    assert_eq!((worker.owner.as_str(), worker.why, &worker.cleanup), ("session w-1", "running worker", &Cleanup::WhenOwnerEnds("w-1".into())));
-    assert_eq!(worker.overdue_ms(NOW), None);
-    let queued = row(&Facts { ticket: true, landing_ref: true, ..facts("claude/land-a", 1) }, NOW);
-    assert_eq!((queued.owner.as_str(), queued.why, &queued.cleanup), ("land ticket", "queued lane", &Cleanup::WhenLanded));
-    let done = row(&Facts { landed: true, ..facts("old", 2) }, NOW);
-    assert_eq!((done.why, &done.cleanup, done.overdue_ms(NOW)), ("landed, not deleted", &Cleanup::Now, Some(2 * HOUR)));
-    let idle = row(&facts("topic", 10), NOW);
-    assert_eq!((idle.owner.as_str(), idle.why, &idle.cleanup), ("none", "unlanded, no owner", &Cleanup::At(NOW + 14 * HOUR)));
-    assert_eq!(idle.overdue_ms(NOW), None);
-    let late = row(&facts("topic", 30), NOW);
-    assert_eq!(late.overdue_ms(NOW), Some(6 * HOUR));
-    let orphan = row(&Facts { landing_ref: true, ..facts("claude/land-b", 6) }, NOW);
-    assert_eq!(orphan.overdue_ms(NOW), Some(HOUR));
+fn a_branch_is_open_work_unless_its_work_is_on_the_default_branch_without_an_owner() {
+    let worker = row(&Facts { session: Some("w-1".into()), landed: true, ..facts("lane", 30) }, NOW);
+    assert_eq!((worker.owner.as_str(), worker.leftover, worker.alarm), ("session w-1", false, false));
+    let queued = row(&Facts { ticket: true, landed: true, ..facts("claude/land-a", 5) }, NOW);
+    assert_eq!((queued.owner.as_str(), queued.leftover), ("land ticket", false));
+    let open = row(&facts("topic", 500), NOW);
+    assert_eq!((open.owner.as_str(), open.leftover, open.alarm), ("none", false, false));
+    let fresh = row(&Facts { landed: true, ..facts("old", 0) }, NOW);
+    assert_eq!((fresh.leftover, fresh.alarm), (true, false));
+    let stale = row(&Facts { landed: true, ..facts("old", 2) }, NOW);
+    assert_eq!((stale.leftover, stale.alarm), (true, true));
 }
 
 #[test]
-fn the_table_has_plain_columns_sorted_oldest_first() {
-    let rows = vec![row(&facts("young", 2), NOW), row(&Facts { landed: true, ..facts("old", 50) }, NOW), row(&facts("middle", 30), NOW)];
-    let lines = table(&rows, NOW, &|ms| format!("t{}", ms / HOUR));
-    assert_eq!(lines[0], "REPO   BRANCH  AGE    OWNER  WHY IT EXISTS        CLEANED UP");
-    assert_eq!(lines[1], "north  old     2d 2h  none   landed, not deleted  now");
-    assert_eq!(lines[2], "north  middle  1d 6h  none   unlanded, no owner   overdue since t994");
-    assert_eq!(lines[3], "north  young   2h 0m  none   unlanded, no owner   t1022");
+fn open_work_is_grouped_under_its_issue_with_state_owner_and_fault() {
+    let states: HashMap<String, IssueState> = [("north#360".to_string(), IssueState::Open), ("north#9".to_string(), IssueState::Closed)].into();
+    let rows = vec![
+        row(&Facts { issues: names(&["#360"]), session: Some("w-1".into()), ..facts("middle", 30) }, NOW),
+        row(&Facts { issues: names(&["#360"]), ..facts("young", 2) }, NOW),
+        row(&Facts { issues: names(&["#9"]), ..facts("shipped", 80) }, NOW),
+        row(&facts("orphan", 5), NOW),
+        row(&Facts { landed: true, ..facts("gone", 99) }, NOW),
+    ];
+    let lines = open_table(&rows, &states);
+    assert_eq!(lines[0], "ISSUE       STATE   REPO   BRANCH   AGE    OWNER        FAULT");
+    assert_eq!(lines[1], "north#9     closed  north  shipped  3d 8h  none         all its issues are closed");
+    assert_eq!(lines[2], "north#360   open    north  middle   1d 6h  session w-1");
+    assert_eq!(lines[3], "                    north  young    2h 0m  none");
+    assert_eq!(lines[4], "(no issue)  -       north  orphan   5h 0m  none         names no issue");
+    assert_eq!(lines.len(), 5);
+}
+
+#[test]
+fn faults_are_a_stale_landed_branch_closed_issues_or_no_issue_unless_someone_owns_the_branch() {
+    let states: HashMap<String, IssueState> = [("north#1".to_string(), IssueState::Open), ("north#2".to_string(), IssueState::Closed)].into();
+    let with = |issues: &[&str], age: i64| row(&Facts { issues: names(issues), ..facts("b", age) }, NOW);
+    assert_eq!(fault(&with(&["#1"], 500), &states), None);
+    assert_eq!(fault(&with(&["#2"], 1), &states), Some("all its issues are closed"));
+    assert_eq!(fault(&with(&["#1", "#2"], 1), &states), None);
+    assert_eq!(fault(&with(&[], 1), &states), Some("names no issue"));
+    assert_eq!(fault(&with(&["#404"], 1), &states), None);
+    let owned = row(&Facts { ticket: true, ..facts("claude/land-x", 1) }, NOW);
+    assert_eq!(fault(&owned, &states), None);
+    assert_eq!(fault(&row(&Facts { landed: true, ..facts("b", 2) }, NOW), &states), Some("landed, still present"));
+    assert_eq!(fault(&row(&Facts { landed: true, ..facts("b", 0) }, NOW), &states), None);
+}
+
+#[test]
+fn issues_come_from_ref_lines_and_item_lines_once_each() {
+    let text = "Add the verb\n\nRefs north#360\nItem: north#360\n\nItem: firn#9\nFixes #7\n";
+    assert_eq!(named_issues(text), names(&["north#360", "#7", "firn#9"]));
+    assert!(named_issues("no issue here").is_empty());
+}
+
+#[test]
+fn landed_leftovers_get_their_own_table_oldest_first() {
+    let rows = vec![row(&Facts { landed: true, ..facts("b", 3) }, NOW), row(&Facts { landed: true, ..facts("a", 50) }, NOW), row(&facts("open", 9), NOW)];
+    assert_eq!(leftover_table(&rows), names(&["REPO   BRANCH  AGE    OWNER", "north  a       2d 2h  none", "north  b       3h 0m  none"]));
 }
 
 #[test]
@@ -99,13 +133,15 @@ fn age_text_uses_the_two_largest_units() {
 }
 
 #[test]
-fn lane_gc_problems_name_a_failed_unit_a_silent_state_and_branches_stuck_past_a_day() {
-    let stuck = vec![row(&facts("topic", 60), NOW)];
-    let calm = vec![row(&facts("topic", 30), NOW)];
+fn lane_gc_problems_name_a_failed_unit_a_silent_state_and_landed_branches_stuck_past_a_day() {
+    let stuck = vec![row(&Facts { landed: true, ..facts("topic", 60) }, NOW)];
+    let calm = vec![row(&Facts { landed: true, ..facts("topic", 30) }, NOW), row(&facts("open", 900), NOW)];
     let ok = [("lane-gc.service", "success".to_string())];
-    assert!(gc_problems(&ok, Some(HOUR), &calm, NOW).is_empty());
-    assert_eq!(gc_problems(&[("lane-gc-remote.service", "exit-code".to_string())], Some(HOUR), &calm, NOW), names(&["lane-gc-remote.service last result: exit-code"]));
-    assert_eq!(gc_problems(&ok, Some(30 * HOUR), &calm, NOW), names(&["lane-gc has not run for 1d 6h"]));
-    assert_eq!(gc_problems(&ok, None, &calm, NOW), names(&["lane-gc has no state file"]));
-    assert_eq!(gc_problems(&ok, Some(HOUR), &stuck, NOW), names(&["lane-gc retired nothing for a day while 1 branches are past their cleanup time"]));
+    let recent = vec![row(&Facts { landed: true, ..facts("topic", 3) }, NOW)];
+    assert!(gc_problems(&ok, Some(HOUR), &recent).is_empty());
+    assert_eq!(gc_problems(&[("lane-gc-remote.service", "exit-code".to_string())], Some(HOUR), &recent), names(&["lane-gc-remote.service last result: exit-code"]));
+    assert_eq!(gc_problems(&ok, Some(30 * HOUR), &recent), names(&["lane-gc has not run for 1d 6h"]));
+    assert_eq!(gc_problems(&ok, None, &recent), names(&["lane-gc has no state file"]));
+    assert_eq!(gc_problems(&ok, Some(HOUR), &stuck), names(&["lane-gc retired nothing for a day while 1 landed branches still exist"]));
+    assert_eq!(gc_problems(&ok, Some(HOUR), &calm), names(&["lane-gc retired nothing for a day while 1 landed branches still exist"]));
 }

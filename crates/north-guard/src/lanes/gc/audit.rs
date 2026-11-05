@@ -4,8 +4,10 @@ use std::process::Command;
 
 use serde_json::Value;
 
-use super::audit_rows::{Facts, Row, gc_problems, row, table};
-use super::evidence::origin_repo;
+use regex::Regex;
+
+use super::audit_rows::{Facts, Row, fault, gc_problems, leftover_table, open_table, row};
+use super::evidence::{IssueState, cited_issues, issue_state, item_ref, origin_repo};
 use super::exec::{api, command, git};
 use super::liveness::{open_pull_heads, pending_autoland};
 use super::remote::{active_runs, remote_branches};
@@ -19,7 +21,7 @@ const OWNER: &str = "tompassarelli";
 const SINCE: &str = "2026-01-01";
 const LISTED: usize = 12;
 const REPORT: &str = ".local/state/agents/repo-audit/latest.txt";
-const OPEN: &str = "Open the table: run `north repo audit`, or read ~/.local/state/agents/repo-audit/latest.txt (rewritten each night at 3:41 AM)";
+const OPEN: &str = "Open this report: run `north repo audit`, or read ~/.local/state/agents/repo-audit/latest.txt (rewritten each night at 3:41 AM)";
 
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct Findings {
@@ -149,13 +151,26 @@ fn running_workers() -> Result<HashMap<(String, String), String>, String> {
     Ok(workers)
 }
 
-fn landed(repo: &Repo, branch: &str) -> Result<bool, String> {
+pub(super) fn named_issues(messages: &str) -> Vec<String> {
+    let item = Regex::new(r"(?m)^\s*Item:\s*([\w.-]*#\d+)").expect("item pattern");
+    let mut found = cited_issues(messages);
+    for captured in item.captures_iter(messages) {
+        let issue = captured[1].to_string();
+        if !found.contains(&issue) {
+            found.push(issue);
+        }
+    }
+    found
+}
+
+fn compare(repo: &Repo, branch: &str) -> Result<(bool, Vec<String>), String> {
     let ran = command(&["gh", "api", &format!("repos/{OWNER}/{}/compare/{}...{branch}", repo.name, repo.default)]);
     if !ran.ok {
         return Err(format!("compare {branch} failed: {}", ran.last_err_line()));
     }
     let facts: Value = serde_json::from_str(&ran.out).map_err(|error| error.to_string())?;
-    Ok(facts["ahead_by"].as_u64() == Some(0))
+    let messages: String = facts["commits"].as_array().into_iter().flatten().filter_map(|commit| commit["commit"]["message"].as_str()).map(|message| format!("{message}\n")).collect();
+    Ok((facts["ahead_by"].as_u64() == Some(0), named_issues(&messages)))
 }
 
 fn audit_repo(repo: &Repo, workers: &HashMap<(String, String), String>, now: i64) -> Result<Audited, String> {
@@ -175,8 +190,8 @@ fn audit_repo(repo: &Repo, workers: &HashMap<(String, String), String>, now: i64
         let tip_active = target["oid"].as_str().is_some_and(|oid| active_tips.contains(oid));
         let ticket = live_ticket(branch, pulls.contains(branch), active.contains(branch) || tip_active, pending_autoland(target.get("status")), now - committed);
         let session = workers.get(&(name.clone(), branch.to_string())).cloned();
-        let is_landed = session.is_none() && !ticket && landed(repo, branch)?;
-        rows.push(row(&Facts { repo: name, branch, committed_ms: committed, landed: is_landed, landing_ref: branch.starts_with(LANDING), session, ticket }, now));
+        let (is_landed, issues) = compare(repo, branch)?;
+        rows.push(row(&Facts { repo: name, branch, committed_ms: committed, landed: is_landed, session, ticket, issues }, now));
     }
     let tags = ref_names(&api(&format!("repos/{OWNER}/{name}/git/matching-refs/tags/"))?, "refs/tags/");
     let released = if tags.iter().any(|tag| is_release_tag(tag)) { released_tags(name)? } else { HashSet::new() };
@@ -194,12 +209,6 @@ fn parse(arguments: &[String]) -> Option<(Vec<String>, bool)> {
         }
     }
     Some((repos, alert))
-}
-
-fn local_time(ms: i64) -> String {
-    let at = format!("@{}", ms / 1000);
-    let ran = command(&["date", "-d", &at, "+%a %b %-d %-I:%M %p"]);
-    if ran.ok { ran.out } else { at }
 }
 
 fn gc_state(home: &Path) -> (Vec<(&'static str, String)>, Option<i64>) {
@@ -259,15 +268,23 @@ pub fn run(arguments: &[String]) -> u8 {
             }
         }
     }
-    let overdue: Vec<&Row> = rows.iter().filter(|row| row.overdue_ms(now).is_some()).collect();
-    if !overdue.is_empty() {
-        let names: Vec<String> = overdue.iter().take(LISTED).map(|row| format!("{}:{}", row.repo, row.branch)).collect();
-        problems.insert(0, format!("{} branches are past their cleanup time: {}", overdue.len(), names.join(" ")));
+    let mut states: HashMap<String, IssueState> = HashMap::new();
+    for issue in rows.iter().filter(|row| !row.leftover).flat_map(|row| row.issues.iter()) {
+        states.entry(issue.clone()).or_insert_with(|| issue_state(&item_ref(issue)));
+    }
+    let faults: Vec<String> = rows.iter().filter_map(|row| fault(row, &states).map(|why| format!("{}:{} ({why})", row.repo, row.branch))).collect();
+    if !faults.is_empty() {
+        let shown: Vec<&str> = faults.iter().take(LISTED).map(String::as_str).collect();
+        problems.insert(0, format!("{} branches need attention: {}", faults.len(), shown.join(" ")));
     }
     let (results, state_at) = gc_state(&home);
-    problems.extend(gc_problems(&results, state_at.map(|at| now - at), &rows, now));
-    let mut report = vec![format!("Non-default branches on {} active repositories, oldest first ({} branches)", repos.len(), rows.len())];
-    report.extend(table(&rows, now, &local_time));
+    problems.extend(gc_problems(&results, state_at.map(|at| now - at), &rows));
+    let leftovers = rows.iter().filter(|row| row.leftover).count();
+    let mut report = vec![format!("Landed branches that still exist ({leftovers}); cleanup is broken when one is older than an hour")];
+    report.extend(if leftovers == 0 { vec!["  none".to_string()] } else { leftover_table(&rows) });
+    report.push(String::new());
+    report.push(format!("Open work: unlanded branches on {} active repositories, grouped by the issue they name, oldest first ({}); they stay until they land", repos.len(), rows.len() - leftovers));
+    report.extend(open_table(&rows, &states));
     report.push(String::new());
     report.push("Tags".into());
     report.extend(if tag_lines.is_empty() { vec!["  every tag is a v* release with a GitHub release".to_string()] } else { tag_lines });
