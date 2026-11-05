@@ -396,7 +396,7 @@ All four are on origin/main as of this revision.
   `version_tag` to `tags/name.rs` as `release_tag` (P5). `--tag` and `--delete-tag` refuse through the
   same function.
 
-## Review
+## Review findings and answers
 
 On 2026-11-06 a fresh Sonnet 5.5 reviewer (a different tier from the Opus author) read the first draft
 against the source and tried to break it. Findings and answers:
