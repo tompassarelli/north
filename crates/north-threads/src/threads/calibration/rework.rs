@@ -17,7 +17,7 @@ pub const REWORK_WINDOW_S: i64 = 48 * 3600;
 
 static SHA_TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{7,40}\b").expect("sha pattern"));
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Cause {
     Reverted,
     FixedForward,
@@ -88,9 +88,14 @@ impl Rework {
         }
         let earliest: Option<String> = db.query_row(&format!("SELECT min(coalesce(landed_at, ended)) FROM runs WHERE {} AND landed_sha IS NOT NULL", worker_where()), [], |row| row.get(0))?;
         let since = earliest.and_then(|text| Timestamp::parse(&text).ok()).map(|at| at.unix_seconds() - 2 * 86_400);
-        let histories = histories(root, since);
         let culprits = sources.culprits.as_deref().map(culprits).unwrap_or_default();
-        Ok(Self { judged: judge(&landings, &histories, &culprits) })
+        let mut judged = BTreeMap::new();
+        for (repo, checkout) in checkouts(root) {
+            for (index, verdict) in super::verdicts::verdicts(&checkout, &landings, since) {
+                judged.insert(landings[index].agent.clone(), verdict.judged(&repo, &landings[index], &culprits));
+            }
+        }
+        Ok(Self { judged })
     }
 
     pub fn reworked(&self) -> impl Iterator<Item = &String> {
@@ -119,16 +124,13 @@ fn landings(db: &Connection) -> rusqlite::Result<Vec<Landing>> {
     statement.query_map([], |row| Ok(Landing { agent: row.get(0)?, item: row.get(1)?, sha: row.get(2)? }))?.collect()
 }
 
-fn histories(root: &Path, since: Option<i64>) -> Vec<(String, Vec<Commit>)> {
+/// Each repository checkout under `root` by canonical name, in name order.
+fn checkouts(root: &Path) -> Vec<(String, PathBuf)> {
     let Ok(entries) = fs::read_dir(root) else { return Vec::new() };
-    let mut found: Vec<(String, Vec<Commit>)> = entries
+    let mut found: Vec<(String, PathBuf)> = entries
         .filter_map(Result::ok)
         .filter(|entry| entry.path().join("main/.git").exists())
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let commits = super::history::history(&entry.path().join("main"), since)?;
-            Some((CATALOG.canonical(&name).to_owned(), commits))
-        })
+        .map(|entry| (CATALOG.canonical(&entry.file_name().to_string_lossy()).to_owned(), entry.path().join("main")))
         .collect();
     found.sort_by(|left, right| left.0.cmp(&right.0));
     found
@@ -176,7 +178,7 @@ impl<'a> Read<'a> {
 
 const REVERTS: &str = "This reverts commit ";
 
-fn cause(landed: &Commit, later: &[Read], landing: &Landing, culprits: &BTreeSet<String>) -> Option<Cause> {
+fn cause(landed: &Commit, later: &[Read], landing: &Landing) -> Option<Cause> {
     let window: Vec<&Read> = later.iter().filter(|read| read.commit.at <= landed.at + REWORK_WINDOW_S).collect();
     let revert_subject = format!("Revert \"{}\"", landed.subject);
     if window.iter().any(|read| read.commit.subject == revert_subject || read.reverts.iter().any(|rest| rest.starts_with(landed.sha.as_str()))) {
@@ -186,25 +188,53 @@ fn cause(landed: &Commit, later: &[Read], landing: &Landing, culprits: &BTreeSet
     if window.iter().any(|read| (read.fix && read.names(landing)) || (read.commit.subject.starts_with("Fix") && overlaps(read.commit))) {
         return Some(Cause::FixedForward);
     }
-    culprits.contains(&landed.sha).then_some(Cause::Culprit)
+    None
+}
+
+
+/// How long past a landing's window main must reach before its verdict is closed, because a commit's time on main can trail its committer date.
+const CLOSE_MARGIN_S: i64 = 24 * 3600;
+
+/// A landing's verdict from one main's history alone: when it reached main, whether it was reverted or fixed forward, and whether main has moved far enough past its window that no later commit can change that.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Verdict {
+    pub at: i64,
+    pub cause: Option<Cause>,
+    pub closed: bool,
+}
+
+impl Verdict {
+    pub fn judged(&self, repo: &str, landing: &Landing, culprits: &BTreeSet<String>) -> Judged {
+        let cause = self.cause.or_else(|| culprits.contains(&landing.sha).then_some(Cause::Culprit));
+        Judged { repo: repo.to_owned(), at: self.at, cause }
+    }
+}
+
+/// The verdict of each of `landings` that `commits` (one main, oldest first) holds, by its index in `landings`.
+pub fn judge_history(commits: &[Commit], landings: &[&Landing]) -> Vec<(usize, Verdict)> {
+    let positions: BTreeMap<&str, usize> = commits.iter().enumerate().map(|(position, commit)| (commit.sha.as_str(), position)).collect();
+    let found: Vec<(usize, usize)> = landings.iter().enumerate().filter_map(|(index, landing)| Some((index, *positions.get(landing.sha.as_str())?))).collect();
+    let Some(first) = found.iter().map(|(_, position)| *position).min() else { return Vec::new() };
+    let reads: Vec<Read> = commits[first..].iter().map(Read::new).collect();
+    let newest = commits.last().map_or(i64::MIN, |commit| commit.at);
+    found
+        .into_iter()
+        .map(|(index, position)| {
+            let landed = &commits[position];
+            let cause = cause(landed, &reads[position - first + 1..], landings[index]);
+            (index, Verdict { at: landed.at, cause, closed: newest > landed.at + REWORK_WINDOW_S + CLOSE_MARGIN_S })
+        })
+        .collect()
 }
 
 /// Each landing found in `histories` (oldest first per repository) with its rework cause, if any.
 pub fn judge(landings: &[Landing], histories: &[(String, Vec<Commit>)], culprits: &BTreeSet<String>) -> BTreeMap<String, Judged> {
-    let reads: Vec<(&str, Vec<Read>)> = histories.iter().map(|(repo, commits)| (repo.as_str(), commits.iter().map(Read::new).collect())).collect();
-    let mut index: BTreeMap<&str, (&str, &[Read], usize)> = BTreeMap::new();
-    for (repo, commits) in &reads {
-        for (position, read) in commits.iter().enumerate() {
-            index.insert(read.commit.sha.as_str(), (repo, commits.as_slice(), position));
+    let asked: Vec<&Landing> = landings.iter().collect();
+    let mut judged = BTreeMap::new();
+    for (repo, commits) in histories {
+        for (index, verdict) in judge_history(commits, &asked) {
+            judged.insert(landings[index].agent.clone(), verdict.judged(repo, &landings[index], culprits));
         }
     }
-    landings
-        .iter()
-        .filter_map(|landing| {
-            let (repo, commits, position) = *index.get(landing.sha.as_str())?;
-            let landed = commits[position].commit;
-            let judged = Judged { repo: repo.to_owned(), at: landed.at, cause: cause(landed, &commits[position + 1..], landing, culprits) };
-            Some((landing.agent.clone(), judged))
-        })
-        .collect()
+    judged
 }

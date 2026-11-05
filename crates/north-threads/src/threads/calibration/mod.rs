@@ -21,6 +21,7 @@ mod summary;
 #[cfg(test)]
 mod tests;
 mod verbs;
+mod verdicts;
 
 use std::sync::LazyLock;
 

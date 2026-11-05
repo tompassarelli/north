@@ -110,7 +110,7 @@ fn parse(text: &str) -> Vec<Commit> {
 }
 
 /// The checkout's own git directory: `.git`, or where a `gitdir:` file in its place points.
-fn git_dir(checkout: &Path) -> Option<PathBuf> {
+pub(super) fn git_dir(checkout: &Path) -> Option<PathBuf> {
     let dot_git = checkout.join(".git");
     if dot_git.is_dir() {
         return Some(dot_git);
@@ -118,6 +118,16 @@ fn git_dir(checkout: &Path) -> Option<PathBuf> {
     let pointer = fs::read_to_string(&dot_git).ok()?;
     let target = Path::new(pointer.strip_prefix("gitdir:")?.trim());
     Some(checkout.join(target))
+}
+
+/// The sha origin/main names, read from its ref file or packed-refs before asking git, because every rework read resolves every checkout's main.
+pub(super) fn head(checkout: &Path) -> Option<String> {
+    let directory = git_dir(checkout)?;
+    let common = fs::read_to_string(directory.join("commondir")).map_or_else(|_| directory.clone(), |text| directory.join(text.trim()));
+    let sha = |text: &str| Some(text.trim()).filter(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit())).map(str::to_owned);
+    let loose = fs::read_to_string(common.join("refs/remotes/origin/main")).ok().and_then(|text| sha(&text));
+    let packed = || fs::read_to_string(common.join("packed-refs")).ok()?.lines().find_map(|line| line.strip_suffix(" refs/remotes/origin/main").and_then(sha));
+    loose.or_else(packed).or_else(|| SystemGit.run(checkout, &["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]).and_then(|text| sha(&text)))
 }
 
 /// The cache path once this process holds the history lock, which it keeps until the returned file drops.

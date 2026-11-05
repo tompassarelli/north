@@ -791,3 +791,36 @@ fn judge_names_a_landing_fixed_forward_by_its_short_sha_only_within_the_window_a
     let causes: Vec<(&str, Option<Cause>)> = judged.iter().map(|(agent, judged)| (agent.as_str(), judged.cause)).collect();
     assert_eq!(causes, [("a", Some(Cause::FixedForward)), ("b", Some(Cause::Reverted)), ("c", None)]);
 }
+
+#[test]
+fn a_stored_verdict_reads_no_history_at_the_same_main_rejudges_an_open_window_after_main_moves_and_keeps_a_closed_one() {
+    use super::rework::{Cause, Rework, Sources};
+    let directory = tempfile::tempdir().unwrap();
+    let checkout = directory.path().join("code/proj/main");
+    std::fs::create_dir_all(&checkout).unwrap();
+    let hour = 3600;
+    let t0 = Timestamp::parse("2026-10-20T00:00:00Z").unwrap().unix_seconds();
+    git(&checkout, t0, &["init", "-q", "-b", "main"]);
+    land(&checkout, t0, &["a.rs", "b.rs"], "Start");
+    let old = land(&checkout, t0 + hour, &["a.rs"], "Add old");
+    let fresh = land(&checkout, t0 + 100 * hour, &["b.rs"], "Add fresh");
+    git(&checkout, t0, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let rows = format!(
+        "('v1','proj#1','high','bug-known-cause','2026-10-19T23:00:00Z','2026-10-20T10:00:00Z',60,30,'done',1,1,'worker','{old}','exact','module','rust','local-test'),\
+         ('v2','proj#2','high','bug-known-cause','2026-10-19T23:00:00Z','2026-10-20T10:00:00Z',60,30,'done',1,1,'worker','{fresh}','exact','module','rust','local-test')"
+    );
+    let database = fixture_ledger(directory.path(), &format!("INSERT INTO runs(agent,item,tier,category,started,ended,minutes,eta_min,outcome,landed,expects_landing,role,landed_sha,spec,scope,surface,verify) VALUES {rows};"));
+    let sources = Sources { code_root: Some(directory.path().join("code")), culprits: None };
+    let causes = || -> Vec<(String, Option<Cause>)> {
+        Rework::read(&Connection::open(&database).unwrap(), &sources).unwrap().judged.into_iter().map(|(agent, judged)| (agent, judged.cause)).collect()
+    };
+    assert_eq!(causes(), [("v1".to_owned(), None), ("v2".to_owned(), None)]);
+    let history = checkout.join(".git/north-history.json");
+    std::fs::remove_file(&history).unwrap();
+    assert_eq!(causes(), [("v1".to_owned(), None), ("v2".to_owned(), None)]);
+    assert!(!history.exists(), "a read at the same main with no new landing reads no history");
+    land(&checkout, t0 + 101 * hour, &["a.rs"], &format!("Revert \"Add old\"\n\nThis reverts commit {old}."));
+    land(&checkout, t0 + 102 * hour, &["b.rs"], &format!("Revert \"Add fresh\"\n\nThis reverts commit {fresh}."));
+    git(&checkout, t0, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    assert_eq!(causes(), [("v1".to_owned(), None), ("v2".to_owned(), Some(Cause::Reverted))], "the closed verdict is kept and the open one is judged again");
+}
