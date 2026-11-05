@@ -1,0 +1,19 @@
+#!/bin/sh
+# north gh shim: a fleet session calls GitHub as the Socrates Agent App within its hourly budget; everyone else gets the real gh
+name=${0##*/}
+self=$(readlink -f "$0")
+IFS=:
+for dir in $PATH; do
+  if [ -x "$dir/$name" ] && [ "$(readlink -f "$dir/$name")" != "$self" ]; then
+    if [ -n "${NORTH_FLEET_SESSION:-}" ]; then
+      if ! north gh-session --help >/dev/null 2>&1; then
+        printf 'gh: this host runs a north runtime without gh-session; run north runtime update (refusing to call GitHub as a personal login)\n' >&2
+        exit 75
+      fi
+      exec north gh-session "$dir/$name" "$@"
+    fi
+    exec "$dir/$name" "$@"
+  fi
+done
+printf '%s: command not found outside the gh shim on this host\n' "$name" >&2
+exit 127

@@ -90,6 +90,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("provider-capacity", crate::capacity::provider_capacity::run),
     ("gh-app-token", crate::platform::github_app::run),
     ("github-mirror", crate::github_mirror::sync::run),
+    ("gh-session", crate::platform::gh_session::run),
     ("git-credential", crate::platform::git_credential::run),
     ("ci-diagnose", crate::ops::ci_watch::diagnose::run),
     ("red-main-notify", crate::ops::ci_watch::notify::run),
