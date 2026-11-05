@@ -233,6 +233,24 @@ mod tests {
     }
 
     #[test]
+    fn every_usage_error_of_the_verb_exits_nonzero_and_a_split_command_never_runs() {
+        let words = |text: &str| text.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        for line in [
+            "run --host gex45 --base HEAD --head HEAD --timeout 30 -- cargo test",
+            "run --host gex45 --base HEAD --head HEAD --timeout soon -- cargo",
+            "run --host gex45 --base HEAD --head HEAD --timeout 30",
+            "choose --any --skip cx53",
+            "free",
+            "reap --owner",
+            "",
+            "frobnicate",
+        ] {
+            let arguments = if line.is_empty() { Vec::new() } else { words(line) };
+            assert_eq!(super::run(&arguments), 2, "{line:?}");
+        }
+    }
+
+    #[test]
     fn a_symbolic_head_ships_as_the_commit_it_names_an_empty_base_ships_everything_and_an_unknown_name_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let git = |args: &[&str]| Command::new("git").current_dir(dir.path()).args(args).output().unwrap();
