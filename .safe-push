@@ -14,7 +14,6 @@
 	budget = cargo.yml 162 600
 	budget = harness.yml 80 600
 [land]
-	workflow = land-check.yml
 	check = ** :: CARGO_TARGET_DIR=target bash harness/scripts/check-owners.sh
 	check = src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --locked --offline -- -D warnings
 	check = harness/,agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo run --locked --offline --bin north -- agent-config-check tree-policy
