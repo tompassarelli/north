@@ -14,3 +14,11 @@ fn a_fleet_message_relayed_into_a_session_is_never_read_as_tom_typing() {
     assert!(is_skip_message("[from service:north-land] landed w230"));
     assert!(!is_skip_message("from now on file every plan as an issue"));
 }
+
+#[test]
+fn a_line_tom_quotes_from_the_reply_before_is_not_read_as_his_words() {
+    let reply = "The alternative is staying here: you keep every feature, but get no resume.";
+    let typed = "The alternative is staying here: you keep every feature, but get no resume.\n\nis this ready yet?";
+    assert_eq!(typed_text(&own_words(typed, Some(reply))), "is this ready yet?");
+    assert_eq!(classify(&typed_text(&own_words(typed, Some(reply))), Some(reply)).0, None);
+}

@@ -41,7 +41,8 @@ its class, the failure it names (pace, status-not-action, unproven-cause, ..., e
 unclassified); source starts with who said it (`tom`, `proxy` or the status file's lead) and
 names the convo message and session or the file and line. A message seen in two copies of one
 session's transcript counts once, and so does a burst of Tom's corrections in one session
-within two minutes (a retyped or split message). Each run also writes corrections-week.txt beside the ledger:
+within two minutes (a retyped or split message); lines Tom copies from the reply before his
+message are not read as his words. Each run also writes corrections-week.txt beside the ledger:
 the last seven days' corrections counted per class, which `north loops check` prints as the
 corrections loop's score.
 
@@ -382,6 +383,14 @@ pub fn topic(text: &str) -> String {
     found.iter().map(|s| s.to_string()).chain(order).take(6).collect::<Vec<_>>().join(" ")
 }
 
+fn own_words(text: &str, previous: Option<&str>) -> String {
+    let quoted = |line: &str| {
+        let line = squash(line.trim_start_matches(|c: char| c == '-' || c == '>' || c == '*' || js_space(c)));
+        utf16_len(&line) >= 20 && previous.is_some_and(|p| squash(p).contains(&line))
+    };
+    text.split('\n').filter(|line| !quoted(line)).collect::<Vec<_>>().join("\n")
+}
+
 fn typed_text(text: &str) -> String {
     squash(&pasted().replace_all(text, " "))
 }
@@ -610,7 +619,7 @@ fn convo_records(messages: &[Message]) -> Vec<Row> {
         if is_skip_message(&m.text) {
             continue;
         }
-        let text = typed_text(&m.text);
+        let text = typed_text(&own_words(&m.text, m.previous.as_deref()));
         if utf16_len(&text) < 6 {
             continue;
         }
