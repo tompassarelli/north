@@ -34,7 +34,7 @@ fn every_tests_it_module_maps_to_crates_the_crate_dag_names() {
 
 #[test]
 fn a_north_runtime_change_alone_selects_only_the_modules_of_north_runtime_and_its_dependents() {
-    let runtime = set(&["agents_sync_runtime_skew", "capacity_runtime_follow", "land_offload", "runtime_update"]);
+    let runtime = set(&["agents_sync_runtime_skew", "capacity_runtime_follow", "carry_matrix", "land_offload", "runtime_update"]);
     assert_eq!(modules(&["crates/north-runtime/src/runtime/bounded.rs"]), runtime);
     assert_eq!(modules(&["crates/north-runtime/src/land_offload/ship.rs", "crates/north-runtime/src/timers/tests.rs"]), runtime);
     assert_eq!(modules(&["crates/north-runtime/src/lib.rs", "crates/north-runtime/Cargo.toml"]), runtime, "the selection holds once north-runtime is its own crate");
@@ -42,7 +42,7 @@ fn a_north_runtime_change_alone_selects_only_the_modules_of_north_runtime_and_it
     for module in table.modules().filter(|module| !runtime.contains(*module)) {
         assert!(!table.crates(module).unwrap().contains("north-runtime"), "{module} exercises north-runtime but was not selected");
     }
-    assert_eq!(selection(&["crates/north-runtime/src/runtime/bounded.rs"]).arguments(), "--test it -- agents_sync_runtime_skew:: capacity_runtime_follow:: land_offload:: runtime_update::");
+    assert_eq!(selection(&["crates/north-runtime/src/runtime/bounded.rs"]).arguments(), "--test it -- agents_sync_runtime_skew:: capacity_runtime_follow:: carry_matrix:: land_offload:: runtime_update::");
 }
 
 #[test]

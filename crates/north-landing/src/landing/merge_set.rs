@@ -32,9 +32,24 @@ enum Change {
     Remove,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Identity {
+    Line,
+    FirstWord,
+}
+
+impl Identity {
+    fn entry(self, line: &str) -> Entry {
+        match self {
+            Self::Line => line_entry(line),
+            Self::FirstWord => Entry { key: line.split_whitespace().next().unwrap_or_default().to_owned(), text: line.to_owned() },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Kind {
-    Lines,
+    Lines(Identity),
     Block { start: String, end: String },
     TomlArray(Vec<String>),
     Regenerate { command: String, sources: Vec<String>, generator: Vec<String> },
@@ -159,7 +174,7 @@ struct LinesFile {
     entries: Vec<Entry>,
 }
 
-fn parse_lines(text: &str) -> Result<LinesFile, String> {
+fn parse_lines(text: &str, identity: Identity) -> Result<LinesFile, String> {
     let mut header = Vec::new();
     let mut entries = Vec::new();
     for line in text.lines() {
@@ -169,14 +184,14 @@ fn parse_lines(text: &str) -> Result<LinesFile, String> {
         } else if plain {
             return Err("a comment or blank line follows the first entry".to_owned());
         } else {
-            entries.push(line_entry(line));
+            entries.push(identity.entry(line));
         }
     }
     Ok(LinesFile { header, entries })
 }
 
-fn merge_lines(base: &str, ours: &str, theirs: &str) -> Result<String, String> {
-    let (base, ours, theirs) = (parse_lines(base)?, parse_lines(ours)?, parse_lines(theirs)?);
+fn merge_lines(base: &str, ours: &str, theirs: &str, identity: Identity) -> Result<String, String> {
+    let (base, ours, theirs) = (parse_lines(base, identity)?, parse_lines(ours, identity)?, parse_lines(theirs, identity)?);
     let header = if ours.header == base.header {
         theirs.header
     } else if theirs.header == base.header || theirs.header == ours.header {
@@ -358,7 +373,11 @@ pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
         let field = |name: &str| table.get(name).and_then(|value| value.as_str());
         let path = field("path").ok_or("a [[set]] entry has no path")?.to_owned();
         let kind = match (field("kind"), field("key"), field("command")) {
-            (Some("lines"), None, None) => Kind::Lines,
+            (Some("lines"), None, None) => match field("entry") {
+                None | Some("line") => Kind::Lines(Identity::Line),
+                Some("first-word") => Kind::Lines(Identity::FirstWord),
+                Some(other) => return Err(format!("{path}: entry {other:?} must be line or first-word")),
+            },
             (Some("block"), None, None) => match (field("start"), field("end")) {
                 (Some(start), Some(end)) if !start.trim().is_empty() && !end.trim().is_empty() => Kind::Block { start: start.trim().to_owned(), end: end.trim().to_owned() },
                 _ => return Err(format!("{path}: a block entry needs a start and an end line")),
@@ -388,7 +407,7 @@ pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
 
 fn merge_text(kind: &Kind, base: &str, ours: &str, theirs: &str) -> Result<String, String> {
     match kind {
-        Kind::Lines => merge_lines(base, ours, theirs),
+        Kind::Lines(identity) => merge_lines(base, ours, theirs, *identity),
         Kind::Block { start, end } => block::merge_block(base, ours, theirs, start, end),
         Kind::TomlArray(keys) => merge_array_keys(base, ours, theirs, keys),
         Kind::Regenerate { command, .. } => Err(format!("a generated file: `north merge-driver continue` runs `{command}` on the merged sources")),

@@ -153,9 +153,9 @@ fn an_array_that_is_not_one_line_of_plain_strings_is_refused() {
 #[test]
 fn a_line_file_with_two_appends_merges_and_comments_may_not_interleave() {
     let base = "# header\nbin/a.sh\n";
-    assert_eq!(merge_lines(base, "# header\nbin/a.sh\nbin/b.sh\n", "# header\nbin/a.sh\nbin/c.sh\n").unwrap(), "# header\nbin/a.sh\nbin/b.sh\nbin/c.sh\n");
-    assert!(merge_lines(base, "# header\nbin/a.sh\n# note\n", base).is_err());
-    assert!(merge_lines(base, "# one\nbin/a.sh\n", "# two\nbin/a.sh\n").is_err());
+    assert_eq!(merge_lines(base, "# header\nbin/a.sh\nbin/b.sh\n", "# header\nbin/a.sh\nbin/c.sh\n", Identity::Line).unwrap(), "# header\nbin/a.sh\nbin/b.sh\nbin/c.sh\n");
+    assert!(merge_lines(base, "# header\nbin/a.sh\n# note\n", base, Identity::Line).is_err());
+    assert!(merge_lines(base, "# one\nbin/a.sh\n", "# two\nbin/a.sh\n", Identity::Line).is_err());
 }
 
 fn scratch_files(dir: &Path, base: &str, ours: &str, theirs: &str) -> [PathBuf; 3] {
@@ -266,4 +266,14 @@ fn two_keys_of_one_path_merge_as_one_rule_and_both_arrays_merge_as_sets() {
     let [b, o, t] = scratch_files(dir.path(), base, ours, theirs);
     drive(&config, &b, &o, &t, "structure.toml").unwrap();
     assert_eq!(fs::read_to_string(&o).unwrap(), "[[module]]\nname = \"a\"\npaths = [\"a/**\", \"b.rs\", \"c.rs\"]\nmay_use = [\"x\", \"y\", \"z\"]\n");
+}
+
+#[test]
+fn a_first_word_line_file_refuses_two_lines_for_one_key_instead_of_keeping_both() {
+    let base = "a north\n";
+    let refused = merge_lines(base, "a north\nb north-threads\n", "a north\nb north-threads north-ops\n", Identity::FirstWord).unwrap_err();
+    assert!(refused.contains("\"b\""), "{refused}");
+    assert_eq!(merge_lines(base, "a north\nb north\n", "a north\nc north\n", Identity::FirstWord).unwrap(), "a north\nb north\nc north\n");
+    assert_eq!(merge_lines(base, "a north north-ops\n", base, Identity::FirstWord).unwrap(), "a north north-ops\n");
+    assert_eq!(merge_lines(base, "a north\nb north-threads\n", "a north\nb north-threads north-ops\n", Identity::Line).unwrap(), "a north\nb north-threads\nb north-threads north-ops\n");
 }
