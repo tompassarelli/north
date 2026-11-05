@@ -30,9 +30,13 @@ Claims marked **(unverified)** were not found in any source opened.
 
 ## Toolchains we actually have
 
-- This host repository: `rust-toolchain.toml` pins 1.96.1 and `flake.nix`
+- This host repository: `rust-toolchain.toml` pins `nightly-2026-04-10` (the
+  1.96 branch point) with `rustc-codegen-cranelift-preview`, and `flake.nix`
   builds it with rust-overlay (rustup's distribution); devShell = toolchain
-  plus bun.
+  plus bun. `.cargo/config.toml` sets `codegen-backend = "cranelift"` and
+  `-Zthreads=8` as profile `rustflags` (which `RUSTFLAGS` does not displace)
+  for dev and test; release stays on LLVM. Measured in north `docs/rationale/rust-build-times.md`
+  "Toolchain levers": 1.62x on the leaf-edit test build, 22% less CPU.
 - galileo: no `rust-toolchain.toml`; `flake.nix` takes `pkgs.rustc`/`pkgs.cargo`
   from a nixpkgs pin whose `rust` is 1.89, plus `pkgs.gcc`. Rust 1.90 is the
   first stable to link with `rust-lld` by default on x86_64-linux-gnu, and that
@@ -228,20 +232,23 @@ covers `cargo test`. `dev` defaults: `opt-level = 0`, `debug = true`,
   (reflink copy of the newest sibling checkout's `target/` built from the same
   `Cargo.lock`), not sccache; see "Measured: a new lane's first build".
 
-## Nightly options, not defaults
+## Nightly options
 
 - **Parallel front-end `-Zthreads=8`.** Up to 50% faster, varies widely, dev
   builds gain more than release, memory up to 35% higher, eight threads
   recommended, a few tiny crates get slower [parallel] [perf]. Bevy sets
   `threads=0` (one per core) [bevy]. Under Nix: a nightly toolchain in the
-  flake (rust-overlay `rust-bin.nightly`) and the flag in repo config
-  `rustflags`. Not for us while both repos pin stable.
+  flake (rust-overlay `rust-bin.nightly`) and the flag in a profile
+  `rustflags` (`[unstable] profile-rustflags = true`). Adopted in this host
+  repository on 2026-11-05: 1.45x alone on north-core's leaf-edit test build.
 - **Cranelift backend.** Faster codegen, slower code, dev only; enable with
   `[unstable] codegen-backend = true` and `[profile.dev] codegen-backend =
   "cranelift"`, and Bevy keeps dependencies on LLVM with
   `[profile.dev.package."*"] codegen-backend = "llvm"` [perf] [bevy]. Under Nix:
   nightly plus the `rustc-codegen-cranelift-preview` component through
-  rust-overlay **(unverified that rust-overlay exposes it under that name)**.
+  rust-overlay (it does, under that name). Alone it was 0.88x on north-core's
+  front-end-bound leaf rebuild, with 18% less CPU; beside `-Zthreads=8` it
+  takes the pair to 1.62x.
   When it doesn't help: front-end-bound units such as lsp-types here (9.4 of
   9.9 s front-end); galileo-core's 19 s of codegen is the kind it targets.
 - Others seen: `-Zshare-generics=y`, `-Zcache-proc-macros` (5-10% incremental,

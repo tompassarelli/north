@@ -142,3 +142,45 @@ This entry first kept north-core as one crate, because the quiet-host median sat
 times-2 threshold. Against the 10 s cap it is over, so the split is due: moving `ops` (41.8k lines) out
 of north-core, after `capacity`, `threads`, `health` and `guard` stop depending on `ops`, is boxed in
 north#259's "Split north-core" section, and the daily run keeps its measured box there.
+
+## Toolchain levers, 2026-11-05
+
+Tom asked on 2026-11-05 whether Rust builds can be made fast, so two toolchain levers
+were measured against the stable baseline: the Cranelift codegen backend and the parallel front end
+(`-Zthreads=8`). Host gex45, heavy class (6 CPUs, `CARGO_BUILD_JOBS=6`), one worktree at
+origin/main fad7445bd7, `RUSTC_WRAPPER` unset, one `CARGO_TARGET_DIR` per configuration, each warmed by a
+full `cargo build` and `cargo test --no-run` first. Each sample appends `const _: u64 = K;` to
+`crates/north-core/src/code_health/source.rs` and times `cargo build`, then `cargo test --no-run`, with
+bash `time` (CPU is user + sys). Pass 1 (7:18-7:30 AM (+07)) ran stable, Cranelift and `-Zthreads=8` in
+a fixed order as load fell from 18.7 to 10.3; pass 2 (7:39-8:00 AM) rotated stable, `-Zthreads=8`,
+both levers and a plain-nightly control so that each took every slot once, at loads of 7.9 to 19.4. No
+sample started or ended over the 20 threads. Medians over every sample, in seconds:
+
+| Configuration | Samples | Leaf build | Build CPU | Leaf test --no-run | Test CPU | Test ratio | Build ratio |
+|---|---|---|---|---|---|---|---|
+| stable 1.96.1 (LLVM) | 7 | 37.3 | 63.9 | 60.9 | 182.6 | 1.00 | 1.00 |
+| nightly-2026-04-10 (LLVM) | 4 | 42.6 | 73.7 | 56.7 | 171.5 | 1.07 | 0.88 |
+| nightly, Cranelift | 3 | 50.3 | 60.9 | 69.3 | 149.2 | 0.88 | 0.74 |
+| nightly, `-Zthreads=8` | 7 | 22.9 | 82.5 | 41.9 | 189.7 | 1.45 | 1.63 |
+| nightly, Cranelift and `-Zthreads=8` | 4 | 22.7 | 54.7 | 37.5 | 142.1 | 1.62 | 1.64 |
+
+The nightly is the last 1.96.0 nightly in north's pinned rust-overlay (rustc f5eca4fcf, 2026-04-09), the
+commit 1.96 beta branched from, so lints and language match stable 1.96.1 and the plain-nightly row is
+within noise of stable. The parallel front end is the lever: north-core's leaf rebuild is front-end
+bound, so `-Zthreads=8` cuts wall time by about a third while CPU stays flat. Cranelift alone is slower
+on wall time with 18% less CPU: it cuts codegen work but not the serial front end in front of it.
+Together the two give the best wall time and the least CPU, 22% under stable, which matters on a host
+whose builds queue for CPU. Load swung from 8 to 19 during the samples and single samples vary by up to
+1.8x, so the ratios carry roughly 15% of noise; the ranking held in both passes.
+
+Adopted the same day: `rust-toolchain.toml` pins `nightly-2026-04-10` with the
+`rustc-codegen-cranelift-preview` component, and `.cargo/config.toml` sets `codegen-backend = "cranelift"`
+and `rustflags = ["-Zthreads=8"]` for `[profile.dev]` only, which the test profile inherits. Release
+builds, and so the runtime that `north runtime update` builds with `--release`, keep LLVM and no
+`-Zthreads`. Checked before landing at the same SHA: clippy with `-D warnings` passes;
+`cargo test --workspace --no-fail-fast` gives 2,987 passed and 12 failed against stable's 2,988 and 11. The
+11 fail on stable too (repository-content and host-state tests that fail on that main). The twelfth,
+`capacity_exclusive_native`, races a one-second exclusive lease against a bun helper start under load;
+it passed 10 of 10 runs alone under each toolchain. `cargo fmt --check` reports the same 14,069 diffs
+with stable and nightly rustfmt, and no check runs it. `RUSTFLAGS`, which the dev shell exports for a
+foreign `CARGO_TARGET_DIR`, does not displace profile `rustflags`, so the levers hold in every lane.

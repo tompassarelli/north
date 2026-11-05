@@ -33,3 +33,4 @@ Use [performance design](../performance-design/SKILL.md) when a runtime budget c
 
 Read [Rust and Cargo details](references/notes.md) when selecting idioms, async/unsafe checks or build commands.
 Read [compile times](references/compile-times.md) before changing linkers, profiles, caches, crate splits or test layout for build speed.
+North's toolchain: nightly with Cranelift and `-Zthreads=8` for dev and test, LLVM for release (`rust-toolchain.toml`, `.cargo/config.toml`).

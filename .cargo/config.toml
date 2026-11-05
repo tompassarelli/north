@@ -1,0 +1,7 @@
+[unstable]
+codegen-backend = true
+profile-rustflags = true
+
+[profile.dev]
+codegen-backend = "cranelift"
+rustflags = ["-Zthreads=8"]
