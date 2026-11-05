@@ -79,7 +79,7 @@ pub(in crate::cli) fn roster() -> NorthResult<Roster> {
 }
 
 pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
-    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases))
+    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli::new()), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases))
 }
 
 fn far_machine(host: &str) -> bool {

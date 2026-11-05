@@ -1,9 +1,12 @@
 //! The `north threads` adapter behind the fleet's claims: a session holds its task in the ledger dispatch reads.
-use std::process::{Command, Stdio};
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::Duration;
 
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
+use crate::platform::process;
 use crate::fleet::claims::Claims;
 use crate::fleet::registry::Fleet;
 use crate::threads::catalog::CATALOG;
@@ -38,11 +41,29 @@ pub(super) fn release_exited_claims(fleet: &Fleet, arguments: &[String]) {
     }
 }
 
-pub struct ThreadsCli;
+/// How long a fleet verb waits on one threads ledger call, because the ledger can sit across ssh behind a hung courier and a verb must not wait on it.
+const LEDGER_LIMIT: Duration = Duration::from_secs(2);
+
+pub struct ThreadsCli {
+    program: Option<PathBuf>,
+    limit: Duration,
+}
 
 impl ThreadsCli {
-    fn threads(args: &[&str]) -> NorthResult<String> {
-        let output = Command::new(running_north()?).arg("threads").args(args).stdin(Stdio::null()).output()?;
+    pub fn new() -> Self {
+        Self { program: None, limit: LEDGER_LIMIT }
+    }
+
+    fn threads(&self, args: &[&str]) -> NorthResult<String> {
+        let program = match &self.program {
+            Some(program) => program.clone(),
+            None => running_north()?,
+        };
+        let mut command = Command::new(program);
+        command.arg("threads").args(args);
+        let Some(output) = process::run_group_within(command, self.limit) else {
+            return Err(NorthError::State(format!("the threads ledger did not answer within {} s", self.limit.as_secs())));
+        };
         if output.status.success() {
             return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
         }
@@ -52,18 +73,18 @@ impl ThreadsCli {
 
 impl Claims for ThreadsCli {
     fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
-        match Self::threads(&["claim", item, "--by", session]) {
+        match self.threads(&["claim", item, "--by", session]) {
             Err(NorthError::Refused(why)) if !why.contains(OWNED) => Err(NorthError::State(why)),
             other => other.map(|said| moved(said.trim(), item, session)),
         }
     }
 
     fn release(&self, item: &str, session: &str) -> NorthResult<()> {
-        Self::threads(&["release", &canonical(item), "--by", session, "--held-by", session]).map(drop)
+        self.threads(&["release", &canonical(item), "--by", session, "--held-by", session]).map(drop)
     }
 
     fn holders(&self) -> NorthResult<Vec<(String, String)>> {
-        let rows: Value = serde_json::from_str(&Self::threads(&["list", "--json", "--all"])?)?;
+        let rows: Value = serde_json::from_str(&self.threads(&["list", "--json", "--all"])?)?;
         Ok(rows.as_array().into_iter().flatten().filter_map(|row| Some((row["item"].as_str()?.to_owned(), row["owner"].as_str()?.to_owned()))).collect())
     }
 }
@@ -100,6 +121,35 @@ mod tests {
         }
         release_exited_claims(&fleet, &words(&["waits"]));
         assert!(claims.holders().unwrap().is_empty());
+    }
+
+    fn a_hung_courier(home: &std::path::Path) -> ThreadsCli {
+        use std::os::unix::fs::PermissionsExt;
+        let script = home.join("hung-north");
+        std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        ThreadsCli { program: Some(script), limit: LEDGER_LIMIT }
+    }
+
+    #[test]
+    fn a_mutating_verb_returns_within_three_seconds_while_the_threads_host_is_unreachable() {
+        let home = tempfile::tempdir().unwrap();
+        let ledger = Arc::new(Ledger::open(&home.path().join("ledger.db")).unwrap());
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Claude)]), ledger, Arc::new(a_hung_courier(home.path()))).unwrap();
+        let session = home.path().join(".local/state/north/fleet/gone");
+        std::fs::create_dir_all(&session).unwrap();
+        let record = json!({"name": "gone", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "stopped": true});
+        std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+
+        let started = std::time::Instant::now();
+        let swept = fleet.release_exited_claims();
+        assert!(started.elapsed() < Duration::from_secs(3), "the sweep took {:?}", started.elapsed());
+        let note = swept.unwrap_err().user_message();
+        assert!(note.contains("did not answer within 2 s") && !note.contains('\n'), "{note}");
+
+        let started = std::time::Instant::now();
+        crate::fleet::claims::hold_all(&a_hung_courier(home.path()), &["north#1".to_owned()], "gone").unwrap();
+        assert!(started.elapsed() < Duration::from_secs(3), "the launch claim took {:?}", started.elapsed());
     }
 
     #[test]
