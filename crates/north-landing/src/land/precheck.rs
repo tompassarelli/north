@@ -6,6 +6,7 @@ use super::after;
 use super::bisect::{self, Strikes};
 use super::candidate::{self, Pick, git};
 use super::checks::{self, Started, Verdict};
+use super::fast_lane::{self, Facts, Following, Route};
 use super::lander::Lander;
 use super::pause;
 use super::push_refusal::Refusal;
@@ -44,6 +45,7 @@ struct Lane {
     head: String,
     log: PathBuf,
     stages: Stages,
+    fast: bool,
 }
 
 struct Running {
@@ -88,6 +90,7 @@ pub struct State {
     recheck: Vec<Recheck>,
     held: HashMap<PathBuf, Held>,
     rank: HashMap<PathBuf, usize>,
+    following: Vec<Following>,
     attempts: HashMap<PathBuf, usize>,
     strikes: Strikes,
     surveyed: Option<Instant>,
@@ -102,11 +105,11 @@ pub struct State {
 impl State {
     pub fn drain(&mut self) -> usize {
         self.draining = true;
-        self.checking.len()
+        self.in_flight()
     }
 
     pub fn in_flight(&self) -> usize {
-        self.checking.len()
+        self.checking.len() + self.following.len()
     }
 
     pub fn hosts_full(&self) -> bool {
@@ -135,7 +138,7 @@ impl State {
     }
 
     fn busy(&self) -> bool {
-        !self.checking.is_empty() || !self.ready.is_empty() || !self.recheck.is_empty()
+        !self.checking.is_empty() || !self.ready.is_empty() || !self.recheck.is_empty() || !self.following.is_empty()
     }
 
     fn tracked(&self, path: &Path) -> bool {
@@ -214,13 +217,13 @@ fn prepare_worktrees(lander: &Lander, state: &mut State, count: usize) -> Result
     Ok(())
 }
 
-fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<CheckHost>, path: &Path, ticket: &Ticket, light: bool) -> Result<(), String> {
+fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<CheckHost>, (path, ticket): (&Path, &Ticket), light: bool, queued: &[(PathBuf, Ticket)]) -> Result<(), String> {
     let main = tick.main()?;
     let worktree = state.worktrees[slot].clone();
     let attempt = state.attempts.get(path).copied().unwrap_or(0) + 1;
     let built = candidate::build(&worktree, &main, &[(path.to_owned(), ticket.clone())], tick.queued, 1, &tick.logs)?;
     let name = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("lane");
-    let mut lane = Lane { path: path.to_owned(), ticket: ticket.clone(), base: main.clone(), head: built.head, log: tick.logs.join(format!("{}-{name}-precheck.log", micros())), stages: Stages::start() };
+    let mut lane = Lane { path: path.to_owned(), ticket: ticket.clone(), base: main.clone(), head: built.head, log: tick.logs.join(format!("{}-{name}-precheck.log", micros())), stages: Stages::start(), fast: false };
     lane.stages.attempts = attempt;
     match built.picks.into_iter().next() {
         Some(Pick::Included) => {}
@@ -238,6 +241,21 @@ fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<Che
         }
     }
     state.attempts.insert(lane.path.clone(), attempt);
+    if let Route::Fast(crates) = route(tick, &worktree, &main, &lane, queued)? {
+        lane.fast = true;
+        return match fast_lane::check(&worktree, &crates, &lane.log) {
+            Ok(Some(started)) => {
+                println!("north land: {} takes the fast lane: cargo check of {} on main@{main} in build slot {slot}", ticket.branch, crates.join(", "));
+                state.checking.push(Checking { running: Running { check: Some(started), branch: ticket.branch.clone() }, lane, slot, host: None });
+                Ok(())
+            }
+            Ok(None) => {
+                println!("north land: {} takes the fast lane: it changes no crate, so it lands on main@{main} without a check", ticket.branch);
+                settle(tick, state, lane, &worktree, Verdict::Green)
+            }
+            Err(verdict) => settle(tick, state, lane, &worktree, verdict),
+        };
+    }
     match checks::start(&checks::Launch { recheck: light, ..checks::Launch::of(tick.lander) }, &worktree, &main, &lane.log, true, check_host.as_ref().map(CheckHost::runner)) {
         Ok(started) => {
             let on = check_host.as_ref().map(|host| format!(" on {}", host.name())).unwrap_or_default();
@@ -248,6 +266,22 @@ fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<Che
         }
         Err(verdict) => settle(tick, state, lane, &worktree, verdict),
     }
+}
+
+fn route(tick: &Tick, worktree: &Path, main: &str, lane: &Lane, queued: &[(PathBuf, Ticket)]) -> Result<Route, String> {
+    let changed = changed(worktree, main, &lane.head)?.into_iter().collect();
+    let mut others = HashSet::new();
+    for (_, ticket) in queued.iter().filter(|(path, _)| *path != lane.path && path.exists()) {
+        let Some(files) = fast_lane::changed(&tick.lander.repo, main, &ticket.head) else {
+            return Ok(Route::Full(format!("the changes of queued lane {} cannot be read", ticket.branch)));
+        };
+        others.extend(files);
+    }
+    let route = fast_lane::route(&Facts { changed: &changed, queued: &others, packages: &fast_lane::packages(worktree), red_fix: lane.ticket.red_fix.is_some() });
+    if let Route::Full(reason) = &route {
+        println!("north land: {} takes the full precheck: {reason}", lane.ticket.branch);
+    }
+    Ok(route)
 }
 
 fn settle(tick: &mut Tick, state: &mut State, mut lane: Lane, worktree: &Path, verdict: Verdict) -> Result<(), String> {
@@ -347,6 +381,9 @@ fn land(tick: &mut Tick, state: &mut State) -> Result<Option<Round>, String> {
         match tick.lander.push(&head, &lane.base, token.as_deref())? {
             Pushed::Landed => {
                 lane.stages.mark("push");
+                if lane.fast {
+                    state.following.push(fast_lane::follow(tick.lander, &lane.ticket, &lane.base, &head));
+                }
                 after::finish(tick.lander, &head, &lane.base, &lane.stages, vec![(lane.path.clone(), lane.ticket.clone())])?;
                 tick.main = Some(head);
                 tick.progressed = true;
@@ -401,12 +438,12 @@ fn fill(tick: &mut Tick, state: &mut State, count: usize) -> Result<(), String> 
         let Ok(check_host) = state.place() else { break };
         if let Some(recheck) = (!state.recheck.is_empty()).then(|| state.recheck.remove(0)) {
             state.attempts.insert(recheck.path.clone(), recheck.attempts);
-            start(tick, state, slot, check_host, &recheck.path, &recheck.ticket, recheck.light)?;
+            start(tick, state, slot, check_host, (&recheck.path, &recheck.ticket), recheck.light, queued)?;
             continue;
         }
         let Some((path, ticket)) = queued.iter().find(|(path, _)| path.exists() && !state.tracked(path)) else { break };
         state.held.remove(path);
-        start(tick, state, slot, check_host, path, ticket, false)?;
+        start(tick, state, slot, check_host, (path, ticket), false, queued)?;
     }
     Ok(())
 }
@@ -430,6 +467,9 @@ pub fn round(lander: &Lander, state: &mut State) -> Result<Option<Round>, String
     state.rank = queued.iter().enumerate().map(|(at, (path, _))| (path.clone(), at)).collect();
     let mut tick = Tick { lander, queued: &queued, logs: lander.queue.join("logs"), main: None, progressed: false };
     poll(&mut tick, state)?;
+    if fast_lane::settle(lander, &mut state.following) {
+        tick.progressed = true;
+    }
     if let Some(round) = land(&mut tick, state)? {
         return Ok(Some(round));
     }

@@ -40,6 +40,7 @@ pub struct Started {
     child: Child,
     program: String,
     log: PathBuf,
+    by_exit: bool,
 }
 
 pub struct Launch<'a> {
@@ -85,7 +86,7 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
         command.env("SAFE_PUSH_LAND_RUNNER", runner);
     }
     match command.spawn() {
-        Ok(child) => Ok(Started { child, program: program.clone(), log: log.to_owned() }),
+        Ok(child) => Ok(Started { child, program: program.clone(), log: log.to_owned(), by_exit: false }),
         Err(error) => Err(Verdict::Transient(format!("{program}: {error}"))),
     }
 }
@@ -116,6 +117,9 @@ impl Started {
 
     fn verdict(&self, status: ExitStatus) -> Verdict {
         let (program, log) = (&self.program, &self.log);
+        if self.by_exit {
+            return if status.success() { Verdict::Green } else { Verdict::Refused(format!("{program} {status}; log: {}", log.display())) };
+        }
         let text = fs::read_to_string(log).unwrap_or_default();
         match parse(&text) {
             Some(Verdict::Refused(_) | Verdict::Green) if status.code() == Some(75) => Verdict::Transient(format!("{program} exited 75; log: {}", log.display())),
@@ -130,5 +134,29 @@ pub fn run(lander: &Lander, worktree: &Path, base: &str, log: &Path) -> Verdict 
     match start(&Launch::of(lander), worktree, base, log, false, None) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
+    }
+}
+
+pub fn start_judged_by_exit(argv: &[String], worktree: &Path, log: &Path) -> Result<Started, Verdict> {
+    let Some((program, arguments)) = argv.split_first() else {
+        return Err(Verdict::Transient("no command to run".to_owned()));
+    };
+    if let Some(parent) = log.parent()
+        && let Err(error) = fs::create_dir_all(parent)
+    {
+        return Err(Verdict::Transient(format!("{}: {error}", parent.display())));
+    }
+    let (stdout, stderr) = match File::create(log).and_then(|file| Ok((file.try_clone()?, file))) {
+        Ok(files) => files,
+        Err(error) => return Err(Verdict::Transient(format!("{}: {error}", log.display()))),
+    };
+    let mut command = Command::new(program);
+    command.args(arguments).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).process_group(0);
+    for name in SCRUBBED {
+        command.env_remove(name);
+    }
+    match command.spawn() {
+        Ok(child) => Ok(Started { child, program: program.clone(), log: log.to_owned(), by_exit: true }),
+        Err(error) => Err(Verdict::Transient(format!("{program}: {error}"))),
     }
 }

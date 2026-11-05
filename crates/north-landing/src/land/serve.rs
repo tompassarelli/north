@@ -298,7 +298,7 @@ impl Lander {
                         }
                     }
                     stages.mark("push");
-                    super::post_land::start(self, &base, &head, included.iter().map(|(_, ticket)| ticket.branch.clone()).collect());
+                    drop(super::post_land::start(self, &base, &head, included.iter().map(|(_, ticket)| ticket.branch.clone()).collect()));
                     after::finish(self, &head, &base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
                     speculate::land(self, stacked, &head)?;
                     return Ok(Round::Progress);

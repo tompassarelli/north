@@ -6,6 +6,7 @@ pub mod checks;
 pub mod credential;
 pub mod culprit;
 pub mod enqueue;
+pub mod fast_lane;
 pub mod first_commit;
 pub mod hold;
 pub mod incidents;

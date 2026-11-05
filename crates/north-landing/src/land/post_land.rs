@@ -29,7 +29,7 @@ pub struct Run {
     pub offload_owner: String,
 }
 
-pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>) {
+pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>) -> std::thread::JoinHandle<Verdict> {
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
     let landed = Landed { repo: lander.repo.clone(), repository: telemetry::repository(&origin), base: base.to_owned(), head: head.to_owned(), lanes };
     let short = &head[..head.len().min(12)];
@@ -44,7 +44,8 @@ pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>) {
     std::thread::spawn(move || {
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
-    });
+        verdict
+    })
 }
 
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
