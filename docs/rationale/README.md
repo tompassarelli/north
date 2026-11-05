@@ -4,7 +4,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 
 - [Account usage: one reserve, placement that manages work in flight, and a spend breaker](account-capacity.md): Plan of 2026-11-04 (laptop time), revised the same day to Tom's design of 2026-11-05.
 - [Agent push identity: agents push as the Socrates Agent app, Tom keeps his login](agent-push-identity.md): Tom approved on 2026-11-06 moving agent pushes off his admin login, so that GitHub itself refuses an agent's stray tag instead of safe-push alone (north#619).
-- [Backlog order: north's open issues ranked by leverage, with the edges between them](backlog-order.md): North's open issues on 2026-11-06, ranked by how much other work each one unblocks or speeds up, then by cost, with the waits between them as an edge list.
+- [Backlog ranking: north's open issues ranked by leverage, with the edges between them](backlog-ranking.md): North's open issues on 2026-11-06, ranked by how much other work each one unblocks or speeds up, then by cost, with the waits between them as an edge list.
 - [Betterleaks: one secret scanner, tuned for the guarded secrets and fast landings](betterleaks.md): Tom asked on 2026-11-06 for betterleaks (MIT, https://github.com/betterleaks/betterleaks) in place of the previous scanner wherever a repository or host scans for secrets, configured so it adds as little time as possible to builds and landings (north#642).
 - [Build cost: where north's compiles burn cores, and what to cut first](build-cost.md): Plan of 2026-11-04 (laptop time, +07), revised the same day after review.
 - [Capacity scheduler: elastic, learned, fleet-wide placement by predicted finish time](capacity-scheduler.md): Owner: north#259
@@ -21,7 +21,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Measured no gain: what to retire](measured-no-gain.md): Audited 2026-11-04 on north origin/main `7c2a76350`.
 - [Current Nix practice, November 2026, against how Tom's repositories use Nix](nix-current-practice.md): Research of 2026-11-04 for north#553.
 - [Nix and dev-shell footguns: every failure class and the guard that closes it](nix-footguns.md): Plan of 2026-11-05 (laptop time, +07) for north#553.
-- [Non-Rust inventory](non-rust-inventory.md): Every non-Rust code file in North, written 2026-11-04 for north#88: shell, Python, TypeScript and JavaScript files, and shebang scripts in `bin/` and `harness/`.
+- [Non-Rust inventory](non-rust-inventory.md): Every non-Rust code file left in North on 2026-11-06 for north#88 (the rows of files since ported or deleted are dropped; git history has them): shell, Python, TypeScript and JavaScript files, and shebang scripts in `bin/` and `harness/`.
 - [One landing per change](one-landing-per-change.md): A change lands on main as one commit.
 - [The proxy's role: route and judge, delegate the rest, and measure it](proxy-role.md): Tom asked on 2026-11-05 for the orchestrating session to act as one: do brief cross-cutting work itself and delegate everything that takes several steps, with a deterministic mechanism behind each rule wherever one can carry it.
 - [pstack integration rationale](pstack.md): Cold-path reasoning for which pstack practices North adopted, and which it did not (decided 2026-10-15).

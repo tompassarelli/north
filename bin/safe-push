@@ -404,6 +404,13 @@ test_admission_scan() {
   return "$status"
 }
 
+docs_owners_scan() {
+  local status=0
+  north land scan docs-owners "$1" || status=$?
+  [ "$status" -ne 64 ] || echo "safe-push: this host's north runtime lacks north land scan docs-owners, which safe-push calls; run north runtime update; NOT pushed." >&2
+  return "$status"
+}
+
 policy_sweep_scan() {
   north land scan policy-sweep "$1"
 }
@@ -1497,6 +1504,7 @@ policy_scans() {
   test_integrity_scan "$range" || policy_failures+=("test integrity")
   test_admission_scan "$range" || policy_failures+=("test admission")
   policy_sweep_scan "$range" || policy_failures+=("policy sweep")
+  docs_owners_scan "$range" || policy_failures+=("document owners")
   [ "${#policy_failures[@]}" -eq 0 ]
 }
 

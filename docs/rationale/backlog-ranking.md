@@ -1,4 +1,4 @@
-# Backlog order: north's open issues ranked by leverage, with the edges between them
+# Backlog ranking: north's open issues ranked by leverage, with the edges between them
 
 North's open issues on 2026-11-06, ranked by how much other work each one unblocks or speeds up, then by cost, with the waits between them as an edge list.
 

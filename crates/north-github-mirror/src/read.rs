@@ -20,11 +20,20 @@ pub fn listed(mirror: &Mirror, at: f64, repo: &str, kind: &str, miss: impl FnOnc
     }
 }
 
-pub fn issue_state(mirror: &Mirror, at: f64, repo: &str, number: u64) -> Option<Seen> {
+fn classify(open: &Value, closed: &Value, number: u64) -> Option<Seen> {
     let numbered = |rows: &Value| rows.as_array().is_some_and(|rows| rows.iter().any(|row| row["number"] == number || *row == number));
-    let hit = |kind: &str| REPOS.contains(&repo).then(|| mirror.fresh(&key(repo, kind), at)).flatten();
-    if numbered(&hit(OPEN_ISSUES)?) {
+    if numbered(open) {
         return Some(Seen::Open);
     }
-    numbered(&hit(CLOSED_ISSUES)?["numbers"]).then_some(Seen::Closed)
+    numbered(&closed["numbers"]).then_some(Seen::Closed)
+}
+
+pub fn issue_state(mirror: &Mirror, at: f64, repo: &str, number: u64) -> Option<Seen> {
+    let hit = |kind: &str| REPOS.contains(&repo).then(|| mirror.fresh(&key(repo, kind), at)).flatten();
+    classify(&hit(OPEN_ISSUES)?, &hit(CLOSED_ISSUES)?, number)
+}
+
+pub fn recorded_issue_state(mirror: &Mirror, repo: &str, number: u64) -> Option<Seen> {
+    let copy = |kind: &str| REPOS.contains(&repo).then(|| mirror.read(&key(repo, kind))).flatten().map(|copy| copy.body);
+    classify(&copy(OPEN_ISSUES)?, &copy(CLOSED_ISSUES)?, number)
 }

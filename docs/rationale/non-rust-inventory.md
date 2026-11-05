@@ -1,36 +1,8 @@
 # Non-Rust inventory
 
-Every non-Rust code file in North, written 2026-11-04 for north#88: shell, Python, TypeScript and JavaScript files, and shebang scripts in `bin/` and `harness/`. Tom asked on 2026-11-04 that any non-Rust code have an extremely strong reason to exist; each row below names the port box on north#88 or the reason the file stays. Data (Markdown, TOML, JSON, YAML, fixtures, Nix, `flake.nix`, `flake.lock`) is not code and is not listed.
+Every non-Rust code file left in North on 2026-11-06 for north#88 (the rows of files since ported or deleted are dropped; git history has them): shell, Python, TypeScript and JavaScript files, and shebang scripts in `bin/` and `harness/`. Tom asked on 2026-11-04 that any non-Rust code have an extremely strong reason to exist; each row below names the port box on north#88 or the reason the file stays. Data (Markdown, TOML, JSON, YAML, fixtures, Nix, `flake.nix`, `flake.lock`) is not code and is not listed.
 
 Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason) or `delete`. A file that stays is either a launcher or PATH name with no Rust equivalent possible, glue of at most 80 code lines, or part of a Bun/Node package whose JS API or JS-only dependency is the point. Where a Rust twin exists and a deployed unit or another repository still names the file, the row names the caller whose change lands first.
-
-## Deleted in this change
-
-Each name was searched across north, south and nixos-config (Markdown, decision records and ledgers excluded) before deletion.
-
-| File | Lines | Why it is safe |
-|---|---|---|
-| bin/worker-ledger | 3 | transient shim for the worker-ledger unit; `systemctl --user cat worker-ledger.service` on whiterabbit, nexus and gex45 on 2026-11-04 shows ExecStart `north worker-ledger` (nixos-config `modules/worker-ledger/default.nix:43`) |
-| bin/danger | 4 | no caller in north, south or nixos-config; the rebuild craftsmanship audit (south) already marked it delete (W15) |
-| bin/farm-runner, bin/farm-runner-image, bin/farm-runner.test.sh | 101, 19, 42 | no caller in north, south or nixos-config; the deployed farm runners are nixos-config `modules/farm-runners` (its own image build and gate), and `north laptop-runner` replaced the laptop script |
-| bin/iteration-ledger, bin/iteration-ledger-page | 458, 56 | deleted 2026-11-05 instead of ported: its only caller was the Feature Bottlenecks refresh steps in harness/skills/workers/references/payback.md, last run 2026-10-15, and every Tom-ask input it read stopped then (last proxy KICKOFF and LAND-READY events in the threads snapshot 2026-10-15, land-checks.tsv 2026-10-12, handoffs/throughput-architect-measure.md 2026-10-15); payback rates now come from `git log --first-parent` |
-
-## Deleted for the north#88 hook and harness shell box (2026-11-05)
-
-Searched with `rg -l NAME` across north, south and nixos-config, decision records excluded.
-
-| File | Lines | Why it is safe |
-|---|---|---|
-| harness/lib/tree-north.sh, harness/lib/tree-north.test.sh | 18, 45 | nothing sources it; the only other hits were its own test and the harness-tests CI canary, which now breaks `bin/gh-app-token` instead (`tests/it/land_checks.rs` uses `tree-north` only as a stub trace label) |
-| harness/hooks/lib/bench.sh | 100 | no caller; nixos-config `bench-shield` is an unrelated core-reservation tool |
-| harness/scripts/rust-build-timings.sh, harness/scripts/rust-build-timings.test.sh | 47, 28 | only the rust-development compile-times reference named it, and `north code-health build-time` already times a cold build, edit rebuilds and test builds in a fresh target directory; the reference now names that verb |
-
-## north#88 part (a) outcome
-
-- Already gone from `origin/main` before this change: dep-gate, provenance, convo, flow, report (Rust: `north dep-gate`, `provenance`, `convo`, `flow`, `report`), and the old `bin/follows-release` script itself.
-- Still in the tree, with the live caller named:
-  - `bin/follows-release.lib.sh` and its three `.test.sh` files drive `bin/safe-push`, which calls the Rust `north follows-release`; they leave with the safe-push port (landing-train B18).
-  - `bin/job-run` is ported as `north job-run` but stays until the nixos-config units that name it switch to the verb on every host; `bin/run-bounded` is ported as `north run-bounded` and deleted.
 
 ## Inventory
 
@@ -80,28 +52,7 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | harness/hooks/prompt-grounding.test.sh | 94 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests the Rust grounding hook through its wrapper |
 | harness/lib/authoring-killswitch.sh | 41 | port: north#88 box "hook and harness shell to Rust" (family: tests) | sourced by hook wrappers to read kill switches; goes when provider hook configs name `north hook` directly (nixos-config change first) |
 | harness/lib/authoring-killswitch.test.sh | 24 | port: north#88 box "hook and harness shell to Rust" (family: tests) | test of authoring-killswitch.sh |
-| harness/lib/billing_digitalocean.py | 54 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/claude_profiles.py | 91 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/claude_profiles.test.py | 100 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/durable_events.py | 108 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/durable-events.test.py | 166 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/goal_eta.py | 259 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/goal_eta.test.py | 64 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/ledger_context.py | 65 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
 | harness/lib/north-agent-activation.sh | 83 | port: north#88 box "hook and harness shell to Rust" (family: tests) | sourced activation reader; Rust reads the same generation |
-| harness/lib/plan_usage.py | 213 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/presence.py | 301 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/presence.test.py | 221 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/project_plan.py | 88 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/project_score.py | 118 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/project_score.test.py | 74 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/provider_capacity.py | 103 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/routines.py | 238 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/ssh_transport.py | 19 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/usage_agy.py | 179 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/usage_claude.py | 137 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/usage.py | 409 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/lib/usage.test.sh | 59 | port: north#78 (usage family) | test of usage.py; cases move to cargo test with --refresh/--reservation-json |
 | harness/scripts/canary.sh | 55 | stay | 55-line CI glue that runs a family's own check on a planted fault; must run in CI before or beside the build, reads workflow YAML |
 | harness/scripts/cargo-tests.sh | 6 | stay | 6-line CI glue that builds test binaries for the offline land check |
 | harness/scripts/mutant-tests.sh | 57 | stay | 57-line CI glue that runs the mutant cargo slots |
