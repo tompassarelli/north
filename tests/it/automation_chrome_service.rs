@@ -1,4 +1,4 @@
-use std::os::unix::fs::PermissionsExt;
+use north_core::foundation::shim;
 use std::process::Command;
 
 #[test]
@@ -6,8 +6,7 @@ fn the_automation_chrome_service_starts_chrome_on_the_basic_password_store() {
     let scratch = tempfile::tempdir().unwrap();
     let recorded = scratch.path().join("argv");
     let fake = scratch.path().join("google-chrome");
-    std::fs::write(&fake, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", recorded.display())).unwrap();
-    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_executable(&fake, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", recorded.display()));
     let state = scratch.path().join("state");
     let service = std::env::current_dir().unwrap().join("lib/automation-chrome/service.mjs");
     let path = format!("{}:{}", scratch.path().display(), std::env::var("PATH").unwrap_or_default());

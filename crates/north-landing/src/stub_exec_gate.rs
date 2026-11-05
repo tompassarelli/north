@@ -50,13 +50,15 @@ fn blob(repo: &Path, head: &str, path: &str) -> Result<Option<String>> {
     git(repo, &["show", &format!("{head}:{path}")]).map(Some)
 }
 
-pub fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
-    let Some(listing) = blob(repo, head, ALLOWLIST)? else { return Ok(Vec::new()) };
+pub fn violations(repo: &Path, destination: &str, base: &str, head: &str) -> Result<Vec<String>> {
+    let carried = blob(repo, head, ALLOWLIST)?;
+    let lane_predates_policy = carried.is_none();
+    let Some(listing) = carried.or(blob(repo, destination, ALLOWLIST)?) else { return Ok(Vec::new()) };
     let allowed = allowlist(listing.as_bytes())?;
     let mut arguments = vec!["diff", "--name-only", "--no-renames", base, head, "--", ALLOWLIST];
     arguments.extend(ROOTS);
     let changed: BTreeSet<String> = git(repo, &arguments)?.lines().map(str::to_owned).collect();
-    let relisted = changed.contains(ALLOWLIST);
+    let relisted = !lane_predates_policy && changed.contains(ALLOWLIST);
     let checked: Allowlist = allowed.into_iter().filter(|(path, _)| relisted || changed.contains(path)).collect();
     let mut files = BTreeMap::new();
     for path in changed.iter().filter(|path| path.ends_with(".rs")).chain(checked.keys()) {
@@ -67,8 +69,8 @@ pub fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
     Ok(problems(&files, &checked))
 }
 
-pub fn check(repo: &Path, base: &str, head: &str) -> bool {
-    match violations(repo, base, head) {
+pub fn check(repo: &Path, destination: &str, base: &str, head: &str) -> bool {
+    match violations(repo, destination, base, head) {
         Ok(found) if found.is_empty() => true,
         Ok(found) => {
             for line in &found {

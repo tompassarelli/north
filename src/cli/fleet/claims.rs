@@ -124,10 +124,8 @@ mod tests {
     }
 
     fn a_hung_courier(home: &std::path::Path) -> ThreadsCli {
-        use std::os::unix::fs::PermissionsExt;
         let script = home.join("hung-north");
-        std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::foundation::shim::write_script(&script, "sleep 30\n");
         ThreadsCli { program: Some(script), limit: LEDGER_LIMIT }
     }
 

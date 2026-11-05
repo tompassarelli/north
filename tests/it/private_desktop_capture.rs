@@ -1,5 +1,5 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use north_core::foundation::shim;
 use std::os::unix::net::UnixListener;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -37,8 +37,7 @@ fn capture_runs_grim_in_the_private_environment_and_replaces_the_frame_only_on_a
     fs::write(run.join("active"), "").unwrap();
     let _server = UnixListener::bind(run.join("runtime/wayland-test")).unwrap();
     let grim = run.join("fake-grim");
-    fs::write(&grim, FAKE_GRIM).unwrap();
-    fs::set_permissions(&grim, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_executable(&grim, FAKE_GRIM);
     fs::write(run.join("grim"), format!("{}\n", grim.display())).unwrap();
     let frame = run.join("frame.png");
 

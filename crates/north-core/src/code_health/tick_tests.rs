@@ -1,14 +1,8 @@
+use crate::foundation::shim::write_executable;
 use super::tick::{review_name, tick_repo, TickEnv, Verdict};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 use std::process::Command;
 use time::OffsetDateTime;
-
-fn executable(path: &Path, text: &str) {
-    fs::write(path, text).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-}
 
 fn git(args: &[&str]) {
     assert!(Command::new("git").args(args).status().unwrap().success());
@@ -23,9 +17,9 @@ fn scratch(signal: &str) -> (tempfile::TempDir, TickEnv) {
     git(&["init", "-q", &checkout.display().to_string()]);
     git(&["init", "-q", "--bare", &format!("{r}/origin.git")]);
     git(&["-C", &checkout.display().to_string(), "remote", "add", "origin", &format!("{r}/origin.git")]);
-    executable(&root.join("code-health"), &format!("#!/usr/bin/env bash\necho \"$*\" >> {r}/calls\ncase $1 in\n  signal) {signal} ;;\n  report) echo \"hotspots: sim/physics.ts 412\" ;;\nesac\n"));
+    write_executable(&root.join("code-health"), format!("#!/usr/bin/env bash\necho \"$*\" >> {r}/calls\ncase $1 in\n  signal) {signal} ;;\n  report) echo \"hotspots: sim/physics.ts 412\" ;;\nesac\n"));
     fs::write(root.join("fleet.json"), "[]\n").unwrap();
-    executable(&root.join("north"), &format!("#!/usr/bin/env bash\necho \"$*\" >> {r}/north-calls\ncase \"$1 $2\" in\n  \"fleet list\") cat {r}/fleet.json ;;\n  \"fleet launch\") echo ok ;;\n  *) exit 2 ;;\nesac\n"));
+    write_executable(&root.join("north"), format!("#!/usr/bin/env bash\necho \"$*\" >> {r}/north-calls\ncase \"$1 $2\" in\n  \"fleet list\") cat {r}/fleet.json ;;\n  \"fleet launch\") echo ok ;;\n  *) exit 2 ;;\nesac\n"));
     let env = TickEnv {
         code_root: root.join("code"),
         state_root: root.join("state"),
@@ -94,10 +88,10 @@ fn a_stale_lock_with_no_live_review_node_is_retaken() {
 fn a_launch_refused_on_every_account_is_an_error_and_one_refused_for_a_saturated_host_is_deferred_and_both_release_the_lock() {
     let (dir, env) = scratch("echo \"FIRE days 7\"");
     let env = TickEnv { dry_run: false, ..env };
-    executable(&dir.path().join("north"), "#!/usr/bin/env bash\nexit 1\n");
+    write_executable(&dir.path().join("north"), "#!/usr/bin/env bash\nexit 1\n");
     assert_eq!(tick(&env, &mut Vec::new()), Verdict::Error);
     assert!(!lock(&env).exists());
-    executable(&dir.path().join("north"), "#!/usr/bin/env bash\necho 'error: whiterabbit skipped: 5-minute load 36.1 over 24 cores; launch from another host, or keep it here with --local \"<reason>\"' >&2\nexit 1\n");
+    write_executable(&dir.path().join("north"), "#!/usr/bin/env bash\necho 'error: whiterabbit skipped: 5-minute load 36.1 over 24 cores; launch from another host, or keep it here with --local \"<reason>\"' >&2\nexit 1\n");
     assert_eq!(tick(&env, &mut Vec::new()), Verdict::Deferred);
     assert!(!lock(&env).exists());
 }
