@@ -4,6 +4,7 @@ mod agents_plan;
 mod agents_plan_score;
 mod agents_sync_runtime_skew;
 mod autoland_rebased;
+mod automation_chrome_service;
 mod capacity_admission_lock;
 mod capacity_aperture;
 mod capacity_db_lock;

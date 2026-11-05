@@ -21,7 +21,6 @@ pub mod wayland_idle;
 pub mod ssh;
 pub mod stdio;
 pub mod terminal;
-pub mod secrets_proxy;
 pub mod session_scope;
 pub mod pyjson;
 pub mod pystats;

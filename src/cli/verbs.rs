@@ -112,7 +112,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("runtime-floor-gate", Diagnosis),
     ("safe-push", Landing),
     ("safe-push-result", Landing),
-    ("secrets-proxy-exec", Diagnosis),
     ("session-host", Diagnosis),
     ("session-link", Diagnosis),
     ("session-unit", Diagnosis),

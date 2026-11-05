@@ -91,7 +91,6 @@ pub(super) enum Tool {
     Tune,
     Archives,
     CodeHealth,
-    SecretsProxyExec,
     NexusRun,
     Timer(Timer),
 }
@@ -113,7 +112,6 @@ const OPERATIONS: &[(&str, Tool)] = &[
     ("tune", Tool::Tune),
     ("archives", Tool::Archives),
     ("code-health", Tool::CodeHealth),
-    ("secrets-proxy-exec", Tool::SecretsProxyExec),
     ("nexus-run", Tool::NexusRun),
 ];
 
@@ -153,7 +151,6 @@ impl Tool {
                 Some("build-time") => crate::build_time::run(&arguments[1..]),
                 _ => crate::code_health::run(arguments),
             }),
-            Self::SecretsProxyExec => super::in_runtime(async move { Ok(ExitCode::from(crate::platform::secrets_proxy::run(arguments).await)) }),
             Self::NexusRun => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(arguments).await)) }),
             Self::Timer(timer) => ExitCode::from(timer.run(arguments, &super::agents::claude_access())),
         }
