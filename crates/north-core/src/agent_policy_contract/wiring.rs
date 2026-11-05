@@ -63,6 +63,10 @@ fn default_command(provider: &str, command: &str) -> String {
 }
 
 fn guard_command(guard: &Value, provider: &str) -> String {
+    let verb = text(guard, "north_hook");
+    if !verb.is_empty() {
+        return format!("{RUNTIME}/env -u BASH_ENV -u ENV {SEARCH_PATH} north hook {verb}");
+    }
     match text(guard, &format!("{provider}_command")) {
         "" => default_command(provider, text(guard, "command")),
         custom => custom.to_owned(),
@@ -151,7 +155,7 @@ pub(super) fn render_codex(policy: &Value) -> String {
 pub(super) fn codex_adapters(policy: &Value, catalog: &Value) -> Vec<String> {
     let mut adapters: BTreeSet<String> = guards(policy)
         .iter()
-        .filter(|guard| !bindings(guard, "codex").is_empty())
+        .filter(|guard| !bindings(guard, "codex").is_empty() && text(guard, "north_hook").is_empty())
         .map(|guard| text(guard, "command").to_owned())
         .collect();
     let support = catalog.get("providerSupport").and_then(Value::as_array);

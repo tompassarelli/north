@@ -72,6 +72,42 @@ fn check_hook_source(contract: &mut Contract, unit: &str, source: &Path) {
     }
 }
 
+fn check_events(contract: &mut Contract, guard: &Value, unit: &str) {
+    for provider in PROVIDERS {
+        for binding in bindings(guard, provider) {
+            if !EVENT_ORDER.contains(&binding.split(':').next().unwrap_or("")) {
+                contract.reject(format!("{unit}: unknown {provider} event in {}", py_repr(binding)));
+            }
+        }
+    }
+}
+
+fn check_absent_reasons(contract: &mut Contract, guard: &Value, unit: &str) {
+    for provider in PROVIDERS {
+        let absent = !text(guard, &format!("{provider}_absent")).is_empty();
+        if bindings(guard, provider).is_empty() != absent {
+            contract.reject(format!(
+                "{unit}: give {provider}_absent a reason exactly when it has no {provider} binding"
+            ));
+        }
+    }
+}
+
+fn check_north_hook(contract: &mut Contract, guard: &Value, registration: Option<&Value>) {
+    let unit = text(guard, "unit");
+    let custom = !text(guard, "command").is_empty()
+        || PROVIDERS.iter().any(|provider| !text(guard, &format!("{provider}_command")).is_empty());
+    if custom {
+        contract.reject(format!("{unit}: north_hook runs north hook directly, so it takes no command or *_command"));
+    }
+    let owner = registration.and_then(|entry| entry.get("owner")).map_or("", |owner| text(owner, "path"));
+    if !owner.ends_with(".rs") {
+        contract.reject(format!("{unit}: north_hook needs a catalog registration owned by a Rust module"));
+    }
+    check_events(contract, guard, unit);
+    check_absent_reasons(contract, guard, unit);
+}
+
 fn check_guard(
     contract: &mut Contract,
     guard: &Value,
@@ -93,12 +129,8 @@ fn check_guard(
         if !custom.is_empty() && file_name(custom.split_whitespace().last().unwrap_or("")) != command {
             contract.reject(format!("{unit}: {provider}_command must run {command}"));
         }
-        for binding in bindings(guard, provider) {
-            if !EVENT_ORDER.contains(&binding.split(':').next().unwrap_or("")) {
-                contract.reject(format!("{unit}: unknown {provider} event in {}", py_repr(binding)));
-            }
-        }
     }
+    check_events(contract, guard, unit);
     let wired: BTreeSet<&str> = PROVIDERS
         .into_iter()
         .filter(|provider| !bindings(guard, provider).is_empty())
@@ -111,14 +143,7 @@ fn check_guard(
             py_list(targets.iter().copied())
         ));
     }
-    for provider in PROVIDERS {
-        let absent = !text(guard, &format!("{provider}_absent")).is_empty();
-        if wired.contains(provider) == absent {
-            contract.reject(format!(
-                "{unit}: give {provider}_absent a reason exactly when it has no {provider} binding"
-            ));
-        }
-    }
+    check_absent_reasons(contract, guard, unit);
     check_hook_source(contract, unit, &hooks.join(command));
 }
 
@@ -151,7 +176,12 @@ pub(super) fn check(
             contract.reject(format!("invalid or duplicate provider guard unit: {}", py_repr(unit)));
             continue;
         }
-        check_guard(contract, guard, units.get(unit), &locations.hooks);
+        if text(guard, "north_hook").is_empty() {
+            check_guard(contract, guard, units.get(unit), &locations.hooks);
+        } else {
+            let registration = catalog.get("registrations").and_then(|registrations| registrations.get(unit));
+            check_north_hook(contract, guard, registration);
+        }
     }
     for (unit, (targets, _)) in &units {
         if !targets.is_empty() && !seen.contains(unit.as_str()) {

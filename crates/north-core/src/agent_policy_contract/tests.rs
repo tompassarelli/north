@@ -262,3 +262,38 @@ fn arguments_require_a_repo_and_reject_unknown_flags() {
     assert_eq!(parse(&arguments(&["--repo", "x", "--bogus"])).err().unwrap(), "unknown argument --bogus");
     assert!(parse(&arguments(&["--repo", "x", "--write", "--local", "--codex-adapters"])).is_ok());
 }
+
+#[test]
+fn a_north_hook_guard_runs_the_verb_directly_and_needs_a_rust_owned_registration() {
+    let fixture = Fixture::new(
+        "guard = [{ unit = \"prompt-grounding\", north_hook = \"prompt-grounding\", claude = [\"UserPromptSubmit:\"], codex_absent = \"proxy only\" }]\n",
+    );
+    fixture.put(
+        "agents/catalog-config.json",
+        &json!({
+            "activation": {"prompt-grounding": {"distributions": []}},
+            "registrations": {"prompt-grounding": {"owner": {"path": "crates/north-core/src/grounding/prompt_hook.rs"}}},
+            "providerSupport": [{"path": "lib/north-agent-activation.sh"}],
+        })
+        .to_string(),
+    );
+    fixture.put("modules/codex/default.nix", "[\n  (providerAdapter \"lib/north-agent-activation.sh\")\n]\n");
+    let (errors, _) = fixture.run(true, false);
+    assert_eq!(errors, Vec::<String>::new());
+    let claude = fixture.read("modules/north-profile/claude-hooks.json");
+    assert!(claude.contains("/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV PATH="), "{claude}");
+    assert!(claude.contains(" north hook prompt-grounding\""), "{claude}");
+    assert!(!claude.contains("bash"), "{claude}");
+    assert!(!fixture.read("modules/codex/requirements.toml").contains("prompt-grounding"));
+    fixture.put(
+        "agents/catalog-config.json",
+        &json!({
+            "activation": {"prompt-grounding": {"distributions": []}},
+            "registrations": {"prompt-grounding": {"owner": {"path": "harness/hooks/prompt-grounding.sh"}}},
+            "providerSupport": [{"path": "lib/north-agent-activation.sh"}],
+        })
+        .to_string(),
+    );
+    let (errors, _) = fixture.run(false, false);
+    assert_eq!(errors, vec!["prompt-grounding: north_hook needs a catalog registration owned by a Rust module"]);
+}

@@ -293,6 +293,10 @@ id = "guard.session_kill"
 path = "crates/north-guard/src/guard/session_kill.rs"
 
 [[registered]]
+id = "hook.prompt_grounding"
+path = "crates/north-core/src/grounding/prompt_hook.rs"
+
+[[registered]]
 id = "guard.codex_conduct"
 path = "crates/north-guard/src/guard/codex_conduct.rs"
 
