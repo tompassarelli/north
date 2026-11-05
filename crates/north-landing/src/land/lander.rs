@@ -51,7 +51,7 @@ impl Lander {
             offload_owner: offload_owner(&queue),
             queue,
             checker,
-            app_token: vec![super::credential::MINT.to_owned()],
+            app_token: super::credential::mint_program(),
             round: std::sync::atomic::AtomicU64::new(0),
         })
     }

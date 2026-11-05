@@ -4,7 +4,6 @@ use std::process::Command;
 use super::candidate;
 
 pub const TOKEN_ENV: &str = "NORTH_LAND_PUSH_TOKEN";
-pub const MINT: &str = "gh-app-token";
 const KEY: &str = "landing.push-app";
 const HELPER: &str = "!f() { test \"$1\" = get && printf 'username=x-access-token\\npassword=%s\\n' \"$NORTH_LAND_PUSH_TOKEN\"; }; f";
 const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
@@ -35,6 +34,11 @@ fn configured(worktree: &Path, base: &str) -> Result<Credential, String> {
         Some(1) => Ok(Credential::Inherited),
         _ => Err(format!("cannot read {KEY} from {blob}: {}", String::from_utf8_lossy(&read.stderr).trim())),
     }
+}
+
+pub fn mint_program() -> Vec<String> {
+    let north = std::env::current_exe().map_or_else(|_| "north".to_owned(), |path| path.display().to_string());
+    vec![north, "gh-app-token".to_owned()]
 }
 
 pub fn mint(program: &[String], app: &str) -> Result<String, String> {
@@ -83,6 +87,12 @@ mod tests {
         let output = child.wait_with_output().unwrap();
         std::fs::remove_dir_all(&scratch).unwrap();
         assert_eq!(String::from_utf8_lossy(&output.stdout), "protocol=https\nhost=github.com\nusername=x-access-token\npassword=app-secret\n");
+    }
+
+    #[test]
+    fn the_lander_mints_with_the_north_binary_it_runs_not_a_path_lookup() {
+        let program = mint_program();
+        assert_eq!(program, [std::env::current_exe().unwrap().display().to_string(), "gh-app-token".to_owned()]);
     }
 
     #[test]

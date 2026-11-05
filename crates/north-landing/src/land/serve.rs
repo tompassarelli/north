@@ -422,7 +422,7 @@ struct Options {
 }
 
 fn parse(arguments: &[String]) -> Result<Options, ()> {
-    let mut options = Options { once: false, all: false, repos: Vec::new(), checker: vec!["safe-push".to_owned()], depth: lander::DEPTH, app_token: vec![credential::MINT.to_owned()] };
+    let mut options = Options { once: false, all: false, repos: Vec::new(), checker: vec!["safe-push".to_owned()], depth: lander::DEPTH, app_token: credential::mint_program() };
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match (argument.as_str(), rest.clone().next()) {
