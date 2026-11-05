@@ -13,6 +13,7 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | bin/worker-ledger | 3 | transient shim for the worker-ledger unit; `systemctl --user cat worker-ledger.service` on whiterabbit, nexus and gex45 on 2026-11-04 shows ExecStart `north worker-ledger` (nixos-config `modules/worker-ledger/default.nix:43`) |
 | bin/danger | 4 | no caller in north, south or nixos-config; the rebuild craftsmanship audit (south) already marked it delete (W15) |
 | bin/farm-runner, bin/farm-runner-image, bin/farm-runner.test.sh | 101, 19, 42 | no caller in north, south or nixos-config; the deployed farm runners are nixos-config `modules/farm-runners` (its own image build and gate), and `north laptop-runner` replaced the laptop script |
+| bin/iteration-ledger, bin/iteration-ledger-page | 458, 56 | deleted 2026-11-05 instead of ported: its only caller was the Feature Bottlenecks refresh steps in harness/skills/workers/references/payback.md, last run 2026-10-15, and every Tom-ask input it read stopped then (last proxy KICKOFF and LAND-READY events in the threads snapshot 2026-10-15, land-checks.tsv 2026-10-12, handoffs/throughput-architect-measure.md 2026-10-15); payback rates now come from `git log --first-parent` |
 
 ## north#88 part (a) outcome
 
@@ -65,8 +66,6 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | bin/gh-app-token | 90 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | Bun TS signing an RS256 JWT with node:crypto; Rust has rsa/jsonwebtoken |
 | bin/gh-app-token.test.sh | 93 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | test of gh-app-token |
 | bin/gh-as-app | 4 | stay | 4-line glue: runs gh with the token printed by gh-app-token |
-| bin/iteration-ledger | 458 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | Bun TS with bun:sqlite |
-| bin/iteration-ledger-page | 56 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | Bun script rendering a static page |
 | bin/job-run | 86 | port: north#88 box "run-bounded and job-run" (family: landing path, north#83) | never ported; deployed systemd units name bin/job-run (nixos-config modules/job-run, delivery-liveness, code-health-review, worker-ledger), so the nixos-config unit change lands first; tests/job_run.rs drives it |
 | bin/land-shell | 10 | stay | workflow-free 10-line wrapper that runs a land-check command inside depbox (and nix develop with --dev); used by .safe-push, land-checks.sh and red_check.rs; glue |
 | bin/mutant | 3 | stay | 3-line exec of `north mutant`; three skills document the bare `mutant record` command; delete when nixos-config provides the wrapper |
