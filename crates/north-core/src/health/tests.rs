@@ -229,6 +229,10 @@ impl rolling_issue::Tracker for Recorder {
         Ok(self.open.as_ref().map(|issue| rolling_issue::Issue { number: issue.number, body: issue.body.clone() }))
     }
 
+    fn body(&self, number: u64) -> Result<String, String> {
+        Err(format!("issue {number} is not read here"))
+    }
+
     fn listed(&self, _: &str) -> Result<Vec<(u64, String)>, String> {
         Ok(self.legacy.clone())
     }

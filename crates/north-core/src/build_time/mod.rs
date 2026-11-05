@@ -3,6 +3,7 @@ mod config;
 mod issue;
 mod ledger;
 mod measure;
+mod threshold;
 mod timings;
 #[cfg(test)]
 mod tests;
@@ -37,7 +38,8 @@ pub fn run(arguments: &[String]) -> u8 {
     let ledger = options.ledger.clone().unwrap_or_else(default_ledger);
     let host = crate::platform::host::name();
     let mut tracker = match options.file.then(|| issue::github_repo(&options.repo)).transpose() {
-        Ok(repo) => repo.map(|repo| Gh::of(&repo, &["tooling", "priority:later"])),
+        Ok(Some(repo)) if repo != issue::REPO => return fail(&format!("--file ticks {}#{}, so it measures only {}; origin is {repo}", issue::REPO, issue::SPLIT_ISSUE, issue::REPO)),
+        Ok(repo) => repo.map(|_| Gh::north()),
         Err(error) => return fail(&error),
     };
     let checkout = match options.rev.as_deref().map(|rev| checkout::Checkout::detached(&options.repo, rev)).transpose() {
@@ -110,26 +112,27 @@ fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &
     for entry in workspaces(options)? {
         let root = options.repo.join(&entry.workspace);
         let times = measure::measure(cargo, &root, &root.join(&entry.leaf), &root.join(&entry.hub), options.samples)?;
-        let verdict = Verdict::of(times.leaf_test, entry.threshold_seconds);
-        let row = Row { recorded_at: &recorded_at, host, repo: &repo_name, workspace: &entry.workspace, sha: &sha, rustc: &rustc, samples: options.samples, times: &times, threshold: entry.threshold_seconds, verdict };
+        let (limit, warning) = threshold::limit(&entry.workspace, entry.threshold_seconds);
+        if let Some(warning) = warning {
+            eprintln!("north code-health build-time: {warning}");
+        }
+        let verdict = Verdict::of(times.leaf_test, limit);
+        let row = Row { recorded_at: &recorded_at, host, repo: &repo_name, workspace: &entry.workspace, sha: &sha, rustc: &rustc, samples: options.samples, times: &times, threshold: limit, verdict };
         ledger::append(ledger, &row)?;
         println!("{}", report(&row));
         over |= verdict == Verdict::Over;
-        boxes.extend(issue::split_box(&row));
+        boxes.push(issue::split_box(&row, &entry.leaf));
     }
     println!("recorded in {}", ledger.display());
     if let Some(tracker) = tracker {
-        issue::file(tracker, &repo_name, &boxes)?;
+        issue::file(tracker, &boxes)?;
     }
     Ok(u8::from(over))
 }
 
 fn report(row: &Row<'_>) -> String {
     let t = row.times;
-    let limit = match row.threshold {
-        Some(limit) => format!("threshold {limit:.0}s"),
-        None => format!("no threshold (suggest test_no_run_seconds = {:.0})", ledger::suggested_threshold(t.leaf_test)),
-    };
+    let limit = format!("threshold {}s", row.threshold);
     format!(
         "{} {} at {} on {}: cold build {:.1}s; leaf edit build {:.1}s, test --no-run {:.1}s; hub edit build {:.1}s, test --no-run {:.1}s; {limit}: {}\n  critical path {}",
         row.repo, row.workspace, row.sha, row.host, t.cold_build, t.leaf_build, t.leaf_test, t.hub_build, t.hub_test, row.verdict.word(), t.critical_path

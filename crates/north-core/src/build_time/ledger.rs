@@ -10,16 +10,16 @@ pub(super) enum Verdict {
     Within,
     Near,
     Over,
-    Unset,
 }
 
 impl Verdict {
-    pub(super) fn of(leaf_test: f64, threshold: Option<f64>) -> Self {
-        match threshold {
-            None => Self::Unset,
-            Some(limit) if leaf_test > limit => Self::Over,
-            Some(limit) if leaf_test >= limit * 0.75 => Self::Near,
-            Some(_) => Self::Within,
+    pub(super) fn of(leaf_test: f64, limit: f64) -> Self {
+        if leaf_test > limit {
+            Self::Over
+        } else if leaf_test >= limit * 0.75 {
+            Self::Near
+        } else {
+            Self::Within
         }
     }
 
@@ -28,7 +28,6 @@ impl Verdict {
             Self::Within => "within",
             Self::Near => "near",
             Self::Over => "over",
-            Self::Unset => "unset",
         }
     }
 }
@@ -42,14 +41,14 @@ pub(super) struct Row<'a> {
     pub(super) rustc: &'a str,
     pub(super) samples: usize,
     pub(super) times: &'a Times,
-    pub(super) threshold: Option<f64>,
+    pub(super) threshold: f64,
     pub(super) verdict: Verdict,
 }
 
 impl Row<'_> {
     pub(super) fn line(&self) -> String {
         let t = self.times;
-        let threshold = self.threshold.map_or_else(|| "-".to_owned(), |limit| format!("{limit:.0}"));
+        let threshold = self.threshold.to_string();
         let fields = [self.recorded_at.to_owned(), self.host.to_owned(), self.repo.to_owned(), self.workspace.to_owned(), self.sha.to_owned(), self.rustc.to_owned(), self.samples.to_string(), secs(t.cold_build), secs(t.leaf_build), secs(t.leaf_test), secs(t.hub_build), secs(t.hub_test), threshold, self.verdict.word().to_owned(), t.critical_path.clone()];
         fields.map(|field| field.replace(['\t', '\n'], " ")).join("\t")
     }
@@ -70,8 +69,4 @@ pub(super) fn append(path: &Path, row: &Row<'_>) -> Result<(), String> {
         writeln!(file, "{HEADER}").map_err(fail)?;
     }
     writeln!(file, "{}", row.line()).map_err(fail)
-}
-
-pub(super) fn suggested_threshold(leaf_test: f64) -> f64 {
-    (leaf_test * 2.0).ceil().max(30.0)
 }

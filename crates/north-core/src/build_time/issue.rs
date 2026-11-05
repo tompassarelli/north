@@ -1,39 +1,44 @@
-use std::fmt::Write as _;
 use std::path::Path;
 
 use super::ledger::{Row, Verdict};
-use crate::platform::rolling_issue::{Tracker, settle};
+use crate::platform::rolling_issue::{Tracker, section_box};
 
-const RATIONALE: &str = "docs/rationale/rust-build-times.md";
+pub(super) const REPO: &str = "tompassarelli/north";
+pub(super) const SPLIT_ISSUE: u64 = 259;
+pub(super) const SECTION: &str = "## Split north-core";
 
-pub(super) fn title(repo: &str) -> String {
-    format!("Split a slow Rust workspace in {repo}: build time near or over its threshold")
+pub(super) struct SplitBox {
+    key: String,
+    line: String,
+    open: bool,
 }
 
-pub(super) fn split_box(row: &Row<'_>) -> Option<String> {
-    let limit = row.threshold?;
-    matches!(row.verdict, Verdict::Near | Verdict::Over).then(|| {
-        format!(
-            "- [ ] Split `{}` along the layers named in {RATIONALE} of {}: leaf-edit `cargo test --no-run` took {:.1}s against a threshold of {limit:.0}s ({}) at {} on {}; critical path {}. Done when: the daily `north code-health build-time` measures it within 75% of the threshold.",
-            row.workspace, row.repo, row.times.leaf_test, row.verdict.word(), row.sha, row.host, row.times.critical_path
-        )
-    })
+pub(super) fn split_box(row: &Row<'_>, leaf: &str) -> SplitBox {
+    let name = if row.workspace == "." { row.repo.to_owned() } else { format!("{}/{}", row.repo, row.workspace) };
+    let key = format!("Leaf-edit cargo test --no-run in {name} is ");
+    let seconds = row.times.leaf_test;
+    let date = row.recorded_at.get(..10).unwrap_or(row.recorded_at);
+    let at = format!("measured {date} on {} at {}", row.host, row.sha);
+    let cap = row.threshold;
+    let (open, line) = match row.verdict {
+        Verdict::Over => (true, format!("- [ ] {key}{seconds:.1} s, over the {cap} s cap: split the crate holding {leaf} ({at})")),
+        Verdict::Near => (true, format!("- [ ] {key}{seconds:.1} s, near the {cap} s cap: split the crate holding {leaf} ({at})")),
+        Verdict::Within => (false, format!("- [x] {key}{seconds:.1} s, within the {cap} s cap ({at})")),
+    };
+    SplitBox { key, line, open }
 }
 
-fn body(repo: &str, boxes: &[String]) -> String {
-    let mut text = format!(
-        "Category: tooling\nSpec: measured\nScope: cross-module\nSurface: rust\nVerify: local-test\n\n\
-         The one rolling issue the daily `north code-health build-time --file` keeps for {repo}. It lists each workspace whose leaf-edit test build is near (75%) or over its `[[build_time]]` threshold in `structure.toml`, edits itself after every run and closes itself when every workspace is within. The split each workspace takes is in {RATIONALE}.\n\n## Done when\n"
-    );
-    for line in boxes {
-        let _ = writeln!(text, "{line}");
+pub(super) fn edited(body: &str, boxes: &[SplitBox]) -> String {
+    boxes.iter().fold(body.to_owned(), |body, split| section_box(&body, SECTION, &split.key, &split.line, split.open))
+}
+
+pub(super) fn file(tracker: &mut dyn Tracker, boxes: &[SplitBox]) -> Result<(), String> {
+    let body = tracker.body(SPLIT_ISSUE)?;
+    let next = edited(&body, boxes);
+    if next.trim() != body.trim() {
+        tracker.edit(SPLIT_ISSUE, &next)?;
     }
-    text
-}
-
-pub(super) fn file(tracker: &mut dyn Tracker, repo: &str, boxes: &[String]) -> Result<(), String> {
-    let body = (!boxes.is_empty()).then(|| body(repo, boxes));
-    settle(tracker, &title(repo), body.as_deref(), &format!("`north code-health build-time --file` measured every workspace of {repo} within 75% of its threshold; it closed this issue."))
+    Ok(())
 }
 
 pub(super) fn github_repo(repo: &Path) -> Result<String, String> {

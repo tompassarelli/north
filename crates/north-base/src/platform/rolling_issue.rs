@@ -35,6 +35,7 @@ pub struct Issue {
 
 pub trait Tracker {
     fn open(&self, title: &str) -> Result<Option<Issue>, String>;
+    fn body(&self, number: u64) -> Result<String, String>;
     fn listed(&self, search: &str) -> Result<Vec<(u64, String)>, String>;
     fn create(&mut self, title: &str, body: &str) -> Result<(), String>;
     fn edit(&mut self, number: u64, body: &str) -> Result<(), String>;
@@ -57,6 +58,30 @@ pub fn settle(tracker: &mut dyn Tracker, title: &str, body: Option<&str>, closin
         }
     }
     Ok(())
+}
+
+pub fn section_box(body: &str, heading: &str, key: &str, line: &str, add: bool) -> String {
+    let mut lines: Vec<&str> = body.lines().collect();
+    let Some(start) = lines.iter().position(|text| text.trim_end() == heading) else {
+        if !add {
+            return body.to_owned();
+        }
+        let kept = body.trim_end();
+        return if kept.is_empty() { format!("{heading}\n{line}\n") } else { format!("{kept}\n\n{heading}\n{line}\n") };
+    };
+    let end = lines[start + 1..].iter().position(|text| text.starts_with("# ") || text.starts_with("## ")).map_or(lines.len(), |offset| start + 1 + offset);
+    let boxed = |text: &str| ["- [ ] ", "- [x] ", "- [X] "].iter().find_map(|marker| text.trim_start().strip_prefix(marker)).is_some_and(|rest| rest.starts_with(key));
+    match lines[start + 1..end].iter().position(|text| boxed(text)) {
+        Some(offset) => lines[start + 1 + offset] = line,
+        None if add => {
+            let last = lines[start + 1..end].iter().rposition(|text| !text.trim().is_empty()).map_or(start, |offset| start + 1 + offset);
+            lines.insert(last + 1, line);
+        }
+        None => return body.to_owned(),
+    }
+    let mut edited = lines.join("\n");
+    edited.push('\n');
+    edited
 }
 
 pub struct Gh {
@@ -90,6 +115,11 @@ impl Tracker for Gh {
         Ok(found.as_array().into_iter().flatten().find(|issue| issue["title"] == title).and_then(|issue| {
             Some(Issue { number: issue["number"].as_u64()?, body: issue["body"].as_str().unwrap_or_default().to_owned() })
         }))
+    }
+
+    fn body(&self, number: u64) -> Result<String, String> {
+        let found = github::json(&["issue", "view", &number.to_string(), "-R", &self.repo, "--json", "body"])?;
+        found["body"].as_str().map(str::to_owned).ok_or(format!("gh issue view {number}: no body"))
     }
 
     fn listed(&self, search: &str) -> Result<Vec<(u64, String)>, String> {

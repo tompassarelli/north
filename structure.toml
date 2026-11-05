@@ -140,7 +140,7 @@ may_use = ["platform", "foundation", "crate-roots"]
 [[module]]
 name = "build_time"
 paths = ["crates/north-core/src/build_time/**"]
-responsibility = "Measured Rust edit-to-result times per workspace, their ledger and the split threshold."
+responsibility = "Measured Rust edit-to-result times per workspace, their ledger and the 10 s leaf-edit cap."
 may_use = ["platform", "foundation", "crate-roots"]
 
 [[module]]
@@ -249,7 +249,7 @@ path = "crates/north-core/src/guard/clipboard.rs"
 workspace = "."
 leaf = "crates/north-core/src/code_health/source.rs"
 hub = "crates/north-base/src/foundation/mod.rs"
-test_no_run_seconds = 88
+test_no_run_seconds = 10
 
 [rust_habits]
 checks = ["shared-mutability", "single-impl-trait"]

@@ -422,6 +422,10 @@ impl Tracker for Issues {
         Ok(self.open.as_ref().map(|(number, body)| Issue { number: *number, body: body.clone() }))
     }
 
+    fn body(&self, number: u64) -> Result<String, String> {
+        Err(format!("issue {number} is not read here"))
+    }
+
     fn listed(&self, _: &str) -> Result<Vec<(u64, String)>, String> {
         Ok(Vec::new())
     }
