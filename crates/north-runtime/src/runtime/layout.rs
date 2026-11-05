@@ -31,6 +31,10 @@ impl Layout {
         self.state.join("runtime-failed")
     }
 
+    pub fn failure_causes(&self) -> PathBuf {
+        self.state.join("runtime-failed-causes")
+    }
+
     pub fn previous(&self) -> PathBuf {
         self.state.join("runtime-previous")
     }

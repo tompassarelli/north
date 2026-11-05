@@ -75,7 +75,7 @@ fn a_promoted_runtime_that_fails_the_canary_land_check_is_rolled_back_with_an_al
     assert!(alarms[0].contains("land check `true` on gex45 exited 127"), "{}", alarms[0]);
     assert!(alarms[0].contains("bash: nix: command not found"), "{}", alarms[0]);
     assert!(alarms[0].contains("rolled back to 11111111"), "{}", alarms[0]);
-    assert!(update::held_back(&host.layout, PROMOTED));
+    assert!(matches!(update::hold::verdict(&host.layout, PROMOTED, true), update::hold::Verdict::Held(_)));
     assert!(!host.layout.canaried().exists());
 }
 

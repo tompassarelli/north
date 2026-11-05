@@ -22,13 +22,16 @@ use std::time::{Duration, Instant};
 
 const STEP_LIMIT: Duration = Duration::from_secs(300);
 const FETCH_LIMIT: Duration = Duration::from_secs(120);
-const RETRY_AFTER: Duration = Duration::from_secs(60 * 60);
 const PINNED_LOCK_WAIT: Duration = Duration::from_secs(10 * 60);
 const ROLLBACK_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 
 const PASSES: usize = 5;
 const UPDATE_LOCK: &str = "runtime-update.lock";
 pub(super) const DEPLOY_LOCK: &str = "runtime-deploy.lock";
+
+pub(super) mod hold;
+
+use hold::{Cause, Verdict};
 
 enum Pass {
     Settled,
@@ -79,7 +82,7 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
         return Err(failed(1, format!("no previous runtime to roll {} back to", layout::short(failed_sha))));
     };
     swap(layout, &layout::link(&previous))?;
-    mark_failed(layout, failed_sha)?;
+    hold::record(layout, failed_sha, Cause::Rollback, "rolled back on this host after promotion")?;
     println!("north runtime rolled back to {}", layout::short(&previous));
     Ok(layout::short(&previous).to_owned())
 }
@@ -124,18 +127,21 @@ fn pass(layout: &Layout) -> Result<Pass, Failure> {
 fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<Pass, Failure> {
     let short = layout::short(target);
     let was = previous.and_then(layout::linked_sha).unwrap_or("none");
-    if held_back(layout, target) {
-        println!("north runtime: {short} failed within the last hour; staying on {was}");
+    let verdict = hold::verdict(layout, target, usable(&layout.runtime(target)));
+    if let Some(notice) = verdict.notice(short, was) {
+        println!("{notice}");
+    }
+    if let Verdict::Held(_) = verdict {
         return Ok(Pass::Settled);
     }
     let promoted = promote(layout, checkout, target, previous);
-    if let Err(failure) = &promoted
+    if let Err((cause, failure)) = &promoted
         && failure.code != DEFERRED
         && failure.code != SUPERSEDED
     {
-        mark_failed(layout, target)?;
+        hold::record(layout, target, *cause, &failure.message)?;
     }
-    let synced = promoted?;
+    let synced = promoted.map_err(|(_, failure)| failure)?;
     if let Some(was) = previous.and_then(layout::linked_sha) {
         fs::write(layout.previous(), was)?;
     }
@@ -164,36 +170,17 @@ fn ancestor(checkout: &Path, earlier: &str, later: &str) -> bool {
     process::run("git", Some(checkout), &["merge-base", "--is-ancestor", earlier, later]).is_ok_and(|output| output.status.success())
 }
 
-fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<String, Failure> {
-    let runtime = built(layout, checkout, target)?;
+fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<String, (Cause, Failure)> {
+    let runtime = built(layout, checkout, target).map_err(|failure| (Cause::Build, failure))?;
+    install(layout, checkout, target, &runtime, previous).map_err(|failure| (Cause::Promote, failure))
+}
+
+fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previous: Option<&Path>) -> Result<String, Failure> {
     if !runtime.join(TREE).is_dir() {
-        export_tree(checkout, target, &runtime)?;
+        export_tree(checkout, target, runtime)?;
     }
-    store::root(&runtime)?;
+    store::root(runtime)?;
     sync(layout, previous, target)
-}
-
-pub(super) fn held_back(layout: &Layout, target: &str) -> bool {
-    failed_shas(layout).iter().any(|sha| sha == target)
-}
-
-fn failed_shas(layout: &Layout) -> Vec<String> {
-    let failed = layout.failed();
-    let recent = fs::metadata(&failed)
-        .and_then(|metadata| metadata.modified())
-        .is_ok_and(|at| at.elapsed().is_ok_and(|age| age < RETRY_AFTER));
-    match recent {
-        true => fs::read_to_string(&failed).unwrap_or_default().lines().map(str::trim).filter(|sha| !sha.is_empty()).map(str::to_owned).collect(),
-        false => Vec::new(),
-    }
-}
-
-pub(super) fn mark_failed(layout: &Layout, sha: &str) -> std::io::Result<()> {
-    let mut shas = failed_shas(layout);
-    if !shas.iter().any(|failed| failed == sha) {
-        shas.push(sha.to_owned());
-    }
-    fs::write(layout.failed(), shas.join("\n"))
 }
 
 fn skipped(layout: &Layout) -> Vec<String> {
@@ -203,7 +190,7 @@ fn skipped(layout: &Layout) -> Vec<String> {
 
 fn next_build(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> String {
     let current = previous.and_then(layout::linked_sha);
-    let failed = failed_shas(layout);
+    let failed = hold::failed_shas(layout);
     let mut entries = vec![Entry { sha: target.to_owned(), failed: failed.iter().any(|sha| sha == target) }];
     for sha in skipped(layout) {
         let ahead = sha != target && current.is_none_or(|current| sha != current && !ancestor(checkout, &sha, current)) && ancestor(checkout, &sha, target);
