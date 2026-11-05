@@ -3,7 +3,7 @@ use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::evidence_budget::{Budget, sweep};
+use super::evidence_budget::{Budget, retrying, sweep};
 use super::tests::{DAY, Machine, touch};
 use super::{Inputs, Policy, held, size};
 
@@ -84,4 +84,26 @@ fn an_issue_mention_that_ends_a_sentence_still_keeps_its_run() {
     let inputs = Inputs { open_issue_text: || Ok("[{\"body\":\"Results are in evidence/oldest.\"}]".into()), ..machine.inputs() };
 
     assert_eq!(swept(&machine, &inputs, 5), vec![linked]);
+}
+
+#[test]
+fn an_issue_read_that_fails_once_is_retried_until_it_succeeds() {
+    let mut calls = 0;
+    let read = retrying(4, Duration::ZERO, || {
+        calls += 1;
+        if calls < 3 { Err("unexpected end of JSON input".to_owned()) } else { Ok("issues") }
+    });
+
+    assert_eq!((read, calls), (Ok("issues"), 3));
+}
+
+#[test]
+fn an_issue_read_that_keeps_failing_gives_up_after_its_attempts() {
+    let mut calls = 0;
+    let read: Result<(), String> = retrying(4, Duration::ZERO, || {
+        calls += 1;
+        Err("unexpected end of JSON input".to_owned())
+    });
+
+    assert_eq!((read, calls), (Err("unexpected end of JSON input".to_owned()), 4));
 }

@@ -82,12 +82,32 @@ fn linked_runs(text: &str) -> BTreeSet<String> {
         .collect()
 }
 
+const ISSUE_READ_ATTEMPTS: u32 = 4;
+const ISSUE_READ_PAUSE: Duration = Duration::from_secs(5);
+
 /// The bodies and comments of the open issues in every catalogued repository that writes or cites Mak'gora evidence.
 pub(super) fn open_issue_text() -> Result<String, String> {
     let owner = &crate::threads::catalog::CATALOG.owner;
     ["makgora", "north", "wisp"]
         .iter()
-        .map(|repo| crate::platform::github::json(&["issue", "list", "-R", &format!("{owner}/{repo}"), "--state", "open", "--limit", "500", "--json", "body,comments"]).map(|issues| issues.to_string()))
+        .map(|repo| {
+            retrying(ISSUE_READ_ATTEMPTS, ISSUE_READ_PAUSE, || {
+                crate::platform::github::json(&["issue", "list", "-R", &format!("{owner}/{repo}"), "--state", "open", "--limit", "500", "--json", "body,comments"]).map(|issues| issues.to_string())
+            })
+        })
         .collect::<Result<Vec<_>, _>>()
         .map(|texts| texts.join("\n"))
+}
+
+/// gh exits with Go's "unexpected end of JSON input" when GitHub returns an empty body, so a failed read is retried before the sweep gives up.
+pub(super) fn retrying<T>(attempts: u32, pause: Duration, mut read: impl FnMut() -> Result<T, String>) -> Result<T, String> {
+    let mut result = read();
+    for _ in 1..attempts {
+        if result.is_ok() {
+            break;
+        }
+        std::thread::sleep(pause);
+        result = read();
+    }
+    result
 }
