@@ -9,6 +9,7 @@ use super::candidate::{change_worktrees_alone, git};
 use super::checks::Verdict;
 use super::lander::{Lander, state_home};
 use super::setting;
+use super::slots::select::OFFLOAD_SLOTS_BUSY;
 use super::telemetry;
 
 const TAIL_LINES: usize = 20;
@@ -148,6 +149,7 @@ fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &str, run: &
     match command.status() {
         Ok(status) if status.success() => Verdict::Green,
         Ok(status) if status.code() == Some(75) => Verdict::Transient(format!("post-land checks exited 75; log: {}", run.log.display())),
+        Ok(status) if status.code() == Some(OFFLOAD_SLOTS_BUSY) => Verdict::Transient(format!("every build-host slot stayed busy, so the post-land checks reached no verdict; log: {}", run.log.display())),
         Ok(status) => Verdict::RedMain(failed_check(&run.outcome).unwrap_or_else(|| format!("exit {status}; log: {}", run.log.display()))),
         Err(error) => Verdict::Transient(format!("{program}: {error}")),
     }

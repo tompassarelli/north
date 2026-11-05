@@ -1190,6 +1190,9 @@ lander did not see.
   its killed run can report. The next start finds each unsettled batch in `<queue>/following/` and
   reruns it, whether the stop was a runtime swap, a `systemctl stop`, a crash or the watchdog
   (north#639).
+- An after-landing run that only waited out busy build-host slots (exit 96) reached no verdict: it
+  is recorded as transient and blames no lane, and a real failure in another check still wins over
+  it (north#649).
 
 ### Measured after
 

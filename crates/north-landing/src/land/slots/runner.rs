@@ -776,7 +776,7 @@ async fn forward_cancel(mut cancel: watch::Receiver<bool>, stop: Arc<watch::Send
 }
 
 fn first_failure(failed: &mut i32, status: i32) {
-    if *failed == 0 || (*failed == INFRASTRUCTURE && status != 0) {
+    if *failed == 0 || (matches!(*failed, INFRASTRUCTURE | OFFLOAD_SLOTS_BUSY) && status != 0 && status != OFFLOAD_SLOTS_BUSY) {
         *failed = status;
     }
 }
