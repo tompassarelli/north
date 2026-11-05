@@ -33,9 +33,13 @@ fn guarded(tool: &str, command: &str, dev_shell: bool) -> String {
     }
 }
 
+pub fn dev_shell(flake: &str) -> bool {
+    names_attribute(flake, "devShells") || names_attribute(flake, "devShell")
+}
+
 pub fn infer(files: &[String], flake: Option<&str>) -> Vec<String> {
     let flake = if has_file(files, "flake.nix") { flake } else { None };
-    let dev_shell = flake.is_some_and(|source| names_attribute(source, "devShells") || names_attribute(source, "devShell"));
+    let dev_shell = flake.is_some_and(dev_shell);
     let mut checks = Vec::new();
     if has_file(files, "Cargo.toml") {
         checks.push(guarded("cargo", CARGO_TEST, dev_shell));

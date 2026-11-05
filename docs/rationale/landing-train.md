@@ -418,7 +418,7 @@ the lander makes unnecessary instead of porting them. Planned at origin/main 602
    once B16 lands. With warm-slot checks (S6b) it dispatches no Actions run per candidate.
 3. **Speculative candidates.** While candidate N checks, N+1 (N plus the lanes that arrived since)
    starts. A red candidate checks each of its lanes alone at once (north#360), ejects only the culprit lane and messages that lane's
-   author session; halving remains the fallback when every lane passes alone. N+1's verdict counts only if N landed and main is still N at its push.
+   author session; when every lane passes alone it checks the queue-order prefixes of the candidate together at once, lands the longest green one and refuses the lane after it as an interaction. N+1's verdict counts only if N landed and main is still N at its push.
 4. **Warm build slots, selection by changed paths, Actions confirms.** Candidate checks run in
    persistent slots: on the laptop, the lander's stable worktrees (one per speculation depth), so
    `target/` survives and compiles are incremental; on gex45, the offload slots, whose clean keeps
@@ -491,7 +491,7 @@ choice. It differs in four ways:
   - `transient` (fetch, `bun install`, GitHub rejecting the land-check ref twice: exit 75);
   - `deferred` (capacity DEFER).
 
-The lander searches for the culprit only on `refused`: it checks each lane of the refused candidate alone, at once, one worktree per lane (in waves of the free offload slots when there are fewer than lanes), refuses the lanes that fail alone with their own logs, and checks the rest together as one candidate. A lane that ends transient or deferred alone keeps its ticket; when every lane passes alone the refusal is an interaction and the lander falls back to halving. On `red-main` it holds the batch and lands red-fix tickets
+The lander searches for the culprit only on `refused`: it checks each lane of the refused candidate alone, at once, one worktree per lane (in waves of the free offload slots when there are fewer than lanes), refuses the lanes that fail alone with their own logs, and checks the rest together as one candidate. A lane that ends transient or deferred alone keeps its ticket; when every lane passes alone the refusal is an interaction, so it checks the prefixes of the candidate (its first 2, 3, ... lanes in queue order, widest first when slots run short) together at once, lands the longest green prefix as one candidate without checking it again, refuses the lane right after it with "interaction with" the prefix's lanes and that prefix's failing log, and leaves the later lanes queued; the whole candidate is already known red, so a clashing pair costs no further check. A prefix that ends transient or deferred holds the lane after the longest green prefix, with strikes kept per prefix. On `red-main` it holds the batch and lands red-fix tickets
 first. On `transient` and `deferred` it retries the same candidate later. If main moved during the
 run, it ignores the verdict and rebuilds.
 

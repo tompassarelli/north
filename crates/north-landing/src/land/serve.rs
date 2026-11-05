@@ -185,18 +185,25 @@ impl Lander {
             let streak = if moved { 0 } else { strikes.record(&key, &verdict) };
             let verdict = bisect::escalate(verdict, streak, &log);
             strikes.save(&self.queue)?;
+            let refusal = verdict.clone();
+            let mut head = built.head.clone();
             let judgement = match bisect::judge(verdict, included.len(), moved) {
-                Judgement::Halve(half) if searched.as_deref() != Some(base.as_str()) => {
+                Judgement::Halve(_) if searched.as_deref() != Some(base.as_str()) => {
                     stacked.clear();
                     searched = Some(base.clone());
-                    match culprit::search(self, &base, &included, &logs, &mut strikes, &stages)? {
+                    let together = culprit::Checked { verdict: refusal, head: built.head.clone(), log: log.clone() };
+                    match culprit::search(self, &base, &included, together, &logs, &mut strikes, &stages)? {
                         Found::Decided => {
                             progressed = true;
                             limit = usize::MAX;
                             bisect_depth += 1;
                             continue;
                         }
-                        Found::Innocent => Judgement::Halve(half),
+                        Found::Interaction { lanes, head: prefix } => {
+                            included.truncate(lanes);
+                            head = prefix;
+                            Judgement::Land
+                        }
                         Found::Moved => Judgement::Rebuild,
                         Found::Held(reason) => Judgement::Hold(reason),
                         Found::Paused(detail) => Judgement::Paused(detail),
@@ -210,8 +217,8 @@ impl Lander {
                         Ok(token) => token,
                         Err(error) => return Ok(Round::Waiting(format!("transient: no push credential: {error}"))),
                     };
-                    after::begin(self, &built.head, &base, &included)?;
-                    match self.push(&built.head, &base, token.as_deref())? {
+                    after::begin(self, &head, &base, &included)?;
+                    match self.push(&head, &base, token.as_deref())? {
                         Pushed::Landed => {}
                         Pushed::Moved => {
                             after::abandon(self);
@@ -224,22 +231,22 @@ impl Lander {
                         }
                         Pushed::Refused(Refusal::Terminal(line)) => {
                             after::abandon(self);
-                            let refusal = format!("failed origin refused the push of {}: {line}", built.head);
+                            let refusal = format!("failed origin refused the push of {head}: {line}");
                             let batch_size = included.len();
                             for (path, ticket) in included {
-                                records::write(self, path, ticket, &Candidate { head: &built.head, batch_size, stages: &stages }, &Decision::Refused { verdict: &refusal });
+                                records::write(self, path, ticket, &Candidate { head: &head, batch_size, stages: &stages }, &Decision::Refused { verdict: &refusal });
                                 bisect::decide(path, ticket, refusal.clone(), None)?;
                             }
                             return Ok(Round::Progress);
                         }
                         Pushed::Refused(Refusal::Retry(line)) => {
                             after::abandon(self);
-                            return Ok(Round::PushRefused(format!("origin refused the push of {} although main is still {base}: {line}", built.head)));
+                            return Ok(Round::PushRefused(format!("origin refused the push of {head} although main is still {base}: {line}")));
                         }
                     }
                     stages.mark("push");
-                    after::finish(self, &built.head, &base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
-                    speculate::land(self, stacked, &built.head)?;
+                    after::finish(self, &head, &base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
+                    speculate::land(self, stacked, &head)?;
                     return Ok(Round::Progress);
                 }
                 Judgement::Rebuild => {
