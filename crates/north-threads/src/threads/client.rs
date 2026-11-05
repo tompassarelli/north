@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
@@ -52,6 +52,8 @@ pub struct Client {
     ssh_wait: Duration,
     ingest_wait: Duration,
     ingest_hold: Duration,
+    /// The `snapshot-pull` a call that found the snapshot stale starts without waiting on it; with none, the call pulls inline.
+    background_pull: Option<Vec<OsString>>,
     clock: Arc<dyn Fn() -> Timestamp + Send + Sync>,
 }
 
@@ -158,6 +160,7 @@ impl Client {
             ssh_wait: SSH_TIMEOUT,
             ingest_wait: INGEST_WAIT,
             ingest_hold: INGEST_HOLD,
+            background_pull: Some(vec![crate::platform::north_binary::north_binary().into(), "threads".into(), "snapshot-pull".into()]),
             clock: Arc::new(Timestamp::now),
         }
     }
@@ -348,7 +351,11 @@ impl Client {
         if code != UNREACHABLE {
             let calibrate_write = first == Some("calibrate") && has("--write");
             if !(code == 0 && calibrate_write && has("--goal-row")) {
-                self.refresh_snapshot(dest, code == 0 && (first == Some("record-priors") || calibrate_write))?;
+                if code == 0 && (first == Some("record-priors") || calibrate_write) {
+                    self.refresh_snapshot(dest, true)?;
+                } else {
+                    self.refresh_snapshot_later(dest);
+                }
             }
             return Ok(Some(code));
         }
@@ -431,6 +438,22 @@ impl Client {
     fn refresh_snapshot(&self, dest: &str, force: bool) -> NorthResult<()> {
         let _ = snapshot::refresh(&self.pull_argv(dest), &self.snapshot, force, snapshot::PULL_TIMEOUT);
         Ok(())
+    }
+
+    fn refresh_snapshot_later(&self, dest: &str) {
+        let Some(program) = &self.background_pull else {
+            let _ = self.refresh_snapshot(dest, false);
+            return;
+        };
+        if !snapshot::take_turn(&self.snapshot, false).unwrap_or(false) {
+            return;
+        }
+        let mut command = Command::new(&program[0]);
+        command.args(&program[1..]).arg("--force").arg("--snapshot").arg(&self.snapshot).arg(dest);
+        command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0);
+        if let Ok(mut child) = command.spawn() {
+            std::thread::spawn(move || child.wait());
+        }
     }
 
     fn pull_argv(&self, dest: &str) -> Vec<OsString> {
@@ -725,12 +748,13 @@ exit "$(cat "$ROOT/code")"
         variables.insert("HOME".into(), root.display().to_string());
         let fleet_file = root.join("fleet.json");
         let fleet: Arc<dyn outside::FleetView> = Arc::new(FleetFile(fleet_file));
-        let client = Client::new(
+        let mut client = Client::new(
             &root,
             variables,
             vec!["/bin/sh".into(), "-c".into(), ssh.into(), "ssh".into()],
             fleet,
         );
+        client.background_pull = None;
         Rig { _directory: directory, root, client }
     }
 
@@ -764,6 +788,25 @@ exit "$(cat "$ROOT/code")"
             format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' north threads list"),
         ]);
         assert!(fs::read(&rig.client.snapshot).unwrap().starts_with(b"SQLite format 3"));
+    }
+
+    #[test]
+    fn a_read_that_finds_the_snapshot_stale_answers_without_waiting_for_the_pull_and_starts_one_pull_at_a_time() {
+        let mut rig = rig(&[]);
+        let pulled = rig.root.join("pulled");
+        let script = format!("echo \"$@\" >> '{}'; sleep 3", pulled.display());
+        rig.client.background_pull = Some(vec!["/bin/sh".into(), "-c".into(), script.into(), "pull".into()]);
+        let started = Instant::now();
+        assert_eq!(call(&rig, &["holder", "north#63"], b"").0, 0);
+        assert_eq!(call(&rig, &["holder", "north#64"], b"").0, 0);
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !pulled.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(fs::read_to_string(&pulled).unwrap(), format!("--force --snapshot {} ledger-host\n", rig.client.snapshot.display()));
+        assert!(log(&rig, "ssh.log").iter().all(|line| !line.ends_with("snapshot-pages")));
     }
 
     #[test]

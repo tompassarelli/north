@@ -42,7 +42,8 @@ pub fn serve(database: &Path, input: &mut dyn Read, output: &mut dyn Write) -> i
     out.flush()
 }
 
-pub fn refresh(ssh: &[OsString], snapshot: &Path, force: bool, wait: Duration) -> io::Result<bool> {
+/// Whether this caller pulls now; it marks its try first, so callers racing it do not pull again.
+pub fn take_turn(snapshot: &Path, force: bool) -> io::Result<bool> {
     let tried = suffixed(snapshot, ".tried");
     let newest = [snapshot, tried.as_path()].iter().filter_map(|path| fs::metadata(path).and_then(|meta| meta.modified()).ok()).max();
     if !force && newest.is_some_and(|modified| {
@@ -54,6 +55,13 @@ pub fn refresh(ssh: &[OsString], snapshot: &Path, force: bool, wait: Duration) -
         fs::create_dir_all(parent)?;
     }
     OpenOptions::new().create(true).append(true).open(&tried)?.set_modified(SystemTime::now())?;
+    Ok(true)
+}
+
+pub fn refresh(ssh: &[OsString], snapshot: &Path, force: bool, wait: Duration) -> io::Result<bool> {
+    if !take_turn(snapshot, force)? {
+        return Ok(false);
+    }
     pull(ssh, snapshot, wait)?;
     Ok(true)
 }
