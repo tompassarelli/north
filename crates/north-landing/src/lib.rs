@@ -11,4 +11,5 @@ pub mod landing;
 pub mod language_gate;
 pub mod provenance;
 pub mod runtime_floor_gate;
+pub mod stub_exec_gate;
 pub mod watch;

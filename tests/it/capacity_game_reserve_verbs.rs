@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -21,8 +20,7 @@ impl Reserve {
         fs::write(reserve.path("proc/uptime"), "1000.00 9000.00\n").unwrap();
         for tool in ["systemctl", "busctl"] {
             let script = reserve.path(tool);
-            fs::write(&script, format!("#!/usr/bin/env bash\nprintf '{tool} %s\\n' \"$*\" >> {}\n", reserve.path("calls.log").display())).unwrap();
-            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+            north_core::foundation::shim::write_executable(&script, format!("#!/usr/bin/env bash\nprintf '{tool} %s\\n' \"$*\" >> {}\n", reserve.path("calls.log").display()));
         }
         reserve
     }

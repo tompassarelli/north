@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -7,8 +6,7 @@ use super::{Landed, run};
 
 fn stub(path: &Path, body: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::foundation::shim::write_script(path, &format!("{body}\n"));
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> String {

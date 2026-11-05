@@ -9,10 +9,11 @@ use super::{Fixture, executable, git};
 
 const ALONE: &str = r#"#!/usr/bin/env bash
 lane=$(command git log -1 --format=%s)
-date +%s.%N >"$LAND_TRACE/start-${lane##* }-$1"
+stamp() { date +%s.%N >"$LAND_TRACE/.$1" && mv "$LAND_TRACE/.$1" "$LAND_TRACE/$1"; }
+stamp "start-${lane##* }-$1"
 ! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >"$LAND_TRACE/verdict-$1"
 sleep 2.5
-date +%s.%N >"$LAND_TRACE/end-${lane##* }-$1"
+stamp "end-${lane##* }-$1"
 "#;
 
 fn epoch() -> f64 {

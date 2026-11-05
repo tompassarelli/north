@@ -176,6 +176,9 @@ fn refuse_static_gates(root: &Path, base: &str, head: &str) -> Result<(), String
     if !crate::dep_gate::check_reasons(root, base, head) {
         return Err("dependency gate refused the landing".to_owned());
     }
+    if !crate::stub_exec_gate::check(root, base, head) {
+        return Err("stub-exec gate refused the landing".to_owned());
+    }
     Ok(())
 }
 

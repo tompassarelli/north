@@ -75,7 +75,7 @@ fn a_leased_command_whose_program_is_not_found_exits_127_saying_not_found() {
 #[test]
 fn a_shimmed_toolchain_this_host_lacks_exits_with_the_infrastructure_status_through_the_shim_and_the_gate() {
     let bin = tempfile::tempdir().unwrap();
-    fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/cargo"), bin.path().join("cargo")).unwrap();
+    shim::copy_executable(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/cargo"), bin.path().join("cargo"));
     for tool in ["sh", "readlink"] {
         if let Some(found) = host_tool(tool) {
             symlink(found, bin.path().join(tool)).unwrap();
