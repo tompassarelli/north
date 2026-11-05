@@ -40,7 +40,7 @@ fn subagent_teardown_follows_its_hook_activation() {
     let payload = |active: bool| {
         json!({"hook_event_name":"SubagentStop","stop_hook_active":active,"transcript_path":scratch.path().join("main.jsonl"),"agent_transcript_path":transcript})
     };
-    let blocked = "{\"decision\": \"block\", \"reason\": \"You still have background tasks running: bmon0001 (CI watch). Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need, and run work that must outlive you as `job-run --notify`.\"}\n";
+    let blocked = "{\"decision\": \"block\", \"reason\": \"You still have watchers running with no exit condition: bmon0001 (CI watch). TaskStop each watcher whose events you no longer need or give it an exit condition, and run work that must outlive you as `job-run --notify`. Builds, tests and landings may keep running: you resume when they complete.\"}\n";
     for (activation, disabled, active_flag, expected) in [
         (&active, "", false, blocked),
         (&active, "0", false, blocked),

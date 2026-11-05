@@ -8,8 +8,15 @@ use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transcript::{Kind, Task};
 
-static LANDING: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:^|[^A-Za-z0-9_.-])safe-push(?:$|[^A-Za-z0-9_.-])").unwrap());
+static ENDLESS_WATCH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\btail\b[^;&|\n]*\s(?:-[a-zA-Z]*[fF][a-zA-Z]*\b|--follow\b)|\bjournalctl\b[^;&|\n]*\s(?:-[a-zA-Z]*f[a-zA-Z]*\b|--follow\b)|(?:^|[;&|(\n]\s*)watch\s|\bcargo\s+watch\b|\binotifywait\b[^;&|\n]*\s(?:-m\b|--monitor\b)|\bwhile\s+(?:true|:|\[\s*1\s*\])\s*;",
+    )
+    .unwrap()
+});
+static EXIT_CONDITION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:break|exit|return)\b|--pid[= ]").unwrap()
+});
 
 const MONITOR_CEILING_MS: f64 = 3_600_000.0;
 
@@ -50,6 +57,7 @@ pub fn refusal_in(input: &HookInput, fleet: bool) -> Option<String> {
         .tasks
         .into_iter()
         .filter(|task| !scan.ended.contains(&task.id))
+        .filter(|task| task.kind == Kind::Monitor || endless(&task.command))
         .filter(|task| !(task.kind == Kind::Monitor && expired(task, now)))
         .collect();
     let outputs: HashSet<&str> = pending
@@ -62,7 +70,6 @@ pub fn refusal_in(input: &HookInput, fleet: bool) -> Option<String> {
         (Kind::Bash, Some(out)) => held.contains(out),
         _ => true,
     });
-    pending.retain(|task| !landing(task));
     if pending.is_empty() {
         return None;
     }
@@ -74,15 +81,15 @@ pub fn refusal_in(input: &HookInput, fleet: bool) -> Option<String> {
         })
         .collect();
     let advice = if fleet {
-        "Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need, and run work that must outlive you as `job-run --notify`."
+        "TaskStop each watcher whose events you no longer need or give it an exit condition, and run work that must outlive you as `job-run --notify`. Builds, tests and landings may keep running: you resume when they complete."
     } else {
-        "Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need. A background `safe-push` landing may keep running: you resume when it completes."
+        "TaskStop each watcher whose events you no longer need or give it an exit condition. Builds, tests and landings may keep running: you resume when they complete."
     };
-    Some(format!("You still have background tasks running: {}. {advice}", names.join(", ")))
+    Some(format!("You still have watchers running with no exit condition: {}. {advice}", names.join(", ")))
 }
 
-fn landing(task: &Task) -> bool {
-    task.kind == Kind::Bash && LANDING.is_match(&task.command)
+fn endless(command: &str) -> bool {
+    ENDLESS_WATCH.is_match(command) && !EXIT_CONDITION.is_match(command)
 }
 
 fn expired(task: &Task, now: f64) -> bool {

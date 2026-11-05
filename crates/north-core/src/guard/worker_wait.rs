@@ -48,8 +48,8 @@ static TEST_SUITE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bbun\s+(?:run\s+)?test\b").unwrap());
 static SINGLE_TEST_FILE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s+\S+\.test\.ts").unwrap());
-static LONG_COMMAND: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b(?:sleep|timeout)\s+(\d+)").unwrap());
+static LONG_TIMEOUT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\btimeout\s+(\d+)").unwrap());
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     match refusal(input) {
@@ -104,7 +104,7 @@ pub(super) fn blocking(command: &str, timeout_seconds: Option<f64>) -> Option<St
     if runs_suite {
         reasons.push("a test suite".to_owned());
     }
-    reasons.extend(LONG_COMMAND.captures_iter(command).filter_map(|found| {
+    reasons.extend(LONG_TIMEOUT.captures_iter(command).filter_map(|found| {
         let over = found[1].parse::<u64>().map_or(true, |n| n as f64 > LIMIT_SECONDS);
         over.then(|| format!("`{}`", &found[0]))
     }));

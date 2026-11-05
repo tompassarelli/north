@@ -17,14 +17,32 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         return Verdict::Allow;
     }
     let home = std::env::var("HOME").unwrap_or_default();
-    let mut text = stale_lanes_notice(&report_path(&home), &home).unwrap_or_default();
-    if let Some((repo, number)) = session_item(input) {
-        text.push_str(&archive_tags::report(&repo, number, input.data["cwd"].as_str().map(Path::new)));
+    let cwd = input.data["cwd"].as_str().map(Path::new);
+    let item = session_item(input);
+    let scope = Scope {
+        home: &home,
+        container: cwd.and_then(|cwd| container(cwd, &home)),
+        item: item.as_ref().map(|(repo, number)| (repo.as_str(), *number)),
+    };
+    let mut text = stale_lanes_notice(&report_path(&home), &scope).unwrap_or_default();
+    if let Some((repo, number)) = &item {
+        text.push_str(&archive_tags::report(repo, *number, cwd));
     }
     match text.trim_end() {
         "" => Verdict::Allow,
         notice => Verdict::Advise(notice.to_owned()),
     }
+}
+
+pub(super) struct Scope<'a> {
+    pub home: &'a str,
+    pub container: Option<&'a str>,
+    pub item: Option<(&'a str, u64)>,
+}
+
+pub(super) fn container<'a>(cwd: &'a Path, home: &str) -> Option<&'a str> {
+    let rest = cwd.strip_prefix(Path::new(home).join("code")).ok()?;
+    rest.components().next()?.as_os_str().to_str()
 }
 
 fn report_path(home: &str) -> PathBuf {
@@ -38,24 +56,58 @@ fn leading_number(field: &str) -> f64 {
     field[..end].parse().unwrap_or(0.0)
 }
 
-pub(super) fn stale_lanes_notice(report: &Path, home: &str) -> Option<String> {
+fn references(refs: &str, container: &str, (repo, number): (&str, u64)) -> bool {
+    refs.split_whitespace().any(|reference| match reference.split_once('#') {
+        Some((named, n)) if n.parse() == Ok(number) => {
+            let named = named.strip_prefix("tompassarelli/").unwrap_or(named);
+            let named = if named.is_empty() { container } else { named };
+            archive_tags::repo_alias(named) == repo
+        }
+        _ => false,
+    })
+}
+
+const SHOWN_LANES: usize = 2;
+
+pub(super) fn stale_lanes_notice(report: &Path, scope: &Scope) -> Option<String> {
+    let container = scope.container?;
     let contents = std::fs::read(report).ok()?;
-    let count = String::from_utf8_lossy(&contents)
+    let contents = String::from_utf8_lossy(&contents);
+    let lanes: Vec<Vec<&str>> = contents
         .lines()
         .filter(|line| !line.starts_with('#'))
-        .filter(|line| leading_number(line.split('\t').next().unwrap_or("")) >= STALE_HOURS)
-        .count();
-    if count == 0 {
+        .map(|line| line.split('\t').collect::<Vec<_>>())
+        .filter(|fields| fields.get(1) == Some(&container))
+        .filter(|fields| leading_number(fields[0]) >= STALE_HOURS)
+        .collect();
+    if lanes.is_empty() {
         return None;
     }
     let shown = report.to_string_lossy();
-    let shown = match shown.strip_prefix(home) {
-        Some(rest) if !home.is_empty() => format!("~{rest}"),
+    let shown = match shown.strip_prefix(scope.home) {
+        Some(rest) if !scope.home.is_empty() => format!("~{rest}"),
         _ => shown.into_owned(),
     };
-    Some(format!(
-        "{count} unlanded worktrees/branches older than 24 h are listed in {shown} (north lane-gc --unlanded). Before starting an issue, continue an existing lane that references it instead of starting over.\n"
-    ))
+    let mut notice = format!(
+        "{} unlanded {container} lanes older than 24 h are listed in {shown} (north lane-gc --unlanded). Before starting an issue, continue an existing lane that references it instead of starting over.\n",
+        lanes.len()
+    );
+    if let Some(item @ (repo, number)) = scope.item {
+        let named: Vec<&str> = lanes
+            .iter()
+            .filter(|fields| references(fields.get(7).copied().unwrap_or(""), container, item))
+            .map(|fields| match fields.get(2).copied() {
+                Some(path) if path != "(branch)" => path,
+                _ => fields.get(3).copied().unwrap_or(""),
+            })
+            .collect();
+        if !named.is_empty() {
+            let more = named.len().saturating_sub(SHOWN_LANES);
+            let tail = if more > 0 { format!(" and {more} more") } else { String::new() };
+            notice.push_str(&format!("Lanes referencing {repo}#{number}: {}{tail}.\n", named[..named.len().min(SHOWN_LANES)].join(", ")));
+        }
+    }
+    Some(notice)
 }
 
 fn session_item(input: &HookInput) -> Option<(String, u64)> {

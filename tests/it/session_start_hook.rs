@@ -91,7 +91,7 @@ impl Rig {
 }
 
 #[test]
-fn session_start_lists_the_holders_archives_and_the_stale_lane_count() {
+fn session_start_lists_the_holders_archives_and_its_own_repositorys_stale_lanes() {
     let rig = Rig::new();
     rig.fleet("working");
     let context = rig.start(&rig.payload(), &[], None).unwrap();
@@ -103,9 +103,11 @@ fn session_start_lists_the_holders_archives_and_the_stale_lane_count() {
     assert!(!context.contains("archive/feature/other-10"), "{context}");
 
     let report = rig.scratch.path().join("unlanded.txt");
-    std::fs::write(&report, "48h\tmakgora\tfixture\tfeature/resume-10\n").unwrap();
+    std::fs::write(&report, "48h\tmakgora\t(branch)\tfeature/resume-10\t+1\t-\tResume\t#10\tlost\n90h\twisp\t(branch)\tw\t+1\t-\tW\t#10\tlost\n").unwrap();
     let context = rig.start(&rig.payload(), &[("LANE_GC_UNLANDED", &report)], None).unwrap();
-    assert!(context.starts_with("1 unlanded worktrees/branches older than 24 h"), "{context}");
+    assert!(context.starts_with("1 unlanded makgora lanes older than 24 h"), "{context}");
+    assert!(context.contains("Lanes referencing makgora#10: feature/resume-10.\n"), "{context}");
+    assert!(!context.contains("wisp"), "{context}");
     assert!(context.contains("archived: archive/feature/resume-10"), "{context}");
 }
 

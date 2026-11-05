@@ -35,7 +35,6 @@ fn foreground_waits_that_can_pass_a_minute_are_refused_for_workers() {
         "/home/tom/.local/bin/safe-push --to main",
         "bun run test",
         "bun test",
-        "sleep 120",
         "timeout 300 cargo build",
         "gh run watch 123",
         "gh pr checks 5 --watch",
@@ -53,6 +52,9 @@ fn short_commands_and_inert_mentions_pass() {
         "git status",
         "bun test test/a.test.ts",
         "sleep 5",
+        "sleep 30",
+        "sleep 120",
+        "sleep 99999",
         "which safe-push",
         "wc -l $(command -v safe-push)",
         "git commit -m \"land through safe-push\"",
@@ -76,7 +78,7 @@ fn only_foreground_worker_calls_are_bound() {
     assert!(!refused(None, false, None, wait));
     assert!(!refused(Some("Explore"), false, None, "safe-push --to main"));
     assert!(refused(Some("worker-high"), false, None, "safe-push --to main"));
-    assert!(refused(Some("worker-sonnet"), false, None, "sleep 90"));
+    assert!(refused(Some("worker-sonnet"), false, None, "timeout 90 cargo build"));
 }
 
 fn recorded_decisions_of_the_retired_shell_guard_still_hold() {
@@ -112,8 +114,17 @@ fn a_foreground_call_with_two_waits_names_both() {
     let payload = json!({
         "tool_name": "Bash",
         "agent_type": "worker",
-        "tool_input": {"command": "safe-push --to main && sleep 120", "timeout": 300000},
+        "tool_input": {"command": "safe-push --to main && timeout 120 cargo build", "timeout": 300000},
     });
     let reason = refusal(&HookInput::parse(payload.to_string().as_bytes()).unwrap()).unwrap();
-    assert!(reason.contains("a timeout of 300 s") && reason.contains("sleep 120") && reason.contains("safe-push"), "{reason}");
+    assert!(reason.contains("a timeout of 300 s") && reason.contains("timeout 120") && reason.contains("safe-push"), "{reason}");
+}
+
+#[test]
+fn a_bare_foreground_sleep_is_left_to_the_runtime_block() {
+    for command in ["sleep 30", "sleep 120", "cd x && sleep 600"] {
+        assert!(!worker(command), "{command}");
+    }
+    assert!(worker("until test -f done; do sleep 30; done"));
+    assert!(worker("timeout 120 cargo build"));
 }

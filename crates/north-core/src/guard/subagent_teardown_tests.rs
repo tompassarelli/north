@@ -33,11 +33,11 @@ fn civil(days: i64) -> (i64, i64, i64) {
 }
 
 fn shell_start(at: &str, output: &Path) -> String {
-    shell_command(at, output, "run the soak")
+    shell_command(at, output, "tail -F run.log")
 }
 
 fn shell_command(at: &str, output: &Path, command: &str) -> String {
-    let started = json!({"type":"assistant","timestamp":at,"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_sh","name":"Bash","input":{"command":command,"description":"Long soak run","run_in_background":true}}]}});
+    let started = json!({"type":"assistant","timestamp":at,"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_sh","name":"Bash","input":{"command":command,"description":"Log watch","run_in_background":true}}]}});
     let body = format!(
         "Command running in background with ID: bshell001. Output is being written to: {}. You will be notified when it completes.",
         output.display()
@@ -136,7 +136,7 @@ fn teardown_decisions_hold() {
     let running = lane.fixture("running", &start);
     assert_eq!(
         lane.stop(&running).as_deref(),
-        Some("You still have background tasks running: bshell001 (Long soak run). Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need, and run work that must outlive you as `job-run --notify`.")
+        Some("You still have watchers running with no exit condition: bshell001 (Log watch). TaskStop each watcher whose events you no longer need or give it an exit condition, and run work that must outlive you as `job-run --notify`. Builds, tests and landings may keep running: you resume when they complete.")
     );
     assert_eq!(lane.payload(&running, true), None);
     let with = |lane: &Lane, name: &str, extra: String| lane.fixture(name, &format!("{start}\n{extra}"));
@@ -146,7 +146,7 @@ fn teardown_decisions_hold() {
     let live = lane.fixture("monitor", &monitor(&now, json!(600_000)));
     assert_eq!(
         lane.stop(&live).as_deref(),
-        Some("You still have background tasks running: bmon0001 (CI watch). Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need, and run work that must outlive you as `job-run --notify`.")
+        Some("You still have watchers running with no exit condition: bmon0001 (CI watch). TaskStop each watcher whose events you no longer need or give it an exit condition, and run work that must outlive you as `job-run --notify`. Builds, tests and landings may keep running: you resume when they complete.")
     );
     let old = lane.fixture("expired", &monitor("2020-01-01T00:00:00.000Z", json!(600_000)));
     assert_eq!(lane.stop(&old), None);
@@ -209,33 +209,44 @@ fn transcript_lines_are_bounded_and_scanned_in_a_stream() {
 }
 
 #[test]
-fn a_running_landing_may_outlive_the_turn_and_everything_else_still_refuses() {
+fn builds_tests_and_landings_may_outlive_the_turn_and_only_endless_watchers_refuse() {
     let mut lane = Lane::new();
     let now = stamp(0);
     lane.hold_output();
     let held = |command: &str| lane.fixture("cmd", &shell_command(&now, &lane.output(), command));
     for command in [
         "safe-push --to main",
-        "safe-push",
         "cd ~/code/north/worktrees/x && bin/safe-push --to main",
-        "~/.local/share/north/bin/safe-push --keep-lane --to main 2>&1",
         "FOO=1 safe-push --to main; echo done",
+        "cargo test --locked",
+        "nix develop -c cargo build --release 2>&1 | tail -20",
+        "cargo clippy --all-targets -- -D warnings > clippy.log 2>&1",
+        "bun test",
+        "run the soak",
+        "gh run watch 123",
+        "until test -f done; do sleep 5; done",
+        "while true; do test -f done && break; sleep 5; done",
+        "tail --pid=4242 -f build.log",
     ] {
         assert_eq!(lane.stop(&held(command)), None, "{command}");
         assert_eq!(lane.payload_in(&held(command), false, false), None, "{command}");
     }
     for command in [
-        "cargo test --locked",
-        "echo unsafe-push",
-        "safe-push-helper --to main",
-        "my.safe-push.sh",
-        "run the soak",
+        "tail -f build.log",
+        "tail -f build.log | grep -m1 Finished",
+        "tail -n 50 -F run.log",
+        "journalctl --user -fu north-watch",
+        "watch -n 5 git status",
+        "cargo watch -x test",
+        "inotifywait -m src",
+        "while true; do date; sleep 5; done",
+        "while :; do cat status; sleep 1; done",
     ] {
         assert!(lane.stop(&held(command)).is_some(), "{command}");
     }
     let live = lane.fixture("monitor", &monitor(&now, json!(600_000)));
     assert!(lane.stop(&live).is_some());
-    let both = format!("{}\n{}", monitor(&now, json!(600_000)), shell_command(&now, &lane.output(), "safe-push --to main"));
+    let both = format!("{}\n{}", monitor(&now, json!(600_000)), shell_command(&now, &lane.output(), "cargo build --release"));
     let refused = lane.stop(&lane.fixture("both", &both)).unwrap();
     assert!(refused.contains("bmon0001") && !refused.contains("bshell001"), "{refused}");
 }
@@ -248,7 +259,7 @@ fn the_refusal_names_only_what_works_without_a_fleet_session() {
     assert!(fleet.contains("job-run --notify"));
     let solo = lane.payload_in(&live, false, false).unwrap();
     assert!(!solo.contains("job-run"), "{solo}");
-    assert!(solo.contains("Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need. A background `safe-push` landing may keep running: you resume when it completes."), "{solo}");
+    assert!(solo.contains("TaskStop each watcher whose events you no longer need or give it an exit condition. Builds, tests and landings may keep running: you resume when they complete."), "{solo}");
 }
 
 fn echoed(tool: &str, input: Value, body: &str) -> String {
@@ -280,6 +291,6 @@ fn real_started_tasks_still_refuse_when_text_elsewhere_mentions_other_ids() {
     let noise = echoed("Read", json!({"file_path":"/x/t.rs"}), "Monitor started (task bghost99, expires in 10m).");
     let monitor_live = lane.stop(&lane.fixture("mon", &format!("{noise}\n{}", monitor(&now, json!(600_000))))).unwrap();
     assert!(monitor_live.contains("bmon0001") && !monitor_live.contains("bghost99"), "{monitor_live}");
-    let shell_live = lane.stop(&lane.fixture("sh", &format!("{noise}\n{}", shell_command(&now, &lane.output(), "run the soak")))).unwrap();
+    let shell_live = lane.stop(&lane.fixture("sh", &format!("{noise}\n{}", shell_command(&now, &lane.output(), "tail -f soak.log")))).unwrap();
     assert!(shell_live.contains("bshell001") && !shell_live.contains("bghost99"), "{shell_live}");
 }
