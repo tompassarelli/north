@@ -1,4 +1,6 @@
 mod capacity;
+#[cfg(test)]
+mod lint;
 mod priors;
 mod proposal;
 mod registry;

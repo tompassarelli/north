@@ -10,7 +10,7 @@ Every threshold and prior these loops apply lives in `harness/defaults.toml` wit
 `--priors` prints `WAIT` below the count's `need`, `MEASURABLE-NOT-MEASURED` once the rows are there but nobody has measured
 the value, and `SETTLED` only for a prior whose `settles_when.measured` records the dated sweep result that measured it;
 enough rows alone never settle a prior. Consumers read each default
-there and `harness/lib/defaults.test.py` fails on a hard-coded value or a blank source. The weekly review
+there and the `defaults_measure::lint` cargo test fails on a hard-coded value or a blank source. The weekly review
 re-runs the measured sources with `north defaults-measure <copy of snapshot.db> <default>`, which
 sweeps one default over a grid by walk-forward replay and prints n and the score per value.
 
@@ -81,7 +81,7 @@ Attempt chains (2026-11-04): a Done run counts as kept only when no other worker
 
 Rework (2026-11-04): a Done run whose landing on main is reverted, fixed forward or named a red-main culprit within 48 h (`rework::REWORK_WINDOW_S`; definition in docs/rationale/tier-routing.md) is not kept either. History comes from `git log --first-parent origin/main` in each `~/code/<checkout>/main` (`NORTH_CODE_ROOT` overrides the root) and culprits from the red-main-notify state directory (`RED_MAIN_STATE`). `north worker-ledger --summary` adds a `rework` column, reworked landings and their share of the cell's landings found on main, and `north health` prints `health: rework 7d:` with each repository's rate and fails above `rework_alarm_pct` (prior 20%).
 
-Unjudged runs (north#35 FX5): an `unclear` run with no `Item:` is an unbriefed session and `run_outcome.unjudged` keeps it out of every success denominator (370 of 533 `unclear` worker runs over 14 days); on the 2026-10-12 snapshot, `replay-staffing --since 7d` goes from 830 decisions, 146 changed, old pick 86 (39 ok) to 817, 132 changed, old pick 72 (35 ok), and 7-day `summary` ok moves unknown/sol-high 51% of 658 to 57% of 580, unknown/sol-medium 61% of 276 to 66% of 254, unknown/medium 45% of 87 to 67% of 59, tooling/medium 63% of 138 to 69% of 126, and unknown/luna-medium (0% of 13) and unknown/gemini-pro-high (0% of 17) drop out.
+Unjudged runs (north#35 FX5): an `unclear` run with no `Item:` is an unbriefed session and `ledger::outcome` (`unjudged`) keeps it out of every success denominator (370 of 533 `unclear` worker runs over 14 days); on the 2026-10-12 snapshot, `replay-staffing --since 7d` goes from 830 decisions, 146 changed, old pick 86 (39 ok) to 817, 132 changed, old pick 72 (35 ok), and 7-day `summary` ok moves unknown/sol-high 51% of 658 to 57% of 580, unknown/sol-medium 61% of 276 to 66% of 254, unknown/medium 45% of 87 to 67% of 59, tooling/medium 63% of 138 to 69% of 126, and unknown/luna-medium (0% of 13) and unknown/gemini-pro-high (0% of 17) drop out.
 
 ## File signals
 

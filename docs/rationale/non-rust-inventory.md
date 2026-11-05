@@ -122,7 +122,6 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | harness/lib/claude_profiles.py | 91 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/claude_profiles.test.py | 100 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/defaults.py | 12 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/defaults.test.py | 39 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/durable_events.py | 108 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/durable-events.test.py | 166 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/goal_eta.py | 259 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
@@ -137,9 +136,7 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | harness/lib/project_score.test.py | 74 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/provider_capacity.py | 103 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/routines.py | 238 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/routing.py | 11 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/routing.test.sh | 83 | port: north#80 (placement, routing, calibration) | allowlisted; test of a routing bug fix pending port |
-| harness/lib/run_outcome.py | 6 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/ssh_transport.py | 19 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/test-health-core.ts | 284 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | core of bin/test-health |
 | harness/lib/tree-north.sh | 18 | port: north#88 box "hook and harness shell to Rust" (family: tests) | sourced library that builds a tree's north binary for shell tests; goes when the shell tests that source it go |
