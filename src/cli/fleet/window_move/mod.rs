@@ -41,6 +41,12 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
     execute(&request)
 }
 
+pub(super) fn tom_window() -> Option<super::one_proxy::Window> {
+    let window = session::find_window().ok()?;
+    let active = std::fs::metadata(session::activity_path(&window)).and_then(|meta| meta.modified()).ok()?;
+    Some(super::one_proxy::Window { conversation: window.session.id, account: window.account, active })
+}
+
 pub(super) fn auto() {
     if let Err(error) = execute(&Request { to: None, auto: true, dry_run: false }) {
         eprintln!("north proxy move: {}", error.user_message());

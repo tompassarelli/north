@@ -40,6 +40,7 @@ fn send(fleet: &Fleet, from: Option<&str>, name: &str, text: &str, delivery: Del
 
 pub(super) fn signer(fleet: &Fleet, from: Option<&str>, to: &str) -> NorthResult<Sender> {
     let sender = Sender::declared(from, fleet.caller())?;
+    super::fleet::one_proxy::admit(fleet, sender.session(), &format!("message {to}"))?;
     if let Some(rival) = fleet.rival(&sender, to) {
         eprintln!("{rival}");
     }

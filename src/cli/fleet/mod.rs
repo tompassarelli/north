@@ -9,6 +9,7 @@ mod interactive;
 mod ledger;
 mod limit;
 mod lineage;
+pub(super) mod one_proxy;
 mod list;
 mod overlap;
 mod placement;

@@ -181,6 +181,9 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
     let LaunchParts { mut request, mut overrides, wait, take_over, overlap_ok, staffing_ok } = launch_parts(&fleet.providers(), words, caller.clone(), proxy)?;
+    if !take_over {
+        one_proxy::admit(fleet, caller.as_deref(), &format!("launch {}", request.name))?;
+    }
     lineage::reader(fleet, &mut request, caller.as_deref())?;
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;

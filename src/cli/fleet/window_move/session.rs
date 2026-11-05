@@ -148,11 +148,14 @@ fn copy_tree(from: &Path, to: &Path) -> NorthResult<usize> {
 }
 
 pub(super) fn activity(window: &Window) -> u64 {
-    let path = match &window.session.job {
+    fs::metadata(activity_path(window)).map_or(0, |meta| meta.len())
+}
+
+pub(super) fn activity_path(window: &Window) -> PathBuf {
+    match &window.session.job {
         Some(job) => window.profile.join("jobs").join(job).join("timeline.jsonl"),
         None => window.session.transcript.clone(),
-    };
-    fs::metadata(path).map_or(0, |meta| meta.len())
+    }
 }
 
 pub(super) fn ready_for(window: &Window, target: &Path) -> NorthResult<()> {
