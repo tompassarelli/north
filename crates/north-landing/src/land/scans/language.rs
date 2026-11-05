@@ -2,6 +2,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 
+use super::git::merge_base;
 use crate::land::after::follow::program;
 
 const USAGE: &str = "usage: north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]";
@@ -64,7 +65,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("safe-push: the language gate cannot find the repository root; NOT pushed.");
         return 1;
     };
-    let base = if arguments.base.is_empty() { git(None, &["hash-object", "-t", "tree", "/dev/null"]).unwrap_or_default() } else { arguments.base.clone() };
+    let base = if arguments.base.is_empty() { git(None, &["hash-object", "-t", "tree", "/dev/null"]).unwrap_or_default() } else { merge_base(Path::new(&root), &arguments.base, &arguments.head) };
     let gates = Gates { root, base, head: arguments.head.clone() };
     for subcommand in ["language-gate", "build-cache-gate"] {
         if lacks(subcommand) {

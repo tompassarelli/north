@@ -13,6 +13,7 @@ use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
 use super::repositories;
 use super::setting;
+use super::scans::git::merge_base;
 use super::scans::outgoing;
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
@@ -167,7 +168,9 @@ fn refuse_archived(origin: &str) -> Result<(), String> {
     }
 }
 
-fn refuse_static_gates(root: &Path, base: &str, head: &str) -> Result<(), String> {
+fn refuse_static_gates(root: &Path, destination: &str, head: &str) -> Result<(), String> {
+    let base = merge_base(root, destination, head);
+    let base = base.as_str();
     if !crate::language_gate::check(root, base, head) {
         return Err("language gate refused the landing".to_owned());
     }
@@ -299,3 +302,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "enqueue_tests.rs"]
+mod tests;
