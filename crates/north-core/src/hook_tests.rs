@@ -254,3 +254,98 @@ fn subagent_stop_denial_blocks_at_top_level() {
     );
 }
 
+
+fn stop_input(data: Value) -> HookInput {
+    HookInput::parse(&serde_json::to_vec(&data).unwrap()).unwrap()
+}
+
+fn transcript(lines: &[Value]) -> tempfile::NamedTempFile {
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    for line in lines {
+        writeln!(file, "{line}").unwrap();
+    }
+    file
+}
+
+fn assistant(blocks: Value) -> Value {
+    json!({"type":"assistant", "message":{"role":"assistant", "content":blocks}})
+}
+
+fn stop_with(path: &std::path::Path, active: bool) -> HookInput {
+    stop_input(json!({"hook_event_name":"Stop", "stop_hook_active":active, "transcript_path":path}))
+}
+
+#[test]
+fn stop_hook_blocks_each_permission_offer_in_the_closing_paragraph() {
+    use crate::guard::permission_offer::{OFFERS, REASON, decide, offer};
+    for (phrase, ending) in [
+        ("say if you want me to", "Say if you want me to staff that."),
+        ("want me to", "Want me to land it?"),
+        ("should i ", "Should I restart the lander?"),
+        ("shall i ", "Shall I file the follow-up?"),
+        ("let me know if you'd like", "Let me know if you'd like the deeper pass."),
+        ("if you'd like, i can", "If you\u{2019}d like, I can rerun it."),
+        ("do you want me to", "Do you want me to close the issue?"),
+    ] {
+        assert!(OFFERS.contains(&phrase));
+        let report = format!("Landed `abc123` on origin/main.\n\n{ending}");
+        assert!(offer(&report).is_some(), "{ending}");
+        let file = transcript(&[
+            json!({"type":"user", "message":{"role":"user", "content":"go"}}),
+            assistant(json!([{"type":"thinking", "thinking":"done"}])),
+            assistant(json!([{"type":"text", "text":report}])),
+        ]);
+        assert_eq!(decide(&stop_with(file.path(), false), ""), Verdict::Deny(REASON.into()), "{ending}");
+        assert_eq!(decide(&stop_with(file.path(), false), "proxy"), Verdict::Deny(REASON.into()), "{ending}");
+        assert_eq!(decide(&stop_with(file.path(), true), ""), Verdict::Allow, "stop_hook_active lets the second stop through");
+    }
+    let file = transcript(&[assistant(json!([{"type":"text", "text":"Done.\n\nWant me to land it?"}]))]);
+    assert_eq!(
+        serde_output(evaluate(&stop_with(file.path(), false), &[|input| crate::guard::permission_offer::decide(input, "")], "Stop")),
+        Some(json!({"decision":"block", "reason":REASON}))
+    );
+}
+
+#[test]
+fn stop_hook_passes_decisions_earlier_offers_and_worker_reports() {
+    use crate::guard::permission_offer::{decide, offer};
+    for (report, blocked) in [
+        ("Should I restart it? I did.\n\nLanded `abc123`; the lander is green.", false),
+        ("Landed.\n\nThis needs a paid plan. I recommend the Pro seat because it unblocks the lander today. Alternative: wait for the reset, which costs a day.", false),
+        ("Landed.\n\nRecommend buying the seat now. Otherwise we wait for Monday's reset, which costs two days of landings.", false),
+        ("Landed.\n\nI recommend the seat. Should I buy it?", true),
+        ("Landed.\n\nShould I buy it? Alternative: wait.", true),
+        ("Landed `abc123`.\n\nThe flaky test should include a seed now.", false),
+        ("Landed.\n\nWant me to land it?\n\n", true),
+        ("Landed.\n\nShould I?", true),
+        ("Landed.\n\nWould you like me to file it?", true),
+        ("I recommend the seat. Otherwise we wait.\r\n\r\nWant me to buy it?", true),
+        ("I recommend the seat. Otherwise we wait.\n  \nWant me to buy it?", true),
+        ("Landed.\n\nI recommended it earlier; otherwise fine. Want me to land it?", true),
+        ("Landed.\n\nThe shall-item list is done.", false),
+        ("Landed.\n\nMy recommendation: buy the seat. Alternatives: wait a day. Should I buy it?", false),
+    ] {
+        assert_eq!(offer(report).is_some(), blocked, "{report}");
+    }
+    let file = transcript(&[assistant(json!([{"type":"text", "text":"Done.\n\nWant me to land it?"}]))]);
+    assert_eq!(decide(&stop_with(file.path(), false), "stop-ask-guard"), Verdict::Allow, "a non-proxy fleet worker's report passes");
+    let tool_last = transcript(&[
+        assistant(json!([{"type":"text", "text":"Want me to land it?"}])),
+        assistant(json!([{"type":"tool_use", "id":"t", "name":"Bash", "input":{}}])),
+    ]);
+    assert_eq!(decide(&stop_with(tool_last.path(), false), ""), Verdict::Allow, "only the final message counts");
+    let after_prompt = transcript(&[
+        assistant(json!([{"type":"text", "text":"Want me to land it?"}])),
+        json!({"type":"user", "message":{"role":"user", "content":"yes"}}),
+    ]);
+    assert_eq!(decide(&stop_with(after_prompt.path(), false), ""), Verdict::Allow);
+    let meta_last = transcript(&[
+        assistant(json!([{"type":"text", "text":"Done.\n\nShall I push?"}])),
+        json!({"type":"user", "isMeta":true, "message":{"role":"user", "content":"<local-command-stdout>"}}),
+        json!({"type":"system", "content":"stop hook"}),
+    ]);
+    assert_eq!(decide(&stop_with(meta_last.path(), false), ""), Verdict::Deny(crate::guard::permission_offer::REASON.into()));
+    let codex = stop_input(json!({"hook_event_name":"Stop", "last_assistant_message":"Done.\n\nShall I push?"}));
+    assert_eq!(decide(&codex, ""), Verdict::Deny(crate::guard::permission_offer::REASON.into()));
+    assert_eq!(decide(&stop_input(json!({"hook_event_name":"Stop"})), ""), Verdict::Allow);
+}

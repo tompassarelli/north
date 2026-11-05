@@ -198,7 +198,7 @@ impl HookKind {
             Self::NativeSpawn => &[crate::guard::spawn_capacity::evaluate],
             Self::PostTool => &[crate::guard::worker_handoff::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate, crate::guard::spawn_capacity::confirm_native],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
-            Self::Stop => &[],
+            Self::Stop => &[crate::guard::permission_offer::evaluate],
             Self::SubagentStop => &[crate::guard::subagent_teardown::evaluate],
             Self::SessionStart => &[crate::guard::unlanded_work::evaluate],
             Self::UserPromptSubmit => &[crate::guard::quiet_phrase::evaluate],

@@ -63,6 +63,7 @@ pub mod unlanded_work;
 mod unlanded_work_tests;
 pub mod worker_handoff;
 pub mod quiet_phrase;
+pub mod permission_offer;
 #[cfg(test)]
 mod quiet_phrase_tests;
 #[cfg(test)]
