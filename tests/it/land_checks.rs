@@ -231,6 +231,52 @@ fn dead_check_orphans() {
     assert_eq!(code, Some(7), "a dead land check left the runner waiting on its orphaned log children for {elapsed:?}");
 }
 
+fn staged(fixture: &Fixture, destination: &str) -> Output {
+    let mut command = fixture.command_between(&fixture.base, "HEAD");
+    command.args(["--destination", destination, "--wait-event", "{\"stage\":\"land checks\",\"status\":\"wait\"}", "--event-log"]).arg(fixture.path("state/safe-push/events.jsonl"));
+    command.output().unwrap()
+}
+
+#[test]
+fn land_checks_stage_starts_only_for_main_with_checks() {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: printf ran >> check-runs")]);
+    let events = fixture.path("state/safe-push/events.jsonl");
+    let output = staged(&fixture, "topic");
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(!events.exists() && !fixture.repo.join("check-runs").exists(), "a non-main destination started the land checks");
+
+    let output = staged(&fixture, "main");
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert_eq!(fs::read_to_string(&events).unwrap(), "{\"stage\":\"land checks\",\"status\":\"wait\"}\n");
+    assert_eq!(fs::read_to_string(fixture.repo.join("check-runs")).unwrap(), "ran");
+
+    let unchecked = Fixture::new(&[("land.inferred", "false")]);
+    let output = staged(&unchecked, "main");
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(!unchecked.path("state/safe-push/events.jsonl").exists(), "a tree without land checks recorded a land-checks wait");
+}
+
+#[test]
+fn land_checks_refuse_a_symlinked_stale_install() {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: printf ran >> check-runs")]);
+    fs::write(fixture.repo.join("bun.lock"), "{}\n").unwrap();
+    git(&fixture.repo, &["add", "bun.lock"]);
+    git(&fixture.repo, &["commit", "-qm", "lock"]);
+    let shared = fixture.path("shared-modules");
+    fs::create_dir_all(&shared).unwrap();
+    std::os::unix::fs::symlink(&shared, fixture.repo.join("node_modules")).unwrap();
+    let output = staged(&fixture, "main");
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+    let expected = format!(
+        "safe-push: {}/node_modules is a symlink to {} and bun.lock no longer matches it — bun install would rewrite that checkout; replace the symlink with its own install; NOT pushed.\n",
+        fs::canonicalize(&fixture.repo).unwrap().display(),
+        shared.display()
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stderr), expected);
+    assert_eq!(fs::read_to_string(fixture.path("outcome")).unwrap(), "skip\tskipped: bun install failed\n");
+    assert!(!fixture.repo.join("check-runs").exists(), "the land checks ran on a stale install");
+}
+
 fn hung_log(fixture: &Fixture) -> String {
     let logs = fixture.logs();
     assert_eq!(logs.len(), 1, "{logs:?}");

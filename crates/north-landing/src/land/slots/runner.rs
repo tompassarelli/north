@@ -14,6 +14,7 @@ use tokio::task::JoinSet;
 
 use super::affected::{self, CPUS_ENV, PACKAGES_ENV, Scope};
 use super::clippy_first;
+use super::deps;
 use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement, path_class};
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use fail_fast::Plan;
@@ -25,7 +26,7 @@ use crate::land::after::follow::program;
 use crate::land::checks::{BROKEN_BASE, RECHECK, ROUND};
 use crate::landing::check_timings::{self, Base, BaseResult, Deadline, Timing, Timings};
 
-const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
+const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
 const OFFLOAD_GRACE: u64 = 900;
 const REAP: Duration = Duration::from_secs(5);
 const LOG_KEEP: Duration = Duration::from_secs(14 * 24 * 3600);
@@ -45,6 +46,9 @@ struct Arguments {
     safe_push: String,
     red_fix: String,
     outcome: Option<PathBuf>,
+    destination: Option<String>,
+    event_log: Option<PathBuf>,
+    wait_event: String,
     portable: bool,
     any: bool,
     after: bool,
@@ -68,7 +72,7 @@ fn parse(arguments: &[String]) -> Option<Arguments> {
             "--after" => parsed.after = true,
             "--leased" => parsed.leased = true,
             "--replay" => parsed.replay = true,
-            "--base" | "--head" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--published" | "--runner-host" | "--command" | "--records" | "--since" | "--until" => {
+            "--base" | "--head" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--destination" | "--event-log" | "--wait-event" | "--published" | "--runner-host" | "--command" | "--records" | "--since" | "--until" => {
                 let value = rest.next()?.clone();
                 match flag.as_str() {
                     "--base" => parsed.base = value,
@@ -77,6 +81,9 @@ fn parse(arguments: &[String]) -> Option<Arguments> {
                     "--safe-push" => parsed.safe_push = value,
                     "--red-fix" => parsed.red_fix = value,
                     "--outcome" => parsed.outcome = Some(PathBuf::from(value)),
+                    "--destination" => parsed.destination = Some(value),
+                    "--event-log" => parsed.event_log = Some(PathBuf::from(value)),
+                    "--wait-event" => parsed.wait_event = value,
                     "--published" => parsed.published = value,
                     "--runner-host" => parsed.runner_host = value,
                     "--records" => parsed.records = Some(PathBuf::from(value)),
@@ -1003,6 +1010,32 @@ fn portable(arguments: &Arguments) -> u8 {
     u8::from(!portable)
 }
 
+fn record_wait(arguments: &Arguments) {
+    let Some(log) = &arguments.event_log else { return };
+    if let Some(directory) = log.parent() {
+        let _ = fs::create_dir_all(directory);
+    }
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log) {
+        let _ = writeln!(file, "{}", arguments.wait_event);
+    }
+}
+
+fn start_stage(arguments: &Arguments) -> Option<u8> {
+    let destination = arguments.destination.as_deref()?;
+    if destination != "main" {
+        return Some(0);
+    }
+    let Some(root) = toplevel() else { return Some(0) };
+    if !Config::load(&root, "HEAD").has_checks() {
+        return Some(0);
+    }
+    record_wait(arguments);
+    let Err(error) = deps::sync(&root) else { return None };
+    warn(&error);
+    Outcome(arguments.outcome.clone()).record(&["skip", "skipped: bun install failed"]);
+    Some(1)
+}
+
 fn any(arguments: &Arguments) -> u8 {
     let Some(root) = toplevel() else { return 1 };
     u8::from(!Config::load(&root, &arguments.head).has_checks())
@@ -1099,6 +1132,9 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     if parsed.replay {
         return replay(&parsed);
+    }
+    if let Some(code) = start_stage(&parsed) {
+        return code;
     }
     let code = block_on(orchestrate(parsed)).unwrap_or_else(|error| {
         eprintln!("north land checks: {error}");

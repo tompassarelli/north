@@ -23,16 +23,23 @@ json_text() {
   printf '%s' "${text//[$'\001'-$'\037']/ }"
 }
 
-safe_push_event() {
-  local dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push" repository="${origin_url:-${lock_url:-}}" lane="${branch:-}" sha="${head_oid:-}"
+safe_push_events_file() { printf '%s/safe-push/events.jsonl' "${XDG_STATE_HOME:-$HOME/.local/state}"; }
+
+safe_push_event_line() {
+  local repository="${origin_url:-${lock_url:-}}" lane="${branch:-}" sha="${head_oid:-}"
   repository="${repository##*/}"
   if [ -n "${lock_url:-}" ] && [ -z "$lane" ]; then
     lane=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
     sha=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
   fi
-  { mkdir -p "$dir" && printf '{"time":%s,"repo":"%s","lane":"%s","sha":"%s","stage":"%s","status":"%s","detail":"%s","seconds":%s,"pid":%s,"session":"%s","host":"%s"}\n' \
+  printf '{"time":%s,"repo":"%s","lane":"%s","sha":"%s","stage":"%s","status":"%s","detail":"%s","seconds":%s,"pid":%s,"session":"%s","host":"%s"}\n' \
     "$EPOCHREALTIME" "$(json_text "${repository%.git}")" "$(json_text "$lane")" "$sha" "$(json_text "$1")" "$2" "$(json_text "${3:-}")" "${4:-0}" "$self_pid" \
-    "$(json_text "${NORTH_FLEET_SESSION:-}")" "$(json_text "${HOSTNAME:-}")" >>"$dir/events.jsonl"; } 2>/dev/null || true
+    "$(json_text "${NORTH_FLEET_SESSION:-}")" "$(json_text "${HOSTNAME:-}")"
+}
+
+safe_push_event() {
+  local file; file=$(safe_push_events_file)
+  { mkdir -p "${file%/*}" && safe_push_event_line "$@" >>"$file"; } 2>/dev/null || true
   local watcher="${SAFE_PUSH_WATCH:-$HOME/.local/state/north/current/north}"
   [ -z "${SAFE_PUSH_TEST_REAL_NORTH:-}" ] || watcher="${SAFE_PUSH_WATCH:-}"
   case "$2" in
@@ -479,7 +486,9 @@ land_offload_host() {
 land_checks_call() {
   local outcome status=0 kind first second third
   outcome=$(mktemp)
-  (drop_lock_fd; exec north land checks --base "$1" --head "$2" --dry "${dry:-0}" --safe-push "$safe_push_self" --red-fix "${red_fix:-}" --outcome "$outcome") &
+  land_check_skip=""
+  (drop_lock_fd; exec north land checks --base "$1" --head "$2" --dry "${dry:-0}" --safe-push "$safe_push_self" --red-fix "${red_fix:-}" --outcome "$outcome" \
+    --destination "${destination_branch:-${to:-}}" --event-log "$(safe_push_events_file)" --wait-event "$(safe_push_event_line 'land checks' wait)") &
   safe_push_child=$!
   wait "$safe_push_child" || status=$?
   safe_push_child=""
@@ -494,12 +503,6 @@ land_checks_call() {
   done <"$outcome"
   rm -f -- "$outcome"
   return "$status"
-}
-
-run_land_checks() {
-  [ "${destination_branch:-${to:-}}" = main ] && has_land_checks || return 0
-  land_check_skip=""; safe_push_event "land checks" wait; sync_dependencies || { land_check_skip="skipped: bun install failed"; return 1; }
-  land_checks_call "$1" "$2"
 }
 
 blocked_by_red_main=""
@@ -1010,7 +1013,7 @@ candidate_checks() {
     return
   fi
   north land scan dep-gate "$2..$3" && tool_removal_scan "$2..$3" && test_integrity_scan "$2..$3" \
-    && policy_sweep_scan "$2..$3" && run_land_checks "$2" "$3"
+    && policy_sweep_scan "$2..$3" && land_checks_call "$2" "$3"
 }
 
 # Prints "ok" or the farm URL (else the log path) of the failed check on the
@@ -1482,7 +1485,7 @@ candidate_verdict() {
       && denylist_scan "$base" "$head" main && commit_email_scan "$base..$head" && north land scan dep-gate "$base..$head" \
       && tool_removal_scan "$base..$head" && test_integrity_scan "$base..$head" && policy_sweep_scan "$base..$head"; } >>"$log" 2>&1; then
     :
-  elif run_land_checks "$base" "$head" >>"$log" 2>&1; then
+  elif land_checks_call "$base" "$head" >>"$log" 2>&1; then
     class=green detail=$head
   else
     status=$?
@@ -1700,7 +1703,7 @@ while :; do
     release_push_lock
   fi
   land_status=0
-  run_land_checks "$land_base" "$head_oid" || land_status=$?
+  land_checks_call "$land_base" "$head_oid" || land_status=$?
   stage "land checks"
   if [ "$land_status" -ne 0 ]; then
     [ -z "$blocked_by_red_main" ] || retry_after_red_main "$blocked_by_red_main"
