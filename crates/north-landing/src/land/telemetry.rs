@@ -58,12 +58,14 @@ pub struct Stages {
     started: Instant,
     last: Instant,
     marks: Vec<(String, u128, u128)>,
+    checked: Option<String>,
+    pushing: Option<f64>,
 }
 
 impl Stages {
     pub fn start() -> Self {
         let now = Instant::now();
-        Self { attempts: 1, bisect_depth: 0, started_secs: seconds(), started_epoch: epoch(), started: now, last: now, marks: Vec::new() }
+        Self { attempts: 1, bisect_depth: 0, started_secs: seconds(), started_epoch: epoch(), started: now, last: now, marks: Vec::new(), checked: None, pushing: None }
     }
 
     pub fn empty() -> Self {
@@ -78,8 +80,33 @@ impl Stages {
         self.last = now;
     }
 
+    pub fn checked(&mut self, head: &str) {
+        self.mark("check");
+        self.checked = Some(head.to_owned());
+    }
+
+    pub fn pushing(&mut self) {
+        self.pushing = Some(epoch());
+    }
+
+    pub fn checked_head(&self) -> Option<&str> {
+        self.checked.as_deref()
+    }
+
+    pub fn pushing_at(&self) -> Option<f64> {
+        self.pushing
+    }
+
+    pub fn started_at(&self) -> f64 {
+        self.started_epoch
+    }
+
     pub fn check_window(&self) -> Option<(f64, f64)> {
-        let (_, stage_ms, total_ms) = self.marks.iter().find(|(stage, _, _)| stage == "check")?;
+        self.window("check")
+    }
+
+    pub fn window(&self, name: &str) -> Option<(f64, f64)> {
+        let (_, stage_ms, total_ms) = self.marks.iter().find(|(stage, _, _)| stage == name)?;
         Some((self.started_epoch + (total_ms - stage_ms) as f64 / 1000.0, self.started_epoch + *total_ms as f64 / 1000.0))
     }
 

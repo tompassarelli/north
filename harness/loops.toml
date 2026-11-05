@@ -392,6 +392,7 @@ constants = [
   "crates/north-landing/src/land/slots/select.rs::OFFLOAD_SLOTS_BUSY",
   "crates/north-landing/src/land/slots/select.rs::REF_SHORT",
   "crates/north-landing/src/land/speculate.rs::POLL",
+  "crates/north-landing/src/land/trace/report.rs::TOP",
   "crates/north-landing/src/land/watchdog.rs::CHECKING_EVERY_MICROS",
   "crates/north-landing/src/land/watchdog.rs::IDLE_ROUNDS",
   "crates/north-landing/src/land/watchdog.rs::KEPT",

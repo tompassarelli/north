@@ -33,6 +33,7 @@ pub mod speculate;
 pub mod urgent;
 pub mod withdraw;
 pub mod telemetry;
+pub mod trace;
 pub mod watch;
 pub mod watchdog;
 pub mod repositories;

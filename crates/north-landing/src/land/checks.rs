@@ -114,6 +114,9 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
     };
     let mut command = Command::new(program);
     command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", launch.offload_owner).env(ROUND, &launch.round);
+    if let Some(logs) = log.parent() {
+        command.env(super::trace::SPANS_ENV, super::trace::Spans::beside(logs).path());
+    }
     if own_group {
         command.process_group(0);
     }

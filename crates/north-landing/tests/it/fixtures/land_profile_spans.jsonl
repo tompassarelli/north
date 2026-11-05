@@ -1,0 +1,20 @@
+{"trace":"c1","id":"landing:100-lane-a","name":"lane-a","category":"landing","start":1000.0,"end":1700.0,"attributes":{"landed":"c1","ticket":"100-lane-a","batch":"1"}}
+{"trace":"c1","id":"q1","parent":"landing:100-lane-a","name":"queued","category":"queue","start":1000.0,"end":1300.0}
+{"trace":"c1","id":"check:c1","name":"check","category":"lander","start":1300.0,"end":1650.0}
+{"trace":"c1","id":"r1","parent":"check:c1","name":"land checks","category":"lander","start":1305.0,"end":1640.0,"host":"laptop"}
+{"trace":"c1","id":"l1","parent":"r1","name":"cargo clippy --all-targets","category":"lint","start":1310.0,"end":1350.0,"host":"gex45","attributes":{"cache":"miss"}}
+{"trace":"c1","id":"l1w","parent":"l1","name":"capacity lease wait","category":"host_wait","start":1310.0,"end":1320.0,"host":"gex45"}
+{"trace":"c1","id":"t1","parent":"r1","name":"cargo test --workspace","category":"test","start":1350.0,"end":1630.0,"host":"gex45","cpu":900.0,"attributes":{"cache":"miss"}}
+{"trace":"c1","id":"t1o","parent":"t1","name":"offload sync","category":"offload","start":1350.0,"end":1370.0,"host":"gex45"}
+{"trace":"c1","id":"t1c","parent":"t1","name":"cargo build","category":"compile","start":1370.0,"end":1450.0,"host":"gex45"}
+{"trace":"c1","id":"t1n","parent":"t1","name":"test north","category":"test","start":1450.0,"end":1550.0,"host":"gex45","attributes":{"crate":"north"}}
+{"trace":"c1","id":"t1i","parent":"t1","name":"test it (tests/it/main.rs)","category":"test","start":1550.0,"end":1620.0,"host":"gex45","attributes":{"crate":"it (tests/it/main.rs)"}}
+{"trace":"c1","id":"d1","parent":"r1","name":"head-north docs features-index --check","category":"docs","start":1350.0,"end":1360.0,"host":"gex45","attributes":{"cache":"miss"}}
+{"trace":"c1","id":"d2","parent":"r1","name":"head-north docs rationale-index --check","category":"docs","start":1340.0,"end":1340.5,"host":"laptop","attributes":{"cache":"hit"}}
+{"trace":"c1","id":"p0","name":"ready to push","category":"queue","start":1650.0,"end":1660.0}
+{"trace":"c1","id":"p1","name":"git push","category":"git","start":1660.0,"end":1700.0}
+{"trace":"c1","id":"a1","name":"post-land checks","category":"lander","start":1700.0,"end":1900.0,"host":"laptop","attributes":{"phase":"after"}}
+{"trace":"c1","id":"a1t","parent":"a1","name":"cargo test --workspace","category":"test","start":1710.0,"end":1890.0,"host":"gex45","attributes":{"cache":"miss"}}
+{"trace":"c1","id":"a1c","parent":"a1t","name":"cargo build","category":"compile","start":1710.0,"end":1800.0,"host":"gex45"}
+{"trace":"c1","id":"a1n","parent":"a1t","name":"test north","category":"test","start":1800.0,"end":1880.0,"host":"gex45","attributes":{"crate":"north"}}
+{"trace":"c1","id":"f1","name":"after-landing gates","category":"ci","start":1700.0,"end":1720.0,"host":"laptop","attributes":{"phase":"after"}}

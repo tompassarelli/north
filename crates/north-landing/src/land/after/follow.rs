@@ -3,6 +3,9 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::land::telemetry::epoch;
+use crate::land::trace::{self, AFTER, Category, PHASE, Span};
+
 const USAGE: &str = "usage: north land follow --repo DIR --git-dir DIR --base SHA --head SHA --safe-push PATH";
 
 pub fn program() -> String {
@@ -48,6 +51,7 @@ pub fn spawn(follow: &Follow) -> Result<(), String> {
         .stdin(Stdio::null())
         .stdout(log)
         .stderr(errors)
+        .env(trace::SPANS_ENV, follow.log.parent().map(|logs| trace::Spans::beside(logs).path().to_owned()).unwrap_or_default())
         .process_group(0)
         .spawn()
         .map_err(|error| format!("north land follow: {error}"))?;
@@ -86,8 +90,17 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let north = program();
     let os = std::ffi::OsStr::new;
-    step(&north, &[os("after-landing"), os("--git-dir"), os(git_dir), os("--base"), os(base), os("--head"), os(head), os("--safe-push"), os(safe_push)]);
-    step(&north, &[os("follows-release"), os("--repo-dir"), os(repo)]);
-    step(&north, &[os("runtime"), os("follow"), os("--repo-dir"), os(repo)]);
+    let host = trace::this_host();
+    let timed = |name: &str, category: Category, arguments: &[&std::ffi::OsStr]| {
+        let start = epoch();
+        step(&north, arguments);
+        Span::new(head, name, category, start, epoch()).on(&host).with(PHASE, AFTER)
+    };
+    let spans = [
+        timed("after-landing gates", Category::Ci, &[os("after-landing"), os("--git-dir"), os(git_dir), os("--base"), os(base), os("--head"), os(head), os("--safe-push"), os(safe_push)]),
+        timed("follows-release", Category::Follow, &[os("follows-release"), os("--repo-dir"), os(repo)]),
+        timed("runtime follow", Category::Follow, &[os("runtime"), os("follow"), os("--repo-dir"), os(repo)]),
+    ];
+    trace::record(&spans);
     0
 }

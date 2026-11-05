@@ -18,6 +18,7 @@ use super::lander::{Lander, state_home};
 use super::records::{self, Candidate, Decision};
 use super::telemetry::{self, Push, Stages};
 use super::watch::LandedLane;
+use super::trace;
 
 const SEND_WAIT: Duration = Duration::from_secs(60);
 
@@ -112,8 +113,12 @@ pub fn finish(lander: &Lander, head: &str, base: &str, stages: &Stages, tickets:
     let _ = git(&lander.worktree, &["fetch", "-q", "--no-tags", "origin", "refs/heads/main"]);
     let state = state_home();
     let batch_size = tickets.len();
+    let mut spans = trace::landing::shared(stages, head);
     for (path, ticket) in tickets {
         let name = name_of(&path);
+        let queued = crate::platform::land_queue::rfc3339_seconds(&ticket.queued_at).unwrap_or_else(|| stages.started_at());
+        let ticket_name = path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
+        spans.extend(trace::landing::spans(stages, &trace::landing::Landed { ticket: &ticket_name, branch: &ticket.branch, queued, landed: head, batch: batch_size }));
         let repository = telemetry::repository(&ticket.origin);
         let push = Push { at_secs: telemetry::seconds(), repository: &repository, branch: &ticket.branch, oid: &ticket.head, landed: head, session: ticket.session.as_deref().unwrap_or("") };
         if let Err(error) = telemetry::record_push(&state, &push) {
@@ -127,6 +132,9 @@ pub fn finish(lander: &Lander, head: &str, base: &str, stages: &Stages, tickets:
         cleanup::report(lander, &ticket, head);
         println!("north land: {} ({}): landed {head}", ticket.branch, ticket.head);
         queue::decide(&path, ticket, format!("landed {head}")).map_err(|error| error.to_string())?;
+    }
+    if let Err(error) = trace::Spans::beside(&lander.queue.join("logs")).append(&spans) {
+        println!("north land: could not record the spans of {head}: {error}");
     }
     follow_once(lander, base, head);
     abandon(lander);

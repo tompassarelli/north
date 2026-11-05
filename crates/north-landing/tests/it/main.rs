@@ -1,4 +1,5 @@
 mod land_chaos;
+mod land_profile;
 mod promote;
 mod serve;
 mod sheriff;

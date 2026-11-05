@@ -1,0 +1,153 @@
+use std::fmt::Write;
+use std::fs;
+use std::path::PathBuf;
+
+use super::profile::{Profile, Split, Trace, percentile};
+use super::{Category, Span, Spans};
+use crate::foundation::clock::Timestamp;
+use crate::land::lander::state_home;
+use crate::land::telemetry::epoch;
+
+const USAGE: &str = "usage: north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH]";
+const TOP: usize = 10;
+
+pub fn duration_seconds(text: &str) -> Option<f64> {
+    let split = text.find(|character: char| !character.is_ascii_digit() && character != '.')?;
+    let (value, unit) = text.split_at(split);
+    let scale = match unit {
+        "s" => 1.0,
+        "m" => 60.0,
+        "h" => 3600.0,
+        "d" => 86400.0,
+        _ => return None,
+    };
+    Some(value.parse::<f64>().ok()? * scale)
+}
+
+fn every_queue() -> Vec<PathBuf> {
+    let root = state_home().join("north/land-queue");
+    let mut files: Vec<PathBuf> = fs::read_dir(root).into_iter().flatten().filter_map(Result::ok).map(|entry| Spans::beside(&entry.path().join("logs")).path().to_owned()).filter(|path| path.is_file()).collect();
+    files.sort();
+    files
+}
+
+fn seconds(value: f64) -> String {
+    format!("{value:.0} s")
+}
+
+fn categories(split: &Split, total: f64) -> String {
+    Category::ORDER
+        .iter()
+        .filter(|category| split.get(**category) >= 0.5)
+        .map(|category| {
+            let value = split.get(*category);
+            let crates = if *category == Category::Test && !split.crates.is_empty() {
+                let mut crates: Vec<_> = split.crates.iter().filter(|(_, value)| **value >= 0.5).collect();
+                crates.sort_by(|left, right| right.1.total_cmp(left.1));
+                format!(" ({})", crates.iter().map(|(name, value)| format!("{name} {value:.0}")).collect::<Vec<_>>().join(", "))
+            } else {
+                String::new()
+            };
+            let share = if total > 0.0 { value / total * 100.0 } else { 0.0 };
+            format!("{} {value:.0} s {share:.0}%{crates}", category.label())
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn short(sha: &str) -> &str {
+    &sha[..sha.len().min(10)]
+}
+
+pub fn render(profiles: &[Profile<'_>], since: f64) -> String {
+    let mut out = String::new();
+    let walls: Vec<f64> = profiles.iter().map(Profile::wall).collect();
+    let _ = writeln!(out, "north land profile: {} landing{} since {}", profiles.len(), if profiles.len() == 1 { "" } else { "s" }, Timestamp::from_unix_seconds_f64(since).local_twelve_hour());
+    if profiles.is_empty() {
+        return out;
+    }
+    let _ = writeln!(out, "queued_at to push: p50 {}, p90 {}, sum {}", seconds(percentile(&walls, 0.5)), seconds(percentile(&walls, 0.9)), seconds(walls.iter().sum()));
+    let _ = writeln!(out, "\neach landing, queued_at to push:");
+    for profile in profiles {
+        let landing = profile.landing;
+        let landed = landing.attribute("landed").unwrap_or_default();
+        let wall = profile.wall();
+        let total = profile.before.total();
+        let _ = writeln!(out, "- {} landed {} at {}: wall {}, categories sum {} ({:+.1}%)", landing.name, short(landed), Timestamp::from_unix_seconds_f64(landing.end).local_twelve_hour(), seconds(wall), seconds(total), if wall > 0.0 { (total - wall) / wall * 100.0 } else { 0.0 });
+        let _ = writeln!(out, "  {}", categories(&profile.before, total));
+        if profile.after_wall > 0.0 {
+            let _ = writeln!(out, "  after push, {} of verification: {}", seconds(profile.after_wall), categories(&profile.after, profile.after.total()));
+        }
+    }
+    let mut summed = Split::default();
+    let mut after = Split::default();
+    for profile in profiles {
+        for (category, value) in &profile.before.categories {
+            *summed.categories.entry(*category).or_default() += value;
+        }
+        for (name, value) in &profile.before.crates {
+            *summed.crates.entry(name.clone()).or_default() += value;
+        }
+        for (category, value) in &profile.after.categories {
+            *after.categories.entry(*category).or_default() += value;
+        }
+        for (name, value) in &profile.after.crates {
+            *after.crates.entry(name.clone()).or_default() += value;
+        }
+    }
+    let total = summed.total();
+    let _ = writeln!(out, "\nacross landings, queued_at to push (sum {}, wall sum {}):", seconds(total), seconds(walls.iter().sum()));
+    for category in Category::ORDER.iter().filter(|category| summed.get(**category) >= 0.5) {
+        let values: Vec<f64> = profiles.iter().map(|profile| profile.before.get(*category)).collect();
+        let kind = if category.waiting() { "waiting" } else { "running" };
+        let _ = writeln!(out, "- {:<22} {:>8} {:>4.0}%  p50 {:>7}  p90 {:>7}  {kind}", category.label(), seconds(summed.get(*category)), summed.get(*category) / total * 100.0, seconds(percentile(&values, 0.5)), seconds(percentile(&values, 0.9)));
+    }
+    if !summed.crates.is_empty() {
+        let mut crates: Vec<_> = summed.crates.iter().collect();
+        crates.sort_by(|left, right| right.1.total_cmp(left.1));
+        let _ = writeln!(out, "  test run by crate: {}", crates.iter().map(|(name, value)| format!("{name} {value:.0} s")).collect::<Vec<_>>().join(", "));
+    }
+    if after.total() > 0.0 {
+        let _ = writeln!(out, "\nafter push, verification across landings (sum {}):", seconds(after.total()));
+        let _ = writeln!(out, "  {}", categories(&after, after.total()));
+    }
+    let parents: std::collections::HashSet<&str> = profiles.iter().flat_map(|profile| profile.spans.iter().filter_map(|span| span.parent.as_deref())).collect();
+    let mut spans: Vec<(&Span, &str)> = profiles.iter().flat_map(|profile| profile.spans.iter().filter(|span| span.category != Category::Landing && !parents.contains(span.id.as_str())).map(|span| (*span, profile.landing.name.as_str()))).collect();
+    spans.sort_by(|left, right| right.0.seconds().total_cmp(&left.0.seconds()));
+    spans.dedup_by(|left, right| left.0.id == right.0.id);
+    let _ = writeln!(out, "\ntop {TOP} spans without child spans:");
+    for (rank, (span, landing)) in spans.iter().take(TOP).enumerate() {
+        let host = if span.host.is_empty() { String::new() } else { format!(" on {}", span.host) };
+        let cache = span.attribute("cache").map(|cache| format!(", cache {cache}")).unwrap_or_default();
+        let cpu = span.cpu.map(|cpu| format!(", cpu {cpu:.0} s")).unwrap_or_default();
+        let _ = writeln!(out, "{}. {} {}: {}{host}{cache}{cpu} ({landing})", rank + 1, seconds(span.seconds()), span.category.label(), span.name);
+    }
+    out
+}
+
+pub fn run(arguments: &[String]) -> u8 {
+    let mut since = 3600.0;
+    let mut files = Vec::new();
+    let mut only = None;
+    let mut rest = arguments.iter();
+    while let Some(flag) = rest.next() {
+        match (flag.as_str(), rest.next()) {
+            ("--since", Some(value)) if let Some(parsed) = duration_seconds(value) => since = parsed,
+            ("--spans", Some(value)) => files.push(PathBuf::from(value)),
+            ("--landing", Some(value)) => only = Some(value.clone()),
+            _ => {
+                eprintln!("{USAGE}");
+                return 64;
+            }
+        }
+    }
+    if files.is_empty() {
+        files = every_queue();
+    }
+    let spans: Vec<Span> = files.iter().flat_map(|file| Spans::at(file).read()).collect();
+    let trace = Trace::of(&spans);
+    let from = epoch() - since;
+    let profiles: Vec<Profile<'_>> = trace.landings(from).into_iter().filter(|landing| only.as_deref().is_none_or(|only| landing.name == only)).map(|landing| trace.profile(landing)).collect();
+    print!("{}", render(&profiles, from));
+    0
+}

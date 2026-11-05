@@ -27,6 +27,9 @@ mod timeout_row;
 pub use queue_clippy::refuse_clippy;
 use crate::land::after::follow::program;
 use crate::land::checks::{BROKEN_BASE, ROUND};
+use crate::land::telemetry::epoch;
+use crate::land::trace::{self, Category, Span};
+use crate::land::trace::check_log::{self, Line, Mark};
 use crate::landing::check_timings::{self, Base, BaseResult, Deadline, Timing, Timings};
 
 const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
@@ -63,6 +66,7 @@ struct Arguments {
     published: String,
     runner_host: String,
     commands: Vec<String>,
+    span: String,
 }
 
 fn parse(arguments: &[String]) -> Option<Arguments> {
@@ -187,6 +191,9 @@ struct Ran {
     seconds: u64,
     exceeded: bool,
     log: PathBuf,
+    started_at: f64,
+    ended_at: f64,
+    marks: Vec<Mark>,
 }
 
 impl Ran {
@@ -324,14 +331,24 @@ enum Sink {
     Err,
 }
 
-async fn tee(mut source: impl AsyncRead + Unpin, log: PathBuf, sink: Sink) {
-    let Ok(mut file) = OpenOptions::new().append(true).open(&log) else { return };
+async fn tee(mut source: impl AsyncRead + Unpin, log: PathBuf, sink: Sink) -> Vec<Mark> {
+    let mut marks = Vec::new();
+    let Ok(mut file) = OpenOptions::new().append(true).open(&log) else { return marks };
     let mut buffer = [0u8; 8192];
+    let mut pending = Vec::new();
     while let Ok(count) = source.read(&mut buffer).await {
         if count == 0 {
             break;
         }
         let _ = file.write_all(&buffer[..count]);
+        pending.extend_from_slice(&buffer[..count]);
+        while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
+            let line = String::from_utf8_lossy(&pending[..end]).into_owned();
+            pending.drain(..=end);
+            if check_log::is_marker(&line) {
+                marks.push(Mark { at: epoch(), line });
+            }
+        }
         match sink {
             Sink::Out => {
                 let mut out = std::io::stdout().lock();
@@ -345,6 +362,7 @@ async fn tee(mut source: impl AsyncRead + Unpin, log: PathBuf, sink: Sink) {
             }
         }
     }
+    marks
 }
 
 impl Shared {
@@ -468,6 +486,7 @@ impl Shared {
             return Err(1);
         };
         let started = Instant::now();
+        let started_at = epoch();
         let mut child = match Command::new(&argv[0])
             .args(&argv[1..])
             .current_dir(&self.root)
@@ -497,18 +516,37 @@ impl Shared {
         .flatten()
         .collect();
         let status = self.wait(&mut child).await;
+        let ended_at = epoch();
+        let mut marks = Vec::new();
         let drained = tokio::time::timeout(REAP, async {
             for reader in &mut readers {
-                let _ = reader.await;
+                if let Ok(read) = reader.await {
+                    marks.extend(read);
+                }
             }
         })
         .await;
         if drained.is_err() {
             readers.iter().for_each(tokio::task::JoinHandle::abort);
         }
+        marks.sort_by(|left, right| left.at.total_cmp(&right.at));
         let seconds = started.elapsed().as_secs();
         let exceeded = status == TIMED_OUT || (status == KILLED && seconds >= timeout);
-        Ok(Ran { status, seconds, exceeded, log })
+        Ok(Ran { status, seconds, exceeded, log, started_at, ended_at, marks })
+    }
+
+    fn span(&self, name: &str, category: Category, start: f64) -> Span {
+        Span::new(&self.arguments.head, name, category, start, epoch()).under(&self.arguments.span).on(&trace::this_host())
+    }
+
+    fn trace_line(&self, command: &str, ran: &Ran, cpu: Option<f64>) {
+        let category = Category::of_command(command);
+        let host = self.offload_host_for(command).unwrap_or_else(trace::this_host);
+        let head = &self.arguments.head;
+        let line = Span::new(head, command, category, ran.started_at, ran.ended_at).under(&self.arguments.span).on(&host).cpu(cpu).with("cache", "miss").with("exit", ran.status.to_string());
+        let mut spans = check_log::children(&Line { trace: head, id: &line.id, category, start: line.start, end: line.end, host: &host }, &ran.marks);
+        spans.insert(0, line);
+        trace::record(&spans);
     }
 
     fn remember(&self, command: &str, started: u64, status: i32, outcome: CheckOutcome, wall: u64, cpu: Option<f64>) {
@@ -552,6 +590,7 @@ impl Shared {
             return ran.status;
         }
         let cpu = before.zip(children_cpu_seconds()).filter(|_| measured).map(|(before, after)| after - before);
+        self.trace_line(&command, &ran, cpu);
         if self.fail_fast && *self.cancel.borrow() {
             let _ = fs::remove_file(&ran.log);
             return self.cancelled(&command, started, ran.status, ran.seconds, cpu);
@@ -755,14 +794,17 @@ impl Shared {
             argv.extend(["--command".to_owned(), command.clone()]);
         }
         let argv = under_capacity(&self.environment.capacity, argv);
-        let mut child = match Command::new(&argv[0]).args(&argv[1..]).current_dir(&self.root).envs(self.scope_environment()).stdin(Stdio::null()).kill_on_drop(true).spawn() {
+        let lease = self.span("local checks under a capacity lease", Category::HostWait, epoch());
+        let mut child = match Command::new(&argv[0]).args(&argv[1..]).current_dir(&self.root).envs(self.scope_environment()).env(trace::PARENT_ENV, &lease.id).stdin(Stdio::null()).kill_on_drop(true).spawn() {
             Ok(child) => child,
             Err(error) => {
                 warn(&format!("safe-push: land check capacity: {error}; NOT pushed."));
                 return 1;
             }
         };
-        self.wait(&mut child).await
+        let status = self.wait(&mut child).await;
+        trace::record(&[Span { end: epoch(), ..lease }]);
+        status
     }
 
     async fn run_list(self: &Arc<Self>, commands: &[String]) -> Listed {
@@ -816,6 +858,7 @@ impl Shared {
     }
 
     async fn scan(&self, skipped: &str) -> bool {
+        let started = epoch();
         let passed = Command::new(&self.arguments.safe_push)
             .args(["--publication-scan", &self.arguments.base, &self.arguments.head])
             .current_dir(&self.root)
@@ -826,18 +869,22 @@ impl Shared {
         if !passed {
             self.outcome.record(&["skip", skipped]);
         }
+        trace::record(&[self.span("publication scan", Category::Scans, started)]);
         passed
     }
 
     async fn git_push(&self, refspec: &str) -> bool {
-        Command::new("git")
+        let started = epoch();
+        let pushed = Command::new("git")
             .args(["push", "-q", "--no-verify", "origin", refspec])
             .current_dir(&self.root)
             .env("SAFE_PUSH_ACTIVE", "1")
             .stdin(Stdio::null())
             .status()
             .await
-            .is_ok_and(|status| status.success())
+            .is_ok_and(|status| status.success());
+        trace::record(&[self.span("git push of the published ref", Category::Git, started).with("refspec", refspec)]);
+        pushed
     }
 
     async fn red_main_check(&self, log: &Path) {
@@ -941,7 +988,9 @@ impl Shared {
         let mut here = Vec::new();
         let mut on_actions = Vec::new();
         for command in commands {
+            let looked = epoch();
             if self.cache_reused(&command).await {
+                trace::record(&[self.span(&command, Category::of_command(&command), looked).with("cache", "hit")]);
                 continue;
             }
             if placement.on_actions(self.portable(&command)) {
@@ -953,6 +1002,7 @@ impl Shared {
         if placement.runner && !on_actions.is_empty() {
             say(&format!("safe-push: no build-host slot is free, so {} land check(s) overflow to GitHub Actions", on_actions.len()));
         }
+        let actions_started = epoch();
         let actions = match self.start_actions(&on_actions).await {
             Ok(started) => started,
             Err(status) => return status,
@@ -981,6 +1031,7 @@ impl Shared {
         }
         if let Some(started) = actions {
             first_failure(&mut failed, self.finish_actions(started, &on_actions).await);
+            trace::record(&[self.span("checks on GitHub Actions", Category::Offload, actions_started).with("commands", on_actions.len().to_string())]);
         }
         first_failure(&mut failed, self.on_actions(&listed.overflowed).await);
         failed
@@ -1198,11 +1249,26 @@ pub fn run(arguments: &[String]) -> u8 {
     if let Some(code) = start_stage(&parsed) {
         return code;
     }
+    let mut parsed = parsed;
+    let root = root_span(&parsed);
+    parsed.span.clone_from(&root.id);
     let code = block_on(orchestrate(parsed)).unwrap_or_else(|error| {
         eprintln!("north land checks: {error}");
         1
     });
+    trace::record(&[Span { end: epoch(), ..root }.with("exit", code.to_string())]);
     u8::try_from(code).unwrap_or(1)
+}
+
+fn root_span(arguments: &Arguments) -> Span {
+    let parent = std::env::var(trace::PARENT_ENV).ok().filter(|parent| !parent.is_empty()).or_else(|| (!arguments.after).then(|| trace::check_id(&arguments.head)));
+    let name = if arguments.after { "post-land checks" } else { "land checks" };
+    let span = Span::new(&arguments.head, name, Category::Lander, epoch(), epoch()).on(&trace::this_host());
+    let span = if arguments.after { span.with(trace::PHASE, trace::AFTER) } else { span };
+    match parent {
+        Some(parent) => span.under(&parent),
+        None => span,
+    }
 }
 
 fn block_on(work: impl Future<Output = i32>) -> std::io::Result<i32> {

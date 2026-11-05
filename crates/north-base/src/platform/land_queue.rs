@@ -31,7 +31,7 @@ pub fn ticket_age(ticket: &Path, now: f64) -> Option<f64> {
     Some((now - at).max(0.0))
 }
 
-fn rfc3339_seconds(text: &str) -> Option<f64> {
+pub fn rfc3339_seconds(text: &str) -> Option<f64> {
     let (date, clock) = text.strip_suffix('Z')?.split_once('T')?;
     let mut day = date.splitn(3, '-').map(str::parse::<i32>);
     let (year, month, day) = (day.next()?.ok()?, day.next()?.ok()?, day.next()?.ok()?);

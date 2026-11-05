@@ -139,6 +139,9 @@ fn execute(program: &str, prefix: &[String], landed: &Landed, run: &Run) -> Verd
     };
     let mut command = Command::new(program);
     command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity).env_remove("SAFE_PUSH_LAND_RUNNER");
+    if let Some(logs) = run.log.parent() {
+        command.env(super::trace::SPANS_ENV, super::trace::Spans::beside(logs).path());
+    }
     for name in super::checks::SCRUBBED {
         command.env_remove(name);
     }

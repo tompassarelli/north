@@ -51,7 +51,7 @@ impl Next {
             && let Some(verdict) = self.check.as_mut().and_then(Started::poll)
         {
             self.check = None;
-            self.stages.mark("check");
+            self.stages.checked(&self.head);
             self.verdict = Some(verdict);
         }
         self.verdict.as_ref()
@@ -64,7 +64,7 @@ impl Next {
     fn settle(&mut self) -> Verdict {
         if let Some(check) = self.check.take() {
             self.verdict = Some(check.wait());
-            self.stages.mark("check");
+            self.stages.checked(&self.head);
         }
         self.verdict.clone().unwrap_or_else(|| Verdict::Transient(format!("speculative candidate {} has no check", self.head)))
     }
@@ -196,6 +196,7 @@ fn push(lander: &Lander, watch: &mut Watch, mut next: Next, landed: &str) -> Res
         }
     };
     after::begin(lander, &next.head, &next.base, &included, &next.tips)?;
+    next.stages.pushing();
     if !matches!(lander.push(&next.head, &next.base, token.as_deref())?, Pushed::Landed) {
         after::abandon(lander);
         println!("north land: the speculative push of {} onto {} did not land; its lanes are rebuilt on main", next.head, next.base);

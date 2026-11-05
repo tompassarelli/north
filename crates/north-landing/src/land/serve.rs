@@ -233,7 +233,7 @@ impl Lander {
             let mut stages = Stages::start();
             let taken = (limit == usize::MAX && !red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(tickets, &included));
             let (verdict, mut stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref());
-            stages.mark("check");
+            stages.checked(&built.head);
             if matches!(verdict, Verdict::Green | Verdict::Refused(_)) {
                 pause::resume(&self.queue);
             }
@@ -285,6 +285,7 @@ impl Lander {
                         Err(error) => return Ok(Round::Waiting(format!("transient: no push credential: {error}"))),
                     };
                     after::begin(self, &head, &base, &included, &built.tips)?;
+                    stages.pushing();
                     match self.push(&head, &base, token.as_deref())? {
                         Pushed::Landed => {}
                         Pushed::Moved => {
