@@ -747,3 +747,53 @@ fn a_rust_candidate_compiles_once_for_clippy_and_builds_north_only_for_a_check_w
     let trace = embedded.trace();
     assert!(trace.lines().any(|line| line.starts_with("land-shell --dev -- cargo clippy --all-targets")), "an embedded Rust input skipped clippy:\n{trace}");
 }
+
+fn seed_outcomes(fixture: &Fixture, rows: &[(&str, &str, f64)]) -> PathBuf {
+    let path = fixture.path("state/safe-push/check-timings/outcomes.tsv");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let lines: String = rows
+        .iter()
+        .enumerate()
+        .map(|(index, (command, outcome, cpu))| format!("{index}\tseed-{}\tseed\t{outcome}\t{}\t{}\t{cpu}\t{command}\n", index / 2, i32::from(*outcome == "failed"), cpu / 4.0))
+        .collect();
+    fs::write(&path, lines).unwrap();
+    path
+}
+
+#[test]
+fn expensive_land_checks_run_in_fail_fast_order_and_are_cancelled_at_the_first_failure() {
+    let (cheap, likely, unlikely) = ("touch ../cheap-ran", "touch ../likely-ran; exit 1", "touch ../unlikely-ran");
+    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {unlikely}")), ("land.check", &format!("file.txt :: {likely}")), ("land.check", &format!("file.txt :: {cheap}"))]);
+    let mut seeded = Vec::new();
+    for _ in 0..3 {
+        seeded.extend([(likely, "failed", 200.0), (unlikely, "passed", 500.0)]);
+    }
+    let records = seed_outcomes(&fixture, &seeded);
+    let output = fixture.command().output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+    assert!(text(&output).contains(&format!("2 expensive land check(s) run in fail-fast order and are cancelled at the first failure: {likely}; {unlikely}")), "{}", text(&output));
+    assert!(fixture.path("cheap-ran").exists(), "a cheap check must always finish");
+    assert!(fixture.path("likely-ran").exists());
+    assert!(!fixture.path("unlikely-ran").exists(), "the expensive check after the first failure ran");
+    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
+    assert!(outcome.lines().any(|line| line == format!("event\tland check\tcancelled\t{unlikely}: an earlier land check failed")), "{outcome}");
+    let written: Vec<String> = fs::read_to_string(records).unwrap().lines().skip(seeded.len()).map(|line| line.split('\t').skip(3).step_by(4).collect::<Vec<_>>().join(" ")).collect();
+    assert_eq!(written, [format!("passed {cheap}"), format!("failed {likely}"), format!("cancelled {unlikely}")]);
+}
+
+#[test]
+fn land_checks_replay_prints_cpu_before_the_failure_verdict_for_both_orders() {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
+    let mut rows = Vec::new();
+    for landing in 0..10 {
+        rows.push(("suite", "passed", 400.0));
+        rows.push(("build", if landing % 3 == 0 { "passed" } else { "failed" }, 200.0));
+    }
+    let records = seed_outcomes(&fixture, &rows);
+    let output = fixture.command().args(["--replay", "--records"]).arg(&records).output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    let printed = text(&output);
+    assert!(printed.contains("landings replayed: 6 failing, 4 passing"), "{printed}");
+    assert!(printed.contains("median CPU-s before the failure verdict: 600.0 with today's order and cancel-on-first-failure, 200.0 with the fail-fast order"), "{printed}");
+    assert!(printed.contains("median passing landing wall: 150.0 s today, 150.0 s with the fail-fast order (+0.0%)"), "{printed}");
+}

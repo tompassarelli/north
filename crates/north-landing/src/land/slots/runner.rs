@@ -12,12 +12,16 @@ use tokio::sync::watch;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::JoinSet;
 
-use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement};
+use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement, path_class};
+use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
+use fail_fast::Plan;
+
+mod fail_fast;
 use crate::land::after::follow::program;
 use crate::land::checks::{BROKEN_BASE, ROUND};
 use crate::landing::check_timings::{self, Base, BaseResult, Deadline, Timing, Timings};
 
-const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--outcome FILE]";
+const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
 const OFFLOAD_GRACE: u64 = 900;
 const REAP: Duration = Duration::from_secs(5);
 const LOG_KEEP: Duration = Duration::from_secs(14 * 24 * 3600);
@@ -41,6 +45,10 @@ struct Arguments {
     any: bool,
     after: bool,
     leased: bool,
+    replay: bool,
+    records: Option<PathBuf>,
+    since: u64,
+    until: u64,
     published: String,
     runner_host: String,
     commands: Vec<String>,
@@ -55,7 +63,8 @@ fn parse(arguments: &[String]) -> Option<Arguments> {
             "--any" => parsed.any = true,
             "--after" => parsed.after = true,
             "--leased" => parsed.leased = true,
-            "--base" | "--head" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--published" | "--runner-host" | "--command" => {
+            "--replay" => parsed.replay = true,
+            "--base" | "--head" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--published" | "--runner-host" | "--command" | "--records" | "--since" | "--until" => {
                 let value = rest.next()?.clone();
                 match flag.as_str() {
                     "--base" => parsed.base = value,
@@ -66,13 +75,16 @@ fn parse(arguments: &[String]) -> Option<Arguments> {
                     "--outcome" => parsed.outcome = Some(PathBuf::from(value)),
                     "--published" => parsed.published = value,
                     "--runner-host" => parsed.runner_host = value,
+                    "--records" => parsed.records = Some(PathBuf::from(value)),
+                    "--since" => parsed.since = value.parse().ok()?,
+                    "--until" => parsed.until = value.parse().ok()?,
                     _ => parsed.commands.push(value),
                 }
             }
             _ => return None,
         }
     }
-    (!parsed.head.is_empty()).then_some(parsed)
+    (parsed.replay || !parsed.head.is_empty()).then_some(parsed)
 }
 
 #[derive(Clone)]
@@ -120,6 +132,8 @@ struct Shared {
     trees: Trees,
     free_slots: Option<u32>,
     actions_down: bool,
+    paths: String,
+    fail_fast: bool,
 }
 
 #[derive(Clone, Default)]
@@ -464,7 +478,25 @@ impl Shared {
         Ok(Ran { status, seconds, exceeded, log })
     }
 
+    fn remember(&self, command: &str, started: u64, status: i32, outcome: CheckOutcome, wall: u64, cpu: Option<f64>) {
+        #[allow(clippy::cast_precision_loss)]
+        let wall = wall as f64;
+        let record = Record { started, landing: self.arguments.head.clone(), paths: self.paths.clone(), outcome, exit: status, wall, cpu, command: command.to_owned() };
+        let _ = Records::at(Records::default_path()).append(&record);
+    }
+
+    fn cancelled(&self, command: &str, started: u64, status: i32, wall: u64, cpu: Option<f64>) -> i32 {
+        say(&format!("safe-push: land check {command} cancelled: an earlier land check failed"));
+        self.remember(command, started, status, CheckOutcome::Cancelled, wall, cpu);
+        self.outcome.record(&["event", "land check", "cancelled", &format!("{command}: an earlier land check failed")]);
+        0
+    }
+
     async fn run_check(self: Arc<Self>, command: String, leased: bool) -> i32 {
+        let started = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+        if self.fail_fast && *self.cancel.borrow() {
+            return self.cancelled(&command, started, CANCELLED, 0, None);
+        }
         self.outcome.record(&["ran"]);
         if !self.workflow.is_empty() && self.offload_host_for(&command).is_none() && let Some(reason) = self.config.off_actions_reason(&command) {
             say(&format!("safe-push: land check runs on this host because it {reason}"));
@@ -475,6 +507,8 @@ impl Shared {
         let timeout = deadline.seconds;
         let label = if self.config.is_inferred(&command) { " (inferred)" } else { "" };
         say(&format!("safe-push: land check{label}: {command} ({deadline})"));
+        let measured = self.offload_host_for(&command).is_none();
+        let before = children_cpu_seconds();
         let ran = match self.spawn_check(&command, leased, &self.arguments.head, timeout).await {
             Ok(ran) => ran,
             Err(status) => return status,
@@ -484,6 +518,12 @@ impl Shared {
             let _ = fs::remove_file(&ran.log);
             return ran.status;
         }
+        let cpu = before.zip(children_cpu_seconds()).filter(|_| measured).map(|(before, after)| after - before);
+        if self.fail_fast && *self.cancel.borrow() {
+            let _ = fs::remove_file(&ran.log);
+            return self.cancelled(&command, started, ran.status, ran.seconds, cpu);
+        }
+        self.remember(&command, started, ran.status, CheckOutcome::of(ran.status), ran.seconds, cpu);
         let _ = timings.record(&self.trees.head, &command, &class, ran.timing());
         if ran.exceeded {
             return self.judge_hang(&command, timeout, timings.base(&self.trees.base, &command, &class, timeout), &ran.log).await;
@@ -613,6 +653,24 @@ impl HostLoad {
     }
 }
 
+fn children_cpu_seconds() -> Option<f64> {
+    let stat = fs::read_to_string("/proc/self/stat").ok()?;
+    let fields: Vec<&str> = stat.rsplit_once(')')?.1.split_whitespace().collect();
+    let ticks: u64 = fields.get(13)?.parse::<u64>().ok()? + fields.get(14)?.parse::<u64>().ok()?;
+    // proc(5) reports cutime and cstime in USER_HZ ticks, which Linux fixes at 100 per second.
+    #[allow(clippy::cast_precision_loss)]
+    Some(ticks as f64 / 100.0)
+}
+
+async fn forward_cancel(mut cancel: watch::Receiver<bool>, stop: Arc<watch::Sender<bool>>) {
+    while cancel.changed().await.is_ok() {
+        if *cancel.borrow() {
+            stop.send_replace(true);
+            return;
+        }
+    }
+}
+
 fn first_failure(failed: &mut i32, status: i32) {
     if *failed == 0 || (*failed == INFRASTRUCTURE && status != 0) {
         *failed = status;
@@ -631,11 +689,15 @@ impl Listed {
 }
 
 impl Shared {
-    async fn run_local(self: &Arc<Self>, commands: &[String]) -> i32 {
+    async fn run_local(self: &Arc<Self>, commands: &[String], plan: &Plan, expensive: &Arc<Self>, stop: &watch::Sender<bool>) -> i32 {
         if self.environment.capacity.is_empty() || self.arguments.leased {
             let mut failed = 0;
             for command in commands {
-                let status = Arc::clone(self).run_check(command.clone(), self.arguments.leased).await;
+                let shared = if plan.is_expensive(command) { Arc::clone(expensive) } else { Arc::clone(self) };
+                let status = shared.run_check(command.clone(), self.arguments.leased).await;
+                if status != 0 {
+                    stop.send_replace(true);
+                }
                 first_failure(&mut failed, status);
             }
             return failed;
@@ -660,20 +722,37 @@ impl Shared {
     }
 
     async fn run_list(self: &Arc<Self>, commands: &[String]) -> Listed {
+        let plan = Plan::of(commands, &self.paths, &Records::at(Records::default_path()).read());
+        if !plan.expensive.is_empty() {
+            say(&format!("safe-push: {} expensive land check(s) run in fail-fast order and are cancelled at the first failure: {}", plan.expensive.len(), plan.expensive.join("; ")));
+        }
+        let (stop, stopped) = watch::channel(false);
+        let stop = Arc::new(stop);
+        tokio::spawn(forward_cancel(self.cancel.clone(), Arc::clone(&stop)));
+        let expensive = Arc::new(Self { cancel: stopped, fail_fast: true, ..(**self).clone() });
         let mut offloaded = JoinSet::new();
         let mut local = Vec::new();
-        for (index, command) in commands.iter().enumerate() {
+        for (index, command) in plan.ordered().enumerate() {
             if self.offload_host_for(command).is_some() {
-                let shared = Arc::clone(self);
-                let command = command.clone();
-                offloaded.spawn(async move { (index, shared.run_check(command, false).await) });
+                let shared = if plan.is_expensive(command) { Arc::clone(&expensive) } else { Arc::clone(self) };
+                let (command, stop) = (command.clone(), Arc::clone(&stop));
+                offloaded.spawn(async move {
+                    let status = shared.run_check(command, false).await;
+                    if status != 0 {
+                        stop.send_replace(true);
+                    }
+                    (index, status)
+                });
             } else {
                 local.push(command.clone());
             }
         }
         let mut failed = 0;
         if !local.is_empty() {
-            let status = self.run_local(&local).await;
+            let status = self.run_local(&local, &plan, &expensive, &stop).await;
+            if status != 0 {
+                stop.send_replace(true);
+            }
             first_failure(&mut failed, status);
         }
         let mut results = Vec::new();
@@ -901,6 +980,13 @@ fn any(arguments: &Arguments) -> u8 {
     u8::from(!Config::load(&root, &arguments.head).has_checks())
 }
 
+fn replay(arguments: &Arguments) -> u8 {
+    let until = if arguments.until == 0 { u64::MAX } else { arguments.until };
+    let records: Vec<Record> = Records::at(arguments.records.clone().unwrap_or_else(Records::default_path)).read().into_iter().filter(|record| (arguments.since..until).contains(&record.started)).collect();
+    say(&fail_fast::replay(&records).to_string());
+    0
+}
+
 async fn orchestrate(arguments: Arguments) -> i32 {
     let Some(root) = toplevel() else {
         warn("safe-push: not in a git repo");
@@ -930,8 +1016,11 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         arguments.runner_host = runner_host(&environment, &config).await;
     }
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
+    let paths = path_class(&root, &arguments.base, &arguments.head);
     let mut shared = Shared {
         trees,
+        paths,
+        fail_fast: false,
         workflow: config.workflow.clone(),
         outcome: Outcome(arguments.outcome.clone()),
         root,
@@ -962,6 +1051,9 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     if parsed.any {
         return any(&parsed);
+    }
+    if parsed.replay {
+        return replay(&parsed);
     }
     let code = block_on(orchestrate(parsed)).unwrap_or_else(|error| {
         eprintln!("north land checks: {error}");
@@ -997,7 +1089,8 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     arguments.runner_host = runner_host(&environment, &config).await;
     let (_cancel_sender, cancel) = watch::channel(false);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
-    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, free_slots: None, actions_down: false });
+    let paths = path_class(&root, &arguments.base, &arguments.head);
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false });
     let mut pending = Vec::new();
     for command in commands {
         if !shared.cache_reused(&command).await {

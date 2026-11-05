@@ -529,6 +529,24 @@ runs of Oct 28 to Nov 3 (each check's actual wall, CPU-s and exit) through the n
 failure with today's order prints both median CPU-seconds before the failure verdict, the new order's is lower,
 and passing landings' wall is no more than 5% above today's.
 
+W3-3 result (2026-11-05). The Oct 28 to Nov 3 window holds no per-check records for north's land checks: both
+hosts recorded each landing as one `land-check` lease over the whole safe-push run (782 rows on gex45, 609 on the
+laptop), offloaded checks wrote no row of their own, and the only per-check rows are 46 after-landing checks between
+11:24 PM and 11:59 PM on Nov 3. The replay therefore cannot run on that window. The runner now writes those
+records: each land check appends a row to `check-timings/outcomes.tsv` (start, landing head, changed-path class as
+the sorted top-level directories, `passed`, `failed` or `cancelled`, exit, wall, CPU-s from the runner's reaped
+child time for a local check, `-` for an offloaded one, whose cost falls back to wall). Estimates use the newest 20
+completed rows at check and path class when that key has 3, else at check; cancelled rows count toward neither the
+fail rate nor the cost, and the cost is kept separately for passing and failing outcomes. A check with no estimate,
+or predicted under 120 CPU-s, is cheap: it runs first, as today, and always finishes. Expensive checks run in
+descending fail rate per expected CPU-second; local ones one at a time, offloaded ones still launched together so
+passing wall never grows, and every expensive check still pending or running at the first failure is cancelled,
+with an `event land check cancelled` line in the lander outcome. `north land checks --replay [--records FILE]
+[--since EPOCH] [--until EPOCH]` replays recorded landings (skipping any with a cancelled row) through today's order
+with cancel-on-first-failure and through the fail-fast order, learning only from earlier landings, and prints both
+medians. On the fixture in `tests/it/land_checks.rs` it prints 600.0 against 200.0 CPU-s and +0.0% passing wall.
+The live audit below runs it on real records once 20 failing and 20 passing landings have accumulated.
+
 **W3-4. Skip superseded runtime builds, never leave a gap.** Category: performance. Spec: measured. Scope:
 single-module. Surface: rust. Verify: local-test. After: runtime-reuse. Files: `crates/north-core/src/ops/runtime/`.
 Spec: a queued runtime build whose commit a newer queued or running build for the same host contains does not

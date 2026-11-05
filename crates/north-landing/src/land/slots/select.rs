@@ -168,6 +168,13 @@ fn reason<'a>(entries: &'a [String], command: &str) -> Option<&'a str> {
     entries.iter().find(|entry| entry.ends_with(&suffix)).map(|entry| entry.split(SEPARATOR).next().unwrap_or_default())
 }
 
+pub fn path_class(repo: &Path, base: &str, head: &str) -> String {
+    let mut tops: Vec<String> = changed(repo, base, head, &[]).iter().filter_map(|path| path.split('/').next()).map(str::to_owned).collect();
+    tops.sort_unstable();
+    tops.dedup();
+    tops.join("+")
+}
+
 fn touches(repo: &Path, base: &str, head: &str, patterns: &str) -> bool {
     let (rust, specs): (Vec<&str>, Vec<&str>) = patterns.split(',').partition(|spec| *spec == RUST_INPUT);
     (!rust.is_empty() && changed(repo, base, head, &[]).iter().any(|path| rust_build_input(path))) || (!specs.is_empty() && !changed(repo, base, head, &specs).is_empty())

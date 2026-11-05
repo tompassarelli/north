@@ -1,3 +1,5 @@
+pub mod outcomes;
+
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
