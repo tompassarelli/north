@@ -187,7 +187,11 @@ fn user_units() -> NorthResult<String> {
     let listing = systemctl(&["list-unit-files", "--no-legend", "--no-pager"])?;
     let units: Vec<&str> = listing
         .lines()
-        .filter_map(|line| line.split_whitespace().next())
+        .filter_map(|line| {
+            let mut columns = line.split_whitespace();
+            let name = columns.next()?;
+            (!matches!(columns.next(), Some("bad" | "transient"))).then_some(name)
+        })
         .filter(|name| [".service", ".timer", ".path", ".socket"].iter().any(|suffix| name.ends_with(suffix)) && !name.ends_with("@.service"))
         .collect();
     if units.is_empty() {
