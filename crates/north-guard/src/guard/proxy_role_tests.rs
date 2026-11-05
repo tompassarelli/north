@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use super::proxy_role::{World, decide, shell_action};
+use super::proxy_role::{ClaudeStart, Registered, World, decide, shell_action};
 use crate::hook::{HookInput, Verdict};
 use serde_json::{Value, json};
 
@@ -9,6 +9,9 @@ struct Fake {
     role: Option<&'static str>,
     session: Option<&'static str>,
     registered: Option<&'static str>,
+    account: Option<&'static str>,
+    config: Option<&'static str>,
+    start: Option<(bool, bool)>,
     fleet: &'static str,
     ready: &'static str,
     seen: Option<&'static str>,
@@ -20,11 +23,18 @@ impl World for Fake {
             "HOME" => Some("/home/tom".into()),
             "NORTH_FLEET_ROLE" => self.role.map(str::to_owned),
             "NORTH_FLEET_SESSION" => self.session.map(str::to_owned),
+            "CLAUDE_CONFIG_DIR" => self.config.map(str::to_owned),
             _ => None,
         }
     }
-    fn registered_proxy(&self) -> Option<String> {
-        self.registered.map(str::to_owned)
+    fn registered_proxy(&self) -> Option<Registered> {
+        (self.registered.is_some() || self.account.is_some()).then(|| Registered { conversation: self.registered.map(str::to_owned), account: self.account.map(str::to_owned) })
+    }
+    fn profile(&self, account: &str) -> Option<String> {
+        Some(format!("/home/tom/.local/state/north/profiles/claude-{account}/"))
+    }
+    fn claude_start(&self) -> Option<ClaudeStart> {
+        self.start.map(|(nested, print)| ClaudeStart { nested, print })
     }
     fn fleet(&self) -> Option<String> {
         Some(self.fleet.to_owned())
@@ -174,4 +184,24 @@ fn an_idle_fleet_with_ready_items_sends_the_proxy_back_to_staff_them() {
     assert_eq!(decide(&empty, &stop(false)), Verdict::Allow);
     let idle_worker = Fake { fleet: "[]", ready: READY, ..worker() };
     assert_eq!(decide(&idle_worker, &stop(false)), Verdict::Allow);
+}
+
+#[test]
+fn a_proxy_resumed_by_hand_on_its_profile_is_the_proxy_and_a_claude_started_from_its_shell_is_not() {
+    let commit = bash("git commit -m x");
+    let profile = Some("/home/tom/.local/state/north/profiles/claude-a");
+    let by_hand = Fake { account: Some("a"), config: profile, start: Some((false, false)), ..Fake::default() };
+    assert!(denied(&by_hand, &commit));
+    let scripted = Fake { start: Some((false, true)), ..by_hand };
+    assert_eq!(decide(&scripted, &commit), Verdict::Allow);
+    let elsewhere = Fake { config: Some("/home/tom/.local/state/north/profiles/claude-b"), start: Some((false, false)), ..by_hand };
+    assert_eq!(decide(&elsewhere, &commit), Verdict::Allow);
+    let unknown = Fake { start: None, ..by_hand };
+    assert_eq!(decide(&unknown, &commit), Verdict::Allow);
+    let nested = Fake { start: Some((true, true)), ..proxy() };
+    assert_eq!(decide(&nested, &commit), Verdict::Allow);
+    let nested_by_hand = Fake { start: Some((true, false)), ..by_hand };
+    assert_eq!(decide(&nested_by_hand, &commit), Verdict::Allow);
+    let launched = Fake { start: Some((false, true)), ..proxy() };
+    assert!(denied(&launched, &commit));
 }

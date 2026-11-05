@@ -17,10 +17,25 @@ const WRAPPERS: [&str; 6] = ["bash", "sh", "zsh", "north", "nix", "ssh"];
 const MAX_DEPTH: usize = 3;
 const ROUTING: [&str; 3] = ["fleet", "threads", "gate"];
 const SEPARATORS: [char; 9] = ['\n', ';', '&', '|', '(', ')', '`', '{', '}'];
+const CHILD_SESSION_ENV: &str = "CLAUDE_CODE_CHILD_SESSION";
+const CLAUDE_PID_ENV: &str = "CLAUDE_PID";
+const CONFIG_ENV: &str = "CLAUDE_CONFIG_DIR";
+
+pub struct Registered {
+    pub conversation: Option<String>,
+    pub account: Option<String>,
+}
+
+pub struct ClaudeStart {
+    pub nested: bool,
+    pub print: bool,
+}
 
 pub trait World {
     fn var(&self, name: &str) -> Option<String>;
-    fn registered_proxy(&self) -> Option<String>;
+    fn registered_proxy(&self) -> Option<Registered>;
+    fn profile(&self, account: &str) -> Option<String>;
+    fn claude_start(&self) -> Option<ClaudeStart>;
     fn fleet(&self) -> Option<String>;
     fn ready(&self) -> Option<String>;
     fn seen(&self, session: &str, items: &str) -> bool;
@@ -44,14 +59,28 @@ impl World for Live {
         std::env::var(name).ok().filter(|value| !value.is_empty())
     }
 
-    fn registered_proxy(&self) -> Option<String> {
+    fn registered_proxy(&self) -> Option<Registered> {
         let dir = self.var("NORTH_FLEET_DIR").map(PathBuf::from).or_else(|| self.var("HOME").map(|home| PathBuf::from(home).join(".local/state/north/fleet")))?;
         let record: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(PROXY).join("session.json")).ok()?).ok()?;
         let proxy = match record["role"].as_str() {
             Some(role) => role == PROXY,
             None => record["parent"].is_null() && record["task_ref"].is_null(),
         };
-        proxy.then(|| record["conversation"].as_str().map(str::to_owned)).flatten()
+        let text = |key: &str| record[key].as_str().map(str::to_owned);
+        proxy.then(|| Registered { conversation: text("conversation"), account: text("account") })
+    }
+
+    fn profile(&self, account: &str) -> Option<String> {
+        crate::guard::host::account_home("claude", account).map(|home| home.display().to_string())
+    }
+
+    fn claude_start(&self) -> Option<ClaudeStart> {
+        let process = PathBuf::from("/proc").join(self.var(CLAUDE_PID_ENV)?);
+        let environ = std::fs::read(process.join("environ")).ok()?;
+        let cmdline = std::fs::read(process.join("cmdline")).ok()?;
+        let nested = environ.split(|byte| *byte == 0).any(|entry| entry.starts_with(format!("{CHILD_SESSION_ENV}=").as_bytes()));
+        let print = cmdline.split(|byte| *byte == 0).skip(1).any(|argument| argument == b"-p" || argument == b"--print");
+        Some(ClaudeStart { nested, print })
     }
 
     fn fleet(&self) -> Option<String> {
@@ -97,13 +126,25 @@ pub fn is_proxy(world: &impl World, input: &HookInput) -> bool {
     if input.data.get("agent_id").is_some() {
         return false;
     }
+    let start = world.claude_start();
+    if start.as_ref().is_some_and(|start| start.nested) {
+        return false;
+    }
     if let Some(role) = world.var(ROLE_ENV) {
         return role == PROXY;
     }
     if world.var(SESSION_ENV).is_some() {
         return false;
     }
-    input.data["session_id"].as_str().is_some_and(|session| world.registered_proxy().as_deref() == Some(session))
+    let Some(registered) = world.registered_proxy() else { return false };
+    if input.data["session_id"].as_str().is_some_and(|session| registered.conversation.as_deref() == Some(session)) {
+        return true;
+    }
+    start.is_some_and(|start| !start.print) && registered.account.and_then(|account| world.profile(&account)).is_some_and(|profile| own_profile(world).is_some_and(|own| normpath(&own) == normpath(&profile)))
+}
+
+fn own_profile(world: &impl World) -> Option<String> {
+    world.var(CONFIG_ENV).or_else(|| world.var("HOME").map(|home| format!("{home}/.claude")))
 }
 
 fn message(action: &str) -> String {

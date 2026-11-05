@@ -80,6 +80,10 @@ pub(in crate::cli) fn roster() -> NorthResult<Roster> {
     registry::roster(&runtimes())
 }
 
+pub(in crate::cli) fn account_home(provider: &str, label: &str) -> Option<std::path::PathBuf> {
+    roster().ok()?.account(&ProviderName::new(provider), label).ok().map(|account| account.home)
+}
+
 pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
     Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli::new()), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())))
 }
