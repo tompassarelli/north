@@ -26,3 +26,15 @@ kind = "regenerate"
 command = "north docs rationale-index"
 sources = ["docs/rationale/"]
 generator = ["crates/north-core/src/ops/docs.rs", "crates/north-core/src/ops/rationale_index/"]
+
+[[set]]
+path = "tests/it/main.rs"
+kind = "lines"
+
+[[set]]
+path = "crates/north-landing/tests/it/main.rs"
+kind = "lines"
+
+[[set]]
+path = "tests/land/main.rs"
+kind = "lines"

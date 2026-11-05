@@ -3,3 +3,6 @@ structure.toml merge=set
 harness/machine-bound-tests merge=set
 docs/features.md merge=set
 docs/rationale/README.md merge=set
+tests/it/main.rs merge=set
+crates/north-landing/tests/it/main.rs merge=set
+tests/land/main.rs merge=set
