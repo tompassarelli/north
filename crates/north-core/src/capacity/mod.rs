@@ -16,6 +16,7 @@ mod game_reserve;
 pub use game_reserve::{Confinement, confinement};
 pub use host::land_check_cpus;
 mod gate;
+pub use gate::is_shim;
 mod host;
 mod unleased;
 mod watchdog;

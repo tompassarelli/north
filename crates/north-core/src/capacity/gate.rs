@@ -123,7 +123,7 @@ fn executable(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
-fn is_shim(path: &Path) -> bool {
+pub fn is_shim(path: &Path) -> bool {
     use std::io::Read;
     if std::fs::canonicalize(path).is_ok_and(|real| real.to_string_lossy().contains(SHIMS_OUTPUT)) {
         return true;
