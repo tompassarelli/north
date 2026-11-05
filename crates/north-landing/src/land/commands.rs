@@ -6,6 +6,7 @@ Command { name: "model", usage: "north land model [--repo DIR] [--era batch|prec
 Command { name: "promote", usage: "north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]", run: promote::run },
 Command { name: "push", usage: "", run: push::run },
 Command { name: "replay", usage: "north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...", run: replay::run },
+Command { name: "restore", usage: "north land restore [--dry-run] COMMIT BRANCH", run: restore::run },
 Command { name: "reuse", usage: "north land reuse hash|record|lookup", run: reuse::run },
 Command { name: "route", usage: "", run: route::run },
 Command { name: "scan", usage: "north land scan dep-gate|tool-removal|test-integrity BASE..HEAD", run: scans::run },

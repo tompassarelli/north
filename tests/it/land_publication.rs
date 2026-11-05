@@ -345,3 +345,74 @@ fn farm_scratch() {
     assert!(!text.contains("waiting for the landing lock"), "the farm scratch push waited for the landing lock: {text}");
     assert_eq!(fixture.remote_ref("farm/x"), Some(fixture.git(&["rev-parse", "HEAD"])), "the farm scratch push did not publish farm/x");
 }
+
+impl Fixture {
+    fn restore(&self, arguments: &[&str]) -> Run {
+        let mirrors = self.top().join("mirrors");
+        let mut program = vec![env!("CARGO_BIN_EXE_north"), "land", "restore"];
+        program.extend(arguments);
+        let output = self.command(&program, &[("LANE_GC_MIRRORS", &mirrors.to_string_lossy())]).output().unwrap();
+        Run { status: output.status.code().unwrap(), output: format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)) }
+    }
+
+    fn deleted_branch(&self, name: &str) -> String {
+        self.git(&["switch", "-q", "-c", name]);
+        fs::write(self.repo().join("work.txt"), name).unwrap();
+        self.git(&["add", "work.txt"]);
+        self.git(&["commit", "-qm", name]);
+        let oid = self.git(&["rev-parse", "HEAD"]);
+        self.git(&["push", "-q", "origin", &format!("HEAD:refs/heads/{name}")]);
+        let mirror = self.top().join("mirrors/remote.git");
+        fs::create_dir_all(&mirror).unwrap();
+        self.git_at(&mirror, &["init", "-q", "--bare", "."]);
+        self.git_at(&mirror, &["fetch", "-q", &self.top().join("remote.git").to_string_lossy(), &format!("refs/heads/{name}:refs/archive/2026-11-05/{name}")]);
+        self.git(&["push", "-q", "origin", &format!(":refs/heads/{name}")]);
+        self.git(&["switch", "-q", "main"]);
+        self.git(&["branch", "-qD", name]);
+        oid
+    }
+}
+
+#[test]
+fn restore_republishes_a_mirror_held_commit_without_scans() {
+    let fixture = Fixture::new();
+    let oid = fixture.deleted_branch("claude/lost");
+    assert_eq!(fixture.remote_ref("claude/lost"), None);
+    let run = fixture.restore(&["--dry-run", &oid, "claude/lost"]);
+    assert_eq!(run.status, 0, "{}", run.output);
+    assert_eq!(fixture.remote_ref("claude/lost"), None, "dry-run restored the branch");
+    let run = fixture.restore(&[&oid, "claude/lost"]);
+    assert_eq!(run.status, 0, "{}", run.output);
+    assert_eq!(fixture.remote_ref("claude/lost"), Some(oid.clone()), "{}", run.output);
+    assert_eq!(fixture.scanned(), "", "a restore ran a content scan");
+    let run = fixture.restore(&[&oid, "claude/lost"]);
+    assert_eq!(run.status, 1, "restore moved or re-pushed an existing branch: {}", run.output);
+}
+
+#[test]
+fn restore_republishes_a_commit_reachable_from_the_default_branch() {
+    let fixture = Fixture::new();
+    let base = fixture.base_oid.clone();
+    let run = fixture.restore(&[&base, "again"]);
+    assert_eq!(run.status, 0, "{}", run.output);
+    assert_eq!(fixture.remote_ref("again"), Some(base));
+}
+
+#[test]
+fn restore_refuses_what_is_not_public_or_would_move_a_branch() {
+    let fixture = Fixture::new();
+    let private = fixture.git(&["rev-parse", "HEAD"]);
+    let before = fixture.remote();
+    for row in [
+        vec![private.as_str(), "lost"],
+        vec![fixture.base_oid.as_str(), "main"],
+        vec![fixture.base_oid.as_str(), "other"],
+        vec![fixture.base_oid.as_str(), "bad..name"],
+        vec!["abc123", "lost"],
+        vec![fixture.base_oid.as_str()],
+    ] {
+        let run = fixture.restore(&row);
+        assert_ne!(run.status, 0, "{row:?}: {}", run.output);
+        assert_eq!(fixture.remote(), before, "{row:?} changed origin");
+    }
+}

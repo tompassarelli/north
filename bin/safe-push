@@ -11,6 +11,7 @@
 # name the captured object ID and destination ref explicitly.
 #
 # Usage:  safe-push [--dry-run] [--to BRANCH] [--keep-lane]
+#         safe-push --restore [--dry-run] COMMIT BRANCH   (recreate a deleted branch at a commit that is already public)
 #         safe-push [--dry-run] --tag NAME
 # /proc is the host's even inside run-bounded's PID namespace, so peers are named by host PID.
 read -r self_pid _ </proc/self/stat
@@ -121,6 +122,9 @@ original_arguments=("$@")
 safe_push_self=$(readlink -f "${BASH_SOURCE[0]}")
 if [ "${1:-}" = abandon ]; then
   safe_push_internal=1; north land-abandon "${@:2}"; exit $?
+fi
+if [ "${1:-}" = --restore ]; then
+  safe_push_internal=1; command -v north >/dev/null 2>&1 && north land restore --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land restore; run north runtime update; NOT restored." >&2; exit 1; }; exec north land restore "${@:2}"
 fi
 if [ "${1:-}" = --enqueue ]; then
   safe_push_internal=1; north land enqueue --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land enqueue; run north runtime update; NOT queued." >&2; exit 1; }; exec north land enqueue "${@:2}"
