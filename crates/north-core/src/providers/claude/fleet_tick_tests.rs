@@ -95,7 +95,7 @@ fn far_message(id: &str, machine: &str) -> FleetRow {
 }
 
 fn gate(id: &str, to: &str) -> FleetRow {
-    let request = GateRequest { verification: false, issue: None, session: to.into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 60_000 };
+    let request = GateRequest { verification: false, issue: None, box_text: None, session: to.into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 60_000 };
     FleetRow { kind: RowKind::Gate, text: request.question.clone(), sender: Sender::Tom, gate: Some(Box::new(request)), ..message(id, to, CREATED_MS) }
 }
 
@@ -825,7 +825,7 @@ fn a_forgotten_session_drops_out_of_its_hosts_cached_table_so_a_second_forget_is
 fn a_tick_publishes_this_hosts_open_gates_into_the_store_and_caches_the_table_a_closed_gate_leaves_on_the_next_tick() {
     let nexus = host("nexus");
     let _worker = live(&nexus, "worker");
-    let request = |question: &str, verification: bool| GateRequest { verification, issue: Some("north#416".into()), session: "worker".into(), question: question.into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
+    let request = |question: &str, verification: bool| GateRequest { verification, issue: Some("north#416".into()), box_text: None, session: "worker".into(), question: question.into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
     let kept = nexus.fleet.open_gate(&request("Rent the box?", false)).unwrap();
     let closing = nexus.fleet.open_gate(&request("Buy the disk?", false)).unwrap();
 
@@ -848,7 +848,7 @@ fn a_tick_publishes_this_hosts_open_gates_into_the_store_and_caches_the_table_a_
 fn a_gate_held_on_another_host_reaches_the_laptop_through_the_store_and_its_issue_guard_and_is_answerable_by_its_qualified_id() {
     let (nexus, laptop) = (host("nexus"), host("laptop"));
     let _worker = live(&nexus, "worker");
-    let request = GateRequest { verification: false, issue: Some("north#416".into()), session: "worker".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
+    let request = GateRequest { verification: false, issue: Some("north#416".into()), box_text: None, session: "worker".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
     let id = nexus.fleet.open_gate(&request).unwrap();
     nexus.tick();
 
@@ -866,7 +866,7 @@ fn a_gate_held_on_another_host_reaches_the_laptop_through_the_store_and_its_issu
 #[test]
 fn a_cached_gate_whose_host_stopped_ticking_a_day_past_its_default_no_longer_holds_its_issue() {
     let laptop = host("laptop");
-    let request = GateRequest { verification: false, issue: Some("north#416".into()), session: "worker".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
+    let request = GateRequest { verification: false, issue: Some("north#416".into()), box_text: None, session: "worker".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
     let at = |opened_ms: u64| crate::fleet::store::GateRow { host: "nexus".into(), id: 4, request: request.clone(), opened_ms };
     let now = crate::fleet::runtime::now_ms();
     let table = |opened_ms: u64| FleetTable { sessions: Vec::new(), gates: vec![at(opened_ms)] };

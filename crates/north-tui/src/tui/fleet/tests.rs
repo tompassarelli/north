@@ -444,6 +444,7 @@ fn gate(id: i64, session: &str, opened_ms: u64) -> Gate {
     let request = GateRequest {
         verification: false,
         issue: None,
+        box_text: None,
         session: session.into(),
         question: "Rent the GPU box?".into(),
         options: vec!["rent it".into(), "wait".into()],

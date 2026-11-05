@@ -5,6 +5,9 @@ pub struct GateRequest {
     pub verification: bool,
     #[serde(default)]
     pub issue: Option<String>,
+    /// The one box of `issue` this gate decides, matched against a launch's `Item:` line; none holds the whole issue.
+    #[serde(default)]
+    pub box_text: Option<String>,
     pub session: String,
     pub question: String,
     pub options: Vec<String>,
@@ -16,6 +19,9 @@ pub struct GateRequest {
 impl GateRequest {
     pub fn validate(&self) -> NorthResult<()> {
         let in_range = |choice: usize| (1..=self.options.len()).contains(&choice);
+        if self.box_text.as_deref().is_some_and(|text| text.trim().is_empty() || self.issue.is_none()) {
+            return Err(NorthError::Usage("--box needs non-empty text and an --issue to scope".into()));
+        }
         if self.question.trim().is_empty() {
             return Err(NorthError::Usage("a gate needs a question".into()));
         }
@@ -58,7 +64,7 @@ impl Ask {
                 options.push(filler.to_owned());
             }
         }
-        GateRequest { verification: false, issue: None, session: session.to_owned(), question: self.text.clone(), options, recommend, default: recommend, default_after_ms: ASK_DEFAULT_AFTER_MS }
+        GateRequest { verification: false, issue: None, box_text: None, session: session.to_owned(), question: self.text.clone(), options, recommend, default: recommend, default_after_ms: ASK_DEFAULT_AFTER_MS }
     }
 }
 
@@ -191,6 +197,21 @@ fn already_answered(id: i64, closure: &Closure) -> NorthError {
     NorthError::GateAnswered { id, answer: closure.answer.clone(), by: closure.by.label().to_owned() }
 }
 
+/// An open gate's hold on launches: the issue it decides, the one box of it when it names one, and its label.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Hold {
+    pub issue: String,
+    pub box_text: Option<String>,
+    pub gate: String,
+}
+
+impl Hold {
+    /// Whether a launch for `issue` whose `Item:` line is `item` waits on this gate: a whole-issue hold refuses every launch on the issue; a box hold only the launch whose line carries the box's text, or one naming no line to tell it apart.
+    pub fn refuses(&self, issue: &str, item: Option<&str>) -> bool {
+        self.issue == issue && self.box_text.as_deref().is_none_or(|text| item.is_none_or(|line| line.to_lowercase().contains(&text.to_lowercase())))
+    }
+}
+
 pub fn decisions(gates: Vec<Gate>) -> Vec<Gate> {
     gates.into_iter().filter(|gate| !gate.request.verification).collect()
 }
@@ -273,6 +294,7 @@ mod tests {
         GateRequest {
             verification: false,
             issue: None,
+            box_text: None,
             session: "worker".into(),
             question: "Rent the GPU box?".into(),
             options: vec!["rent it".into(), "wait".into()],

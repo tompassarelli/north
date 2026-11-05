@@ -117,6 +117,11 @@ impl LaunchRequest {
         self.named_brief().map(|brief| item_issues(&brief)).unwrap_or_default()
     }
 
+    /// The first `Item:` line, in the prompt or else in the brief it points at: what a box-scoped gate's text is matched against.
+    pub fn item_line(&self) -> Option<String> {
+        first_item_line(&self.prompt).or_else(|| self.named_brief().and_then(|brief| first_item_line(&brief)))
+    }
+
     /// The minutes of the brief's `ETA:` line, in the prompt or else in the brief it points at.
     pub fn eta_min(&self) -> Option<u64> {
         super::silent::eta_minutes(&self.prompt).or_else(|| self.named_brief().and_then(|brief| super::silent::eta_minutes(&brief)))
@@ -153,8 +158,12 @@ fn issue_word(word: &str) -> Option<(&str, &str)> {
 }
 
 /// Every issue the first `Item:` line names, in order: `repo#N` or `owner/repo#N`, and a bare `#N` after one for its repository, up to a word such as "follows" that marks the rest as context.
+fn first_item_line(text: &str) -> Option<String> {
+    text.lines().find_map(|line| line.trim_start().strip_prefix("Item:")).map(str::to_owned)
+}
+
 pub fn item_issues(text: &str) -> Vec<String> {
-    let Some(line) = text.lines().find_map(|line| line.trim_start().strip_prefix("Item:")) else { return Vec::new() };
+    let Some(line) = first_item_line(text) else { return Vec::new() };
     let mut found: Vec<String> = Vec::new();
     let mut repo = "";
     for word in line.split_whitespace() {

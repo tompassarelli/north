@@ -5,15 +5,15 @@ use crate::fleet::gates::{Answerer, Closure, Gate, GateBook, GateRequest};
 
 use super::{Ledger, millis};
 
-const GATE_COLUMNS: &str = "gate_id,session,question,options,recommend,default_option,default_after_ms,opened_ms,answer,answered_by,closed_ms,verification,issue";
+const GATE_COLUMNS: &str = "gate_id,session,question,options,recommend,default_option,default_after_ms,opened_ms,answer,answered_by,closed_ms,verification,issue,box_text";
 
 impl GateBook for Ledger {
     fn open_gate(&self, request: &GateRequest, opened_ms: u64) -> NorthResult<i64> {
         let options = serde_json::to_string(&request.options)?;
         self.write(|conn| {
             conn.execute(
-                "INSERT INTO gates(session, question, options, recommend, default_option, default_after_ms, opened_ms, verification, issue) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![request.session, request.question, options, ordinal(request.recommend), ordinal(request.default), millis(request.default_after_ms), millis(opened_ms), request.verification, request.issue],
+                "INSERT INTO gates(session, question, options, recommend, default_option, default_after_ms, opened_ms, verification, issue, box_text) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![request.session, request.question, options, ordinal(request.recommend), ordinal(request.default), millis(request.default_after_ms), millis(opened_ms), request.verification, request.issue, request.box_text],
             )?;
             Ok(conn.last_insert_rowid())
         })
@@ -58,6 +58,7 @@ fn gate_from_row(row: &Row<'_>) -> rusqlite::Result<Gate> {
         request: GateRequest {
             verification: row.get(11)?,
             issue: row.get(12)?,
+            box_text: row.get(13)?,
             session: row.get(1)?,
             question: row.get(2)?,
             options: serde_json::from_str(&options).unwrap_or_default(),

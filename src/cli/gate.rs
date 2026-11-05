@@ -10,7 +10,8 @@ use crate::fleet::sender::Sender;
 use crate::fleet::store::GateRow;
 use crate::dispatch::IssueRef;
 
-const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) [--issue OWNER/REPO#N] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate list [--json]";
+const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate list [--json]";
+const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; without --box the gate holds the whole issue.";
 const WAIT_POLL: Duration = Duration::from_secs(2);
 
 pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
@@ -46,7 +47,7 @@ fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>, session: Op
 }
 
 fn usage() -> NorthError {
-    NorthError::Usage(USAGE.into())
+    NorthError::Usage(format!("{USAGE}\n{BOX_HELP}"))
 }
 
 fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
@@ -62,7 +63,7 @@ fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
 }
 
 fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
-    let mut request = GateRequest { verification: false, issue: None, session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: 0, default_after_ms: 0 };
+    let mut request = GateRequest { verification: false, issue: None, box_text: None, session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: 0, default_after_ms: 0 };
     for pair in flags.chunks(2) {
         let [flag, value] = pair else { return Err(usage()) };
         match *flag {
@@ -73,6 +74,7 @@ fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
             "--default" => request.default = value.parse().map_err(|_| usage())?,
             "--default-after" => request.default_after_ms = duration_ms(value).ok_or_else(usage)?,
             "--issue" => request.issue = Some(IssueRef::parse(value).ok_or_else(usage)?.to_string()),
+            "--box" => request.box_text = Some((*value).to_owned()),
             _ => return Err(usage()),
         }
     }
@@ -124,6 +126,7 @@ fn gate_json(gate: &Gate, host: &str) -> Value {
         "session": gate.request.session,
         "question": gate.request.question,
         "issue": gate.request.issue,
+        "box": gate.request.box_text,
         "options": gate.request.options,
         "recommend": gate.request.recommend,
         "default": gate.request.default,
@@ -142,6 +145,7 @@ fn row_json(gate: &GateRow) -> Value {
         "session": gate.request.session,
         "question": gate.request.question,
         "issue": gate.request.issue,
+        "box": gate.request.box_text,
         "options": gate.request.options,
         "recommend": gate.request.recommend,
         "default": gate.request.default,
@@ -173,7 +177,7 @@ mod tests {
 
     #[test]
     fn the_list_carries_this_hosts_gates_beside_the_open_gates_other_hosts_hold_with_their_answerable_ids() {
-        let request = |session: &str, issue: Option<&str>| GateRequest { verification: false, issue: issue.map(str::to_owned), session: session.into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
+        let request = |session: &str, issue: Option<&str>| GateRequest { verification: false, issue: issue.map(str::to_owned), box_text: None, session: session.into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
         let mine = Gate { id: 7, request: request("proxy", None), opened_ms: 1_000, closure: None };
         let theirs = GateRow { host: "nexus".into(), id: 4, request: request("fdl-probe", Some("north#416")), opened_ms: 2_000 };
 
@@ -194,5 +198,11 @@ mod tests {
         let decided = [&flags[..], &["--issue", "tompassarelli/North#370"]].concat();
         assert_eq!(gate_request(&decided).unwrap().issue.as_deref(), Some("north#370"));
         assert!(gate_request(&[&flags[..], &["--issue", "370"]].concat()).is_err(), "an --issue without a repository must be refused");
+        let scoped = [&flags[..], &["--issue", "north#370", "--box", "ring crate"]].concat();
+        assert_eq!(gate_request(&scoped).unwrap().box_text.as_deref(), Some("ring crate"));
+        assert!(gate_request(&[&flags[..], &["--box", "ring crate"]].concat()).is_err(), "a --box without an --issue scopes nothing");
+        assert!(gate_request(&[&flags[..], &["--issue", "north#370", "--box", " "]].concat()).is_err(), "an empty --box must be refused");
+        let Err(NorthError::Usage(help)) = gate_request(&["--help"]) else { panic!("--help prints the usage") };
+        assert!(help.contains("--box TEXT"), "{help}");
     }
 }

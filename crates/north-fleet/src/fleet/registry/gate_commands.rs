@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::gates::{self, Closure, Decision, Gate, GateRequest, default_overdue, settle};
+use crate::fleet::gates::{self, Closure, Decision, Gate, GateRequest, Hold, default_overdue, settle};
 use crate::fleet::model::Delivery;
 use crate::fleet::runtime::now_ms;
 
@@ -42,11 +42,16 @@ impl Fleet {
         gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref() }, now_ms(), deliver)
     }
 
-    /// Each issue an open decision gate decides, here or on another host as the cached fleet table holds it, with the gate's id.
-    pub fn gated_issues(&self) -> NorthResult<BTreeMap<String, String>> {
-        let here = gates::decisions(self.ledger.gates(u64::MAX)?).into_iter().filter_map(|gate| Some((gate.request.issue?, gate.id.to_string())));
-        let elsewhere = self.gates_elsewhere()?.into_iter().filter_map(|gate| Some((gate.request.issue.clone()?, gate.label())));
+    /// Each open decision gate that names an issue, here or on another host as the cached fleet table holds it.
+    pub fn gate_holds(&self) -> NorthResult<Vec<Hold>> {
+        let here = gates::decisions(self.ledger.gates(u64::MAX)?).into_iter().filter_map(|gate| Some(Hold { issue: gate.request.issue?, box_text: gate.request.box_text, gate: gate.id.to_string() }));
+        let elsewhere = self.gates_elsewhere()?.into_iter().filter_map(|gate| Some(Hold { issue: gate.request.issue.clone()?, box_text: gate.request.box_text.clone(), gate: gate.label() }));
         Ok(elsewhere.chain(here).collect())
+    }
+
+    /// Each issue an open decision gate decides whole, here or on another host as the cached fleet table holds it, with the gate's id; a gate scoped to one box leaves the issue's other boxes free; see [`Self::gate_holds`].
+    pub fn gated_issues(&self) -> NorthResult<BTreeMap<String, String>> {
+        Ok(self.gate_holds()?.into_iter().filter(|hold| hold.box_text.is_none()).map(|hold| (hold.issue, hold.gate)).collect())
     }
 
     pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {

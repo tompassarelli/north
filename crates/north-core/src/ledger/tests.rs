@@ -15,6 +15,7 @@ fn request(session: &str, default_after_ms: u64) -> GateRequest {
     GateRequest {
         verification: false,
         issue: None,
+        box_text: None,
         session: session.into(),
         question: "Rent?".into(),
         options: vec!["yes".into(), "no".into()],
@@ -102,7 +103,7 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_and_strange
     use crate::fleet::gates::{Authority, answer_gate, default_overdue, open};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
-    let legacy = super::SCHEMA.replace("answered_by TEXT,", "answered_by TEXT CHECK(answered_by IN ('tom','default')),").replace("verification INTEGER NOT NULL DEFAULT 0,\n  issue TEXT\n", "verification INTEGER NOT NULL DEFAULT 0\n");
+    let legacy = super::SCHEMA.replace("answered_by TEXT,", "answered_by TEXT CHECK(answered_by IN ('tom','default')),").replace("verification INTEGER NOT NULL DEFAULT 0,\n  issue TEXT,\n  box_text TEXT\n", "verification INTEGER NOT NULL DEFAULT 0\n");
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&legacy).unwrap();
     conn.execute(r#"INSERT INTO gates VALUES(1, 'old', 'Old?', '["yes","no"]', 1, 2, 10, 0, 'yes', 'tom', 1, 0)"#, []).unwrap();
@@ -148,7 +149,7 @@ fn verification_gates_stay_out_of_toms_decisions_and_a_gate_keeps_its_issue_afte
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
     let book = Ledger::open(&path).unwrap();
-    let work = book.open_gate(&GateRequest { issue: Some("north#370".into()), ..request("work", 30_000) }, 1).unwrap();
+    let work = book.open_gate(&GateRequest { issue: Some("north#370".into()), box_text: Some("ring crate".into()), ..request("work", 30_000) }, 1).unwrap();
     let test = book.open_gate(&GateRequest { verification: true, ..request("test", 30_000) }, 2).unwrap();
     drop(book);
     let book = Ledger::open(&path).unwrap();
@@ -157,6 +158,7 @@ fn verification_gates_stay_out_of_toms_decisions_and_a_gate_keeps_its_issue_afte
     assert!(book.gate(test).unwrap().unwrap().is_open(), "the test parent can still answer its own gate");
     assert!(book.gate(test).unwrap().unwrap().request.verification);
     assert_eq!(visible[0].request.issue.as_deref(), Some("north#370"));
+    assert_eq!(visible[0].request.box_text.as_deref(), Some("ring crate"));
 }
 
 #[test]

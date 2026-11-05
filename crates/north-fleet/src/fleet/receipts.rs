@@ -298,7 +298,7 @@ mod tests {
     }
 
     fn gate(id: i64, closure: Option<Closure>) -> Gate {
-        let request = GateRequest { verification: false, issue: None, session: "kid".into(), question: "Rent the box?".into(), options: vec!["rent".into(), "wait".into()], recommend: 1, default: 2, default_after_ms: 1_800_000 };
+        let request = GateRequest { verification: false, issue: None, box_text: None, session: "kid".into(), question: "Rent the box?".into(), options: vec!["rent".into(), "wait".into()], recommend: 1, default: 2, default_after_ms: 1_800_000 };
         Gate { id, request, opened_ms: 0, closure }
     }
 

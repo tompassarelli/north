@@ -428,7 +428,7 @@ fn a_session_gone_from_its_hosts_registry_loses_its_fleet_sessions_row_so_its_na
 }
 
 fn gate_row(host: &str, id: i64, issue: Option<&str>) -> GateRow {
-    let request = crate::fleet::gates::GateRequest { verification: false, issue: issue.map(str::to_owned), session: "probe".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
+    let request = crate::fleet::gates::GateRequest { verification: false, issue: issue.map(str::to_owned), box_text: None, session: "probe".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
     GateRow { host: host.into(), id, request, opened_ms: 1_793_000_000_000 }
 }
 
