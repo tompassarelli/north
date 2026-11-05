@@ -1,6 +1,9 @@
 const SUBCOMMANDED: [&str; 11] = ["git", "cargo", "nix", "north", "gh", "bun", "npm", "systemctl", "journalctl", "docker", "safe-push"];
+const REMOTE: &str = "ssh";
 const WRAPPERS: [&[&str]; 5] = [&["depbox", "run", "--"], &["nix", "develop", "-c"], &["env"], &["time"], &["command"]];
-const SKIPPED: [&str; 7] = ["cd", "echo", "true", "export", "set", "sleep", "printf"];
+const INERT: [&str; 5] = ["cd", "true", "export", "set", "sleep"];
+const FILTERS: [&str; 15] = ["cat", "head", "tail", "rg", "grep", "sed", "ls", "wc", "cut", "jq", "sort", "uniq", "xargs", "echo", "printf"];
+const LOOPS: [&str; 5] = ["until", "while", "for", "do", "done"];
 const SEPARATORS: [&str; 5] = ["&&", "||", ";", "|", "\n"];
 
 pub fn command_of(text: &str) -> Option<&str> {
@@ -37,17 +40,31 @@ fn subcommand(word: &str) -> bool {
     word.bytes().next().is_some_and(|byte| byte.is_ascii_lowercase()) && word.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
-fn step(segment: &str) -> Option<String> {
+fn filters(program: &str, arguments: &[&str]) -> bool {
+    FILTERS.contains(&program) && (program != "sed" || (arguments.contains(&"-n") && !arguments.iter().any(|word| word.starts_with("-i"))))
+}
+
+fn identity(segment: &str) -> Option<String> {
     let words: Vec<&str> = segment.split_whitespace().collect();
     let words = unwrapped(&words);
     let program = words.first()?.rsplit('/').next()?.trim_start_matches('(');
-    if program.is_empty() || SKIPPED.contains(&program) || !program.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte)) {
+    if program.is_empty() || INERT.contains(&program) || filters(program, &words[1..]) || !program.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte)) {
         return None;
     }
     let verb = SUBCOMMANDED.contains(&program).then(|| words[1..].iter().find(|word| !word.starts_with('-')).filter(|word| subcommand(word))).flatten();
     Some(verb.map_or_else(|| program.to_owned(), |verb| format!("{program} {verb}")))
 }
 
-pub fn steps(command: &str) -> Vec<String> {
-    segments(command).into_iter().filter_map(step).collect()
+pub fn step(command: &str) -> Option<String> {
+    let segments = segments(command);
+    let opener = segments.first()?.split_whitespace().next()?;
+    if LOOPS.contains(&opener) {
+        return None;
+    }
+    segments.into_iter().find_map(identity)
+}
+
+pub fn anchors(step: &str) -> bool {
+    let program = step.split(' ').next().unwrap_or(step);
+    program == REMOTE || SUBCOMMANDED.contains(&program)
 }

@@ -15,7 +15,7 @@ use crate::ops::flow::{Machine, Places};
 
 use sequence::{Limits, Session, recurring};
 
-const USAGE: &str = "usage: north tool-mine [--days N] [--min-sessions N] [--min-steps N] [--owner REPO#N] [--dry-run]";
+const USAGE: &str = "usage: north tool-mine [--days N] [--min-sessions N] [--min-steps N] [--max N] [--owner REPO#N] [--dry-run]";
 const OWNER: &str = "north#112";
 
 struct Options {
@@ -48,6 +48,7 @@ fn parse(arguments: &[String]) -> Option<Options> {
             "--days" => options.limits.window_s = value.parse::<f64>().ok().filter(|days| *days > 0.0)? * 86_400.0,
             "--min-sessions" => options.limits.min_sessions = value.parse().ok().filter(|count| *count > 1)?,
             "--min-steps" => options.limits.min_steps = value.parse().ok().filter(|count| *count > 1 && *count <= options.limits.max_steps)?,
+            "--max" => options.limits.max_filed = value.parse().ok().filter(|count| *count > 0)?,
             "--owner" => options.owner = value.clone(),
             _ => return None,
         }
@@ -67,7 +68,7 @@ fn sessions(rows: &[Row]) -> Vec<Session> {
         let Some(command) = row.text.as_deref().and_then(steps::command_of) else { continue };
         let session = grouped.entry(&row.session).or_insert_with(|| Session { id: row.session.clone(), at: 0.0, steps: Vec::new() });
         session.at = session.at.max(at(row));
-        session.steps.extend(steps::steps(command));
+        session.steps.extend(steps::step(command));
     }
     grouped.into_values().collect()
 }
@@ -88,12 +89,13 @@ fn transcripts(days: f64) -> Result<Vec<Row>, String> {
 fn mine(options: &Options) -> Result<(), String> {
     let started = Instant::now();
     let now = Timestamp::now().unix_seconds_f64();
-    let found = recurring(&sessions(&transcripts(options.limits.window_s / 86_400.0)?), now, &options.limits);
-    let findings: Vec<_> = found.iter().map(|pattern| pattern.finding(Some(&options.owner), &options.limits)).collect();
+    let mined = recurring(&sessions(&transcripts(options.limits.window_s / 86_400.0)?), now, &options.limits);
+    let findings: Vec<_> = mined.kept.iter().map(|pattern| pattern.finding(Some(&options.owner), &options.limits)).collect();
     let spend = Spend { detector: Detector::RecurringSequence, millis: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), findings: findings.len() };
-    for pattern in &found {
+    for pattern in &mined.kept {
         println!("tool-mine: {} sessions: {} -> {}", pattern.count(), pattern.sequence(), pattern.subcommand());
     }
+    println!("tool-mine: dropped {} more qualifying sequences below the top {}", mined.dropped, options.limits.max_filed);
     if options.dry_run {
         return Ok(());
     }

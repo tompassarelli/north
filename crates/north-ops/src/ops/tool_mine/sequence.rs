@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::steps::anchors;
 use crate::ops::detectors::{Detector, Finding};
 
 pub struct Session {
@@ -14,11 +15,12 @@ pub struct Limits {
     pub max_steps: usize,
     pub min_sessions: usize,
     pub window_s: f64,
+    pub max_filed: usize,
 }
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { min_steps: 3, max_steps: 8, min_sessions: 5, window_s: 7.0 * 24.0 * 3600.0 }
+        Self { min_steps: 3, max_steps: 8, min_sessions: 5, window_s: 7.0 * 24.0 * 3600.0, max_filed: 5 }
     }
 }
 
@@ -31,6 +33,10 @@ pub struct Pattern {
 impl Pattern {
     pub fn count(&self) -> usize {
         self.sessions.len()
+    }
+
+    fn weight(&self) -> usize {
+        self.count() * self.steps.len()
     }
 
     pub fn sequence(&self) -> String {
@@ -83,7 +89,12 @@ fn contains(longer: &[String], shorter: &[String]) -> bool {
     longer.len() > shorter.len() && longer.windows(shorter.len()).any(|window| window == shorter)
 }
 
-pub fn recurring(sessions: &[Session], now: f64, limits: &Limits) -> Vec<Pattern> {
+pub struct Mined {
+    pub kept: Vec<Pattern>,
+    pub dropped: usize,
+}
+
+pub fn recurring(sessions: &[Session], now: f64, limits: &Limits) -> Mined {
     let mut seen: BTreeMap<Vec<String>, BTreeSet<String>> = BTreeMap::new();
     for session in sessions.iter().filter(|session| (now - limits.window_s..=now).contains(&session.at)) {
         let steps = collapsed(&session.steps);
@@ -93,8 +104,10 @@ pub fn recurring(sessions: &[Session], now: f64, limits: &Limits) -> Vec<Pattern
             }
         }
     }
-    let frequent: Vec<Pattern> = seen.into_iter().filter(|(_, ids)| ids.len() >= limits.min_sessions).map(|(steps, sessions)| Pattern { steps, sessions }).collect();
+    let frequent: Vec<Pattern> = seen.into_iter().filter(|(steps, ids)| ids.len() >= limits.min_sessions && steps.iter().any(|step| anchors(step))).map(|(steps, sessions)| Pattern { steps, sessions }).collect();
     let mut maximal: Vec<Pattern> = frequent.iter().filter(|pattern| !frequent.iter().any(|other| other.count() >= pattern.count() && contains(&other.steps, &pattern.steps))).cloned().collect();
-    maximal.sort_by(|a, b| b.count().cmp(&a.count()).then_with(|| b.steps.len().cmp(&a.steps.len())).then_with(|| a.steps.cmp(&b.steps)));
-    maximal
+    maximal.sort_by(|a, b| b.weight().cmp(&a.weight()).then_with(|| b.count().cmp(&a.count())).then_with(|| a.steps.cmp(&b.steps)));
+    let dropped = maximal.len().saturating_sub(limits.max_filed);
+    maximal.truncate(limits.max_filed);
+    Mined { kept: maximal, dropped }
 }
