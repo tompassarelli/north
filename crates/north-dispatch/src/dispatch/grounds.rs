@@ -102,7 +102,7 @@ impl Grounds {
     /// The ETA line's value: the tune cell, else the ledger's p75 with its n, either scaled by the
     /// tier's calibration, else what the issue declares, else the uncalibrated default.
     pub fn eta(&self, declared: Option<&str>, route: &Route) -> String {
-        let aside = declared.map_or_else(String::new, |declared| format!("; the issue declares {declared}"));
+        let aside = declared.map_or_else(String::new, |declared| format!("; declared {declared}"));
         let (minutes, source) = match (&self.eta_cell, &self.figures) {
             (Some(tuned), _) => (tuned.value.ceil(), format!("tune cell, {}", tuned.date)),
             (None, Some(figures)) => (eta_minutes(figures), format!("p75 of n={} runs, {}", figures.runs, cell(route))),

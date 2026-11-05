@@ -59,7 +59,7 @@ fn carries(text: &str, why: Option<&str>) {
         "Not required: No change to the spawn gate.",
         "Not required: No new flags.",
         "Prior report: Not done: the gate refused the push",
-        "ETA: 30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)",
+        "ETA: 30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d",
         "Budget: E p50 $5.20, p90 $5.20 (p50 and p90 of n=4 closed boxes, cell tooling on sonnet, ledger 7d); `north fleet spend --self` prints your API-equivalent spend so far; at $5.20 API-equivalent spend, commit and land any change already passing its checks, then report `Split:` with the remaining parts as boxes; never stop with passing work unlanded",
     ] {
         assert!(text.contains(needed), "{needed:?} missing from {text}");
@@ -100,7 +100,10 @@ fn a_hand_launch_brief_carries_the_same_four_things() {
     let started = start(&ask, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
     assert_eq!(started.route.tier, Tier::Sonnet);
     carries(&started.prompt, None);
-    assert!(started.prompt.contains("ETA: 75 min\n") && started.prompt.contains("Ledger ETA: 30 min (p75 of n=4 runs"), "{}", started.prompt);
+    assert!(started.prompt.contains("ETA: 30 min (p75 of n=4 runs") && started.prompt.contains("; declared 75 min)") && started.prompt.matches("ETA:").count() == 1, "the measured ETA replaces the declared one as the line the run records: {}", started.prompt);
+    let restamped = "Item: north#7 box\nCategory: tooling\nETA: 30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)\n\nDo it.";
+    let again = start(&Ask { brief: restamped, prompt: restamped, ..ask }, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
+    assert!(again.prompt.contains("ETA: 30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)\n") && again.prompt.matches("ETA:").count() == 1, "a dispatch brief launched by hand keeps its one measured ETA line: {}", again.prompt);
     assert!(started.prompt.ends_with("\n\nDo it."), "the lead's text after the header is kept");
 }
 
@@ -190,7 +193,7 @@ fn the_brief_eta_is_scaled_by_its_tiers_walk_forward_calibration_and_names_the_m
     let text = brief(&box_, "test", &route(), &live);
     assert!(text.contains("ETA: 126 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d; 30 min x4.20 eta_pred claude n=300 median 1.10)\n"), "{text}");
     let tuned = ledger(&[]).eta_scale(Tier::Sonnet, scale.clone()).tuned(tuned(r#"{"eta_minutes sonnet tooling": 55}"#)).grounds("north#7", OPENED, &box_.body, &route());
-    assert!(tuned.eta(Some("40 min"), &route()).starts_with("231 min (tune cell, 2026-10-30; 55 min x4.20 eta_pred claude n=300 median 1.10; the issue declares 40 min)"), "{}", tuned.eta(None, &route()));
+    assert!(tuned.eta(Some("40 min"), &route()).starts_with("231 min (tune cell, 2026-10-30; 55 min x4.20 eta_pred claude n=300 median 1.10; declared 40 min)"), "{}", tuned.eta(None, &route()));
     let other = ledger(&[]).eta_scale(Tier::Opus, scale).grounds("north#7", OPENED, &box_.body, &route());
     assert_eq!((other.minutes(), other.eta(None, &route())), (Some(30.0), "30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)".to_owned()));
     let recorded = north_core::providers::claude::runs::row::eta(&text);

@@ -75,16 +75,18 @@ fn stamped(prompt: &str, route: &Route, defaulted: Option<bool>, calibrated: boo
     let all: Vec<&str> = prompt.lines().collect();
     let head = all.iter().position(|line| line.trim().is_empty()).unwrap_or(all.len());
     let mut lines: Vec<String> = Vec::new();
-    let restated = |line: &&str| defaulted == Some(true) && facets::declared_in(line, "Category").is_some();
+    let measured = calibrated && grounds.measured();
+    let declared_eta = all[..head].iter().find_map(|line| facets::declared_in(line, "ETA"));
+    let restated = |line: &&str| (defaulted == Some(true) && facets::declared_in(line, "Category").is_some()) || (measured && facets::declared_in(line, "ETA").is_some());
     if let Some(defaulted) = defaulted {
         lines.extend(defaulted.then(|| format!("Category: {}", route.category)));
         lines.push(format!("Tier: {}", route.tier.name()));
         lines.extend(route.stamp().map(|arm| format!("Arm: {arm}")));
         lines.extend(route.follows.as_ref().map(|follows| format!("Follows: {follows}")));
     }
-    if calibrated && grounds.measured() {
-        let declared = all[..head].iter().any(|line| facets::declared_in(line, "ETA").is_some());
-        lines.push(format!("{}: {}", if declared { "Ledger ETA" } else { "ETA" }, grounds.eta(None, route)));
+    if measured {
+        let ledger = grounds.eta(None, route);
+        lines.push(format!("ETA: {}", grounds.eta(declared_eta.filter(|declared| *declared != ledger), route)));
         lines.extend(grounds.budget(route));
     }
     lines.extend(grounds.trace());

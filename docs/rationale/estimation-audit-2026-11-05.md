@@ -65,7 +65,7 @@ The Brier score is 0.271. Always predicting the 46% base rate would score 0.248.
 
 ## Box ETA
 
-**Inputs.** The brief line `Ledger ETA: N min (p75 of n=…)` is the p75 of wall minutes (ended − started) for runs on items closed in the last 7 days. Runs are pooled by category and model family (`ledger/closed.rs:233-245`, `ops/dispatch/grounds.rs:295-392`). There is no n floor. Without data the line falls back to the issue's declared ETA, else to `45 min (uncalibrated)`. The value reaches `runs.eta_min` through a regex that takes the first `ETA` in the brief (`providers/claude/runs/row.rs:11-63`), so a declared ETA wins over the ledger ETA.
+**Inputs.** The brief line `Ledger ETA: N min (p75 of n=…)` is the p75 of wall minutes (ended − started) for runs on items closed in the last 7 days. Runs are pooled by category and model family (`ledger/closed.rs:233-245`, `ops/dispatch/grounds.rs:295-392`). There is no n floor. Without data the line falls back to the issue's declared ETA, else to `45 min (uncalibrated)`. The value reaches `runs.eta_min` through a regex that takes the first `ETA` in the brief (`providers/claude/runs/row.rs:11-63`), so a declared ETA won over the ledger ETA. On 2026-11-05 every run in the drifted haiku mechanical cell (north#595) recorded a lead-declared ETA such as `25 min (uncalibrated)` rather than the measured p75 its brief also carried; since then a hand launch whose cell is measured replaces the declared line with the measured one and keeps the declared figure as an aside.
 
 **Updates.** Recomputed for every brief at dispatch and at launch.
 
