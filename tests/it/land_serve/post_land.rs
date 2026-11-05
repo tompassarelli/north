@@ -25,7 +25,7 @@ fn a_lane_whose_change_breaks_a_test_is_reverted_alone_after_landing_and_the_oth
     assert!(tree.iter().any(|file| file == "first.txt") && tree.iter().any(|file| file == "last.txt"), "{tree:?}");
     assert!(!tree.iter().any(|file| file == "breaker.txt" || file == "broken.txt"), "{tree:?}");
     let body = git(&fixture.origin, &["log", "-1", "--format=%B", "main"]);
-    for commit in git(&fixture.origin, &["rev-list", "main~1", &format!("^{}", git(&fixture.origin, &["rev-parse", "main~3"]))]).lines() {
+    for commit in git(&fixture.origin, &["rev-list", "main~2", &format!("^{}", git(&fixture.origin, &["rev-parse", "main~4"]))]).lines() {
         assert!(body.contains(&format!("Reverts: {commit}")), "{body}");
     }
     assert!(tickets.iter().all(|ticket| fixture.verdict(ticket).is_some_and(|verdict| verdict.starts_with("landed "))), "every lane landed first");
