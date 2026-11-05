@@ -88,7 +88,7 @@ impl Gc {
         if let Some(claims) = &self.claims {
             return Ok(claims.clone());
         }
-        let listed = command(&["threads", "list"]);
+        let listed = command(&["north", "threads", "list"]);
         if !listed.ok || !listed.out.starts_with("item") {
             return Err("NorthThread claims unavailable".into());
         }

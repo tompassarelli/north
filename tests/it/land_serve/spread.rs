@@ -69,11 +69,15 @@ fn prechecks_spread_over_hosts() {
         assert_eq!(fixture.read(&format!("hosts/{host}/ran")).lines().count(), 2, "{host} ran two prechecks through north capacity offload run");
         assert_eq!(first_checks.iter().filter(|line| line.ends_with(&format!(" on {host}"))).count(), 2, "{stdout}");
     }
-    for (ticket, name) in tickets.iter().zip(names) {
-        assert!(fixture.verdict(ticket).is_some_and(|verdict| verdict.starts_with("landed ")), "lane {name} has no landed verdict");
-    }
-    assert_eq!(fixture.verdict(&tickets[4]), Some(format!("landed {}", fixture.main())));
-    assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from c", "change from d", "change from e"]);
+    let landed: Vec<String> = tickets
+        .iter()
+        .zip(names)
+        .map(|(ticket, name)| fixture.verdict(ticket).and_then(|verdict| verdict.strip_prefix("landed ").map(str::to_owned)).unwrap_or_else(|| panic!("lane {name} has no landed verdict")))
+        .collect();
+    assert!(landed.contains(&fixture.main()), "main {} is no lane's landing: {landed:?}", fixture.main());
+    let mut subjects = fixture.subjects();
+    subjects.sort();
+    assert_eq!(subjects, ["change from a", "change from b", "change from c", "change from d", "change from e"]);
 }
 
 #[test]

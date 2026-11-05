@@ -72,7 +72,7 @@ sites = [
   "crates/north-capacity-host/src/capacity/host/sizing.rs",
   "crates/north-capacity-host/src/capacity/host/policy.rs",
   "crates/north-capacity-host/src/capacity/host/mod.rs",
-  "crates/north-core/src/capacity/admission.rs",
+  "crates/north-capacity/src/capacity/admission.rs",
 ]
 signal = "measured cores, memory and wall per command signature of finished leases"
 updated_by = "north capacity run"
@@ -96,17 +96,17 @@ defaults = [
 [[loop]]
 name = "pressure-band"
 decision = "the CPU pressure under which capacity admission starts a heavy build"
-sites = ["crates/north-core/src/capacity/admission.rs", "crates/north-core/src/capacity/agent_load.rs", "crates/north-core/src/capacity/run_queue.rs"]
+sites = ["crates/north-capacity/src/capacity/admission.rs", "crates/north-capacity/src/capacity/agent_load.rs", "crates/north-capacity/src/capacity/run_queue.rs"]
 updated_by = "harness/defaults.toml by hand"
 cadence_hours = 168
 owner = "north#112 Staffing governor"
 
 constants = [
-  "crates/north-core/src/capacity/admission.rs::ATTENDED_GPU_CLIENTS",
-  "crates/north-core/src/capacity/admission.rs::BATCH_PRESSURE_BASIS_POINTS",
-  "crates/north-core/src/capacity/admission.rs::GPU_BUSY_PERCENT",
-  "crates/north-core/src/capacity/admission.rs::GPU_SLOTS",
-  "crates/north-core/src/capacity/admission.rs::INTERACTIVE_PRESSURE_BASIS_POINTS",
+  "crates/north-capacity/src/capacity/admission.rs::ATTENDED_GPU_CLIENTS",
+  "crates/north-capacity/src/capacity/admission.rs::BATCH_PRESSURE_BASIS_POINTS",
+  "crates/north-capacity/src/capacity/admission.rs::GPU_BUSY_PERCENT",
+  "crates/north-capacity/src/capacity/admission.rs::GPU_SLOTS",
+  "crates/north-capacity/src/capacity/admission.rs::INTERACTIVE_PRESSURE_BASIS_POINTS",
 ]
 defaults = [
   "admit_batch_jobs_per_core",
@@ -274,32 +274,32 @@ constants = [
   "crates/north-capacity-host/src/capacity/watchdog/snapshot.rs::MAX_ARGS",
   "crates/north-capacity-host/src/capacity/watchdog/snapshot.rs::PAGE_KIB",
   "crates/north-capacity-host/src/capacity/watchdog/snapshot.rs::SYSTEM_SLICE_DEPTH",
-  "crates/north-core/src/capacity/aperture.rs::NVIDIA_SMI_TIMEOUT",
-  "crates/north-core/src/capacity/build_offload.rs::MAX_DIFF_BYTES",
-  "crates/north-core/src/capacity/build_offload.rs::PROBE_LIMIT_SECONDS",
-  "crates/north-core/src/capacity/deadline.rs::ANCESTRY_LIMIT",
-  "crates/north-core/src/capacity/deadline.rs::KILL_AFTER",
-  "crates/north-core/src/capacity/deadline.rs::KILLED",
-  "crates/north-core/src/capacity/deadline.rs::POLL",
-  "crates/north-core/src/capacity/deadline.rs::TIMED_OUT",
-  "crates/north-core/src/capacity/dev_shell.rs::NOT_EXECUTABLE",
-  "crates/north-core/src/capacity/dev_shell.rs::NOT_FOUND",
-  "crates/north-core/src/capacity/dev_shell.rs::SEED_FAILED",
-  "crates/north-core/src/capacity/enrich.rs::CALM_CPU_SOME_AVG10_BASIS_POINTS",
-  "crates/north-core/src/capacity/game_reserve.rs::SETTLED_SECONDS",
-  "crates/north-core/src/capacity/game_reserve.rs::TICKS_PER_SECOND",
-  "crates/north-core/src/capacity/laptop_auto.rs::NOTIFY_WAIT",
-  "crates/north-core/src/capacity/laptop_auto.rs::OBSERVE_WAIT",
-  "crates/north-core/src/capacity/laptop_auto.rs::UNDERPOWERED_CHARGER",
-  "crates/north-core/src/capacity/lease_deadline.rs::LOCK_PATIENCE",
-  "crates/north-core/src/capacity/native_hold.rs::FRESH_USAGE_MILLISECONDS",
-  "crates/north-core/src/capacity/saturation.rs::KIB_PER_GIB",
-  "crates/north-core/src/capacity/saturation.rs::KIB_PER_MIB",
-  "crates/north-core/src/capacity/saturation.rs::QUEUED_LIMIT",
-  "crates/north-core/src/capacity/seat_idle.rs::DEFAULT_SECONDS",
-  "crates/north-core/src/capacity/unleased.rs::CORE_THRESHOLD",
-  "crates/north-core/src/capacity/unleased.rs::STALE_MILLISECONDS",
-  "crates/north-core/src/capacity/unleased.rs::TAIL_BYTES",
+  "crates/north-capacity/src/capacity/aperture.rs::NVIDIA_SMI_TIMEOUT",
+  "crates/north-capacity/src/capacity/build_offload.rs::MAX_DIFF_BYTES",
+  "crates/north-capacity/src/capacity/build_offload.rs::PROBE_LIMIT_SECONDS",
+  "crates/north-capacity/src/capacity/deadline.rs::ANCESTRY_LIMIT",
+  "crates/north-capacity/src/capacity/deadline.rs::KILL_AFTER",
+  "crates/north-capacity/src/capacity/deadline.rs::KILLED",
+  "crates/north-capacity/src/capacity/deadline.rs::POLL",
+  "crates/north-capacity/src/capacity/deadline.rs::TIMED_OUT",
+  "crates/north-capacity/src/capacity/dev_shell.rs::NOT_EXECUTABLE",
+  "crates/north-capacity/src/capacity/dev_shell.rs::NOT_FOUND",
+  "crates/north-capacity/src/capacity/dev_shell.rs::SEED_FAILED",
+  "crates/north-capacity/src/capacity/enrich.rs::CALM_CPU_SOME_AVG10_BASIS_POINTS",
+  "crates/north-capacity/src/capacity/game_reserve.rs::SETTLED_SECONDS",
+  "crates/north-capacity/src/capacity/game_reserve.rs::TICKS_PER_SECOND",
+  "crates/north-capacity/src/capacity/laptop_auto.rs::NOTIFY_WAIT",
+  "crates/north-capacity/src/capacity/laptop_auto.rs::OBSERVE_WAIT",
+  "crates/north-capacity/src/capacity/laptop_auto.rs::UNDERPOWERED_CHARGER",
+  "crates/north-capacity/src/capacity/lease_deadline.rs::LOCK_PATIENCE",
+  "crates/north-capacity/src/capacity/native_hold.rs::FRESH_USAGE_MILLISECONDS",
+  "crates/north-capacity/src/capacity/saturation.rs::KIB_PER_GIB",
+  "crates/north-capacity/src/capacity/saturation.rs::KIB_PER_MIB",
+  "crates/north-capacity/src/capacity/saturation.rs::QUEUED_LIMIT",
+  "crates/north-capacity/src/capacity/seat_idle.rs::DEFAULT_SECONDS",
+  "crates/north-capacity/src/capacity/unleased.rs::CORE_THRESHOLD",
+  "crates/north-capacity/src/capacity/unleased.rs::STALE_MILLISECONDS",
+  "crates/north-capacity/src/capacity/unleased.rs::TAIL_BYTES",
   "crates/north-dispatch/src/dispatch/cloud.rs::LAUNCH_WAIT",
   "crates/north-dispatch/src/dispatch/cloud.rs::SESSIONS",
   "crates/north-dispatch/src/dispatch/effects.rs::BOXLESS_EVERY_S",

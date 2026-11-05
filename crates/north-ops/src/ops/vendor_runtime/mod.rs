@@ -130,6 +130,16 @@ fn root_for(vendor: &dyn Vendor) -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/lib").join(vendor.name())
 }
 
+pub(super) fn staged_output(command: &mut Command) -> Option<std::process::Output> {
+    for _ in 0..50 {
+        match command.output() {
+            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy => std::thread::sleep(std::time::Duration::from_millis(20)),
+            result => return result.ok().filter(|output| output.status.success()),
+        }
+    }
+    None
+}
+
 fn probe(binary: &Path) -> bool {
     std::env::current_exe().is_ok_and(|north| Command::new(north).arg("contract-probe").arg("--runtime").arg(binary).status().is_ok_and(|status| status.success()))
 }

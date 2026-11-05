@@ -404,7 +404,7 @@ spawn_after_landing_gates() {
   log="$dir/$repository-${head:0:12}.log"
   mkdir -p "$dir" || return 0
   scope=$(command -v systemd-run) && "$scope" --user --scope --quiet --collect true </dev/null >/dev/null 2>&1 || scope=""
-  (drop_lock_fd; [ -z "${output_lock_fd:-}" ] || exec {output_lock_fd}<&-
+  (drop_lock_fd
     setsid -f ${scope:+"$scope" --user --scope --quiet --collect --slice=agent.slice} north after-landing --git-dir "$safe_push_common_dir" --base "$base" --head "$head" \
       --safe-push "$(readlink -f "${BASH_SOURCE[0]}")" </dev/null >"$log" 2>&1) || return 0
   echo "safe-push: after-landing gates (code-health, instruction-limits, generated-rewrite, ci-budget) run in the background on ${head:0:12}; each failure files one issue; log $log"
@@ -658,7 +658,7 @@ release_follows() {
   local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
   [ -x "$north_runtime" ] || return 0
   "$north_runtime" follows-release --repo-dir "$repo_root" 2>&1 | sed 's/^/safe-push: /' || true
-  ( [ -z "${output_lock_fd:-}" ] || exec {output_lock_fd}<&-; "$north_runtime" runtime follow --repo-dir "$repo_root" ) 2>&1 | sed 's/^/safe-push: /' || true
+  ( drop_lock_fd; "$north_runtime" runtime follow --repo-dir "$repo_root" ) 2>&1 | sed 's/^/safe-push: /' || true
 }
 
 capture_destination_state() {
@@ -752,8 +752,9 @@ live_safe_push() {
 }
 
 drop_lock_fd() {
-  [ "$BASHPID" != "$$" ] && [ -n "$push_lock_fd" ] || return 0
-  exec {push_lock_fd}>&-
+  [ "$BASHPID" != "$$" ] || return 0
+  [ -z "$push_lock_fd" ] || exec {push_lock_fd}>&-
+  [ -z "${output_lock_fd:-}" ] || exec {output_lock_fd}<&-
 }
 
 # Ledger records of the landing tempo (north#255 B12): written in the background so a slow or unreachable ledger host never holds the landing lock.

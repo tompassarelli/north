@@ -115,7 +115,7 @@ impl Rescue {
             return Finished::Failed(vec![format!("wt-rescue: no container found above {} (no <dir>/main/.git)", start.display())]);
         };
         let main_dir = container.join("main");
-        match git_out(&main_dir, &["status", "--porcelain"]) {
+        match git_out(&main_dir, &["--no-optional-locks", "status", "--porcelain"]) {
             None => return Finished::Failed(vec![format!("wt-rescue: could not read the status of {}", main_dir.display())]),
             Some(status) if status.is_empty() => return Finished::Clean,
             Some(_) => {}
@@ -170,7 +170,7 @@ impl Rescue {
         }
         commit(destination)?;
         restore(main_dir, changes);
-        match git_out(main_dir, &["status", "--porcelain"]).filter(|status| !status.is_empty()) {
+        match git_out(main_dir, &["--no-optional-locks", "status", "--porcelain"]).filter(|status| !status.is_empty()) {
             Some(status) => Err(vec![
                 format!("wt-rescue: main did NOT end clean after restore — rescue worktree ({}, branch {branch}) still holds the verified copy", rescue_dir.display()),
                 status,

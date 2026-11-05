@@ -5,7 +5,7 @@ use std::process::Command;
 use regex::Regex;
 use serde_json::Value;
 
-use super::{Failure, Fetched, Network, Vendor, fail, sha256_file};
+use super::{Failure, Fetched, Network, Vendor, fail, sha256_file, staged_output};
 
 const BASE: &str = "https://downloads.claude.ai/claude-code-releases";
 
@@ -36,7 +36,7 @@ impl Vendor for Claude {
     }
 
     fn observe(&self, binary: &Path) -> Option<String> {
-        let output = Command::new(binary).arg("--version").env("DISABLE_AUTOUPDATER", "1").env("DISABLE_INSTALLATION_CHECKS", "1").output().ok().filter(|output| output.status.success())?;
+        let output = staged_output(Command::new(binary).arg("--version").env("DISABLE_AUTOUPDATER", "1").env("DISABLE_INSTALLATION_CHECKS", "1"))?;
         Some(String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_owned())
     }
 

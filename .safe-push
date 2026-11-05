@@ -28,6 +28,7 @@
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-ops/src/ops/experiments/ experiments check --root .
 	check = "src/cli/verbs.rs :: sed -n '/VerbKinds::new(&[[]$/,/^]);$/{//!p}' src/cli/verbs.rs | LC_ALL=C sort -c -u"
 	check = "tests/it/main.rs,tests/it/crates.txt :: ! grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort | uniq -d | grep . && comm -3 <(sed -n 's/^mod //p' tests/it/main.rs | tr -d ';' | LC_ALL=C sort -u) <(grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort -u) | { ! grep .; }"
+	check = @rust-input,src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo test --locked --offline ${SAFE_PUSH_LAND_PACKAGES:---workspace} --lib --bins && CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo test --locked --offline -p north ${SAFE_PUSH_LAND_IT:---test it}
 	recheck = ** :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo check --tests ${SAFE_PUSH_LAND_PACKAGES:---workspace} --locked --offline
 	after = src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only portable
 	after = bin/,lib/,harness/,src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only machine-bound

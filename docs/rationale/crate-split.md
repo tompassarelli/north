@@ -523,7 +523,10 @@ module runs when one of its crates, or a crate whose `may_use` reaches one, chan
 `crates/` except `docs/` runs every module. The lander exports the result as
 `SAFE_PUSH_LAND_IT` (`--test it -- MODULE::` filters) to any check that names it. The selection follows the
 planned DAG, so a back-edge still listed under "Edges to cut" can let a test outside the selection fail; the full
-suite in main CI catches it.
+suite in main CI catches it. Since 2026-11-05 a `.safe-push` land check runs, before a lane lands, the unit
+tests of `SAFE_PUSH_LAND_PACKAGES` (`--lib --bins`) and the `tests/it` modules `SAFE_PUSH_LAND_IT` selects,
+because from 6:12 to 8:55 PM that day eight lanes landed with no cargo test run and turned main's Cargo red one
+after another; on cx53 a north-landing lane took 89 s for the unit tests and 65 s for its modules.
 
 ### Lander selection
 

@@ -176,7 +176,7 @@ impl Sweep {
 
     fn judge(&self, lane: &Lane) -> Option<Outcome> {
         let tree = lane.tree.as_path();
-        let dirty = git_out(tree, &["status", "--porcelain"])?;
+        let dirty = git_out(tree, &["--no-optional-locks", "status", "--porcelain"])?;
         if !dirty.is_empty() {
             return Some(Outcome::KeepDirty);
         }

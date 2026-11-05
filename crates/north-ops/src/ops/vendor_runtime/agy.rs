@@ -6,7 +6,7 @@ use regex::Regex;
 use serde_json::Value;
 use sha2::{Digest, Sha512};
 
-use super::{Failure, Fetched, Network, Vendor, fail, sha256_file};
+use super::{Failure, Fetched, Network, Vendor, fail, sha256_file, staged_output};
 
 const BASE: &str = "https://storage.googleapis.com/antigravity-public/antigravity-cli";
 
@@ -48,7 +48,7 @@ impl Vendor for Agy {
     }
 
     fn observe(&self, binary: &Path) -> Option<String> {
-        let output = Command::new(binary).arg("--version").env("AGY_CLI_DISABLE_AUTO_UPDATE", "1").output().ok().filter(|output| output.status.success())?;
+        let output = staged_output(Command::new(binary).arg("--version").env("AGY_CLI_DISABLE_AUTO_UPDATE", "1"))?;
         Some(String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_owned())
     }
 

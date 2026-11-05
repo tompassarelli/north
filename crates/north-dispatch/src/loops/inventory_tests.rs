@@ -7,7 +7,7 @@ pub const AREAS: [&str; 7] = [
     "crates/north-dispatch/src/dispatch",
     "crates/north-dispatch/src/pacing/placement",
     "src/cli/fleet",
-    "crates/north-core/src/capacity",
+    "crates/north-capacity/src/capacity",
     "crates/north-capacity-host/src/capacity",
     "crates/north-landing/src/land",
     "crates/north-landing/src/landing",

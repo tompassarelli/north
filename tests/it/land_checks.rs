@@ -118,6 +118,14 @@ impl Fixture {
             .env_remove("SAFE_PUSH_LAND_OFFLOAD_HOST")
             .env_remove("SAFE_PUSH_LAND_RUNNER")
             .env_remove("SAFE_PUSH_LAND_CHECK_TIMEOUT")
+            .env_remove("SAFE_PUSH_LANDING")
+            .env_remove("SAFE_PUSH_LAND_BASE")
+            .env_remove("SAFE_PUSH_LAND_HEAD")
+            .env_remove("SAFE_PUSH_LAND_RUNTIME_HEAD")
+            .env_remove("SAFE_PUSH_LAND_REF")
+            .env_remove("SAFE_PUSH_LAND_PACKAGES")
+            .env_remove("SAFE_PUSH_LAND_CPUS")
+            .env_remove("SAFE_PUSH_LAND_IT")
             .stdin(Stdio::null());
         command
     }

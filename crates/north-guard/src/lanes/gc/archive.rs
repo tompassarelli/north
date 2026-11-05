@@ -205,7 +205,7 @@ impl Gc {
         for item in refs_on(main, base, tip)? {
             let (repo, number) = item.split_once('#').unwrap_or((&item, ""));
             if NOTED_REPOS.contains(&repo) {
-                if !command(&["threads", "note", &item, &text]).ok {
+                if !command(&["north", "threads", "note", &item, &text]).ok {
                     println!("{name}: threads note unavailable for {item}; restore command retained in notices");
                 }
                 continue;

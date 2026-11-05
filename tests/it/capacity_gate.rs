@@ -115,6 +115,7 @@ fn depbox_outside_a_lease_on_a_lease_builds_host_waits_for_a_heavy_lease_before_
     fs::write(host.path("pressure"), "some avg10=90.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
     std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), host.path("bin/north")).unwrap();
     let mut depbox = host.command(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/depbox"));
+    depbox.env_remove("DEPBOX");
     depbox.args(["run", "--", "cargo", "test"]).current_dir(host.path("")).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self")).env_remove("AGENT_CAPACITY_LEASE");
     let mut waiting = Wrapper(depbox.stdout(Stdio::null()).stderr(Stdio::null()).spawn_exclusive().unwrap());
     host.until("depbox's heavy ticket", |host| host.queued("heavy") == 1);
@@ -129,6 +130,7 @@ fn depbox_under_an_inherited_live_lease_outside_its_scope_runs_once_nested_inste
     let lease = fs::read_dir(host.path("agent-capacity-v1/leases")).unwrap().find_map(|entry| Some(entry.ok()?.file_name().to_str()?.strip_suffix(".json")?.to_owned())).unwrap();
     std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), host.path("bin/north")).unwrap();
     let mut depbox = host.command(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/depbox"));
+    depbox.env_remove("DEPBOX");
     depbox.args(["run", "--", "cargo", "test"]).current_dir(host.path("")).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self")).env("AGENT_CAPACITY_LEASE", &lease);
     let mut nested = Wrapper(depbox.process_group(0).stdout(Stdio::null()).stderr(Stdio::piped()).spawn_exclusive().unwrap());
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
@@ -140,7 +142,8 @@ fn depbox_under_an_inherited_live_lease_outside_its_scope_runs_once_nested_inste
         let _ = Command::new("kill").args(["-TERM", "--", &format!("-{}", nested.0.id())]).status_exclusive();
     }
     assert!(finished, "depbox kept asking the gate under its inherited lease");
-    assert!(nested.stderr().contains("depbox: run inside a git checkout"));
+    let stderr = nested.stderr();
+    assert!(stderr.contains("depbox: run inside a git checkout"), "{stderr}");
 }
 
 #[test]
