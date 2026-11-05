@@ -101,42 +101,28 @@ fn red_line(main: &str) -> String {
 }
 
 #[test]
-fn one_red_verdict_posts_nothing_two_in_a_row_open_the_issue_once_and_an_unchanged_one_posts_nothing() {
-    let (mut issues, mut breaches) = (Issues::default(), Breaches::default());
-    assert_eq!(record_red(&mut issues, &mut breaches, MAIN, &red_line(MAIN)), Ok(None));
-    assert!(issues.created.is_empty() && issues.edited.is_empty(), "one red verdict posts nothing");
-
-    assert_eq!(record_red(&mut issues, &mut breaches, MAIN, &red_line(MAIN)), Ok(Some(531)));
+fn the_first_red_verdict_opens_the_issue_an_unchanged_one_posts_nothing_and_a_new_red_main_edits_it() {
+    let mut issues = Issues::default();
+    assert_eq!(record_red(&mut issues, MAIN, &red_line(MAIN)), Ok(Some(531)), "the first red verdict opens the issue and its number marks the fix lane");
     assert_eq!(issues.created.len(), 1);
     let body = &issues.created[0];
     assert!(body.starts_with(ISSUE_BODY) && body.contains(&format!("\n## Red mains\n- [ ] {}\n", red_line(MAIN))), "{body}");
 
     for _ in 0..3 {
-        assert_eq!(record_red(&mut issues, &mut breaches, MAIN, &red_line(MAIN)), Ok(Some(531)));
+        assert_eq!(record_red(&mut issues, MAIN, &red_line(MAIN)), Ok(Some(531)));
     }
-    assert!(issues.created.len() == 1 && issues.edited.is_empty(), "an unchanged red main posts nothing: {:?}", issues.edited);
+    assert!(issues.created.len() == 1 && issues.edited.is_empty(), "a later red verdict on the same main posts nothing: {:?}", issues.edited);
 
-    record_red(&mut issues, &mut breaches, NEXT, &red_line(NEXT)).unwrap();
+    record_red(&mut issues, NEXT, &red_line(NEXT)).unwrap();
     assert_eq!(issues.edited.len(), 1, "a new red main commit edits the one issue, never a comment");
     let edited = &issues.edited[0];
     assert!(edited.contains(&red_line(MAIN)) && edited.contains(&red_line(NEXT)) && edited.matches("## Red mains").count() == 1, "{edited}");
 }
 
 #[test]
-fn a_green_verdict_between_two_red_ones_keeps_the_issue_unposted() {
-    let (mut issues, mut breaches) = (Issues::default(), Breaches::default());
-    record_red(&mut issues, &mut breaches, MAIN, &red_line(MAIN)).unwrap();
-    record_green(&mut breaches);
-    assert_eq!(record_red(&mut issues, &mut breaches, MAIN, &red_line(MAIN)), Ok(None));
-    assert!(issues.created.is_empty() && issues.edited.is_empty());
-}
-
-#[test]
-fn an_open_issue_from_before_the_gate_gains_the_red_mains_section_once_two_verdicts_confirm() {
+fn an_open_issue_gains_the_red_mains_section_at_the_first_red_verdict() {
     let old = format!("{ISSUE_BODY}\n\nmain is red at 0000000aa: y fails on main's own tree");
-    let (mut issues, mut breaches) = (Issues { open: Some((531, old.clone())), ..Issues::default() }, Breaches::default());
-    assert_eq!(record_red(&mut issues, &mut breaches, MAIN, &red_line(MAIN)), Ok(Some(531)), "the open issue's number still marks the fix lane");
-    assert!(issues.edited.is_empty());
-    record_red(&mut issues, &mut breaches, MAIN, &red_line(MAIN)).unwrap();
+    let mut issues = Issues { open: Some((531, old.clone())), ..Issues::default() };
+    assert_eq!(record_red(&mut issues, MAIN, &red_line(MAIN)), Ok(Some(531)), "the open issue's number marks the fix lane");
     assert_eq!(issues.edited, [format!("{old}\n\n## Red mains\n- [ ] {}\n", red_line(MAIN))]);
 }

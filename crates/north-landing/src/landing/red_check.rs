@@ -1,5 +1,5 @@
 use crate::platform::process;
-use crate::platform::rolling_issue::{self, Breaches, Tracker, alarm, section_box};
+use crate::platform::rolling_issue::{self, Tracker, section_box, settle};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -127,23 +127,6 @@ fn state_directory() -> PathBuf {
 
 fn record_path(tree: &str) -> PathBuf {
     state_directory().join(format!("{tree}.tsv"))
-}
-
-fn breaches_path() -> PathBuf {
-    state_directory().join("breaches.json")
-}
-
-fn load_breaches() -> Breaches {
-    fs::read_to_string(breaches_path()).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
-}
-
-fn save_breaches(breaches: &Breaches) {
-    let path = breaches_path();
-    if path.parent().is_some_and(|parent| fs::create_dir_all(parent).is_ok())
-        && let Ok(text) = serde_json::to_string(breaches)
-    {
-        let _ = fs::write(path, text + "\n");
-    }
 }
 
 fn recorded(tree: &str) -> BTreeMap<String, bool> {
@@ -290,16 +273,12 @@ fn repository() -> Option<String> {
 pub const ISSUE_TITLE: &str = "main is red";
 const SECTION: &str = "## Red mains";
 
-pub fn record_red(tracker: &mut dyn Tracker, breaches: &mut Breaches, main: &str, line: &str) -> Result<Option<u64>, String> {
+pub fn record_red(tracker: &mut dyn Tracker, main: &str, line: &str) -> Result<Option<u64>, String> {
     let base = tracker.open(ISSUE_TITLE)?.map_or_else(|| ISSUE_BODY.to_owned(), |issue| issue.body);
     let key = format!("main is red at {}:", &main[..main.len().min(9)]);
     let body = section_box(&base, SECTION, &key, &format!("- [ ] {line}"), true);
-    alarm(tracker, breaches, ISSUE_TITLE, Some(&body), "")?;
+    settle(tracker, ISSUE_TITLE, Some(&body), "")?;
     Ok(tracker.open(ISSUE_TITLE)?.map(|issue| issue.number))
-}
-
-pub fn record_green(breaches: &mut Breaches) {
-    breaches.record(ISSUE_TITLE, false);
 }
 
 fn lead() -> Option<String> {
@@ -340,16 +319,13 @@ pub fn run(arguments: &[String]) -> u8 {
         return UNKNOWN;
     };
     let red: Vec<&Failure> = failed.iter().filter(|failure| verdicts.get(&failure.key()).copied().unwrap_or(false)).collect();
-    let mut breaches = load_breaches();
     if red.is_empty() {
-        record_green(&mut breaches);
-        save_breaches(&breaches);
         println!("red check: {} failing test(s) pass on main's own tree ({source}); this lane broke them", failed.len());
         return 0;
     }
     let culprit = culprit(&request.main, &failed);
     let recorded = repository().ok_or_else(|| "gh repo view names no repository".to_owned()).and_then(|repo| {
-        record_red(&mut rolling_issue::Gh::of(&repo, &[]), &mut breaches, &request.main, &event_line(&request.main, &red, &culprit, None))
+        record_red(&mut rolling_issue::Gh::of(&repo, &[]), &request.main, &event_line(&request.main, &red, &culprit, None))
     });
     let issue = match recorded {
         Ok(issue) => issue.map(|number| number.to_string()),
@@ -358,7 +334,6 @@ pub fn run(arguments: &[String]) -> u8 {
             None
         }
     };
-    save_breaches(&breaches);
     let line = event_line(&request.main, &red, &culprit, issue.as_deref());
     let line = if request.lane.is_empty() { line } else { format!("{line} (seen landing {})", request.lane) };
     send("proxy", &line);

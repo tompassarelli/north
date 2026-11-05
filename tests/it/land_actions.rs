@@ -19,8 +19,8 @@ case "$1 $2" in
     ;;
   "run list") printf '[{"databaseId":7,"displayTitle":"%s","url":"https://github.invalid/runs/7","status":"completed","conclusion":"%s"}]\n' "$(cat "$state/title")" "$(cat "$state/conclusion" 2>/dev/null || echo "$FAKE_CONCLUSION")" ;;
   "run view") case "$*" in *--log-failed*) printf '%s\n' "${FAKE_FAILED_LOG:-land check exited 23}" ;; *) printf '{"jobs":[{"name":"remote check","conclusion":"%s"}]}\n' "$FAKE_CONCLUSION" ;; esac ;;
-  "issue list") echo '[]' ;;
-  "issue create") echo 'https://github.invalid/issues/812' ;;
+  "issue list") if [ -e "$state/issue" ]; then printf '[{"number":812,"title":"main is red","body":""}]\n'; else echo '[]'; fi ;;
+  "issue create") : >"$state/issue"; echo 'https://github.invalid/issues/812' ;;
   "repo view") echo PUBLIC ;;
   *) exit 1 ;;
 esac
@@ -191,8 +191,7 @@ fn a_test_that_also_fails_on_mains_own_tree_raises_the_red_main_event_and_retrie
     let events = landing.state("events");
     let targets: Vec<&str> = events.lines().filter_map(|line| line.split('\t').next()).collect();
     assert_eq!(targets, ["proxy", "lead-1"], "{events}");
-    assert!(events.contains("main is red at") && events.contains("shared_test fails on main's own tree") && events.contains("a fix lane carrying Main-red: lands first"), "the first red verdict sends the event with the bare marker and opens no issue, which the second in a row does: {events}");
-    assert!(!events.contains("Main-red: #812"), "{events}");
+    assert!(events.contains("main is red at") && events.contains("shared_test fails on main's own tree") && events.contains("Main-red: #812"), "{events}");
     assert!(git(&landing.origin, &["log", "--format=%s", "main"]).starts_with("Lane change\nFix shared_test"), "the lane landed after the fix");
     assert_ne!(landing.landed(), lane);
 }
