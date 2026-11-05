@@ -67,6 +67,10 @@ pub fn render(profiles: &[Profile<'_>], since: f64) -> String {
         return out;
     }
     let _ = writeln!(out, "queued_at to push: p50 {}, p90 {}, sum {}", seconds(percentile(&walls, 0.5)), seconds(percentile(&walls, 0.9)), seconds(walls.iter().sum()));
+    let verified: Vec<f64> = profiles.iter().map(|profile| profile.after_wall).filter(|wall| *wall > 0.0).collect();
+    if !verified.is_empty() {
+        let _ = writeln!(out, "verification after the push: p50 {}, p90 {} over {} landing{}", seconds(percentile(&verified, 0.5)), seconds(percentile(&verified, 0.9)), verified.len(), if verified.len() == 1 { "" } else { "s" });
+    }
     let _ = writeln!(out, "\neach landing, queued_at to push:");
     for profile in profiles {
         let landing = profile.landing;

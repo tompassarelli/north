@@ -18,6 +18,7 @@ pub const SPANS_ENV: &str = "NORTH_LAND_SPANS";
 pub const PARENT_ENV: &str = "NORTH_LAND_SPAN_PARENT";
 pub const PHASE: &str = "phase";
 pub const AFTER: &str = "after";
+pub const COVERED_BY: &str = "covered_by";
 const FILE: &str = "spans.jsonl";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,9 +12,12 @@ use super::lander::Lander;
 use super::post_land::{self, Outcome};
 use super::queue::{self, Ticket};
 use super::sheriff;
+use super::telemetry::epoch;
+use super::trace::{self, AFTER, COVERED_BY, Category, PHASE, Span};
 
 const WORKTREE: &str = "lander-revert";
 const JOURNAL: &str = "following";
+const RETRY: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LandedLane {
@@ -28,16 +32,70 @@ struct Entry {
     lanes: Vec<LandedLane>,
 }
 
-struct Following {
+struct Followed {
+    head: String,
+    at: f64,
+}
+
+struct Batch {
     base: String,
     head: String,
     lanes: Vec<LandedLane>,
+    heads: Vec<Followed>,
+    started: Option<f64>,
+    retry_at: f64,
+}
+
+impl Batch {
+    fn covers(&self, head: &str) -> bool {
+        self.heads.iter().any(|followed| followed.head == head)
+    }
+
+    fn absorb(&mut self, next: Self) {
+        self.head = next.head;
+        self.lanes.extend(next.lanes);
+        self.heads.extend(next.heads);
+    }
+}
+
+struct Running {
+    batch: Batch,
     run: JoinHandle<Outcome>,
 }
 
 #[derive(Default)]
+struct Pending {
+    batches: Vec<Batch>,
+}
+
+impl Pending {
+    fn covers(&self, head: &str) -> bool {
+        self.batches.iter().any(|batch| batch.covers(head))
+    }
+
+    fn add(&mut self, batch: Batch) {
+        match self.batches.last_mut() {
+            Some(last) if last.head == batch.base => last.absorb(batch),
+            _ => self.batches.push(batch),
+        }
+    }
+
+    fn retry(&mut self, mut batch: Batch) {
+        if self.batches.first().is_some_and(|next| next.base == batch.head) {
+            batch.absorb(self.batches.remove(0));
+        }
+        self.batches.insert(0, batch);
+    }
+
+    fn next(&mut self, now: f64) -> Option<Batch> {
+        self.batches.first().is_some_and(|batch| batch.retry_at <= now).then(|| self.batches.remove(0))
+    }
+}
+
+#[derive(Default)]
 pub struct Watch {
-    following: Vec<Following>,
+    running: Option<Running>,
+    pending: Pending,
 }
 
 fn journal(lander: &Lander) -> PathBuf {
@@ -75,11 +133,11 @@ impl Watch {
     }
 
     pub fn in_flight(&self) -> usize {
-        self.following.len()
+        usize::from(self.running.is_some()) + self.pending.batches.len()
     }
 
     pub fn follow(&mut self, lander: &Lander, base: &str, head: &str, lanes: Vec<LandedLane>) {
-        if self.following.iter().any(|following| following.head == head) {
+        if self.running.as_ref().is_some_and(|running| running.batch.covers(head)) || self.pending.covers(head) {
             return;
         }
         let entry = Entry { base: base.to_owned(), head: head.to_owned(), lanes };
@@ -87,30 +145,63 @@ impl Watch {
         if let Err(error) = recorded {
             println!("north land: could not journal the after-landing run of {head}, so a lander restart before its verdict loses it: {error}");
         }
-        let Entry { lanes, .. } = entry;
-        let names = lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
-        let tips = lanes.iter().map(|lane| lane.tip.clone()).collect();
-        let run = post_land::start(lander, base, head, names, tips);
-        self.following.push(Following { base: base.to_owned(), head: head.to_owned(), lanes, run });
+        let Entry { base, head, lanes } = entry;
+        self.pending.add(Batch { base, heads: vec![Followed { head: head.clone(), at: epoch() }], head, lanes, started: None, retry_at: 0.0 });
+        self.start_next(lander);
+    }
+
+    fn start_next(&mut self, lander: &Lander) {
+        if self.running.is_some() {
+            return;
+        }
+        let started = epoch();
+        let Some(mut batch) = self.pending.next(started) else { return };
+        batch.started.get_or_insert(started);
+        if batch.heads.len() > 1 {
+            println!("north land: one after-landing run of {} covers {} landings since {}", batch.head, batch.heads.len(), batch.base);
+        }
+        let waits: Vec<Span> = batch.heads.iter().filter(|followed| started - followed.at >= 1.0).map(|followed| Span::new(&followed.head, "waiting for the after-landing run in flight", Category::Queue, followed.at, started).with(PHASE, AFTER)).collect();
+        record(lander, &waits);
+        let names = batch.lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
+        let tips = batch.lanes.iter().map(|lane| lane.tip.clone()).collect();
+        let run = post_land::start(lander, &batch.base, &batch.head, names, tips);
+        self.running = Some(Running { batch, run });
     }
 
     pub fn settle(&mut self, lander: &Lander) -> bool {
-        let mut settled = false;
-        let mut index = 0;
-        while index < self.following.len() {
-            if !self.following[index].run.is_finished() {
-                index += 1;
-                continue;
-            }
-            let Following { base, head, lanes, run } = self.following.swap_remove(index);
-            settled = true;
-            let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None });
-            if let Verdict::RedMain(detail) = outcome.verdict {
-                blame(lander, &base, &lanes, outcome.culprit, &detail);
-            }
-            let _ = fs::remove_file(entry_path(lander, &head));
+        if !self.running.as_ref().is_some_and(|running| running.run.is_finished()) {
+            self.start_next(lander);
+            return false;
         }
-        settled
+        let Some(Running { mut batch, run }) = self.running.take() else { return false };
+        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None });
+        let ended = epoch();
+        if let Verdict::Transient(detail) = &outcome.verdict {
+            println!("north land: the after-landing run of {} reached no verdict ({detail}); it runs again in {} s", batch.head, RETRY.as_secs());
+            batch.retry_at = ended + RETRY.as_secs_f64();
+            for followed in &mut batch.heads {
+                followed.at = ended;
+            }
+            self.pending.retry(batch);
+            return true;
+        }
+        let started = batch.started.unwrap_or(ended);
+        let links: Vec<Span> = batch.heads.iter().filter(|followed| followed.head != batch.head).map(|followed| Span::new(&followed.head, format!("after-landing run of {}", batch.head), Category::Lander, started, ended).with(PHASE, AFTER).with(COVERED_BY, batch.head.clone())).collect();
+        record(lander, &links);
+        if let Verdict::RedMain(detail) = outcome.verdict {
+            blame(lander, &batch.base, &batch.lanes, outcome.culprit, &detail);
+        }
+        for followed in &batch.heads {
+            let _ = fs::remove_file(entry_path(lander, &followed.head));
+        }
+        self.start_next(lander);
+        true
+    }
+}
+
+fn record(lander: &Lander, spans: &[Span]) {
+    if let Err(error) = trace::Spans::beside(&lander.queue.join("logs")).append(spans) {
+        println!("north land: could not record after-landing spans: {error}");
     }
 }
 
@@ -165,3 +256,7 @@ fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str) -> Resu
     }
     Ok(format!("revert of {} {head} queued as {branch}", lane.ticket.branch))
 }
+
+#[cfg(test)]
+#[path = "watch_tests.rs"]
+mod tests;

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use super::{AFTER, Category, PHASE, Span};
+use super::{AFTER, COVERED_BY, Category, PHASE, Span};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Split {
@@ -89,8 +89,19 @@ impl<'a> Trace<'a> {
         let landed = landing.attribute("landed").unwrap_or_default();
         let mut after = Vec::new();
         for root in self.spans.iter().copied().filter(|span| span.trace == landed && span.attribute(PHASE) == Some(AFTER) && span.start >= window.1 - 1.0) {
-            after.push(root);
-            self.descend(root, (root.start, root.end), &mut after);
+            let Some(covering) = root.attribute(COVERED_BY) else {
+                after.push(root);
+                self.descend(root, (root.start, root.end), &mut after);
+                continue;
+            };
+            let before = after.len();
+            for run in self.spans.iter().copied().filter(|span| span.trace == covering && span.attribute(PHASE) == Some(AFTER) && span.start >= root.start - 1.0 && span.end <= root.end + 1.0) {
+                after.push(run);
+                self.descend(run, (run.start, run.end), &mut after);
+            }
+            if after.len() == before {
+                after.push(root);
+            }
         }
         let after_wall = union(&after);
         let before_split = attribute(&before, Some(landing), window);
@@ -166,3 +177,7 @@ pub fn percentile(values: &[f64], fraction: f64) -> f64 {
     let rank = ((sorted.len() as f64 * fraction).ceil() as usize).clamp(1, sorted.len());
     sorted[rank - 1]
 }
+
+#[cfg(test)]
+#[path = "profile_tests.rs"]
+mod tests;

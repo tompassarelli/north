@@ -391,7 +391,7 @@ fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     loop {
         if retire.load(Ordering::Relaxed) {
             if watch.in_flight() > 0 {
-                println!("north land: the live runtime changed; exiting now, and the restarted lander reruns the {} journaled after-landing run(s)", watch.in_flight());
+                println!("north land: the live runtime changed; exiting now, and the restarted lander reruns the {} journaled after-landing batch(es) as one run where they follow each other on main", watch.in_flight());
             }
             return 0;
         }

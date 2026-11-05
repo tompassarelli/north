@@ -1,6 +1,16 @@
 use std::fs;
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 use super::{Fixture, executable, git};
+
+const HOLD_FIRST_AFTER_RUN: &str = r#"#!/usr/bin/env bash
+if [ "$1 $2 $3" = "land checks --after" ] && [ ! -e "$LAND_TRACE/held" ]; then
+  touch "$LAND_TRACE/held"
+  for _ in $(seq 1200); do [ -e "$LAND_TRACE/release" ] && exit 0; sleep 0.1; done
+  exit 1
+fi
+"#;
 
 const RED_WHEN_WIDE_SELECTED: &str = r#"#!/usr/bin/env bash
 [ "$1 $2" = "land checks" ] || exit 0
@@ -86,4 +96,47 @@ fn a_bisection_prefix_runs_with_the_red_run_selection_so_the_lane_that_carries_t
     assert_eq!(fixture.subjects(), ["change from breaker", "change from wide", "Revert change from breaker"]);
     let tree = files(&fixture);
     assert!(tree.iter().any(|file| file == "wide.txt") && !tree.iter().any(|file| file == "broken.txt"), "{tree:?}");
+}
+
+fn until(what: &str, done: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while !done() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn landed(fixture: &Fixture, ticket: &Path) -> String {
+    until("a landing", || fixture.verdict(ticket).is_some_and(|verdict| verdict.starts_with("landed ")));
+    fixture.verdict(ticket).unwrap().trim_start_matches("landed ").trim().to_owned()
+}
+
+#[test]
+fn landings_during_an_after_landing_run_wait_as_one_run_of_the_newest_head_that_reverts_only_the_breaking_lane() {
+    let mut fixture = Fixture::new();
+    fs::write(fixture.trace.join("post-land-red-if"), "broken.txt").unwrap();
+    executable(&fixture.trace.join("north-hook"), HOLD_FIRST_AFTER_RUN);
+    let first = fixture.lane("first", "first.txt", "first\n");
+    let first = fixture.enqueue(&first, None);
+    let mut serve = fixture.command().spawn().unwrap();
+    let first = landed(&fixture, &first);
+    until("the first after-landing run", || fixture.trace.join("held").exists());
+    let mut heads = Vec::new();
+    for (name, file) in [("second", "second.txt"), ("breaker", "broken.txt"), ("last", "last.txt")] {
+        let lane = fixture.lane(name, file, &format!("{name}\n"));
+        let ticket = fixture.enqueue(&lane, None);
+        heads.push(landed(&fixture, &ticket));
+    }
+    fs::write(fixture.trace.join("release"), "").unwrap();
+    assert!(serve.wait().unwrap().success());
+    assert_eq!(fixture.subjects(), ["change from first", "change from second", "change from breaker", "change from last", "Revert change from breaker"]);
+    let runs = fixture.calls("land checks --after ");
+    let newest = heads.last().unwrap();
+    assert_eq!(runs.iter().filter(|run| run.contains(&format!("--base {first} --head {newest} --tree {newest} "))).count(), 1, "one run covers the three landings: {runs:?}");
+    for head in &heads[..2] {
+        assert!(!runs.iter().any(|run| run.contains(&format!("--head {head} "))), "no run of the covered head {head}: {runs:?}");
+    }
+    let told: Vec<String> = fixture.fleet().into_iter().filter(|call| call.contains("post-land checks failed")).collect();
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(told[0].starts_with("fleet send --from service:north-land session-lane-breaker "), "{told:?}");
 }
