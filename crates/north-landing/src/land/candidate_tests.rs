@@ -95,3 +95,25 @@ fn a_merge_set_generator_change_defers_a_later_lane_on_its_sources_and_not_a_lan
     assert_eq!(git(&worktree, &["show", "HEAD:index.txt"]).unwrap(), "a");
     assert_eq!(git(&worktree, &["rev-list", "--count", &format!("{base}..HEAD")]).unwrap(), "2");
 }
+
+#[test]
+fn a_moved_lander_worktree_builds_while_its_old_worktree_still_holds_the_candidate_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("main");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]).unwrap();
+    for (key, value) in [("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
+        git(&repo, &["config", key, value]).unwrap();
+    }
+    fs::write(repo.join("a"), "a\n").unwrap();
+    commit_all(&repo, "base");
+    let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    let old = dir.path().join("worktrees/worktrees/lander");
+    ensure(&repo, &old).unwrap();
+    build(&old, BRANCH, &base, &[], 1, &dir.path().join("logs")).unwrap();
+    let moved = dir.path().join("worktrees/lander");
+    ensure(&repo, &moved).unwrap();
+    let built = build(&moved, BRANCH, &base, &[], 1, &dir.path().join("logs")).unwrap();
+    assert_eq!(built.included(), 0);
+    assert_eq!(git(&moved, &["rev-parse", "HEAD"]).unwrap(), base);
+}

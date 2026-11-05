@@ -148,7 +148,7 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -
 
 pub fn build(worktree: &Path, branch: &str, base: &str, tickets: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
     git(worktree, &["reset", "-q", "--hard"])?;
-    git(worktree, &["checkout", "-q", "-B", branch, base])?;
+    git(worktree, &["checkout", "-q", "--ignore-other-worktrees", "-B", branch, base])?;
     let mut picks = Vec::new();
     let mut included = 0;
     for (path, ticket) in tickets {
