@@ -2,7 +2,6 @@ mod admission;
 mod claims;
 mod digest;
 mod duplicate;
-mod governor;
 mod launch;
 mod interactive;
 mod ledger;

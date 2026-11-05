@@ -55,7 +55,7 @@ impl Facts for Machine {
     fn measure(&self, expectation: &Expectation) -> Result<f64, String> {
         match expectation.measure.as_str() {
             "cloud_launches" => Ok(self.launches(expectation, |record| record.launched && record.cloud)),
-            "launch_failures" => Ok(self.launches(expectation, |record| !record.launched && !record.staffing_held())),
+            "launch_failures" => Ok(self.launches(expectation, |record| !record.launched)),
             "closed_boxes" => ledger::closed_report(&expectation.window).map(|report| report.closed as f64).map_err(|error| error.user_message()),
             "heartbeat_age_minutes" => self.heartbeat_age_minutes(expectation),
             other => Err(format!("no measure named {other}")),

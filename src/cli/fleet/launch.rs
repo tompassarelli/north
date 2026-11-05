@@ -29,7 +29,6 @@ struct LaunchFlags {
     wait: Option<bool>,
     take_over: bool,
     overlap_ok: Option<String>,
-    staffing_ok: Option<String>,
 }
 
 impl LaunchFlags {
@@ -49,7 +48,6 @@ impl LaunchFlags {
             "--task" => self.task_ref = Some(value),
             "--role" => self.role = Some(Role::parse(&value)?),
             "--overlap-ok" => self.overlap_ok = Some(value),
-            "--staffing-ok" => self.staffing_ok = Some(value),
             _ if self.overrides.set(flag, &value) => {}
             _ => return Err(usage()),
         }
@@ -115,7 +113,6 @@ pub(super) struct LaunchParts {
     pub take_over: bool,
     /// `--overlap-ok REASON`: start beside lanes that changed the files the box names, and record why.
     pub overlap_ok: Option<String>,
-    pub staffing_ok: Option<String>,
 }
 
 pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>, proxy: bool) -> NorthResult<LaunchParts> {
@@ -136,8 +133,8 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
         index += 1;
     }
     let wait = lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
-    let (overrides, take_over, overlap_ok, staffing_ok) = (std::mem::take(&mut flags.overrides), flags.take_over, flags.overlap_ok.take(), flags.staffing_ok.take());
-    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over, overlap_ok, staffing_ok })
+    let (overrides, take_over, overlap_ok) = (std::mem::take(&mut flags.overrides), flags.take_over, flags.overlap_ok.take());
+    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over, overlap_ok })
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {
