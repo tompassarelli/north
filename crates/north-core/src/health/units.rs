@@ -1,40 +1,27 @@
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-
 use crate::platform::rolling_issue::{Breaches, Tracker, alarm};
 
 type Verdict = Result<(), String>;
 
 const IMMEDIATE: [&str; 1] = ["code-health-review.service"];
 
-#[derive(Default, Deserialize, Serialize)]
-pub(super) struct Run {
-    invocation: String,
-    streak: u32,
-}
-
 pub(super) struct Reading {
     loaded: bool,
-    active: String,
-    result: String,
-    invocation: String,
+    finished: Vec<String>,
 }
 
 impl Reading {
-    pub(super) fn parse(show: &str) -> Self {
-        let field = |key: &str| {
-            show.lines()
-                .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
-                .unwrap_or_default()
-                .trim()
-                .to_owned()
-        };
-        Self {
-            loaded: field("LoadState") == "loaded",
-            active: field("ActiveState"),
-            result: field("Result"),
-            invocation: field("InvocationID"),
-        }
+    pub(super) fn parse(show: &str, journal: &str) -> Self {
+        let loaded = show.lines().any(|line| line.trim() == "LoadState=loaded");
+        let finished = journal.lines().map(str::trim).filter(|result| !result.is_empty()).map(str::to_owned).collect();
+        Self { loaded, finished }
+    }
+
+    fn failed_in_a_row(&self) -> usize {
+        self.finished
+            .iter()
+            .filter(|result| !matches!(result.as_str(), "canceled" | "skipped"))
+            .take_while(|result| matches!(result.as_str(), "failed" | "timeout" | "dependency"))
+            .count()
     }
 }
 
@@ -42,27 +29,17 @@ pub(super) fn service_of(timer: &str) -> String {
     format!("{}.service", timer.strip_suffix(".timer").unwrap_or(timer))
 }
 
-fn limit(unit: &str) -> u32 {
+fn limit(unit: &str) -> usize {
     if IMMEDIATE.contains(&unit) { 1 } else { 2 }
 }
 
-pub(super) fn judge(unit: &str, reading: Option<&Reading>, runs: &mut BTreeMap<String, Run>) -> Verdict {
+pub(super) fn judge(unit: &str, reading: Option<&Reading>) -> Verdict {
     let Some(reading) = reading.filter(|reading| reading.loaded) else {
-        runs.remove(unit);
         return Ok(());
     };
-    let run = runs.entry(unit.into()).or_default();
-    if reading.invocation != run.invocation {
-        if reading.active == "failed" {
-            run.streak += 1;
-            run.invocation.clone_from(&reading.invocation);
-        } else if reading.active == "inactive" && reading.result == "success" {
-            run.streak = 0;
-            run.invocation.clone_from(&reading.invocation);
-        }
-    }
-    if run.streak >= limit(unit) {
-        Err(format!("{unit} failed {} runs in a row", run.streak))
+    let streak = reading.failed_in_a_row();
+    if streak >= limit(unit) {
+        Err(format!("{unit} failed {streak} runs in a row"))
     } else {
         Ok(())
     }

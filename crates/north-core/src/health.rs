@@ -9,7 +9,7 @@ use std::time::Duration;
 use crate::foundation::clock::Timestamp;
 use crate::platform::rolling_issue::Breaches;
 use crate::platform::sqlite::{self, Access};
-use units::{Reading, Run};
+use units::Reading;
 
 type Verdict = Result<(), String>;
 type Output = Result<String, String>;
@@ -32,8 +32,6 @@ struct State {
     checks: BTreeMap<String, Episode>,
     runtime_mismatch_since: Option<u64>,
     land: Option<LandCache>,
-    #[serde(default)]
-    units: BTreeMap<String, Run>,
     #[serde(default)]
     breaches: Breaches,
     #[serde(default)]
@@ -385,8 +383,9 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
     results.push(("timers".into(), timers(TimersInput { config, active })));
     for timer in &names {
         let unit = units::service_of(timer);
-        let shown = command("systemctl", &["--user", "show", "-p", "LoadState,ActiveState,Result,InvocationID", &unit], None, 5);
-        let verdict = units::judge(&unit, shown.ok().map(|text| Reading::parse(&text)).as_ref(), &mut state.units);
+        let shown = command("systemctl", &["--user", "show", "-p", "LoadState", &unit], None, 5);
+        let finished = command("journalctl", &["--user", "--no-pager", "-u", &unit, "JOB_TYPE=start", "--reverse", "--lines=100", "--output=cat", "--output-fields=JOB_RESULT"], None, 5);
+        let verdict = units::judge(&unit, shown.ok().map(|text| Reading::parse(&text, finished.as_deref().unwrap_or_default())).as_ref());
         let check = format!("unit {unit}");
         if verdict.is_err() || state.checks.get(&check).is_some_and(|episode| episode.failing) {
             results.push((check, verdict));
