@@ -19,20 +19,22 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
   `north-landing` would make `guard` rebuild on every landing-gate edit.
 - `north-landing`: `landing`, `dep_gate`, `language_gate`, `provenance`, `issue_box_lint`,
   `follows_release`, `land_abandon`. Depends on `north-base` only.
-- `north-core`: everything else (`fleet`, `ledger`, `threads`, `ops`, `providers`, ...).
-  Depends on `north-base`; nothing in it uses `north-landing`.
+- `north-core`: everything else (`fleet`, `ledger`, `threads`, `capacity`, `health`, `providers`, ...).
+  Depends on `north-base`; nothing in it uses `north-landing`, `north-tui`, `north-guard` or `north-ops`.
 - `north-tui`: `tui`, the fleet terminal screen. Depends on `north-core`; nothing in `north-core` uses it,
   so a screen edit rebuilds `north-tui` and the root package while `north-core` stays cached.
 - `north-guard`: `guard` and `hook`, the tool-call policy behind `north hook`. Depends on `north-core` and
   `north-base`; nothing in `north-core` uses it, so a guard edit rebuilds `north-guard` and the root package.
+- `north-ops`: `ops`, the operational commands. Depends on `north-base` and `north-core`; nothing in
+  `north-core` uses it, and `north-guard` names it only for its tests.
 - `north` (the root package): `src/main.rs`, `src/cli/` and the `verify-north` and `fake_claude`
-  binaries, plus the integration tests. Depends on `north-core`, `north-guard`, `north-landing` and
-  `north-tui`.
+  binaries, plus the integration tests. Depends on `north-core`, `north-guard`, `north-landing`,
+  `north-ops` and `north-tui`.
 
-A leaf edit in `north-landing` rebuilds `north-landing` and the small root package; `north-core` stays
-cached. An edit in `north-core` still rebuilds `north-core` and the root package, which is the next split's
-target: `ops` (40k lines) leaves `north-core` only after `capacity`, `threads` and `health` stop pointing back
-into it.
+A leaf edit in `north-landing`, `north-tui`, `north-guard` or `north-ops` rebuilds that crate and what sits
+above it; `north-core` stays cached. An ops leaf edit took 15.5 s wall and 16.2 CPU-seconds for `cargo build
+--bin north` before `ops` moved and 6.3 s and 7.0 CPU-seconds after (median of 3, cloud worker, 4 CPUs). An
+edit in `north-core` still rebuilds every crate above it.
 
 ## Moving code
 
@@ -49,8 +51,16 @@ and the files stay byte-identical; writes the crate's `Cargo.toml` with `north-c
 workspace dependencies the module names (those named only in tests become dev-dependencies) and its
 `lib.rs` with `pub mod MODULE;` and `pub use north_core::{...}` for each `crate::` root the module
 reaches; adds the crate to the workspace and the root package; rewrites the root `main.rs` import and
-the repo's path mentions; lets the `crate-roots` module of `structure.toml` use what the re-exports
-point at; and widens to `pub` only the items `cargo check` reports as private. To rebase a move, reset
+the repo's path mentions, including those inside moved files other than fixtures; adds the crate's `lib.rs`
+to the moved module's `paths` in `structure.toml`, never to `crate-roots`, whose `may_use` widening closed a
+cycle; repoints a sibling crate that re-exported the module from `north-core`, as a dependency when its
+library code uses it and a dev-dependency when only its tests do; and widens to `pub` only the items
+`cargo check` reports as private. It also links `north-base` when the module names it, moves a fixture the
+module embeds from elsewhere in `north-core/src` beside it, and turns a `#[cfg(test)]` helper the moved
+tests reach into `#[doc(hidden)]`, always compiled: a `test-support` feature only tests turn on would give
+`north-core` a second build per test run. It lists each `cfg!(test)` left in `north-core`, since that is
+false under the new crate's tests; the caller in the new crate picks its own (`ops::defaults_measure`
+passes `Sources::default()` to the `_with` calibration readers). To rebase a move, reset
 to the new main and run it again rather than merging by hand.
 
 ## north-guard
@@ -71,8 +81,8 @@ the edges from `north-core` into `guard`:
 
 `move-module.sh` moves one module per run and writes the crate's `Cargo.toml` and `lib.rs`, so `hook` was
 moved by hand first and added to `lib.rs` after the run, and `north-base` was added because `guard` names
-`north_base::` directly. When `ops` leaves `north-core`, `north-guard` depends on that crate; nothing in
-`ops` points into `guard`.
+`north_base::` directly. Since `ops` left `north-core`, `north-guard` lists `north-ops` as a dev-dependency
+for those tests; nothing in `ops` points into `guard`.
 
 ## Measurement
 
@@ -89,7 +99,8 @@ Non-test lines are the lines of `src/**` and `build.rs` that are neither blank, 
 `#[cfg(test)]` item, in files not named `tests.rs` or `*_tests.rs` and not under a `tests/` directory.
 `north code-health` prints each crate's count against its cap. `north code-health crate-lines BASE HEAD`
 counts both revisions from git and refuses a crate over its cap whose count grew, and a new crate over its
-cap; crates already over (north-core) may shrink or stay but not grow. The refusal names where the new
+cap; crates already over (north-core) may shrink or stay but not grow. `north-ops` left `north-core` already over
+the default cap, so its override is the count it moved with (37362) and it ratchets the same way. The refusal names where the new
 code goes: the smallest crate under its cap that the grown crate already depends on, or a new
 `crates/<name>/` named after the module that grew most. It runs as the `crate-lines` after-landing gate
 beside `code-health`, through the `north` beside `safe-push`, wherever HEAD's `structure.toml` has

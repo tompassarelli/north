@@ -126,7 +126,11 @@ pub fn escalated_with(db: &Connection, rework: &Rework) -> rusqlite::Result<BTre
 
 /// Every settled worker run with its success and whether it was a first assignment, for walk-forward calibration.
 pub fn calibration_runs(db: &Connection) -> rusqlite::Result<Vec<Run>> {
-    let escalated = escalated(db)?;
+    calibration_runs_with(db, &Rework::read(db, &Sources::live())?)
+}
+
+pub fn calibration_runs_with(db: &Connection, rework: &Rework) -> rusqlite::Result<Vec<Run>> {
+    let escalated = escalated_with(db, rework)?;
     Ok(raw_runs(db, "outcome NOT IN ('split','running') AND ended IS NOT NULL", &[])?
         .into_iter()
         .map(|raw| Run {

@@ -77,7 +77,7 @@ pub struct Cell {
 }
 
 impl Cell {
-    #[cfg(test)]
+    #[doc(hidden)]
     pub fn priced(tier: &str, category: &str, closed: usize, usd: f64) -> Self {
         Self { tier: tier.into(), category: category.into(), closed, usd, staffed: true, unclosed_usd: 0.0, reworked: 0, runs: 0, boxes: Vec::new(), run_minutes: Vec::new() }
     }

@@ -935,6 +935,7 @@ dependencies = [
  "north-core",
  "north-guard",
  "north-landing",
+ "north-ops",
  "north-tui",
  "percent-encoding",
  "ratatui",
@@ -1005,6 +1006,7 @@ dependencies = [
  "fancy-regex",
  "north-base",
  "north-core",
+ "north-ops",
  "regex",
  "rusqlite",
  "rustix 0.38.44",
@@ -1028,6 +1030,27 @@ dependencies = [
  "serde_json",
  "sha2",
  "stateright",
+ "tempfile",
+ "time",
+ "tokio",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-ops"
+version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+ "north-base",
+ "north-core",
+ "percent-encoding",
+ "proptest",
+ "regex",
+ "rusqlite",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "time",
  "tokio",

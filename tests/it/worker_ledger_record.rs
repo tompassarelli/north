@@ -575,7 +575,7 @@ fn monday() -> String {
 }
 
 fn prior_names() -> Vec<String> {
-    north_core::ops::defaults_measure::prior_needs().into_iter().map(|(name, _)| name).collect()
+    north_ops::ops::defaults_measure::prior_needs().into_iter().map(|(name, _)| name).collect()
 }
 
 #[test]

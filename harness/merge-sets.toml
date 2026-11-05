@@ -18,14 +18,14 @@ path = "docs/features.md"
 kind = "regenerate"
 command = "north docs features-index"
 sources = ["docs/features/"]
-generator = ["crates/north-core/src/ops/docs.rs", "crates/north-core/src/ops/features_index/"]
+generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/features_index/"]
 
 [[set]]
 path = "docs/rationale/README.md"
 kind = "regenerate"
 command = "north docs rationale-index"
 sources = ["docs/rationale/"]
-generator = ["crates/north-core/src/ops/docs.rs", "crates/north-core/src/ops/rationale_index/"]
+generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/rationale_index/"]
 
 [[set]]
 path = "tests/it/main.rs"

@@ -26,7 +26,7 @@ fn seconds(text: &str) -> Option<f64> {
     Timestamp::parse_python_datetime(text).map(Timestamp::unix_seconds_f64)
 }
 
-pub(crate) fn percentiles(samples: &[f64]) -> (Option<f64>, Option<f64>) {
+pub fn percentiles(samples: &[f64]) -> (Option<f64>, Option<f64>) {
     let mut sorted = samples.to_vec();
     sorted.sort_by(f64::total_cmp);
     let length = sorted.len();

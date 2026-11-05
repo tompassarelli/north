@@ -9,6 +9,9 @@ default = 25000
 hub = 10000
 hub_dependents = 3
 
+[crate_lines.overrides]
+north-ops = 37362
+
 [review]
 commits = 600
 hand_lines_added = 20000
@@ -121,7 +124,7 @@ may_use = ["threads", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "ops"
-paths = ["crates/north-core/src/ops/**", "crates/north-core/src/health.rs", "crates/north-core/src/health/**"]
+paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-core/src/health.rs", "crates/north-core/src/health/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
 may_use = ["ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots"]
 
@@ -267,12 +270,12 @@ reason = "Activity, the prompt counter and the frame watcher are shared between 
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
-path = "crates/north-core/src/ops/flow/jobs.rs"
+path = "crates/north-ops/src/ops/flow/jobs.rs"
 reason = "Memo of fetched run jobs behind a &self read API; candidate for &mut self."
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
-path = "crates/north-core/src/ops/flow/measure.rs"
+path = "crates/north-ops/src/ops/flow/measure.rs"
 reason = "Lazy claim and stranded caches behind a &self Env shared by every measure; candidate for &mut self."
 
 [[rust_habits.allow]]

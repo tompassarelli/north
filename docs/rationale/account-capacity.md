@@ -774,7 +774,7 @@ updates the integration tests (`tests/it/*`, 1.11) it breaks in the same change.
    re-pick go, `Decision` and `Target` keep machine and lane fields; `exhausted_refusal`, `account_refusal` and
    `TIE_WEEK_POINTS` go. Needs 7 and 8.
    Done when: `north fleet launch --test --dry-run` prints `explain`'s line; `rg 'exhausted_refusal|account_refusal|
-   TIE_WEEK_POINTS|sign_in_on_machine' src/cli/fleet crates/north-core/src/ops/pacing/placement/gate.rs` is empty.
+   TIE_WEEK_POINTS|sign_in_on_machine' src/cli/fleet crates/north-ops/src/ops/pacing/placement/gate.rs` is empty.
 9b. **Other launchers.** Revive, rebooted, the fleet-session timer, dispatch, the probe, model-watch and the
    cross-project timer call `place`; dispatch's survey, charge, takes and `burn_held` go.
    Done when: `rg 'roomiest_here|box_reserve|PACE_FRESH_S|burn_held' crates src` is empty and dispatch tests pass with

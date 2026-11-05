@@ -21,3 +21,6 @@ toml_edit.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+north-ops = { path = "../north-ops" }

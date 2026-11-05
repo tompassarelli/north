@@ -185,12 +185,12 @@ pub(super) fn verdict(root: &Path, base: PathBuf) -> (Result<(), String>, Vec<St
     (result, report.unverifiable)
 }
 
-pub(crate) enum Origin {
+pub enum Origin {
     File,
     Query { database: String, query: String },
 }
 
-pub(crate) struct Declared {
+pub struct Declared {
     pub name: String,
     pub origin: Origin,
     pub writer: String,
@@ -215,14 +215,14 @@ fn owner_of(cell: Option<&&str>) -> Option<String> {
     cell.map(|cell| cell.trim_matches('`')).filter(|cell| cell.contains('#')).map(str::to_owned)
 }
 
-pub(crate) fn declared_files(doc: &str) -> Vec<Declared> {
+pub fn declared_files(doc: &str) -> Vec<Declared> {
     section(doc, "File signals")
         .into_iter()
         .filter_map(|cells| Some(Declared { name: cells[0].trim_matches('`').to_owned(), origin: Origin::File, writer: (*cells.get(2)?).to_owned(), cadence_s: cadence_seconds(cells.get(3)?)?, owner: owner_of(cells.get(4)) }))
         .collect()
 }
 
-pub(crate) fn declared_readings(doc: &str) -> Vec<Declared> {
+pub fn declared_readings(doc: &str) -> Vec<Declared> {
     section(doc, "Recorded readings")
         .into_iter()
         .filter_map(|cells| {

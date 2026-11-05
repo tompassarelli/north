@@ -734,7 +734,7 @@ fn a_rust_candidate_compiles_once_for_clippy_and_builds_north_only_for_a_check_w
     for run in ["docs features-index --check", "docs rationale-index --check", "citation-check --root", "config agents check-owners"] {
         assert!(trace.lines().any(|line| line.starts_with(&format!("live-north {run}"))), "{run} did not run on the live runtime's north:\n{trace}");
     }
-    let indexer = Fixture::north_candidate(&["crates/north-core/src/ops/features_index/mod.rs", "docs/features.md", "docs/rationale/x.md"]);
+    let indexer = Fixture::north_candidate(&["crates/north-ops/src/ops/features_index/mod.rs", "docs/features.md", "docs/rationale/x.md"]);
     let (output, _) = indexer.north_checks();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
     let trace = indexer.trace();

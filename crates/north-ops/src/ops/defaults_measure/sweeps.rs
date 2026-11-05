@@ -7,9 +7,10 @@ use super::row::Row;
 use crate::platform::twister::Twister;
 use crate::foundation::clock::Timestamp;
 use crate::threads::calibration::{
-    Knobs, Raw, Run, box_chains, box_duration, box_rows, calibration_runs, escalated, moment, quantile, raw_runs, recommend, recommend_usd, tier_key,
+    Knobs, Raw, Run, box_chains, box_duration, box_rows, calibration_runs_with, escalated_with, moment, quantile, raw_runs, recommend, recommend_usd, tier_key,
     walk_forward_eta,
 };
+use crate::threads::calibration::rework::{Rework, Sources};
 
 pub(super) const TIER_GRIDS: [(&str, &[f64]); 3] = [
     ("success_threshold", &[60.0, 70.0, 75.0, 80.0, 85.0, 90.0]),
@@ -44,6 +45,10 @@ fn grid_value(value: f64) -> serde_json::Value {
     if value.fract() == 0.0 { serde_json::Value::from(value as i64) } else { serde_json::Value::from(value) }
 }
 
+fn rework(db: &Connection) -> rusqlite::Result<Rework> {
+    Rework::read(db, &if cfg!(test) { Sources::default() } else { Sources::live() })
+}
+
 struct FirstRuns {
     rows: Vec<Raw>,
     followed: BTreeMap<String, String>,
@@ -59,7 +64,7 @@ fn first_runs(db: &Connection) -> rusqlite::Result<FirstRuns> {
         let earliest = followed.get(&follows).map_or(raw.ended.clone(), |known| known.clone().min(raw.ended.clone()));
         followed.insert(follows, earliest);
     }
-    Ok(FirstRuns { rows, followed, escalated: escalated(db)? })
+    Ok(FirstRuns { rows, followed, escalated: escalated_with(db, &rework(db)?)? })
 }
 
 pub(super) fn first_run_count(db: &Connection) -> rusqlite::Result<usize> {
@@ -162,7 +167,7 @@ fn eta_pairs(knobs: &Knobs, runs: &[Run], floor: usize, since: &str) -> Vec<(Run
 }
 
 pub(super) fn sweep_eta_min_samples(db: &Connection, defaults: &Registry, since: &str, values: Option<&[f64]>) -> rusqlite::Result<Vec<Row>> {
-    let (base, runs) = (knobs(defaults), calibration_runs(db)?);
+    let (base, runs) = (knobs(defaults), calibration_runs_with(db, &rework(db)?)?);
     Ok(values
         .unwrap_or(&ETA_MIN_SAMPLES_GRID)
         .iter()
@@ -182,7 +187,7 @@ pub(super) fn sweep_eta_min_samples(db: &Connection, defaults: &Registry, since:
 }
 
 pub(super) fn sweep_eta_coverage(db: &Connection, defaults: &Registry, since: &str, values: Option<&[f64]>) -> rusqlite::Result<Vec<Row>> {
-    let (base, runs) = (knobs(defaults), calibration_runs(db)?);
+    let (base, runs) = (knobs(defaults), calibration_runs_with(db, &rework(db)?)?);
     let overdue = defaults.number("overdue_ratio");
     let mut pairs = eta_pairs(&base, &runs, base.eta_min_samples, "");
     pairs.sort_by(|a, b| a.0.ended.cmp(&b.0.ended));
@@ -236,7 +241,7 @@ fn half_width(ratios: &[f64], n: usize, twister: &mut Twister) -> Option<f64> {
 }
 
 pub(super) fn sweep_thin_n(db: &Connection, defaults: &Registry, since: &str) -> rusqlite::Result<Vec<Row>> {
-    let (base, runs) = (knobs(defaults), calibration_runs(db)?);
+    let (base, runs) = (knobs(defaults), calibration_runs_with(db, &rework(db)?)?);
     let eta: Vec<f64> = eta_pairs(&base, &runs, base.eta_min_samples, since).iter().map(|(run, eta)| run.minutes.unwrap_or_default() / eta).collect();
     let pools = [("eta_pred", eta), ("usd", usd_ratios(&runs, since))];
     let mut twister = Twister::seeded(BOOTSTRAP_SEED);

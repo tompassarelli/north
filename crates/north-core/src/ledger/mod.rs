@@ -20,7 +20,7 @@ mod report;
 mod verdict;
 
 pub use closed::{ClosedBox, ClosedReport, Figures};
-#[cfg(test)]
+#[doc(hidden)]
 pub use closed::{SpendRun, summarize};
 pub use closed_source::{EstimatedRun, PriorReport, arm_runs, arm_runs_in, closed_report, closed_report_and_previous, estimated_runs, prior_reports, window_start_ms};
 pub use report::{print_runs, print_summary};

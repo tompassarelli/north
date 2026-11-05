@@ -1,6 +1,6 @@
 pub mod attention;
 pub mod read;
-#[cfg(test)]
+#[doc(hidden)]
 pub mod replay_tests;
 #[cfg(test)]
 mod tests;

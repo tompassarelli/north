@@ -14,7 +14,6 @@ pub mod grounding;
 pub mod health;
 pub mod lanes;
 pub mod ledger;
-pub mod ops;
 pub mod pace;
 pub mod providers;
 pub mod proxy;

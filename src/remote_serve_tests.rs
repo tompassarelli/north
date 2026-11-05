@@ -1,4 +1,4 @@
-use north_core::ops::remote_serve::{Refusal, plan};
+use north_ops::ops::remote_serve::{Refusal, plan};
 
 #[test]
 fn remote_serve_refuses_the_planted_commands() {

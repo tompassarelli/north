@@ -120,11 +120,11 @@ fi
 "#;
 
 /// ```compile_fail
-/// let _: north_core::ops::land_offload::ship::CommitId = "HEAD".into();
+/// let _: north_ops::ops::land_offload::ship::CommitId = "HEAD".into();
 /// ```
 ///
 /// ```no_run
-/// let _ = north_core::ops::land_offload::ship::CommitId::resolve(std::path::Path::new("/"), "HEAD");
+/// let _ = north_ops::ops::land_offload::ship::CommitId::resolve(std::path::Path::new("/"), "HEAD");
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommitId(String);

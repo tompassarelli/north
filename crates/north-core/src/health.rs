@@ -509,7 +509,7 @@ pub fn run(arguments: &[String], citations: fn(&Path) -> Result<(), String>) -> 
 
 mod failed_starts;
 mod issues;
-pub(crate) mod loops;
+pub mod loops;
 mod main_red;
 mod rework;
 mod units;

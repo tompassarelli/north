@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 
 use super::report::{Inputs, Run, handoff_fix, parse_time, report};
 use super::report_command::capacity_flag;
-use crate::ops::provider_capacity::Outcome;
+use crate::capacity::provider_capacity::Outcome;
 
 const NOW: &str = "2026-11-05T12:00:00Z";
 const HANDOFF_CTX: f64 = 350_000.0;

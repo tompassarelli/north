@@ -59,7 +59,7 @@ Neither waste-saving interval excludes zero, so neither arm qualifies for adopti
 ## Goal ETA
 
 `agents plan` prints one line per `[projects.P] target`: the critical path over the goal's open Done-when boxes
-(`crates/north-core/src/ops/agents/goal/`). The goal's issues are `[projects.P] goal = ["P#N", ...]` when set, else the open
+(`crates/north-ops/src/ops/agents/goal/`). The goal's issues are `[projects.P] goal = ["P#N", ...]` when set, else the open
 `priority:now` issues. A box's ETA is a box duration, not one run: `threads box_chains` chains an item's worker runs
 in staffed order while each starts within `box_chain_gap_min` (30) minutes of the chain's latest end, and a chain
 with a landed run lasts from its first staffed to its last landed, so it holds the worker run, follow-ups, the lead's
@@ -79,7 +79,7 @@ target lands after it, not from the whole-repo open-issue count. `agents plan --
 independent boxes (`--category` for the box duration) and keeps its $ part.
 
 Replay at each goal's start, from ledger runs ended before it, landings after it dropped, no box calibration
-(`goals_of_12_oct_replayed_from_their_start` in `crates/north-core/src/ops/agents/goal/tests.rs`, fixture `harness/lib/fixtures/goal-eta-2026-10-12.json`):
+(`goals_of_12_oct_replayed_from_their_start` in `crates/north-ops/src/ops/agents/goal/tests.rs`, fixture `harness/lib/fixtures/goal-eta-2026-10-12.json`):
 
 | goal | start | predicted (box duration) | lane M (per-run p75) | actual | serial hand-sum | hand estimate then |
 |---|---|---|---|---|---|---|

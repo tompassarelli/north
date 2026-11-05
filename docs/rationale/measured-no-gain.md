@@ -31,8 +31,8 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
   excluded zero, so routing stayed as it was ([feedback-loop.md](../feedback-loop.md#similar-task-retrieval-keep-current-routing-2026-10-15)).
   The learned routing backtest found no durable gain on 2026-10-12, and the script holding both replays was
   deleted on 2026-10-30 (cbe96542f), so the sentence saying the broad replay's CLI and arms are preserved is wrong.
-- Live code: `crates/north-core/src/ops/flow/notes.rs:9-18` and `:28-55` (`brief_coverage`),
-  `crates/north-core/src/ops/flow/mod.rs:93-94`, and its test at `crates/north-core/src/ops/flow/tests.rs:87-106`.
+- Live code: `crates/north-ops/src/ops/flow/notes.rs:9-18` and `:28-55` (`brief_coverage`),
+  `crates/north-ops/src/ops/flow/mod.rs:93-94`, and its test at `crates/north-ops/src/ops/flow/tests.rs:87-106`.
   `announce` prints `tagged finished worker briefs N/300 retrieval trigger; backtest requires >500` on every
   `north flow` and `agents flow` run, including the 5-minute `agents-flow-stall` timer (nixos-config
   `modules/agents-flow-stall/default.nix`, enabled on whiterabbit). The trigger points at a replay that no longer
@@ -44,16 +44,16 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
 
 - Measurement: tested with no gain for adding an advisor to the cheapest tier; the replay found no durable
   improvement (north#36, commits f471ef40, 784e1b90 and 8445503c, [references.md](../references.md#claude-code-advisor)).
-- Live code, `north advisor-report`: `crates/north-core/src/ops/advisor_report/` (mod.rs 292, stats.rs 107,
+- Live code, `north advisor-report`: `crates/north-ops/src/ops/advisor_report/` (mod.rs 292, stats.rs 107,
   tests.rs 95), `src/cli/tools.rs:60`, `src/cli/help.txt:60`, and the two priors only it reads,
   `noninferiority_margin` and `plan_per_list_claude` (`harness/defaults.toml:263-275`). No command, hook, timer
-  or land check calls it, and no gex45 session ran it in 14 days. `crates/north-core/src/ops/policy_replay/events.rs:8`
-  and `crates/north-core/src/ops/policy_replay/rows.rs:7` import `float_sum` through it; it is a re-export of
+  or land check calls it, and no gex45 session ran it in 14 days. `crates/north-ops/src/ops/policy_replay/events.rs:8`
+  and `crates/north-ops/src/ops/policy_replay/rows.rs:7` import `float_sum` through it; it is a re-export of
   `crate::platform::pystats::float_sum`, so they import that instead.
-- Live code, the arm inside `north policy-replay`: the `--advisor` flag (`crates/north-core/src/ops/policy_replay/cli.rs:9`,
-  `:49`, `:125-127`), advisor parsing (`crates/north-core/src/ops/policy_replay/events.rs:70-144`), the advisor
-  fields and their null-scoring (`crates/north-core/src/ops/policy_replay/run.rs:203-204`, `:215-216`, `:235-236`, `:253`,
-  `:265-291`), the tests at `crates/north-core/src/ops/policy_replay/tests.rs:140-183` and
+- Live code, the arm inside `north policy-replay`: the `--advisor` flag (`crates/north-ops/src/ops/policy_replay/cli.rs:9`,
+  `:49`, `:125-127`), advisor parsing (`crates/north-ops/src/ops/policy_replay/events.rs:70-144`), the advisor
+  fields and their null-scoring (`crates/north-ops/src/ops/policy_replay/run.rs:203-204`, `:215-216`, `:235-236`, `:253`,
+  `:265-291`), the tests at `crates/north-ops/src/ops/policy_replay/tests.rs:140-183` and
   `tests/it/policy_replay_run.rs:151-200`, and the fixtures `harness/scripts/policy-replay.advisor.jsonl` and
   `harness/scripts/fixtures/haiku-opus-advisor.*`. Every sweep trial runs through `run_one`, so the parsing runs on
   each sweep. `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` stays, set on every trial, so a replay never measures an
@@ -85,8 +85,8 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
   for 2026-10-28 to 2026-11-04 found 0 handoff-nudge wakes while 23 handoff-150k runs passed 150k.
   The 350k arm never separated from no-handoff because no run reached 350k (north#252, 2026-10-29) and nothing
   assigns it now.
-- Live code: `crates/north-core/src/ops/dispatch/handoff.rs` (114; `Arms::winner` at `:77-86` compares cost only,
-  so the Done-rate half of the bar is not enforced), `crates/north-core/src/ops/dispatch/mod.rs:179-181`,
+- Live code: `crates/north-ops/src/ops/dispatch/handoff.rs` (114; `Arms::winner` at `:77-86` compares cost only,
+  so the Done-rate half of the bar is not enforced), `crates/north-ops/src/ops/dispatch/mod.rs:179-181`,
   `crates/north-core/src/fleet/handoff.rs` (63), `crates/north-core/src/fleet/watch.rs:221-256`,
   `crates/north-core/src/fleet/registry/launching.rs:66`, and `handoff_arm_ctx` (`harness/defaults.toml:101-105`,
   read at `crates/north-core/src/pace/limits.rs:40`). `north dispatch` runs it every 5 minutes on Nexus (south
@@ -106,7 +106,7 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
   `agents/decisions/harness/escalation-review.md`). `north report` prints escalate 1/3, cheap-fix 2/8, split 0/1,
   and the last such run was 2026-10-26: 12 runs in three weeks against 45 needed, so no decision is in reach.
 - Live code: only prose assigns the arms (`harness/skills/workers/references/tiers.md:10`); readers are
-  `crates/north-core/src/ops/report/arms.rs` (74, via `crates/north-core/src/ops/report/mod.rs:86` and `:118`)
+  `crates/north-ops/src/ops/report/arms.rs` (74, via `crates/north-ops/src/ops/report/mod.rs:86` and `:118`)
   and `crates/north-core/src/threads/calibration/routing.rs:95`; `crates/north-core/src/ledger/planner/history.rs:163`
   goes with box 4.
 - Lines: about 80.
@@ -154,7 +154,7 @@ Each row of [feedback-loop.md](../feedback-loop.md) not read by a decision, with
   mining of 215 sessions. Verdict: deleted 2026-11-05; the review's bar now compares `rule_ids` in
   `agents/incidents.jsonl` from one retro to the last. Box 11.
 - Ten `harness/defaults.toml` entries carry `settles_when` but a source not starting `prior:`, so
-  `north defaults-measure --priors` never prints them (`crates/north-core/src/ops/defaults_measure/priors.rs:18`):
+  `north defaults-measure --priors` never prints them (`crates/north-ops/src/ops/defaults_measure/priors.rs:18`):
   build_input_retention_hours, capacity_mode_play_cpus, capture_batch_retention_hours, three codex_tier_*,
   evidence_retention_hours, explore_every, plan_meter_weighting, retention_budget_minutes. Verdict: wire, so the
   check lists every entry that has a settle count. Box 10.
@@ -163,7 +163,7 @@ Each row of [feedback-loop.md](../feedback-loop.md) not read by a decision, with
 
 Commands no timer, hook, skill or land check calls (14-day gex45 uses in brackets), and why each stays:
 `advisor-report` [0] goes in box 2; `agent-contain` [0] runs inside the laptop runner
-(`crates/north-core/src/ops/laptop_runner/mod.rs:158`); `safe-push-result` [0] is called by `bin/safe-push`;
+(`crates/north-ops/src/ops/laptop_runner/mod.rs:158`); `safe-push-result` [0] is called by `bin/safe-push`;
 `session-host` [0] is the fleet's runtime host; `context` [0] was added on 2026-11-04 to measure the skill and hook
 slimming; `orders` [0] is the standing-orders store `north fleet` reads; `laptop-ntfy` [0] is a nixos-config
 service (`modules/nexus-laptop-ntfy`). The rest ran by hand: `agents` [138], `ops` [105], `autoland-status`
@@ -177,17 +177,17 @@ service (`modules/nexus-laptop-ntfy`). The rest ran by hand: `agents` [138], `op
 Unconditional deletions total about 2,114 lines (boxes 1 to 4, 7 and 8); box 6 adds about 220 if the handoff
 arm loses. Each box is at most 45 minutes, lands alone through safe-push, and leaves the Rust land checks green.
 
-1. Retrieval trigger. Delete `brief_coverage` and its constants and test from `crates/north-core/src/ops/flow/`,
+1. Retrieval trigger. Delete `brief_coverage` and its constants and test from `crates/north-ops/src/ops/flow/`,
    the `retrieval trigger` line from `announce`, and the "CLI and arms are preserved" sentence from
    feedback-loop.md. Done when: `rg -n 'retrieval trigger|brief_coverage' crates docs/feedback-loop.md` prints
    nothing on origin/main.
-2. Advisor report. Delete `crates/north-core/src/ops/advisor_report/`, its `tools.rs` and `help.txt` lines and
+2. Advisor report. Delete `crates/north-ops/src/ops/advisor_report/`, its `tools.rs` and `help.txt` lines and
    the `noninferiority_margin` and `plan_per_list_claude` entries; policy-replay imports
    `crate::platform::pystats::float_sum`. Done when: `north advisor-report` exits as an unknown command and
    `rg -n 'advisor_report|noninferiority_margin|plan_per_list_claude' crates src harness` prints nothing.
 3. Advisor arm in policy-replay. Delete the `--advisor` flag, `AdvisorUsage` and its parsing, the advisor row
    fields and scoring, their tests and the advisor fixtures; set `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` on every
-   trial. Done when: `rg -n -i advisor crates/north-core/src/ops/policy_replay tests/it` prints only that env line.
+   trial. Done when: `rg -n -i advisor crates/north-ops/src/ops/policy_replay tests/it` prints only that env line.
 4. Planner band. Delete `crates/north-core/src/ledger/planner/`, `north ledger planner-band`,
    `recommend --planner` in Rust and in `bin/threads`, and their checks in `bin/threads.test.sh`; drop the
    trade-off paragraph from tier-routing.md. Done when: `rg -n 'planner-band|--planner|ledger::planner' crates src bin`
@@ -197,11 +197,11 @@ arm loses. Each box is at most 45 minutes, lands alone through safe-push, and le
    passes on origin/main and `north dispatch --dry-run` on Nexus prints the winner per tier with both rates.
 6. Handoff nudge, not before 2026-11-18 and only when no tier keeps handoff-150k under box 5. Delete
    `crates/north-core/src/fleet/handoff.rs`, the nudge in `crates/north-core/src/fleet/watch.rs`, the arm pick in
-   `crates/north-core/src/ops/dispatch/handoff.rs` and `mod.rs`, the session threshold and `handoff_arm_ctx`.
+   `crates/north-ops/src/ops/dispatch/handoff.rs` and `mod.rs`, the session threshold and `handoff_arm_ctx`.
    Done when: `rg -n 'handoff_arm_ctx|handoff-150k' crates harness` prints nothing; when a tier keeps it,
    this page records the reading instead.
 7. Restaff arms. Delete the arm sentence from `harness/skills/workers/references/tiers.md`,
-   `crates/north-core/src/ops/report/arms.rs` and its report call, and the arm read in
+   `crates/north-ops/src/ops/report/arms.rs` and its report call, and the arm read in
    `crates/north-core/src/threads/calibration/routing.rs:95`. Done when:
    `rg -n 'cheap-fix|Arm: escalate|Arm: split' crates harness` prints nothing.
 8. Replay-staffing. Delete `crates/north-core/src/threads/calibration/replay.rs`, its verb in Rust and in

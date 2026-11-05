@@ -16,8 +16,8 @@ fn declared(files: &[&str]) -> Vec<String> {
 
 #[test]
 fn the_files_line_yields_paths_and_directories_without_the_notes_beside_them() {
-    let brief = "Item: north#1 x\nFiles: src/cli/fleet/ (launch), crates/north-core/src/ops/dispatch/, threads queue follow, .gitattributes (regenerate driver, docs-6 in flight)\nPayback: y";
-    assert_eq!(declared_files(brief), [".gitattributes", "crates/north-core/src/ops/dispatch/", "src/cli/fleet/"]);
+    let brief = "Item: north#1 x\nFiles: src/cli/fleet/ (launch), crates/north-ops/src/ops/dispatch/, threads queue follow, .gitattributes (regenerate driver, docs-6 in flight)\nPayback: y";
+    assert_eq!(declared_files(brief), [".gitattributes", "crates/north-ops/src/ops/dispatch/", "src/cli/fleet/"]);
     assert_eq!(declared_files("Files: `a/b.rs`, `a/b.rs`, north docs/rationale/, e.g. nothing."), ["a/b.rs", "docs/rationale/"]);
     assert!(declared_files("Item: x\nno files line").is_empty());
 }

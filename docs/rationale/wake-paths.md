@@ -41,7 +41,7 @@ session quiet past twice its ETA to its parent.
 | 14 | Other fleet messages (`north fleet send` between leads, workers and the proxy) | `crates/north-core/src/fleet/registry/senders.rs:38` | 1,001 | 602 (60%) | is the message event | keep |
 | 15 | `job-run --notify`: the detached job's exit spooled to its session | `bin/job-run:83`; lease `crates/north-core/src/fleet/jobs.rs:1` | 78 | 31 (40%) | is the process event | keep |
 | 16 | `threads queue follow`: a Follows box is sent to its parent once its predecessor lands | `crates/north-core/src/threads/jobs/queue.rs:82`; `crates/north-landing/src/follows_release.rs:114` | 1 | 0 | is the message event (a landing) | keep |
-| 17 | `north flow` stall, stranded and refused alerts to the repository's Fleet parent, repeated every 15 min while they last | `crates/north-core/src/ops/flow/alerts.rs:136`, `:15` (`REPEAT_SECONDS`), `:93` to `:106` | 219 | 192 (88%) | the first alert is the event; each repeat restates it | cut the repeat; the first alert stays a message event |
+| 17 | `north flow` stall, stranded and refused alerts to the repository's Fleet parent, repeated every 15 min while they last | `crates/north-ops/src/ops/flow/alerts.rs:136`, `:15` (`REPEAT_SECONDS`), `:93` to `:106` | 219 | 192 (88%) | the first alert is the event; each repeat restates it | cut the repeat; the first alert stays a message event |
 | 18 | Host reboot resume | `crates/north-core/src/fleet/rebooted.rs:18`, `:59` | 1 | 0 | is the process event | keep |
 | 19 | Context handoff nudge at the brief's arm threshold | `crates/north-core/src/fleet/handoff.rs:19`; `crates/north-core/src/fleet/watch.rs:223` | 0 | n/a | is a message event (a context reading) | keep |
 

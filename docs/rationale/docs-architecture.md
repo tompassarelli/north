@@ -129,7 +129,7 @@ is.
 ## Boxes
 
 Each box is one lane landed through `safe-push --to main`. Code boxes that extend
-`crates/north-core/src/ops/citation_check/` run in sequence (4, then 5, then 2b) because they edit the
+`crates/north-ops/src/ops/citation_check/` run in sequence (4, then 5, then 2b) because they edit the
 same module; content boxes run in parallel with them and with each other. Box 3 waits for the
 features-index lane, box 6 for box 3d and the merge-driver lane.
 

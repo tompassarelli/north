@@ -6,7 +6,7 @@ use north_base::foundation::clock::Timestamp;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
-use crate::ops::provider_capacity::Outcome;
+use crate::capacity::provider_capacity::Outcome;
 use super::report::{Inputs, Run, handoff_fix, parse_time, report};
 use super::sampler::{ROTATED_FILE, SAMPLES_FILE};
 use super::snapshot::read;
@@ -101,7 +101,7 @@ pub(super) fn run(arguments: &[String]) -> Result<(), String> {
         let mut result = report(&inputs, window);
         let flags = result["flags"].as_array_mut().expect("a report has flags");
         flags.extend(ledger_error.iter().map(|error| Value::String(format!("handoff check unavailable: {error}"))));
-        flags.extend(capacity_flag(crate::ops::provider_capacity::capacity_events(window)).map(Value::String));
+        flags.extend(capacity_flag(crate::capacity::provider_capacity::capacity_events(window)).map(Value::String));
         println!("{result}");
     }
     Ok(())

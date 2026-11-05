@@ -8,7 +8,7 @@ use std::path::{Component, Path, PathBuf};
 #[test]
 fn only_files_the_release_build_reads_count_as_rust_inputs() {
     for path in [
-        "crates/north-core/src/ops/runtime/update.rs",
+        "crates/north-ops/src/ops/runtime/update.rs",
         "crates/north-core/src/usage/fixtures/states.json",
         "src/main.rs",
         "src/cli/help.txt",

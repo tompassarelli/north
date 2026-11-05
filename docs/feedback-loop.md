@@ -21,16 +21,16 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.outcome, follows, landed, expects_landing | north worker-ledger | crates/north-core/src/threads/calibration/read.rs succeeded; crates/north-core/src/usage/ctx.rs routing success | read | 4a58f21e |
 | runs.tier | north worker-ledger | crates/north-core/src/threads/calibration/recommend.rs recommend, every provider | read | 4b71ac63 |
 | runs.category and facets | bin/threads brief_fields | crates/north-core/src/threads/calibration/recommend.rs recommend, recommend_eta | read | |
-| runs.arm | bin/threads:967 | crates/north-core/src/ops/report/arms.rs, Wilson 95% per arm | read | lane H |
+| runs.arm | bin/threads:967 | crates/north-ops/src/ops/report/arms.rs, Wilson 95% per arm | read | lane H |
 | runs.lens, flaws | north worker-ledger | crates/north-core/src/threads/calibration/summary.rs lens table | read | |
 | runs.repeats | none | none | dropped | 4aecdaf9 |
 | runs.tokens | north worker-ledger | crates/north-core/src/threads/calibration/summary.rs tokens_med, tokens_per_closed | read | |
-| runs.cost_usd | bin/threads:989 | crates/north-core/src/threads/calibration/recommend.rs recommend_usd median $ line (tier choice prices runs.tokens at API-equivalent rates); crates/north-core/src/ops/agents/goal/metrics.rs delivery_metrics; crates/north-core/src/ops/agents/goal/score.rs | read | 4b71ac63 |
-| runs.staffed, review_requested, landed_at | north worker-ledger | crates/north-core/src/ops/agents/goal/metrics.rs delivery_metrics | read | |
+| runs.cost_usd | bin/threads:989 | crates/north-core/src/threads/calibration/recommend.rs recommend_usd median $ line (tier choice prices runs.tokens at API-equivalent rates); crates/north-ops/src/ops/agents/goal/metrics.rs delivery_metrics; crates/north-ops/src/ops/agents/goal/score.rs | read | 4b71ac63 |
+| runs.staffed, review_requested, landed_at | north worker-ledger | crates/north-ops/src/ops/agents/goal/metrics.rs delivery_metrics | read | |
 | runs.landed_sha | north worker-ledger | crates/north-core/src/ledger/outcome/read.rs staffed joins each worker run to its landed commit for `north flow`; crates/north-core/src/threads/calibration/rework.rs landings judges the commit on main; crates/north-core/src/ledger/closed_source.rs reworked_agents feeds the cost per closed box | read | |
 | landings.landed_sha, first_commit_at | north land-train record (the lander) | crates/north-core/src/ledger/outcome/read.rs landed, first-commit-to-main p50 in `north flow`; crates/north-core/src/threads/landing/tempo.rs | read | |
-| land_tempo (landed, queued->main and first commit->main p50 and p90, refused alone, conflicts, queued now; one row per repo, hour and window of 60 or 1440 minutes) | `north tempo --record` (crates/north-core/src/ops/tempo/mod.rs over the lander's `land-queue/<key>/done/` tickets, hourly by the nixos-config north-tempo timer) | the Payback line of every harness box (harness/skills/workers/references/payback.md, Landing tempo): the 1440-minute first commit->main p50 is the harness outcome number, target 10 minutes, and a landing-path box prices its saving against it | read | |
-| Tom's human turns (convo store index-v4.db, transcript origin human) | Claude Code transcripts, indexed by north convo | crates/north-core/src/ops/agents/presence/live.rs typed_messages feeds `north flow` attention, corrections per active day and who noticed each incident first (crates/north-core/src/ledger/outcome/attention.rs) | read | |
+| land_tempo (landed, queued->main and first commit->main p50 and p90, refused alone, conflicts, queued now; one row per repo, hour and window of 60 or 1440 minutes) | `north tempo --record` (crates/north-ops/src/ops/tempo/mod.rs over the lander's `land-queue/<key>/done/` tickets, hourly by the nixos-config north-tempo timer) | the Payback line of every harness box (harness/skills/workers/references/payback.md, Landing tempo): the 1440-minute first commit->main p50 is the harness outcome number, target 10 minutes, and a landing-path box prices its saving against it | read | |
+| Tom's human turns (convo store index-v4.db, transcript origin human) | Claude Code transcripts, indexed by north convo | crates/north-ops/src/ops/agents/presence/live.rs typed_messages feeds `north flow` attention, corrections per active day and who noticed each incident first (crates/north-core/src/ledger/outcome/attention.rs) | read | |
 | north/grounding/ledger.jsonl tom correction, tom direction | north grounding distill | crates/north-core/src/ledger/outcome/read.rs corrections, counted only when the row's convo message is one of Tom's human turns | read | |
 | runs.first_commit | none (tally-internal, crates/north-core/src/providers/claude/runs/landing.rs tally) | none | dropped | 4aecdaf9 |
 | runs.turns, tool_calls, active_min, wait_min | crates/north-core/src/providers/claude/runs/activity.rs (Claude workers; recorded by crates/north-core/src/threads/runs/record.rs; `threads run-ids --settled` leaves out a Claude run with a null active_min so the next ingest re-reads its transcript and fills the four columns, and Codex and Gemini rows stay out of that re-read) | crates/north-core/src/threads/calibration/recommend.rs recommend_eta: the `eta` line of `north worker-ledger --recommend` prints `eta active <median>m (p25 <a>–p90 <b>, n=<N>) wall p75 <W>m wait median <X>m` from the cell's runs that recorded active minutes (at least `eta_min_samples` of them), and `eta wall <W>m (p75 of n=<N>, ...; too few runs with active minutes)` otherwise; active minutes are work, the wall p75 includes the waits | read | |
@@ -53,22 +53,22 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | capacity_runs io, diskBusyShare | crates/north-core/src/capacity/host/run.rs record | crates/north-core/src/capacity/host/estimate.rs estimate output | read | |
 | capacity_runs.exitCode | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
 | capacity_runs.command, cpuSeconds | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/model.rs Subject::levels keys the model by command; update folds cpu_seconds into each level | read | |
-| job_runs | bin/threads:1748 | crates/north-core/src/threads/jobs/mod.rs job_runs; crates/north-core/src/ops/job_watch/mod.rs | read | |
-| model_events | crates/north-core/src/ops/model_watch | crates/north-core/src/usage/ctx.rs successors, routing hold | read | 4a58f21e |
+| job_runs | bin/threads:1748 | crates/north-core/src/threads/jobs/mod.rs job_runs; crates/north-ops/src/ops/job_watch/mod.rs | read | |
+| model_events | crates/north-ops/src/ops/model_watch | crates/north-core/src/usage/ctx.rs successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | crates/north-core/src/capacity/host/database.rs record_usage | crates/north-core/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | crates/north-core/src/usage/gate.rs | crates/north-guard/src/guard/spawn_capacity/usage.rs | read | |
-| spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
+| spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | crates/north-ops/src/ops/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | none (harness/lib/spawn.py and spawn_queue.py no longer exist on main) | none | dropped | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
-| goal-scores.jsonl | crates/north-core/src/ops/agents/goal/score.rs | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
+| goal-scores.jsonl | crates/north-ops/src/ops/agents/goal/score.rs | crates/north-ops/src/ops/report/mod.rs jsonl | read | 871718bb |
 | S:costs.toml | hand | crates/north-core/src/usage/settings.rs services | read | |
 | costs/*.json | crates/north-core/src/usage/refresh/digitalocean.rs | crates/north-core/src/usage/settings.rs service lines | read | |
-| S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-core/src/ops/timers/skill_prune.rs | read | |
-| injected context per session (startup, SKILL bodies, skill references, grounding, other hook context; grounding precision and notification-triggered injections), derived from Claude transcripts | Claude Code transcripts under ~/.local/state/north/profiles/claude-*/projects | crates/north-core/src/ops/context_audit/scan.rs audit_file; `north context audit` measures the skill and hook slimming program | read | |
-| S:incidents.jsonl | north incident-mine (crates/north-core/src/ops/incident_mine) | crates/north-core/src/agent_config_check/rules.rs | read | |
+| S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-ops/src/ops/timers/skill_prune.rs | read | |
+| injected context per session (startup, SKILL bodies, skill references, grounding, other hook context; grounding precision and notification-triggered injections), derived from Claude transcripts | Claude Code transcripts under ~/.local/state/north/profiles/claude-*/projects | crates/north-ops/src/ops/context_audit/scan.rs audit_file; `north context audit` measures the skill and hook slimming program | read | |
+| S:incidents.jsonl | north incident-mine (crates/north-ops/src/ops/incident_mine) | crates/north-core/src/agent_config_check/rules.rs | read | |
 | incidents (class, noticed_by, started_at, detected_at, fixed_at, guard, recurred_after_guard) | north incident record from the lander (crates/north-landing/src/land/incidents.rs, every verdict but landed and every held candidate) and north land withdraw; north incident import for backfills | crates/north-core/src/threads/incidents/report.rs, printed by north flow per 7 days and north incident report | read | |
 | incident_guards (class, guard, landed_at, issue) | north incident guard; north incident import | crates/north-core/src/threads/incidents/mod.rs insert marks a later row of the class recurred_after_guard | read | |
-| replay sweep-*.jsonl | north policy-replay sweep (crates/north-core/src/ops/policy_replay/sweep.rs) | crates/north-core/src/agent_config_check/gate.rs | read | |
+| replay sweep-*.jsonl | north policy-replay sweep (crates/north-ops/src/ops/policy_replay/sweep.rs) | crates/north-core/src/agent_config_check/gate.rs | read | |
 | harness/model-catalog.toml | hand | crates/north-core/src/usage/settings.rs CATALOG; crates/north-core/src/providers/codex/runs/usage.rs run_usage; crates/north-core/src/providers/claude/runs/telemetry.rs Prices | read | |
 
 The runs activity signal, per worker run from its transcript (north#255): turns = assistant messages;
@@ -93,9 +93,9 @@ State files the loops above write, relative to `~/.local/state`. `north health` 
 |---|---|---|---|---|
 | `agents/usage-gate.json` | `north/reader-stamps/agents/usage-gate.json` | crates/north-core/src/usage/gate.rs | 5m | north#35 |
 | `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` | crates/north-guard/src/guard/spawn_capacity/logs.rs | event | north#35 |
-| `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` | crates/north-core/src/ops/agents/goal/score.rs | event | north#35 |
+| `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` | crates/north-ops/src/ops/agents/goal/score.rs | event | north#35 |
 | `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-core/src/capacity/host/database.rs | event | north#35 |
-| `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-core/src/ops/usage_web_read | 6h | north#35 |
+| `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-ops/src/ops/usage_web_read | 6h | north#35 |
 
 ## Recorded readings
 

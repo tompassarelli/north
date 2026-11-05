@@ -5,7 +5,7 @@ use toml_edit::{DocumentMut, Item};
 
 const KINDS: [&str; 4] = ["measured: ", "tom: ", "standard: ", "prior: "];
 const NAME_PREFIXES: [&str; 2] = ["codex_route_", "codex_tier_"];
-const PRIORS: &str = "crates/north-core/src/ops/defaults_measure/priors.rs";
+const PRIORS: &str = "crates/north-ops/src/ops/defaults_measure/priors.rs";
 
 pub(super) fn lint(root: &Path) -> Vec<String> {
     let text = fs::read_to_string(root.join("harness/defaults.toml")).expect("harness/defaults.toml reads");

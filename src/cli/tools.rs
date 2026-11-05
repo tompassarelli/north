@@ -75,7 +75,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("private-check", crate::ops::private_check::run),
     ("watch", crate::watch::run),
     ("ssh-argv", crate::platform::ssh::run),
-    ("provider-capacity", crate::ops::provider_capacity::run),
+    ("provider-capacity", crate::capacity::provider_capacity::run),
     ("gh-app-token", crate::platform::github_app::run),
 ];
 
