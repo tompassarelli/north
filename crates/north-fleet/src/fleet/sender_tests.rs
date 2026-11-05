@@ -69,6 +69,6 @@ fn no_shell_script_runs_north_fleet_send_without_naming_its_sender() {
             }
         }
     }
-    assert!(shell_outs >= 1, "the scan found no shell script that sends");
-    assert!(bare.is_empty(), "north fleet send without --from service:UNIT: {bare:?}");
+    assert!(scripts.len() >= 10, "the scan read only {} bin/ scripts; it no longer reads the source tree", scripts.len());
+    assert!(bare.is_empty(), "north fleet send without --from service:UNIT across {shell_outs} sends: {bare:?}");
 }

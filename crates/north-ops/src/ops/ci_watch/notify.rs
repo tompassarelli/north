@@ -141,7 +141,7 @@ impl Io for Shell {
     }
 
     fn send(&self, target: &str, text: &str) -> Result<(), String> {
-        north(&["fleet", "send", target, text]).map(drop)
+        north(&["fleet", "send", "--from", "service:red-main-notify", target, text]).map(drop)
     }
 }
 
