@@ -16,3 +16,7 @@ Every git push from an agent session went through `gh auth git-credential`, whic
 
 - Give the north lander App the `v*` bypass and have `north release` mint its token: GitHub would then refuse an agent's `v*` tag too, but the lander App would need installing on 15 more repositories and its key would leave the lander's credential boundary. Today safe-push refuses `v*` tags outside `north release` and the tripwire refuses a raw `git push`, so the extra GitHub-side guard buys little.
 - Point `GH_TOKEN` at the App: issue, comment and pull request writes would become the bot's and depend on its permissions; out of scope for a tag guard.
+
+## Observed
+
+On 2026-11-06 a `north safe-push --tag probe-2026-11-06` from a session with the fleet's git environment was refused by GitHub (`GH013: Repository rule violations ... Cannot create ref due to creations being restricted`), and the lane that recorded this note was pushed with the same identity and landed by the lander.
