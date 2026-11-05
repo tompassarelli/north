@@ -14,6 +14,7 @@ const MARKER: &str = "<!-- after-landing-gate: ";
 const TAIL_LINES: usize = 15;
 const BODY_LIMIT: usize = 60_000;
 const TITLE: &str = "After-landing gate debt";
+const FIELDS: &str = "Category: bug-known-cause\nClass: a gate that runs after landing failed on a landed commit: every section below.\n";
 const HEADER: &str = "Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit.";
 const DROPPED: &str = "Older sections dropped: ";
 const DONE_WHEN: &str = "\n## Done when\n- [ ] No section remains below: each failed gate is fixed forward on main and its section deleted.\n";
@@ -103,7 +104,7 @@ fn dropped_before(body: &str) -> usize {
 }
 
 fn render(dropped: usize, sections: &[String]) -> String {
-    let mut body = format!("{HEADER}\n");
+    let mut body = format!("{FIELDS}{HEADER}\n");
     if dropped > 0 {
         body.push_str(&format!("{DROPPED}{dropped}.\n"));
     }
