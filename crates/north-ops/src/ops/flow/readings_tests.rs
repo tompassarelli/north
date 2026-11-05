@@ -151,7 +151,7 @@ fn test_recorded_11_12_oct_landings_without_closures() {
     let targets = project_targets(&config);
     assert_eq!(targets.keys().map(String::as_str).collect::<Vec<_>>(), ["makgora", "north"]);
     let claims = BTreeMap::new();
-    let inputs = |repo, open, closed, log, landings, pushes, pending_since| Inputs { repo, now, open_count: Some(open), closed, main_log: log, landings, pushes, target: targets.get(repo).copied(), dead_lanes: &[], claims: &claims, pending_since };
+    let inputs = |repo, open, closed, log, landings, pushes, pending_since| Inputs { repo, now, open_count: Some(open), waiting: None, closed, main_log: log, landings, pushes, target: targets.get(repo).copied(), dead_lanes: &[], claims: &claims, pending_since };
     let waiting = [now - 900.0];
     let row = throughput(&inputs("makgora", 78, &closed, &main_log, &landings, &pushes, &waiting));
     assert!((row.closed_per_hour.unwrap() - 1.0 / 3.0).abs() < 1e-9);
@@ -175,7 +175,7 @@ fn test_recorded_11_12_oct_landings_without_closures() {
     let failed = now - 3600.0;
     let lanes: Vec<DeadLane> = [(failed, 513), (failed, 514), (now - 300.0, 515)].into_iter().map(|(failed_at, number)| DeadLane { failed_at, issues: BTreeSet::from([number]) }).collect();
     let claimed = BTreeMap::from([(514, failed + 60.0)]);
-    let stuck = throughput(&Inputs { repo: "makgora", now, open_count: Some(78), closed: &closed, main_log: &main_log, landings: &landings, pushes: &pushes, target: None, dead_lanes: &lanes, claims: &claimed, pending_since: &[] });
+    let stuck = throughput(&Inputs { repo: "makgora", now, open_count: Some(78), waiting: None, closed: &closed, main_log: &main_log, landings: &landings, pushes: &pushes, target: None, dead_lanes: &lanes, claims: &claimed, pending_since: &[] });
     assert_eq!((stuck.needed_per_hour, stuck.failed_unowned), (None, 1));
 }
 
@@ -183,7 +183,7 @@ fn test_recorded_11_12_oct_landings_without_closures() {
 fn a_size_label_on_a_release_or_bet_issue_changes_the_throughput_canary_expected_count() {
     let now = at("2026-10-12T03:45:00Z");
     let claims = BTreeMap::new();
-    let needed = |open| throughput(&Inputs { repo: "north", now, open_count: Some(open), closed: &[], main_log: &[], landings: &[], pushes: &[], target: Some(now + 12.0 * 3600.0), dead_lanes: &[], claims: &claims, pending_since: &[] }).needed_per_hour;
+    let needed = |open| throughput(&Inputs { repo: "north", now, open_count: Some(open), waiting: None, closed: &[], main_log: &[], landings: &[], pushes: &[], target: Some(now + 12.0 * 3600.0), dead_lanes: &[], claims: &claims, pending_since: &[] }).needed_per_hour;
     let labels = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<String>>();
     assert_eq!(needed(sized_open(24, &[])), Some(2.0));
     assert_eq!(needed(sized_open(24, &[labels(&["bet", "size:S"]), labels(&["release"])])), Some(2.0));

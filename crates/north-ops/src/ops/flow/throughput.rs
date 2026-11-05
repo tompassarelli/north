@@ -37,6 +37,7 @@ pub struct Inputs<'a> {
     pub repo: &'a str,
     pub now: f64,
     pub open_count: Option<u64>,
+    pub waiting: Option<u64>,
     pub closed: &'a [Closed],
     pub main_log: &'a [Commit],
     pub landings: &'a [f64],
@@ -52,6 +53,8 @@ pub struct Throughput {
     pub target: Option<f64>,
     pub closed_per_hour: Option<f64>,
     pub needed_per_hour: Option<f64>,
+    pub workable_boxes: Option<u64>,
+    pub waiting_boxes: Option<u64>,
     pub land_to_close_minutes: Option<f64>,
     pub land_ratio_3h: Option<f64>,
     pub failed_unowned: usize,
@@ -83,7 +86,8 @@ pub fn throughput(inputs: &Inputs) -> Throughput {
     let recent: Vec<&Closed> = inputs.closed.iter().filter(|item| (now - DAY..=now).contains(&item.closed_at)).collect();
     let closed_per_hour = inputs.open_count.map(|_| recent.iter().filter(|item| item.closed_at >= now - WINDOW).count() as f64 / 3.0);
     let hours = inputs.target.map_or(0.0, |target| (target - now) / 3600.0);
-    let needed_per_hour = inputs.open_count.filter(|_| hours > 0.0).map(|open| open as f64 / hours);
+    let workable = inputs.open_count.map(|open| open.saturating_sub(inputs.waiting.unwrap_or(0)));
+    let needed_per_hour = workable.filter(|_| hours > 0.0).map(|open| open as f64 / hours);
     let mut referenced: BTreeMap<u64, Vec<f64>> = BTreeMap::new();
     for commit in inputs.main_log {
         for number in issue_refs(&commit.message, inputs.repo) {
@@ -102,6 +106,8 @@ pub fn throughput(inputs: &Inputs) -> Throughput {
         target: inputs.target,
         closed_per_hour,
         needed_per_hour,
+        workable_boxes: workable,
+        waiting_boxes: inputs.waiting.filter(|_| workable.is_some()),
         land_to_close_minutes: median(&samples),
         land_ratio_3h: (pushed > 0).then(|| within(inputs.landings) as f64 / pushed as f64),
         failed_unowned: unowned,

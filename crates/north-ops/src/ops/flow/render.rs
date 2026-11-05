@@ -101,13 +101,15 @@ fn job_limits(row: &Value) -> String {
 
 fn throughput(row: &Value) -> String {
     format!(
-        ", closed {} needed {}, land-to-close {}, land ratio {} over 3h, failed unowned {}, oldest lane wait {}",
+        ", closed {} needed {}, land-to-close {}, land ratio {} over 3h, failed unowned {}, oldest lane wait {}, boxes workable {} waiting {}",
         shown(&row["closed_per_hour"], 1, "/h"),
         shown(&row["needed_per_hour"], 1, "/h"),
         shown(&row["land_to_close_minutes"], 0, "m"),
         shown(&row["land_ratio_3h"], 2, ""),
         plain(&row["failed_unowned"]),
         shown(&row["oldest_lane_wait_minutes"], 0, "m"),
+        shown(&row["workable_boxes"], 0, ""),
+        shown(&row["waiting_boxes"], 0, ""),
     )
 }
 
