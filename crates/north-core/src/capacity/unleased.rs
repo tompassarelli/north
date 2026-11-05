@@ -38,7 +38,7 @@ pub(super) fn summarize(sample: &Value, now: f64) -> Option<Value> {
     let heavy: Vec<(String, f64, Value)> = cgroups
         .iter()
         .filter_map(|entry| Some((entry["cgroup"].as_str()?, entry["cores"].as_f64()?)))
-        .filter(|(cgroup, cores)| *cores > CORE_THRESHOLD && !skipped(cgroup) && !cgroups.iter().any(|other| other["cgroup"].as_str().is_some_and(|name| name.starts_with(&format!("{cgroup}/")))))
+        .filter(|(cgroup, cores)| *cores > CORE_THRESHOLD && !skipped(cgroup) && !leased(cgroup) && !cgroups.iter().any(|other| other["cgroup"].as_str().is_some_and(|name| name.starts_with(&format!("{cgroup}/")))))
         .map(|(cgroup, cores)| {
             let top: Vec<Value> = tops.iter().filter(|item| item["cgroup"] == cgroup).take(3).map(|item| pick(item, &["pid", "cores", "command"])).collect();
             (cgroup.to_owned(), round(cores), json!({ "cgroup": cgroup, "cores": round(cores), "top": top }))
@@ -47,7 +47,8 @@ pub(super) fn summarize(sample: &Value, now: f64) -> Option<Value> {
     let cores_of = |name: &str| cgroups.iter().find(|entry| entry["cgroup"] == name).and_then(|entry| entry["cores"].as_f64()).unwrap_or(0.0);
     let heavy_sum: f64 = heavy.iter().map(|(_, cores, _)| cores).sum();
     let agent_heavy: f64 = heavy.iter().filter(|(cgroup, ..)| cgroup.starts_with("agent.slice/")).map(|(_, cores, _)| cores).sum();
-    let residual = (cores_of("agent.slice") - cores_of("agent.slice/agent-capacity.slice") - agent_heavy).max(0.0);
+    let batch_leases: f64 = cgroups.iter().filter_map(|entry| Some((entry["cgroup"].as_str()?, entry["cores"].as_f64()?))).filter(|(cgroup, _)| cgroup.starts_with("agent.slice/") && !skipped(cgroup) && lease_scope(cgroup.rsplit('/').next().unwrap_or_default()) && !cgroup.rsplit_once('/').is_some_and(|(parent, _)| leased(parent))).map(|(_, cores)| cores).sum();
+    let residual = (cores_of("agent.slice") - cores_of("agent.slice/agent-capacity.slice") - agent_heavy - batch_leases).max(0.0);
     let sessions: Vec<Value> = tops.iter().filter(|item| item["cores"].as_f64().is_some_and(|cores| cores >= 0.25) && provider(item)).take(5).map(session).collect();
     Some(json!({
         "heavy": heavy.iter().map(|(.., entry)| entry).collect::<Vec<_>>(),
@@ -66,6 +67,14 @@ fn last_line(path: &std::path::Path) -> Option<String> {
     let mut bytes = Vec::new();
     file.take(length).read_to_end(&mut bytes).ok()?;
     Some(String::from_utf8_lossy(&bytes).trim_end().rsplit('\n').next()?.to_owned())
+}
+
+fn lease_scope(name: &str) -> bool {
+    name.starts_with("agent-capacity-") && name.ends_with(".scope")
+}
+
+fn leased(cgroup: &str) -> bool {
+    cgroup.split('/').any(lease_scope)
 }
 
 fn skipped(cgroup: &str) -> bool {
