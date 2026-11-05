@@ -1,5 +1,5 @@
 use crate::hook::{HookInput, Verdict};
-use crate::ops::dispatch::Tier;
+use crate::router::tier::Tier;
 use crate::platform::pyjson::Value;
 use regex::Regex;
 use std::sync::LazyLock;
@@ -56,7 +56,7 @@ static ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t]*Item:[ \
 static TIER_REASON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[ \t]*Tier-reason:[ \t]*\S").unwrap());
 
 fn routed_tier(brief: &str) -> Option<Tier> {
-    crate::ops::dispatch::picked_tier(brief).ok()
+    super::host::picked_tier(brief).ok()
 }
 
 fn asked_tier(kind: &str) -> Option<Tier> {

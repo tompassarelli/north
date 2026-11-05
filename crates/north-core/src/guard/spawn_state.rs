@@ -15,7 +15,7 @@ pub(super) fn agents_directory() -> PathBuf {
 }
 
 pub(super) fn release_pending_use(session: &str, tool_use_id: &str) {
-    let _ = crate::ops::pacing::answer(&json!({
+    let _ = super::host::pace(&json!({
         "op": "confirm",
         "directory": agents_directory(),
         "session": session,

@@ -15,6 +15,7 @@ const PROTECTED_PRESSURE_LIMIT: f64 = 20.0;
 const LOCAL_CLAUDE_TYPES: [&str; 8] = ["worker", "worker-high", "worker-xhigh", "worker-haiku", "worker-sonnet", "general-purpose", "Explore", "fork"];
 const EXEMPT_MARKER: &str = "[routine:watchdog]";
 const UNIT: &str = "spawn-capacity-guard";
+const HOOKED: Live = Live { pace: crate::guard::host::pace };
 
 pub trait World {
     fn now(&self) -> f64;
@@ -37,7 +38,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 pub fn admission(input: &HookInput) -> Verdict {
-    match Event::from_hook(input).and_then(|event| decide(&Live, &event)) {
+    match Event::from_hook(input).and_then(|event| decide(&HOOKED, &event)) {
         Some(reason) => Verdict::Deny(reason),
         None => Verdict::Allow,
     }
@@ -47,8 +48,8 @@ pub fn confirm_native(input: &HookInput) -> Verdict {
     if input.data["hook_event_name"] == "PostToolUse" && input.data["tool_name"].as_str().is_some_and(|tool| tool.ends_with("spawn_agent"))
         && let Some(event) = Event::from_hook(input)
     {
-        let _ = Live.pace(&json!({
-            "op": "confirm", "directory": state_dir(&Live).join("agents"), "session": event.raw["session_id"],
+        let _ = HOOKED.pace(&json!({
+            "op": "confirm", "directory": state_dir(&HOOKED).join("agents"), "session": event.raw["session_id"],
             "tool_use_id": event.raw["tool_use_id"], "launched": true,
         }));
     }

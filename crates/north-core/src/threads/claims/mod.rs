@@ -8,8 +8,6 @@ use toml_edit::DocumentMut;
 pub mod issues;
 pub mod ledger;
 pub mod verbs;
-#[cfg(test)]
-mod tests;
 
 pub static OVERDUE_RATIO: LazyLock<f64> = LazyLock::new(|| {
     let defaults: DocumentMut = include_str!("../../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses");

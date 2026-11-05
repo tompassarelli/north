@@ -317,7 +317,7 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
     let kind = match arguments {
         [] => None,
         [verb] if verb == "spawn-gate" => {
-            println!("{}", crate::guard::spawn_capacity::gate_summary(&crate::guard::spawn_capacity::Live));
+            println!("{}", crate::guard::spawn_capacity::gate_summary(&crate::guard::spawn_capacity::Live { pace: crate::guard::host::pace }));
             return Ok(());
         }
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),

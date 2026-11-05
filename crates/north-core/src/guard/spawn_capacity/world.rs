@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub struct Live;
+pub struct Live {
+    pub pace: crate::guard::host::Pace,
+}
 
 fn north() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"))
@@ -54,7 +56,7 @@ impl World for Live {
     }
 
     fn pace(&self, request: &Value) -> Result<Value, String> {
-        crate::ops::pacing::answer(request)
+        (self.pace)(request)
     }
 
     fn billed(&self, provider: &str) -> Option<String> {

@@ -142,6 +142,7 @@ fn dispatch(command: Command) -> ExitCode {
         },
         Command::Hook(arguments) => {
             guard::worker_handoff::install_confirm(crate::ops::pacing::confirm_spawn);
+            guard::host::install(guard::host::Host { pace: crate::ops::pacing::answer, picked_tier: crate::ops::dispatch::picked_tier });
             match hook::run(&arguments) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(message) => {
@@ -168,7 +169,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
         Command::BuildCacheGate(arguments) => in_runtime(async move { Ok(build_cache_gate::run_gate(&arguments)) }),
         Command::RuntimeFloorGate(arguments) => in_runtime(async move { Ok(runtime_floor_gate::run_gate(&arguments)) }),
-        Command::Health(arguments) => in_runtime(async move { Ok(health::run(&arguments, tools::defines)) }),
+        Command::Health(arguments) => in_runtime(async move { Ok(health::run(&arguments, |repo| crate::ops::citation_check::verdict(repo, tools::defines))) }),
         Command::GuardLanguage => in_runtime(async { Ok(language_gate::run_guard()) }),
         Command::ContractProbe(arguments) => in_runtime(async move {
             contract_probe::run(&arguments, probe_account::invocation).await.map(ExitCode::from)

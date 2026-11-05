@@ -10,6 +10,7 @@ pub mod plan;
 pub mod policy;
 pub mod pricing;
 pub mod route;
+pub mod tier;
 
 #[cfg(test)]
 mod routing_tests;

@@ -7,7 +7,6 @@ use std::process::{Command, ExitCode};
 use std::time::Duration;
 
 use crate::foundation::clock::Timestamp;
-use crate::ops::citation_check;
 use crate::platform::rolling_issue::Breaches;
 use crate::platform::sqlite::{self, Access};
 use units::{Reading, Run};
@@ -327,7 +326,7 @@ fn save(path: &Path, state: &impl Serialize) -> Result<(), String> {
     Ok(())
 }
 
-fn live(dry_run: bool, defined: fn(&str) -> bool) -> Result<bool, String> {
+fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME missing")?);
     let now = Timestamp::now().unix_seconds() as u64;
     let state_path = home.join(".local/state/north/health.json");
@@ -419,7 +418,7 @@ fn live(dry_run: bool, defined: fn(&str) -> bool) -> Result<bool, String> {
         })
         .collect();
     let north_runs = runs.get("north").and_then(|text| text.clone().ok());
-    results.push(("citations".into(), citation_check::verdict(&repo, defined)));
+    results.push(("citations".into(), citations(&repo)));
     let loop_root = std::env::var_os("NORTH_HEALTH_REPO").map_or_else(|| repo.clone(), PathBuf::from);
     let (loop_result, unverifiable) = loops::verdict(&loop_root, home.join(".local/state"));
     results.push(("loops".into(), loop_result));
@@ -489,7 +488,7 @@ fn live(dry_run: bool, defined: fn(&str) -> bool) -> Result<bool, String> {
     Ok(results.iter().all(|(_, result)| result.is_ok()))
 }
 
-pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> ExitCode {
+pub fn run(arguments: &[String], citations: fn(&Path) -> Result<(), String>) -> ExitCode {
     let dry_run = match arguments {
         [] => false,
         [flag] if flag == "--dry-run" => true,
@@ -498,7 +497,7 @@ pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match live(dry_run, defined) {
+    match live(dry_run, citations) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::from(1),
         Err(error) => {

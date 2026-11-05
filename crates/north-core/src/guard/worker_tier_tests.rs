@@ -230,7 +230,7 @@ fn a_brief_breaking_several_rules_gets_every_refusal_in_one_message() {
 mod routing {
     use super::{FACETS, input};
     use crate::guard::worker_tier::{is_native, routing_refusal, spawn_parts};
-    use crate::ops::dispatch::Tier;
+    use crate::router::tier::Tier;
     use serde_json::json;
 
     fn tooling() -> String {

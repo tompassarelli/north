@@ -20,8 +20,6 @@ pub use survey::evidence as arm_evidence;
 pub use tuned::current as tuned_routes;
 pub use record::{Record as LaunchRecord, read as launch_records};
 pub use tier::{ARM_WINDOW, ARMED, Evidence, Tier};
-#[cfg(test)]
-pub use survey::claim_rows;
 
 mod brief;
 mod cloud;
@@ -50,6 +48,8 @@ mod tries;
 mod wait;
 #[cfg(test)]
 mod claim_tests;
+#[cfg(test)]
+mod threads_claim_tests;
 #[cfg(test)]
 mod order_tests;
 #[cfg(test)]

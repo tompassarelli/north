@@ -6,6 +6,8 @@ use std::io::Write;
 
 mod command;
 #[cfg(test)]
+mod capacity_serving_tests;
+#[cfg(test)]
 mod grant_tests;
 mod grants;
 mod gate_order;
@@ -24,6 +26,8 @@ mod reservation;
 mod sampling;
 #[cfg(test)]
 mod sampling_tests;
+#[cfg(test)]
+mod spawn_capacity_tests;
 mod storage;
 
 pub use sampling::TokenUsage;

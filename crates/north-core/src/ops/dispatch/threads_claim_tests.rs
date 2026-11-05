@@ -4,11 +4,11 @@ use std::path::PathBuf;
 use rusqlite::{Connection, params};
 use serde_json::Value;
 
-use super::issues::{self, Issues};
-use super::verbs::{self, Context};
-use super::Issue;
+use crate::threads::claims::issues::{self, Issues};
+use crate::threads::claims::verbs::{self, Context};
+use crate::threads::claims::Issue;
 use crate::foundation::clock::Timestamp;
-use crate::ops::dispatch::claim_rows;
+use super::survey::claim_rows;
 
 const SCHEMA: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;
 CREATE TABLE claims(item TEXT PRIMARY KEY, owner TEXT NOT NULL, since TEXT NOT NULL, eta_min INTEGER CHECK(eta_min IS NULL OR eta_min > 0)) STRICT;

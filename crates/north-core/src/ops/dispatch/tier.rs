@@ -7,8 +7,8 @@ use super::issues::Issue;
 use super::record::Record;
 use crate::ledger::closed::ClosedReport;
 use crate::router::policy::ARM_RUNS;
+pub use crate::router::tier::Tier;
 use std::collections::BTreeMap;
-use toml_edit::DocumentMut;
 
 /// Window of the ledger's arm boxes whose cost per closed box decides an armed category; it spans the
 /// arms' whole trial, because a week held 14 closed boxes per arm at most (north#242, 2026-11-05).
@@ -16,69 +16,6 @@ pub const ARM_WINDOW: &str = "30d";
 /// Categories whose Sonnet and Opus arms dispatch compares.
 pub const ARMED: [&str; 5] = ["feature", "tooling", "native-check", "balance-tuning", "bug-known-cause"];
 const ART: [&str; 3] = ["anim", "animation", "art"];
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum Tier {
-    Haiku,
-    Sonnet,
-    Opus,
-}
-
-impl Tier {
-    /// The `[tiers]` key in South's orchestration, which is also the ledger's tier label.
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::Haiku => "claude:haiku",
-            Self::Sonnet => "claude:sonnet-high",
-            Self::Opus => "claude:opus-medium",
-        }
-    }
-
-    /// The name the workers skill staffs it by.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Haiku => "worker-haiku",
-            Self::Sonnet => "sonnet-high",
-            Self::Opus => "worker",
-        }
-    }
-
-    /// The word a ledger tier label carries for it.
-    pub fn family(self) -> &'static str {
-        match self {
-            Self::Haiku => "haiku",
-            Self::Sonnet => "sonnet",
-            Self::Opus => "opus",
-        }
-    }
-
-    pub fn parse(text: &str) -> Option<Self> {
-        [Self::Haiku, Self::Sonnet, Self::Opus].into_iter().find(|tier| tier.key() == text || tier.name() == text)
-    }
-
-    fn other_arm(self) -> Self {
-        if self == Self::Sonnet { Self::Opus } else { Self::Sonnet }
-    }
-
-    pub fn model_effort(self, cfg: &DocumentMut) -> Result<(String, String), String> {
-        let table = cfg.get("tiers").and_then(|tiers| tiers.get(self.key()));
-        let field = |name: &str| table.and_then(|tier| tier.get(name)).and_then(toml_edit::Item::as_str).map(str::to_owned);
-        field("model").zip(field("effort")).ok_or_else(|| format!("orchestration has no model and effort for [tiers.\"{}\"]", self.key()))
-    }
-
-    pub fn invocation(self, cfg: &DocumentMut) -> Result<Vec<String>, String> {
-        self.model_effort(cfg).map(|(model, effort)| vec!["--model".into(), model, "--effort".into(), effort])
-    }
-
-    pub fn serves(self, model: &str) -> bool {
-        let family = match self {
-            Self::Haiku => "haiku",
-            Self::Sonnet => "sonnet",
-            Self::Opus => "opus",
-        };
-        model.to_lowercase().contains(family)
-    }
-}
 
 /// What the ledger holds for one category: each tier's success rate and runs there from
 /// `--recommend`, the runs stamped with each tier's arm, and each arm's closed boxes and cost per
@@ -247,6 +184,10 @@ impl History {
     }
 }
 
+fn other_arm(tier: Tier) -> Tier {
+    if tier == Tier::Sonnet { Tier::Opus } else { Tier::Sonnet }
+}
+
 fn art(category: &str, facet: &dyn Fn(&str) -> String) -> bool {
     let judged = facet("Spec").eq_ignore_ascii_case("judged");
     let pictured = facet("Surface").eq_ignore_ascii_case("assets") || facet("Verify").eq_ignore_ascii_case("visual");
@@ -279,6 +220,6 @@ pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, 
     if let Some(tier) = evidence.settled() {
         return on(tier, format!("{category} goes to {} by the ledger's cost per closed box ({}; {})", tier.name(), evidence.figures(Tier::Sonnet), evidence.figures(Tier::Opus)));
     }
-    let tier = history.last_arm.get(&category).map_or(Tier::Sonnet, |last| last.other_arm());
+    let tier = history.last_arm.get(&category).map_or(Tier::Sonnet, |last| other_arm(*last));
     Route { arm: true, ..on(tier, format!("{category} arm {} ({}; {}; {ARM_RUNS} each to decide)", tier.name(), evidence.figures(Tier::Sonnet), evidence.figures(Tier::Opus))) }
 }
