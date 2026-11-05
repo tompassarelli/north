@@ -25,6 +25,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 - Routing: mechanical to `worker-haiku` (a miss retries at `sonnet-high`, never Opus; its brief says to wait on any run over a minute with Monitor, because Haiku ended its turn mid-run); art to `sonnet-high`; the armed categories ([tiers.md](references/tiers.md)) alternate `Arm: sonnet-high` and `Arm: worker`; docs-policy, unknown-cause debugging, netcode-determinism, architecture, planning and every other Opus-range item to `worker`. Never use Sonnet other than sonnet-high or Opus low; Fable only when Tom names it. `north dispatch` and `north fleet launch` route from the brief's `Category:` line, so launch with no `--model`.
 - Restaff every stop at the same tier as a fresh worker with `Follows: <agent id and tier>` and the failed evidence; escalate one tier only after a second `Stop: reasoning` on the same box. Send a running worker only its own task's follow-up, and never revive a finished worker by message, because its context is spent on the old attempt.
 - Brief header, before the first blank line, then goal, Sources and the state checked at spawn: `Item:`, `Category:`, `Spec:`, `Scope:`, `Surface:`, `Verify:`, `Done when:` (first line an outside oracle, with a backticked command), `ETA:`, `Files:`, any `Follows:` and `Needs:`.
+- Build rule: a worker runs `cargo check` on touched crates plus named tests; the lander runs the full suite.
 - Read [tiers.md](references/tiers.md) when a routing case above does not settle the tier or the next tier cannot run here; [brief.md](references/brief.md) whenever you write a brief, pick ready work, queue a box behind another lane, or do research Tom asks for inline; [codex-sessions.md](references/codex-sessions.md) before you launch a Codex session, write a Codex brief or route a box to Codex; [runtime-incidents.md](references/runtime-incidents.md) when a worker or lead fails to start, dies, stops answering or misreports.
 
 ## Placement
@@ -45,7 +46,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 
 ## Reports
 
-- Every report begins `Done:`, `Not done:`, `Blocked:` or `Split:`, and every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`, so the ledger can classify it. The last message is the report: keep no status files and never resume a worker to check on it.
+- Every report begins `Done:`, `Not done:`, `Blocked:` or `Split:`, and every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`. The last message is the report: keep no status files and never resume a worker to check on it.
 - Decide routine calls yourself. A `Stop: decision` or `Blocked: decision` report must name an open gate from `north gate open ... --recommend N --default N --default-after D`; the fleet answers the first ungated one instead of forwarding it, and forwards a later one with a warning (Tom, 2026-10-29).
 - Report a fix as landed only after fetching origin and verifying its SHA is an ancestor of `origin/main`, because queued or Autoland-green is not landed; until then report `Done: queued <worktree> <branch> <sha>`.
 - A `Split:` puts its parts as boxes on its own issue, never new issues; read [run-and-land.md](references/run-and-land.md#reports) when a worker splits or reports findings.

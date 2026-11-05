@@ -30,6 +30,8 @@ pub fn skeleton(category: &str) -> Option<String> {
         }
         lines.push(String::new());
         lines.push("<Goal, Sources and the state checked at spawn>".into());
+        lines.push(String::new());
+        lines.push("Build rule: run `cargo check` on the crates you touched plus the named tests in Done when, then queue the lane; the lander's per-lane precheck runs the full clippy and test suite and reports a failure back in about two minutes, unless Done when names a full run.".into());
         lines.join("\n") + "\n"
     })
 }
