@@ -455,3 +455,17 @@ fn cloud_send_posts_the_message_to_a_stub_server_through_curl() {
         send_body("session_1", "u-1", "finish \"now\"\n")
     );
 }
+
+#[test]
+fn a_wait_on_a_session_cloud_launch_started_finishes_its_run_row_with_the_last_reply_and_ignores_any_other_session() {
+    let launches = [crate::dispatch::CloudLaunch { at: 1_793_865_600.0, repo: "north".into(), session: "session_01cloud".into(), branch: "claude/land-n255".into() }];
+    let events = [
+        json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "Working on it."}]}}),
+        json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "Done: landed 1234abcd on origin/main."}]}}),
+        json!({"type": "user", "message": {"content": "thanks"}}),
+    ];
+    let now = Timestamp::from_unix_seconds(1_793_865_600 + 42 * 60);
+    let row = finished_row("session_01cloud", &events, &launches, now).unwrap();
+    assert_eq!((row["status"].as_str(), row["actual_min"].as_i64(), row["outcome"].as_str()), (Some("finished"), Some(42), Some("done")));
+    assert!(finished_row("session_other", &events, &launches, now).is_none());
+}

@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use crate::foundation::clock::Timestamp;
+
 const USAGE: &str = "usage: north cloud list | launch REPO SLUG BRIEF [--item REPO#N] | events SESSION_ID OUT.jsonl | sweep OUT_DIR | reap | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS] | collect EVENTS.jsonl OUT.mbox | land EVENTS.jsonl [--repo DIR]
 launch refreshes /tmp/cloud/src/REPO, trusts it, starts BRIEF with its landing steps through claude --cloud and prints the session, claude/land-SLUG and the checkout; --item records the launch so north dispatch holds that issue for six hours.
 sweep archives only cloud-run sessions (environment_kind anthropic_cloud) waiting on a human, never Remote Control bridges.
@@ -413,6 +415,21 @@ pub(super) fn finish(
     }
 }
 
+/// The finished row of a session `north cloud launch` started: from its launch to now, with its last reply as the report.
+pub(super) fn finished_row(id: &str, events: &[Value], launches: &[crate::dispatch::CloudLaunch], now: Timestamp) -> Option<Value> {
+    let launch = launches.iter().rev().find(|launch| launch.session == id)?;
+    let report = events.iter().rev().filter(|event| field(event, "type") == "assistant").map(reply_text).find(|text| !text.trim().is_empty()).unwrap_or_default();
+    Some(crate::providers::claude::runs::cloud::finished(id, Timestamp::from_unix_seconds_f64(launch.at), now, &report))
+}
+
+fn record_finished(id: &str, saved: &Path) {
+    let events: Vec<Value> = std::fs::read_to_string(saved).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+    let Some(row) = finished_row(id, &events, &crate::dispatch::cloud_launches(), Timestamp::now()) else { return };
+    if let Err(error) = crate::threads::client::ingest(format!("{row}\n").as_bytes()) {
+        eprintln!("north cloud wait: the run row for {id} went unrecorded: {error}");
+    }
+}
+
 fn credentials() -> Result<Curl, String> {
     let login = crate::dispatch::cloud_login()?;
     let read = |path: PathBuf, pointer: &str| {
@@ -529,7 +546,7 @@ pub fn run(arguments: &[String]) -> u8 {
         };
     }
     let landing = match &command {
-        Cloud::Wait(_, path, ..) => Some(path.clone()),
+        Cloud::Wait(id, path, ..) => Some((id.clone(), path.clone())),
         _ => None,
     };
     let result = credentials().and_then(|curl| {
@@ -540,7 +557,10 @@ pub fn run(arguments: &[String]) -> u8 {
         )
     });
     match (result, landing) {
-        (Ok(0), Some(path)) => super::cloud_land::run(&path, Path::new("."), true),
+        (Ok(0), Some((id, path))) => {
+            record_finished(&id, &path);
+            super::cloud_land::run(&path, Path::new("."), true)
+        }
         (Ok(code), _) => code,
         (Err(error), _) => {
             eprintln!("north cloud: {error}");

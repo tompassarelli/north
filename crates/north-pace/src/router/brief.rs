@@ -3,6 +3,14 @@ use regex::Regex;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
+/// The brief facets, each a closed vocabulary, in the order the runs table holds them; the guard, the router and the ledger read these.
+pub const FACETS: [(&str, &[&str]); 4] = [
+    ("Spec", &["exact", "measured", "judged"]),
+    ("Scope", &["one-file", "module", "cross-module", "cross-repo"]),
+    ("Surface", &["ts", "rust", "lua", "nix", "shell", "workflow", "docs", "assets"]),
+    ("Verify", &["none", "local-test", "farm", "native", "visual"]),
+];
+
 pub const CATEGORIES: [&str; 11] =
     ["mechanical", "docs-policy", "tooling", "feature", "bug-known-cause", "debugging-unknown-cause", "netcode-determinism", "performance", "balance-tuning", "native-check", "research"];
 
@@ -51,12 +59,9 @@ pub fn header_word(
 ) -> Option<String> {
     let raw = fields.get(name)?.trim().to_lowercase();
     let captures = WORD.captures(&raw)?;
-    let facets: Vec<&str> = match name {
-        "spec" => vec!["exact", "measured", "judged"],
-        "scope" => vec!["one-file", "module", "cross-module", "cross-repo"],
-        "surface" => vec!["shell", "docs", "nix", "ts", "assets", "lua", "workflow"],
-        "verify" => vec!["none", "local-test", "native", "visual", "farm"],
-        _ => defaults.codex_route.keys().map(String::as_str).collect(),
+    let facets: Vec<&str> = match FACETS.iter().find(|(facet, _)| facet.eq_ignore_ascii_case(name)) {
+        Some((_, values)) => values.to_vec(),
+        None => defaults.codex_route.keys().map(String::as_str).collect(),
     };
     if captures.get(2).is_some_and(|note| {
         TOKEN

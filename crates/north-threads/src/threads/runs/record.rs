@@ -5,7 +5,8 @@ use std::collections::BTreeSet;
 use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
-use super::brief::Fields;
+use super::brief::{Fields, Source};
+use crate::foundation::clock::Timestamp;
 use crate::router::brief::CATEGORIES;
 use super::row::{Row, bind, python_repr, text, truthy, value};
 use crate::platform::pyjson::Value;
@@ -17,7 +18,10 @@ const ROLES: [&str; 5] = ["worker", "parent", "proxy", "routine", "probe"];
 const STAGES: [&str; 3] = ["staffed", "review_requested", "landed_at"];
 const CONTEXT: [&str; 8] = ["role", "peak_ctx", "compactions", "handoff_fires", "handoff_ignored", "input_tokens", "cache_read_tokens", "idle_gap_misses"];
 const ACTIVITY: [&str; 4] = ["turns", "tool_calls", "active_min", "wait_min"];
-const CREATED: [&str; 2] = ["codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent"];
+const CREATED: [&str; 3] = ["codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent", CLOUD_ORIGIN];
+/// The origin `north cloud launch` gives the running row it writes for a cloud session.
+pub const CLOUD_ORIGIN: &str = "claude.cloud";
+const LEDGER_WEEK: i64 = 7 * 24 * 3600;
 const FINISHED: &str = "INSERT INTO runs(agent, item, follows, session, tier, category, started, ended, minutes, eta_min, tokens, peak_ctx, outcome, report, note, landed, arm, spec, scope, surface, verify, lens, flaws, expects_landing, staffed, review_requested, landed_at, role, compactions, handoff_fires, handoff_ignored, input_tokens, cache_read_tokens, idle_gap_misses, turns, tool_calls, active_min, wait_min) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 const BACKFILL: &str = "UPDATE runs SET spec = coalesce(spec, ?), scope = coalesce(scope, ?), surface = coalesce(surface, ?), verify = coalesce(verify, ?), lens = coalesce(lens, ?), flaws = coalesce(flaws, ?), expects_landing = coalesce(?, expects_landing), landed = CASE WHEN coalesce(?, landed_sha) IS NOT NULL THEN 1 ELSE coalesce(?, landed) END, landed_sha = coalesce(?, landed_sha), staffed = coalesce(?, staffed), review_requested = coalesce(?, review_requested), landed_at = coalesce(?, landed_at), item = coalesce(?, item, ?), eta_min = coalesce(eta_min, ?), category = CASE category WHEN 'unknown' THEN coalesce(?, category) ELSE category END WHERE agent = ?";
 
@@ -25,6 +29,7 @@ struct Recorded {
     outcome: Sql,
     model: Sql,
     effort: Sql,
+    eta_min: Sql,
     brief: [Sql; 4],
     started: Sql,
     ended: Sql,
@@ -129,12 +134,46 @@ impl Ingest<'_> {
             other => other,
         };
         match recorded {
-            Some(prior) if run.r.truthy("backfill") || !run.worker() => self.backfill(&run, &prior),
-            Some(_) => Ok(()),
-            None => self.record(&run),
-        }?;
-        self.db.execute("UPDATE runs SET budget_usd = coalesce(budget_usd, ?) WHERE agent = ?", params![run.f.budget_usd, run.agent()?])?;
+            Some(prior) if run.r.truthy("backfill") || !run.worker() => self.backfill(&run, &prior)?,
+            Some(_) => {}
+            None => self.record(&run)?,
+        }
+        self.estimates(&run)
+    }
+
+    /// The run's launch estimates, kept once set: the ETA's source, and E from the Budget line, else the median
+    /// cost of the category's landed worker runs in the week before it started.
+    fn estimates(&self, run: &Run) -> Result<(), Failure> {
+        let stated = &run.f.estimates;
+        let budget = match stated.budget {
+            Some((usd, source)) => Some((usd, source)),
+            None if run.worker() => self.ledger_budget(run)?.map(|usd| (usd, Source::Ledger)),
+            None => None,
+        };
+        self.db.execute(
+            "UPDATE runs SET eta_source = coalesce(eta_source, CASE WHEN eta_min IS NULL THEN NULL ELSE ? END), budget_usd = coalesce(budget_usd, ?), budget_source = coalesce(budget_source, ?) WHERE agent = ?",
+            params![stated.eta.unwrap_or(Source::Brief).name(), budget.map(|(usd, _)| usd), budget.map(|(_, source)| source.name()), run.agent()?],
+        )?;
         Ok(())
+    }
+
+    fn ledger_budget(&self, run: &Run) -> Result<Option<f64>, Failure> {
+        let Some(category) = run.f.known_category() else { return Ok(None) };
+        let started: Option<String> = self.db.query_row("SELECT started FROM runs WHERE agent = ?", [run.agent()?], |row| row.get(0)).optional()?.flatten();
+        let Some(started) = started.and_then(|started| Timestamp::parse(&started).ok()) else { return Ok(None) };
+        let since = Timestamp::from_unix_seconds(started.unix_seconds() - LEDGER_WEEK).iso();
+        let mut costs: Vec<f64> = self
+            .db
+            .prepare("SELECT cost_usd FROM runs WHERE category = ? AND role = 'worker' AND landed = 1 AND cost_usd > 0 AND ended >= ? AND ended < ? AND agent != ?")?
+            .query_map(params![category, since, started.iso(), run.agent()?], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        costs.sort_by(f64::total_cmp);
+        let middle = costs.len() / 2;
+        Ok(match costs.len() {
+            0 => None,
+            n if n % 2 == 0 => Some((costs[middle - 1] + costs[middle]) / 2.0),
+            _ => Some(costs[middle]),
+        })
     }
 
     fn telemetry(&mut self, r: &Row) -> Result<(), Failure> {
@@ -173,13 +212,13 @@ impl Ingest<'_> {
         let id = r.require("id")?.clone();
         let recorded = self
             .db
-            .query_row("SELECT outcome, model, effort, brief_text, brief_origin, brief_path, brief_sha256, started, ended FROM runs WHERE agent = ?", [bind(Some(&id))?], |row| {
-                Ok(Recorded { outcome: row.get(0)?, model: row.get(1)?, effort: row.get(2)?, brief: [row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?], started: row.get(7)?, ended: row.get(8)? })
+            .query_row("SELECT outcome, model, effort, brief_text, brief_origin, brief_path, brief_sha256, started, ended, eta_min FROM runs WHERE agent = ?", [bind(Some(&id))?], |row| {
+                Ok(Recorded { outcome: row.get(0)?, model: row.get(1)?, effort: row.get(2)?, brief: [row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?], started: row.get(7)?, ended: row.get(8)?, eta_min: row.get(9)? })
             })
             .optional()?;
         let mut original = false;
         if let Some(prior) = &recorded {
-            for (key, stored) in [("model", &prior.model), ("effort", &prior.effort)] {
+            for (key, stored) in [("model", &prior.model), ("effort", &prior.effort), ("eta_min", &prior.eta_min)] {
                 if r.get(key).is_none() {
                     r.set(key, value(stored));
                 }

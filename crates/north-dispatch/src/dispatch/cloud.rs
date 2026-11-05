@@ -178,3 +178,11 @@ pub fn login(config_dir: Option<std::ffi::OsString>, home: Option<std::ffi::OsSt
 pub fn current_login() -> Result<Login, String> {
     login(std::env::var_os("CLAUDE_CONFIG_DIR"), std::env::var_os("HOME"))
 }
+
+/// Writes the launched session's running row with its brief, so the ledger holds the cloud run from its start.
+pub fn record_run(launched: &Launched, brief: &str, at: f64) {
+    let row = north_core::providers::claude::runs::cloud::launched(&launched.session, brief, crate::foundation::clock::Timestamp::from_unix_seconds_f64(at));
+    if let Err(error) = crate::threads::client::ingest(format!("{row}\n").as_bytes()) {
+        eprintln!("north cloud launch: the run row for {} went unrecorded: {error}", launched.session);
+    }
+}

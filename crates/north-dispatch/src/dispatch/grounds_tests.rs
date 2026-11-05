@@ -199,3 +199,12 @@ fn the_brief_eta_is_scaled_by_its_tiers_walk_forward_calibration_and_names_the_m
     let recorded = north_core::providers::claude::runs::row::eta(&text);
     assert_eq!(recorded, serde_json::json!(126));
 }
+
+#[test]
+fn the_ledger_reads_each_dispatch_briefs_eta_and_expected_spend_back_with_the_source_dispatch_wrote() {
+    use crate::threads::runs::brief::{Estimates, Source};
+    let box_ = issue("north", 7, BODY, &[]);
+    let read = |cells: &str| Estimates::read(&brief(&box_, "test", &route(), &ledger(&[]).tuned(tuned(cells)).grounds("north#7", OPENED, &box_.body, &route())));
+    assert_eq!(read(r#"{"eta_minutes sonnet tooling": 55, "budget_usd opus tooling": 3.0}"#), Estimates { eta: Some(Source::Tune), budget: Some((5.2, Source::Ledger)) });
+    assert_eq!(read(r#"{"budget_usd sonnet tooling": 7.5, "eta_minutes sonnet feature": 90}"#), Estimates { eta: Some(Source::Ledger), budget: Some((7.5, Source::Tune)) });
+}

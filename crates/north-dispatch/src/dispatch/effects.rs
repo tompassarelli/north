@@ -62,7 +62,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         let started = brief::standing_orders().and_then(|orders| {
             let text = brief::cloud(&launch.brief, &launch.item.repo, &cloud::branch(&name), &orders);
             let model = launch.route.invocation(&survey.cfg)?;
-            cloud::launch(&launch.item.repo, &name, &text, &model, Path::new(cloud::SOURCES), Path::new(&home), &mut cloud::run)
+            cloud::launch(&launch.item.repo, &name, &text, &model, Path::new(cloud::SOURCES), Path::new(&home), &mut cloud::run).inspect(|launched| cloud::record_run(launched, &text, at))
         });
         started.map(|launched| format!("{name} {} {}", launched.session, launched.branch))
     } else {

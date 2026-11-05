@@ -324,6 +324,7 @@ pub fn cloud_launch(repo: &str, slug: &str, brief_file: &std::path::Path, item: 
     let brief = brief::cloud(&text, repo, &cloud::branch(slug), &brief::standing_orders()?);
     let launched = cloud::launch(repo, slug, &brief, &[], std::path::Path::new(cloud::SOURCES), &login.home, &mut cloud::run)?;
     cloud::register(&record::directory(), repo, &launched, placement::now())?;
+    cloud::record_run(&launched, &brief, placement::now());
     if let Some(item) = &item {
         cloud::hold(item, &launched, &crate::platform::host::name(), &record::directory(), placement::now())?;
     }

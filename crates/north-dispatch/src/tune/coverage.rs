@@ -10,7 +10,7 @@ use crate::platform::sqlite::{self, Access};
 
 pub const FLOOR: f64 = 0.98;
 pub const WINDOW: &str = "24h";
-const COLUMNS: &str = "role, model, effort, cost_usd, tokens, category, spec, scope, surface, verify, minutes, eta_min, active_min, turns, tool_calls, brief_text, compactions";
+const COLUMNS: &str = "role, model, effort, cost_usd, tokens, category, spec, scope, surface, verify, minutes, eta_min, eta_source, budget_usd, budget_source, active_min, turns, tool_calls, brief_text, compactions";
 
 /// What a run must carry for a field to count as recorded.
 enum Presence {
@@ -18,7 +18,7 @@ enum Presence {
     Known(&'static str),
 }
 
-const FIELDS: [(&str, Presence, Scope); 13] = [
+const FIELDS: [(&str, Presence, Scope); 16] = [
     ("model", Presence::Any(&["model"]), Scope::Every),
     ("effort", Presence::Any(&["effort"]), Scope::Every),
     ("cost", Presence::Any(&["cost_usd"]), Scope::Every),
@@ -27,6 +27,9 @@ const FIELDS: [(&str, Presence, Scope); 13] = [
     ("facets", Presence::Any(&["spec", "scope", "surface", "verify"]), Scope::Launched),
     ("wall minutes", Presence::Any(&["minutes"]), Scope::Every),
     ("ETA", Presence::Any(&["eta_min"]), Scope::Launched),
+    ("ETA source", Presence::Any(&["eta_source"]), Scope::Launched),
+    ("E", Presence::Any(&["budget_usd"]), Scope::Launched),
+    ("E source", Presence::Any(&["budget_source"]), Scope::Launched),
     ("active minutes", Presence::Any(&["active_min"]), Scope::Every),
     ("turns", Presence::Any(&["turns"]), Scope::Every),
     ("tool calls", Presence::Any(&["tool_calls"]), Scope::Every),
@@ -35,7 +38,7 @@ const FIELDS: [(&str, Presence, Scope); 13] = [
 ];
 
 /// Which runs a field is read over: a reviewer, judge, probe or proxy is launched without a category, facets or
-/// ETA of its own, so those three fields are read over the runs that carry a launch brief.
+/// launch estimates of its own, so those fields are read over the runs that carry a launch brief.
 #[derive(Clone, Copy)]
 enum Scope {
     Every,

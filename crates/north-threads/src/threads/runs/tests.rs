@@ -591,3 +591,48 @@ fn a_launched_brief_stores_its_budget_on_the_running_row_and_completion_keeps_it
     ledger.ingest(&[json!({"id": "unbudgeted", "ended": "2026-10-08T06:40:00Z", "tier": "medium", "actual_min": 25, "outcome": "done", "brief": "Item: wisp#7\nBudget: none"})]);
     assert_eq!(ledger.row("SELECT budget_usd IS NULL FROM runs WHERE agent = 'unbudgeted'"), "1");
 }
+
+const DISPATCH_BRIEF: &str = "Item: north#255 Launch-time estimates\nCategory: tooling\nSpec: measured\nScope: module\nSurface: rust\nVerify: local-test\nETA: 25 min (tune cell, 2026-11-05; the issue declares 30 min (uncalibrated))\nBudget: E p50 $1.82, p90 $5.13 (p50 and p90 of n=10 closed boxes, cell tooling on opus, ledger 7d); `north fleet spend --self` prints your API-equivalent spend so far; at $5.13 API-equivalent spend, commit and land";
+const FLEET_BRIEF: &str = "Item: north#256 Fleet box\nCategory: tooling\nSpec: measured\nScope: module\nSurface: rust\nVerify: local-test\nETA: 75 min\nLedger ETA: 107 min (p75 of n=39 runs, cell tooling on opus, ledger 7d)\nBudget: E p90 $15.99 (tune cell, 2026-11-05)";
+const UNBUDGETED_BRIEF: &str = "Item: north#257 Small box\nCategory: tooling\nSpec: exact\nScope: one-file\nSurface: rust\nVerify: local-test\nETA: 20 min";
+
+fn launched(id: &str, brief: &str, eta: u32) -> Json {
+    json!({"id": id, "status": "finished", "started": "2026-10-28T08:00:00Z", "ended": "2026-10-28T08:30:00Z", "tier": "medium", "actual_min": 30, "outcome": "done", "eta_min": eta, "brief": brief, "brief_text": brief, "brief_origin": "claude.transcript"})
+}
+
+#[test]
+fn a_dispatch_and_a_fleet_launch_record_eta_and_expected_spend_with_their_sources_and_a_bare_brief_takes_the_ledger_median() {
+    let ledger = ledger();
+    let landed = |id: &str, ended: &str, cost: f64| {
+        Connection::open(&ledger.path)
+            .unwrap()
+            .execute("INSERT INTO runs(agent, tier, category, ended, minutes, outcome, landed, cost_usd) VALUES (?1, 'medium', 'tooling', ?2, 20, 'done', 1, ?3)", rusqlite::params![id, ended, cost])
+            .unwrap();
+    };
+    landed("week-1", "2026-10-25T00:00:00Z", 2.0);
+    landed("week-2", "2026-10-26T00:00:00Z", 4.0);
+    landed("week-3", "2026-10-27T00:00:00Z", 9.0);
+    landed("stale", "2026-10-01T00:00:00Z", 100.0);
+    ledger.ingest(&[launched("dispatched", DISPATCH_BRIEF, 25), launched("fleet", FLEET_BRIEF, 75), launched("bare", UNBUDGETED_BRIEF, 20)]);
+    let read = |id: &str| ledger.row(&format!("SELECT eta_min, eta_source, budget_usd, budget_source FROM runs WHERE agent = '{id}'"));
+    assert_eq!(read("dispatched"), "25|tune|5.13|ledger");
+    assert_eq!(read("fleet"), "75|brief|15.99|tune");
+    assert_eq!(read("bare"), "20|brief|4|ledger", "the median of the three landed tooling runs of the week before it started");
+    assert_eq!(ledger.row("SELECT spec, scope, surface, verify FROM runs WHERE agent = 'fleet'"), "measured|module|rust|local-test", "a Rust brief records its surface");
+}
+
+#[test]
+fn a_cloud_launch_writes_a_running_row_and_its_wait_finishes_it_with_the_launch_brief_and_estimates() {
+    let ledger = ledger();
+    let launch = json!({"id": "session_01cloud", "session": "session_01cloud", "status": "running", "role": "worker", "tier": "cloud", "provider": "claude",
+        "started": "2026-10-28T08:00:00Z", "staffed": "2026-10-28T08:00:00Z", "brief": DISPATCH_BRIEF, "brief_text": DISPATCH_BRIEF, "brief_origin": super::CLOUD_ORIGIN, "eta_min": 25});
+    ledger.ingest(&[launch]);
+    assert_eq!(ledger.row("SELECT outcome, item, category, provider, eta_source, budget_usd FROM runs WHERE agent = 'session_01cloud'"), "running|north#255|tooling|claude|tune|5.13");
+    let finish = json!({"id": "session_01cloud", "session": "session_01cloud", "status": "finished", "role": "worker", "tier": "cloud", "provider": "claude",
+        "started": "2026-10-28T08:00:00Z", "ended": "2026-10-28T08:40:00Z", "actual_min": 40, "outcome": "done", "report": "Done: landed abc123 on main."});
+    ledger.ingest(&[finish]);
+    assert_eq!(
+        ledger.row("SELECT outcome, minutes, category, spec, brief_origin, eta_min, eta_source, budget_usd, budget_source FROM runs WHERE agent = 'session_01cloud'"),
+        "done|40|tooling|measured|claude.cloud|25|tune|5.13|ledger"
+    );
+}

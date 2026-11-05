@@ -4,12 +4,7 @@ use crate::platform::pyjson::Value;
 use regex::Regex;
 use std::sync::LazyLock;
 
-pub(super) const FACETS: [(&str, &[&str]); 4] = [
-    ("Spec", &["exact", "measured", "judged"]),
-    ("Scope", &["one-file", "module", "cross-module", "cross-repo"]),
-    ("Surface", &["ts", "rust", "lua", "nix", "shell", "workflow", "docs", "assets"]),
-    ("Verify", &["none", "local-test", "farm", "native", "visual"]),
-];
+pub(super) use crate::router::brief::FACETS;
 const DECLARED: [&str; 5] = ["Category", "Spec", "Scope", "Surface", "Verify"];
 pub(super) const REPOS: [&str; 6] = ["makgora", "wisp", "north", "south", "nixos-config", "firn"];
 const VALUE: &str = r"[ \t]*([^\s.,;`'<>|)]*)";

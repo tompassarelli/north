@@ -1,6 +1,7 @@
 //! `north threads ingest`, `label-runs` and `run-ids`: north worker-ledger's JSON rows into the runs,
 //! claims and usage tables, and the run ids already recorded.
 pub mod brief;
+mod columns;
 mod costs;
 pub mod hook_events;
 pub mod hook_rules;
@@ -8,6 +9,7 @@ pub mod hooks;
 mod labels;
 pub mod landed_issues;
 mod record;
+pub use record::CLOUD_ORIGIN;
 mod row;
 #[cfg(test)]
 mod tests;
@@ -95,6 +97,7 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
     let mut db = open(context.database, true)?;
     let (mut tally, mut readouts, mut hooked) = (Tally::default(), Vec::new(), false);
     let tx = immediate(&mut db)?;
+    columns::ensure(&tx)?;
     for line in input.split(|byte| *byte == b'\n').filter(|line| !String::from_utf8_lossy(line).trim().is_empty()) {
         let row = Row::parse(line)?;
         if row.get("type").is_some_and(|kind| kind == "usage") {

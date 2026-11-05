@@ -586,6 +586,7 @@ fn recorded_run(path: &str) -> Value {
     json!({
         "model": "claude-opus-5-5", "effort": "medium", "cost_usd": 1.25, "tokens": 40_000, "category": "tooling",
         "spec": "measured", "scope": "module", "surface": "rust", "verify": "local-test", "minutes": 30, "eta_min": 40,
+        "eta_source": "tune", "budget_usd": 2.5, "budget_source": "ledger",
         "active_min": 22.5, "turns": 31, "tool_calls": 48, "brief_text": format!("Item: north#255 launched by {path}"), "compactions": 0,
     })
 }
@@ -599,7 +600,7 @@ fn a_run_from_each_launch_path_carrying_every_field_holds_every_field_at_full_co
     let runs = ["fleet launch", "dispatch", "Agent tool", "cloud"].map(recorded_run).to_vec();
     let tick = covered(runs);
     assert!(tick.lines.contains(&"run field coverage 24h over 4 finished runs, floor 98%: every field holds".to_owned()), "{:#?}", tick.lines);
-    for field in ["model", "effort", "cost", "tokens", "category", "facets", "wall minutes", "ETA", "active minutes", "turns", "tool calls", "brief text", "compactions"] {
+    for field in ["model", "effort", "cost", "tokens", "category", "facets", "wall minutes", "ETA", "ETA source", "E", "E source", "active minutes", "turns", "tool calls", "brief text", "compactions"] {
         assert!(tick.lines.contains(&format!("  {field} 100% (4 of 4)")), "{field}: {:#?}", tick.lines);
     }
     assert!(!tick.failed);
