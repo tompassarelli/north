@@ -338,7 +338,8 @@ B11 follows the offload fix.
 
 Cause: the laptop, gex45 and ccx33 each kept their own sccache disk cache, so a crate compiled on one host was
 compiled again on the others. Now the firn module `sccache` adds a shared level behind the local disk: nexus serves
-it (`sccache.server`), and the other hosts read and write it (`sccache.remote`).
+it (`sccache.server`), and the other hosts read and write it (`sccache.remote`). Only the laptop uses it for now: the cross-host
+measurement below made gex45 and ccx33 slower, and they rejoin once the store serves from Finland.
 
 Shape, and why each piece is there:
 
@@ -402,3 +403,17 @@ What the cache can and cannot save, from `cargo build --locked --offline -p nort
   north-core's incremental session sends the worker's first build back to about 72 s.
 - A first build with a different `CARGO_TARGET_DIR` hit 0 of 142 on the same host and cache, because target paths
   outside the basedir enter the key.
+
+Cross-host result (2026-11-05, north 86618706c, `cargo build --locked --offline -p north` in a fresh worktree with a
+pre-created `target/` so target-seed copies nothing, an empty local disk level, one run each):
+
+| Host, run | Wall s | Rust hits | Average cache read hit | Average compile |
+| --- | --- | --- | --- | --- |
+| laptop, shared level, first build of the commit | 68.6 | 0 of 142 | | |
+| ccx33, plain sccache, cold | 76.2 | 0 of 142 | | 0.387 s |
+| ccx33, shared level after the laptop's build | 103.7 | 115 of 142 (81%) | 0.608 s | 0.487 s |
+
+- The keys match across hosts and worktree names; the 27 misses were not traced.
+- From Finland, a hit costs more than the compile it saves. nexus is in Singapore, 178 ms per round trip from ccx33
+  (62 ms for a whole GET from the laptop), and a WebDAV read takes several round trips. gex45 and ccx33 are off the
+  shared level until the store serves from Finland (north#259, box shared-cache-fi). The laptop keeps it.
