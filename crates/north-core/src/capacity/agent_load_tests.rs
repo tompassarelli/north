@@ -489,7 +489,7 @@ fn a_tick_on_battery_drains_laptop_placement_and_freezes_heavy_as_play_does_unti
     let played = tempfile::tempdir().unwrap();
     let play_host = host(played.path(), &played.path().join("proc"));
     lease(&play_host, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
-    assert_eq!(drained, shed(&play_host, limits.effects(Mode::Play), &[]), "battery froze heavy batch other than play mode's pause_heavy does");
+    assert_eq!(drained, shed(&play_host, limits.effects(Mode::Play).confined(false), &[]), "battery froze heavy batch as play mode does while its CPU split is not enforced");
 
     fs::write(battery.join("status"), "Charging\n").unwrap();
     let (restored, state) = tick("2026-11-05T00:02:00Z");

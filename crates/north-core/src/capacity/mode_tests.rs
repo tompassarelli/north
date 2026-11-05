@@ -33,7 +33,6 @@ fn reserve(proc: &Path) -> Settings {
         game_cpus: String::new(),
         agent_cpus: String::new(),
         agent_memory_max: String::new(),
-        idle_seconds: 600,
     }
 }
 
@@ -55,90 +54,107 @@ fn observe(proc: &Path, now: u64, seat_idle: Option<bool>) -> Observation {
     Observation { now, game_running: game_reserve::playing(&reserve(proc)), seat_idle, protected_psi: None }
 }
 
-#[test]
-fn the_tick_classifies_away_desktop_and_play_from_process_tables_and_seat_idle() {
-    let limits = Limits::bundled();
-    let root = tempfile::tempdir().unwrap();
-    let quiet = root.path().join("quiet");
-    desktop(&quiet);
-    let played = root.path().join("played");
-    desktop(&played);
-    warcraft(&played);
-    let (away, _) = mode::step(&State::default(), &observe(&quiet, START, Some(true)), &limits);
-    let (busy, _) = mode::step(&State::default(), &observe(&quiet, START, Some(false)), &limits);
-    let (play, _) = mode::step(&State::default(), &observe(&played, START, Some(true)), &limits);
-    assert_eq!((away.mode, busy.mode, play.mode), (Mode::Away, Mode::Desktop, Mode::Play));
-    assert_eq!(play.reason, "Tom's game is running");
-    let agent_only = root.path().join("agent-only");
-    desktop(&agent_only);
-    process(&agent_only, 50, 40, "Warcraft III.ex", "agent.slice/agent-session-1.scope", "C:\\Warcraft III\\Warcraft III.exe");
-    assert_eq!(mode::step(&State::default(), &observe(&agent_only, START, Some(false)), &limits).0.mode, Mode::Desktop);
+fn quiet(proc: &Path, now: u64, seat_idle: Option<bool>) -> (State, mode::Stepped) {
+    mode::step(&State::default(), &observe(proc, now, seat_idle), &Limits::bundled())
 }
 
 #[test]
-fn each_mode_applies_its_table_row() {
+fn an_open_game_with_no_lease_leaves_away_or_desktop_and_is_named_as_a_fact() {
+    let root = tempfile::tempdir().unwrap();
+    let quiet_table = root.path().join("quiet");
+    desktop(&quiet_table);
+    let played = root.path().join("played");
+    desktop(&played);
+    warcraft(&played);
+    assert_eq!(quiet(&quiet_table, START, Some(true)).0.mode, Mode::Away);
+    assert_eq!(quiet(&quiet_table, START, Some(false)).0.mode, Mode::Desktop);
+    let (open, stepped) = quiet(&played, START, Some(false));
+    assert_eq!((open.mode, open.hold, stepped), (Mode::Desktop, None, mode::Stepped::default()));
+    assert_eq!(open.reason, "the seat is in use and no playtest lease is on; Tom's game is open");
+    assert_eq!(quiet(&played, START, Some(true)).0.mode, Mode::Away);
+}
+
+#[test]
+fn each_mode_applies_its_table_row_and_play_confines_heavy_work_only_while_the_split_is_enforced() {
     let limits = Limits::bundled();
     assert_eq!(limits.effects(Mode::Away), Effects::default());
     assert_eq!(limits.effects(Mode::Desktop), Effects::default());
-    assert_eq!(limits.effects(Mode::Play), Effects { reserve: true, hold: true, pause_heavy: true });
+    let play = limits.effects(Mode::Play);
+    assert_eq!(play, Effects { reserve: true, hold: true, pause_heavy: false });
+    assert_eq!(play.confined(true), play);
+    assert_eq!(play.confined(false), Effects { pause_heavy: true, ..play });
+    assert_eq!(limits.effects(Mode::Desktop).confined(false), Effects::default());
+    let split = game_reserve::Split { game_cpus: "0-3,12-15".into(), agent_cpus: "4-11,16-23".into() };
+    assert_eq!(mode::confinement(play, true, Some(&split)), Some(16));
+    assert_eq!(mode::confinement(play, true, None), None, "an unenforced split pauses heavy work instead");
+    assert_eq!(mode::confinement(play, false, Some(&split)), None);
+    assert_eq!(mode::confinement(Effects { pause_heavy: true, ..play }, true, Some(&split)), None);
     assert_eq!(mode::cpu_split(24, 8), ("0-3,12-15".to_owned(), "4-11,16-23".to_owned()));
     assert_eq!(mode::cpu_split(24, 12), ("0-5,12-17".to_owned(), "6-11,18-23".to_owned()));
 }
 
 #[test]
-fn play_releases_ten_minutes_after_the_last_game_process_exits() {
+fn a_default_lease_checks_in_at_eight_minutes_and_returns_itself_at_ten_with_the_game_still_open() {
     let limits = Limits::bundled();
     let root = tempfile::tempdir().unwrap();
     let played = root.path().join("played");
     desktop(&played);
     warcraft(&played);
-    let quiet = root.path().join("quiet");
-    desktop(&quiet);
-    let (playing, _) = mode::step(&State::default(), &observe(&played, START, Some(false)), &limits);
-    let exited = START + 30;
-    let (lingering, _) = mode::step(&playing, &observe(&quiet, exited, Some(false)), &limits);
-    assert_eq!(lingering.mode, Mode::Play);
-    let (still, _) = mode::step(&lingering, &observe(&quiet, START + 599, Some(false)), &limits);
-    assert_eq!(still.mode, Mode::Play);
-    let (released, _) = mode::step(&still, &observe(&quiet, START + 600, Some(false)), &limits);
-    assert_eq!(released.mode, Mode::Desktop);
-    assert_eq!(released.since, START + 600);
+    let leased = mode::hold(&State::default(), START, "test wisp", limits.lease_minutes, &limits);
+    assert_eq!(leased.hold.as_ref().map(|hold| (hold.until, hold.minutes)), Some((START + 600, 10)));
+    let (playing, stepped) = mode::step(&leased, &observe(&played, START + 479, Some(false)), &limits);
+    assert_eq!((playing.mode, stepped.notice), (Mode::Play, None));
+    let (warned, stepped) = mode::step(&playing, &observe(&played, START + 480, Some(false)), &limits);
+    let until = warned.hold.as_ref().map(|hold| hold.until).unwrap();
+    let notice = stepped.notice.unwrap();
+    assert!(notice.starts_with("Playtest lease ends at ") && notice.ends_with(". Reply more to add 10 min."), "{notice}");
+    let (still, stepped) = mode::step(&warned, &observe(&played, START + 540, Some(false)), &limits);
+    assert_eq!((still.mode, stepped.notice), (Mode::Play, None), "the check-in is sent once");
+    let (returned, stepped) = mode::step(&still, &observe(&played, until, Some(false)), &limits);
+    assert_eq!((returned.mode, returned.hold.is_none()), (Mode::Desktop, true));
+    let notice = stepped.notice.unwrap();
+    assert!(notice.starts_with("Playtest lease returned at ") && notice.ends_with("; the laptop is working again."), "{notice}");
+    let (after, _) = mode::step(&returned, &observe(&played, until + 30, Some(false)), &limits);
+    assert_eq!(after.mode, Mode::Desktop, "the open game does not start a new lease");
 }
 
 #[test]
-fn a_phrase_hold_expires_by_itself_after_two_hours_or_on_release() {
+fn extending_adds_the_leases_own_length_and_resets_the_check_in_and_no_lease_exceeds_the_cap() {
     let limits = Limits::bundled();
-    let root = tempfile::tempdir().unwrap();
-    let quiet = root.path().join("quiet");
-    desktop(&quiet);
-    let held = mode::hold(&State::default(), START, "test wisp", &limits);
-    let (during, _) = mode::step(&held, &observe(&quiet, START + 7199, Some(true)), &limits);
-    assert_eq!(during.mode, Mode::Play);
-    assert!(during.reason.starts_with("quiet hold from Tom's prompt \"test wisp\""));
-    let (expired, _) = mode::step(&during, &observe(&quiet, START + 7200, Some(true)), &limits);
-    assert_eq!((expired.mode, expired.hold.is_none()), (Mode::Away, true));
-    let released = mode::release(&during, START + 60);
-    let (after, _) = mode::step(&released, &observe(&quiet, START + 61, Some(false)), &limits);
-    assert_eq!(after.mode, Mode::Desktop);
+    let leased = mode::hold(&State::default(), START, "test wisp online", 40, &limits);
+    let mut warned = leased.clone();
+    if let Some(hold) = warned.hold.as_mut() {
+        hold.warned = true;
+    }
+    let extended = mode::extend(&warned, START + 2300, &limits).unwrap();
+    let hold = extended.hold.unwrap();
+    assert_eq!((hold.until, hold.minutes, hold.warned, hold.since), (START + 4800, 40, false, START));
+    assert_eq!(mode::extend(&leased, START + 2400, &limits), None, "an ended lease cannot be extended");
+    assert_eq!(mode::extend(&State::default(), START, &limits), None);
+    let capped = mode::hold(&State::default(), START, "test wisp", 600, &limits);
+    assert_eq!(capped.hold.map(|hold| hold.until), Some(START + limits.cap_seconds));
+    let released = mode::release(&leased, START + 60);
+    assert_eq!((released.mode, released.hold), (Mode::Desktop, None));
 }
 
 #[test]
 fn the_play_reserve_widens_past_its_pressure_target_and_narrows_after_a_calm_period_within_its_clamp() {
     let limits = Limits::bundled();
+    let held = mode::hold(&State::default(), START, "test wisp", 120, &limits);
     let seen = |now: u64, psi: f64| Observation { now, game_running: true, seat_idle: Some(false), protected_psi: Some(psi) };
-    let (first, adjustment) = mode::step(&State::default(), &seen(START, 2.0), &limits);
-    assert_eq!((first.play_cpus, adjustment), (Some(8), None));
-    let (wide, adjustment) = mode::step(&first, &seen(START + 30, 9.0), &limits);
-    assert_eq!(adjustment.map(|change| (change.from, change.to)), Some((8, 10)));
+    let (first, stepped) = mode::step(&held, &seen(START, 2.0), &limits);
+    assert_eq!((first.play_cpus, stepped.adjustment), (Some(8), None));
+    let (wide, stepped) = mode::step(&first, &seen(START + 30, 9.0), &limits);
+    assert_eq!(stepped.adjustment.map(|change| (change.from, change.to)), Some((8, 10)));
     let mut state = wide;
     for tick in 2..10 {
         state = mode::step(&state, &seen(START + 30 * tick, 30.0), &limits).0;
     }
     assert_eq!(state.play_cpus, Some(12));
-    let (calm, adjustment) = mode::step(&state, &seen(START + 1000, 1.0), &limits);
-    assert_eq!(adjustment, None);
-    let (narrow, adjustment) = mode::step(&calm, &seen(START + 1600, 1.0), &limits);
-    assert_eq!(adjustment.map(|change| (change.from, change.to)), Some((12, 10)));
+    let (calm, stepped) = mode::step(&state, &seen(START + 1000, 1.0), &limits);
+    assert_eq!(stepped.adjustment, None);
+    let (narrow, stepped) = mode::step(&calm, &seen(START + 1600, 1.0), &limits);
+    assert_eq!(stepped.adjustment.map(|change| (change.from, change.to)), Some((12, 10)));
     assert_eq!(narrow.play_cpus, Some(10));
 }
 

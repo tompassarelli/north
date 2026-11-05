@@ -156,6 +156,15 @@ impl BatteryAlert {
     }
 }
 
+pub fn notify_lease(notice: &str, notify: &mut Command, limit: Duration) {
+    match status_within(notify.args(["--app-name=laptop-auto", "Playtest lease", notice]), limit) {
+        Ok(Some(status)) if status.success() => {}
+        Ok(Some(status)) => eprintln!("north capacity laptop-auto: playtest lease notification exited {status}"),
+        Ok(None) => eprintln!("north capacity laptop-auto: playtest lease notification gave no answer within {}s", limit.as_secs()),
+        Err(error) => eprintln!("north capacity laptop-auto: playtest lease notification: {error}"),
+    }
+}
+
 pub fn warning_level(busctl: &mut Command) -> Option<u8> {
     let output = busctl
         .args(["get-property", "org.freedesktop.UPower", "/org/freedesktop/UPower/devices/DisplayDevice", "org.freedesktop.UPower.Device", "WarningLevel"])
@@ -225,6 +234,11 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let applied = super::mode::tick(&host, idle);
     applied.lines.iter().for_each(|line| println!("{line}"));
+    let notify = std::env::var_os("LAPTOP_AUTO_NOTIFY").unwrap_or_else(|| "notify-send".into());
+    if let Some(notice) = &applied.notice {
+        println!("{notice}");
+        notify_lease(notice, &mut Command::new(&notify), NOTIFY_WAIT);
+    }
     let sample = sample(&host, idle, preparing_for_sleep(), battery);
     shed(&host, on_battery(applied.effects, battery), &processes);
     let mut laptop = match std::env::var_os("LAPTOP_AUTO_LAPTOP") {
@@ -236,7 +250,6 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     };
     let observed = observe(laptop.arg("observe").arg(sample.to_string()), OBSERVE_WAIT);
-    let notify = std::env::var_os("LAPTOP_AUTO_NOTIFY").unwrap_or_else(|| "notify-send".into());
     let busctl = std::env::var_os("LAPTOP_AUTO_BUSCTL").unwrap_or_else(|| "busctl".into());
     let level = battery.and_then(|_| warning_level(&mut Command::new(busctl)));
     alert_battery(&host.capacity.join(BATTERY_ALERTED), battery, level, &mut Command::new(notify), NOTIFY_WAIT);

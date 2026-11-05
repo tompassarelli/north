@@ -23,7 +23,7 @@ pub fn run(arguments: &[String]) -> u8 {
         ["off"] => declare(false, mode::run(&["release".to_owned()])),
         ["status"] => {
             let state = mode::read(&mode::state_dir());
-            println!("{}", mode::status_line(&state, &mode::Limits::bundled()));
+            println!("{}", mode::status_line(&state, &mode::Limits::bundled(), mode::enforced_split().as_ref()));
             u8::from(state.mode != mode::Mode::Play)
         }
         _ => {

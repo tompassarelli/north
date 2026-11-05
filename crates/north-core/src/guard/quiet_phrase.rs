@@ -13,6 +13,8 @@ pub struct Table {
     pub off_phrases: Vec<String>,
     pub window: usize,
     pub max_words: usize,
+    pub kinds: Vec<(u64, Vec<String>)>,
+    pub extend_words: Vec<String>,
 }
 
 impl Table {
@@ -25,14 +27,22 @@ impl Table {
             off_phrases: strings("capacity_phrase_off_phrases"),
             window: mode::number("capacity_phrase_window_words") as usize,
             max_words: mode::number("capacity_phrase_max_words") as usize,
+            kinds: strings("capacity_lease_kinds").iter().filter_map(|row| kind(row)).collect(),
+            extend_words: strings("capacity_phrase_extend_words"),
         }
     }
+}
+
+fn kind(row: &str) -> Option<(u64, Vec<String>)> {
+    let (minutes, words) = row.split_once(':')?;
+    Some((minutes.trim().parse().ok()?, words.split(',').map(|word| word.trim().to_lowercase()).filter(|word| !word.is_empty()).collect()))
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Phrase {
     On(String),
     Off(String),
+    Extend,
 }
 
 fn unquoted(prompt: &str) -> String {
@@ -75,27 +85,52 @@ pub fn classify(prompt: &str, table: &Table) -> Option<Phrase> {
     if let Some(phrase) = near(&words, &table.off_verbs, &table.off_objects, table.window) {
         return Some(Phrase::Off(phrase));
     }
-    near(&words, &table.on_verbs, &table.on_objects, table.window).map(Phrase::On)
+    if let Some(phrase) = near(&words, &table.on_verbs, &table.on_objects, table.window) {
+        return Some(Phrase::On(phrase));
+    }
+    (words.len() <= 3 && words.iter().any(|word| table.extend_words.contains(word))).then_some(Phrase::Extend)
+}
+
+pub fn lease_minutes(prompt: &str, table: &Table, default: u64) -> u64 {
+    let words = words(&unquoted(prompt));
+    let stated = words.iter().enumerate().find_map(|(at, word)| {
+        let digits = word.trim_end_matches(|character: char| character.is_alphabetic());
+        let unit = if digits.len() < word.len() { &word[digits.len()..] } else { words.get(at + 1).map_or("", String::as_str) };
+        matches!(unit, "m" | "min" | "mins" | "minute" | "minutes").then(|| digits.parse::<u64>().ok()).flatten().filter(|minutes| *minutes > 0)
+    });
+    let joined = format!(" {} ", words.join(" "));
+    stated
+        .or_else(|| table.kinds.iter().find(|(_, names)| names.iter().any(|name| joined.contains(&format!(" {name} ")))).map(|(minutes, _)| *minutes))
+        .unwrap_or(default)
 }
 
 pub fn decide(prompt: &str, table: &Table, limits: &Limits, dir: &Path, now: u64, teardown: impl FnOnce() -> String) -> Option<String> {
     let state = mode::read(dir);
     match classify(prompt, table)? {
         Phrase::On(phrase) => {
-            let held = mode::hold(&state, now, &phrase, limits);
-            mode::write(dir, &held).ok()?;
-            let until = held.hold.as_ref().map_or(now, |hold| hold.until);
-            Some(format!(
-                "capacity mode: quiet on from \"{phrase}\" (game CPUs reserved, batch held) until {}; it ends when Tom says he is done or the game has been closed {} min",
-                crate::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(until).unwrap_or(i64::MAX)).local_twelve_hour(),
-                limits.release_seconds / 60
-            ))
+            let minutes = lease_minutes(prompt, table, limits.lease_minutes);
+            leased(dir, &mode::hold(&state, now, &phrase, minutes, limits), &phrase)
+        }
+        Phrase::Extend => {
+            let extended = mode::extend(&state, now, limits)?;
+            let phrase = extended.hold.as_ref().map(|hold| hold.phrase.clone()).unwrap_or_default();
+            leased(dir, &extended, &phrase)
         }
         Phrase::Off(phrase) => {
             mode::write(dir, &mode::release(&state, now)).ok()?;
             Some(format!("capacity mode: quiet off from \"{phrase}\": {}; the machine is released to agents within 30 s", teardown()))
         }
     }
+}
+
+fn leased(dir: &Path, held: &mode::State, phrase: &str) -> Option<String> {
+    mode::write(dir, held).ok()?;
+    let hold = held.hold.as_ref()?;
+    let until = crate::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(hold.until).unwrap_or(i64::MAX)).local_twelve_hour();
+    Some(format!(
+        "capacity mode: playtest lease from \"{phrase}\" until {until} (game CPUs reserved, native and gpu batch held, other agent work confined to the agent CPUs); it returns by itself, \"more\" adds {} min and \"done testing\" ends it now",
+        hold.minutes
+    ))
 }
 
 fn fleet_session(session: &str) -> bool {

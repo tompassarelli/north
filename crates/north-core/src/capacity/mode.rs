@@ -11,7 +11,7 @@ use toml_edit::DocumentMut;
 use super::agent_load::{self, Host};
 use super::game_reserve;
 
-const USAGE: &str = "usage: north capacity mode status | tick | hold [PHRASE] | release";
+const USAGE: &str = "usage: north capacity mode status | tick | hold [--minutes N] [PHRASE] | extend | release";
 
 static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
 
@@ -57,11 +57,21 @@ pub fn effects(table: &[String], mode: Mode) -> Effects {
     Effects { reserve: has("reserve"), hold: has("hold"), pause_heavy: has("pause-heavy") }
 }
 
+impl Effects {
+    pub fn confined(self, enforced: bool) -> Self {
+        Self { pause_heavy: self.pause_heavy || (self.reserve && !enforced), ..self }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Hold {
     pub since: u64,
     pub until: u64,
     pub phrase: String,
+    #[serde(default)]
+    pub minutes: u64,
+    #[serde(default)]
+    pub warned: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -75,8 +85,6 @@ pub struct State {
     #[serde(default)]
     pub hold: Option<Hold>,
     #[serde(default)]
-    pub game_seen: Option<u64>,
-    #[serde(default)]
     pub play_cpus: Option<u32>,
     #[serde(default)]
     pub calm_since: Option<u64>,
@@ -84,8 +92,9 @@ pub struct State {
 
 #[derive(Clone, Debug)]
 pub struct Limits {
-    pub release_seconds: u64,
-    pub hold_seconds: u64,
+    pub cap_seconds: u64,
+    pub lease_minutes: u64,
+    pub warn_seconds: u64,
     pub play_cpus: u32,
     pub play_cpus_min: u32,
     pub play_cpus_max: u32,
@@ -100,8 +109,9 @@ impl Limits {
         let whole = |name: &str| number(name) as u64;
         let cpus = |name: &str| number(name) as u32;
         Self {
-            release_seconds: whole("capacity_mode_play_release_sec"),
-            hold_seconds: whole("capacity_mode_hold_sec"),
+            cap_seconds: whole("capacity_mode_hold_sec"),
+            lease_minutes: whole("capacity_mode_lease_default_min"),
+            warn_seconds: whole("capacity_mode_lease_warn_sec"),
             play_cpus: cpus("capacity_mode_play_cpus"),
             play_cpus_min: cpus("capacity_mode_play_cpus_min"),
             play_cpus_max: cpus("capacity_mode_play_cpus_max"),
@@ -133,39 +143,44 @@ pub struct Adjustment {
     pub protected_cpu_some_avg10: f64,
 }
 
-pub fn step(state: &State, seen: &Observation, limits: &Limits) -> (State, Option<Adjustment>) {
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Stepped {
+    pub adjustment: Option<Adjustment>,
+    pub notice: Option<String>,
+}
+
+pub fn step(state: &State, seen: &Observation, limits: &Limits) -> (State, Stepped) {
     let mut next = state.clone();
-    if seen.game_running {
-        next.game_seen = Some(seen.now);
+    let mut notice = None;
+    if let Some(hold) = next.hold.as_mut() {
+        if seen.now >= hold.until {
+            notice = Some(format!("Playtest lease returned at {}; the laptop is working again.", clock(hold.until)));
+            next.hold = None;
+        } else if !hold.warned && hold.until.saturating_sub(seen.now) <= limits.warn_seconds {
+            hold.warned = true;
+            notice = Some(format!("Playtest lease ends at {}. Reply more to add {} min.", clock(hold.until), hold.minutes));
+        }
     }
-    if next.hold.as_ref().is_some_and(|hold| seen.now >= hold.until) {
-        next.hold = None;
-    }
-    let (mode, reason) = classify(&next, seen, limits);
+    let (mode, reason) = classify(&next, seen);
     if mode != state.mode || state.since == 0 {
         next.since = seen.now;
         next.calm_since = None;
     }
     next.mode = mode;
     next.reason = reason;
-    let adjustment = if mode == Mode::Play && seen.game_running { size(&mut next, seen, limits) } else { None };
-    (next, adjustment)
+    let adjustment = if mode == Mode::Play { size(&mut next, seen, limits) } else { None };
+    (next, Stepped { adjustment, notice })
 }
 
-fn classify(state: &State, seen: &Observation, limits: &Limits) -> (Mode, String) {
-    if seen.game_running {
-        return (Mode::Play, "Tom's game is running".to_owned());
-    }
+fn classify(state: &State, seen: &Observation) -> (Mode, String) {
     if let Some(hold) = &state.hold {
-        return (Mode::Play, format!("quiet hold from Tom's prompt \"{}\" until {}", hold.phrase, clock(hold.until)));
+        return (Mode::Play, format!("playtest lease from Tom's prompt \"{}\" until {}", hold.phrase, clock(hold.until)));
     }
-    if let Some(seen_at) = state.game_seen.filter(|seen_at| seen.now.saturating_sub(*seen_at) < limits.release_seconds) {
-        return (Mode::Play, format!("Tom's game exited at {}; releasing at {}", clock(seen_at), clock(seen_at + limits.release_seconds)));
-    }
+    let game = if seen.game_running { "; Tom's game is open" } else { "" };
     match seen.seat_idle {
-        Some(true) => (Mode::Away, "the seat is idle and no game runs".to_owned()),
-        Some(false) => (Mode::Desktop, "the seat is in use and no game runs".to_owned()),
-        None => (Mode::Desktop, "the seat idle hint is unreadable and no game runs".to_owned()),
+        Some(true) => (Mode::Away, format!("the seat is idle and no playtest lease is on{game}")),
+        Some(false) => (Mode::Desktop, format!("the seat is in use and no playtest lease is on{game}")),
+        None => (Mode::Desktop, format!("the seat idle hint is unreadable and no playtest lease is on{game}")),
     }
 }
 
@@ -189,21 +204,28 @@ fn size(next: &mut State, seen: &Observation, limits: &Limits) -> Option<Adjustm
     (to != current).then_some(Adjustment { at: seen.now, from: current, to, protected_cpu_some_avg10: psi })
 }
 
-pub fn hold(state: &State, now: u64, phrase: &str, limits: &Limits) -> State {
+pub fn hold(state: &State, now: u64, phrase: &str, minutes: u64, limits: &Limits) -> State {
     let mut next = state.clone();
-    next.hold = Some(Hold { since: now, until: now + limits.hold_seconds, phrase: phrase.to_owned() });
+    let active = next.hold.as_ref().filter(|hold| now < hold.until);
+    let until = (active.map_or(now, |hold| hold.until) + minutes * 60).min(now + limits.cap_seconds);
+    let since = active.map_or(now, |hold| hold.since);
+    next.hold = Some(Hold { since, until, phrase: phrase.to_owned(), minutes, warned: false });
     if next.mode != Mode::Play {
         next.since = now;
     }
     next.mode = Mode::Play;
-    next.reason = format!("quiet hold from Tom's prompt \"{phrase}\" until {}", clock(now + limits.hold_seconds));
+    next.reason = format!("playtest lease from Tom's prompt \"{phrase}\" until {}", clock(until));
     next
+}
+
+pub fn extend(state: &State, now: u64, limits: &Limits) -> Option<State> {
+    let hold = state.hold.as_ref().filter(|hold| now < hold.until)?;
+    Some(self::hold(state, now, &hold.phrase, hold.minutes.max(1), limits))
 }
 
 pub fn release(state: &State, now: u64) -> State {
     let mut next = state.clone();
     next.hold = None;
-    next.game_seen = None;
     next.calm_since = None;
     next.mode = Mode::Desktop;
     next.since = now;
@@ -254,9 +276,14 @@ fn record(dir: &Path, adjustment: &Adjustment) {
     }
 }
 
-pub fn heavy_paused() -> bool {
+pub fn confined_agent_cpus(host: &Host) -> Option<u32> {
     let state = read(&state_dir());
-    Limits::bundled().effects(state.mode).pause_heavy
+    confinement(Limits::bundled().effects(state.mode), agent_load::game_reserve_on(host), enforced_split().as_ref())
+}
+
+pub fn confinement(effects: Effects, reserve_on: bool, split: Option<&game_reserve::Split>) -> Option<u32> {
+    let split = split.filter(|_| reserve_on && !effects.pause_heavy)?;
+    Some(game_reserve::cpu_count(&split.agent_cpus))
 }
 
 fn avg10(path: &Path) -> Option<f64> {
@@ -276,6 +303,7 @@ fn host_cpus() -> u32 {
 pub struct Applied {
     pub effects: Effects,
     pub lines: Vec<String>,
+    pub notice: Option<String>,
 }
 
 pub fn tick(host: &Host, seat_idle: Option<bool>) -> Applied {
@@ -289,7 +317,8 @@ pub fn tick(host: &Host, seat_idle: Option<bool>) -> Applied {
         seat_idle,
         protected_psi: protected_psi(&reserve.cgroup),
     };
-    let (state, adjustment) = step(&previous, &seen, &limits);
+    let (state, stepped) = step(&previous, &seen, &limits);
+    let adjustment = stepped.adjustment;
     let mut lines = Vec::new();
     if let Some(adjustment) = &adjustment {
         record(&dir, adjustment);
@@ -305,13 +334,13 @@ pub fn tick(host: &Host, seat_idle: Option<bool>) -> Applied {
         eprintln!("north capacity mode: {error}");
     }
     let effects = limits.effects(state.mode);
-    if let Some(line) = apply(host, &mut reserve, &state, &limits, effects, adjustment.is_some(), seen.game_running) {
+    if let Some(line) = apply(host, &mut reserve, &state, &limits, effects, adjustment.is_some()) {
         lines.push(line);
     }
-    Applied { effects, lines }
+    Applied { effects: effects.confined(game_reserve::enforced_split(&reserve).is_some()), lines, notice: stepped.notice }
 }
 
-fn apply(host: &Host, reserve: &mut game_reserve::Settings, state: &State, limits: &Limits, effects: Effects, resized: bool, game_running: bool) -> Option<String> {
+fn apply(host: &Host, reserve: &mut game_reserve::Settings, state: &State, limits: &Limits, effects: Effects, resized: bool) -> Option<String> {
     if agent_load::gaming_marked(&host.capacity) != effects.hold
         && let Err(error) = agent_load::declare_gaming(&host.capacity, effects.hold)
     {
@@ -325,20 +354,10 @@ fn apply(host: &Host, reserve: &mut game_reserve::Settings, state: &State, limit
             reserve.agent_cpus = agents;
         }
     }
-    let outcome = if game_running || !effects.reserve {
-        let automatic = game_reserve::auto(reserve);
-        let now_on = agent_load::game_reserve_on(host);
-        if effects.reserve {
-            automatic.map(|line| (!on || resized).then_some(line))
-        } else if now_on {
-            game_reserve::off(reserve).map(Some)
-        } else {
-            automatic.map(|line| (on != now_on).then_some(line))
-        }
-    } else if !on || resized {
-        game_reserve::on(reserve, true).map(Some)
+    let outcome = if !effects.reserve {
+        if on { game_reserve::off(reserve).map(Some) } else { Ok(None) }
     } else {
-        Ok(None)
+        game_reserve::on(reserve, true).map(|line| (!on || resized).then_some(line))
     };
     match outcome {
         Ok(line) => line,
@@ -349,8 +368,12 @@ fn apply(host: &Host, reserve: &mut game_reserve::Settings, state: &State, limit
     }
 }
 
-pub fn status_line(state: &State, limits: &Limits) -> String {
-    let effects = limits.effects(state.mode);
+pub fn enforced_split() -> Option<game_reserve::Split> {
+    game_reserve::enforced_split(&game_reserve::Settings::from_env())
+}
+
+pub fn status_line(state: &State, limits: &Limits, split: Option<&game_reserve::Split>) -> String {
+    let effects = limits.effects(state.mode).confined(split.is_some());
     let since = if state.since == 0 { "never ticked".to_owned() } else { format!("since {}", clock(state.since)) };
     let mut line = format!("mode {} ({since}): {}", state.mode.name(), state.reason);
     if effects.reserve {
@@ -363,8 +386,12 @@ pub fn status_line(state: &State, limits: &Limits) -> String {
     if effects.hold {
         applied.push("native, exclusive and gpu batch held");
     }
+    let confined = split.filter(|_| effects.reserve && !effects.pause_heavy).map(|split| format!("heavy and batch work confined to agent CPUs {}", split.agent_cpus));
+    if let Some(confined) = &confined {
+        applied.push(confined);
+    }
     if effects.pause_heavy {
-        applied.push("heavy batch paused");
+        applied.push(if effects.reserve { "heavy batch paused until the CPU split is enforced" } else { "heavy batch paused" });
     }
     if applied.is_empty() {
         applied.push("no reservation; agents run at their slice weights");
@@ -378,18 +405,32 @@ pub fn run(arguments: &[String]) -> u8 {
     let state = read(&dir);
     let changed = match arguments.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["status"] => {
-            println!("{}", status_line(&state, &limits));
+            println!("{}", status_line(&state, &limits, enforced_split().as_ref()));
             return 0;
         }
         ["tick"] => {
             let host = Host::from_env();
             let applied = tick(&host, super::laptop_auto::seat_idle());
-            applied.lines.iter().for_each(|line| println!("{line}"));
-            println!("{}", status_line(&read(&dir), &limits));
+            applied.lines.iter().chain(&applied.notice).for_each(|line| println!("{line}"));
+            println!("{}", status_line(&read(&dir), &limits, enforced_split().as_ref()));
             return 0;
         }
-        ["hold"] => hold(&state, now(), "north capacity mode hold", &limits),
-        ["hold", phrase] => hold(&state, now(), phrase, &limits),
+        ["hold"] => hold(&state, now(), "north capacity mode hold", limits.lease_minutes, &limits),
+        ["hold", phrase] => hold(&state, now(), phrase, limits.lease_minutes, &limits),
+        ["hold", "--minutes", minutes, rest @ ..] if rest.len() <= 1 => {
+            let Ok(minutes) = minutes.parse::<u64>() else {
+                eprintln!("{USAGE}");
+                return 2;
+            };
+            hold(&state, now(), rest.first().copied().unwrap_or("north capacity mode hold"), minutes, &limits)
+        }
+        ["extend"] => match extend(&state, now(), &limits) {
+            Some(extended) => extended,
+            None => {
+                eprintln!("north capacity mode: no playtest lease is on to extend");
+                return 1;
+            }
+        },
         ["release"] => release(&state, now()),
         _ => {
             eprintln!("{USAGE}");
@@ -398,7 +439,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     match write(&dir, &changed) {
         Ok(()) => {
-            println!("{}", status_line(&changed, &limits));
+            println!("{}", status_line(&changed, &limits, enforced_split().as_ref()));
             0
         }
         Err(error) => {
@@ -406,14 +447,4 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
     }
-}
-
-pub fn reserved_agent_cpus() -> u32 {
-    let mut settings = game_reserve::Settings::from_env();
-    let state = read(&state_dir());
-    let (_, agents) = cpu_split(host_cpus(), state.play_cpus.unwrap_or_else(|| Limits::bundled().play_cpus));
-    if !agents.is_empty() {
-        settings.agent_cpus = agents;
-    }
-    settings.agent_cpu_count()
 }

@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rustix::process::{CpuSet, Pid, sched_getaffinity, sched_setaffinity};
 use serde_json::{Value, json};
 
-const USAGE: &str = "usage: north capacity game-reserve on [--auto] | off | auto | playing | status";
+const USAGE: &str = "usage: north capacity game-reserve on [--auto] | off | playing | status";
 const GAME_SLICE: &str = "game-reserve.slice";
 const AGENT_SLICE: &str = "agent.slice";
 const TOM_SLICES: [&str; 3] = ["app.slice", "session.slice", "game.slice"];
@@ -19,6 +19,7 @@ const SETTLED_SECONDS: f64 = 60.0;
 // /proc/PID/stat starttime is in USER_HZ clock ticks, which Linux fixes at 100 for userspace.
 const TICKS_PER_SECOND: f64 = 100.0;
 
+#[derive(Clone)]
 pub struct Settings {
     pub proc: PathBuf,
     pub cgroup: PathBuf,
@@ -29,7 +30,6 @@ pub struct Settings {
     pub game_cpus: String,
     pub agent_cpus: String,
     pub agent_memory_max: String,
-    pub idle_seconds: u64,
 }
 
 impl Settings {
@@ -46,12 +46,7 @@ impl Settings {
             game_cpus: var("GAME_RESERVE_GAME_CPUS").unwrap_or_else(|| "0-3,12-15".into()),
             agent_cpus: var("GAME_RESERVE_AGENT_CPUS").unwrap_or_else(|| "4-11,16-23".into()),
             agent_memory_max: var("GAME_RESERVE_AGENT_MEMORY_MAX").unwrap_or_else(|| "80G".into()),
-            idle_seconds: var("GAME_RESERVE_IDLE_SECONDS").and_then(|value| value.parse().ok()).unwrap_or(600),
         }
-    }
-
-    pub fn agent_cpu_count(&self) -> u32 {
-        u32::try_from(cpu_set(&self.agent_cpus).len()).unwrap_or(u32::MAX)
     }
 
     fn game_properties(&self) -> Vec<String> {
@@ -139,14 +134,35 @@ fn set_agent_slices(settings: &Settings, cpus: &str, memory_max: &str) -> Result
     if failed.is_empty() { Ok(()) } else { Err(failed.join("; ")) }
 }
 
-fn open_to_game(settings: &Settings) -> Vec<String> {
-    let game = cpu_set(&settings.game_cpus);
+fn open_to_game(settings: &Settings, game_cpus: &str) -> Vec<String> {
+    let game = cpu_set(game_cpus);
+    let effective = |dir: &Path| fs::read_to_string(dir.join("cpuset.cpus.effective")).ok().map(|cpus| cpu_set(cpus.trim()));
     confined_slices(settings)
         .unwrap_or_default()
         .into_iter()
-        .filter(|(_, dir)| fs::read_to_string(dir.join("cpuset.cpus.effective")).is_ok_and(|effective| !cpu_set(effective.trim()).is_disjoint(&game)))
+        .filter(|(slice, dir)| effective(dir).map_or(slice == AGENT_SLICE, |cpus| !cpus.is_disjoint(&game)))
         .map(|(slice, _)| slice)
         .collect()
+}
+
+pub struct Split {
+    pub game_cpus: String,
+    pub agent_cpus: String,
+}
+
+fn applied_split(settings: &Settings, state: &Value) -> Split {
+    let recorded = |key: &str, fallback: &str| state[key].as_str().filter(|cpus| !cpus.is_empty()).unwrap_or(fallback).to_owned();
+    Split { game_cpus: recorded("game_cpus", &settings.game_cpus), agent_cpus: recorded("agent_cpus", &settings.agent_cpus) }
+}
+
+pub fn enforced_split(settings: &Settings) -> Option<Split> {
+    let state = read_state(&settings.state);
+    let split = applied_split(settings, &state);
+    (state["on"] == true && !split.agent_cpus.is_empty() && open_to_game(settings, &split.game_cpus).is_empty()).then_some(split)
+}
+
+pub fn cpu_count(cpus: &str) -> u32 {
+    u32::try_from(cpu_set(cpus).len()).unwrap_or(u32::MAX)
 }
 
 pub fn table(proc: &Path) -> BTreeMap<i32, Entry> {
@@ -302,6 +318,8 @@ pub fn on(settings: &Settings, auto: bool) -> Result<String, String> {
         "on": true,
         "auto": if was_on { previous.get("auto").cloned().unwrap_or(Value::Bool(auto)) } else { Value::Bool(auto) },
         "since": if was_on { previous.get("since").cloned().unwrap_or(Value::Null) } else { json!(now()) },
+        "game_cpus": settings.game_cpus,
+        "agent_cpus": settings.agent_cpus,
     });
     if !was_on {
         write_state(&settings.state.with_file_name("game-seen"), &json!(now()))?;
@@ -317,20 +335,6 @@ pub fn on(settings: &Settings, auto: bool) -> Result<String, String> {
 
 pub fn playing(settings: &Settings) -> bool {
     table(&settings.proc).values().any(Entry::toms_game)
-}
-
-pub fn auto(settings: &Settings) -> Result<String, String> {
-    let seen = settings.state.with_file_name("game-seen");
-    if playing(settings) {
-        write_state(&seen, &json!(now()))?;
-        return on(settings, true);
-    }
-    let current = read_state(&settings.state);
-    let last = read_state(&seen).as_u64().unwrap_or(0);
-    if current["on"] == true && now().saturating_sub(last) >= settings.idle_seconds {
-        return off(settings);
-    }
-    Ok("game-reserve unchanged".to_owned())
 }
 
 pub fn off(settings: &Settings) -> Result<String, String> {
@@ -353,10 +357,11 @@ pub fn status(settings: &Settings) -> (bool, String) {
     let place = if !wisp { place } else { format!("{place}; Tom's Wisp native window running") };
     if current["on"] == true {
         let auto = if current["auto"] == true { " (auto)" } else { "" };
-        let line = format!("game-reserve on{auto}: game CPUs {}, agents CPUs {}; {place}", settings.game_cpus, settings.agent_cpus);
-        let open = open_to_game(settings);
+        let split = applied_split(settings, &current);
+        let line = format!("game-reserve on{auto}: game CPUs {}, agents CPUs {}; {place}", split.game_cpus, split.agent_cpus);
+        let open = open_to_game(settings, &split.game_cpus);
         if open.is_empty() {
-            return (true, line);
+            return (true, format!("{line}; ENFORCED: every agent slice's AllowedCPUs excludes the game CPUs {}", split.game_cpus));
         }
         return (false, format!("{line}; NOT ENFORCED: game CPUs open to {}", open.join(", ")));
     }
@@ -369,7 +374,6 @@ pub fn run(arguments: &[String]) -> u8 {
         ["on"] => on(&settings, false),
         ["on", "--auto"] => on(&settings, true),
         ["off"] => off(&settings),
-        ["auto"] => auto(&settings),
         ["playing"] => return u8::from(!playing(&settings)),
         ["status"] => {
             let (live, line) = status(&settings);

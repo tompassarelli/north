@@ -56,7 +56,6 @@ fn settings(root: &Path) -> Settings {
         game_cpus: "0-3,12-15".into(),
         agent_cpus: "4-11,16-23".into(),
         agent_memory_max: "80G".into(),
-        idle_seconds: 600,
     }
 }
 
@@ -195,36 +194,31 @@ fn toms_game_is_warcraft_iii_or_a_wisp_native_window_outside_the_agent_slices() 
 }
 
 #[test]
-fn auto_keeps_the_reserve_on_while_toms_wisp_window_runs_and_releases_it_after_the_idle_period() {
+fn status_judges_the_split_the_reserve_last_applied_and_names_it_enforced() {
     let root = tempfile::tempdir().unwrap();
-    let mut settings = settings(root.path());
-    let app = format!("{USER}/app.slice/makgora-tom-1.service");
-    named(&settings.proc, 40, 1, "bun", &app, "bun scripts/wisp.ts play --standalone --window native", UPTIME);
-    game_reserve::auto(&settings).unwrap();
-    let state = || fs::read_to_string(root.path().join("state.json")).unwrap();
-    assert!(state().contains(r#""on":true"#) && state().contains(r#""auto":true"#), "{}", state());
-    assert!(game_reserve::status(&settings).1.ends_with("Tom's Wisp native window running"), "{}", game_reserve::status(&settings).1);
-    settings.idle_seconds = 0;
-    game_reserve::auto(&settings).unwrap();
-    assert!(state().contains(r#""on":true"#), "a running window keeps the reserve on: {}", state());
-    fs::remove_dir_all(settings.proc.join("40")).unwrap();
-    settings.idle_seconds = 600;
-    game_reserve::auto(&settings).unwrap();
-    assert!(state().contains(r#""on":true"#), "the reserve outlasts a window gone for less than the idle period: {}", state());
-    settings.idle_seconds = 0;
-    game_reserve::auto(&settings).unwrap();
-    assert_eq!(state(), r#"{"on":false}"#);
-    settings.idle_seconds = 600;
-    for auto in [false, true] {
-        game_reserve::on(&settings, auto).unwrap();
-        game_reserve::auto(&settings).unwrap();
-        assert!(state().contains(r#""on":true"#), "a reserve just switched on (auto {auto}) holds until the idle period passes: {}", state());
-        settings.idle_seconds = 0;
-        game_reserve::auto(&settings).unwrap();
-        assert_eq!(state(), r#"{"on":false}"#, "no game for the idle period turns a reserve switched on with auto {auto} off");
-        settings.idle_seconds = 600;
-    }
-    named(&settings.proc, 41, 1, "bun", &app, "bun scripts/wisp.ts play --standalone --window native", UPTIME);
-    game_reserve::auto(&settings).unwrap();
-    assert!(state().contains(r#""on":true"#) && state().contains(r#""auto":true"#), "a game appearing turns the reserve on: {}", state());
+    let defaults = settings(root.path());
+    let narrowed = Settings { game_cpus: "0-1,12-13".into(), agent_cpus: "2-11,14-23".into(), ..defaults.clone() };
+    game_reserve::on(&narrowed, true).unwrap();
+    let (enforced, line) = game_reserve::status(&defaults);
+    assert!(enforced, "{line}");
+    assert!(line.contains("game CPUs 0-1,12-13, agents CPUs 2-11,14-23"), "{line}");
+    assert!(line.ends_with("ENFORCED: every agent slice's AllowedCPUs excludes the game CPUs 0-1,12-13"), "{line}");
+    assert_eq!(game_reserve::enforced_split(&defaults).map(|split| game_reserve::cpu_count(&split.agent_cpus)), Some(20));
+    fs::write(defaults.cgroup.join("agent.slice/cpuset.cpus.effective"), "0-23\n").unwrap();
+    let (enforced, line) = game_reserve::status(&defaults);
+    assert!(!enforced && line.contains("NOT ENFORCED: game CPUs open to agent.slice"), "{line}");
+    assert!(game_reserve::enforced_split(&defaults).is_none());
+}
+
+#[test]
+fn an_agent_slice_without_a_cpuset_is_not_enforced_and_status_names_toms_wisp_window() {
+    let root = tempfile::tempdir().unwrap();
+    let settings = settings(root.path());
+    named(&settings.proc, 40, 1, "bun", &format!("{USER}/app.slice/makgora-tom-1.service"), "bun scripts/wisp.ts play --standalone --window native", UPTIME);
+    game_reserve::on(&settings, true).unwrap();
+    assert!(game_reserve::status(&settings).0);
+    fs::remove_file(settings.cgroup.join("agent.slice/cpuset.cpus.effective")).unwrap();
+    let (enforced, line) = game_reserve::status(&settings);
+    assert!(!enforced, "{line}");
+    assert!(line.contains("Tom's Wisp native window running; NOT ENFORCED: game CPUs open to agent.slice"), "{line}");
 }

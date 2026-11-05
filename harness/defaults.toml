@@ -923,26 +923,46 @@ fallback = "none: the threshold is always read"
 consumers = ["crates/north-core/src/ops/watch/waste.rs"]
 
 [capacity_mode_table]
-value = ["away:", "desktop:", "play:reserve,hold,pause-heavy"]
-unit = "what each laptop capacity mode applies: reserve pins the game CPUs (game reserve), hold defers native, exclusive and gpu batch (gpu goes to the offload host) and stops native leases, pause-heavy defers and freezes heavy batch; away and desktop reserve nothing because elastic CPU already runs agent batch in an idle-weighted slice"
-source = "tom: the machine must be quiet while he plays or tests a game so lag is never the computer's load, light use needs only a core or two, and agents take the whole laptop while he is away (2026-11-04)"
+value = ["away:", "desktop:", "play:reserve,hold"]
+unit = "what each laptop capacity mode applies: reserve pins the game CPUs (game reserve) and runs heavy and batch work confined to the agent CPUs, pausing heavy batch while the CPU split is not enforced, hold defers native, exclusive and gpu batch (gpu goes to the offload host) and stops native leases, pause-heavy defers and freezes heavy batch; away and desktop reserve nothing because elastic CPU already runs agent batch in an idle-weighted slice"
+source = "tom: the machine must be quiet while he plays or tests a game so lag is never the computer's load, light use needs only a core or two, and agents take the whole laptop while he is away (2026-11-04); the idle laptop beside a saturated build host while he played showed pausing heavy work wasted the agent CPUs the split already keeps off the game (2026-11-05)"
 fallback = "a mode missing from the table applies nothing"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
-
-[capacity_mode_play_release_sec]
-value = 600
-unit = "seconds play mode stays on after the last game process exits"
-source = "prior: game_reserve's 600 s idle release, long enough for a client restart between test runs"
-settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play whose game restarts can be timed against this release" }
-fallback = "none: the release always applies"
 consumers = ["crates/north-core/src/capacity/mode.rs"]
 
 [capacity_mode_hold_sec]
 value = 7200
-unit = "seconds a quiet hold set by Tom's phrase lasts before it expires by itself"
-source = "tom: nothing noticed when he finished and the reserve sat on for three days, so every phrase hold expires; two hours covers a test session (2026-11-04)"
-fallback = "none: every hold has this expiry"
+unit = "seconds a playtest lease may run past the moment it was started or last extended, the hard cap on any one lease"
+source = "tom: nothing noticed when he finished and the reserve sat on for three days, so every phrase hold expires; two hours covers a test session (2026-11-04); a playtest is a lease of a stated length, so this caps a lease rather than setting it (2026-11-05)"
+fallback = "none: every lease has this cap"
 consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_mode_lease_default_min]
+value = 10
+unit = "minutes a playtest lease lasts when the prompt names neither a length nor a test kind in capacity_lease_kinds, and what more or extend adds to such a lease"
+source = "tom: a playtest is a lease of a stated length, 10 min by default, returned automatically when it ends (2026-11-05)"
+fallback = "none: a lease always has a length"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_mode_lease_warn_sec]
+value = 120
+unit = "seconds before a playtest lease ends that laptop-auto sends its one check-in notification"
+source = "tom: two minutes before the end, check in once so he can reply more (2026-11-05)"
+fallback = "none: every lease checks in once"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_lease_kinds]
+value = ["40:online,multiplayer,with people,ladder,lan", "20:perf,performance,capture,profile,profiling,fps"]
+unit = "minutes:words; a quiet-on prompt naming one of the words gets that lease length, the first row matching wins, a number of minutes in the prompt wins over the table, and a prompt matching no row gets capacity_mode_lease_default_min"
+source = "tom: an online, multiplayer or with-people test runs 40 min, a perf or capture run 20 min, a feature check 10 min (2026-11-05)"
+fallback = "a prompt matching no row gets capacity_mode_lease_default_min"
+consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+
+[capacity_phrase_extend_words]
+value = ["more", "extend"]
+unit = "words that, in a prompt of at most three words while a playtest lease is on, extend it by its own length"
+source = "tom: reply more to the check-in to add time (2026-11-05)"
+fallback = "with no lease on the words do nothing"
+consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
 
 [capacity_mode_play_cpus]
 value = 8

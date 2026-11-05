@@ -84,6 +84,10 @@ pub fn in_game_reserve() -> bool {
     agent_load::gaming_declared(&local)
 }
 
+pub fn checks_confined_here() -> bool {
+    crate::capacity::mode::confined_agent_cpus(&agent_load::Host::from_env()).is_some()
+}
+
 pub fn host_with_room() -> Result<gate::Machine, String> {
     let here = crate::platform::host::name();
     let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here).collect();
@@ -128,6 +132,10 @@ fn reap(owner: &str) -> u8 {
 fn choose(any: bool) -> u8 {
     if !any && !in_game_reserve() {
         eprintln!("north capacity offload: this host is not in game-reserve, so the land check runs here");
+        return 1;
+    }
+    if !any && checks_confined_here() {
+        eprintln!("north capacity offload: this host keeps its game CPUs to game-reserve.slice and confines agent slices to the rest, so the land check runs here");
         return 1;
     }
     match host_with_room() {

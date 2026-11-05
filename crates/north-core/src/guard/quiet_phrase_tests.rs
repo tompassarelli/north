@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use super::quiet_phrase::{Phrase, Table, classify, decide};
+use super::quiet_phrase::{Phrase, Table, classify, decide, lease_minutes};
 use crate::capacity::mode::{self, Limits, Mode};
 
 const NOW: u64 = 1_800_000_000;
@@ -34,9 +34,9 @@ fn the_hook_turns_quiet_mode_on_and_off_and_prints_one_line_only_when_it_fires()
     };
     let on = decide("I'm going to test the wisp map now", &table, &limits, dir.path(), NOW, teardown).unwrap();
     assert_eq!(on.lines().count(), 1);
-    assert!(on.starts_with("capacity mode: quiet on from \"test wisp\""), "{on}");
+    assert!(on.starts_with("capacity mode: playtest lease from \"test wisp\" until "), "{on}");
     let held = mode::read(dir.path());
-    assert_eq!((held.mode, held.hold.map(|hold| hold.until)), (Mode::Play, Some(NOW + 7200)));
+    assert_eq!((held.mode, held.hold.map(|hold| hold.until)), (Mode::Play, Some(NOW + 600)));
     assert_eq!(closed.get(), 0);
     assert_eq!(decide("please rebase the lane", &table, &limits, dir.path(), NOW + 5, || unreachable!()), None);
     assert_eq!(mode::read(dir.path()).mode, Mode::Play);
@@ -46,4 +46,26 @@ fn the_hook_turns_quiet_mode_on_and_off_and_prints_one_line_only_when_it_fires()
     let released = mode::read(dir.path());
     assert_eq!((released.mode, released.hold), (Mode::Desktop, None));
     assert_eq!(closed.get(), 1);
+}
+
+#[test]
+fn a_lease_lasts_as_long_as_the_prompt_says_or_its_test_kind_and_more_extends_it() {
+    let (table, limits) = (Table::bundled(), Limits::bundled());
+    assert_eq!(lease_minutes("test the wisp map", &table, limits.lease_minutes), 10);
+    assert_eq!(lease_minutes("testing wisp online with people", &table, limits.lease_minutes), 40);
+    assert_eq!(lease_minutes("playtest makgora multiplayer", &table, limits.lease_minutes), 40);
+    assert_eq!(lease_minutes("test the wisp map, a perf capture", &table, limits.lease_minutes), 20);
+    assert_eq!(lease_minutes("testing wisp online for 20 minutes", &table, limits.lease_minutes), 20);
+    assert_eq!(lease_minutes("test wisp 25min", &table, limits.lease_minutes), 25);
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(decide("more", &table, &limits, dir.path(), NOW, || unreachable!()), None, "with no lease on, more does nothing");
+    decide("testing wisp online", &table, &limits, dir.path(), NOW, || unreachable!()).unwrap();
+    assert_eq!(mode::read(dir.path()).hold.map(|hold| (hold.until, hold.minutes)), Some((NOW + 2400, 40)));
+    let more = decide("more", &table, &limits, dir.path(), NOW + 2300, || unreachable!()).unwrap();
+    assert!(more.contains("\"more\" adds 40 min"), "{more}");
+    assert_eq!(mode::read(dir.path()).hold.map(|hold| hold.until), Some(NOW + 4800));
+    decide("test the wisp map", &table, &limits, dir.path(), NOW + 2400, || unreachable!()).unwrap();
+    assert_eq!(mode::read(dir.path()).hold.map(|hold| (hold.until, hold.minutes)), Some((NOW + 5400, 10)), "a new testing phrase extends by its own kind");
+    assert_eq!(classify("extend it", &table), Some(Phrase::Extend));
+    assert_eq!(classify("tell me more about the lander", &table), None);
 }
