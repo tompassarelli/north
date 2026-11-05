@@ -202,6 +202,7 @@ impl LaunchForm {
             machine: None,
             capacity_need: None,
             role: None,
+            resume: None,
         })
     }
 }

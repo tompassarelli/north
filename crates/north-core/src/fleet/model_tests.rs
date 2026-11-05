@@ -21,6 +21,7 @@ fn a_session_launched_without_task_holds_the_issue_its_briefs_first_item_line_na
         machine: None,
         capacity_need: None,
         role: None,
+        resume: None,
     };
     assert_eq!(request("Item: wisp#39 relay NAT run\nCategory: native-check\nItem: wisp#40", None).task().as_deref(), Some("wisp#39"));
     assert_eq!(request("Category: tooling\n  Item: tompassarelli/makgora#342: dash attack", None).task().as_deref(), Some("tompassarelli/makgora#342"));
@@ -53,6 +54,7 @@ fn a_session_launched_without_task_holds_the_issue_the_brief_its_prompt_points_a
         machine: None,
         capacity_need: None,
         role: None,
+        resume: None,
     };
     let brief = brief.display();
     assert_eq!(request(format!("read and do the box brief at {brief}"), None).task().as_deref(), Some("wisp#63"));
@@ -100,6 +102,7 @@ fn a_launch_records_the_role_it_was_given_else_a_worker_for_a_task_and_a_lead_fo
         machine: None,
         capacity_need: None,
         role,
+        resume: None,
     };
     let recorded = |request: LaunchRequest| SessionRecord::launched(&request, None, None, false, 1).role;
     assert_eq!(recorded(request("take Tom's messages", None, Some(Role::Proxy))), Some(Role::Proxy));

@@ -5,7 +5,7 @@ use crate::error::NorthResult;
 use super::model::SessionRecord;
 use super::peer_row::{self, Refusal};
 use super::registry::{Fleet, HandedIn};
-use super::store::{Addressee, Exchange, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LAUNCH_GRACE_MS, LedgerHost, RowKind, SessionRow, Undecodable, UnknownKind, WaitKey};
+use super::store::{Exchange, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LAUNCH_GRACE_MS, LedgerHost, RowKind, SessionRow, Undecodable, UnknownKind, WaitKey};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
@@ -140,7 +140,7 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &
 
 pub fn registry(fleet: &Fleet, records: &[SessionRecord], now_ms: u64) -> NorthResult<FarRegistry> {
     let floor = now_ms.saturating_sub(u64::try_from(RETENTION.as_millis()).unwrap_or(u64::MAX));
-    Ok(FarRegistry { host: fleet.host().to_owned(), sessions: records.iter().map(|record| fleet.table_row(record, now_ms)).collect(), addressees: records.iter().map(|record| addressee(fleet, record, floor)).collect::<NorthResult<_>>()?, gates: fleet.open_gate_rows()? })
+    Ok(FarRegistry { host: fleet.host().to_owned(), sessions: records.iter().map(|record| fleet.table_row(record, now_ms)).collect(), addressees: records.iter().map(|record| fleet.addressee(record, floor)).collect::<NorthResult<_>>()?, gates: fleet.open_gate_rows()? })
 }
 
 pub fn hand_in_all(fleet: &Fleet, rows: &[FleetRow], started: Instant, budget: Duration) -> Vec<HandedRow> {
@@ -276,14 +276,6 @@ fn far_hosts(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls) -> Vec<Far
         }
     }
     hosts
-}
-
-fn addressee(fleet: &Fleet, record: &SessionRecord, floor: u64) -> NorthResult<Addressee> {
-    Ok(Addressee { name: record.name.clone(), stopped: record.stopped, control_since_ms: Some(record.created_ms.max(floor)), since_ms: record.addressed_since().max(floor), taken: fleet.delivered(&record.name)?.into_iter().filter(|id| sent_at(id).is_none_or(|ms| ms >= floor)).collect() })
-}
-
-fn sent_at(id: &str) -> Option<u64> {
-    id.split('-').next()?.parse().ok()
 }
 
 #[cfg(test)]

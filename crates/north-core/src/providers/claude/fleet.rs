@@ -70,6 +70,7 @@ impl Runtime for Claude {
             Opening::Fresh(None) => {}
         }
         argv.extend(session_env::model_args(request));
+        argv.extend(session_env::agent_args(request));
         if !instructions.is_empty() {
             argv.extend(["--append-system-prompt".into(), instructions.to_owned()]);
         }
@@ -86,6 +87,7 @@ impl Runtime for Claude {
     fn interactive(&self, account: &Account, request: &LaunchRequest, conversation: &str, instructions: &str) -> NorthResult<HostSpec> {
         let mut argv = vec![install::runtime("claude").display().to_string(), "--resume".into(), conversation.into(), "--permission-mode".into(), "bypassPermissions".into()];
         argv.extend(session_env::model_args(request));
+        argv.extend(session_env::agent_args(request));
         if !instructions.is_empty() {
             argv.extend(["--append-system-prompt".into(), instructions.to_owned()]);
         }
@@ -97,6 +99,20 @@ impl Runtime for Claude {
             env_remove: session_env::inherited_env(account),
             cwd: request.cwd.clone(),
         })
+    }
+
+    fn carry_conversation(&self, from: &Account, to: &Account, conversation: &str) -> NorthResult<()> {
+        if from.home == to.home {
+            return Ok(());
+        }
+        let file = format!("{conversation}.jsonl");
+        let Ok(projects) = std::fs::read_dir(from.home.join("projects")) else { return Ok(()) };
+        for project in projects.flatten().filter(|project| project.path().join(&file).is_file()) {
+            let into = to.home.join("projects").join(project.file_name());
+            std::fs::create_dir_all(&into)?;
+            std::fs::copy(project.path().join(&file), into.join(&file))?;
+        }
+        Ok(())
     }
 
     fn handshake(&self) -> Vec<String> {

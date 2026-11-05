@@ -20,5 +20,7 @@ fn subcommands_override_their_verb() {
     assert_eq!(VERB_KINDS.kind(&["fleet", "show"]), Some(Kind::Status));
     assert_eq!(VERB_KINDS.kind(&["land", "enqueue"]), Some(Kind::Landing));
     assert_eq!(VERB_KINDS.kind(&["land", "scan"]), Some(Kind::Diagnosis));
+    assert_eq!(VERB_KINDS.kind(&["proxy"]), Some(Kind::Delegate));
+    assert_eq!(VERB_KINDS.kind(&["proxy", "calls"]), Some(Kind::Status));
     assert_eq!(VERB_KINDS.kind(&[]), Some(Kind::Status));
 }

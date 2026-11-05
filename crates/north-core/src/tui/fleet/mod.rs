@@ -43,8 +43,17 @@ use screen::{Command, Screen};
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 pub fn run(fleet: Fleet) -> NorthResult<()> {
+    run_focused(fleet, None)
+}
+
+pub fn run_on(fleet: Fleet, session: &str) -> NorthResult<()> {
+    run_focused(fleet, Some(session.to_owned()))
+}
+
+fn run_focused(fleet: Fleet, session: Option<String>) -> NorthResult<()> {
     let mut desk = FleetDesk::new(fleet);
     let mut screen = Screen::new(env::current_dir()?, desk.accounts());
+    screen.selected = session;
     screen.offer(desk.choices());
     let (_guard, mut terminal) = TerminalGuard::enter()?;
     drive(&mut desk, &mut screen, &mut terminal, &mut terminal_events)

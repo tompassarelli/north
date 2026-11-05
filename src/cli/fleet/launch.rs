@@ -93,6 +93,7 @@ impl LaunchFlags {
             machine,
             capacity_need: None,
             role: self.role,
+            resume: None,
         })
     }
 }

@@ -107,3 +107,4 @@ mod worker_ledger_argv;
 mod worker_ledger_ingest_lock;
 mod worker_ledger_record;
 mod worker_ledger_resumed_session;
+mod proxy;

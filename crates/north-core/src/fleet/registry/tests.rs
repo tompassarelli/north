@@ -46,6 +46,7 @@ fn on_far() -> LaunchRequest {
         machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }),
         capacity_need: None,
         role: None,
+        resume: None,
     }
 }
 

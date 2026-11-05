@@ -63,6 +63,8 @@ pub struct LaunchRequest {
     pub capacity_need: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<Role>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -315,6 +317,7 @@ impl SessionRecord {
             machine: self.machine.clone(),
             capacity_need: self.capacity_need.clone(),
             role: Some(self.role()),
+            resume: None,
         }
     }
 }

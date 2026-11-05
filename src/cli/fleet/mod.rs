@@ -10,6 +10,7 @@ mod lineage;
 mod list;
 mod overlap;
 mod placement;
+mod proxy;
 mod rebooted;
 mod relaunch;
 mod revive;
@@ -26,6 +27,7 @@ mod view;
 mod waits;
 
 pub(super) use placement::fleet_load;
+pub(super) use proxy::run as proxy;
 pub(super) use router::{host_watch, open_fleet, roster, run};
 pub(super) use view::Registry;
 #[cfg(test)]

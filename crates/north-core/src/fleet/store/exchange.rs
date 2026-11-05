@@ -63,6 +63,12 @@ impl LedgerHost for Store {
     }
 }
 
+impl Store {
+    pub fn addressed_to(&self, addressees: &[Addressee]) -> NorthResult<Vec<FleetRow>> {
+        addressed(&self.db, addressees)
+    }
+}
+
 const JOB_EXIT_KEPT_MS: u64 = 24 * 60 * 60 * 1000;
 
 const ADDRESSED: &str = "SELECT events.data FROM events JOIN json_each(?1) AS addressee \

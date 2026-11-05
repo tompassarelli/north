@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::path::Path;
 
-use crate::fleet::model::{Account, LaunchRequest};
+use crate::fleet::model::{Account, LaunchRequest, Role};
 use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV};
 
 use super::accounts::default_home;
@@ -38,6 +38,13 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
 pub(super) fn model_args(request: &LaunchRequest) -> Vec<String> {
     let model = request.model.iter().flat_map(|model| ["--model".to_owned(), model.clone()]);
     model.chain(request.effort.iter().flat_map(|effort| ["--effort".to_owned(), effort.label().to_owned()])).collect()
+}
+
+pub(super) fn agent_args(request: &LaunchRequest) -> Vec<String> {
+    match request.role() {
+        Role::Proxy => vec!["--agent".to_owned(), Role::Proxy.label().to_owned()],
+        Role::Lead | Role::Worker => Vec::new(),
+    }
 }
 
 pub(super) fn inherited_env(account: &Account) -> Vec<String> {

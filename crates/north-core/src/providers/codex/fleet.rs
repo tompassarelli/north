@@ -329,6 +329,7 @@ mod turn_state {
             machine: None,
             capacity_need: None,
             role: None,
+            resume: None,
         }
     }
 

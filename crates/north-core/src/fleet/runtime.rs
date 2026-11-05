@@ -62,6 +62,9 @@ pub trait Runtime: Send + Sync {
     fn interactive(&self, _account: &Account, _request: &LaunchRequest, _conversation: &str, _instructions: &str) -> NorthResult<HostSpec> {
         Err(NorthError::Usage(format!("{} sessions have no interactive UI to hand over to", self.provider().label())))
     }
+    fn carry_conversation(&self, _from: &Account, _to: &Account, _conversation: &str) -> NorthResult<()> {
+        Ok(())
+    }
     fn handshake(&self) -> Vec<String>;
     fn open(&self, name: &str, request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>>;
     fn message(&self, transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>>;

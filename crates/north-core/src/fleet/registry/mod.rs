@@ -73,6 +73,7 @@ pub use hand_in::HandedIn;
 pub use control::Controlled;
 pub use relaunching::Choices;
 pub use gate_rows::Opened;
+pub use takeover::backlog_line;
 pub use messages::Sent;
 pub use spend_rows::Spent;
 pub use wait_rows::Waiting;

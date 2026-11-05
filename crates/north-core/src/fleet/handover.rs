@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use super::limit::recent;
-use super::model::{Ending, LaunchRequest, SessionRecord};
+use super::model::{Ending, LaunchRequest, Role, SessionRecord};
 use super::registry::Fleet;
 use super::waits::Run;
 use crate::error::NorthResult;
@@ -92,13 +92,15 @@ pub fn hand_over(
     for (name, action) in assessed.actions {
         let Action::HandOver { to } = action else { continue };
         let Some(record) = records.iter().find(|record| record.name == name.0) else { continue };
-        if !holds_work(record) {
+        let proxy = record.role() == Role::Proxy;
+        if !proxy && !holds_work(record) {
             continue;
         }
         let request = LaunchRequest {
             account: to.0.clone(),
-            prompt: brief(record, &to.0),
+            prompt: if proxy { proxy_brief(record, &to.0) } else { brief(record, &to.0) },
             placement: Some(format!("handed over from account {}", record.account)),
+            resume: proxy.then(|| record.conversation.clone()).flatten(),
             ..record.relaunch_request()
         };
         match take_over(&request) {
@@ -170,6 +172,14 @@ fn brief(record: &SessionRecord, to: &str) -> String {
         from = record.account,
         name = record.name,
         cwd = record.cwd.display(),
+    )
+}
+
+fn proxy_brief(record: &SessionRecord, to: &str) -> String {
+    format!(
+        "[north: account {from} is out of usage, so `north fleet tick` moved {name} onto account {to}, which has usage left] This is the same conversation; carry on where it stopped.",
+        from = record.account,
+        name = record.name,
     )
 }
 

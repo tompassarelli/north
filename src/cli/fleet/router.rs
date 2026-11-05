@@ -157,7 +157,7 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
     Ok(())
 }
 
-fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
+pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);

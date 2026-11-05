@@ -34,7 +34,10 @@ impl Fleet {
             return Err(NorthError::Usage(format!("{} has no model {model}; launch one of {}", request.provider.label(), runtime.models().join(", "))));
         }
         let effort = efforts::taken(runtime.as_ref(), request.model.as_deref(), request.effort)?;
-        let conversation = runtime.assign_conversation()?;
+        let conversation = match &request.resume {
+            Some(kept) => Some(kept.clone()),
+            None => runtime.assign_conversation()?,
+        };
         let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
         let tasks = request.tasks();
         let mut record = SessionRecord::launched(request, effort, conversation.clone(), verification, now_ms());
@@ -47,7 +50,15 @@ impl Fleet {
         if let Some(predecessor) = &predecessor {
             hand_in::inherit_journal(&predecessor.archived, &session_dir)?;
         }
-        self.start_claiming(&mut record, &account, conversation.as_deref())?;
+        let opening = match (&request.resume, &predecessor) {
+            (Some(kept), Some(predecessor)) => {
+                runtime.carry_conversation(&self.account(&predecessor.record().relaunch_request())?, &account, kept)?;
+                Opening::Resume(kept)
+            }
+            (Some(kept), None) => Opening::Resume(kept),
+            (None, _) => Opening::Fresh(conversation.as_deref()),
+        };
+        self.start_claiming(&mut record, &account, opening)?;
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }

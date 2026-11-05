@@ -25,6 +25,7 @@ fn request() -> LaunchRequest {
         machine: None,
         capacity_need: None,
         role: None,
+        resume: None,
     }
 }
 

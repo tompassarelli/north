@@ -1168,3 +1168,32 @@ fn when_every_account_is_out_nothing_is_taken_over_and_tom_hears_the_earliest_re
     assert!(line.contains("earliest resumes") && line.contains("in 2 days"), "{line}");
     assert_eq!(second.alert, None, "Tom hears it once");
 }
+
+#[test]
+fn a_running_proxy_whose_account_week_ran_out_is_handed_over_onto_an_account_with_headroom_as_the_proxy_on_its_conversation() {
+    use crate::fleet::model::{LaunchRequest, Role};
+    let host = host("nexus");
+    with_accounts(&host, &["a", "c"]);
+    let main = host.home.path().join("code/north/main");
+    std::fs::create_dir_all(&main).unwrap();
+    let _frames = live(&host, "proxy");
+    let file = host.root().join("proxy").join("session.json");
+    let mut record: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    (record["account"], record["cwd"], record["role"], record["conversation"]) = (json!("c"), json!(main), json!("proxy"), json!("conv-proxy"));
+    std::fs::write(&file, record.to_string()).unwrap();
+    let launches = Launches::default();
+    let take = |request: &LaunchRequest| {
+        launches.borrow_mut().push(request.clone());
+        host.fleet.session(&request.name)
+    };
+
+    let done = crate::fleet::handover::hand_over(&host.fleet, &fixture(&[("c", 300_000)], &["a"]), &|_| false, &take, &|_| Ok(()), NOW_MS);
+
+    let launched = launches.borrow();
+    assert_eq!(launched.iter().map(|request| (request.name.as_str(), request.account.as_str(), request.role, request.resume.as_deref())).collect::<Vec<_>>(), [("proxy", "a", Some(Role::Proxy), Some("conv-proxy"))]);
+    assert_eq!((launched[0].parent.as_deref(), launched[0].cwd.as_path()), (None, main.as_path()));
+    assert!(launched[0].prompt.contains("same conversation") && !launched[0].prompt.contains("Follows:"), "{}", launched[0].prompt);
+    assert_eq!(done.lines, ["proxy: handed over from account c to a with its lane ".to_owned() + &main.display().to_string()]);
+    let second = host.fleet.take_over(&LaunchRequest { name: "proxy-a".into(), resume: None, ..launched[0].clone() }).unwrap_err().user_message();
+    assert!(second.contains("proxy is the live proxy"), "the one-live-proxy rule still refuses a second proxy: {second}");
+}

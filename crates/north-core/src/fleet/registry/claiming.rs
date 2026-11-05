@@ -24,8 +24,8 @@ impl Fleet {
     }
 
     /// Starts a fresh session, giving its claims back when it does not start.
-    pub(super) fn start_claiming(&self, record: &mut SessionRecord, account: &Account, conversation: Option<&str>) -> NorthResult<()> {
-        let started = self.start(record, account, Opening::Fresh(conversation));
+    pub(super) fn start_claiming(&self, record: &mut SessionRecord, account: &Account, opening: Opening) -> NorthResult<()> {
+        let started = self.start(record, account, opening);
         if started.is_err() {
             claims::release_for(self.claims.as_ref(), record);
         }
