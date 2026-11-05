@@ -63,12 +63,13 @@ fn describe(gap: &Uncovered) -> String {
 }
 
 pub fn refuse_lost_coverage(root: &Path, base: &str, head: &str) -> Result<(), String> {
-    let before = Config::load(root, base).coverage(root, head);
+    let fork = git(root, &["merge-base", base, head])?;
+    let before = Config::load(root, &fork).coverage(root, head);
     if before.is_empty() {
         return Ok(());
     }
     let after = Config::load(root, head).coverage(root, head);
-    let messages = git(root, &["log", "--format=%B", &format!("{base}..{head}")])?;
+    let messages = git(root, &["log", "--format=%B", &format!("{fork}..{head}")])?;
     let waivers = waivers(&messages);
     let refusals: Vec<String> = uncovered(&before, &after).iter().filter(|gap| !waivers.iter().any(|waiver| waives(waiver.name, &gap.command))).map(describe).collect();
     if refusals.is_empty() { Ok(()) } else { Err(refusals.join("; ")) }

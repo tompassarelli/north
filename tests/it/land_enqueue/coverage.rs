@@ -41,3 +41,16 @@ fn enqueue_accepts_a_lane_removing_a_check_under_a_removes_check_trailer() {
     let fixture = covered_lane("[land]\n\tcheck = docs/ :: test -d docs\n", "Drop the src check\n\nRemoves-check: src because the src tree is generated");
     assert!(fixture.try_enqueue().is_ok());
 }
+
+#[test]
+fn enqueue_accepts_a_lane_behind_main_when_main_added_a_check_since_the_lane_branched() {
+    let fixture = Fixture::seeded(&[("src/a.rs", "pub fn a() {}\n"), ("docs/guide.md", "# Guide\n"), (".safe-push", CHECKS_BEFORE)]);
+    fixture.commit(&fixture.repo, "src/c.rs", "Add c");
+    let upstream = fixture.root.join("upstream");
+    git(&fixture.repo, &["worktree", "add", "-q", "-b", "upstream", upstream.to_str().unwrap(), "origin/main"]);
+    fs::write(upstream.join(".safe-push"), format!("{CHECKS_BEFORE}\tcheck = src/a.rs :: test -f src/a.rs\n")).unwrap();
+    git(&upstream, &["commit", "-qam", "Check a on main"]);
+    git(&upstream, &["push", "-q", "origin", "HEAD:main"]);
+    let queued = fixture.try_enqueue().expect("a check main added after the lane branched is not one the lane removed");
+    assert_eq!(fixture.pending(), vec![queued.ticket]);
+}
