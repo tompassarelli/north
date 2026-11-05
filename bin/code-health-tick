@@ -1,5 +1,3 @@
 #!/usr/bin/env bash
 set -euo pipefail
-[ -z "${HOME:-}" ] || PATH="$PATH:$HOME/.nix-profile/bin"
-command -v bun >/dev/null 2>&1 || { echo "code-health-tick: bun not found" >&2; exit 2; }
-exec bun --no-install "$(dirname "$(readlink -f "$0")")/../harness/code-health/tick.ts" "$@"
+exec "$(dirname "$(readlink -f "$0")")/north" code-health tick "$@"

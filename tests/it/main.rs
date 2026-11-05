@@ -35,7 +35,6 @@ mod capacity_status;
 mod capacity_unseen_pressure;
 mod claim_readers;
 mod code_health_edit_hook;
-mod code_health_signal;
 mod command_guards_hook;
 mod desktop_action_guard;
 mod dev_shell_target;

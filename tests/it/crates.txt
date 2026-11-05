@@ -41,7 +41,6 @@ capacity_unseen_pressure north-capacity
 carry_matrix north-capacity north-runtime
 claim_readers north-threads
 code_health_edit_hook north-guard
-code_health_signal north-guard
 command_guards_hook north-guard
 desktop_action_guard north-guard
 dev_shell_target north-capacity-host

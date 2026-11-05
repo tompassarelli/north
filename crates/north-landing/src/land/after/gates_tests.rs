@@ -29,7 +29,7 @@ fn every_gate_runs_and_only_the_failing_ones_are_reported_with_their_output() {
     let head = git(&tree, &["rev-parse", "HEAD"]);
     let tools = root.path().join("bin");
     stub(&tools.join("safe-push"), "exit 9");
-    stub(&tools.join("code-health"), "echo 'code-health found debt'; exit 1");
+    stub(&tools.join("north"), "[ \"$1 $2\" = 'code-health gate' ] || exit 7; echo 'code-health found debt'; exit 1");
     let failures = run(&Landed { tree: &tree, base: &base, head: &head, safe_push: &tools.join("safe-push") });
     let gates: Vec<&str> = failures.iter().map(|failure| failure.gate.as_str()).collect();
     assert_eq!(gates, ["code-health", "instruction-limits"]);
@@ -50,9 +50,8 @@ fn the_crate_lines_gate_runs_north_beside_safe_push_only_where_structure_toml_en
     let tools = root.path().join("bin");
     let trace = root.path().join("trace");
     stub(&tools.join("safe-push"), "exit 9");
-    stub(&tools.join("code-health"), "exit 0");
     stub(&tools.join("agent-instruction-check"), "exit 0");
-    stub(&tools.join("north"), &format!("echo \"north $*\" >>{}; echo 'north-core grew 10 -> 11'; exit 1", trace.display()));
+    stub(&tools.join("north"), &format!("[ \"$2\" = gate ] && exit 0; echo \"north $*\" >>{}; echo 'north-core grew 10 -> 11'; exit 1", trace.display()));
     let gates = |head: &str| run(&Landed { tree: &tree, base: &base, head, safe_push: &tools.join("safe-push") });
     assert!(gates(&base).iter().all(|failure| failure.gate != "crate-lines"));
     assert!(!trace.exists());

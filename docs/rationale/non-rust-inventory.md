@@ -53,9 +53,8 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/cargo | 14 | stay | same admission shadow for cargo |
 | bin/claude-runtime-update | 49 | port: north#87 (Codex/runtime/desktop tools) | downloads and selects the Claude runtime |
 | bin/claude-runtime-update.test.sh | 63 | port: north#87 (Codex/runtime/desktop tools) | test of claude-runtime-update |
-| bin/code-health | 7 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | 9-line shim to harness/code-health/cli.ts |
-| bin/code-health.test.sh | 4 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | 4-line test runner for the code-health TS tests |
-| bin/code-health-tick | 5 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | shim to harness/code-health/tick.ts; nixos-config modules/code-health-review/default.nix names it, so the unit change lands first |
+| bin/code-health | 3 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | shim to north code-health; deleted once no host unit names it |
+| bin/code-health-tick | 3 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | shim to north code-health tick; nixos-config modules/code-health-review/default.nix names it, so the unit change lands first |
 | bin/codex-runtime-update | 159 | port: north#87 (Codex/runtime/desktop tools) | 159 lines, over the 80-line glue limit |
 | bin/codex-runtime-update.test.sh | 149 | port: north#87 (Codex/runtime/desktop tools) | test of codex-runtime-update |
 | bin/depbox | 88 | stay | execs bwrap/unshare sandbox around an arbitrary command (namespace setup before any runtime exists); glue under 80 code lines |
@@ -83,23 +82,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/tom-warcraft-close.test.sh | 63 | port: north#87 (Codex/runtime/desktop tools) | test of tom-warcraft-close |
 | bin/verify-north | 9 | stay | launcher: execs the promoted verify-north runtime binary |
 | bin/wc3-login-field | 34 | stay | 34-line foreign-boundary glue: types one SOPS field into the verified private login window through private-desktop.sh |
-| harness/code-health/check.ts | 49 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/cli.ts | 87 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/code-health.test.ts | 133 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/config.ts | 130 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/files.ts | 103 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/functions.ts | 180 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/gate.ts | 143 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/graph.ts | 92 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/history.ts | 77 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/imports.ts | 16 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/metrics.test.ts | 20 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/report.ts | 176 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/signal.test.ts | 48 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/signal.ts | 44 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/state.ts | 38 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/tick.test.ts | 73 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/code-health/tick.ts | 154 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
 | harness/hooks/firn-system-policy | 42 | stay | 42-line hook owned by Firn and installed from this tree; belongs in nixos-config, move there rather than port |
 | harness/hooks/language-guard.sh | 10 | stay | 10-line hook wrapper that execs `north guard language`; same condition |
 | harness/hooks/north-hook.sh | 9 | stay | 9-line hook wrapper that execs `north hook`; same condition |

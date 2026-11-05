@@ -339,7 +339,7 @@ fn code_health_landed() {
     let head = fixture.commit(&["outgoing"]);
     let exit = |code: &str| fixture.gate("code-health", &base, &head, &[("CODE_HEALTH_EXIT", code)]);
     exit("0").passes();
-    assert!(fixture.trace().lines().any(|line| line == format!("code-health gate {base} {head}")), "code-health did not measure the landed range: {}", fixture.trace());
+    assert!(fixture.trace().lines().any(|line| line == format!("code-health code-health gate {base} {head}")), "code-health did not measure the landed range: {}", fixture.trace());
     exit("1").refuses().says("✗ code-health gate refused");
     exit("2").passes().says("no structure.toml — continuing");
     fixture.write("structure.toml", "[thresholds]\n");

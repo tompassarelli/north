@@ -3,7 +3,6 @@ use super::rust_modules::Crate;
 use super::source::Source;
 use super::functions::SourceText;
 use super::resolver::Resolver;
-use super::{Existence, Request, SourceFile, answer};
 
 fn tree(paths: &[&str]) -> Source {
     Source::tree(paths.iter().map(|path| (*path).to_owned()).collect())
@@ -86,26 +85,6 @@ fn c_includes_resolve_beside_the_file_then_from_the_root() {
     let files = tree(&["src/a.c", "src/local.h", "include/shared.h"]);
     let text = "#include \"local.h\"\n#include \"include/shared.h\"\n#include <stdio.h>\n";
     assert_eq!(imports_of("src/a.c", text, &files, &[]), ["src/local.h", "include/shared.h"]);
-}
-
-#[test]
-fn the_request_answers_in_file_order_for_a_tree_and_a_root() {
-    let request: Request = serde_json::from_str(
-        r#"{"exists":{"tree":["Cargo.toml","src/lib.rs","src/util.rs"]},
-            "manifests":[{"path":"Cargo.toml","text":"[package]\nname = \"app\"\n"}],
-            "files":[{"path":"src/lib.rs","text":"use crate::util::A;"},{"path":"src/util.rs","text":"use crate::A;"}]}"#,
-    )
-    .unwrap();
-    assert_eq!(answer(request).imports, [vec!["src/util.rs".to_owned()], vec!["src/lib.rs".to_owned()]]);
-
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("b.ts"), "").unwrap();
-    let request = Request {
-        exists: Existence::Root(dir.path().to_string_lossy().into_owned()),
-        manifests: Vec::new(),
-        files: vec![SourceFile { path: "a.ts".into(), text: "import './b';".into() }],
-    };
-    assert_eq!(answer(request).imports, [vec!["b.ts".to_owned()]]);
 }
 
 #[test]

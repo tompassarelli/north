@@ -95,10 +95,10 @@ pub fn scan(name: &str, arguments: &[String]) -> u8 {
 }
 
 fn code_health(landed: &Landed, out: &mut Vec<u8>) -> bool {
-    let program = std::env::var_os("SAFE_PUSH_CODE_HEALTH").filter(|path| !path.is_empty()).map_or_else(|| tools(landed.safe_push).join("code-health"), PathBuf::from);
+    let program = std::env::var_os("SAFE_PUSH_CODE_HEALTH").filter(|path| !path.is_empty()).map_or_else(|| tools(landed.safe_push).join("north"), PathBuf::from);
     let enrolled = git::bytes(landed.tree, &["cat-file", "-e", &format!("{}:structure.toml", landed.head)]).is_some();
     let mut command = Command::new(&program);
-    command.args(["gate", landed.base, landed.head]);
+    command.args(["code-health", "gate", landed.base, landed.head]);
     let status = if is_executable(&program) { captured(&mut command, &root(landed.tree), out) } else { None };
     let verdict = match (status, enrolled) {
         (Some(0), _) => return true,
