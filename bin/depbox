@@ -16,8 +16,11 @@ if [ "$#" -lt 3 ] || [ "$2" != -- ] || { [ "$mode" != fetch ] && [ "$mode" != ru
   exit 2
 fi
 shift 2
-net=() cache_dirs=() cache_vars=()
-[ "$mode" = fetch ] || { net=(--unshare-net); cache_dirs=(.cache/sccache); cache_vars=(RUSTC_WRAPPER SCCACHE_DIR SCCACHE_CACHE_SIZE SCCACHE_BASEDIRS CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER); }
+net=() cache_dirs=()
+[ "$mode" = fetch ] || { net=(--unshare-net); cache_dirs=(.cache/sccache); }
+command -v north >/dev/null || { printf 'depbox: north not found on PATH; it names the variables the sandbox carries\n' >&2; exit 1; }
+into=sandbox; [ "$mode" = fetch ] && into=fetch
+carried=$(north capacity carry --list --into "$into") || { printf 'depbox: north capacity carry --list failed; the runtime north is older than this repo\n' >&2; exit 1; }
 
 bwrap=$(command -v bwrap) || { printf 'depbox: bwrap not found on PATH\n' >&2; exit 1; }
 top=$(git rev-parse --show-toplevel 2>/dev/null) && top=$(realpath "$top") || { printf 'depbox: run inside a git checkout\n' >&2; exit 2; }
@@ -61,9 +64,9 @@ fi
 
 args+=(--bind "$top" "$top" --bind "$top" "$box" --ro-bind "$common" "$common")
 args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session --clearenv --setenv DEPBOX "$mode:$top")
-for var in "${cache_vars[@]}" PATH HOME USER LANG TERM CARGO_BUILD_JOBS RUST_TEST_THREADS AGENT_CAPACITY_LEASE NORTH_DEV_SHELL SAFE_PUSH_LAND_BASE SAFE_PUSH_LAND_HEAD SAFE_PUSH_LAND_REF SAFE_PUSH_LANDING NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
+while read -r var; do
   if [ -n "${!var:-}" ]; then args+=(--setenv "$var" "${!var}"); fi
-done
+done <<<"$carried"
 args+=(--setenv CARGO_TARGET_DIR "$box/target")
 here=$(realpath "$PWD")
 args+=(--chdir "$box${here#"$top"}")

@@ -29,6 +29,10 @@ fn run_command(depbox: &Path, checkout: &Path, chosen: Option<&Path>, mode: &str
     if !tool.exists() {
         std::os::unix::fs::symlink("/bin/sh", tool).unwrap();
     }
+    let north = home.join(".cargo/bin/north");
+    if !north.exists() {
+        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), north).unwrap();
+    }
     let rustup = Path::new(&std::env::var_os("HOME").unwrap()).join(".rustup");
     if rustup.exists() && !home.join(".rustup").exists() {
         std::os::unix::fs::symlink(rustup, home.join(".rustup")).unwrap();
