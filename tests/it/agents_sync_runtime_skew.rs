@@ -175,3 +175,27 @@ fn promotion_moves_the_projected_skill_scripts_to_the_new_commit() {
     assert_eq!(host.projected(), host.script_at(&host.newer));
     assert_eq!(host.projected_revision(), host.newer);
 }
+
+#[test]
+fn a_fresh_host_with_no_generation_makes_its_first_one_with_every_registered_unit_on() {
+    let host = Host::new();
+    fs::remove_file(host.path("state/north/agents/current")).unwrap();
+    fs::remove_dir_all(host.path("state/north/agents/gen-seed")).unwrap();
+
+    host.sync();
+
+    let activation: serde_json::Value = serde_json::from_str(&fs::read_to_string(host.path("state/north/agents/current/activation.json")).unwrap()).unwrap();
+    assert_eq!(activation["permissions"], serde_json::json!({"machine-capacity": "on"}));
+    assert_eq!(host.projected(), host.script_at(&host.running));
+}
+
+#[test]
+fn a_dangling_current_generation_is_refused_rather_than_replaced() {
+    let host = Host::new();
+    fs::remove_dir_all(host.path("state/north/agents/gen-seed")).unwrap();
+
+    let output = host.north(&["config", "agents", "sync"]);
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("current/activation.json"), "{}", String::from_utf8_lossy(&output.stderr));
+}

@@ -7,6 +7,17 @@ use regex::Regex;
 use super::report::Report;
 use super::{Context, combined, path_command, read};
 
+pub(super) const RUNTIMES: [(&str, &str, &str); 8] = [
+    ("bash", "pkgs.bash", "bash"),
+    ("cat", "pkgs.coreutils", "cat"),
+    ("env", "pkgs.coreutils", "env"),
+    ("git", "pkgs.git", "git"),
+    ("mktemp", "pkgs.coreutils", "mktemp"),
+    ("python3", "pkgs.python3", "python3"),
+    ("rm", "pkgs.coreutils", "rm"),
+    ("timeout", "pkgs.coreutils", "timeout"),
+];
+
 fn resolve(path: &Path) -> Option<PathBuf> {
     fs::canonicalize(path).ok().or_else(|| {
         let parent = fs::canonicalize(path.parent()?).ok()?;
@@ -185,6 +196,11 @@ fn wiring(context: &Context, report: &mut Report) {
             report.ok(pass);
         } else {
             report.bad(fail);
+        }
+    }
+    for (runtime, package, binary) in RUNTIMES {
+        if !module.contains(&format!("\"codex/hooks/runtime/{runtime}\".source = \"${{{package}}}/bin/{binary}\";")) {
+            report.bad(format!("north-profile module does not bind hook runner {runtime} from {package}"));
         }
     }
     if Regex::new(r"agent-profile|\.config/agents|profiles/tom|\.agents/docs").unwrap().is_match(&module) {

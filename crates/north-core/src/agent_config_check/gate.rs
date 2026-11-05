@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 
 use super::roots::Roots;
 use crate::platform::trials::{Scenarios, TRIALS, Verdict, compare, flips};
-use crate::platform::{process, pystats, toml_json};
+use crate::platform::{host, process, pystats, toml_json};
 
 const PLAYBOOK_LINES: usize = 500;
 const SKILL_BYTES: usize = 6144;
@@ -390,17 +390,46 @@ fn judge(point: &Value, row: &Value, tokens: usize) -> Result<String, String> {
     ))
 }
 
+const START_DEADLINE: Duration = Duration::from_secs(10);
+const LEASE_WAIT_SECONDS: u64 = 600;
+
 pub(super) fn north_session_start(north: OsString, home: PathBuf) -> Box<dyn Fn(bool) -> Result<usize, String>> {
+    session_start_probe(north, home, START_DEADLINE, host::contention)
+}
+
+pub(super) fn session_start_probe(north: OsString, home: PathBuf, deadline: Duration, contention: fn() -> Option<f64>) -> Box<dyn Fn(bool) -> Result<usize, String>> {
     Box::new(move |fixture| {
-        let payload = json!({"hook_event_name": "SessionStart", "source": "startup", "session_id": "budget", "cwd": home});
-        let mut command = Command::new(&north);
-        command.args(["hook", "session-start"]).env_remove("AGENT_NO_AUTHORING_HOOKS").env("CLAUDE_CODE_ENTRYPOINT", "cli");
-        if fixture {
-            command.env("LANE_GC_UNLANDED", "/dev/null");
-        }
-        let output = process::try_run_command_traced_within(command, Some(payload.to_string().as_bytes()), Duration::from_secs(10))
+        let payload = json!({"hook_event_name": "SessionStart", "source": "startup", "session_id": "budget", "cwd": home}).to_string();
+        let seconds = deadline.as_secs();
+        let hook = |leased: bool| {
+            let mut command = Command::new(&north);
+            if leased {
+                command.args(["capacity", "host", "run", "--class", "moderate", "--owner", "agent-config-check", "--timeout-seconds", &LEASE_WAIT_SECONDS.to_string(), "--", "timeout", &seconds.to_string()]).arg(&north);
+            }
+            command.args(["hook", "session-start"]).env_remove("AGENT_NO_AUTHORING_HOOKS").env("CLAUDE_CODE_ENTRYPOINT", "cli");
+            if fixture {
+                command.env("LANE_GC_UNLANDED", "/dev/null");
+            }
+            command
+        };
+        let stalled = match process::try_run_command_traced_within(hook(false), Some(payload.as_bytes()), deadline)
             .map_err(|error| format!("north hook session-start did not run: {error}"))?
-            .map_err(|stalled| format!("north hook session-start did not finish within 10 seconds; at the limit: {stalled}"))?;
+        {
+            Ok(output) => return Ok(String::from_utf8_lossy(&output.stdout).chars().count()),
+            Err(stalled) => stalled,
+        };
+        let Some(load) = contention().filter(|load| *load > 1.0) else {
+            return Err(format!("north hook session-start did not finish within {seconds} seconds; at the limit: {stalled}"));
+        };
+        eprintln!("agent-config-check: host saturated at {load:.2} load per CPU, so north hook session-start missed its {seconds} s deadline; retrying under a capacity lease");
+        let output = process::try_run_command_traced_within(hook(true), Some(payload.as_bytes()), Duration::from_secs(LEASE_WAIT_SECONDS) + deadline)
+            .map_err(|error| format!("north hook session-start did not run under a capacity lease: {error}"))?
+            .map_err(|stalled| format!("host saturated at {load:.2} load per CPU; no capacity lease admitted north hook session-start within {LEASE_WAIT_SECONDS} seconds; at the limit: {stalled}"))?;
+        match output.status.code() {
+            Some(0) => {}
+            Some(124) => return Err(format!("host saturated at {load:.2} load per CPU; under a capacity lease north hook session-start still did not finish within {seconds} seconds")),
+            _ => return Err(format!("host saturated at {load:.2} load per CPU; under a capacity lease north hook session-start failed ({}): {}", output.status, String::from_utf8_lossy(&output.stderr).trim())),
+        }
         Ok(String::from_utf8_lossy(&output.stdout).chars().count())
     })
 }

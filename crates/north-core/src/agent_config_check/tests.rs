@@ -615,3 +615,33 @@ fn skill_programs_skip_programs_a_skill_forbids() {
     let verdicts = skill_programs(dir.path(), &dir.path().join("runtime-bin"), &hosts);
     assert!(verdicts.passed, "{}", verdicts.text);
 }
+
+fn slow_first_session_start(dir: &Path) -> PathBuf {
+    let north = dir.join("north");
+    let body = format!(
+        "case \"$1\" in\ncapacity) echo leased >>'{log}'; while [ \"$1\" != -- ]; do shift; done; shift; exec \"$@\" ;;\nhook) [ -e '{marker}' ] || {{ touch '{marker}'; exec sleep 5; }}; cat >/dev/null; printf context ;;\nesac\n",
+        log = dir.join("leases").display(),
+        marker = dir.join("stalled-once").display(),
+    );
+    crate::foundation::shim::write_script(&north, &body);
+    north
+}
+
+#[test]
+fn a_session_start_probe_that_stalls_on_a_host_loaded_past_its_cpus_is_retried_under_a_capacity_lease() {
+    let dir = tempfile::tempdir().unwrap();
+    let north = slow_first_session_start(dir.path());
+    let start = super::gate::session_start_probe(north.into(), dir.path().to_path_buf(), std::time::Duration::from_secs(1), || Some(1.9));
+    assert_eq!(start(true), Ok("context".len()));
+    assert_eq!(fs::read_to_string(dir.path().join("leases")).unwrap(), "leased\n");
+}
+
+#[test]
+fn a_session_start_probe_that_stalls_on_an_idle_host_fails_the_generation_without_a_lease() {
+    let dir = tempfile::tempdir().unwrap();
+    let north = slow_first_session_start(dir.path());
+    let start = super::gate::session_start_probe(north.into(), dir.path().to_path_buf(), std::time::Duration::from_secs(1), || Some(0.4));
+    let refused = start(true).unwrap_err();
+    assert!(refused.contains("did not finish within 1 seconds"), "{refused}");
+    assert!(!dir.path().join("leases").exists());
+}

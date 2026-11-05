@@ -39,6 +39,14 @@ pub(super) fn read_current() -> NorthResult<Value> {
     read_json(&agents_root()?.join("current/activation.json"))
 }
 
+pub(super) fn read_current_or_first() -> NorthResult<Option<Value>> {
+    let current = agents_root()?.join("current");
+    match fs::symlink_metadata(&current) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        _ => read_current().map(Some),
+    }
+}
+
 pub(super) fn read_json(path: &Path) -> NorthResult<Value> {
     let bytes = fs::read(path).map_err(|error| {
         NorthError::Configuration(format!("cannot read {}: {error}", path.display()))

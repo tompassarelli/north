@@ -7,20 +7,9 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::report::Report;
-use super::shared::canonical_link;
+use super::shared::{RUNTIMES, canonical_link};
 use super::{Context, contract_arguments, path_command, read};
 use crate::platform::toml_json;
-
-const RUNTIMES: [(&str, &str, &str); 8] = [
-    ("bash", "pkgs.bash", "bash"),
-    ("cat", "pkgs.coreutils", "cat"),
-    ("env", "pkgs.coreutils", "env"),
-    ("git", "pkgs.git", "git"),
-    ("mktemp", "pkgs.coreutils", "mktemp"),
-    ("python3", "pkgs.python3", "python3"),
-    ("rm", "pkgs.coreutils", "rm"),
-    ("timeout", "pkgs.coreutils", "timeout"),
-];
 
 const CONFIG_MARKERS: [&str; 9] = [
     "options.myConfig.modules.codex = {",
@@ -78,11 +67,6 @@ struct Managed {
 fn module_declarations(report: &mut Report, module: &str) {
     if !module.contains("path = \"${flakeRoot}/modules/codex/requirements.toml\";") {
         report.bad("Codex module does not install its managed requirements");
-    }
-    for (runtime, package, binary) in RUNTIMES {
-        if !module.contains(&format!("\"codex/hooks/runtime/{runtime}\".source = \"${{{package}}}/bin/{binary}\";")) {
-            report.bad(format!("Codex module does not bind exact runtime {runtime} from {package}"));
-        }
     }
     let system_closure = ["codexUpstreamPkg", "codexPkg", "environment.systemPackages", "\"codex/runtime\""];
     if system_closure.iter().all(|marker| !module.contains(marker)) {

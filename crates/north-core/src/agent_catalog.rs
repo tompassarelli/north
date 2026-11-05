@@ -51,7 +51,7 @@ use activation::{
     recompute_activation, refresh_provenance,
 };
 use digest::catalog_digest;
-use files::{read_current, read_json, with_lock};
+use files::{read_current, read_current_or_first, read_json, with_lock};
 use generation::publish;
 use paths::{agents_root, home, operator_catalog_path, operator_dir, owner_path, repo_root};
 use reviews::{print_stale, stale_skills};
@@ -169,7 +169,9 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
 }
 
 fn sync() -> NorthResult<Value> {
-    let mut activation = read_current()?;
+    let current = read_current_or_first()?;
+    let first = current.is_none();
+    let mut activation = current.unwrap_or_else(|| json!({"units": [], "permissions": {}}));
     let operator = owner_modules::read_resolved_catalog(&operator_catalog_path()?)?;
     let operator_registrations = operator
         .get("registrations")
@@ -231,6 +233,10 @@ fn sync() -> NorthResult<Value> {
             }
         }
         refreshed.push(unit);
+    }
+    if first {
+        let permissions = refreshed.iter().map(|unit| Ok((string_field(unit, "id")?.to_owned(), Value::String("on".into())))).collect::<NorthResult<Map<_, _>>>()?;
+        object_mut(&mut activation)?.insert("permissions".into(), Value::Object(permissions));
     }
     object_mut(&mut activation)?.insert("units".into(), Value::Array(refreshed));
 

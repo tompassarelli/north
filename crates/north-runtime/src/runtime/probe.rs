@@ -195,15 +195,20 @@ pub(super) fn facts(shell: &Shell) -> Facts {
 
 pub(super) const LAGS: &str = "live runtime";
 
+pub(super) fn installing(facts: &Facts) -> bool {
+    facts.unreachable.is_none() && facts.runtime.is_none()
+}
+
 pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String> {
     if let Some(why) = &facts.unreachable {
         return vec![format!("unreachable: {why}")];
     }
+    if installing(facts) {
+        return Vec::new();
+    }
     let mut problems = Vec::new();
-    match facts.runtime.as_deref() {
-        Some(runtime) if live(runtime) => {}
-        Some(runtime) => problems.push(format!("{LAGS} {} predates the landing", &runtime[..8])),
-        None => problems.push("no live runtime".to_owned()),
+    if let Some(runtime) = facts.runtime.as_deref().filter(|runtime| !live(runtime)) {
+        problems.push(format!("{LAGS} {} predates the landing", &runtime[..8]));
     }
     for unit in UNITS {
         let state = facts.units.get(unit).map_or("unknown", String::as_str);
@@ -225,6 +230,7 @@ pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String
 pub(super) fn record(facts: &Facts, problems: &[String]) -> Value {
     json!({
         "host": facts.host,
+        "installing": installing(facts),
         "runtime": facts.runtime,
         "units": facts.units,
         "cpuPsi60": facts.psi60,

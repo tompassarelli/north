@@ -56,7 +56,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     for host in &hosts {
         let facts = probed(layout, &checkout, host);
         let problems = probe::problems(&facts, live);
-        println!("north runtime settle: {}: {}", facts.host, if problems.is_empty() { "live and healthy".to_owned() } else { problems.join("; ") });
+        println!("north runtime settle: {}: {}", facts.host, verdict(&facts, &problems));
         if !problems.is_empty() {
             failing.push(format!("{}: {}", facts.host, problems.join("; ")));
             broken.extend(landing_breakage(&facts.host, &problems, moved_on));
@@ -110,6 +110,14 @@ fn due_landing(layout: &Layout, checkout: &Path) -> Result<Option<Landing>, Fail
     Ok(Some(Landing { sha: sha.clone(), subject }))
 }
 
+fn verdict(facts: &probe::Facts, problems: &[String]) -> String {
+    match (probe::installing(facts), problems.is_empty()) {
+        (true, _) => "installing: declared with no live runtime yet".to_owned(),
+        (false, true) => "live and healthy".to_owned(),
+        (false, false) => problems.join("; "),
+    }
+}
+
 fn landing_breakage(host: &str, problems: &[String], moved_on: bool) -> Option<String> {
     let own: Vec<&str> = problems.iter().map(String::as_str).filter(|problem| !(moved_on && problem.starts_with(probe::LAGS))).collect();
     (!own.is_empty()).then(|| format!("{host}: {}", own.join("; ")))
@@ -152,7 +160,23 @@ fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{issue, landing_breakage};
+    use super::{issue, landing_breakage, verdict};
+    use crate::runtime::probe::{self, Facts};
+
+    #[test]
+    fn a_declared_host_with_no_live_runtime_is_installing_and_fails_no_settle_while_the_healthy_host_settles() {
+        let landing = "af7971a5851e603b";
+        let healthy = Facts { host: "gex45".into(), runtime: Some(landing.into()), units: ["capacity-watchdog.service", "north-runtime-follow.timer"].map(|unit| (unit.to_owned(), "active".to_owned())).into(), north: Some(Default::default()), settings: vec!["settings.json".into()], ..Facts::default() };
+        let fresh = Facts { host: "ccx33".into(), ..Facts::default() };
+        let live = |runtime: &str| runtime == landing;
+        let failing: Vec<String> = [&healthy, &fresh].into_iter().map(|facts| (facts, probe::problems(facts, live))).filter(|(_, problems)| !problems.is_empty()).map(|(facts, _)| facts.host.clone()).collect();
+        assert_eq!(failing, Vec::<String>::new());
+        assert_eq!(verdict(&fresh, &probe::problems(&fresh, live)), "installing: declared with no live runtime yet");
+        assert_eq!(verdict(&healthy, &probe::problems(&healthy, live)), "live and healthy");
+        assert_eq!(probe::record(&fresh, &[])["installing"], true);
+        let unreachable = Facts { host: "far".into(), unreachable: Some("no answer within 60s".into()), ..Facts::default() };
+        assert_eq!(probe::problems(&unreachable, live), vec!["unreachable: no answer within 60s".to_owned()]);
+    }
 
     #[test]
     fn a_landing_names_its_issue_only_in_a_trailing_north_reference() {
