@@ -80,15 +80,17 @@ pub(super) fn decide(source: &str, cwd: &Path, leased: bool, depth: usize) -> De
         fold(decide(&body, &cwd, leased, depth + 1), &mut refusals, &mut routed);
     }
     for segment in shell::segments(&tokens) {
-        let words = &segment[shell::command(&segment, PREFIXES)..];
+        let start = shell::command(&segment, PREFIXES);
+        let words = &segment[start..];
         if words.is_empty() {
             continue;
         }
+        let set = assigned(&segment[..start]);
         if shell::basename(&words[0]) == "cd" && words.len() == 2 {
             cwd = cwd.join(&words[1]);
             continue;
         }
-        fold(segment_decision(words, &cwd, leased, depth), &mut refusals, &mut routed);
+        fold(segment_decision(words, &set, &cwd, leased, depth), &mut refusals, &mut routed);
     }
     if !leased && cpu_redirect(source) {
         fold(refuse("only machine-capacity may throttle CPU"), &mut refusals, &mut routed);
@@ -110,10 +112,10 @@ fn fold(decision: Decision, refusals: &mut Vec<String>, routed: &mut bool) {
     }
 }
 
-fn segment_decision(words: &[String], cwd: &Path, leased: bool, depth: usize) -> Decision {
+fn segment_decision(words: &[String], set: &[&str], cwd: &Path, leased: bool, depth: usize) -> Decision {
     if let Some((source, directory, lease)) = nested(words, cwd, leased) {
         decide(&source, &directory, lease, depth + 1)
-    } else if let Some(reason) = farm_only(words, cwd) {
+    } else if let Some(reason) = farm_only(words, set, cwd) {
         Decision::Refuse(reason)
     } else if !leased && cpu_throttle(words) {
         refuse("only machine-capacity may throttle CPU")
@@ -168,7 +170,9 @@ fn nested(words: &[String], cwd: &Path, leased: bool) -> Option<(String, PathBuf
                 _ => break,
             }
         }
-        return Some((join(&words[i..]), directory, leased));
+        let assignments = words[1..i].iter().filter(|s| shell::assignment(s)).cloned();
+        let command: Vec<_> = assignments.chain(words[i..].iter().cloned()).collect();
+        return Some((join(&command), directory, leased));
     }
     None
 }
@@ -364,7 +368,25 @@ fn cpu_redirect(source: &str) -> bool {
         })
 }
 
-fn farm_only(words: &[String], cwd: &Path) -> Option<String> {
+fn assigned(prefix: &[String]) -> Vec<&str> {
+    prefix
+        .iter()
+        .filter(|s| shell::assignment(s))
+        .filter_map(|s| s.split_once('='))
+        .filter(|(_, value)| !value.is_empty())
+        .map(|(name, _)| name)
+        .collect()
+}
+
+fn script_word(word: &str) -> &str {
+    let mut word = word;
+    while let Some(rest) = word.strip_prefix("./") {
+        word = rest;
+    }
+    word
+}
+
+fn farm_only(words: &[String], set: &[&str], cwd: &Path) -> Option<String> {
     let args = if words.get(1).is_some_and(|s| s == "run") {
         &words[2..]
     } else {
@@ -403,14 +425,15 @@ fn farm_only(words: &[String], cwd: &Path) -> Option<String> {
             && words
                 .iter()
                 .take(leading.len())
-                .map(String::as_str)
-                .eq(leading)
+                .map(|s| script_word(s))
+                .eq(leading.iter().map(|s| script_word(s)))
             && rule
                 .pattern
                 .iter()
                 .filter(|s| s.starts_with('-'))
                 .all(|s| flags.contains(s))
             && !rule.narrowing.iter().any(|s| flags.contains(s))
+            && !rule.narrowing_env.iter().any(|s| set.contains(s))
         {
             return Some(format!("No. {}. Run on the farm: {}", rule.why, rule.farm));
         }
@@ -421,6 +444,7 @@ fn farm_only(words: &[String], cwd: &Path) -> Option<String> {
 struct FarmRule<'a> {
     pattern: Vec<&'a str>,
     narrowing: Vec<&'a str>,
+    narrowing_env: Vec<&'a str>,
     farm: &'a str,
     why: &'a str,
 }
@@ -435,17 +459,20 @@ fn farm_rule(entry: &toml_edit::Table) -> Option<FarmRule<'_>> {
     if pattern.is_empty() {
         return None;
     }
-    let narrowing = match entry.get("narrowing") {
-        None => Vec::new(),
+    let words = |key: &str| match entry.get(key) {
+        None => Some(Vec::new()),
         Some(value) => value
             .as_array()?
             .iter()
             .map(|s| s.as_str())
-            .collect::<Option<Vec<_>>>()?,
+            .collect::<Option<Vec<_>>>(),
     };
+    let narrowing = words("narrowing")?;
+    let narrowing_env = words("narrowing_env")?;
     Some(FarmRule {
         pattern,
         narrowing,
+        narrowing_env,
         farm: entry.get("farm")?.as_str()?,
         why: entry.get("why")?.as_str()?,
     })

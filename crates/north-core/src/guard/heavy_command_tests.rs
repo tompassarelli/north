@@ -78,3 +78,35 @@ fn a_command_breaking_two_rules_names_both() {
     };
     assert!(reason.contains("bun test (full suite)") && reason.contains("only machine-capacity may throttle CPU"), "{reason}");
 }
+
+#[test]
+fn a_narrowing_environment_variable_permits_a_local_farm_only_run() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .arg(root.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::create_dir(root.path().join(".agents")).unwrap();
+    std::fs::write(root.path().join(".agents/farm-only.toml"), "[[command]]\npattern = ['bun', 'scripts/lua-tests.ts']\nnarrowing_env = ['GAME_TESTS', 'GAME_MODULES']\nfarm = 'farm lua-tests'\nwhy = 'whole suite'\n").unwrap();
+    for command in [
+        "GAME_TESTS=shadowDashTell bun scripts/lua-tests.ts",
+        "GAME_MODULES=combat bun ./scripts/lua-tests.ts",
+        "env GAME_TESTS=shadowDashTell bun scripts/lua-tests.ts",
+        "machine-capacity run -- GAME_TESTS=shadowDashTell bun scripts/lua-tests.ts",
+    ] {
+        assert_eq!(decide(command, root.path(), false, 0), Decision::Allow, "{command}");
+    }
+    for command in [
+        "bun scripts/lua-tests.ts",
+        "bun ./scripts/lua-tests.ts",
+        "GAME_TESTS= bun scripts/lua-tests.ts",
+        "OTHER=1 bun scripts/lua-tests.ts",
+        "env OTHER=1 bun ./scripts/lua-tests.ts",
+    ] {
+        assert!(matches!(decide(command, root.path(), false, 0), Decision::Refuse(_)), "{command}");
+    }
+}
