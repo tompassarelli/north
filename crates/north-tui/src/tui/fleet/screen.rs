@@ -14,6 +14,7 @@ use crate::fleet::registry::Choices;
 use crate::fleet::runtime::SESSION_ENV;
 
 use super::attach::Attachments;
+use super::clipboard::{Clipboard, Wayland};
 use super::desk::SessionSummary;
 use super::editor::edit_textarea;
 use super::digest::{DigestPane, SessionFacts};
@@ -80,6 +81,7 @@ pub struct Screen {
     pub digest: DigestPane,
     pub slash: SlashMenu,
     attachments: Attachments,
+    clipboard: Box<dyn Clipboard>,
     bell: bool,
     scroll_limit: u16,
     page: u16,
@@ -105,6 +107,7 @@ impl Screen {
             digest: DigestPane::default(),
             slash: SlashMenu::default(),
             attachments: Attachments::system(),
+            clipboard: Box::new(Wayland),
             bell: false,
             scroll_limit: u16::MAX,
             page: 10,
@@ -116,7 +119,8 @@ impl Screen {
     }
 
     #[cfg(test)]
-    pub fn with_attachments(mut self, attachments: Attachments) -> Self {
+    pub fn with_clipboard(mut self, clipboard: Box<dyn Clipboard>, attachments: Attachments) -> Self {
+        self.clipboard = clipboard;
         self.attachments = attachments;
         self
     }
@@ -195,11 +199,23 @@ impl Screen {
         if self.dialog.is_some() {
             return;
         }
-        match self.attachments.attach() {
+        match self.attachments.attach(self.clipboard.as_ref()) {
             Ok(chip) => {
                 self.focus = Focus::Composer;
                 self.composer.insert_str(chip);
             }
+            Err(error) => self.fail(&error),
+        }
+    }
+
+    fn copy_reply(&mut self) {
+        let Some(name) = self.selected.clone() else { return };
+        let Some(reply) = self.digest.facts.get(&name).and_then(|facts| facts.reply.clone()) else {
+            self.notice = Some(Notice::Error(format!("{name} has no finished reply to copy")));
+            return;
+        };
+        match self.clipboard.put_text(&reply) {
+            Ok(()) => self.notice = Some(Notice::Info(format!("copied {name}'s last reply ({} words)", reply.split_whitespace().count()))),
             Err(error) => self.fail(&error),
         }
     }
@@ -317,6 +333,7 @@ impl Screen {
             'g' => return self.deepen(),
             't' => self.toggle_digest(),
             'v' => self.attach_image(),
+            'y' => self.copy_reply(),
             _ => {}
         }
         None
@@ -570,7 +587,7 @@ fn composer_area() -> TextArea<'static> {
 fn control_action(key: KeyEvent) -> Option<char> {
     let KeyCode::Char(character) = key.code else { return None };
     let character = character.to_ascii_lowercase();
-    (key.modifiers.contains(KeyModifiers::CONTROL) && matches!(character, 'q' | 'n' | 'c' | 'x' | 'd' | 'g' | 't' | 'v')).then_some(character)
+    (key.modifiers.contains(KeyModifiers::CONTROL) && matches!(character, 'q' | 'n' | 'c' | 'x' | 'd' | 'g' | 't' | 'v' | 'y')).then_some(character)
 }
 
 fn echoes(transcript: Option<&Transcript>, text: &str) -> usize {

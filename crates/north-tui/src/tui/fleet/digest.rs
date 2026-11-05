@@ -14,6 +14,7 @@ use super::desk::SessionSummary;
 pub struct SessionFacts {
     pub task: Option<String>,
     pub report: Option<String>,
+    pub reply: Option<String>,
     pub live_tokens: u64,
     pub quota: Option<Quota>,
 }
@@ -26,10 +27,11 @@ impl SessionFacts {
             .find(|prompt| !prompt.trim_start().starts_with("<task-notification>"))
             .map(task_title);
         let finished = entries.iter().rposition(|entry| entry.kind == EntryKind::TurnEnd).unwrap_or(0);
-        let report = entries[..finished].iter().rev().find(|entry| entry.kind == EntryKind::Assistant).map(|entry| first_line(&entry.text));
+        let reply = entries[..finished].iter().rev().find(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.clone());
         Self {
             task: record.task_ref.clone().or(first_prompt),
-            report,
+            report: reply.as_deref().map(first_line),
+            reply,
             live_tokens: transcript.map_or(0, |transcript| transcript.tracker.live_tokens()),
             quota: transcript.and_then(|transcript| transcript.quota.clone()) }
     }

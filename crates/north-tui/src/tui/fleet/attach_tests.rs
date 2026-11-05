@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::path::Path;
+use std::rc::Rc;
 
 use crossterm::event::{Event, KeyCode};
 
@@ -7,17 +9,22 @@ use crate::tui::fleet::attach::Attachments;
 use crate::tui::fleet::clipboard::{ClipImage, Clipboard};
 use crate::tui::fleet::screen::Notice;
 
-struct FakeClipboard(Option<ClipImage>);
+struct FakeClipboard(Option<ClipImage>, Rc<RefCell<Vec<String>>>);
 
 impl Clipboard for FakeClipboard {
     fn image(&self) -> NorthResult<Option<ClipImage>> {
         Ok(self.0.clone())
     }
+
+    fn put_text(&self, text: &str) -> NorthResult<()> {
+        self.1.borrow_mut().push(text.to_owned());
+        Ok(())
+    }
 }
 
 fn screen_with_clipboard(desk: &DeskFake, image: Option<Vec<u8>>, state: &Path) -> Screen {
     let image = image.map(|bytes| ClipImage { extension: "png", bytes });
-    screen(desk).with_attachments(Attachments::new(Box::new(FakeClipboard(image)), state.join(".attachments")))
+    screen(desk).with_clipboard(Box::new(FakeClipboard(image, Rc::default())), Attachments::new(state.join(".attachments")))
 }
 
 #[test]
@@ -61,4 +68,25 @@ fn ctrl_v_without_a_clipboard_image_says_so_and_leaves_the_draft() {
     key(&mut desk, &mut screen, control('v'));
     assert_eq!(screen.composer.lines().join("\n"), "draft");
     assert!(matches!(&screen.notice, Some(Notice::Error(text)) if text.contains("no image on the clipboard")));
+}
+
+#[test]
+fn ctrl_y_copies_the_selected_sessions_last_finished_reply_verbatim() {
+    let reply = "## July\n\n1. Raise protein to 18 percent.\n2. Keep calcium out.\n\n- Watch for mites\n- Log the molt";
+    let mut desk = desk();
+    let parser = desk.transcripts.get_mut("parser").unwrap();
+    parser.entries.push(Entry { kind: EntryKind::Assistant, text: reply.into() });
+    parser.entries.push(Entry { kind: EntryKind::TurnEnd, text: "success".into() });
+    parser.entries.push(Entry { kind: EntryKind::Assistant, text: "still streaming".into() });
+    let copied = Rc::<RefCell<Vec<String>>>::default();
+    let mut screen = screen(&desk).with_clipboard(Box::new(FakeClipboard(None, copied.clone())), Attachments::new(std::env::temp_dir()));
+    observe(&desk, &mut screen);
+    screen.selected = Some("parser".into());
+    key(&mut desk, &mut screen, control('y'));
+    assert_eq!(copied.borrow().as_slice(), [reply]);
+    assert_eq!(screen.notice, Some(Notice::Info("copied parser's last reply (20 words)".into())));
+    screen.selected = Some("idle-one".into());
+    key(&mut desk, &mut screen, control('y'));
+    assert_eq!(copied.borrow().len(), 1);
+    assert_eq!(screen.notice, Some(Notice::Error("idle-one has no finished reply to copy".into())));
 }

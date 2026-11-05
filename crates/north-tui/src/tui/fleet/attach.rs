@@ -6,12 +6,11 @@ use sha2::{Digest, Sha256};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::attachments;
 
-use super::clipboard::{ClipImage, Clipboard, WlPaste};
+use super::clipboard::{ClipImage, Clipboard};
 
 const KIB: usize = 1024;
 
 pub struct Attachments {
-    clipboard: Box<dyn Clipboard>,
     dir: PathBuf,
     items: Vec<(String, PathBuf)>,
 }
@@ -19,15 +18,15 @@ pub struct Attachments {
 impl Attachments {
     pub fn system() -> Self {
         let root = crate::fleet::registry::root_here().unwrap_or_else(|_| std::env::temp_dir().join("north-fleet"));
-        Self::new(Box::new(WlPaste), root.join(attachments::DIR))
+        Self::new(root.join(attachments::DIR))
     }
 
-    pub fn new(clipboard: Box<dyn Clipboard>, dir: PathBuf) -> Self {
-        Self { clipboard, dir, items: Vec::new() }
+    pub fn new(dir: PathBuf) -> Self {
+        Self { dir, items: Vec::new() }
     }
 
-    pub fn attach(&mut self) -> NorthResult<String> {
-        let image = self.clipboard.image()?.ok_or_else(|| NorthError::Usage("no image on the clipboard".into()))?;
+    pub fn attach(&mut self, clipboard: &dyn Clipboard) -> NorthResult<String> {
+        let image = clipboard.image()?.ok_or_else(|| NorthError::Usage("no image on the clipboard".into()))?;
         let path = self.store(&image)?;
         let chip = format!("[image {}: {} {}]", self.items.len() + 1, size(image.bytes.len()), image.extension);
         self.items.push((chip.clone(), path));

@@ -181,8 +181,8 @@ fn hints(screen: &Screen, width: usize) -> Line<'static> {
     let pairs: &[(&str, &str)] = match (screen.focus, answering) {
         (Focus::List, true) => &[("j/k", "gate"), ("1-9", "answer with that option"), ("type", "answer in your words"), ("^T", "transcript"), ("Tab", "composer"), ("^Q", "quit")],
         (Focus::Composer, true) => &[("Enter", "answer the gate"), ("Alt+Enter", "newline"), ("Tab", "gates"), ("^T", "transcript"), ("^Q", "quit")],
-        (Focus::List, false) => &[("j/k", "select"), ("r", "resume"), ("^T", "digest"), ("Tab", "composer"), ("PgUp/PgDn", "scroll"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^D", "forget"), ("^Q", "quit")],
-        (Focus::Composer, false) => &[("Enter", "send"), ("Alt+Enter", "newline"), ("^Enter/Alt+U", "urgent"), ("Tab", "list"), ("^T", "digest"), ("^G", "deepen and send"), ("Esc/^C", "interrupt"), ("^X", "stop"), ("^N", "new"), ("^Q", "quit")],
+        (Focus::List, false) => &[("j/k", "select"), ("r", "resume"), ("^T", "digest"), ("Tab", "composer"), ("PgUp/PgDn", "scroll"), ("^Y", "copy reply"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^D", "forget"), ("^Q", "quit")],
+        (Focus::Composer, false) => &[("Enter", "send"), ("Alt+Enter", "newline"), ("^Enter/Alt+U", "urgent"), ("Tab", "list"), ("^T", "digest"), ("^G", "deepen and send"), ("^Y", "copy reply"), ("Esc/^C", "interrupt"), ("^X", "stop"), ("^N", "new"), ("^Q", "quit")],
     };
     let mut spans = Vec::new();
     let mut used = 0;
