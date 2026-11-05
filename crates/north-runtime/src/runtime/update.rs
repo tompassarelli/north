@@ -433,7 +433,7 @@ fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String
         .suffix(".log")
         .tempfile_in(&layout.state)?;
     swap(layout, &layout::link(target))?;
-    let steps = [("health check", health_check(layout)), ("agents sync", agents_sync())];
+    let steps = [("health check", health_check(layout)), ("agents sync", agents_sync(&layout.runtime(target).join("north")))];
     let mut failure = None;
     let limit = remote::limit(STEP_LIMIT);
     let append = || fs::OpenOptions::new().append(true).open(log.path());
@@ -494,9 +494,9 @@ fn health_check(layout: &Layout) -> Command {
     command
 }
 
-fn agents_sync() -> Command {
+fn agents_sync(north: &Path) -> Command {
     let mut command = Command::new("agents");
-    command.arg("sync");
+    command.arg("sync").env("NORTH_BIN", north);
     command
 }
 

@@ -19,6 +19,7 @@ mod vocabulary;
 mod tests;
 
 use gate::{Gate, Mode};
+use crate::platform::north_binary::north_binary;
 use report::Report;
 use roots::Roots;
 
@@ -40,20 +41,13 @@ fn environment(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)
 }
 
-fn north_binary() -> OsString {
-    std::env::var_os("NORTH_BIN")
-        .filter(|north| !north.is_empty())
-        .or_else(|| std::env::current_exe().ok().map(PathBuf::into_os_string))
-        .unwrap_or_else(|| "north".into())
-}
-
 fn operator_dir(roots: &Roots) -> PathBuf {
     environment("AGENTS_OPERATOR_DIR").unwrap_or_else(|| roots.home.join("code/south/main/agents"))
 }
 
 fn gate_for(repo: PathBuf, operator: PathBuf, roots: Roots) -> Gate {
     let replay = environment("AGENTS_REPLAY_DIR").unwrap_or_else(|| roots.home.join(".local/state/agents/replay"));
-    let start = gate::north_session_start(north_binary(), roots.home.clone());
+    let start = gate::north_session_start(north_binary().into_os_string(), roots.home.clone());
     Gate { repo, operator, replay, start, roots }
 }
 
@@ -142,7 +136,7 @@ pub fn run(arguments: &[String]) -> u8 {
         firn: roots.checkout("nixos-config"),
         operator: operator_dir(&roots),
         live_agent_root: environment("NORTH_AGENT_STATE_ROOT").unwrap_or_else(|| roots.home.join(".local/state/north/agents")),
-        north_bin: north_binary(),
+        north_bin: north_binary().into_os_string(),
         local,
         roots,
     };
