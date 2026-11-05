@@ -15,6 +15,7 @@ fn lines_that_turn_the_compiler_cache_off_are_refused_in_every_language_the_repo
         r#"command.env_remove("RUSTC_WRAPPER");"#,
         "delete env.RUSTC_WRAPPER;",
         r#"rustc-wrapper = """#,
+        r#"      RUSTC_WRAPPER = "";"#,
         "CARGO_TARGET_DIR=t CARGO_INCREMENTAL=1 cargo test",
         r#"command.env("CARGO_INCREMENTAL", "1");"#,
     ] {
@@ -27,6 +28,8 @@ fn lines_that_keep_the_cache_or_only_name_the_variables_pass() {
     for line in [
         r#"  CARGO_BUILD_INCREMENTAL: "true","#,
         "RUSTC_WRAPPER=sccache cargo build",
+        r#"      RUSTC_WRAPPER = "${wrapper}";"#,
+        "      RUSTC_WRAPPER = sccache;",
         r#"export RUSTC_WRAPPER="$sccache""#,
         "sccache refuses any build under `CARGO_INCREMENTAL` but passes an incremental crate through",
         "CARGO_INCREMENTAL=0 cargo build",

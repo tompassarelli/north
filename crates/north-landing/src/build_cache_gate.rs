@@ -13,7 +13,7 @@ const USAGE: &str = "Usage: north build-cache-gate --repo DIR --base REV --head 
 const REMEDY: &str = "keep the rustc wrapper and build incrementally with CARGO_BUILD_INCREMENTAL=true (sccache passes an incremental crate through and caches the rest), or name the reason in a Build-cache-off: trailer";
 
 static WRAPPER_OFF: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"RUSTC_WRAPPER\s*[:=]\s*(?:""|''|$|[\s;,&|)}])|"RUSTC_WRAPPER"\s*,\s*""|(?:-u|--unset)[ =]RUSTC_WRAPPER\b|\bunset\s+(?:-v\s+)?RUSTC_WRAPPER\b|env_remove\(\s*"RUSTC_WRAPPER"|\bdelete\s+\S*RUSTC_WRAPPER|rustc-wrapper\s*=\s*(?:""|'')"#).expect("wrapper pattern")
+    Regex::new(r#"RUSTC_WRAPPER(?:=(?:""|''|$|[\s;,&|)}])|\s*[:=]\s*(?:""|''|$|[;,&|)}]))|"RUSTC_WRAPPER"\s*,\s*""|(?:-u|--unset)[ =]RUSTC_WRAPPER\b|\bunset\s+(?:-v\s+)?RUSTC_WRAPPER\b|env_remove\(\s*"RUSTC_WRAPPER"|\bdelete\s+\S*RUSTC_WRAPPER|rustc-wrapper\s*=\s*(?:""|'')"#).expect("wrapper pattern")
 });
 
 static INCREMENTAL_ENV: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"CARGO_INCREMENTAL\s*[:=]\s*["']?1\b|"CARGO_INCREMENTAL"\s*,\s*"1""#).expect("incremental pattern"));
