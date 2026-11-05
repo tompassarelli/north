@@ -245,3 +245,20 @@ fn capacity_a_slots_first_offload_is_cold_and_the_next_on_the_same_slot_is_warm_
     assert_eq!((warm.cache_state.as_str(), warm.slot_head), ("warm", Some(first_head)));
     assert!(warm.ship_seconds >= 0.0 && warm.ship_seconds < 60.0);
 }
+
+#[test]
+fn capacity_cd_into_a_worktree_then_cargo_run_from_main_offloads_that_worktrees_tree_not_mains() {
+    let hosts = hosts();
+    let worktree = hosts.lane("wt");
+    write(&worktree.join("a.txt"), "worktree edit\n");
+    git(&worktree, &["commit", "-q", "-am", "worktree"]);
+    write(&worktree.join("b.txt"), "uncommitted\n");
+    let head = git(&worktree, &["rev-parse", "HEAD"]);
+    for target in [worktree.display().to_string(), tilde(&hosts, &worktree)] {
+        let words = ["bash".to_owned(), "-c".to_owned(), format!("cd {target} && cargo test --locked")];
+        let planned = plan(&words, &hosts.main(), &hosts.laptop).unwrap();
+        assert_eq!((planned.directory.as_path(), planned.command[2].as_str()), (worktree.as_path(), "cargo test --locked"));
+        let lane = gather(&planned.directory, &hosts.laptop).unwrap().ship(&planned.command).unwrap();
+        assert_eq!((lane.name.as_str(), lane.head.as_str(), lane.patch.is_empty()), ("code-proj-main-wt", head.as_str(), false), "{target}");
+    }
+}
