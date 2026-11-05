@@ -1,40 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if [ -n "${DEPBOX:-}" ] && [ "${1:-}" = "${DEPBOX%%:*}" ] && [ "${2:-}" = -- ]; then shift 2; exec "$@"; fi
+[ -z "${DEPBOX:-}" ] || { printf 'depbox: already inside the depbox %s sandbox of %s; run the command directly\n' "${DEPBOX%%:*}" "${DEPBOX#*:}" >&2; exit 2; }
 class=
 if [ -z "${DEPBOX_ADMITTED:-}" ] && command -v north >/dev/null; then north target-seed; class=$(north capacity gate --class depbox "$@" 2>/dev/null) || class=; fi
 if [ -n "$class" ]; then
   DEPBOX_ADMITTED=1 exec north capacity host run --class "$class" --owner "gate:${NORTH_FLEET_SESSION:-${PWD##*/}}" --timeout-seconds 3600 -- "$0" "$@"
 fi
 read -r host_pid _ </proc/self/stat
-if [ "$host_pid" != "$$" ]; then
-  exec /run/current-system/sw/bin/unshare --user --map-current-user --pid --fork --kill-child=KILL --mount-proc "$0" "$@"
-fi
+[ "$host_pid" = "$$" ] || exec /run/current-system/sw/bin/unshare --user --map-current-user --pid --fork --kill-child=KILL --mount-proc "$0" "$@"
 
-usage() {
-  printf 'usage: depbox fetch|run -- <command> [args...]\n' >&2
-  printf '  fetch  network shared, for installs and fetches\n' >&2
-  printf '  run    no network, for builds and tests\n' >&2
+mode=${1:-}
+if [ "$#" -lt 3 ] || [ "$2" != -- ] || { [ "$mode" != fetch ] && [ "$mode" != run ]; }; then
+  printf 'usage: depbox fetch|run -- <command> [args...]\n  fetch  network shared, for installs and fetches\n  run    no network, for builds and tests\n' >&2
   exit 2
-}
-
-[ "$#" -ge 3 ] || usage
-mode=$1
-shift
-case "$mode" in
-  fetch) net=(); cache_dirs=(); cache_vars=() ;;
-  run) net=(--unshare-net); cache_dirs=(.cache/sccache); cache_vars=(RUSTC_WRAPPER SCCACHE_DIR SCCACHE_CACHE_SIZE SCCACHE_BASEDIRS CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER) ;;
-  *) usage ;;
-esac
-[ "$1" = "--" ] || usage
-shift
+fi
+shift 2
+net=() cache_dirs=() cache_vars=()
+[ "$mode" = fetch ] || { net=(--unshare-net); cache_dirs=(.cache/sccache); cache_vars=(RUSTC_WRAPPER SCCACHE_DIR SCCACHE_CACHE_SIZE SCCACHE_BASEDIRS CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER); }
 
 bwrap=$(command -v bwrap) || { printf 'depbox: bwrap not found on PATH\n' >&2; exit 1; }
-top=$(git rev-parse --show-toplevel 2>/dev/null) || { printf 'depbox: run inside a git checkout\n' >&2; exit 2; }
-top=$(realpath "$top")
+top=$(git rev-parse --show-toplevel 2>/dev/null) && top=$(realpath "$top") || { printf 'depbox: run inside a git checkout\n' >&2; exit 2; }
 home=$(realpath "$HOME")
-case "$top" in
-  / | "$home") printf 'depbox: refusing to expose %s\n' "$top" >&2; exit 2 ;;
-esac
+if [ "$top" = / ] || [ "$top" = "$home" ]; then printf 'depbox: refusing to expose %s\n' "$top" >&2; exit 2; fi
 common=$(realpath "$(git rev-parse --git-common-dir)")
 uid=$(id -u)
 
@@ -52,39 +40,49 @@ root_shell() {
   [ "$(readlink "$roots/$key")" = /dev/null ] || touch -h "$roots/$key"*
 }
 root_shell || true
-
-args=(
-  --ro-bind / /
-  --dev /dev
-  --proc /proc
-  --tmpfs /tmp
-  --tmpfs "/run/user/$uid"
-  --tmpfs "$home"
-)
+box=${common%/*/.git}; box=$home/code/${box##*/}/sandbox
+binds=("$top" "$box" "$common")
+args=(--ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --tmpfs "/run/user/$uid" --tmpfs "$home")
 if [ -d /run/secrets.d ]; then args+=(--tmpfs /run/secrets.d); fi
 if [ "$HOME" != "$home" ]; then args+=(--tmpfs "$HOME"); fi
 
 for dir in .bun/install/cache .cargo/registry .cargo/git .cache/nix "${cache_dirs[@]}"; do
   mkdir -p "$home/$dir"
-  args+=(--bind "$home/$dir" "$home/$dir")
+  args+=(--bind "$home/$dir" "$home/$dir"); binds+=("$home/$dir")
 done
-for path in .cargo/bin .rustup .gitconfig .config/git .nix-profile .local/bin .local/state/nix/profile .local/state/nix/profiles .local/lib/firn/cli code/nixos-config/pins code/north/pins; do
-  if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); fi
+for path in .cargo/bin .rustup .gitconfig .config/git .nix-profile .local/bin .local/share/north .local/state/north/current .local/state/north/runtimes .local/state/nix/profile .local/state/nix/profiles .local/lib/firn/cli code/nixos-config/pins code/north/pins; do
+  if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); binds+=("$home/$path"); fi
 done
 
-target=$top/target
-if [ -n "${CARGO_TARGET_DIR:-}" ] && [ "$(realpath -m "$CARGO_TARGET_DIR")" != "$target" ]; then
-  printf 'depbox: ignoring CARGO_TARGET_DIR %s; building in %s\n' "$CARGO_TARGET_DIR" "$target" >&2
+visible() {
+  local b; for b in "${binds[@]}"; do case "$1/" in "$b"/*) return 0 ;; esac; done
+  for b in /tmp "/run/user/$uid" "$home" "$HOME" /run/secrets.d; do case "$1/" in "$b"/*) return 1 ;; esac; done
+}
+cmd=$(command -v -- "$1") || cmd=
+if [[ $cmd == */* ]] && ! { visible "$(realpath -sm -- "$cmd")" && visible "$(realpath -m -- "$cmd")"; }; then
+  printf 'depbox: %s is hidden inside the sandbox; under /tmp, /run/user and the home directory it sees only %s\n' "$cmd" "${binds[*]}" >&2
+  exit 2
+fi
+fetched=$home/.local/state/depbox/cargo-fetched lock=
+if [ -f "$top/Cargo.lock" ]; then lock=$(sha256sum "$top/Cargo.lock" | cut -c1-16); fi
+if [ "$mode" = run ] && [ -n "$lock" ] && [ ! -e "$fetched/$lock" ]; then
+  printf 'depbox: Cargo.lock differs from every lock depbox fetched crates for; if cargo misses a crate, run depbox fetch -- cargo fetch --locked\n' >&2
 fi
 
-box=${common%/*/.git}; box=$home/code/${box##*/}/sandbox
+if [ -n "${CARGO_TARGET_DIR:-}" ] && [ "$(realpath -m "$CARGO_TARGET_DIR")" != "$top/target" ]; then
+  printf 'depbox: ignoring CARGO_TARGET_DIR %s; building in %s\n' "$CARGO_TARGET_DIR" "$top/target" >&2
+fi
+
 args+=(--bind "$top" "$top" --bind "$top" "$box" --ro-bind "$common" "$common")
-args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session --clearenv)
-for var in "${cache_vars[@]}" PATH HOME USER LANG TERM CARGO_BUILD_JOBS RUST_TEST_THREADS AGENT_CAPACITY_LEASE SAFE_PUSH_LAND_BASE SAFE_PUSH_LAND_HEAD SAFE_PUSH_LAND_REF SAFE_PUSH_LANDING NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
+args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session --clearenv --setenv DEPBOX "$mode:$top")
+for var in "${cache_vars[@]}" PATH HOME USER LANG TERM CARGO_BUILD_JOBS RUST_TEST_THREADS AGENT_CAPACITY_LEASE NORTH_DEV_SHELL SAFE_PUSH_LAND_BASE SAFE_PUSH_LAND_HEAD SAFE_PUSH_LAND_REF SAFE_PUSH_LANDING NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
   if [ -n "${!var:-}" ]; then args+=(--setenv "$var" "${!var}"); fi
 done
 args+=(--setenv CARGO_TARGET_DIR "$box/target")
 here=$(realpath "$PWD")
 args+=(--chdir "$box${here#"$top"}")
 
+if [ "$mode" = fetch ] && [ -n "$lock" ] && [ "${1##*/}" = cargo ]; then
+  "$bwrap" "${args[@]}" -- "$@" && mkdir -p "$fetched" && touch "$fetched/$lock"; exit
+fi
 exec "$bwrap" "${args[@]}" -- "$@"

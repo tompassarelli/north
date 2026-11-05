@@ -72,7 +72,7 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/gh-app-token.test.sh | 93 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | test of gh-app-token |
 | bin/gh-as-app | 4 | stay | 4-line glue: runs gh with the token printed by gh-app-token |
 | bin/job-run | 86 | port: north#88 box "run-bounded and job-run" (family: landing path, north#83) | never ported; deployed systemd units name bin/job-run (nixos-config modules/job-run, delivery-liveness, code-health-review, worker-ledger), so the nixos-config unit change lands first; tests/job_run.rs drives it |
-| bin/land-shell | 10 | stay | workflow-free 10-line wrapper that runs a land-check command inside depbox (and nix develop with --dev); used by .safe-push, land-checks.sh and red_check.rs; glue |
+| bin/land-shell | 11 | stay | workflow-free 10-line wrapper that runs a land-check command inside depbox (and nix develop with --dev); used by .safe-push, land-checks.sh and red_check.rs; glue |
 | bin/mutant | 3 | stay | 3-line exec of `north mutant`; three skills document the bare `mutant record` command; delete when nixos-config provides the wrapper |
 | bin/nix | 14 | stay | same admission shadow for nix |
 | bin/north | 15 | stay | launcher: execs the promoted runtime (selected outside the Nix closure); cannot be Rust |
