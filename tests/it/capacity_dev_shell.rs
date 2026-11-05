@@ -96,6 +96,7 @@ fn a_shimmed_toolchain_this_host_lacks_exits_with_the_infrastructure_status_thro
             symlink(found, bin.path().join(tool)).unwrap();
         }
     }
+    std::fs::create_dir(bin.path().join(".git")).unwrap();
     let shimmed = std::process::Command::new(bin.path().join("cargo")).arg("--version").env("PATH", bin.path()).output().unwrap();
     assert_eq!(shimmed.status.code(), Some(75), "{}", String::from_utf8_lossy(&shimmed.stderr));
     let gated = std::process::Command::new(env!("CARGO_BIN_EXE_north")).args(["capacity", "gate", "cargo", "--version"]).current_dir(bin.path()).env("PATH", bin.path()).output().unwrap();
