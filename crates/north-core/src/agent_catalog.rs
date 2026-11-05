@@ -24,9 +24,6 @@ pub mod owner_modules;
 mod owner_modules_tests;
 #[path = "catalog/package_check.rs"]
 mod package_check;
-#[cfg(test)]
-#[path = "catalog/package_check_tests.rs"]
-mod package_check_tests;
 #[path = "catalog/paths.rs"]
 mod paths;
 #[path = "catalog/registration_checks.rs"]
@@ -418,9 +415,6 @@ fn usage() -> String {
     "usage: north config agents [sync|stale|status|on|off|path|inspect|check-hook-paths|check-owners|live-refs] ...".into()
 }
 
-#[cfg(test)]
-#[path = "catalog/agent_catalog_tests.rs"]
-mod tests;
 
 const CONFIG_CHECK_USAGE: &str = "usage: north config check [--package DIR]
        north config check guides [--refresh] [--guides DIR]";

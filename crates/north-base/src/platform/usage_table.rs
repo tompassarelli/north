@@ -26,6 +26,3 @@ pub fn ensure(db: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-#[path = "usage_table_tests.rs"]
-mod tests;

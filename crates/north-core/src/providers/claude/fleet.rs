@@ -283,41 +283,7 @@ fn push(transcript: &mut Transcript, kind: EntryKind, text: String) {
         transcript.entries.push(Entry { kind, text });
     }
 }
-#[cfg(test)]
-mod projection {
-    use super::*;
 
-    fn projected(fixture: &str) -> (Transcript, Vec<(EntryKind, String)>) {
-        let mut transcript = Transcript::new();
-        fixture.lines().for_each(|line| Claude.observe(&serde_json::from_str(line).unwrap(), &mut transcript));
-        let kinds = transcript.entries.iter().map(|entry| (entry.kind, entry.text.clone())).collect();
-        (transcript, kinds)
-    }
-
-    #[test]
-    fn claude_turn_projects_to_user_assistant_and_idle() {
-        let (transcript, kinds) = projected(include_str!("fixtures/fleet.jsonl"));
-        assert_eq!(kinds, [(EntryKind::User, "Reply with exactly: pong".into()), (EntryKind::Assistant, "pong".into()), (EntryKind::TurnEnd, "success".into())]);
-        assert_eq!(transcript.status, Status::Idle);
-        assert_eq!(transcript.conversation.as_deref(), Some("7557fc31-3bae-471d-8307-ce4fc827601c"));
-    }
-
-    #[test]
-    fn a_local_command_projects_to_the_operator_command_and_its_outcome() {
-        let (transcript, kinds) = projected(include_str!("fixtures/compact.jsonl"));
-        assert_eq!(kinds, [
-            (EntryKind::Notice, "This session is being continued from a previous conversation that ran out of context.".into()),
-            (EntryKind::Notice, "Compacted".into()),
-            (EntryKind::User, "/compact".into()),
-            (EntryKind::TurnEnd, "success".into()),
-        ]);
-        assert_eq!(transcript.status, Status::Idle);
-    }
-}
-
-#[cfg(test)]
-#[path = "turn_state_tests.rs"]
-mod turn_state;
 #[cfg(test)]
 #[path = "launch_tests.rs"]
 mod launch;

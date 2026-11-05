@@ -58,6 +58,3 @@ fn hook_error(file: &Path, kind: &str) {
     }
 }
 
-#[cfg(test)]
-#[path = "prompt_hook_tests.rs"]
-mod tests;

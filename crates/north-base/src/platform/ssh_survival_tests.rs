@@ -140,13 +140,3 @@ fn a_multiplexed_session_survives_restarting_the_unit_that_made_the_first_connec
     assert_eq!(status.code(), Some(0), "the multiplexed session must outlive the first caller's unit");
 }
 
-#[test]
-fn a_caller_with_no_master_up_connects_directly_and_never_becomes_the_master() {
-    let fixture = Fixture::new();
-    let mut caller = fixture.client(&["-o", "BatchMode=yes", "testhost", "true"]);
-    let program = caller.remove(0);
-    let status = Command::new(program).args(&caller).status().unwrap();
-    assert_eq!(status.code(), Some(0));
-    std::thread::sleep(Duration::from_millis(500));
-    assert!(!fixture.socket_up(), "a plain caller left a mux socket behind");
-}

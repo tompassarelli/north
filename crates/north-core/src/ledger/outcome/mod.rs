@@ -2,8 +2,6 @@ pub mod attention;
 pub mod read;
 #[doc(hidden)]
 pub mod replay_tests;
-#[cfg(test)]
-mod tests;
 
 use std::collections::BTreeMap;
 

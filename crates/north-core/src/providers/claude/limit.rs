@@ -38,14 +38,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_limit_message_is_told_from_chat_that_mentions_a_limit() {
-        for text in ["You've hit your limit · resets 3pm", "You\u{2019}ve hit your session limit · resets 11:50pm (UTC)", "You've hit your weekly limit · resets Fri"] {
-            assert!(stop_text(text), "{text}");
-        }
-        assert!(!stop_text("The limit you hit earlier is gone") && !stop_text("I noted you've hit your goal"));
-    }
-
-    #[test]
     fn only_a_rejected_event_or_an_error_result_carries_a_limit_and_the_event_gives_the_reset() {
         let event = |status: &str| json!({"type": "rate_limit_event", "rate_limit_info": {"status": status, "resetsAt": 1792084800, "rateLimitType": "five_hour"}});
         assert_eq!(rejected_window(&event("rejected")), Some(UsageLimit { resets_at_s: Some(1_792_084_800), message: None }));

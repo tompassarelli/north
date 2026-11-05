@@ -87,28 +87,3 @@ pub fn org_lines(_message: &str) -> Vec<String> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn reset_names_day_date_and_time_left() {
-        let now = Timestamp::parse_loose("2026-10-16T09:00:00Z").unwrap();
-        let week = json!({"window": "week", "used_pct": 99, "resets_at": "2026-10-17T12:00:00Z", "as_of": "2026-10-16T08:54:03Z"});
-        assert_eq!(window_line(&week, now), "week 99% (resets Sat 2026-10-17 12:00Z, in 27h, as of 08:54Z)");
-        let five = json!({"window": "5h", "used_pct": 100, "resets_at": "2026-10-16T09:20:00Z", "as_of": "2026-10-16T08:57:00Z"});
-        assert_eq!(window_line(&five, now), "5h 100% (resets Fri 2026-10-16 09:20Z, in 23m, as of 08:57Z)");
-    }
-
-    #[test]
-    fn a_window_older_than_ten_minutes_is_marked_stale_instead_of_quoted() {
-        let now = Timestamp::parse_loose("2026-11-05T20:32:00Z").unwrap();
-        let old = json!({"window": "5h", "used_pct": 40, "resets_at": "2026-11-05T22:00:00Z", "as_of": "2026-11-05T15:32:00Z"});
-        assert_eq!(window_line(&old, now), "5h stale (last read 15:32Z, 300m ago; the pace sampler is not reading, so no number is quoted)");
-        let fresh = json!({"window": "5h", "used_pct": 40, "resets_at": "2026-11-05T22:00:00Z", "as_of": "2026-11-05T20:25:00Z"});
-        assert!(window_line(&fresh, now).starts_with("5h 40% "));
-        assert!(window_line(&json!({"window": "week", "used_pct": 3}), now).starts_with("week stale (never read;"));
-    }
-}

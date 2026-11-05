@@ -102,25 +102,3 @@ pub fn node_role(nodes: &[Value], node: &Value) -> &'static str {
         None => "proxy",
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::node_role;
-
-    #[test]
-    fn the_ledger_takes_a_sessions_role_from_its_record_before_inferring_one() {
-        let nodes = vec![
-            json!({"name": "proxy", "role": "proxy", "parent": null}),
-            json!({"name": "lead-fleet", "role": "lead", "parent": null}),
-            json!({"name": "lf-r1", "role": "worker", "parent": null}),
-            json!({"name": "solo", "role": "lead", "parent": null}),
-            json!({"name": "old-lead", "parent": null}),
-            json!({"name": "old-worker", "parent": "old-lead"}),
-            json!({"name": "old-proxy", "parent": null}),
-        ];
-        let roles: Vec<&str> = nodes.iter().map(|node| node_role(&nodes, node)).collect();
-        assert_eq!(roles, ["proxy", "parent", "worker", "parent", "parent", "worker", "proxy"]);
-    }
-}

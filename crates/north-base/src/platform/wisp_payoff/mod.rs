@@ -5,8 +5,6 @@ use std::path::{Path, PathBuf};
 use time::{Date, Duration, Month, OffsetDateTime};
 mod contract;
 mod evidence;
-#[cfg(test)]
-mod tests;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Run {

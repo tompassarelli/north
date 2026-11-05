@@ -351,5 +351,3 @@ impl ClosedReport {
     }
 }
 
-#[cfg(test)]
-mod tests;

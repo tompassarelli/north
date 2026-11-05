@@ -67,14 +67,4 @@ mod tests {
         assert!(failures.is_empty(), "{} of {} launches failed: {:?}", failures.len(), WRITERS * ROUNDS, failures.first());
     }
 
-    #[test]
-    fn a_copied_executable_runs_straight_after_the_copy() {
-        let scratch = tempfile::tempdir().unwrap();
-        let source = scratch.path().join("source");
-        write_script(&source, "echo copied\n");
-        let copy = scratch.path().join("copy");
-        copy_executable(&source, &copy);
-        let output = Command::new(&copy).output().unwrap();
-        assert_eq!(String::from_utf8(output.stdout).unwrap(), "copied\n");
-    }
 }

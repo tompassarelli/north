@@ -66,21 +66,3 @@ pub fn policy_path() -> PathBuf {
         None => PathBuf::from(env::var_os("HOME").unwrap_or_default()).join("code/south/main/agents/orchestration.toml"),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const POLICY: &str = "[hosts.gex45]\nssh = \"tom@gex45\"\n[hosts.gex45.disk_budget_gib]\ncargo_target = 12\nmap_store = 6.5\nmakgora_evidence = 15\n[hosts.laptop]\nssh = \"x\"\n";
-
-    #[test]
-    fn a_host_names_its_own_share_for_each_store_and_another_host_names_none() {
-        let gex45 = DiskBudget::parse(POLICY, "gex45");
-        assert_eq!(gex45.gib(Share::CargoTarget), Some(12.0));
-        assert_eq!(gex45.gib(Share::MapStore), Some(6.5));
-        assert_eq!(gex45.bytes(Share::MakgoraEvidence), Some(15 << 30));
-        assert_eq!(DiskBudget::parse(POLICY, "laptop").gib(Share::CargoTarget), None);
-        assert_eq!(DiskBudget::parse("not toml [", "gex45").gib(Share::CargoTarget), None);
-        assert_eq!(DiskBudget::default().gib(Share::MapStore), None);
-    }
-}

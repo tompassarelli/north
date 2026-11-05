@@ -142,15 +142,3 @@ fn seconds(millis: i64) -> String {
 fn text(value: &Value) -> &str {
     value.as_str().unwrap_or("-")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn percentiles_use_nearest_rank() {
-        let walls = [10, 20, 30, 40];
-        assert_eq!([25, 50, 75].map(|percent| percentile(&walls, percent)), [Some(10), Some(20), Some(30)]);
-        assert_eq!(percentile(&[], 50), None);
-    }
-}

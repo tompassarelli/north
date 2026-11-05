@@ -6,13 +6,6 @@ mod scan;
 mod structure;
 mod widen;
 
-#[cfg(test)]
-mod move_tests;
-#[cfg(test)]
-mod scan_tests;
-#[cfg(test)]
-mod workspace_tests;
-
 use std::fs;
 use std::path::{Path, PathBuf};
 

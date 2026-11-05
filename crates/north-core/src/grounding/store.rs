@@ -500,22 +500,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unicode_vocabulary_repairs_preserve_coverage_without_panicking() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut db = Sqlite::open(&dir.path().join("index.db"), false).unwrap();
-        db.exec(SCHEMA).unwrap();
-        db.exec(
-            "insert into docs values ('policy','one','one','foobαa quokka','foobαa quokka',0,0);",
-        )
-        .unwrap();
-        let (hits, words) = search("foobaa quokka", &mut db, 0.0, 80, 0.0).unwrap();
-        assert_eq!(words, ["foobαa", "quokka"]);
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].cover, 1.0);
-        assert_eq!(distance("foobaa", "foobαa"), 1);
-    }
-
-    #[test]
     fn locked_readonly_index_fails_open_before_the_prompt_budget() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("index.db");

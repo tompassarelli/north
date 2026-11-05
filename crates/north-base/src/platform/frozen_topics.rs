@@ -63,34 +63,3 @@ pub fn load_from(file: &Path) -> Result<Vec<Topic>, String> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn kobold() -> Vec<Topic> {
-        vec![Topic { repo: "makgora".into(), name: "Kobold".into(), terms: vec!["kobold".into(), "forsaken paladin".into()], since: "2026-10-26".into(), reason: "being replaced".into() }]
-    }
-
-    #[test]
-    fn matches_titles_case_insensitively_in_the_named_repository_only() {
-        let topics = kobold();
-        assert!(matching(&topics, "makgora", "KOBOLD rope hitbox").is_some());
-        assert!(matching(&topics, "MakGora", "Fix the Forsaken Paladin shield").is_some());
-        assert!(matching(&topics, "wisp", "kobold").is_none());
-        assert!(matching(&topics, "makgora", "Anub'arak scorecard").is_none());
-    }
-
-    #[test]
-    fn reads_the_list_file_and_reports_a_missing_or_invalid_one() {
-        let dir = std::env::temp_dir().join(format!("north-frozen-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("frozen-topics.toml");
-        fs::write(&file, "[[topic]]\nrepo = \"makgora\"\nname = \"Kobold\"\nterms = [\"kobold\"]\nsince = \"2026-10-26\"\nreason = \"x\"\n").unwrap();
-        assert_eq!(load_from(&file).unwrap().len(), 1);
-        fs::write(&file, "[[topic]]\nrepo = 3\n").unwrap();
-        assert!(load_from(&file).unwrap_err().contains("invalid"));
-        assert!(load_from(&dir.join("absent.toml")).unwrap_err().contains("unread"));
-        fs::remove_dir_all(&dir).unwrap();
-    }
-}

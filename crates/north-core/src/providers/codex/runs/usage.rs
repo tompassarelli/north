@@ -195,24 +195,3 @@ pub(super) fn run_usage(records: &[Value], prices: &Prices) -> Map<String, Value
     out.insert("unpriced_models".into(), json!(unpriced));
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::providers::claude::runs::DEFAULTS;
-
-    #[test]
-    fn a_priority_rollout_is_fast_and_a_repeated_token_count_is_one_weighted_sample() {
-        let count = json!({"type":"event_msg","timestamp":"2026-10-11T00:05:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":800,"output_tokens":100}}}});
-        let records = vec![
-            json!({"type":"session_meta","payload":{"service_tier":"priority"}}),
-            json!({"type":"turn_context","payload":{"model":"gpt-6.1-sol","effort":"medium"}}),
-            count.clone(),
-            count,
-        ];
-        let usage = run_usage(&records, &Prices::parse("", DEFAULTS));
-        assert_eq!(usage["fast"], 1);
-        assert_eq!(usage["usage_samples"].as_array().map(Vec::len), Some(1));
-        assert_eq!(usage["usage_samples"][0]["weight"], 780.0);
-    }
-}

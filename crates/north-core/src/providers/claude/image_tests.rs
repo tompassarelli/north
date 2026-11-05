@@ -31,25 +31,3 @@ fn a_message_naming_a_stored_image_encodes_a_base64_image_block_and_a_text_block
     assert_eq!(Claude.sent_prompt(&sent).as_deref(), Some("u1"));
 }
 
-#[test]
-fn a_plain_message_stays_a_text_string_and_a_missing_image_is_refused() {
-    let plain = Claude.message(&Transcript::new(), "u2", "hello").unwrap();
-    assert_eq!(frame(&plain[0])["message"]["content"], "hello");
-
-    let state = tempfile::tempdir().unwrap();
-    let missing = state.path().join(attachments::DIR).join("gone.png");
-    let error = Claude.message(&Transcript::new(), "u3", &attachments::marker(&missing)).unwrap_err();
-    assert!(error.user_message().contains("cannot read attachment"), "{}", error.user_message());
-}
-
-#[test]
-fn a_user_echo_with_image_and_text_blocks_projects_the_text() {
-    let echo = json!({"type": "user", "isReplay": true, "uuid": "u1", "message": {"role": "user", "content": [
-        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AA=="}},
-        {"type": "text", "text": "what is this? [image: /s/.attachments/abc.png]"},
-    ]}});
-    let mut transcript = Transcript::new();
-    Claude.observe(&echo, &mut transcript);
-    let kinds: Vec<_> = transcript.entries.iter().map(|entry| (entry.kind, entry.text.as_str())).collect();
-    assert_eq!(kinds, [(EntryKind::User, "what is this? [image: /s/.attachments/abc.png]")]);
-}

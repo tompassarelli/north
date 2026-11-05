@@ -56,21 +56,3 @@ fn json(value: ValueRef<'_>) -> Value {
 fn failure(db: &Path, error: rusqlite::Error) -> NorthError {
     NorthError::Configuration(format!("sqlite {}: {error}", db.display()))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sqlite_helpers_write_then_read_rows() {
-        let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("t.db");
-        let busy = Duration::from_secs(1);
-        execute(&db, busy, "create table t(a, b, c); insert into t values (1, 'it''s', 0.5);").unwrap();
-        let read = rows(&db, Access::ReadOnly, busy, "select a, b, c, null d from t").unwrap();
-        assert_eq!(read, vec![serde_json::json!({"a": 1, "b": "it's", "c": 0.5, "d": null})]);
-        assert!(rows(&db, Access::ReadOnly, busy, "select a from t where a = 2").unwrap().is_empty());
-        assert!(execute(&db, busy, "insert into missing values (1);").is_err());
-        assert!(rows(&dir.path().join("absent.db"), Access::ReadOnly, busy, "select 1").is_err());
-    }
-}

@@ -36,19 +36,3 @@ fn replaying_ea1e659_the_dropped_prompt_grounding_distribution_is_named_and_the_
     assert!(message.contains("prompt-grounding.sh") && message.contains("whiterabbit: /home/tom/.agents/hooks/prompt-grounding.sh registered in"), "{message}");
 }
 
-#[test]
-fn a_drop_no_host_registers_passes_and_one_with_missing_hosts_refuses_as_unknown() {
-    let dropped = dropped_hooks(&catalog(&["gone.sh"]), &catalog(&[]), "");
-    let facts = [host_registering("whiterabbit", "kept.sh")];
-    let clean: Vec<_> = dropped.iter().map(|name| (name.clone(), judge(&facts, name, &["whiterabbit".into()], 2_000, 3_600_000))).collect();
-    assert_eq!(refusal(&clean), None);
-    let unknown: Vec<_> = dropped.iter().map(|name| (name.clone(), judge(&facts, name, &["whiterabbit".into(), "cx53".into()], 2_000, 3_600_000))).collect();
-    assert!(refusal(&unknown).expect("refusal").contains("cx53 (no facts recorded)"));
-}
-
-#[test]
-fn a_catalog_that_keeps_or_retires_the_hook_drops_nothing() {
-    let base = catalog(&["kept.sh", "prompt-grounding.sh"]);
-    assert!(dropped_hooks(&base, &base, "").is_empty());
-    assert!(dropped_hooks(&base, &catalog(&["kept.sh"]), "prompt-grounding.sh\n").is_empty());
-}

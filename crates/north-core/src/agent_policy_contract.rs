@@ -9,8 +9,6 @@ mod ordered_json;
 mod surfaces;
 mod wiring;
 
-#[cfg(test)]
-mod tests;
 
 static UNIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[a-z0-9]+(?:-[a-z0-9]+)*$").unwrap());

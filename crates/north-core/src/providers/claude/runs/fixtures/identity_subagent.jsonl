@@ -1,2 +1,0 @@
-{"type": "user", "timestamp": "2026-11-04T10:00:00.000Z", "sessionId": "s1", "isSidechain": true, "message": {"role": "user", "content": "Item: north#255 identity"}}
-{"type": "assistant", "timestamp": "2026-11-04T10:00:20.000Z", "sessionId": "s1", "isSidechain": true, "requestId": "req_1", "message": {"id": "m1", "model": "claude-sonnet-5-5", "content": [{"type": "text", "text": "Done: recorded."}], "usage": {"input_tokens": 10, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 0, "output_tokens": 50}}}

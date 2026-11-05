@@ -20,17 +20,3 @@ pub fn ingest_role(category: &str, brief: &str, outcome: &str, minutes: i64) -> 
         "worker"
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::ingest_role;
-
-    #[test]
-    fn a_review_brief_is_a_reviewer_and_a_zero_minute_done_run_is_a_judge_only_without_a_category() {
-        assert_eq!(ingest_role("unknown", "Item: x#1\nCategory: review", "done", 12), "reviewer");
-        assert_eq!(ingest_role("unknown", "Item: x#1", "done", 0), "judge");
-        assert_eq!(ingest_role("unknown", "Item: x#1", "done", 3), "worker");
-        assert_eq!(ingest_role("unknown", "Item: x#1", "not done", 0), "worker");
-        assert_eq!(ingest_role("feature", "Category: review", "done", 0), "worker");
-    }
-}

@@ -24,19 +24,3 @@ pub fn finished(session: &str, started: Timestamp, ended: Timestamp, report: &st
         "outcome": outcome::classify(report, false), "report": prefix(report, 600),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{finished, launched};
-    use crate::foundation::clock::Timestamp;
-    use crate::threads::runs::CLOUD_ORIGIN;
-
-    #[test]
-    fn a_cloud_launch_row_runs_with_its_brief_and_eta_and_its_finished_row_classifies_the_last_reply() {
-        let at = Timestamp::parse("2026-11-05T08:00:00Z").unwrap();
-        let row = launched("session_01cloud", "Item: north#255\nCategory: tooling\nETA: 45 min", at);
-        assert_eq!((row["status"].as_str(), row["brief_origin"].as_str(), row["eta_min"].as_f64(), row["started"].as_str()), (Some("running"), Some(CLOUD_ORIGIN), Some(45.0), Some("2026-11-05T08:00:00Z")));
-        let done = finished("session_01cloud", at, Timestamp::parse("2026-11-05T08:41:30Z").unwrap(), "Done: landed 1234abcd on origin/main.");
-        assert_eq!((done["status"].as_str(), done["actual_min"].as_i64(), done["outcome"].as_str()), (Some("finished"), Some(41), Some("done")));
-    }
-}

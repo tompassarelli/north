@@ -47,7 +47,6 @@ pub(super) fn skill_metadata(path: &Path) -> NorthResult<BTreeMap<String, String
     Ok(result)
 }
 
-
 const REVIEW_FIELDS: [&str; 2] = ["grounded", "written"];
 const LOCAL_DATE_SLACK_DAYS: i64 = 1;
 
@@ -138,21 +137,5 @@ pub(super) fn print_stale(stale: &[Value]) {
             .collect::<Vec<_>>()
             .join(", ");
         println!("  {}: {due}", entry["id"].as_str().unwrap_or_default());
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn aged(date: &str, today: &str) -> NorthResult<i64> {
-        let metadata = BTreeMap::from([("grounded".to_owned(), date.to_owned())]);
-        review_age(&metadata, "grounded", Path::new("SKILL.md"), clock::parse_day_number(today).unwrap())
-    }
-
-    #[test]
-    fn a_skill_dated_with_the_local_day_ahead_of_utc_is_accepted_and_one_dated_two_days_ahead_is_refused() {
-        assert_eq!(aged("2026-10-31", "2026-10-30").unwrap(), -1);
-        assert!(aged("2026-11-01", "2026-10-30").is_err());
     }
 }

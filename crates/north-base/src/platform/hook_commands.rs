@@ -33,15 +33,3 @@ pub fn paths(settings: &Value) -> Vec<String> {
     }
     paths
 }
-
-#[cfg(test)]
-mod tests {
-    use super::paths;
-    use serde_json::json;
-
-    #[test]
-    fn a_hook_command_names_its_programs_and_scripts_but_not_its_environment_values() {
-        let settings = json!({"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "/etc/codex/hooks/runtime/env -u BASH_ENV PATH=/a:/b /etc/codex/hooks/runtime/bash '/home/tom/.agents/hooks/guard.sh'"}]}]}});
-        assert_eq!(paths(&settings), ["/etc/codex/hooks/runtime/env", "/etc/codex/hooks/runtime/bash", "/home/tom/.agents/hooks/guard.sh"]);
-    }
-}

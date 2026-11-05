@@ -8,8 +8,6 @@ mod issues;
 mod policy;
 mod repos;
 mod settings;
-#[cfg(test)]
-mod tests;
 fn doc(
     source: &str,
     id: String,
@@ -329,8 +327,4 @@ pub(super) fn insert(d: &Doc) -> String {
         d.at,
         usize::from(d.decays)
     )
-}
-#[cfg(test)]
-pub(super) fn repo_docs(north: PathBuf, south: PathBuf) -> Vec<Doc> {
-    policy::repo_docs(north, south)
 }

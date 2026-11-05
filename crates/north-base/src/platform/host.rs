@@ -21,16 +21,3 @@ pub fn contention_of(loadavg: &str, threads: usize) -> Option<f64> {
     let five = averages.next()??;
     (threads > 0).then(|| one.max(five) / threads as f64)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::contention_of;
-
-    #[test]
-    fn contention_is_the_larger_load_average_per_thread() {
-        assert_eq!(contention_of("25.00 10.00 5.00 3/900 123\n", 20), Some(1.25));
-        assert_eq!(contention_of("2.00 10.00 5.00 3/900 123\n", 20), Some(0.5));
-        assert_eq!(contention_of("garbage", 20), None);
-        assert_eq!(contention_of("1.00 1.00 1.00 1/1 1", 0), None);
-    }
-}

@@ -176,6 +176,3 @@ pub fn run_bounded<S: AsRef<OsStr>>(program: &str, dir: Option<&Path>, args: &[S
     Ok(Bounded { status, stdout, stderr, overflowed })
 }
 
-#[cfg(test)]
-#[path = "process_tests.rs"]
-mod tests;

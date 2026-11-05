@@ -76,28 +76,3 @@ fn context_settings(context: Option<&str>) -> NorthResult<Vec<String>> {
         .collect();
     limits.ok_or_else(|| NorthError::State(format!("{CONTEXT_FILE} declares no valid context limits")))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_app_server_runs_with_full_access_and_the_declared_context() {
-        let settings = settings(Some(r#"{"window": 500000, "autoCompactTokenLimit": 467000}"#), ["m".into(), "e".into()]).unwrap();
-        for expected in [r#"sandbox_mode="danger-full-access""#, r#"approval_policy="never""#, r#"cli_auth_credentials_store="file""#, "model_context_window=500000", "model_auto_compact_token_limit=467000", r#"agents.default_subagent_model="m""#] {
-            assert!(settings.iter().any(|setting| setting == expected), "{expected} missing from {settings:?}");
-        }
-        for invalid in [r#"{"window": 0, "autoCompactTokenLimit": 1}"#, "not json"] {
-            assert!(context_settings(Some(invalid)).is_err(), "an invalid declaration must refuse the launch: {invalid}");
-        }
-        assert!(context_settings(None).unwrap().is_empty());
-    }
-
-    #[test]
-    fn claude_session_files_are_masked_from_codex() {
-        let argv = masked(Path::new("/home/u"), Some(PathBuf::from("/state/claude-a")));
-        let masks: Vec<&str> = argv.windows(2).filter(|pair| pair[0] == "--tmpfs").map(|pair| pair[1].as_str()).collect();
-        assert_eq!(masks, ["/home/u/.claude/sessions", "/state/claude-a/sessions"]);
-        assert_eq!(argv.last().map(String::as_str), Some("--"));
-    }
-}

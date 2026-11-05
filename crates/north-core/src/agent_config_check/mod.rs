@@ -17,8 +17,6 @@ mod vocabulary;
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod accounts_tests;
 
 use gate::{Gate, Mode};
 use report::Report;

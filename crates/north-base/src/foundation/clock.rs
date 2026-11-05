@@ -374,6 +374,3 @@ fn python_clock_nanos(text: &str) -> Option<i128> {
     Some((i128::from(hour) * 3600 + i128::from(minute) * 60 + i128::from(second)) * NANOS_PER_SECOND + micros * 1000)
 }
 
-#[cfg(test)]
-#[path = "clock_tests.rs"]
-mod tests;

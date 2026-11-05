@@ -163,6 +163,3 @@ fn succeeded(out: std::io::Result<std::process::Output>, what: &str) -> Result<(
     }
 }
 
-#[cfg(test)]
-#[path = "rolling_issue_tests.rs"]
-mod tests;

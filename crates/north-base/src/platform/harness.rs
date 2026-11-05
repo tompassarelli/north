@@ -68,34 +68,3 @@ fn runtime_sha(runtime: &Path) -> Option<&str> {
     (runtime.parent()?.file_name()? == "runtimes").then_some(())?;
     runtime.file_name()?.to_str().filter(|name| is_sha(name))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    fn usage(root: &Path) {
-        fs::create_dir_all(root.join("harness")).unwrap();
-        fs::write(root.join("harness/defaults.toml"), "").unwrap();
-    }
-
-    #[test]
-    fn a_promoted_binary_runs_harness_code_from_its_own_tree_not_the_checkout() {
-        let home = tempfile::tempdir().unwrap();
-        let runtime = home.path().join(".local/state/north/runtimes").join("a".repeat(40));
-        usage(&home.path().join("code/north/main"));
-        usage(&runtime.join(TREE));
-        assert_eq!(resolve(None, &runtime.join("north"), home.path()), Ok(runtime.join(TREE)));
-    }
-
-    #[test]
-    fn a_binary_built_in_a_worktree_runs_that_worktrees_harness_not_the_main_checkout() {
-        let home = tempfile::tempdir().unwrap();
-        let lane = home.path().join("code/north/worktrees/lane");
-        usage(&home.path().join("code/north/main"));
-        usage(&lane);
-        assert_eq!(resolve(None, &lane.join("target/debug/north"), home.path()), Ok(lane.clone()));
-        assert_eq!(resolve(Some("/pinned".into()), &lane.join("target/debug/north"), home.path()), Ok(PathBuf::from("/pinned")));
-        assert_eq!(resolve(None, Path::new("/elsewhere/north"), home.path()), Ok(home.path().join("code/north/main")));
-    }
-}

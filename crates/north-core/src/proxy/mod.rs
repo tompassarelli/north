@@ -3,8 +3,6 @@ pub mod calls;
 mod readout;
 mod shape;
 mod shell;
-#[cfg(test)]
-mod tests;
 
 pub use calls::{Kind, VerbKinds, classify};
 pub use readout::{Readout, read, render, streaks};

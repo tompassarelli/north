@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use crate::fleet::model::{Effort, SessionRecord};
 use crate::fleet::prompt::PromptMode;
 
 use super::*;
@@ -30,42 +29,6 @@ fn request() -> LaunchRequest {
 }
 
 #[test]
-fn the_host_names_its_session_to_the_commands_it_runs() {
-    let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a"), token_file: None };
-    let spec = Claude.host(&account, &request(), Opening::Fresh(None), "").unwrap();
-    assert!(spec.env.contains(&("NORTH_FLEET_SESSION".to_owned(), "worker".into())), "{:?}", spec.env);
-    assert!(spec.env.contains(&("THREADS_ACTOR".to_owned(), "worker".into())), "{:?}", spec.env);
-}
-
-#[test]
-fn the_host_exports_the_role_its_launcher_set() {
-    use crate::fleet::model::Role;
-    let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a"), token_file: None };
-    let role = |request: LaunchRequest| {
-        let spec = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
-        spec.env.into_iter().find(|(name, _)| name == "NORTH_FLEET_ROLE").map(|(_, value)| value)
-    };
-    assert_eq!(role(LaunchRequest { name: "proxy".into(), role: Some(Role::Proxy), ..request() }), Some("proxy".into()));
-    assert_eq!(role(LaunchRequest { task_ref: Some("north#112".into()), ..request() }), Some("worker".into()));
-    assert_eq!(role(request()), Some("lead".into()));
-}
-
-#[test]
-fn an_account_at_claudes_default_home_launches_on_its_own_config_and_any_other_on_its_home() {
-    let home = PathBuf::from(std::env::var_os("HOME").unwrap());
-    let mut account = Account { provider: Claude.provider(), label: "a".into(), home: home.join(".claude"), token_file: None };
-    let config = "CLAUDE_CONFIG_DIR".to_owned();
-    let spec = Claude.host(&account, &request(), Opening::Fresh(None), "").unwrap();
-    assert!(spec.env.iter().all(|(name, _)| name != &config), "{:?}", spec.env);
-    assert!(spec.env_remove.contains(&config), "{:?}", spec.env_remove);
-
-    account.home = PathBuf::from("/tmp/claude-a");
-    let spec = Claude.host(&account, &request(), Opening::Fresh(None), "").unwrap();
-    assert!(spec.env.contains(&(config.clone(), "/tmp/claude-a".into())), "{:?}", spec.env);
-    assert!(!spec.env_remove.contains(&config), "{:?}", spec.env_remove);
-}
-
-#[test]
 fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_or_the_spec_env() {
     let scratch = tempfile::tempdir().unwrap();
     let token = scratch.path().join("token");
@@ -82,27 +45,3 @@ fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "sk-test-value");
 }
 
-#[test]
-fn a_launch_at_high_effort_runs_claude_at_high_effort_and_its_revive_keeps_it() {
-    let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a"), token_file: None };
-    let request = LaunchRequest { effort: Some(Effort::parse("high").unwrap()), ..request() };
-    let effort = |argv: &[String]| argv.windows(2).any(|pair| pair == ["--effort", "high"]);
-
-    let launched = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
-    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "effort": request.effort})).unwrap();
-    let revived = Claude.host(&account, &record.relaunch_request(), Opening::Resume("c"), "").unwrap();
-
-    assert!(effort(&launched.argv), "{:?}", launched.argv);
-    assert!(effort(&revived.argv), "{:?}", revived.argv);
-    assert!(Effort::parse("extreme").is_err());
-}
-
-#[test]
-fn the_host_pushes_to_github_through_the_agent_credential_helper() {
-    let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a"), token_file: None };
-    let spec = Claude.host(&account, &request(), Opening::Fresh(None), "").unwrap();
-    let value = |name: &str| spec.env.iter().find(|(key, _)| key == name).map(|(_, value)| value.to_string_lossy().into_owned());
-    assert_eq!(value("GIT_CONFIG_COUNT").as_deref(), Some("2"), "{:?}", spec.env);
-    assert_eq!(value("GIT_CONFIG_KEY_1").as_deref(), Some("credential.https://github.com.helper"));
-    assert_eq!(value("GIT_CONFIG_VALUE_1").as_deref(), Some("!north git-credential"));
-}

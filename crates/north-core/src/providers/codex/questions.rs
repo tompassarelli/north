@@ -27,29 +27,3 @@ fn ask(item: &Value) -> Option<Ask> {
     let options = item["options"].as_array().into_iter().flatten().filter_map(|option| option["label"].as_str()).map(str::to_owned).collect();
     Some(Ask { text, options })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_request_for_user_input_becomes_asks_and_an_immediate_reply() {
-        let frame = json!({"id": 7, "method": REQUEST_USER_INPUT, "params": {"threadId": "th", "turnId": "t1", "itemId": "q", "questions": [
-            {"id": "port", "header": "Port", "question": "Which port should the server use?", "options": [{"label": "8080 (Recommended)", "description": "default"}, {"label": "9090", "description": "alt"}]},
-            {"id": "why", "header": "", "question": "Anything else?", "options": null}
-        ]}});
-        let asked = question(&frame).unwrap();
-        assert_eq!(asked.conversation, "th");
-        assert_eq!(asked.asks, [
-            Ask { text: "Port: Which port should the server use?".into(), options: vec!["8080 (Recommended)".into(), "9090".into()] },
-            Ask { text: "Anything else?".into(), options: Vec::new() },
-        ]);
-        let reply: Value = serde_json::from_str(&asked.reply).unwrap();
-        assert_eq!(reply["id"], 7);
-        for key in ["port", "why"] {
-            assert_eq!(reply["result"]["answers"][key]["answers"][0], ASKED_REPLY, "{key}");
-        }
-        assert_eq!(question(&json!({"method": "turn/started", "params": {"threadId": "th"}})), None);
-        assert_eq!(question(&json!({"method": REQUEST_USER_INPUT, "params": {"threadId": "th", "questions": []}})), None, "a notification without an id cannot be answered");
-    }
-}

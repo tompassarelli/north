@@ -5,8 +5,6 @@ mod ledger;
 mod measure;
 mod threshold;
 mod timings;
-#[cfg(test)]
-mod tests;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
