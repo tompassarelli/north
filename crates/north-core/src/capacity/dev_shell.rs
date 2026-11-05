@@ -59,19 +59,11 @@ pub fn project(north: &str, command: &[String]) -> Option<Vec<String>> {
     let directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     let runs_nix = command.first().is_none_or(|program| Path::new(program).file_name().is_some_and(|name| name == "nix"));
     let (nix, shell) = (!runs_nix).then(|| project_shell(&directory)).flatten().filter(|shell| !inside(shell)).and_then(|shell| nix().zip(Some(shell)))?;
-    Some(through(north, &nix, &shell.to_string_lossy(), command))
-}
-
-/// `command` inside `nix develop SHELL`, re-entering `north capacity exec --dev-shell SHELL` there, which marks the shell once it is entered.
-fn through(north: &str, nix: &Path, shell: &str, command: &[String]) -> Vec<String> {
-    let mut words = vec![nix.to_string_lossy().into_owned(), "develop".to_owned(), shell.to_owned(), "-c".to_owned()];
-    words.extend(exec_words(north, Some(shell)));
+    let shell = shell.to_string_lossy().into_owned();
+    let mut words = vec![nix.to_string_lossy().into_owned(), "develop".to_owned(), shell.clone(), "-c".to_owned()];
+    words.extend(exec_words(north, Some(&shell)));
     words.extend_from_slice(command);
-    words
-}
-
-fn north_binary() -> String {
-    std::env::var("AGENT_CAPACITY_NORTH").ok().filter(|path| !path.is_empty()).or_else(|| std::env::current_exe().ok().map(|path| path.to_string_lossy().into_owned())).unwrap_or_else(|| "north".to_owned())
+    Some(words)
 }
 
 /// `command` run through `north capacity exec` outside any dev shell, as a native client runs.
@@ -112,13 +104,6 @@ pub fn exec(arguments: &[String]) -> u8 {
         eprintln!("{EXEC_USAGE}");
         return 2;
     };
-    if let Some((nix, shell)) = shell.filter(|shell| !inside(Path::new(shell))).and_then(|shell| nix().zip(Some(shell))) {
-        let command: Vec<String> = std::iter::once(program.clone()).chain(rest.iter().cloned()).collect();
-        let words = through(&north_binary(), &nix, shell, &command);
-        let error = std::process::Command::new(&words[0]).args(&words[1..]).exec();
-        eprintln!("north capacity exec: {}: {error}", words[0]);
-        return NOT_EXECUTABLE;
-    }
     let Some(resolved) = resolve(program) else {
         eprintln!("north capacity exec: {program}: command not found");
         return NOT_FOUND;
@@ -131,76 +116,4 @@ pub fn exec(arguments: &[String]) -> u8 {
     let error = command.exec();
     eprintln!("north capacity exec: {program}: {error}");
     NOT_EXECUTABLE
-}
-
-#[cfg(test)]
-mod tests {
-    use std::os::unix::fs::PermissionsExt;
-    use std::process::Command;
-
-    use super::*;
-
-    const CHILD: &str = "capacity::dev_shell::tests::exec_child";
-    const ARGS: &str = "NORTH_TEST_EXEC_ARGS";
-
-    fn script(path: &Path, body: &str) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
-    /// The `exec` verb run for real in a child of the test binary, since it replaces its process.
-    #[test]
-    fn exec_child() {
-        if let Ok(arguments) = std::env::var(ARGS) {
-            let arguments: Vec<String> = arguments.split('\u{1f}').map(str::to_owned).collect();
-            std::process::exit(i32::from(exec(&arguments)));
-        }
-    }
-
-    struct Fixture {
-        _scratch: tempfile::TempDir,
-        shell: PathBuf,
-        path: std::ffi::OsString,
-        north: PathBuf,
-    }
-
-    fn fixture() -> Fixture {
-        let scratch = tempfile::tempdir().unwrap();
-        let shell = scratch.path().join("project");
-        script(&shell.join("tools/only-in-shell"), "echo only-in-shell ran $*");
-        let nix = scratch.path().join("bin/nix");
-        script(&nix, "[ \"$1\" = develop ] && [ \"$3\" = -c ] || exit 64\nshell=$2; shift 3\nPATH=\"$shell/tools:$PATH\" IN_NIX_SHELL=impure exec \"$@\"");
-        let north = scratch.path().join("bin/north");
-        script(&north, "[ \"$1 $2 $3 $5\" = \"capacity exec --dev-shell --\" ] || exit 65\nshift 5\nexec \"$@\"");
-        let path = std::env::join_paths([scratch.path().join("bin"), PathBuf::from("/usr/bin"), PathBuf::from("/bin")]).unwrap();
-        Fixture { _scratch: scratch, shell, path, north }
-    }
-
-    fn exec_run(fixture: &Fixture, arguments: &[&str], environment: &[(&str, &str)]) -> (i32, String, String) {
-        let mut child = Command::new(std::env::current_exe().unwrap());
-        child.args(["--exact", CHILD, "--nocapture"]).env(ARGS, arguments.join("\u{1f}")).env("PATH", &fixture.path).env("AGENT_CAPACITY_NORTH", &fixture.north).env_remove("IN_NIX_SHELL").env_remove(MARK);
-        child.envs(environment.iter().copied());
-        let output = child.output().unwrap();
-        (output.status.code().unwrap(), String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
-    }
-
-    #[test]
-    fn capacity_dev_shell_exec_with_a_dev_shell_runs_a_program_found_only_inside_that_shell() {
-        let fixture = fixture();
-        let shell = fixture.shell.to_str().unwrap();
-        let (code, out, err) = exec_run(&fixture, &["--dev-shell", shell, "--", "only-in-shell", "--version"], &[]);
-        assert_eq!((code, out.contains("only-in-shell ran --version")), (0, true), "{out}{err}");
-        let (code, _, err) = exec_run(&fixture, &["--", "only-in-shell"], &[]);
-        assert_eq!((code, err.contains("command not found")), (127, true), "{err}");
-    }
-
-    #[test]
-    fn capacity_dev_shell_exec_inside_the_shell_runs_the_program_without_entering_again() {
-        let fixture = fixture();
-        let shell = fixture.shell.to_str().unwrap();
-        let tools = format!("{}:{}", fixture.shell.join("tools").display(), fixture.path.to_str().unwrap());
-        let (code, out, err) = exec_run(&fixture, &["--dev-shell", shell, "--", "only-in-shell"], &[("IN_NIX_SHELL", "impure"), ("PATH", &tools)]);
-        assert_eq!((code, out.contains("only-in-shell ran")), (0, true), "{out}{err}");
-    }
 }
