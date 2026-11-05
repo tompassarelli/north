@@ -65,6 +65,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("health", Status),
     ("help", Diagnosis),
     ("hook", Diagnosis),
+    ("incident", Bookkeeping),
     ("incident-mine", Diagnosis),
     ("incident-retro", Diagnosis),
     ("issue-box-lint", Diagnosis),
