@@ -729,10 +729,14 @@ then S2b and S2c in parallel; then S3 and S4.
   no lease and never paused for a freeze. Under `-` the clock pauses while one of the command's
   own processes is queued for capacity or holds a frozen lease.
   Failure verdict (2026-11-05): a check that exits nonzero inside a lander round reruns once on
-  the base tree, on the same host, through the same wrapper and with `SAFE_PUSH_LAND_HEAD` still
-  naming the lane, so a script that picks the installed runtime or a build from the tree by
-  diffing against the lane (citation-check, check-owners, land-checks selection) takes the same
-  path on the base as on the lane; the base result is kept per (base
+  the base tree, on the same host and through the same wrapper, with `SAFE_PUSH_LAND_HEAD` naming
+  the tree it runs on and `SAFE_PUSH_LAND_RUNTIME_HEAD` still naming the lane, so `bin/head-north`
+  (citation-check, check-owners) picks the installed runtime or a build from the tree on the base
+  as it did on the lane, while a check that judges the lane's diff (`code-health layers BASE HEAD`)
+  sees an empty range there. When both named the lane, every such check failed the same way on
+  the base, and from 1:00 PM on 2026-11-05 the lander deferred those lanes every 30 s instead of
+  refusing them; an offloaded base rerun also failed `git bundle` on its empty base..base range,
+  so its bundle now stops at the base's parent. The base result is kept per (base
   tree, command, host class) for the round (`safe-push/check-timings/TREE/*.result`), so one broken
   check costs one base rerun. When the base also fails, the verdict is transient with detail
   `main's check environment is broken: CHECK on HOST: FIRST ERROR LINE`; the lander keeps every

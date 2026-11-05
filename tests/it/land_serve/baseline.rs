@@ -159,7 +159,7 @@ fn serve_refuses_a_lane_that_alone_fails_a_check_main_passes() {
     assert!(!fixture.pause().exists());
 }
 
-const RUNTIME_PATH_CHECK: &str = r#"printf '%s\n' "$(git rev-parse HEAD)" >>"$LAND_TRACE/check-runs"; if git diff --quiet "$(cat "$LAND_TRACE/runtime-sha")" "$SAFE_PUSH_LAND_HEAD" -- Cargo.lock; then exit 0; fi; echo 'nix: command not found behind the north capacity gate' >&2; exit 127"#;
+const RUNTIME_PATH_CHECK: &str = r#"printf '%s\n' "$(git rev-parse HEAD)" >>"$LAND_TRACE/check-runs"; if git diff --quiet "$(cat "$LAND_TRACE/runtime-sha")" "${SAFE_PUSH_LAND_RUNTIME_HEAD:-$SAFE_PUSH_LAND_HEAD}" -- Cargo.lock; then exit 0; fi; echo 'nix: command not found behind the north capacity gate' >&2; exit 127"#;
 
 #[test]
 fn serve_judges_a_failure_off_the_runtime_path_against_the_base_on_the_same_path() {

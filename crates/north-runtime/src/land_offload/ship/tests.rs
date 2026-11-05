@@ -324,3 +324,14 @@ fn a_slot_target_is_removed_when_the_host_has_less_free_disk_than_the_floor() {
     let (_home, slot, _) = ship_into_slot_with_target("1024", "999999999");
     assert!(!slot.join("target").exists(), "a host below its free-disk floor kept a slot's build output");
 }
+
+#[test]
+fn a_job_whose_base_is_its_head_bundles_the_head_over_its_parent() {
+    let (dir, _, _) = repository_with_two_commits();
+    let head = CommitId::resolve(dir.path(), "HEAD").unwrap();
+    let reference = job_ref(&head);
+    let land = Land { ssh: "", checkout: dir.path(), base: Some(head.clone()), head: head.clone(), timeout_seconds: 1, command: "" };
+    let file = bundle(&land, &reference).unwrap();
+    let listed = Command::new("git").current_dir(dir.path()).args(["bundle", "list-heads", "-"]).stdin(file).output().unwrap();
+    assert_eq!(String::from_utf8(listed.stdout).unwrap().trim(), format!("{} {reference}", head.as_str()));
+}

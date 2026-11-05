@@ -217,9 +217,11 @@ fn bundle(land: &Land, reference: &str) -> Result<File, String> {
     }
     let mut command = git();
     command.args(["bundle", "create", "-q", "-", reference]);
-    if let Some(base) = &land.base {
-        command.arg(format!("^{}", base.as_str()));
-    }
+    match &land.base {
+        Some(base) if *base == land.head => command.arg(format!("^{}^", base.as_str())),
+        Some(base) => command.arg(format!("^{}", base.as_str())),
+        None => &mut command,
+    };
     let bundled = command.stdout(file.try_clone().map_err(|error| error.to_string())?).status().is_ok_and(|status| status.success());
     let _ = git().args(["update-ref", "-d", reference]).status();
     if !bundled {

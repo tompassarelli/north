@@ -5,7 +5,7 @@ code=()
 [ "${1:-}" != --code ] || { code=(--code "$2"); shift 2; }
 live=${XDG_STATE_HOME:-$HOME/.local/state}/north/current/north
 north="" reason="no live runtime at $live"
-if [ -x "$live" ] && reason=$("$live" runtime covers --head "${SAFE_PUSH_LAND_HEAD:-HEAD}" "${code[@]}" 2>&1); then
+if [ -x "$live" ] && reason=$("$live" runtime covers --head "${SAFE_PUSH_LAND_RUNTIME_HEAD:-${SAFE_PUSH_LAND_HEAD:-HEAD}}" "${code[@]}" 2>&1); then
   north=$reason
 else
   printf 'head-north: building north from the tree: %s\n' "${reason%%$'\n'*}" >&2

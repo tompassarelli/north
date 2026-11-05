@@ -651,7 +651,7 @@ fn north_dir() -> String {
     Path::new(env!("CARGO_BIN_EXE_north")).parent().unwrap().to_string_lossy().into_owned()
 }
 
-const ENVIRONMENT_CHECK: &str = r#"printf '%s\n' "$(git rev-parse HEAD)" >>../runs; [ "$SAFE_PUSH_LAND_HEAD" = "$(git rev-parse lane)" ] || exit 9; [ ! -e ../plant ] || { echo "bash: nix: command not found" >&2; exit 127; }; if grep -q broken file.txt; then echo "error: the lane broke file.txt" >&2; exit 1; fi"#;
+const ENVIRONMENT_CHECK: &str = r#"printf '%s\n' "$(git rev-parse HEAD)" >>../runs; [ "$SAFE_PUSH_LAND_RUNTIME_HEAD" = "$(git rev-parse lane)" ] || exit 9; [ "$(git rev-parse "$SAFE_PUSH_LAND_HEAD")" = "$(git rev-parse HEAD)" ] || exit 8; [ ! -e ../plant ] || { echo "bash: nix: command not found" >&2; exit 127; }; if grep -q broken file.txt; then echo "error: the lane broke file.txt" >&2; exit 1; fi"#;
 
 fn lane_onto(fixture: &Fixture, text: &str) -> String {
     git(&fixture.repo, &["checkout", "-q", "-B", "lane", &fixture.head]);
@@ -698,6 +698,19 @@ fn failed_check_judged_against_base() {
     assert!(!fs::read_to_string(fixture.path("outcome")).unwrap().contains("environment is broken"));
     assert_eq!(runs(&fixture)[6..], [broken.clone(), fixture.head.clone()]);
     assert_eq!(git(&fixture.repo, &["rev-parse", "HEAD"]), broken);
+}
+
+const RANGE_CHECK: &str = r#"printf '%s\n' "$(git rev-parse HEAD)" >>../runs; case "$(git diff --name-only "$SAFE_PUSH_LAND_BASE" "$SAFE_PUSH_LAND_HEAD")" in *file.txt*) echo "error: the lane changed file.txt" >&2; exit 1 ;; esac"#;
+
+#[test]
+fn a_check_that_judges_the_lanes_diff_refuses_the_lane_because_its_base_rerun_sees_an_empty_range() {
+    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {RANGE_CHECK}"))]);
+    let lane = lane_onto(&fixture, "lane\n");
+    let output = fixture.command_between(&fixture.head, &lane).env("NORTH_LAND_ROUND", "r1").output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "a range check the lane fails and its base passes refuses the lane: {}", text(&output));
+    assert!(!fs::read_to_string(fixture.path("outcome")).unwrap_or_default().contains("environment is broken"), "{}", text(&output));
+    assert_eq!(runs(&fixture), [lane.clone(), fixture.head.clone()], "the base tree did not rerun the failed check");
+    assert_eq!(git(&fixture.repo, &["rev-parse", "HEAD"]), lane);
 }
 
 #[test]
