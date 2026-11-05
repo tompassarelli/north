@@ -9,6 +9,7 @@ pub mod harness;
 pub mod wisp_payoff;
 pub mod frozen_topics;
 pub mod disk_budget;
+pub mod entry_points;
 pub mod github;
 pub mod github_app;
 pub mod git_credential;

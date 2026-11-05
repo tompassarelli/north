@@ -22,5 +22,8 @@ time.workspace = true
 tokio.workspace = true
 toml_edit.workspace = true
 
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
+
 [lints]
 workspace = true

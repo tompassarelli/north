@@ -105,6 +105,7 @@ release north-landing north
 resident_cap north-dispatch
 run_bounded north-ops north-capacity-host
 runtime_update north-runtime
+safe_push_entry north-base north
 safe_push_land_branch north-landing
 safe_push_remote_land north
 safe_push_tag north-landing
