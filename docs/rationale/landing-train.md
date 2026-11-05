@@ -892,6 +892,13 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   relanded-lane-rewritten-main, lane-already-on-main, rebase-context-only,
   stale-revert-before-land-checks, fresh-north-worktree, the two sync_dependencies blocks,
   train-deps.
+- **Incident test** (north#112). `north land scan test-integrity` also runs `incident-test`, so
+  every lander and per-lane check gets it with no bash change. A lane whose commit subject cites a
+  north issue labelled `bug` (`north#N`, or `Fixes #N` on north) and changes no test (a path
+  under tests/, a `*_tests.rs`, a `tests.rs`, a `.test.ts`, or an added `#[test]`) is refused naming the issue.
+  Labels are read with gh only when no test changed, cached per lander round for an hour under
+  the state dir; a GitHub that does not answer passes the lane with one warning line.
+  Case incident-fix-needs-a-test pins the citation formats and gh's label listing as a file-or-wire-format contract.
 
 **Wave L3: every repository through the lander, then deletion.**
 

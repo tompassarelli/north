@@ -10,6 +10,7 @@ mod land_enqueue;
 mod landing_targets;
 mod land_rebase;
 mod land_scan;
+mod land_scan_incident_test;
 mod land_serve;
 mod lane_gc_journeys;
 mod policy_replay_login;
