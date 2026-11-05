@@ -182,7 +182,7 @@ impl Ingest<'_> {
                     r.set(key, value(stored));
                 }
             }
-            original = !matches!(prior.brief[0], Sql::Null);
+            original = !matches!(prior.brief[0], Sql::Null) && matches!(&prior.brief[1], Sql::Text(origin) if CREATED.contains(&origin.as_str()));
             if original {
                 let Sql::Text(brief) = &prior.brief[0] else { return Err(Failure::Refused("a recorded brief is not text".into())) };
                 f = Fields::read(brief);

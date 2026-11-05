@@ -8,8 +8,9 @@
 //! week, keeps the reading once a day in the readings file, and tells the proxy once when one turns
 //! DECAYED. It prints each tier and category's estimates against what the week's runs came to and
 //! files one north issue for each whose median ratio drifted out of the calibrated band, under the
-//! same rule as a rise. A failed read of the arms' evidence keeps the prior routing cells and fails
-//! the tick.
+//! same rule as a rise. It prints the share of the last day's finished runs that recorded each
+//! essential field and fails when one is under 98%. A failed read of the arms' evidence keeps the
+//! prior routing cells and fails the tick.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, EstimatedRun};
 use crate::dispatch::{Evidence, LEDGER_WINDOW, arm_evidence, evidenced};
@@ -25,6 +26,7 @@ use std::path::PathBuf;
 
 mod cells;
 mod costs;
+mod coverage;
 mod dividends;
 mod estimates;
 mod rises;
@@ -47,13 +49,15 @@ pub trait Tracker {
     fn rolling(&mut self) -> &mut dyn rolling_issue::Tracker;
 }
 
-/// The ledger as one tick reads it; `notes` are the reads that failed.
+/// The ledger as one tick reads it; `notes` are the reads that failed and `runs` the last day's
+/// finished runs.
 pub struct Ledger {
     pub week: ClosedReport,
     pub before: ClosedReport,
     pub evidence: BTreeMap<String, Evidence>,
     pub notes: Vec<String>,
     pub estimates: Result<Vec<EstimatedRun>, String>,
+    pub runs: Result<Vec<Value>, String>,
 }
 
 /// What earlier ticks left: the cells they wrote, the costs and dividend readings they kept, and the
@@ -102,6 +106,8 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
         }
     };
     lines.extend(calibrations.iter().map(estimates::Calibration::line));
+    let (covered, uncovered) = coverage::check(&ledger.runs);
+    lines.extend(covered);
     let mut breaches = prior.breaches.clone();
     let risen = keep_rises(&rises::rises(&ledger.week, &ledger.before), tracker, &mut breaches, at, dry_run, &mut lines);
     let findings = calibrations.iter().filter(|calibration| calibration.drifted()).map(|calibration| Finding { line: calibration.drift_line(), title: calibration.title(), body: calibration.body(at) }).collect();
@@ -111,7 +117,7 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
         Ok(open) => format!("open north issues: {open}"),
         Err(error) => format!("open north issues: unread ({error})"),
     });
-    let failed = !ledger.notes.is_empty() || ledger.estimates.is_err() || risen.is_err() || unfiled || open.is_err() || told_failed;
+    let failed = !ledger.notes.is_empty() || ledger.estimates.is_err() || risen.is_err() || unfiled || open.is_err() || told_failed || uncovered;
     Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, readings, breaches, failed }
 }
 
@@ -203,7 +209,7 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     let mut notes = Vec::new();
     let evidence = arm_evidence(&evidenced(), &mut notes);
     let estimates = ledger::estimated_runs(LEDGER_WINDOW).map_err(|error| error.user_message());
-    let ledger = Ledger { week, before, evidence, notes, estimates };
+    let ledger = Ledger { week, before, evidence, notes, estimates, runs: coverage::read() };
     let files = Files::here()?;
     let at = Timestamp::now().iso();
     let prior = Prior { cells: files.cells()?, costs: files.costs()?, readings: files.readings()?, breaches: files.breaches()? };

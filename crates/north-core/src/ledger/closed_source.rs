@@ -39,7 +39,7 @@ fn usage(window: &str) -> NorthError {
     NorthError::Usage(format!("--since takes hours or days such as 24h or 7d, not {window:?}"))
 }
 
-fn threads_database() -> PathBuf {
+pub fn threads_database() -> PathBuf {
     if let Some(path) = std::env::var_os("THREADS_DB") {
         return path.into();
     }

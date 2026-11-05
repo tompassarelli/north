@@ -13,6 +13,7 @@ static ETA: LazyLock<Regex> =
 pub static FLAWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\baccepted flaws?:\s*([0-9]+)").unwrap());
 pub static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 const RUNNING_SECONDS: i64 = 7200;
+pub const TRANSCRIPT_ORIGIN: &str = "claude.transcript";
 
 pub(super) struct Transcript<'a> {
     pub lines: &'a [Value],
@@ -160,6 +161,10 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     row.insert("flaws".into(), FLAWS.captures(&report).map_or(Value::Null, |found| number(found[1].parse().unwrap_or(0.0))));
     row.insert("backfill".into(), json!(transcript.backfill));
     row.insert("report".into(), json!(prefix(&SPACE.replace_all(&head, " "), 600)));
+    if brief != "null" {
+        row.insert("brief_text".into(), json!(brief));
+        row.insert("brief_origin".into(), json!(TRANSCRIPT_ORIGIN));
+    }
     Some(row)
 }
 

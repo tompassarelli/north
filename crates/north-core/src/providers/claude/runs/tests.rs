@@ -177,3 +177,13 @@ fn a_fleet_session_takes_the_requests_logged_effort_over_its_launch_effort_and_a
     let unlogged = run_usage(&lines(include_str!("fixtures/identity_subagent.jsonl")), "claude-a", &prices);
     assert_eq!(super::effort(None, None, Some("medium"), &unlogged), json!("medium"));
 }
+
+#[test]
+fn a_finished_transcript_records_its_brief_text_with_the_transcript_as_its_origin() {
+    let lines = lines(include_str!("fixtures/subagent.jsonl"));
+    let transcript = super::row::Transcript { lines: &lines, id: "fleet-a1", role: "worker", tier: "sonnet", since: "", backfill: false, now: crate::foundation::clock::Timestamp::parse("2026-11-04T12:00:00Z").unwrap() };
+    let row = super::row::build(&transcript).unwrap();
+    assert_eq!(row["brief_text"], "Add the thing. ETA 20 minutes. Done when the test passes.");
+    assert_eq!(row["brief_origin"], super::row::TRANSCRIPT_ORIGIN);
+    assert_eq!(row["eta_min"], 20);
+}

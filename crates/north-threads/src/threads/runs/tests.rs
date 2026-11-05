@@ -545,3 +545,16 @@ fn an_ingest_that_changes_no_usage_input_does_not_reprice_the_ledger() {
     ledger.ingest(&[readout("claude", "b", 40, 26.0)]);
     assert!(!ledger.rows("SELECT * FROM run_costs WHERE agent = 'a'").is_empty(), "a new readout did not reprice the ledger");
 }
+
+#[test]
+fn a_transcript_brief_is_recorded_and_a_reread_keeps_the_category_a_label_gave_it() {
+    let ledger = ledger();
+    let row = json!({"id": "fleet-t1", "tier": "sonnet", "started": "2026-10-28T07:00:00Z", "ended": "2026-10-28T08:00:00Z", "actual_min": 60, "outcome": "done", "report": "Done: x.", "brief": "Item: wisp#3 ETA 20 minutes", "brief_text": "Item: wisp#3 ETA 20 minutes", "brief_origin": "claude.transcript", "turns": 4, "tool_calls": 2, "active_min": 12.5, "wait_min": 47.5});
+    ledger.ingest(std::slice::from_ref(&row));
+    assert_eq!(ledger.row("SELECT brief_text, brief_origin, category, turns FROM runs WHERE agent = 'fleet-t1'"), "Item: wisp#3 ETA 20 minutes|claude.transcript|unknown|4");
+    Connection::open(&ledger.path).unwrap().execute("UPDATE runs SET category = 'bug-known-cause' WHERE agent = 'fleet-t1'", []).unwrap();
+    let mut reread = row;
+    reread["backfill"] = json!(true);
+    ledger.ingest(&[reread]);
+    assert_eq!(ledger.row("SELECT brief_text, category FROM runs WHERE agent = 'fleet-t1'"), "Item: wisp#3 ETA 20 minutes|bug-known-cause");
+}
