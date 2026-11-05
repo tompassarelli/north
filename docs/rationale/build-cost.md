@@ -128,6 +128,19 @@ matches only a plain `CARGO_INCREMENTAL` set to one, so `CARGO_PROFILE_RELEASE_I
 The on-row is 93% below the stable off-row, past B3's 30% bar, so B3 landed with one stable `worktrees/runtime-build`
 lane and `CARGO_PROFILE_RELEASE_INCREMENTAL=true` on the build command.
 
+Incremental release state can go stale (north#575, 2026-11-06). On whiterabbit on 2026-11-05, runtime builds failed
+to link four times with `rust-lld: undefined hidden symbol ... .llvm.N`. The unresolved symbols were internal to one
+workspace rlib (north_core, north_guard or north_landing). Each streak started with the first build after a superseded
+build was stopped mid-compile (exit 143). That happened at 11:51 AM, 1:32 PM, 4:21 PM and 9:17 PM. The broken state
+then outlived every later sha. The hourly reclaim trims and the onsets did not line up, and the runtime-update lock and
+cargo's build lock let only one cargo use the target at a time. Each build starts in a freshly added
+`worktrees/runtime-build`, so cargo reruns rustc for every workspace crate each time. That leaves rustc's
+`release/incremental` sessions as the only state that carries over from build to build, and that is where the stale
+objects came from. Removing the workspace's release artifacts at 9:42 PM made the next build link, and no runtime build since
+has failed that way. A build that fails with that signature now removes `release/incremental` and builds once more, so
+incremental stays on. Each failed build keeps its compiler output in
+`~/.local/state/north/runtime-build-logs/<sha>.log`, and its failure line names that file.
+
 ### B3. Turn on incremental for runtime builds (candidate 2, if B2's on-row is at least 30% below off)
 
 Category: performance. Spec: measured. Scope: single-module. Surface: rust. Verify: local-test. Files:

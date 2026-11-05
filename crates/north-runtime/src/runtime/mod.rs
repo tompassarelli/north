@@ -1,4 +1,5 @@
 mod bounded;
+mod cargo_build;
 mod canary;
 mod deploy;
 mod failure;

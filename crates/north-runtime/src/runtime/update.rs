@@ -1,4 +1,5 @@
 use super::bounded;
+use super::cargo_build::{self, BuildLog};
 use super::host_facts;
 use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
@@ -334,26 +335,47 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     if !land_offload::builds_runtime_here() {
         return Err(failed(DEFERRED, format!("no other host has built {} yet and this host does not build runtimes (builds_runtime = false); retrying on the next tick", layout::short(target))));
     }
+    build_here(layout, checkout, target, runtime, confined.as_ref())
+}
+
+fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, confined: Option<&Confinement>) -> Result<(), Failure> {
     let lane = Lane::add(checkout, target)?;
     let built = layout::home().join(".cache/cargo-target/north");
     let mut build = Command::new(north_base::platform::north_binary::north_binary());
     build
         .args(["capacity", "host", "run", "--class", "runtime", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
-        .args(cargo_words(confined.as_ref()))
+        .args(cargo_build::cargo_words(confined))
         .current_dir(&lane.path)
         .env("CARGO_TARGET_DIR", &built)
         .env("CARGO_PROFILE_RELEASE_INCREMENTAL", "true");
-    let previous = fs::read_to_string(layout.build_seconds()).ok().and_then(|seconds| seconds.trim().parse().ok()).map(Duration::from_secs);
+    let log = BuildLog::open(layout, target)?;
     let started = Instant::now();
-    let wall = std::time::SystemTime::now();
-    let status = supersede::run(&mut build, target, previous, || main_commit(checkout).ok()).inspect_err(|failure| {
-        if failure.code == SUPERSEDED {
-            note_abandoned(layout, target);
-        }
-    })?;
-    if !status.success() {
-        return Err(build_failure(target, status, cargo_ran(&built, wall)));
+    let mut attempt = || -> Result<_, Failure> {
+        let wall = std::time::SystemTime::now();
+        log.attach(&mut build)?;
+        let previous = fs::read_to_string(layout.build_seconds()).ok().and_then(|seconds| seconds.trim().parse().ok()).map(Duration::from_secs);
+        let status = supersede::run(&mut build, target, previous, || main_commit(checkout).ok()).inspect_err(|failure| {
+            if failure.code == SUPERSEDED {
+                note_abandoned(layout, target);
+            }
+        })?;
+        Ok((status, cargo_build::cargo_ran(&built, wall)))
+    };
+    let (mut status, mut ran) = attempt()?;
+    if !status.success() && ran && log.links_against_stale_incremental_output() {
+        println!(
+            "north runtime: build of {} failed to link against stale release incremental output (build log: {}); clearing {} and building once more",
+            layout::short(target),
+            log.path().display(),
+            built.join("release/incremental").display()
+        );
+        cargo_build::forget_release_incremental(&built)?;
+        (status, ran) = attempt()?;
     }
+    if !status.success() {
+        return Err(cargo_build::build_failure(target, status, ran, &log));
+    }
+    log.discard();
     let release = built.join("release");
     if !layout::has_programs(&release) {
         return Err(failed(DEFERRED, "build did not run or produced no binary (capacity lease deferred?); runtime unchanged"));
@@ -365,25 +387,6 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     fs::write(runtime.join(BUILT_HERE), layout::short(target))?;
     fs::write(layout.build_seconds(), started.elapsed().as_secs().to_string())?;
     Ok(())
-}
-
-fn cargo_words(confined: Option<&Confinement>) -> Vec<String> {
-    let cargo = ["nix", "develop", "-c", "cargo", "build", "--release", "--locked", "--timings"].map(str::to_owned);
-    match confined {
-        Some(confinement) => ["nice", "-n", "19", "ionice", "-c", "3"].map(str::to_owned).into_iter().chain(cargo).chain(["-j".to_owned(), confinement.jobs.to_string()]).collect(),
-        None => cargo.to_vec(),
-    }
-}
-
-fn cargo_ran(built: &Path, since: std::time::SystemTime) -> bool {
-    fs::metadata(built.join("cargo-timings/cargo-timing.html")).and_then(|metadata| metadata.modified()).is_ok_and(|written| written >= since)
-}
-
-fn build_failure(target: &str, status: std::process::ExitStatus, cargo_ran: bool) -> Failure {
-    match cargo_ran {
-        true => failed(code(status), format!("build of {target} failed: {status}")),
-        false => failed(DEFERRED, format!("capacity admission or its scope stopped the build of {} before cargo ran ({status}); retrying on the next tick", layout::short(target))),
-    }
 }
 
 fn note_abandoned(layout: &Layout, target: &str) {
@@ -576,14 +579,6 @@ mod tests {
     #[test]
     fn a_game_reserve_settler_whose_agent_cpus_are_not_enforced_still_holds_the_build() {
         assert!(matches!(placement(true, true, || None, || panic!("no other host is asked")), Placement::Held));
-    }
-
-    #[test]
-    fn a_confined_build_runs_cargo_at_idle_priority_with_jobs_capped_at_the_agent_cpus() {
-        let words = cargo_words(Some(&agent_cpus()));
-        assert_eq!(words[..6], ["nice", "-n", "19", "ionice", "-c", "3"]);
-        assert_eq!(words[words.len() - 2..], ["-j", "4"]);
-        assert!(!cargo_words(None).iter().any(|word| word == "nice" || word == "-j"));
     }
 
     #[test]

@@ -2,6 +2,8 @@ use std::fs::{self, File};
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
 
+#[path = "runtime_update/build_log.rs"]
+mod build_log;
 #[path = "runtime_update/harness.rs"]
 mod harness;
 #[path = "runtime_update/laptop.rs"]
