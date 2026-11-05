@@ -2,7 +2,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::host::Host;
 use crate::fleet::model::{Effort, LaunchRequest, Role, SessionRecord, Status};
+use crate::fleet::records::read_record;
 use crate::fleet::runtime::{Opening, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
@@ -58,12 +60,24 @@ impl Fleet {
             (Some(kept), None) => Opening::Resume(kept),
             (None, _) => Opening::Fresh(conversation.as_deref()),
         };
-        self.start_claiming(&mut record, &account, opening)?;
+        if let Err(error) = self.start_claiming(&mut record, &account, opening) {
+            self.discard_unrecorded(&session_dir);
+            return Err(error);
+        }
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
         self.deliver_first_turn(&mut record, &account, &request.prompt)?;
         Ok(record)
+    }
+
+    /// Removes the directory of a launch whose host never registered a record, so the name is free for the next launch.
+    fn discard_unrecorded(&self, session_dir: &std::path::Path) {
+        if read_record(session_dir).is_ok() {
+            return;
+        }
+        let _ = Host::new(session_dir.to_path_buf()).terminate();
+        let _ = fs::remove_dir_all(session_dir);
     }
 
     fn refuse_second_proxy(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<()> {

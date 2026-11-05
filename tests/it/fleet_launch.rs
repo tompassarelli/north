@@ -983,3 +983,33 @@ fn a_launch_whose_holder_read_times_out_names_that_read_and_leaves_no_session_be
     assert!(!text(&listed.stdout).contains("narrow"), "{}", text(&listed.stdout));
     assert!(!north(root, &["fleet", "show", "narrow"]).status.success(), "the timed-out launch left a session");
 }
+
+
+#[test]
+fn a_launch_whose_provider_exits_before_the_host_registers_leaves_no_session_directory_and_the_same_name_launches_and_answers() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    executable(&root.join("bin/claude"), "exit 1\n");
+    let session = root.join(".local/state/north/fleet/narrow");
+
+    let failed = launch(root);
+
+    assert!(!failed.status.success(), "{}", text(&failed.stdout));
+    assert!(!session.exists(), "the failed launch left {session:?}: {:?}", fs::read_dir(&session).map(|entries| entries.flatten().map(|entry| entry.file_name()).collect::<Vec<_>>()));
+    fixture(root, "fold");
+    let retried = launch(root);
+    let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "narrow", "answer this"]);
+    let answered = |shown: &str| shown.split_once("] answer this").is_some_and(|(_, after)| after.contains("OK"));
+    let mut shown = String::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !answered(&shown) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        shown = text(&north(root, &["fleet", "show", "narrow"]).stdout);
+    }
+    north(root, &["fleet", "forget", "narrow"]);
+
+    assert!(retried.status.success(), "{}", text(&retried.stderr));
+    assert!(sent.status.success(), "{}", text(&sent.stderr));
+    assert!(answered(&shown), "the relaunched session never answered the message: {shown}");
+}
