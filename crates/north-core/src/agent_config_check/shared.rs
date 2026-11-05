@@ -69,12 +69,14 @@ pub(super) fn shellcheck_command(on_path: Option<PathBuf>, north: &Path) -> Comm
     }
 }
 
-fn lint_hooks(context: &Context, report: &mut Report) -> usize {
-    let found = hooks(&context.north.join("harness/hooks"));
+pub(super) fn lint_hooks(north: &Path, on_path: Option<PathBuf>, report: &mut Report) -> usize {
+    let directory = north.join("harness/hooks");
+    let found = hooks(&directory);
     if found.is_empty() {
+        report.bad(format!("shellcheck found no shared hooks to lint under {}", directory.display()));
         return 0;
     }
-    match shellcheck_command(path_command("shellcheck"), &context.north).args(["-S", "warning"]).args(&found).output() {
+    match shellcheck_command(on_path, north).args(["-S", "warning"]).args(&found).output() {
         Ok(output) if output.status.success() => {
             for hook in &found {
                 report.ok(format!("shellcheck {}", hook.file_name().unwrap_or_default().to_string_lossy()));
@@ -132,7 +134,7 @@ fn live_links(context: &Context, report: &mut Report) {
 
 pub(super) fn check(context: &Context, report: &mut Report) {
     let before = report.fail;
-    let hook_count = lint_hooks(context, report);
+    let hook_count = lint_hooks(&context.north, path_command("shellcheck"), report);
     let skill_count = scan_skills(context, report);
     if fs::metadata(context.operator.join("AGENTS.md")).is_ok_and(|meta| meta.len() > 0) {
         report.ok("global AGENTS.md owner source present");

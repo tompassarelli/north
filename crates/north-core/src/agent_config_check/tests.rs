@@ -388,6 +388,26 @@ fn shellcheck_falls_back_to_the_north_flake_when_absent_from_path() {
     assert_eq!(arguments, ["shell", "--quiet", "path:/tree#shellcheck", "-c", "shellcheck"]);
 }
 
+#[test]
+fn hooks_fail_closed_when_neither_path_nor_the_flake_supplies_shellcheck() {
+    let north = tempfile::tempdir().unwrap();
+    fs::create_dir_all(north.path().join("harness/hooks")).unwrap();
+    fs::write(north.path().join("harness/hooks/guard.sh"), "#!/bin/sh\nexit 0\n").unwrap();
+    let mut report = super::report::Report::new(false);
+    let linted = super::shared::lint_hooks(north.path(), None, &mut report);
+    assert_eq!((linted, report.fail), (1, 1));
+    assert!(report.failures[0].starts_with("shellcheck"), "{:?}", report.failures);
+}
+
+#[test]
+fn hooks_fail_closed_when_none_are_found() {
+    let north = tempfile::tempdir().unwrap();
+    let mut report = super::report::Report::new(false);
+    let linted = super::shared::lint_hooks(north.path(), Some(PathBuf::from("/usr/bin/shellcheck")), &mut report);
+    assert_eq!((linted, report.fail), (0, 1));
+    assert!(report.failures[0].contains("no shared hooks") && report.failures[0].contains("harness/hooks"), "{:?}", report.failures);
+}
+
 
 #[derive(Default)]
 struct Issues {
