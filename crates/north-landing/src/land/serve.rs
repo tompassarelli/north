@@ -45,6 +45,49 @@ fn runtime_target(link: &Path) -> Option<PathBuf> {
     std::fs::read_link(link).ok()
 }
 
+const LANDER_INPUTS: &[&str] = &["crates/north-landing/", "crates/north-base/", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml"];
+
+struct RuntimeWatch {
+    link: PathBuf,
+    started_on: Option<PathBuf>,
+    seen: Option<PathBuf>,
+}
+
+impl RuntimeWatch {
+    fn new(link: PathBuf) -> Self {
+        let started_on = runtime_target(&link);
+        Self { link, seen: started_on.clone(), started_on }
+    }
+
+    fn retires<'a>(&mut self, repos: impl IntoIterator<Item = &'a Path>) -> bool {
+        let target = runtime_target(&self.link);
+        if target == self.seen {
+            return false;
+        }
+        if lander_changed(self.started_on.as_deref(), target.as_deref(), repos) {
+            return true;
+        }
+        println!("north land: the live runtime moved to {} without changing the lander; serving on", target.as_deref().unwrap_or(Path::new("?")).display());
+        self.seen = target;
+        false
+    }
+}
+
+fn runtime_sha(target: Option<&Path>) -> Option<&str> {
+    let name = target?.file_name()?.to_str()?;
+    (name.len() == 40 && name.bytes().all(|byte| byte.is_ascii_hexdigit())).then_some(name)
+}
+
+fn lander_changed<'a>(from: Option<&Path>, to: Option<&Path>, repos: impl IntoIterator<Item = &'a Path>) -> bool {
+    let (Some(from), Some(to)) = (runtime_sha(from), runtime_sha(to)) else {
+        return true;
+    };
+    repos
+        .into_iter()
+        .find_map(|repo| git(repo, &["diff", "--no-renames", "--name-only", from, to]).ok())
+        .is_none_or(|paths| paths.lines().any(|path| LANDER_INPUTS.iter().any(|input| path.starts_with(input))))
+}
+
 fn micros() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros())
 }
@@ -438,15 +481,14 @@ fn serve_once(options: &Options) -> u8 {
 
 fn serve_forever(options: &Options) -> u8 {
     reap_offloads();
-    let link = runtime_link();
-    let started_on = runtime_target(&link);
+    let mut runtime = RuntimeWatch::new(runtime_link());
     let retire = Arc::new(AtomicBool::new(false));
     let mut running: HashMap<PathBuf, std::thread::JoinHandle<u8>> = HashMap::new();
     let mut scanned: Option<Instant> = None;
     let mut seeded = false;
     let mut reported: HashSet<String> = HashSet::new();
     loop {
-        if runtime_target(&link) != started_on {
+        if runtime.retires(running.keys().map(PathBuf::as_path)) {
             println!("north land: the live runtime changed; exiting so the service restarts on it");
             retire.store(true, Ordering::Relaxed);
             for (_, handle) in running.drain() {
@@ -496,3 +538,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     if options.once { serve_once(&options) } else { serve_forever(&options) }
 }
+
+#[cfg(test)]
+#[path = "serve_tests.rs"]
+mod tests;

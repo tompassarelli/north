@@ -653,6 +653,10 @@ then S2b and S2c in parallel; then S3 and S4.
 - **S3 Lander service.** Follows S2c. Scope cross-repo (nixos-config: a firn `north-land` user unit;
   until it lands, the lead starts `systemd-run --user --unit north-land`); Surface laptop. It runs
   the runtime's `north land serve`, restarts on exit and between candidates after a runtime follow.
+  Since 2026-11-05 it retires on a runtime follow only when `git diff` of the two runtime SHAs
+  touches crates/north-landing/, crates/north-base/, Cargo.lock, Cargo.toml or rust-toolchain.toml,
+  or cannot be read; a follow that changes only docs or other crates keeps it serving and its
+  speculative stack intact (north#360).
   lane-gc, wt-reap and auto-reap skip `worktrees/lander*`. Done when: (1) `systemctl --user is-active
   north-land` prints active; (2) after `kill -9` of its pid mid-check, a new pid lands the same
   candidate once within 10 s; (3) `serve-worktree-not-reaped` passes.
