@@ -40,7 +40,7 @@ path = "tests/land/main.rs"
 kind = "lines"
 
 [[set]]
-path = "crates/north-core/src/ops/mod.rs"
+path = "crates/north-ops/src/ops/mod.rs"
 kind = "lines"
 
 [[set]]
