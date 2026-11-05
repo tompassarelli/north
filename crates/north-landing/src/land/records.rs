@@ -96,11 +96,13 @@ pub fn write(lander: &Lander, path: &Path, ticket: &Ticket, candidate: &Candidat
     if let Decision::Refused { verdict } = decision {
         incidents::record(&lander.queue, path, ticket, incidents::decided(path, ticket, verdict));
     }
-    let holder = match decision {
-        Decision::Landed { sha } => sha,
-        Decision::Refused { verdict } => verdict.strip_prefix("landed ").and_then(|rest| rest.split_whitespace().next()).unwrap_or(&ticket.head),
+    let landed = match decision {
+        Decision::Landed { sha } => Some(*sha),
+        Decision::Refused { verdict } => verdict.strip_prefix("landed ").and_then(|rest| rest.split_whitespace().next()),
     };
-    cleanup::origin_branches(lander, ticket, holder);
+    if let Some(landed) = landed {
+        cleanup::origin_branches(lander, ticket, landed);
+    }
     let Some(arguments) = arguments(path, ticket, candidate, &tree, decision, telemetry::epoch()) else { return };
     if let Err(error) = spawn(&lander.queue, &arguments) {
         println!("north land: could not record {}: {error}", ticket.branch);

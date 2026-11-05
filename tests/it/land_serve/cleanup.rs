@@ -119,11 +119,13 @@ fn published_landed() {
 #[test]
 fn published_refused() {
     let mut fixture = Fixture::new();
-    let (_, path) = published_lane(&mut fixture, "a", Some(("fail.txt", "fail\n")));
+    let (lane, path) = published_lane(&mut fixture, "a", Some(("fail.txt", "fail\n")));
+    git(&lane, &["push", "-q", "origin", "lane-a"]);
     executable(&fixture.trace.join("hook"), "#!/usr/bin/env bash\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo 'refused https://github.com/o/r/actions/runs/5151' >\"$LAND_TRACE/verdict-$1\"\n");
     assert!(fixture.serve().status.success());
     assert!(fixture.verdict(&path).is_some_and(|verdict| !verdict.starts_with("landed ")), "{:?}", fixture.verdict(&path));
-    assert!(!remote_has(&fixture, "claude/land-a"), "the refused lane's published origin branch was kept though the lane holds it");
+    assert!(remote_has(&fixture, "claude/land-a"), "the refused lane's published origin branch was deleted");
+    assert!(remote_has(&fixture, "lane-a"), "the refused lane's origin branch was deleted");
 }
 
 #[test]
