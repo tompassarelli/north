@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
 
-use super::books::{Digest, FleetBooks, SessionSpend};
+use super::books::{Digest, FleetBooks, Revision, SessionSpend};
 use super::claims::{self, Claims};
 use super::detached;
 use super::gates;
@@ -191,6 +191,10 @@ impl Fleet {
 
     pub fn spend_of(&self, name: &str) -> NorthResult<Option<SessionSpend>> {
         Ok(self.ledger.spend()?.into_iter().find(|spend| spend.session == name))
+    }
+
+    pub fn books_revision(&self) -> NorthResult<Option<Revision>> {
+        self.ledger.revision()
     }
 
     pub fn digest(&self, since_ms: u64) -> NorthResult<Digest> {

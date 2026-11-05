@@ -323,3 +323,39 @@ fn concurrent_writers_wait_their_turn_instead_of_failing() {
     }
     assert_eq!(Ledger::open(&path).unwrap().runs().unwrap().len(), 80);
 }
+
+#[test]
+fn a_landing_or_check_links_only_its_own_tasks_runs_instead_of_rescanning_the_ledger() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = ledger(&directory);
+    ledger.join_task("north#5", "lane-elsewhere").unwrap();
+    ledger.record_run(&run("lane-elsewhere", "claude-opus-5-5", 1, 1)).unwrap();
+    ledger.record_run(&run("lane-landing", "claude-opus-5-5", 1, 1)).unwrap();
+    ledger.record_run(&run("lane-checked", "claude-opus-5-5", 1, 1)).unwrap();
+    ledger.with(|conn| conn.execute("UPDATE runs SET task_ref = NULL", [])).unwrap();
+    ledger.record_landing("lane-landing", "sha-1", 5_000, None).unwrap();
+    let check = super::CheckRun { task_ref: "lane-checked", command: "cargo test", cwd: directory.path(), head_sha: None, exit: 0, ran_ms: 6_000 };
+    ledger.record_check(&check).unwrap();
+    let linked: Vec<(String, Option<String>)> = ledger.runs().unwrap().into_iter().map(|run| (run.session, run.task_ref)).collect();
+    let row = |session: &str, task: Option<&str>| (session.to_owned(), task.map(str::to_owned));
+    assert_eq!(linked, [row("lane-elsewhere", None), row("lane-landing", Some("lane-landing")), row("lane-checked", Some("lane-checked"))]);
+}
+
+#[test]
+fn the_revision_moves_on_each_commit_that_changes_a_row_from_this_or_another_connection_and_holds_otherwise() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = ledger(&directory);
+    let other = Ledger::open(&directory.path().join("ledger.db")).unwrap();
+    let revision = || ledger.revision().unwrap().unwrap();
+    let start = revision();
+    ledger.spend().unwrap();
+    ledger.gates(0).unwrap();
+    assert_eq!(revision(), start, "reading the books leaves the revision where it was");
+    ledger.record_landing("lane-a", "sha-1", 5_000, None).unwrap();
+    let landed = revision();
+    assert_ne!(landed, start, "this connection's own commit moves the revision");
+    ledger.record_landing("lane-a", "sha-1", 6_000, None).unwrap();
+    assert_eq!(revision(), landed, "replaying a landing changes no row, so the revision holds");
+    other.record_run(&run("lane-b", "claude-opus-5-5", 1, 1)).unwrap();
+    assert_ne!(revision(), landed, "another connection's commit moves the revision");
+}

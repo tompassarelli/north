@@ -1,14 +1,20 @@
 use std::collections::BTreeMap;
+use std::sync::atomic::Ordering;
 
 use rusqlite::{Row, params};
 
 use crate::error::NorthResult;
-use crate::fleet::books::{Books, Landing, SessionSpend};
+use crate::fleet::books::{Books, Landing, Revision, SessionSpend};
 
 use crate::router::pricing::{PriceTable, TokenUse};
-use super::{LANDING_CHECK, LINK_RUNS, Ledger, millis};
+use super::{LANDING_CHECK, LINK_RUNS_OF_SESSION, Ledger, millis};
 
 impl Books for Ledger {
+    fn revision(&self) -> NorthResult<Option<Revision>> {
+        let committed_elsewhere = self.with(|conn| conn.query_row("PRAGMA data_version", [], |row| row.get(0)))?;
+        Ok(Some(Revision { committed_elsewhere, written_here: self.written.load(Ordering::Acquire) }))
+    }
+
     fn spend(&self) -> NorthResult<Vec<SessionSpend>> {
         let prices = PriceTable::load()?;
         let rows = self.with(|conn| {
@@ -51,7 +57,7 @@ impl Books for Ledger {
                     params![task_ref, LANDING_CHECK, sha, millis(landed_ms)],
                 )?;
             }
-            conn.execute_batch(LINK_RUNS)?;
+            conn.execute(LINK_RUNS_OF_SESSION, [task_ref])?;
             Ok(changed == 1)
         })
     }

@@ -45,9 +45,8 @@ impl PushLog {
     }
 
     pub fn of(&mut self, record: &SessionRecord) -> Vec<Push> {
-        let Some(machine) = &record.machine else { return self.here.clone() };
-        let remote = self.there.entry(machine.name.clone()).or_insert_with(|| remote_pushes(&binary("ssh"), machine));
-        self.here.iter().chain(remote.iter()).cloned().collect()
+        let remote = record.machine.as_ref().map(|machine| &*self.there.entry(machine.name.clone()).or_insert_with(|| remote_pushes(&binary("ssh"), machine)));
+        self.here.iter().chain(remote.into_iter().flatten()).filter(|push| push.session == record.name).cloned().collect()
     }
 }
 
@@ -141,6 +140,14 @@ mod tests {
             "created_ms": created_ms, "host_pid": null, "conversation": null, "task_ref": task_ref
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn a_sessions_pushes_are_its_own_rows_of_the_log_and_no_others() {
+        let log = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(log.path(), "1\tnorth\tb\to1\tsha-1\tmine\n2\tnorth\tb\to2\tsha-2\tother\n3\tnorth\tb\to3\tsha-3\tmine\n").unwrap();
+        let landed: Vec<String> = PushLog::read(log.path()).of(&session("mine", None, 0)).into_iter().map(|push| push.landed).collect();
+        assert_eq!(landed, ["sha-1", "sha-3"]);
     }
 
     #[test]

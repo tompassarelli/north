@@ -19,7 +19,16 @@ pub struct Landing {
     pub landed_ms: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Revision {
+    pub committed_elsewhere: i64,
+    pub written_here: u64,
+}
+
 pub trait Books: Send + Sync {
+    fn revision(&self) -> NorthResult<Option<Revision>> {
+        Ok(None)
+    }
     fn spend(&self) -> NorthResult<Vec<SessionSpend>>;
     fn landed_since(&self, since_ms: u64) -> NorthResult<Vec<Landing>>;
     fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, wall_ms: Option<u64>) -> NorthResult<bool>;

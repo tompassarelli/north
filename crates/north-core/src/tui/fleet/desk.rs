@@ -4,7 +4,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::books::Digest;
+use crate::fleet::books::{Digest, Revision};
 use crate::fleet::gates::{Decision, due};
 use crate::fleet::model::{Account, Delivery, Effort, LaunchRequest, SessionRecord, Status, Transcript};
 use crate::foundation::clock::Timestamp;
@@ -88,12 +88,13 @@ pub struct FleetDesk {
     followers: BTreeMap<String, Follower>,
     states: StateClock,
     digest: Digest,
+    digest_read: Option<(Revision, u64)>,
     upkeep: Upkeep,
 }
 
 impl FleetDesk {
     pub fn new(fleet: Fleet) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), upkeep: Upkeep::default() }
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default() }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -119,6 +120,19 @@ impl FleetDesk {
         }
     }
 
+    fn read_digest(&mut self) -> NorthResult<bool> {
+        let since_ms = Timestamp::now().local_day_start_ms();
+        let read = self.fleet.books_revision()?.map(|revision| (revision, since_ms));
+        if read.is_some() && read == self.digest_read {
+            return Ok(false);
+        }
+        let digest = self.fleet.digest(since_ms)?;
+        let booked = digest != self.digest;
+        self.digest = digest;
+        self.digest_read = read;
+        Ok(booked)
+    }
+
     fn poll_followers(&mut self) -> NorthResult<bool> {
         let mut changed = false;
         for follower in self.followers.values_mut() {
@@ -140,9 +154,7 @@ impl SessionDesk for FleetDesk {
         let records = &self.records;
         self.followers.retain(|name, _| records.iter().any(|record| &record.name == name));
         let followed = self.follow_new()?;
-        let digest = self.fleet.digest(Timestamp::now().local_day_start_ms())?;
-        let booked = digest != self.digest;
-        self.digest = digest;
+        let booked = self.read_digest()?;
         let changed = self.poll_followers()? | listed | followed | booked;
         self.track_states();
         let measured = self.upkeep.tend(&self.fleet, &self.digest)?;

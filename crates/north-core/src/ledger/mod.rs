@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, Row, Transaction, TransactionBehavior, params};
@@ -119,6 +120,7 @@ const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,account
 pub struct Ledger {
     conn: Mutex<Connection>,
     checkpointed: Mutex<Option<Instant>>,
+    written: AtomicU64,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -214,7 +216,7 @@ impl Ledger {
         if schema_version(&conn).map_err(sql)? < SCHEMA_VERSION {
             migrate(&conn).map_err(sql)?;
         }
-        Ok(Self { conn: Mutex::new(conn), checkpointed: Mutex::new(None) })
+        Ok(Self { conn: Mutex::new(conn), checkpointed: Mutex::new(None), written: AtomicU64::new(0) })
     }
 
     pub fn runs(&self) -> NorthResult<Vec<Run>> {
@@ -250,7 +252,7 @@ impl Ledger {
     pub fn record_check(&self, check: &CheckRun) -> NorthResult<()> {
         self.write(|conn| {
             if conn.execute("INSERT OR IGNORE INTO tasks(task_ref) VALUES(?1)", [check.task_ref])? == 1 {
-                conn.execute_batch(LINK_RUNS)?;
+                conn.execute(LINK_RUNS_OF_SESSION, [check.task_ref])?;
             }
             conn.execute(
                 "INSERT INTO checks(task_ref, command, cwd, head_sha, exit, ran_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
@@ -262,9 +264,13 @@ impl Ledger {
 
     fn write<T>(&self, work: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> NorthResult<T> {
         let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changed_before = conn.total_changes();
         let transaction = Transaction::new_unchecked(&conn, TransactionBehavior::Immediate).map_err(sql)?;
         let output = work(&transaction).map_err(sql)?;
         transaction.commit().map_err(sql)?;
+        if conn.total_changes() != changed_before {
+            self.written.fetch_add(1, Ordering::Release);
+        }
         self.checkpoint_when_due(&conn);
         Ok(output)
     }
