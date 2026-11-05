@@ -88,3 +88,16 @@ fn unknown_arguments_exit_with_usage() {
     assert_eq!(run(&["features-index".into(), "--bogus".into()]), 2);
     assert_eq!(run(&[]), 2);
 }
+
+#[test]
+fn check_fails_naming_an_entry_over_the_cap_on_a_fresh_index() {
+    let dir = fixture();
+    write(dir.path(), "docs/features/02-payoff/030-long.md", &format!("{}\n", "x".repeat(1_299)));
+    generate(dir.path()).unwrap();
+    let error = check(dir.path()).unwrap_err();
+    assert!(error.contains("030-long.md") && error.contains("1300 characters"), "{error}");
+    assert_eq!(run(&["features-index".into(), "--check".into(), "--root".into(), dir.path().display().to_string()]), 1);
+    write(dir.path(), "docs/features/02-payoff/030-long.md", &format!("{}\n", "x".repeat(1_199)));
+    generate(dir.path()).unwrap();
+    check(dir.path()).unwrap();
+}

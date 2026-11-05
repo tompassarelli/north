@@ -10,6 +10,7 @@ pub struct Index {
     pub source_dir: &'static str,
     pub file: &'static str,
     pub render: fn(&Path) -> Result<String, String>,
+    pub lint: fn(&Path) -> Result<(), String>,
 }
 
 const INDEXES: [&Index; 2] = [&features_index::INDEX, &rationale_index::INDEX];
@@ -25,6 +26,7 @@ impl Index {
     }
 
     pub fn check(&self, root: &Path) -> Result<(), String> {
+        (self.lint)(&root.join(self.source_dir))?;
         let text = (self.render)(&root.join(self.source_dir))?;
         match fs::read_to_string(root.join(self.file)) {
             Ok(current) if current == text => Ok(()),

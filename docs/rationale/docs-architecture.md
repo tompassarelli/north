@@ -172,6 +172,9 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
 3d. **Entry cap (20 min).** `north docs features-index --check` fails on an entry file over 1,200
    characters, with no exemption list. Done when: it exits 0 on main and exits 1 naming the file on
    a scratch copy with one 1,300-character entry.
+   Landed design: the cap counts characters, not bytes, and only `--check` enforces it, so the
+   merge driver can still regenerate `docs/features.md` mid-rebase; the entries that grew past it
+   after 3a to 3c landed were cut in the same lane.
 4. **Flags exist (25 min).** A cited `north SUB ... --flag` must occur as the string literal
    `"--flag"` somewhere in `src/` or `crates/`. The review probe found one miss in forty cited flags
    (`--durable-harness-paths`); fix the doc. Done when: `north citation-check --root .` exits 0; a

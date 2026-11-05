@@ -6,7 +6,7 @@ use super::docs::Index;
 const README: &str = "README.md";
 const HEADER: &str = "# Rationale notes\n\nWhy north is built the way it is, one note per decision. `north docs rationale-index` writes this list from each note's title and first sentence; edit the notes, not this file.\n";
 
-pub const INDEX: Index = Index { command: "rationale-index", source_dir: "docs/rationale", file: "docs/rationale/README.md", render };
+pub const INDEX: Index = Index { command: "rationale-index", source_dir: "docs/rationale", file: "docs/rationale/README.md", render, lint: |_| Ok(()) };
 
 fn title(text: &str) -> Option<&str> {
     text.lines().next()?.strip_prefix("# ").map(str::trim).filter(|title| !title.is_empty())
