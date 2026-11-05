@@ -1,0 +1,52 @@
+use super::Loop;
+use std::time::{Duration, SystemTime};
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Reading {
+    At(SystemTime),
+    Never,
+    Unread(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Checked {
+    pub lines: Vec<String>,
+    pub failing: Vec<String>,
+}
+
+pub fn check(loops: &[Loop], read: &dyn Fn(&Loop, &str) -> Reading, now: SystemTime) -> Checked {
+    let mut lines = Vec::new();
+    let mut failing = Vec::new();
+    for found in loops {
+        let (verdict, failed) = verdict(found, read, now);
+        if failed {
+            failing.push(found.name.clone());
+        }
+        lines.push(format!("{}: {verdict}", found.name));
+    }
+    lines.push(format!("loops: {} of {} failing", failing.len(), loops.len()));
+    Checked { lines, failing }
+}
+
+fn verdict(found: &Loop, read: &dyn Fn(&Loop, &str) -> Reading, now: SystemTime) -> (String, bool) {
+    let (Some(signal), Some(record)) = (&found.signal, &found.record) else {
+        return match &found.owner {
+            Some(owner) => (format!("open; {} sets it; owner {owner}", found.updated_by), false),
+            None => (format!("FAIL no outcome signal and no owner; {} sets it", found.updated_by), true),
+        };
+    };
+    let limit = Duration::from_secs(2 * found.cadence_hours * 3_600);
+    match read(found, record) {
+        Reading::Never => (format!("FAIL never updated: no {record}"), true),
+        Reading::Unread(why) => (format!("FAIL UNREAD: {why}"), true),
+        Reading::At(at) => {
+            let age = now.duration_since(at).unwrap_or_default();
+            let hours = age.as_secs() / 3_600;
+            if age > limit {
+                (format!("FAIL stale: {} last updated {hours} h ago, over twice its {} h cadence", found.updated_by, found.cadence_hours), true)
+            } else {
+                (format!("ok: {} updated {hours} h ago from {signal}", found.updated_by), false)
+            }
+        }
+    }
+}

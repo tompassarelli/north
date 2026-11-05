@@ -14,6 +14,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Landing latency: where a worker's commit waits before main](landing-latency.md): Measured on Mak'gora, 2026-10-28, while about 15 workers waited on their landings during a live playtest.
 - [Landing train: main never red, finished work never waits on someone else's break](landing-train.md): Owner: north#360
 - [Learned routing and goal ETA measurements](learned-routing-and-goal-eta.md): Dated measurements behind two routing decisions: the learned tier-routing backtest that kept the cell-rate rule, and the replay that set how the goal ETA reads box durations.
+- [Learning loops: the registry of every automatic decision north makes](learning-loops.md): The loop registry, `harness/loops.toml`, lists each decision north makes without a person (the tier a box gets, the ETA and budget its brief states, the cores a lease charges, the deadline a land check gets, which machine a launch runs on) and states for each what it learns from, what updates it and how often.
 - [Measured no gain: what to retire](measured-no-gain.md): Audited 2026-11-04 on north origin/main `7c2a76350`.
 - [Current Nix practice, November 2026, against how Tom's repositories use Nix](nix-current-practice.md): Research of 2026-11-04 for north#553.
 - [Nix and dev-shell footguns: every failure class and the guard that closes it](nix-footguns.md): Plan of 2026-11-05 (laptop time, +07) for north#553.

@@ -1,30 +1,79 @@
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
-use toml_edit::{DocumentMut, Item};
+mod check;
+mod hosts;
+
+pub use check::{Checked, Reading, check};
+pub use hosts::{Hosts, Reader, local_ages, ssh_ages, last_written};
+use std::path::PathBuf;
+use std::time::SystemTime;
+use toml_edit::{DocumentMut, Item, Table};
 
 pub const REGISTRY: &str = include_str!("../../../../harness/loops.toml");
-const USAGE: &str = "usage: north loops check";
+const USAGE: &str = "usage: north loops check | north loops ages --json";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Role {
+    Ledger,
+    Lander,
+    Here,
+}
+
+impl Role {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Ledger => "ledger",
+            Self::Lander => "lander",
+            Self::Here => "here",
+        }
+    }
+
+    fn parse(name: &str) -> Option<Self> {
+        [Self::Ledger, Self::Lander, Self::Here].into_iter().find(|role| role.name() == name)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Loop {
     pub name: String,
     pub decision: String,
     pub sites: Vec<String>,
+    pub constants: Vec<String>,
+    pub defaults: Vec<String>,
     pub signal: Option<String>,
     pub updated_by: String,
     pub cadence_hours: u64,
     pub record: Option<String>,
+    pub host: Role,
     pub owner: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Plumbing {
+    pub constants: Vec<String>,
+    pub defaults: Vec<String>,
+}
+
+fn strings(table: &Table, key: &str) -> Vec<String> {
+    table.get(key).and_then(Item::as_array).map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+}
+
+fn document(text: &str) -> Result<DocumentMut, String> {
+    text.parse().map_err(|error| format!("loops registry: {error}"))
+}
+
+pub fn plumbing(text: &str) -> Result<Plumbing, String> {
+    let document = document(text)?;
+    let table = document.get("plumbing").and_then(Item::as_table).ok_or("loops registry has no [plumbing]")?;
+    Ok(Plumbing { constants: strings(table, "constants"), defaults: strings(table, "defaults") })
+}
+
 pub fn parse(text: &str) -> Result<Vec<Loop>, String> {
-    let document: DocumentMut = text.parse().map_err(|error| format!("loops registry: {error}"))?;
+    let document = document(text)?;
     let tables = document.get("loop").and_then(Item::as_array_of_tables).ok_or("loops registry has no [[loop]]")?;
     tables.iter().map(|table| {
         let text = |key: &str| table.get(key).and_then(Item::as_str).map(str::to_owned);
         let name = text("name").ok_or("a loop has no name")?;
         let needs = |key: &str| text(key).ok_or_else(|| format!("loop {name} has no {key}"));
-        let sites = table.get("sites").and_then(Item::as_array).map(|sites| sites.iter().filter_map(|site| site.as_str().map(str::to_owned)).collect::<Vec<_>>()).unwrap_or_default();
+        let sites = strings(table, "sites");
         if sites.is_empty() {
             return Err(format!("loop {name} names no sites"));
         }
@@ -36,47 +85,12 @@ pub fn parse(text: &str) -> Result<Vec<Loop>, String> {
         if signal.is_none() && owner.is_none() {
             return Err(format!("loop {name} has no signal and no owner to close it"));
         }
-        Ok(Loop { decision: needs("decision")?, updated_by: needs("updated_by")?, name, sites, signal, cadence_hours: cadence_hours.unsigned_abs(), record, owner })
+        let host = match text("host") {
+            None => Role::Here,
+            Some(role) => Role::parse(&role).ok_or_else(|| format!("loop {name} has host {role}, not ledger, lander or here"))?,
+        };
+        Ok(Loop { decision: needs("decision")?, updated_by: needs("updated_by")?, constants: strings(table, "constants"), defaults: strings(table, "defaults"), name, sites, signal, cadence_hours: cadence_hours.unsigned_abs(), record, host, owner })
     }).collect()
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Checked {
-    pub lines: Vec<String>,
-    pub failing: Vec<String>,
-}
-
-pub fn check(loops: &[Loop], updated: &dyn Fn(&str) -> Option<SystemTime>, now: SystemTime) -> Checked {
-    let mut lines = Vec::new();
-    let mut failing = Vec::new();
-    for found in loops {
-        let verdict = verdict(found, updated, now);
-        if verdict.starts_with("FAIL") {
-            failing.push(found.name.clone());
-        }
-        lines.push(format!("{}: {verdict}", found.name));
-    }
-    lines.push(format!("loops: {} of {} failing", failing.len(), loops.len()));
-    Checked { lines, failing }
-}
-
-fn verdict(found: &Loop, updated: &dyn Fn(&str) -> Option<SystemTime>, now: SystemTime) -> String {
-    let (Some(signal), Some(record)) = (&found.signal, &found.record) else {
-        return format!("FAIL no outcome signal; {} sets it; owner {}", found.updated_by, found.owner.as_deref().unwrap_or("none"));
-    };
-    let limit = Duration::from_secs(2 * found.cadence_hours * 3_600);
-    match updated(record) {
-        None => format!("FAIL never updated: no {record}"),
-        Some(at) => {
-            let age = now.duration_since(at).unwrap_or_default();
-            let hours = age.as_secs() / 3_600;
-            if age > limit {
-                format!("FAIL stale: {} last updated {hours} h ago, over twice its {} h cadence", found.updated_by, found.cadence_hours)
-            } else {
-                format!("ok: {} updated {hours} h ago from {signal}", found.updated_by)
-            }
-        }
-    }
 }
 
 pub fn state_root() -> PathBuf {
@@ -84,31 +98,51 @@ pub fn state_root() -> PathBuf {
     var("XDG_STATE_HOME").unwrap_or_else(|| var("HOME").unwrap_or_default().join(".local/state"))
 }
 
-pub fn last_written(root: &Path, record: &str) -> Option<SystemTime> {
-    let path = root.join(record);
-    let own = std::fs::metadata(&path).and_then(|meta| meta.modified()).ok()?;
-    let entries = std::fs::read_dir(&path).into_iter().flatten().flatten().filter_map(|entry| entry.metadata().and_then(|meta| meta.modified()).ok());
-    entries.chain([own]).max()
+pub fn here() -> Result<Checked, String> {
+    let loops = parse(REGISTRY)?;
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let hosts = Hosts::read(&home, crate::platform::harness::harness_root());
+    let state = state_root();
+    let reader = Reader::new(&hosts, &state, &ssh_ages);
+    Ok(check(&loops, &|found, record| reader.read(found, record), SystemTime::now()))
 }
 
-pub fn here() -> Result<Checked, String> {
-    let root = state_root();
-    Ok(check(&parse(REGISTRY)?, &|record| last_written(&root, record), SystemTime::now()))
+fn ages() -> Result<String, String> {
+    let ages = local_ages(&parse(REGISTRY)?, &state_root());
+    serde_json::to_string(&ages).map_err(|error| error.to_string())
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    if !matches!(arguments, [command] if command == "check") {
-        eprintln!("{USAGE}");
-        return 2;
-    }
-    match here() {
-        Ok(checked) => {
-            checked.lines.iter().for_each(|line| println!("{line}"));
-            u8::from(!checked.failing.is_empty())
-        }
-        Err(error) => {
-            eprintln!("north loops: {error}");
-            1
+    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    match words[..] {
+        ["check"] => match here() {
+            Ok(checked) => {
+                checked.lines.iter().for_each(|line| println!("{line}"));
+                u8::from(!checked.failing.is_empty())
+            }
+            Err(error) => {
+                eprintln!("north loops: {error}");
+                1
+            }
+        },
+        ["ages", "--json"] => match ages() {
+            Ok(json) => {
+                println!("{json}");
+                0
+            }
+            Err(error) => {
+                eprintln!("north loops: {error}");
+                1
+            }
+        },
+        _ => {
+            eprintln!("{USAGE}");
+            2
         }
     }
 }
+
+#[cfg(test)]
+mod inventory_tests;
+#[cfg(test)]
+mod tests;

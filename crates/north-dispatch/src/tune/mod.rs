@@ -40,6 +40,8 @@ mod projections;
 mod rises;
 mod skills;
 #[cfg(test)]
+mod loops_tests;
+#[cfg(test)]
 mod projections_tests;
 #[cfg(test)]
 mod tests;
@@ -196,6 +198,11 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
+pub fn failing(tick: Tick, loops: &Result<crate::loops::Checked, String>) -> Tick {
+    let failed = tick.failed || !loops.as_ref().is_ok_and(|checked| checked.failing.is_empty());
+    Tick { failed, ..tick }
+}
+
 fn tune(dry_run: bool) -> Result<Tick, String> {
     let (week, before) = ledger::closed_report_and_previous(LEDGER_WINDOW).map_err(|error| error.user_message())?;
     let mut notes = Vec::new();
@@ -214,10 +221,12 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     let prior = Prior { cells: files.cells()?, costs: files.costs()?, readings: files.readings()?, breaches: files.breaches()? };
     let tick = tick(&ledger, &prior, &dividends::definitions()?, &mut Gh { rolling: rolling_issue::Gh::north() }, &at, dry_run);
     tick.lines.iter().for_each(|line| println!("{line}"));
-    match crate::loops::here() {
+    let loops = crate::loops::here();
+    match &loops {
         Ok(checked) => checked.lines.iter().for_each(|line| println!("{line}")),
         Err(error) => println!("loops: unread ({error})"),
     }
+    let tick = failing(tick, &loops);
     if !dry_run {
         files.write(&tick)?;
     }

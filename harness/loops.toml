@@ -1,10 +1,12 @@
 # Every automatic decision north makes, as a learning loop: the decision, the files that make it
 # (`sites`), the outcome signal it learns from, what updates it and how often, and the record under
-# the state root (XDG_STATE_HOME, else ~/.local/state) whose newest write is its last update.
-# `north loops check` fails a loop that has no outcome signal, or whose record is older than twice
-# its cadence; `owner` names the box that closes a loop without a signal. The bin test
-# `cli::loops_tests` fails when a decision site behind dispatch, fleet launch, capacity admission or
-# the lander is missing from every loop's sites.
+# the state root (XDG_STATE_HOME, else ~/.local/state) whose newest write is its last update, on the
+# host `host` names (ledger, lander or here). `north loops check` and `north tune` fail a closed loop
+# whose record is older than twice its cadence or cannot be read; `owner` names the box that closes
+# an open loop, which prints but does not fail. The tests in crates/north-dispatch/src/loops fail
+# when a decision site, numeric constant or defaults key behind dispatch, fleet launch, capacity
+# admission or the lander is named by no loop and no `[plumbing]` list. See
+# docs/rationale/learning-loops.md.
 
 [[loop]]
 name = "tier"
@@ -22,6 +24,11 @@ updated_by = "north tune"
 cadence_hours = 24
 record = "north/tune/cells.json"
 
+host = "ledger"
+constants = [
+  "crates/north-dispatch/src/dispatch/tuned.rs::FRESH_HOURS",
+]
+
 [[loop]]
 name = "eta"
 decision = "the ETA a dispatched box's brief states"
@@ -31,6 +38,13 @@ updated_by = "north tune"
 cadence_hours = 24
 record = "north/tune/cells.json"
 
+host = "ledger"
+constants = [
+  "crates/north-dispatch/src/dispatch/grounds.rs::BUDGET_TIMES",
+  "crates/north-dispatch/src/dispatch/grounds.rs::PRIOR_REPORTS",
+  "crates/north-dispatch/src/dispatch/grounds.rs::REPORT_CHARS",
+]
+
 [[loop]]
 name = "budget"
 decision = "the dollar budget a dispatched box's brief states"
@@ -39,6 +53,8 @@ signal = "median cost per closed box per tier family and category"
 updated_by = "north tune"
 cadence_hours = 24
 record = "north/tune/cells.json"
+
+host = "ledger"
 
 [[loop]]
 name = "effort"
@@ -63,6 +79,20 @@ updated_by = "north capacity run"
 cadence_hours = 24
 record = "agents/machine-capacity/capacity.db"
 
+constants = [
+  "crates/north-capacity-host/src/capacity/host/policy.rs::GPU_BUSY_LIMIT_PERCENT",
+  "crates/north-capacity-host/src/capacity/host/policy.rs::LEARNED_MINIMUM_RUNS",
+]
+defaults = [
+  "admit_memory_ramp_seconds",
+  "capacity_high_confidence_runs",
+  "capacity_memory_margin",
+  "capacity_sizing_runs",
+  "heavy_peak_charge_runs",
+  "land_offload_cpus",
+  "quiet_idle_cores",
+]
+
 [[loop]]
 name = "pressure-band"
 decision = "the CPU pressure under which capacity admission starts a heavy build"
@@ -70,6 +100,30 @@ sites = ["crates/north-core/src/capacity/admission.rs", "crates/north-core/src/c
 updated_by = "harness/defaults.toml by hand"
 cadence_hours = 168
 owner = "north#112 Staffing governor"
+
+constants = [
+  "crates/north-core/src/capacity/admission.rs::ATTENDED_GPU_CLIENTS",
+  "crates/north-core/src/capacity/admission.rs::BATCH_PRESSURE_BASIS_POINTS",
+  "crates/north-core/src/capacity/admission.rs::GPU_BUSY_PERCENT",
+  "crates/north-core/src/capacity/admission.rs::GPU_SLOTS",
+  "crates/north-core/src/capacity/admission.rs::INTERACTIVE_PRESSURE_BASIS_POINTS",
+]
+defaults = [
+  "admit_batch_jobs_per_core",
+  "bar1_client_mib",
+  "bar1_desktop_mib",
+  "bar1_margin_mib",
+  "build_disk_free_gib",
+  "build_disk_reserve_gib",
+  "client_reserve_seconds",
+  "dispatch_agent_memory_mib",
+  "dispatch_heavy_memory_mib",
+  "game_reserve_headroom_mib",
+  "land_offload_disk_free_gib",
+  "quiet_idle_seconds",
+  "vram_client_mib",
+  "vram_margin_mib",
+]
 
 [[loop]]
 name = "check-deadline"
@@ -79,6 +133,25 @@ signal = "p90 wall of the last passing runs of each check"
 updated_by = "north land"
 cadence_hours = 24
 record = "safe-push/check-timings/passes"
+
+host = "lander"
+constants = [
+  "crates/north-landing/src/landing/check_timings.rs::CEILING",
+  "crates/north-landing/src/landing/check_timings.rs::FLOOR",
+  "crates/north-landing/src/landing/check_timings.rs::MARGIN",
+  "crates/north-landing/src/landing/check_timings.rs::MEASURED",
+  "crates/north-landing/src/landing/check_timings.rs::WINDOW",
+  "crates/north-landing/src/land/slots/runner.rs::CANCEL_GRACE",
+  "crates/north-landing/src/land/slots/runner.rs::CANCELLED",
+  "crates/north-landing/src/land/slots/runner.rs::FIRST_ERROR_BOUND",
+  "crates/north-landing/src/land/slots/runner.rs::INFRASTRUCTURE",
+  "crates/north-landing/src/land/slots/runner.rs::KILLED",
+  "crates/north-landing/src/land/slots/runner.rs::LOG_KEEP",
+  "crates/north-landing/src/land/slots/runner.rs::OFFLOAD_GRACE",
+  "crates/north-landing/src/land/slots/runner.rs::REAP",
+  "crates/north-landing/src/land/slots/runner.rs::RED_MAIN",
+  "crates/north-landing/src/land/slots/runner.rs::TIMED_OUT",
+]
 
 [[loop]]
 name = "placement"
@@ -92,6 +165,10 @@ sites = [
 updated_by = "agents/orchestration.toml by hand"
 cadence_hours = 168
 owner = "north#112 (no box yet: placement learns nothing from cost per kept box)"
+
+constants = [
+  "crates/north-dispatch/src/pacing/placement/hosts.rs::SATURATION_CACHE_SECONDS",
+]
 
 [[loop]]
 name = "worker-concurrency"
@@ -109,6 +186,16 @@ updated_by = "north land serve"
 cadence_hours = 24
 owner = "north#360"
 
+constants = [
+  "crates/north-landing/src/land/bisect.rs::PERSISTENT_AFTER",
+  "crates/north-landing/src/land/culprit.rs::MOST_AT_ONCE",
+  "crates/north-landing/src/land/lander.rs::DEPTH",
+  "crates/north-landing/src/land/pause.rs::RETRY_SECONDS",
+  "crates/north-landing/src/land/serve.rs::ATTEMPTS",
+  "crates/north-landing/src/land/serve.rs::DISCOVERY",
+  "crates/north-landing/src/land/serve.rs::POLL",
+]
+
 [[loop]]
 name = "skill-routing"
 decision = "which skills a session loads"
@@ -116,3 +203,240 @@ sites = ["harness/hooks/north-hook.sh"]
 updated_by = "skill frontmatter by hand"
 cadence_hours = 168
 owner = "north#112 Skill effect"
+
+[plumbing]
+constants = [
+  "crates/north-capacity-host/src/capacity/gate.rs::TOOLCHAIN_MISSING",
+  "crates/north-capacity-host/src/capacity/host/actions_pull.rs::FIRST_PULL_DAYS",
+  "crates/north-capacity-host/src/capacity/host/args.rs::MAX_SAFE_INTEGER",
+  "crates/north-capacity-host/src/capacity/host/calibration.rs::COVERAGE_TARGET",
+  "crates/north-capacity-host/src/capacity/host/calibration.rs::DRIFT_ERROR",
+  "crates/north-capacity-host/src/capacity/host/database.rs::LOCK_WAIT_SECONDS",
+  "crates/north-capacity-host/src/capacity/host/database.rs::RETRY_PAUSE",
+  "crates/north-capacity-host/src/capacity/host/database.rs::TEMPORARY_FAILURE",
+  "crates/north-capacity-host/src/capacity/host/decision.rs::NATIVE_GPU_SAMPLES",
+  "crates/north-capacity-host/src/capacity/host/machine.rs::GPU_SAMPLE",
+  "crates/north-capacity-host/src/capacity/host/measure.rs::GPU_EVERY_SAMPLES",
+  "crates/north-capacity-host/src/capacity/host/measure.rs::LIVE_WINDOW_MILLISECONDS",
+  "crates/north-capacity-host/src/capacity/host/measure.rs::MIB",
+  "crates/north-capacity-host/src/capacity/host/measure.rs::PEAK_WINDOW_MILLISECONDS",
+  "crates/north-capacity-host/src/capacity/host/measure.rs::SAMPLE",
+  "crates/north-capacity-host/src/capacity/host/model.rs::CENSOR_AT_HIGH",
+  "crates/north-capacity-host/src/capacity/host/model.rs::CENSOR_RAISE",
+  "crates/north-capacity-host/src/capacity/host/model.rs::CENSOR_STALL_USEC",
+  "crates/north-capacity-host/src/capacity/host/model.rs::DRIFT_MEMORY_WIDEN",
+  "crates/north-capacity-host/src/capacity/host/model.rs::MODEL_MINIMUM_RUNS",
+  "crates/north-capacity-host/src/capacity/host/model.rs::SIZING_RUNS",
+  "crates/north-capacity-host/src/capacity/host/model.rs::WINDOW",
+  "crates/north-capacity-host/src/capacity/host/offload_cost.rs::DEFAULT_LAST",
+  "crates/north-capacity-host/src/capacity/host/request.rs::FRESH_USAGE_MILLISECONDS",
+  "crates/north-capacity-host/src/capacity/host/run.rs::BEHIND_POLL_MILLISECONDS",
+  "crates/north-capacity-host/src/capacity/host/run.rs::OFFLOAD_DEFAULT_TIMEOUT_SECONDS",
+  "crates/north-capacity-host/src/capacity/host/run.rs::OFFLOAD_RETRY_MILLISECONDS",
+  "crates/north-capacity-host/src/capacity/host/run.rs::QUEUE_POLL_MILLISECONDS",
+  "crates/north-capacity-host/src/capacity/host/run.rs::USER_HZ",
+  "crates/north-capacity-host/src/capacity/host/state.rs::LOCK_PATIENCE_MILLISECONDS",
+  "crates/north-capacity-host/src/capacity/host/state.rs::NATIVE_WAITING_MILLISECONDS",
+  "crates/north-capacity-host/src/capacity/host/state.rs::RUN_LEASE_GRACE_MILLISECONDS",
+  "crates/north-capacity-host/src/capacity/host/systemd.rs::NATIVE_CPU_WEIGHT",
+  "crates/north-capacity-host/src/capacity/watchdog/act.rs::COMMAND_WAIT",
+  "crates/north-capacity-host/src/capacity/watchdog/detect.rs::CAPPED_WEIGHT",
+  "crates/north-capacity-host/src/capacity/watchdog/detect.rs::LEASE_SCOPE_ID_LENGTH",
+  "crates/north-capacity-host/src/capacity/watchdog/detect.rs::MINIMUM_QUOTA_PERCENT",
+  "crates/north-capacity-host/src/capacity/watchdog/detect.rs::SERVICE_SUFFIX_LENGTH",
+  "crates/north-capacity-host/src/capacity/watchdog/detect.rs::TREES_NAMED",
+  "crates/north-capacity-host/src/capacity/watchdog/detect.rs::UNOWNED_NAMED",
+  "crates/north-capacity-host/src/capacity/watchdog/report_command.rs::KEPT_SAMPLES",
+  "crates/north-capacity-host/src/capacity/watchdog/report.rs::CLIENT_SHARE",
+  "crates/north-capacity-host/src/capacity/watchdog/report.rs::FLOOR_WARNING_MINUTES",
+  "crates/north-capacity-host/src/capacity/watchdog/report.rs::MEMORY_FLOOR_MIB",
+  "crates/north-capacity-host/src/capacity/watchdog/report.rs::MEMORY_FLOOR_SHARE",
+  "crates/north-capacity-host/src/capacity/watchdog/report.rs::OVERSHOOT",
+  "crates/north-capacity-host/src/capacity/watchdog/report.rs::PSI_LIMIT",
+  "crates/north-capacity-host/src/capacity/watchdog/report.rs::TOP_UNLEASED",
+  "crates/north-capacity-host/src/capacity/watchdog/rest_command.rs::DEFAULT_SECONDS",
+  "crates/north-capacity-host/src/capacity/watchdog/rest_live.rs::SEARCH_DEPTH",
+  "crates/north-capacity-host/src/capacity/watchdog/sampler.rs::DEFAULT_INTERVAL_SECONDS",
+  "crates/north-capacity-host/src/capacity/watchdog/sampler.rs::NOTIFY_WAIT",
+  "crates/north-capacity-host/src/capacity/watchdog/sampler.rs::ROTATE_MS",
+  "crates/north-capacity-host/src/capacity/watchdog/sampler.rs::STAT_START_FIELD",
+  "crates/north-capacity-host/src/capacity/watchdog/sampling.rs::CHAIN_DEPTH",
+  "crates/north-capacity-host/src/capacity/watchdog/sampling.rs::COMMAND_WIDTH",
+  "crates/north-capacity-host/src/capacity/watchdog/sampling.rs::LISTED_PIDS",
+  "crates/north-capacity-host/src/capacity/watchdog/sampling.rs::MIN_CGROUP_CORES",
+  "crates/north-capacity-host/src/capacity/watchdog/sampling.rs::SUMMARY_COMMAND_WIDTH",
+  "crates/north-capacity-host/src/capacity/watchdog/sampling.rs::TICKS_PER_SECOND",
+  "crates/north-capacity-host/src/capacity/watchdog/sampling.rs::TOP_PROCESSES",
+  "crates/north-capacity-host/src/capacity/watchdog/sampling.rs::TREE_CORES",
+  "crates/north-capacity-host/src/capacity/watchdog/sampling.rs::TREE_SECONDS",
+  "crates/north-capacity-host/src/capacity/watchdog/sampling.rs::UNCONDITIONAL_CGROUPS",
+  "crates/north-capacity-host/src/capacity/watchdog/snapshot.rs::CGROUP_DEPTH",
+  "crates/north-capacity-host/src/capacity/watchdog/snapshot.rs::MAX_ARGS",
+  "crates/north-capacity-host/src/capacity/watchdog/snapshot.rs::PAGE_KIB",
+  "crates/north-capacity-host/src/capacity/watchdog/snapshot.rs::SYSTEM_SLICE_DEPTH",
+  "crates/north-core/src/capacity/aperture.rs::NVIDIA_SMI_TIMEOUT",
+  "crates/north-core/src/capacity/build_offload.rs::MAX_DIFF_BYTES",
+  "crates/north-core/src/capacity/build_offload.rs::PROBE_LIMIT_SECONDS",
+  "crates/north-core/src/capacity/deadline.rs::ANCESTRY_LIMIT",
+  "crates/north-core/src/capacity/deadline.rs::KILL_AFTER",
+  "crates/north-core/src/capacity/deadline.rs::KILLED",
+  "crates/north-core/src/capacity/deadline.rs::POLL",
+  "crates/north-core/src/capacity/deadline.rs::TIMED_OUT",
+  "crates/north-core/src/capacity/dev_shell.rs::NOT_EXECUTABLE",
+  "crates/north-core/src/capacity/dev_shell.rs::NOT_FOUND",
+  "crates/north-core/src/capacity/dev_shell.rs::SEED_FAILED",
+  "crates/north-core/src/capacity/enrich.rs::CALM_CPU_SOME_AVG10_BASIS_POINTS",
+  "crates/north-core/src/capacity/game_reserve.rs::SETTLED_SECONDS",
+  "crates/north-core/src/capacity/game_reserve.rs::TICKS_PER_SECOND",
+  "crates/north-core/src/capacity/laptop_auto.rs::NOTIFY_WAIT",
+  "crates/north-core/src/capacity/laptop_auto.rs::OBSERVE_WAIT",
+  "crates/north-core/src/capacity/laptop_auto.rs::UNDERPOWERED_CHARGER",
+  "crates/north-core/src/capacity/lease_deadline.rs::LOCK_PATIENCE",
+  "crates/north-core/src/capacity/native_hold.rs::FRESH_USAGE_MILLISECONDS",
+  "crates/north-core/src/capacity/saturation.rs::KIB_PER_GIB",
+  "crates/north-core/src/capacity/saturation.rs::KIB_PER_MIB",
+  "crates/north-core/src/capacity/saturation.rs::QUEUED_LIMIT",
+  "crates/north-core/src/capacity/seat_idle.rs::DEFAULT_SECONDS",
+  "crates/north-core/src/capacity/unleased.rs::CORE_THRESHOLD",
+  "crates/north-core/src/capacity/unleased.rs::STALE_MILLISECONDS",
+  "crates/north-core/src/capacity/unleased.rs::TAIL_BYTES",
+  "crates/north-dispatch/src/dispatch/cloud.rs::LAUNCH_WAIT",
+  "crates/north-dispatch/src/dispatch/cloud.rs::SESSIONS",
+  "crates/north-dispatch/src/dispatch/effects.rs::BOXLESS_EVERY_S",
+  "crates/north-dispatch/src/dispatch/effects.rs::LAUNCH_WAIT",
+  "crates/north-dispatch/src/dispatch/effects.rs::PREDICT_WAIT",
+  "crates/north-dispatch/src/dispatch/effects.rs::REPEAT_ALERT_S",
+  "crates/north-dispatch/src/dispatch/fleets.rs::MIRROR_FRESH_S",
+  "crates/north-dispatch/src/dispatch/fleets.rs::PROBE",
+  "crates/north-dispatch/src/dispatch/handoff.rs::ARM_RUNS",
+  "crates/north-dispatch/src/dispatch/handoff.rs::DONE_RATE_SLACK",
+  "crates/north-dispatch/src/dispatch/measure.rs::LIMIT",
+  "crates/north-dispatch/src/dispatch/record.rs::CLOUD_HOLD_S",
+  "crates/north-dispatch/src/dispatch/record.rs::FAILED_HOLD_S",
+  "crates/north-dispatch/src/dispatch/record.rs::HOLD_S",
+  "crates/north-dispatch/src/dispatch/record.rs::LAPTOP_SHOW_S",
+  "crates/north-dispatch/src/dispatch/record.rs::RETRIES",
+  "crates/north-dispatch/src/dispatch/record.rs::RETRY_WINDOW_S",
+  "crates/north-dispatch/src/dispatch/record.rs::STAFFING_HOLD_S",
+  "crates/north-dispatch/src/dispatch/strands.rs::PROBE",
+  "crates/north-dispatch/src/pacing/placement/room.rs::SOONEST_RESET_H",
+  "crates/north-dispatch/src/pacing/placement/room.rs::WEEK_H",
+  "crates/north-landing/src/land/after/ci_budget.rs::HOLD_SECONDS",
+  "crates/north-landing/src/land/after/ci_budget.rs::RUNS_MEASURED",
+  "crates/north-landing/src/land/after/mod.rs::SEND_WAIT",
+  "crates/north-landing/src/land/after/tick.rs::SHORT_SHA",
+  "crates/north-landing/src/land/check_coverage.rs::SHOWN",
+  "crates/north-landing/src/land/culprit.rs::POLL",
+  "crates/north-landing/src/land/route.rs::PER_LANE",
+  "crates/north-landing/src/landing/after_landing.rs::BODY_LIMIT",
+  "crates/north-landing/src/landing/after_landing.rs::TAIL_LINES",
+  "crates/north-landing/src/landing/denylist_archive.rs::BYTE_CAP",
+  "crates/north-landing/src/landing/denylist_archive.rs::DEPTH_CAP",
+  "crates/north-landing/src/landing/denylist_attest.rs::DEFERRED",
+  "crates/north-landing/src/landing/fails_first.rs::UNAVAILABLE",
+  "crates/north-landing/src/landing/flake.rs::DEADLINE",
+  "crates/north-landing/src/landing/flake.rs::DEFAULT_RUNS",
+  "crates/north-landing/src/landing/flake.rs::TAIL_LINES",
+  "crates/north-landing/src/landing/instruction_limits.rs::LIMIT",
+  "crates/north-landing/src/landing/judge.rs::QUARANTINE_TTL",
+  "crates/north-landing/src/landing/land_actions.rs::DISPATCH_SECONDS",
+  "crates/north-landing/src/landing/land_actions.rs::FAILED_LOG_LINES",
+  "crates/north-landing/src/landing/land_actions.rs::GH_LIMIT",
+  "crates/north-landing/src/landing/land_actions.rs::INFRASTRUCTURE",
+  "crates/north-landing/src/landing/land_actions.rs::QUEUED_SECONDS",
+  "crates/north-landing/src/landing/landed_tree.rs::PATH_CHUNK",
+  "crates/north-landing/src/landing/lane_target.rs::MIB",
+  "crates/north-landing/src/landing/mutant_trees.rs::TAIL_LINES",
+  "crates/north-landing/src/landing/red_check.rs::GH_LIMIT",
+  "crates/north-landing/src/landing/red_check.rs::MAIN_RED",
+  "crates/north-landing/src/landing/red_check.rs::OFFLOAD_SECONDS",
+  "crates/north-landing/src/landing/red_check.rs::RANGE_LIMIT",
+  "crates/north-landing/src/landing/red_check.rs::UNKNOWN",
+  "crates/north-landing/src/landing/runtime_floor_invocation.rs::WORD_LIMIT",
+  "crates/north-landing/src/landing/runtime_floor_surface.rs::SEED_LIMIT",
+  "crates/north-landing/src/landing/stale_revert.rs::BLAME_WORKERS",
+  "crates/north-landing/src/landing/stale_revert.rs::RECENT_SECONDS",
+  "crates/north-landing/src/landing/stale_revert.rs::WIPE_FLOOR",
+  "crates/north-landing/src/land/post_land.rs::TAIL_LINES",
+  "crates/north-landing/src/land/precheck.rs::HOLD",
+  "crates/north-landing/src/land/precheck.rs::ROOM_RETRY",
+  "crates/north-landing/src/land/precheck.rs::SURVEY",
+  "crates/north-landing/src/land/precheck.rs::TICK",
+  "crates/north-landing/src/land/promote.rs::ROUNDS",
+  "crates/north-landing/src/land/promote.rs::SHADOW_MINUTES",
+  "crates/north-landing/src/land/promote.rs::SHADOW_PAUSE",
+  "crates/north-landing/src/land/promote.rs::WALK",
+  "crates/north-landing/src/land/push_refusal.rs::ALARM_AT",
+  "crates/north-landing/src/land/refusal.rs::BOUND",
+  "crates/north-landing/src/land/refusal.rs::ERROR_LINES",
+  "crates/north-landing/src/land/refusal.rs::LINE_BOUND",
+  "crates/north-landing/src/land/refusal.rs::TAIL_BOUND",
+  "crates/north-landing/src/land/refusal.rs::TAIL_LINES",
+  "crates/north-landing/src/land/repositories.rs::RECENT",
+  "crates/north-landing/src/land/reservation.rs::KEPT_SECS",
+  "crates/north-landing/src/land/reuse/hash.rs::SCRIPT_DEPTH",
+  "crates/north-landing/src/land/reuse/hash.rs::SCRIPT_LIMIT",
+  "crates/north-landing/src/land/scans/boxes.rs::SHORT_SHA",
+  "crates/north-landing/src/land/scans/language.rs::STOP",
+  "crates/north-landing/src/land/scans/policy.rs::TRIALS",
+  "crates/north-landing/src/land/shadow/run.rs::CANCELLED",
+  "crates/north-landing/src/land/shadow/run.rs::INFRASTRUCTURE",
+  "crates/north-landing/src/land/shadow/run.rs::KILLED",
+  "crates/north-landing/src/land/shadow/run.rs::RED_MAIN",
+  "crates/north-landing/src/land/shadow/run.rs::SLOTS_BUSY",
+  "crates/north-landing/src/land/shadow/run.rs::TIMED_OUT",
+  "crates/north-landing/src/land/slots/affected.rs::CPUS_PER_PACKAGE",
+  "crates/north-landing/src/land/slots/affected.rs::MINIMUM_CPUS",
+  "crates/north-landing/src/land/slots/infer.rs::TOOLCHAIN_MISSING",
+  "crates/north-landing/src/land/slots/runner/fail_fast.rs::CHEAP_CPU_SECONDS",
+  "crates/north-landing/src/land/slots/runner/fail_fast.rs::FINEST",
+  "crates/north-landing/src/land/slots/runner/fail_fast.rs::WINDOW",
+  "crates/north-landing/src/land/slots/select.rs::OFFLOAD_SLOTS_BUSY",
+  "crates/north-landing/src/land/slots/select.rs::REF_SHORT",
+  "crates/north-landing/src/land/speculate.rs::POLL",
+  "crates/north-landing/src/land/watchdog.rs::CHECKING_EVERY_MICROS",
+  "crates/north-landing/src/land/watchdog.rs::IDLE_ROUNDS",
+  "crates/north-landing/src/land/watchdog.rs::KEPT",
+  "crates/north-landing/src/land/watchdog.rs::PAGE_GAP_MICROS",
+  "crates/north-landing/src/land/watchdog.rs::PAGE_LIMIT",
+  "crates/north-landing/src/land/watchdog.rs::REPEATS",
+  "crates/north-landing/src/land/watchdog.rs::STALE_MICROS",
+  "src/cli/fleet/admission.rs::LIMIT",
+  "src/cli/fleet/admission.rs::POLL",
+  "src/cli/fleet/breaker.rs::ANSWER_WINDOW_MS",
+  "src/cli/fleet/claims.rs::LEDGER_LIMIT",
+  "src/cli/fleet/governor.rs::COLD_LANES",
+  "src/cli/fleet/governor.rs::DAY_SECS",
+  "src/cli/fleet/governor.rs::GH_LIMIT",
+  "src/cli/fleet/governor.rs::HOUR_SECS",
+  "src/cli/fleet/governor.rs::LOG_TAIL_BYTES",
+  "src/cli/fleet/governor.rs::PENDING_ADMIT_SECS",
+  "src/cli/fleet/governor.rs::QUEUE_FLOOR",
+  "src/cli/fleet/governor.rs::REPO_RATE_FLOOR",
+  "src/cli/fleet/governor.rs::STALL_SLACK_MINUTES",
+  "src/cli/fleet/limit.rs::QUERY",
+  "src/cli/fleet/list.rs::MISSING_MINUTES",
+  "src/cli/fleet/list.rs::STALE_MINUTES",
+  "src/cli/fleet/placement.rs::TIE_WEEK_POINTS",
+  "src/cli/fleet/rebooted.rs::REVIVE_BUDGET",
+  "src/cli/fleet/show.rs::FOLLOW_POLL",
+  "src/cli/fleet/spool.rs::DELIVER_BUDGET",
+  "src/cli/fleet/tick.rs::BUDGET",
+  "src/cli/fleet/waits.rs::ALERT",
+  "src/cli/fleet/waits.rs::JOB_STARTED_BEFORE_MS",
+  "src/cli/fleet/waits.rs::PROBE",
+]
+defaults = [
+  "admit_psi_attended_high",
+  "admit_settle_seconds",
+  "backfill_seconds",
+  "codex_eta_max_min",
+  "codex_files_max",
+  "priority_lease_cap",
+  "reservation_fallback_points",
+  "staffing_drain_minutes",
+  "staffing_lanes_per_session",
+  "staffing_launch_to_queued_minutes",
+  "success_threshold",
+  "tom_class_owners",
+]
