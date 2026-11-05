@@ -36,6 +36,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("safe-push-result", super::safe_push_result::run),
     ("watch", crate::ops::watch::run),
     ("safe-push", super::remote_land::safe_push),
+    ("release", crate::landing::release::run),
     ("remote-land", super::remote_land::run),
     ("provenance", provenance::run),
     ("issue-box-lint", issue_box_lint::run),

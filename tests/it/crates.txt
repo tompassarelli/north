@@ -101,6 +101,7 @@ proxy north-core
 readme_links north
 recommendation_grounding_hook north-guard north-core
 registry north
+release north-landing north
 resident_cap north-dispatch
 run_bounded north-ops north-capacity-host
 runtime_update north-runtime

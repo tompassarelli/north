@@ -22,6 +22,10 @@ pub fn run(arguments: &[String]) -> u8 {
             print!("{USAGE}");
             return 0;
         }
+        Ok(Plan::Push(Arguments { tag: Some(tag), .. })) if super::release::version_tag(&tag) => {
+            eprintln!("safe-push: version tag {tag} publishes only through north release, which also creates its GitHub release; NOT pushed.");
+            Err(Refused(2))
+        }
         Ok(Plan::Push(Arguments { tag: Some(tag), dry_run, .. })) => match publish_tag(&TagRequest { tag: &tag, dry_run }) {
             Ok(Scanned::Clean) => Ok(()),
             Ok(Scanned::Refused(Refused(code))) => return if cancelled().is_err() { 130 } else { code },

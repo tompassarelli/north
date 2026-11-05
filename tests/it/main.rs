@@ -80,6 +80,7 @@ mod private_desktop_signal;
 mod provenance;
 mod readme_links;
 mod registry;
+mod release;
 mod resident_cap;
 mod runtime_update;
 mod safe_push_land_branch;

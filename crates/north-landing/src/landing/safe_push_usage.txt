@@ -54,7 +54,9 @@ Options:
   --direct     with --to main in an Autoland repository, push main directly
                instead of joining the queue; emergencies only, logged in
                ~/.local/state/safe-push/direct-landings.tsv
-  --tag NAME   push an existing annotated tag after scanning new content
+  --tag NAME   push an existing annotated tag after scanning new content;
+               a v* tag is refused: north release publishes it with its
+               GitHub release
   --delete-tag NAME
                delete a tag from origin once its commit is on origin's default
                branch or held by a ref in the lane-gc mirror for this

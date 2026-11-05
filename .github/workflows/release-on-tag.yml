@@ -1,0 +1,37 @@
+name: Release on tag
+on:
+  push:
+    tags: ['v*']
+  workflow_call:
+permissions:
+  contents: write
+concurrency:
+  group: release-on-tag-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create the GitHub release if the tag has none
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
+            echo "release-on-tag: $TAG already has its GitHub release"
+            exit 0
+          fi
+          object=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')
+          notes="Release $TAG"
+          if [ "${object%% *}" = tag ]; then
+            notes=$(gh api "repos/$GH_REPO/git/tags/${object#* }" --jq .message)
+          fi
+          if gh release create "$TAG" --verify-tag --title "$TAG" --notes "$notes"; then
+            echo "release-on-tag: created the GitHub release for $TAG"
+          else
+            gh release view "$TAG" --json tagName >/dev/null
+            echo "release-on-tag: $TAG got its GitHub release from another run"
+          fi
