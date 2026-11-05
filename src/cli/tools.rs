@@ -54,7 +54,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("pin-retire", crate::lanes::pin_retire),
     ("wt-reap", crate::lanes::wt_reap),
     ("wt-rescue", crate::lanes::wt_rescue),
-    ("mutant", mutant_cli::run),
+    ("mutant", |arguments| mutant_cli::run(arguments, &super::mutant_issues::MirrorIssues)),
     ("land-fails-first", fails_first::run),
     ("flow", crate::ops::flow::run),
     ("experiments", crate::ops::experiments::run),

@@ -5,6 +5,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, hook, language_gate, nix_explain, runtime_floor_gate, work_items};
 
 mod abandon_witness;
+mod mutant_issues;
 mod agents;
 mod cloud;
 mod cloud_handback;

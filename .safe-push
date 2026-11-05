@@ -8,6 +8,10 @@
 [mutant]
 	class = heavy
 	run = ./bin/head-north --code crates/north-core/src/capacity/dev_shell.rs,src/cli/ dev-shell run -- bash harness/scripts/mutant-tests.sh
+	source = ":(glob)src/**/*.rs"
+	source = ":(glob)crates/*/src/**/*.rs"
+	source = ":(exclude,glob)**/*tests*.rs"
+	source = ":(exclude,glob)**/tests/**"
 [flake]
 	build = cargo test --locked --offline --no-run --message-format=json-render-diagnostics
 [ci]

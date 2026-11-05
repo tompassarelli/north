@@ -49,6 +49,8 @@ pub(super) fn verify(cwd: &Path, base: &str, head: &str, env: &Env, out: &mut dy
         tests: pending.iter().map(|(claim, _)| claim.test.clone()).collect(),
         config: &config,
         repo: &repo,
+        timeout_seconds: 1800,
+        trees_per_lease: usize::MAX,
     };
     let outcome = mutant_trees::run(cwd, &plan, env, out)?;
     judge(&pending, &outcome, out)
@@ -120,7 +122,13 @@ pub(super) fn config(cwd: &Path, base: &str) -> Result<Option<Config>, Stop> {
     if class != "moderate" && class != "heavy" {
         return Err(Stop::Fail(format!("mutant: mutant.class in {blob} must be moderate or heavy, not {class}")));
     }
-    Ok(Some(Config { run, class, links: get(&["--get-all", "mutant.link"])? }))
+    Ok(Some(Config {
+        run,
+        class,
+        links: get(&["--get-all", "mutant.link"])?,
+        sources: get(&["--get-all", "mutant.source"])?,
+        contracts: get(&["--get-all", "mutant.contract"])?,
+    }))
 }
 
 fn change_id(cwd: &Path, base: &str, head: &str) -> Result<String, Stop> {

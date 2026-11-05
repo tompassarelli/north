@@ -220,7 +220,7 @@ fn on_base(
     let _ = fs::remove_file(tree.join(mutant_trees::RESULTS));
     let log = dir.0.join("runner.log");
     writeln!(out, "fails-first: running {} test(s) on base {} with the lane's tests", names.len(), &base[..base.len().min(12)])?;
-    let seconds = mutant_trees::invoke(&config, env, "fails-first", std::slice::from_ref(&tree), names, &log)?;
+    let seconds = mutant_trees::invoke(&config, env, "fails-first", std::slice::from_ref(&tree), names, 1800, &log)?;
     let results = mutant_trees::results(&tree);
     let text = fs::read_to_string(&log).unwrap_or_default();
     writeln!(out, "fails-first: runner finished in {seconds:.1} s")?;

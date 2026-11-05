@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -33,10 +33,12 @@ pub(super) struct Plan<'a> {
     pub(super) tests: BTreeSet<String>,
     pub(super) config: &'a Config,
     pub(super) repo: &'a str,
+    pub(super) timeout_seconds: u64,
+    pub(super) trees_per_lease: usize,
 }
 
 pub(super) fn run(cwd: &Path, plan: &Plan, env: &Env, out: &mut dyn Write) -> Result<Outcome, Stop> {
-    let Plan { head, mutants, tests, config, repo } = plan;
+    let Plan { head, mutants, tests, config, repo, timeout_seconds, trees_per_lease } = plan;
     let top = PathBuf::from(git_text(cwd, None, &["rev-parse", "--show-toplevel"])?);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|time| time.as_nanos()).unwrap_or_default();
     let dir = RunDir(env.cache_home.join("north/mutant").join(repo).join(format!("{}-{nanos}", std::process::id())));
@@ -66,7 +68,10 @@ pub(super) fn run(cwd: &Path, plan: &Plan, env: &Env, out: &mut dyn Write) -> Re
     }
     let log = dir.0.join("runner.log");
     writeln!(out, "mutant: running {} test(s) over {} tree(s)", tests.len(), trees.len())?;
-    let seconds = invoke(config, env, repo, &trees, tests, &log)?;
+    let mut seconds = 0.0;
+    for group in trees.chunks((*trees_per_lease).max(1)) {
+        seconds += invoke(config, env, repo, group, tests, *timeout_seconds, &log)?;
+    }
     let text = fs::read_to_string(&log).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
     let tail = lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n");
@@ -123,17 +128,17 @@ pub(super) fn link(shared: &Path, tree: &Path, links: &[String]) -> Result<(), S
     Ok(())
 }
 
-pub(super) fn invoke(config: &Config, env: &Env, repo: &str, trees: &[PathBuf], tests: &BTreeSet<String>, log: &Path) -> Result<f64, Stop> {
+pub(super) fn invoke(config: &Config, env: &Env, repo: &str, trees: &[PathBuf], tests: &BTreeSet<String>, timeout_seconds: u64, log: &Path) -> Result<f64, Stop> {
     let mut command = match &env.lease {
         Lease::Inherited => Command::new("sh"),
         Lease::Host(north) => {
             let mut command = Command::new(north);
             command.args(["capacity", "host", "run", "--class", &config.class, "--owner", &format!("mutant:{repo}")]);
-            command.args(["--timeout-seconds", "1800", "--", "sh"]);
+            command.args(["--timeout-seconds", &timeout_seconds.to_string(), "--", "sh"]);
             command
         }
     };
-    let file = File::create(log)?;
+    let file = fs::OpenOptions::new().create(true).append(true).open(log)?;
     let joined: Vec<String> = trees.iter().map(|tree| tree.display().to_string()).collect();
     command
         .args(["-c", &config.run])

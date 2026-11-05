@@ -90,7 +90,7 @@ fn conditional(github: &dyn GitHub, mirror: &Mirror, key: &str, endpoint: &str, 
     save(mirror, key, asked, at)
 }
 
-fn issues(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Result<Fetch, String> {
+pub fn issues(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Result<Fetch, String> {
     let probe = key(repo, ISSUES_PROBE);
     let asked = ask(github, mirror, &probe, &format!("repos/{OWNER}/{repo}/issues?state=all&sort=updated&direction=desc&per_page=1"))?;
     let open = key(repo, OPEN_ISSUES);

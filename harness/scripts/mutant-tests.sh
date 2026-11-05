@@ -4,11 +4,11 @@ root=${XDG_CACHE_HOME:-$HOME/.cache}/north/mutant-cargo
 slots=${MUTANT_SLOTS:-4}
 mkdir -p "$root"
 mapfile -t claimed <<<"$MUTANT_TESTS"
-names=() bun=()
+names=() bun=() every=
 for name in "${claimed[@]}"; do
-  if [[ $name =~ ^[A-Za-z0-9_:]+$ ]]; then names+=("$name"); else bun+=("$name"); fi
+  if [ "$name" = "*" ]; then every=1; elif [[ $name =~ ^[A-Za-z0-9_:]+$ ]]; then names+=("$name"); else bun+=("$name"); fi
 done
-need=(); ((${#bun[@]})) && need+=(bun); ((${#names[@]})) && need+=(cargo flock rsync)
+need=(); ((${#bun[@]})) && need+=(bun); { ((${#names[@]})) || [ -n "$every" ]; } && need+=(cargo flock rsync)
 for tool in "${need[@]}"; do command -v "$tool" >/dev/null || { printf "mutant-tests: required tool %s not found on PATH\n" "$tool" >&2; exit 127; }; done
 while IFS= read -r tree; do
   for name in "${bun[@]}"; do
@@ -20,7 +20,7 @@ while IFS= read -r tree; do
     printf '%s\t%s\n' "$verdict" "$name" >>"$tree/.mutant-results"
   done
 done <<<"$MUTANT_TREES"
-((${#names[@]})) || exit 0
+{ ((${#names[@]})) || [ -n "$every" ]; } || exit 0
 if [ -d "$root/target" ] && [ ! -e "$root/slot-0" ]; then
   exec {legacy}>"$root/lock"
   if flock -n "$legacy" && [ -d "$root/target" ] && [ ! -e "$root/slot-0" ]; then mkdir "$root/slot-0" && mv "$root/target" "$root/slot-0/target"; fi
@@ -47,6 +47,9 @@ while IFS= read -r tree; do
   rsync -rlpc --delete --exclude=.mutant-results "$tree/" "$dir/src/" </dev/null
   log=$(cd "$dir/src" && CARGO_TARGET_DIR="$dir/target" CARGO_BUILD_INCREMENTAL=true cargo test --locked --offline --no-fail-fast --tests -- "${names[@]}" </dev/null 2>&1 {held}>&-) || true
   printf '%s\n' "$log"
+  if [ -n "$every" ]; then
+    printf '%s\n' "$log" | sed -nE 's/^test (.+) \.\.\. (ok|FAILED)$/\2\t\1/p' | sed -E 's/ - should panic$//; s/^ok\t/pass\t/; s/^FAILED\t/fail\t/' >>"$tree/.mutant-results"
+  fi
   for name in "${names[@]}"; do
     printf '%s\n' "$log" | sed -nE "s/^test (.+::)?${name}( - should panic)? \.\.\. (ok|FAILED)$/\3/p" | while IFS= read -r verdict; do
       [ "$verdict" = ok ] && verdict=pass || verdict=fail
