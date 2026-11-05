@@ -41,6 +41,7 @@ mod launching;
 mod home;
 mod start_lock;
 mod stopping;
+mod spend_rows;
 mod takeover;
 mod wait_rows;
 mod table;
@@ -66,6 +67,7 @@ pub use hand_in::HandedIn;
 pub use control::Controlled;
 pub use gate_rows::Opened;
 pub use messages::Sent;
+pub use spend_rows::Spent;
 pub use wait_rows::Waiting;
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);

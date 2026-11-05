@@ -24,11 +24,13 @@ pub enum RowKind {
     Control,
     #[serde(rename = "WAIT")]
     Wait,
+    #[serde(rename = "SPEND")]
+    Spend,
 }
 
 impl RowKind {
-    pub const ALL: [RowKind; 8] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobStart, Self::JobBeat, Self::JobExit, Self::Control, Self::Wait];
-    pub const DELIVERED: [RowKind; 6] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobExit, Self::Control, Self::Wait];
+    pub const ALL: [RowKind; 9] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobStart, Self::JobBeat, Self::JobExit, Self::Control, Self::Wait, Self::Spend];
+    pub const DELIVERED: [RowKind; 7] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobExit, Self::Control, Self::Wait, Self::Spend];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -40,6 +42,7 @@ impl RowKind {
             Self::JobExit => "JOB-EXIT",
             Self::Control => "CONTROL",
             Self::Wait => "WAIT",
+            Self::Spend => "SPEND",
         }
     }
 }
@@ -55,6 +58,7 @@ pub enum ControlVerb {
     Forget,
     Stop,
     Interrupt,
+    Revive,
 }
 
 impl ControlVerb {
@@ -63,11 +67,12 @@ impl ControlVerb {
             Self::Forget => "forget",
             Self::Stop => "stop",
             Self::Interrupt => "interrupt",
+            Self::Revive => "revive",
         }
     }
 
     pub fn parse(word: &str) -> NorthResult<Self> {
-        [Self::Forget, Self::Stop, Self::Interrupt]
+        [Self::Forget, Self::Stop, Self::Interrupt, Self::Revive]
             .into_iter()
             .find(|verb| verb.label() == word)
             .ok_or_else(|| NorthError::Usage(format!("not a control verb: {word}")))

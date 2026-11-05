@@ -52,6 +52,31 @@ impl Fleet {
             ControlVerb::Forget => self.forget(name),
             ControlVerb::Stop => self.stop(name),
             ControlVerb::Interrupt => self.interrupt(name),
+            ControlVerb::Revive => self.revive(name, None).map(drop),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::fixtures::{fleet, live};
+    use super::*;
+    use crate::fleet::store::{SessionRow, Spool, cache_sessions};
+
+    #[test]
+    fn a_revive_of_a_session_another_host_holds_is_spooled_and_applied_by_that_host_once() {
+        let (far_home, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (far, laptop) = (fleet(far_home.path()), fleet(home.path()));
+        let _worker = live(&laptop, "worker");
+        let rows = [SessionRow { name: "worker".into(), host: "laptop".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }];
+        cache_sessions(&far.root, &rows).unwrap();
+
+        assert!(matches!(far.control(ControlVerb::Revive, "nobody"), Err(NorthError::Usage(why)) if why == "no session named nobody"));
+        let Controlled::Spooled(row) = far.control(ControlVerb::Revive, "worker").unwrap() else { panic!("a session of another host is spooled") };
+        let pending = Spool::at(&far.root).pending().unwrap();
+        assert_eq!((pending.len(), row.kind, row.text.as_str()), (1, RowKind::Control, "revive"));
+
+        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
+        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Already);
     }
 }
