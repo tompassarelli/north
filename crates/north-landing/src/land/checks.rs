@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 
 use super::lander::Lander;
 
-pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE"];
+pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE", "NORTH_RUNTIME_LINK"];
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
 pub const ROUND: &str = "NORTH_LAND_ROUND";
 pub const RECHECK: &str = "NORTH_LAND_RECHECK";

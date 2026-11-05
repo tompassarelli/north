@@ -470,6 +470,21 @@ fn serve_token_scoped() {
 }
 
 #[test]
+fn serve_check_cannot_reach_the_lander_pin() {
+    let mut fixture = Fixture::new();
+    let link = fixture.root.join("lander");
+    std::os::unix::fs::symlink("gen-1", &link).unwrap();
+    let a = fixture.lane("a", "a.txt", "a");
+    fixture.enqueue(&a, None);
+    let output = fixture.command().env("NORTH_RUNTIME_LINK", &link).output().unwrap();
+    eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success());
+    let env = fixture.read("env-1");
+    assert!(env.contains("LAND_TRACE="));
+    assert!(!env.lines().any(|line| line.starts_with("NORTH_RUNTIME_LINK=")), "the check saw the lander's own runtime link, so a test stub it runs could repoint the pin");
+}
+
+#[test]
 fn serve_all_serves_every_repository_without_sharing() {
     let north = Fixture::new();
     let mut south = Fixture::new();
