@@ -174,3 +174,13 @@ fn capacity_an_agents_heavy_build_stays_for_local_admission_only_when_no_host_ha
     let landing = Candidate { landing: true, ..agent_build() };
     assert_eq!(declined(route(&landing, || panic!("probed"))).0, "refused: landing");
 }
+
+#[test]
+fn capacity_a_host_that_cannot_take_the_lane_hands_the_build_to_the_next_host_with_room() {
+    let mut hosts = vec![("gex45".to_owned(), Room::Free), ("ccx33".to_owned(), Room::Free)];
+    assert_eq!(route(&agent_build(), || hosts.clone()), Route::Offload { host: "gex45".to_owned() });
+    hosts[0].1 = Room::Short("the host could not rebuild the lane in time".to_owned());
+    assert_eq!(route(&agent_build(), || hosts.clone()), Route::Offload { host: "ccx33".to_owned() });
+    hosts[1].1 = Room::Short("ssh: connection refused".to_owned());
+    assert_eq!(declined(route(&agent_build(), || hosts.clone())).0, "no room");
+}

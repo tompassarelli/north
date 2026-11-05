@@ -18,7 +18,7 @@ fn room_of(ssh: &str, claim: Option<&claims::Claim>) -> Room {
     room::build_shortfall_reserving(&read, reserved).map_or(Room::Free, Room::Short)
 }
 
-/// Ok(exit code) when the build ran on another host; Err leaves it to the local path, naming why when an offload host was configured.
+/// Ok(exit code) when the build ran on another host, trying each host with room in turn when one cannot take the lane; Err leaves it to the local path, naming why when an offload host was configured.
 pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
     if !wants_offload(candidate) {
         return Err(None);
@@ -31,22 +31,33 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str)) -> Res
         return Err(Some(refused));
     }
     let mut held: Vec<Option<claims::Claim>> = hosts.iter().map(|(name, _)| claims::Claim::take(name)).collect();
-    let host = match route(candidate, || hosts.iter().zip(&held).map(|((name, ssh), claim)| (name.clone(), room_of(ssh, claim.as_ref()))).collect()) {
-        Route::Offload { host } => host,
-        Route::Declined(declined) => return Err(Some(declined)),
-        Route::Local => return Err(None),
-    };
-    let position = hosts.iter().position(|(name, _)| *name == host).ok_or(None)?;
-    let _claim = held.swap_remove(position);
-    drop(held);
-    let ssh = hosts[position].1.as_str();
+    let mut rooms: Vec<(String, Room)> = hosts.iter().zip(&held).map(|((name, ssh), claim)| (name.clone(), room_of(ssh, claim.as_ref()))).collect();
+    let mut failed = Vec::new();
+    loop {
+        let host = match route(candidate, || rooms.clone()) {
+            Route::Offload { host } => host,
+            Route::Declined(_) if !failed.is_empty() => return Err(Some(Declined::Failed(failed.join("; ")))),
+            Route::Declined(declined) => return Err(Some(declined)),
+            Route::Local => return Err(None),
+        };
+        let position = hosts.iter().position(|(name, _)| *name == host).ok_or(None)?;
+        let _claim = held[position].take();
+        held.iter_mut().for_each(|other| drop(other.take()));
+        match run_on(&host, hosts[position].1.as_str(), job, announce)? {
+            remote::Ran::Exit(code) => return Ok(code),
+            remote::Ran::NotSynced(why) => {
+                failed.push(format!("{host}: {why}"));
+                rooms[position].1 = Room::Short(why);
+            }
+        }
+    }
+}
+
+fn run_on(host: &str, ssh: &str, job: &Job, announce: &dyn Fn(&str)) -> Result<remote::Ran, Option<Declined>> {
     let directory = std::env::current_dir().map_err(|error| Some(Declined::Failed(error.to_string())))?;
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or_else(|| Some(Declined::Failed("HOME is unset".to_owned())))?;
     let plan = script::plan(job.command, &directory, &home).map_err(Some)?;
     let lane = lane::capture(&plan.directory, &plan.command).map_err(Some)?;
     let sink = plan.sink.as_ref().map(script::Sink::open).transpose().map_err(|error| Some(Declined::Failed(format!("the redirect target: {error}"))))?;
-    match remote::run(ssh, &lane, &Job { command: &plan.command, ..*job }, sink, &|| announce(&host)) {
-        remote::Ran::Exit(code) => Ok(code),
-        remote::Ran::NotSynced(why) => Err(Some(Declined::Failed(format!("{host}: {why}")))),
-    }
+    Ok(remote::run(ssh, &lane, &Job { command: &plan.command, ..*job }, sink, &|| announce(host)))
 }
