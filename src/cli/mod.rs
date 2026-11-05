@@ -17,6 +17,7 @@ mod hook_stats;
 mod ledger;
 mod orders;
 mod probe_account;
+pub(crate) mod remote_land;
 mod remote_serve;
 #[cfg(test)]
 mod remote_serve_tests;
@@ -29,6 +30,8 @@ mod tests;
 mod laptop_runner_tests;
 #[cfg(test)]
 mod fleet_peer_row_tests;
+#[cfg(test)]
+mod remote_land_tests;
 #[cfg(test)]
 mod south_land_tests;
 #[cfg(test)]

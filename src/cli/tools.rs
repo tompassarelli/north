@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use crate::landing::{after_landing, bin_references, denylist, fails_first, land_actions, land_cache, merge_set, red_check, land_test_runner, landed_tree, lane_squash, lane_target, mutant_cli, safe_push_tag, stale_revert};
+use crate::landing::{after_landing, bin_references, denylist, fails_first, land_actions, land_cache, merge_set, red_check, land_test_runner, landed_tree, lane_squash, lane_target, mutant_cli, stale_revert};
 use crate::timers::{self, Timer};
 use crate::{
     agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
@@ -35,7 +35,8 @@ const UNIFORM: &[(&str, Run)] = &[
     ("land-cache", land_cache::run),
     ("safe-push-result", super::safe_push_result::run),
     ("watch", crate::ops::watch::run),
-    ("safe-push", safe_push_tag::run),
+    ("safe-push", super::remote_land::safe_push),
+    ("remote-land", super::remote_land::run),
     ("provenance", provenance::run),
     ("issue-box-lint", issue_box_lint::run),
     ("follows-release", follows_release::run),
