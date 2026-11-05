@@ -4,11 +4,13 @@ use std::path::PathBuf;
 use crate::error::NorthResult;
 
 use super::super::claims;
+use super::super::forget::{self, Forgotten};
 use super::super::host::Host;
 use super::super::model::Ending;
 use super::super::records::{ARCHIVE, write_record};
 use super::super::runtime::now_ms;
 use super::super::unaccepted::Unaccepted;
+use super::super::store::ControlVerb;
 use super::{Fleet, session_running};
 
 impl Fleet {
@@ -37,6 +39,16 @@ impl Fleet {
         }
         claims::release_for(self.claims.as_ref(), &record);
         Ok(())
+    }
+
+    /// Forgets `name` here or spools the forget to its host, unless a land-queue ticket on this host
+    /// still reports to it; `force` names why it should go anyway.
+    pub fn forget_unless_queued(&self, name: &str, force: Option<&str>) -> NorthResult<Forgotten> {
+        let cwd = self.session_dir(name)?.exists().then(|| self.record(name)).transpose()?.map(|record| record.cwd);
+        let lanes = forget::queued_lanes(&self.state.join("land-queue"), name, cwd.as_deref());
+        forget::admit(name, &lanes, force)?;
+        let controlled = self.control(ControlVerb::Forget, name)?;
+        Ok(Forgotten { controlled, overrode: lanes })
     }
 
     pub fn forget(&self, name: &str) -> NorthResult<()> {

@@ -119,6 +119,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["relaunch", name, rest @ ..] => relaunch::run(&fleet, name, rest),
         ["interactive", name] => interactive::run(&fleet, name),
         ["digest", rest @ ..] => digest::run(&fleet, rest),
+        ["forget", name, "--force", reason] => forget(&fleet, name, Some(reason)),
         [verb, name] => session_verb(&fleet, verb, name),
         ["revive", name, rest @ ..] => revive::revive_with(&fleet, name, rest),
         ["show", name, flag] => show::run(&fleet, name, flag),
@@ -130,7 +131,7 @@ fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
     match verb {
         "interrupt" => controlled(fleet, ControlVerb::Interrupt, name),
         "stop" => controlled(fleet, ControlVerb::Stop, name),
-        "forget" => controlled(fleet, ControlVerb::Forget, name),
+        "forget" => forget(fleet, name, None),
         "revive" if fleet.session(name).is_err() => controlled(fleet, ControlVerb::Revive, name),
         "revive" => revive::revive(fleet, name, None, None, Overrides::default()),
         "show" => show::show(fleet, name, false),
@@ -143,6 +144,18 @@ fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
 fn controlled(fleet: &Fleet, verb: ControlVerb, name: &str) -> NorthResult<()> {
     if let Controlled::Spooled(row) = fleet.control(verb, name)? {
         println!("spooled CONTROL row {}: {} {name} applies on the host that holds it at its next tick", row.id, verb.label());
+    }
+    Ok(())
+}
+
+
+fn forget(fleet: &Fleet, name: &str, force: Option<&str>) -> NorthResult<()> {
+    let forgotten = fleet.forget_unless_queued(name, force)?;
+    for lane in &forgotten.overrode {
+        eprintln!("forgot {name} with {} (branch {}) still queued: {}", lane.ticket.display(), lane.branch, force.unwrap_or_default());
+    }
+    if let Controlled::Spooled(row) = forgotten.controlled {
+        println!("spooled CONTROL row {}: forget {name} applies on the host that holds it at its next tick", row.id);
     }
     Ok(())
 }
