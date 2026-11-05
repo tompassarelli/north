@@ -2,7 +2,9 @@ const HEAD_NORTH: &str = "./bin/head-north";
 const NO_BUILD: &str = "--no-build";
 
 fn builds(words: &[&str]) -> Option<usize> {
-    words.iter().position(|word| *word == HEAD_NORTH).filter(|at| words.get(at + 1) != Some(&NO_BUILD))
+    let at = words.iter().position(|word| *word == HEAD_NORTH)?;
+    let flag = if words.get(at + 1) == Some(&"--code") { at + 3 } else { at + 1 };
+    (words.get(flag) != Some(&NO_BUILD)).then_some(at)
 }
 
 pub fn runs_head_north(command: &str) -> bool {

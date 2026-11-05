@@ -3,8 +3,8 @@ set -euo pipefail
 root=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
 code=()
 defer=0
-[ "${1:-}" != --no-build ] || { defer=1; shift; }
 [ "${1:-}" != --code ] || { code=(--code "$2"); shift 2; }
+[ "${1:-}" != --no-build ] || { defer=1; shift; }
 live=${XDG_STATE_HOME:-$HOME/.local/state}/north/current/north
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/north/head-north
 keep=4

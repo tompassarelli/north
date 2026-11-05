@@ -265,11 +265,12 @@ fn split_entry(entry: &str) -> (&str, &str) {
 }
 
 fn verb(command: &str) -> Option<&str> {
-    Some(command.split_once(" --code ")?.1.split_once(' ')?.1)
+    let rest = command.split_once(" --code ")?.1.split_once(' ')?.1;
+    Some(rest.strip_prefix("--no-build ").unwrap_or(rest))
 }
 
 fn before_the_push() -> Vec<String> {
-    safe_push_entries("land.check").into_iter().filter(|entry| entry.contains("./bin/head-north --no-build ")).collect()
+    safe_push_entries("land.check").into_iter().filter(|entry| entry.contains(" --no-build ") && entry.contains("./bin/head-north --code ")).collect()
 }
 
 #[test]
