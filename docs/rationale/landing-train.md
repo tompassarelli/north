@@ -1185,7 +1185,9 @@ lander did not see.
 - A lane that breaks only in combination with a later lane in the batch is blamed on the first lane
   whose prefix is red, which is the lane that introduced the break in landing order.
 - A lander restart waits for in-flight after-landing runs and their reverts before exiting and lands
-  nothing more meanwhile, so a runtime swap does not drop a verdict.
+  nothing more meanwhile, so a runtime swap does not drop a verdict; promotion only swaps the link
+  and never restarts the units itself. A lander killed anyway (a crash, a stop timeout, the watchdog)
+  finds each unsettled batch in `<queue>/following/` and reruns it (north#639).
 
 ### Measured after
 

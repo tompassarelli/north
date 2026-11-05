@@ -153,7 +153,11 @@ impl Lander {
         let mut progressed = false;
         let mut warned = false;
         self.round.store(u64::try_from(micros()).unwrap_or(u64::MAX), std::sync::atomic::Ordering::Relaxed);
-        after::recover(self)?;
+        if let Some(recovered) = after::recover(self)?
+            && !recovered.lanes.is_empty()
+        {
+            watch.follow(self, &recovered.base, &recovered.head, recovered.lanes);
+        }
         if let Err(error) = sheriff::patrol(self) {
             println!("north land: waiting: sheriff: {error}");
         }
@@ -280,7 +284,7 @@ impl Lander {
                         Ok(token) => token,
                         Err(error) => return Ok(Round::Waiting(format!("transient: no push credential: {error}"))),
                     };
-                    after::begin(self, &head, &base, &included)?;
+                    after::begin(self, &head, &base, &included, &built.tips)?;
                     match self.push(&head, &base, token.as_deref())? {
                         Pushed::Landed => {}
                         Pushed::Moved => {
@@ -366,7 +370,7 @@ fn back_off(lander: &Lander, backoff: &mut Backoff, reason: &str, retire: &Atomi
 fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     let mut backoff = Backoff::default();
-    let mut watch = Watch::default();
+    let mut watch = Watch::resume(lander);
     let mut draining = false;
     loop {
         if retire.load(Ordering::Relaxed) {

@@ -195,7 +195,7 @@ fn push(lander: &Lander, watch: &mut Watch, mut next: Next, landed: &str) -> Res
             return Ok(None);
         }
     };
-    after::begin(lander, &next.head, &next.base, &included)?;
+    after::begin(lander, &next.head, &next.base, &included, &next.tips)?;
     if !matches!(lander.push(&next.head, &next.base, token.as_deref())?, Pushed::Landed) {
         after::abandon(lander);
         println!("north land: the speculative push of {} onto {} did not land; its lanes are rebuilt on main", next.head, next.base);

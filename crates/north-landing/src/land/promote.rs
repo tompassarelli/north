@@ -13,7 +13,6 @@ const ROUNDS: usize = 8;
 const WALK: usize = 256;
 const SHADOW_MINUTES: u64 = 15;
 const SHADOW_PAUSE: Duration = Duration::from_secs(30);
-const UNITS: &str = "north-land*";
 
 struct Options {
     dry_run: bool,
@@ -243,11 +242,6 @@ fn shadow(binary: &Path, repositories: &[Repository], checker: &str, minutes: u6
     Ok(format!("{passes} pass(es), {checked} candidate(s) checked, {} error(s), none repeated", errors.len()))
 }
 
-fn restart() -> Result<(), String> {
-    let status = Command::new("systemctl").args(["--user", "restart", UNITS]).stdin(Stdio::null()).status().map_err(|error| format!("systemctl: {error}"))?;
-    if status.success() { Ok(()) } else { Err(format!("systemctl --user restart {UNITS} exited {}", status.code().map_or("on a signal".to_owned(), |code| code.to_string()))) }
-}
-
 enum Outcome {
     Settled(String),
     Swap { link: PathBuf, target: PathBuf },
@@ -285,16 +279,8 @@ fn settle(link: &Path, target: &Path) -> u8 {
         println!("north land promote: refused: {}: {error}; the lander link is unchanged", link.display());
         return 1;
     }
-    match restart() {
-        Ok(()) => {
-            println!("north land promote: {} now points at {}; restarted {UNITS}", link.display(), target.display());
-            0
-        }
-        Err(error) => {
-            println!("north land promote: {} now points at {}, but {error}", link.display(), target.display());
-            1
-        }
-    }
+    println!("north land promote: {} now points at {}; each lander whose inputs changed finishes its after-landing runs, exits and restarts on it", link.display(), target.display());
+    0
 }
 
 pub fn run(arguments: &[String]) -> u8 {

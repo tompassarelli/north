@@ -1,23 +1,36 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
+
+use serde::{Deserialize, Serialize};
 
 use super::after;
 use super::candidate::{self, git, output};
 use super::checks::Verdict;
 use super::lander::Lander;
 use super::post_land::{self, Outcome};
-use super::queue::Ticket;
+use super::queue::{self, Ticket};
 use super::sheriff;
 
 const WORKTREE: &str = "lander-revert";
+const JOURNAL: &str = "following";
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LandedLane {
     pub ticket: Ticket,
     pub tip: String,
 }
 
+#[derive(Serialize, Deserialize)]
+struct Entry {
+    base: String,
+    head: String,
+    lanes: Vec<LandedLane>,
+}
+
 struct Following {
     base: String,
+    head: String,
     lanes: Vec<LandedLane>,
     run: JoinHandle<Outcome>,
 }
@@ -27,16 +40,58 @@ pub struct Watch {
     following: Vec<Following>,
 }
 
+fn journal(lander: &Lander) -> PathBuf {
+    lander.queue.join(JOURNAL)
+}
+
+fn entry_path(lander: &Lander, head: &str) -> PathBuf {
+    journal(lander).join(format!("{head}.json"))
+}
+
+fn read_entry(path: &Path) -> Result<Entry, String> {
+    let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    serde_json::from_str(&text).map_err(|error| error.to_string())
+}
+
 impl Watch {
+    pub fn resume(lander: &Lander) -> Self {
+        let mut watch = Self::default();
+        let Ok(entries) = fs::read_dir(journal(lander)) else { return watch };
+        let mut paths: Vec<PathBuf> = entries.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).collect();
+        paths.sort_by_key(|path| fs::metadata(path).and_then(|metadata| metadata.modified()).ok());
+        for path in paths {
+            match read_entry(&path) {
+                Ok(entry) => {
+                    println!("north land: rerunning the after-landing run of {}, which a stopped lander left without a verdict", entry.head);
+                    watch.follow(lander, &entry.base, &entry.head, entry.lanes);
+                }
+                Err(error) => {
+                    println!("north land: dropping the unreadable after-landing journal entry {}: {error}", path.display());
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+        watch
+    }
+
     pub fn in_flight(&self) -> usize {
         self.following.len()
     }
 
     pub fn follow(&mut self, lander: &Lander, base: &str, head: &str, lanes: Vec<LandedLane>) {
+        if self.following.iter().any(|following| following.head == head) {
+            return;
+        }
+        let entry = Entry { base: base.to_owned(), head: head.to_owned(), lanes };
+        let recorded = serde_json::to_string_pretty(&entry).map_err(|error| error.to_string()).and_then(|text| queue::write_atomic(&entry_path(lander, head), &text).map_err(|error| error.to_string()));
+        if let Err(error) = recorded {
+            println!("north land: could not journal the after-landing run of {head}, so a lander restart before its verdict loses it: {error}");
+        }
+        let Entry { lanes, .. } = entry;
         let names = lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
         let tips = lanes.iter().map(|lane| lane.tip.clone()).collect();
         let run = post_land::start(lander, base, head, names, tips);
-        self.following.push(Following { base: base.to_owned(), lanes, run });
+        self.following.push(Following { base: base.to_owned(), head: head.to_owned(), lanes, run });
     }
 
     pub fn settle(&mut self, lander: &Lander) -> bool {
@@ -47,12 +102,13 @@ impl Watch {
                 index += 1;
                 continue;
             }
-            let Following { base, lanes, run } = self.following.swap_remove(index);
+            let Following { base, head, lanes, run } = self.following.swap_remove(index);
             settled = true;
             let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None });
             if let Verdict::RedMain(detail) = outcome.verdict {
                 blame(lander, &base, &lanes, outcome.culprit, &detail);
             }
+            let _ = fs::remove_file(entry_path(lander, &head));
         }
         settled
     }

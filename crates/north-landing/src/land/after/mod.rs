@@ -17,6 +17,7 @@ use super::queue::{self, Ticket};
 use super::lander::{Lander, state_home};
 use super::records::{self, Candidate, Decision};
 use super::telemetry::{self, Push, Stages};
+use super::watch::LandedLane;
 
 const SEND_WAIT: Duration = Duration::from_secs(60);
 
@@ -25,6 +26,8 @@ struct Intent {
     head: String,
     base: String,
     tickets: Vec<String>,
+    #[serde(default)]
+    tips: Vec<String>,
 }
 
 fn area(lander: &Lander) -> PathBuf {
@@ -35,8 +38,8 @@ fn name_of(path: &Path) -> String {
     path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-pub fn begin(lander: &Lander, head: &str, base: &str, tickets: &[(&PathBuf, &Ticket)]) -> Result<(), String> {
-    let intent = Intent { head: head.to_owned(), base: base.to_owned(), tickets: tickets.iter().map(|(path, _)| name_of(path)).collect() };
+pub fn begin(lander: &Lander, head: &str, base: &str, tickets: &[(&PathBuf, &Ticket)], tips: &[String]) -> Result<(), String> {
+    let intent = Intent { head: head.to_owned(), base: base.to_owned(), tickets: tickets.iter().map(|(path, _)| name_of(path)).collect(), tips: tips.to_vec() };
     let path = area(lander).join("intent.json");
     fs::create_dir_all(area(lander)).map_err(|error| error.to_string())?;
     let temporary = path.with_extension("tmp");
@@ -130,23 +133,33 @@ pub fn finish(lander: &Lander, head: &str, base: &str, stages: &Stages, tickets:
     Ok(())
 }
 
-pub fn recover(lander: &Lander) -> Result<(), String> {
+pub struct Recovered {
+    pub base: String,
+    pub head: String,
+    pub lanes: Vec<LandedLane>,
+}
+
+pub fn recover(lander: &Lander) -> Result<Option<Recovered>, String> {
     let path = area(lander).join("intent.json");
-    let Ok(text) = fs::read_to_string(&path) else { return Ok(()) };
+    let Ok(text) = fs::read_to_string(&path) else { return Ok(None) };
     let Ok(intent) = serde_json::from_str::<Intent>(&text) else {
         abandon(lander);
-        return Ok(());
+        return Ok(None);
     };
     git(&lander.worktree, &["fetch", "-q", "--no-tags", "origin", "refs/heads/main"])?;
     let landed = super::candidate::output(&lander.worktree, &["merge-base", "--is-ancestor", &intent.head, "FETCH_HEAD"]).is_ok_and(|output| output.status.success());
     if !landed {
         abandon(lander);
-        return Ok(());
+        return Ok(None);
     }
-    let tickets = intent.tickets.iter().filter_map(|name| {
+    let read = |name: &String| {
         let path = lander.queue.join(name);
         queue::read(&path).ok().map(|ticket| (path, ticket))
-    });
+    };
+    let ticket_of = |name: &String| queue::read(&lander.queue.join(name)).or_else(|_| queue::read(&lander.queue.join("done").join(name))).ok();
+    let lanes = intent.tickets.iter().zip(&intent.tips).filter_map(|(name, tip)| Some(LandedLane { ticket: ticket_of(name)?, tip: tip.clone() })).collect();
+    let tickets = intent.tickets.iter().filter_map(read);
     println!("north land: finishing the interrupted landing of candidate {}", intent.head);
-    finish(lander, &intent.head, &intent.base, &Stages::empty(), tickets.collect())
+    finish(lander, &intent.head, &intent.base, &Stages::empty(), tickets.collect())?;
+    Ok(Some(Recovered { base: intent.base, head: intent.head, lanes }))
 }

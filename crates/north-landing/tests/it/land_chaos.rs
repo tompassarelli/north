@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::os::unix::process::CommandExt;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use north_landing::land::candidate::{self, git};
 use north_landing::land::lander::Lander;
@@ -11,6 +12,8 @@ use north_landing::land::serve::Round;
 use north_landing::land::{after, checks};
 
 const CHILD: &str = "NORTH_LAND_CHAOS_HOME";
+const LANDER_ROLE: &str = "NORTH_LAND_CHAOS_LANDER";
+const KILLED_AFTER_RUN: &str = "land_chaos::chaos_lander_killed_mid_after_run_reruns_it_and_reverts_the_red_lane";
 const ROUNDS: usize = 200;
 
 const CHECKER: &str = r#"plan="$1/plan"; calls="$1/calls"
@@ -25,20 +28,30 @@ slow) sleep 1; echo "safe-push: verdict green" ;;
 esac
 "#;
 
+const AFTER_RUNNER: &str = r#"[ "$1" = land ] || exit 0
+eval outcome=\${$#}
+while [ -e "$HOME/stall" ]; do echo $$ > "$HOME/stalled"; sleep 0.05; done
+git rev-parse HEAD >> "$HOME/after-runs"
+if [ -e bad.txt ]; then printf "event\tafter\tfailed\tbad.txt check\n" > "$outcome"; exit 1; fi
+"#;
+
 fn isolated(name: &str, scenario: fn(&World)) {
     if let Some(home) = std::env::var_os(CHILD) {
-        scenario(&World::new(Path::new(&home)));
+        let home = Path::new(&home);
+        scenario(&if std::env::var_os(LANDER_ROLE).is_some() { World::open(home) } else { World::new(home) });
         return;
     }
     let home = tempfile::tempdir().unwrap();
     let gitconfig = home.path().join("gitconfig");
     fs::write(&gitconfig, "[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[user]\n\tname = chaos\n\temail = chaos@example.com\n").unwrap();
+    let north = home.path().join("north");
+    north_base::foundation::shim::write_script(&north, AFTER_RUNNER);
     let output = Command::new(std::env::current_exe().unwrap())
         .args([name, "--exact", "--nocapture", "--test-threads=1"])
         .env(CHILD, home.path())
         .env("HOME", home.path())
         .env("XDG_STATE_HOME", home.path().join("state"))
-        .env("NORTH_LAND_NORTH", "true")
+        .env("NORTH_LAND_NORTH", &north)
         .env("NORTH_OFFLOAD_ROOT", home.path().join("offload"))
         .env("GIT_CONFIG_GLOBAL", &gitconfig)
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -70,10 +83,15 @@ struct World {
 }
 
 impl World {
-    fn new(root: &Path) -> Self {
-        let origin = root.join("origin.git");
-        let main = root.join("proj/main");
+    fn open(root: &Path) -> Self {
         let plan = root.join("checker");
+        let script = root.join("checker.sh");
+        let checker = vec!["sh".to_owned(), script.display().to_string(), plan.display().to_string()];
+        Self { root: root.to_owned(), origin: root.join("origin.git"), main: root.join("proj/main"), plan, checker }
+    }
+
+    fn new(root: &Path) -> Self {
+        let World { origin, main, plan, .. } = Self::open(root);
         fs::create_dir_all(&plan).unwrap();
         fs::create_dir_all(main.parent().unwrap()).unwrap();
         run(root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
@@ -82,10 +100,8 @@ impl World {
         run(&main, &["add", "-A"]);
         run(&main, &["commit", "-q", "-m", "base"]);
         run(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
-        let script = root.join("checker.sh");
-        fs::write(&script, CHECKER).unwrap();
-        let checker = vec!["sh".to_owned(), script.display().to_string(), plan.display().to_string()];
-        Self { root: root.to_owned(), origin, main, plan, checker }
+        fs::write(root.join("checker.sh"), CHECKER).unwrap();
+        Self::open(root)
     }
 
     fn plan(&self, steps: &[&str]) {
@@ -200,7 +216,7 @@ fn kill_mid_check(world: &World) {
     let tickets = queue::collect(&restarted.queue).unwrap();
     let built = candidate::build(&restarted.worktree, &base, &tickets, &[], usize::MAX, &restarted.queue.join("logs")).unwrap();
     let included: Vec<_> = tickets.iter().map(|(path, ticket)| (path, ticket)).collect();
-    after::begin(&restarted, &built.head, &base, &included).unwrap();
+    after::begin(&restarted, &built.head, &base, &included, &built.tips).unwrap();
     run(&restarted.worktree, &["push", "-q", "origin", &format!("{}:refs/heads/main", built.head)]);
     drop(restarted);
     let again = world.lander();
@@ -265,9 +281,72 @@ fn remote_runner_lost_mid_check(world: &World) {
     landed(&world.settled(&lander, &[&a, &b, &c, &d]));
 }
 
+fn wait_for(what: &str, mut ready: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !ready() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn journaled(lander: &Lander) -> usize {
+    fs::read_dir(lander.queue.join("following")).map_or(0, |entries| entries.filter_map(Result::ok).filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json")).count())
+}
+
+fn killed_mid_after_run(world: &World) {
+    if std::env::var_os(LANDER_ROLE).is_some() {
+        let lander = world.lander();
+        let mut watch = Watch::resume(&lander);
+        loop {
+            let _ = lander.round(&mut watch);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    let lander = world.lander();
+    let a = world.enqueue(&lander, &world.lane("a"));
+    let bad = world.enqueue(&lander, &world.lane("bad"));
+    let c = world.enqueue(&lander, &world.lane("c"));
+    fs::write(world.root.join("stall"), "").unwrap();
+    let mut first = Command::new(std::env::current_exe().unwrap()).args([KILLED_AFTER_RUN, "--exact", "--nocapture", "--test-threads=1"]).env(LANDER_ROLE, "1").stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().unwrap();
+    wait_for("the first lander to land the batch and start its after run", || world.root.join("stalled").exists() && queue::pending(&lander.queue).unwrap().is_empty());
+    let killed = Command::new("kill").args(["-KILL", &format!("-{}", first.id())]).status().unwrap();
+    assert!(killed.success());
+    first.wait().unwrap();
+    let landed_head = run(&world.origin, &["rev-parse", "main"]);
+    assert_eq!(journaled(&lander), 1, "the killed lander left no journal entry for the after run of {landed_head}");
+    assert!(!world.root.join("after-runs").exists(), "the after run finished before the lander was killed");
+
+    fs::remove_file(world.root.join("stall")).unwrap();
+    let restarted = world.lander();
+    let mut watch = Watch::resume(&restarted);
+    assert_eq!(watch.in_flight(), 1);
+    wait_for("the restarted lander to settle the rerun and land the revert", || {
+        let _ = restarted.round(&mut watch);
+        watch.in_flight() == 0 && queue::pending(&restarted.queue).unwrap().is_empty() && world.landed_subjects().iter().any(|subject| subject.starts_with("Revert "))
+    });
+    assert_eq!(journaled(&restarted), 0);
+    let runs = fs::read_to_string(world.root.join("after-runs")).unwrap();
+    assert!(runs.lines().any(|head| head == landed_head), "the restarted lander never reran the after run of {landed_head}: {runs}");
+    let subjects = world.landed_subjects();
+    assert_eq!(subjects[0], format!("Revert {}", bad.subject), "{subjects:?}");
+    assert_eq!(subjects.iter().filter(|subject| subject.starts_with("Revert ")).count(), 1, "{subjects:?}");
+    for lane in [&a, &bad, &c] {
+        assert_eq!(subjects.iter().filter(|subject| **subject == lane.subject).count(), 1, "{subjects:?}");
+    }
+    let culprit = run(&world.origin, &["log", "--format=%H %s", "main"]).lines().find_map(|line| line.split_once(' ').filter(|(_, subject)| *subject == bad.subject).map(|(sha, _)| sha.to_owned())).unwrap();
+    let body = run(&world.origin, &["log", "-1", "--format=%B", "main"]);
+    assert!(body.contains(&format!("Reverts: {culprit}")), "{body}");
+    assert!(!run(&world.origin, &["ls-tree", "--name-only", "main"]).lines().any(|name| name == "bad.txt"));
+}
+
 #[test]
 fn chaos_kill_mid_check_lands_each_lane_once_after_restart() {
     isolated("land_chaos::chaos_kill_mid_check_lands_each_lane_once_after_restart", kill_mid_check);
+}
+
+#[test]
+fn chaos_lander_killed_mid_after_run_reruns_it_and_reverts_the_red_lane() {
+    isolated(KILLED_AFTER_RUN, killed_mid_after_run);
 }
 
 #[test]
