@@ -4,7 +4,8 @@ const SKIPPED: [&str; 7] = ["cd", "echo", "true", "export", "set", "sleep", "pri
 const SEPARATORS: [&str; 5] = ["&&", "||", ";", "|", "\n"];
 
 pub fn command_of(text: &str) -> Option<&str> {
-    let start = ["command=", "cmd="].iter().find_map(|key| text.strip_prefix(key))?;
+    let fields = text.split_once(' ').filter(|(tool, _)| !tool.contains('=')).map_or(text, |(_, rest)| rest);
+    let start = ["command=", "cmd="].iter().find_map(|key| fields.strip_prefix(key))?;
     let end = start.find("\ndescription=").unwrap_or(start.len());
     Some(start[..end].trim()).filter(|command| !command.is_empty())
 }

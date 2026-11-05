@@ -17,7 +17,7 @@ fn repeated(session: &str, day: u32, noise: &str) -> Vec<serde_json::Value> {
         row(session, 1, &ts(0), &format!("command={noise}\ndescription=Look around")),
         row(session, 2, &ts(1), "file_path=/home/user/north/Cargo.toml"),
         row(session, 3, &ts(2), "command=cd /home/user/north && depbox run -- nix develop -c cargo check -p north-core\ndescription=Check the crate"),
-        row(session, 4, &ts(3), "command=git add -A"),
+        row(session, 4, &ts(3), "Bash command=git add -A\ndescription=Stage the lane"),
         row(session, 5, &ts(4), "command=git commit -m 'Land the lane'"),
         row(session, 6, &ts(5), "command=RUST_LOG=info git push origin HEAD:refs/heads/claude/land-x 2>&1"),
         row(session, 7, &ts(6), &format!("command={noise} --again")),
@@ -44,6 +44,8 @@ fn now() -> f64 {
 #[test]
 fn a_bash_command_becomes_its_program_and_subcommand_steps() {
     assert_eq!(command_of("command=git status\ndescription=Show status"), Some("git status"));
+    assert_eq!(command_of("Bash command=git status\ndescription=Show status"), Some("git status"));
+    assert_eq!(command_of("Read file_path=/x"), None);
     assert_eq!(command_of("file_path=/x"), None);
     assert_eq!(steps("cd /x && FOO=1 depbox run -- nix develop -c cargo test --locked -p north-core | tail -3"), ["cargo test", "tail"]);
     assert_eq!(steps("git -C /x status; /usr/bin/rg -n foo; echo done"), ["git", "rg"]);
