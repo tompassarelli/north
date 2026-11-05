@@ -115,6 +115,12 @@ struct Waiting<'a> {
     declined: &'a mut Declines,
 }
 
+impl Waiting<'_> {
+    fn again(&mut self) -> Waiting<'_> {
+        Waiting { root: self.root, ticket: self.ticket, request: self.request, create: self.create, command: self.command, declined: &mut *self.declined }
+    }
+}
+
 /// What the offload offers so far have declined for: the reason last printed, which an unchanged decline stays silent about, and how long the next offer waits, stretched while every offload host is out of reach so a queued build stops probing hosts this host has no path to.
 pub(super) struct Declines {
     printed: Option<String>,
@@ -141,7 +147,7 @@ fn report_declined(why: Option<Declined>, create: &Create, declines: &mut Declin
 }
 
 /// A heavy build this host defers runs on another host with room instead of queueing here; None leaves it on the local path, printing why once per change of reason.
-async fn try_offload(waiting: Waiting<'_>, deferred: &Obj, host: &Host, terminations: &mut Terminations) -> Option<u8> {
+async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Host, terminations: &mut Terminations) -> Option<u8> {
     let Waiting { root, ticket, request, create, command, declined } = waiting;
     let host = *host;
     let (root, ticket) = (root.to_path_buf(), ticket.map(str::to_owned));
@@ -149,10 +155,11 @@ async fn try_offload(waiting: Waiting<'_>, deferred: &Obj, host: &Host, terminat
     let landing = request.landing || env("SAFE_PUSH_LAND_HEAD").is_some_and(|head| !head.is_empty());
     let (class, owner, command) = (request.name.clone(), create.owner.clone(), command.to_vec());
     let timeout_seconds = create.timeout_seconds.unwrap_or(OFFLOAD_DEFAULT_TIMEOUT_SECONDS);
-    let (deferred, need) = (reason(deferred).is_some_and(|reason| reason.starts_with("DEFER_")), env("AGENT_CAPACITY_NEED").filter(|need| !need.is_empty()));
+    let need = env("AGENT_CAPACITY_NEED").filter(|need| !need.is_empty());
+    let agent = fleet_session();
     let offloaded_already = env(build_offload::REMOTE_MARK).is_some();
     let work = tokio::task::spawn_blocking(move || {
-        let candidate = Candidate { class: &class, landing, need: need.as_deref(), deferred, offloaded_already };
+        let candidate = Candidate { class: &class, landing, need: need.as_deref(), deferred, agent, offloaded_already };
         let announce = |target: &str| {
             print_to(&Obj::new().put("decision", "OFFLOADED").put("reason", build_offload::REASON).put("host", target).put("class", class.as_str()).put("owner", owner.as_str()), true);
             if let Some(ticket) = &ticket {
@@ -178,14 +185,25 @@ async fn try_offload(waiting: Waiting<'_>, deferred: &Obj, host: &Host, terminat
     }
 }
 
-/// A heavy request its host defers on the first look runs elsewhere when a host has room; otherwise None sends it to the queue.
-async fn offer_first(waiting: Waiting<'_>, host: &Host, terminations: &mut Terminations) -> Option<Admitted> {
-    let Waiting { root, request, create, .. } = waiting;
+/// Whether this process runs inside a fleet session, whose heavy builds belong on a build host before the laptop.
+pub(super) fn fleet_session() -> bool {
+    env("NORTH_FLEET_SCOPE").is_some_and(|scope| !scope.is_empty())
+}
+
+/// A fleet session's heavy request is offered to the build hosts before this host decides on it, so a build this host would admit still runs where there is room; any other heavy request runs elsewhere only when its host defers it on the first look. None sends it to the queue.
+async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminations: &mut Terminations) -> Option<Admitted> {
+    let (root, request, create) = (waiting.root, waiting.request, waiting.create);
+    if fleet_session() && let Some(code) = try_offload(waiting.again(), false, host, terminations).await {
+        return Some(Admitted::Offloaded(code));
+    }
     let first = decision(root, request, Some(create), None, host);
     if first.get("decision").and_then(Value::as_str) != Some("DEFER") {
         return Some(Admitted::Here(first));
     }
-    try_offload(waiting, &first, host, terminations).await.map(Admitted::Offloaded)
+    if fleet_session() {
+        return None;
+    }
+    try_offload(waiting, true, host, terminations).await.map(Admitted::Offloaded)
 }
 
 fn wait_ticket(root: &Path, request: &Request, create: &Create) -> String {
@@ -240,7 +258,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
         }
         if offer && now_ms() - offered_at >= declined.retry_milliseconds {
             offered_at = now_ms();
-            if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, &result, host, terminations).await {
+            if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, reason(&result).is_some_and(|reason| reason.starts_with("DEFER_")), host, terminations).await {
                 dequeue(root, &ticket);
                 return Admitted::Offloaded(code);
             }
@@ -320,7 +338,7 @@ pub(super) fn scope_command(root: &Path, request: &Request, admitted: &Obj, time
         let sized = north_base::nix_command::sized(command, &jobs);
         arguments.extend(dev_shell::enter(&north, sized.as_deref().unwrap_or(command)));
     }
-    let mut child = if env("NORTH_FLEET_SCOPE").is_some_and(|scope| !scope.is_empty()) {
+    let mut child = if fleet_session() {
         let mut child = std::process::Command::new(&north);
         child.arg("session-unit");
         child

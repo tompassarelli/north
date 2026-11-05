@@ -443,5 +443,45 @@
     "sh -c 'nix-shell --run \"cargo test\"'",
     "route",
     "heavy"
+  ],
+  [
+    "bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp cargo test --locked --offline -p north --test it",
+    "route",
+    "heavy"
+  ],
+  [
+    "bwrap --ro-bind / / --bind /home/tom/code /home/tom/code bash -c 'cd lane && cargo build'",
+    "route",
+    "heavy"
+  ],
+  [
+    "systemd-run --user --scope -p MemoryMax=8G cargo clippy --all-targets",
+    "route",
+    "moderate"
+  ],
+  [
+    "sudo -u builder cargo build --release",
+    "route",
+    "heavy"
+  ],
+  [
+    "taskset -c 0-3 cargo nextest run",
+    "route",
+    "heavy"
+  ],
+  [
+    "xargs -n1 cargo check -p",
+    "route",
+    "moderate"
+  ],
+  [
+    "bwrap --ro-bind / / ls /tmp",
+    "allow",
+    "none"
+  ],
+  [
+    "bwrap --ro-bind /usr/bin/bash /bin/bash cargo --version",
+    "allow",
+    "none"
   ]
 ]

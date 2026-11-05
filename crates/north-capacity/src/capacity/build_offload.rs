@@ -56,6 +56,7 @@ pub struct Candidate<'a> {
     pub landing: bool,
     pub need: Option<&'a str>,
     pub deferred: bool,
+    pub agent: bool,
     pub offloaded_already: bool,
 }
 
@@ -122,8 +123,9 @@ pub fn refusal(candidate: &Candidate) -> Option<Declined> {
     candidate.need.filter(|need| !need.is_empty()).map(|need| Declined::refused(need, String::new()))
 }
 
+/// A deferred heavy build moves when a host has room, and an agent's heavy build is offered to the hosts first even when this host would admit it, so the laptop builds only what no build host has room for.
 pub fn wants_offload(candidate: &Candidate) -> bool {
-    candidate.class == "heavy" && candidate.deferred
+    candidate.class == "heavy" && (candidate.deferred || candidate.agent)
 }
 
 pub fn first_free(hosts: impl IntoIterator<Item = (String, Room)>) -> Result<String, Declined> {

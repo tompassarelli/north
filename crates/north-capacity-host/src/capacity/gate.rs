@@ -154,10 +154,12 @@ pub fn class_of(words: &[String], depth: usize) -> Option<Class> {
         "cargo" => cargo(args),
         "bun" => bun(args),
         "depbox" => args.iter().position(|word| word == "--").and_then(|marker| class_of(&args[marker + 1..], depth + 1)),
-        _ => match nix_command::unwrap(words)? {
-            Inner::Command { words, .. } => class_of(&words, depth + 1),
-            Inner::Script(source) => script(source, depth + 1),
-            Inner::NixBuild => Some(Class::Heavy),
+        _ => match (nix_command::launched(words), nix_command::unwrap(words)) {
+            (Some(commands), _) => commands.into_iter().filter_map(|command| class_of(command, depth + 1)).max(),
+            (None, Some(Inner::Command { words, .. })) => class_of(&words, depth + 1),
+            (None, Some(Inner::Script(source))) => script(source, depth + 1),
+            (None, Some(Inner::NixBuild)) => Some(Class::Heavy),
+            (None, None) => None,
         },
     }
 }

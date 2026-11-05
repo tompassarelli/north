@@ -103,6 +103,10 @@ pub(super) fn decide(source: &str, cwd: &Path, leased: bool, depth: usize) -> De
     if !leased && cpu_redirect(source) {
         fold(refuse("only machine-capacity may throttle CPU"), &mut refusals, &mut routed);
     }
+    settled(refusals, routed)
+}
+
+fn settled(refusals: Vec<String>, routed: bool) -> Decision {
     if !refusals.is_empty() {
         Decision::Refuse(refusals.join("\n"))
     } else if routed {
@@ -121,6 +125,18 @@ fn fold(decision: Decision, refusals: &mut Vec<String>, routed: &mut bool) {
 }
 
 fn segment_decision(words: &[String], set: &[&str], cwd: &Path, leased: bool, depth: usize) -> Decision {
+    let Some(commands) = nix_command::launched(words) else {
+        return own_decision(words, set, cwd, leased, depth);
+    };
+    let (mut refusals, mut routed) = (Vec::new(), false);
+    fold(own_decision(words, set, cwd, leased, depth), &mut refusals, &mut routed);
+    for command in commands {
+        fold(segment_decision(command, set, cwd, leased, depth + 1), &mut refusals, &mut routed);
+    }
+    settled(refusals, routed)
+}
+
+fn own_decision(words: &[String], set: &[&str], cwd: &Path, leased: bool, depth: usize) -> Decision {
     if let Some(nested) = nested(words, cwd, leased) {
         match nested {
             Nested::Source(source, directory, lease) => decide(&source, &directory, lease, depth + 1),

@@ -35,6 +35,14 @@ pub fn unwrap(words: &[String]) -> Option<Inner<'_>> {
     }
 }
 
+const LAUNCHERS: &[&str] = &["bwrap", "firejail", "systemd-run", "sudo", "doas", "taskset", "chrt", "unshare", "setpriv", "nsenter", "xargs", "flock"];
+const LAUNCHED: &[&str] = &["cargo", "bash", "sh", "bun", "bunx", "npx", "tsc", "nix", "nix-shell", "nix-build", "env", "machine-capacity", "north"];
+
+/// The commands a launcher word runs, when its first word is one such as `bwrap`, `sudo` or `taskset`: its options take values this parser does not know, so each later word that names a program a gate classifies starts one candidate command.
+pub fn launched(words: &[String]) -> Option<Vec<&[String]>> {
+    LAUNCHERS.contains(&shell::basename(words.first()?)).then(|| (1..words.len()).filter(|&i| LAUNCHED.contains(&shell::basename(&words[i]))).map(|i| &words[i..]).collect())
+}
+
 fn env(args: &[String]) -> Inner<'_> {
     let mut directories = Vec::new();
     let mut i = 0;

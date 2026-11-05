@@ -3,7 +3,7 @@
 use super::build_offload::*;
 
 fn heavy() -> Candidate<'static> {
-    Candidate { class: "heavy", landing: false, need: None, deferred: true, offloaded_already: false }
+    Candidate { class: "heavy", landing: false, need: None, deferred: true, agent: false, offloaded_already: false }
 }
 
 fn rooms(room: Room) -> impl FnOnce() -> Vec<(String, Room)> {
@@ -125,7 +125,7 @@ mod properties {
             let fits = |admission: &Admission| admission.cpu_pressure_percent < admission.pressure_high_percent && admission.limit_cpus - admission.committed_cpus - reserved >= needs;
             let rooms: Vec<(String, Room)> = hosts.iter().map(|(name, admission)| (name.clone(), admission.shortfall(needs, reserved).map_or(Room::Free, Room::Short))).collect();
             let expected = hosts.iter().find(|(_, admission)| fits(admission)).map(|(name, _)| name.clone());
-            let routed = match route(&Candidate { class: "heavy", landing: false, need: None, deferred: true, offloaded_already: false }, || rooms) {
+            let routed = match route(&Candidate { class: "heavy", landing: false, need: None, deferred: true, agent: false, offloaded_already: false }, || rooms) {
                 Route::Offload { host } => Some(host),
                 Route::Local | Route::Declined(_) => None,
             };
@@ -147,4 +147,30 @@ mod properties {
             prop_assert_eq!(named_tree.is_some(), names);
         }
     }
+}
+
+fn agent_build() -> Candidate<'static> {
+    Candidate { deferred: false, agent: true, ..heavy() }
+}
+
+#[test]
+fn capacity_an_agents_heavy_build_the_laptop_would_admit_offloads_to_the_first_host_with_room() {
+    let hosts = || vec![("gex45".to_owned(), Room::Short("1.0 cores free of 20, needs 4".to_owned())), ("ccx33".to_owned(), Room::Free)];
+    assert_eq!(route(&agent_build(), hosts), Route::Offload { host: "ccx33".to_owned() });
+    assert_eq!(route(&agent_build(), rooms(Room::Free)), Route::Offload { host: "gex45".to_owned() });
+}
+
+#[test]
+fn capacity_an_agents_heavy_build_stays_for_local_admission_only_when_no_host_has_room_or_none_is_configured() {
+    let full = vec![("gex45".to_owned(), Room::Short("busy".to_owned())), ("ccx33".to_owned(), Room::Unreachable)];
+    assert_eq!(declined(route(&agent_build(), || full)).0, "no room");
+    assert_eq!(route(&agent_build(), Vec::new), Route::Local);
+    let tom = Candidate { agent: false, ..agent_build() };
+    assert_eq!(route(&tom, || panic!("probed")), Route::Local, "a build outside a fleet session that this host admits is never probed");
+    for need in ["gpu", "native:wisp"] {
+        let pinned = Candidate { need: Some(need), ..agent_build() };
+        assert_eq!(declined(route(&pinned, || panic!("probed"))).0, format!("refused: {need}"));
+    }
+    let landing = Candidate { landing: true, ..agent_build() };
+    assert_eq!(declined(route(&landing, || panic!("probed"))).0, "refused: landing");
 }
