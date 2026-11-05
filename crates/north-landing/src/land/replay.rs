@@ -54,6 +54,7 @@ fn replay(options: &Options) -> Result<String, String> {
         match pick {
             Pick::Included => {}
             Pick::Decided(verdict) => return Ok(verdict.split_whitespace().next().unwrap_or("undecided").to_owned()),
+            Pick::Refused(_) => return Ok("failed".to_owned()),
             Pick::Undecided(reason) | Pick::Deferred(reason) => return Ok(format!("undecided {reason}")),
         }
     }

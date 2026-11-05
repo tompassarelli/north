@@ -9,6 +9,7 @@ use super::bisect::{self, Strikes};
 use super::candidate::{self, Pick};
 use super::checks::{self, Started, Verdict};
 use super::lander::Lander;
+use super::lane_gates;
 use super::queue::Ticket;
 use super::records::{self, Candidate, Decision};
 use super::telemetry::Stages;
@@ -103,7 +104,7 @@ fn start_set(lander: &Lander, base: &str, offset: usize, set: &[Entry], logs: &P
         .zip(set)
         .find_map(|(pick, (_, ticket))| match pick {
             Pick::Included => None,
-            Pick::Decided(verdict) | Pick::Undecided(verdict) | Pick::Deferred(verdict) => Some(format!("{}: {verdict}", ticket.branch)),
+            Pick::Decided(verdict) | Pick::Undecided(verdict) | Pick::Deferred(verdict) | Pick::Refused(lane_gates::Refused { verdict, .. }) => Some(format!("{}: {verdict}", ticket.branch)),
         })
         .or_else(|| (built.picks.len() < set.len()).then(|| "no pick".to_owned()));
     if let Some(reason) = reason {

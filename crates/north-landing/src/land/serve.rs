@@ -208,6 +208,11 @@ impl Lander {
                         bisect::decide(path, ticket, verdict.clone(), None, &base)?;
                         progressed = true;
                     }
+                    Pick::Refused(refused) => {
+                        records::write(self, path, ticket, &Candidate { head: "", batch_size: 0, stages: &Stages::empty() }, &Decision::Refused { verdict: &refused.verdict });
+                        bisect::decide(path, ticket, refused.verdict.clone(), Some(&refused.log), &base)?;
+                        progressed = true;
+                    }
                     Pick::Undecided(reason) => undecided = Some(reason.clone()),
                     Pick::Deferred(reason) => println!("north land: {reason}"),
                 }

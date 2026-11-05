@@ -9,6 +9,7 @@ pub mod culprit;
 pub mod enqueue;
 pub mod first_commit;
 pub mod hold;
+pub mod lane_gates;
 pub mod incidents;
 pub mod lander;
 pub mod model_cmd;

@@ -5,6 +5,7 @@ use std::process::{Command, Output};
 use std::sync::{PoisonError, RwLock};
 
 use super::queue::{self, Ticket};
+use super::lane_gates::{self, Lane};
 use super::reservation::{self, Attempt, Judged};
 use crate::landing::{merge_continue, merge_set, stale_revert};
 
@@ -65,6 +66,7 @@ pub fn prepare(repo: &Path, worktree: &Path) -> Result<String, String> {
 pub enum Pick {
     Included,
     Decided(String),
+    Refused(lane_gates::Refused),
     Undecided(String),
     Deferred(String),
 }
@@ -171,7 +173,13 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&Ticket], logs:
         return refuse(logs, name, "regenerate", &format!("could not regenerate an index the lane leaves stale: {error}; NOT landed."));
     }
     match stale_revert::reverted(worktree, &picked_onto, "HEAD", &ticket.head) {
-        Ok(found) if found.is_empty() => Ok(Pick::Included),
+        Ok(found) if found.is_empty() => {
+            let head = git(worktree, &["rev-parse", "HEAD"])?;
+            let lane = Lane { worktree, base: &picked_onto, head: &head, author: ticket.session.as_deref() };
+            let Some(refused) = lane_gates::judge(&lane, logs, name)? else { return Ok(Pick::Included) };
+            git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
+            Ok(Pick::Refused(refused))
+        }
         Ok(found) => {
             git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
             refuse(logs, name, "stale-revert", &stale_revert::refusal(&found))
@@ -204,7 +212,7 @@ pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued:
         if matches!(pick, Pick::Included) {
             tips.push(git(worktree, &["rev-parse", "HEAD"])?);
         }
-        if matches!(pick, Pick::Decided(_)) {
+        if matches!(pick, Pick::Decided(_) | Pick::Refused(_)) {
             decided.insert(path);
         }
         picks.push(pick);
