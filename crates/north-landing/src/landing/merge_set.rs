@@ -148,7 +148,7 @@ pub fn merge_entries(base: &[Entry], ours: &[Entry], theirs: &[Entry]) -> Result
         .collect::<Vec<_>>();
     added.sort_by(|a, b| a.text.cmp(&b.text));
     merged.extend(added);
-    if is_sorted(base) && is_sorted(ours) && is_sorted(theirs) {
+    if is_sorted(ours) && is_sorted(theirs) {
         merged.sort_by(|a, b| a.text.cmp(&b.text));
     }
     Ok(merged)

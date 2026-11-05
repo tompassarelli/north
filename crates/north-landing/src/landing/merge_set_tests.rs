@@ -88,6 +88,12 @@ fn a_sorted_list_stays_sorted_and_an_unsorted_one_gets_additions_at_the_end() {
     assert_eq!(loose, entries(&["z", "a", "m", "q"]));
 }
 
+#[test]
+fn two_sorted_sides_merge_sorted_even_over_an_unsorted_base() {
+    let merged = merge_entries(&entries(&["b", "a"]), &entries(&["a", "b", "c"]), &entries(&["a", "b", "d"])).unwrap();
+    assert_eq!(merged, entries(&["a", "b", "c", "d"]), "a lane and main that both sort their list must not get additions appended because the merge base predates the sort");
+}
+
 const BASE: &str = r#"[[module]]
 name = "foundation"
 may_use = []
