@@ -112,3 +112,30 @@ fn the_latest_main_run_is_read_unpaginated_from_push_events_only() {
     assert!(asked[0].0.contains("repos/tompassarelli/wisp/actions/runs?branch=main&event=push&status=completed&per_page=1"));
     assert!(!asked[0].1);
 }
+
+fn main_run(conclusion: &str, commit: &str) -> Value {
+    serde_json::json!({"name": "Land", "conclusion": conclusion, "head_sha": commit, "updated_at": "2026-11-04T00:10:00Z", "html_url": "https://github.com/tompassarelli/north/actions/runs/9"})
+}
+
+#[test]
+fn a_green_then_a_failing_then_the_same_failing_main_write_one_incident_line() {
+    let ledger = Connection::open_in_memory().expect("open");
+    let record = |incident: &Incident| crate::threads::incidents::record_once(&ledger, incident).map_err(|error| error.to_string());
+    let pulls = [main_run("success", "aaa"), main_run("failure", "bbb"), main_run("failure", "bbb")];
+    let lines: Vec<String> = pulls.iter().filter_map(|run| red_main_incident("north", run, now(), &record).expect("pull")).collect();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("incident: north main is red: Land concluded failure"), "{}", lines[0]);
+    let rows: i64 = ledger.query_row("SELECT count(*) FROM incidents WHERE key = 'main-red:north@bbb' AND repo = 'north'", [], |row| row.get(0)).expect("count");
+    assert_eq!(rows, 1);
+}
+
+#[test]
+fn a_new_failing_commit_on_main_writes_a_second_incident() {
+    let ledger = Connection::open_in_memory().expect("open");
+    let record = |incident: &Incident| crate::threads::incidents::record_once(&ledger, incident).map_err(|error| error.to_string());
+    for commit in ["bbb", "bbb", "ccc"] {
+        red_main_incident("north", &main_run("failure", commit), now(), &record).expect("pull");
+    }
+    let rows: i64 = ledger.query_row("SELECT count(*) FROM incidents", [], |row| row.get(0)).expect("count");
+    assert_eq!(rows, 2);
+}

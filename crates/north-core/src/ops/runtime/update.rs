@@ -3,6 +3,7 @@ use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
 use super::peers;
 use super::pull;
+use super::queue::{self, Entry};
 use super::remote;
 use super::reuse;
 use super::store;
@@ -76,7 +77,7 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
         return Err(failed(1, format!("no previous runtime to roll {} back to", layout::short(failed_sha))));
     };
     swap(layout, &layout::link(&previous))?;
-    fs::write(layout.failed(), failed_sha)?;
+    mark_failed(layout, failed_sha)?;
     println!("north runtime rolled back to {}", layout::short(&previous));
     Ok(layout::short(&previous).to_owned())
 }
@@ -107,7 +108,8 @@ fn pass(layout: &Layout) -> Result<Pass, Failure> {
         println!("north runtime current: {}", layout::short(&target));
         return Ok(Pass::Settled);
     }
-    match advance(layout, &checkout, &target, previous.as_deref()) {
+    let wanted = next_build(layout, &checkout, &target, previous.as_deref());
+    match advance(layout, &checkout, &wanted, previous.as_deref()) {
         Err(deferred) if deferred.code == DEFERRED => catch_up(layout, &checkout, &target, previous.as_deref())?.ok_or(deferred),
         advanced => advanced,
     }
@@ -125,7 +127,7 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
         && failure.code != DEFERRED
         && failure.code != SUPERSEDED
     {
-        fs::write(layout.failed(), target)?;
+        mark_failed(layout, target)?;
     }
     let synced = promoted?;
     if let Some(was) = previous.and_then(layout::linked_sha) {
@@ -166,11 +168,44 @@ fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
 }
 
 pub(super) fn held_back(layout: &Layout, target: &str) -> bool {
+    failed_shas(layout).iter().any(|sha| sha == target)
+}
+
+fn failed_shas(layout: &Layout) -> Vec<String> {
     let failed = layout.failed();
     let recent = fs::metadata(&failed)
         .and_then(|metadata| metadata.modified())
         .is_ok_and(|at| at.elapsed().is_ok_and(|age| age < RETRY_AFTER));
-    recent && fs::read_to_string(&failed).is_ok_and(|sha| sha.trim() == target)
+    match recent {
+        true => fs::read_to_string(&failed).unwrap_or_default().lines().map(str::trim).filter(|sha| !sha.is_empty()).map(str::to_owned).collect(),
+        false => Vec::new(),
+    }
+}
+
+pub(super) fn mark_failed(layout: &Layout, sha: &str) -> std::io::Result<()> {
+    let mut shas = failed_shas(layout);
+    if !shas.iter().any(|failed| failed == sha) {
+        shas.push(sha.to_owned());
+    }
+    fs::write(layout.failed(), shas.join("\n"))
+}
+
+fn skipped(layout: &Layout) -> Vec<String> {
+    let journal = fs::read_to_string(layout.abandoned()).unwrap_or_default();
+    journal.lines().rev().filter_map(|line| line.split_whitespace().nth(1)).filter(|sha| layout::is_sha(sha)).map(str::to_owned).collect()
+}
+
+fn next_build(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> String {
+    let current = previous.and_then(layout::linked_sha);
+    let failed = failed_shas(layout);
+    let mut entries = vec![Entry { sha: target.to_owned(), failed: failed.iter().any(|sha| sha == target) }];
+    for sha in skipped(layout) {
+        let ahead = sha != target && current.is_none_or(|current| sha != current && !ancestor(checkout, &sha, current)) && ancestor(checkout, &sha, target);
+        if ahead && !entries.iter().any(|entry| entry.sha == sha) {
+            entries.push(Entry { failed: failed.contains(&sha), sha });
+        }
+    }
+    queue::next(&entries, |older, newer| ancestor(checkout, older, newer)).unwrap_or(target).to_owned()
 }
 
 pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<File>, Failure> {

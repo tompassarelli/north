@@ -8,6 +8,7 @@ pub mod layout;
 mod peers;
 mod pull;
 mod probe;
+mod queue;
 mod remote;
 mod reuse;
 mod settle;

@@ -6,6 +6,7 @@ use serde_json::{Map, Value};
 
 use super::fleet_pull::{insert_row, last_at, open_fleet_database, run_columns};
 use crate::foundation::clock::Timestamp;
+use crate::threads::incidents::Incident;
 
 const OWNER: &str = "tompassarelli";
 const REPOSITORIES: [&str; 3] = ["north", "makgora", "wisp"];
@@ -13,6 +14,10 @@ const FIRST_PULL_DAYS: i64 = 7;
 const GENERIC_LABELS: [&str; 6] = ["self-hosted", "linux", "x64", "arm64", "macos", "windows"];
 
 pub(super) type Gh<'a> = &'a dyn Fn(&str, &str, bool) -> Result<String, String>;
+pub(super) type Record<'a> = &'a dyn Fn(&Incident) -> Result<bool, String>;
+
+const INCIDENT_CLASS: &str = "main-red";
+const INCIDENT_NOTICER: &str = "actions-pull";
 
 fn gh_api(endpoint: &str, filter: &str, paginate: bool) -> Result<String, String> {
     let mut gh = Command::new("gh");
@@ -92,6 +97,35 @@ pub(super) fn main_incident(repo: &str, run: &Value) -> Option<String> {
     Some(format!("incident: {repo} main is red: {} concluded {conclusion} at {} {}", text("name"), text("updated_at"), text("html_url")))
 }
 
+pub(super) fn red_main_incident(repo: &str, run: &Value, now: Timestamp, record: Record<'_>) -> Result<Option<String>, String> {
+    let Some(line) = main_incident(repo, run) else { return Ok(None) };
+    let commit = run["head_sha"].as_str().filter(|commit| !commit.is_empty()).ok_or_else(|| format!("{repo}: the red main run names no commit"))?;
+    let incident = Incident {
+        key: format!("{INCIDENT_CLASS}:{repo}@{commit}"),
+        class: INCIDENT_CLASS.to_owned(),
+        noticed_by: INCIDENT_NOTICER.to_owned(),
+        repo: repo.to_owned(),
+        subject: commit.to_owned(),
+        started_at: None,
+        detected_at: now.iso(),
+        detail: line.clone(),
+    };
+    Ok(record(&incident)?.then_some(line))
+}
+
+fn record_with_north(incident: &Incident) -> Result<bool, String> {
+    let north = std::env::current_exe().map_err(|error| error.to_string())?;
+    let output = Command::new(north)
+        .args(["incident", "record", "--key", &incident.key, "--class", &incident.class, "--noticed-by", &incident.noticed_by])
+        .args(["--repo", &incident.repo, "--subject", &incident.subject, "--detail", &incident.detail])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(format!("north incident record: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    Ok(!String::from_utf8_lossy(&output.stdout).contains("already recorded"))
+}
+
 fn latest_main_run(repo: &str, gh: Gh<'_>) -> Result<Option<Value>, String> {
     let text = gh(&format!("repos/{OWNER}/{repo}/actions/runs?branch=main&event=push&status=completed&per_page=1"), ".workflow_runs[0] // empty", false)?;
     Ok(serde_json::from_str(text.trim()).ok())
@@ -159,9 +193,15 @@ pub fn run(arguments: &[String]) -> u8 {
     for repo in REPOSITORIES {
         match latest_main_run(repo, &gh_api) {
             Ok(run) => {
-                if let Some(line) = run.and_then(|run| main_incident(repo, &run)) {
-                    println!("{line}");
+                if let Some(run) = run.filter(|run| main_incident(repo, run).is_some()) {
                     red = true;
+                    match red_main_incident(repo, &run, Timestamp::now(), &record_with_north) {
+                        Ok(line) => line.iter().for_each(|line| println!("{line}")),
+                        Err(message) => {
+                            eprintln!("north capacity actions-pull: {repo}: {message}");
+                            failed = true;
+                        }
+                    }
                 }
             }
             Err(message) => {

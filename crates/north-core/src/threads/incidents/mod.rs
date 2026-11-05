@@ -143,6 +143,12 @@ pub fn insert(db: &Connection, incident: &Incident) -> rusqlite::Result<bool> {
     Ok(inserted == 1)
 }
 
+/// Creates the tables if they are missing, then inserts the incident once by key.
+pub fn record_once(db: &Connection, incident: &Incident) -> rusqlite::Result<bool> {
+    db.execute_batch(SCHEMA)?;
+    insert(db, incident)
+}
+
 /// Names the guard that closes a class and marks every open earlier incident of it fixed then.
 pub fn set_guard(db: &Connection, guard: &Guard) -> rusqlite::Result<usize> {
     db.execute(
