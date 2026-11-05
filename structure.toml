@@ -22,7 +22,7 @@ may_use = ["cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "la
 
 [[module]]
 name = "foundation"
-paths = ["crates/north-base/src/foundation/**", "crates/north-base/src/error.rs", "crates/north-base/src/test_inputs.rs"]
+paths = ["crates/north-base/src/foundation/**", "crates/north-base/src/error.rs", "crates/north-base/src/test_inputs.rs", "crates/north-base/src/build_inputs.rs"]
 responsibility = "Error type, clock port and time values, identifiers."
 may_use = []
 
