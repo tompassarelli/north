@@ -1,11 +1,10 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
-use crate::fleet::model::{Effort, LaunchRequest, Role, SessionRecord, Status};
-use crate::fleet::records::read_record;
-use crate::fleet::runtime::{Opening, now_ms};
+use crate::fleet::model::{Account, Effort, LaunchRequest, Role, SessionRecord, Status};
+use crate::fleet::runtime::{Opening, Runtime, new_uuid, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
 use super::takeover::Predecessor;
@@ -49,35 +48,39 @@ impl Fleet {
         record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
         self.claim_before_start(request, &tasks, verification)?;
         fs::create_dir_all(&session_dir)?;
-        if let Some(predecessor) = &predecessor {
-            hand_in::inherit_journal(&predecessor.archived, &session_dir)?;
+        let Err(error) = self.bring_up(request, &mut record, &account, runtime.as_ref(), predecessor.as_ref(), conversation.as_deref()) else { return Ok(record) };
+        Err(match self.discard_failed_launch(&session_dir) {
+            Ok(()) => error,
+            Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
+        })
+    }
+
+    fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, runtime: &dyn Runtime, predecessor: Option<&Predecessor>, conversation: Option<&str>) -> NorthResult<()> {
+        if let Some(predecessor) = predecessor {
+            hand_in::inherit_journal(&predecessor.archived, &self.session_dir(&request.name)?)?;
         }
-        let opening = match (&request.resume, &predecessor) {
+        let opening = match (&request.resume, predecessor) {
             (Some(kept), Some(predecessor)) => {
-                runtime.carry_conversation(&self.account(&predecessor.record().relaunch_request())?, &account, kept)?;
+                runtime.carry_conversation(&self.account(&predecessor.record().relaunch_request())?, account, kept)?;
                 Opening::Resume(kept)
             }
             (Some(kept), None) => Opening::Resume(kept),
-            (None, _) => Opening::Fresh(conversation.as_deref()),
+            (None, _) => Opening::Fresh(conversation),
         };
-        if let Err(error) = self.start_claiming(&mut record, &account, opening) {
-            self.discard_unrecorded(&session_dir);
-            return Err(error);
-        }
+        self.start_claiming(record, account, opening)?;
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
-        self.deliver_first_turn(&mut record, &account, &request.prompt)?;
-        Ok(record)
+        self.deliver_first_turn(record, account, &request.prompt)
     }
 
-    /// Removes the directory of a launch whose host never registered a record, so the name is free for the next launch.
-    fn discard_unrecorded(&self, session_dir: &std::path::Path) {
-        if read_record(session_dir).is_ok() {
-            return;
-        }
-        let _ = Host::new(session_dir.to_path_buf()).terminate();
-        let _ = fs::remove_dir_all(session_dir);
+    /// Ends the host of a failed launch and removes its directory however far the launch got, so a host slow to show its provider's exit leaves nothing under the name; renaming it away first means a watchdog racing on the name cannot leave it half removed.
+    fn discard_failed_launch(&self, session_dir: &Path) -> NorthResult<()> {
+        Host::new(session_dir.to_path_buf()).terminate()?;
+        let discarded = self.root.join(format!(".failed-launch-{}", new_uuid()?));
+        fs::rename(session_dir, &discarded)?;
+        fs::remove_dir_all(&discarded)?;
+        Ok(())
     }
 
     fn refuse_second_proxy(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<()> {
