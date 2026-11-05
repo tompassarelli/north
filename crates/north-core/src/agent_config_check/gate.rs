@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -413,7 +413,7 @@ pub(super) fn session_start_probe(north: OsString, home: PathBuf, deadline: Dura
             command
         };
         let stalled = match process::try_run_command_traced_within(hook(false), Some(payload.as_bytes()), deadline)
-            .map_err(|error| format!("north hook session-start did not run: {error}"))?
+            .map_err(|error| format!("north hook session-start did not run: {}: {error}", program(&north)))?
         {
             Ok(output) => return Ok(String::from_utf8_lossy(&output.stdout).chars().count()),
             Err(stalled) => stalled,
@@ -423,7 +423,7 @@ pub(super) fn session_start_probe(north: OsString, home: PathBuf, deadline: Dura
         };
         eprintln!("agent-config-check: host saturated at {load:.2} load per CPU, so north hook session-start missed its {seconds} s deadline; retrying under a capacity lease");
         let output = process::try_run_command_traced_within(hook(true), Some(payload.as_bytes()), Duration::from_secs(LEASE_WAIT_SECONDS) + deadline)
-            .map_err(|error| format!("north hook session-start did not run under a capacity lease: {error}"))?
+            .map_err(|error| format!("north hook session-start did not run under a capacity lease: {}: {error}", program(&north)))?
             .map_err(|stalled| format!("host saturated at {load:.2} load per CPU; no capacity lease admitted north hook session-start within {LEASE_WAIT_SECONDS} seconds; at the limit: {stalled}"))?;
         match output.status.code() {
             Some(0) => {}
@@ -431,6 +431,15 @@ pub(super) fn session_start_probe(north: OsString, home: PathBuf, deadline: Dura
             _ => return Err(format!("host saturated at {load:.2} load per CPU; under a capacity lease north hook session-start failed ({}): {}", output.status, String::from_utf8_lossy(&output.stderr).trim())),
         }
         Ok(String::from_utf8_lossy(&output.stdout).chars().count())
+    })
+}
+
+fn program(north: &OsStr) -> String {
+    let path = Path::new(north);
+    format!("{} ({})", path.display(), match (path.is_absolute(), path.exists()) {
+        (false, _) => "looked up on PATH",
+        (true, true) => "present",
+        (true, false) => "missing",
     })
 }
 
