@@ -88,11 +88,39 @@ pub fn fleet_nodes() -> Option<Vec<Value>> {
 pub fn session_role(nodes: Option<&Vec<Value>>, session: &str) -> Option<&'static str> {
     let nodes = nodes?;
     let node = nodes.iter().find(|row| row["conversation"] == session)?;
-    if crate::providers::claude::runs::truthy(&node["parent"]) {
-        Some("worker")
-    } else if nodes.iter().any(|row| row["parent"] == node["name"]) {
-        Some("parent")
-    } else {
-        Some("proxy")
+    Some(node_role(nodes, node))
+}
+
+pub fn node_role(nodes: &[Value], node: &Value) -> &'static str {
+    let truthy = crate::providers::claude::runs::truthy;
+    match node["role"].as_str() {
+        Some("proxy") => "proxy",
+        Some("worker") => "worker",
+        Some(_) => "parent",
+        None if truthy(&node["parent"]) || truthy(&node["task_ref"]) => "worker",
+        None if nodes.iter().any(|other| other["parent"] == node["name"]) => "parent",
+        None => "proxy",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::node_role;
+
+    #[test]
+    fn the_ledger_takes_a_sessions_role_from_its_record_before_inferring_one() {
+        let nodes = vec![
+            json!({"name": "proxy", "role": "proxy", "parent": null}),
+            json!({"name": "lead-fleet", "role": "lead", "parent": null}),
+            json!({"name": "lf-r1", "role": "worker", "parent": null}),
+            json!({"name": "solo", "role": "lead", "parent": null}),
+            json!({"name": "old-lead", "parent": null}),
+            json!({"name": "old-worker", "parent": "old-lead"}),
+            json!({"name": "old-proxy", "parent": null}),
+        ];
+        let roles: Vec<&str> = nodes.iter().map(|node| node_role(&nodes, node)).collect();
+        assert_eq!(roles, ["proxy", "parent", "worker", "parent", "parent", "worker", "proxy"]);
     }
 }

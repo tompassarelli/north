@@ -142,6 +142,7 @@ pub(super) fn session_json(record: &SessionRecord, status: Status, waits: &Waits
         "account": record.account,
         "status": status.label(),
         "parent": record.parent,
+        "role": record.role().label(),
         "cwd": record.cwd,
         "model": record.model,
         "effort": record.effort.map(Effort::label),

@@ -24,6 +24,7 @@ fn request() -> LaunchRequest {
         placement: None,
         machine: None,
         capacity_need: None,
+        role: None,
     }
 }
 
@@ -33,6 +34,19 @@ fn the_host_names_its_session_to_the_commands_it_runs() {
     let spec = Claude.host(&account, &request(), Opening::Fresh(None), "").unwrap();
     assert!(spec.env.contains(&("NORTH_FLEET_SESSION".to_owned(), "worker".into())), "{:?}", spec.env);
     assert!(spec.env.contains(&("THREADS_ACTOR".to_owned(), "worker".into())), "{:?}", spec.env);
+}
+
+#[test]
+fn the_host_exports_the_role_its_launcher_set() {
+    use crate::fleet::model::Role;
+    let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a"), token_file: None };
+    let role = |request: LaunchRequest| {
+        let spec = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
+        spec.env.into_iter().find(|(name, _)| name == "NORTH_FLEET_ROLE").map(|(_, value)| value)
+    };
+    assert_eq!(role(LaunchRequest { name: "proxy".into(), role: Some(Role::Proxy), ..request() }), Some("proxy".into()));
+    assert_eq!(role(LaunchRequest { task_ref: Some("north#112".into()), ..request() }), Some("worker".into()));
+    assert_eq!(role(request()), Some("lead".into()));
 }
 
 #[test]

@@ -20,6 +20,7 @@ fn a_session_launched_without_task_holds_the_issue_its_briefs_first_item_line_na
         placement: None,
         machine: None,
         capacity_need: None,
+        role: None,
     };
     assert_eq!(request("Item: wisp#39 relay NAT run\nCategory: native-check\nItem: wisp#40", None).task().as_deref(), Some("wisp#39"));
     assert_eq!(request("Category: tooling\n  Item: tompassarelli/makgora#342: dash attack", None).task().as_deref(), Some("tompassarelli/makgora#342"));
@@ -51,6 +52,7 @@ fn a_session_launched_without_task_holds_the_issue_the_brief_its_prompt_points_a
         placement: None,
         machine: None,
         capacity_need: None,
+        role: None,
     };
     let brief = brief.display();
     assert_eq!(request(format!("read and do the box brief at {brief}"), None).task().as_deref(), Some("wisp#63"));
@@ -74,4 +76,51 @@ fn every_issue_the_first_item_line_names_is_held_up_to_a_word_that_marks_the_res
     assert_eq!(item_issues("Item: tompassarelli/makgora#342 and north#9, north#9"), ["tompassarelli/makgora#342", "north#9"]);
     assert!(item_issues("Item: #342 dash attack").is_empty());
     assert!(item_issues("Done when: north#1").is_empty());
+}
+
+#[test]
+fn a_launch_records_the_role_it_was_given_else_a_worker_for_a_task_and_a_lead_for_any_other() {
+    use super::{Role, SessionRecord};
+    let request = |prompt: &str, task: Option<&str>, role: Option<Role>| LaunchRequest {
+        verification: false,
+        name: "proxy".into(),
+        provider: ProviderName::new("claude"),
+        account: "a".into(),
+        cwd: "/tmp".into(),
+        model: None,
+        effort: None,
+        prompt: prompt.into(),
+        system_prompt: None,
+        foreground_cap_secs: None,
+        prompt_mode: Default::default(),
+        idle_exit_minutes: None,
+        parent: None,
+        task_ref: task.map(str::to_owned),
+        placement: None,
+        machine: None,
+        capacity_need: None,
+        role,
+    };
+    let recorded = |request: LaunchRequest| SessionRecord::launched(&request, None, None, false, 1).role;
+    assert_eq!(recorded(request("take Tom's messages", None, Some(Role::Proxy))), Some(Role::Proxy));
+    assert_eq!(recorded(request("go", Some("north#112"), None)), Some(Role::Worker), "--task makes a worker");
+    assert_eq!(recorded(request("Item: north#112 proxy role R1", None, None)), Some(Role::Worker), "an Item line makes a worker");
+    assert_eq!(recorded(request("staff the lead-fleet boxes", None, None)), Some(Role::Lead));
+    let proxy = SessionRecord::launched(&request("go", None, Some(Role::Proxy)), None, None, false, 1);
+    let stored: SessionRecord = serde_json::from_value(serde_json::to_value(&proxy).unwrap()).unwrap();
+    assert_eq!((stored.role(), stored.relaunch_request().role()), (Role::Proxy, Role::Proxy), "a revive or hand-over keeps the role");
+    assert!(Role::parse("boss").is_err());
+}
+
+#[test]
+fn a_record_from_before_roles_reads_its_role_from_its_name_parent_and_task() {
+    use super::{Role, SessionRecord};
+    let legacy = |name: &str, parent: Option<&str>, task: Option<&str>| {
+        let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "parent": parent, "task_ref": task})).unwrap();
+        record.role()
+    };
+    assert_eq!(legacy("proxy", None, None), Role::Proxy);
+    assert_eq!(legacy("lead-fleet", None, None), Role::Lead);
+    assert_eq!(legacy("lf-r1", Some("lead-fleet"), None), Role::Worker);
+    assert_eq!(legacy("lf-r1", None, Some("north#112")), Role::Worker);
 }

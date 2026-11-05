@@ -45,6 +45,7 @@ fn on_far() -> LaunchRequest {
         placement: None,
         machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }),
         capacity_need: None,
+        role: None,
     }
 }
 
@@ -314,6 +315,35 @@ fn a_take_over_claims_the_row_under_the_name_and_a_refused_one_leaves_the_holder
 
     assert_eq!(store.0.lock().unwrap().iter().map(|(row, claim)| (row.name.as_str(), *claim)).collect::<Vec<_>>(), [("worker", Claim::TakeOver)]);
     assert_eq!(fleet.record("worker").unwrap().conversation.as_deref(), Some("c0ffee"), "the holder is not archived when the store refuses");
+}
+
+fn holding(fleet: &Fleet, name: &str, role: &str, stopped: bool) {
+    let held = fleet.session_dir(name).unwrap();
+    fs::create_dir_all(&held).unwrap();
+    let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": name, "role": role, "stopped": stopped});
+    fs::write(held.join("session.json"), record.to_string()).unwrap();
+}
+
+#[test]
+fn a_second_live_proxy_is_refused_unless_it_takes_the_proxy_over() {
+    use crate::fleet::model::Role;
+    let home = tempfile::tempdir().unwrap();
+    let store = Arc::new(Unreachable::default());
+    let fleet = fleet(home.path(), "").registering(store.clone());
+    let proxy = || LaunchRequest { name: "proxy".into(), machine: None, role: Some(Role::Proxy), ..on_far() };
+    holding(&fleet, "proxy-gex45", "proxy", false);
+
+    let refused = fleet.launch(&proxy()).unwrap_err().user_message();
+    assert!(refused.contains("proxy-gex45 is the live proxy") && refused.contains("--take-over"), "{refused}");
+    assert!(fleet.take_over(&proxy()).unwrap_err().user_message().contains("proxy-gex45 is the live proxy"), "a take-over moves only the name it launches under");
+    assert!(store.0.lock().unwrap().is_empty(), "a refused proxy registers nothing");
+    let worker = fleet.launch(&LaunchRequest { name: "lf-r1".into(), machine: None, task_ref: Some("north#112".into()), ..on_far() }).unwrap_err().user_message();
+    assert!(worker.contains("did not answer"), "a worker beside the proxy is not held by it: {worker}");
+
+    holding(&fleet, "proxy-gex45", "proxy", true);
+    holding(&fleet, "proxy", "proxy", false);
+    let taken = fleet.take_over(&proxy()).unwrap_err().user_message();
+    assert!(taken.contains("did not answer"), "a take-over of the live proxy under its name goes ahead and a stopped one holds nothing: {taken}");
 }
 
 fn hosted(fleet: &Fleet, name: &str, model: Option<&str>, effort: &str) -> std::process::Child {

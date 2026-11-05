@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::{NorthError, NorthResult};
+
 pub use super::effort::Effort;
 use super::prompt::PromptMode;
 use super::turns::{Turn, Turns};
@@ -59,9 +61,42 @@ pub struct LaunchRequest {
     pub machine: Option<Machine>,
     #[serde(default)]
     pub capacity_need: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<Role>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    Proxy,
+    Lead,
+    Worker,
+}
+
+impl Role {
+    pub const ALL: [Self; 3] = [Self::Proxy, Self::Lead, Self::Worker];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Proxy => "proxy",
+            Self::Lead => "lead",
+            Self::Worker => "worker",
+        }
+    }
+
+    pub fn parse(text: &str) -> NorthResult<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|role| role.label() == text)
+            .ok_or_else(|| NorthError::Usage(format!("no role {text}; use one of {}", Self::ALL.map(Self::label).join(", "))))
+    }
 }
 
 impl LaunchRequest {
+    pub fn role(&self) -> Role {
+        self.role.unwrap_or_else(|| if self.tasks().is_empty() { Role::Lead } else { Role::Worker })
+    }
+
     /// The first of [`Self::tasks`].
     pub fn task(&self) -> Option<String> {
         self.tasks().into_iter().next()
@@ -183,6 +218,8 @@ pub struct SessionRecord {
     pub ended: Option<Ending>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addressed_since_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<Role>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -204,6 +241,50 @@ impl Ending {
 }
 
 impl SessionRecord {
+    pub fn launched(request: &LaunchRequest, effort: Option<Effort>, conversation: Option<String>, verification: bool, created_ms: u64) -> Self {
+        let tasks = request.tasks();
+        Self {
+            verification,
+            name: request.name.clone(),
+            provider: request.provider.clone(),
+            account: request.account.clone(),
+            cwd: request.cwd.clone(),
+            model: request.model.clone(),
+            effort,
+            created_ms,
+            host_pid: None,
+            conversation,
+            host_dir: PathBuf::new(),
+            stream_offset: 0,
+            stopped: false,
+            ended: None,
+            system_prompt: request.system_prompt.clone(),
+            foreground_cap_secs: request.foreground_cap_secs,
+            idle_exit_minutes: request.idle_exit_minutes,
+            parent: request.parent.clone(),
+            task_ref: tasks.first().cloned(),
+            extra_tasks: tasks.iter().skip(1).cloned().collect(),
+            prompt_mode: request.prompt_mode,
+            system_prompt_sha: None,
+            placement: request.placement.clone(),
+            machine: request.machine.clone(),
+            capacity_need: request.capacity_need.clone(),
+            last_sender: None,
+            handoff_at: super::handoff::threshold(&request.prompt),
+            eta_min: request.eta_min(),
+            addressed_since_ms: None,
+            role: Some(request.role()),
+        }
+    }
+
+    pub fn role(&self) -> Role {
+        self.role.unwrap_or_else(|| match (self.parent.is_some() || self.task_ref.is_some(), self.name == super::runtime::PROXY) {
+            (true, _) => Role::Worker,
+            (false, true) => Role::Proxy,
+            (false, false) => Role::Lead,
+        })
+    }
+
     /// Every issue this session holds a claim on: its task and the others its Item line named.
     pub fn tasks(&self) -> impl Iterator<Item = &str> {
         self.task_ref.iter().chain(&self.extra_tasks).map(String::as_str)
@@ -233,6 +314,7 @@ impl SessionRecord {
             placement: self.placement.clone(),
             machine: self.machine.clone(),
             capacity_need: self.capacity_need.clone(),
+            role: Some(self.role()),
         }
     }
 }

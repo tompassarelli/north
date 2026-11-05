@@ -201,6 +201,7 @@ impl LaunchForm {
             placement: None,
             machine: None,
             capacity_need: None,
+            role: None,
         })
     }
 }

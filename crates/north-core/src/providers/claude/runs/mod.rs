@@ -144,13 +144,7 @@ fn fleet_sessions() -> HashMap<String, FleetSession> {
     let mut sessions = HashMap::new();
     for node in &nodes {
         let Some(conversation) = node["conversation"].as_str() else { continue };
-        let role = if truthy(&node["parent"]) || truthy(&node["task_ref"]) {
-            "worker"
-        } else if nodes.iter().any(|other| other["parent"] == node["name"]) {
-            "parent"
-        } else {
-            "proxy"
-        };
+        let role = crate::providers::ledger_rows::node_role(&nodes, node);
         let effort = node["effort"].as_str().map(str::to_owned);
         let name = node["name"].as_str().unwrap_or_default().to_owned();
         let created = node["created_ms"].as_u64().unwrap_or(0);

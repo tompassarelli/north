@@ -1,6 +1,7 @@
 //! Who hears a launched session's reports: the calling fleet session, else the proxy for a
 //! launch from outside the fleet (dispatch, timers, a bare terminal), unless `--parent` names
 //! another or `none`.
+use crate::fleet::model::Role;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::PROXY;
 
@@ -16,11 +17,13 @@ pub(super) fn proxy_reachable(fleet: &Fleet, caller: Option<&str>, words: &[&str
     reached.is_ok()
 }
 
-pub(super) fn parent(flag: Option<String>, caller: Option<String>, proxy: bool, name: &str) -> Option<String> {
+pub(super) fn parent(flag: Option<String>, caller: Option<String>, proxy: bool, name: &str, role: Option<Role>) -> Option<String> {
+    let is_proxy = role == Some(Role::Proxy) || name == PROXY;
     match flag.as_deref() {
         Some("none") => None,
         Some(_) => flag,
-        None => caller.filter(|caller| !caller.is_empty()).or_else(|| (proxy && name != PROXY).then(|| PROXY.to_owned())),
+        None if is_proxy => None,
+        None => caller.filter(|caller| !caller.is_empty()).or_else(|| proxy.then(|| PROXY.to_owned())),
     }
 }
 

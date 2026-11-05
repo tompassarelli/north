@@ -290,6 +290,18 @@ fn a_launch_inherits_the_calling_session_as_parent_else_the_proxy_unless_told_no
 }
 
 #[test]
+fn a_proxy_launch_is_named_proxy_with_no_parent_and_any_other_name_is_refused() {
+    use crate::fleet::model::Role;
+    let providers = [ProviderName::new("claude")];
+    let proxy = launch_request(&providers, &["--provider", "claude", "--account", "a", "--role", "proxy", "go"], Some("lead-fleet".into())).unwrap();
+    assert_eq!((proxy.name.as_str(), proxy.parent.as_deref(), proxy.role()), ("proxy", None, Role::Proxy));
+    assert!(launch_request(&providers, &["--provider", "claude", "--account", "a", "--role", "proxy", "--name", "proxy-b", "go"], None).is_err());
+    assert!(launch_request(&providers, &["--provider", "claude", "--account", "a", "--role", "boss", "go"], None).is_err());
+    let worker = launch_request(&providers, &["--provider", "claude", "--account", "a", "--name", "w", "--task", "north#112", "go"], None).unwrap();
+    assert_eq!(worker.role(), Role::Worker);
+}
+
+#[test]
 fn a_claude_launch_without_an_account_is_left_for_placement_and_any_other_launch_still_needs_one() {
     let providers = [ProviderName::new("claude"), ProviderName::new("codex")];
     let request = launch_request(&providers, &["--provider", "claude", "--name", "w", "PROMPT"], None).unwrap();

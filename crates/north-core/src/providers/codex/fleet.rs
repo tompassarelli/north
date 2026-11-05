@@ -328,6 +328,7 @@ mod turn_state {
             placement: None,
             machine: None,
             capacity_need: None,
+            role: None,
         }
     }
 

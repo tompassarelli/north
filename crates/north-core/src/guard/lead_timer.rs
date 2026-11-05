@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::fleet::model::Role;
 use crate::fleet::records::{past_records, read_record};
 use crate::fleet::runtime::SESSION_ENV;
 use crate::hook::{HookInput, Verdict};
@@ -34,7 +35,10 @@ pub fn refusal(input: &HookInput, session: Option<&str>, root: &Path) -> Option<
 }
 
 pub fn is_lead(session: &str, root: &Path) -> bool {
-    session.split('-').any(|part| part == "lead") || has_children(session, root)
+    match read_record(&root.join(session)).ok().and_then(|record| record.role) {
+        Some(role) => role != Role::Worker,
+        None => session.split('-').any(|part| part == "lead") || has_children(session, root),
+    }
 }
 
 fn has_children(session: &str, root: &Path) -> bool {

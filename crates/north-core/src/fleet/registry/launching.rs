@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Effort, LaunchRequest, SessionRecord, Status};
+use crate::fleet::model::{Effort, LaunchRequest, Role, SessionRecord, Status};
 use crate::fleet::runtime::{Opening, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
@@ -27,6 +27,7 @@ impl Fleet {
         if let Some(parent) = &request.parent {
             self.reaches(parent)?;
         }
+        self.refuse_second_proxy(request, claim)?;
         let account = self.account(request)?;
         let runtime = self.runtimes.get(&request.provider)?;
         if let Some(model) = request.model.as_deref().filter(|model| !runtime.models().contains(model)) {
@@ -36,37 +37,7 @@ impl Fleet {
         let conversation = runtime.assign_conversation()?;
         let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
         let tasks = request.tasks();
-        let mut record = SessionRecord {
-            verification,
-            name: request.name.clone(),
-            provider: request.provider.clone(),
-            account: request.account.clone(),
-            cwd: request.cwd.clone(),
-            model: request.model.clone(),
-            effort,
-            created_ms: now_ms(),
-            host_pid: None,
-            conversation: conversation.clone(),
-            host_dir: PathBuf::new(),
-            stream_offset: 0,
-            stopped: false,
-            ended: None,
-            system_prompt: request.system_prompt.clone(),
-            foreground_cap_secs: request.foreground_cap_secs,
-            idle_exit_minutes: request.idle_exit_minutes,
-            parent: request.parent.clone(),
-            task_ref: tasks.first().cloned(),
-            extra_tasks: tasks.iter().skip(1).cloned().collect(),
-            prompt_mode: request.prompt_mode,
-            system_prompt_sha: None,
-            placement: request.placement.clone(),
-            machine: request.machine.clone(),
-            capacity_need: request.capacity_need.clone(),
-            last_sender: None,
-            handoff_at: crate::fleet::handoff::threshold(&request.prompt),
-            eta_min: request.eta_min(),
-            addressed_since_ms: None,
-        };
+        let mut record = SessionRecord::launched(request, effort, conversation.clone(), verification, now_ms());
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         self.registrar.register(&row, claim)?;
         let predecessor = self.retire_for(&request.name, claim)?;
@@ -82,6 +53,17 @@ impl Fleet {
         }
         self.deliver_first_turn(&mut record, &account, &request.prompt)?;
         Ok(record)
+    }
+
+    fn refuse_second_proxy(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<()> {
+        if request.role() != Role::Proxy {
+            return Ok(());
+        }
+        let live = self.sessions()?.into_iter().filter(|record| record.role() == Role::Proxy && self.status(record) != Status::Exited);
+        match live.into_iter().find(|record| claim == Claim::Fresh || record.name != request.name) {
+            Some(proxy) => Err(NorthError::Usage(format!("{} is the live proxy; a proxy launch with --take-over ends it and moves the role to the new session", proxy.name))),
+            None => Ok(()),
+        }
     }
 
     pub fn revive(&self, name: &str, system_prompt: Option<PathBuf>) -> NorthResult<SessionRecord> {

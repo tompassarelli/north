@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use crate::error::NorthResult;
-use crate::fleet::model::{Effort, LaunchRequest, ProviderName};
+use crate::error::{NorthError, NorthResult};
+use crate::fleet::model::{Effort, LaunchRequest, ProviderName, Role};
 use crate::fleet::prompt::PromptMode;
-use crate::fleet::runtime::new_uuid;
+use crate::fleet::runtime::{PROXY, new_uuid};
 
 use super::usage::usage;
 use super::lineage;
@@ -24,6 +24,7 @@ struct LaunchFlags {
     idle_exit_minutes: Option<u64>,
     parent: Option<String>,
     task_ref: Option<String>,
+    role: Option<Role>,
     overrides: Overrides,
     wait: Option<bool>,
     take_over: bool,
@@ -45,6 +46,7 @@ impl LaunchFlags {
             "--idle-exit" => self.idle_exit_minutes = Some(value.parse().map_err(|_| usage())?),
             "--parent" => self.parent = Some(value),
             "--task" => self.task_ref = Some(value),
+            "--role" => self.role = Some(Role::parse(&value)?),
             "--overlap-ok" => self.overlap_ok = Some(value),
             _ if self.overrides.set(flag, &value) => {}
             _ => return Err(usage()),
@@ -65,11 +67,13 @@ impl LaunchFlags {
             return Err(usage());
         }
         let (cwd, machine) = placement::working_directory(self.cwd)?;
-        let name = match self.name {
-            Some(name) => name,
-            None => default_name(&provider, &account)?,
+        let name = match (self.name, self.role) {
+            (Some(name), Some(Role::Proxy)) if name != PROXY => return Err(NorthError::Usage(format!("the proxy is named {PROXY}, not {name}"))),
+            (Some(name), _) => name,
+            (None, Some(Role::Proxy)) => PROXY.to_owned(),
+            (None, _) => default_name(&provider, &account)?,
         };
-        let parent = lineage::parent(self.parent, caller, proxy, &name);
+        let parent = lineage::parent(self.parent, caller, proxy, &name, self.role);
         Ok(LaunchRequest {
             verification: self.verification,
             name,
@@ -88,6 +92,7 @@ impl LaunchFlags {
             placement: None,
             machine,
             capacity_need: None,
+            role: self.role,
         })
     }
 }
