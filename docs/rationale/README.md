@@ -3,6 +3,7 @@
 Why north is built the way it is, one note per decision. `north docs rationale-index` writes this list from each note's title and first sentence; edit the notes, not this file.
 
 - [Account usage: one reserve, placement that manages work in flight, and a spend breaker](account-capacity.md): Plan of 2026-11-04 (laptop time), revised the same day to Tom's design of 2026-11-05.
+- [Agent push identity: agents push as the Socrates Agent app, Tom keeps his login](agent-push-identity.md): Tom approved on 2026-11-06 moving agent pushes off his admin login, so that GitHub itself refuses an agent's stray tag instead of safe-push alone (north#619).
 - [Build cost: where north's compiles burn cores, and what to cut first](build-cost.md): Plan of 2026-11-04 (laptop time, +07), revised the same day after review.
 - [Capacity scheduler: elastic, learned, fleet-wide placement by predicted finish time](capacity-scheduler.md): Owner: north#259
 - [Conflict-free landing: no lane starves, no author round-trip for a mechanical conflict](conflict-free-landing.md): On 2026-11-05 Tom asked for a fix by construction after the lane that puts every repository on the lander (s18-integrated) lost the race to main four times in 20 minutes while its author rebased by hand.

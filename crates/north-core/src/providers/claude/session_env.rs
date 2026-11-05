@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::fleet::model::{Account, LaunchRequest, Role};
 use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV};
+use crate::platform::git_credential;
 
 use super::accounts::default_home;
 
@@ -32,6 +33,7 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
         (ACTOR_ENV.into(), request.name.clone().into()),
     ]);
     env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
+    env.extend(git_credential::session_env().into_iter().map(|(name, value)| (name, value.into())));
     env
 }
 

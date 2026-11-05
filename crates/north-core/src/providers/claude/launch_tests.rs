@@ -96,3 +96,13 @@ fn a_launch_at_high_effort_runs_claude_at_high_effort_and_its_revive_keeps_it() 
     assert!(effort(&revived.argv), "{:?}", revived.argv);
     assert!(Effort::parse("extreme").is_err());
 }
+
+#[test]
+fn the_host_pushes_to_github_through_the_agent_credential_helper() {
+    let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a"), token_file: None };
+    let spec = Claude.host(&account, &request(), Opening::Fresh(None), "").unwrap();
+    let value = |name: &str| spec.env.iter().find(|(key, _)| key == name).map(|(_, value)| value.to_string_lossy().into_owned());
+    assert_eq!(value("GIT_CONFIG_COUNT").as_deref(), Some("2"), "{:?}", spec.env);
+    assert_eq!(value("GIT_CONFIG_KEY_1").as_deref(), Some("credential.https://github.com.helper"));
+    assert_eq!(value("GIT_CONFIG_VALUE_1").as_deref(), Some("!north git-credential"));
+}

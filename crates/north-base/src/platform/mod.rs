@@ -11,6 +11,7 @@ pub mod frozen_topics;
 pub mod disk_budget;
 pub mod github;
 pub mod github_app;
+pub mod git_credential;
 pub mod hook_commands;
 pub mod host;
 pub mod north_binary;

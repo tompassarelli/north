@@ -1,1 +1,1 @@
-- GitHub as the Socrates Agent app: `gh-app-token` prints a cached installation token (decrypted from south's `secrets/github-app.yaml`), and `gh-as-app ARGS` runs `gh` with it.
+- GitHub as the Socrates Agent app: `gh-app-token` prints a cached installation token (decrypted from south's `secrets/github-app.yaml`), `gh-as-app ARGS` runs `gh` with it, and `git-credential` is the git credential helper fleet sessions push through, so GitHub's tag rulesets bind agent pushes while Tom's own login stays his.

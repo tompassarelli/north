@@ -42,11 +42,20 @@ const APPS: &[(&str, App)] = &[
     ("lander", App { file: "nexus/north-lander.yaml", pem: "pem", cache: "gh-app-token-lander" }),
 ];
 
+pub const AGENT_APP: &str = "socrates";
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Request {
     pub app: App,
     pub repos: Option<Vec<String>>,
     pub permissions: BTreeMap<String, String>,
+}
+
+impl Request {
+    pub fn installation(app_name: &str) -> Option<Self> {
+        let app = APPS.iter().find(|(name, _)| *name == app_name).map(|(_, app)| *app)?;
+        Some(Self { app, repos: None, permissions: default_permissions() })
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
