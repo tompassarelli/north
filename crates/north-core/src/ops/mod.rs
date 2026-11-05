@@ -37,6 +37,7 @@ pub mod report;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod policy_replay;
 pub mod runtime;
+pub mod tool_mine;
 pub mod tune;
 pub mod tempo;
 pub mod timers;

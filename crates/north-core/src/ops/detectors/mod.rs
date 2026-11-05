@@ -39,10 +39,11 @@ pub enum Detector {
     SilentSignal,
     RepeatedRefusal,
     LowDisk,
+    RecurringSequence,
 }
 
 impl Detector {
-    pub const ALL: [Self; 4] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk];
+    pub const ALL: [Self; 5] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -50,6 +51,7 @@ impl Detector {
             Self::SilentSignal => "silent-signal",
             Self::RepeatedRefusal => "repeated-refusal",
             Self::LowDisk => "low-disk",
+            Self::RecurringSequence => "recurring-sequence",
         }
     }
 }
@@ -109,6 +111,7 @@ pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> (Vec<Find
             Detector::SilentSignal => signal::silent(&gatherer.signals(), now, limits),
             Detector::RepeatedRefusal => refusal::repeated(&gatherer.refusals(now, limits.refusal_window_s), now, limits),
             Detector::LowDisk => disk::low(&gatherer.disks(), now, limits),
+            Detector::RecurringSequence => continue,
         };
         spends.push(Spend { detector, millis: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), findings: found.len() });
         findings.extend(found);

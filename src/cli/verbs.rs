@@ -131,6 +131,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("threads queue", Delegate),
     ("threads release", Bookkeeping),
     ("threads tick", Bookkeeping),
+    ("tool-mine", Bookkeeping),
     ("tune", Bookkeeping),
     ("usage", Status),
     ("usage-web-read", Status),
