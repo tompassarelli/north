@@ -208,28 +208,28 @@ value = 20
 unit = "newest matching runs machine-capacity sizes a command from"
 source = "measured: flat over {5,10,20,40,all}: capacity_runs exact signatures walk-forward, 0 under-charged, charged/peak memory 6.65-6.66, n=27"
 fallback = "under 3 matching runs the declared resource class applies"
-consumers = ["crates/north-core/src/capacity/host/policy.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 
 [capacity_memory_margin]
 value = 1.2
 unit = "multiple of p90 peak memory machine-capacity charges"
 source = "measured: capacity_runs exact signatures walk-forward, peak memory / p90 of the prior 20, to 2026-10-12, n=27, p99 1.02, none over 1.2"
 fallback = "under 3 matching runs the declared resource class applies"
-consumers = ["crates/north-core/src/capacity/host/policy.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 
 [capacity_high_confidence_runs]
 value = 10
 unit = "exact-signature runs before a capacity estimate is high confidence"
 source = "measured: flat: capacity_runs exact signatures walk-forward, 0 over-charges at 3-4 prior runs (n=10), 5-9 (n=5), 10-19 (n=10), 20+ (n=2); confidence bands do not differ, n=27"
 fallback = "fewer exact runs give medium confidence; no match gives low"
-consumers = ["crates/north-core/src/capacity/host/policy.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 
 [heavy_peak_charge_runs]
 value = 20
 unit = "runs of one owner prefix and command shape, every one measured, below which a heavy request keeps its declared cores; at or above it a shape whose every peak stayed under the declared cores is charged its highest peak"
 source = "measured: the last 40 land-check heavy runs on the laptop (2026-11-05) peaked at most 4.0 cores, p90 of per-run p90 2.8, mean wall 121 s, yet each was charged 6, so 3 of 5 lander check slots ran while 64 lanes waited and the laptop sat 31% busy; the 6-core floor (8f9546838) stays for shapes that peaked at or above it, because seven rust-port builds charged their 3.49-core p90 reached load 129 on 2026-10-15"
 fallback = "fewer runs, or any run without a measured peak, keep the declared heavy size"
-consumers = ["crates/north-core/src/capacity/host/policy.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 
 [pace_target_left_claude]
 value = 5
@@ -581,7 +581,7 @@ consumers = ["crates/north-core/src/capacity/admission.rs"]
 [land_offload_cpus]
 value = 6
 unit = "free cores (the admission limit less the CPUs committed to batch runs) a host needs to take an offloaded land check"
-source = "standard: machine-capacity's heavy class asks 6 cores on a host above 8 cores (crates/north-core/src/capacity/host/policy.rs resource_class)"
+source = "standard: machine-capacity's heavy class asks 6 cores on a host above 8 cores (crates/north-capacity-host/src/capacity/host/policy.rs resource_class)"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
 consumers = ["crates/north-core/src/capacity/admission.rs"]
 
@@ -625,7 +625,7 @@ value = 0.25
 unit = "measured cores of a quiet native lease's scope below which its clients count as idle"
 source = "measured: a quiet lease held at 0 measured cores for over 17 minutes while 19 batch jobs from six sessions queued behind it on the GPU host, 2026-10-26 (north#237)"
 fallback = "a lease whose scope is not measured counts as busy"
-consumers = ["crates/north-core/src/capacity/host/policy.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 
 [quiet_idle_seconds]
 value = 300
@@ -702,42 +702,42 @@ value = 50
 unit = "percent of the 10 s CPU pressure average (PSI some avg10) at or above which a watchdog sample counts as overloaded"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406: cpuPsi p90 7.4, p95 28, p99 76; with load per thread at 2 or more, 50 raises 5 incidents over the span and 70 raises 3; a 60 s burn of 200 spinners holds the 10 s average above 50 for 57 s, so two 30 s samples always see it"
 fallback = "without a CPU pressure reading no sample is overloaded and the watchdog only samples"
-consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/watchdog/detect.rs"]
 
 [overload_psi60]
 value = 15
 unit = "percent of the 60 s CPU pressure average (PSI some avg60) a watchdog sample must also reach to count as overloaded, so a spike the 60 s average has not registered is not"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406: cpuPsi60 p90 9.6, p95 26, p99 72; with cpuPsi at 50 and load per thread at 2, a floor of 10, 15 or 20 raises the same 5 incidents over the span; 15 admits a 60 s burn of 200 spinners on a quiet host on its first overloaded sample"
 fallback = "without a CPU pressure reading no sample is overloaded and the watchdog only samples"
-consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/watchdog/detect.rs"]
 
 [overload_load_per_core]
 value = 2.0
 unit = "1-minute load average per CPU thread at or above which a watchdog sample counts as overloaded"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406 on 16 threads: load per thread p95 1.4, p99 2.9, max 10.2; the 2026-10-29 10:10-10:12 PM overload reached 8-10"
 fallback = "without a load reading no sample is overloaded"
-consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/watchdog/detect.rs"]
 
 [overload_sustained_samples]
 value = 2
 unit = "consecutive overloaded 30 s watchdog samples before an incident, and calm ones before a cap lifts"
 source = "standard: two samples is the least that tells a sustained overload from one spike while keeping detection plus delivery inside 2 minutes of the load rising (Tom, 2026-10-29)"
 fallback = "a single spike never raises an incident"
-consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/watchdog/detect.rs"]
 
 [overload_calm_psi60]
 value = 20
 unit = "percent of the 60 s CPU pressure average below which a watchdog sample counts as calm and lifts the caps"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406: cpuPsi60 p90 9.6, p95 26; below 20 is the ordinary working band"
 fallback = "caps stay until the host is calm"
-consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/watchdog/detect.rs"]
 
 [overload_offender_cores]
 value = 1.0
 unit = "peak CPU cores a fleet session scope must reach over the overloaded samples to be capped"
 source = "measured: the 2026-10-29 10:08-10:13 PM overload samples, the fleet session scope behind the fan-out used 1.9-2.4 cores of 16 while load hit 160; quieter scopes stayed under 0.5"
 fallback = "an overload with no scope over the floor is reported and nothing is capped"
-consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/watchdog/detect.rs"]
 
 [overload_cap_share]
 value = 0.5
@@ -745,7 +745,7 @@ unit = "fraction of an offending scope's measured cores that its CPU cap leaves 
 source = "prior: halving an offender's measured use is the smallest cap that visibly lowers the run queue while keeping its session responsive; replaces nothing measured yet"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes to measure load before and after a cap" }
 fallback = "the cap never goes below one core"
-consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/watchdog/detect.rs"]
 
 [landing_live_deadline_sec]
 value = 600
@@ -775,14 +775,14 @@ unit = "CPUWeight and IOWeight of Tom's desktop slice (app.slice, his browser an
 source = "prior: game-reserve.slice's weight of 1000 (crates/north-core/src/capacity/game_reserve.rs); the reason is that on 2026-10-31 unleased agent bursts (gitleaks at 400%, pre-push bun at 200%, rustc at 300%) held CPU pressure at 17 to 18% for 5 minutes and slowed Tom's browser while app.slice and agent.slice both stood at weight 100 by a stale runtime drop-in from 2026-10-29"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose desktop CPU pressure can be compared at weight 1000 against the same agent bursts at the old even share" }
 fallback = "an unattended profile applies slice_weight_app_unattended"
-consumers = ["crates/north-core/src/capacity/host/systemd.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/systemd.rs"]
 
 [slice_weight_app_unattended]
 value = 100
 unit = "CPUWeight and IOWeight of Tom's desktop slice while the profile is unattended, the systemd default"
 source = "standard: systemd's default weight; nobody is at the desktop, so it needs no priority over agent work"
 fallback = "none: the weight is applied at every profile change and every admitted run"
-consumers = ["crates/north-core/src/capacity/host/systemd.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/systemd.rs"]
 
 [slice_weight_agent]
 value = 20
@@ -790,7 +790,7 @@ unit = "CPUWeight and IOWeight of agent.slice in either profile, so a stale runt
 source = "prior: nixos-config modules/agent-slice declares agent.slice at CPUWeight 20 and IOWeight 20; a runtime drop-in from 2026-10-29 had set both to 100 and shadowed it until 2026-10-31"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose desktop CPU pressure can be compared at agent.slice weight 20 against the same bursts at 100" }
 fallback = "none: the weight is applied at every profile change and every admitted run"
-consumers = ["crates/north-core/src/capacity/host/systemd.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/systemd.rs"]
 
 [slice_weight_session_unattended]
 value = 300
@@ -798,7 +798,7 @@ unit = "CPUWeight and IOWeight of session.slice (the compositor and shell) while
 source = "prior: nixos-config modules/agent-slice declares session.slice at CPUWeight 300 and IOWeight 300"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose compositor stalls can be compared at session.slice weight 300 against the same bursts at 100" }
 fallback = "none: the weight is applied at every profile change and every admitted run"
-consumers = ["crates/north-core/src/capacity/host/systemd.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/systemd.rs"]
 
 [admit_psi_unattended_low]
 value = 20
@@ -866,14 +866,14 @@ unit = "seconds a heavy lease's declared memory still counts against available m
 source = "prior: rustc and the linker grow a build's resident set over its first minute, so its declared memory counts for that minute; no figure recorded"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose lowest MemAvailable after a heavy start can be checked against the memory floor" }
 fallback = "none: a lease older than this counts only through MemAvailable"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs", "crates/north-core/src/capacity/host/policy.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs", "crates/north-capacity-host/src/capacity/host/policy.rs"]
 
 [tom_class_owners]
 value = ["makgora:tom-build-window", "makgora:play-helper", "tom-preview"]
 unit = "machine-capacity owners admitted to --class tom: the Tom-build watcher's window build, wisp play's controller helper build and the proxy's tom-window and preview build"
 source = "tom: the tom class admits in seconds past pressure and the queue, so it serves only the build Tom is waiting to play; on the 20-thread build host 62 runs from 22:50 to 00:10 UTC on 2026-11-01 used it for other work while heavy leases waited 3740 to 4975 s, none of them that build (south's record of the 2026-11-01 CPU drain, north#460)"
 fallback = "every other owner is refused and told to use heavy, gpu or native --latency, with --priority tom-ask when Tom is waiting on the work"
-consumers = ["crates/north-core/src/capacity/host/priority.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/priority.rs"]
 
 [priority_lease_cap]
 value = 2
@@ -881,7 +881,7 @@ unit = "running leases per host admitted with --priority tom-ask; past them a pr
 source = "prior: two front-of-line leases leave a 20-thread host's queue moving while work Tom waits on goes first; on the 20-thread build host on 2026-11-01 60 queue-jumping runs in 80 minutes held heavy leases back for over an hour (north#460)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against priority uses in capacity.db; worker runs are the nearest existing count until priority waits are counted" }
 fallback = "none: the cap is always read"
-consumers = ["crates/north-core/src/capacity/host/priority.rs"]
+consumers = ["crates/north-capacity-host/src/capacity/host/priority.rs"]
 
 [rework_alarm_pct]
 value = 20

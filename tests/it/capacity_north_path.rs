@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 
 fn on_path(name: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|path| path.is_file() && !north_core::capacity::gate::is_shim(path))
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|path| path.is_file() && !north_capacity_host::capacity::gate::is_shim(path))
 }
 
 #[test]

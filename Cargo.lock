@@ -932,6 +932,7 @@ version = "0.1.0"
 dependencies = [
  "crossterm 0.28.1",
  "fancy-regex",
+ "north-capacity-host",
  "north-core",
  "north-guard",
  "north-landing",
@@ -970,6 +971,23 @@ dependencies = [
  "sha2",
  "tempfile",
  "time",
+ "tokio",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-capacity-host"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-core",
+ "proptest",
+ "regex",
+ "rusqlite",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tokio",
  "toml_edit",
 ]
@@ -1042,6 +1060,7 @@ version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "north-base",
+ "north-capacity-host",
  "north-core",
  "percent-encoding",
  "proptest",

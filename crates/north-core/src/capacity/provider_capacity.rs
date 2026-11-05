@@ -16,7 +16,7 @@ const MESSAGE: &str = "Selected model is at capacity";
 const USAGE: &str = "usage: north provider-capacity events|status [--minutes N]";
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Outcome {
+pub struct Outcome {
     pub at: String,
     pub model: Option<String>,
     pub effort: Option<String>,
@@ -179,7 +179,7 @@ fn root() -> PathBuf {
 }
 
 /// The turns in the last `minutes` that failed because the model had no capacity.
-pub(crate) fn capacity_events(minutes: f64) -> Result<Vec<Outcome>, String> {
+pub fn capacity_events(minutes: f64) -> Result<Vec<Outcome>, String> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |age| age.as_secs_f64());
     let since = now - minutes * 60.0;
     let rows = outcomes(&rollouts(&root(), since)?, since);

@@ -3,66 +3,7 @@
 use super::admission::{AheadTicket, Admission, Class, Facts, Profile, Reason, admit, decide};
 use super::native_hold::{LeaseFact, QuietNative};
 
-pub(super) fn facts(class: Class) -> Facts {
-    Facts {
-        profile: Profile::Attended,
-        class,
-        cores: 24,
-        slice_cpus: None,
-        memory_total_mib: 96343.0,
-        memory_available_mib: 70000.0,
-        cpu_some_avg10_basis_points: 0,
-        protected_cpu_some_avg10_basis_points: 0,
-        cpu_pressure_measured: false,
-        leased_memory_mib: 0.0,
-        leased_batch_cpus: 0.0,
-        unleased_heavy_cores: 0.0,
-        leased_native_cpus: 0.0,
-        requested_cpus: 2.0,
-        requested_memory_mib: 2048.0,
-        peer_batch_runs: 0,
-        peer_exclusive_runs: 0,
-        unbounded_runs: 0,
-        queued_ahead: 0,
-        exclusive_waiting: 0,
-        before_drain: false,
-        gpu_busy_percent: 0,
-        gpu_clients: 0,
-        host_warcraft_clients: None,
-        bar1_free_mib: None,
-        bar1_timed_out: false,
-        vram_free_mib: None,
-        host_bar1_margin_mib: None,
-        new_clients: 0,
-        new_desktops: 0,
-        gpu_runs: 0,
-        native_waiting: 0,
-        quiet_native: Vec::new(),
-        alone: false,
-        alone_queued_ahead: 0,
-        owner: None,
-        pair: None,
-        pair_leases: Vec::new(),
-        leases: Vec::new(),
-        queue: Vec::new(),
-        now: 0.0,
-        beside_native: false,
-        quiet: false,
-        exclusive_leases: Vec::new(),
-        within_exclusive: false,
-        gaming: false,
-        gaming_class: None,
-        game_reserve_agent_cpus: None,
-        queued_ahead_tickets: Vec::new(),
-        queued_ahead_new_clients: Vec::new(),
-        run_queue_load: None,
-        need: None,
-        disk_free_gib: None,
-        ticket: None,
-        requester_lease: None,
-        client_hold: Default::default(),
-    }
-}
+pub(super) use super::fixtures::facts;
 
 const OVERLOAD: &str = include_str!("../../../../harness/skills/machine-capacity/scripts/capacity-run-queue-overload.recorded.json");
 
@@ -425,12 +366,6 @@ fn heavy_builds_held_by_the_disk_floor_do_not_queue_moderate_work_behind_them() 
     assert_eq!(decide(&gex45_on_2026_10_28(Class::Moderate, low, &[Class::Heavy, Class::Heavy])), Reason::Run);
     assert_eq!(decide(&gex45_on_2026_10_28(Class::Moderate, low, &[Class::Heavy, Class::Heavy, Class::Moderate])), Reason::DeferQueued);
     assert_eq!(decide(&gex45_on_2026_10_28(Class::Moderate, 20.0, &[Class::Heavy, Class::Heavy])), Reason::DeferQueued);
-}
-
-#[test]
-fn a_configured_client_cap_prints_its_number_and_an_unconfigured_host_prints_nothing() {
-    assert_eq!(super::command::limit_text(Some(6)), "6");
-    assert_eq!(super::command::limit_text(None), "");
 }
 
 fn heavy_beside_clients(leased_batch_cpus: f64, gpu_clients: u32) -> Facts {

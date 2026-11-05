@@ -48,7 +48,7 @@ mod tests {
         assert_eq!(threshold(&format!("Tier: sonnet\nArm: {label}")), Some(150_000));
         assert!(due(150_000, 150_000, None) && !due(150_000, 149_999, None));
         assert_eq!(handoff_ctx(), 350_000);
-        let watchdog = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/capacity/watchdog/report_command.rs")).unwrap();
+        let watchdog = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../north-capacity-host/src/capacity/watchdog/report_command.rs")).unwrap();
         assert!(watchdog.contains("registry(\"handoff_ctx\")"));
     }
 

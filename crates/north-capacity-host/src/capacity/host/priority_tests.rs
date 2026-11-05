@@ -31,7 +31,7 @@ fn run_lease(priority: bool) -> Value {
 
 fn decided(request: &Request, queued: usize, cpu_some_basis_points: u32) -> Reason {
     let class: Class = serde_json::from_value(json!(request.admitted_class())).expect("class");
-    decide(&Facts { queued_ahead: u32::try_from(queued).unwrap(), cpu_some_avg10_basis_points: cpu_some_basis_points, ..crate::capacity::tests::facts(class) })
+    decide(&Facts { queued_ahead: u32::try_from(queued).unwrap(), cpu_some_avg10_basis_points: cpu_some_basis_points, ..crate::capacity::fixtures::facts(class) })
 }
 
 #[test]

@@ -27,14 +27,20 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
   `north-base`; nothing in `north-core` uses it, so a guard edit rebuilds `north-guard` and the root package.
 - `north-ops`: `ops`, the operational commands. Depends on `north-base` and `north-core`; nothing in
   `north-core` uses it, and `north-guard` names it only for its tests.
+- `north-capacity-host`: `capacity/host`, `capacity/gate`, `capacity/watchdog` and the `north capacity`
+  subcommand dispatch (`capacity/command.rs`). Its `capacity` module re-exports `north_core::capacity` and adds
+  those modules, so `crate::capacity::...` and `super::` paths inside them are unchanged. Depends on
+  `north-base` and `north-core`; `north-ops` (for `land_offload`) and the root package import `capacity` from it.
 - `north` (the root package): `src/main.rs`, `src/cli/` and the `verify-north` and `fake_claude`
-  binaries, plus the integration tests. Depends on `north-core`, `north-guard`, `north-landing`,
-  `north-ops` and `north-tui`.
+  binaries, plus the integration tests. Depends on `north-core`, `north-capacity-host`, `north-guard`,
+  `north-landing`, `north-ops` and `north-tui`.
 
 A leaf edit in `north-landing`, `north-tui`, `north-guard` or `north-ops` rebuilds that crate and what sits
 above it; `north-core` stays cached. An ops leaf edit took 15.5 s wall and 16.2 CPU-seconds for `cargo build
---bin north` before `ops` moved and 6.3 s and 7.0 CPU-seconds after (median of 3, cloud worker, 4 CPUs). An
-edit in `north-core` still rebuilds every crate above it.
+--bin north` before `ops` moved and 6.3 s and 7.0 CPU-seconds after (median of 3, cloud worker, 4 CPUs). A
+`capacity/host/run.rs` edit leaves `north-core` Fresh and rebuilds `north-capacity-host`, `north-ops` and the
+root: `cargo test --no-run` took 8.3 s wall (median of 3, cloud worker, 4 CPUs), against the 5.8 s the plan
+predicts for gex45 below. An edit in `north-core` still rebuilds every crate above it.
 
 ## Moving code
 

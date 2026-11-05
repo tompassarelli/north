@@ -48,14 +48,14 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | tier_choice | bin/threads:1431 | crates/north-core/src/threads/calibration/verbs.rs incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |
-| capacity_runs cores, memory, signature | crates/north-core/src/capacity/host/run.rs record | crates/north-core/src/capacity/host/estimate.rs estimate_capacity | read | |
-| capacity_runs.wallSeconds | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/estimate.rs duration p75 | read | 4aecdaf9 |
-| capacity_runs io, diskBusyShare | crates/north-core/src/capacity/host/run.rs record | crates/north-core/src/capacity/host/estimate.rs estimate output | read | |
-| capacity_runs.exitCode | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
-| capacity_runs.command, cpuSeconds | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/model.rs Subject::levels keys the model by command; update folds cpu_seconds into each level | read | |
+| capacity_runs cores, memory, signature | crates/north-capacity-host/src/capacity/host/run.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate_capacity | read | |
+| capacity_runs.wallSeconds | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 | read | 4aecdaf9 |
+| capacity_runs io, diskBusyShare | crates/north-capacity-host/src/capacity/host/run.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate output | read | |
+| capacity_runs.exitCode | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
+| capacity_runs.command, cpuSeconds | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/model.rs Subject::levels keys the model by command; update folds cpu_seconds into each level | read | |
 | job_runs | bin/threads:1748 | crates/north-core/src/threads/jobs/mod.rs job_runs; crates/north-ops/src/ops/job_watch/mod.rs | read | |
 | model_events | crates/north-ops/src/ops/model_watch | crates/north-core/src/usage/ctx.rs successors, routing hold | read | 4a58f21e |
-| machine-capacity-usage.jsonl | crates/north-core/src/capacity/host/database.rs record_usage | crates/north-core/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
+| machine-capacity-usage.jsonl | crates/north-capacity-host/src/capacity/host/database.rs record_usage | crates/north-capacity-host/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | crates/north-core/src/usage/gate.rs | crates/north-guard/src/guard/spawn_capacity/usage.rs | read | |
 | spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | crates/north-ops/src/ops/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | none (harness/lib/spawn.py and spawn_queue.py no longer exist on main) | none | dropped | |
@@ -94,7 +94,7 @@ State files the loops above write, relative to `~/.local/state`. `north health` 
 | `agents/usage-gate.json` | `north/reader-stamps/agents/usage-gate.json` | crates/north-core/src/usage/gate.rs | 5m | north#35 |
 | `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` | crates/north-guard/src/guard/spawn_capacity/logs.rs | event | north#35 |
 | `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` | crates/north-ops/src/ops/agents/goal/score.rs | event | north#35 |
-| `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-core/src/capacity/host/database.rs | event | north#35 |
+| `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-capacity-host/src/capacity/host/database.rs | event | north#35 |
 | `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-ops/src/ops/usage_web_read | 6h | north#35 |
 
 ## Recorded readings

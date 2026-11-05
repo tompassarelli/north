@@ -3,9 +3,10 @@ mod cli;
 mod remote_serve_tests;
 
 use north_core::{
-    agent_catalog, agent_config_check, agent_policy_contract, autoland_status, build_time, capacity, code_health, contract_probe, error, fleet,
+    agent_catalog, agent_config_check, agent_policy_contract, autoland_status, build_time, code_health, contract_probe, error, fleet,
     foundation, grounding, health, lanes, ledger, platform, providers, proxy, router, split, threads, usage, work_items,
 };
+use north_capacity_host::capacity;
 use north_guard::{guard, hook};
 use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint, land, land_abandon, landing, language_gate, provenance, runtime_floor_gate, watch};
 use north_tui::tui;

@@ -37,7 +37,7 @@ may_use = ["north-dispatch", "north-providers"]
 
 [[crate_dag.crate]]
 name = "north-capacity-host"
-paths = ["crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**"]
+paths = ["crates/north-capacity-host/src/**", "crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**"]
 may_use = ["north-capacity", "north-fleet", "north-threads"]
 
 [[crate_dag.crate]]
@@ -185,9 +185,9 @@ may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "capacity"
-paths = ["crates/north-core/src/capacity/**"]
+paths = ["crates/north-capacity-host/src/lib.rs", "crates/north-core/src/capacity/**", "crates/north-capacity-host/src/capacity/**"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
-may_use = ["shell", "platform", "foundation", "crate-roots"]
+may_use = ["shell", "platform", "foundation", "crate-roots", "fleet", "threads"]
 
 [[module]]
 name = "lanes"

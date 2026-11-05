@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-capacity-host = { path = "../north-capacity-host" }
 north-core = { path = "../north-core" }
 fancy-regex.workspace = true
 regex.workspace = true
