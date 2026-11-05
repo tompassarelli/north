@@ -65,6 +65,8 @@ fn queued(queue: &[Value], open: bool, draining: &[Value], now: f64) -> Vec<Obj>
                 .put("position", index + 1)
                 .put("owner", get("owner"))
                 .put("class", get("class"))
+                .put("requestedClass", get("requestedClass"))
+                .put("requestedCpus", get("requestedCpus"))
                 .put_some("priority", ticket.get("priority").cloned())
                 .put("reason", get("reason"))
                 .put("waitingSeconds", seconds(now - field(ticket, "queuedAt").unwrap_or(f64::NAN)))

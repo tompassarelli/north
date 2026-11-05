@@ -10,6 +10,7 @@ pub const UNREACHABLE_RETRY_FACTOR: f64 = 20.0;
 pub struct Admission {
     pub limit_cpus: f64,
     pub committed_cpus: f64,
+    pub queued_heavy_cpus: f64,
     pub cpu_pressure_percent: f64,
     pub pressure_high_percent: f64,
     pub land_check_waiting: bool,
@@ -23,7 +24,12 @@ impl Admission {
             "unattended" => "admit_psi_unattended_high",
             _ => return None,
         };
-        Some(Self { limit_cpus: number("aggregateCpuLimit")?, committed_cpus: number("committedBatchCpus")?, cpu_pressure_percent: number("cpuSomeAvg10")?, pressure_high_percent: super::admission::default_mib(band), land_check_waiting: status.get("landCheckWaiting").and_then(serde_json::Value::as_bool).unwrap_or(false) })
+        Some(Self { limit_cpus: number("aggregateCpuLimit")?, committed_cpus: number("committedBatchCpus")?, queued_heavy_cpus: queued_heavy_cpus(status), cpu_pressure_percent: number("cpuSomeAvg10")?, pressure_high_percent: super::admission::default_mib(band), land_check_waiting: status.get("landCheckWaiting").and_then(serde_json::Value::as_bool).unwrap_or(false) })
+    }
+
+    /// The CPUs left once the committed ones and the heavy jobs already waiting in this host's admission queue are counted as taken.
+    pub fn free_cpus(&self) -> f64 {
+        self.limit_cpus - self.committed_cpus - self.queued_heavy_cpus
     }
 
     /// Why a build declaring `needs` CPUs would wait on this host's admission, with `reserved` CPUs counted as taken by builds already on their way; the host's load average, which its CI farm fills inside quota, never counts.
@@ -31,9 +37,14 @@ impl Admission {
         if self.cpu_pressure_percent >= self.pressure_high_percent {
             return Some(format!("CPU pressure {:.0}% at the {:.0}% admission mark", self.cpu_pressure_percent, self.pressure_high_percent));
         }
-        let free = self.limit_cpus - self.committed_cpus - reserved;
+        let free = self.free_cpus() - reserved;
         (free < needs).then(|| format!("{free:.1} cores free of {}, needs {needs}", self.limit_cpus))
     }
+}
+
+fn queued_heavy_cpus(status: &serde_json::Value) -> f64 {
+    let queued = status.get("queued").and_then(serde_json::Value::as_array).map_or(&[][..], Vec::as_slice);
+    queued.iter().filter(|ticket| ticket.get("requestedClass").and_then(serde_json::Value::as_str) == Some("heavy")).filter_map(|ticket| ticket.get("requestedCpus")?.as_f64()).sum()
 }
 
 #[derive(Clone, Copy, Debug)]

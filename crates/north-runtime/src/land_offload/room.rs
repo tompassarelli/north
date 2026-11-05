@@ -102,7 +102,7 @@ pub(super) fn check_host(reserved: bool, here: &str, local: impl FnOnce() -> Opt
     let mut best: Option<(String, f64)> = None;
     for (name, room) in hosts {
         let pending = cores * taken.iter().filter(|host| **host == name).count() as f64;
-        match room.as_ref().map(|room| (shortfall_needing(room, pending, cores), room.admission.limit_cpus - room.admission.committed_cpus - pending)) {
+        match room.as_ref().map(|room| (shortfall_needing(room, pending, cores), room.admission.free_cpus() - pending)) {
             Some((None, free)) if best.as_ref().is_none_or(|(_, most)| free > *most) => best = Some((name, free)),
             Some((None, _)) => {}
             Some((Some(why), _)) => refused.push(format!("{name}: {why}")),
@@ -138,5 +138,21 @@ mod tests {
         assert_eq!(build_shortfall_reserving(&claimed, 0.0).as_deref(), Some("land check waiting"));
         assert_eq!(check_host(true, "laptop", || None, vec![("gex45".to_owned(), Some(claimed))], &[], 6.0), Ok("gex45".to_owned()));
         assert_eq!(build_shortfall_reserving(&reading(80 * gib, "3.10", "2.0", "5"), 0.0), None);
+    }
+
+    #[test]
+    fn a_host_with_heavy_jobs_queued_in_its_admission_loses_to_an_idle_host_with_fewer_free_cores() {
+        let gib = 1024 * 1024;
+        let queued = |jobs: &str| parse(&PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", "3.0").replace("%PRESSURE%", "5").replace("\"cpuSomeAvg10\":5", &format!("\"cpuSomeAvg10\":5,\"queued\":[{jobs}]"))).unwrap();
+        let heavy = |cpus: u32| format!("{{\"owner\":\"gate\",\"class\":\"heavy\",\"requestedClass\":\"heavy\",\"requestedCpus\":{cpus}}}");
+        let busy = queued(&format!("{},{}", heavy(6), heavy(6)));
+        assert_eq!(busy.admission.queued_heavy_cpus, 12.0);
+        let moderate = queued("{\"owner\":\"w\",\"class\":\"moderate\",\"requestedClass\":\"moderate\",\"requestedCpus\":4}");
+        assert_eq!(moderate.admission.queued_heavy_cpus, 0.0);
+        let mut idle = reading(80 * gib, "0.06", "0.0", "1");
+        idle.admission.limit_cpus = 8.0;
+        assert!(shortfall(&queued(&format!("{},{},{}", heavy(6), heavy(6), heavy(6)))).unwrap().contains("cores free of 20"));
+        assert_eq!(check_host(true, "laptop", || None, vec![("gex45".to_owned(), Some(busy)), ("ccx33".to_owned(), Some(idle))], &[], 6.0), Ok("ccx33".to_owned()));
+        assert_eq!(check_host(true, "laptop", || None, vec![("gex45".to_owned(), Some(moderate)), ("ccx33".to_owned(), Some(idle))], &[], 6.0), Ok("gex45".to_owned()));
     }
 }
