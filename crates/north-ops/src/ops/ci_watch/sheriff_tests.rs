@@ -101,3 +101,15 @@ fn a_new_issue_carries_one_done_when_box_and_appending_keeps_it() {
     assert_eq!(boxes(&appended), 1);
     assert!(appended.contains("second failure"));
 }
+
+#[test]
+fn a_long_running_issue_keeps_its_done_when_box_and_newest_failures_within_githubs_body_limit() {
+    let mut text = issue_body(None, "<!-- main-red:0:1 -->", "first failure");
+    for id in 1..400 {
+        text = issue_body(Some(&text), &format!("<!-- main-red:{id}:1 -->"), &"failing test output line\n".repeat(20));
+    }
+    assert!(text.len() <= 60_000, "{}", text.len());
+    assert!(text.starts_with("Main CI failures and confirmed culprit decisions.\n\n## Done when\n- [ ] "));
+    assert!(text.contains("<!-- main-red:399:1 -->") && text.contains("<!-- main-red:398:1 -->"));
+    assert!(!text.contains("<!-- main-red:0:1 -->"), "the oldest failure was kept past the limit");
+}

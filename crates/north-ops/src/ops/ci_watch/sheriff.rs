@@ -8,6 +8,8 @@ use serde_json::Value;
 use super::{Call, TITLE, gh, gh_json};
 
 const USAGE: &str = "usage: north main-red RUN_ID";
+const BODY_LIMIT: usize = 60_000;
+const SECTION: &str = "\n\n<!-- main-red:";
 const DONE_WHEN: &str = "Main CI failures and confirmed culprit decisions.\n\n## Done when\n- [ ] The newest Harness and Cargo runs on main are green on a commit after the newest culprit range below: `gh run list --branch main --workflow Harness --limit 1` and the same for Cargo both print success; close this issue with that run's link.";
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -191,7 +193,20 @@ pub fn revert_request(head: &str, verdict: &Decision, failed: &[&str], url: &str
 }
 
 pub fn issue_body(existing: Option<&str>, marker: &str, body: &str) -> String {
-    format!("{}\n\n{marker}\n{body}", existing.unwrap_or(DONE_WHEN))
+    let existing = existing.unwrap_or(DONE_WHEN);
+    let (head, older) = existing.split_once(SECTION).map_or((existing, ""), |(head, rest)| (head, rest));
+    let newest: String = format!("{marker}\n{body}").chars().take(BODY_LIMIT / 2).collect();
+    let mut kept: Vec<&str> = Vec::new();
+    let mut length = head.len() + newest.len() + 2;
+    for section in older.rsplit(SECTION).filter(|section| !section.is_empty()) {
+        length += section.len() + SECTION.len();
+        if length > BODY_LIMIT {
+            break;
+        }
+        kept.push(section);
+    }
+    let older: String = kept.iter().rev().map(|section| format!("{SECTION}{section}")).collect();
+    format!("{head}{older}\n\n{newest}")
 }
 
 #[derive(Debug, Deserialize)]
@@ -263,8 +278,8 @@ fn report(existing: Option<&Issue>, marker: &str, body: &str) -> Result<(), Stri
         Some(number) => vec!["issue", "edit", number],
         None => vec!["issue", "create", "--title", TITLE],
     };
-    args.extend(["--body", &text]);
-    gh(&args)?;
+    args.extend(["--body-file", "-"]);
+    Call { input: Some(&text), ..Call::new("gh", &args) }.output()?;
     if let Some(summary) = std::env::var_os("GITHUB_STEP_SUMMARY") {
         let mut file = std::fs::OpenOptions::new().append(true).create(true).open(summary).map_err(|error| error.to_string())?;
         writeln!(file, "{body}").map_err(|error| error.to_string())?;
