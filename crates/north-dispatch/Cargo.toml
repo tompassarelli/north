@@ -1,0 +1,31 @@
+[package]
+name = "north-dispatch"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-capacity-host = { path = "../north-capacity-host" }
+north-core = { path = "../north-core" }
+regex.workspace = true
+rusqlite.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+time.workspace = true
+toml_edit.workspace = true
+
+[features]
+test-support = []
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

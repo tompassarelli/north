@@ -181,5 +181,5 @@ fn the_repository_rules_refuse_crate_fleet_in_usage() {
     assert_eq!(names, ["Layer usage -> fleet", "CrateDag north-pace -> north-fleet"]);
     assert!(rules.breaches("crates/north-core/src/fleet/handover.rs", "crates/north-core/src/usage/decide/mod.rs").iter().all(|breach| breach.from != "north-fleet"));
     assert!(rules.breaches("crates/north-core/src/usage/mod.rs", "crates/north-core/src/lib.rs").is_empty());
-    assert!(rules.breaches("crates/north-ops/src/ops/pacing/placement/hosts.rs", "crates/north-guard/src/guard/spawn_capacity.rs").iter().any(|breach| breach.from == "north-dispatch" && breach.to == "north-guard"));
+    assert!(rules.breaches("crates/north-dispatch/src/pacing/placement/hosts.rs", "crates/north-guard/src/guard/spawn_capacity.rs").iter().any(|breach| breach.from == "north-dispatch" && breach.to == "north-guard"));
 }

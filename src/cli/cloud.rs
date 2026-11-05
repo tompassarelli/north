@@ -414,7 +414,7 @@ pub(super) fn finish(
 }
 
 fn credentials() -> Result<Curl, String> {
-    let login = crate::ops::dispatch::cloud_login()?;
+    let login = crate::dispatch::cloud_login()?;
     let read = |path: PathBuf, pointer: &str| {
         let text = std::fs::read_to_string(&path)
             .map_err(|error| format!("{}: {error}", path.display()))?;
@@ -496,7 +496,7 @@ pub fn run(arguments: &[String]) -> u8 {
         return 2;
     };
     if let Cloud::Launch(repo, slug, brief, item) = &command {
-        return match crate::ops::dispatch::cloud_launch(repo, slug, brief, item.as_deref()) {
+        return match crate::dispatch::cloud_launch(repo, slug, brief, item.as_deref()) {
             Ok(line) => {
                 println!("{line}");
                 0

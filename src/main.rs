@@ -12,11 +12,12 @@ use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint,
 use north_tui::tui;
 use north_ops::ops;
 use north_runtime::{agent_contain, build_offload, land_offload, laptop_ntfy, laptop_runner, model_watch, runtime, runtime_access, timers};
+use north_dispatch::{dispatch, laptop, pacing, resident_cap, tune};
 
 fn main() -> std::process::ExitCode {
-    ops::pacing::spawn_gate::install(ops::pacing::spawn_gate::SpawnGate {
-        summary: || guard::spawn_capacity::gate_summary(&guard::spawn_capacity::Live { pace: ops::pacing::answer }),
-        launch_refusal: |brief| guard::spawn_capacity::launch_refusal(&guard::spawn_capacity::Live { pace: ops::pacing::answer }, brief),
+    pacing::spawn_gate::install(pacing::spawn_gate::SpawnGate {
+        summary: || guard::spawn_capacity::gate_summary(&guard::spawn_capacity::Live { pace: pacing::answer }),
+        launch_refusal: |brief| guard::spawn_capacity::launch_refusal(&guard::spawn_capacity::Live { pace: pacing::answer }, brief),
     });
     platform::stdio::with_blocking_outputs(|| {
         let arguments = std::env::args().skip(1).collect::<Vec<_>>();

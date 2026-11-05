@@ -1,5 +1,5 @@
 use crate::capacity::agent_load;
-use crate::ops::pacing::placement::{config, gate};
+use crate::pacing::placement::{config, gate};
 use ship::CommitId;
 use std::path::Path;
 

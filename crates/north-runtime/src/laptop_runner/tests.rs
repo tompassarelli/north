@@ -3,7 +3,7 @@ use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::{Inputs, Ledger, drain, run_job};
-use crate::ops::laptop::hostname;
+use crate::laptop::hostname;
 
 const THREADS: &str = r#"#!/bin/sh
 d=$(dirname "$0")

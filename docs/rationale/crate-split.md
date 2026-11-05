@@ -322,6 +322,12 @@ cd8f3c1: 3.6 s wall and 9.7 CPU-s, from 7.4 s and 18.4 CPU-s for the same edit i
 model's critical path for that edit is 5.2 / 1.57 = 3.3 s, so the cloud factor is 1.08. The 1.57 factor is
 gex45's under load and LLVM codegen; it stands until a gex45 run of the same edit replaces it.
 
+Box 4-12 measured the north-dispatch leaf edit the same way (a blank line appended to `dispatch/brief.rs`,
+4 CPUs at load 3): 8.3 s wall and 25.9 CPU-s, from 8.8 s and 24.4 CPU-s for the same edit in `north-ops` at
+515094e. North-core, north-capacity-host, north-guard and north-tui stay Fresh; north-dispatch, north-ops,
+north-runtime and the root rebuild. The cloud-factor prediction is 7.9 / 1.57 × 1.08 = 5.4 s, so this hub edit
+misses the model by 2.9 s: the edit still rebuilds north-ops (20.1k non-test lines) and its test harness above it.
+
 ### Candidate 8 answered
 
 `build-cost.md` rejected a further split because only 4 of 85 north-core commits touched no module of the
@@ -399,7 +405,7 @@ of 17,002 CPU-s over the window (26%). Wall is the predicted leaf-edit `cargo te
 | 3 | north-guard | guard, hook, hook_tests, hook_rewrite_tests, lanes, code_health | 29.6k (20.1k) | 25k | 82 | none | 12.3 | 1,591 | 6.6 s |
 | 4 | north-capacity-host | capacity/host, capacity/gate, capacity/watchdog | 7.4k (4.5k) | 25k | 74 | runtime | 11.7 | 1,480 | 5.8 s |
 | 5 | north-core (residual) | grounding, catalog, agent_config_check, agent_policy_contract, agent_catalog, build_time, proxy, contract_probe | 14.2k (9.1k) | 25k | 43 | none | 9.8 | 942 | 5.3 s |
-| 6 | north-dispatch | ops/dispatch, tune, check, dividend, pacing, laptop, resident_cap | 15.8k (7.4k) | 10k | 85 | runtime, ops, guard | 22.7 | 765 | 7.9 s |
+| 6 | north-dispatch | ops/dispatch, tune, check, dividend, pacing, laptop, resident_cap | 15.8k (7.4k) | 10k | 85 | runtime, ops, guard | 22.7 | 765 | 7.9 s (cloud 8.3 s, 25.9 CPU-s) |
 | 7 | north-capacity | capacity minus host, gate, watchdog | 6.2k (3.4k) | 10k | 68 | dispatch, capacity-host, runtime, guard, ops | 25.2 | 442 | 8.4 s |
 | 8 | north-providers | providers, codex, ledger | 7.1k (3.9k) | 10k | 50 | dispatch, runtime, guard, ops, tui | 25.2 | 325 | 8.5 s |
 | 9 | north-threads | threads, work_items | 10.8k (5.9k) | 10k | 62 | everything above it except capacity | 30.9 | 50 | 9.4 s |

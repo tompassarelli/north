@@ -1,5 +1,5 @@
 use super::{Deployment, deploy};
-use crate::ops::pacing::placement::gate;
+use crate::pacing::placement::gate;
 use toml_edit::DocumentMut;
 
 #[test]

@@ -1,0 +1,580 @@
+use super::costs::Cost;
+use super::dividends::{self, Reading};
+use super::rises::TITLE;
+use super::{Ledger, Prior, Tick, Tracker, tick};
+use crate::platform::rolling_issue::{self, Breaches};
+use crate::router::pricing::PriceTable;
+use crate::ledger::{ClosedReport, EstimatedRun, SpendRun, summarize};
+use crate::ledger::closed::ArmBox;
+use crate::dispatch::{Evidence, Tier};
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, HashSet};
+
+const AT: &str = "2026-10-27T06:00:00Z";
+const SONNET: (&str, &str) = ("sonnet", "claude-sonnet-5-5");
+const OPUS: (&str, &str) = ("medium", "claude-opus-5-5");
+
+fn run(item: &str, (tier, model): (&str, &str), category: &str, started: &str, ended: &str) -> SpendRun {
+    SpendRun {
+        agent: format!("agent-{item}"),
+        item: Some(item.into()),
+        role: "worker".into(),
+        tier: tier.into(),
+        category: category.into(),
+        arm: String::new(),
+        model: Some(model.into()),
+        started: started.into(),
+        ended: ended.into(),
+        landed: true,
+        reworked: false,
+        input: 3_000_000,
+        cache_read: 2_000_000,
+        output: 100_000,
+    }
+}
+
+fn report(runs: &[SpendRun], since: &str) -> ClosedReport {
+    let closed: HashSet<String> = runs.iter().filter_map(|run| run.item.clone()).collect();
+    summarize(runs, &closed, since, &PriceTable::load().unwrap())
+}
+
+/// Sonnet closes two feature boxes at one run each and Opus one at two runs; Sonnet closes three
+/// tooling boxes at two runs each, which cost one run each the week before, and Opus's one feature
+/// box cost one run the week before.
+fn ledger() -> Ledger {
+    let week = report(
+        &[
+            run("north#1", SONNET, "feature", "2026-10-21T10:00:00Z", "2026-10-21T10:30:00Z"),
+            run("north#2", SONNET, "feature", "2026-10-22T10:00:00Z", "2026-10-22T11:00:00Z"),
+            run("north#3", OPUS, "feature", "2026-10-22T12:00:00Z", "2026-10-22T12:20:00Z"),
+            run("north#3", OPUS, "feature", "2026-10-22T13:00:00Z", "2026-10-22T13:40:00Z"),
+            run("north#4", SONNET, "tooling", "2026-10-23T10:00:00Z", "2026-10-23T10:10:00Z"),
+            run("north#4", SONNET, "tooling", "2026-10-23T11:00:00Z", "2026-10-23T11:15:00Z"),
+            run("north#8", SONNET, "tooling", "2026-10-24T10:00:00Z", "2026-10-24T10:10:00Z"),
+            run("north#8", SONNET, "tooling", "2026-10-24T11:00:00Z", "2026-10-24T11:15:00Z"),
+            run("north#9", SONNET, "tooling", "2026-10-25T10:00:00Z", "2026-10-25T10:10:00Z"),
+            run("north#9", SONNET, "tooling", "2026-10-25T11:00:00Z", "2026-10-25T11:15:00Z"),
+        ],
+        "2026-10-20T06:00:00Z",
+    );
+    let before = report(
+        &[
+            run("north#5", SONNET, "tooling", "2026-10-15T10:00:00Z", "2026-10-15T10:10:00Z"),
+            run("north#10", SONNET, "tooling", "2026-10-16T10:00:00Z", "2026-10-16T10:10:00Z"),
+            run("north#11", SONNET, "tooling", "2026-10-17T10:00:00Z", "2026-10-17T10:10:00Z"),
+            run("north#6", OPUS, "feature", "2026-10-15T12:00:00Z", "2026-10-15T12:20:00Z"),
+            run("north#7", SONNET, "feature", "2026-10-16T10:00:00Z", "2026-10-16T10:30:00Z"),
+        ],
+        "2026-10-13T06:00:00Z",
+    );
+    let arms = |sonnet: (f64, usize), opus: (f64, usize)| BTreeMap::from([("claude:sonnet-high".to_owned(), sonnet), ("claude:opus-medium".to_owned(), opus)]);
+    let evidence = BTreeMap::from([
+        ("feature".to_owned(), Evidence { tiers: arms((60.0, 15), (70.0, 15)), arm_runs: stamped(15, 15), ..Evidence::default() }.priced(&arm_boxes("feature", (15, 5.2), (15, 20.8)), "feature")),
+        ("tooling".to_owned(), Evidence { tiers: arms((80.0, 4), (0.0, 0)), arm_runs: stamped(4, 0), ..Evidence::default() }.priced(&arm_boxes("tooling", (4, 10.4), (0, 0.0)), "tooling")),
+    ]);
+    Ledger { week, before, evidence, notes: Vec::new(), estimates: Ok(Vec::new()) }
+}
+
+#[derive(Default)]
+struct Issues {
+    open: Vec<String>,
+    closed: Vec<String>,
+    filed: Vec<(String, String)>,
+    unreadable: bool,
+    refuses: bool,
+    told: Vec<String>,
+    mute: bool,
+    rolling: Option<(u64, String)>,
+    created: Vec<(String, String)>,
+    edited: Vec<String>,
+    settled: Vec<String>,
+}
+
+impl Tracker for Issues {
+    fn open(&self) -> Result<Vec<String>, String> {
+        if self.unreadable {
+            return Err("gh: not logged in".into());
+        }
+        Ok(self.open.clone())
+    }
+
+    fn recently_closed(&self) -> Result<Vec<String>, String> {
+        Ok(self.closed.clone())
+    }
+
+    fn file(&mut self, title: &str, body: &str) -> Result<String, String> {
+        if self.refuses {
+            return Err("gh issue create: HTTP 403".into());
+        }
+        self.filed.push((title.to_owned(), body.to_owned()));
+        self.open.push(title.to_owned());
+        Ok(format!("https://github.com/tompassarelli/north/issues/{}", 900 + self.filed.len()))
+    }
+
+    fn tell_proxy(&mut self, text: &str) -> Result<(), String> {
+        if self.mute {
+            return Err("north fleet send proxy: exit status: 1".into());
+        }
+        self.told.push(text.to_owned());
+        Ok(())
+    }
+
+    fn rolling(&mut self) -> &mut dyn rolling_issue::Tracker {
+        self
+    }
+}
+
+impl rolling_issue::Tracker for Issues {
+    fn open(&self, title: &str) -> Result<Option<rolling_issue::Issue>, String> {
+        if self.unreadable {
+            return Err("gh: not logged in".into());
+        }
+        Ok(self.rolling.as_ref().filter(|_| title == TITLE).map(|(number, body)| rolling_issue::Issue { number: *number, body: body.clone() }))
+    }
+
+    fn body(&self, _: u64) -> Result<String, String> {
+        Ok(self.rolling.as_ref().map(|(_, body)| body.clone()).unwrap_or_default())
+    }
+
+    fn listed(&self, _: &str) -> Result<Vec<(u64, String)>, String> {
+        Ok(Vec::new())
+    }
+
+    fn create(&mut self, title: &str, body: &str) -> Result<(), String> {
+        if self.refuses {
+            return Err("gh issue create: HTTP 403".into());
+        }
+        self.created.push((title.to_owned(), body.to_owned()));
+        self.open.push(title.to_owned());
+        self.rolling = Some((950, body.to_owned()));
+        Ok(())
+    }
+
+    fn edit(&mut self, _: u64, body: &str) -> Result<(), String> {
+        self.edited.push(body.to_owned());
+        self.rolling = self.rolling.take().map(|(number, _)| (number, body.to_owned()));
+        Ok(())
+    }
+
+    fn close(&mut self, _: u64, comment: &str) -> Result<(), String> {
+        self.settled.push(comment.to_owned());
+        self.open.retain(|title| title != TITLE);
+        self.rolling = None;
+        Ok(())
+    }
+}
+
+fn two_ticks(ledger: &Ledger, issues: &mut Issues) -> (Tick, Tick) {
+    let first = tick(ledger, &Prior::default(), &[], issues, AT, false);
+    let second = tick(ledger, &Prior { cells: first.cells.clone(), breaches: first.breaches.clone(), ..Prior::default() }, &[], issues, AT, false);
+    (first, second)
+}
+
+fn rolled(ledger: &Ledger) -> String {
+    let mut issues = Issues::default();
+    let (_, second) = two_ticks(ledger, &mut issues);
+    assert_eq!(issues.created.len(), 1, "{:#?}", second.lines);
+    assert_eq!(issues.created[0].0, TITLE);
+    issues.created.remove(0).1
+}
+
+fn first_tick(issues: &mut Issues) -> Tick {
+    tick(&ledger(), &Prior::default(), &[], issues, AT, false)
+}
+
+#[test]
+fn the_tick_prints_the_dashboard_line_first_and_the_open_north_issue_count_last() {
+    let ledger = ledger();
+    let mut issues = Issues { open: vec!["a".into(), "b".into()], ..Issues::default() };
+    let tick = tick(&ledger, &Prior::default(), &[], &mut issues, AT, false);
+    assert_eq!(tick.lines[0], ledger.week.dashboard("7d"));
+    assert!(tick.lines[0].starts_with("cost/closed 7d: all $"), "{}", tick.lines[0]);
+    assert_eq!(tick.lines.last().unwrap(), "open north issues: 2", "the two open; one risen tick files nothing: {:#?}", tick.lines);
+    assert!(!tick.failed);
+}
+
+#[test]
+fn routing_cells_are_written_only_for_categories_whose_arms_decided_beside_every_eta_and_budget_cell() {
+    let tick = first_tick(&mut Issues::default());
+    let cells: Vec<(&str, &Value)> = tick.cells.iter().map(|(cell, value)| (cell.as_str(), value)).collect();
+    assert_eq!(
+        cells,
+        [
+            ("budget_usd opus feature", &json!(41.6)),
+            ("budget_usd sonnet feature", &json!(10.4)),
+            ("budget_usd sonnet tooling", &json!(20.8)),
+            ("eta_minutes opus feature", &json!(40.0)),
+            ("eta_minutes sonnet feature", &json!(60.0)),
+            ("eta_minutes sonnet tooling", &json!(15.0)),
+            ("route feature", &json!("sonnet-high")),
+        ],
+        "Sonnet's $5.20 per closed box beats Opus's $20.80 on feature at 15 runs each; tooling's arms hold 4 and 0 runs, so no route"
+    );
+}
+
+#[test]
+fn each_change_records_its_rows_n_and_interval_and_an_unchanged_tick_records_none() {
+    let mut issues = Issues::default();
+    let first = first_tick(&mut issues);
+    assert_eq!(first.records.len(), first.cells.len(), "a first tick records every cell");
+    let route = first.records.iter().find(|record| record["cell"] == "route feature").unwrap();
+    assert_eq!((&route["to"], &route["from"], &route["rows"], &route["n"], &route["interval"]), (&json!("sonnet-high"), &Value::Null, &json!(30), &json!(2), &json!([5.2, 5.2])));
+    assert_eq!((&route["origin"], &route["pointer"], &route["at"]), (&json!("experiment"), &json!("north ledger summary --since 7d"), &json!(AT)));
+    let eta = first.records.iter().find(|record| record["cell"] == "eta_minutes sonnet feature").unwrap();
+    assert_eq!((&eta["rows"], &eta["n"], &eta["interval"]), (&json!(2), &json!(2), &json!([30.0, 60.0])));
+
+    let again = tick(&ledger(), &Prior { cells: first.cells.clone(), ..Prior::default() }, &[], &mut issues, AT, false);
+    assert!(again.records.is_empty(), "{:?}", again.records);
+    assert!(again.lines.contains(&"no cell changed (7 cells)".to_owned()), "{:#?}", again.lines);
+
+    let mut prior = Prior { cells: first.cells.clone(), ..Prior::default() };
+    prior.cells.insert("budget_usd sonnet feature".into(), json!(8.0));
+    prior.cells.insert("route tooling".into(), json!("worker"));
+    let moved = tick(&ledger(), &prior, &[], &mut issues, AT, false);
+    let changed: Vec<(&Value, &Value, &Value)> = moved.records.iter().map(|record| (&record["cell"], &record["from"], &record["to"])).collect();
+    assert_eq!(changed, [(&json!("budget_usd sonnet feature"), &json!(8.0), &json!(10.4)), (&json!("route tooling"), &json!("worker"), &Value::Null)]);
+    assert!(moved.lines.iter().any(|line| line.starts_with("changed budget_usd sonnet feature: 8.0 -> 10.4 (rows 2, n 2, interval [10.4, 10.4];")), "{:#?}", moved.lines);
+}
+
+#[test]
+fn one_risen_tick_posts_nothing_two_in_a_row_open_one_rolling_issue_an_unchanged_tick_posts_nothing_and_a_calm_one_closes_it() {
+    let mut issues = Issues::default();
+    let first = first_tick(&mut issues);
+    assert!(issues.created.is_empty() && issues.filed.is_empty(), "one risen tick posts nothing: {:#?}", first.lines);
+    assert!(first.lines.contains(&"rose sonnet tooling: $5.20 (n 3) the week before -> $10.40 (n 3) this week, +100%".to_owned()), "{:#?}", first.lines);
+
+    let next = |previous: &Tick| Prior { cells: previous.cells.clone(), breaches: previous.breaches.clone(), ..Prior::default() };
+    let second = tick(&ledger(), &next(&first), &[], &mut issues, AT, false);
+    assert_eq!(issues.created.len(), 1, "only sonnet tooling rose (100%, 3 boxes a week); opus feature doubled on one box a week, too few to count: {:#?}", second.lines);
+    let (title, body) = &issues.created[0];
+    assert_eq!(title, TITLE);
+    assert!(body.starts_with("Category: tooling\n") && body.contains("## sonnet tooling\n\nMedian cost of a closed box rose from $5.20 over 3 closed boxes the week before to $10.40 over 3 this week (+100%)"), "{body}");
+    assert_eq!(body.matches("\n## ").count(), 2, "the Done when and the one risen cell: {body}");
+    assert!(issues.filed.is_empty(), "rises file no issue of their own");
+    assert_eq!(second.lines.last().unwrap(), "open north issues: 1", "{:#?}", second.lines);
+
+    let third = tick(&ledger(), &next(&second), &[], &mut issues, AT, false);
+    assert!(issues.created.len() == 1 && issues.edited.is_empty() && issues.settled.is_empty(), "an unchanged tick posts nothing: {:#?}", third.lines);
+
+    let calm = Ledger { week: ledger().before, ..ledger() };
+    tick(&calm, &next(&third), &[], &mut issues, AT, false);
+    assert_eq!(issues.settled.len(), 1, "the first calm tick closes the rolling issue");
+    assert!(issues.rolling.is_none() && issues.created.len() == 1);
+}
+
+#[test]
+fn a_dry_run_or_an_unread_tracker_files_nothing() {
+    let mut issues = Issues::default();
+    let dry = tick(&ledger(), &Prior::default(), &[], &mut issues, AT, true);
+    assert!(issues.filed.is_empty() && issues.created.is_empty());
+    assert_eq!(dry.breaches, Breaches::default(), "a dry run leaves the gate as it was");
+    assert!(dry.lines.contains(&format!("  would file: {TITLE}")), "{:#?}", dry.lines);
+
+    let mut unread = Issues { unreadable: true, ..Issues::default() };
+    let (_, blind) = two_ticks(&ledger(), &mut unread);
+    assert!(unread.filed.is_empty() && unread.created.is_empty(), "with no open list it cannot know an issue already holds the cell");
+    assert!(blind.lines.contains(&format!("  not settled: {TITLE}: gh: not logged in")), "{:#?}", blind.lines);
+    assert_eq!(blind.lines.last().unwrap(), "open north issues: unread (gh: not logged in)");
+    assert!(blind.failed);
+}
+
+#[test]
+fn an_issue_closed_in_the_last_week_still_holds_its_drifted_cell_and_a_refused_rolling_issue_fails_the_tick() {
+    let title = "Estimates drifted outside 0.67-1.5x of actual in opus-medium feature".to_owned();
+    let mut closed = Issues { closed: vec![title.clone()], ..Issues::default() };
+    let held = tick(&estimated_ledger(), &Prior::default(), &[], &mut closed, AT, false);
+    assert!(closed.filed.is_empty() && !held.failed, "{:#?}", held.lines);
+    assert!(held.lines.contains(&format!("  held by an issue filed for it: {title}")), "{:#?}", held.lines);
+
+    let mut refusing = Issues { refuses: true, ..Issues::default() };
+    let (first, refused) = two_ticks(&ledger(), &mut refusing);
+    assert!(!first.failed, "one risen tick asks nothing of the tracker: {:#?}", first.lines);
+    assert!(refused.lines.contains(&format!("  not settled: {TITLE}: gh issue create: HTTP 403")), "{:#?}", refused.lines);
+    assert_eq!(refused.lines.last().unwrap(), "open north issues: 0");
+    assert!(refused.failed);
+}
+
+#[test]
+fn unread_arm_evidence_keeps_the_prior_routing_cells_and_fails_the_tick() {
+    let mut ledger = ledger();
+    ledger.evidence.clear();
+    ledger.notes.push("north worker-ledger --recommend \"Category: feature\" unread".into());
+    let prior = Prior { cells: first_tick(&mut Issues::default()).cells, ..Prior::default() };
+    let blind = tick(&ledger, &prior, &[], &mut Issues::default(), AT, false);
+    assert_eq!(blind.cells.get("route feature"), Some(&json!("sonnet-high")));
+    assert!(blind.records.is_empty(), "a failed read neither drops nor re-adds a route: {:?}", blind.records);
+    assert!(blind.lines[1].starts_with("unread: north worker-ledger --recommend"), "{:#?}", blind.lines);
+    assert!(blind.failed);
+}
+
+fn spent(item: &str, (tier, model): (&str, &str), category: &str, day: &str, output: i64) -> SpendRun {
+    SpendRun { input: 0, cache_read: 0, output, ..run(item, (tier, model), category, &format!("{day}T10:00:00Z"), &format!("{day}T10:30:00Z")) }
+}
+
+fn boxes(prefix: &str, count: usize, arm: (&str, &str), category: &str, day: &str, output: i64) -> Vec<SpendRun> {
+    (0..count).map(|index| spent(&format!("north#{prefix}{index}"), arm, category, day, output)).collect()
+}
+
+/// Closed arm boxes of one category at one spend each: (count, usd) on the Sonnet arm and the Opus arm.
+fn arm_boxes(category: &str, sonnet: (usize, f64), opus: (usize, f64)) -> ClosedReport {
+    let armed = |arm: &str, (count, usd): (usize, f64)| (0..count).map(|number| ArmBox { item: format!("north#{arm}-{number}"), tier: String::new(), arm: arm.into(), usd, category: category.into(), closed: true, reworked: false }).collect::<Vec<_>>();
+    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: [armed("sonnet-high", sonnet), armed("worker", opus)].concat(), spend_usd: 0.0, leads_usd: 0.0 }
+}
+
+fn stamped(sonnet: usize, opus: usize) -> BTreeMap<Tier, usize> {
+    BTreeMap::from([(Tier::Sonnet, sonnet), (Tier::Opus, opus)])
+}
+
+fn arms(sonnet: (f64, usize), opus: (f64, usize)) -> BTreeMap<String, (f64, usize)> {
+    BTreeMap::from([("claude:sonnet-high".to_owned(), sonnet), ("claude:opus-medium".to_owned(), opus)])
+}
+
+#[test]
+fn sonnet_closing_60_percent_at_3_dollars_a_box_beats_opus_closing_70_percent_at_9_and_its_route_cell_is_written() {
+    let runs = [boxes("1", 6, SONNET, "tooling", "2026-10-22", 300_000), boxes("2", 7, OPUS, "tooling", "2026-10-23", 450_000)].concat();
+    let week = report(&runs, "2026-10-20T06:00:00Z");
+    let evidence = BTreeMap::from([("tooling".to_owned(), Evidence { tiers: arms((60.0, 15), (70.0, 15)), arm_runs: stamped(15, 15), ..Evidence::default() }.priced(&arm_boxes("tooling", (15, 3.0), (15, 9.0)), "tooling"))]);
+    let ledger = Ledger { week, before: report(&[], "2026-10-13T06:00:00Z"), evidence, notes: Vec::new(), estimates: Ok(Vec::new()) };
+    let tick = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false);
+    assert_eq!(tick.cells.get("route tooling"), Some(&json!("sonnet-high")), "{:#?}", tick.lines);
+    let record = tick.records.iter().find(|record| record["cell"] == "route tooling").unwrap();
+    let claim = record["claim"].as_str().unwrap();
+    assert!(claim.contains("sonnet-high 60% of 15, 15 of 15 arm runs, 15 of 15 closed arm boxes, $3.00 per closed box") && claim.contains("worker 70% of 15, 15 of 15 arm runs, 15 of 15 closed arm boxes, $9.00 per closed box"), "{record}");
+}
+
+#[test]
+fn a_cell_30_percent_dearer_than_the_week_before_files_exactly_one_issue_and_one_20_percent_dearer_files_none() {
+    let week = [boxes("1", 3, SONNET, "tooling", "2026-10-24", 1_300_000), boxes("2", 3, SONNET, "feature", "2026-10-24", 1_200_000)].concat();
+    let before = [boxes("3", 3, SONNET, "tooling", "2026-10-17", 1_000_000), boxes("4", 3, SONNET, "feature", "2026-10-17", 1_000_000)].concat();
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) };
+    let body = rolled(&ledger);
+    assert_eq!(body.matches("\n## sonnet ").count(), 1, "{body}");
+    assert!(body.contains("## sonnet tooling\n\nMedian cost of a closed box rose from $10.00 over 3 closed boxes the week before to $13.00 over 3 this week (+30%)"), "{body}");
+    assert!(body.contains("\n- north#10 $13.00: agent-north#10 sonnet tooling from 2026-10-24T10:00:00Z $13.00\n"), "{body}");
+}
+
+#[test]
+fn a_rise_names_every_run_of_a_box_escalated_off_its_first_tier_so_the_issue_traces_it_without_the_ledger() {
+    const HAIKU: (&str, &str) = ("haiku", "claude-haiku-5-5");
+    let escalations = (0..2).map(|index| SpendRun { input: 0, cache_read: 0, output: 1_000_000, ..run(&format!("north#1{index}"), SONNET, "tooling", "2026-10-24T11:00:00Z", "2026-10-24T11:30:00Z") });
+    let week: Vec<SpendRun> = boxes("1", 3, HAIKU, "mechanical", "2026-10-24", 10_000).into_iter().chain(escalations).collect();
+    let before = boxes("3", 3, HAIKU, "mechanical", "2026-10-17", 10_000);
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) };
+    let body = rolled(&ledger);
+    assert!(body.contains("\n- north#10 $10.01: agent-north#10 haiku mechanical from 2026-10-24T10:00:00Z $0.01; agent-north#10 sonnet tooling from 2026-10-24T11:00:00Z $10.00\n"), "{body}");
+}
+
+#[test]
+fn a_cell_of_boxes_no_label_has_named_yet_files_no_rise_however_dear_this_week_is() {
+    let week = boxes("1", 3, OPUS, "unknown", "2026-10-24", 9_000_000);
+    let before = boxes("3", 3, OPUS, "unknown", "2026-10-17", 1_000_000);
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) };
+    let mut issues = Issues::default();
+    let (_, quiet) = two_ticks(&ledger, &mut issues);
+    assert!(issues.created.is_empty(), "{:#?}", quiet.lines);
+    assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
+}
+
+#[test]
+fn a_tier_that_staffed_no_run_this_week_files_no_rise_for_the_boxes_it_started_earlier() {
+    const SOL: (&str, &str) = ("gpt-6.1-sol high", "gpt-6.1-sol");
+    let week = report(
+        &[
+            run("north#20", SOL, "bug-known-cause", "2026-10-14T10:00:00Z", "2026-10-14T10:30:00Z"),
+            run("north#20", OPUS, "bug-known-cause", "2026-10-21T10:00:00Z", "2026-10-21T11:00:00Z"),
+            run("north#21", SOL, "bug-known-cause", "2026-10-14T12:00:00Z", "2026-10-14T12:30:00Z"),
+            run("north#21", OPUS, "bug-known-cause", "2026-10-22T10:00:00Z", "2026-10-22T11:00:00Z"),
+            run("north#22", SOL, "bug-known-cause", "2026-10-15T10:00:00Z", "2026-10-15T10:30:00Z"),
+            run("north#22", OPUS, "bug-known-cause", "2026-10-23T10:00:00Z", "2026-10-23T11:00:00Z"),
+        ],
+        "2026-10-20T06:00:00Z",
+    );
+    let before = report(
+        &[
+            run("north#23", SOL, "bug-known-cause", "2026-10-14T10:00:00Z", "2026-10-14T10:30:00Z"),
+            run("north#24", SOL, "bug-known-cause", "2026-10-15T10:00:00Z", "2026-10-15T10:30:00Z"),
+            run("north#25", SOL, "bug-known-cause", "2026-10-16T10:00:00Z", "2026-10-16T10:30:00Z"),
+        ],
+        "2026-10-13T06:00:00Z",
+    );
+    let cell = |report: &ClosedReport| report.cells.iter().find(|cell| cell.tier == SOL.0).map(|cell| (cell.closed, cell.usd_per_closed(), cell.staffed)).unwrap();
+    let ((was_n, was, was_staffed), (now_n, now, now_staffed)) = (cell(&before), cell(&week));
+    assert!((was_n, now_n, was_staffed, now_staffed) == (3, 3, true, false) && now > was * 1.25, "{was} -> {now}");
+
+    let mut issues = Issues::default();
+    let (_, quiet) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) }, &mut issues);
+    assert!(issues.created.is_empty(), "{:#?}", quiet.lines);
+    assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
+}
+
+#[test]
+fn the_next_days_cost_per_closed_box_prints_beside_the_previous_days_and_a_rerun_the_same_day_adds_no_row() {
+    let first = first_tick(&mut Issues::default());
+    assert!(first.costs.iter().any(|row| row["cell"] == "sonnet tooling" && row["day"] == "2026-10-27"), "{:?}", first.costs);
+    assert!(!first.lines.iter().any(|line| line.starts_with("cost per closed box ")), "{:#?}", first.lines);
+
+    let earlier: Vec<Cost> = first.costs.iter().filter_map(Cost::read).collect();
+    let rerun = tick(&ledger(), &Prior { cells: first.cells.clone(), costs: earlier.clone(), ..Prior::default() }, &[], &mut Issues::default(), AT, false);
+    assert!(rerun.costs.is_empty(), "{:?}", rerun.costs);
+    assert!(!rerun.lines.iter().any(|line| line.starts_with("cost per closed box ")), "a day is not compared with itself: {:#?}", rerun.lines);
+
+    let next = tick(&ledger(), &Prior { cells: first.cells, costs: earlier, ..Prior::default() }, &[], &mut Issues::default(), "2026-10-28T06:00:00Z", false);
+    assert!(next.lines.contains(&"cost per closed box sonnet tooling: $10.40 (n 3) today, $10.40 (n 3) on 2026-10-27".to_owned()), "{:#?}", next.lines);
+}
+
+const DIVIDENDS: &str = r#"
+[[dividend]]
+name = "cost per closed box"
+issue = "north#112"
+metric = "usd_per_closed"
+at_most = 12.0
+
+[[dividend]]
+name = "Sonnet share of feature and tooling spend"
+issue = "north#242"
+metric = "family_share"
+family = "sonnet"
+categories = ["feature", "tooling"]
+at_least = 0.9
+"#;
+
+fn readings(rows: &[Value]) -> Vec<Reading> {
+    rows.iter().filter_map(Reading::read).collect()
+}
+
+#[test]
+fn a_dividend_past_its_bar_prints_decayed_and_tells_the_proxy_once_until_it_pays_again() {
+    let dividends = dividends::parse(DIVIDENDS).unwrap();
+    let mut issues = Issues::default();
+    let first = tick(&ledger(), &Prior::default(), &dividends, &mut issues, AT, false);
+    assert!(first.lines.contains(&"dividend north#112 cost per closed box: $10.40 (at most $12.00), PAYING".to_owned()), "{:#?}", first.lines);
+    assert!(first.lines.contains(&"dividend north#242 Sonnet share of feature and tooling spend: 67% (at least 90%), DECAYED".to_owned()), "{:#?}", first.lines);
+    assert_eq!(first.readings.len(), 2, "{:?}", first.readings);
+    assert_eq!(issues.told.len(), 1, "{:?}", issues.told);
+    assert!(issues.told[0].starts_with("dividend DECAYED: Sonnet share of feature and tooling spend (north#242) reads 67% over 6 closed boxes in the 7d ledger, at least 90% wanted; it was first reading."), "{}", issues.told[0]);
+
+    let prior = Prior { readings: readings(&first.readings), ..Prior::default() };
+    let rerun = tick(&ledger(), &prior, &dividends, &mut issues, AT, false);
+    assert!(rerun.readings.is_empty() && issues.told.len() == 1, "a rerun the same day neither re-records nor re-tells: {:?} {:?}", rerun.readings, issues.told);
+
+    let next = tick(&ledger(), &prior, &dividends, &mut issues, "2026-10-28T06:00:00Z", false);
+    assert_eq!(next.readings.len(), 2);
+    assert_eq!(issues.told.len(), 1, "still decayed the next day: no second message");
+
+    let mut recovering = dividends.clone();
+    recovering[1].bar = dividends::Bar::AtLeast(0.5);
+    let paid = tick(&ledger(), &Prior { readings: readings(&next.readings), ..Prior::default() }, &recovering, &mut issues, "2026-10-29T06:00:00Z", false);
+    assert!(paid.lines.iter().any(|line| line.ends_with("PAYING")) && issues.told.len() == 1);
+    let again = tick(&ledger(), &Prior { readings: readings(&paid.readings), ..Prior::default() }, &dividends, &mut issues, "2026-10-30T06:00:00Z", false);
+    assert_eq!(issues.told.len(), 2, "decaying again after paying tells again: {:#?}", again.lines);
+    assert!(issues.told[1].contains("it was PAYING on 2026-10-29"), "{}", issues.told[1]);
+}
+
+#[test]
+fn a_decay_the_proxy_was_not_told_of_keeps_no_row_and_fails_the_tick_and_a_dry_run_tells_no_one() {
+    let dividends = dividends::parse(DIVIDENDS).unwrap();
+    let mut mute = Issues { mute: true, ..Issues::default() };
+    let missed = tick(&ledger(), &Prior::default(), &dividends, &mut mute, AT, false);
+    assert!(missed.failed && missed.readings.len() == 1, "only the paying dividend keeps its row: {:?}", missed.readings);
+    assert!(missed.lines.iter().any(|line| line.starts_with("  proxy not told of Sonnet share of feature and tooling spend:")), "{:#?}", missed.lines);
+
+    let mut issues = Issues::default();
+    let dry = tick(&ledger(), &Prior::default(), &dividends, &mut issues, AT, true);
+    assert!(issues.told.is_empty() && !dry.failed, "{:?}", issues.told);
+    assert!(dry.lines.iter().any(|line| line.starts_with("  would tell the proxy: dividend DECAYED:")), "{:#?}", dry.lines);
+}
+
+#[test]
+fn the_dividends_on_main_parse_and_each_names_one_bar() {
+    let dividends = dividends::definitions().unwrap();
+    assert!(dividends.len() >= 3 && dividends.iter().all(|dividend| dividend.issue.starts_with("north#")), "{dividends:?}");
+    assert!(dividends::parse("[[dividend]]\nname = \"x\"\nissue = \"north#1\"\nmetric = \"usd_per_closed\"\n").is_err());
+}
+
+#[test]
+fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise_while_the_median_box_holds() {
+    let box_runs = |item: &str, count: usize, day: &str| -> Vec<SpendRun> {
+        (0..count).map(|n| run(item, SONNET, "bug-known-cause", &format!("{day}T{:02}:00:00Z", 8 + n), &format!("{day}T{:02}:30:00Z", 8 + n))).collect()
+    };
+    let before = report(&[box_runs("north#30", 2, "2026-10-15"), box_runs("north#31", 2, "2026-10-16"), box_runs("north#32", 2, "2026-10-17")].concat(), "2026-10-13T06:00:00Z");
+    let week = report(&[box_runs("north#33", 2, "2026-10-22"), box_runs("north#34", 2, "2026-10-23"), box_runs("north#35", 2, "2026-10-24"), box_runs("north#36", 12, "2026-10-25")].concat(), "2026-10-20T06:00:00Z");
+    let cell = |report: &ClosedReport| report.cells.iter().find(|cell| cell.tier == SONNET.0).map(|cell| (cell.closed, cell.usd_per_closed())).unwrap();
+    let ((was_n, was), (now_n, now)) = (cell(&before), cell(&week));
+    assert!((was_n, now_n) == (3, 4) && now > was * 1.25, "{was} -> {now}");
+
+    let mut issues = Issues::default();
+    let (_, ticked) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) }, &mut issues);
+    assert!(issues.created.is_empty(), "{:#?}", ticked.lines);
+}
+
+fn estimated(tier: &str, category: &str, (minutes, eta_min): (f64, f64), (usd, estimated_usd): (f64, Option<f64>)) -> EstimatedRun {
+    EstimatedRun { tier: tier.into(), category: category.into(), minutes, eta_min, usd, estimated_usd }
+}
+
+/// Sonnet tooling's runs land near their ETA with no cost estimate; Opus feature's three runs take
+/// 2-3x their ETA and spend 2-3x their expected spend; Haiku research's two runs take 3x theirs.
+fn estimated_ledger() -> Ledger {
+    let opus = |minutes: f64, usd: f64| estimated("opus-medium", "feature", (minutes, 20.0), (usd, Some(2.0)));
+    let estimates = vec![
+        estimated("sonnet", "tooling", (10.0, 10.0), (1.0, None)),
+        estimated("sonnet", "tooling", (12.0, 10.0), (1.0, None)),
+        estimated("sonnet", "tooling", (8.0, 10.0), (1.0, None)),
+        estimated("sonnet", "tooling", (30.0, 10.0), (1.0, None)),
+        opus(40.0, 4.0),
+        opus(50.0, 5.0),
+        opus(60.0, 6.0),
+        estimated("haiku", "research", (30.0, 10.0), (1.0, None)),
+        estimated("haiku", "research", (30.0, 10.0), (1.0, None)),
+    ];
+    Ledger { estimates: Ok(estimates), ..ledger() }
+}
+
+#[test]
+fn tune_prints_each_cells_estimate_ratios_and_files_one_box_per_cell_whose_median_drifted_outside_the_band() {
+    let mut issues = Issues::default();
+    let first = tick(&estimated_ledger(), &Prior::default(), &[], &mut issues, AT, false);
+    for line in [
+        "estimate haiku research: minutes median 3.00x p90 3.00x inside 0% (n 2); cost n/a",
+        "estimate opus-medium feature: minutes median 2.50x p90 3.00x inside 0% (n 3); cost median 2.50x p90 3.00x inside 0% (n 3)",
+        "estimate sonnet tooling: minutes median 1.00x p90 3.00x inside 50% (n 4); cost n/a",
+        "drifted opus-medium feature: minutes median 2.50x, cost median 2.50x outside 0.67-1.5x",
+    ] {
+        assert!(first.lines.contains(&line.to_owned()), "{line}: {:#?}", first.lines);
+    }
+    let drifts: Vec<&(String, String)> = issues.filed.iter().filter(|(title, _)| title.starts_with("Estimates drifted")).collect();
+    assert_eq!(drifts.len(), 1, "one box for the cell whose minutes and cost both drifted; haiku research holds 2 runs, too few: {:#?}", first.lines);
+    let (title, body) = drifts[0];
+    assert_eq!(title, "Estimates drifted outside 0.67-1.5x of actual in opus-medium feature");
+    assert!(body.starts_with("Category: tooling\n") && body.contains("- minutes: actual over estimate median 2.50x p90 3.00x inside 0% (n 3)\n- cost: actual over estimate median 2.50x"), "{body}");
+    assert!(!first.failed, "{:#?}", first.lines);
+
+    let mut held = Issues { open: vec![title.clone()], ..Issues::default() };
+    let next = tick(&estimated_ledger(), &Prior::default(), &[], &mut held, AT, false);
+    assert!(!held.filed.iter().any(|(filed, _)| filed == title), "the open issue holds the cell: {:?}", held.filed);
+    assert!(next.lines.contains(&format!("  held by an issue filed for it: {title}")), "{:#?}", next.lines);
+
+    let unread = tick(&Ledger { estimates: Err("no such table: runs".into()), ..ledger() }, &Prior::default(), &[], &mut Issues::default(), AT, false);
+    assert!(unread.failed && unread.lines.contains(&"estimates: unread (no such table: runs)".to_owned()), "{:#?}", unread.lines);
+}
+
+fn effort_boxes(category: &str, medium: (usize, usize, f64), high: (usize, usize, f64)) -> ClosedReport {
+    let armed = |arm: &str, (count, reworked, usd): (usize, usize, f64)| (0..count).map(|number| ArmBox { item: format!("north#{arm}-{number}"), tier: "opus-medium".into(), arm: arm.into(), usd, category: category.into(), closed: true, reworked: number < reworked }).collect::<Vec<_>>();
+    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: [armed("effort-medium", medium), armed("effort-high", high)].concat(), spend_usd: 0.0, leads_usd: 0.0 }
+}
+
+#[test]
+fn a_fixture_ledger_with_both_efforts_writes_the_cheaper_kept_box_effort_cell_and_keeps_it_when_unread() {
+    let stamped = BTreeMap::from([("effort-medium".to_owned(), 15), ("effort-high".to_owned(), 15)]);
+    let evidence = |medium, high| Evidence::default().counted(&stamped).priced(&effort_boxes("research", medium, high), "research");
+    let ledger = Ledger { week: report(&[], "2026-10-20T06:00:00Z"), before: report(&[], "2026-10-13T06:00:00Z"), evidence: BTreeMap::from([("research".to_owned(), evidence((15, 10, 5.0), (15, 0, 8.0)))]), notes: Vec::new(), estimates: Ok(Vec::new()) };
+    let first = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false);
+    assert_eq!(first.cells.get("effort research"), Some(&json!("high")), "{:#?}", first.lines);
+    let record = first.records.iter().find(|record| record["cell"] == "effort research").unwrap();
+    assert_eq!((record["rows"].clone(), record["n"].clone()), (json!(30), json!(30)));
+    assert!(record["claim"].as_str().unwrap().contains("effort-medium 15 of 15 arm runs, 15 of 15 closed arm boxes, $15.00 per kept box; effort-high 15 of 15 arm runs, 15 of 15 closed arm boxes, $8.00 per kept box"), "{record}");
+    let cheaper = Ledger { evidence: BTreeMap::from([("research".to_owned(), evidence((15, 0, 5.0), (15, 0, 8.0)))]), ..ledger };
+    assert_eq!(tick(&cheaper, &Prior::default(), &[], &mut Issues::default(), AT, false).cells.get("effort research"), Some(&json!("medium")));
+    let blind = Ledger { evidence: BTreeMap::new(), notes: vec!["arm runs of research unread".into()], ..cheaper };
+    let kept = tick(&blind, &Prior { cells: first.cells.clone(), ..Prior::default() }, &[], &mut Issues::default(), AT, false);
+    assert_eq!(kept.cells.get("effort research"), Some(&json!("high")), "a failed read keeps the effort cell");
+}

@@ -8,7 +8,7 @@ use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::runtime::now_ms;
 use crate::fleet::sender::Sender;
 use crate::fleet::store::GateRow;
-use crate::ops::dispatch::IssueRef;
+use crate::dispatch::IssueRef;
 
 const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) [--issue OWNER/REPO#N] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate list [--json]";
 const WAIT_POLL: Duration = Duration::from_secs(2);

@@ -458,7 +458,7 @@ Each box is about one lane.
 - **C7, staffing reads reservations and driver-resolved paths (30 min).**
   - Follows: staffing-overlap, C4, C5.
   - Files: crates/north-core/src/fleet/overlap.rs, src/cli/fleet/launch.rs,
-    crates/north-ops/src/ops/dispatch/.
+    crates/north-dispatch/src/dispatch/.
   - Done when:
     1. Replaying staffing-overlap's fixture of 2026-11-05, 12:30 to 1:30 AM, queues the same launches
        as before, except boxes whose only overlap is a driver-resolved path, which start.

@@ -5,7 +5,7 @@ use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::OverSsh;
 use crate::fleet::tick::{FarHost, Pulls, tick};
-use crate::ops::pacing::placement::{config, gate, pass};
+use crate::pacing::placement::{config, gate, pass};
 
 use super::ledger::Ledger;
 use super::rebooted;

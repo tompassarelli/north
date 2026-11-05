@@ -17,7 +17,7 @@ use serde_json::Value;
 use toml_edit::DocumentMut;
 
 use crate::agent_contain;
-use crate::ops::pacing::placement::{config, gate};
+use crate::pacing::placement::{config, gate};
 use crate::platform::ssh;
 use crate::threads::client::shell_quote;
 use crate::platform::process::run_within;
@@ -173,7 +173,7 @@ pub fn drain(inputs: &Inputs) -> u8 {
         eprintln!("laptop-runner: {}: {error}", inputs.logs.display());
         return 1;
     }
-    let me = crate::ops::laptop::hostname();
+    let me = crate::laptop::hostname();
     let mut ran = 0;
     for ledger in &inputs.ledgers {
         while let Some(places) = inputs.places() {
@@ -203,7 +203,7 @@ fn run_job(inputs: &Inputs, ledger: &Ledger, job: &Value) {
     let (errors, output) = match opened {
         Ok(files) => files,
         Err(error) => {
-            let message = format!("rc=1 log={}:{}\ncannot open the log: {error}", crate::ops::laptop::hostname(), log.display());
+            let message = format!("rc=1 log={}:{}\ncannot open the log: {error}", crate::laptop::hostname(), log.display());
             let _ = ledger.threads(&["queue", "msg", &id, "failed", &message]);
             return;
         }
@@ -225,7 +225,7 @@ fn run_job(inputs: &Inputs, ledger: &Ledger, job: &Value) {
         }
     };
     let status = if stopped { "requeued" } else if code == 0 { "done" } else { "failed" };
-    let message = format!("rc={code} log={}:{}\n{}", crate::ops::laptop::hostname(), log.display(), tail(&log));
+    let message = format!("rc={code} log={}:{}\n{}", crate::laptop::hostname(), log.display(), tail(&log));
     let _ = ledger.threads(&["queue", "msg", &id, status, &message]);
 }
 

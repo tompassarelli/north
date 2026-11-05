@@ -19,7 +19,7 @@ use serde_json::Value;
 
 use self::host::{Host, Real, expand_home};
 use crate::fleet::model::ProviderName;
-use crate::ops::pacing::placement::gate;
+use crate::pacing::placement::gate;
 use crate::runtime_access::RuntimeAccess;
 
 const SOURCES: &str = include_str!("../../../../harness/model-watch-sources.toml");

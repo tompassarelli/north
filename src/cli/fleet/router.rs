@@ -10,7 +10,7 @@ use crate::fleet::store::ControlVerb;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::runtimes::Runtimes;
-use crate::ops::pacing::placement::{self as pacing_placement, config};
+use crate::pacing::placement::{self as pacing_placement, config};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
 use crate::ledger::Ledger;

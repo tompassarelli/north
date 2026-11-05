@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::LaunchRequest;
 use crate::fleet::registry::Fleet;
-use crate::ops::dispatch::{IssueRef, task_holder};
+use crate::dispatch::{IssueRef, task_holder};
 
 use super::list;
 use super::placement::Overrides;

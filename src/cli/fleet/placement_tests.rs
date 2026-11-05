@@ -1,6 +1,6 @@
 use super::*;
-use crate::ops::pacing::placement::gate::{self as placement, CloudLane, Verdict};
-use crate::ops::pacing::placement::room::{PlanSize, Rank, Room};
+use crate::pacing::placement::gate::{self as placement, CloudLane, Verdict};
+use crate::pacing::placement::room::{PlanSize, Rank, Room};
 
 fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
     let line = match headroom {

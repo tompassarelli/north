@@ -10,7 +10,7 @@ use super::store;
 use super::supersede::{self, SUPERSEDED};
 use crate::capacity::game_reserve::Confinement;
 use crate::land_offload;
-use crate::ops::pacing::placement::gate;
+use crate::pacing::placement::gate;
 use crate::platform::process;
 use rustix::fs::{FlockOperation, flock};
 use std::ffi::OsStr;

@@ -6,7 +6,8 @@ use crate::error::{NorthError, NorthResult};
 use crate::ops::agents::{self, Verb, plan, script};
 use crate::fleet::runtimes::Runtimes;
 use crate::runtime_access::RuntimeAccess;
-use crate::ops::{flow, pacing, report};
+use crate::ops::{flow, report};
+use crate::pacing;
 use crate::platform::harness;
 use crate::providers::claude::{self, fleet::Claude};
 

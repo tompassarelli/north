@@ -149,7 +149,7 @@ impl<'a> Gatherer<'a> {
             .collect();
         let mut found = Vec::new();
         for repo in &repos {
-            let slug = format!("{}/{repo}", crate::ops::dispatch::OWNER);
+            let slug = format!("{}/{repo}", crate::dispatch::OWNER);
             let Some(Value::Array(issues)) = self.host.json(&["gh", "issue", "list", "-R", &slug, "--state", "open", "--limit", "300", "--json", "number,updatedAt"]) else { continue };
             for issue in issues {
                 let reference = format!("{repo}#{}", issue["number"].as_u64().unwrap_or_default());

@@ -11,7 +11,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::LaunchRequest;
 use crate::fleet::overlap::{Lane, QUEUED, MergeDriven, Policy, Verdict, assess, declared_files, follows_line, warnings};
 use crate::fleet::registry::Fleet;
-use crate::ops::pacing::placement::config;
+use crate::pacing::placement::config;
 use crate::platform::follows::follows_line as brief_follows;
 use crate::threads::catalog::CATALOG;
 

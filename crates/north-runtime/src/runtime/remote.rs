@@ -1,7 +1,7 @@
 use super::bounded;
 use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::PROGRAMS;
-use crate::ops::pacing::placement::gate;
+use crate::pacing::placement::gate;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;

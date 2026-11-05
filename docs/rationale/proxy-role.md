@@ -79,7 +79,7 @@ outside the fleet with `NORTH_FLEET_SESSION` unset, so it cannot be a parent, a 
 session or an alarm's recipient. Its children report to nobody (`--parent none`) or to the idle
 fleet session that is also called `proxy`, on account a: launches with no `--parent` and no caller
 default to that name (`src/cli/fleet/lineage.rs:19`), and `north ops check`, `north ops dividend` and
-`north flow` alerts all send to it (`crates/north-ops/src/ops/check/mod.rs:45`,
+`north flow` alerts all send to it (`crates/north-dispatch/src/check/mod.rs:45`,
 `crates/north-ops/src/ops/flow/alerts.rs:68`). So the session Tom reads hears nothing, and the
 session that hears everything has no reader. The lander already tells a ticket's session when its
 lane lands or is refused, with the conflicting files (`crates/north-landing/src/land/bisect.rs:126`),
@@ -94,7 +94,7 @@ The same inference by absence recurs one level down, at the sender: every `north
 outside a session is unsigned (`src/cli/send.rs:24`), and so are fleet receipts and silence notices
 (`crates/north-core/src/fleet/registry/parents.rs:48`), the lander's messages
 (`crates/north-landing/src/land/after/mod.rs:47`), wait results (`src/cli/fleet/waits.rs:76`), about
-ten timers (`crates/north-ops/src/ops/check/facts.rs:90`, `ops/dividend/live.rs:213`,
+ten timers (`crates/north-dispatch/src/check/facts.rs:90`, `ops/dividend/live.rs:213`,
 `ops/runtime/update.rs:416`, `ops/tune/mod.rs:257`, `ops/timers/fleet_session.rs:95`,
 `ops/timers/cross_project.rs:175`, `health/failed_starts.rs:115`, `ops/flow/alerts.rs:188`) and the
 TUI composer Tom types into (`crates/north-tui/src/tui/fleet/desk.rs:54`). Nothing can tell Tom's

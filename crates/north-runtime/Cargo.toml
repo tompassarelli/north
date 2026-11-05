@@ -8,7 +8,8 @@ publish = false
 
 [dependencies]
 north-base = { path = "../north-base" }
-north-ops = { path = "../north-ops" }
+north-core = { path = "../north-core" }
+north-dispatch = { path = "../north-dispatch" }
 regex.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true
@@ -21,7 +22,7 @@ toml_edit.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-north-ops = { path = "../north-ops", features = ["test-support"] }
+north-dispatch = { path = "../north-dispatch", features = ["test-support"] }
 
 [lints]
 workspace = true

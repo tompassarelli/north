@@ -17,7 +17,7 @@ const RECORD_LIMIT: Duration = Duration::from_secs(5);
 
 /// The spawn gate's width for a project's boxes: the measured concurrency while the gate admits spawns, else 1.
 pub fn gate_width(concurrency: usize) -> (usize, String) {
-    let shown = crate::ops::pacing::spawn_gate::summary();
+    let shown = crate::pacing::spawn_gate::summary();
     let open: Vec<&str> = shown["accounts"].as_array().into_iter().flatten().filter(|pair| pair[1] == true).filter_map(|pair| pair[0].as_str()).collect();
     let cpu = shown["cpu"] == true;
     let admitted = cpu && (!open.is_empty() || shown["accounts"].as_array().is_none_or(Vec::is_empty));

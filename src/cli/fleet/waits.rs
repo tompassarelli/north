@@ -20,7 +20,7 @@ use crate::fleet::tick::{Probed, WaitProbes};
 use crate::fleet::limit::Parked;
 use crate::fleet::waits::{Probe, Registered, Run, Settled};
 use crate::foundation::clock::Timestamp;
-use crate::ops::pacing::placement::{config, gate};
+use crate::pacing::placement::{config, gate};
 use crate::platform::process::{run_command_within, run_within};
 
 use super::placement::Overrides;

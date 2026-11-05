@@ -27,4 +27,4 @@ toml_edit.workspace = true
 workspace = true
 
 [dev-dependencies]
-north-ops = { path = "../north-ops" }
+north-dispatch = { path = "../north-dispatch" }

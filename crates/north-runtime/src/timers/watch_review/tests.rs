@@ -218,8 +218,8 @@ fn watch_review_launches_the_placed_account_in_a_fresh_lane_with_the_xhigh_brief
     assert!(header.iter().any(|line| line.starts_with("Done when:") && line.contains("docs/rationale/watch/2026-11-04-pstack.md") && line.contains("agents/watch.toml")));
     assert!(header.iter().any(|line| line.starts_with("ETA:")));
     let head = header.join("\n");
-    assert_eq!(crate::ops::dispatch::tier_reason(&head, None).as_deref(), Some(TIER_REASON));
-    assert_eq!(crate::ops::dispatch::untasked(&head, None, None), Ok(true));
+    assert_eq!(crate::dispatch::tier_reason(&head, None).as_deref(), Some(TIER_REASON));
+    assert_eq!(crate::dispatch::untasked(&head, None, None), Ok(true));
 }
 
 #[test]

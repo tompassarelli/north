@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use super::{Ids, Options};
-use crate::ops::pacing::placement::{self, gate};
+use crate::pacing::placement::{self, gate};
 use crate::platform::process::run_with_input_within;
 
 #[cfg(test)]

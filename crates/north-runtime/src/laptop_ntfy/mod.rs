@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 
 use self::http::{Log, Request, Respond};
 use crate::foundation::clock::Timestamp;
-use crate::ops::laptop::{Ctx, Zone};
+use crate::laptop::{Ctx, Zone};
 
 const USAGE: &str = "north laptop-ntfy serve|notify|press: phone signals for the laptop availability state.
 

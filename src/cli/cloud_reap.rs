@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::cloud::{Api, field, request, save, turn_ended};
 use super::cloud_land::Outcome;
-use crate::ops::dispatch::CloudLaunch;
+use crate::dispatch::CloudLaunch;
 
 /// A launch older than this is no longer reaped: its session has long finished or been swept.
 const WINDOW_S: f64 = 7.0 * 24.0 * 3600.0;
@@ -108,11 +108,11 @@ fn checkout(repo: &str) -> PathBuf {
 
 pub(super) fn run(api: &mut Api, out: &mut dyn Write) -> Result<u8, String> {
     let state = super::cloud_land::state_dir();
-    let launches = crate::ops::dispatch::cloud_launches();
+    let launches = crate::dispatch::cloud_launches();
     let mut land = |launch: &CloudLaunch, events: &[Value], transcript: &Path| {
         super::cloud_land::land_handback(events, transcript, &checkout(&launch.repo), &state, &mut super::cloud_land::run_program)
     };
-    let now = crate::ops::pacing::placement::now();
+    let now = crate::pacing::placement::now();
     let reaped = reap(&launches, api, &state.join("reap"), now, &mut land, out)?;
     Ok(u8::from(reaped.failed > 0))
 }

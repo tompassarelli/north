@@ -1,7 +1,7 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::ProviderName;
 use crate::fleet::runtime::Invocation;
-use crate::ops::pacing::placement::gate;
+use crate::pacing::placement::gate;
 use crate::providers::claude;
 
 use super::fleet;

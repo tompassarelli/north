@@ -12,7 +12,7 @@ unit = "weekly usage percentage points one box dispatch plans on an account char
 source = "prior: one point per box, so one dispatch tick spreads its launches across accounts"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured tier reservation means" }
 fallback = "every box charges one point"
-consumers = ["crates/north-ops/src/ops/pacing/placement/room.rs"]
+consumers = ["crates/north-dispatch/src/pacing/placement/room.rs"]
 
 [success_threshold]
 value = 80
@@ -480,7 +480,7 @@ value = 1800
 unit = "seconds of continuous idle before reopening background laptop capacity"
 source = "tom: adaptive-harness Revision 1 C1c, 2026-10-15: preserve laptop observe's existing 1800-second idle reopening threshold"
 fallback = "without continuous idle evidence background capacity remains closed"
-consumers = ["crates/north-ops/src/ops/laptop/observe.rs", "crates/north-ops/src/ops/agents/presence/mod.rs"]
+consumers = ["crates/north-dispatch/src/laptop/observe.rs", "crates/north-ops/src/ops/agents/presence/mod.rs"]
 
 [presence_slot_min]
 value = 15

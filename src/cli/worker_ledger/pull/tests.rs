@@ -1,6 +1,6 @@
 use super::super::Options;
 use super::pull_among;
-use crate::ops::pacing::placement::gate;
+use crate::pacing::placement::gate;
 use std::process::Command;
 use toml_edit::DocumentMut;
 

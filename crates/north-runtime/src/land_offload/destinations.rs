@@ -1,4 +1,4 @@
-use crate::ops::pacing::placement::gate::ssh_destination;
+use crate::pacing::placement::gate::ssh_destination;
 use toml_edit::{DocumentMut, Item};
 
 #[cfg(test)]

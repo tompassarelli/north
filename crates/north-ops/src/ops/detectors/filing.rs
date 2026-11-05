@@ -43,7 +43,7 @@ pub struct Filer<'a> {
 fn issue_of(owner: &str) -> Option<(String, String)> {
     let (repo, number) = owner.rsplit_once('#')?;
     let repo = repo.rsplit('/').next().filter(|repo| !repo.is_empty())?;
-    number.bytes().all(|byte| byte.is_ascii_digit()).then(|| (format!("{}/{repo}", crate::ops::dispatch::OWNER), number.to_owned()))
+    number.bytes().all(|byte| byte.is_ascii_digit()).then(|| (format!("{}/{repo}", crate::dispatch::OWNER), number.to_owned()))
 }
 
 impl<'a> Filer<'a> {

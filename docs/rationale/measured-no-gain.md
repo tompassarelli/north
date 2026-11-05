@@ -85,8 +85,8 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
   for 2026-10-28 to 2026-11-04 found 0 handoff-nudge wakes while 23 handoff-150k runs passed 150k.
   The 350k arm never separated from no-handoff because no run reached 350k (north#252, 2026-10-29) and nothing
   assigns it now.
-- Live code: `crates/north-ops/src/ops/dispatch/handoff.rs` (114; `Arms::winner` at `:77-86` compares cost only,
-  so the Done-rate half of the bar is not enforced), `crates/north-ops/src/ops/dispatch/mod.rs:179-181`,
+- Live code: `crates/north-dispatch/src/dispatch/handoff.rs` (114; `Arms::winner` at `:77-86` compares cost only,
+  so the Done-rate half of the bar is not enforced), `crates/north-dispatch/src/dispatch/mod.rs:179-181`,
   `crates/north-core/src/fleet/handoff.rs` (63), `crates/north-core/src/fleet/watch.rs:221-256`,
   `crates/north-core/src/fleet/registry/launching.rs:66`, and `handoff_arm_ctx` (`harness/defaults.toml:101-105`,
   read at `crates/north-core/src/pace/limits.rs:40`). `north dispatch` runs it every 5 minutes on Nexus (south
@@ -197,7 +197,7 @@ arm loses. Each box is at most 45 minutes, lands alone through safe-push, and le
    passes on origin/main and `north dispatch --dry-run` on Nexus prints the winner per tier with both rates.
 6. Handoff nudge, not before 2026-11-18 and only when no tier keeps handoff-150k under box 5. Delete
    `crates/north-core/src/fleet/handoff.rs`, the nudge in `crates/north-core/src/fleet/watch.rs`, the arm pick in
-   `crates/north-ops/src/ops/dispatch/handoff.rs` and `mod.rs`, the session threshold and `handoff_arm_ctx`.
+   `crates/north-dispatch/src/dispatch/handoff.rs` and `mod.rs`, the session threshold and `handoff_arm_ctx`.
    Done when: `rg -n 'handoff_arm_ctx|handoff-150k' crates harness` prints nothing; when a tier keeps it,
    this page records the reading instead.
 7. Restaff arms. Delete the arm sentence from `harness/skills/workers/references/tiers.md`,

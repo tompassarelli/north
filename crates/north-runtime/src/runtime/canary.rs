@@ -1,6 +1,6 @@
 use super::layout::{self, Layout};
 use super::update;
-use crate::ops::pacing::placement::{config, gate};
+use crate::pacing::placement::{config, gate};
 use crate::platform::process;
 use std::fs;
 use std::path::Path;

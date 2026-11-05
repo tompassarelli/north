@@ -7,7 +7,7 @@ use std::path::Path;
 use super::alerts::{Action, Node, Record, State};
 use super::host::{Host, Places};
 use crate::ledger::ClosedReport;
-use crate::ops::dispatch::{ARMED, ARM_WINDOW, Evidence, Tier};
+use crate::dispatch::{ARMED, ARM_WINDOW, Evidence, Tier};
 
 const STATE_FILE: &str = "routing.json";
 const KEY: &str = "routing:supply";
@@ -56,7 +56,7 @@ pub fn routing_plan(stalled: &[(String, String)], previous: &State, now: f64) ->
 }
 
 pub fn routing_alert(places: &Places, host: &dyn Host, now: f64) -> Result<(), String> {
-    alert(places, host, &crate::ops::dispatch::tuned_routes(), || crate::ledger::closed_report(ARM_WINDOW).map_err(|error| error.user_message()), now)
+    alert(places, host, &crate::dispatch::tuned_routes(), || crate::ledger::closed_report(ARM_WINDOW).map_err(|error| error.user_message()), now)
 }
 
 pub(super) fn alert(places: &Places, host: &dyn Host, routes: &BTreeMap<String, Tier>, closed: impl FnOnce() -> Result<ClosedReport, String>, now: f64) -> Result<(), String> {

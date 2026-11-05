@@ -10,6 +10,7 @@ publish = false
 north-base = { path = "../north-base" }
 north-capacity-host = { path = "../north-capacity-host" }
 north-core = { path = "../north-core" }
+north-dispatch = { path = "../north-dispatch" }
 fancy-regex.workspace = true
 regex.workspace = true
 percent-encoding.workspace = true
@@ -22,9 +23,6 @@ tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
-
-[features]
-test-support = []
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }

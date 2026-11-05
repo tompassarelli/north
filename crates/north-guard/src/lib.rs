@@ -5,4 +5,4 @@ pub mod guard;
 pub mod hook;
 pub mod lanes;
 #[cfg(test)]
-use north_ops::ops;
+use north_dispatch::pacing;

@@ -56,7 +56,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("tempo", crate::ops::tempo::run),
     ("report", crate::ops::report::run),
     ("agents", super::agents::run),
-    ("resident-cap", crate::ops::resident_cap::run),
+    ("resident-cap", crate::resident_cap::run),
     ("split", crate::split::run),
     ("docs", crate::ops::docs::run),
     ("usage", super::agents::usage),
@@ -87,14 +87,14 @@ const UNIFORM: &[(&str, Run)] = &[
 
 const DIRECT: &[(&str, Run)] = &[
     ("nexus-ram", crate::ops::nexus_ram::run),
-    ("laptop", crate::ops::laptop::run),
+    ("laptop", crate::laptop::run),
     ("laptop-runner", crate::laptop_runner::run),
     ("laptop-ntfy", crate::laptop_ntfy::run),
     ("agent-contain", crate::agent_contain::run),
     ("reclaim", crate::ops::reclaim::run),
     ("retain", crate::ops::retention::run),
     ("runtime", crate::runtime::run),
-    ("tune", crate::ops::tune::run),
+    ("tune", crate::tune::run),
     ("archives", crate::platform::archive_tags::run),
     ("code-health", code_health),
 ];
@@ -140,9 +140,9 @@ impl Tool {
             Self::Wisp => super::in_runtime(async move {
                 crate::platform::wisp_payoff::run(arguments).map(|()| ExitCode::SUCCESS)
             }),
-            Self::Dispatch => ExitCode::from(crate::ops::dispatch::run(arguments, super::fleet::roster)),
-            Self::Pace => ExitCode::from(crate::ops::pacing::run(arguments, crate::ops::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load }, super::token_usage::read)),
-            Self::Capacity => ExitCode::from(capacity::command::run(arguments, capacity::effects::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::ops::pacing::placement::local_bar1_margin_mib, offload: crate::land_offload::run, build_offload: crate::build_offload::offload, lease_builds: crate::ops::pacing::placement::local_lease_builds, reclaim_disk: crate::ops::reclaim::before_disk_defer_here })),
+            Self::Dispatch => ExitCode::from(crate::dispatch::run(arguments, super::fleet::roster)),
+            Self::Pace => ExitCode::from(crate::pacing::run(arguments, crate::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load }, super::token_usage::read)),
+            Self::Capacity => ExitCode::from(capacity::command::run(arguments, capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, offload: crate::land_offload::run, build_offload: crate::build_offload::offload, lease_builds: crate::pacing::placement::local_lease_builds, reclaim_disk: crate::ops::reclaim::before_disk_defer_here })),
             Self::SessionUnit => super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::NexusRun => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(arguments).await)) }),
             Self::Timer(timer) => ExitCode::from(timer.run(arguments, &super::agents::claude_access())),

@@ -9,8 +9,8 @@ use crate::fleet::model::{LaunchRequest, Machine};
 use crate::fleet::registry::Fleet;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::binary;
-use crate::ops::dispatch::{cloud_autoland, cloud_branch};
-use crate::ops::pacing::placement::gate::{self, CloudLane, Decision, Target};
+use crate::dispatch::{cloud_autoland, cloud_branch};
+use crate::pacing::placement::gate::{self, CloudLane, Decision, Target};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Overrides {
@@ -313,6 +313,6 @@ pub(super) fn working_directory(cwd: Option<PathBuf>) -> NorthResult<(PathBuf, O
     let Some(cwd) = cwd else { return Ok((std::env::current_dir()?, None)) };
     let named = cwd.to_str().and_then(|text| text.split_once(':')).filter(|(host, path)| !host.contains('/') && path.starts_with('/'));
     let Some((host, path)) = named else { return Ok((std::fs::canonicalize(cwd)?, None)) };
-    let machine = crate::ops::pacing::placement::machine(host).ok_or_else(|| NorthError::Usage(format!("--cwd {host}:{path} names no [hosts.{host}] with an ssh destination")))?;
+    let machine = crate::pacing::placement::machine(host).ok_or_else(|| NorthError::Usage(format!("--cwd {host}:{path} names no [hosts.{host}] with an ssh destination")))?;
     Ok((PathBuf::from(path), Some(machine)))
 }

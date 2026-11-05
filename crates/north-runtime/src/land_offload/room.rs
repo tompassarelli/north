@@ -1,6 +1,6 @@
 use crate::capacity::admission::{Class, dispatch_request_mib, memory_short, offload_room};
 use crate::capacity::build_offload::Admission;
-use crate::ops::dispatch::measure::{self, Measure};
+use crate::dispatch::measure::{self, Measure};
 use crate::platform::process::run_within;
 use std::time::Duration;
 

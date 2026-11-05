@@ -934,6 +934,7 @@ dependencies = [
  "fancy-regex",
  "north-capacity-host",
  "north-core",
+ "north-dispatch",
  "north-guard",
  "north-landing",
  "north-ops",
@@ -1020,13 +1021,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-dispatch"
+version = "0.1.0"
+dependencies = [
+ "north-capacity-host",
+ "north-core",
+ "proptest",
+ "regex",
+ "rusqlite",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "toml_edit",
+]
+
+[[package]]
 name = "north-guard"
 version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "north-base",
  "north-core",
- "north-ops",
+ "north-dispatch",
  "regex",
  "rusqlite",
  "rustix 0.38.44",
@@ -1065,6 +1083,7 @@ dependencies = [
  "north-base",
  "north-capacity-host",
  "north-core",
+ "north-dispatch",
  "percent-encoding",
  "proptest",
  "regex",
@@ -1101,7 +1120,8 @@ name = "north-runtime"
 version = "0.1.0"
 dependencies = [
  "north-base",
- "north-ops",
+ "north-core",
+ "north-dispatch",
  "percent-encoding",
  "regex",
  "rusqlite",
