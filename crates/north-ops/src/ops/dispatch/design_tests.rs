@@ -70,7 +70,7 @@ fn a_hand_launch_declaring_wisp_81_mechanical_runs_as_a_feature() {
 #[test]
 fn a_cell_whose_few_closed_boxes_were_trivial_budgets_the_median_closed_box_across_every_cell() {
     let ledger = ledger();
-    let haiku = Route { tier: Tier::Haiku, category: "mechanical".into(), arm: false, follows: None, why: String::new() };
+    let haiku = Route { tier: Tier::Haiku, category: "mechanical".into(), arm: false, effort: None, effort_arm: false, follows: None, why: String::new() };
     let grounds = ledger.grounds("wisp#81", 0.0, WISP_81, &haiku);
     let (cell, (floor, boxes)) = (grounds.figures.clone().unwrap(), grounds.floor.unwrap());
     assert!(cell.median_usd * 2.0 < floor && boxes == 11, "the haiku cell's ${:.2} sits below the ${floor:.2} floor of {boxes} boxes", cell.median_usd);

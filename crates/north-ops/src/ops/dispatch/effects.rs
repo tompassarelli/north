@@ -37,7 +37,7 @@ pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: 
     let mut words: Vec<String> = ["fleet", "launch", "--provider", provider, "--account", label, "--name", name, "--task", &launch.item.to_string(), "--cwd", &cwd]
         .map(str::to_owned)
         .into();
-    words.extend(launch.route.tier.invocation(&survey.cfg)?);
+    words.extend(launch.route.invocation(&survey.cfg)?);
     let held = (!remote && launch.local.is_none()).then(|| format!("north dispatch placed this box on {}", launch.host));
     for (flag, reason) in [("--local", launch.local.as_ref().or(held.as_ref())), ("--pin", launch.pin.as_ref())] {
         if let Some(reason) = reason {
@@ -60,7 +60,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
     let result = if launch.cloud {
         let started = brief::standing_orders().and_then(|orders| {
             let text = brief::cloud(&launch.brief, &launch.item.repo, &cloud::branch(&name), &orders);
-            let model = launch.route.tier.invocation(&survey.cfg)?;
+            let model = launch.route.invocation(&survey.cfg)?;
             cloud::launch(&launch.item.repo, &name, &text, &model, Path::new(cloud::SOURCES), Path::new(&home), &mut cloud::run)
         });
         started.map(|launched| format!("{name} {} {}", launched.session, launched.branch))
@@ -81,6 +81,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         arm: launch.route.arm,
         handoff: launch.handoff.clone(),
         hand: false,
+        effort_arm: launch.route.effort_stamp().map(str::to_owned),
     };
     record::append(&record::directory(), &entry)?;
     result

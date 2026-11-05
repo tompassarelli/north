@@ -5,7 +5,7 @@ use super::tests::{host, sized, MAX_5X};
 use super::tier::{Route, Tier};
 
 fn ready(eta_h: Option<f64>) -> Ready {
-    let route = Route { tier: Tier::Sonnet, category: "tooling".into(), arm: false, follows: None, why: "tooling arm sonnet-high".into() };
+    let route = Route { tier: Tier::Sonnet, category: "tooling".into(), arm: false, effort: None, effort_arm: false, follows: None, why: "tooling arm sonnet-high".into() };
     Ready { item: IssueRef::new("north", 259), brief: "brief".into(), code_only: false, route, eta_h }
 }
 

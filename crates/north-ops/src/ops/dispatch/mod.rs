@@ -19,7 +19,7 @@ pub use manual::{Ask, Start, begin as start_hand, picked_tier, tier_reason, unta
 pub use survey::evidence as arm_evidence;
 pub use tuned::current as tuned_routes;
 pub use record::{Record as LaunchRecord, read as launch_records};
-pub use tier::{ARM_WINDOW, ARMED, Evidence, Tier};
+pub use tier::{ARM_WINDOW, ARMED, Effort, Evidence, Tier, evidenced};
 
 mod brief;
 mod cloud;
@@ -177,7 +177,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             Ok(mut launch) => {
                 history.chose(&launch.route);
                 claims.take(issue);
-                if let Some(arm) = (!launch.cloud && !launch.route.arm).then(|| handoffs.pick(launch.route.tier)).flatten() {
+                if let Some(arm) = (!launch.cloud && launch.route.stamp().is_none()).then(|| handoffs.pick(launch.route.tier)).flatten() {
                     launch.brief = handoff::armed(&launch.brief, &arm);
                     launch.handoff = Some(arm);
                 }

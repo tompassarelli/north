@@ -73,7 +73,7 @@ struct World {
 }
 
 fn launch_record(world: &World, number: u64, name: &str, started: bool, hand: bool, cloud: bool, host: &str) -> Record {
-    Record { at: world.at, item: item(number).to_string(), host: host.into(), account: "claude:b".into(), name: name.into(), cloud, launched: started, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand }
+    Record { at: world.at, item: item(number).to_string(), host: host.into(), account: "claude:b".into(), name: name.into(), cloud, launched: started, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand, effort_arm: None }
 }
 
 struct Snapshot {

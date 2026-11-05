@@ -17,7 +17,7 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds)
     head.extend(declared(issue, "Class").map(|class| format!("Class: {class}")));
     head.extend(crate::router::brief::lands_before_native(&facet(issue, "Verify"), &facet(issue, "Category")).then(|| "Lands-before: native".to_owned()));
     head.push(format!("Tier: {}", route.tier.name()));
-    head.extend(route.arm.then(|| format!("Arm: {}", route.tier.name())));
+    head.extend(route.stamp().map(|arm| format!("Arm: {arm}")));
     head.extend(route.follows.as_ref().map(|follows| format!("Follows: {follows}")));
     let needs = declared(issue, "Needs").map(str::to_owned).or_else(|| native(issue).then(|| "native".to_owned()));
     head.extend(needs.map(|needs| format!("Needs: {needs}")));

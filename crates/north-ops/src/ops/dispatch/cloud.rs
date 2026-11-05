@@ -102,7 +102,7 @@ pub fn item(text: &str) -> Result<IssueRef, String> {
 
 pub fn hold(item: &IssueRef, launched: &Launched, here: &str, pace: &Path, at: f64) -> Result<(), String> {
     let detail = format!("north cloud launch {} {}", launched.session, launched.branch);
-    let entry = Record { at, item: item.to_string(), host: HOST.into(), account: format!("claude login on {here}"), name: launched.session.clone(), cloud: true, launched: true, detail, tier: None, category: None, arm: false, handoff: None, hand: false };
+    let entry = Record { at, item: item.to_string(), host: HOST.into(), account: format!("claude login on {here}"), name: launched.session.clone(), cloud: true, launched: true, detail, tier: None, category: None, arm: false, handoff: None, hand: false, effort_arm: None };
     record::append(pace, &entry)
 }
 

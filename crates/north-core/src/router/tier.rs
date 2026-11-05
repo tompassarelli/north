@@ -45,10 +45,6 @@ impl Tier {
         field("model").zip(field("effort")).ok_or_else(|| format!("orchestration has no model and effort for [tiers.\"{}\"]", self.key()))
     }
 
-    pub fn invocation(self, cfg: &DocumentMut) -> Result<Vec<String>, String> {
-        self.model_effort(cfg).map(|(model, effort)| vec!["--model".into(), model, "--effort".into(), effort])
-    }
-
     pub fn serves(self, model: &str) -> bool {
         let family = match self {
             Self::Haiku => "haiku",

@@ -1,5 +1,5 @@
 //! `north tune`: the daily learning tick. It reads the ledger's closed boxes of the last week and
-//! the week before, prints the dashboard line, writes the routing cells whose arms decided and the
+//! the week before, prints the dashboard line, writes the routing and effort cells whose arms decided and the
 //! ETA and budget cells to the cells file, appends each changed cell's evidence to the provenance
 //! file, files one north issue for each cell whose cost per closed box rose more than 25% week on
 //! week unless one filed for it is open or closed in the last week, and prints the open north issue
@@ -12,7 +12,7 @@
 //! the tick.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, EstimatedRun};
-use crate::ops::dispatch::{ARMED, Evidence, LEDGER_WINDOW, arm_evidence};
+use crate::ops::dispatch::{Evidence, LEDGER_WINDOW, arm_evidence, evidenced};
 use crate::platform::github;
 use cells::{Cells, Change};
 use costs::Cost;
@@ -194,7 +194,7 @@ pub fn run(arguments: &[String]) -> u8 {
 fn tune(dry_run: bool) -> Result<Tick, String> {
     let (week, before) = ledger::closed_report_and_previous(LEDGER_WINDOW).map_err(|error| error.user_message())?;
     let mut notes = Vec::new();
-    let evidence = arm_evidence(&ARMED, &mut notes);
+    let evidence = arm_evidence(&evidenced(), &mut notes);
     let estimates = ledger::estimated_runs(LEDGER_WINDOW).map_err(|error| error.user_message());
     let ledger = Ledger { week, before, evidence, notes, estimates };
     let files = Files::here()?;

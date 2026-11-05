@@ -35,7 +35,7 @@ fn uncategorised(repo: &str, number: u64, body: &str, labels: &[&str]) -> super:
 }
 
 fn haiku_try(item: &str, at: f64) -> Record {
-    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-3-d0900".into(), cloud: false, launched: true, detail: String::new(), tier: Some("worker-haiku".into()), category: Some("mechanical".into()), arm: false, handoff: None, hand: false }
+    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-3-d0900".into(), cloud: false, launched: true, detail: String::new(), tier: Some("worker-haiku".into()), category: Some("mechanical".into()), arm: false, handoff: None, hand: false, effort_arm: None }
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn a_launch_runs_its_tiers_model_and_effort_and_an_unnamed_tier_fails_it() {
 }
 
 pub(super) fn route(tier: Tier) -> super::tier::Route {
-    super::tier::Route { tier, category: "feature".into(), arm: false, follows: None, why: String::new() }
+    super::tier::Route { tier, category: "feature".into(), arm: false, effort: None, effort_arm: false, follows: None, why: String::new() }
 }
 
 #[test]
@@ -341,4 +341,80 @@ fn the_feature_arms_of_5_november_with_14_closed_boxes_each_keep_alternating_wha
     let feature = |number: u64| issue("makgora", number, "- [ ] a\nCategory: feature", &[]);
     let launches = launched(vec![feature(1), feature(2)], History::default(), BTreeMap::from([("feature".to_owned(), evidence)]));
     assert_eq!(tiers(&launches), [("makgora#1", "sonnet-high"), ("makgora#2", "worker")]);
+}
+
+fn effort_boxes(category: &str, arms: &[(&str, usize, usize, f64)]) -> ClosedReport {
+    let arm_box = |arm: &str, number: usize, reworked: bool, usd: f64| ArmBox { item: format!("makgora#{arm}-{number}"), tier: "opus-medium".into(), arm: arm.into(), usd, category: category.into(), closed: true, reworked };
+    let boxes = arms.iter().flat_map(|(arm, closed, reworked, usd)| (0..*closed).map(move |number| arm_box(arm, number, number < *reworked, *usd)));
+    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: boxes.collect(), spend_usd: 0.0, leads_usd: 0.0 }
+}
+
+fn opus_evidence(category: &str, opus_runs: usize, stamped: &[(&str, usize)], report: &ClosedReport) -> BTreeMap<String, Evidence> {
+    let tiers = BTreeMap::from([("claude:opus-medium".to_owned(), (70.0, opus_runs))]);
+    let stamped = stamped.iter().map(|(arm, runs)| ((*arm).to_owned(), *runs)).collect();
+    BTreeMap::from([(category.to_owned(), Evidence { tiers, ..Evidence::default() }.counted(&stamped).priced(report, category))])
+}
+
+fn effort_launches(category: &str, ledger: BTreeMap<String, Evidence>) -> Vec<(super::plan::Launch, String)> {
+    let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
+    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }];
+    let boxes = (1..=3).map(|number| issue("makgora", number, &format!("- [ ] a\nCategory: {category}\nClass: a lost input"), &[])).collect();
+    let mut survey = survey(boxes, Cloud::Closed(String::new()), hosts, accounts);
+    survey.ledger = ledger;
+    let command = |launch: super::plan::Launch| (effects::command(&launch, "sc-1", &survey, "/home/tom", "north").unwrap().1.join(" "), launch);
+    decide(&survey, "test").launches.into_iter().map(command).map(|(command, launch)| (launch, command)).collect()
+}
+
+fn stamps(launches: &[(super::plan::Launch, String)]) -> Vec<(Option<&str>, bool)> {
+    launches.iter().map(|(launch, command)| (launch.brief.lines().find_map(|line| line.strip_prefix("Arm: ")), command.contains("--effort high"))).collect()
+}
+
+#[test]
+fn opus_boxes_alternate_medium_and_high_effort_arms_once_their_category_holds_fifteen_opus_runs() {
+    let unread = effort_boxes("debugging-unknown-cause", &[]);
+    let young = effort_launches("debugging-unknown-cause", opus_evidence("debugging-unknown-cause", 14, &[], &unread));
+    assert!(young.iter().all(|(launch, command)| launch.route.effort.is_none() && command.contains("--effort medium") && launch.handoff.is_some()), "14 Opus runs: the tier's effort and the handoff arms");
+    let armed = effort_launches("debugging-unknown-cause", opus_evidence("debugging-unknown-cause", 15, &[], &unread));
+    assert_eq!(stamps(&armed), [(Some("effort-medium"), false), (Some("effort-high"), true), (Some("effort-medium"), false)], "15 Opus runs: the effort arms alternate, medium first, each on its stamp");
+    assert!(armed.iter().all(|(launch, _)| launch.handoff.is_none()), "a box on an effort arm carries that arm alone, since the ledger records only the first Arm line");
+    assert!(armed[1].0.route.why.contains("effort-medium 0 of 15 arm runs, 0 of 15 closed arm boxes, no closed box; effort-high 0 of 15 arm runs"), "{}", armed[1].0.route.why);
+    let last = Record { tier: Some("worker".into()), category: Some("debugging-unknown-cause".into()), effort_arm: Some("effort-medium".into()), ..haiku_try("makgora#9", 50.0) };
+    let route = super::tier::route_for("makgora#4", &|key| if key == "Category" { "debugging-unknown-cause".into() } else { String::new() }, &History::new(&[last]), &opus_evidence("debugging-unknown-cause", 15, &[], &unread));
+    assert_eq!(route.stamp(), Some("effort-high"), "the next box takes the effort arm after the recorded one");
+    let tooling = effort_launches("tooling", opus_evidence("tooling", 40, &[], &unread));
+    assert!(tooling.iter().all(|(launch, _)| launch.route.effort.is_none()), "a box on a tier arm keeps the tier's effort");
+}
+
+#[test]
+fn a_fixture_ledger_with_both_efforts_settles_the_cheaper_kept_box_effort_and_dispatch_launches_with_it() {
+    let category = "debugging-unknown-cause";
+    let full = [("effort-medium", 15), ("effort-high", 15)];
+    let reworked = effort_boxes(category, &[("effort-medium", 15, 10, 5.0), ("effort-high", 15, 0, 8.0)]);
+    let settled = effort_launches(category, opus_evidence(category, 40, &full, &reworked));
+    assert_eq!(stamps(&settled), [(Some("handoff-150k"), true), (Some("no-handoff"), true), (Some("handoff-150k"), true)], "high at $8 a kept box beats medium at $5 a box but $15 a kept box once 10 of 15 are reworked, and a settled effort leaves the Arm line to the handoff arms");
+    assert!(settled[0].0.route.why.contains("at high effort by the ledger's cost per kept box (effort-medium 15 of 15 arm runs, 15 of 15 closed arm boxes, $15.00 per kept box; effort-high 15 of 15 arm runs, 15 of 15 closed arm boxes, $8.00 per kept box)"), "{}", settled[0].0.route.why);
+    let cheap = effort_boxes(category, &[("effort-medium", 15, 0, 5.0), ("effort-high", 15, 0, 8.0)]);
+    assert!(effort_launches(category, opus_evidence(category, 40, &full, &cheap)).iter().all(|(launch, command)| launch.route.effort == Some(super::tier::Effort::Medium) && command.contains("--effort medium")), "medium when it is cheaper per kept box");
+    let tie = effort_boxes(category, &[("effort-medium", 15, 0, 5.0), ("effort-high", 15, 0, 5.0)]);
+    assert!(effort_launches(category, opus_evidence(category, 40, &full, &tie)).iter().all(|(_, command)| command.contains("--effort medium")), "medium on a tie");
+    let short = effort_boxes(category, &[("effort-medium", 15, 10, 5.0), ("effort-high", 14, 0, 8.0)]);
+    assert_eq!(stamps(&effort_launches(category, opus_evidence(category, 40, &full, &short)))[0], (Some("effort-medium"), false), "14 closed high boxes keep the effort arms alternating");
+}
+
+#[test]
+fn the_tune_ticks_effort_cell_launches_its_effort_over_the_ledgers_own_reading() {
+    let category = "debugging-unknown-cause";
+    let dir = std::env::temp_dir().join(format!("north-effort-cell-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let cells = dir.join("cells.json");
+    std::fs::write(&cells, r#"{"effort debugging-unknown-cause": "high", "route tooling": "worker"}"#).unwrap();
+    let efforts = super::tuned::Tuned::read(&cells, std::time::SystemTime::now()).efforts();
+    assert_eq!(efforts, BTreeMap::from([(category.to_owned(), super::tier::Effort::High)]));
+    let cheap = effort_boxes(category, &[("effort-medium", 15, 0, 5.0), ("effort-high", 15, 0, 8.0)]);
+    let ledger = opus_evidence(category, 40, &[("effort-medium", 15), ("effort-high", 15)], &cheap).into_iter().map(|(name, evidence)| (name, evidence.tuned_effort(&efforts, category))).collect();
+    let launches = effort_launches(category, ledger);
+    assert!(launches.iter().all(|(launch, command)| command.contains("--effort high") && launch.route.why.contains("by north tune's effort cell")), "{:?}", launches[0].0.route.why);
+    let stale = super::tuned::Tuned::read(&cells, std::time::SystemTime::now() + std::time::Duration::from_secs(37 * 3_600)).efforts();
+    assert!(stale.is_empty(), "a cell older than 36 h routes nothing");
+    std::fs::remove_dir_all(&dir).unwrap();
 }

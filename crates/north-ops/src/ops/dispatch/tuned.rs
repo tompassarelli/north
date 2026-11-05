@@ -1,4 +1,4 @@
-use super::tier::{Route, Tier};
+use super::tier::{Effort, Route, Tier};
 use crate::foundation::clock::Timestamp;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -41,6 +41,10 @@ impl Tuned {
         self.cells.iter().filter_map(|(cell, value)| Some((cell.strip_prefix("route ")?.to_owned(), Tier::parse(value.as_str()?)?))).collect()
     }
 
+    pub fn efforts(&self) -> BTreeMap<String, Effort> {
+        self.cells.iter().filter_map(|(cell, value)| Some((cell.strip_prefix("effort ")?.to_owned(), Effort::parse(value.as_str()?)?))).collect()
+    }
+
     /// The `<name> <family> <category>` cell for the route's tier family and category.
     pub fn figure(&self, name: &str, route: &Route) -> Option<Figure> {
         let value = self.cells.get(&format!("{name} {} {}", route.tier.family(), route.category))?.as_f64()?;
@@ -50,4 +54,8 @@ impl Tuned {
 
 pub fn current() -> BTreeMap<String, Tier> {
     Tuned::current().routes()
+}
+
+pub fn current_efforts() -> BTreeMap<String, Effort> {
+    Tuned::current().efforts()
 }

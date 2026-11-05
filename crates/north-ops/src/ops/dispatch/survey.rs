@@ -288,18 +288,19 @@ fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut
     let mut found = BTreeMap::new();
     let north = crate::fleet::runtime::binary("north");
     let routes = super::tuned::current();
+    let efforts = super::tuned::current_efforts();
     for category in categories {
         let facets = format!("Category: {category}");
         match run_within(&north.to_string_lossy(), &["worker-ledger", "--recommend", &facets], PROBE) {
             Some(output) if output.status.success() => {
                 let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
                 let read = read.counted(&read_arm_runs(category, crate::ledger::arm_runs(category), notes));
-                found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)).tuned(&routes, category));
+                found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)).tuned(&routes, category).tuned_effort(&efforts, category));
             }
             _ => {
                 notes.push(format!("{DEGRADED}: north worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms unless north tune routed it"));
-                if routes.contains_key(*category) {
-                    found.insert((*category).to_owned(), Evidence::default().tuned(&routes, category));
+                if routes.contains_key(*category) || efforts.contains_key(*category) {
+                    found.insert((*category).to_owned(), Evidence::default().tuned(&routes, category).tuned_effort(&efforts, category));
                 }
             }
         }
@@ -336,7 +337,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     stopped(laptop.as_deref(), &records, &mut issues, &mut notes);
     let history = History::new(&records);
     let report = closed(&mut notes);
-    let ledger = evidence_from(&tier::ARMED, report.as_ref(), &mut notes);
+    let ledger = evidence_from(&tier::evidenced(), report.as_ref(), &mut notes);
     let handoffs = Arms::new(&records).priced(&handoff::boxes(report.as_ref(), &cfg, &here, &mut notes));
     notes.extend(handoffs.recommendations());
     let grounds = Ledger::read(&mut notes);

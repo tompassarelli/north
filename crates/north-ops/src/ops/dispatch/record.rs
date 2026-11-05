@@ -36,6 +36,9 @@ pub struct Record {
     pub handoff: Option<String>,
     #[serde(default)]
     pub hand: bool,
+    /// The effort arm it ran on, as its `Arm:` stamp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_arm: Option<String>,
 }
 
 fn hold(record: &Record) -> f64 {

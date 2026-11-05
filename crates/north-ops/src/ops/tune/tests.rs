@@ -482,3 +482,25 @@ fn tune_prints_each_cells_estimate_ratios_and_files_one_box_per_cell_whose_media
     let unread = tick(&Ledger { estimates: Err("no such table: runs".into()), ..ledger() }, &Prior::default(), &[], &mut Issues::default(), AT, false);
     assert!(unread.failed && unread.lines.contains(&"estimates: unread (no such table: runs)".to_owned()), "{:#?}", unread.lines);
 }
+
+fn effort_boxes(category: &str, medium: (usize, usize, f64), high: (usize, usize, f64)) -> ClosedReport {
+    let armed = |arm: &str, (count, reworked, usd): (usize, usize, f64)| (0..count).map(|number| ArmBox { item: format!("north#{arm}-{number}"), tier: "opus-medium".into(), arm: arm.into(), usd, category: category.into(), closed: true, reworked: number < reworked }).collect::<Vec<_>>();
+    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: [armed("effort-medium", medium), armed("effort-high", high)].concat(), spend_usd: 0.0, leads_usd: 0.0 }
+}
+
+#[test]
+fn a_fixture_ledger_with_both_efforts_writes_the_cheaper_kept_box_effort_cell_and_keeps_it_when_unread() {
+    let stamped = BTreeMap::from([("effort-medium".to_owned(), 15), ("effort-high".to_owned(), 15)]);
+    let evidence = |medium, high| Evidence::default().counted(&stamped).priced(&effort_boxes("research", medium, high), "research");
+    let ledger = Ledger { week: report(&[], "2026-10-20T06:00:00Z"), before: report(&[], "2026-10-13T06:00:00Z"), evidence: BTreeMap::from([("research".to_owned(), evidence((15, 10, 5.0), (15, 0, 8.0)))]), notes: Vec::new(), estimates: Ok(Vec::new()) };
+    let first = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false);
+    assert_eq!(first.cells.get("effort research"), Some(&json!("high")), "{:#?}", first.lines);
+    let record = first.records.iter().find(|record| record["cell"] == "effort research").unwrap();
+    assert_eq!((record["rows"].clone(), record["n"].clone()), (json!(30), json!(30)));
+    assert!(record["claim"].as_str().unwrap().contains("effort-medium 15 of 15 arm runs, 15 of 15 closed arm boxes, $15.00 per kept box; effort-high 15 of 15 arm runs, 15 of 15 closed arm boxes, $8.00 per kept box"), "{record}");
+    let cheaper = Ledger { evidence: BTreeMap::from([("research".to_owned(), evidence((15, 0, 5.0), (15, 0, 8.0)))]), ..ledger };
+    assert_eq!(tick(&cheaper, &Prior::default(), &[], &mut Issues::default(), AT, false).cells.get("effort research"), Some(&json!("medium")));
+    let blind = Ledger { evidence: BTreeMap::new(), notes: vec!["arm runs of research unread".into()], ..cheaper };
+    let kept = tick(&blind, &Prior { cells: first.cells.clone(), ..Prior::default() }, &[], &mut Issues::default(), AT, false);
+    assert_eq!(kept.cells.get("effort research"), Some(&json!("high")), "a failed read keeps the effort cell");
+}

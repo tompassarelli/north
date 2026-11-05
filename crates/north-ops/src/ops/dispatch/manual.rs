@@ -37,10 +37,10 @@ pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger
     };
     let named = declared("Tier").map(|name| named_tier(&name)).transpose()?;
     let route = match named {
-        Some((tier, _)) => Route { tier, category: facet("Category").to_lowercase(), arm: false, follows: None, why: format!("the brief names {}", tier.name()) },
+        Some((tier, _)) => Route { tier, category: facet("Category").to_lowercase(), arm: false, effort: None, effort_arm: false, follows: None, why: format!("the brief names {}", tier.name()) },
         None => tier::route_for(ask.item, &facet, history, ledger),
     };
-    let (picked, tier_effort) = route.tier.model_effort(cfg)?;
+    let (picked, tier_effort) = route.model_effort(cfg)?;
     let effort = named.and_then(|(_, effort)| effort).map_or(tier_effort, str::to_owned);
     let (model, effort, overridden) = match ask.model {
         None => (picked, Some(effort), None),
@@ -79,7 +79,7 @@ fn stamped(prompt: &str, route: &Route, defaulted: Option<bool>, calibrated: boo
     if let Some(defaulted) = defaulted {
         lines.extend(defaulted.then(|| format!("Category: {}", route.category)));
         lines.push(format!("Tier: {}", route.tier.name()));
-        lines.extend(route.arm.then(|| format!("Arm: {}", route.tier.name())));
+        lines.extend(route.stamp().map(|arm| format!("Arm: {arm}")));
         lines.extend(route.follows.as_ref().map(|follows| format!("Follows: {follows}")));
     }
     if calibrated && grounds.measured() {
@@ -125,6 +125,7 @@ impl Start {
             arm: self.route.arm && !overridden,
             handoff: None,
             hand: true,
+            effort_arm: self.route.effort_stamp().filter(|_| !overridden).map(str::to_owned),
         };
         record::append(&record::directory(), &entry)
     }
