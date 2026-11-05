@@ -22,6 +22,7 @@ use super::usage_ingest::IngestUsage;
 use super::admission;
 use super::digest;
 use super::duplicate;
+use super::governor;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
 use super::overlap;
@@ -162,7 +163,7 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
-    let LaunchParts { mut request, mut overrides, wait, take_over, overlap_ok } = launch_parts(&fleet.providers(), words, caller, proxy)?;
+    let LaunchParts { mut request, mut overrides, wait, take_over, overlap_ok, staffing_ok } = launch_parts(&fleet.providers(), words, caller, proxy)?;
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;
     if !take_over {
@@ -177,8 +178,11 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if let Some(account) = placed.account.take() {
         request.account = account;
     }
-    (request.placement, request.capacity_need) = (overlap::noted(duplicate::noted(fleet, &request, &overrides, placed.note)?, overlap_ok.as_deref()), placed.need);
+    (request.placement, request.capacity_need) = (governor::noted(overlap::noted(duplicate::noted(fleet, &request, &overrides, placed.note)?, overlap_ok.as_deref()), staffing_ok.as_deref()), placed.need);
     request.machine = placed.machine.or(request.machine);
+    if !take_over {
+        governor::guard(fleet, &request, staffing_ok.as_deref())?;
+    }
     let record = if take_over { fleet.take_over(&request)? } else { fleet.launch(&request)? };
     tier::recorded(started, &request, &record.name);
     println!("{}", record.name);

@@ -609,6 +609,17 @@ fn a_launch_that_never_started_is_no_try_and_holds_the_box_only_briefly() {
 }
 
 #[test]
+fn a_staffing_refusal_is_a_short_hold_not_a_failed_launch() {
+    let refused = |at: f64| record::Record { at, item: "north#112".into(), host: "nexus".into(), account: "claude:a".into(), name: "north-112-d0000".into(), cloud: false, launched: false, detail: format!("{} north has 45 lanes queued to land", super::STAFFING_REFUSAL), tier: None, category: None, arm: false, handoff: None, hand: false, effort_arm: None };
+    let now = 100_000.0;
+    assert!(refused(now).staffing_held());
+    let holds = record::holds(&[refused(now - 120.0)], now, &BTreeMap::new(), &BTreeSet::new());
+    assert!(holds[&IssueRef::new("north", 112)].starts_with("north dispatch staffing hold 2 min ago: refuse: staffing:"), "{holds:?}");
+    let records = vec![refused(now - 3600.0), refused(now - 1800.0), refused(now - 600.0)];
+    assert!(record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new()).is_empty(), "three refusals are no tries and their hold has passed");
+}
+
+#[test]
 fn a_native_box_brief_lands_before_its_capture_and_passes_the_brief_check() {
     let route = super::tier_tests::route(super::tier::Tier::Opus);
     let native = super::brief::brief(&issue("makgora", 60, "- [ ] (native) capture the arrow streak\nSurface: ts", &[]), "test", &route, &Grounds::default());
