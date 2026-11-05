@@ -210,6 +210,7 @@ fn job_run_notify_spools_a_start_with_a_three_minute_lease_a_beat_each_interval_
     let mut command = Command::new(root.join("bin/job-run"));
     command
         .args(["--notify", "soak", "--", "sh", "-c", "sleep 3.5; exit 3"])
+        .current_dir(root)
         .env("HOME", root)
         .env_remove("XDG_STATE_HOME")
         .env_remove("THREADS_DB")
