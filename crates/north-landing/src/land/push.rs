@@ -186,7 +186,7 @@ fn publish(directory: &Path, request: &Arguments, to: &str) -> Step<Published> {
 fn final_scans(outgoing: &Outgoing, to: &str, range: &str) -> Vec<&'static str> {
     let branch = outgoing.identity.branch();
     let mut failed = Vec::new();
-    let checks: [(&[&str], &'static str); 8] = [
+    let checks: [(&[&str], &'static str); 9] = [
         (&["dep-gate", &format!("{}..{}", outgoing.base, outgoing.head)], "dependency gate"),
         (&["native-ref", "--range", range, "--", branch, to], "native item reference"),
         (&["tool-removal", range], "tool removal"),
@@ -195,6 +195,7 @@ fn final_scans(outgoing: &Outgoing, to: &str, range: &str) -> Vec<&'static str> 
         (&["denylist", &outgoing.base, &outgoing.head, to], "deny-list scan"),
         (&["commit-email", range], "commit email"),
         (&["shell-hook", range], "shell hook"),
+        (&["test-admission", range], "test admission"),
     ];
     for (index, (arguments, label)) in checks.into_iter().enumerate() {
         if index == 5 {

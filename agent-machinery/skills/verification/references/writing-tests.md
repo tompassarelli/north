@@ -10,6 +10,9 @@ Read before writing or changing a test. The burden is on the test: it names the 
 - Keep logic in a pure deterministic core fed time, randomness and peers as inputs; test through the caller's interface and fake only what we don't own, because fakes of our own code drift from it.
 - Product code never branches on a test's literal inputs, because that passes tests while breaking the product.
 
+## Admission
+- A lane that adds a test, test file or committed golden or snapshot lands only with `Test-review: keep N of M; reviewer: <session>; patch-id <id>`, because a fresh reviewer of a different tier argued for deleting each one first and the landing refuses otherwise. A test is kept only if it protects a guarantee a person would notice breaking and it reproduces a named bug, alone kills a recorded mutant, or pins an external contract (determinism, a file or wire format, an engine or Lua constraint, secrets). Take the id from the landing tool: `land scan test-admission id BASE..HEAD`; editing a test after review needs a new review.
+
 ## Five kinds of test worth keeping
 1. **Recorded scenarios**: real or seeded input through the whole system, checking invariants and agreement; keep one injected fault that must trip it.
 2. **Properties over a pure core**: generated inputs against bounds, round-trips or a reference model; locally a fixed seed and a few hundred cases; wide search after landing; keep shrunk failures named.

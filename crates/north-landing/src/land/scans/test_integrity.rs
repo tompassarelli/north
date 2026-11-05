@@ -36,7 +36,7 @@ fn declared(directory: &Path, base: &str, path: &str, key: &str) -> Option<Strin
     }
 }
 
-fn vendored_trees(directory: &Path, base: &str) -> Vec<String> {
+pub(super) fn vendored_trees(directory: &Path, base: &str) -> Vec<String> {
     let listing =
         git::text(directory, &["ls-tree", "--name-only", base, "repos/"]).unwrap_or_default();
     let repos = listing
@@ -51,7 +51,7 @@ fn vendored_trees(directory: &Path, base: &str) -> Vec<String> {
         .collect()
 }
 
-fn in_vendored(path: &[u8], trees: &[String]) -> bool {
+pub(super) fn in_vendored(path: &[u8], trees: &[String]) -> bool {
     trees.iter().map(String::as_bytes).any(|tree| {
         path.strip_prefix(tree)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with(b"/"))

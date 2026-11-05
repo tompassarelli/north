@@ -397,6 +397,13 @@ test_integrity_scan() {
   north land scan test-integrity "$1"
 }
 
+test_admission_scan() {
+  local status=0
+  north land scan test-admission "$1" || status=$?
+  [ "$status" -ne 64 ] || echo "safe-push: this host's north runtime lacks north land scan test-admission, which safe-push calls; run north runtime update; NOT pushed." >&2
+  return "$status"
+}
+
 policy_sweep_scan() {
   north land scan policy-sweep "$1"
 }
@@ -987,7 +994,7 @@ candidate_checks() {
     return
   fi
   north land scan dep-gate "$2..$3" && tool_removal_scan "$2..$3" && test_integrity_scan "$2..$3" \
-    && policy_sweep_scan "$2..$3" && land_checks_call "$2" "$3"
+    && test_admission_scan "$2..$3" && policy_sweep_scan "$2..$3" && land_checks_call "$2" "$3"
 }
 
 # Prints "ok" or the farm URL (else the log path) of the failed check on the
@@ -1443,7 +1450,7 @@ candidate_verdict() {
     class=transient detail="this host's north runtime predates safe-push; run north runtime update"
   elif ! { run_language_gate "$base" "$head" && native_ref_scan && north land scan secrets "$base..$head" \
       && denylist_scan "$base" "$head" main && commit_email_scan "$base..$head" && north land scan dep-gate "$base..$head" \
-      && tool_removal_scan "$base..$head" && test_integrity_scan "$base..$head" && policy_sweep_scan "$base..$head"; } >>"$log" 2>&1; then
+      && tool_removal_scan "$base..$head" && test_integrity_scan "$base..$head" && test_admission_scan "$base..$head" && policy_sweep_scan "$base..$head"; } >>"$log" 2>&1; then
     :
   elif land_checks_call "$base" "$head" >>"$log" 2>&1; then
     class=green detail=$head
@@ -1488,6 +1495,7 @@ policy_scans() {
   native_ref_scan "$branch" "$destination" || policy_failures+=("native item reference")
   tool_removal_scan "$range" || policy_failures+=("tool removal")
   test_integrity_scan "$range" || policy_failures+=("test integrity")
+  test_admission_scan "$range" || policy_failures+=("test admission")
   policy_sweep_scan "$range" || policy_failures+=("policy sweep")
   [ "${#policy_failures[@]}" -eq 0 ]
 }

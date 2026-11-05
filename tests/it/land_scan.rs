@@ -559,3 +559,82 @@ fn dep_gate() {
         "dep-gate without a range fails closed"
     );
 }
+
+const RUST_TEST: &str = concat!("#[te", "st]\nfn retries() {}\n");
+
+fn admission_scan(fixture: &Fixture, session: &str) -> Scan {
+    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        .current_dir(&fixture.repo)
+        .args(["land", "scan", "test-admission", &format!("{}..{}", fixture.base, fixture.head())])
+        .env("HOME", fixture.home())
+        .env("NORTH_FLEET_SESSION", session)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    Scan { status: output.status.code().unwrap_or(-1), stdout: String::from_utf8_lossy(&output.stdout).into_owned() }
+}
+
+fn admission_id(fixture: &Fixture) -> String {
+    let range = format!("{}..{}", fixture.base, fixture.head());
+    let output = fixture.north(&fixture.repo, &["land", "scan", "test-admission", "id", &range]);
+    String::from_utf8_lossy(&output.stdout).lines().next().unwrap().strip_prefix("patch-id ").unwrap().to_owned()
+}
+
+fn amend(fixture: &Fixture, id: &str, reviewer: &str) {
+    git(&fixture.repo, &["add", "-A", "."]);
+    let trailer = format!("Test-review: keep 1 of 1; reviewer: {reviewer}; patch-id {id}");
+    git(
+        &fixture.repo,
+        &["commit", "-q", "--amend", "-m", "add the retry test", "-m", "retries: kept, it reproduces a named bug", "-m", &trailer],
+    );
+}
+
+#[test]
+fn tests_are_admitted_only_with_an_independent_review_of_their_final_hunks() {
+    let mut fixture = Fixture::new("remote.git");
+    write(&fixture.repo.join("src/lib.rs"), "pub fn retry() {}\n");
+    fixture.commit(&["library"]);
+    fixture.mark_base();
+    write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
+    fixture.commit(&["add the retry test"]);
+    let unreviewed = admission_scan(&fixture, "author-1");
+    assert_eq!(unreviewed.status, 1);
+    let id = admission_id(&fixture);
+    amend(&fixture, &id, "reviewer-1");
+    assert_eq!(admission_scan(&fixture, "author-1").status, 0);
+    let own = admission_scan(&fixture, "reviewer-1");
+    assert_eq!(own.status, 1);
+    assert!(own.stdout.contains("reviewer reviewer-1 is the session that landed it"), "{}", own.stdout);
+    write(&fixture.repo.join("src/retry_tests.rs"), &format!("{RUST_TEST}fn extra() {{}}\n"));
+    amend(&fixture, &id, "reviewer-1");
+    let edited = admission_scan(&fixture, "author-1");
+    assert_eq!(edited.status, 1);
+    assert!(edited.stdout.contains("the review never saw the final test hunks"), "{}", edited.stdout);
+    for path in ["tests/fixtures/case.json", "tests/with space/case.json", "web/retry.test.ts", "scripts/retry_test.lua", "src/testdata/snapshots/retry.txt"] {
+        fixture.reset();
+        write(&fixture.repo.join(path), "{}\n");
+        fixture.commit(&["add a test file"]);
+        let scan = admission_scan(&fixture, "author-1");
+        assert_eq!(scan.status, 1, "{path}: {}", scan.stdout);
+    }
+    fixture.reset();
+    write(&fixture.repo.join("src/lib.rs"), &format!("pub fn retry() {{}}\n{RUST_TEST}"));
+    fixture.commit(&["add a test to an existing source file"]);
+    assert_eq!(admission_scan(&fixture, "author-1").status, 1);
+    fixture.reset();
+    write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
+    fixture.commit(&["add the retry test"]);
+    let id = admission_id(&fixture);
+    for counts in ["keep 0 of 1", "keep 1 of 2"] {
+        git(&fixture.repo, &["commit", "-q", "--amend", "-m", "add the retry test", "-m", &format!("Test-review: {counts}; reviewer: reviewer-1; patch-id {id}")]);
+        assert_eq!(admission_scan(&fixture, "author-1").status, 1, "{counts}");
+    }
+    fixture.reset();
+    write(&fixture.repo.join("src/lib.rs"), &format!("pub fn retry() {{}}\n{RUST_TEST}"));
+    fixture.commit(&["a source file with an inline test"]);
+    fixture.mark_base();
+    write(&fixture.repo.join("src/lib.rs"), "pub fn retry() {}\n");
+    write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
+    fixture.commit(&["move the test out of the source file"]);
+    assert_eq!(admission_scan(&fixture, "author-1").status, 0);
+}

@@ -65,6 +65,7 @@ These run for every provider, because every landing goes through `safe-push`.
 | Core tools stay; other tool removals need `Removes-tool:` | `tool_removal_scan` |
 | A lane keeps every file its `.safe-push` land checks covered, or carries `Removes-check: NAME because REASON` | `north land enqueue` check-coverage gate (`check_coverage::refuse_lost_coverage`) |
 | No added test skip or focus without a `Test-change:` trailer, and no added `MUTANT:` marker | `test_integrity_scan` |
+| No added test, test file or committed golden or snapshot without a `Test-review:` trailer whose patch-id matches the test hunks and whose reviewer is not the lander | `test_admission_scan` |
 | Generated records are not mass-rewritten without their declared inputs changing | `generated_rewrite_scan` |
 | Main's CI budget is respected | `north after-landing` ci-budget gate (`north land scan ci-budget`) |
 | No new Python or script path, Python or script growth, or shell past 80 code lines without a Tom-approved allowlist entry | `run_language_gate` (`north language-gate`) |
