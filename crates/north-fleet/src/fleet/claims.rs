@@ -5,13 +5,20 @@ use crate::error::{NorthError, NorthResult};
 
 use super::model::SessionRecord;
 
+/// Which claim rows a read asks the ledger for: those on these items, or those these owners hold.
+#[derive(Clone, Copy, Debug)]
+pub enum Rows<'a> {
+    Items(&'a [String]),
+    Owners(&'a BTreeSet<String>),
+}
+
 pub trait Claims: Send + Sync {
     /// Claims `item` for `session`; a claim a live owner holds is `NorthError::Refused`, while one an exited owner left or one past its ETA moves to `session`, and Some says from whom and why.
     fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>>;
     /// Gives the claim up only while `session` still owns it, so a later owner's claim stays.
     fn release(&self, item: &str, session: &str) -> NorthResult<()>;
-    /// Every claim row as (item, owner), including those no dispatch or launch honours any more.
-    fn holders(&self) -> NorthResult<Vec<(String, String)>>;
+    /// The claim rows `rows` names as (item, owner), including those no dispatch or launch honours any more.
+    fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>>;
 }
 
 /// Claims every task before the session starts, so a live holder refuses the launch and nothing is left half-claimed; a ledger that cannot be read waits for the claim `hold_for` makes once the session runs.
@@ -43,10 +50,10 @@ pub fn hold_for(claims: &dyn Claims, record: &SessionRecord) {
     }
 }
 
-/// Gives up every claim whose owner is in `exited`, whatever its standing: a session that exited holds nothing, and the ledger keeps its row until someone clears it.
-pub fn release_exited(claims: &dyn Claims, exited: &BTreeSet<String>) -> NorthResult<usize> {
+/// Gives up every claim among `rows` whose owner is in `exited`, whatever its standing: a session that exited holds nothing, and the ledger keeps its row until someone clears it.
+pub fn release_exited(claims: &dyn Claims, exited: &BTreeSet<String>, rows: Rows<'_>) -> NorthResult<usize> {
     let mut released = 0;
-    for (item, owner) in claims.holders()? {
+    for (item, owner) in claims.holders(rows)? {
         if !exited.contains(&owner) {
             continue;
         }
@@ -83,7 +90,7 @@ impl Claims for Held {
         Ok(())
     }
 
-    fn holders(&self) -> NorthResult<Vec<(String, String)>> {
+    fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
         let mut held: Vec<(String, String)> = Vec::new();
         for (kind, item, session) in self.0.lock().unwrap().iter() {
             if *kind == "hold" {
@@ -93,6 +100,10 @@ impl Claims for Held {
                 held.retain(|(held, owner)| !(held == item && owner == session));
             }
         }
+        held.retain(|(item, owner)| match rows {
+            Rows::Items(items) => items.contains(item),
+            Rows::Owners(owners) => owners.contains(owner),
+        });
         Ok(held)
     }
 }
@@ -119,7 +130,7 @@ mod tests {
             Ok(())
         }
 
-        fn holders(&self) -> NorthResult<Vec<(String, String)>> {
+        fn holders(&self, _: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
             Ok(Vec::new())
         }
     }

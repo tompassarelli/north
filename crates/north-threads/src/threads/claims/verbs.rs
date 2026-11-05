@@ -11,7 +11,10 @@ use super::{Claim, Issue, OVERDUE_RATIO, Standing};
 use crate::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 
-pub const VERBS: [&str; 2] = ["claim", "list"];
+pub const VERBS: [&str; 3] = ["claim", "list", HOLDER];
+
+/// The read that answers who holds the items or owners it names from the claims table alone, never reading GitHub or a fleet.
+pub const HOLDER: &str = "holder";
 
 /// What a refusal by a live holder says, which `north fleet launch` tells from a ledger it could not read.
 pub const OWNED: &str = "is already owned by";
@@ -33,10 +36,11 @@ struct Args {
     eta: Option<String>,
     json: bool,
     all: bool,
+    owners: Vec<String>,
 }
 
 fn args(argv: &[String]) -> Result<Args, String> {
-    let mut parsed = Args { positional: Vec::new(), by: None, eta: None, json: false, all: false };
+    let mut parsed = Args { positional: Vec::new(), by: None, eta: None, json: false, all: false, owners: Vec::new() };
     let mut rest = argv.iter();
     while let Some(arg) = rest.next() {
         let (flag, inline) = arg.split_once('=').map_or((arg.as_str(), None), |(flag, value)| (flag, Some(value.to_owned())));
@@ -44,6 +48,7 @@ fn args(argv: &[String]) -> Result<Args, String> {
         match flag {
             "--by" => parsed.by = Some(value()?),
             "--eta" => parsed.eta = Some(value()?),
+            "--owner" => parsed.owners.push(value()?),
             "--json" if inline.is_none() => parsed.json = true,
             "--all" if inline.is_none() => parsed.all = true,
             _ if arg.starts_with('-') => return Err(format!("unknown option {arg}")),
@@ -57,6 +62,7 @@ fn args(argv: &[String]) -> Result<Args, String> {
 pub fn run(argv: &[String], context: &Context, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let result = args(&argv[1..]).and_then(|parsed| match argv[0].as_str() {
         "claim" => claim(&parsed, context),
+        HOLDER => holder(&parsed, context),
         _ => list(&parsed, context),
     });
     match result {
@@ -124,8 +130,26 @@ fn every_claim(context: &Context) -> Result<Vec<(Claim, Standing)>, String> {
         .collect())
 }
 
+/// The claim rows on the named items and those the `--owner`s hold, as JSON `{item, owner}` rows, whatever their standing.
+fn holder(parsed: &Args, context: &Context) -> Result<String, String> {
+    if (parsed.positional.is_empty() && parsed.owners.is_empty()) || parsed.by.is_some() || parsed.eta.is_some() || parsed.json || parsed.all {
+        return Err("usage: threads holder [REPO#N ...] [--owner NAME ...]".into());
+    }
+    let items = parsed.positional.iter().map(|id| CATALOG.parse_ref(id).map(|(repo, number)| format!("{repo}#{number}"))).collect::<Result<Vec<_>, _>>()?;
+    if !context.database.exists() {
+        return Ok("[]\n".to_owned());
+    }
+    let db = ledger::open(context.database, false)?;
+    let rows: Vec<_> = ledger::holders(&db, &items, &parsed.owners)?
+        .into_iter()
+        .filter(|(item, _)| context.no_native.is_none() || CATALOG.parse_ref(item).is_ok_and(|(repo, _)| !CATALOG.is_native(&repo)))
+        .map(|(item, owner)| json!({"item": item, "owner": owner}))
+        .collect();
+    Ok(format!("{}\n", serde_json::Value::Array(rows)))
+}
+
 fn list(parsed: &Args, context: &Context) -> Result<String, String> {
-    if !parsed.positional.is_empty() || parsed.by.is_some() || parsed.eta.is_some() || (parsed.all && !parsed.json) {
+    if !parsed.positional.is_empty() || parsed.by.is_some() || parsed.eta.is_some() || !parsed.owners.is_empty() || (parsed.all && !parsed.json) {
         return Err("usage: threads list [--json [--all]]".into());
     }
     let claims = if parsed.all { every_claim(context)? } else { standing_claims(context)? };

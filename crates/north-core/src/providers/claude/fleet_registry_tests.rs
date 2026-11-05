@@ -276,7 +276,7 @@ fn a_session_that_exited_holding_a_claim_leaves_the_issue_unowned_while_parked_a
 
     let released = fleet.release_exited_claims().unwrap();
 
-    let mut owners = held.holders().unwrap();
+    let mut owners = held.holders(crate::fleet::claims::Rows::Items(&["north#elsewhere", "north#exited", "north#parked", "north#running"].map(str::to_owned))).unwrap();
     owners.sort();
     assert_eq!(released, 1);
     assert_eq!(

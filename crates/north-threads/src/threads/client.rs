@@ -15,8 +15,8 @@ use crate::error::{NorthError, NorthResult};
 use crate::threads::{board, calibration, claims, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, review_findings, runs, schema, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
 
-const READS: [&str; 10] = [
-    "job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate",
+const READS: [&str; 11] = [
+    "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate",
     "routing-compare",
 ];
 /// Each family of ledger verbs and the function that runs it; `claim` and `list` run through claims.
@@ -266,7 +266,7 @@ impl Client {
             return Ok(1);
         }
         let Some(run) = ported else {
-            let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, alive: verb::Outside::alive_owners(&outside::Live::new(&self.env, self.fleet.clone())), now: Timestamp::now().unix_seconds() };
+            let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, alive: (verb != claims::verbs::HOLDER).then(|| verb::Outside::alive_owners(&outside::Live::new(&self.env, self.fleet.clone()))).flatten(), now: Timestamp::now().unix_seconds() };
             return Ok(claims::verbs::run(argv, &context, &mut io::stdout().lock(), &mut io::stderr()));
         };
         let live = outside::Live::new(&self.env, self.fleet.clone());

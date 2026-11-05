@@ -54,6 +54,24 @@ pub fn claims(db: &Connection) -> Result<Vec<Claim>, String> {
     rows.collect::<rusqlite::Result<_>>().map_err(|error| error.to_string())
 }
 
+/// The (item, owner) rows on `items` and those `owners` hold, one lookup per item on the claims key or per owner, each row once.
+pub fn holders(db: &Connection, items: &[String], owners: &[String]) -> Result<Vec<(String, String)>, String> {
+    let failed = |error: rusqlite::Error| error.to_string();
+    let pair = |row: &rusqlite::Row<'_>| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?));
+    let mut found = BTreeSet::new();
+    let mut by_item = db.prepare("SELECT item, owner FROM claims WHERE item = ?1").map_err(failed)?;
+    for item in items {
+        found.extend(by_item.query_row([item], pair).optional().map_err(failed)?);
+    }
+    let mut by_owner = db.prepare("SELECT item, owner FROM claims WHERE owner = ?1").map_err(failed)?;
+    for owner in owners {
+        for row in by_owner.query_map([owner], pair).map_err(failed)? {
+            found.insert(row.map_err(failed)?);
+        }
+    }
+    Ok(found.into_iter().collect())
+}
+
 /// A native item's standing from the ledger's own item table.
 pub fn native(db: &Connection, ns: &str, number: u64) -> Issue {
     let Ok(number) = i64::try_from(number) else { return Issue::Missing };

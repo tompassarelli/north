@@ -935,3 +935,51 @@ fn a_launch_naming_files_two_queued_lanes_changed_is_queued_behind_the_earlier_l
     let note: Value = serde_json::from_slice(&note.stdout).unwrap();
     assert!(note["placement"].as_str().is_some_and(|note| note.contains("overlap-ok: the lanes edit different hunks")), "{note}");
 }
+
+fn ledger_across_ssh(root: &Path, hung_read: Option<&str>) -> String {
+    let log = root.join("ledger-host.log");
+    let hang = hung_read.map_or_else(String::new, |read| format!("case \"$last\" in *'{read}'*) sleep 5; exit 255;; esac\n"));
+    executable(&root.join("bin/ssh"), &format!("for a; do last=$a; done\nprintf '%s\\n' \"$last\" >> '{}'\n{hang}THREADS_DB='{}' exec sh -c \"$last\"\n", log.display(), root.join("threads.db").display()));
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), root.join("bin/north")).unwrap();
+    fs::create_dir_all(root.join(".config/threads")).unwrap();
+    fs::write(root.join(".config/threads/remote"), "ledger-host\n").unwrap();
+    log.display().to_string()
+}
+
+fn test_launch_on_item_across_ssh(root: &Path) -> Output {
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    let args = ["fleet", "launch", "--test", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "makgora#4", "--system-prompt", &brief.display().to_string(), "start the box"];
+    environment(Command::new(env!("CARGO_BIN_EXE_north")), root, "here").env_remove("THREADS_DB").args(args).output().unwrap()
+}
+
+#[test]
+fn a_test_launch_asks_the_ledger_host_who_holds_its_item_by_the_indexed_holder_read_and_never_lists_every_claim() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let log = ledger_across_ssh(root, None);
+    let launched = test_launch_on_item_across_ssh(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    let asked = fs::read_to_string(&log).unwrap_or_default();
+    assert!(launched.status.success(), "{}", text(&launched.stderr));
+    let threads: Vec<&str> = asked.lines().filter(|line| line.contains("threads ")).collect();
+    assert!(threads.iter().any(|line| line.ends_with("threads holder 'makgora#4'")), "{asked}");
+    assert!(!threads.iter().any(|line| line.contains("threads list")), "{asked}");
+}
+
+#[test]
+fn a_launch_whose_holder_read_times_out_names_that_read_and_leaves_no_session_behind() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    ledger_across_ssh(root, Some("threads holder"));
+    let launched = test_launch_on_item_across_ssh(root);
+    let listed = north(root, &["fleet", "list", "--json"]);
+    let said = text(&launched.stderr);
+    assert!(!launched.status.success(), "{said}");
+    assert!(said.contains("narrow launched nothing, because the ledger did not say who holds makgora#4: the threads ledger did not answer `threads holder makgora#4` within 2 s"), "{said}");
+    assert!(!root.join(".local/state/north/fleet/narrow").exists(), "the timed-out launch left a session directory");
+    assert!(!text(&listed.stdout).contains("narrow"), "{}", text(&listed.stdout));
+    assert!(!north(root, &["fleet", "show", "narrow"]).status.success(), "the timed-out launch left a session");
+}

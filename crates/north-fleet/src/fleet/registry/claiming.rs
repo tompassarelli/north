@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::error::NorthResult;
-use crate::fleet::claims;
+use crate::fleet::claims::{self, Rows};
 use crate::fleet::model::{Account, LaunchRequest, SessionRecord, Status};
 use crate::fleet::runtime::Opening;
 
@@ -36,15 +36,27 @@ impl Fleet {
 impl Fleet {
     /// Clears every claim an exited session left in the ledger, whichever way it exited, so dispatch, launch and `threads show` stop naming it; a parked, idle or working session keeps its claims. Returns how many it cleared.
     pub fn release_exited_claims(&self) -> NorthResult<usize> {
-        let exited: BTreeSet<String> = self
+        let exited = self.exited()?;
+        if exited.is_empty() {
+            return Ok(0);
+        }
+        claims::release_exited(self.claims.as_ref(), &exited, Rows::Owners(&exited))
+    }
+
+    /// Reads who holds each of a launch's `items`, and only those, clearing any claim an exited session left on them; an unread ledger is an error before the launch makes anything.
+    pub fn release_exited_claims_on(&self, items: &[String]) -> NorthResult<usize> {
+        if items.is_empty() {
+            return Ok(0);
+        }
+        claims::release_exited(self.claims.as_ref(), &self.exited()?, Rows::Items(items))
+    }
+
+    fn exited(&self) -> NorthResult<BTreeSet<String>> {
+        Ok(self
             .sessions()?
             .iter()
             .filter(|record| !record.verification && !session_running(record) && self.status(record) == Status::Exited)
             .map(|record| record.name.clone())
-            .collect();
-        if exited.is_empty() {
-            return Ok(0);
-        }
-        claims::release_exited(self.claims.as_ref(), &exited)
+            .collect())
     }
 }

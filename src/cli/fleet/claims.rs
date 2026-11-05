@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::platform::process;
-use crate::fleet::claims::Claims;
+use crate::fleet::claims::{Claims, Rows};
 use crate::fleet::registry::Fleet;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::verbs::OWNED;
@@ -31,9 +31,12 @@ fn moved(said: &str, item: &str, session: &str) -> Option<String> {
 /// A verb that only reads leaves the sweep to the mutating verbs and the turn watch, because the sweep asks the threads ledger, which can sit across ssh, and the hooks that call `fleet list` run on every prompt.
 const READ_VERBS: [&str; 6] = ["list", "stranded", "tree", "spend", "accounts", "show"];
 
+/// A launch asks the ledger only about the items it names, through [`Fleet::release_exited_claims_on`], so parallel launches never each read every claim.
+const SCOPED_VERBS: [&str; 1] = ["launch"];
+
 /// Clears what exited sessions left in the ledger before a mutating verb, so no such command reports a claim an exited owner still appears to hold.
 pub(super) fn release_exited_claims(fleet: &Fleet, arguments: &[String]) {
-    if arguments.first().is_some_and(|verb| READ_VERBS.contains(&verb.as_str())) {
+    if arguments.first().is_some_and(|verb| READ_VERBS.contains(&verb.as_str()) || SCOPED_VERBS.contains(&verb.as_str())) {
         return;
     }
     if let Err(error) = fleet.release_exited_claims() {
@@ -62,7 +65,7 @@ impl ThreadsCli {
         let mut command = Command::new(program);
         command.arg("threads").args(args);
         let Some(output) = process::run_group_within(command, self.limit) else {
-            return Err(NorthError::State(format!("the threads ledger did not answer within {} s", self.limit.as_secs())));
+            return Err(NorthError::State(format!("the threads ledger did not answer `threads {}` within {} s", args.join(" "), self.limit.as_secs())));
         };
         if output.status.success() {
             return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
@@ -83,8 +86,13 @@ impl Claims for ThreadsCli {
         self.threads(&["release", &canonical(item), "--by", session, "--held-by", session]).map(drop)
     }
 
-    fn holders(&self) -> NorthResult<Vec<(String, String)>> {
-        let rows: Value = serde_json::from_str(&self.threads(&["list", "--json", "--all"])?)?;
+    fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
+        let words: Vec<String> = match rows {
+            Rows::Items(items) => items.iter().map(|item| canonical(item)).collect(),
+            Rows::Owners(owners) => owners.iter().flat_map(|owner| ["--owner".to_owned(), owner.clone()]).collect(),
+        };
+        let args: Vec<&str> = std::iter::once("holder").chain(words.iter().map(String::as_str)).collect();
+        let rows: Value = serde_json::from_str(&self.threads(&args)?)?;
         Ok(rows.as_array().into_iter().flatten().filter_map(|row| Some((row["item"].as_str()?.to_owned(), row["owner"].as_str()?.to_owned()))).collect())
     }
 }
@@ -117,10 +125,12 @@ mod tests {
 
         for verb in ["list", "stranded", "tree", "spend", "accounts", "show"] {
             release_exited_claims(&fleet, &words(&[verb]));
-            assert_eq!(claims.holders().unwrap(), [("north#1".to_owned(), "gone".to_owned())], "{verb} swept claims");
+            assert_eq!(claims.holders(Rows::Items(&words(&["north#1"]))).unwrap(), [("north#1".to_owned(), "gone".to_owned())], "{verb} swept claims");
         }
+        release_exited_claims(&fleet, &words(&["launch", "--task", "north#1"]));
+        assert_eq!(claims.holders(Rows::Items(&words(&["north#1"]))).unwrap(), [("north#1".to_owned(), "gone".to_owned())], "launch swept every claim");
         release_exited_claims(&fleet, &words(&["waits"]));
-        assert!(claims.holders().unwrap().is_empty());
+        assert!(claims.holders(Rows::Items(&words(&["north#1"]))).unwrap().is_empty());
     }
 
     fn a_hung_courier(home: &std::path::Path) -> ThreadsCli {
@@ -143,7 +153,7 @@ mod tests {
         let swept = fleet.release_exited_claims();
         assert!(started.elapsed() < Duration::from_secs(3), "the sweep took {:?}", started.elapsed());
         let note = swept.unwrap_err().user_message();
-        assert!(note.contains("did not answer within 2 s") && !note.contains('\n'), "{note}");
+        assert!(note.contains("the threads ledger did not answer `threads holder --owner gone` within 2 s") && !note.contains('\n'), "{note}");
 
         let started = std::time::Instant::now();
         crate::fleet::claims::hold_all(&a_hung_courier(home.path()), &["north#1".to_owned()], "gone").unwrap();

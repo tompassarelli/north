@@ -183,6 +183,14 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if !take_over {
         governor::guard(fleet, &request, staffing_ok.as_deref())?;
     }
+    let tasks = request.tasks();
+    fleet.release_exited_claims_on(&tasks).map_err(|error| {
+        let why = match error {
+            NorthError::State(why) | NorthError::Refused(why) => why,
+            other => other.user_message(),
+        };
+        NorthError::Refused(format!("{} launched nothing, because the ledger did not say who holds {}: {why}", request.name, tasks.join(" ")))
+    })?;
     let record = if take_over { fleet.take_over(&request)? } else { fleet.launch(&request)? };
     tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
