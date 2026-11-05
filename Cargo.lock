@@ -938,6 +938,7 @@ dependencies = [
  "north-guard",
  "north-landing",
  "north-ops",
+ "north-providers",
  "north-runtime",
  "north-tui",
  "percent-encoding",
@@ -1046,6 +1047,7 @@ version = "0.1.0"
 dependencies = [
  "north-capacity-host",
  "north-core",
+ "north-providers",
  "proptest",
  "regex",
  "rusqlite",
@@ -1082,6 +1084,7 @@ dependencies = [
  "north-capacity",
  "north-core",
  "north-dispatch",
+ "north-providers",
  "regex",
  "rusqlite",
  "rustix 0.38.44",
@@ -1153,12 +1156,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-providers"
+version = "0.1.0"
+dependencies = [
+ "north-fleet",
+ "north-threads",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml_edit",
+]
+
+[[package]]
 name = "north-runtime"
 version = "0.1.0"
 dependencies = [
  "north-base",
- "north-core",
  "north-dispatch",
+ "north-providers",
  "percent-encoding",
  "regex",
  "rusqlite",
@@ -1193,7 +1211,7 @@ name = "north-tui"
 version = "0.1.0"
 dependencies = [
  "crossterm 0.28.1",
- "north-core",
+ "north-providers",
  "ratatui",
  "serde_json",
  "sha2",

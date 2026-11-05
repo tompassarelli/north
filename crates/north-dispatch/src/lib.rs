@@ -1,4 +1,4 @@
-pub use {north_capacity_host::capacity, north_core::{error, fleet, foundation, ledger, pace, platform, router, shell, threads, usage}};
+pub use {north_capacity_host::capacity, north_core::{error, fleet, foundation, pace, platform, router, shell, threads, usage}, north_providers::{ledger, providers}};
 
 pub mod check;
 pub mod dispatch;

@@ -196,7 +196,7 @@ fn the_brief_eta_is_scaled_by_its_tiers_walk_forward_calibration_and_names_the_m
     assert!(tuned.eta(Some("40 min"), &route()).starts_with("231 min (tune cell, 2026-10-30; 55 min x4.20 eta_pred claude n=300 median 1.10; declared 40 min)"), "{}", tuned.eta(None, &route()));
     let other = ledger(&[]).eta_scale(Tier::Opus, scale).grounds("north#7", OPENED, &box_.body, &route());
     assert_eq!((other.minutes(), other.eta(None, &route())), (Some(30.0), "30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)".to_owned()));
-    let recorded = north_core::providers::claude::runs::row::eta(&text);
+    let recorded = crate::providers::claude::runs::row::eta(&text);
     assert_eq!(recorded, serde_json::json!(126));
 }
 

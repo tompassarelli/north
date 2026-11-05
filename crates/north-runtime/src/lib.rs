@@ -1,4 +1,4 @@
-pub use north_core::providers;
+pub use north_providers::providers;
 pub use north_dispatch::{capacity, dispatch, fleet, foundation, laptop, pacing, platform, shell, threads};
 
 pub mod agent_contain;

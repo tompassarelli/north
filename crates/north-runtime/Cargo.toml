@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 north-base = { path = "../north-base" }
-north-core = { path = "../north-core" }
+north-providers = { path = "../north-providers" }
 north-dispatch = { path = "../north-dispatch" }
 regex.workspace = true
 percent-encoding.workspace = true

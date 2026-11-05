@@ -134,7 +134,7 @@ may_use = ["domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "ledger"
-paths = ["crates/north-core/src/ledger/**"]
+paths = ["crates/north-providers/src/ledger/**"]
 responsibility = "Run ledger: fleet turn records, artifact-bound task verdicts, cost and estimate queries."
 may_use = ["fleet", "domain", "platform", "foundation", "crate-roots", "threads"]
 
@@ -230,7 +230,7 @@ may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "providers"
-paths = ["crates/north-core/src/providers/**", "crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/codex.rs", "crates/north-core/src/rpc.rs", "crates/*/src/claude_stream.rs"]
+paths = ["crates/north-providers/src/providers/**", "crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-providers/src/codex.rs", "crates/north-core/src/rpc.rs", "crates/*/src/claude_stream.rs"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection."
 may_use = ["fleet", "guard", "catalog", "threads", "domain", "platform", "foundation", "crate-roots"]
 
@@ -270,7 +270,7 @@ may_use = []
 name = "crate-roots"
 paths = ["crates/*/src/lib.rs"]
 responsibility = "Crate roots: module declarations and the re-exports that keep crate:: paths stable across the workspace split."
-may_use = ["foundation", "platform", "shell", "autoland_status", "domain", "usage", "threads", "fleet", "providers"]
+may_use = ["foundation", "platform", "shell", "autoland_status", "domain", "usage", "threads", "fleet", "providers", "ledger"]
 
 [[registered]]
 id = "guard.corpus_scan"

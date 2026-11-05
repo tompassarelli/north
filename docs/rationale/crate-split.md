@@ -441,6 +441,11 @@ rebuild every lib chain up to `ops`. The gate times a single leaf file (`structu
 `fleet/registry`: 1.8k non-test lines and 52 of fleet's commits, reached from outside fleet by 2 `guard`,
 4 `ops`, 1 `usage` and 8 `north-tui` references.
 
+Box 4-16 measured `providers` after its move the same way (load 3.4, a blank line appended to
+`providers/agy.rs`): `cargo test --workspace --no-run` 8.6 s and `cargo test -p north-providers --no-run`
+1.4 s. `north code-health` counts north-providers at 4,847 non-test lines against the plan's 3.9k, because
+`providers/fixtures.rs` and the `#[doc(hidden)] pub` `ledger/outcome/replay_tests.rs` compile into its lib.
+
 ### Edges to cut
 
 `cut-plan.sh plans/c12.txt` prints every break below. Paths are under `crates/north-core/src/`.

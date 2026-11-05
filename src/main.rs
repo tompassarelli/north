@@ -5,10 +5,11 @@ mod remote_serve_tests;
 use north_capacity_host::capacity;
 use north_core::{
     agent_catalog, agent_config_check, agent_policy_contract, autoland_status, build_time, contract_probe, error, fleet, foundation,
-    grounding, health, ledger, platform, providers, proxy, router, split, threads, usage, work_items,
+    grounding, health, platform, proxy, router, split, threads, usage, work_items,
 };
 use north_guard::{code_health, guard, hook, lanes, nix_explain};
 use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint, land, land_abandon, landing, language_gate, provenance, runtime_floor_gate, watch};
+use north_providers::{ledger, providers};
 use north_tui::tui;
 use north_ops::ops;
 use north_runtime::{agent_contain, build_offload, land_offload, laptop_ntfy, laptop_runner, runtime, runtime_access, timers};
