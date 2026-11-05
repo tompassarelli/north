@@ -82,7 +82,7 @@ fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
     Ok(request)
 }
 
-fn duration_ms(text: &str) -> Option<u64> {
+pub(crate) fn duration_ms(text: &str) -> Option<u64> {
     let split = text.find(|character: char| !character.is_ascii_digit())?;
     let (count, unit) = text.split_at(split);
     let seconds = match unit {

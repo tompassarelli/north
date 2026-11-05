@@ -21,6 +21,7 @@ pub mod laptop_runner;
 pub mod job_watch;
 pub mod model_watch;
 pub mod nexus_ram;
+pub mod observation_boxes;
 pub mod outside_watch;
 pub mod runtime_access;
 pub mod private_check;

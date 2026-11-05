@@ -1,5 +1,6 @@
 mod admission;
 mod claims;
+mod digest;
 mod duplicate;
 mod launch;
 mod interactive;

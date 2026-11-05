@@ -96,6 +96,7 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("task", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
     ("orders", |name, rest| Command::Fleet([vec![name.to_owned()], rest].concat())),
     ("gate", |name, rest| Command::Fleet([vec![name.to_owned()], rest].concat())),
+    ("digest", |name, rest| Command::Fleet([vec![name.to_owned()], rest].concat())),
     ("work", |_, rest| Command::Work(rest)),
     ("language-gate", |_, rest| Command::LanguageGate(rest)),
     ("build-cache-gate", |_, rest| Command::BuildCacheGate(rest)),

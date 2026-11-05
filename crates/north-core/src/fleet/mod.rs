@@ -2,6 +2,7 @@ pub mod attachments;
 pub mod books;
 pub mod claims;
 pub mod detached;
+pub mod digest_report;
 pub mod effort;
 pub mod gates;
 pub mod handoff;

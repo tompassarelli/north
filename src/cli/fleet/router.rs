@@ -19,6 +19,7 @@ use crate::tui;
 
 use super::placement::{self, Overrides};
 use super::admission;
+use super::digest;
 use super::duplicate;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
@@ -115,6 +116,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["gate", rest @ ..] => gate::run(&fleet, rest),
         ["relaunch", name, rest @ ..] => relaunch::run(&fleet, name, rest),
         ["interactive", name] => interactive::run(&fleet, name),
+        ["digest", rest @ ..] => digest::run(&fleet, rest),
         [verb, name] => session_verb(&fleet, verb, name),
         ["revive", name, rest @ ..] => revive::revive_with(&fleet, name, rest),
         ["show", name, flag] => show::run(&fleet, name, flag),

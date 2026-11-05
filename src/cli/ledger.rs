@@ -34,6 +34,10 @@ fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
             println!("{task_ref} landed {sha}");
             Ok(ExitCode::SUCCESS)
         }
+        ["task", "check", rest @ ..] if rest.first().is_some_and(|word| ["--observations", "--dry-run", "--body-file", "--repo"].contains(word)) => {
+            let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();
+            crate::ops::observation_boxes::run(&rest).map(|()| ExitCode::SUCCESS)
+        }
         ["task", "check", task_ref, "--", command @ ..] if !command.is_empty() => {
             let argv: Vec<String> = command.iter().map(|word| (*word).to_owned()).collect();
             let exit = ledger::check(store, task_ref, &argv)?;
