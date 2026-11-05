@@ -988,6 +988,35 @@ Reading: two of four (threads, routing) are host-free once the lander builds nor
 and passes it by env; they belong in the portable set. run-bounded and machine-capacity need a real
 user systemd manager and stay machine-bound on Nexus, run with the lander's own user bus.
 
+Result for machine-capacity.test.sh (2026-11-05): at e49c75748 in Nexus's `~/code/north/main` under
+Tom's normal environment the installed runtime no longer skews (the `matchLevel` case passes) and
+the test failed in capacity-unseen-pressure's first probe with `DEFER_MEMORY_HEADROOM`: the probe
+read Nexus's real `/proc/meminfo` (8 GiB total, 4.1 GiB available) against the test's 24-core host.
+The test now writes a 96343 MiB `AGENT_CAPACITY_MEMINFO` fixture for every helper call. Past
+that, the 1 s deadline case failed: outside a dev shell (`IN_NIX_SHELL` unset, as over plain ssh)
+a lease enters the cwd project's flake dev shell (capacity/dev_shell.rs), and `nix develop` alone
+outlasts 1 s; agents on the laptop run inside the dev shell, so they never saw it. The test now runs
+from its scratch directory, outside any project, so its fixture commands start bare. The
+`family`-for-`family-repo` failure recorded above only appears outside a `~/code/<repo>` path: the
+estimator takes the signature's repo from a cwd matching `~/code/<repo>/` (capacity/host/estimate.rs),
+so a `/tmp` clone has no repo and cannot match at `family-repo`. Lander slots live under
+`code/PROJECT/main`, so the checks see the repo.
+
+Past those two host reads, three live cases still asserted the model before bbf0a8d1d (2026-11-04),
+which moved heavy and moderate leases into the idle-weighted `agent-batch.slice` without CPUQuota,
+paced heavy starts by a 30 s settle window and made moderate a frozen class; that commit updated the
+fixture decisions but not the live cases, so the test was red on main wherever it ran outside a dev
+shell. The four-heavy-jobs case now checks the batch parent (`cpu.idle` 1, `cpu.max` max), the
+8 GiB MemoryHigh and the fourth job queued inside the third's settle window and started when it
+ends, under `AGENT_CAPACITY_SETTLE_SECONDS=3` (at 30 s, jobs 1 and 2 hit their 30 s timeouts
+first). The moderate session checks `north capacity deadline ... 1800` in place of
+RuntimeMaxSec=30min. The native-waiting gpu probe runs away, since present the Tom-present GPU-busy
+gate (capacity/gpu_admission.rs) defers the gpu lease first. The release measurement checks that the
+record matches what the scope used (meanCores = cpuSeconds / wallSeconds, peak at most the two loops);
+idle-weighted, two busy loops got 0.54 cores on a loaded Nexus, so a floor on meanCores read host
+load. The test's cleanup also stops the batch subslice. With these, `machine-capacity.test.sh` exits
+0 on Nexus from a `~/code/north` checkout under plain ssh.
+
 ### B6 Ruleset bypass actors and north's deploy keys (2026-11-04)
 
 Already measured by B6: a user-owned repository's ruleset accepts an Integration (GitHub App) and the

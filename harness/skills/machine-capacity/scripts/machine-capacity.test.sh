@@ -3,7 +3,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/machine-capacity-test.XXXXXX")
-export XDG_STATE_HOME="$scratch/state" AGENT_CAPACITY_DB="$scratch/capacity.db" AGENT_CAPACITY_SUBSLICE="test$$" AGENT_CAPACITY_CORES=24 AGENT_CAPACITY_DISK_FREE_GIB=500
+export XDG_STATE_HOME="$scratch/state" AGENT_CAPACITY_DB="$scratch/capacity.db" AGENT_CAPACITY_SUBSLICE="test$$" AGENT_CAPACITY_CORES=24 AGENT_CAPACITY_DISK_FREE_GIB=500 AGENT_CAPACITY_SETTLE_SECONDS=3 AGENT_CAPACITY_MEMINFO="$scratch/meminfo"
 fixture_pids=()
 collector_pids=()
 receipt_fds=()
@@ -13,16 +13,18 @@ cleanup() {
   for fd in "${receipt_fds[@]}"; do exec {fd}<&-; done
   for pid in "${collector_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
   for pid in "${collector_pids[@]}"; do wait "$pid" 2>/dev/null || true; done
-  { systemctl --user stop "agent-capacity-$AGENT_CAPACITY_SUBSLICE.slice" "native-$AGENT_CAPACITY_SUBSLICE.slice"; systemctl --user revert "agent-capacity-$AGENT_CAPACITY_SUBSLICE.slice" "native-$AGENT_CAPACITY_SUBSLICE.slice"; } >/dev/null 2>&1 || true
+  { systemctl --user stop "agent-capacity-$AGENT_CAPACITY_SUBSLICE.slice" "agent-batch-$AGENT_CAPACITY_SUBSLICE.slice" "native-$AGENT_CAPACITY_SUBSLICE.slice"; systemctl --user revert "agent-capacity-$AGENT_CAPACITY_SUBSLICE.slice" "native-$AGENT_CAPACITY_SUBSLICE.slice"; } >/dev/null 2>&1 || true
   rm -rf "${scratch:?}"
 }
 trap cleanup EXIT
+cd "$scratch"
 wait_for() { local value; IFS= read -r value <"$1.receipt"; [[ -s "$1" ]]; }
 user_runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 # Live runs read recorded system CPU pressure, so other machine load cannot hold them.
 export AGENT_CAPACITY_CPU_PRESSURE="$scratch/cpu.pressure" AGENT_CAPACITY_LOADAVG=/dev/null AGENT_CAPACITY_NVIDIA_MEMORY=/dev/null
 calm_pressure() { printf 'some avg10=%s avg60=0.00 avg300=0.00 total=0\n' "$1" >"$AGENT_CAPACITY_CPU_PRESSURE"; }
 calm_pressure 0.00
+printf 'MemTotal: 98655232 kB\nMemAvailable: 71680000 kB\n' >"$scratch/meminfo"
 export AGENT_CAPACITY_GPU_BUSY="$scratch/gpu-busy" AGENT_CAPACITY_GPU_CLIENTS=0 AGENTS_ORCHESTRATION=/dev/null AGENT_CAPACITY_USAGE_LOG="$scratch/usage.jsonl" CAPACITY_WATCHDOG_DIR="$scratch/no-watchdog"
 echo 0 >"$AGENT_CAPACITY_GPU_BUSY"
 
@@ -189,10 +191,9 @@ read -r sleeper_pid <"$sleeper_pid_file"
 [[ $sleeper_pid =~ ^[1-9][0-9]*$ ]]
 ! kill -0 "$sleeper_pid" 2>/dev/null
 
-# Four heavy jobs request 24 CPU ceilings on this 24-core host. The attended
-# fixture admits three, each one settle window after the last, and queues the
-# fourth inside the third's window; the kernel ancestor enforces the shared
-# cap, which keeps four cores for the desktop.
+# Four heavy jobs run in the idle-weighted batch slice without CPUQuota. The
+# attended fixture admits three, each one settle window after the last, and
+# queues the fourth inside the third's window until that window ends.
 original_capacity_db=$AGENT_CAPACITY_DB original_usage_log=$AGENT_CAPACITY_USAGE_LOG
 export AGENT_CAPACITY_DB="$scratch/aggregate.db" AGENT_CAPACITY_USAGE_LOG="$scratch/aggregate-usage.jsonl"
 for sample in 1 2 3; do printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/capacity","shape":"read","class":"heavy","meanCores":4.8,"p90Cores":6,"peakCores":6,"peakMemoryMiB":6826,"wallSeconds":120}\n' "$sample"; done >>"$AGENT_CAPACITY_USAGE_LOG"
@@ -223,13 +224,9 @@ for number in 1 2 3; do
   [[ -s "$scratch/group-$number" ]]
   read -r group <"$scratch/group-$number"
   parent=${group%/*}
-  [[ $parent == */agent.slice/agent-capacity.slice/agent-capacity-$AGENT_CAPACITY_SUBSLICE.slice ]]
-  read -r quota period <"/sys/fs/cgroup$parent/cpu.max"
-  [[ $quota != max ]]
-  cores=$AGENT_CAPACITY_CORES
-  [[ $quota -eq $((period * (cores - 4))) ]]
-  read -r quota period <"/sys/fs/cgroup$group/cpu.max"
-  [[ $((quota / period)) -eq 6 ]]
+  [[ $parent == */agent.slice/agent-batch.slice/agent-batch-$AGENT_CAPACITY_SUBSLICE.slice ]]
+  [[ $(cat "/sys/fs/cgroup$parent/cpu.idle") -eq 1 && $(cut -d" " -f1 "/sys/fs/cgroup$parent/cpu.max") == max ]]
+  [[ ! -e "/sys/fs/cgroup$group/cpu.max" ]] || { read -r quota _ <"/sys/fs/cgroup$group/cpu.max"; [[ $quota == max ]]; }
   [[ $(cat "/sys/fs/cgroup$group/memory.high") -eq $((8192 * 1024 * 1024)) ]]
 done
 [[ ! -s "$scratch/group-4" ]]
@@ -240,8 +237,6 @@ probe=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" p
 [[ $(jq -r '.queuedAhead' <<<"$probe") -eq 1 ]]
 [[ $(jq -r '.aggregateCpuLimit' <<<"$probe") -eq 20 ]]
 [[ $(jq -r '.profile' <<<"$probe") == attended ]]
-# Releasing one job starts the queued one.
-kill -TERM "${fixture_pids[0]}"
 wait_for "$scratch/group-4"
 [[ -s "$scratch/group-4" ]]
 for pid in "${fixture_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
@@ -340,7 +335,7 @@ wait_for "$scratch/session-group"
 wait_for "$scratch/session-child"
 read -r group <"$scratch/session-group"
 read -r session_child <"$scratch/session-child"
-[[ $(systemctl --user show "${group##*/}" --property=RuntimeMaxUSec --value) == 30min ]]
+[[ $(systemctl --user show "${group##*/}" --property=RuntimeMaxUSec --value) == infinity && $(xargs -I{} cat /proc/{}/cmdline <"/sys/fs/cgroup$group/cgroup.procs" | tr '\0' ' ') == *'capacity deadline '*' 1800 --'* ]]
 [[ $(head -n 1 "$scratch/session-err" | jq -r '.expiresAt') != null ]]
 probe=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class exclusive || true)
 [[ $(jq -r '.reason' <<<"$probe") == DEFER_EXCLUSIVE ]]
@@ -527,7 +522,9 @@ throttled_probe() {
 psi "$user_manager/app.slice" 90.00
 [[ $(throttled_probe) == DEFER_CPU_PRESSURE ]]
 
-# A deferred native client holds new gpu leases until it is admitted.
+# A deferred native client holds new gpu leases until it is admitted; away, so
+# the busy GPU Tom would be using does not defer the gpu lease first.
+XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode away >/dev/null
 gpu_probe() { XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class "$1" | jq -r '.reason' || true; }
 echo 95 >"$AGENT_CAPACITY_GPU_BUSY"
 [[ $(gpu_probe native) == DEFER_GPU_BUSY ]]
@@ -535,13 +532,15 @@ echo 95 >"$AGENT_CAPACITY_GPU_BUSY"
 echo 0 >"$AGENT_CAPACITY_GPU_BUSY"
 [[ $(gpu_probe native) == RUN ]]
 [[ $(gpu_probe gpu) == RUN ]]
+XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode present >/dev/null
 
-# Release records what the scope used: two busy loops under a 2-CPU quota.
+# Release records what the scope used: two busy loops in the idle-weighted batch
+# slice, whose share of the CPU depends on the host's other load.
 XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run --class moderate --owner fixture:/measure \
   --timeout-seconds 30 -- bash -c 'cd / && timeout 3 sh -c "while :; do :; done" & timeout 3 sh -c "while :; do :; done"; wait' 2>/dev/null
 measured=$(jq -c 'select(.owner == "fixture:/measure")' "$AGENT_CAPACITY_USAGE_LOG")
 [[ $(jq -r '.shape' <<<"$measured") == sh ]]
-[[ $(jq '.meanCores > 1.5 and .meanCores <= 2.1 and .peakCores <= 2.2 and .cpuSeconds > 4' <<<"$measured") == true ]]
+[[ $(jq '.cpuSeconds > 0.5 and (.meanCores - .cpuSeconds / .wallSeconds | fabs) < 0.05 and .peakCores <= 2.2' <<<"$measured") == true ]]
 
 export AGENT_CAPACITY_DB="$scratch/sizing.db" AGENT_CAPACITY_USAGE_LOG="$scratch/sizing-usage.jsonl"
 for sample in 1 2 3; do
