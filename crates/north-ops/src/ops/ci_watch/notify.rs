@@ -5,6 +5,11 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::Deserialize;
 
+use north_github_mirror::read;
+use north_github_mirror::store::Mirror;
+use serde_json::Value;
+
+use super::mirrored;
 use super::{Call, TITLE, gh, gh_json};
 use crate::foundation::clock::Timestamp;
 
@@ -123,17 +128,35 @@ pub fn state_dir() -> PathBuf {
     home.join("north/red-main-notify")
 }
 
+pub fn issues_via(mirror: &Mirror, at: f64, repo: &str, miss: impl FnOnce() -> Result<Vec<Issue>, String>) -> Result<Vec<Issue>, String> {
+    let Some(red) = mirrored::red_issues(mirror, at, repo) else { return miss() };
+    let issue = |issue: &Value| {
+        let number = issue["number"].as_u64()?;
+        Some(Issue { number, title: TITLE.into(), url: mirrored::url(repo, number), body: issue["body"].as_str()?.into() })
+    };
+    Ok(red.iter().filter_map(issue).collect())
+}
+
+pub fn run_finished_via(mirror: &Mirror, at: f64, repo: &str, run: &str, miss: impl FnOnce() -> Option<Timestamp>) -> Option<Timestamp> {
+    let held = mirrored::main_runs(mirror, at, repo).and_then(|rows| rows.into_iter().find(|row| row["id"] == run.parse::<u64>().unwrap_or(0)));
+    held.and_then(|row| Timestamp::parse_rfc3339(row["updated_at"].as_str()?)).or_else(miss)
+}
+
 pub struct Shell;
 
 impl Io for Shell {
     fn issues(&self, repo: &str) -> Result<Vec<Issue>, String> {
-        let search = format!("\"{TITLE}\" in:title");
-        gh_json(&["issue", "list", "-R", repo, "--state", "open", "--search", &search, "--json", "number,title,url,body"])
+        issues_via(&Mirror::local(), read::now(), repo, || {
+            let search = format!("\"{TITLE}\" in:title");
+            gh_json(&["issue", "list", "-R", repo, "--state", "open", "--search", &search, "--json", "number,title,url,body"])
+        })
     }
 
     fn run_finished(&self, repo: &str, run: &str) -> Option<Timestamp> {
-        let at = gh(&["run", "view", run, "-R", repo, "--json", "updatedAt", "--jq", ".updatedAt"]).ok()?;
-        Timestamp::parse_rfc3339(at.trim())
+        run_finished_via(&Mirror::local(), read::now(), repo, run, || {
+            let at = gh(&["run", "view", run, "-R", repo, "--json", "updatedAt", "--jq", ".updatedAt"]).ok()?;
+            Timestamp::parse_rfc3339(at.trim())
+        })
     }
 
     fn sessions(&self) -> Vec<Session> {

@@ -1020,6 +1020,7 @@ dependencies = [
  "north-capacity",
  "north-core",
  "north-dispatch",
+ "north-github-mirror",
  "regex",
  "rusqlite",
  "rustix 0.38.44",

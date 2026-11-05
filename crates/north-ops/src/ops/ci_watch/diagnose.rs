@@ -5,6 +5,10 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 
+use north_github_mirror::read;
+use north_github_mirror::store::Mirror;
+
+use super::mirrored;
 use super::{Call, TITLE, gh, gh_json};
 
 pub const REPOS: [&str; 3] = ["tompassarelli/north", "tompassarelli/firn", "tompassarelli/makgora"];
@@ -237,21 +241,52 @@ pub fn diagnose(io: &dyn Io, repos: &[&str]) -> Vec<String> {
     posted
 }
 
+pub fn issues_via(mirror: &Mirror, at: f64, repo: &str, miss: impl FnOnce() -> Result<Vec<Issue>, String>) -> Result<Vec<Issue>, String> {
+    let Some(red) = mirrored::red_issues(mirror, at, repo) else { return miss() };
+    Ok(red.iter().filter_map(|issue| Some(Issue { number: issue["number"].as_u64()?, title: TITLE.into() })).collect())
+}
+
+pub fn comments_via(mirror: &Mirror, at: f64, repo: &str, number: u64, miss: impl FnOnce() -> Result<Vec<String>, String>) -> Result<Vec<String>, String> {
+    let held = mirrored::red_issues(mirror, at, repo).and_then(|red| red.iter().find(|issue| issue["number"] == number).and_then(mirrored::complete_comments));
+    held.map_or_else(miss, Ok)
+}
+
+pub fn runs_via(mirror: &Mirror, at: f64, repo: &str, miss: impl FnOnce() -> Result<Vec<Run>, String>) -> Result<Vec<Run>, String> {
+    let Some(rows) = mirrored::main_runs(mirror, at, repo) else { return miss() };
+    let text = |run: &Value, field: &str| run[field].as_str().map(str::to_owned);
+    let run = |run: &Value| {
+        Some(Run {
+            database_id: run["id"].as_u64()?,
+            workflow_name: text(run, "name")?,
+            conclusion: text(run, "conclusion"),
+            status: text(run, "status")?,
+            event: text(run, "event")?,
+            head_sha: text(run, "head_sha")?,
+            url: text(run, "html_url")?,
+        })
+    };
+    Ok(rows.iter().filter_map(run).collect())
+}
+
 pub struct Shell;
 
 impl Io for Shell {
     fn issues(&self, repo: &str) -> Result<Vec<Issue>, String> {
-        let search = format!("\"{TITLE}\" in:title");
-        gh_json(&["issue", "list", "-R", repo, "--state", "open", "--search", &search, "--json", "number,title"])
+        issues_via(&Mirror::local(), read::now(), repo, || {
+            let search = format!("\"{TITLE}\" in:title");
+            gh_json(&["issue", "list", "-R", repo, "--state", "open", "--search", &search, "--json", "number,title"])
+        })
     }
 
     fn comments(&self, repo: &str, issue: u64) -> Result<Vec<String>, String> {
-        let value: Value = gh_json(&["issue", "view", &issue.to_string(), "-R", repo, "--json", "comments"])?;
-        Ok(value["comments"].as_array().into_iter().flatten().filter_map(|c| c["body"].as_str().map(str::to_owned)).collect())
+        comments_via(&Mirror::local(), read::now(), repo, issue, || {
+            let value: Value = gh_json(&["issue", "view", &issue.to_string(), "-R", repo, "--json", "comments"])?;
+            Ok(value["comments"].as_array().into_iter().flatten().filter_map(|c| c["body"].as_str().map(str::to_owned)).collect())
+        })
     }
 
     fn runs(&self, repo: &str) -> Result<Vec<Run>, String> {
-        gh_json(&["run", "list", "-R", repo, "--branch", "main", "--limit", "60", "--json", RUN_FIELDS])
+        runs_via(&Mirror::local(), read::now(), repo, || gh_json(&["run", "list", "-R", repo, "--branch", "main", "--limit", "60", "--json", RUN_FIELDS]))
     }
 
     fn log(&self, repo: &str, run: u64) -> Result<String, String> {

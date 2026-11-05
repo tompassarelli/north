@@ -12,6 +12,8 @@ use super::exec::{api, command, git};
 use super::liveness::{open_pull_heads, pending_autoland};
 use super::remote::{active_runs, remote_branches};
 use super::state::write_atomically;
+use north_github_mirror::store::{self, Mirror};
+use north_github_mirror::read;
 use north_core::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north repo audit [--repo NAME]... [--alert]";
@@ -147,8 +149,9 @@ fn pages_branch(repo: &str) -> Result<Option<String>, String> {
 }
 
 fn released_tags(repo: &str) -> Result<HashSet<String>, String> {
-    let pages = api(&format!("repos/{OWNER}/{repo}/releases?per_page=100"))?;
-    let releases = pages.as_array().into_iter().flatten().filter_map(Value::as_array).flatten();
+    let miss = || Ok(api(&format!("repos/{OWNER}/{repo}/releases?per_page=100"))?.as_array().into_iter().flatten().filter_map(Value::as_array).flatten().cloned().collect());
+    let releases = read::listed(&Mirror::local(), read::now(), repo, store::RELEASES, miss)?;
+    let releases = releases.iter();
     Ok(releases.filter(|release| release["draft"].as_bool() != Some(true)).filter_map(|release| release["tag_name"].as_str().map(str::to_string)).collect())
 }
 
@@ -214,7 +217,8 @@ fn audit_repo(repo: &Repo, workers: &HashMap<(String, String), String>, now: i64
         let (is_landed, issues) = compare(repo, branch)?;
         rows.push(row(&Facts { repo: name, branch, committed_ms: committed, landed: is_landed, session, ticket, issues }, now));
     }
-    let tags = ref_names(&api(&format!("repos/{OWNER}/{name}/git/matching-refs/tags/"))?, "refs/tags/");
+    let miss = || Ok(api(&format!("repos/{OWNER}/{name}/git/matching-refs/tags/"))?.as_array().into_iter().flatten().filter_map(Value::as_array).flatten().cloned().collect());
+    let tags = ref_names(&Value::Array(vec![Value::Array(read::listed(&Mirror::local(), read::now(), name, store::TAGS, miss)?)]), "refs/tags/");
     let released = if tags.iter().any(|tag| is_release_tag(tag)) { released_tags(name)? } else { HashSet::new() };
     Ok(Audited { rows, tags: classify_tags(&tags, &released) })
 }

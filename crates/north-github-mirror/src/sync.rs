@@ -1,6 +1,6 @@
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use crate::store::{self, ISSUES_PROBE, MAIN_CHECKS, MAIN_RUNS, Mirror, OPEN_ISSUES, OWNER, key};
+use crate::store::{self, BRANCHES, BRANCHES_PROBE, CLOSED_ISSUES, ISSUES_PROBE, MAIN_CHECKS, MAIN_RUNS, Mirror, OPEN_ISSUES, OWNER, RELEASES, TAGS, key};
 
 pub const REFETCH_S: f64 = 30.0 * 60.0;
 
@@ -13,6 +13,8 @@ pub enum Answer {
 pub trait GitHub {
     fn get(&self, endpoint: &str, etag: Option<&str>) -> Result<Answer, String>;
     fn open_issues(&self, repo: &str) -> Result<Vec<Value>, String>;
+    fn closed_issues(&self, repo: &str) -> Result<Vec<Value>, String>;
+    fn branches(&self, repo: &str) -> Result<Vec<Value>, String>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +38,14 @@ impl GitHub for Gh {
 
     fn open_issues(&self, repo: &str) -> Result<Vec<Value>, String> {
         store::fetch_open_issues(repo)
+    }
+
+    fn closed_issues(&self, repo: &str) -> Result<Vec<Value>, String> {
+        store::fetch_closed_issue_numbers(repo)
+    }
+
+    fn branches(&self, repo: &str) -> Result<Vec<Value>, String> {
+        store::fetch_branches(repo)
     }
 }
 
@@ -90,26 +100,67 @@ fn conditional(github: &dyn GitHub, mirror: &Mirror, key: &str, endpoint: &str, 
     save(mirror, key, asked, at)
 }
 
-pub fn issues(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Result<Fetch, String> {
-    let probe = key(repo, ISSUES_PROBE);
-    let asked = ask(github, mirror, &probe, &format!("repos/{OWNER}/{repo}/issues?state=all&sort=updated&direction=desc&per_page=1"))?;
-    let open = key(repo, OPEN_ISSUES);
-    let current = mirror.read(&open).is_some_and(|copy| at - copy.fetched < REFETCH_S);
+struct Listing<'a> {
+    probe: &'a str,
+    endpoint: String,
+    kind: &'a str,
+    also: &'a [&'a str],
+}
+
+fn probed(
+    github: &dyn GitHub,
+    mirror: &Mirror,
+    repo: &str,
+    at: f64,
+    listing: &Listing,
+    fetch: impl FnOnce() -> Result<Vec<Value>, String>,
+    then: impl FnOnce(&[Value]) -> Result<(), String>,
+) -> Result<Fetch, String> {
+    let probe = key(repo, listing.probe);
+    let asked = ask(github, mirror, &probe, &listing.endpoint)?;
+    let body = key(repo, listing.kind);
+    let current = mirror.read(&body).is_some_and(|copy| at - copy.fetched < REFETCH_S);
     if asked.changed.is_none() && current {
-        mirror.confirm(&open, at)?;
+        for kind in [listing.kind].iter().chain(listing.also) {
+            mirror.confirm(&key(repo, kind), at)?;
+        }
         return save(mirror, &probe, asked, at);
     }
-    let nodes = github.open_issues(repo)?;
-    mirror.write(&open, &Value::Array(nodes), None, at)?;
+    let nodes = Value::Array(fetch()?);
+    mirror.write(&body, &nodes, None, at)?;
+    then(nodes.as_array().map_or(&[], Vec::as_slice))?;
     save(mirror, &probe, asked, at)?;
     Ok(Fetch::Refreshed)
 }
 
+fn closed_numbers(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64, open: &[Value]) -> Result<(), String> {
+    let (closed, open) = (key(repo, CLOSED_ISSUES), Value::Array(open.iter().map(|issue| issue["number"].clone()).collect()));
+    if mirror.read(&closed).is_some_and(|copy| copy.body["open"] == open) {
+        return mirror.confirm(&closed, at);
+    }
+    let numbers = github.closed_issues(repo)?;
+    mirror.write(&closed, &json!({"open": open, "numbers": numbers}), None, at)
+}
+
+pub fn issues(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Result<Fetch, String> {
+    let listing = Listing { probe: ISSUES_PROBE, endpoint: format!("repos/{OWNER}/{repo}/issues?state=all&sort=updated&direction=desc&per_page=1"), kind: OPEN_ISSUES, also: &[CLOSED_ISSUES] };
+    probed(github, mirror, repo, at, &listing, || github.open_issues(repo), |open| closed_numbers(github, mirror, repo, at, open))
+}
+
+fn branches(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Result<Fetch, String> {
+    let listing = Listing { probe: BRANCHES_PROBE, endpoint: format!("repos/{OWNER}/{repo}/git/matching-refs/heads?per_page=100"), kind: BRANCHES, also: &[] };
+    probed(github, mirror, repo, at, &listing, || github.branches(repo), |_| Ok(()))
+}
+
 pub fn repository(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Vec<(String, Result<Fetch, String>)> {
+    let listed = |kind: &str, endpoint: String| (key(repo, kind), conditional(github, mirror, &key(repo, kind), &format!("repos/{OWNER}/{repo}/{endpoint}"), at));
     vec![
         (key(repo, OPEN_ISSUES), issues(github, mirror, repo, at)),
-        (key(repo, MAIN_RUNS), conditional(github, mirror, &key(repo, MAIN_RUNS), &format!("repos/{OWNER}/{repo}/actions/runs?branch=main&per_page=60"), at)),
-        (key(repo, MAIN_CHECKS), conditional(github, mirror, &key(repo, MAIN_CHECKS), &format!("repos/{OWNER}/{repo}/commits/main/check-runs?per_page=100"), at)),
+        (key(repo, BRANCHES), branches(github, mirror, repo, at)),
+        listed(MAIN_RUNS, "actions/runs?branch=main&per_page=60".into()),
+        listed(MAIN_CHECKS, "commits/main/check-runs?per_page=100".into()),
+        listed(TAGS, "git/matching-refs/tags?per_page=100".into()),
+        listed(RELEASES, "releases?per_page=100".into()),
     ]
 }
 

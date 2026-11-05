@@ -2,6 +2,7 @@
 //! revert its culprit, `ci-diagnose` comments a two-stage model diagnosis on the open "main is
 //! red" issue, and `red-main-notify` tells the culprit lane's session and the proxy.
 pub mod diagnose;
+mod mirrored;
 pub mod notify;
 pub mod sheriff;
 

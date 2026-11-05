@@ -4,6 +4,8 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use north_github_mirror::read::{self, Seen};
+use north_github_mirror::store::Mirror;
 use regex::Regex;
 
 use super::exec::{command, git};
@@ -130,6 +132,9 @@ pub(super) fn issue_state(item: &str) -> IssueState {
     let Some((repo, number)) = item.split_once('#') else {
         return IssueState::Unknown;
     };
+    if let Some(seen) = number.parse().ok().and_then(|number| read::issue_state(&Mirror::local(), read::now(), repo, number)) {
+        return if seen == Seen::Open { IssueState::Open } else { IssueState::Closed };
+    }
     let ran = command(&["gh", "issue", "view", number, "-R", &format!("tompassarelli/{repo}"), "--json", "state", "-q", ".state"]);
     match (ran.ok, ran.out.as_str()) {
         (true, "CLOSED") => IssueState::Closed,

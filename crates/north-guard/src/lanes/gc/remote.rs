@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use north_github_mirror::read;
+use north_github_mirror::store::{self, Mirror};
 use serde_json::Value;
 
 use super::Gc;
 use super::evidence::{LaneClass, LaneFacts, lane_class, landed, named_issues, origin_repo, own_repo, protected_branch, refs_on};
-use super::exec::{api, command, git_slow, truthy, verified};
+use super::exec::{api, git_slow, verified};
 use super::liveness::{open_pull_heads, pending_autoland, tree_is_live};
 use super::state::RemoteStale;
 use north_core::foundation::clock::Timestamp;
@@ -40,32 +42,8 @@ struct Split {
     kept: usize,
 }
 
-fn branch_query(repo: &str) -> String {
-    format!(
-        "query($endCursor:String){{repository(owner:\"tompassarelli\",name:{}){{refs(refPrefix:\"refs/heads/\",first:100,after:$endCursor){{nodes{{name target{{... on Commit{{oid committedDate status{{contexts{{context state}}}}}}}}}} pageInfo{{hasNextPage endCursor}}}}}}}}",
-        serde_json::to_string(repo).unwrap_or_default()
-    )
-}
-
 pub(super) fn remote_branches(repo: &str) -> Result<Vec<Value>, String> {
-    let listed = command(&["gh", "api", "graphql", "--paginate", "--slurp", "-f", &format!("query={}", branch_query(repo))]);
-    if !listed.ok {
-        return Err("remote status evidence unavailable".into());
-    }
-    let pages: Value = serde_json::from_str(&listed.out).map_err(|error| error.to_string())?;
-    let refs_of = |page: &Value| page.get("data").and_then(|d| d.get("repository")).and_then(|r| r.get("refs")).cloned();
-    let pages = pages.as_array().filter(|pages| !pages.is_empty()).ok_or("remote status evidence incomplete")?;
-    let last = pages.len() - 1;
-    let complete = pages.iter().enumerate().all(|(i, page)| {
-        let refs = refs_of(page);
-        !truthy(page.get("errors"))
-            && refs.as_ref().and_then(|r| r.get("nodes")).is_some_and(Value::is_array)
-            && refs.as_ref().and_then(|r| r.get("pageInfo")).and_then(|info| info.get("hasNextPage")).and_then(Value::as_bool) == Some(i < last)
-    });
-    if !complete {
-        return Err("remote status evidence incomplete".into());
-    }
-    Ok(pages.iter().filter_map(|page| refs_of(page)?.get("nodes")?.as_array().cloned()).flatten().collect())
+    read::listed(&Mirror::local(), read::now(), repo, store::BRANCHES, || store::fetch_branches(repo))
 }
 
 fn run_pages_complete(pages: &[Value]) -> bool {

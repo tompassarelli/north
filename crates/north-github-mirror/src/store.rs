@@ -4,14 +4,23 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::Value;
 
 pub const OWNER: &str = "tompassarelli";
-pub const REPOS: [&str; 3] = ["north", "makgora", "wisp"];
+pub const REPOS: [&str; 4] = ["north", "makgora", "wisp", "firn"];
 pub const FRESH_S: f64 = 5.0 * 60.0;
 pub const OPEN_ISSUES: &str = "issues/open";
 pub const ISSUES_PROBE: &str = "issues/probe";
 pub const MAIN_RUNS: &str = "runs/main";
 pub const MAIN_CHECKS: &str = "checks/main";
+pub const BRANCHES: &str = "branches/heads";
+pub const BRANCHES_PROBE: &str = "branches/probe";
+pub const TAGS: &str = "tags/list";
+pub const RELEASES: &str = "releases/list";
+pub const CLOSED_ISSUES: &str = "issues/closed";
 
 pub const OPEN_ISSUES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body createdAt labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 10) { nodes { body createdAt updatedAt } } } } } }";
+
+const CLOSED_ISSUES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: CLOSED, first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number } } } }";
+
+const BRANCHES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { refs(refPrefix: \"refs/heads/\", first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { name target { ... on Commit { oid committedDate status { contexts { context state } } } } } } } }";
 
 const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS reads(key TEXT PRIMARY KEY, body TEXT NOT NULL CHECK(json_valid(body)), etag TEXT, fetched REAL NOT NULL, synced REAL NOT NULL) STRICT;";
 
@@ -93,20 +102,38 @@ impl Mirror {
 }
 
 pub fn fetch_open_issues(repo: &str) -> Result<Vec<Value>, String> {
+    paged(repo, OPEN_ISSUES_QUERY, "issues")
+}
+
+pub fn fetch_closed_issue_numbers(repo: &str) -> Result<Vec<Value>, String> {
+    Ok(paged(repo, CLOSED_ISSUES_QUERY, "issues")?.iter().map(|node| node["number"].clone()).collect())
+}
+
+pub fn fetch_branches(repo: &str) -> Result<Vec<Value>, String> {
+    paged(repo, BRANCHES_QUERY, "refs")
+}
+
+pub fn mirrored(full_name: &str) -> Option<&str> {
+    full_name.strip_prefix(OWNER)?.strip_prefix('/').filter(|name| REPOS.contains(name))
+}
+
+fn paged(repo: &str, query: &str, connection: &str) -> Result<Vec<Value>, String> {
     let (mut found, mut cursor) = (Vec::new(), None::<String>);
     loop {
-        let (query, owner, name) = (format!("query={OPEN_ISSUES_QUERY}"), format!("owner={OWNER}"), format!("name={repo}"));
+        let (query, owner, name) = (format!("query={query}"), format!("owner={OWNER}"), format!("name={repo}"));
         let mut args = vec!["api", "graphql", "-f", &query, "-F", &owner, "-F", &name];
         let after = cursor.as_ref().map(|cursor| format!("cursor={cursor}"));
         if let Some(after) = &after {
             args.extend(["-F", after]);
         }
-        let issues = crate::platform::github::json(&args)?["data"]["repository"]["issues"].take();
-        found.extend(issues["nodes"].as_array().into_iter().flatten().cloned());
-        if issues["pageInfo"]["hasNextPage"] != true {
+        let answer = crate::platform::github::json(&args)?;
+        let page = &answer["data"]["repository"][connection];
+        let nodes = page["nodes"].as_array().filter(|_| answer.get("errors").is_none()).ok_or_else(|| format!("GitHub {connection} page for {repo} is incomplete"))?;
+        found.extend(nodes.iter().cloned());
+        if page["pageInfo"]["hasNextPage"] != true {
             return Ok(found);
         }
-        cursor = issues["pageInfo"]["endCursor"].as_str().map(str::to_owned);
+        cursor = page["pageInfo"]["endCursor"].as_str().map(str::to_owned);
     }
 }
 

@@ -35,7 +35,7 @@ may_use = ["north-providers"]
 [[crate_dag.crate]]
 name = "north-guard"
 paths = ["crates/north-guard/src/**", "crates/*/src/lanes.rs", "crates/*/src/lanes/**", "crates/*/src/code_health.rs", "crates/*/src/code_health/**"]
-may_use = ["north-dispatch", "north-providers"]
+may_use = ["north-dispatch", "north-providers", "north-github-mirror"]
 
 [[crate_dag.crate]]
 name = "north-capacity-host"
@@ -65,7 +65,7 @@ may_use = ["north-capacity-host", "north-dispatch", "north-providers"]
 [[crate_dag.crate]]
 name = "north-ops"
 paths = ["crates/*/src/ops.rs", "crates/*/src/ops/**", "crates/*/src/health.rs", "crates/*/src/health/**"]
-may_use = ["north-dispatch", "north-threads"]
+may_use = ["north-dispatch", "north-threads", "north-github-mirror"]
 
 [[crate_dag.crate]]
 name = "north-pace"
