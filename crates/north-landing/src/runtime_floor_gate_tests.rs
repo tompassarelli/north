@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use super::{Added, Floor, Gap, Invocation, Surface, Verdict, added_invocations, commands, invocations, judge, live_runtimes, oldest, refusals, violations};
+use super::{Added, Floor, Gap, bash_runs, Invocation, Surface, Verdict, added_invocations, commands, invocations, judge, live_runtimes, oldest, refusals, violations};
 
 const SERVE: &str = r#"
             ("--once", _) => once = true,
@@ -62,7 +62,7 @@ fn north() -> (tempfile::TempDir, String) {
             (SERVE_PATH, SERVE),
             ("crates/north-landing/src/watch/mod.rs", "match arguments { [\"--once\"] => false, _ => true }\n"),
             ("crates/north-landing/src/land/mod.rs", "Some((command, rest)) if command == \"serve\" => serve::run(rest),\n"),
-            ("crates/north-core/src/agent_catalog.rs", "#[path = \"catalog/registration_checks.rs\"]\nmod registration_checks;\n\"check-hook-paths\" => registration_checks::parse(rest),\n"),
+            ("crates/north-core/src/agent_catalog.rs", "#[path = \"catalog/registration_checks.rs\"]\nmod registration_checks;\n\"agents\" => 0,\n\"check-hook-paths\" => registration_checks::parse(rest),\n"),
             ("crates/north-core/src/catalog/registration_checks.rs", "\"--claude\" => 1, \"--codex\" => 2,\n"),
             ("crates/north-landing/src/land/queue_tests.rs", "(\"--all\", _) => {}\n"),
             ("crates/north-core/src/lanes/reap.rs", "\"--all\" => all = true,\n"),
@@ -285,4 +285,86 @@ fn a_probed_call_and_a_call_outside_scripts_pass() {
     );
     let state = tempfile::tempdir().unwrap();
     assert_eq!(judge(dir.path(), None, state.path(), &old, &head).unwrap(), Verdict::Passed);
+}
+
+const JOB_RUN_PATH: &str = "modules/job-run/default.nix";
+const LIVENESS_PATH: &str = "modules/delivery-liveness/default.nix";
+const HEALTH_PATH: &str = "modules/code-health/default.nix";
+
+fn floor_north() -> (tempfile::TempDir, String) {
+    let dir = init();
+    let old = commit(
+        dir.path(),
+        &[
+            ("src/cli/tools.rs", "(\"land\", crate::land::run),\n(\"code-health\", crate::code_health::run),\n"),
+            ("crates/north-core/src/code_health/mod.rs", "match command { \"report\" => report(), _ => usage() }\n"),
+        ],
+    );
+    commit(
+        dir.path(),
+        &[
+            ("src/cli/tools.rs", "(\"land\", crate::land::run),\n(\"code-health\", crate::code_health::run),\n(\"job-run\", crate::job_run::run),\n"),
+            ("crates/north-core/src/code_health/mod.rs", "match command { \"report\" => report(), \"tick\" => tick(), _ => usage() }\n"),
+        ],
+    );
+    (dir, old)
+}
+
+fn replay(files: &[(&str, &str, &str)]) -> (tempfile::TempDir, String, String) {
+    let dir = init();
+    let before: Vec<(&str, &str)> = files.iter().map(|(path, before, _)| (*path, *before)).collect();
+    let after: Vec<(&str, &str)> = files.iter().map(|(path, _, after)| (*path, *after)).collect();
+    let base = commit(dir.path(), &before);
+    let head = commit(dir.path(), &after);
+    (dir, base, head)
+}
+
+fn refused(repo: &Path, north: &Path, old: &str, base: &str, head: &str) -> Vec<String> {
+    let live = state(old, &[("laptop", old)]);
+    let Verdict::Refused(lines) = judge(repo, Some(north), live.path(), base, head).unwrap() else { panic!("the gate passed a verb the floor runtime lacks") };
+    lines
+}
+
+#[test]
+fn runtime_floor_refuses_the_e7619134_job_run_through_a_nix_northbin_path() {
+    let (north_dir, old) = floor_north();
+    let (dir, base, head) = replay(&[
+        (
+            JOB_RUN_PATH,
+            "  ExecStart = \"${pkgs.bash}/bin/bash ${northBin}/job-run --path ${\n    recordPath\n  } --user ${username} ${name} -- ${cmd}\";\n",
+            "  ExecStart = \"${pkgs.bash}/bin/bash ${northBin}/north job-run --path ${\n    recordPath\n  } --user ${username} ${name} -- ${cmd}\";\n",
+        ),
+        (
+            LIVENESS_PATH,
+            "  jobRun = name: cmd:\n    \"${pkgs.bash}/bin/bash ${northBin}/job-run --path ${recordPath} --user ${username} ${name} -- ${cmd}\";\n",
+            "  jobRun = name: cmd:\n    \"${pkgs.bash}/bin/bash ${northBin}/north job-run --path ${recordPath} --user ${username} ${name} -- ${cmd}\";\n",
+        ),
+    ]);
+    let lines = refused(dir.path(), north_dir.path(), &old, &base, &head);
+    assert!(lines.iter().any(|line| line.starts_with(&format!("runtime-floor-gate: {JOB_RUN_PATH}: north job-run is missing"))), "{lines:?}");
+    assert!(lines.iter().any(|line| line.starts_with(&format!("runtime-floor-gate: {LIVENESS_PATH}: north job-run is missing"))), "{lines:?}");
+    assert!(lines.iter().any(|line| line.contains("bash cannot run the north binary") && line.ends_with("north job-run")), "{lines:?}");
+}
+
+#[test]
+fn runtime_floor_refuses_the_15158378_code_health_tick_the_floor_runtime_lacks() {
+    let (north_dir, old) = floor_north();
+    let (dir, base, head) = replay(&[(
+        HEALTH_PATH,
+        "  ExecStart = jobRun \"code-health-review\" \"${northBin}/code-health-tick\";\n",
+        "  ExecStart = jobRun \"code-health-review\" \"${northBin}/north code-health tick\";\n",
+    )]);
+    let lines = refused(dir.path(), north_dir.path(), &old, &base, &head);
+    assert!(lines.iter().any(|line| line.starts_with(&format!("runtime-floor-gate: {HEALTH_PATH}: north code-health tick is missing"))), "{lines:?}");
+}
+
+#[test]
+fn a_north_path_run_through_bash_is_named_and_a_direct_call_is_not() {
+    let nix = call("ExecStart = \"${pkgs.bash}/bin/bash ${northBin}/north job-run --path x\";");
+    assert!(nix.via_bash);
+    assert!(call("ExecStart = \"bash /opt/bin/north job-run\";").via_bash);
+    assert!(!call("ExecStart = \"${northBin}/north job-run --path x\";").via_bash);
+    assert!(!call("bash -c 'north job-run'").via_bash);
+    let added = vec![Added { path: JOB_RUN_PATH.to_owned(), script: String::new(), invocations: vec![nix] }];
+    assert_eq!(bash_runs(&added), [format!("runtime-floor-gate: {JOB_RUN_PATH}: bash cannot run the north binary; call it directly as north job-run")]);
 }

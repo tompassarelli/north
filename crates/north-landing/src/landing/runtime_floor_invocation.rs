@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-static HEAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?:^|[\s;&|({`!"'])north\s+|\}/north\s+|/bin/north\s+"#).expect("head pattern"));
+static HEAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?:^|[\s;&|({`!"'])north\s+|[^\s~/"'`(]/north\s+|/bin/north\s+"#).expect("head pattern"));
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z][a-z0-9-]*$").expect("word pattern"));
 static FLAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"^["'`(]*(--[a-z][a-z0-9-]*)"#).expect("flag pattern"));
 
@@ -13,6 +13,7 @@ const WORD_LIMIT: usize = 3;
 pub struct Invocation {
     pub words: Vec<String>,
     pub flags: Vec<String>,
+    pub via_bash: bool,
 }
 
 impl Invocation {
@@ -36,7 +37,7 @@ pub fn invocations(line: &str) -> Vec<Invocation> {
         .enumerate()
         .filter_map(|(at, head)| {
             let end = heads.get(at + 1).map_or(code.len(), |next| next.start());
-            read(&code[head.end()..end])
+            read(&code[head.end()..end], runs_in_bash(&code[..head.end()]))
         })
         .collect()
 }
@@ -45,7 +46,14 @@ fn closes(token: &str) -> bool {
     ENDS.iter().any(|end| token.contains(end)) || token.matches(')').count() > token.matches('(').count()
 }
 
-fn read(tail: &str) -> Option<Invocation> {
+fn runs_in_bash(through_program: &str) -> bool {
+    let text = through_program.trim_end();
+    let start = text.rfind(char::is_whitespace).map_or(0, |at| at + 1);
+    let before = text[..start].trim_end();
+    text[start..].contains('/') && before.strip_suffix("bash").is_some_and(|rest| rest.chars().next_back().is_none_or(|prior| !prior.is_alphanumeric() && prior != '-' && prior != '_'))
+}
+
+fn read(tail: &str, via_bash: bool) -> Option<Invocation> {
     let mut words = Vec::new();
     let mut flags = Vec::new();
     let mut tokens = tail.split_whitespace().peekable();
@@ -57,7 +65,7 @@ fn read(tail: &str) -> Option<Invocation> {
         words.push(bare.to_owned());
         tokens.next();
         if bare.len() != token.len() {
-            return Some(Invocation { words, flags });
+            return Some(Invocation { words, flags, via_bash });
         }
     }
     for token in tokens {
@@ -68,5 +76,5 @@ fn read(tail: &str) -> Option<Invocation> {
             break;
         }
     }
-    (!words.is_empty()).then_some(Invocation { words, flags })
+    (!words.is_empty()).then_some(Invocation { words, flags, via_bash })
 }

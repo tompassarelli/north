@@ -18,6 +18,7 @@ static REFERENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b([a-z][a-z0-
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Gap {
     Command(String),
+    Subcommand { command: String, word: String },
     Flag { command: String, flag: String },
 }
 
@@ -29,6 +30,7 @@ impl Gap {
     pub fn name(&self, invocation: &Invocation) -> String {
         match self {
             Self::Command(command) => format!("north {command}"),
+            Self::Subcommand { command, word } => format!("north {command} {word}"),
             Self::Flag { flag, .. } => format!("north {} {flag}", invocation.path()),
         }
     }
@@ -40,6 +42,7 @@ pub struct Surface {
     files: BTreeSet<String>,
     flags: BTreeSet<(String, String)>,
     scopes: BTreeMap<String, BTreeSet<String>>,
+    absent: BTreeSet<String>,
 }
 
 fn git_text(repo: &Path, args: &[&str]) -> Option<String> {
@@ -103,7 +106,14 @@ impl Surface {
             .unwrap_or_default();
         let flags = git_text(repo, &["grep", "--null", "-I", "-o", "-E", r#""--[a-z][a-z0-9-]*["=]"#, rev, "--", "*.rs"]).map(|grepped| flag_hits(&grepped, rev)).unwrap_or_default();
         let scopes = words.iter().filter_map(|word| Some((word.clone(), Self::scope(repo, rev, word, &files)?))).collect();
-        Self { commands: command_words(&tables), files, flags, scopes }
+        let absent = words.iter().filter(|word| Self::unwritten(repo, rev, word, &files)).cloned().collect();
+        Self { commands: command_words(&tables), files, flags, scopes, absent }
+    }
+
+    fn unwritten(repo: &Path, rev: &str, word: &str, files: &BTreeSet<String>) -> bool {
+        let prefix = format!("{rev}:");
+        git_text(repo, &["grep", "-l", "-I", "-F", "-e", &format!("\"{word}\""), rev, "--", "*.rs"])
+            .is_none_or(|listed| !listed.lines().map(|line| line.strip_prefix(&prefix).unwrap_or(line)).any(|path| files.contains(path) && !COMMAND_TABLE.contains(&path)))
     }
 
     fn scope(repo: &Path, rev: &str, word: &str, files: &BTreeSet<String>) -> Option<BTreeSet<String>> {
@@ -129,6 +139,7 @@ impl Surface {
             files: files.iter().map(|file| (*file).to_owned()).collect(),
             flags: flags.iter().map(|(path, flag)| ((*path).to_owned(), (*flag).to_owned())).collect(),
             scopes: BTreeMap::new(),
+            absent: BTreeSet::new(),
         }
     }
 
@@ -146,6 +157,9 @@ impl Surface {
         let Some(command) = invocation.command() else { return Vec::new() };
         if !self.commands.contains(command) {
             return vec![Gap::Command(command.to_owned())];
+        }
+        if let Some(word) = invocation.words.get(1).filter(|word| self.absent.contains(*word)) {
+            return vec![Gap::Subcommand { command: command.to_owned(), word: word.clone() }];
         }
         let owners = self.owners(invocation);
         if owners.is_empty() {

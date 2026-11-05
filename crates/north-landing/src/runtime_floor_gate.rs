@@ -132,6 +132,14 @@ pub fn violations(added: &[Added], own: bool, head: &Surface, floor: &Surface) -
     named.into_iter().collect()
 }
 
+pub fn bash_runs(added: &[Added]) -> Vec<String> {
+    let named: BTreeSet<String> = added
+        .iter()
+        .flat_map(|file| file.invocations.iter().filter(|invocation| invocation.via_bash).map(move |invocation| format!("runtime-floor-gate: {}: bash cannot run the north binary; call it directly as north {}", file.path, invocation.path())))
+        .collect();
+    named.into_iter().collect()
+}
+
 pub fn render(found: &[String], floor: &str, host: &str) -> Vec<String> {
     let mut lines: Vec<String> = found.iter().map(|line| format!("runtime-floor-gate: {line} is missing from the oldest live runtime {floor} ({host})")).collect();
     lines.push("runtime-floor-gate: land the subcommand or flag first and call it once every host runs a runtime that has it (north runtime settle), or probe a subcommand with `north SUB --help` and say to run north runtime update when it is missing".to_owned());
@@ -166,11 +174,14 @@ pub fn judge(repo: &Path, north: Option<&Path>, state: &Path, base: &str, head: 
     let words: BTreeSet<String> = added.iter().flat_map(|file| &file.invocations).flat_map(|invocation| invocation.words.clone()).collect();
     let floor = oldest(&source, live_runtimes(state), fallback);
     let found = violations(&added, own, &Surface::read(&source, &head_rev, &words), &Surface::read(&source, &floor.sha, &words));
-    if found.is_empty() {
-        return Ok(Verdict::Passed);
-    }
-    let short = git(&source, &["rev-parse", "--short=8", &floor.sha]).map_or_else(|_| floor.sha.clone(), |sha| sha.trim().to_owned());
-    Ok(Verdict::Refused(render(&found, &short, &floor.host)))
+    let mut lines = if found.is_empty() {
+        Vec::new()
+    } else {
+        let short = git(&source, &["rev-parse", "--short=8", &floor.sha]).map_or_else(|_| floor.sha.clone(), |sha| sha.trim().to_owned());
+        render(&found, &short, &floor.host)
+    };
+    lines.extend(bash_runs(&added));
+    Ok(if lines.is_empty() { Verdict::Passed } else { Verdict::Refused(lines) })
 }
 
 pub fn check(repo: &Path, base: &str, head: &str) -> bool {
