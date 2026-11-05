@@ -1450,6 +1450,7 @@ candidate_verdict() {
   else
     status=$?
     if [ -n "$blocked_by_red_main" ]; then class=red-main detail=$base
+    elif [ "$status" -eq 75 ] && [[ "$land_check_skip" == "main's check environment is broken: "* ]]; then class=transient detail=$land_check_skip
     elif [ "$status" -eq 75 ] && grep -q 'DEFER' "$log"; then class=deferred
     elif [ "$status" -eq 75 ] || [[ "$land_check_skip" == *'bun install failed'* ]]; then class=transient detail=${land_check_skip:-exit 75}
     fi

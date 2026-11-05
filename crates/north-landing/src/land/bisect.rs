@@ -173,6 +173,22 @@ mod tests {
     }
 
     #[test]
+    fn a_lane_waiting_on_a_main_that_fails_its_own_check_is_never_refused() {
+        let log = Path::new("check.log");
+        let tail = "safe-push: verdict transient main's check environment is broken: cargo clippy on gex45: error[E0063]: missing field `breaches`";
+        let broken = super::super::checks::parse(tail).unwrap();
+        assert!(matches!(broken, Verdict::BrokenBase(_)));
+        let mut strikes = Strikes::default();
+        for _ in 0..PERSISTENT_AFTER * 3 {
+            for verdict in [broken.clone(), Verdict::RedMain("abc".into())] {
+                let streak = strikes.record("k", &verdict);
+                assert_eq!(escalate(verdict.clone(), streak, log), verdict);
+            }
+        }
+        assert!(!strikes.exhausted("k"));
+    }
+
+    #[test]
     fn halves_only_a_refusal_on_an_unmoved_base() {
         assert_eq!(judge(Verdict::Refused("log".into()), 5, false), Judgement::Halve(3));
         assert_eq!(judge(Verdict::Refused("log".into()), 2, false), Judgement::Halve(1));

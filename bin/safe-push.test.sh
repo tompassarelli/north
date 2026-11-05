@@ -2492,6 +2492,19 @@ case_output=$(run_check_candidate env) || fail "check-candidate: a green candida
 [ "$("$real_git" --git-dir="$landing_remote" rev-parse main)" = "$check_base" ] || fail 'check-candidate pushed'
 printf 'PASS: check-candidate: a red-main failure ends verdict red-main without land-red-wait; a green one ends verdict green; nothing is pushed\n'
 
+new_landing_origin check-candidate-broken-main
+"$real_git" -C "$landing_root/seed" config --file .safe-push --add land.check "a.txt :: echo '{\"decision\":\"QUEUED\",\"reason\":\"DEFER_MEMORY_CAPACITY\"}'; echo 'error[E0063]: missing field'; exit 101"
+"$real_git" -C "$landing_root/seed" add .safe-push
+"$real_git" -C "$landing_root/seed" commit -qm 'a land check that fails on every tree after a queued admission'
+"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+make_landing_clone "$landing_root/a" a.txt
+check_base=$("$real_git" --git-dir="$landing_remote" rev-parse main)
+case_output=$(run_check_candidate env NORTH_LAND_ROUND=582) && fail "check-candidate: a candidate on a main that fails its own check exited 0: $case_output"
+verdict=$(tail -n1 <<<"$case_output")
+[[ "$verdict" == "safe-push: verdict transient main's check environment is broken: "* ]] \
+  || fail "check-candidate: a failure main shares, beside a queued DEFER_ admission line, did not end verdict transient on the broken base: $verdict"
+printf 'PASS: check-candidate: a failure main shares ends verdict transient on the broken base, not deferred, though a queued admission line names DEFER_MEMORY_CAPACITY\n'
+
 } >"$scratch/section-3.log" 2>&1 &
 sections+=($!)
 
