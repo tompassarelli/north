@@ -142,7 +142,7 @@ fn heavy_tests_and_builds_pass_busy_quiet_clients_that_are_not_a_protected_play_
 
 #[test]
 fn light_native_landing_and_tom_leases_run_beside_native() {
-    for class in [Class::Agent, Class::Native, Class::Critical, Class::Tom] {
+    for class in [Class::Agent, Class::Critical, Class::Tom] {
         assert_eq!(beside(class, 2, false), Reason::Run, "{class:?}");
     }
 }
@@ -151,6 +151,7 @@ fn light_native_landing_and_tom_leases_run_beside_native() {
 fn native_owner_steps_opt_out_explicitly() {
     assert_eq!(beside(Class::Moderate, 1, true), Reason::Run);
     assert_eq!(beside(Class::Gpu, 1, true), Reason::Run);
+    assert_eq!(beside(Class::Native, 1, true), Reason::Run);
 }
 
 #[test]

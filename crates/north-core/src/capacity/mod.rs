@@ -134,6 +134,11 @@ pub fn run(arguments: &[String], host: Host) -> u8 {
     }
 }
 
+fn wisp_pair_queue() -> std::path::PathBuf {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    std::env::var_os("XDG_STATE_HOME").filter(|path| !path.is_empty()).map_or_else(|| home.join(".local/state"), std::path::PathBuf::from).join("wisp/lan/queue")
+}
+
 /// Admission on the caller's facts, filled in with what this host observes: game reserve, run queue, disk, Warcraft clients, aperture and native holds.
 pub fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
     if facts.game_reserve_agent_cpus.is_none() {
@@ -155,6 +160,7 @@ pub fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
         }
     }
     facts.derive_native_holds();
+    facts.pair_leases.extend(native_hold::queue_pair_leases(&wisp_pair_queue(), &host::host_name()));
     facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
     facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
     let admitted = admission::admit(&facts, host.serving);

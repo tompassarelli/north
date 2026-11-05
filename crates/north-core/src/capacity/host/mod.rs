@@ -51,6 +51,7 @@ const USAGE: &str = "usage: offload-cost [--last N]|estimate [--json] [--class C
 
 pub use actions_pull::run as actions_pull;
 pub use fleet_pull::run as pull;
+pub use model::host_name;
 
 pub fn fail(message: &str, status: i32) -> ! {
     eprintln!("machine-capacity: {message}");

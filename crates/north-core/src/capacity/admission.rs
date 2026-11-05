@@ -208,7 +208,7 @@ pub fn admit(facts: &Facts, serving: impl Fn(&str) -> Option<String>) -> Admissi
         .flatten();
     let disk_free_gib = (reason == Reason::DeferDiskFree).then_some(facts.disk_free_gib).flatten();
     let pair = native_hold::pair_refusal(facts.pair, facts.owner.as_deref(), &facts.pair_leases).filter(|_| reason == Reason::PairHeld);
-    let quiet_owners = if reason == Reason::DeferNativeQuiet { native_hold::holding_owners(&facts.quiet_native, quiet_idle_bound(), facts.class == Class::Heavy) } else { Vec::new() };
+    let quiet_owners = if reason == Reason::DeferNativeQuiet { fencing_owners(facts) } else { Vec::new() };
     Admission { reason, offload, aperture, disk_free_gib, pair, quiet_owners }
 }
 
@@ -424,7 +424,14 @@ fn native_queued_ahead(facts: &Facts) -> u32 {
     u32::try_from(holding).unwrap_or(u32::MAX)
 }
 
+fn fencing_owners(facts: &Facts) -> Vec<String> {
+    native_hold::fencing_owners(&facts.quiet_native, quiet_idle_bound(), facts.class == Class::Heavy, facts.owner.as_deref())
+}
+
 fn native(facts: &Facts) -> Reason {
+    if !facts.beside_native && !fencing_owners(facts).is_empty() {
+        return Reason::DeferNativeQuiet;
+    }
     if native_hold::alone_defers(facts.alone, facts.alone_queued_ahead, facts.gpu_clients) {
         return Reason::DeferNativeAlone;
     }
@@ -460,7 +467,7 @@ fn batch(facts: &Facts) -> Reason {
     if matches!(facts.class, Class::Critical | Class::Tom | Class::Runtime) {
         return if interactive_pressure(facts) { Reason::DeferInteractivePressure } else { Reason::Run };
     }
-    if !facts.beside_native && !native_hold::holding_owners(&facts.quiet_native, quiet_idle_bound(), facts.class == Class::Heavy).is_empty() {
+    if !facts.beside_native && !fencing_owners(facts).is_empty() {
         return Reason::DeferNativeQuiet;
     }
     if facts.class == Class::Gpu {

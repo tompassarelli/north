@@ -48,6 +48,10 @@ pub struct QueueEntry {
     name: String,
     class: String,
     #[serde(default)]
+    owner: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
     alone: bool,
     #[serde(default)]
     queued_at: f64,
@@ -116,9 +120,9 @@ impl QuietNative {
     }
 }
 
-/// The quiet leases that hold this request: heavy tests and builds wait only on a protected play session, because open-ended quiet leases on clients nobody played held heavy work 12.1 h on the GPU host (north#335).
-pub fn holding_owners(leases: &[QuietNative], idle_bound: f64, heavy: bool) -> Vec<String> {
-    leases.iter().filter(|lease| lease.holds_request(idle_bound, heavy)).map(|lease| lease.owner.clone()).collect()
+/// The quiet leases of other owners that hold this request: heavy tests and builds wait only on a protected play session, because open-ended quiet leases on clients nobody played held heavy work 12.1 h on the GPU host (north#335); any other native or gpu request waits on every holding one.
+pub fn fencing_owners(leases: &[QuietNative], idle_bound: f64, heavy: bool, requester: Option<&str>) -> Vec<String> {
+    leases.iter().filter(|lease| Some(lease.owner.as_str()) != requester && lease.holds_request(idle_bound, heavy)).map(|lease| lease.owner.clone()).collect()
 }
 
 pub fn derive(leases: &[LeaseFact], queue: &[QueueEntry], ticket: Option<&str>, now: f64) -> Derived {
@@ -135,6 +139,24 @@ pub fn pair_refusal(pair: Option<u32>, owner: Option<&str>, leases: &[PairLease]
     let holder = leases.iter().find(|lease| lease.pair == pair && Some(lease.owner.as_str()) != owner)?;
     let free_pair = (0..).find(|candidate| leases.iter().all(|lease| lease.pair != *candidate))?;
     Some(PairRefusal { pair, holder: holder.owner.clone(), free_pair })
+}
+
+#[derive(Deserialize)]
+struct QueuedPair {
+    host: String,
+    pair: u32,
+    owner: String,
+    pid: u32,
+}
+
+/// The pairs wisp's shared pair queue (`anim capture serve`, `lan lease take`) holds on `host`: one lease file per pair under `directory/leases`, live while its process is, so a native lease never takes a pair the queue already granted.
+pub fn queue_pair_leases(directory: &std::path::Path, host: &str) -> Vec<PairLease> {
+    let files = std::fs::read_dir(directory.join("leases")).into_iter().flatten().flatten();
+    files
+        .filter_map(|file| serde_json::from_str::<QueuedPair>(&std::fs::read_to_string(file.path()).ok()?).ok())
+        .filter(|lease| lease.host == host && std::path::Path::new(&format!("/proc/{}", lease.pid)).exists())
+        .map(|lease| PairLease { pair: lease.pair, owner: lease.owner })
+        .collect()
 }
 
 /// A queued alone request, and every native lease behind one, waits until no Warcraft client is live.
@@ -173,7 +195,8 @@ pub fn standing_json(leases: &[Value], queue: &[Value], now: f64) -> Vec<Value> 
 }
 
 fn standing(leases: &[LeaseFact], queue: &[QueueEntry], now: f64, idle_bound: f64) -> Vec<Value> {
-    let waiting: Vec<&QueueEntry> = queue.iter().filter(|entry| BATCH_CLASSES.contains(&entry.class.as_str())).collect();
+    let fenced_native = |entry: &&QueueEntry| entry.class == "native" && entry.reason.as_deref() == Some("DEFER_NATIVE_QUIET");
+    let waiting: Vec<&QueueEntry> = queue.iter().filter(|entry| BATCH_CLASSES.contains(&entry.class.as_str()) || fenced_native(entry)).collect();
     leases
         .iter()
         .filter(|lease| lease.is_quiet_native())
@@ -182,7 +205,8 @@ fn standing(leases: &[LeaseFact], queue: &[QueueEntry], now: f64, idle_bound: f6
             let holding = view.holds(idle_bound);
             let held: Vec<&&QueueEntry> = waiting.iter().filter(|entry| entry.class != "heavy" || view.protects_play()).collect();
             let longest = held.iter().map(|entry| ((now - entry.queued_at) / 1000.0).round()).fold(0.0, f64::max);
-            let deferring = holding.then(|| json!({ "jobs": held.len(), "longestWaitingSeconds": longest }));
+            let waiters: Vec<&str> = held.iter().filter_map(|entry| entry.owner.as_deref()).collect();
+            let deferring = holding.then(|| json!({ "jobs": held.len(), "longestWaitingSeconds": longest, "waiters": waiters }));
             json!({ "id": lease.id, "owner": view.owner, "heldSeconds": view.held_seconds, "idleSeconds": view.idle_seconds, "runSeconds": view.run_seconds, "holding": holding, "deferring": deferring })
         })
         .collect()
