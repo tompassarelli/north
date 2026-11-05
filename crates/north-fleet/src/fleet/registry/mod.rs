@@ -12,6 +12,7 @@ use super::detached;
 use super::gates;
 use super::jobs::{JobLeases, SpooledLeases};
 use super::lane_probe;
+use super::tickets;
 use super::landings::{self, push_log};
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
@@ -120,7 +121,7 @@ impl Fleet {
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
-        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).writing_usage(self.usage.clone()).reading_jobs(Arc::new(SpooledLeases::new(self.leases.clone(), Spool::at(&self.root)).reading_far(Arc::new(OverSsh::default())))).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
+        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).writing_usage(self.usage.clone()).reading_tickets(Arc::new(tickets::LandQueue::here())).reading_jobs(Arc::new(SpooledLeases::new(self.leases.clone(), Spool::at(&self.root)).reading_far(Arc::new(OverSsh::default())))).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
     }
 
     pub fn waits(&self) -> Waits {

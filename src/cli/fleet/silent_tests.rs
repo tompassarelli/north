@@ -56,7 +56,7 @@ async fn a_child_idle_past_the_silent_limit_is_told_as_idle_before_it_parks_and_
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_child_that_exits_on_done_while_its_lane_holds_unlanded_commits_names_the_ahead_count() {
-    let told = silent_run("Done: landed abc123.", Arc::new(Ahead(2)), seconds(600, 1), Duration::from_secs(2)).await;
+    let told = silent_run("Done: landed abc123.\nNext: none", Arc::new(Ahead(2)), seconds(600, 1), Duration::from_secs(2)).await;
     assert_eq!(told.len(), 1, "{told:?}");
     assert!(told[0].1.starts_with("[from worker · exited · turn 1] it reported Done: but its lane g1 holds 2 commits not on origin/main"), "{}", told[0].1);
 }
@@ -82,7 +82,7 @@ impl crate::fleet::stranded::Lanes for FlakyOnce {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_lane_that_could_not_be_read_at_idle_is_read_again_when_the_child_exits() {
     let policy = crate::fleet::idle::Policy { eta_minute: Duration::from_millis(11), ..seconds(600, 3) };
-    let told = silent_run("Done: landed abc123.", Arc::new(FlakyOnce(Default::default(), Ahead(2))), policy, Duration::from_secs(3)).await;
+    let told = silent_run("Done: landed abc123.\nNext: none", Arc::new(FlakyOnce(Default::default(), Ahead(2))), policy, Duration::from_secs(3)).await;
     assert_eq!(told.len(), 1, "{told:?}");
     assert!(told[0].1.starts_with("[from worker · exited · turn 1] it reported Done: but its lane g1 holds 2 commits"), "{}", told[0].1);
 }

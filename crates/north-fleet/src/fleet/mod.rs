@@ -35,6 +35,7 @@ pub mod store;
 mod ssh;
 pub mod stranded;
 pub mod tick;
+pub mod tickets;
 mod transcript;
 pub mod turns;
 pub mod usage_sink;

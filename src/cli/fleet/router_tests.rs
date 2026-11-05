@@ -328,7 +328,7 @@ fn claude_turn(root: &Path, context: u64, reply: &str) -> (HostConfig, PathBuf) 
     let assistant = json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null, "message": {"id": "m1", "content": [{"type": "text", "text": reply}], "usage": usage}});
     let result = json!({"type": "result", "subtype": "success", "session_id": "s", "is_error": false});
     let stdin = root.join("stdin.jsonl");
-    let script = format!("echo '{assistant}'; echo '{result}'; while read -r line; do echo \"$line\" >> '{}'; done", stdin.display());
+    let script = format!("printf '%s\\n' '{assistant}' '{result}'; while read -r line; do echo \"$line\" >> '{}'; done", stdin.display());
     let config = HostConfig { name: "worker".into(), generation: 1, state_dir: root.join("worker"), socket: None, idle_exit: None, provider: Some("claude".into()), runtime: vec!["sh".into(), "-c".into(), script] };
     (config, stdin)
 }
@@ -372,7 +372,7 @@ async fn an_idle_session_under_200k_parks_untouched() {
 async fn a_finished_worker_exits_at_its_idle_limit_uncompacted_and_marked_exited() {
     let root = tempfile::tempdir().unwrap();
     session_record(root.path(), Some("lead"));
-    let (code, stdin) = rest(root.path(), 400_000, "Done: landed abc123.", seconds(1, 60), Some(Duration::from_secs(2))).await;
+    let (code, stdin) = rest(root.path(), 400_000, "Done: landed abc123.\nNext: none", seconds(1, 60), Some(Duration::from_secs(2))).await;
     assert_eq!((code, stdin.as_str()), (143, ""));
     let record = crate::fleet::records::read_record(&root.path().join("worker")).unwrap();
     assert_eq!((record.stopped, record.ended), (true, Some(Ending::IdleExit)));
@@ -390,7 +390,7 @@ async fn a_finished_root_session_is_not_exited() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_host_told_to_end_leaves_a_finished_worker_stopped_and_an_unfinished_one_parked() {
-    for (reply, stopped) in [("Done: landed abc123.", true), ("Still waiting on the build.", false)] {
+    for (reply, stopped) in [("Done: landed abc123.\nNext: none", true), ("Still waiting on the build.", false)] {
         let root = tempfile::tempdir().unwrap();
         session_record(root.path(), Some("lead"));
         let (config, _) = claude_turn(root.path(), 100_000, reply);

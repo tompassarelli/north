@@ -131,3 +131,42 @@ fn a_held_lease_leaves_the_check_unsettled_and_a_free_one_tells_the_parent_once(
     assert!(tell(Ok(false), courier.clone()).run());
     assert_eq!(*courier.0.lock().unwrap(), ["lead"]);
 }
+
+struct Unlanded(Vec<&'static str>);
+
+impl Tickets for Unlanded {
+    fn unlanded(&self, _session: &str) -> NorthResult<Vec<String>> {
+        Ok(self.0.iter().map(|branch| (*branch).to_owned()).collect())
+    }
+}
+
+fn closed_after(reply: &str, unlanded: Vec<&'static str>) -> bool {
+    let root = tempfile::tempdir().unwrap();
+    let host = root.path().join("worker");
+    std::fs::create_dir_all(&host).unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
+    write_record(&host, &record).unwrap();
+    let held = Arc::new(crate::fleet::claims::Held::default());
+    let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), held, root.path().to_path_buf(), host.clone()).reading_tickets(Arc::new(Unlanded(unlanded)));
+    watch.views.insert("s".into(), View { reply: Some(reply.to_owned()), ..View::of("s") });
+    watch.follow(&TurnSignal::Ended { conversation: "s".into(), exit: TurnExit::Completed, totals: Default::default() });
+    watch.close();
+    let record = crate::fleet::records::read_record(&host).unwrap();
+    assert_eq!(record.ended.is_some(), record.stopped, "{reply}");
+    record.stopped
+}
+
+#[test]
+fn a_session_retires_only_with_every_ticket_landed_a_done_report_and_a_next_of_none_or_an_issue() {
+    for reply in ["Done: landed abc123.\nNext: none", "Done: pushed claude/land-lf-l3\nNext: north#600 owns the bench", "**Done:** ruled out\n- **Next:** None.", "Done: x\nNext: https://github.com/tompassarelli/north/issues/7"] {
+        assert!(closed_after(reply, Vec::new()), "{reply}");
+    }
+}
+
+#[test]
+fn a_session_stays_listed_for_a_bare_next_a_split_a_missing_next_or_an_unlanded_ticket() {
+    for reply in ["Done: landed abc123.\nNext: run the bench on gex45", "Split: landed the parser\nNext: none", "Not done: red\nStop: landing\nNext: none", "Done: landed abc123.", "Still waiting on the build.\nNext: none"] {
+        assert!(!closed_after(reply, Vec::new()), "{reply}");
+    }
+    assert!(!closed_after("Done: queued the second lane\nNext: none", vec!["claude/land-second"]));
+}

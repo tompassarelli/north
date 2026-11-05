@@ -18,11 +18,12 @@ use super::jobs::{HeldLeases, JobLeases};
 use super::landings::{self, push_log};
 use super::model::{Delivery, Ending, Entry, EntryKind, Machine, SessionRecord, Transcript};
 use super::prompt::is_deepened;
-use super::receipts::{Courier, Report, deliver_report, is_final};
+use super::receipts::{Courier, Report, deliver_report, retires};
 use super::records::{find_session, host_sessions, parents_live, write_record};
 use super::silent::{self, Quiet, Silence, State};
 use super::runtime::{Runtime, new_uuid, now_ms};
 use super::stranded::{Checkout, Lane, Lanes, Worktree};
+use super::tickets::{NoTickets, Tickets};
 use super::turns::{RunRecord, Turn, TurnExit, TurnSignal, Turns};
 use super::unaccepted::Unaccepted;
 use super::usage_sink::{NoUsage, UsageSink};
@@ -50,6 +51,7 @@ pub struct TurnWatch {
     detached: Vec<Detached>,
     quiet: HashMap<String, Quiet>,
     jobs: Arc<dyn JobLeases>,
+    tickets: Arc<dyn Tickets>,
     closing: bool,
     usage: Arc<dyn UsageSink>,
 }
@@ -185,6 +187,7 @@ impl TurnWatch {
             detached: Vec::new(),
             quiet: HashMap::new(),
             jobs: Arc::new(HeldLeases::default()),
+            tickets: Arc::new(NoTickets),
             closing: false,
             usage: Arc::new(NoUsage),
         }
@@ -192,6 +195,11 @@ impl TurnWatch {
 
     pub fn reading_jobs(mut self, jobs: Arc<dyn JobLeases>) -> Self {
         self.jobs = jobs;
+        self
+    }
+
+    pub fn reading_tickets(mut self, tickets: Arc<dyn Tickets>) -> Self {
+        self.tickets = tickets;
         self
     }
 
@@ -235,7 +243,7 @@ impl TurnWatch {
             }
             TurnSignal::Ended { conversation, .. } => {
                 let Some(reply) = self.views.get(conversation).and_then(|view| view.reply.clone()).filter(|reply| !reply.trim().is_empty()) else { return };
-                self.finished.insert(conversation.clone(), is_final(&reply));
+                self.finished.insert(conversation.clone(), retires(&reply));
             }
             _ => {}
         }
@@ -301,7 +309,7 @@ impl TurnWatch {
 
     fn retire(&mut self, ending: Ending) -> bool {
         let sessions = host_sessions(&self.root, &self.host_dir);
-        let retirable = !sessions.is_empty() && sessions.iter().all(|record| (record.parent.is_some() || record.task_ref.is_some()) && !parents_live(&self.root, &record.name));
+        let retirable = !sessions.is_empty() && sessions.iter().all(|record| (record.parent.is_some() || record.task_ref.is_some()) && !parents_live(&self.root, &record.name) && self.landed_all(&record.name));
         if !retirable {
             self.finished.clear();
             return false;
@@ -314,6 +322,16 @@ impl TurnWatch {
             }
         }
         true
+    }
+
+    fn landed_all(&self, session: &str) -> bool {
+        match self.tickets.unlanded(session) {
+            Ok(unlanded) => unlanded.is_empty(),
+            Err(error) => {
+                eprintln!("north session-host: the landing tickets of {session} were not read: {}", error.user_message());
+                false
+            }
+        }
     }
 
     fn record(&mut self, mut turn: Turn) {

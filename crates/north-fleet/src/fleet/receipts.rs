@@ -24,6 +24,38 @@ If you report again unchanged, the report goes to your parent with a warning.";
 const DECISION_WARNING: &str = "[warning: this report stops on a decision but names no open gate; the child was told to decide routine calls or open one, and reported again]";
 static DECISION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:\A\W*Blocked:\s*decision\b|(?m:^\W*Stop:\s*decision\b))").expect("decision stop pattern"));
 static GATE_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bgate\s*#?\s*(\d+)\b").expect("gate id pattern"));
+static NEXT_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^[\W_]*Next:[*_` \t]*(.*?)[ \t]*$").expect("next line pattern"));
+static ISSUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:(?:\b[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)?#\d+\b|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/\d+)").expect("issue pattern"));
+static NONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\A[*_`]*none\b").expect("none pattern"));
+
+/// What a report's last `Next:` line says owns the step after it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Next {
+    Missing,
+    Nothing,
+    Issue(String),
+    Unowned(String),
+}
+
+impl Next {
+    pub fn of(reply: &str) -> Self {
+        let Some(found) = NEXT_LINE.captures_iter(reply).last() else { return Self::Missing };
+        let text = found[1].trim();
+        if let Some(issue) = ISSUE.find(text) {
+            return Self::Issue(issue.as_str().to_owned());
+        }
+        if NONE.is_match(text) { Self::Nothing } else { Self::Unowned(text.to_owned()) }
+    }
+
+    fn owned(&self) -> bool {
+        matches!(self, Self::Nothing | Self::Issue(_))
+    }
+}
+
+/// Whether a report lets its session retire: it opens `Done:` and its `Next:` is `none` or names the issue that owns the next step.
+pub fn retires(reply: &str) -> bool {
+    opens(reply, "Done") && Next::of(reply).owned()
+}
 
 pub trait ReceiptBook: Send + Sync {
     fn claim_receipt(&self, session: &str, key: &str, claimed_ms: u64) -> NorthResult<bool>;
@@ -144,8 +176,12 @@ pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &Host
 }
 
 pub(super) fn is_final(reply: &str) -> bool {
+    FINAL_OPENINGS.iter().any(|word| opens(reply, word))
+}
+
+fn opens(reply: &str, word: &str) -> bool {
     let opening = reply.trim_start_matches(['*', '#', '`', ' ']);
-    FINAL_OPENINGS.iter().any(|word| opening.strip_prefix(word).is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric())))
+    opening.strip_prefix(word).is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric()))
 }
 
 pub(super) fn last_lines(lines: &[Entry]) -> String {
@@ -351,5 +387,28 @@ mod tests {
         assert!(!death(&running, true), "a second watchdog of the same host stays quiet");
         let posted = inbox.0.into_inner().unwrap();
         assert_eq!(posted, [("boss".to_owned(), "[from kid · host 41 exited mid-task] Last 2 transcript lines:\ntool: step 1 more\ntool: step 2 more".to_owned(), Delivery::Now)]);
+    }
+
+    #[test]
+    fn the_last_next_line_names_none_an_issue_or_a_step_nobody_owns() {
+        let cases = [
+            ("Done: x\nNext: none", Next::Nothing),
+            ("Done: x\n- **Next:** None.", Next::Nothing),
+            ("Done: x\nNext: north#600 owns the bench", Next::Issue("north#600".into())),
+            ("Done: x\nNext: tompassarelli/north#12", Next::Issue("tompassarelli/north#12".into())),
+            ("Done: x\nNext: #41", Next::Issue("#41".into())),
+            ("Done: x\nNext: see https://github.com/tompassarelli/north/issues/7", Next::Issue("github.com/tompassarelli/north/issues/7".into())),
+            ("Done: x\nNext: run the bench", Next::Unowned("run the bench".into())),
+            ("Done: x\nNext: north#1\nNext: rerun it", Next::Unowned("rerun it".into())),
+            ("Done: x\nNext:", Next::Unowned(String::new())),
+            ("Done: x", Next::Missing),
+            ("Done: x. Next: none", Next::Missing),
+        ];
+        for (reply, next) in cases {
+            assert_eq!(Next::of(reply), next, "{reply}");
+        }
+        assert!(retires("**Done:** x\nNext: none"));
+        assert!(!retires("Donegal\nNext: none"));
+        assert!(!retires("Split: x\nNext: none"));
     }
 }
