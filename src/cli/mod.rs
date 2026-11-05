@@ -26,6 +26,8 @@ mod laptop_runner_tests;
 #[cfg(test)]
 mod fleet_peer_row_tests;
 #[cfg(test)]
+mod south_land_tests;
+#[cfg(test)]
 mod south_policy_tests;
 #[cfg(test)]
 mod south_test_repo;
