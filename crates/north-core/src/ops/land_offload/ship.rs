@@ -6,10 +6,24 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(super) const TRANSPORT_FAILED: u8 = 255;
 const WRONG_TREE: u8 = 98;
+const SLOTS_BUSY: u8 = 96;
+const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 const LOCK_WAIT_SECONDS: u32 = 600;
 const SLOTS: u32 = 6;
 pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
+
+const FREE: &str = r#"set -eu
+root=@ROOT@ name=$1 free=0 i=0
+mkdir -p "$root"
+while [ "$i" -lt @SLOTS@ ]; do
+  s=$name
+  [ "$i" -eq 0 ] || s=$name-$i
+  if (exec 9>"$root/$s.lock"; flock -n 9); then free=$((free + 1)); fi
+  i=$((i + 1))
+done
+echo "$free"
+"#;
 
 const REMOTE: &str = r#"set -eu
 repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 landing=${8:-} landref=${9:-} owner=${10:-} runtime=${11:-}
@@ -26,7 +40,7 @@ while :; do
     exec 9>&-
     i=$((i + 1))
   done
-  [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: all @SLOTS@ $name slots stayed busy for @LOCK_WAIT@ s" >&2; exit 96; }
+  [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: all @SLOTS@ $name slots stayed busy for @LOCK_WAIT@ s" >&2; exit @SLOTS_BUSY@; }
   [ $((waited % 60)) -ne 0 ] || echo "offload: all @SLOTS@ $name slots busy for ${waited}s, waiting up to @LOCK_WAIT@ s; held by: $(cat "$root/$name".holder "$root/$name"-*.holder 2>/dev/null | tr '\n' ';')" >&2
   sleep 2
   waited=$((waited + 2))
@@ -218,6 +232,7 @@ pub(super) fn run(land: &Land) -> u8 {
         .replace("@ROOT@", OFFLOAD_ROOT)
         .replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string())
         .replace("@SLOTS@", &SLOTS.to_string())
+        .replace("@SLOTS_BUSY@", &SLOTS_BUSY.to_string())
         .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
         .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string());
     let own = crate::ops::runtime::own_runtime();
@@ -241,6 +256,18 @@ pub(super) fn run(land: &Land) -> u8 {
         Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(TRANSPORT_FAILED),
         Err(error) => fail(&format!("ssh: {error}")),
     }
+}
+
+pub(super) fn free_slots(ssh: &str, directory: &Path) -> Result<u32, String> {
+    let (_, name) = checkout(directory)?;
+    let script = FREE.replace("@ROOT@", OFFLOAD_ROOT).replace("@SLOTS@", &SLOTS.to_string());
+    let remote = format!("sh -c {} offload-free {}", quote(&script), quote(&name));
+    let output = crate::platform::process::run_within("ssh", &["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &remote], FREE_LIMIT).ok_or_else(|| format!("{ssh} did not count its slots within {} s", FREE_LIMIT.as_secs()))?;
+    if !output.status.success() {
+        return Err(format!("{ssh} could not count its slots: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.trim().parse().map_err(|_| format!("{ssh} counted its slots as {:?}", text.trim()))
 }
 
 pub(super) fn reap(ssh: &str, owner: &str) -> u8 {

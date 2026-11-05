@@ -67,3 +67,43 @@ fn fs_write(root: &Path, path: &str) {
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(file, "x\n").unwrap();
 }
+
+const SLOTTED: Placement = Placement { workflow: true, runner: true, reserve: false, free_slots: Some(2) };
+
+#[test]
+fn a_portable_check_runs_in_a_slot_while_one_is_free_and_goes_to_actions_only_when_every_slot_is_busy() {
+    assert!(!SLOTTED.on_actions(true));
+    assert!(Placement { free_slots: Some(0), ..SLOTTED }.on_actions(true));
+    assert!(!Placement { free_slots: Some(0), ..SLOTTED }.on_actions(false), "a machine-bound check never goes to Actions");
+}
+
+#[test]
+fn without_a_runner_every_portable_check_goes_to_actions_and_without_a_workflow_none_does() {
+    let actions_only = Placement { runner: false, ..SLOTTED };
+    assert!(actions_only.on_actions(true));
+    assert!(!actions_only.probes_slots());
+    assert!(!Placement { workflow: false, free_slots: Some(0), ..SLOTTED }.on_actions(true));
+    assert!(!Placement { workflow: false, ..SLOTTED }.probes_slots());
+}
+
+#[test]
+fn game_reserve_keeps_every_check_on_its_offload_host() {
+    let reserve = Placement { reserve: true, free_slots: Some(0), ..SLOTTED };
+    assert!(!reserve.on_actions(true));
+    assert!(!reserve.probes_slots());
+    assert!(!reserve.overflows(OFFLOAD_SLOTS_BUSY, true, true));
+}
+
+#[test]
+fn only_an_offloaded_portable_check_whose_slot_wait_ran_out_overflows() {
+    assert!(SLOTTED.overflows(OFFLOAD_SLOTS_BUSY, true, true));
+    assert!(!SLOTTED.overflows(OFFLOAD_SLOTS_BUSY, false, true), "a local check exiting 96 failed");
+    assert!(!SLOTTED.overflows(OFFLOAD_SLOTS_BUSY, true, false));
+    assert!(!SLOTTED.overflows(1, true, true));
+    assert!(!Placement { workflow: false, ..SLOTTED }.overflows(OFFLOAD_SLOTS_BUSY, true, true));
+}
+
+#[test]
+fn a_runner_whose_host_was_never_probed_keeps_its_checks_off_actions() {
+    assert!(!Placement { free_slots: None, ..SLOTTED }.on_actions(true));
+}

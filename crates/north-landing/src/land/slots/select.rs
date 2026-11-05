@@ -7,6 +7,7 @@ use north_base::build_inputs::rust_build_input;
 const SEPARATOR: &str = " :: ";
 const RUST_INPUT: &str = "@rust-input";
 const REF_SHORT: usize = 12;
+pub const OFFLOAD_SLOTS_BUSY: i32 = 96;
 
 #[derive(Clone, Debug, Default)]
 pub struct Config {
@@ -105,6 +106,28 @@ impl Config {
             commands.push(command.to_owned());
         }
         Ok(commands)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Placement {
+    pub workflow: bool,
+    pub runner: bool,
+    pub reserve: bool,
+    pub free_slots: Option<u32>,
+}
+
+impl Placement {
+    pub fn probes_slots(&self) -> bool {
+        self.workflow && self.runner && !self.reserve
+    }
+
+    pub fn on_actions(&self, portable: bool) -> bool {
+        self.workflow && portable && !self.reserve && (!self.runner || self.free_slots == Some(0))
+    }
+
+    pub fn overflows(&self, status: i32, offloaded: bool, portable: bool) -> bool {
+        status == OFFLOAD_SLOTS_BUSY && offloaded && self.workflow && portable && !self.reserve
     }
 }
 

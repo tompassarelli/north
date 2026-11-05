@@ -528,7 +528,7 @@ Rust modules live in crates/north-landing/src/land/ (new, beside landing/).
 | Pre-push hook on the candidate (~1970-2008) | checks.rs (hook run in the slot) | S18 (north has land.check, so Wave L0 needs no hook) |
 | Land checks, local: selection, runner, deadline, frozen, orphans, logs, lease, publish ref (~1097-1300) | slots/runner.rs, slots/select.rs | S6a |
 | Land checks on Actions (`north land-actions`) and publication scan | dropped from the gate path by S6b; land_actions.rs kept for confirm runs and repositories not on slots | S6b |
-| Land checks offloaded to gex45 (`north capacity offload`) | slots/offload.rs | S6b |
+| Land checks offloaded to gex45 (`north capacity offload`) | slots/runner.rs, placement rules in slots/select.rs | S6b |
 | Candidate check mode (`safe-push --check-candidate --base SHA`) | checks.rs calls it; deleted in S19b when every stage is in-process | S2a, S19b |
 | Language, build-cache and bin-reference gates (~1062-1096) | scans/language.rs on safe_push_guards::language_gate | S12 |
 | gitleaks, deny-list, commit email, native-ref (~441-535, 2312-2330) | scans/secrets.rs on safe_push_guards, denylist.rs | S13 |
@@ -738,6 +738,20 @@ then S2b and S2c in parallel; then S3 and S4.
   candidate; (2) on north, a second candidate's `cargo build` in the same slot takes under 30% of the
   first's wall time; (3) main's Cargo and Harness runs still start on every landed sha (`gh run list
   --commit <sha>`).
+  Built 2026-11-05 (north#360), overflow half: with land.runner and land.workflow both set, north land
+  checks asks `north capacity offload free --host H` once per run how many of the build host's slots
+  for this checkout are unlocked (flock -n on each, holding none). With one free every check runs on
+  the build host and Actions gets no dispatch; with none free the portable checks overflow to Actions
+  and machine-bound ones stay on the host; a slot wait that runs out mid-run (offload exit 96) sends
+  that portable check to Actions instead of failing the lane. The Actions verdict is recorded under
+  host class `actions`, so a check that ran in a slot no longer records as `actions`. A runner whose
+  `choose` keeps the checks on this host probes no slots and sends nothing to Actions. North itself
+  sets no land.workflow, so its checks never overflow; the rule serves repositories that set both.
+  Pruning each slot's target stays a separate box. The note's `--slots` flag and slots/offload.rs
+  no longer fit the code: north land checks reads land.runner directly, the build host was chosen by
+  6beeefd52 (laptop as check host), and the placement rules are a small type in slots/select.rs.
+  B28's self-hosted Actions runner on gex45 is not needed for this: gex45 takes checks over ssh
+  offload, and Actions serves only overflow. tests/it/land_warm_overflow.rs.
 - **S7 Removed.** The scans bridge is not needed: S6a ports the land checks in place, and each Wave
   L2 box ports its scan in place, so `--check-candidate` keeps working throughout.
 - **S8 Lander App token.** Follows B16. Done when: a landing by the lander shows the App as its push

@@ -7,7 +7,7 @@ mod destinations;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose [--any] (prints the host to run on, nothing when this host has the most room) | cost | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
+const USAGE: &str = "usage: north capacity offload choose [--any] (prints the host to run on, nothing when this host has the most room) | cost | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -15,6 +15,7 @@ pub fn run(arguments: &[String]) -> u8 {
         ["choose"] => choose(false),
         ["choose", "--any"] => choose(true),
         ["cost"] => cost(),
+        ["free", "--host", host] => free(host),
         ["reap", "--owner", owner] if !owner.is_empty() => reap(owner),
         ["run", "--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => {
             let Ok(timeout_seconds) = seconds.parse() else { return usage() };
@@ -157,6 +158,23 @@ fn choose(any: bool) -> u8 {
         }
         Err(refused) => {
             eprintln!("north capacity offload: no host has room: {}", if refused.is_empty() { "none has an ssh destination".to_owned() } else { refused.join("; ") });
+            1
+        }
+    }
+}
+
+fn free(host: &str) -> u8 {
+    let Some(machine) = machines().into_iter().find(|machine| machine.name == host) else {
+        eprintln!("north capacity offload: no [hosts.{host}] with an ssh destination");
+        return 1;
+    };
+    match std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|directory| ship::free_slots(&machine.ssh, &directory)) {
+        Ok(free) => {
+            println!("{free}");
+            0
+        }
+        Err(why) => {
+            eprintln!("north capacity offload: {why}");
             1
         }
     }

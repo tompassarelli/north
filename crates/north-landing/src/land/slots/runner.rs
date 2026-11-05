@@ -12,7 +12,7 @@ use tokio::sync::watch;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::JoinSet;
 
-use super::select::Config;
+use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement};
 use crate::land::after::follow::program;
 use crate::land::checks::{BROKEN_BASE, ROUND};
 use crate::landing::check_timings::{self, Base, BaseResult, Deadline, Timing, Timings};
@@ -27,6 +27,7 @@ const KILLED: i32 = 137;
 const RED_MAIN: i32 = 3;
 const CANCELLED: i32 = 130;
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
+const ACTIONS_CLASS: &str = "actions";
 
 #[derive(Clone, Default)]
 struct Arguments {
@@ -117,6 +118,8 @@ struct Shared {
     cancel: watch::Receiver<bool>,
     workflow: String,
     trees: Trees,
+    free_slots: Option<u32>,
+    actions_down: bool,
 }
 
 #[derive(Clone, Default)]
@@ -331,12 +334,39 @@ impl Shared {
         (!self.arguments.runner_host.is_empty() && self.config.local_reason(command).is_none()).then(|| self.arguments.runner_host.clone())
     }
 
+    fn land_runner(&self) -> String {
+        self.environment.runner.clone().unwrap_or_else(|| self.config.runner.clone().unwrap_or_default())
+    }
+
+    fn placement(&self) -> Placement {
+        Placement { workflow: !self.workflow.is_empty() && !self.actions_down, runner: !self.land_runner().is_empty(), reserve: !self.environment.offload_host.is_empty(), free_slots: self.free_slots }
+    }
+
+    fn portable(&self, command: &str) -> bool {
+        self.config.off_actions_reason(command).is_none()
+    }
+
+    fn overflows(&self, command: &str, status: i32) -> bool {
+        self.placement().overflows(status, self.offload_host_for(command).is_some(), self.portable(command))
+    }
+
+    async fn count_free_slots(&self) -> Option<u32> {
+        let host = &self.arguments.runner_host;
+        if !self.placement().probes_slots() || host.is_empty() {
+            return None;
+        }
+        let Some(output) = self.north(&["capacity", "offload", "free", "--host", host]).await else { return Some(0) };
+        let free = if output.status.success() { String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0) } else { 0 };
+        say(&format!("safe-push: {host} has {free} free land-check slot(s)"));
+        Some(free)
+    }
+
     fn cache_class(&self, command: &str) -> String {
         if !self.environment.offload_host.is_empty() {
             return self.environment.offload_host.clone();
         }
-        if !self.workflow.is_empty() && self.config.off_actions_reason(command).is_none() {
-            return "actions".to_owned();
+        if self.placement().on_actions(self.portable(command)) {
+            return ACTIONS_CLASS.to_owned();
         }
         self.offload_host_for(command).unwrap_or_else(|| "local".to_owned())
     }
@@ -359,10 +389,14 @@ impl Shared {
     }
 
     async fn cache_record(&self, status: i32, commands: &[String]) {
+        self.cache_record_as(status, commands, None).await;
+    }
+
+    async fn cache_record_as(&self, status: i32, commands: &[String], class: Option<&str>) {
         let root = self.root.to_string_lossy().into_owned();
         let status = status.to_string();
         for command in commands {
-            let class = self.cache_class(command);
+            let class = class.map_or_else(|| self.cache_class(command), str::to_owned);
             let _ = self.north(&["land-cache", "record", "--repo", &root, "--head", &self.arguments.head, "--command", command, "--host-class", &class, "--status", &status]).await;
         }
     }
@@ -445,6 +479,11 @@ impl Shared {
             Ok(ran) => ran,
             Err(status) => return status,
         };
+        if self.overflows(&command, ran.status) {
+            say(&format!("safe-push: every build-host slot stayed busy, so land check {command} overflows to GitHub Actions"));
+            let _ = fs::remove_file(&ran.log);
+            return ran.status;
+        }
         let _ = timings.record(&self.trees.head, &command, &class, ran.timing());
         if ran.exceeded {
             return self.judge_hang(&command, timeout, timings.base(&self.trees.base, &command, &class, timeout), &ran.log).await;
@@ -552,6 +591,17 @@ fn first_failure(failed: &mut i32, status: i32) {
     }
 }
 
+struct Listed {
+    failed: i32,
+    overflowed: Vec<String>,
+}
+
+impl Listed {
+    fn status(&self) -> i32 {
+        if self.failed == 0 && !self.overflowed.is_empty() { OFFLOAD_SLOTS_BUSY } else { self.failed }
+    }
+}
+
 impl Shared {
     async fn run_local(self: &Arc<Self>, commands: &[String]) -> i32 {
         if self.environment.capacity.is_empty() || self.arguments.leased {
@@ -581,7 +631,7 @@ impl Shared {
         self.wait(&mut child).await
     }
 
-    async fn run_list(self: &Arc<Self>, commands: &[String]) -> i32 {
+    async fn run_list(self: &Arc<Self>, commands: &[String]) -> Listed {
         let mut offloaded = JoinSet::new();
         let mut local = Vec::new();
         for (index, command) in commands.iter().enumerate() {
@@ -603,10 +653,14 @@ impl Shared {
             results.push(joined.unwrap_or((usize::MAX, 1)));
         }
         results.sort_unstable();
-        for (_, status) in results {
-            first_failure(&mut failed, status);
+        let mut overflowed = Vec::new();
+        for (index, status) in results {
+            match commands.get(index) {
+                Some(command) if self.overflows(command, status) => overflowed.push(command.clone()),
+                _ => first_failure(&mut failed, status),
+            }
         }
-        failed
+        Listed { failed, overflowed }
     }
 
     async fn scan(&self, skipped: &str) -> bool {
@@ -650,51 +704,86 @@ impl Shared {
         }
     }
 
+    async fn start_actions(&self, commands: &[String]) -> Result<Option<(Child, PathBuf)>, i32> {
+        if commands.is_empty() {
+            return Ok(None);
+        }
+        if !self.scan("skipped: the lane cannot be published to GitHub Actions until the publication scan passes").await {
+            return Err(1);
+        }
+        say(&format!("safe-push: running {} land check(s) on GitHub Actions ({})", commands.len(), self.workflow));
+        let Ok((_, log)) = tempfile::Builder::new().tempfile().and_then(|file| file.keep().map_err(|error| error.error)) else { return Err(1) };
+        let arguments = &self.arguments;
+        let timeout = self.environment.timeout.unwrap_or(check_timings::CEILING);
+        let spawned = Command::new(program())
+            .args(["land-actions", "--workflow", &self.workflow, "--base", &arguments.base, "--head", &arguments.head, "--timeout", &timeout.to_string(), "--"])
+            .args(commands)
+            .current_dir(&self.root)
+            .env("SAFE_PUSH_LAND_FAILED_LOG", &log)
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .spawn();
+        match spawned {
+            Ok(child) => Ok(Some((child, log))),
+            Err(error) => {
+                warn(&format!("safe-push: could not start north land-actions: {error}; NOT pushed."));
+                let _ = fs::remove_file(&log);
+                Err(1)
+            }
+        }
+    }
+
+    async fn finish_actions(&self, started: (Child, PathBuf), commands: &[String]) -> i32 {
+        let (mut child, log) = started;
+        let status = self.wait(&mut child).await;
+        let mut failed = 0;
+        if status == INFRASTRUCTURE {
+            say(&format!("safe-push: GitHub Actions is unavailable (infrastructure, not a check failure); its {} land check(s) run on a build host", commands.len()));
+            let fallback = Arc::new(self.without_actions(resolve_runner_host("build-host").await));
+            failed = fallback.run_list(commands).await.status();
+        } else if status != 0 {
+            warn(&format!("safe-push: land checks on GitHub Actions exited {status}; NOT pushed."));
+            self.outcome.record(&["event", "land checks on GitHub Actions", "failed", &format!("exit {status}")]);
+            failed = status;
+            if self.arguments.red_fix.is_empty() {
+                self.red_main_check(&log).await;
+            }
+        }
+        self.cache_record_as(status, commands, Some(ACTIONS_CLASS)).await;
+        let _ = fs::remove_file(&log);
+        failed
+    }
+
+    async fn on_actions(&self, commands: &[String]) -> i32 {
+        match self.start_actions(commands).await {
+            Ok(Some(started)) => self.finish_actions(started, commands).await,
+            Ok(None) => 0,
+            Err(status) => status,
+        }
+    }
+
     async fn execute(self: Arc<Self>, commands: Vec<String>) -> i32 {
         let arguments = &self.arguments;
+        let placement = self.placement();
         let mut here = Vec::new();
         let mut on_actions = Vec::new();
-        let land_runner = self.environment.runner.clone().unwrap_or_else(|| self.config.runner.clone().unwrap_or_default());
         for command in commands {
             if self.cache_reused(&command).await {
                 continue;
             }
-            let portable = self.config.off_actions_reason(&command).is_none();
-            if !self.workflow.is_empty() && land_runner.is_empty() && self.environment.offload_host.is_empty() && portable {
+            if placement.on_actions(self.portable(&command)) {
                 on_actions.push(command);
             } else {
                 here.push(command);
             }
         }
-        let timeout = self.environment.timeout.unwrap_or(check_timings::CEILING);
-        let mut actions = None;
-        let mut actions_log = None;
-        if !on_actions.is_empty() {
-            if !self.scan("skipped: the lane cannot be published to GitHub Actions until the publication scan passes").await {
-                return 1;
-            }
-            say(&format!("safe-push: running {} land check(s) on GitHub Actions ({})", on_actions.len(), self.workflow));
-            let Ok(log) = tempfile::Builder::new().tempfile().and_then(|file| file.keep().map_err(|error| error.error)) else { return 1 };
-            let log = log.1;
-            let spawned = Command::new(program())
-                .args(["land-actions", "--workflow", &self.workflow, "--base", &arguments.base, "--head", &arguments.head, "--timeout", &timeout.to_string(), "--"])
-                .args(&on_actions)
-                .current_dir(&self.root)
-                .env("SAFE_PUSH_LAND_FAILED_LOG", &log)
-                .stdin(Stdio::null())
-                .kill_on_drop(true)
-                .spawn();
-            match spawned {
-                Ok(child) => {
-                    actions = Some(child);
-                    actions_log = Some(log);
-                }
-                Err(error) => {
-                    warn(&format!("safe-push: could not start north land-actions: {error}; NOT pushed."));
-                    return 1;
-                }
-            }
+        if placement.runner && !on_actions.is_empty() {
+            say(&format!("safe-push: no build-host slot is free, so {} land check(s) overflow to GitHub Actions", on_actions.len()));
         }
+        let actions = match self.start_actions(&on_actions).await {
+            Ok(started) => started,
+            Err(status) => return status,
+        };
         let mut published = None;
         if !here.is_empty() && !arguments.dry && self.environment.offload_host.is_empty() && let Some(reference) = self.config.publish_ref(&arguments.head) {
             if !self.scan("skipped: the lane cannot be published for them until the publication scan passes").await {
@@ -707,33 +796,20 @@ impl Shared {
             say(&format!("safe-push: published {} to origin {reference} for the land checks", &arguments.head[..arguments.head.len().min(12)]));
             published = Some(reference);
         }
-        let mut failed = if here.is_empty() {
-            0
+        let listed = if here.is_empty() {
+            Listed { failed: 0, overflowed: Vec::new() }
         } else {
             let shared = Arc::new(self.with_published(published.clone().unwrap_or_default()));
             shared.run_list(&here).await
         };
+        let mut failed = listed.failed;
         if let Some(reference) = &published && !self.git_push(&format!(":refs/heads/{reference}")).await {
             warn(&format!("safe-push: could not delete origin {reference}"));
         }
-        if let (Some(mut child), Some(log)) = (actions, actions_log) {
-            let status = self.wait(&mut child).await;
-            if status == INFRASTRUCTURE {
-                say(&format!("safe-push: GitHub Actions is unavailable (infrastructure, not a check failure); its {} land check(s) run on a build host", on_actions.len()));
-                let fallback = Arc::new(self.with_runner_host(resolve_runner_host("build-host").await));
-                let status = fallback.run_list(&on_actions).await;
-                first_failure(&mut failed, status);
-            } else if status != 0 {
-                warn(&format!("safe-push: land checks on GitHub Actions exited {status}; NOT pushed."));
-                self.outcome.record(&["event", "land checks on GitHub Actions", "failed", &format!("exit {status}")]);
-                first_failure(&mut failed, status);
-                if arguments.red_fix.is_empty() {
-                    self.red_main_check(&log).await;
-                }
-            }
-            self.cache_record(status, &on_actions).await;
-            let _ = fs::remove_file(&log);
+        if let Some(started) = actions {
+            first_failure(&mut failed, self.finish_actions(started, &on_actions).await);
         }
+        first_failure(&mut failed, self.on_actions(&listed.overflowed).await);
         failed
     }
 }
@@ -745,9 +821,10 @@ impl Shared {
         shared
     }
 
-    fn with_runner_host(&self, host: String) -> Self {
+    fn without_actions(&self, host: String) -> Self {
         let mut shared = self.clone();
         shared.arguments.runner_host = host;
+        shared.actions_down = true;
         shared
     }
 }
@@ -825,7 +902,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         arguments.runner_host = runner_host(&environment, &config).await;
     }
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
-    let shared = Arc::new(Shared {
+    let mut shared = Shared {
         trees,
         workflow: config.workflow.clone(),
         outcome: Outcome(arguments.outcome.clone()),
@@ -834,9 +911,15 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         environment,
         config,
         cancel,
-    });
+        free_slots: None,
+        actions_down: false,
+    };
+    if !shared.arguments.leased && !commands.is_empty() {
+        shared.free_slots = shared.count_free_slots().await;
+    }
+    let shared = Arc::new(shared);
     if shared.arguments.leased {
-        return shared.run_list(&commands).await;
+        return shared.run_list(&commands).await.status();
     }
     shared.execute(commands).await
 }
@@ -886,12 +969,12 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     arguments.runner_host = runner_host(&environment, &config).await;
     let (_cancel_sender, cancel) = watch::channel(false);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
-    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees });
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, free_slots: None, actions_down: false });
     let mut pending = Vec::new();
     for command in commands {
         if !shared.cache_reused(&command).await {
             pending.push(command);
         }
     }
-    if pending.is_empty() { 0 } else { shared.run_list(&pending).await }
+    if pending.is_empty() { 0 } else { shared.run_list(&pending).await.status() }
 }
