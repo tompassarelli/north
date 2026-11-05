@@ -23,9 +23,9 @@ pub enum Selection {
 impl Selection {
     pub fn arguments(&self) -> String {
         match self {
-            Self::Every => format!("-E {UNIT}|{IT}"),
+            Self::Every => format!("--test it -E {UNIT}|{IT}"),
             Self::Modules(modules) if modules.is_empty() => format!("-E {UNIT}"),
-            Self::Modules(modules) => format!("-E {UNIT}|({IT}&test(/{}/))", modules.iter().map(|module| format!("{module}::")).collect::<Vec<_>>().join("|")),
+            Self::Modules(modules) => format!("--test it -E {UNIT}|({IT}&test(/{}/))", modules.iter().map(|module| format!("{module}::")).collect::<Vec<_>>().join("|")),
         }
     }
 }

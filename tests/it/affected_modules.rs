@@ -42,7 +42,7 @@ fn a_north_runtime_change_alone_selects_only_the_modules_of_north_runtime_and_it
     for module in table.modules().filter(|module| !runtime.contains(*module)) {
         assert!(!table.crates(module).unwrap().contains("north-runtime"), "{module} exercises north-runtime but was not selected");
     }
-    assert_eq!(selection(&["crates/north-runtime/src/runtime/bounded.rs"]).arguments(), "-E kind(lib)|kind(bin)|(binary_id(north::it)&test(/agents_sync_runtime_skew::|capacity_runtime_follow::|carry_matrix::|land_offload::|runtime_update::/))");
+    assert_eq!(selection(&["crates/north-runtime/src/runtime/bounded.rs"]).arguments(), "--test it -E kind(lib)|kind(bin)|(binary_id(north::it)&test(/agents_sync_runtime_skew::|capacity_runtime_follow::|carry_matrix::|land_offload::|runtime_update::/))");
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn a_root_base_build_input_or_harness_change_selects_every_module() {
     for file in ["src/main.rs", "tests/it/fleet_send.rs", "crates/north-base/src/build_inputs.rs", "Cargo.lock", "harness/defaults.toml", "bin/safe-push", "harness/skills/machine-capacity/scripts/capacity-run-queue-overload.recorded.json"] {
         assert_eq!(selection(&["crates/north-runtime/src/runtime/bounded.rs", file]), Selection::Every, "{file}");
     }
-    assert_eq!(Selection::Every.arguments(), "-E kind(lib)|kind(bin)|binary_id(north::it)");
+    assert_eq!(Selection::Every.arguments(), "--test it -E kind(lib)|kind(bin)|binary_id(north::it)");
 }
 
 #[test]
