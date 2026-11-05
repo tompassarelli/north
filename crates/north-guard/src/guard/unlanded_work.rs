@@ -18,13 +18,8 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     }
     let home = std::env::var("HOME").unwrap_or_default();
     let cwd = input.data["cwd"].as_str().map(Path::new);
-    let item = session_item(input);
-    let scope = Scope {
-        home: &home,
-        container: cwd.and_then(|cwd| container(cwd, &home)),
-        item: item.as_ref().map(|(repo, number)| (repo.as_str(), *number)),
-    };
-    let text = stale_lanes_notice(&report_path(&home), &scope).unwrap_or_default();
+    let scope = Scope { home: &home, container: cwd.and_then(|cwd| container(cwd, &home)) };
+    let text = stale_lanes_notice(&report_path(&home), &scope, || session_item(input)).unwrap_or_default();
     match text.trim_end() {
         "" => Verdict::Allow,
         notice => Verdict::Advise(notice.to_owned()),
@@ -34,7 +29,6 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 pub(super) struct Scope<'a> {
     pub home: &'a str,
     pub container: Option<&'a str>,
-    pub item: Option<(&'a str, u64)>,
 }
 
 pub(super) fn container<'a>(cwd: &'a Path, home: &str) -> Option<&'a str> {
@@ -66,7 +60,7 @@ fn references(refs: &str, container: &str, (repo, number): (&str, u64)) -> bool 
 
 const SHOWN_LANES: usize = 2;
 
-pub(super) fn stale_lanes_notice(report: &Path, scope: &Scope) -> Option<String> {
+pub(super) fn stale_lanes_notice(report: &Path, scope: &Scope, item: impl FnOnce() -> Option<(String, u64)>) -> Option<String> {
     let container = scope.container?;
     let contents = std::fs::read(report).ok()?;
     let contents = String::from_utf8_lossy(&contents);
@@ -89,7 +83,8 @@ pub(super) fn stale_lanes_notice(report: &Path, scope: &Scope) -> Option<String>
         "{} unlanded {container} lanes older than 24 h are listed in {shown} (north lane-gc --unlanded). Before starting an issue, continue an existing lane that references it instead of starting over.\n",
         lanes.len()
     );
-    if let Some(item @ (repo, number)) = scope.item {
+    if let Some((repo, number)) = item() {
+        let item = (repo.as_str(), number);
         let named: Vec<&str> = lanes
             .iter()
             .filter(|fields| references(fields.get(7).copied().unwrap_or(""), container, item))

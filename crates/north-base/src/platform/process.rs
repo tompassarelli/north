@@ -61,16 +61,20 @@ pub fn run_command_within(command: Command, input: Option<&[u8]>, limit: Duratio
 }
 
 pub fn try_run_command_within(command: Command, input: Option<&[u8]>, limit: Duration) -> std::io::Result<Option<Output>> {
-    run_prepared(command, input, limit, false)
+    run_prepared(command, input, limit, false, false).map(Result::ok)
+}
+
+pub fn try_run_command_traced_within(command: Command, input: Option<&[u8]>, limit: Duration) -> std::io::Result<Result<Output, String>> {
+    run_prepared(command, input, limit, false, true)
 }
 
 pub fn run_group_within(mut command: Command, limit: Duration) -> Option<Output> {
     use std::os::unix::process::CommandExt;
     command.process_group(0);
-    run_prepared(command, None, limit, true).ok().flatten()
+    run_prepared(command, None, limit, true, false).ok().and_then(Result::ok)
 }
 
-fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool) -> std::io::Result<Option<Output>> {
+fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool, traced: bool) -> std::io::Result<Result<Output, String>> {
     let stdin = match input {
         Some(input) => {
             let mut file = tempfile::tempfile()?;
@@ -92,9 +96,10 @@ fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, gro
             break status;
         }
         if started.elapsed() >= limit {
+            let stalled = if traced { tree(child.id()) } else { String::new() };
             kill(&mut child, group);
             let _ = child.wait();
-            return Ok(None);
+            return Ok(Err(stalled));
         }
         std::thread::sleep(Duration::from_millis(1));
     };
@@ -106,7 +111,27 @@ fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, gro
     errors.rewind()?;
     let mut stderr = Vec::new();
     errors.read_to_end(&mut stderr)?;
-    Ok(Some(Output { status, stdout, stderr }))
+    Ok(Ok(Output { status, stdout, stderr }))
+}
+
+fn tree(pid: u32) -> String {
+    let mut lines = Vec::new();
+    describe(pid, 0, &mut lines);
+    lines.join("; ")
+}
+
+fn describe(pid: u32, depth: usize, lines: &mut Vec<String>) {
+    let proc = Path::new("/proc").join(pid.to_string());
+    let stat = std::fs::read_to_string(proc.join("stat")).unwrap_or_default();
+    let state = stat.rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().next()).unwrap_or("?");
+    let wchan = std::fs::read_to_string(proc.join("wchan")).ok().filter(|wchan| !wchan.is_empty() && wchan != "0").unwrap_or_else(|| "-".to_owned());
+    let cmdline = std::fs::read(proc.join("cmdline")).unwrap_or_default();
+    let cmdline: String = String::from_utf8_lossy(&cmdline).replace('\0', " ").trim_end().chars().take(160).collect();
+    lines.push(format!("{}pid {pid} state {state} wchan {wchan}: {cmdline}", "> ".repeat(depth)));
+    let children = std::fs::read_dir(proc.join("task")).into_iter().flatten().flatten().filter_map(|task| std::fs::read_to_string(task.path().join("children")).ok());
+    for child in children.collect::<Vec<_>>().join(" ").split_whitespace().filter_map(|child| child.parse().ok()) {
+        describe(child, depth + 1, lines);
+    }
 }
 
 fn kill(child: &mut std::process::Child, group: bool) {
@@ -150,3 +175,7 @@ pub fn run_bounded<S: AsRef<OsStr>>(program: &str, dir: Option<&Path>, args: &[S
     stdout.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
     Ok(Bounded { status, stdout, stderr, overflowed })
 }
+
+#[cfg(test)]
+#[path = "process_tests.rs"]
+mod tests;

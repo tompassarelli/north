@@ -398,8 +398,9 @@ pub(super) fn north_session_start(north: OsString, home: PathBuf) -> Box<dyn Fn(
         if fixture {
             command.env("LANE_GC_UNLANDED", "/dev/null");
         }
-        let output = process::run_command_within(command, Some(payload.to_string().as_bytes()), Duration::from_secs(10))
-            .ok_or("north hook session-start did not finish within 10 seconds")?;
+        let output = process::try_run_command_traced_within(command, Some(payload.to_string().as_bytes()), Duration::from_secs(10))
+            .map_err(|error| format!("north hook session-start did not run: {error}"))?
+            .map_err(|stalled| format!("north hook session-start did not finish within 10 seconds; at the limit: {stalled}"))?;
         Ok(String::from_utf8_lossy(&output.stdout).chars().count())
     })
 }

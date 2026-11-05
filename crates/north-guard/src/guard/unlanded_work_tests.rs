@@ -19,29 +19,29 @@ fn a_north_session_hears_only_about_stale_north_lanes_and_those_naming_its_item(
     let report = dir.path().join("unlanded.txt");
     std::fs::write(&report, REPORT).unwrap();
     let cwd = dir.path().join("code/north/main");
-    let scope = Scope { home, container: container(&cwd, home), item: Some(("north", 523)) };
-    let notice = stale_lanes_notice(&report, &scope).unwrap();
+    let scope = Scope { home, container: container(&cwd, home) };
+    let notice = stale_lanes_notice(&report, &scope, || Some(("north".to_owned(), 523))).unwrap();
     assert_eq!(
         notice,
         "4 unlanded north lanes older than 24 h are listed in ~/unlanded.txt (north lane-gc --unlanded). Before starting an issue, continue an existing lane that references it instead of starting over.\nLanes referencing north#523: ~/code/north/worktrees/old-a, north-523-b and 1 more.\n"
     );
     assert!(notice.len() < 400, "{} chars", notice.len());
     assert!(!notice.contains("makgora") && !notice.contains("wisp"), "{notice}");
-    let unscoped = Scope { home, container: container(&cwd, home), item: None };
-    assert!(!stale_lanes_notice(&report, &unscoped).unwrap().contains("Lanes referencing"));
+    assert!(!stale_lanes_notice(&report, &scope, || None).unwrap().contains("Lanes referencing"));
 }
 
 #[test]
-fn a_session_outside_a_code_container_or_with_no_stale_lane_gets_no_notice() {
+fn a_session_outside_a_code_container_or_with_no_stale_lane_gets_no_notice_and_no_fleet_lookup() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_str().unwrap();
     let report = dir.path().join("unlanded.txt");
     std::fs::write(&report, REPORT).unwrap();
     assert_eq!(container(Path::new("/tmp/lp-briefs"), home), None);
     assert_eq!(container(&dir.path().join("code/wisp/worktrees/x/src"), home), Some("wisp"));
-    let at = |container| Scope { home, container, item: None };
-    assert_eq!(stale_lanes_notice(&report, &at(None)), None);
-    assert_eq!(stale_lanes_notice(&report, &at(Some("south"))), None);
-    assert!(stale_lanes_notice(&report, &at(Some("wisp"))).unwrap().starts_with("1 unlanded wisp lanes"));
-    assert_eq!(stale_lanes_notice(&dir.path().join("missing"), &at(Some("north"))), None);
+    let at = |container| Scope { home, container };
+    let unasked = || -> Option<(String, u64)> { panic!("looked up the session's issue with no stale lane to narrow") };
+    assert_eq!(stale_lanes_notice(&report, &at(None), unasked), None);
+    assert_eq!(stale_lanes_notice(&report, &at(Some("south")), unasked), None);
+    assert!(stale_lanes_notice(&report, &at(Some("wisp")), || None).unwrap().starts_with("1 unlanded wisp lanes"));
+    assert_eq!(stale_lanes_notice(&dir.path().join("missing"), &at(Some("north")), unasked), None);
 }
