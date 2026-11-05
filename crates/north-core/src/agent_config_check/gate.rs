@@ -335,6 +335,9 @@ impl Budget {
         if text.len() > SKILL_BYTES {
             self.errors.push(format!("{unit}: SKILL.md is {} bytes; policy keeps each SKILL.md at most {SKILL_BYTES}, as a router with read-X-when-Y references", text.len()));
         }
+        if Regex::new(r"(?m)^paths:").unwrap().is_match(&front) {
+            self.errors.push(format!("{unit}: SKILL.md sets paths:, which hides the skill from Claude's listing until a matching file is touched and never loads its body; agent-machinery/file-skills.toml and the file_skill hook load language skills"));
+        }
         let agents = agents_line.captures(&front).map(|found| found[1].to_owned());
         let size = unit.chars().count() + description(&front).chars().count();
         if agents.as_ref().is_none_or(|agents| agents.contains("claude")) {

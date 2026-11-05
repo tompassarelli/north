@@ -515,3 +515,16 @@ fn tree_policy_passes_this_repository_tree() {
     let verdicts = tree_policy(&tree);
     assert!(verdicts.passed, "{}", verdicts.text);
 }
+
+#[test]
+fn tree_policy_refuses_a_skill_with_paths_frontmatter_because_file_skill_loads_language_skills() {
+    let tree = tempfile::tempdir().unwrap();
+    tree_skill(tree.path(), "harness/skills", "listed", 200);
+    assert!(tree_policy(tree.path()).passed);
+    let directory = tree.path().join("harness/skills/scoped");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("SKILL.md"), "---\nname: scoped\ndescription: A fixture skill.\npaths:\n  - \"**/*.rs\"\n---\n# Fixture\n").unwrap();
+    let verdicts = tree_policy(tree.path());
+    assert!(!verdicts.passed && verdicts.text.contains("scoped: SKILL.md sets paths:"), "{}", verdicts.text);
+    assert!(!verdicts.text.contains("listed"), "{}", verdicts.text);
+}
