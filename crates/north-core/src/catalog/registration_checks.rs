@@ -411,8 +411,10 @@ fn canonical(root: &Path) -> NorthResult<String> {
 }
 
 fn fetch_main(root: &Path) -> NorthResult<String> {
+    static FETCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
-    let private = format!("refs/north/check-owners/{}-{nanos}", std::process::id());
+    let fetch = FETCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let private = format!("refs/north/check-owners/{}-{nanos}-{fetch}", std::process::id());
     let refspec = format!("+refs/heads/main:{private}");
     let result = Command::new("git")
         .arg("-C")
