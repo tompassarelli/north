@@ -78,7 +78,7 @@ fn start_alone(lander: &Lander, base: &str, offset: usize, entry: (&PathBuf, &Ti
     let head = built.head;
     let reason = match built.picks.into_iter().next() {
         Some(Pick::Included) => None,
-        Some(Pick::Decided(verdict) | Pick::Undecided(verdict)) => Some(verdict),
+        Some(Pick::Decided(verdict) | Pick::Undecided(verdict) | Pick::Deferred(verdict)) => Some(verdict),
         None => Some("no pick".to_owned()),
     };
     if let Some(reason) = reason {

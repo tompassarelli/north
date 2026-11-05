@@ -130,6 +130,7 @@ impl Lander {
                         progressed = true;
                     }
                     Pick::Undecided(reason) => undecided = Some(reason.clone()),
+                    Pick::Deferred(reason) => println!("north land: {reason}"),
                 }
             }
             if included.is_empty() {

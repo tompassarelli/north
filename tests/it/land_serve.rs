@@ -606,6 +606,25 @@ fn serve_mixed() {
 }
 
 #[test]
+fn serve_lands_a_lane_whose_only_conflict_was_a_refused_lane_ahead_of_it() {
+    let mut fixture = Fixture::new();
+    let a = fixture.lane("a", "app.txt", "from a\n");
+    fixture.commit(&a, "fail.txt", "fail\n", "fail marker from a");
+    let b = fixture.lane("b", "app.txt", "from b\n");
+    let tickets = [fixture.enqueue(&a, None), fixture.enqueue(&b, None)];
+    executable(
+        &fixture.trace.join("hook"),
+        "#!/usr/bin/env bash\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo 'refused https://github.com/o/r/actions/runs/4343' >\"$LAND_TRACE/verdict-$1\"\n",
+    );
+    let output = fixture.serve();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("lane-b conflicts only with lanes ahead of it in this candidate (app.txt)"));
+    assert_eq!(fixture.verdict(&tickets[0]).as_deref(), Some("failed https://github.com/o/r/actions/runs/4343"));
+    assert_eq!(fixture.verdict(&tickets[1]), Some(format!("landed {}", fixture.main())));
+    assert_eq!(git(&fixture.origin, &["show", "main:app.txt"]), "from b");
+}
+
+#[test]
 fn serve_captured_candidate() {
     let mut fixture = Fixture::new();
     let a = fixture.lane("a", "new.py", "print('a')\n");

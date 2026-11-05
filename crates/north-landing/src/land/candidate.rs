@@ -56,6 +56,7 @@ pub enum Pick {
     Included,
     Decided(String),
     Undecided(String),
+    Deferred(String),
 }
 
 pub struct Built {
@@ -108,7 +109,11 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -
         if let Some(commit) = dropped {
             return refuse(logs, name, "dropped", &dropped_refusal(base, &commit));
         }
-        return Ok(Pick::Decided(format!("conflict {}", if files.is_empty() { "cherry-pick" } else { files.as_str() })));
+        let files = if files.is_empty() { "cherry-pick" } else { files.as_str() };
+        if picked_onto != base && succeeds(worktree, &["merge-tree", "--write-tree", "--quiet", base, &ticket.head]) {
+            return Ok(Pick::Deferred(format!("{} conflicts only with lanes ahead of it in this candidate ({files}); it stays queued for the next candidate", ticket.branch)));
+        }
+        return Ok(Pick::Decided(format!("conflict {files}")));
     }
     let range = format!("{base}..{}", ticket.head);
     if git(worktree, &["rev-list", "--count", &range])? != git(worktree, &["rev-list", "--count", &format!("{picked_onto}..HEAD")])? {
