@@ -8,6 +8,7 @@ mod nexus_run;
 mod runtime_update;
 mod skill_prune;
 mod skill_review;
+mod skill_triggers;
 mod supply_chain;
 mod watch_review;
 #[cfg(test)]

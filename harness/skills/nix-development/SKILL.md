@@ -3,6 +3,7 @@ name: nix-development
 description: >-
   Project-local Nix environments and flake outputs outside nixos-config.
 grounded: 2026-10-15
+cadence: 14
 nix-version: 2.34
 nixpkgs-lock: 2026-08-31
 written: 2026-10-15

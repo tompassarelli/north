@@ -7,7 +7,8 @@ use super::git_maintenance::{maintenance_argv, repositories};
 use super::gcroots::store_roots;
 use super::runtime_update::steps;
 use super::skill_prune::body_row;
-use super::skill_review::{due_count, issue_body, items};
+use super::skill_review::{due_count, issue_body, items, without_grounded};
+use super::skill_triggers::{SourceChanges, VersionProbe, lines, parse, version_token};
 use super::supply_chain::{Finding, alert_texts, findings, lockfile_names, merged_seen};
 
 fn osv() -> Value {
@@ -223,4 +224,95 @@ fn the_weekly_eta_calibration_comment_wraps_the_table_in_a_code_block_under_its_
     let body = comment_body("2026-11-04", "category  tier  n\ntooling  claude:sonnet-high  3\n");
     assert!(body.starts_with("Weekly ETA calibration (2026-11-04, last 7d)"), "{body}");
     assert!(body.ends_with("tooling  claude:sonnet-high  3\n```"), "{body}");
+}
+
+struct Installed(&'static [(&'static str, &'static str)]);
+
+impl VersionProbe for Installed {
+    fn version(&self, tool: &str) -> Option<String> {
+        self.0.iter().find(|(name, _)| *name == tool).map(|(_, version)| (*version).to_owned())
+    }
+}
+
+struct Changed(&'static [&'static str]);
+
+impl SourceChanges for Changed {
+    fn changed_since(&self, source: &str, _grounded: &str) -> bool {
+        self.0.contains(&source)
+    }
+}
+
+fn day(text: &str) -> i64 {
+    crate::foundation::clock::Timestamp::parse_loose(text).map(crate::foundation::clock::Timestamp::unix_days).unwrap()
+}
+
+fn skill(id: &str, front: &str) -> super::skill_triggers::Skill {
+    parse(id, &format!("---\nname: {id}\ndescription: >-\n  text\n{front}metadata:\n  kind: playbook\n---\n\n# Body\n"))
+}
+
+#[test]
+fn skill_review_flags_a_bumped_tool_version() {
+    let nix = skill("nix-development", "grounded: 2026-10-30\nnix-version: 2.30.0\n");
+    let found = lines(&[nix], day("2026-11-02"), &Installed(&[("nix", "2.34.9")]), &Changed(&[]));
+    assert_eq!(found, ["- [ ] `nix-development` nix version drift (stamped 2.30.0, installed 2.34.9)"]);
+}
+
+#[test]
+fn skill_review_leaves_a_matching_version_and_an_unprobeable_tool_alone() {
+    let same = skill("a", "grounded: 2026-10-30\nnix-version: 2.34.9\n");
+    let missing = skill("b", "grounded: 2026-10-30\nghost-version: 1.0\n");
+    assert!(lines(&[same, missing], day("2026-11-02"), &Installed(&[("nix", "2.34.9")]), &Changed(&[])).is_empty());
+}
+
+#[test]
+fn skill_review_version_stamp_matches_by_whole_components() {
+    let minor = skill("a", "grounded: 2026-10-30\nnix-version: 2.34\n");
+    let other = skill("b", "grounded: 2026-10-30\nnix-version: 2.3\n");
+    let found = lines(&[minor, other], day("2026-11-02"), &Installed(&[("nix", "2.34.9")]), &Changed(&[]));
+    assert_eq!(found, ["- [ ] `b` nix version drift (stamped 2.3, installed 2.34.9)"]);
+}
+
+#[test]
+fn skill_review_cadence_of_14_days_is_due_at_day_15_and_not_at_day_13() {
+    let fast = skill("nix-development", "grounded: 2026-10-15\ncadence: 14\n");
+    let probe = Installed(&[]);
+    assert!(lines(std::slice::from_ref(&fast), day("2026-10-28"), &probe, &Changed(&[])).is_empty());
+    assert!(lines(std::slice::from_ref(&fast), day("2026-10-29"), &probe, &Changed(&[])).len() == 1);
+    assert_eq!(
+        lines(&[fast], day("2026-10-30"), &probe, &Changed(&[])),
+        ["- [ ] `nix-development` grounded (last 2026-10-15, 15 days, cadence 14)"]
+    );
+}
+
+#[test]
+fn skill_review_default_cadence_is_30_days() {
+    let slow = skill("s", "grounded: 2026-10-15\n");
+    assert!(lines(std::slice::from_ref(&slow), day("2026-11-13"), &Installed(&[]), &Changed(&[])).is_empty());
+    assert_eq!(lines(&[slow], day("2026-11-14"), &Installed(&[]), &Changed(&[])).len(), 1);
+}
+
+#[test]
+fn skill_review_flags_a_changed_cited_source_and_leaves_a_fresh_skill_alone() {
+    let cited = skill("cited", "grounded: 2026-10-30\nsources: [nix-manual, pstack]\n");
+    let fresh = skill("fresh", "grounded: 2026-10-30\nnix-version: 2.34.9\nsources: [pstack]\ncadence: 14\n");
+    let found = lines(&[cited, fresh], day("2026-11-02"), &Installed(&[("nix", "2.34.9")]), &Changed(&["nix-manual"]));
+    assert_eq!(found, ["- [ ] `cited` source `nix-manual` changed since grounded 2026-10-30"]);
+}
+
+#[test]
+fn skill_review_parse_reads_top_level_fields_only() {
+    let parsed = skill("x", "grounded: 2026-10-15\ncadence: 14\nnix-version: 2.34.9\nsources: [a, \"b\"]\n");
+    assert_eq!(parsed.cadence, Some(14));
+    assert_eq!(parsed.versions, [("nix".to_owned(), "2.34.9".to_owned())]);
+    assert_eq!(parsed.sources, ["a", "b"]);
+    assert_eq!(skill("y", "cadence: 0\n").cadence, None);
+    assert_eq!(version_token("nix (Nix) 2.34.9\n").as_deref(), Some("2.34.9"));
+    assert_eq!(version_token("git version 2.51.0"), Some("2.51.0".to_owned()));
+}
+
+#[test]
+fn skill_review_age_listing_defers_grounded_to_the_skill_triggers() {
+    let stale = json!([{"id": "nix-development", "due": {"grounded": {"date": "2026-10-15", "ageDays": 31}, "written": {"date": "2026-10-15", "ageDays": 31}}}]);
+    let owned = [skill("nix-development", "grounded: 2026-10-15\n")];
+    assert_eq!(items(&without_grounded(&stale, &owned)), "- [ ] `nix-development` written (last 2026-10-15, 31 days)");
 }
