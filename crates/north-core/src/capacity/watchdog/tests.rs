@@ -135,3 +135,38 @@ fn an_overload_with_every_top_tree_leased_and_all_load_attributed_is_recorded_an
     let hidden = replayed(&leased_only(6.0), &mut BTreeMap::new(), Settings::bundled(LAPTOP_CPUS));
     assert_eq!(sends(&hidden), ["proxy"], "{hidden:#?}");
 }
+
+const GEX45_CPUS: f64 = 20.0;
+const FARM_SLICE: &str = "user.slice/user-900.slice";
+const FARM_RUNNER: &str = "user.slice/user-900.slice/user@900.service/app.slice/runner-farm-big.service";
+
+fn gex45_split(farm_cores: f64, quota_percent: f64) -> String {
+    leased_only(0.0)
+        .lines()
+        .map(|line| {
+            let mut sample: serde_json::Value = serde_json::from_str(line).unwrap();
+            let busy = sample["busyCores"].as_f64().unwrap();
+            let cgroups = sample["cgroups"].as_array_mut().unwrap();
+            cgroups.push(serde_json::json!({ "cgroup": FARM_SLICE, "cores": farm_cores, "quotaPercent": quota_percent }));
+            cgroups.push(serde_json::json!({ "cgroup": FARM_RUNNER, "cores": farm_cores }));
+            sample["busyCores"] = (busy + farm_cores).into();
+            sample["cpus"] = GEX45_CPUS.into();
+            sample["load"] = serde_json::json!([60.0, 55.0, 50.0]);
+            sample.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn an_overload_with_the_farm_inside_its_quota_and_leased_work_beside_it_is_recorded_and_sends_no_message() {
+    let actions = replayed(&gex45_split(12.0, 1400.0), &mut BTreeMap::new(), Settings::bundled(GEX45_CPUS));
+    assert!(actions.iter().any(|action| matches!(action, Action::Incident(_))), "{actions:#?}");
+    assert!(sends(&actions).is_empty() && !actions.iter().any(|action| matches!(action, Action::Cap(_))), "{actions:#?}");
+}
+
+#[test]
+fn an_overload_with_the_farm_over_its_quota_still_pages_the_coordinator() {
+    let actions = replayed(&gex45_split(15.0, 1400.0), &mut BTreeMap::new(), Settings::bundled(GEX45_CPUS));
+    assert_eq!(sends(&actions), ["proxy"], "{actions:#?}");
+}

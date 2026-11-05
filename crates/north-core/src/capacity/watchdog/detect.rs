@@ -80,16 +80,29 @@ pub(super) struct Sample {
     pub(super) cpus: Option<f64>,
     busy_cores: Option<f64>,
     cgroups: Vec<(String, f64)>,
+    quotas: BTreeMap<String, f64>,
     tops: Vec<(String, f64, String)>,
 }
 
 impl Sample {
     pub(super) fn parse(value: &Value) -> Option<Self> {
         let cgroups = value["cgroups"].as_array()?.iter().filter_map(|entry| Some((entry["cgroup"].as_str()?.trim_start_matches('/').to_owned(), entry["cores"].as_f64()?))).collect();
+        let quotas = value["cgroups"].as_array()?.iter().filter_map(|entry| Some((entry["cgroup"].as_str()?.trim_start_matches('/').to_owned(), entry["quotaPercent"].as_f64()? / 100.0))).collect();
         let tops = value["top"].as_array().map_or_else(Vec::new, |tops| {
             tops.iter().filter_map(|top| Some((top["cgroup"].as_str()?.trim_start_matches('/').to_owned(), top["cores"].as_f64()?, top["command"].as_str()?.to_owned()))).collect()
         });
-        Some(Self { at: value["at"].as_str()?.to_owned(), load1: value["load"][0].as_f64()?, psi10: value["cpuPsi"].as_f64()?, psi60: value["cpuPsi60"].as_f64()?, cpus: value["cpus"].as_f64(), busy_cores: value["busyCores"].as_f64(), cgroups, tops })
+        Some(Self { at: value["at"].as_str()?.to_owned(), load1: value["load"][0].as_f64()?, psi10: value["cpuPsi"].as_f64()?, psi60: value["cpuPsi60"].as_f64()?, cpus: value["cpus"].as_f64(), busy_cores: value["busyCores"].as_f64(), cgroups, quotas, tops })
+    }
+
+    fn inside_quota(&self, cgroup: &str, peaks: &BTreeMap<String, f64>) -> bool {
+        let mut scope = Some(cgroup);
+        while let Some(path) = scope {
+            if let Some(quota) = self.quotas.get(path) {
+                return peaks.get(path).copied().unwrap_or_default() <= *quota;
+            }
+            scope = path.rsplit_once('/').map(|(parent, _)| parent);
+        }
+        false
     }
 
     fn lead_command(&self, cgroup: &str) -> Option<String> {
@@ -249,7 +262,7 @@ fn report(settings: &Settings, owners: &mut dyn Owners, state: &mut State, sampl
         }
     });
     let unattributed_cores = unattributed(sample);
-    let offender = ranked.iter().any(|(cgroup, cores)| kind(cgroup) != "lease" && *cores >= settings.offender_cores);
+    let offender = ranked.iter().any(|(cgroup, cores)| kind(cgroup) != "lease" && *cores >= settings.offender_cores && !sample.inside_quota(cgroup, &state.cores));
     let actionable = capped.is_some() || offender || unattributed_cores >= settings.offender_cores;
     let incident = Incident { at: sample.at.clone(), load1: sample.load1, load_per_core: round(load_per_core), psi60: sample.psi60, trees, unattributed_cores, capped: capped.clone() };
     let text = message(&incident);
