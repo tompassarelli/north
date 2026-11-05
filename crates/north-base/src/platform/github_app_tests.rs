@@ -39,9 +39,8 @@ impl Server {
                         break;
                     }
                     let (name, value) = header.split_once(": ").unwrap();
-                    match name.to_ascii_lowercase().as_str() {
-                        "content-length" => length = value.parse().unwrap(),
-                        _ => {}
+                    if name.eq_ignore_ascii_case("content-length") {
+                        length = value.parse().unwrap();
                     }
                 }
                 let mut body = vec![0; length];
