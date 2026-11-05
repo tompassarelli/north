@@ -429,6 +429,20 @@ async fn supervise(mut child: tokio::process::Child, unit: &str, terminations: &
     }
 }
 
+/// The decision printed before RELEASED when a lease's command exits nonzero, so that exit is never a bare RESERVED/RELEASED pair: it names the exit, the program and the reason admission gave (a gaming hold that admits the class says RUN).
+pub(super) fn command_exit(request: &Request, owner: &str, command: &[String], admitted: &Obj, exit_code: i32) -> Option<Obj> {
+    (exit_code != 0).then(|| {
+        Obj::new()
+            .put("decision", "COMMAND_EXITED")
+            .put("exitCode", exit_code)
+            .put("program", command.first().map_or("", String::as_str))
+            .put("class", request.name.as_str())
+            .put("owner", owner)
+            .put("admission", admitted.get("reason").cloned().unwrap_or(Value::Null))
+            .put("lease", admitted.get("lease").cloned().unwrap_or(Value::Null))
+    })
+}
+
 async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_seconds: Option<u64>, command: &[String], admitted: &Obj, terminations: &mut Terminations) -> i32 {
     let lease = text(&admitted.value(), "lease").unwrap_or_default().to_owned();
     let unit = scope_unit(&lease);
@@ -443,6 +457,9 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
             let memory_high = admitted.get("scope").and_then(|scope| field(scope, "memoryMiB"));
             let entry = model_fields(entry, owner, request, command, &usage, cache, memory_high);
             record(&entry, &usage, command, request, &lease);
+            if let Some(line) = command_exit(request, owner, command, admitted, exit_code) {
+                print_to(&line, true);
+            }
             exit_code
         }
         Err(error) => {

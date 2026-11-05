@@ -109,3 +109,29 @@ fn a_new_lease_or_a_new_ticket_changes_what_a_waiter_watches_but_a_rewritten_usa
     assert_eq!(watched_state(root.path(), head), head_leased, "a head watches no queue");
     assert_ne!(watched_state(root.path(), behind), behind_aged, "a new ticket did not wake a ticket behind");
 }
+
+#[test]
+fn a_tom_class_command_that_fails_under_the_gaming_hold_prints_its_exit_not_a_bare_reserved_released_pair() {
+    let request = Request { name: "tom".to_owned(), ..Request::default() };
+    let admitted = Obj::new().put("decision", "RESERVED").put("reason", "RUN").put("class", "tom").put("lease", "00000000-0000-4000-8000-000000000001");
+    let command = ["touch".to_owned(), "target/1hz-logs/touched".to_owned()];
+    let line = super::run::command_exit(&request, "wisp-1hz-opus", &command, &admitted, 1).expect("a nonzero exit is reported").value();
+    assert_eq!(line["decision"], "COMMAND_EXITED");
+    assert_eq!(line["exitCode"], 1);
+    assert_eq!(line["program"], "touch");
+    assert_eq!(line["class"], "tom");
+    assert_eq!(line["admission"], "RUN", "the gaming hold admitted the class; the command itself failed");
+    assert_eq!(line["lease"], "00000000-0000-4000-8000-000000000001");
+    assert!(super::run::command_exit(&request, "wisp-1hz-opus", &command, &admitted, 0).is_none());
+}
+
+#[test]
+fn state_resolved_from_a_private_desktops_runtime_directory_is_the_hosts_state() {
+    use super::state::state_root;
+    let host = std::path::PathBuf::from("/run/user/1000/agent-capacity-v1");
+    assert_eq!(state_root("/run/user/1000", 1000), host);
+    assert_eq!(state_root("/run/user/1000/private-desktop.TFxebN/runtime", 1000), host);
+    assert_eq!(state_root("/run/user/1000/private-desktop.0rJtMv", 1000), host);
+    assert_eq!(state_root("/run/user/1001/private-desktop.TFxebN/runtime", 1000), std::path::PathBuf::from("/run/user/1001/private-desktop.TFxebN/runtime/agent-capacity-v1"));
+    assert_eq!(state_root("/tmp/scratch", 1000), std::path::PathBuf::from("/tmp/scratch/agent-capacity-v1"));
+}

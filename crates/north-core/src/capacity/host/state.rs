@@ -20,7 +20,14 @@ pub fn runtime_root() -> PathBuf {
     if !base.starts_with('/') {
         fail("XDG_RUNTIME_DIR must be absolute", 2);
     }
-    Path::new(&base).join("agent-capacity-v1")
+    state_root(&base, uid())
+}
+
+/// A private desktop's own runtime directory (`/run/user/UID/private-desktop.XXXX/runtime`) holds no capacity state, so a run inside it reads and writes the host's `/run/user/UID` state.
+pub(super) fn state_root(runtime: &str, uid: u32) -> PathBuf {
+    let user = format!("/run/user/{uid}");
+    let inside_desktop = runtime.strip_prefix(&user).and_then(|rest| rest.strip_prefix("/private-desktop.")).is_some();
+    Path::new(if inside_desktop { user.as_str() } else { runtime }).join("agent-capacity-v1")
 }
 
 pub fn mode_profile(mode: &str) -> Option<&'static str> {
