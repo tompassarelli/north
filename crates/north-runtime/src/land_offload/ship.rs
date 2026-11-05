@@ -117,13 +117,8 @@ fi
 limited() {
   if command -v north >/dev/null 2>&1; then north capacity deadline - "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
-has_dev_shell() {
-  [ -e "$slot/flake.nix" ] || return 1
-  system=$(nix eval --impure --raw --expr builtins.currentSystem 2>/dev/null) || return 1
-  nix eval --apply 'x: ""' "$slot#devShells.$system.default" >/dev/null 2>&1 || nix eval --apply 'x: ""' "$slot#devShell.$system" >/dev/null 2>&1
-}
-if [ "${command#nix develop}" = "$command" ] && has_dev_shell; then
-  limited nix develop "$slot" -c bash -euo pipefail -c "$command" 9>&-
+if [ "${command#nix develop}" = "$command" ] && command -v north >/dev/null 2>&1; then
+  limited north dev-shell run --dir "$slot" -- bash -euo pipefail -c "$command" 9>&-
 else
   limited bash -euo pipefail -c "$command" 9>&-
 fi

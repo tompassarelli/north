@@ -18,14 +18,17 @@ fn remote_run_with(command: &str, flake: bool, landing: &str, landref: &str, hom
 const FLAKE_WITH_DEV_SHELL: &str = "{ outputs = { devShells = 1; }; }";
 const FLAKE_WITHOUT_DEV_SHELL: &str = "{ outputs = { checks = 1; }; }";
 
-const NIX_SHIM: &str = r#"case "$1" in
-  eval)
-    case "$*" in *currentSystem*) echo x86_64-linux; exit 0 ;; esac
-    for last; do :; done
-    grep -q devShells "${last%%#*}/flake.nix"
-    exit $? ;;
+const NIX_SHIM: &str = "echo \"nix $*\"\n";
+
+const NORTH_SHIM: &str = r#"case "$1 $2" in
+  "capacity deadline") shift; while [ "$1" != -- ]; do shift; done; shift; exec "$@" ;;
+  "dev-shell run")
+    dir=$4
+    shift 5
+    if grep -qs devShells "$dir/flake.nix"; then echo "dev-shell $dir $*"; exit 0; fi
+    exec "$@" ;;
 esac
-echo "nix $*"
+exit 64
 "#;
 
 fn remote_run_flake(command: &str, flake: Option<&str>, landing: &str, landref: &str, home: Option<&Path>) -> String {
@@ -36,7 +39,9 @@ fn remote_run_flake(command: &str, flake: Option<&str>, landing: &str, landref: 
     }
     let nix = bin.path().join("nix");
     crate::foundation::shim::write_script(&nix, NIX_SHIM);
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let fresh_home = tempfile::tempdir().unwrap();
     let output = Command::new("sh")
         .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h landing={} landref={}\n{RUN}", shell(slot.path()), shell(Path::new(command)), landing, super::quote(landref))])
         .env("PATH", path)
@@ -48,7 +53,7 @@ fn remote_run_flake(command: &str, flake: Option<&str>, landing: &str, landref: 
         .env_remove("cpus")
         .env_remove("SAFE_PUSH_LAND_PACKAGES")
         .env_remove("packages")
-        .envs(home.map(|home| ("HOME", home)))
+        .env("HOME", home.unwrap_or(fresh_home.path()))
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -82,7 +87,7 @@ fn verify(slot: &Path, head: &str) -> Output {
 
 #[test]
 fn a_checkout_with_a_flake_runs_the_command_inside_its_dev_shell() {
-    assert_eq!(remote_run("cargo --version", true), "nix develop SLOT -c bash -euo pipefail -c cargo --version\n");
+    assert_eq!(remote_run("cargo --version", true), "dev-shell SLOT bash -euo pipefail -c cargo --version\n");
 }
 
 fn reap_script(root: &Path, owner: &str) -> Output {
@@ -215,8 +220,13 @@ fn a_landing_run_sees_the_offloads_base_head_and_published_ref_exactly_as_a_loca
 
 #[test]
 fn a_landing_run_sees_the_packages_and_cpus_the_lander_scoped_its_check_to() {
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = Command::new("sh")
         .args(["-c", &format!("set -eu\nslot=. command={} limit=10 base=b head=h landing=1 landref= cpus=4 packages='-p north -p north-landing'\n{RUN}", super::quote("echo \"[$SAFE_PUSH_LAND_CPUS] [$SAFE_PUSH_LAND_PACKAGES]\""))])
+        .env("PATH", path)
+        .env("HOME", bin.path())
         .env_remove("SAFE_PUSH_LAND_CPUS")
         .env_remove("SAFE_PUSH_LAND_PACKAGES")
         .output()

@@ -117,3 +117,104 @@ pub fn exec(arguments: &[String]) -> u8 {
     eprintln!("north capacity exec: {program}: {error}");
     NOT_EXECUTABLE
 }
+
+const TRACE: &str = "NORTH_DEV_SHELL_TRACE";
+const RUN_USAGE: &str = "usage: north dev-shell run [--dir DIRECTORY] -- COMMAND...";
+
+/// The nearest flake at or above `directory`, stopping after the git checkout's root.
+fn flake_root(directory: &Path) -> Option<PathBuf> {
+    for candidate in directory.ancestors() {
+        if candidate.join("flake.nix").is_file() {
+            return Some(candidate.to_path_buf());
+        }
+        if candidate.join(".git").exists() {
+            return None;
+        }
+    }
+    None
+}
+
+fn system() -> String {
+    let os = if std::env::consts::OS == "macos" { "darwin" } else { std::env::consts::OS };
+    format!("{}-{os}", std::env::consts::ARCH)
+}
+
+/// The derivation path of the flake's `devShells.<system>.default`, which names the shell whatever file changed.
+fn derivation(nix: &Path, flake: &Path) -> Result<String, String> {
+    let attribute = format!("{}#devShells.{}.default.drvPath", flake.display(), system());
+    let output = std::process::Command::new(nix).args(["eval", "--offline", "--raw", &attribute]).output().map_err(|error| format!("{}: {error}", nix.display()))?;
+    let derivation = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if output.status.success() && !derivation.is_empty() {
+        return Ok(derivation);
+    }
+    let reason = String::from_utf8_lossy(&output.stderr).lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("no output").trim().to_owned();
+    Err(format!("{} has no devShells.{}.default ({reason})", flake.display(), system()))
+}
+
+fn trace(line: &str) {
+    if std::env::var_os(TRACE).is_some_and(|value| !value.is_empty()) {
+        eprintln!("north dev-shell: {line}");
+    }
+}
+
+fn replace_with(program: &Path, name: &str, arguments: &[String], marked: Option<&str>) -> u8 {
+    let mut command = std::process::Command::new(program);
+    command.arg0(name).args(arguments);
+    if let Some(shell) = marked {
+        command.env(MARK, shell);
+    }
+    let error = command.exec();
+    eprintln!("north dev-shell: {name}: {error}");
+    NOT_EXECUTABLE
+}
+
+fn run_directly(command: &[String], marked: Option<&str>) -> u8 {
+    let (program, rest) = command.split_first().expect("a non-empty command");
+    match resolve(program) {
+        Some(resolved) => replace_with(&resolved, program, rest, marked),
+        None => {
+            eprintln!("north dev-shell: {program}: command not found");
+            NOT_FOUND
+        }
+    }
+}
+
+/// `north dev-shell run [--dir DIRECTORY] -- COMMAND...` runs COMMAND inside the flake's default dev shell, entering it once: when `NORTH_DEV_SHELL` already holds the shell's derivation path the command runs directly, and a flake without a dev shell runs it bare after saying so.
+pub fn command(arguments: &[String]) -> u8 {
+    let (directory, rest) = match arguments {
+        [verb, flag, directory, rest @ ..] if verb == "run" && flag == "--dir" => (PathBuf::from(directory), rest),
+        [verb, rest @ ..] if verb == "run" => (std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")), rest),
+        _ => {
+            eprintln!("{RUN_USAGE}");
+            return 2;
+        }
+    };
+    let Some(command) = rest.split_first().filter(|(separator, command)| *separator == "--" && !command.is_empty()).map(|(_, command)| command) else {
+        eprintln!("{RUN_USAGE}");
+        return 2;
+    };
+    let Some(flake) = flake_root(&directory) else {
+        eprintln!("north dev-shell: {} is in no flake, so {} runs outside a dev shell", directory.display(), command[0]);
+        return run_directly(command, None);
+    };
+    let Some(nix) = nix() else {
+        eprintln!("north dev-shell: nix: command not found");
+        return NOT_FOUND;
+    };
+    let identity = match derivation(&nix, &flake) {
+        Ok(identity) => identity,
+        Err(reason) => {
+            eprintln!("north dev-shell: {reason}, so {} runs outside a dev shell", command[0]);
+            return run_directly(command, None);
+        }
+    };
+    if std::env::var(MARK).is_ok_and(|entered| entered == identity) {
+        trace(&format!("direct {identity}"));
+        return run_directly(command, None);
+    }
+    trace(&format!("enter {identity}"));
+    let mut words = vec!["develop".to_owned(), flake.to_string_lossy().into_owned(), "--offline".to_owned(), "--no-update-lock-file".to_owned(), "-c".to_owned(), "env".to_owned(), format!("{MARK}={identity}")];
+    words.extend_from_slice(command);
+    replace_with(&nix, "nix", &words, None)
+}
+

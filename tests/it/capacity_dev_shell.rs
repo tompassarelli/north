@@ -83,7 +83,7 @@ fn a_shimmed_toolchain_this_host_lacks_exits_with_the_infrastructure_status_thro
     }
     let shimmed = std::process::Command::new(bin.path().join("cargo")).arg("--version").env("PATH", bin.path()).output().unwrap();
     assert_eq!(shimmed.status.code(), Some(75), "{}", String::from_utf8_lossy(&shimmed.stderr));
-    let gated = std::process::Command::new(env!("CARGO_BIN_EXE_north")).args(["capacity", "gate", "cargo", "--version"]).env("PATH", bin.path()).output().unwrap();
+    let gated = std::process::Command::new(env!("CARGO_BIN_EXE_north")).args(["capacity", "gate", "cargo", "--version"]).current_dir(bin.path()).env("PATH", bin.path()).output().unwrap();
     assert_eq!(gated.status.code(), Some(75), "{}", String::from_utf8_lossy(&gated.stderr));
 }
 
@@ -95,4 +95,74 @@ fn the_gate_runs_a_toolchain_the_host_lacks_inside_the_project_dev_shell_that_pr
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stderr}");
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), format!("cargo 1.0.0 from {}", project.display()), "{stderr}");
+}
+
+const ENTERING_NIX: &str = "#!/bin/sh
+case \"$1\" in
+  eval) echo /nix/store/0000-default-shell.drv ;;
+  develop)
+    directory=$2
+    shift 2
+    while [ \"$1\" != -c ]; do shift; done
+    shift
+    echo entered >>\"$ENTRIES\"
+    PATH=$directory/shell-bin:$PATH
+    exec \"$@\" ;;
+  *) exit 64 ;;
+esac
+";
+
+#[test]
+fn a_check_script_that_enters_the_dev_shell_inside_an_entered_shell_runs_once_with_the_real_cargo() {
+    let host = Host::new("dev-shell-run-", &[("nix", ENTERING_NIX)]);
+    for tool in ["sh", "env", "echo"] {
+        if let Some(found) = host_tool(tool) {
+            symlink(found, host.path("bin").join(tool)).unwrap();
+        }
+    }
+    symlink(env!("CARGO_BIN_EXE_north"), host.path("bin/north")).unwrap();
+    let project = host.path("project");
+    fs::create_dir_all(project.join("shell-bin")).unwrap();
+    fs::create_dir_all(project.join(".git")).unwrap();
+    fs::write(project.join("flake.nix"), "{ outputs = _: { devShells = { }; }; }\n").unwrap();
+    let (entries, builds) = (host.path("entries"), host.path("builds"));
+    shim::write_script(&project.join("shell-bin/cargo"), &format!("echo \"real cargo $*\" >>{}\n", builds.display()));
+    shim::write_script(&host.path("bin/cargo"), "echo \"gate shim\" >&2\nexit 75\n");
+    fs::write(project.join("check.sh"), "north dev-shell run -- cargo build\n").unwrap();
+    let output = host
+        .command(env!("CARGO_BIN_EXE_north"))
+        .args(["dev-shell", "run", "--dir"])
+        .arg(&project)
+        .args(["--", "sh", "check.sh"])
+        .current_dir(&project)
+        .env("PATH", host.path("bin"))
+        .env("ENTRIES", &entries)
+        .env("NORTH_DEV_SHELL_TRACE", "1")
+        .env_remove("IN_NIX_SHELL")
+        .env_remove("NORTH_DEV_SHELL")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(fs::read_to_string(&entries).unwrap(), "entered\n", "{stderr}");
+    assert_eq!(fs::read_to_string(&builds).unwrap(), "real cargo build\n", "{stderr}");
+    assert_eq!(stderr.matches("north dev-shell: enter ").count(), 1, "{stderr}");
+    assert_eq!(stderr.matches("north dev-shell: direct ").count(), 1, "{stderr}");
+}
+
+#[test]
+fn a_flake_without_a_dev_shell_runs_the_command_bare_saying_so() {
+    let host = Host::new("dev-shell-bare-", &[("nix", "#!/bin/sh\nexit 1\n")]);
+    for tool in ["sh", "echo"] {
+        if let Some(found) = host_tool(tool) {
+            symlink(found, host.path("bin").join(tool)).unwrap();
+        }
+    }
+    let project = host.path("project");
+    fs::create_dir_all(project.join(".git")).unwrap();
+    fs::write(project.join("flake.nix"), "{ outputs = _: { }; }\n").unwrap();
+    let output = host.command(env!("CARGO_BIN_EXE_north")).args(["dev-shell", "run", "--", "echo", "bare"]).current_dir(&project).env("PATH", host.path("bin")).env_remove("NORTH_DEV_SHELL").output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "bare\n");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("has no devShells."), "{}", String::from_utf8_lossy(&output.stderr));
 }

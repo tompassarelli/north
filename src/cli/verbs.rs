@@ -40,6 +40,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("denylist", Diagnosis),
     ("dep-gate", Diagnosis),
     ("desktop-idle-state", Bookkeeping),
+    ("dev-shell", Bookkeeping),
     ("digest", Status),
     ("dispatch", Delegate),
     ("docs", Diagnosis),
