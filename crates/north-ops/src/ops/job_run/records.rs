@@ -1,8 +1,10 @@
 use std::env;
+use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
+use std::thread::{self, JoinHandle};
 
-use rustix::process::{Pid, Signal, kill_process};
+use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
 
 use super::Job;
 
@@ -63,15 +65,27 @@ fn words(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
 }
 
-pub(super) fn signal(child: &mut Child, signal: Signal) {
-    if let Some(pid) = i32::try_from(child.id()).ok().and_then(Pid::from_raw) {
-        let _ = kill_process(pid, signal);
-    }
+pub(super) struct Beside {
+    pidfd: OwnedFd,
+    reaper: JoinHandle<()>,
 }
 
-pub(super) fn stop(child: &mut Child) {
-    signal(child, Signal::Term);
-    let _ = child.wait();
+impl Beside {
+    fn spawn(command: &mut Command) -> Option<Self> {
+        let mut child = command.spawn().ok()?;
+        let pidfd = i32::try_from(child.id()).ok().and_then(Pid::from_raw).and_then(|pid| pidfd_open(pid, PidfdFlags::empty()).ok());
+        let Some(pidfd) = pidfd else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        };
+        Some(Self { pidfd, reaper: thread::spawn(move || drop(child.wait())) })
+    }
+
+    pub(super) fn stop(self) {
+        let _ = pidfd_send_signal(&self.pidfd, Signal::Term);
+        let _ = self.reaper.join();
+    }
 }
 
 pub(super) struct Recorder<'a> {
@@ -91,8 +105,8 @@ impl<'a> Recorder<'a> {
         self.launcher.command("timeout", &arguments)
     }
 
-    pub(super) fn start(&self, started: &str) -> Option<Child> {
-        self.command(&["--started", started]).stderr(Stdio::null()).spawn().ok()
+    pub(super) fn start(&self, started: &str) -> Option<Beside> {
+        Beside::spawn(self.command(&["--started", started]).stderr(Stdio::null()))
     }
 
     pub(super) fn finish(&self, started: &str, finished: &str, code: i32) {
@@ -129,14 +143,14 @@ impl<'a> Spooler<'a> {
         self.ran(&["start", session, key, text], "start");
     }
 
-    pub(super) fn beats(&self, session: &str, key: &str) -> Option<Child> {
+    pub(super) fn beats(&self, session: &str, key: &str) -> Option<Beside> {
         let every = env::var("JOB_RUN_BEAT_SECS").unwrap_or_else(|_| DEFAULT_BEAT_SECONDS.to_owned());
         let pid = std::process::id().to_string();
-        let beating = self.command(&["beats", session, key, &every, &pid]).stderr(Stdio::null()).spawn();
-        if beating.is_err() {
+        let beating = Beside::spawn(self.command(&["beats", session, key, &every, &pid]).stderr(Stdio::null()));
+        if beating.is_none() {
             eprintln!("job-run: spooling {}'s beats failed", self.job.name);
         }
-        beating.ok()
+        beating
     }
 
     pub(super) fn exit(&self, session: &str, key: &str, code: i32, text: &str) {

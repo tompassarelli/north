@@ -69,7 +69,11 @@ fn job_run_keeps_the_exit_code_and_spools_the_finish_while_the_ledger_host_is_do
     let delivered: Vec<String> = ssh_log(root).into_iter().filter(|line| line.contains("--finished")).collect();
     assert_eq!(delivered.len(), 2, "{delivered:?}");
     assert!(delivered.iter().any(|line| line.ends_with("--rc 0")) && delivered.iter().any(|line| line.ends_with("--rc 3")), "{delivered:?}");
-    assert!(ssh_log(root).last().is_some_and(|line| line.ends_with("north threads snapshot-pages")), "{:?}", ssh_log(root));
+    let begun = Instant::now();
+    while !ssh_log(root).iter().any(|line| line.ends_with("north threads snapshot-pages")) {
+        assert!(begun.elapsed() < Duration::from_secs(10), "the stale snapshot was never pulled: {:?}", ssh_log(root));
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 #[test]
@@ -237,4 +241,46 @@ fn job_run_notify_spools_a_start_with_a_three_minute_lease_a_beat_each_interval_
     let exit = rows.last().unwrap();
     assert_eq!(exit.job.as_ref().and_then(|job| job.exit), Some(3));
     assert!(exit.text.starts_with("job-run: soak exited 3; output in "), "{}", exit.text);
+}
+
+fn zombie_children(parent: u32) -> Vec<String> {
+    fs::read_dir("/proc")
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|entry| fs::read_to_string(entry.path().join("stat")).ok())
+        .filter_map(|stat| {
+            let (before, after) = stat.rsplit_once(')')?;
+            let mut fields = after.split_whitespace();
+            let (state, ppid) = (fields.next()?, fields.next()?);
+            (state == "Z" && ppid == parent.to_string()).then(|| before.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn job_run_reaps_its_start_record_that_exits_while_the_job_still_runs() {
+    let scratch = scratch();
+    let root = scratch.path();
+    let mut job = {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+        command
+            .args(["job-run", "slow", "--", "sleep", "4"])
+            .current_dir(root)
+            .env("HOME", root)
+            .env_remove("THREADS_DB")
+            .env_remove("XDG_RUNTIME_DIR")
+            .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()));
+        let _gate = fork_gate();
+        command.spawn().unwrap()
+    };
+    let begun = Instant::now();
+    while !ssh_log(root).iter().any(|line| line.contains("job-run slow")) {
+        assert!(begun.elapsed() < Duration::from_secs(3), "the start record never ran");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    let zombies = zombie_children(job.id());
+    let code = job.wait().unwrap().code();
+    assert_eq!(zombies, Vec::<String>::new());
+    assert_eq!(code, Some(0));
 }

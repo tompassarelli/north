@@ -125,13 +125,13 @@ fn serve(job: &Job) -> i32 {
     let started = stamp();
     let mut starting = recorder.start(&started);
     let code = run_command(&job.command);
-    if let Some(mut starting) = starting.take() {
-        records::stop(&mut starting);
+    if let Some(starting) = starting.take() {
+        starting.stop();
     }
     recorder.finish(&started, &stamp(), code);
     if let Some((session, key, log, beating)) = notified {
-        if let Some(mut beating) = beating {
-            records::stop(&mut beating);
+        if let Some(beating) = beating {
+            beating.stop();
         }
         spooler.exit(&session, &key, code, &format!("job-run: {} exited {code}; output in {log}", job.name));
     }
