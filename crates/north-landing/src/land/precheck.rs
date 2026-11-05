@@ -23,10 +23,10 @@ const HOLD: Duration = Duration::from_secs(30);
 const ROOM_RETRY: Duration = Duration::from_secs(15);
 const WORKTREE: &str = "lander-precheck";
 
-type Order = (bool, u128, PathBuf);
+type Order = (usize, PathBuf);
 
-fn order(path: &Path, ticket: &Ticket) -> Order {
-    (!ticket.goes_first(), queue::queued_micros(path), path.to_owned())
+fn order(rank: &HashMap<PathBuf, usize>, path: &Path) -> Order {
+    (rank.get(path).copied().unwrap_or(usize::MAX), path.to_owned())
 }
 
 fn micros() -> u128 {
@@ -87,6 +87,7 @@ pub struct State {
     ready: Vec<Lane>,
     recheck: Vec<Recheck>,
     held: HashMap<PathBuf, Held>,
+    rank: HashMap<PathBuf, usize>,
     attempts: HashMap<PathBuf, usize>,
     strikes: Strikes,
     surveyed: Option<Instant>,
@@ -142,7 +143,7 @@ impl State {
     }
 
     fn ahead(&self, of: &Order) -> bool {
-        self.checking.iter().any(|checking| order(&checking.lane.path, &checking.lane.ticket) < *of) || self.recheck.iter().any(|recheck| order(&recheck.path, &recheck.ticket) < *of)
+        self.checking.iter().any(|checking| order(&self.rank, &checking.lane.path) < *of) || self.recheck.iter().any(|recheck| order(&self.rank, &recheck.path) < *of)
     }
 
     fn forget_replaced(&mut self) {
@@ -184,6 +185,7 @@ impl State {
 
 struct Tick<'a> {
     lander: &'a Lander,
+    queued: &'a [(PathBuf, Ticket)],
     logs: PathBuf,
     main: Option<String>,
     progressed: bool,
@@ -220,7 +222,7 @@ fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<Che
     let main = tick.main()?;
     let worktree = state.worktrees[slot].clone();
     let attempt = state.attempts.get(path).copied().unwrap_or(0) + 1;
-    let built = candidate::build(&worktree, &main, &[(path.to_owned(), ticket.clone())], 1, &tick.logs)?;
+    let built = candidate::build(&worktree, &main, &[(path.to_owned(), ticket.clone())], tick.queued, 1, &tick.logs)?;
     let name = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("lane");
     let mut lane = Lane { path: path.to_owned(), ticket: ticket.clone(), base: main.clone(), head: built.head, log: tick.logs.join(format!("{}-{name}-precheck.log", micros())), stages: Stages::start() };
     lane.stages.attempts = attempt;
@@ -328,9 +330,9 @@ fn checked_on_main(tick: &mut Tick, state: &mut State, lane: &Lane) -> Result<Op
 }
 
 fn land(tick: &mut Tick, state: &mut State) -> Result<Option<Round>, String> {
-    state.ready.sort_by_key(|lane| order(&lane.path, &lane.ticket));
+    state.ready.sort_by_key(|lane| order(&state.rank, &lane.path));
     while let Some(first) = state.ready.first() {
-        if state.ahead(&order(&first.path, &first.ticket)) {
+        if state.ahead(&order(&state.rank, &first.path)) {
             return Ok(None);
         }
         let mut lane = state.ready.remove(0);
@@ -396,8 +398,9 @@ fn survey(lander: &Lander, state: &mut State) {
     }
 }
 
-fn fill(tick: &mut Tick, state: &mut State, count: usize, queued: &[(PathBuf, Ticket)]) -> Result<(), String> {
-    state.recheck.sort_by_key(|recheck| order(&recheck.path, &recheck.ticket));
+fn fill(tick: &mut Tick, state: &mut State, count: usize) -> Result<(), String> {
+    let queued = tick.queued;
+    state.recheck.sort_by_key(|recheck| order(&state.rank, &recheck.path));
     while let Some(slot) = state.free_slot(count) {
         if state.recheck.is_empty() && !queued.iter().any(|(path, _)| path.exists() && !state.tracked(path)) {
             break;
@@ -431,7 +434,8 @@ pub fn round(lander: &Lander, state: &mut State) -> Result<Option<Round>, String
     survey(lander, state);
     let queued = queue::collect(&lander.queue).map_err(|error| error.to_string())?;
     state.forget_replaced();
-    let mut tick = Tick { lander, logs: lander.queue.join("logs"), main: None, progressed: false };
+    state.rank = queued.iter().enumerate().map(|(at, (path, _))| (path.clone(), at)).collect();
+    let mut tick = Tick { lander, queued: &queued, logs: lander.queue.join("logs"), main: None, progressed: false };
     poll(&mut tick, state)?;
     if let Some(round) = land(&mut tick, state)? {
         return Ok(Some(round));
@@ -442,7 +446,7 @@ pub fn round(lander: &Lander, state: &mut State) -> Result<Option<Round>, String
         && !state.draining
         && paused.is_none()
         && state.free_slot(count).is_some()
-        && let Err(error) = fill(&mut tick, state, count, &queued)
+        && let Err(error) = fill(&mut tick, state, count)
     {
         if !state.busy() {
             return Ok(Some(Round::Waiting(format!("transient: {error}"))));

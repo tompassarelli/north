@@ -8,6 +8,7 @@ mod cleanup;
 mod sheriff;
 
 mod baseline;
+mod conflict;
 mod credentials;
 mod culprit_search;
 mod isolation;

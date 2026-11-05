@@ -125,7 +125,7 @@ fn serve_lands_a_lane_whose_only_conflict_was_a_refused_lane_ahead_of_it() {
     );
     let output = fixture.serve();
     assert!(output.status.success());
-    assert!(String::from_utf8_lossy(&output.stdout).contains("lane-b conflicts only with lanes ahead of it in this candidate (app.txt)"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("deferred: lane-b conflicts only with lanes ahead of it in this candidate (app.txt)"));
     assert_eq!(fixture.verdict(&tickets[0]).as_deref(), Some("failed https://github.com/o/r/actions/runs/4343"));
     assert_eq!(fixture.verdict(&tickets[1]), Some(format!("landed {}", fixture.main())));
     assert_eq!(git(&fixture.origin, &["show", "main:app.txt"]), "from b");

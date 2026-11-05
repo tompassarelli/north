@@ -47,7 +47,7 @@ fn set_driver_without_shared_config() {
     candidate::ensure(&repo, &worktree).unwrap();
     let shared = Command::new("git").arg("-C").arg(&worktree).args(["config", "--local", "--get-regexp", "^merge\\."]).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&shared.stdout), "", "the shared .git/config holds no merge keys");
-    let built = candidate::build(&worktree, &base, &tickets, 2, &dir.path().join("logs")).unwrap();
+    let built = candidate::build(&worktree, &base, &tickets, &[], 2, &dir.path().join("logs")).unwrap();
     let reasons = built.picks.iter().map(|pick| match pick { Pick::Included => "included".to_owned(), Pick::Decided(reason) | Pick::Undecided(reason) | Pick::Deferred(reason) => reason.clone() }).collect::<Vec<_>>();
     assert_eq!(built.included(), 2, "{reasons:?}");
     assert_eq!(git(&worktree, &["show", "HEAD:structure.toml"]), structure("\"base\", \"fleet\", \"spawn\"").trim_end());

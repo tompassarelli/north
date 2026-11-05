@@ -1,7 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use super::reservation::{self, Decided};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -92,6 +95,44 @@ pub fn queued_micros(path: &Path) -> u128 {
     path.file_name().and_then(|name| name.to_str()).and_then(|name| name.split('-').next()).and_then(|micros| micros.parse().ok()).unwrap_or(u128::MAX)
 }
 
+pub type Lane = (String, PathBuf, String);
+
+pub fn lane(ticket: &Ticket) -> Lane {
+    (ticket.host.clone(), ticket.root.clone(), ticket.branch.clone())
+}
+
+fn decided_secs(path: &Path) -> u64 {
+    fs::metadata(path).and_then(|metadata| metadata.modified()).ok().and_then(|modified| modified.duration_since(UNIX_EPOCH).ok()).map_or(0, |since| since.as_secs())
+}
+
+pub fn positions(directory: &Path, tickets: &[(PathBuf, Ticket)], now_secs: u64) -> HashMap<PathBuf, u128> {
+    let lanes: HashSet<Lane> = tickets.iter().map(|(_, ticket)| lane(ticket)).collect();
+    let suffixes: HashSet<String> = tickets.iter().map(|(_, ticket)| format!("-{}.json", slug(&ticket.branch))).collect();
+    let mut decided: HashMap<Lane, Vec<(u128, u64, String)>> = HashMap::new();
+    for entry in fs::read_dir(directory.join("done")).into_iter().flatten().filter_map(Result::ok) {
+        let path = entry.path();
+        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        if !suffixes.iter().any(|suffix| name.ends_with(suffix.as_str())) {
+            continue;
+        }
+        let Ok(ticket) = read(&path) else { continue };
+        let key = lane(&ticket);
+        if lanes.contains(&key) {
+            decided.entry(key).or_default().push((queued_micros(&path), decided_secs(&path), ticket.verdict.unwrap_or_default()));
+        }
+    }
+    tickets
+        .iter()
+        .map(|(path, ticket)| {
+            let queued = queued_micros(path);
+            let mut earlier: Vec<_> = decided.get(&lane(ticket)).into_iter().flatten().filter(|(micros, _, _)| *micros < queued).collect();
+            earlier.sort_by_key(|(micros, _, _)| std::cmp::Reverse(*micros));
+            let newest_first: Vec<Decided> = earlier.into_iter().map(|(micros, secs, verdict)| Decided { queued: *micros, decided_secs: *secs, verdict }).collect();
+            (path.clone(), reservation::position(queued, &newest_first, now_secs))
+        })
+        .collect()
+}
+
 pub fn pending(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -106,7 +147,9 @@ pub fn pending(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
             tickets.push((path, ticket));
         }
     }
-    tickets.sort_by_key(|(path, ticket)| (!ticket.goes_first(), queued_micros(path), path.clone()));
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    let positions = positions(directory, &tickets, now);
+    tickets.sort_by_key(|(path, ticket)| (!ticket.goes_first(), positions[path], path.clone()));
     Ok(tickets)
 }
 
@@ -125,16 +168,15 @@ pub fn settle(path: &Path, mut ticket: Ticket, verdict: String, area: &str) -> i
 
 pub fn collect(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     let tickets = pending(directory)?;
-    let mut newest: HashMap<(String, PathBuf, String), u128> = HashMap::new();
+    let mut newest: HashMap<Lane, u128> = HashMap::new();
     for (path, ticket) in &tickets {
-        let entry = newest.entry((ticket.host.clone(), ticket.root.clone(), ticket.branch.clone())).or_insert(0);
+        let entry = newest.entry(lane(ticket)).or_insert(0);
         *entry = (*entry).max(queued_micros(path));
     }
     let mut kept = Vec::new();
     for (path, ticket) in tickets {
-        let lane = (ticket.host.clone(), ticket.root.clone(), ticket.branch.clone());
-        if queued_micros(&path) < newest[&lane] {
-            decide(&path, ticket, "replaced by a newer ticket for this lane".to_owned())?;
+        if queued_micros(&path) < newest[&lane(&ticket)] {
+            decide(&path, ticket, reservation::REPLACED.to_owned())?;
         } else {
             kept.push((path, ticket));
         }

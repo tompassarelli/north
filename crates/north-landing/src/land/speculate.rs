@@ -6,17 +6,11 @@ use super::after;
 use super::candidate::{self, Pick, git};
 use super::checks::{self, Started, Verdict};
 use super::lander::Lander;
-use super::queue::{self, Ticket};
+use super::queue::{self, Lane, Ticket, lane};
 use super::serve::Pushed;
 use super::telemetry::Stages;
 
 const POLL: Duration = Duration::from_millis(100);
-
-type Lane = (String, PathBuf, String);
-
-fn lane(ticket: &Ticket) -> Lane {
-    (ticket.host.clone(), ticket.root.clone(), ticket.branch.clone())
-}
 
 fn micros() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros())
@@ -107,7 +101,7 @@ fn fresh(lander: &Lander, taken: &Taken, stack: &[Next], seen: &mut HashSet<Path
 fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)]) -> Result<Option<Next>, String> {
     let Some(worktree) = lander.spares.get(level) else { return Ok(None) };
     candidate::ensure(&lander.repo, worktree)?;
-    let built = candidate::build(worktree, head, arrived, usize::MAX, &lander.queue.join("logs"))?;
+    let built = candidate::build(worktree, head, arrived, &[], usize::MAX, &lander.queue.join("logs"))?;
     let tickets: Vec<_> = arrived.iter().zip(&built.picks).filter(|(_, pick)| matches!(pick, Pick::Included)).map(|(entry, _)| entry.clone()).collect();
     if tickets.is_empty() {
         return Ok(None);

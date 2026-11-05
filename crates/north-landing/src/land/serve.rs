@@ -163,7 +163,13 @@ impl Lander {
                 }
             }
             let queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
-            let tickets = if red_only { red::fixes(&queued) } else { queued };
+            let fixes;
+            let tickets = if red_only {
+                fixes = red::fixes(&queued);
+                &fixes
+            } else {
+                &queued
+            };
             if tickets.is_empty() {
                 return Ok(if progressed { Round::Progress } else { Round::Idle });
             }
@@ -174,7 +180,7 @@ impl Lander {
                 Ok(base) => base,
                 Err(error) => return Ok(Round::Waiting(format!("transient: {error}"))),
             };
-            let built = candidate::build(&self.worktree, &base, &tickets, limit, &logs)?;
+            let built = candidate::build(&self.worktree, &base, tickets, &queued, limit, &logs)?;
             let mut included = Vec::new();
             let mut undecided = None;
             for ((path, ticket), pick) in tickets.iter().zip(&built.picks) {
@@ -211,7 +217,7 @@ impl Lander {
             println!("north land: candidate {} carries {} lanes onto main@{base}; checking it", built.head, built.included());
             let log = logs.join(format!("{}-candidate.log", micros()));
             let mut stages = Stages::start();
-            let taken = (limit == usize::MAX && !red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(&tickets, &included));
+            let taken = (limit == usize::MAX && !red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(tickets, &included));
             let (verdict, mut stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref());
             stages.mark("check");
             if matches!(verdict, Verdict::Green | Verdict::Refused(_)) {

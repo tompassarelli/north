@@ -405,6 +405,11 @@ Each box is about one lane.
        candidate's first pick.
     4. A run 25 hours old gives no kept position.
     5. The truth table of `judge` passes as unit cases.
+  - As built (2026-11-05): a pick that conflicts on the stack and also conflicts with main alone is
+    judged as a conflict with main, so it is deferred only while a queued lane ahead of it shares
+    its files. A send-back's time is its done/ file's mtime, which only `queue::settle` writes. The
+    build slots rank lanes by the same position order. The fixtures sit under land_serve.rs, which
+    owns their `Fixture`.
 - **C3, drivers on every lander git call (25 min).**
   - Follows: docs-6-regenerate.
   - Files: candidate.rs (`output`, `ensure`), crates/north-landing/src/landing/merge_set.rs

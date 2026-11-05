@@ -31,6 +31,7 @@ pub mod withdraw;
 pub mod telemetry;
 pub mod watchdog;
 pub mod repositories;
+pub mod reservation;
 pub mod setting;
 
 pub struct Command {

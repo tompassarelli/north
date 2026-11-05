@@ -1,9 +1,11 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{PoisonError, RwLock};
 
-use super::queue::Ticket;
+use super::queue::{self, Ticket};
+use super::reservation::{self, Attempt, Judged};
 use crate::landing::{merge_continue, merge_set, stale_revert};
 
 static WORKTREES: RwLock<()> = RwLock::new(());
@@ -93,13 +95,36 @@ fn refuse(logs: &Path, name: &str, kind: &str, text: &str) -> Result<Pick, Strin
     Ok(Pick::Decided(format!("failed {}", log.display())))
 }
 
-fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -> Result<Pick, String> {
-    if !has_commit(worktree, &ticket.head) {
-        let root = ticket.root.to_str().unwrap_or_default();
-        let _ = output(worktree, &["fetch", "-q", "--no-tags", root, &format!("refs/heads/{}", ticket.branch)]);
-        if !has_commit(worktree, &ticket.head) {
-            return Ok(Pick::Decided("conflict unreadable".to_owned()));
-        }
+fn readable(worktree: &Path, ticket: &Ticket) -> bool {
+    if has_commit(worktree, &ticket.head) {
+        return true;
+    }
+    let root = ticket.root.to_str().unwrap_or_default();
+    let _ = output(worktree, &["fetch", "-q", "--no-tags", root, &format!("refs/heads/{}", ticket.branch)]);
+    has_commit(worktree, &ticket.head)
+}
+
+fn files(worktree: &Path, base: &str, ticket: &Ticket) -> HashSet<String> {
+    let Ok(fork) = git(worktree, &["merge-base", base, &ticket.head]) else { return HashSet::new() };
+    let changed: Vec<String> = git(worktree, &["diff", "--name-only", "--no-renames", &fork, &ticket.head]).unwrap_or_default().lines().map(str::to_owned).collect();
+    if changed.is_empty() {
+        return HashSet::new();
+    }
+    let mut arguments = vec!["check-attr", "merge", "--"];
+    arguments.extend(changed.iter().map(String::as_str));
+    let resolved: HashSet<String> = git(worktree, &arguments).unwrap_or_default().lines().filter_map(|line| line.strip_suffix(": merge: set")).map(str::to_owned).collect();
+    changed.into_iter().filter(|path| !resolved.contains(path)).collect()
+}
+
+fn queued_ahead<'a>(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&'a Ticket]) -> Option<&'a str> {
+    let own = files(worktree, base, ticket);
+    let lane = queue::lane(ticket);
+    earlier.iter().find(|ahead| queue::lane(ahead) != lane && readable(worktree, ahead) && !files(worktree, base, ahead).is_disjoint(&own)).map(|ahead| ahead.branch.as_str())
+}
+
+fn pick(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&Ticket], logs: &Path, name: &str) -> Result<Pick, String> {
+    if !readable(worktree, ticket) {
+        return Ok(Pick::Decided("conflict unreadable".to_owned()));
     }
     let cherry = git(worktree, &["cherry", base, &ticket.head])?;
     if !cherry.lines().any(|line| line.starts_with('+')) {
@@ -118,10 +143,11 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -
             return refuse(logs, name, "dropped", &dropped_refusal(base, &commit));
         }
         let files = if files.is_empty() { "cherry-pick" } else { files.as_str() };
-        if picked_onto != base && succeeds(worktree, &["merge-tree", "--write-tree", "--quiet", base, &ticket.head]) {
-            return Ok(Pick::Deferred(format!("{} conflicts only with lanes ahead of it in this candidate ({files}); it stays queued for the next candidate", ticket.branch)));
-        }
-        return Ok(Pick::Decided(format!("conflict {files}")));
+        let bare_main = picked_onto == base;
+        let with_main = bare_main || !succeeds(worktree, &["merge-tree", "--write-tree", "--quiet", base, &ticket.head]);
+        let red_fix = ticket.red_fix.is_some();
+        let queued_ahead = if with_main && !red_fix { queued_ahead(worktree, base, ticket, earlier) } else { None };
+        return Ok(reservation::judge(&Judged { branch: &ticket.branch, red_fix, bare_main, queued_ahead }, &Attempt::Conflict { files, with_main }));
     }
     let range = format!("{base}..{}", ticket.head);
     if git(worktree, &["rev-list", "--count", &range])? != git(worktree, &["rev-list", "--count", &format!("{picked_onto}..HEAD")])? {
@@ -132,7 +158,7 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -
         Ok(None) => {}
         Ok(Some(reason)) => {
             git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
-            return Ok(Pick::Deferred(format!("{}: {reason}; it stays queued for the next candidate", ticket.branch)));
+            return Ok(Pick::Deferred(format!("deferred: {}: {reason}; it stays queued for the next candidate", ticket.branch)));
         }
         Err(error) => {
             git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
@@ -156,18 +182,26 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -
     }
 }
 
-pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
+pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
     git(worktree, &["reset", "-q", "--hard"])?;
     git(worktree, &["checkout", "-q", "--detach", base])?;
     let mut picks = Vec::new();
     let mut included = 0;
+    let mut decided = HashSet::new();
     for (path, ticket) in tickets {
         if included >= limit {
             break;
         }
         let name = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("lane");
-        let pick = pick(worktree, base, ticket, logs, name)?;
+        let earlier: Vec<&Ticket> = match queued.iter().position(|(queued, _)| queued == path) {
+            Some(at) => queued[..at].iter().filter(|(queued, _)| !decided.contains(queued)).map(|(_, ticket)| ticket).collect(),
+            None => Vec::new(),
+        };
+        let pick = pick(worktree, base, ticket, &earlier, logs, name)?;
         included += usize::from(matches!(pick, Pick::Included));
+        if matches!(pick, Pick::Decided(_)) {
+            decided.insert(path);
+        }
         picks.push(pick);
     }
     Ok(Built { head: git(worktree, &["rev-parse", "HEAD"])?, picks })

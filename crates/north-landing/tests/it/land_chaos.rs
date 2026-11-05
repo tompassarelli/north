@@ -189,7 +189,7 @@ fn kill_mid_check(world: &World) {
     let b = world.enqueue(&killed, &world.lane("b"));
     let base = candidate::prepare(&killed.repo, &killed.worktree).unwrap();
     let tickets = queue::collect(&killed.queue).unwrap();
-    candidate::build(&killed.worktree, &base, &tickets, usize::MAX, &killed.queue.join("logs")).unwrap();
+    candidate::build(&killed.worktree, &base, &tickets, &[], usize::MAX, &killed.queue.join("logs")).unwrap();
     let check = checks::start(&checks::Launch::of(&killed), &killed.worktree, &base, &killed.queue.join("logs/killed.log"), true, None).unwrap();
     fs::write(killed.worktree.join("a.txt"), "half written\n").unwrap();
     fs::write(killed.worktree.join("stray"), "untracked\n").unwrap();
@@ -202,7 +202,7 @@ fn kill_mid_check(world: &World) {
     let c = world.enqueue(&restarted, &world.lane("c"));
     let base = candidate::prepare(&restarted.repo, &restarted.worktree).unwrap();
     let tickets = queue::collect(&restarted.queue).unwrap();
-    let built = candidate::build(&restarted.worktree, &base, &tickets, usize::MAX, &restarted.queue.join("logs")).unwrap();
+    let built = candidate::build(&restarted.worktree, &base, &tickets, &[], usize::MAX, &restarted.queue.join("logs")).unwrap();
     let included: Vec<_> = tickets.iter().map(|(path, ticket)| (path, ticket)).collect();
     after::begin(&restarted, &built.head, &base, &included).unwrap();
     run(&restarted.worktree, &["push", "-q", "origin", &format!("{}:refs/heads/main", built.head)]);
@@ -274,7 +274,7 @@ fn duplicate_branch_names(world: &World) {
     let stray = Lander { worktree: world.root.join("proj/worktrees/worktrees/lander"), ..world.lander() };
     let early = world.enqueue(&stray, &world.lane("early"));
     let main = candidate::prepare(&stray.repo, &stray.worktree).unwrap();
-    let held = candidate::build(&stray.worktree, &main, &queue::collect(&stray.queue).unwrap(), usize::MAX, &stray.queue.join("logs")).unwrap().head;
+    let held = candidate::build(&stray.worktree, &main, &queue::collect(&stray.queue).unwrap(), &[], usize::MAX, &stray.queue.join("logs")).unwrap().head;
     let stray_worktree = stray.worktree.clone();
     drop(stray);
 

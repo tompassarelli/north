@@ -101,7 +101,7 @@ fn start_set(lander: &Lander, base: &str, offset: usize, set: &[Entry], logs: &P
     let name = set.last().and_then(|(path, _)| path.file_stem()).and_then(|stem| stem.to_str()).unwrap_or("lane");
     let log = logs.join(format!("{}-{name}-{}-candidate.log", micros(), set.len()));
     let tickets: Vec<(PathBuf, Ticket)> = set.iter().map(|(path, ticket)| ((*path).clone(), (*ticket).clone())).collect();
-    let built = candidate::build(&worktree, base, &tickets, set.len(), logs)?;
+    let built = candidate::build(&worktree, base, &tickets, &[], set.len(), logs)?;
     let head = built.head;
     let reason = built
         .picks
