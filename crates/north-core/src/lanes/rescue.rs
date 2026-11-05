@@ -194,7 +194,7 @@ fn gather(main_dir: &Path) -> Option<Changes> {
         parsed.push((status, first, second));
     }
     let untracked = git_out(main_dir, &["ls-files", "--others", "--exclude-standard"])?.lines().filter(|line| !line.is_empty()).map(str::to_string).collect();
-    let diff = crate::platform::git::run(main_dir, &["diff", "HEAD"]).ok().filter(|output| output.status.success())?.stdout;
+    let diff = crate::platform::git::run(main_dir, &["diff", "--binary", "HEAD"]).ok().filter(|output| output.status.success())?.stdout;
     Some(Changes { name_status: parsed, tracked, untracked, diff })
 }
 
