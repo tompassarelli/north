@@ -79,7 +79,7 @@ pub fn park_limited(fleet: &Fleet, resets: &dyn AccountResets, now_ms: u64) -> V
     parked
 }
 
-fn recent(record: &SessionRecord) -> bool {
+pub(super) fn recent(record: &SessionRecord) -> bool {
     std::fs::metadata(stream_path(&record.host_dir)).and_then(|stream| stream.modified()).is_ok_and(|at| SystemTime::now().duration_since(at).is_ok_and(|age| age < RECENT))
 }
 

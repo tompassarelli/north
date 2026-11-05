@@ -26,3 +26,22 @@ impl Fleet {
         Ok(())
     }
 }
+
+const ALL_OUT: &str = ".all-out";
+
+impl Fleet {
+    pub fn all_out_announced(&self) -> bool {
+        self.root.join(ALL_OUT).exists()
+    }
+
+    pub fn set_all_out_announced(&self, announced: bool) -> NorthResult<()> {
+        let file = self.root.join(ALL_OUT);
+        if announced {
+            return Ok(fs::write(file, b"")?);
+        }
+        match fs::remove_file(&file) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
+            _ => Ok(()),
+        }
+    }
+}

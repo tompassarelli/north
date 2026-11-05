@@ -13,7 +13,7 @@ pub enum Action {
 
 pub fn actions(world: &World) -> Vec<(Name, Action)> {
     let mut failover = Vec::new();
-    let mut rest = Vec::new();
+    let mut rest: Vec<(bool, Name, Action)> = Vec::new();
     for session in world.sessions.iter().filter(|session| session.owner != Owner::Tom) {
         let account_state = state(world, &session.account, session.family);
         if is_failover(world, session, account_state)
@@ -23,18 +23,18 @@ pub fn actions(world: &World) -> Vec<(Name, Action)> {
             continue;
         }
         match account_state {
-            State::Paused { resumes_at } if session.parked_since.is_none() => rest.push((session.name.clone(), Action::Park { resumes_at })),
+            State::Paused { resumes_at } if session.parked_since.is_none() => rest.push((!session.lead, session.name.clone(), Action::Park { resumes_at })),
             State::WeekOut { .. } | State::ScopeOut { .. } => {
                 if let Some(to) = hand_over_target(world, session) {
-                    rest.push((session.name.clone(), Action::HandOver { to }));
+                    rest.push((!session.lead, session.name.clone(), Action::HandOver { to }));
                 }
             }
             _ => {}
         }
     }
     failover.sort_by(|left, right| left.0.cmp(&right.0));
-    rest.sort_by(|left, right| left.0.cmp(&right.0));
-    failover.extend(rest);
+    rest.sort_by(|left, right| (left.0, &left.1).cmp(&(right.0, &right.1)));
+    failover.extend(rest.into_iter().map(|(_, name, action)| (name, action)));
     failover
 }
 

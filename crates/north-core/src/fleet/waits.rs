@@ -183,6 +183,11 @@ impl Waits {
         self.store(session, &waits)
     }
 
+    pub fn clear_usage(&self, session: &str) -> NorthResult<()> {
+        let kept: Vec<Registered> = self.of(session).into_iter().filter(|wait| !matches!(wait.run, Run::Usage { .. })).collect();
+        self.store(session, &kept)
+    }
+
     fn release(&self, session: &str, run: &Run) -> NorthResult<()> {
         let kept: Vec<Registered> = self.of(session).into_iter().filter(|wait| wait.run != *run).collect();
         self.store(session, &kept)

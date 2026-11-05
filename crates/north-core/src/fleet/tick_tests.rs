@@ -924,3 +924,138 @@ fn a_limit_without_a_stream_reset_parks_until_the_message_clock_or_the_accounts_
 
     assert_eq!(parked[0].until_ms, NOW_MS + 5_000_000, "the message's `3pm` carries no zone, so the account's reset stands");
 }
+
+struct Table(crate::fleet::handover::Observed);
+
+impl crate::fleet::handover::AccountReadings for Table {
+    fn observed(&self, _: u64) -> crate::fleet::handover::Observed {
+        crate::fleet::handover::Observed { readings: self.0.readings.clone(), limits: self.0.limits.clone() }
+    }
+}
+
+fn read(row: i64, account: &str, window: crate::usage::decide::world::Window, used: f64, resets_in_s: i64) -> crate::usage::decide::world::Reading {
+    use crate::usage::decide::world::{Label, Percent, Reading, RowId, Source, Unix};
+    let now = (NOW_MS / 1000) as i64;
+    Reading { row: RowId(row), account: Label(account.into()), window, used: Percent(used), resets_at: Some(Unix(now + resets_in_s)), read_at: Unix(now - 60), source: Source::Header }
+}
+
+fn with_accounts(host: &Host, labels: &[&str]) {
+    let profiles = host.home.path().join(".local/state/north/profiles");
+    let mut policy = String::new();
+    for label in labels {
+        let dir = profiles.join(format!("claude-{label}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".credentials.json"), "{}").unwrap();
+        std::fs::write(dir.join(".claude.json"), format!(r#"{{"oauthAccount":{{"accountUuid":"login-{label}"}}}}"#)).unwrap();
+        policy.push_str(&format!("[accounts.claude.profiles.{label}]\n\"{}\" = {{ path = \"{}\" }}\n", crate::platform::host::name(), dir.display()));
+    }
+    let file = crate::pace::target::home_policy_path(host.home.path());
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, policy).unwrap();
+}
+
+fn working_on(host: &Host, name: &str, account: &str, parent: Option<&str>, lane: &Path) {
+    let _frames = live_with(host, name, "Not done: working.", Some("north#259"));
+    let file = host.root().join(name).join("session.json");
+    let mut record: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    record["account"] = json!(account);
+    record["cwd"] = json!(lane);
+    record["parent"] = json!(parent);
+    std::fs::write(file, record.to_string()).unwrap();
+}
+
+fn lane(host: &Host, name: &str) -> PathBuf {
+    let lane = host.home.path().join("lanes").join(name);
+    std::fs::create_dir_all(&lane).unwrap();
+    std::fs::write(lane.join("work.rs"), "unlanded").unwrap();
+    lane
+}
+
+type Launches = std::cell::RefCell<Vec<crate::fleet::model::LaunchRequest>>;
+
+fn hand_over_with(host: &Host, table: &Table, launches: &Launches) -> crate::fleet::handover::HandOver {
+    let take = |request: &crate::fleet::model::LaunchRequest| {
+        launches.borrow_mut().push(request.clone());
+        host.fleet.session(&request.name)
+    };
+    crate::fleet::handover::hand_over(&host.fleet, table, &|_| true, &take, NOW_MS)
+}
+
+fn fixture(week_out: &[(&str, i64)], open: &[&str]) -> Table {
+    use crate::usage::decide::world::Window;
+    let mut readings = Vec::new();
+    for (row, (account, resets_in_s)) in week_out.iter().enumerate() {
+        readings.push(read(row as i64 * 4, account, Window::Week, 100.0, *resets_in_s));
+        readings.push(read(row as i64 * 4 + 1, account, Window::FiveHour, 0.0, 9_000));
+    }
+    for (row, account) in open.iter().enumerate() {
+        readings.push(read(100 + row as i64 * 2, account, Window::Week, 10.0, 400_000));
+        readings.push(read(101 + row as i64 * 2, account, Window::FiveHour, 5.0, 9_000));
+    }
+    Table(crate::fleet::handover::Observed { readings, limits: Vec::new() })
+}
+
+#[test]
+fn two_working_sessions_on_an_account_whose_week_ran_out_are_taken_over_onto_an_open_account_lead_first_with_their_lanes() {
+    let host = host("nexus");
+    with_accounts(&host, &["a", "c"]);
+    let (worker_lane, lead_lane) = (lane(&host, "worker"), lane(&host, "lead"));
+    working_on(&host, "worker", "c", Some("lead"), &worker_lane);
+    working_on(&host, "lead", "c", None, &lead_lane);
+    let launches = Launches::default();
+
+    let done = hand_over_with(&host, &fixture(&[("c", 300_000)], &["a"]), &launches);
+
+    let launched = launches.borrow();
+    assert_eq!(launched.iter().map(|request| (request.name.as_str(), request.account.as_str())).collect::<Vec<_>>(), [("lead", "a"), ("worker", "a")]);
+    assert!(launched.iter().all(|request| request.prompt.starts_with("Follows: north#259")), "{:?}", launched[0].prompt);
+    assert_eq!((launched[0].cwd.as_path(), launched[1].cwd.as_path()), (lead_lane.as_path(), worker_lane.as_path()));
+    assert!(lead_lane.join("work.rs").exists() && worker_lane.join("work.rs").exists(), "the lanes are untouched");
+    assert!(["lead", "worker"].iter().all(|name| host.fleet.session(name).unwrap().ended.is_none()), "neither session has exited");
+    assert_eq!(done.lines.len(), 2);
+    assert_eq!(done.alert, None, "an account has headroom, so nothing goes to Tom");
+}
+
+#[test]
+fn a_lead_paused_on_the_five_hour_window_for_ten_minutes_fails_over_but_a_worker_in_the_same_pause_waits_for_the_reset() {
+    use crate::fleet::waits::{Registered, Run};
+    let host = host("nexus");
+    with_accounts(&host, &["a", "c"]);
+    let (worker_lane, lead_lane) = (lane(&host, "worker"), lane(&host, "lead"));
+    working_on(&host, "worker", "c", Some("lead"), &worker_lane);
+    working_on(&host, "lead", "c", None, &lead_lane);
+    let parked_since_ms = NOW_MS - 11 * 60_000;
+    for (name, cwd) in [("lead", &lead_lane), ("worker", &worker_lane)] {
+        let wait = Registered { run: Run::Usage { account: "c".into(), at_ms: NOW_MS + 3_600_000 }, cwd: cwd.clone(), since_ms: parked_since_ms, label: None };
+        std::fs::create_dir_all(host.root().join(".waits")).unwrap();
+        std::fs::write(host.root().join(".waits").join(format!("{name}.json")), serde_json::to_vec(&[wait]).unwrap()).unwrap();
+    }
+    let launches = Launches::default();
+    let mut table = fixture(&[], &["a", "c"]);
+    table.0.readings.retain(|reading| reading.account.0 != "c");
+
+    let done = hand_over_with(&host, &table, &launches);
+
+    assert_eq!(launches.borrow().iter().map(|request| request.name.as_str()).collect::<Vec<_>>(), ["lead"]);
+    assert_eq!(done.lines.len(), 1);
+    assert!(host.fleet.waits().of("lead").is_empty(), "the handed-over lead no longer waits on the old account's reset");
+    assert_eq!(host.fleet.waits().of("worker").len(), 1, "the worker stays parked until the reset");
+}
+
+#[test]
+fn when_every_account_is_out_nothing_is_taken_over_and_tom_hears_the_earliest_resume_once() {
+    let host = host("nexus");
+    with_accounts(&host, &["a", "c"]);
+    working_on(&host, "lead", "c", None, &lane(&host, "lead"));
+    working_on(&host, "worker", "c", Some("lead"), &lane(&host, "worker"));
+    let launches = Launches::default();
+    let table = fixture(&[("a", 500_000), ("c", 200_000)], &[]);
+
+    let first = hand_over_with(&host, &table, &launches);
+    let second = hand_over_with(&host, &table, &launches);
+
+    assert!(launches.borrow().is_empty() && first.lines.is_empty());
+    let line = first.alert.expect("the first pass tells Tom");
+    assert!(line.contains("earliest resumes") && line.contains("in 2 days"), "{line}");
+    assert_eq!(second.alert, None, "Tom hears it once");
+}

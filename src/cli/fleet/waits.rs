@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::detached;
+use crate::fleet::handover::hand_over;
 use crate::fleet::limit::park_limited;
 use crate::fleet::model::{Delivery, Ending};
 use crate::fleet::registry::{Fleet, Waiting};
@@ -19,16 +20,17 @@ use crate::fleet::tick::{Probed, WaitProbes};
 use crate::fleet::limit::Parked;
 use crate::fleet::waits::{Probe, Registered, Run, Settled};
 use crate::foundation::clock::Timestamp;
-use crate::platform::process::run_command_within;
+use crate::platform::process::{run_command_within, run_within};
 
 use super::placement::Overrides;
-use super::limit::{UsageTable, holds_unqueued_lane};
+use super::limit::{UsageTable, holds_unlanded_lane, holds_unqueued_lane};
 use super::row;
 use super::ledger::Ledger;
 use super::revive;
 
 const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME)";
 const PROBE: Duration = Duration::from_secs(30);
+const ALERT: Duration = Duration::from_secs(30);
 const JOB_STARTED_BEFORE_MS: f64 = 30.0 * 60_000.0;
 
 pub(super) fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> {
@@ -76,6 +78,10 @@ pub(super) struct Probes;
 impl WaitProbes for Probes {
     fn settle(&self, fleet: &Fleet) -> Probed {
         let parked = park_limited(fleet, &UsageTable, now_ms());
+        let handed = hand_over(fleet, &UsageTable, &|record| holds_unlanded_lane(&record.cwd), &|request| fleet.take_over(request), now_ms());
+        if let Some(line) = &handed.alert {
+            tell_tom(line);
+        }
         let usage_parked = |name: &str| fleet.waits().of(name).iter().any(|wait| matches!(wait.run, Run::Usage { .. }));
         let tell = |name: &str, text: &str| -> NorthResult<()> {
             let Ok(record) = fleet.session(name) else { return Ok(()) };
@@ -87,8 +93,14 @@ impl WaitProbes for Probes {
         };
         let exists = |name: &str| fleet.session(name).is_ok();
         let told = fleet.waits().settle(&Runs::default(), &exists, &tell);
-        let lines = parked.iter().map(Parked::line).chain(told.iter().map(Settled::line)).collect();
+        let lines = parked.iter().map(Parked::line).chain(handed.lines).chain(handed.alert).chain(told.iter().map(Settled::line)).collect();
         Probed { lines, settled: told.iter().filter_map(|settled| settled.run.request(&settled.session)).map(|request| request.key()).collect() }
+    }
+}
+
+fn tell_tom(line: &str) {
+    if run_within("nexus-alert", &["normal", line, "north fleet tick"], ALERT).is_none_or(|out| !out.status.success()) {
+        eprintln!("north fleet: nexus-alert failed; the line was: {line}");
     }
 }
 
