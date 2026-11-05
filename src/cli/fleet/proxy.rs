@@ -12,17 +12,19 @@ use super::interactive;
 use super::placement::Overrides;
 use super::revive;
 use super::router;
+use super::window_move;
 
-const USAGE: &str = "usage: north proxy [--interactive] | north proxy calls TRANSCRIPT";
+const USAGE: &str = "usage: north proxy [--interactive] | north proxy calls TRANSCRIPT | north proxy move [--to ACCOUNT] [--auto] [--dry-run]";
 const OPENING: &str = "[north: north proxy started this session as Tom's proxy]";
 
 pub(in crate::cli) fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    let result = router::open_fleet().and_then(|fleet| match words.as_slice() {
-        [] => attach(fleet),
-        ["--interactive"] => interactive::run(&fleet, PROXY),
+    let result = match words.as_slice() {
+        ["move", rest @ ..] => window_move::run(rest),
+        [] => router::open_fleet().and_then(attach),
+        ["--interactive"] => router::open_fleet().and_then(|fleet| interactive::run(&fleet, PROXY)),
         _ => Err(NorthError::Usage(USAGE.into())),
-    });
+    };
     match result {
         Ok(()) => 0,
         Err(error) => {

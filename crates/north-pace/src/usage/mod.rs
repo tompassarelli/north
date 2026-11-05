@@ -18,6 +18,7 @@ mod fast;
 mod gate;
 pub mod breaker;
 pub mod decide;
+pub mod outlook;
 pub mod profiles;
 mod py;
 mod refresh;

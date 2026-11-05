@@ -10,6 +10,7 @@ use crate::pacing::placement::{config, gate, pass};
 use super::ledger::Ledger;
 use super::rebooted;
 use super::waits::Probes;
+use super::window_move;
 
 const USAGE: &str = "Usage: north fleet tick";
 const BUDGET: Duration = Duration::from_secs(15);
@@ -26,6 +27,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let pulls = Pulls { spools: &OverSsh::default(), always: always_pulled(fleet) };
     let ticked = tick(fleet, &mut Ledger, &pulls, &Probes, now_ms(), BUDGET);
     let revived = rebooted::run(fleet, &["--revive"]);
+    window_move::auto();
     let ticked = ticked?;
     ticked.lines().iter().for_each(|line| println!("{line}"));
     println!("{}", ticked.timing());

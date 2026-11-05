@@ -25,6 +25,7 @@ mod tick;
 mod tier;
 mod tree;
 mod usage;
+mod window_move;
 mod view;
 mod usage_ingest;
 mod waits;
