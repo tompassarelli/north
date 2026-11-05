@@ -31,6 +31,7 @@ impl Recorded {
             .args(arguments)
             .env_remove("AGENT_CAPACITY_CPU_PRESSURE")
             .env("AGENT_CAPACITY_CORES", "20")
+            .env("HOME", self.host.path("home"))
             .output_exclusive()
             .unwrap();
         assert!(matches!(output.status.code(), Some(0 | 75)), "{}", String::from_utf8_lossy(&output.stderr));
@@ -38,7 +39,9 @@ impl Recorded {
     }
 
     fn estimate(&self, command: &[&str]) -> Value {
-        self.run(&[&["estimate", "--json", "--"], command].concat(), Path::new(env!("CARGO_MANIFEST_DIR")))
+        let checkout = self.host.path("home/code/north");
+        fs::create_dir_all(&checkout).unwrap();
+        self.run(&[&["estimate", "--json", "--"], command].concat(), &checkout)
     }
 
     fn probe(&self, class: &str) -> String {

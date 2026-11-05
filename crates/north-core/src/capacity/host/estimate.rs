@@ -102,7 +102,8 @@ pub fn task_signature(argv: &[String], cwd: Option<&str>, kind: &str, exact: boo
     }
     let program = words.first().map_or("", |word| basename(word)).to_owned();
     static REPO: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| Regex::new(r"^(?:~|/home/[^/]+)/code/([^/]+)(?:/|$)").expect("repo pattern"));
-    let repo = cwd.and_then(|cwd| REPO.captures(cwd)).map(|captures| captures[1].to_owned());
+    let under_home = cwd.zip(std::env::var("HOME").ok()).and_then(|(cwd, home)| cwd.strip_prefix(home.trim_end_matches('/'))?.strip_prefix("/code/")?.split('/').next().filter(|name| !name.is_empty()).map(str::to_owned));
+    let repo = under_home.or_else(|| cwd.and_then(|cwd| REPO.captures(cwd)).map(|captures| captures[1].to_owned()));
     TaskSignature {
         family: family(&words, &program, repo.as_deref(), kind),
         package: if exact { target(&words, &program) } else { None },

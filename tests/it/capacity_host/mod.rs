@@ -154,6 +154,10 @@ impl Host {
             ("AGENTS_ORCHESTRATION", self.path("orchestration.toml").display().to_string()),
             ("CAPACITY_WATCHDOG_DIR", self.path("no-watchdog").display().to_string()),
             ("GAME_RESERVE_STATE", self.path("game-reserve.json").display().to_string()),
+            ("GAME_RESERVE_PROC", self.path("game-reserve-proc").display().to_string()),
+            ("GAME_RESERVE_CGROUP", self.path("game-reserve-cgroup").display().to_string()),
+            ("GAME_RESERVE_AFFINITY_LOG", self.path("game-reserve-pins.log").display().to_string()),
+            ("GAME_RESERVE_BUSCTL", "true".to_owned()),
         ] {
             command.env(key, value);
         }

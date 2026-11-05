@@ -140,11 +140,11 @@ fn only_a_declared_gaming_marker_lets_moderate_work_pass_a_parked_heavy_ticket()
 }
 
 const DESKTOP_APPLIED: &str = "no reservation; agents run at their slice weights";
-const PLAY_APPLIED: &str = "play reserve 8 CPUs; game CPUs reserved, native, exclusive and gpu batch held, heavy batch paused";
+const PLAY_APPLIED: &str = "play reserve 8 CPUs; game CPUs reserved, native, exclusive and gpu batch held, heavy batch paused until the CPU split is enforced";
 
 fn assert_play_hold(line: &str) {
     assert!(line.starts_with("mode play (since "), "{line}");
-    assert!(line.contains(": quiet hold from Tom's prompt \"north capacity gaming on\" until "), "{line}");
+    assert!(line.contains(": playtest lease from Tom's prompt \"north capacity gaming on\" until "), "{line}");
     assert!(line.ends_with(&format!("; {PLAY_APPLIED}")), "{line}");
 }
 
