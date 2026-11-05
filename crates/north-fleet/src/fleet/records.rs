@@ -10,6 +10,8 @@ use super::model::SessionRecord;
 const RECORD: &str = "session.json";
 pub const ARCHIVE: &str = ".archive";
 pub const PLACED: &str = ".placed";
+/// Marks a session whose claims the exited sweep cleared, so later sweeps skip it until it starts again.
+pub const CLAIMS_RELEASED: &str = "claims.released";
 
 static WRITES: AtomicU64 = AtomicU64::new(0);
 

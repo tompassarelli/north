@@ -17,7 +17,7 @@ use super::landings::{self, push_log};
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
-use super::records::{PLACED, read_record, write_record};
+use super::records::{CLAIMS_RELEASED, PLACED, read_record, write_record};
 use super::remote;
 use super::roster::Roster;
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime};
@@ -284,6 +284,10 @@ impl Fleet {
         record.stopped = false;
         record.ended = None;
         write_record(&self.root.join(&record.name), record)?;
+        match fs::remove_file(self.root.join(&record.name).join(CLAIMS_RELEASED)) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        }
         self.watch_over(record)?;
         let frames = runtime.open(&record.name, &request, opening, Instructions { text: &instructions, changed })?;
         if !frames.is_empty() {

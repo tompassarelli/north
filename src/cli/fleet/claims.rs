@@ -133,6 +133,51 @@ mod tests {
         assert!(claims.holders(Rows::Items(&words(&["north#1"]))).unwrap().is_empty());
     }
 
+    struct Counted(Held, std::sync::atomic::AtomicUsize);
+
+    impl Claims for Counted {
+        fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
+            self.0.hold(item, session)
+        }
+
+        fn release(&self, item: &str, session: &str) -> NorthResult<()> {
+            self.0.release(item, session)
+        }
+
+        fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
+            self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.0.holders(rows)
+        }
+    }
+
+    #[test]
+    fn an_exited_session_is_swept_once_and_later_verbs_never_ask_the_ledger_about_it() {
+        let home = tempfile::tempdir().unwrap();
+        let ledger = Arc::new(Ledger::open(&home.path().join("ledger.db")).unwrap());
+        let claims = Arc::new(Counted(Held::default(), Default::default()));
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Claude)]), ledger, claims.clone()).unwrap();
+        for (name, item) in [("gone", "north#1"), ("left", "north#2")] {
+            let session = home.path().join(".local/state/north/fleet").join(name);
+            std::fs::create_dir_all(&session).unwrap();
+            let record = json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "stopped": true});
+            std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+            claims.hold(item, name).unwrap();
+        }
+        let reads = || claims.1.load(std::sync::atomic::Ordering::SeqCst);
+
+        assert_eq!(fleet.release_exited_claims().unwrap(), 2);
+        assert_eq!(reads(), 1);
+        assert!(claims.0.holders(Rows::Items(&["north#1".to_owned(), "north#2".to_owned()])).unwrap().is_empty());
+        for name in ["gone", "left"] {
+            assert!(home.path().join(".local/state/north/fleet").join(name).join(crate::fleet::records::CLAIMS_RELEASED).exists(), "{name} unmarked");
+        }
+
+        for _ in 0..3 {
+            release_exited_claims(&fleet, &["send".to_owned(), "gone".to_owned()]);
+        }
+        assert_eq!(reads(), 1, "a later send asked the ledger about sessions already swept");
+    }
+
     fn a_hung_courier(home: &std::path::Path) -> ThreadsCli {
         let script = home.join("hung-north");
         crate::foundation::shim::write_script(&script, "sleep 30\n");
