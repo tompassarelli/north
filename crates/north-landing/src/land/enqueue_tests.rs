@@ -4,7 +4,7 @@ use std::process::Command;
 
 use serde_json::json;
 
-use super::refuse_static_gates;
+use super::{published, refuse_static_gates};
 
 fn run(repo: &Path, args: &[&str]) -> String {
     let output = Command::new("git").arg("-C").arg(repo).args(["-c", "commit.gpgsign=false", "-c", "user.name=Gate fixture", "-c", "user.email=fixture@example.invalid"]).args(args).output().unwrap();
@@ -37,4 +37,25 @@ fn a_lane_only_behind_main_is_judged_on_its_own_changes_not_on_what_main_dropped
     commit(repo, "lane touches only notes");
     assert!(!crate::language_gate::check(repo, &main, "HEAD"), "diffing from main's tip shows main's removal as the lane widening the allowlist");
     assert_eq!(refuse_static_gates(repo, &main, "HEAD"), Ok(()));
+}
+
+#[test]
+fn a_lane_started_from_an_origin_branch_names_it_as_published() {
+    let dir = tempfile::tempdir().unwrap();
+    let origin = dir.path().join("origin.git");
+    let repo = dir.path().join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    run(dir.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    run(&repo, &["init", "-q", "-b", "main"]);
+    run(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    fs::write(repo.join("README"), "start\n").unwrap();
+    commit(&repo, "start");
+    run(&repo, &["push", "-q", "origin", "main", "main:refs/heads/claude/land-x"]);
+    run(&repo, &["fetch", "-q", "origin"]);
+    run(&repo, &["branch", "-q", "--track", "cl-x", "origin/claude/land-x"]);
+    run(&repo, &["branch", "-q", "--track", "plain", "origin/main"]);
+    run(&repo, &["branch", "-q", "--no-track", "loose", "main"]);
+    assert_eq!(published(&repo, "cl-x", "main").as_deref(), Some("claude/land-x"));
+    assert_eq!(published(&repo, "plain", "main"), None);
+    assert_eq!(published(&repo, "loose", "main"), None);
 }

@@ -109,6 +109,7 @@ impl Repository {
             decided_on: None,
             verdict: None,
             keep_lane: false,
+            published: None,
         };
         let micros = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros();
         queue::write(&self.queue.join(queue::file_name(micros, branch)), &ticket).unwrap();

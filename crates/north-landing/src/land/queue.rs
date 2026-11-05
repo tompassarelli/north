@@ -55,6 +55,8 @@ pub struct Ticket {
     pub urgent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decided_on: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published: Option<String>,
 }
 
 impl Ticket {

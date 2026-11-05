@@ -6,6 +6,7 @@ use std::process::Command;
 use super::super::candidate::{git, output};
 use super::super::lander::Lander;
 use super::super::queue::{self, Ticket};
+use crate::landing::landed_tree;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -72,18 +73,18 @@ fn occupant(root: &Path) -> Option<u32> {
     })
 }
 
-fn delete_merged_remote_branch(lander: &Lander, ticket: &Ticket, landed: &str) {
-    let reference = format!("refs/heads/{}", ticket.branch);
+fn delete_held_remote_branch(lander: &Lander, branch: &str, holder: &str) {
+    let reference = format!("refs/heads/{branch}");
     let Ok(listing) = git(&lander.repo, &["ls-remote", "origin", &reference]) else { return };
     let Some(remote_oid) = listing.split_whitespace().next().filter(|oid| !oid.is_empty()) else { return };
-    let scratch = format!("refs/land-cleanup/{}", queue::slug(&ticket.branch));
+    let scratch = format!("refs/land-cleanup/{}", queue::slug(branch));
     if git(&lander.repo, &["fetch", "-q", "--no-tags", "origin", &format!("+{reference}:{scratch}")]).is_err() {
         return;
     }
-    let merged = on_main(&lander.repo, landed, &scratch);
+    let merged = on_main(&lander.repo, holder, &scratch) || landed_tree::landed(&lander.repo, holder, &scratch).is_some();
     let _ = git(&lander.repo, &["update-ref", "-d", &scratch]);
     if !merged {
-        println!("north land: origin {} holds commits that are not on main; left in place", ticket.branch);
+        println!("north land: origin {branch} holds work {holder} lacks; left for lane-gc --remote");
         return;
     }
     let pushed = Command::new("git")
@@ -93,8 +94,14 @@ fn delete_merged_remote_branch(lander: &Lander, ticket: &Ticket, landed: &str) {
         .env("SAFE_PUSH_ACTIVE", "1")
         .output();
     match pushed {
-        Ok(result) if result.status.success() => println!("north land: origin {} is fully on main; deleted it", ticket.branch),
-        _ => println!("north land: could not delete origin {}; left in place", ticket.branch),
+        Ok(result) if result.status.success() => println!("north land: origin {branch} is fully in {holder}; deleted it"),
+        _ => println!("north land: could not delete origin {branch}; left for lane-gc --remote"),
+    }
+}
+
+pub fn origin_branches(lander: &Lander, ticket: &Ticket, holder: &str) {
+    for branch in std::iter::once(&ticket.branch).chain(&ticket.published) {
+        delete_held_remote_branch(lander, branch, holder);
     }
 }
 
@@ -128,11 +135,7 @@ fn judge(lander: &Lander, ticket: &Ticket, landed: &str) -> Result<PathBuf, Stri
 }
 
 pub fn clean(lander: &Lander, ticket: &Ticket, landed: &str) -> Outcome {
-    let judged = judge(lander, ticket, landed);
-    if on_main(&lander.repo, landed, &ticket.head) {
-        delete_merged_remote_branch(lander, ticket, landed);
-    }
-    let root = match judged {
+    let root = match judge(lander, ticket, landed) {
         Ok(root) => root,
         Err(reason) => return Outcome::Kept(reason),
     };

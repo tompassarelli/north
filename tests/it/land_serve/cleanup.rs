@@ -94,3 +94,44 @@ fn remote_unmerged() {
     assert!(fixture.serve().status.success());
     assert!(remote_has(&fixture, "lane-a"), "a remote lane branch with unlanded work was deleted");
 }
+
+fn published_lane(fixture: &mut Fixture, name: &str, extra: Option<(&str, &str)>) -> (PathBuf, PathBuf) {
+    let lane = fixture.lane(name, &format!("{name}.txt"), name);
+    if let Some((file, text)) = extra {
+        fixture.commit(&lane, file, text, &format!("{file} from {name}"));
+    }
+    git(&lane, &["push", "-q", "origin", &format!("HEAD:refs/heads/claude/land-{name}")]);
+    let path = fixture.enqueue(&lane, None);
+    let mut ticket = queue::read(&path).unwrap();
+    ticket.published = Some(format!("claude/land-{name}"));
+    queue::write(&path, &ticket).unwrap();
+    (lane, path)
+}
+
+#[test]
+fn published_landed() {
+    let mut fixture = Fixture::new();
+    published_lane(&mut fixture, "a", None);
+    assert!(fixture.serve().status.success());
+    assert!(!remote_has(&fixture, "claude/land-a"), "the landed lane's published origin branch was kept");
+}
+
+#[test]
+fn published_refused() {
+    let mut fixture = Fixture::new();
+    let (_, path) = published_lane(&mut fixture, "a", Some(("fail.txt", "fail\n")));
+    executable(&fixture.trace.join("hook"), "#!/usr/bin/env bash\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo 'refused https://github.com/o/r/actions/runs/5151' >\"$LAND_TRACE/verdict-$1\"\n");
+    assert!(fixture.serve().status.success());
+    assert!(fixture.verdict(&path).is_some_and(|verdict| !verdict.starts_with("landed ")), "{:?}", fixture.verdict(&path));
+    assert!(!remote_has(&fixture, "claude/land-a"), "the refused lane's published origin branch was kept though the lane holds it");
+}
+
+#[test]
+fn published_ahead() {
+    let mut fixture = Fixture::new();
+    let (lane, _) = published_lane(&mut fixture, "a", None);
+    fixture.commit(&lane, "later.txt", "pushed after queueing", "later");
+    git(&lane, &["push", "-q", "origin", "HEAD:refs/heads/claude/land-a"]);
+    assert!(fixture.serve().status.success());
+    assert!(remote_has(&fixture, "claude/land-a"), "a published branch with work the landing lacks was deleted");
+}

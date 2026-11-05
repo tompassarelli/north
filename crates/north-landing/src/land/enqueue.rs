@@ -186,6 +186,12 @@ fn refuse_static_gates(root: &Path, destination: &str, head: &str) -> Result<(),
     Ok(())
 }
 
+fn published(root: &Path, branch: &str, destination: &str) -> Option<String> {
+    let upstream = git(root, &["rev-parse", "--symbolic-full-name", &format!("{branch}@{{upstream}}")]).ok()?;
+    let name = upstream.strip_prefix("refs/remotes/origin/")?;
+    (name != destination && name != branch).then(|| name.to_owned())
+}
+
 pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment) -> Result<Queued, String> {
     let root = PathBuf::from(git(repo, &["rev-parse", "--show-toplevel"])?);
     let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
@@ -228,6 +234,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         keep_lane,
         urgent: None,
         decided_on: None,
+        published: published(&root, &branch, &destination),
     };
     let outbox = off_lander_host(&root, &remote_ref, environment.host);
     let queue = queue::directory(environment.state_home, &origin);

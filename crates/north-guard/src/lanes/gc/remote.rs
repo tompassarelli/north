@@ -32,6 +32,7 @@ struct Branch<'a> {
     pushed_at: i64,
     age_h: f64,
     ancestor: bool,
+    on_main: bool,
     key: String,
 }
 
@@ -105,6 +106,14 @@ fn slug(text: &str) -> String {
     text.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '-' }).collect()
 }
 
+fn live_ticket(home: &Path, branch: &str) -> Option<String> {
+    let queues = std::fs::read_dir(home.join(".local/state/north/land-queue")).ok()?;
+    let names = |ticket: &Value| ["branch", "published"].iter().any(|field| ticket.get(field).and_then(Value::as_str) == Some(branch));
+    queues.flatten().flat_map(|queue| [queue.path(), queue.path().join("outbox")]).filter_map(|dir| std::fs::read_dir(dir).ok()).flatten().flatten().map(|entry| entry.path()).find(|path| {
+        path.extension().is_some_and(|extension| extension == "json") && std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).is_some_and(|ticket| names(&ticket))
+    }).map(|path| path.file_name().unwrap_or_default().to_string_lossy().into_owned())
+}
+
 fn github_hold(evidence: &Evidence, branch: &Branch) -> Option<&'static str> {
     if protected_branch(branch.name) {
         Some("protected branch")
@@ -123,10 +132,10 @@ fn github_hold(evidence: &Evidence, branch: &Branch) -> Option<&'static str> {
 
 fn age_hold(evidence: &Evidence, branch: &Branch) -> Option<&'static str> {
     let pushed = evidence.pushes.as_ref().is_some_and(|pushes| pushes.contains_key(&format!("refs/heads/{}", branch.name)));
-    if branch.landing {
-        (branch.age_h < 4.0).then_some("a landing ref pushed under 4h")
-    } else if branch.ancestor {
+    if branch.on_main {
         Some("")
+    } else if branch.landing {
+        (branch.age_h < 4.0).then_some("a landing ref pushed under 4h")
     } else if branch.age_h < 24.0 {
         Some("a fresh commit")
     } else {
@@ -193,11 +202,15 @@ impl Gc {
             pushed_at,
             age_h: (self.now_ms - since) as f64 / HOUR_MS as f64,
             ancestor: git(main, &["merge-base", "--is-ancestor", tip, BASE]).ok,
+            on_main: landed(main, BASE, tip).landed,
             key: format!("{name}:{branch}"),
         })
     }
 
     fn live_reason(&mut self, name: &str, main: &Path, evidence: &Evidence, branch: &Branch) -> String {
+        if let Some(ticket) = live_ticket(&self.home, branch.name) {
+            return format!("c live land ticket {ticket}");
+        }
         match github_hold(evidence, branch).or_else(|| age_hold(evidence, branch)) {
             Some(reason) => reason.to_string(),
             None => self.holder_reason(name, main, branch).unwrap_or_else(|_| "c Fleet holder liveness unavailable".into()),
@@ -230,11 +243,11 @@ impl Gc {
     fn remote_branch(&mut self, name: &str, main: &Path, evidence: &Evidence, node: &Value, remote: bool, split: &mut Split) -> Result<(), String> {
         let branch = self.branch_facts(name, main, evidence, node)?;
         let reason = self.live_reason(name, main, evidence, &branch);
-        let mut facts = Facts {
+        let facts = Facts {
             age: (branch.age_h * HOUR_MS as f64).floor() as i64,
-            minimum_age: if branch.landing { 4 * HOUR_MS } else if branch.ancestor { i64::MIN } else { 24 * HOUR_MS },
+            minimum_age: if branch.on_main { i64::MIN } else if branch.landing { 4 * HOUR_MS } else { 24 * HOUR_MS },
             merged: branch.ancestor,
-            equivalent: false,
+            equivalent: branch.on_main && !branch.ancestor,
             evil_merge: false,
             archive_age: Some(if branch.landing { 4 } else { 24 } * HOUR_MS),
             protections: u32::from(!reason.is_empty()),
@@ -247,12 +260,11 @@ impl Gc {
             println!("{name}: origin {}: LIVE({reason})", branch.name);
             return Ok(());
         }
-        if branch.landing && !self.landing_grace_over(name, &branch)? {
+        if branch.landing && !branch.on_main && !self.landing_grace_over(name, &branch)? {
             split.skipped += 1;
             return Ok(());
         }
-        facts.equivalent = !branch.ancestor && landed(main, BASE, branch.tip).landed;
-        let is_landed = !branch.landing && matches!(retirement_verdict(&facts), Verdict::Retire | Verdict::RetireEquivalent);
+        let is_landed = branch.on_main && matches!(retirement_verdict(&facts), Verdict::Retire | Verdict::RetireEquivalent);
         self.retire_remote(name, main, &branch, is_landed, remote, split)
     }
 
