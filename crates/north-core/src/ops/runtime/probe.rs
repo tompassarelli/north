@@ -246,7 +246,7 @@ fn facts_script() -> String {
          mark pressure; cat \"$proc/pressure/cpu\"\n\
          mark load; cat \"$proc/loadavg\"; nproc\n\
          mark north; for pid in \"$proc\"/[0-9]*; do read -r name <\"$pid/comm\" 2>/dev/null && [ \"$name\" = north ] || continue; \
-         mapfile -d '' -t argv <\"$pid/cmdline\" 2>/dev/null || continue; [ ${{#argv[@]}} -gt 0 ] || argv=(north); (IFS=$'\\t'; echo \"${{argv[*]}}\"); done\n\
+         mapfile -d '' -t argv <\"$pid/cmdline\" 2>/dev/null || continue; [ ${{#argv[@]}} -gt 0 ] || argv=(north); argv=(\"${{argv[@]//[$'\\t\\n']/ }}\"); (IFS=$'\\t'; echo \"${{argv[*]}}\"); done\n\
          for settings in \"$HOME/.claude/settings.json\" \"$state\"/profiles/*/settings.json; do\n\
          case \"$settings\" in */profiles/stale-*) continue ;; esac\n\
          [ -f \"$settings\" ] && {{ mark \"settings $settings\"; cat \"$settings\"; }}\ndone\ntrue\n",
@@ -359,6 +359,19 @@ mod tests {
         let (problems, record) = proc.problems();
         assert_eq!(problems, Vec::<String>::new());
         assert_eq!(record, json!({"transient": 20, "liveSessions": 50, "residents": {"session-host": 50, "session-link": 50, "fleet watchdog": 50}}));
+    }
+
+    #[test]
+    fn only_processes_named_north_count_and_a_multi_line_argument_stays_one_process() {
+        let mut proc = FakeProc::new();
+        proc.sessions(2, 1);
+        proc.spawn("north", &["/runtimes/a/north", "session-host", "--name", "worker-2", "--", "claude", "--append-system-prompt", "first\n\tsecond\nthird"]);
+        proc.spawn("claude", &["claude", "--cwd", "/home/tom/code/north/worktrees/a", "--append-system-prompt", "north\nsession-host\nfleet watchdog"]);
+        proc.spawn("bash", &["bash", "/home/tom/code/north/worktrees/a/scripts/check.sh", "fleet", "list"]);
+        proc.spawn("rustc", &["rustc", "--crate-name", "north_core", "/home/tom/code/north/main/crates/north-core/src/lib.rs"]);
+        let (problems, record) = proc.problems();
+        assert_eq!(problems, Vec::<String>::new());
+        assert_eq!(record, json!({"transient": 0, "liveSessions": 3, "residents": {"session-host": 3, "session-link": 2, "fleet watchdog": 2}}));
     }
 
     #[test]
