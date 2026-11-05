@@ -203,9 +203,11 @@ fn sync_publishes_from_local_main_when_the_fetch_fails_and_the_policy_gate_passe
     fs::create_dir_all(&agents).unwrap();
     fs::write(
         agents.join("catalog-config.json"),
-        r#"{"activation": {}, "registrations": {}, "baselines": []}"#,
+        r#"{"rootOrder": [], "activation": {}, "registrations": {}, "baselines": [], "providerSupport": []}"#,
     )
     .unwrap();
+    fs::create_dir_all(root.join("north/agent-machinery")).unwrap();
+    fs::write(root.join("north/agent-machinery/catalog.json"), "{}").unwrap();
     fs::write(agents.join("orchestration.toml"), "[projects]\n").unwrap();
     fs::write(agents.join("AGENTS.md"), "# Policy\n").unwrap();
     let sha = String::from_utf8(
@@ -270,5 +272,5 @@ fn sync_publishes_from_local_main_when_the_fetch_fails_and_the_policy_gate_passe
     )
     .unwrap();
     assert_eq!(before, after);
-    assert!(said.contains("current/activation.json"), "{said}");
+    assert!(home.join(".local/state/north/agents/current/activation.json").is_file(), "{said}");
 }
