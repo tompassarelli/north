@@ -188,7 +188,7 @@ pub fn refresh(only: &[String], force: bool, wait: bool) -> Result<Value> {
                         quote(&d.id)
                     ));
                 }
-                sql.push_str(&format!("insert into docs(source,id,ref,title,text,at,decays) values ({},{},{},{},{},{},{});\n",quote(&d.source),quote(&d.id),quote(&d.reference),quote(&redact(&d.title)),quote(&redact(&cut(&d.text,4000))),d.at,usize::from(d.decays)));
+                sql.push_str(&insert(d));
                 newest = newest.max(d.at);
             }
             if let Some(days) = retention {
@@ -316,4 +316,20 @@ fn projects() -> Vec<Doc> {
         }
     }
     out
+}
+pub(super) fn insert(d: &Doc) -> String {
+    format!(
+        "insert into docs(source,id,ref,title,text,at,decays) values ({},{},{},{},{},{},{});\n",
+        quote(&d.source),
+        quote(&d.id),
+        quote(&d.reference),
+        quote(&redact(&d.title)),
+        quote(&redact(&cut(&d.text, 4000))),
+        d.at,
+        usize::from(d.decays)
+    )
+}
+#[cfg(test)]
+pub(super) fn repo_docs(north: PathBuf, south: PathBuf) -> Vec<Doc> {
+    policy::repo_docs(north, south)
 }

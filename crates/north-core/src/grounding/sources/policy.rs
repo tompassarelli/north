@@ -462,8 +462,12 @@ pub(super) fn file_docs(
     vec![]
 }
 pub fn iter_docs() -> Vec<Doc> {
-    let north = north_dir();
     let south = env_path("NORTH_GROUNDING_SOUTH", home().join("code/south/main"));
+    let mut out = repo_docs(north_dir(), south);
+    out.extend(handoff_docs());
+    out
+}
+pub fn repo_docs(north: PathBuf, south: PathBuf) -> Vec<Doc> {
     let north_files = tracked(&north, ".");
     let south_files = tracked(&south, "agents");
     let corpora = vec![
@@ -509,6 +513,10 @@ pub fn iter_docs() -> Vec<Doc> {
             ));
         }
     }
+    out
+}
+fn handoff_docs() -> Vec<Doc> {
+    let mut out = Vec::new();
     for path in entries(&handoffs_dir()) {
         let n = name(&path);
         if !re(r"(?i)(brief|protocol)").is_match(&n)

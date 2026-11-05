@@ -95,3 +95,12 @@ fn session_ids_cannot_escape_the_grounding_state_dir() {
     assert!(session_path("").is_none());
     assert!(session_path("895929a7-6218").unwrap().ends_with("sessions/895929a7-6218.json"));
 }
+
+#[test]
+fn a_tier_b_instruction_comes_first_and_names_the_weaker_candidates() {
+    let hits = vec![hit("harness/skills/gauge/SKILL.md", 0.3, "river gauge")];
+    let extra = vec!["No confident tier-A hit: run tier B".to_owned()];
+    let out = assemble("river gauge", &hits, &words(), vec![], &extra, &Shape::hook(HashSet::new(), None));
+    assert_eq!(out.text.lines().nth(1), Some("No confident tier-A hit: run tier B"), "{}", out.text);
+    assert!(out.text.contains("harness/skills/gauge/SKILL.md"), "{}", out.text);
+}

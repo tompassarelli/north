@@ -7,17 +7,20 @@ pub const HOOK_FLOOR: f64 = 0.5;
 pub struct Shape {
     pub limit: usize,
     pub floor: f64,
+    pub keep: f64,
     pub mentions: usize,
     pub terms: usize,
+    pub width: usize,
+    pub brief: bool,
     pub seen: HashSet<String>,
     pub last_live: Option<String>,
 }
 impl Shape {
     pub fn query() -> Self {
-        Shape { limit: LIMIT_CHARS, floor: 0.2, mentions: 1600, terms: 12, seen: HashSet::new(), last_live: None }
+        Shape { limit: LIMIT_CHARS, floor: 0.2, keep: 0.2, mentions: 1600, terms: 12, width: 80, brief: false, seen: HashSet::new(), last_live: None }
     }
     pub fn hook(seen: HashSet<String>, last_live: Option<String>) -> Self {
-        Shape { limit: HOOK_LIMIT_CHARS, floor: HOOK_FLOOR, mentions: 300, terms: 6, seen, last_live }
+        Shape { limit: HOOK_LIMIT_CHARS, floor: HOOK_FLOOR, keep: 0.2, mentions: 1600, terms: 6, width: 0, brief: true, seen, last_live }
     }
 }
 #[derive(Default)]
@@ -67,21 +70,22 @@ fn weight(hit: &Hit) -> f64 {
         * if speaker == "tom" { 1.0 } else { 0.8 }
 }
 pub fn select(hits: &[Hit], message: &str) -> (Vec<(String, Vec<Hit>)>, Vec<Hit>) {
-    pick(hits, message, &Shape::query())
+    let shape = Shape::query();
+    pick(hits, message, &shape, shape.keep)
 }
-fn pick(hits: &[Hit], message: &str, shape: &Shape) -> (Vec<(String, Vec<Hit>)>, Vec<Hit>) {
+fn pick(hits: &[Hit], message: &str, shape: &Shape, floor: f64) -> (Vec<(String, Vec<Hit>)>, Vec<Hit>) {
     let mut groups: Vec<(String, Vec<Hit>)> = Vec::new();
     let mut rest = Vec::new();
     let mut seen = HashSet::new();
     let mut handoffs: Vec<HashSet<String>> = Vec::new();
     let mut ordered: Vec<_> = hits.iter().collect();
-    ordered.sort_by(|a, b| weight(b).total_cmp(&weight(a)));
+    ordered.sort_by(|a, b| (shape.brief && code(a)).cmp(&(shape.brief && code(b))).then(weight(b).total_cmp(&weight(a))));
     for hit in ordered {
         let norm = cut(&flat(message), 160);
         let same = (hit.source == "transcripts" || hit.source == "ledger")
             && !norm.is_empty()
             && cut(&flat(&hit.text), 160) == norm;
-        if hit.cover < shape.floor || seen.contains(&hit.reference) || shape.seen.contains(&hit.reference) || same {
+        if hit.cover < floor || seen.contains(&hit.reference) || shape.seen.contains(&hit.reference) || same {
             continue;
         }
         let name = category(hit);
@@ -156,13 +160,32 @@ fn outcome(hit: &Hit) -> String {
         format!("{state} {}", shas.join(" "))
     }
 }
-fn hit_line(hit: &Hit) -> String {
+fn clipped(text: &str, width: usize) -> String {
+    if ulen(text) > width { format!("{}…", cut(text, width)) } else { text.to_owned() }
+}
+fn located(hit: &Hit) -> Option<Option<&str>> {
+    let (label, heading) = hit.title.split_once(" § ").map_or((hit.title.as_str(), None), |(l, h)| (l, Some(h)));
+    let path = label.split_once(':').map(|(_, p)| p)?;
+    (path.contains('/') && hit.reference.ends_with(&format!("/{path}"))).then_some(heading)
+}
+pub fn shown(reference: &str) -> String {
+    let Some(rest) = reference.strip_prefix("~/code/") else { return reference.to_owned() };
+    match rest.split_once('/').and_then(|(repo, r)| Some((repo, r.split_once('/')?.1))) {
+        Some((repo, path)) => format!("{repo}:{path}"),
+        None => reference.to_owned(),
+    }
+}
+fn same_place(a: &str, b: &str) -> bool {
+    a == b || a.ends_with(&format!("/{b}")) || b.ends_with(&format!("/{a}"))
+}
+fn hit_line(hit: &Hit, shape: &Shape) -> String {
+    let width = shape.width;
     if hit.source == "transcripts" {
         return format!(
             "- {} ({}): {}",
             hit.reference,
             hit.title,
-            snippet(&hit.text, &hit.matched, 80)
+            snippet(&hit.text, &hit.matched, width.max(48))
         );
     }
     if hit.source == "builds" || hit.source == "commits" {
@@ -173,20 +196,18 @@ fn hit_line(hit: &Hit) -> String {
             outcome(hit)
         );
     }
-    let why = if !hit.text.is_empty() && !hit.title.starts_with("skill ") {
-        snippet(&hit.text, &hit.matched, 80)
+    let why = if width > 0 && !hit.text.is_empty() && !hit.title.starts_with("skill ") {
+        snippet(&hit.text, &hit.matched, width)
     } else {
         String::new()
     };
-    let title = if ulen(&hit.title) > 80 {
-        format!("{}…", cut(&hit.title, 80))
-    } else {
-        hit.title.clone()
-    };
-    let head = if title.contains(&hit.reference) {
-        title
-    } else {
-        format!("{} — {title}", hit.reference)
+    let head = match located(hit) {
+        Some(Some(heading)) => format!("{} § {}", shown(&hit.reference), clipped(heading, if shape.brief { 32 } else { 60 })),
+        Some(None) => shown(&hit.reference),
+        None => {
+            let title = clipped(&hit.title, if shape.brief && !hit.title.starts_with("skill ") { 32 } else { 80 });
+            if title.contains(&hit.reference) { title } else { format!("{} — {title}", shown(&hit.reference)) }
+        }
     };
     format!(
         "- {head}{}",
@@ -234,15 +255,18 @@ fn mentions(hits: &[Hit]) -> Vec<String> {
         }
     }
     counts.sort_by_key(|count| std::cmp::Reverse(count.1));
-    let n = 30usize.saturating_sub(placements.len());
-    let extra: Vec<_> = counts
-        .into_iter()
-        .filter(|(r, _)| !placements.contains(r))
-        .take(n)
-        .map(|(r, _)| r)
-        .collect();
-    placements.extend(extra);
+    for (r, _) in counts {
+        if placements.len() >= 30 {
+            break;
+        }
+        push_distinct(&mut placements, r);
+    }
     placements
+}
+fn push_distinct(places: &mut Vec<String>, place: String) {
+    if !places.iter().any(|p| same_place(p, &place)) {
+        places.push(place);
+    }
 }
 pub fn compose(
     message: &str,
@@ -251,27 +275,30 @@ pub fn compose(
     live: &[String],
     extra: &[String],
     shape: &Shape,
+    floor: f64,
 ) -> (String, Vec<String>) {
-    let mut lines = vec![format!(
-        "Grounding (auto-retrieved for this message; terms: {}). Read the named files before answering; say what already exists before proposing anything new.",
-        words.iter().take(shape.terms).cloned().collect::<Vec<_>>().join(" ")
-    )];
-    lines.extend_from_slice(live);
-    let (groups, rest) = pick(hits, message, shape);
+    let mut lines = opening(words, live, extra, shape);
+    let (groups, rest) = pick(hits, message, shape, floor);
     let selected: Vec<_> = groups.iter().flat_map(|(_, h)| h.clone()).collect();
-    let named: Vec<_> = mentions(&selected).into_iter().filter(|r| !shape.seen.contains(r)).collect();
-    let entities = named.join(", ");
-    if !entities.is_empty() {
-        lines.push(format!("Mentions: {}", cut(&entities, shape.mentions)));
+    let named: Vec<_> = mentions(&selected)
+        .into_iter()
+        .filter(|r| !shape.seen.contains(r) && !selected.iter().any(|h| same_place(&h.reference, r)))
+        .collect();
+    let entities = named.iter().map(|r| shown(r)).collect::<Vec<_>>().join(", ");
+    let mentioned = (!entities.is_empty()).then(|| format!("Mentions: {}", cut(&entities, shape.mentions)));
+    if !shape.brief {
+        lines.extend(mentioned.clone());
     }
     for (name, _) in SLOTS {
         if let Some((_, items)) = groups.iter().find(|(n, _)| n == name)
             && !items.is_empty() {
                 lines.push(format!("{name}:"));
-                lines.extend(items.iter().map(hit_line));
+                lines.extend(items.iter().map(|h| hit_line(h, shape)));
             }
     }
-    lines.extend_from_slice(extra);
+    if !shape.brief {
+        lines.extend_from_slice(extra);
+    }
     let more: Vec<_> = rest
         .iter()
         .filter(|h| h.source != "builds" && h.source != "commits")
@@ -279,23 +306,14 @@ pub fn compose(
         .map(|h| h.reference.clone())
         .collect();
     if !more.is_empty() {
-        lines.push(format!("Also matching: {}", more.join(", ")));
+        lines.push(format!("Also matching: {}", more.iter().map(|r| shown(r)).collect::<Vec<_>>().join(", ")));
     }
-    let mut out = Vec::new();
-    let mut size = 0;
-    for mut line in lines {
-        if size + ulen(&line) + 1 > shape.limit {
-            line = cut(&line, shape.limit.saturating_sub(size + 1));
-        }
-        if line.is_empty() {
-            break;
-        }
-        size += ulen(&line) + 1;
-        out.push(line);
+    if shape.brief {
+        lines.extend(mentioned);
     }
-    let text = out.join("\n");
+    let text = fit(lines, shape.limit);
     let mut refs: Vec<String> = selected.iter().map(|h| h.reference.clone()).chain(named).chain(more).collect();
-    refs.retain(|r| !r.is_empty() && text.contains(r.as_str()));
+    refs.retain(|r| !r.is_empty() && text.contains(shown(r).as_str()));
     refs.dedup();
     (text, refs)
 }
@@ -394,6 +412,41 @@ pub fn assemble(message: &str, hits: &[Hit], words: &[String], mut live: Vec<Str
     if !fresh && live.is_empty() && extra.is_empty() {
         return Rendered { live: key, ..Rendered::default() };
     }
-    let (text, refs) = compose(message, hits, words, &live, extra, shape);
+    let floor = if fresh || !extra.is_empty() { shape.keep } else { shape.floor };
+    let (text, refs) = compose(message, hits, words, &live, extra, shape, floor);
     Rendered { text: redact(&text), refs: refs.iter().map(|r| redact(r)).collect(), live: key }
+}
+pub fn indexed(message: &str, db: &mut Sqlite, now: f64, shape: &Shape) -> Result<Rendered> {
+    let (hits, words) = retrieve_db(message, db, now, 80, 0.0, "")?;
+    Ok(assemble(message, &hits, &words, Vec::new(), &[], shape))
+}
+fn code(hit: &Hit) -> bool {
+    hit.source == "policy" && re(r"\.(rs|ts|mjs|js|sh|py|nix)$|/bin/[^/]+$").is_match(&hit.reference)
+}
+fn opening(words: &[String], live: &[String], extra: &[String], shape: &Shape) -> Vec<String> {
+    let terms = words.iter().take(shape.terms).cloned().collect::<Vec<_>>().join(" ");
+    if !shape.brief {
+        let mut lines = vec![format!("Grounding (auto-retrieved for this message; terms: {terms}). Read the named files before answering; say what already exists before proposing anything new.")];
+        lines.extend_from_slice(live);
+        return lines;
+    }
+    let mut lines = vec![format!("Grounding (terms: {terms}). Read the named files before answering; say what exists before proposing anything new.")];
+    lines.extend(live.iter().map(|l| re(r"\(resets [^,()]+, (in \d+[mh]), as of [^)]+\)").replace_all(l, "($1)").into_owned()));
+    lines.extend_from_slice(extra);
+    lines
+}
+fn fit(lines: Vec<String>, limit: usize) -> String {
+    let mut out = Vec::new();
+    let mut size = 0;
+    for mut line in lines {
+        if size + ulen(&line) + 1 > limit {
+            line = cut(&line, limit.saturating_sub(size + 1));
+        }
+        if line.is_empty() {
+            break;
+        }
+        size += ulen(&line) + 1;
+        out.push(line);
+    }
+    out.join("\n")
 }

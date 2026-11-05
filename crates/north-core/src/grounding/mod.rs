@@ -8,6 +8,8 @@ mod hook;
 mod live;
 mod sources;
 mod tierb;
+#[cfg(test)]
+mod recall_tests;
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;

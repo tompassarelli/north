@@ -116,6 +116,16 @@ through `safe-push`. Codex bindings stay as they are unless the box says otherwi
 9. **Cap prompt grounding (#17).** Done when: the Grounding block is at most 1,500 chars on 20 sampled
    prompts, it no longer repeats the native skill listing, and no `prompt-grounding.sh` `hook_cancelled`
    record appears over a day.
+   Recall under the cap (2026-11-05): `crates/north-core/src/grounding/fixtures/recall.jsonl` holds 25 of Tom's asks,
+   paraphrased, each labelled before measuring with the skills, decisions and policy it should ground (43 refs). On
+   this fixture the cap as first landed found 17 of 43 refs against 29 for the pre-cap block (policy index), and 18
+   against 21 (a full gex45 index). Recall came back by changing how the capped block is rendered. Each line names its
+   file once, with no snippet and no repeated label. Repo paths are shown as `repo:path`, the mentions list is
+   deduplicated and goes last, prose ranks ahead of code, and the usage readout is shorter. The 0.5 floor now only
+   decides whether to inject; once a block is injected, or the tier-B instruction fires, hits down to 0.2 fill it.
+   Capped against pre-cap: 25 vs 25 on the north checkout (the
+   `the_capped_grounding_block_recalls_what_the_pre_cap_block_did` test), 21 vs 21 on the full index, and 28 vs 29
+   with south added, where the one miss is the 20th and last "Also matching" entry of the pre-cap block for one prompt.
 
 ## Hook latency before and after the shell ports (2026-11-05)
 
