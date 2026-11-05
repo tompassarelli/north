@@ -974,11 +974,120 @@ fn lane(host: &Host, name: &str) -> PathBuf {
 type Launches = std::cell::RefCell<Vec<crate::fleet::model::LaunchRequest>>;
 
 fn hand_over_with(host: &Host, table: &Table, launches: &Launches) -> crate::fleet::handover::HandOver {
+    hand_over_telling(host, table, launches, &|_| Ok(()))
+}
+
+fn hand_over_telling(host: &Host, table: &Table, launches: &Launches, tell_tom: &dyn Fn(&str) -> Result<(), String>) -> crate::fleet::handover::HandOver {
     let take = |request: &crate::fleet::model::LaunchRequest| {
         launches.borrow_mut().push(request.clone());
         host.fleet.session(&request.name)
     };
-    crate::fleet::handover::hand_over(&host.fleet, table, &|_| true, &take, NOW_MS)
+    crate::fleet::handover::hand_over(&host.fleet, table, &|_| true, &take, tell_tom, NOW_MS)
+}
+
+fn parked_on(host: &Host, name: &str, account: &str, at_ms: u64, since_ms: u64, cwd: &Path) {
+    use crate::fleet::waits::{Registered, Run};
+    let wait = Registered { run: Run::Usage { account: account.into(), at_ms }, cwd: cwd.to_owned(), since_ms, label: None };
+    std::fs::create_dir_all(host.root().join(".waits")).unwrap();
+    std::fs::write(host.root().join(".waits").join(format!("{name}.json")), serde_json::to_vec(&[wait]).unwrap()).unwrap();
+}
+
+fn north_576() -> Table {
+    use crate::usage::decide::world::{LimitEvent, Window};
+    let (hour, day) = (3_600, 86_400);
+    let stale_reset = -(122 * hour + 21 * 60);
+    let mut stale = read(1, "a", Window::FiveHour, 30.0, stale_reset);
+    stale.read_at.0 += stale_reset - 5 * hour + 60;
+    let readings = vec![
+        read(0, "a", Window::Week, 24.0, 4 * day),
+        stale,
+        read(2, "b", Window::Week, 100.0, 2 * day + 6 * hour),
+        read(3, "c", Window::Week, 100.0, 6 * hour + 21 * 60),
+        read(4, "d", Window::Week, 91.0, 3 * day),
+        read(5, "d", Window::FiveHour, 3.0, 4 * hour),
+    ];
+    let limits = readings.iter().filter(|reading| reading.used.0 >= 99.5).map(|reading| LimitEvent { account: reading.account.clone(), window: reading.window, resets_at: reading.resets_at, at: reading.read_at }).collect();
+    Table(crate::fleet::handover::Observed { readings, limits })
+}
+
+fn on_north_576(host: &Host) -> u64 {
+    with_accounts(host, &["a", "b", "c", "d"]);
+    let c_resets_ms = NOW_MS + (6 * 3_600 + 21 * 60) * 1000;
+    working_on(host, "lead", "c", None, &lane(host, "lead"));
+    for (name, account) in [("proxy", "a"), ("worker", "d")] {
+        let cwd = lane(host, name);
+        working_on(host, name, account, Some("lead"), &cwd);
+        parked_on(host, name, account, c_resets_ms, NOW_MS - 30 * 60_000, &cwd);
+    }
+    c_resets_ms
+}
+
+#[test]
+fn north_576_with_a_and_d_reading_headroom_after_their_parks_the_lead_on_c_goes_to_a_or_d_and_tom_hears_no_all_out() {
+    use crate::usage::decide::world::{Account, Host as Machine, Label, Provider, Rate, Rates, Settings, Unix, Window, World};
+    use crate::usage::decide::{View, view};
+    let host = host("nexus");
+    on_north_576(&host);
+    let table = north_576();
+    let launches = Launches::default();
+
+    let done = hand_over_with(&host, &table, &launches);
+
+    assert_eq!(done.alert, None, "a and d have headroom: {:?}", done.alert);
+    let launched = launches.borrow();
+    assert_eq!(launched.iter().map(|request| request.name.as_str()).collect::<Vec<_>>(), ["lead"]);
+    assert!(["a", "d"].contains(&launched[0].account.as_str()), "{}", launched[0].account);
+    let rate = Rate::Pooled { points_per_usd: 1.0, n: 0 };
+    let account = Account { provider: Provider::Claude, label: Label("a".into()), weight: 1.0, signed_in: [Machine("nexus".into())].into(), extra_usage_enabled: Some(false), extra_usage_spend: None, rates: Rates { five_hour: rate, week: rate } };
+    let settings = Settings::default();
+    let world = World { now: Unix((NOW_MS / 1000) as i64), accounts: &[account], readings: &table.0.readings, limits: &table.0.limits, sessions: &[], tripped: &[], credit: None, settings: &settings };
+    assert!(matches!(view(&world, &Label("a".into()), Window::FiveHour), View::Stale { .. }), "a's 5-hour reading whose reset passed is unknown, not out");
+}
+
+#[test]
+fn a_park_newer_than_every_reading_of_its_window_still_holds_the_account_out() {
+    let host = host("nexus");
+    let c_resets_ms = on_north_576(&host);
+    for (name, account) in [("proxy", "a"), ("worker", "d")] {
+        parked_on(&host, name, account, c_resets_ms, NOW_MS, &lane(&host, name));
+    }
+    let launches = Launches::default();
+
+    let done = hand_over_with(&host, &north_576(), &launches);
+
+    assert!(launches.borrow().is_empty());
+    assert!(done.alert.is_some_and(|line| line.contains("earliest resumes")), "a limit seen after the latest reading is the newest word on the account");
+}
+
+#[test]
+fn an_all_out_line_that_fails_to_send_is_reported_retried_and_leaves_the_fleet_tick_run_succeeding() {
+    struct Handing<'a>(&'a Table);
+    impl WaitProbes for Handing<'_> {
+        fn settle(&self, fleet: &Fleet) -> Probed {
+            let take = |request: &crate::fleet::model::LaunchRequest| fleet.session(&request.name);
+            let done = crate::fleet::handover::hand_over(fleet, self.0, &|_| true, &take, &|_| Err("nexus-alert exited 1".into()), NOW_MS);
+            Probed { lines: done.lines.into_iter().chain(done.alert).collect(), settled: Vec::new() }
+        }
+    }
+    let host = host("nexus");
+    with_accounts(&host, &["a", "c"]);
+    working_on(&host, "lead", "c", None, &lane(&host, "lead"));
+    let table = fixture(&[("a", 500_000), ("c", 200_000)], &[]);
+    let launches = Launches::default();
+
+    let ticked = tick(&host.fleet, &mut host.store(), &host.pulls(), &Handing(&table), NOW_MS, BUDGET).expect("the fleet-tick run succeeds");
+
+    let lines = ticked.lines();
+    assert!(lines.iter().any(|line| line.contains("did not reach Tom") && line.contains("nexus-alert exited 1")), "{lines:?}");
+    assert!(lines.iter().any(|line| line.contains("earliest resumes")), "{lines:?}");
+    assert!(!host.fleet.all_out_announced(), "an unsent line is not recorded as told");
+    let sent = std::cell::RefCell::new(Vec::new());
+    let again = hand_over_telling(&host, &table, &launches, &|line| {
+        sent.borrow_mut().push(line.to_owned());
+        Ok(())
+    });
+    assert_eq!(sent.borrow().len(), 1, "the next tick sends it again");
+    assert!(again.lines.is_empty() && host.fleet.all_out_announced());
 }
 
 fn fixture(week_out: &[(&str, i64)], open: &[&str]) -> Table {

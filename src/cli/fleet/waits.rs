@@ -78,10 +78,7 @@ pub(super) struct Probes;
 impl WaitProbes for Probes {
     fn settle(&self, fleet: &Fleet) -> Probed {
         let parked = park_limited(fleet, &UsageTable, now_ms());
-        let handed = hand_over(fleet, &UsageTable, &|record| holds_unlanded_lane(&record.cwd), &|request| fleet.take_over(request), now_ms());
-        if let Some(line) = &handed.alert {
-            tell_tom(line);
-        }
+        let handed = hand_over(fleet, &UsageTable, &|record| holds_unlanded_lane(&record.cwd), &|request| fleet.take_over(request), &tell_tom, now_ms());
         let usage_parked = |name: &str| fleet.waits().of(name).iter().any(|wait| matches!(wait.run, Run::Usage { .. }));
         let tell = |name: &str, text: &str| -> NorthResult<()> {
             let Ok(record) = fleet.session(name) else { return Ok(()) };
@@ -98,9 +95,11 @@ impl WaitProbes for Probes {
     }
 }
 
-fn tell_tom(line: &str) {
-    if run_within("nexus-alert", &["normal", line, "north fleet tick"], ALERT).is_none_or(|out| !out.status.success()) {
-        eprintln!("north fleet: nexus-alert failed; the line was: {line}");
+fn tell_tom(line: &str) -> Result<(), String> {
+    match run_within("nexus-alert", &["normal", line, "north fleet tick"], ALERT) {
+        Some(out) if out.status.success() => Ok(()),
+        Some(out) => Err(format!("nexus-alert exited {}: {}", out.status, String::from_utf8_lossy(&out.stderr).trim())),
+        None => Err(format!("nexus-alert did not run or did not answer within {}s", ALERT.as_secs())),
     }
 }
 

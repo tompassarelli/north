@@ -38,6 +38,7 @@ pub fn hand_over(
     readings: &dyn AccountReadings,
     holds_work: &dyn Fn(&SessionRecord) -> bool,
     take_over: &dyn Fn(&LaunchRequest) -> NorthResult<SessionRecord>,
+    tell_tom: &dyn Fn(&str) -> Result<(), String>,
     now_ms: u64,
 ) -> HandOver {
     let mut done = HandOver::default();
@@ -61,8 +62,10 @@ pub fn hand_over(
                 _ => None,
             });
             if let Some((account, at_ms, since_ms)) = &parked {
-                let window = if at_ms.saturating_sub(now_ms) > FIVE_HOURS_MS { Window::Week } else { Window::FiveHour };
-                limits.push(LimitEvent { account: Label(account.clone()), window, resets_at: Some(Unix((at_ms / 1000) as i64)), at: Unix((since_ms / 1000) as i64) });
+                let (account, window, at) = (Label(account.clone()), if at_ms.saturating_sub(now_ms) > FIVE_HOURS_MS { Window::Week } else { Window::FiveHour }, Unix((since_ms / 1000) as i64));
+                if !observed.readings.iter().any(|reading| reading.account == account && reading.window == window && reading.read_at > at) {
+                    limits.push(LimitEvent { account, window, resets_at: Some(Unix((at_ms / 1000) as i64)), at });
+                }
             }
             session_of(record, leads.contains(record.name.as_str()), parked.map(|(_, _, since_ms)| Unix((since_ms / 1000) as i64)))
         })
@@ -73,9 +76,13 @@ pub fn hand_over(
     let assessed = assess(&world, &previous);
     match &assessed.all_out {
         Some(out) if out.announce => {
-            if fleet.set_all_out_announced(true).is_ok() {
-                done.alert = Some(all_out_line(out.earliest_resume, now));
+            let line = all_out_line(out.earliest_resume, now);
+            match tell_tom(&line).map(|()| fleet.set_all_out_announced(true)) {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => done.lines.push(format!("the all-out line reached Tom but was not recorded, so the next tick sends it again: {}", error.user_message())),
+                Err(why) => done.lines.push(format!("the all-out line did not reach Tom, so the next tick sends it again: {why}")),
             }
+            done.alert = Some(line);
         }
         Some(_) => {}
         None => {
