@@ -2,7 +2,7 @@ pub mod after_landing;
 pub mod bin_references;
 pub mod denylist;
 pub mod denylist_attest;
-mod instruction_limits;
+pub(crate) mod instruction_limits;
 pub mod land_actions;
 pub mod land_cache;
 pub mod red_check;

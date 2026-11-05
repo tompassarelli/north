@@ -6,6 +6,7 @@ use super::ci_budget;
 use super::follow;
 use crate::land::scans::{generated, git};
 use crate::landing::after_landing::Failure;
+use crate::landing::instruction_limits;
 
 const USAGE: &str = "usage: north land scan code-health|crate-lines|instruction-limits|ci-budget BASE..HEAD [--safe-push PATH]";
 
@@ -48,9 +49,9 @@ impl Gate {
             Self::CodeHealth => code_health(landed, out),
             Self::CrateLines => crate_lines(landed, out),
             Self::InstructionLimits => {
-                let mut command = Command::new(tools(landed.safe_push).join("agent-instruction-check"));
-                command.arg("--repo").arg(root(landed.tree)).args(["--ref", landed.head]);
-                captured(&mut command, landed.tree, out) == Some(0)
+                let (code, report) = instruction_limits::verdict(&root(landed.tree), landed.head);
+                out.extend_from_slice(report.as_bytes());
+                code == 0
             }
             Self::GeneratedRewrite => generated::scan(landed.tree, &range, out) == 0,
             Self::CiBudget => ci_budget::Scan { tree: landed.tree, state: state() }.run(&range, out) == 0,

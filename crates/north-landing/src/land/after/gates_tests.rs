@@ -23,21 +23,18 @@ fn every_gate_runs_and_only_the_failing_ones_are_reported_with_their_output() {
     git(&tree, &["init", "-q", "-b", "main"]);
     git(&tree, &["commit", "-q", "--allow-empty", "-m", "base"]);
     let base = git(&tree, &["rev-parse", "HEAD"]);
-    git(&tree, &["commit", "-q", "--allow-empty", "-m", "head"]);
+    fs::write(tree.join("AGENTS.md"), "rule\n".repeat(101)).unwrap();
+    git(&tree, &["add", "AGENTS.md"]);
+    git(&tree, &["commit", "-q", "-m", "head"]);
     let head = git(&tree, &["rev-parse", "HEAD"]);
     let tools = root.path().join("bin");
-    let trace = root.path().join("trace");
     stub(&tools.join("safe-push"), "exit 9");
     stub(&tools.join("code-health"), "echo 'code-health found debt'; exit 1");
-    stub(&tools.join("agent-instruction-check"), &format!("echo \"instructions $*\" >>{}; echo 'AGENTS.md is over its limit' >&2; exit 3", trace.display()));
     let failures = run(&Landed { tree: &tree, base: &base, head: &head, safe_push: &tools.join("safe-push") });
     let gates: Vec<&str> = failures.iter().map(|failure| failure.gate.as_str()).collect();
     assert_eq!(gates, ["code-health", "instruction-limits"]);
     assert!(failures[0].output.contains("code-health found debt") && failures[0].output.contains("✗ code-health gate refused"), "{}", failures[0].output);
-    assert!(failures[1].output.contains("AGENTS.md is over its limit"), "{}", failures[1].output);
-    let trace = fs::read_to_string(trace).unwrap();
-    let root_path = fs::canonicalize(&tree).unwrap();
-    assert!(trace.contains(&format!("instructions --repo {} --ref {head}", root_path.display())), "{trace}");
+    assert!(failures[1].output.contains(&format!("agent-instruction-check: AGENTS.md@{head}: 101 lines")), "{}", failures[1].output);
 }
 
 #[test]

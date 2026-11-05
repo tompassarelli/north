@@ -7,21 +7,16 @@ const CATALOG: &str = "dotfiles/agents/catalog-config.json";
 const LIMIT: usize = 100;
 
 pub fn check(repository: &Path, reference: &str) -> u8 {
+    let (code, report) = verdict(repository, reference);
+    if code == 0 { print!("{report}") } else { eprint!("{report}") }
+    code
+}
+
+pub fn verdict(repository: &Path, reference: &str) -> (u8, String) {
     match failures(repository, reference) {
-        Err(error) => {
-            eprintln!("agent-instruction-check: cannot check instructions: {error}");
-            2
-        }
-        Ok((checked, failures)) if failures.is_empty() => {
-            println!("agent-instruction-check: {checked} instruction files within limits");
-            0
-        }
-        Ok((_, failures)) => {
-            for failure in failures {
-                eprintln!("agent-instruction-check: {failure}");
-            }
-            1
-        }
+        Err(error) => (2, format!("agent-instruction-check: cannot check instructions: {error}\n")),
+        Ok((checked, failures)) if failures.is_empty() => (0, format!("agent-instruction-check: {checked} instruction files within limits\n")),
+        Ok((_, failures)) => (1, failures.iter().map(|failure| format!("agent-instruction-check: {failure}\n")).collect()),
     }
 }
 
@@ -85,3 +80,7 @@ fn baselines(catalog: &str) -> Result<BTreeSet<String>, String> {
     }
     Ok(exempt)
 }
+
+#[cfg(test)]
+#[path = "instruction_limits_tests.rs"]
+mod tests;

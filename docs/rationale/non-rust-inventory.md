@@ -30,7 +30,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 - Already gone from `origin/main` before this change: dep-gate, provenance, convo, flow, report (Rust: `north dep-gate`, `provenance`, `convo`, `flow`, `report`), and the old `bin/follows-release` script itself.
 - Still in the tree, with the live caller named:
   - `bin/follows-release.lib.sh` and its three `.test.sh` files drive `bin/safe-push`, which calls the Rust `north follows-release`; they leave with the safe-push port (landing-train B18).
-  - `bin/agent-instruction-check` has a Rust twin (`instruction_limits.rs`) but `bin/safe-push:437` and `crates/north-core/src/agent_config_check/shared.rs:142` still call the script.
   - `bin/run-bounded` and `bin/job-run` were never ported, despite the north#83 tick. Deployed units name `job-run`, and the session-kill guard rewrites agent commands to `run-bounded`.
 
 ## Inventory
@@ -47,8 +46,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | agent-machinery/tests/contracts.test.mjs | 37 | stay | bun tests of the published package modules above |
 | agent-machinery/tests/package-boundary.test.mjs | 24 | stay | bun tests of the published package modules above |
 | bin/agent-capture | 60 | stay | 60-line glue over niri msg and grim; foreign desktop tools, no Rust library for the niri IPC screenshot path; policy names it as the only allowed capture |
-| bin/agent-instruction-check | 56 | port: landing-train B18 (north#76) | Rust twin exists (crates/north-landing/src/landing/instruction_limits.rs); live callers: bin/safe-push:437 and crates/north-core/src/agent_config_check/shared.rs:142; delete when both call Rust |
-| bin/agent-instruction-check.test.sh | 56 | port: landing-train B18 (north#76) | tests the shell helper that bin/safe-push calls |
 | bin/agy | 6 | stay | 6-line launcher for the downloaded agy runtime (exports env then execs a vendor binary) |
 | bin/agy-runtime-update | 52 | port: north#87 (Codex/runtime/desktop tools) | download and select the agy runtime |
 | bin/automation-chrome | 9 | stay | 9-line flock wrapper that execs the Playwright CLI in lib/automation-chrome |

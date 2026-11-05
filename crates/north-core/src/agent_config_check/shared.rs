@@ -141,7 +141,7 @@ pub(super) fn check(context: &Context, report: &mut Report) {
     } else {
         report.bad("global AGENTS.md owner source is missing or empty");
     }
-    match Command::new(context.north.join("bin/agent-instruction-check")).arg("--repo").arg(&context.firn).args(["--ref", "HEAD"]).output() {
+    match Command::new(&context.north_bin).args(["land", "scan", "instruction-limits", "HEAD..HEAD"]).current_dir(&context.firn).output() {
         Ok(output) if output.status.success() => report.ok(combined(&output)),
         Ok(output) => report.bad(combined(&output)),
         Err(error) => report.bad(error),
