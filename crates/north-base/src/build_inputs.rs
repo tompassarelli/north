@@ -1,6 +1,6 @@
 const ROOT_FILES: [&str; 8] = ["Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml", "rust-toolchain", "flake.nix", "flake.lock", "bin/cargo"];
 const ROOT_DIRS: [&str; 5] = ["crates/", "src/", ".cargo/", "harness/claude/agents/", "harness/nix/"];
-const EMBEDDED: [&str; 13] = [
+const EMBEDDED: &[&str] = &[
     "harness/code-health/review-brief.md",
     "harness/defaults.toml",
     "harness/model-catalog.toml",
@@ -10,6 +10,7 @@ const EMBEDDED: [&str; 13] = [
     "north-data/expectations.toml",
     "docs/feedback-loop.md",
     ".safe-push",
+    "harness/loops.toml",
     "harness/merge-sets.toml",
     "harness/policy-owners.toml",
     "tests/fixtures/capacity-unseen-pressure.recorded.json",

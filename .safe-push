@@ -26,6 +26,7 @@
 	check = ** :: CARGO_TARGET_DIR=target bash harness/scripts/citation-check.sh
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-ops/src/ops/experiments/ experiments check --root .
 	check = "src/cli/verbs.rs :: sed -n '/VerbKinds::new(&[[]$/,/^]);$/{//!p}' src/cli/verbs.rs | LC_ALL=C sort -c -u"
+	check = "tests/it/main.rs,tests/it/crates.txt :: comm -23 <(sed -n 's/^mod //p' tests/it/main.rs | tr -d ';' | LC_ALL=C sort -u) <(grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort -u) | { ! grep .; }"
 	recheck = ** :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo check --tests ${SAFE_PUSH_LAND_PACKAGES:---workspace} --locked --offline
 	after = src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only portable
 	after = bin/,lib/,harness/,src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only machine-bound

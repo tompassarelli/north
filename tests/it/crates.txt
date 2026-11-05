@@ -112,6 +112,8 @@ support north
 threads_idle_outcome north-threads
 threads_ingest_busy north-threads
 threads_ingest_lock north-threads
+threads_ledger north-threads
+threads_resume north-threads
 threads_snapshot north-threads
 usage_gate north-pace
 usage_snapshot north-pace
@@ -120,3 +122,4 @@ worker_ledger_argv north-threads
 worker_ledger_ingest_lock north-threads
 worker_ledger_record north-threads north-ops
 worker_ledger_resumed_session north-threads
+worker_ledger_review_findings north-threads north-ops
