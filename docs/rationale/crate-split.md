@@ -215,3 +215,251 @@ on the lander: root `it` 38.6 s, `north-core` 21.8 s, `north-landing` 9.7 s, `no
 - Clippy: GNU time over `cargo clippy --all-targets --locked --offline -- -D warnings`, warm, then after the same
   `north-core` edit.
 - Lander walls: `land check: BINARY passed after N s` lines in `~/.local/state/safe-push/land-check-*.log`.
+
+## Next cuts
+
+Planned 2026-11-05 at ec20479a5 (north#259 box 4). That base already has box 1 (no module outside `ops` names
+`crate::ops`, 47210d2f0), box 3a (`north-tui`, 895bb0e6f), the crate-size gate (d7535393f) and the 10 s
+leaf-edit gate (5faa493cf). This version supersedes the first draft (8c7aadcec, withdrawn), which a review
+broke in 12 places. The goal is CPU-seconds per landed lane.
+
+### Method, rerunnable
+
+`harness/split/cut-plan.sh PLAN [DAYS]` computes every number below from the checkout and `git log`. PLAN is
+one of `harness/split/plans/`:
+
+- `now.txt`: today's crates.
+- `c12.txt`: this plan.
+- `c13.txt`, `c15.txt` and `c19.txt`: the alternatives priced below.
+
+Each plan line is a crate, its declared dependencies and its module prefixes. The script prints:
+
+- each crate's lines, its non-test code lines (as the crate-size gate counts them: no blank, comment or
+  post-`#[cfg(test)]` lines), its cap, 7-day commits, transitive dependents, and the CPU cost of
+  one edit;
+- every `crate::` reference that breaks the plan's DAG, with file:line, marked test or prod by file name or
+  an enclosing inline `#[cfg(test)] mod`;
+- the per-commit rebuilt set over the window.
+
+It does not resolve `super::` chains, `pub use` re-exports or `mod.rs` dispatch, and it counts string
+literals. C5 below was found by hand for that reason, and each crate move's `cargo check` is the final word.
+
+The cost model is the incremental figures in "CPU profile of the land check" above (gex45, dev profile,
+incremental on):
+
+- After a one-line north-core edit: lib 8.6 CPU-s and unit tests 13.8 CPU-s, of which about 2.3 is the link,
+  over 161k lines. So a rebuilt crate costs 0.053 (lib) plus 0.071 (unit-test compile) CPU-s per 1k lines.
+- Each rebuilt test binary also links 2.3 CPU-s times the share of the workspace it links.
+- The root targets add 7.4 CPU-s per edit.
+
+The model gives 31.7 CPU-s for today's north-core edit against 31.3 measured. Wall time, worked by hand from the same line counts, is the critical path of libs to the root
+plus the slowest dependent's test harness, times 1.57. That factor is box 8c's
+loaded gex45 leaf-edit wall (21.7 s, incremental on) over the measured 13.8 s critical path. It is a
+one-point calibration, so the first crate move re-measures it.
+
+### Candidate 8 answered
+
+`build-cost.md` rejected a further split because only 4 of 85 north-core commits touched no module of the
+fleet/ops/capacity/threads/guard/providers/ledger/usage/health cluster. That count assumes the cluster stays
+one crate. `cut-plan.sh plans/now.txt` agrees on today's layout: only 85 of the window's 578 Rust commits
+rebuild less than north-core. The cluster is not a knot, though. The six cuts below are small: test fixtures,
+one impl, one adapter's policy, and host primitives. Over the same 578 commits, `plans/c12.txt` gives:
+
+- 234 commits rebuild exactly one crate besides the root; today, 85 do.
+- Rebuilt-set sizes: 270 commits rebuild at most 40k lines, 17 rebuild 40k to 65k, 89 rebuild 65k to 110k,
+  131 rebuild 110k to 160k (`fleet`, `threads`, `capacity`, `providers` and `dispatch` edits), and 71 rebuild
+  more than 160k (`north-base`, `pace`, `Cargo.lock`).
+- Rebuilt lines fall from 86.6M to 48.5M (44%), and modelled CPU from 17,002 to 12,592 CPU-s (26%).
+
+The CPU saving is smaller than the line saving, for two reasons. Every edit still pays the root's 7.4 CPU-s.
+And a hub edit (`fleet` 31.6, `threads` 30.9, `pace` 34.9 CPU-s against 31.7 today) saves nothing, because it
+rebuilds nearly everything and links more test binaries. The saving comes from leaf edits. Every move takes
+its `*_tests.rs`, `tests.rs` and inline `#[cfg(test)]` modules with it, so the residual north-core unit-test
+harness covers 14.2k lines, from 161k.
+
+### How many crates
+
+Per-crate costs, priced:
+
+- Each extra crate whose edit is rebuilt adds one test-binary link to every edit beneath it. The model counts
+  this as 2.3 CPU-s times the linked share.
+- Each new lib adds one rustdoc pass to `cargo test`. Only `ops/land_offload/ship.rs:122-128` has doctests,
+  so every new crate except `north-runtime` sets `doctest = false`.
+- Each move costs one lane, about 9 `Dependency:` trailers (895bb0e6f has 9) and a `lib.rs` re-export layer.
+
+The same 578 commits under each grouping (`plans/*.txt`, or a scratch copy for the last two):
+
+- 19 crates (`c19.txt`): 44.1M lines rebuilt, 12,704 CPU-s, 214 single-crate commits.
+- 15 crates (`c15.txt`, with lanes and code_health in guard, health in flow, timers in runtime): 47.0M,
+  12,772 CPU-s, 232.
+- 13 crates (`c13.txt`, also flow and health in ops, ledger in providers): 48.0M, 12,665 CPU-s, 234.
+- 12 crates (`c12.txt`, also `ops/pacing` in north-dispatch): 48.5M, 12,592 CPU-s, 234. This is the plan.
+- 11 crates (also runtime in ops): 51.6M, 12,764 CPU-s. It leaves ops at 24.1k of its 25k cap.
+- 12 crates with capacity-host merged back into capacity: 51.8M, 13,367 CPU-s. The host split earns its keep.
+
+Twelve crates use the least CPU because they link the fewest test binaries without merging two hot leaves,
+and they need 7 fewer move lanes than 19. The review's 11-crate grouping (pace, threads, fleet, ledger and
+providers as one shared crate) is ruled out by the crate-size gate. That crate would hold about 24k non-test
+lines with 3 or more dependents, against the 10k hub cap.
+
+### Crate DAG (12 crates from north-core)
+
+```
+north (root: src/cli, bins, tests/it) ── every crate
+  leaves: north-ops, north-runtime, north-guard, north-core (residual), north-tui, north-landing
+  north-runtime ── north-dispatch, north-capacity-host, north-providers
+  north-ops ── north-dispatch, north-threads
+  north-guard ── north-dispatch, north-providers
+  north-tui ── north-providers
+  north-dispatch ── north-capacity, north-fleet, north-threads, north-providers
+  north-capacity-host ── north-capacity, north-threads, north-fleet
+  north-providers ── north-fleet, north-threads
+  north-core ── north-fleet, north-threads
+  north-fleet ── north-pace;  north-threads ── north-pace
+  north-pace, north-capacity, north-landing ── north-base
+```
+
+### Crates
+
+Lines are total and non-test code at ec20479a5. Commits are 7-day commits touching the crate, out of 578.
+CPU is the modelled CPU-s of one edit, against 31.7 today. Saved is commits × (31.7 − CPU). It ranks the
+moves but is not additive, because a commit touching two crates counts in both; the whole plan saves 4,410
+of 17,002 CPU-s over the window (26%). Wall is the predicted leaf-edit `cargo test --no-run`, against the
+10 s gate.
+
+| Rank | Crate | Modules | Lines (non-test) | Cap | Commits | Dependents | CPU | Saved | Wall |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | north-ops | ops minus the groups below, ops/flow, ops/agents, ops/detectors, ops/tool_mine, ops/tempo, health | 30.2k (17.8k) | 25k | 117 | none | 12.3 | 2,270 | 6.6 s |
+| 2 | north-runtime | ops/runtime, land_offload, build_offload, laptop_runner, agent_contain, laptop_ntfy, timers, model_watch, job_watch, outside_watch, usage_web_read, runtime_access | 12.8k (6.3k) | 25k | 102 | none | 10.1 | 2,203 | 5.2 s |
+| 3 | north-guard | guard, hook, hook_tests, hook_rewrite_tests, lanes, code_health | 29.6k (20.1k) | 25k | 82 | none | 12.3 | 1,591 | 6.6 s |
+| 4 | north-capacity-host | capacity/host, capacity/gate, capacity/watchdog | 7.4k (4.5k) | 25k | 74 | runtime | 11.7 | 1,480 | 5.8 s |
+| 5 | north-core (residual) | grounding, catalog, agent_config_check, agent_policy_contract, agent_catalog, build_time, proxy, contract_probe | 14.2k (9.1k) | 25k | 43 | none | 9.8 | 942 | 5.3 s |
+| 6 | north-dispatch | ops/dispatch, tune, check, dividend, pacing, laptop, resident_cap | 15.8k (7.4k) | 10k | 85 | runtime, ops, guard | 22.7 | 765 | 7.9 s |
+| 7 | north-capacity | capacity minus host, gate, watchdog | 6.2k (3.4k) | 10k | 68 | dispatch, capacity-host, runtime, guard, ops | 25.2 | 442 | 8.4 s |
+| 8 | north-providers | providers, codex, ledger | 7.1k (3.9k) | 10k | 50 | dispatch, runtime, guard, ops, tui | 25.2 | 325 | 8.5 s |
+| 9 | north-threads | threads, work_items | 10.8k (5.9k) | 10k | 62 | everything above it except capacity | 30.9 | 50 | 9.4 s |
+| 10 | north-fleet | fleet, claude_stream | 15.9k (7.8k) | 10k | 91 | everything above it except capacity | 31.6 | 9 | 9.8 s |
+| 11 | north-pace | pace, router, usage | 11.1k (6.0k) | 10k | 30 | everything but capacity and landing | 34.9 | −96 | 10.7 s |
+| - | north-tui (landed) | tui | 3.4k (1.6k) | 25k | 10 | none | 8.5 | 232 | 5 s |
+
+The leaf moves (ranks 1 to 5) can land first, each depending on north-core the way `north-tui` does. The hubs
+(ranks 6 to 11) save little themselves. They leave north-core so the residual becomes a leaf, so north-core's
+ratcheted size shrinks, and so the hubs sit low in the DAG.
+
+`pace` (10.7 s) is the one predicted miss of the 10 s gate, with `fleet` (9.8 s) close behind. Their edits
+rebuild every lib chain up to `ops`. The gate times a single leaf file (`structure.toml` names
+`code_health/source.rs`, which lands in north-guard at 6.6 s), so they stay slow without failing the gate.
+`fleet` sits at 7.8k of its 10k hub cap while taking 91 commits a week. If it nears the cap, the relief is
+`fleet/registry`: 1.8k non-test lines and 52 of fleet's commits, reached from outside fleet by 2 `guard`,
+4 `ops`, 1 `usage` and 8 `north-tui` references.
+
+### Edges to cut
+
+`cut-plan.sh plans/c12.txt` prints every break below. Paths are under `crates/north-core/src/`.
+
+- C1, `pace` → `fleet`: `router/pricing.rs:56-57`, the one `impl From<fleet::turns::Tokens> for TokenUse`,
+  moves to `fleet/turns.rs`. The orphan rule allows it because `Tokens` is local there.
+- C2, `providers` → `guard`: `providers/claude/runs/mod.rs:261-262` call `guard::hook_events`. That file and
+  the `hook_rules.rs` it uses (`guard/hook_events.rs:5`, 95 lines, self-contained) move to `threads/runs/`,
+  beside the `hook_events` table (`threads/runs/hooks.rs:6`). `guard/hook_stats.rs:4` and
+  `guard/hook_stats_tests.rs:3-4` import them from there.
+- C3, `fleet` → `providers` and `ledger`, in production since 895bb0e6f. `fleet/registry/fixtures.rs:14-15` is
+  now a `#[doc(hidden)] pub` module compiled into fleet's lib. It builds a real `Ledger` and `Claude`, and
+  `north-tui`'s tests use it (`crates/north-tui/src/tui/fleet/desk.rs:235`). It moves out of fleet into
+  north-providers as a `fixtures` module that tui's tests reach as a dev-dependency. Fleet's own tests that
+  need the pair (`fleet/tick_tests.rs:18,33`, `fleet/registry/tests.rs:10,25`,
+  `fleet/registry/senders.rs:96-97`) switch to fleet-local fakes of `Runtimes` and `Books`, or move to
+  north-providers.
+- C4, `ops/pacing` and `ops/agents` → `guard`: `ops/pacing/placement/hosts.rs:156` and
+  `ops/agents/goal/plan.rs:20` call `guard::spawn_capacity::{launch_refusal, gate_summary, Live}`. The refusal
+  policy moves into `ops/pacing` (north-dispatch), and the hook adapter stays in guard (`guard/spawn_capacity.rs:1`, `hook.rs:320`).
+  `ops/pacing/spawn_capacity_tests.rs:1,3`, which box 1 moved there, tests the policy where it lands and
+  stops importing `guard` and `hook`.
+- C5, `capacity` → its host code, 11 production references:
+  - `capacity/admission.rs:398` (`host::policy::aggregate_cpus`), `capacity/deadline.rs:100`
+    (`host::runtime_root`) and `capacity/mod.rs:164` (`host::host_name`): these three primitives move into
+    the low crate.
+  - The `north capacity` subcommand dispatch, `capacity/mod.rs:76-109` (host, gate and watchdog), moves to
+    north-capacity-host's entry, which the root CLI calls.
+  - The `pub use host::land_check_cpus` re-export, `capacity/mod.rs:17`, is dropped.
+    `ops/land_offload/mod.rs:160` then names the host crate, which north-runtime depends on.
+- C6, `pace` ↔ `fleet`, from the usage shell (41a0162d9). `usage/shell/fleet_records.rs:9` reads
+  `fleet::records`, and `usage/mod.rs:116` calls `fleet::registry::root_here()`, while `fleet/handover.rs:12,15,75`
+  uses `usage::decide`. `FleetRecords` moves into fleet and implements usage's `Registry` trait, which the
+  orphan rule allows. `usage/mod.rs:116`'s entry takes the registry from its caller, the root CLI. Then
+  `pace` names no `fleet` item.
+
+No other production edge breaks `c12.txt`. The `code_health` hits on `north-core` are string literals in
+tests (`code_health/tests.rs:94,111`, `code_health/habits_tests.rs:43`). Box 1 already moved the test-only
+back-edges into `ops`.
+
+### Paths that break on a move
+
+`move-module.sh` keeps each module's path inside `src/`. So the 48 `include_str!` paths with three or more
+`../` and the same-crate `CARGO_MANIFEST_DIR` joins (`src/ops/check/fixtures` and the like) stay valid. Four
+kinds of path cross a crate and break, and they surface only in main's `cargo.yml`, since `cargo test`
+left the land gate at 2b5675065:
+
+- `fleet/handoff.rs:52` reads `CARGO_MANIFEST_DIR/src/guard/worker_handoff.rs`, another crate's source.
+- The shared `crates/north-core/src/fixtures/` serves four future crates:
+  - `claude-stream/`: `claude_stream.rs:243-245` (fleet), `contract_probe.rs:310` (core) and
+    `src/cli/fleet/router_tests.rs:236`.
+  - `orchestration-hosts.toml`: `ops/runtime/pull/tests.rs:7`,
+    `ops/land_offload/destinations/tests.rs:38,48`, `ops/laptop_runner/ssh_destination_tests.rs:11` and
+    `src/cli/worker_ledger/pull/tests.rs:7`.
+  - `staffing-overlap-2026-11-05.tsv`: `fleet/overlap_replay_tests.rs:7`.
+- The doctest at `ops/land_offload/ship.rs:122-128` names `north_core::ops::...`.
+- Root `tests/it` modules name moved paths: `fleet_wait_rows`, `fleet_spool`, `fleet_row_leased` and `job_run`
+  (`north_core::fleet::{store, sender, records}`), `worker_ledger_record.rs:533` (`ops::defaults_measure`),
+  and 62 more through `north_core::foundation::shim`.
+
+Each move therefore runs `cargo test --no-run --workspace` and the moved crate's tests, not only
+`cargo check`.
+
+### Root integration tests (`tests/it`)
+
+One binary of 110 modules and 21.5k lines. 85 modules drive the `north` binary through `CARGO_BIN_EXE_north`,
+which Cargo defines only for the bin's own package. 27 `capacity_*` modules run
+`harness/skills/machine-capacity/scripts/machine-capacity.mjs` through `bun` (`tests/it/capacity_host/mod.rs:115`).
+63 files name a crate's library, mostly `north_core::foundation::shim`. So the binary stays in the root.
+
+Its compile cost is small: 2.6 CPU-s after a north-core edit, with incremental on. Its run cost is large:
+287.4 of the suite's 409.2 CPU-s. The lever is therefore per-crate selection of which `tests/it` modules
+run, through a module-to-crate table, not moving files. `land_repositories` and `stub_exec_policy` (library
+tests on `north_landing` alone) move to `crates/north-landing/tests/it`.
+
+### Lander selection
+
+`crates/north-landing/src/land/slots/affected.rs` (lander box B, f9142b21b) already maps changed files to
+packages from `cargo metadata` and adds the reverse-dependency closure for the clippy check. A path that
+`north_base::build_inputs::rust_build_input` calls a Rust input but no member owns selects the whole
+workspace. For example, `harness/defaults.toml`, which seven crates-to-be embed with `include_str!`. That is
+safe but coarse. One gap selects nothing: three `include_str!` targets are missing from
+`build_inputs.rs`'s `EMBEDDED` list. They are `docs/feedback-loop.md`, `harness/lib/fixtures/goal-eta-2026-10-12.json` and
+`harness/skills/machine-capacity/scripts/capacity-run-queue-overload.recorded.json`. The fix maps an
+embedded file to the packages whose rustc dep-info (`target/debug/deps/*.d`) lists it, falling back to the
+whole workspace without dep-info. A test then requires every `include_str!`/`include_bytes!` target to
+be a Rust input.
+
+### Conflict hotspots as registries
+
+The lander's refused conflicts over the 24 h before 1:41 PM on 2026-11-05 were:
+
+- `docs/features.md` 31, regenerated from `docs/features/` since 5295dff75 at 6:00 AM, so most of those
+  predate the fix;
+- `crates/north-landing/src/land/mod.rs` 28;
+- `tests/it/land_serve.rs` 18;
+- `tests/it/land_enqueue.rs` 14;
+- `crates/north-landing/src/land/serve.rs` 14;
+- `structure.toml` 7;
+- `.safe-push` 7.
+
+Each shared list becomes one line per entry, merged as a set by `harness/merge-sets.toml`, or one file per
+entry:
+
+- `land/mod.rs:34-47`'s `USAGE` and match become a one-line-per-subcommand table.
+- `tests/it/land_serve.rs` (2,042 lines) and `land_enqueue.rs` become directories with one file per topic.
+- `ops/mod.rs`, `capacity/mod.rs`, `fleet/mod.rs` and `guard/mod.rs` (25, 31, 19 and 15 commits) become pure
+  `pub mod` lists merged as sets. Each new crate's `lib.rs` starts that way.
+- `src/cli/verbs.rs` becomes a one-line-per-verb table.
+- `structure.toml`'s `paths` arrays join the `toml-array` set beside `may_use`.

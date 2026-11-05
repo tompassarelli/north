@@ -1,0 +1,5 @@
+# Today: the workspace crates at ec20479a5. Line format: CRATE DEPS(comma-separated, - for none) MODULE-PREFIXES; core: is crates/north-core/src/ or the pre-2026-10-31 src/
+north-base - core:error core:foundation core:platform core:shell core:autoland_status core:test_inputs core:build_inputs
+north-landing north-base core:landing core:dep_gate core:language_gate core:provenance core:issue_box_lint core:follows_release core:land_abandon
+north-core north-base core:
+north-tui north-core core:tui

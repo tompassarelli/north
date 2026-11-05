@@ -1,0 +1,22 @@
+# Rejected alternative: the 19 crates of the first draft (8c7aadcec, withdrawn)
+north-base - core:error core:foundation core:platform core:shell core:autoland_status core:test_inputs core:build_inputs
+north-landing north-base core:landing core:dep_gate core:language_gate core:provenance core:issue_box_lint core:follows_release core:land_abandon
+north-pace north-base core:pace core:router core:usage
+north-threads north-pace core:threads core:work_items
+north-fleet north-pace core:fleet core:claude_stream
+north-ledger north-fleet,north-threads core:ledger
+north-providers north-fleet,north-threads core:providers core:codex
+north-capacity north-base core:capacity
+north-capacity-host north-capacity,north-threads,north-fleet core:capacity/host core:capacity/gate core:capacity/watchdog
+north-lanes north-base core:lanes
+north-code-health north-base core:code_health
+north-health north-threads core:health
+north-pacing north-capacity,north-fleet,north-threads core:ops/pacing core:ops/laptop core:ops/resident_cap
+north-guard north-pacing,north-ledger,north-lanes,north-code-health core:guard core:hook core:hook_tests core:hook_rewrite_tests
+north-dispatch north-pacing,north-ledger core:ops/dispatch core:ops/tune core:ops/check core:ops/dividend
+north-flow north-dispatch,north-health core:ops/flow core:ops/agents core:ops/detectors core:ops/tool_mine core:ops/tempo
+north-runtime north-dispatch,north-capacity-host core:ops/runtime core:ops/land_offload core:ops/build_offload core:ops/laptop_runner core:ops/agent_contain core:ops/laptop_ntfy
+north-timers north-dispatch,north-providers core:ops/timers core:ops/model_watch core:ops/job_watch core:ops/outside_watch core:ops/usage_web_read core:ops/runtime_access
+north-ops north-pacing,north-ledger core:ops
+north-tui north-ledger,north-providers core:tui
+north-core north-fleet,north-threads core:

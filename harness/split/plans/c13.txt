@@ -1,0 +1,16 @@
+# Rejected alternative: 13 crates (c15 with flow and health in ops, ledger in providers; north-pacing separate)
+north-base - core:error core:foundation core:platform core:shell core:autoland_status core:test_inputs core:build_inputs
+north-landing north-base core:landing core:dep_gate core:language_gate core:provenance core:issue_box_lint core:follows_release core:land_abandon
+north-pace north-base core:pace core:router core:usage
+north-threads north-pace core:threads core:work_items
+north-fleet north-pace core:fleet core:claude_stream
+north-providers north-fleet,north-threads core:providers core:codex core:ledger
+north-capacity north-base core:capacity
+north-capacity-host north-capacity,north-threads,north-fleet core:capacity/host core:capacity/gate core:capacity/watchdog
+north-pacing north-capacity,north-fleet,north-threads core:ops/pacing core:ops/laptop core:ops/resident_cap
+north-guard north-pacing,north-providers core:guard core:hook core:hook_tests core:hook_rewrite_tests core:lanes core:code_health
+north-dispatch north-pacing,north-providers core:ops/dispatch core:ops/tune core:ops/check core:ops/dividend
+north-runtime north-dispatch,north-capacity-host,north-providers core:ops/runtime core:ops/land_offload core:ops/build_offload core:ops/laptop_runner core:ops/agent_contain core:ops/laptop_ntfy core:ops/timers core:ops/model_watch core:ops/job_watch core:ops/outside_watch core:ops/usage_web_read core:ops/runtime_access
+north-ops north-dispatch,north-threads core:ops core:health
+north-tui north-providers,north-providers core:tui
+north-core north-fleet,north-threads core:
