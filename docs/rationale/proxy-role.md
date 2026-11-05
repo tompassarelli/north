@@ -445,7 +445,11 @@ push access to South and the Firn timers are host configuration.
    that says "I recommend", "Recommended:", "the fix is" or "the fix would be" reaches the Stop hook,
    `crates/north-guard/src/guard/recommendation_grounding.rs` runs that paragraph through the
    UserPromptSubmit hook's retrieval (`north_core::grounding::bearing`) and, when a decision record or
-   policy section hits at tier A (cover at the hook floor, code files left out), blocks once:
+   policy section hits at tier A (cover at the hook floor, code files left out) and shares at least
+   two subject terms with it, blocks once. The recommendation words themselves leave the query, and
+   edit words such as "add", "rename", "line", "heading" or "README" are not subject terms: on the
+   live index "adding a blank line at the end of the changelog" and "renaming the README heading"
+   reached tier A on edit words alone. The block reads:
    "These recorded decisions bear on your recommendation: …; read them and confirm or revise."
    `stop_hook_active` lets the revised report through, and a Stop that also carries an ask joins both
    reasons in one block. Recurrence on 2026-11-05: the proxy recommended building the laptop runtime

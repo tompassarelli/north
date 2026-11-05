@@ -35,6 +35,8 @@ impl Lab {
             (ACCESS_PLAN, "south:agents/decisions/harness/gex45-access-plan.md § P3b", "The laptop runtime is never built on gex45 and never shipped from gex45; gex45 serves builds for its own lanes only (P3b, B3, B17)."),
             ("north#401", "north#401 flaky landing test", "The landing test is flaky; a seeded retry would fix it."),
             ("~/code/north/main/docs/garden.md", "north:docs/garden.md § Tomatoes", "Water the tomatoes at dawn and stake the vines."),
+            ("~/code/north/main/docs/feedback-loop.md", "north:docs/feedback-loop.md § Signals", "Each signal row ends with a blank line, and its reader takes one line per row to the end of the file; we recommend adding nothing between rows."),
+            ("~/code/south/main/agents/decisions/smashcraft/makgora-full-rename-plan.md", "south:agents/decisions/smashcraft/makgora-full-rename-plan.md § Order", "The full rename plan: renaming every README heading and title from Smashcraft to Makgora, and we recommend the README heading lands first."),
         ];
         let mut sql = format!("{SCHEMA}\nBEGIN;\n");
         for (reference, title, text) in rows {
@@ -86,6 +88,8 @@ fn the_stop_hook_blocks_a_recommendation_that_a_recorded_decision_bears_on_once(
     assert_eq!(lab.stop(RECOMMENDS, true), None, "stop_hook_active lets the revised report through");
     assert_eq!(lab.stop("Landed.\n\nThe fix is a seeded retry in the flaky landing test.", false), None);
     assert_eq!(lab.stop("Landed `abc123`; the laptop runtime builds on gex45.", false), None);
+    assert_eq!(lab.stop("Landed.\n\nI recommend adding a blank line at the end of the changelog.", false), None, "edit words alone are no bearing");
+    assert_eq!(lab.stop("Landed.\n\nI recommend renaming the README heading.", false), None, "edit words alone are no bearing");
 }
 
 #[test]
