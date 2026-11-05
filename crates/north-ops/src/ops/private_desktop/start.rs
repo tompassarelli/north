@@ -31,6 +31,7 @@ pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
     if let Some(code) = await_aperture()? {
         return Ok(code);
     }
+    let wayvnc = super::wayvnc::build()?;
     let venv = prepare_vnc_environment()?;
     let runtime = runtime_root()?;
     let archive = archive_root()?;
@@ -45,7 +46,7 @@ pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
         .mode(0o600)
         .open(run.join("lifecycle.lock"))?;
     flock(&lock, FlockOperation::LockExclusive)?;
-    let mut session = Session::new(run.clone(), archive, options.seconds);
+    let mut session = Session::new(run.clone(), archive, wayvnc, options.seconds);
     fs::write(run.join("lifecycle-owned"), b"")?;
     fs::write(
         run.join("launcher-pid"),
@@ -239,7 +240,6 @@ fn await_aperture() -> io::Result<Option<u8>> {
 fn ensure_tools(arguments: &[String]) -> io::Result<Option<u8>> {
     let required = [
         "labwc",
-        "wayvnc",
         "wlr-randr",
         "uv",
         "python3",
@@ -260,7 +260,6 @@ fn ensure_tools(arguments: &[String]) -> io::Result<Option<u8>> {
         .args([
             "shell",
             "nixpkgs#labwc",
-            "nixpkgs#wayvnc",
             "nixpkgs#wlr-randr",
             "nixpkgs#uv",
             "nixpkgs#python3",

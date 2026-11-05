@@ -6,6 +6,7 @@ mod run_state;
 mod session;
 mod start;
 mod typing;
+mod wayvnc;
 
 use std::env;
 use std::fs;

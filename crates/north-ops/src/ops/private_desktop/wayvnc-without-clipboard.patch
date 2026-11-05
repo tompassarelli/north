@@ -1,0 +1,10 @@
+--- a/src/main.c
++++ b/src/main.c
+@@ -1653,7 +1653,6 @@
+ 	client_init_seat(self);
+ 	client_init_keyboard(self);
+ 	client_init_pointer(self);
+-	client_init_data_control(self);
+ }
+ 
+ static void client_detach_wayland(struct wayvnc_client* self)

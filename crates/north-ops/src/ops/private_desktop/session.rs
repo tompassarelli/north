@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 pub(super) struct Session {
     run: PathBuf,
     archive: PathBuf,
+    wayvnc: PathBuf,
     desktop: Option<Child>,
     vnc: Option<Child>,
     vnc_anchor: Option<TcpStream>,
@@ -24,10 +25,16 @@ pub(super) struct Session {
     seconds: Option<u64>,
 }
 impl Session {
-    pub(super) fn new(run: PathBuf, archive: PathBuf, seconds: Option<u64>) -> Self {
+    pub(super) fn new(
+        run: PathBuf,
+        archive: PathBuf,
+        wayvnc: PathBuf,
+        seconds: Option<u64>,
+    ) -> Self {
         Self {
             run,
             archive,
+            wayvnc,
             desktop: None,
             vnc: None,
             vnc_anchor: None,
@@ -118,7 +125,7 @@ impl Session {
             format!("address=127.0.0.1\nport={port}\nenable_auth=false\n"),
         )?;
         let log = File::create(self.run.join("wayvnc.log"))?;
-        let mut command = Command::new("wayvnc");
+        let mut command = Command::new(&self.wayvnc);
         set_private_environment(&mut command, &self.run, display, wayland);
         self.vnc = Some(
             command

@@ -28,6 +28,7 @@ Read this before starting, controlling or capturing a private desktop for a game
 
 - Type with `type` from stdin, including secrets, and never with `control ... type` or `xdotool type`, because only stdin keeps text out of arguments and checks the US layout first.
 - Put text or an image on the private clipboard with `clipboard RUN_DIRECTORY MIME_TYPE < DATA`, never with a bare `wl-copy`, because only the launcher pins the private Wayland socket and the clipboard guard refuses the rest.
+- Expect no clipboard over VNC, because the launcher builds wayvnc without its clipboard bridge: that bridge opened a clipboard device per VNC connection, and an app's copy or paste then killed wayvnc on a later connect (north#585).
 - Keep typed text within the supported US layout, because the launcher refuses other characters.
 - Run `cargo test private_desktop::typing` when changing key mapping, under the `verification` skill, because mapping errors type wrong characters silently.
 - Use lowercase VNC key names and control sequences shorter than eight seconds, and keydown/keyup or mousedown/mouseup for holds, because longer sequences hit the control timeout.
