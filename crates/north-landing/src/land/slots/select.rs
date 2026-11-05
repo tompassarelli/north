@@ -19,6 +19,7 @@ pub struct Config {
     pub capacity: Option<String>,
     checks: Vec<String>,
     after: Vec<String>,
+    recheck: Vec<String>,
     local_only: Vec<String>,
     machine_bound: Vec<String>,
     inferred: Vec<String>,
@@ -52,6 +53,7 @@ impl Config {
             capacity: first("landing.capacity").filter(|command| !command.is_empty()),
             checks,
             after: blob_values(repo, head, "land.after"),
+            recheck: blob_values(repo, head, "land.recheck"),
             local_only: blob_values(repo, head, "land.local-only"),
             machine_bound: blob_values(repo, head, "land.machine-bound"),
             inferred,
@@ -64,6 +66,13 @@ impl Config {
 
     pub fn after_set(&self) -> Self {
         Self { checks: self.after.clone(), after: Vec::new(), inferred: Vec::new(), ..self.clone() }
+    }
+
+    pub fn recheck_set(&self) -> Self {
+        if self.recheck.is_empty() {
+            return self.clone();
+        }
+        Self { checks: self.recheck.clone(), recheck: Vec::new(), inferred: Vec::new(), ..self.clone() }
     }
 
     pub fn has_checks(&self) -> bool {

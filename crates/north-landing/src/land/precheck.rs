@@ -85,7 +85,7 @@ pub struct State {
     worktrees: Vec<PathBuf>,
     checking: Vec<Checking>,
     ready: Vec<Lane>,
-    recheck: Vec<(PathBuf, Ticket, usize)>,
+    recheck: Vec<Recheck>,
     held: HashMap<PathBuf, Held>,
     attempts: HashMap<PathBuf, usize>,
     strikes: Strikes,
@@ -134,17 +134,17 @@ impl State {
     }
 
     fn tracked(&self, path: &Path) -> bool {
-        self.checking.iter().any(|checking| checking.lane.path == path) || self.ready.iter().any(|lane| lane.path == path) || self.recheck.iter().any(|(held, _, _)| held == path) || self.held.get(path).is_some_and(|held| held.since.elapsed() < HOLD)
+        self.checking.iter().any(|checking| checking.lane.path == path) || self.ready.iter().any(|lane| lane.path == path) || self.recheck.iter().any(|recheck| recheck.path == path) || self.held.get(path).is_some_and(|held| held.since.elapsed() < HOLD)
     }
 
     fn ahead(&self, of: &Order) -> bool {
-        self.checking.iter().any(|checking| order(&checking.lane.path, &checking.lane.ticket) < *of) || self.recheck.iter().any(|(path, ticket, _)| order(path, ticket) < *of)
+        self.checking.iter().any(|checking| order(&checking.lane.path, &checking.lane.ticket) < *of) || self.recheck.iter().any(|recheck| order(&recheck.path, &recheck.ticket) < *of)
     }
 
     fn forget_replaced(&mut self) {
         self.checking.retain(|checking| checking.lane.path.exists());
         self.ready.retain(|lane| lane.path.exists());
-        self.recheck.retain(|(path, _, _)| path.exists());
+        self.recheck.retain(|recheck| recheck.path.exists());
         self.held.retain(|path, _| path.exists());
         self.attempts.retain(|path, _| path.exists());
     }
@@ -212,7 +212,7 @@ fn prepare_worktrees(lander: &Lander, state: &mut State, count: usize) -> Result
     Ok(())
 }
 
-fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<CheckHost>, path: &Path, ticket: &Ticket) -> Result<(), String> {
+fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<CheckHost>, path: &Path, ticket: &Ticket, light: bool) -> Result<(), String> {
     let main = tick.main()?;
     let worktree = state.worktrees[slot].clone();
     let attempt = state.attempts.get(path).copied().unwrap_or(0) + 1;
@@ -236,10 +236,11 @@ fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<Che
         }
     }
     state.attempts.insert(lane.path.clone(), attempt);
-    match checks::start(&checks::Launch::of(tick.lander), &worktree, &main, &lane.log, true, check_host.as_ref().map(CheckHost::runner)) {
+    match checks::start(&checks::Launch { recheck: light, ..checks::Launch::of(tick.lander) }, &worktree, &main, &lane.log, true, check_host.as_ref().map(CheckHost::runner)) {
         Ok(started) => {
             let on = check_host.as_ref().map(|host| format!(" on {}", host.name())).unwrap_or_default();
-            println!("north land: {} checks alone on main@{main} in build slot {slot}{on}", ticket.branch);
+            let verb = if light { "rechecks" } else { "checks" };
+            println!("north land: {} {verb} alone on main@{main} in build slot {slot}{on}", ticket.branch);
             state.checking.push(Checking { running: Running { check: Some(started), branch: ticket.branch.clone() }, lane, slot, host: check_host });
             Ok(())
         }
@@ -294,42 +295,32 @@ fn poll(tick: &mut Tick, state: &mut State) -> Result<(), String> {
     Ok(())
 }
 
+struct Recheck {
+    path: PathBuf,
+    ticket: Ticket,
+    attempts: usize,
+    light: bool,
+}
+
 fn changed(worktree: &Path, from: &str, to: &str) -> Result<HashSet<String>, String> {
     Ok(git(worktree, &["diff", "--no-renames", "--name-only", from, to])?.lines().map(str::to_owned).collect())
 }
 
-enum Placed {
-    Landed(String),
-    Waiting,
-    Refused(String),
-}
-
-fn place(tick: &mut Tick, state: &mut State, lane: &mut Lane) -> Result<Placed, String> {
+fn checked_on_main(tick: &mut Tick, state: &mut State, lane: &Lane) -> Result<Option<String>, String> {
     let main = tick.main()?;
     if main == lane.base {
-        return Ok(Placed::Landed(lane.head.clone()));
+        return Ok(Some(lane.head.clone()));
     }
-    let worktree = tick.lander.worktree.clone();
-    let overlap: Vec<String> = changed(&worktree, &lane.base, &lane.head)?.intersection(&changed(&worktree, &lane.base, &main)?).cloned().collect();
-    if !overlap.is_empty() {
+    let worktree = &tick.lander.worktree;
+    let overlap: Vec<String> = changed(worktree, &lane.base, &lane.head)?.intersection(&changed(worktree, &lane.base, &main)?).cloned().collect();
+    let light = overlap.is_empty();
+    if light {
+        println!("north land: main moved to main@{main} since {} was checked on main@{}; running the recheck lines on the tree it would land", lane.ticket.branch, lane.base);
+    } else {
         println!("north land: {} changes {} that main changed since its check started; rechecking it on main@{main}", lane.ticket.branch, overlap.join(", "));
-        state.recheck.push((lane.path.clone(), lane.ticket.clone(), lane.stages.attempts));
-        return Ok(Placed::Waiting);
     }
-    let built = candidate::build(&worktree, &main, &[(lane.path.clone(), lane.ticket.clone())], 1, &tick.logs)?;
-    match built.picks.into_iter().next() {
-        Some(Pick::Included) => {
-            println!("north land: {} touches none of the files main changed since its check started; rebased onto main@{main} without a second check", lane.ticket.branch);
-            lane.head = built.head.clone();
-            lane.base = main;
-            Ok(Placed::Landed(built.head))
-        }
-        Some(Pick::Decided(verdict)) => Ok(Placed::Refused(verdict)),
-        Some(Pick::Undecided(_) | Pick::Deferred(_)) | None => {
-            state.recheck.push((lane.path.clone(), lane.ticket.clone(), lane.stages.attempts));
-            Ok(Placed::Waiting)
-        }
-    }
+    state.recheck.push(Recheck { path: lane.path.clone(), ticket: lane.ticket.clone(), attempts: lane.stages.attempts, light });
+    Ok(None)
 }
 
 fn land(tick: &mut Tick, state: &mut State) -> Result<Option<Round>, String> {
@@ -342,13 +333,8 @@ fn land(tick: &mut Tick, state: &mut State) -> Result<Option<Round>, String> {
         if !lane.path.exists() {
             continue;
         }
-        let head = match place(tick, state, &mut lane)? {
-            Placed::Landed(head) => head,
-            Placed::Waiting => return Ok(None),
-            Placed::Refused(verdict) => {
-                tick.refuse(&lane, 1, verdict, None)?;
-                continue;
-            }
+        let Some(head) = checked_on_main(tick, state, &lane)? else {
+            return Ok(None);
         };
         let token = match tick.lander.push_token(&lane.base) {
             Ok(token) => token,
@@ -407,20 +393,20 @@ fn survey(lander: &Lander, state: &mut State) {
 }
 
 fn fill(tick: &mut Tick, state: &mut State, count: usize, queued: &[(PathBuf, Ticket)]) -> Result<(), String> {
-    state.recheck.sort_by_key(|(path, ticket, _)| order(path, ticket));
+    state.recheck.sort_by_key(|recheck| order(&recheck.path, &recheck.ticket));
     while let Some(slot) = state.free_slot(count) {
         if state.recheck.is_empty() && !queued.iter().any(|(path, _)| path.exists() && !state.tracked(path)) {
             break;
         }
         let Ok(check_host) = state.place() else { break };
-        if let Some((path, ticket, attempts)) = (!state.recheck.is_empty()).then(|| state.recheck.remove(0)) {
-            state.attempts.insert(path.clone(), attempts);
-            start(tick, state, slot, check_host, &path, &ticket)?;
+        if let Some(recheck) = (!state.recheck.is_empty()).then(|| state.recheck.remove(0)) {
+            state.attempts.insert(recheck.path.clone(), recheck.attempts);
+            start(tick, state, slot, check_host, &recheck.path, &recheck.ticket, recheck.light)?;
             continue;
         }
         let Some((path, ticket)) = queued.iter().find(|(path, _)| path.exists() && !state.tracked(path)) else { break };
         state.held.remove(path);
-        start(tick, state, slot, check_host, path, ticket)?;
+        start(tick, state, slot, check_host, path, ticket, false)?;
     }
     Ok(())
 }

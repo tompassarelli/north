@@ -60,7 +60,7 @@ fn replay(options: &Options) -> Result<String, String> {
         return Ok("undecided not every lane was picked".to_owned());
     }
     let log = scratch.path().join("replay-check.log");
-    let verdict = match checks::start(&checks::Launch { checker: &options.checker, offload_owner: "north-land-replay", round: "replay".to_owned() }, &worktree, &base, &log, false, None) {
+    let verdict = match checks::start(&checks::Launch { checker: &options.checker, offload_owner: "north-land-replay", round: "replay".to_owned(), recheck: false }, &worktree, &base, &log, false, None) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     };

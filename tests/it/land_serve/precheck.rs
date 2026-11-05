@@ -77,7 +77,8 @@ fn precheck_checks_each_lane_alone_as_it_arrives() {
     assert_eq!(stdout.matches("rechecking it on main@").count(), 1, "{stdout}");
     assert!(stdout.contains(&format!("lane-d changes app.txt that main changed since its check started; rechecking it on main@{after_b}")), "d is rechecked on the main lane b landed: {stdout}");
     assert!(checks.iter().any(|(_, base)| *base == after_b), "{checks:?}");
-    assert_eq!(stdout.matches("without a second check").count(), 3, "b, e and f land on a rebase: {stdout}");
+    assert_eq!(stdout.matches("running the recheck lines on the tree it would land").count(), 3, "b, e and f, whose files main did not touch, take the light recheck on the main they land on: {stdout}");
+    assert_eq!(fixture.read("rechecks").lines().count(), 3, "the light rechecks run with NORTH_LAND_RECHECK set and skip the full check");
     assert_eq!(fixture.read("pushes").lines().count(), 5);
 }
 

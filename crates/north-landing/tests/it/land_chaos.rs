@@ -231,7 +231,7 @@ fn restart_while_draining(world: &World) {
     }
     assert_eq!(state.in_flight(), 0);
     let left: Vec<_> = queue::pending(&retiring.queue).unwrap().into_iter().map(|(_, ticket)| ticket.branch).collect();
-    assert_eq!(left, ["c"], "a draining lander starts no lane and finishes the two it runs");
+    assert_eq!(left, ["b", "c"], "a draining lander starts no lane, lands the one whose check still matches main, and leaves the lane main moved under queued for its successor to check again");
 
     let d = world.enqueue(&retiring, &world.lane("d"));
     let restarted = world.lander();
@@ -307,6 +307,34 @@ fn remote_runner_lost_mid_check(world: &World) {
     landed(&world.settled(&lander, &[&a, &b, &c, &d]));
 }
 
+const COMPILER: &str = r#"echo "recheck=${NORTH_LAND_RECHECK:-}" >> "$HOME/compiler.calls"
+if [ -e builder.txt ] && grep -q breaches record.txt 2>/dev/null; then
+echo "error[E0063]: missing field breaches in initializer of Record" >&2
+echo "safe-push: verdict refused E0063"
+exit 1
+fi
+echo "safe-push: verdict green"
+"#;
+
+fn file_disjoint_lanes_that_break_each_other(world: &World) {
+    world.slots(2);
+    let script = world.root.join("compiler.sh");
+    fs::write(&script, COMPILER).unwrap();
+    let lander = Lander::new(&world.main, vec!["sh".to_owned(), script.display().to_string()], 1).unwrap();
+    let builder = world.enqueue(&lander, &world.lane_in(&world.main, &world.root.join("proj/worktrees/builder"), "builder", "builder.txt"));
+    let mut field = world.lane_in(&world.main, &world.root.join("proj/worktrees/field"), "field", "record.txt");
+    fs::write(field.root.join("record.txt"), "since sent breaches\n").unwrap();
+    run(&field.root, &["commit", "-q", "-am", "lane field adds breaches to Record"]);
+    field.head = run(&field.root, &["rev-parse", "HEAD"]);
+    let field = world.enqueue(&lander, &field);
+    drive(&lander, &mut State::default());
+    let verdicts = world.settled(&lander, &[&builder, &field]);
+    assert!(verdicts[0].starts_with("landed "), "{verdicts:?}");
+    assert!(verdicts[1].starts_with("failed "), "a lane checked on an older main landed beside a change it breaks: {verdicts:?}");
+    let calls = fs::read_to_string(world.root.join("compiler.calls")).unwrap();
+    assert_eq!(calls.lines().filter(|call| *call == "recheck=1").count(), 1, "the lane main moved under, with no file in common, is rechecked with the recheck lines only: {calls}");
+}
+
 #[test]
 fn chaos_kill_mid_check_lands_each_lane_once_after_restart() {
     isolated("land_chaos::chaos_kill_mid_check_lands_each_lane_once_after_restart", kill_mid_check);
@@ -330,4 +358,9 @@ fn chaos_duplicate_branch_names_land_as_separate_lanes() {
 #[test]
 fn chaos_remote_runner_lost_mid_check_holds_then_lands() {
     isolated("land_chaos::chaos_remote_runner_lost_mid_check_holds_then_lands", remote_runner_lost_mid_check);
+}
+
+#[test]
+fn chaos_file_disjoint_lanes_that_break_each_other_are_rechecked_on_the_main_they_land_on() {
+    isolated("land_chaos::chaos_file_disjoint_lanes_that_break_each_other_are_rechecked_on_the_main_they_land_on", file_disjoint_lanes_that_break_each_other);
 }

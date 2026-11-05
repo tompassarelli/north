@@ -27,6 +27,11 @@ fn executable(path: &Path, body: &str) {
 
 const CHECKER: &str = r#"#!/usr/bin/env bash
 set -eu
+if [ -n "${NORTH_LAND_RECHECK:-}" ]; then
+  printf '%s %s\n' "$(git rev-parse HEAD)" "$3" >>"$LAND_TRACE/rechecks"
+  printf 'checking\nsafe-push: verdict green\n'
+  exit 0
+fi
 exec 8>>"$LAND_TRACE/checks.lock"
 flock 8
 n=$(( $(cat "$LAND_TRACE/checks" 2>/dev/null | wc -l) + 1 ))
@@ -2031,10 +2036,11 @@ fn prechecks_spread_over_hosts() {
     let mut runners: Vec<String> = names.iter().map(|name| fixture.read(&format!("runner-{name}"))).collect();
     runners.sort();
     assert_eq!(runners, ["", "stub-a", "stub-a", "stub-b", "stub-b"], "one precheck here and two on each stub host, each pinned to its host");
+    let first_checks: Vec<&str> = stdout.lines().filter(|line| line.contains(" checks alone on main@") && line.contains(" in build slot ")).collect();
+    assert_eq!(first_checks.len(), 5, "{stdout}");
     for host in ["stub-a", "stub-b"] {
         assert_eq!(fixture.read(&format!("hosts/{host}/ran")).lines().count(), 2, "{host} ran two prechecks through north capacity offload run");
-        assert_eq!(stdout.matches("in build slot ").count(), 5, "{stdout}");
-        assert_eq!(stdout.matches(&format!(" on {host}\n")).count(), 2, "{stdout}");
+        assert_eq!(first_checks.iter().filter(|line| line.ends_with(&format!(" on {host}"))).count(), 2, "{stdout}");
     }
     for (ticket, name) in tickets.iter().zip(names) {
         assert!(fixture.verdict(ticket).is_some_and(|verdict| verdict.starts_with("landed ")), "lane {name} has no landed verdict");

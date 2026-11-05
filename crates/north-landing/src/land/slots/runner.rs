@@ -19,7 +19,7 @@ use fail_fast::Plan;
 
 mod fail_fast;
 use crate::land::after::follow::program;
-use crate::land::checks::{BROKEN_BASE, ROUND};
+use crate::land::checks::{BROKEN_BASE, RECHECK, ROUND};
 use crate::landing::check_timings::{self, Base, BaseResult, Deadline, Timing, Timings};
 
 const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
@@ -1017,7 +1017,13 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         return 1;
     };
     let config = Config::load(&root, &arguments.head);
-    let config = if arguments.after { config.after_set() } else { config };
+    let config = if arguments.after {
+        config.after_set()
+    } else if std::env::var_os(RECHECK).is_some() {
+        config.recheck_set()
+    } else {
+        config
+    };
     let (cancel_sender, cancel) = watch::channel(false);
     tokio::spawn(forward_signals(cancel_sender));
     let environment = Environment::load();

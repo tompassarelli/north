@@ -107,3 +107,11 @@ fn only_an_offloaded_portable_check_whose_slot_wait_ran_out_overflows() {
 fn a_runner_whose_host_was_never_probed_keeps_its_checks_off_actions() {
     assert!(!Placement { free_slots: None, ..SLOTTED }.on_actions(true));
 }
+
+#[test]
+fn a_recheck_runs_only_the_recheck_lines_and_falls_back_to_the_full_set_without_them() {
+    let config = Config { recheck: vec!["src/ :: cargo check".into()], ..config(&["src/ :: cargo clippy"], &[]) };
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert_eq!(config.recheck_set().commands(repo, "", "HEAD").unwrap(), vec!["cargo check".to_owned()]);
+    assert_eq!(self::config(&["src/ :: cargo clippy"], &[]).recheck_set().commands(repo, "", "HEAD").unwrap(), vec!["cargo clippy".to_owned()]);
+}

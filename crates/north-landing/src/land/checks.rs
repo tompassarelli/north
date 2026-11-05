@@ -9,6 +9,7 @@ use super::lander::Lander;
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE"];
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
 pub const ROUND: &str = "NORTH_LAND_ROUND";
+pub const RECHECK: &str = "NORTH_LAND_RECHECK";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -45,11 +46,12 @@ pub struct Launch<'a> {
     pub checker: &'a [String],
     pub offload_owner: &'a str,
     pub round: String,
+    pub recheck: bool,
 }
 
 impl<'a> Launch<'a> {
     pub fn of(lander: &'a Lander) -> Self {
-        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string() }
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), recheck: false }
     }
 }
 
@@ -68,6 +70,11 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
     };
     let mut command = Command::new(program);
     command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", launch.offload_owner).env(ROUND, &launch.round);
+    if launch.recheck {
+        command.env(RECHECK, "1");
+    } else {
+        command.env_remove(RECHECK);
+    }
     if own_group {
         command.process_group(0);
     }
