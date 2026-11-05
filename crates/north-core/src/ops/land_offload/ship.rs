@@ -77,9 +77,9 @@ for f in "$root"/*.owner; do
   pgid=$(cat "$base.pgid" 2>/dev/null) || pgid=
   case $pgid in "" | *[!0-9]*) ;; *)
     if tr "\\0" " " <"/proc/$pgid/cmdline" 2>/dev/null | grep -q offload; then
-      kill -TERM -- "-$pgid" 2>/dev/null || true
+      kill -TERM "-$pgid" 2>/dev/null || true
       sleep 2
-      kill -KILL -- "-$pgid" 2>/dev/null || true
+      kill -KILL "-$pgid" 2>/dev/null || true
       echo "offload: reaped ${base##*/} (process group $pgid)"
     fi ;;
   esac
