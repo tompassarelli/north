@@ -194,12 +194,21 @@ pub(super) fn run(transcript: &Path, repo: &Path, only_handback: bool) -> u8 {
             return 1;
         }
     };
-    if only_handback && !cloud_handback::has_handback(&events) {
-        return 0;
-    }
-    let (code, text) = land(&events, transcript, repo, &state_dir(), &mut run_program).report();
+    let outcome = if only_handback {
+        land_handback(&events, transcript, repo, &state_dir(), &mut run_program)
+    } else {
+        Some(land(&events, transcript, repo, &state_dir(), &mut run_program))
+    };
+    let Some(outcome) = outcome else { return 0 };
+    let (code, text) = outcome.report();
     println!("{text}");
     code
+}
+
+/// The landing `north cloud wait` and `north cloud reap` share: a finished session's transcript
+/// lands as `land` does when it holds a handback, and is left alone (`None`) when it does not.
+pub(super) fn land_handback(events: &[Value], transcript: &Path, repo: &Path, state: &Path, run: &mut Run) -> Option<Outcome> {
+    cloud_handback::has_handback(events).then(|| land(events, transcript, repo, state, run))
 }
 
 #[cfg(test)]

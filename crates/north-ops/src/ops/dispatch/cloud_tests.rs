@@ -31,3 +31,15 @@ fn a_config_dir_names_the_login_a_cloud_command_runs_under_else_the_home_login()
     }
     assert!(super::login(None, None).is_err());
 }
+
+#[test]
+fn every_cloud_launch_registers_its_repo_session_and_branch_for_reap() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(super::launches(dir.path()).is_empty());
+    let launched = super::Launched { session: "session_01A".into(), branch: super::branch("guard-clippy"), directory: "/tmp/cloud/src/north".into() };
+    super::register(dir.path(), "north", &launched, 5.0).unwrap();
+    std::fs::write(dir.path().join(super::LAUNCHES), format!("{}not json\n", std::fs::read_to_string(dir.path().join(super::LAUNCHES)).unwrap())).unwrap();
+    super::register(dir.path(), "wisp", &super::Launched { session: "session_02B".into(), ..launched }, 6.0).unwrap();
+    let launches = super::launches(dir.path());
+    assert_eq!(launches.iter().map(|launch| (launch.repo.as_str(), launch.session.as_str(), launch.branch.as_str(), launch.at)).collect::<Vec<_>>(), [("north", "session_01A", "claude/land-guard-clippy", 5.0), ("wisp", "session_02B", "claude/land-guard-clippy", 6.0)]);
+}

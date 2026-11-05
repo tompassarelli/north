@@ -12,7 +12,7 @@ use slots::Pools;
 use survey::Survey;
 
 pub use record::cloud_launch_times;
-pub use cloud::{Login, autoland as cloud_autoland, branch as cloud_branch, current_login as cloud_login};
+pub use cloud::{Launch as CloudLaunch, Login, autoland as cloud_autoland, branch as cloud_branch, current_login as cloud_login};
 pub use fleets::holder as task_holder;
 pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub use manual::{Ask, Start, begin as start_hand, picked_tier, tier_reason, untasked};
@@ -308,14 +308,21 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     0
 }
 
-/// `north cloud launch REPO SLUG BRIEF [--item REPO#N]`: starts the brief in the cloud lane, records it
-/// against the item so dispatch holds it, and prints the session, its branch and the checkout.
+/// `north cloud launch REPO SLUG BRIEF [--item REPO#N]`: starts the brief in the cloud lane, registers
+/// it for `north cloud reap`, records it against the item so dispatch holds it, and prints the
+/// session, its branch and the checkout.
+/// Every session `north cloud launch` started, for `north cloud reap`.
+pub fn cloud_launches() -> Vec<CloudLaunch> {
+    cloud::launches(&record::directory())
+}
+
 pub fn cloud_launch(repo: &str, slug: &str, brief_file: &std::path::Path, item: Option<&str>) -> Result<String, String> {
     let item = item.map(cloud::item).transpose()?;
     let text = std::fs::read_to_string(brief_file).map_err(|error| format!("{}: {error}", brief_file.display()))?;
     let login = cloud::current_login()?;
     let brief = brief::cloud(&text, repo, &cloud::branch(slug), &brief::standing_orders()?);
     let launched = cloud::launch(repo, slug, &brief, &[], std::path::Path::new(cloud::SOURCES), &login.home, &mut cloud::run)?;
+    cloud::register(&record::directory(), repo, &launched, placement::now())?;
     if let Some(item) = &item {
         cloud::hold(item, &launched, &crate::platform::host::name(), &record::directory(), placement::now())?;
     }

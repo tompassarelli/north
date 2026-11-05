@@ -53,6 +53,8 @@ fn lines(path: &Path) -> Vec<Value> {
 fn cloud_parse_reads_each_command_and_the_wait_timeout() {
     let words = |text: &str| text.split(' ').map(str::to_owned).collect::<Vec<_>>();
     assert_eq!(parse(&words("list")), Some(Cloud::List));
+    assert_eq!(parse(&words("reap")), Some(Cloud::Reap));
+    assert_eq!(parse(&words("reap now")), None);
     assert_eq!(
         parse(&words("send s1 msg.txt")),
         Some(Cloud::Send("s1".into(), "msg.txt".into()))

@@ -6,6 +6,7 @@ use super::record::{self, Record};
 use crate::platform::process::status_within;
 use crate::platform::terminal;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
@@ -103,6 +104,32 @@ pub fn hold(item: &IssueRef, launched: &Launched, here: &str, pace: &Path, at: f
     let detail = format!("north cloud launch {} {}", launched.session, launched.branch);
     let entry = Record { at, item: item.to_string(), host: HOST.into(), account: format!("claude login on {here}"), name: launched.session.clone(), cloud: true, launched: true, detail, tier: None, category: None, arm: false, handoff: None, hand: false };
     record::append(pace, &entry)
+}
+
+/// One `north cloud launch`, kept in `LAUNCHES` so `north cloud reap` can land its handback.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Launch {
+    pub at: f64,
+    pub repo: String,
+    pub session: String,
+    pub branch: String,
+}
+
+pub const LAUNCHES: &str = "cloud-launches.jsonl";
+
+pub fn register(directory: &Path, repo: &str, launched: &Launched, at: f64) -> Result<(), String> {
+    use std::io::Write;
+    let entry = Launch { at, repo: repo.to_owned(), session: launched.session.clone(), branch: launched.branch.clone() };
+    let line = serde_json::to_string(&entry).map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(directory).map_err(|error| format!("{}: {error}", directory.display()))?;
+    let path = directory.join(LAUNCHES);
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    writeln!(file, "{line}").map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// Every registered launch, oldest first; a line that does not parse is skipped.
+pub fn launches(directory: &Path) -> Vec<Launch> {
+    std::fs::read_to_string(directory.join(LAUNCHES)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
 }
 
 pub fn run(directory: &Path, program: &str, args: &[String]) -> Result<String, String> {

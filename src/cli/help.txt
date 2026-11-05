@@ -57,7 +57,7 @@ Commands:
   mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease
   archives REPO NUMBER                           Print the archive tags whose commits reference REPO#NUMBER, with restore commands
   threads ARGV                                  Run a NorthThreads command on the ledger host
-  cloud [list|events|sweep|send|wait|collect]    Read, message, wait on, collect and sweep Anthropic cloud sessions
+  cloud [list|events|sweep|send|wait|collect|land|reap|launch]  Launch, read, message, wait on, land, reap and sweep Anthropic cloud sessions
   dispatch [--dry-run]                          Launch ready makgora and wisp boxes on every free worker slot
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
   ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the proxy on DECAYED
