@@ -4,7 +4,8 @@ use super::database::{capacity_database, capacity_history, failure_status, recen
 use super::estimate::{CapacityQuery, CapacityRun, estimate_capacity, task_signature};
 use super::fail;
 use super::json::{field, num, round2, text};
-use super::model::{Forecast, Prediction, Subject, current_cache_state, forecast, host_name};
+use super::model::{Forecast, Prediction, Subject, current_cache_state, forecast};
+use crate::capacity::local_machine::host_name;
 use super::policy::{Resources, charged_resources, heavy_peak_charge, learned_minimum_runs, memory_margin, owner_prefix, percentile, sized_class};
 use super::request::Request;
 use super::shape::command_shape;

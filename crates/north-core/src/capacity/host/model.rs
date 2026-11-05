@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
 use super::json::{num, opt};
-use super::machine::{env, read_text};
+use super::machine::env;
 use super::policy::{owner_prefix, percentile};
 use super::shape::{command_shape, recorded_command};
 
@@ -27,10 +27,6 @@ pub const MODEL_COLUMNS: [(&str, &str); 10] = [
 
 pub fn command_key(owner: &str, command: &[String]) -> String {
     format!("{} {}", owner_prefix(owner), command_shape(command))
-}
-
-pub fn host_name() -> String {
-    read_text("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
 }
 
 fn has_fingerprints(target: &Path) -> bool {

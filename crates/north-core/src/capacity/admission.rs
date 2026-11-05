@@ -395,7 +395,7 @@ pub(super) fn aggregate_cpus(profile: Profile, cores: u32, slice_cpus: Option<f6
         Profile::Attended => "attended",
         Profile::Unattended => "unattended",
     };
-    super::host::policy::aggregate_cpus(name, f64::from(cores), slice_cpus)
+    super::cpus::aggregate_cpus(name, f64::from(cores), slice_cpus)
 }
 
 /// The Warcraft clients the host takes: its static count as a ceiling, lowered to the clients it

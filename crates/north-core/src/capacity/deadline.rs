@@ -97,7 +97,7 @@ struct Lease {
 impl Lease {
     fn named(argument: &str) -> Result<Self, String> {
         if argument == "-" {
-            return Ok(Self { file: None, root: super::host::runtime_root() });
+            return Ok(Self { file: None, root: super::local_machine::runtime_root() });
         }
         let file = PathBuf::from(argument);
         let root = file.parent().and_then(Path::parent).map(Path::to_path_buf);

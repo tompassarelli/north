@@ -5,7 +5,7 @@ use serde_json::json;
 
 use super::admission::{self, Facts};
 use super::effects::Host;
-use super::{agent_load, aperture, host, mode, native_hold};
+use super::{agent_load, aperture, mode, native_hold};
 
 fn wisp_pair_queue() -> std::path::PathBuf {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
@@ -33,7 +33,7 @@ pub fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
         }
     }
     facts.derive_native_holds();
-    facts.pair_leases.extend(native_hold::queue_pair_leases(&wisp_pair_queue(), &host::host_name()));
+    facts.pair_leases.extend(native_hold::queue_pair_leases(&wisp_pair_queue(), &super::local_machine::host_name()));
     facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
     facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
     let admitted = admission::admit(&facts, host.serving);

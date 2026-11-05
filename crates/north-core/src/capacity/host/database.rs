@@ -264,7 +264,7 @@ pub fn recent_usage(lines: usize, matches: impl Fn(&Value) -> bool) -> Vec<Value
     if env("AGENT_CAPACITY_USAGE_LOG").is_none() {
         crate::platform::reader_stamp::touch(&state_root(), "agents/machine-capacity-usage.jsonl");
     }
-    let host = super::model::host_name();
+    let host = crate::capacity::local_machine::host_name();
     let all: Vec<&str> = text.split('\n').collect();
     let matching: Vec<Value> = all[all.len().saturating_sub(lines)..]
         .iter()

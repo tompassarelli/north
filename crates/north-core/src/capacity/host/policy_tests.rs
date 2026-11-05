@@ -2,7 +2,8 @@ use super::policy::{charged_resources, memory_margin, resource_class, running_me
 use super::sizing::sizing_runs;
 
 mod properties {
-    use super::super::policy::{Resources, aggregate_cpus, charged_resources, clamp_to_grantable, memory_margin, reserved_cpus, resource_class, running_cpu_commitment, scope_cpu_quota};
+    use super::super::policy::{Resources, charged_resources, clamp_to_grantable, memory_margin, resource_class, running_cpu_commitment, scope_cpu_quota};
+    use crate::capacity::cpus::{aggregate_cpus, reserved_cpus};
     use proptest::prelude::*;
     use super::super::json::num;
 
@@ -127,7 +128,7 @@ fn a_tom_request_with_too_few_runs_of_its_shape_is_sized_from_its_whole_class() 
 
 #[test]
 fn a_tiny_host_still_grants_one_core_so_the_aggregate_slice_never_gets_a_zero_quota() {
-    use super::policy::aggregate_cpus;
+    use crate::capacity::cpus::aggregate_cpus;
     assert_eq!(aggregate_cpus("attended", 1.0, None), 1.0);
     assert_eq!(aggregate_cpus("attended", 2.0, None), 1.0);
     assert_eq!(aggregate_cpus("attended", 20.0, None), 16.0);
@@ -136,7 +137,8 @@ fn a_tiny_host_still_grants_one_core_so_the_aggregate_slice_never_gets_a_zero_qu
 
 #[test]
 fn the_agent_slice_cpu_max_caps_what_leases_may_hold() {
-    use super::policy::{aggregate_cpus, cpu_max_cpus, grantable_maximum};
+    use super::policy::{cpu_max_cpus, grantable_maximum};
+    use crate::capacity::cpus::aggregate_cpus;
     let ceiling = cpu_max_cpus("1600000 100000\n");
     assert_eq!(ceiling, Some(16.0));
     assert_eq!(aggregate_cpus("attended", 24.0, ceiling), 12.0, "16 CPUs of agent.slice less the attended reserve of 4");

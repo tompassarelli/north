@@ -1,8 +1,8 @@
 use std::process::{Command, Output, Stdio};
 
 use super::machine::{aggregate_slice, batch_slice, env, native_slice, uid};
-use super::policy::aggregate_cpus;
 use crate::capacity::admission::default_mib;
+use crate::capacity::cpus::aggregate_cpus;
 
 const NATIVE_CPU_WEIGHT: u32 = 200;
 const DESKTOP_SLICE: &str = "app.slice";

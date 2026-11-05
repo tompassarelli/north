@@ -7,28 +7,13 @@ use serde_json::Value;
 
 use super::fail;
 use super::json::{Obj, field, num, text};
-use super::machine::{env, now_ms, process_start, read_signals, read_text, uid, wrapper_identity};
+use super::machine::{now_ms, process_start, read_signals, read_text, wrapper_identity};
 use super::policy::gpu_busy_observation;
 use super::systemd::{apply_profile, kill_scope, scope_live};
 
 const LOCK_PATIENCE_MILLISECONDS: u32 = 60_000;
 pub const RUN_LEASE_GRACE_MILLISECONDS: f64 = 5000.0;
 const NATIVE_WAITING_MILLISECONDS: f64 = 60_000.0;
-
-pub fn runtime_root() -> PathBuf {
-    let base = env("XDG_RUNTIME_DIR").unwrap_or_else(|| format!("/run/user/{}", uid()));
-    if !base.starts_with('/') {
-        fail("XDG_RUNTIME_DIR must be absolute", 2);
-    }
-    state_root(&base, uid())
-}
-
-/// A private desktop's own runtime directory (`/run/user/UID/private-desktop.XXXX/runtime`) holds no capacity state, so a run inside it reads and writes the host's `/run/user/UID` state.
-pub(super) fn state_root(runtime: &str, uid: u32) -> PathBuf {
-    let user = format!("/run/user/{uid}");
-    let inside_desktop = runtime.strip_prefix(&user).and_then(|rest| rest.strip_prefix("/private-desktop.")).is_some();
-    Path::new(if inside_desktop { user.as_str() } else { runtime }).join("agent-capacity-v1")
-}
 
 pub fn mode_profile(mode: &str) -> Option<&'static str> {
     match mode {

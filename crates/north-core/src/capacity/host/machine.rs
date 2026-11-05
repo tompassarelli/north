@@ -6,6 +6,7 @@ use std::time::Duration;
 use regex::Regex;
 
 use super::fail;
+pub(super) use crate::capacity::local_machine::read_text;
 use super::json::number;
 
 const GPU_SAMPLE: Duration = Duration::from_millis(500);
@@ -16,15 +17,6 @@ pub fn env(name: &str) -> Option<String> {
 
 pub fn uid() -> u32 {
     rustix::process::getuid().as_raw()
-}
-
-/// Reads a file, treating an absent or vanished one as None.
-pub fn read_text(path: impl AsRef<Path>) -> Option<String> {
-    match fs::read(path.as_ref()) {
-        Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
-        Err(error) if matches!(error.raw_os_error(), Some(2 | 3 | 19 | 13 | 20)) => None,
-        Err(error) => fail(&format!("{}: {error}", path.as_ref().display()), 1),
-    }
 }
 
 fn subslice() -> String {
@@ -166,7 +158,7 @@ pub fn latency_scopes(leases: &[serde_json::Value]) -> Vec<String> {
 
 /// Native clients count as CPU pressure on batch work only while a latency-sensitive session runs, and then only through its own scopes, because capture and accept clients tolerate contention.
 fn latency_native_pressure() -> f64 {
-    let Ok(entries) = fs::read_dir(super::state::runtime_root().join("leases")) else {
+    let Ok(entries) = fs::read_dir(crate::capacity::local_machine::runtime_root().join("leases")) else {
         return 0.0;
     };
     let leases: Vec<serde_json::Value> = entries

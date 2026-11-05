@@ -5,9 +5,10 @@ use serde_json::{Value, json};
 use super::decision::gpu_view;
 use super::json::{Obj, field, num, round2, text};
 use super::machine::{now_ms, read_gpu, read_signals};
-use super::policy::{aggregate_cpus, batch_class};
+use super::policy::batch_class;
 use super::request::{class, cpu_accounting, id, is_run, lease_facts};
 use super::state::{active_profile, read_leases, read_queue, read_usage, record_gpu_busy, with_lock};
+use crate::capacity::cpus::aggregate_cpus;
 
 fn seconds(milliseconds: f64) -> Value {
     num((milliseconds / 1000.0 + 0.5).floor())

@@ -5,6 +5,8 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::effects::Host;
+use super::cpus::aggregate_cpus;
+use super::local_machine::{fail, runtime_root};
 use json::{Obj, field, num};
 
 mod actions_pull;
@@ -21,7 +23,6 @@ mod gpu_tests;
 mod json;
 mod machine;
 pub(super) use machine::host_cores;
-pub(super) use state::runtime_root;
 #[cfg(test)]
 mod landing_tests;
 #[cfg(test)]
@@ -51,7 +52,6 @@ const USAGE: &str = "usage: offload-cost [--last N]|estimate [--json] [--class C
 
 pub use actions_pull::run as actions_pull;
 pub use fleet_pull::run as pull;
-pub use model::host_name;
 
 /// The cores a land check asks of a check host: its highest measured peak once enough newest land-check runs all peaked under the heavy class, else `land_offload_cpus`.
 pub fn land_check_cpus() -> f64 {
@@ -66,11 +66,6 @@ pub(super) fn land_check_charge(declared: f64, runs: &[Value]) -> f64 {
 
 fn admission_default(name: &str) -> f64 {
     crate::capacity::admission::default_mib(name)
-}
-
-pub fn fail(message: &str, status: i32) -> ! {
-    eprintln!("machine-capacity: {message}");
-    std::process::exit(status)
 }
 
 pub fn print_to(result: &Obj, stderr: bool) {
@@ -208,7 +203,7 @@ fn fixture(argv: &[String], host: &Host) -> u8 {
         .put_some("clamped", granted.clamped)
         .put("memoryFullAvg10", num(memory_full))
         .put("leasedCpuCeilings", num(leased_cpus))
-        .put("aggregateCpuLimit", num(policy::aggregate_cpus(profile, cores, None)));
+        .put("aggregateCpuLimit", num(aggregate_cpus(profile, cores, None)));
     print_to(&result, false);
     if code == "RUN" { 0 } else { 75 }
 }
@@ -230,7 +225,7 @@ fn mode(root: &Path, argv: &[String]) -> u8 {
         fail("cannot apply capacity profile", 75);
     }
     let signals = machine::read_signals();
-    print_to(&Obj::new().put("mode", mode).put("profile", profile).put("aggregateCpuLimit", num(policy::aggregate_cpus(profile, signals.cores, signals.slice_cpus))), false);
+    print_to(&Obj::new().put("mode", mode).put("profile", profile).put("aggregateCpuLimit", num(aggregate_cpus(profile, signals.cores, signals.slice_cpus))), false);
     0
 }
 
@@ -379,7 +374,7 @@ pub fn run(argv: &[String], host: &Host) -> u8 {
         "offload-cost" => return offload_cost::print(argv),
         _ => {}
     }
-    let root = state::runtime_root();
+    let root = runtime_root();
     let user_runtime = format!("/run/user/{}/", machine::uid());
     if operation != "mode" && (machine::env("XDG_RUNTIME_DIR").is_none() || root.to_string_lossy().starts_with(&user_runtime)) {
         state::ensure_profile(&root, false);

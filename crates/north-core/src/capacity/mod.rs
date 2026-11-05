@@ -40,3 +40,5 @@ mod native_hold_tests;
 mod tests;
 mod pressure_target_tests;
 mod gpu_admission_tests;
+mod cpus;
+mod local_machine;
