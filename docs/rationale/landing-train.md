@@ -1184,10 +1184,12 @@ lander did not see.
   see a single revert, not a stuck queue.
 - A lane that breaks only in combination with a later lane in the batch is blamed on the first lane
   whose prefix is red, which is the lane that introduced the break in landing order.
-- A lander restart waits for in-flight after-landing runs and their reverts before exiting and lands
-  nothing more meanwhile, so a runtime swap does not drop a verdict; promotion only swaps the link
-  and never restarts the units itself. A lander killed anyway (a crash, a stop timeout, the watchdog)
-  finds each unsettled batch in `<queue>/following/` and reruns it (north#639).
+- A lander exits as soon as its runtime link changes, without waiting for its in-flight
+  after-landing runs, and promotion only swaps the link and never restarts the units itself. A
+  stopped lander records no verdict for a run it was in: systemd's SIGTERM ends the lander before
+  its killed run can report. The next start finds each unsettled batch in `<queue>/following/` and
+  reruns it, whether the stop was a runtime swap, a `systemctl stop`, a crash or the watchdog
+  (north#639).
 
 ### Measured after
 

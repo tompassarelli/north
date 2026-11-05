@@ -13,7 +13,7 @@ use north_landing::land::{after, checks};
 
 const CHILD: &str = "NORTH_LAND_CHAOS_HOME";
 const LANDER_ROLE: &str = "NORTH_LAND_CHAOS_LANDER";
-const KILLED_AFTER_RUN: &str = "land_chaos::chaos_lander_killed_mid_after_run_reruns_it_and_reverts_the_red_lane";
+const STOPPED_AFTER_RUN: &str = "land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_reruns_it_and_reverts_the_red_lane";
 const ROUNDS: usize = 200;
 
 const CHECKER: &str = r#"plan="$1/plan"; calls="$1/calls"
@@ -293,7 +293,15 @@ fn journaled(lander: &Lander) -> usize {
     fs::read_dir(lander.queue.join("following")).map_or(0, |entries| entries.filter_map(Result::ok).filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json")).count())
 }
 
-fn killed_mid_after_run(world: &World) {
+fn verdicts(head: &str) -> Vec<String> {
+    let ledger = PathBuf::from(std::env::var_os("XDG_STATE_HOME").unwrap()).join("safe-push").join("post-land.tsv");
+    fs::read_to_string(ledger).unwrap_or_default().lines().filter_map(|line| {
+        let fields: Vec<&str> = line.split('\t').collect();
+        (fields.get(2) == Some(&head)).then(|| fields.get(3).copied().unwrap_or_default().to_owned())
+    }).collect()
+}
+
+fn stopped_mid_after_run(world: &World) {
     if std::env::var_os(LANDER_ROLE).is_some() {
         let lander = world.lander();
         let mut watch = Watch::resume(&lander);
@@ -307,14 +315,15 @@ fn killed_mid_after_run(world: &World) {
     let bad = world.enqueue(&lander, &world.lane("bad"));
     let c = world.enqueue(&lander, &world.lane("c"));
     fs::write(world.root.join("stall"), "").unwrap();
-    let mut first = Command::new(std::env::current_exe().unwrap()).args([KILLED_AFTER_RUN, "--exact", "--nocapture", "--test-threads=1"]).env(LANDER_ROLE, "1").stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().unwrap();
+    let mut first = Command::new(std::env::current_exe().unwrap()).args([STOPPED_AFTER_RUN, "--exact", "--nocapture", "--test-threads=1"]).env(LANDER_ROLE, "1").stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().unwrap();
     wait_for("the first lander to land the batch and start its after run", || world.root.join("stalled").exists() && queue::pending(&lander.queue).unwrap().is_empty());
-    let killed = Command::new("kill").args(["-KILL", &format!("-{}", first.id())]).status().unwrap();
-    assert!(killed.success());
+    let stopped = Command::new("kill").args(["-TERM", &format!("-{}", first.id())]).status().unwrap();
+    assert!(stopped.success());
     first.wait().unwrap();
     let landed_head = run(&world.origin, &["rev-parse", "main"]);
-    assert_eq!(journaled(&lander), 1, "the killed lander left no journal entry for the after run of {landed_head}");
-    assert!(!world.root.join("after-runs").exists(), "the after run finished before the lander was killed");
+    assert_eq!(journaled(&lander), 1, "the stopped lander left no journal entry for the after run of {landed_head}");
+    assert!(!world.root.join("after-runs").exists(), "the after run finished before the lander was stopped");
+    assert!(verdicts(&landed_head).is_empty(), "the stopped after run of {landed_head} was recorded as a verdict");
 
     fs::remove_file(world.root.join("stall")).unwrap();
     let restarted = world.lander();
@@ -325,6 +334,7 @@ fn killed_mid_after_run(world: &World) {
         watch.in_flight() == 0 && queue::pending(&restarted.queue).unwrap().is_empty() && world.landed_subjects().iter().any(|subject| subject.starts_with("Revert "))
     });
     assert_eq!(journaled(&restarted), 0);
+    assert_eq!(verdicts(&landed_head), ["red-main"], "the rerun after run of {landed_head} recorded no single red verdict");
     let runs = fs::read_to_string(world.root.join("after-runs")).unwrap();
     assert!(runs.lines().any(|head| head == landed_head), "the restarted lander never reran the after run of {landed_head}: {runs}");
     let subjects = world.landed_subjects();
@@ -345,8 +355,8 @@ fn chaos_kill_mid_check_lands_each_lane_once_after_restart() {
 }
 
 #[test]
-fn chaos_lander_killed_mid_after_run_reruns_it_and_reverts_the_red_lane() {
-    isolated(KILLED_AFTER_RUN, killed_mid_after_run);
+fn chaos_lander_stopped_by_sigterm_mid_after_run_reruns_it_and_reverts_the_red_lane() {
+    isolated(STOPPED_AFTER_RUN, stopped_mid_after_run);
 }
 
 #[test]
