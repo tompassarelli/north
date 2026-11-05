@@ -32,8 +32,9 @@ pub mod telemetry;
 pub mod watchdog;
 pub mod repositories;
 pub mod setting;
+pub mod shadow;
 
-const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]\n       north land enqueue [--repo DIR] [--message FILE]\n       north land urgent TICKET --reason TEXT [--repo DIR]\n       north land withdraw TICKET --reason TEXT [--repo DIR] [--noticed-by WHO] [--class CLASS]\n       north land scan dep-gate|tool-removal|test-integrity BASE..HEAD\n       north land watchdog --once [--queue-root DIR]\n       north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]\n       north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...\n       north land reuse hash|record|lookup";
+const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]\n       north land enqueue [--repo DIR] [--message FILE]\n       north land urgent TICKET --reason TEXT [--repo DIR]\n       north land withdraw TICKET --reason TEXT [--repo DIR] [--noticed-by WHO] [--class CLASS]\n       north land scan dep-gate|tool-removal|test-integrity BASE..HEAD\n       north land watchdog --once [--queue-root DIR]\n       north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]\n       north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...\n       north land reuse hash|record|lookup\n       north land shadow tick [--repo DIR]";
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {
@@ -48,6 +49,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Some((command, rest)) if command == "reuse" => reuse::run(rest),
         Some((command, rest)) if command == "withdraw" => withdraw::run(rest),
         Some((command, rest)) if command == "watchdog" => watchdog::run(rest),
+        Some((command, rest)) if command == "shadow" => shadow::run(rest),
         Some((command, _)) if command == "-h" || command == "--help" => {
             println!("{USAGE}");
             0
