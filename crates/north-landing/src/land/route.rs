@@ -3,7 +3,8 @@ use std::path::Path;
 use crate::landing::safe_push_plan::{self, Arguments, Plan};
 
 use super::candidate::git;
-use super::{enqueue, repositories, setting};
+use super::lander::state_home;
+use super::{enqueue, hold, queue, repositories, setting};
 
 pub const PER_LANE: u8 = 3;
 
@@ -41,13 +42,13 @@ fn short(host: &str) -> &str {
     host.split('.').next().unwrap_or(host)
 }
 
-pub fn decide(settings: &Settings, host: &str, to: &str, request: &Arguments) -> Route {
+pub fn decide(settings: &Settings, host: &str, to: &str, request: &Arguments, unserved: bool) -> Route {
     if settings.queue != "lander" {
         return Route::PerLane;
     }
     let named = settings.hosts.iter().any(|listed| short(listed) == short(host));
     if !settings.committed {
-        return if named && request.several_commits.is_none() && !request.direct { Route::Lander } else { Route::PerLane };
+        return if named && !unserved && request.several_commits.is_none() && !request.direct { Route::Lander } else { Route::PerLane };
     }
     let host = short(host);
     if request.direct {
@@ -57,6 +58,15 @@ pub fn decide(settings: &Settings, host: &str, to: &str, request: &Arguments) ->
         return Route::Refused(format!("{host} is neither landing.lander-host nor in landing.remote-hosts of .safe-push on {to}, so the lander cannot take this lane; add {host} to landing.remote-hosts. NOT pushed."));
     }
     Route::Lander
+}
+
+fn unserved(repo: &Path, to: &str, host: &str) -> bool {
+    let lander_host = setting::landing(repo, &format!("refs/remotes/origin/{to}"), "landing.lander-host");
+    if short(lander_host.trim()) != short(host) {
+        return false;
+    }
+    let Ok(origin) = git(repo, &["remote", "get-url", "--push", "origin"]) else { return false };
+    !hold::held(&queue::directory(&state_home(), &origin))
 }
 
 fn ticket_arguments(request: &Arguments) -> Vec<String> {
@@ -91,9 +101,17 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let repo = Path::new(".");
     let to = request.to.clone().unwrap_or_else(|| safe_push_plan::default_branch(repo));
-    match decide(&Settings::read(repo, &to), &repositories::local_host(), &to, &request) {
+    let settings = Settings::read(repo, &to);
+    let host = repositories::local_host();
+    let unserved = unserved(repo, &to, &host);
+    match decide(&settings, &host, &to, &request, unserved) {
         Route::Lander => enqueue::run(&ticket_arguments(&request)),
-        Route::PerLane => PER_LANE,
+        Route::PerLane => {
+            if unserved && !settings.committed {
+                eprintln!("safe-push: no lander serves this repository's queue on {}, so this lane lands per-lane", short(&host));
+            }
+            PER_LANE
+        }
         Route::Refused(reason) => {
             eprintln!("safe-push: {reason}");
             1

@@ -34,6 +34,10 @@ pub fn holder(queue: &Path) -> String {
     if named.is_empty() { "a lander that has not named itself yet".to_owned() } else { named.to_owned() }
 }
 
+pub fn held(queue: &Path) -> bool {
+    File::open(path(queue)).is_ok_and(|file| flock(&file, FlockOperation::NonBlockingLockShared).is_err())
+}
+
 pub fn take(queue: &Path, serving: &Path) -> Result<Hold, String> {
     fs::create_dir_all(queue).map_err(|error| format!("cannot create {}: {error}", queue.display()))?;
     let lock = path(queue);
@@ -62,6 +66,17 @@ mod tests {
         let second = take(&queue, Path::new("/code/north/other"));
         assert!(second.is_ok());
         assert_eq!(holder(&queue), format!("pid {} serving /code/north/other", std::process::id()));
+    }
+
+    #[test]
+    fn a_queue_is_held_only_while_a_lander_holds_its_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let queue = dir.path().join("queue");
+        assert!(!held(&queue));
+        let lander = take(&queue, Path::new("/code/north/main")).unwrap();
+        assert!(held(&queue));
+        drop(lander);
+        assert!(!held(&queue));
     }
 
     #[test]

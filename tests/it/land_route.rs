@@ -1,4 +1,5 @@
 use north_core::foundation::shim;
+use north_landing::land::hold;
 use north_landing::land::queue::{self, Ticket};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -244,6 +245,7 @@ fn lander_default() {
     fixture.write_config("other-gitconfig", "[landing]\n\tlander-host = fixture-host\n");
     fixture.work("default work");
     let main_before = fixture.main();
+    let lander = hold::take(&fixture.queue(), &fixture.repo()).unwrap();
     let run = fixture.safe_push(&["--to", "main"], "machine-gitconfig");
     queued(&run);
     assert_eq!(fixture.tickets(&fixture.queue()).len(), 1, "a repository with no landing.queue did not queue on the machine's lander host: {}", run.output);
@@ -252,6 +254,7 @@ fn lander_default() {
     assert_eq!(run.status, 0, "{}", run.output);
     assert_eq!(fixture.main(), fixture.git(&["rev-parse", "HEAD"]), "a host that is not the lander host did not land per lane: {}", run.output);
     assert_eq!(fixture.tickets(&fixture.queue()).len(), 1, "a host that is not the lander host queued a ticket");
+    drop(lander);
     fixture.settle("[landing]\n\tqueue = lock\n", "opt out of the lander");
     fixture.work("opted-out work");
     let opted_out_before = fixture.main();
@@ -273,4 +276,17 @@ fn lander_queue_without_north_refuses_instead_of_pushing() {
     assert!(run.output.contains("lacks north land route"), "{}", run.output);
     assert_eq!(fixture.main(), main_before, "a lander repository pushed main without north land route");
     assert!(fixture.tickets(&fixture.queue()).is_empty(), "{}", run.output);
+}
+
+#[test]
+fn lander_default_unserved() {
+    let fixture = Fixture::new();
+    fixture.git_at(&fixture.top().join("remote.git"), &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    fixture.write_config("machine-gitconfig", &format!("[landing]\n\tlander-host = {}\n", local_host()));
+    fixture.work("unserved work");
+    let run = fixture.safe_push(&["--to", "main"], "machine-gitconfig");
+    assert_eq!(run.status, 0, "{}", run.output);
+    assert!(run.output.contains("no lander serves this repository's queue"), "{}", run.output);
+    assert_eq!(fixture.main(), fixture.git(&["rev-parse", "HEAD"]), "a repository no lander serves did not land per lane: {}", run.output);
+    assert!(fixture.tickets(&fixture.queue()).is_empty(), "a repository no lander serves queued a ticket that would never land: {}", run.output);
 }
