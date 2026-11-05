@@ -379,3 +379,13 @@ Rust input must pass `north land scan run-time-data BASE..HEAD` before the push:
 parses, keeps every key the base had with the same type, and every array-of-tables entry keeps the keys
 all earlier entries shared; a file may not be deleted. Adding keys and changing values pass. A lane that
 also changes Rust is judged by its Rust checks, which read the lane's own tables.
+
+Measured after, 2026-11-06 6:56 AM: f2ae888b5 changed one value in `harness/defaults.toml`
+(`laptop_idle_reopen_sec` 1800 to 1801, restored by the next commit). Its land log ran three checks
+through `bin/head-north`, each served by the live runtime and none invoking cargo, and
+`north land scan run-time-data` printed that the one changed file keeps every key and type; the lander
+pushed 8 s after queueing. `north land profile` gives 11 s of verification after the push (8 s post-push
+follow, 4 s CI), against c1fe1d405's 1,855 s. The after-landing run selected no Rust check, and no runtime
+build log exists for f2ae888b5. The runtime it installed carries a binary byte-identical to the previous
+runtime's (sha256 88a602b8...), and `north capacity host status` under strace opens
+`runtimes/f2ae888b5.../tree/harness/defaults.toml`, the file holding 1801.

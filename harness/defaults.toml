@@ -476,7 +476,7 @@ fallback = "a class without a run count is explorable"
 consumers = ["crates/north-pace/src/router/ctx.rs"]
 
 [laptop_idle_reopen_sec]
-value = 1801
+value = 1800
 unit = "seconds of continuous idle before reopening background laptop capacity"
 source = "tom: adaptive-harness Revision 1 C1c, 2026-10-15: preserve laptop observe's existing 1800-second idle reopening threshold"
 fallback = "without continuous idle evidence background capacity remains closed"
