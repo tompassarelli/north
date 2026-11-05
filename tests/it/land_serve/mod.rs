@@ -4,9 +4,7 @@ use std::process::{Command, Output};
 
 use north_landing::land::queue::{self, RedFix, Ticket};
 
-#[path = "../land_cleanup.rs"]
 mod cleanup;
-#[path = "../land_sheriff.rs"]
 mod sheriff;
 
 mod baseline;
