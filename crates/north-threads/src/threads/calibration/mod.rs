@@ -26,7 +26,7 @@ use toml_edit::DocumentMut;
 use crate::router::brief::CATEGORIES;
 
 pub use recommend::Pick;
-pub use verbs::{VERBS, run};
+pub use verbs::{VERBS, eta_pred_scale, run};
 pub use box_eta::{box_durations, box_run};
 pub use boxes::{BoxRun, box_chains, box_duration, box_groups, moment};
 pub use forward::walk_forward_eta;

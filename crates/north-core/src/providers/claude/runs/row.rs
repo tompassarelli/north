@@ -10,6 +10,7 @@ use crate::foundation::clock::Timestamp;
 static WAITING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*(waiting|i.ll wait|i.ll pick|the test run)").unwrap());
 static ETA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b").unwrap());
+static STATED_ETA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^ETA:[ \t]*([0-9]+(?:\.[0-9]+)?)[ \t]*(hours?|hrs?|h|minutes?|mins?|m)\b").unwrap());
 pub static FLAWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\baccepted flaws?:\s*([0-9]+)").unwrap());
 pub static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 const RUNNING_SECONDS: i64 = 7200;
@@ -57,8 +58,9 @@ fn finished(last: &Value) -> bool {
     !parts.iter().any(|part| part["type"] == "tool_use") && length > 0 && (length > 200 || !WAITING.is_match(&text))
 }
 
+/// The minutes the brief's own `ETA:` head line states, else the first ETA its text names.
 pub fn eta(brief: &str) -> Value {
-    ETA.captures(brief).map_or(Value::Null, |found| {
+    STATED_ETA.captures(brief).or_else(|| ETA.captures(brief)).map_or(Value::Null, |found| {
         let amount: f64 = found[1].parse().unwrap_or(0.0);
         number(amount * if found[2].starts_with('h') { 60.0 } else { 1.0 })
     })

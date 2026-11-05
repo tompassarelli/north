@@ -16,7 +16,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 
 | signal | writer | reader on main | verdict | commit |
 |---|---|---|---|---|
-| runs.eta_min | north worker-ledger | crates/north-threads/src/threads/calibration/forward.rs calibrate_eta scales recommend_eta | read | ac79788c |
+| runs.eta_min | north worker-ledger, from the brief's `ETA:` head line (row.rs eta in the Claude runs provider), else the first ETA its text names | crates/north-threads/src/threads/calibration/forward.rs calibrate_eta scales recommend_eta; the walk-forward `eta_pred` scale also multiplies the dispatch brief's ETA in crates/north-dispatch/src/dispatch/grounds.rs | read | ac79788c |
 | runs.minutes | north worker-ledger | crates/north-threads/src/threads/calibration/recommend.rs recommend_eta (the wall p75 printed after the active-minute figures) | read | |
 | runs.outcome, follows, landed, expects_landing | north worker-ledger | crates/north-threads/src/threads/calibration/read.rs succeeded; crates/north-pace/src/usage/ctx.rs routing success | read | 4a58f21e |
 | runs.tier | north worker-ledger | crates/north-threads/src/threads/calibration/recommend.rs recommend, every provider | read | 4b71ac63 |

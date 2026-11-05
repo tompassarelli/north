@@ -199,3 +199,12 @@ fn a_transcript_records_each_skill_its_skill_calls_and_the_file_skill_hook_loade
     assert_eq!(super::telemetry::skills(&records), ["rust-development", "verification"]);
     assert!(super::telemetry::skills(&[]).is_empty());
 }
+
+#[test]
+fn eta_min_records_the_eta_the_brief_head_states_not_the_first_eta_its_text_names() {
+    let brief = "Item: north#9 Cut the ETA 5 min sooner\nCategory: tooling\nETA: 126 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d; 30 min x4.20 eta_pred claude n=300 median 1.10)\nFiles: as north#9 names them\n\nAn ETA of 2 h is a guess.";
+    assert_eq!(super::row::eta(brief), json!(126));
+    assert_eq!(super::row::eta("Item: north#9 x\nETA: 1.5 h\n"), json!(90));
+    assert_eq!(super::row::eta("Fix it. ETA 20 min."), json!(20));
+    assert_eq!(super::row::eta("Fix it."), Value::Null);
+}

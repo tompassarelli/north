@@ -39,6 +39,11 @@ fn usage(window: &str) -> NorthError {
     NorthError::Usage(format!("--since takes hours or days such as 24h or 7d, not {window:?}"))
 }
 
+/// The walk-forward `eta_pred` calibration of `tier` in the threads ledger: its scale when calibrated, and its label.
+pub fn eta_calibration(tier: &str) -> NorthResult<(Option<f64>, String)> {
+    crate::threads::calibration::eta_pred_scale(&threads_database(), Timestamp::now(), tier).map_err(NorthError::State)
+}
+
 pub fn threads_database() -> PathBuf {
     if let Some(path) = std::env::var_os("THREADS_DB") {
         return path.into();

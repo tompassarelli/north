@@ -179,3 +179,20 @@ fn dispatch_writes_the_tune_cells_eta_and_budget_into_the_brief_and_the_live_led
     let floored = briefed(r#"{"budget_usd sonnet tooling": 1.0}"#);
     assert!(floored.contains("E p50 $5.20, p90 $5.20 (tune cell, 2026-10-30; the p90 $1.00 is below the median cost of a closed box across every cell") && floored.contains("which one real box needs"), "{floored}");
 }
+
+#[test]
+fn the_brief_eta_is_scaled_by_its_tiers_walk_forward_calibration_and_names_the_measured_minutes() {
+    let box_ = issue("north", 7, BODY, &[]);
+    let scale = super::grounds::EtaScale { factor: 4.2, label: "x4.20 eta_pred claude n=300 median 1.10".into() };
+    let calibrated = ledger(&[]).eta_scale(Tier::Sonnet, scale.clone());
+    let live = calibrated.grounds("north#7", OPENED, &box_.body, &route());
+    assert_eq!(live.minutes(), Some(126.0));
+    let text = brief(&box_, "test", &route(), &live);
+    assert!(text.contains("ETA: 126 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d; 30 min x4.20 eta_pred claude n=300 median 1.10)\n"), "{text}");
+    let tuned = ledger(&[]).eta_scale(Tier::Sonnet, scale.clone()).tuned(tuned(r#"{"eta_minutes sonnet tooling": 55}"#)).grounds("north#7", OPENED, &box_.body, &route());
+    assert!(tuned.eta(Some("40 min"), &route()).starts_with("231 min (tune cell, 2026-10-30; 55 min x4.20 eta_pred claude n=300 median 1.10; the issue declares 40 min)"), "{}", tuned.eta(None, &route()));
+    let other = ledger(&[]).eta_scale(Tier::Opus, scale).grounds("north#7", OPENED, &box_.body, &route());
+    assert_eq!((other.minutes(), other.eta(None, &route())), (Some(30.0), "30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)".to_owned()));
+    let recorded = north_core::providers::claude::runs::row::eta(&text);
+    assert_eq!(recorded, serde_json::json!(126));
+}

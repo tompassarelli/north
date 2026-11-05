@@ -79,6 +79,16 @@ pub(super) fn latest_calibration(db: &Connection, knobs: &Knobs, now: Timestamp,
     Ok((None, format!("uncalibrated: {reason}")))
 }
 
+/// The walk-forward `eta_pred` scale a brief's ETA is multiplied by for `tier`, read from the ledger at `database`,
+/// with its label; no scale when the newest row is thin, stale or missing.
+pub fn eta_pred_scale(database: &Path, now: Timestamp, tier: &str) -> Result<(Option<f64>, String), String> {
+    let refused = |failure: Failure| match failure {
+        Failure::Usage(why) | Failure::Refused(why) => why,
+    };
+    let db = open(database, false).map_err(refused)?;
+    latest_calibration(&db, &Knobs::registry(), now, "eta_pred", tier, false).map_err(refused)
+}
+
 fn recommend_verb(argv: &[String], context: &Context) -> Outcome {
     let args = Args::parse(argv, &["--since"], &[])?;
     let [facets] = args.positional.as_slice() else { return Err(Failure::Usage("usage: threads recommend [--since DATE] FACETS".into())) };

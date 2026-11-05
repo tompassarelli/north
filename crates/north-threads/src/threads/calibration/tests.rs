@@ -748,3 +748,26 @@ fn a_goal_eta_quoted_against_a_past_target_is_refused_and_a_current_one_is_recor
     let kinds: Vec<String> = db.prepare("SELECT kind || ' ' || cell FROM calibration ORDER BY rowid").unwrap().query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
     assert_eq!(kinds, ["goal_eta north", "goal_actual north", "goal_eta wisp"]);
 }
+
+#[test]
+fn the_brief_eta_scale_is_the_newest_thick_fresh_eta_pred_row_of_the_tiers_provider_else_of_all() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("threads.db");
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch("CREATE TABLE calibration (at TEXT, kind TEXT, cell TEXT, n INT, p25 REAL, median REAL, p75 REAL, value REAL, source TEXT);").unwrap();
+    let now = Timestamp::parse("2026-11-05T12:00:00Z").unwrap();
+    let row = |at: &str, kind: &str, cell: &str, n: i64, value: f64| {
+        db.execute("INSERT INTO calibration VALUES (?1, ?2, ?3, ?4, NULL, 1.1, NULL, ?5, 'test')", rusqlite::params![at, kind, cell, n, value]).unwrap();
+    };
+    assert_eq!(super::eta_pred_scale(&path, now, "claude:sonnet-high").unwrap(), (None, "uncalibrated: no eta_pred calibration".to_owned()));
+    row("2026-11-05T08:00:00Z", "eta_pred", "all", 1422, 4.3);
+    row("2026-11-05T09:00:00Z", "eta", "claude", 1422, 9.0);
+    assert_eq!(super::eta_pred_scale(&path, now, "claude:sonnet-high").unwrap(), (Some(4.3), "x4.30 eta_pred all n=1422 median 1.10".to_owned()));
+    row("2026-11-05T10:00:00Z", "eta_pred", "claude", 40, 2.0);
+    assert_eq!(super::eta_pred_scale(&path, now, "claude:sonnet-high").unwrap().0, Some(4.3));
+    row("2026-11-05T11:00:00Z", "eta_pred", "claude", 300, 2.5);
+    assert_eq!(super::eta_pred_scale(&path, now, "claude:opus-medium").unwrap(), (Some(2.5), "x2.50 eta_pred claude n=300 median 1.10".to_owned()));
+    let stale = Timestamp::parse("2026-11-20T12:00:00Z").unwrap();
+    assert_eq!(super::eta_pred_scale(&path, stale, "claude:opus-medium").unwrap().0, None);
+    assert!(super::eta_pred_scale(&directory.path().join("missing.db"), now, "claude:haiku").is_err());
+}

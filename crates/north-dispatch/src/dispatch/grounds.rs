@@ -1,10 +1,11 @@
 //! What a brief tells its worker about the box beyond its facets: what the issue says is not
 //! required, what the last two tries reported, and the ETA and budget north tune's cells set for the
-//! box's tier family and category, else the ledger's closed boxes live, the budget never below the
-//! window's median closed box.
-use super::tier::Route;
+//! box's tier family and category, else the ledger's closed boxes live, the ETA scaled by the tier's
+//! walk-forward `eta_pred` calibration and the budget never below the window's median closed box.
+use super::tier::{Route, Tier};
 use super::tuned::{Figure, Tuned};
 use crate::ledger::{self, ClosedReport, Figures, PriorReport};
+use crate::threads::calibration::scaled;
 use std::collections::BTreeMap;
 
 pub const REPORT_CHARS: usize = 600;
@@ -17,24 +18,47 @@ const READ_SPEND: &str = "`north fleet spend --self` prints your API-equivalent 
 const AT_THE_LINE: &str = "commit and land any change already passing its checks, then report `Split:` with the remaining parts as boxes; never stop with passing work unlanded";
 
 /// The ledger as one dispatch run reads it: the closed boxes of the window and each item's last
-/// Not done or Stop reports, and the cells north tune last wrote.
+/// Not done or Stop reports, the cells north tune last wrote, and each tier's calibrated ETA scale.
 #[derive(Default)]
 pub struct Ledger {
     closed: Option<ClosedReport>,
     prior: BTreeMap<String, Vec<PriorReport>>,
     tuned: Tuned,
+    eta_scales: BTreeMap<Tier, EtaScale>,
+}
+
+/// A tier's walk-forward `eta_pred` calibration: the factor that brings the measured ETA to the share
+/// of runs it targets, and the label naming its cell, n and median.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EtaScale {
+    pub factor: f64,
+    pub label: String,
 }
 
 impl Ledger {
     pub fn read(notes: &mut Vec<String>) -> Self {
         let closed = ledger::closed_report(WINDOW).map_err(|error| notes.push(format!("ledger summary --since {WINDOW} unread, so briefs keep the uncalibrated ETA and carry no budget: {error}"))).ok();
         let prior = ledger::prior_reports().map_err(|error| notes.push(format!("prior Not done reports unread, so briefs carry none: {error}"))).unwrap_or_default();
-        Self { closed, prior, tuned: Tuned::current() }
+        let mut eta_scales = BTreeMap::new();
+        for tier in [Tier::Haiku, Tier::Sonnet, Tier::Opus] {
+            match ledger::eta_calibration(tier.key()) {
+                Ok((Some(factor), label)) => _ = eta_scales.insert(tier, EtaScale { factor, label }),
+                Ok((None, _)) => {}
+                Err(error) => notes.push(format!("eta_pred calibration of {} unread, so its briefs keep the unscaled ETA: {error}", tier.key())),
+            }
+        }
+        Self { closed, prior, tuned: Tuned::current(), eta_scales }
     }
 
     #[cfg(test)]
     pub fn new(closed: Option<ClosedReport>, prior: BTreeMap<String, Vec<PriorReport>>) -> Self {
-        Self { closed, prior, tuned: Tuned::default() }
+        Self { closed, prior, ..Self::default() }
+    }
+
+    #[cfg(test)]
+    pub fn eta_scale(mut self, tier: Tier, scale: EtaScale) -> Self {
+        self.eta_scales.insert(tier, scale);
+        self
     }
 
     #[cfg(test)]
@@ -51,6 +75,7 @@ impl Ledger {
             figures: self.closed.as_ref().and_then(|closed| closed.figures(route.tier.family(), &route.category)),
             eta_cell: self.tuned.figure("eta_minutes", route),
             budget_cell: self.tuned.figure("budget_usd", route),
+            eta_scale: self.eta_scales.get(&route.tier).cloned(),
             floor: self.closed.as_ref().and_then(ClosedReport::median_box_usd),
             prior,
             not_required: not_required(body),
@@ -64,6 +89,8 @@ pub struct Grounds {
     /// North tune's `eta_minutes` and `budget_usd` cells for the box's tier family and category.
     pub eta_cell: Option<Figure>,
     pub budget_cell: Option<Figure>,
+    /// The tier's walk-forward calibration the measured ETA is multiplied by.
+    pub eta_scale: Option<EtaScale>,
     /// The median cost of a closed box across every cell of the window, and how many closed: what
     /// one real box needs, however little a cell's own few boxes cost.
     pub floor: Option<(f64, usize)>,
@@ -72,20 +99,30 @@ pub struct Grounds {
 }
 
 impl Grounds {
-    /// The ETA line's value: the tune cell, else the ledger's p75 with its n, else what the issue
-    /// declares, else the uncalibrated default.
+    /// The ETA line's value: the tune cell, else the ledger's p75 with its n, either scaled by the
+    /// tier's calibration, else what the issue declares, else the uncalibrated default.
     pub fn eta(&self, declared: Option<&str>, route: &Route) -> String {
         let aside = declared.map_or_else(String::new, |declared| format!("; the issue declares {declared}"));
-        match (&self.eta_cell, &self.figures, declared) {
-            (Some(tuned), _, _) => format!("{:.0} min (tune cell, {}{aside})", tuned.value.ceil(), tuned.date),
-            (None, Some(figures), _) => format!("{:.0} min (p75 of n={} runs, {}{aside})", eta_minutes(figures), figures.runs, cell(route)),
-            (None, None, Some(declared)) => declared.to_owned(),
-            (None, None, None) => UNCALIBRATED.to_owned(),
-        }
+        let (minutes, source) = match (&self.eta_cell, &self.figures) {
+            (Some(tuned), _) => (tuned.value.ceil(), format!("tune cell, {}", tuned.date)),
+            (None, Some(figures)) => (eta_minutes(figures), format!("p75 of n={} runs, {}", figures.runs, cell(route))),
+            (None, None) => return declared.map_or_else(|| UNCALIBRATED.to_owned(), str::to_owned),
+        };
+        let scale = self.eta_scale.as_ref().map_or_else(String::new, |scale| format!("; {minutes:.0} min {}", scale.label));
+        format!("{:.0} min ({source}{scale}{aside})", self.scaled(minutes))
     }
 
-    /// The minutes the ETA line gives the box when the tune cell or the ledger measured it.
+    /// The minutes the ETA line gives the box when the tune cell or the ledger measured it, scaled
+    /// by the tier's calibration.
     pub fn minutes(&self) -> Option<f64> {
+        self.measured_minutes().map(|measured| self.scaled(measured))
+    }
+
+    fn scaled(&self, measured: f64) -> f64 {
+        scaled(measured, self.eta_scale.as_ref().map(|scale| scale.factor), true)
+    }
+
+    fn measured_minutes(&self) -> Option<f64> {
         self.eta_cell.as_ref().map(|tuned| tuned.value.ceil()).or_else(|| self.figures.as_ref().map(eta_minutes))
     }
 
