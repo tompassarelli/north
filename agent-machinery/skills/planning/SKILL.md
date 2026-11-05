@@ -63,4 +63,4 @@ Read [pricing sources](references/pricing.md) when a price is disputed, and [not
 5. Record a consequential deferral or a landing over a soft target with `Target-debt: <bar>; measured <value>; owner <owner>; revisit <trigger>`, because a deferral without a trigger never returns.
 6. Name a gating bar's source in its box or rationale doc; a landing needs no `Provenance:` trailer (retired 2026-11-04), because a rework signal now watches quality.
 
-Read [stewardship notes](references/stewardship.md) when resolving stalled delivery, a deferral or the retired Provenance gate.
+Read [stewardship notes](references/stewardship.md) when resolving stalled delivery, a deferral, a Provenance record or the old gate.

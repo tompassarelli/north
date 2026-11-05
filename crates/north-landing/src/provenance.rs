@@ -20,6 +20,9 @@ macro_rules! re {
         &*RE
     }};
 }
+
+mod inventory;
+
 fn origin(s: &str) -> bool {
     matches!(s, "tom" | "experiment" | "prior-art" | "incident")
 }
@@ -848,19 +851,21 @@ fn audit(paths: &[String], db: &str, events: &[String]) -> Result<(), String> {
     }
     Ok(())
 }
-const HELP: &str = r#"usage: provenance [-h] {check,debt,audit} ...
+const HELP: &str = r#"usage: provenance [-h] {check,debt,audit,inventory} ...
 
 provenance: audit recorded grounding, refuse new steering without provenance,
 and list Target-debt.
 
 positional arguments:
-  {check,debt,audit}
+  {check,debt,audit,inventory}
     check             list new gating bars, hooks and policy lines without a
                       Provenance record
     debt              list Target-debt trailers on origin/main not named by a
                       Target-paid
     audit             rank recorded claims for re-grounding using their
                       evidence and model release dates
+    inventory         count every hook, AGENTS.md policy line, tier and gating
+                      bar on a revision without a Provenance record
 
 options:
   -h, --help          show this help message and exit
@@ -890,11 +895,21 @@ options:
   --db DB        read-only model_events store
   --event EVENT  exact recorded event trigger that fired
 "#;
+const HELP_INVENTORY: &str = r#"usage: provenance inventory [-h] [--repo REPO] [--rev REV] [--stubs]
+
+options:
+  -h, --help   show this help message and exit
+  --repo REPO  repository path (default .)
+  --rev REV    revision whose tree is audited (default HEAD)
+  --stubs      print a none-recorded record for each item without one, with
+               the commit git log -S finds first adding it
+"#;
 
 enum Invocation {
     Check { base: String, head: String },
     Debt { paths: Vec<String>, only_due: bool },
     Audit { paths: Vec<String>, db: String, events: Vec<String> },
+    Inventory { repo: String, rev: String, stubs: bool },
 }
 
 #[derive(Debug)]
@@ -930,6 +945,7 @@ impl Exit {
             "check" => HELP_CHECK,
             "debt" => HELP_DEBT,
             "audit" => HELP_AUDIT,
+            "inventory" => HELP_INVENTORY,
             _ => HELP,
         };
         let name = if command.is_empty() { "provenance".to_owned() } else { format!("provenance {command}") };
@@ -1000,10 +1016,13 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
         }
         return Ok(Invocation::Check { base: positional[0].clone(), head: positional[1].clone() });
     }
+    if command == "inventory" {
+        return parse_inventory(leading, &args[1..]);
+    }
     if command != "debt" && command != "audit" {
         return Err(Exit::usage(
             "",
-            format!("argument command: invalid choice: '{command}' (choose from 'check', 'debt', 'audit')"),
+            format!("argument command: invalid choice: '{command}' (choose from 'check', 'debt', 'audit', 'inventory')"),
         ));
     }
     let mut paths = Vec::new();
@@ -1087,6 +1106,47 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
     Ok(if command == "debt" { Invocation::Debt { paths, only_due } } else { Invocation::Audit { paths, db, events } })
 }
 
+fn parse_inventory(leading: &[String], args: &[String]) -> Result<Invocation, Exit> {
+    let mut repo = ".".to_owned();
+    let mut rev = "HEAD".to_owned();
+    let mut stubs = false;
+    let mut unknown: Vec<_> = leading.iter().map(String::as_str).collect();
+    let mut i = 0;
+    while i < args.len() {
+        let (key, inline) = args[i]
+            .split_once('=')
+            .map_or((args[i].as_str(), None), |(k, v)| (k, Some(v)));
+        if is_help(key) {
+            return Err(Exit::Help(HELP_INVENTORY));
+        }
+        match key {
+            "--stubs" => stubs = true,
+            "--repo" | "--rev" => {
+                let value = match inline {
+                    Some(v) => v.to_owned(),
+                    None => {
+                        i += 1;
+                        args.get(i).cloned().ok_or_else(|| {
+                            Exit::usage("inventory", format!("argument {key}: expected one argument"))
+                        })?
+                    }
+                };
+                if key == "--repo" {
+                    repo = value;
+                } else {
+                    rev = value;
+                }
+            }
+            _ => unknown.push(args[i].as_str()),
+        }
+        i += 1;
+    }
+    if !unknown.is_empty() {
+        return Err(Exit::usage("", format!("unrecognized arguments: {}", unknown.join(" "))));
+    }
+    Ok(Invocation::Inventory { repo, rev, stubs })
+}
+
 pub fn run(args: &[String]) -> u8 {
     let invocation = match parse(args) {
         Ok(invocation) => invocation,
@@ -1108,6 +1168,15 @@ pub fn run(args: &[String]) -> u8 {
         }
         Invocation::Debt { paths, only_due } => debt(&paths, only_due),
         Invocation::Audit { paths, db, events } => audit(&paths, &db, &events),
+        Invocation::Inventory { repo, rev, stubs } => {
+            return match inventory::inventory(&expand(&repo), &rev, stubs) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("provenance: {e}");
+                    1
+                }
+            };
+        }
     };
     if let Err(error) = result {
         eprintln!("provenance: {error}");

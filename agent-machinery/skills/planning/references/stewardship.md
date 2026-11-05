@@ -125,3 +125,34 @@ requested artifact and bounded correctness check are complete.
 ## Provenance trailer retired
 
 Tom approved retiring the `Provenance:` gate (2026-11-04) because its failures were fixed by editing a trailer, a record or the runner, never landed code. A rework signal (reverts, follow-up fixes and red-main culprits within 48 h of a landing) now watches quality and brings a gate back on evidence.
+
+## Provenance records
+
+Keep one record per hook, policy line, tier and gating bar, marking an origin
+nobody recorded `none recorded`, never an invented one, because a rule whose
+origin is lost cannot be revisited. No landing gate reads the records.
+
+One record format serves a commit trailer and the records file. A record is one
+line:
+
+```
+Provenance: <kind> <path>[: <item text>]; origin <tom | experiment | prior-art | incident | none recorded>; pointer <quote with date | run file plus rerun command | link | issue | commit>; rationale <repo path#anchor | not recorded>; revisit <YYYY-MM-DD | closed REPO#N | event text>
+```
+
+The kind is `hook`, `policy line`, `tier` or `gating bar`. A hook or tier
+names its file; a policy line or gating bar names its file and its text as the
+item reads, list marker and backticks dropped, each semicolon written as a
+comma and each markdown link written as its label, then `at`, then its
+target. A record covers every item whose text its claim contains, so a reworded
+item needs a new record.
+
+The origin says who or what set the item. When no quote, run, link or issue
+says so, write `none recorded` and let the pointer name the commit `git log -S`
+finds first adding the text; never infer an origin from that commit's wording.
+A record written as a trailer stays valid; backfilled records go in the records
+file because history cannot gain a trailer.
+
+Keep the records in one file at a path the project names. An inventory command
+lists every hook, `AGENTS.md` policy line, worker tier and gating bar on a
+revision that no record names, prints the count, and prints a `none recorded`
+record for each on request. It runs on demand, not at landing.
