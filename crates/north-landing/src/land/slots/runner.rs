@@ -19,6 +19,8 @@ use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, R
 use fail_fast::Plan;
 
 mod fail_fast;
+mod queue_clippy;
+pub use queue_clippy::refuse_clippy;
 use crate::land::after::follow::program;
 use crate::land::checks::{BROKEN_BASE, RECHECK, ROUND};
 use crate::landing::check_timings::{self, Base, BaseResult, Deadline, Timing, Timings};
