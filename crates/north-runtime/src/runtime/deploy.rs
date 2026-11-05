@@ -67,9 +67,11 @@ fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>
     realise.extend(references.iter().map(String::as_str));
     run(host, "nix-store --realise", ssh(host).args(&realise).stdout(Stdio::null()), REALISE)?;
     println!("north runtime deploy: {host}: copying {} to runtimes/{}", PROGRAMS.join(" and "), layout::short(target));
-    let destination = format!("{host}:.local/state/north/runtimes/{target}/");
+    let directory = format!(".local/state/north/runtimes/{target}");
+    run(host, "mkdir -p", ssh(host).args(["mkdir", "-p", directory.as_str()]), PROBE)?;
+    let destination = format!("{host}:{directory}/");
     let mut copy = Command::new("rsync");
-    copy.args(["-a", "--timeout=120", "--mkpath"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(destination);
+    copy.args(["-a", "--timeout=120"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(destination);
     run(host, "rsync", &mut copy, COPY)
 }
 

@@ -74,7 +74,8 @@ fn a_deploy_ships_the_built_runtime_and_its_store_references_then_promotes_remot
     let runtime = host.runtime(&host.target);
     let expected = [
         format!("ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -- far nix-store --realise --quiet {glibc}"),
-        format!("rsync -a --timeout=120 --mkpath {} {} far:.local/state/north/runtimes/{}/", runtime.join("north").display(), runtime.join("verify-north").display(), host.target),
+        format!("ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -- far mkdir -p .local/state/north/runtimes/{}", host.target),
+        format!("rsync -a --timeout=120 {} {} far:.local/state/north/runtimes/{}/", runtime.join("north").display(), runtime.join("verify-north").display(), host.target),
         format!("ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -- far .local/state/north/runtimes/{0}/north runtime update --sha {0}", host.target),
     ];
     assert_eq!(fs::read_to_string(host.path("alerts")).unwrap().lines().collect::<Vec<_>>(), expected);
