@@ -7,8 +7,8 @@
 //! today's beside the last earlier day's. It reads each landed plan issue's dividend from the same
 //! week, keeps the reading once a day in the readings file, and tells the proxy once when one turns
 //! DECAYED. It prints each tier and category's estimates against what the week's runs came to and
-//! files one north issue for each whose median ratio drifted out of the calibrated band, under the
-//! same rule as a rise. It scores each category's runs against the Budget stored at their launch
+//! keeps the cells whose median ratio drifted out of the calibrated band in a second rolling north
+//! issue behind the same gate as the rises. It scores each category's runs against the Budget stored at their launch
 //! (share over it, actual/E p50 and p90) and reads the budget cells' multiplier from that p90 once
 //! a category holds enough runs carrying one. It prints the share of the last day's finished runs
 //! that recorded each essential field and fails when one is under 98%. It prints each skill's
@@ -51,10 +51,6 @@ const REPO: &str = "tompassarelli/north";
 pub trait Tracker {
     /// The titles of the open north issues.
     fn open(&self) -> Result<Vec<String>, String>;
-    /// The titles of the north issues closed in the last week, which still hold their cell.
-    fn recently_closed(&self) -> Result<Vec<String>, String>;
-    /// Files an issue and returns its URL.
-    fn file(&mut self, title: &str, body: &str) -> Result<String, String>;
     /// Sends the proxy session a fleet message.
     fn tell_proxy(&mut self, text: &str) -> Result<(), String>;
     fn rolling(&mut self) -> &mut dyn rolling_issue::Tracker;
@@ -76,7 +72,7 @@ pub struct Ledger {
 }
 
 /// What earlier ticks left: the cells they wrote, the costs and dividend readings they kept, and the
-/// risen ticks in a row the rolling issue has seen.
+/// breached ticks in a row each rolling issue has seen.
 #[derive(Default)]
 pub struct Prior {
     pub cells: Cells,
@@ -139,29 +135,28 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
     let (covered, uncovered) = coverage::check(&ledger.runs);
     lines.extend(covered);
     let mut breaches = prior.breaches.clone();
-    let risen = keep_rises(&rises::rises(&ledger.week, &ledger.before), tracker, &mut breaches, at, dry_run, &mut lines);
-    let findings = calibrations.iter().filter(|calibration| calibration.drifted()).map(|calibration| Finding { line: calibration.drift_line(), title: calibration.title(), body: calibration.body(at) }).collect();
-    let unfiled = file_findings(findings, tracker, dry_run, &mut lines);
+    let found_rises = rises::rises(&ledger.week, &ledger.before);
+    lines.extend(found_rises.iter().map(rises::Rise::line));
+    let risen = keep(tracker, &mut breaches, rises::TITLE, rises::issue_body(&found_rises).as_deref(), &format!("`north tune` on {at}: no staffed cell's cost per closed box sits more than 25% above the week before."), dry_run, &mut lines);
+    lines.extend(calibrations.iter().filter(|calibration| calibration.drifted()).map(estimates::Calibration::drift_line));
+    let drifted = keep(tracker, &mut breaches, estimates::TITLE, estimates::issue_body(&calibrations).as_deref(), &format!("`north tune` on {at}: every tier and category's median ratio of actual to estimate sits inside {}-{}x.", estimates::CALIBRATED.0, estimates::CALIBRATED.1), dry_run, &mut lines);
     let open = tracker.open().map(|open| open.len());
     lines.push(match &open {
         Ok(open) => format!("open north issues: {open}"),
         Err(error) => format!("open north issues: unread ({error})"),
     });
-    let failed = !ledger.notes.is_empty() || ledger.estimates.is_err() || ledger.projections.is_err() || ledger.briers.is_err() || risen.is_err() || unfiled || open.is_err() || told_failed || uncovered;
+    let failed = !ledger.notes.is_empty() || ledger.estimates.is_err() || ledger.projections.is_err() || ledger.briers.is_err() || risen.is_err() || drifted.is_err() || open.is_err() || told_failed || uncovered;
     Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, readings, breaches, failed }
 }
 
-fn keep_rises(found: &[rises::Rise], tracker: &mut dyn Tracker, breaches: &mut Breaches, at: &str, dry_run: bool, lines: &mut Vec<String>) -> Result<(), String> {
-    lines.extend(found.iter().map(rises::Rise::line));
-    let body = rises::issue_body(found);
+fn keep(tracker: &mut dyn Tracker, breaches: &mut Breaches, title: &str, body: Option<&str>, closing: &str, dry_run: bool, lines: &mut Vec<String>) -> Result<(), String> {
     if dry_run {
         if body.is_some() {
-            lines.push(format!("  would file: {}", rises::TITLE));
+            lines.push(format!("  would file: {title}"));
         }
         return Ok(());
     }
-    let closing = format!("`north tune` on {at}: no staffed cell's cost per closed box sits more than 25% above the week before.");
-    alarm(tracker.rolling(), breaches, rises::TITLE, body.as_deref(), &closing).inspect_err(|error| lines.push(format!("  not settled: {}: {error}", rises::TITLE)))
+    alarm(tracker.rolling(), breaches, title, body, closing).inspect_err(|error| lines.push(format!("  not settled: {title}: {error}")))
 }
 
 /// Tells the proxy of each dividend that decayed and returns the rows to keep: a dividend whose
@@ -180,39 +175,6 @@ fn tell_decays(tracker: &mut dyn Tracker, rows: Vec<(String, Value)>, alerts: Ve
     }
     let kept = rows.into_iter().filter(|(name, _)| !untold.contains(name)).map(|(_, row)| row).collect();
     (kept, !untold.is_empty())
-}
-
-/// A cell a tick files an issue for: the line it prints, and the issue's title and body.
-struct Finding {
-    line: String,
-    title: String,
-    body: String,
-}
-
-/// Files each found cell that no open or recently closed issue holds, and says whether a finding
-/// went unfiled for a failure rather than a holding issue or a dry run.
-fn file_findings(findings: Vec<Finding>, tracker: &mut dyn Tracker, dry_run: bool, lines: &mut Vec<String>) -> bool {
-    let held = tracker.open().and_then(|open| Ok([open, tracker.recently_closed()?].concat()));
-    let mut failed = false;
-    for Finding { line, title, body } in findings {
-        lines.push(line);
-        lines.push(match &held {
-            Err(error) => {
-                failed = true;
-                format!("  not filed: the issues that may hold it are unread ({error})")
-            }
-            Ok(held) if held.contains(&title) => format!("  held by an issue filed for it: {title}"),
-            Ok(_) if dry_run => format!("  would file: {title}"),
-            Ok(_) => match tracker.file(&title, &body) {
-                Ok(url) => format!("  filed {url}"),
-                Err(error) => {
-                    failed = true;
-                    format!("  not filed: {error}")
-                }
-            },
-        });
-    }
-    failed
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -349,30 +311,14 @@ fn tell(text: &str) -> Result<(), String> {
     status.success().then_some(()).ok_or_else(|| format!("north fleet send proxy: {status}"))
 }
 
-fn titles(state: &str, search: Option<&str>) -> Result<Vec<String>, String> {
-    let mut args = vec!["issue", "list", "-R", REPO, "--state", state, "--limit", "1000", "--json", "title"];
-    args.extend(search.map(|search| ["--search", search]).into_iter().flatten());
-    let issues = github::json(&args)?;
+fn open_titles() -> Result<Vec<String>, String> {
+    let issues = github::json(&["issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--json", "title"])?;
     Ok(issues.as_array().into_iter().flatten().filter_map(|issue| issue["title"].as_str().map(str::to_owned)).collect())
 }
 
 impl Tracker for Gh {
     fn open(&self) -> Result<Vec<String>, String> {
-        titles("open", None)
-    }
-
-    fn recently_closed(&self) -> Result<Vec<String>, String> {
-        let since = Timestamp::from_unix_seconds(Timestamp::now().unix_seconds() - 7 * 86_400).iso_date();
-        let closed = |phrase: &str| titles("closed", Some(&format!("closed:>={since} in:title \"{phrase}\"")));
-        closed("Estimates drifted outside")
-    }
-
-    fn file(&mut self, title: &str, body: &str) -> Result<String, String> {
-        let out = github::run(&["issue", "create", "-R", REPO, "--title", title, "--body", body]).map_err(|error| format!("cannot run gh: {error}"))?;
-        if !out.status.success() {
-            return Err(format!("gh issue create: {}", String::from_utf8_lossy(&out.stderr).trim()));
-        }
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+        open_titles()
     }
 
     fn tell_proxy(&mut self, text: &str) -> Result<(), String> {

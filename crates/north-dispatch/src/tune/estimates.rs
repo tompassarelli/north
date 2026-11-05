@@ -1,14 +1,14 @@
 //! Each estimator against what its runs came to: per tier and category over the week, the median
 //! and p90 ratio of actual to estimated minutes and cost and the share of runs inside their
-//! estimate, and each cell whose median ratio drifted out of the calibrated band as the north issue
-//! a tick files for it.
+//! estimate, and the cells whose median ratio drifted out of the calibrated band, together as the
+//! one rolling north issue a tick keeps for them.
 use crate::ledger::EstimatedRun;
 use crate::ledger::closed::percentile;
 use std::collections::BTreeMap;
 
 /// The band of median actual-to-estimate ratios inside which an estimator counts as calibrated.
 pub const CALIBRATED: (f64, f64) = (0.67, 1.5);
-/// Estimated runs a ratio needs before its drift files an issue, so one odd run files nothing.
+/// Estimated runs a ratio needs before its drift counts, so one odd run files nothing.
 pub const DRIFT_MIN_RUNS: usize = 3;
 
 /// How the actual figures of a cell's runs compare with their estimates.
@@ -77,27 +77,27 @@ impl Calibration {
         !self.drifts().is_empty()
     }
 
-    /// The issue title, the same every day the cell stays drifted so an open issue holds it.
-    pub fn title(&self) -> String {
-        format!("Estimates drifted outside {}-{}x of actual in {} {}", CALIBRATED.0, CALIBRATED.1, self.tier, self.category)
-    }
-
     pub fn drift_line(&self) -> String {
         let named: Vec<String> = self.drifts().iter().map(|(name, ratios)| format!("{name} median {:.2}x", ratios.median)).collect();
         format!("drifted {} {}: {} outside {}-{}x", self.tier, self.category, named.join(", "), CALIBRATED.0, CALIBRATED.1)
     }
 
-    pub fn body(&self, at: &str) -> String {
+    fn section(&self) -> String {
         let named: Vec<String> = self.drifts().iter().map(|(name, ratios)| format!("- {name}: actual over estimate {}", ratios.shown())).collect();
+        format!("## {} {}\n\n{}\n\n", self.tier, self.category, named.join("\n"))
+    }
+}
+
+pub const TITLE: &str = "Estimates drifted outside the calibrated band of actual";
+
+pub fn issue_body(calibrations: &[Calibration]) -> Option<String> {
+    let sections: String = calibrations.iter().filter(|calibration| calibration.drifted()).map(Calibration::section).collect();
+    (!sections.is_empty()).then(|| {
         format!(
-            "Category: tooling\nSpec: measured\nScope: module\nSurface: rust\nVerify: local-test\n\n\
-             `north tune` on {at}: the median ratio of actual to estimated figures of the runs in {tier} {category} over the last 7 days left the calibrated band {low}-{high}x (each ratio holds at least {DRIFT_MIN_RUNS} runs).\n\n{}\n\n\
-             ## Done when\n- [ ] (headless run) The drift is traced to the estimator that set these runs' estimates, and either a fix lands or `north tune` shows the cell's median ratio back inside {low}-{high}x.\n",
-            named.join("\n"),
-            tier = self.tier,
-            category = self.category,
+            "`north tune` keeps this issue while any tier and category's median ratio of actual to estimated minutes or cost over the last 7 days sits outside {low}-{high}x (each ratio holding at least {DRIFT_MIN_RUNS} runs), and closes it on the first tick none does. \
+             The readings feed the brief ETA calibration, so this issue carries no box for a worker.\n\n{sections}",
             low = CALIBRATED.0,
             high = CALIBRATED.1,
         )
-    }
+    })
 }

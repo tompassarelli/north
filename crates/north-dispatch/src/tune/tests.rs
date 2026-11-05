@@ -1,5 +1,6 @@
 use super::costs::Cost;
 use super::dividends::{self, Reading};
+use super::estimates;
 use super::rises::TITLE;
 use super::{Ledger, Prior, Tick, Tracker, tick};
 use crate::platform::rolling_issue::{self, Breaches};
@@ -80,13 +81,11 @@ pub(super) fn ledger() -> Ledger {
 #[derive(Default)]
 pub(super) struct Issues {
     open: Vec<String>,
-    closed: Vec<String>,
-    filed: Vec<(String, String)>,
     unreadable: bool,
     refuses: bool,
     told: Vec<String>,
     mute: bool,
-    rolling: Option<(u64, String)>,
+    rolling: BTreeMap<String, (u64, String)>,
     created: Vec<(String, String)>,
     edited: Vec<String>,
     settled: Vec<String>,
@@ -98,19 +97,6 @@ impl Tracker for Issues {
             return Err("gh: not logged in".into());
         }
         Ok(self.open.clone())
-    }
-
-    fn recently_closed(&self) -> Result<Vec<String>, String> {
-        Ok(self.closed.clone())
-    }
-
-    fn file(&mut self, title: &str, body: &str) -> Result<String, String> {
-        if self.refuses {
-            return Err("gh issue create: HTTP 403".into());
-        }
-        self.filed.push((title.to_owned(), body.to_owned()));
-        self.open.push(title.to_owned());
-        Ok(format!("https://github.com/tompassarelli/north/issues/{}", 900 + self.filed.len()))
     }
 
     fn tell_proxy(&mut self, text: &str) -> Result<(), String> {
@@ -131,11 +117,11 @@ impl rolling_issue::Tracker for Issues {
         if self.unreadable {
             return Err("gh: not logged in".into());
         }
-        Ok(self.rolling.as_ref().filter(|_| title == TITLE).map(|(number, body)| rolling_issue::Issue { number: *number, body: body.clone() }))
+        Ok(self.rolling.get(title).map(|(number, body)| rolling_issue::Issue { number: *number, body: body.clone() }))
     }
 
-    fn body(&self, _: u64) -> Result<String, String> {
-        Ok(self.rolling.as_ref().map(|(_, body)| body.clone()).unwrap_or_default())
+    fn body(&self, number: u64) -> Result<String, String> {
+        Ok(self.rolling.values().find(|(open, _)| *open == number).map(|(_, body)| body.clone()).unwrap_or_default())
     }
 
     fn listed(&self, _: &str) -> Result<Vec<(u64, String)>, String> {
@@ -148,20 +134,21 @@ impl rolling_issue::Tracker for Issues {
         }
         self.created.push((title.to_owned(), body.to_owned()));
         self.open.push(title.to_owned());
-        self.rolling = Some((950, body.to_owned()));
+        self.rolling.insert(title.to_owned(), (950 + self.created.len() as u64, body.to_owned()));
         Ok(())
     }
 
-    fn edit(&mut self, _: u64, body: &str) -> Result<(), String> {
+    fn edit(&mut self, number: u64, body: &str) -> Result<(), String> {
         self.edited.push(body.to_owned());
-        self.rolling = self.rolling.take().map(|(number, _)| (number, body.to_owned()));
+        self.rolling.values_mut().filter(|(open, _)| *open == number).for_each(|(_, kept)| *kept = body.to_owned());
         Ok(())
     }
 
-    fn close(&mut self, _: u64, comment: &str) -> Result<(), String> {
+    fn close(&mut self, number: u64, comment: &str) -> Result<(), String> {
         self.settled.push(comment.to_owned());
-        self.open.retain(|title| title != TITLE);
-        self.rolling = None;
+        let closed: Vec<String> = self.rolling.iter().filter(|(_, (open, _))| *open == number).map(|(title, _)| title.clone()).collect();
+        self.open.retain(|title| !closed.contains(title));
+        self.rolling.retain(|title, _| !closed.contains(title));
         Ok(())
     }
 }
@@ -242,7 +229,7 @@ fn each_change_records_its_rows_n_and_interval_and_an_unchanged_tick_records_non
 fn one_risen_tick_posts_nothing_two_in_a_row_open_one_rolling_issue_an_unchanged_tick_posts_nothing_and_a_calm_one_closes_it() {
     let mut issues = Issues::default();
     let first = first_tick(&mut issues);
-    assert!(issues.created.is_empty() && issues.filed.is_empty(), "one risen tick posts nothing: {:#?}", first.lines);
+    assert!(issues.created.is_empty(), "one risen tick posts nothing: {:#?}", first.lines);
     assert!(first.lines.contains(&"rose sonnet tooling: $5.20 (n 3) the week before -> $10.40 (n 3) this week, +100%".to_owned()), "{:#?}", first.lines);
 
     let next = |previous: &Tick| Prior { cells: previous.cells.clone(), breaches: previous.breaches.clone(), ..Prior::default() };
@@ -252,7 +239,6 @@ fn one_risen_tick_posts_nothing_two_in_a_row_open_one_rolling_issue_an_unchanged
     assert_eq!(title, TITLE);
     assert!(body.starts_with("Category: tooling\n") && body.contains("## sonnet tooling\n\nMedian cost of a closed box rose from $5.20 over 3 closed boxes the week before to $10.40 over 3 this week (+100%)"), "{body}");
     assert_eq!(body.matches("\n## ").count(), 2, "the Done when and the one risen cell: {body}");
-    assert!(issues.filed.is_empty(), "rises file no issue of their own");
     assert_eq!(second.lines.last().unwrap(), "open north issues: 1", "{:#?}", second.lines);
 
     let third = tick(&ledger(), &next(&second), &[], &mut issues, AT, false);
@@ -261,33 +247,27 @@ fn one_risen_tick_posts_nothing_two_in_a_row_open_one_rolling_issue_an_unchanged
     let calm = Ledger { week: ledger().before, ..ledger() };
     tick(&calm, &next(&third), &[], &mut issues, AT, false);
     assert_eq!(issues.settled.len(), 1, "the first calm tick closes the rolling issue");
-    assert!(issues.rolling.is_none() && issues.created.len() == 1);
+    assert!(issues.rolling.is_empty() && issues.created.len() == 1);
 }
 
 #[test]
 fn a_dry_run_or_an_unread_tracker_files_nothing() {
     let mut issues = Issues::default();
     let dry = tick(&ledger(), &Prior::default(), &[], &mut issues, AT, true);
-    assert!(issues.filed.is_empty() && issues.created.is_empty());
+    assert!(issues.created.is_empty());
     assert_eq!(dry.breaches, Breaches::default(), "a dry run leaves the gate as it was");
     assert!(dry.lines.contains(&format!("  would file: {TITLE}")), "{:#?}", dry.lines);
 
     let mut unread = Issues { unreadable: true, ..Issues::default() };
     let (_, blind) = two_ticks(&ledger(), &mut unread);
-    assert!(unread.filed.is_empty() && unread.created.is_empty(), "with no open list it cannot know an issue already holds the cell");
+    assert!(unread.created.is_empty(), "with no open list it cannot know an issue already holds the cell");
     assert!(blind.lines.contains(&format!("  not settled: {TITLE}: gh: not logged in")), "{:#?}", blind.lines);
     assert_eq!(blind.lines.last().unwrap(), "open north issues: unread (gh: not logged in)");
     assert!(blind.failed);
 }
 
 #[test]
-fn an_issue_closed_in_the_last_week_still_holds_its_drifted_cell_and_a_refused_rolling_issue_fails_the_tick() {
-    let title = "Estimates drifted outside 0.67-1.5x of actual in opus-medium feature".to_owned();
-    let mut closed = Issues { closed: vec![title.clone()], ..Issues::default() };
-    let held = tick(&estimated_ledger(), &Prior::default(), &[], &mut closed, AT, false);
-    assert!(closed.filed.is_empty() && !held.failed, "{:#?}", held.lines);
-    assert!(held.lines.contains(&format!("  held by an issue filed for it: {title}")), "{:#?}", held.lines);
-
+fn a_refused_rolling_issue_fails_the_tick() {
     let mut refusing = Issues { refuses: true, ..Issues::default() };
     let (first, refused) = two_ticks(&ledger(), &mut refusing);
     assert!(!first.failed, "one risen tick asks nothing of the tracker: {:#?}", first.lines);
@@ -514,9 +494,11 @@ fn estimated(tier: &str, category: &str, (minutes, eta_min): (f64, f64), (usd, e
 }
 
 /// Sonnet tooling's runs land near their ETA with no cost estimate; Opus feature's three runs take
-/// 2-3x their ETA and spend 2-3x their expected spend; Haiku research's two runs take 3x theirs.
+/// 2-3x their ETA and spend 2-3x their expected spend; Haiku research's three runs take 3x theirs;
+/// Sonnet research's two runs take 3x theirs.
 fn estimated_ledger() -> Ledger {
     let opus = |minutes: f64, usd: f64| estimated("opus-medium", "feature", (minutes, 20.0), (usd, Some(2.0)));
+    let slow = |tier: &str, category: &str| estimated(tier, category, (30.0, 10.0), (1.0, None));
     let estimates = vec![
         estimated("sonnet", "tooling", (10.0, 10.0), (1.0, None)),
         estimated("sonnet", "tooling", (12.0, 10.0), (1.0, None)),
@@ -525,35 +507,52 @@ fn estimated_ledger() -> Ledger {
         opus(40.0, 4.0),
         opus(50.0, 5.0),
         opus(60.0, 6.0),
-        estimated("haiku", "research", (30.0, 10.0), (1.0, None)),
-        estimated("haiku", "research", (30.0, 10.0), (1.0, None)),
+        slow("haiku", "research"),
+        slow("haiku", "research"),
+        slow("haiku", "research"),
+        slow("sonnet", "research"),
+        slow("sonnet", "research"),
     ];
     Ledger { estimates: Ok(estimates), ..ledger() }
 }
 
+fn drift_issues(issues: &Issues) -> Vec<&(String, String)> {
+    issues.created.iter().filter(|(title, _)| title == estimates::TITLE).collect()
+}
+
 #[test]
-fn tune_prints_each_cells_estimate_ratios_and_files_one_box_per_cell_whose_median_drifted_outside_the_band() {
+fn several_drifted_cells_keep_one_rolling_issue_behind_the_two_breach_gate_with_no_category_so_dispatch_never_staffs_it() {
     let mut issues = Issues::default();
     let first = tick(&estimated_ledger(), &Prior::default(), &[], &mut issues, AT, false);
     for line in [
-        "estimate haiku research: minutes median 3.00x p90 3.00x inside 0% (n 2); cost n/a",
+        "estimate haiku research: minutes median 3.00x p90 3.00x inside 0% (n 3); cost n/a",
         "estimate opus-medium feature: minutes median 2.50x p90 3.00x inside 0% (n 3); cost median 2.50x p90 3.00x inside 0% (n 3)",
+        "estimate sonnet research: minutes median 3.00x p90 3.00x inside 0% (n 2); cost n/a",
         "estimate sonnet tooling: minutes median 1.00x p90 3.00x inside 50% (n 4); cost n/a",
+        "drifted haiku research: minutes median 3.00x outside 0.67-1.5x",
         "drifted opus-medium feature: minutes median 2.50x, cost median 2.50x outside 0.67-1.5x",
     ] {
         assert!(first.lines.contains(&line.to_owned()), "{line}: {:#?}", first.lines);
     }
-    let drifts: Vec<&(String, String)> = issues.filed.iter().filter(|(title, _)| title.starts_with("Estimates drifted")).collect();
-    assert_eq!(drifts.len(), 1, "one box for the cell whose minutes and cost both drifted; haiku research holds 2 runs, too few: {:#?}", first.lines);
-    let (title, body) = drifts[0];
-    assert_eq!(title, "Estimates drifted outside 0.67-1.5x of actual in opus-medium feature");
-    assert!(body.starts_with("Category: tooling\n") && body.contains("- minutes: actual over estimate median 2.50x p90 3.00x inside 0% (n 3)\n- cost: actual over estimate median 2.50x"), "{body}");
-    assert!(!first.failed, "{:#?}", first.lines);
+    assert!(issues.created.is_empty() && !first.failed, "one drifted tick posts nothing: {:#?}", first.lines);
 
-    let mut held = Issues { open: vec![title.clone()], ..Issues::default() };
-    let next = tick(&estimated_ledger(), &Prior::default(), &[], &mut held, AT, false);
-    assert!(!held.filed.iter().any(|(filed, _)| filed == title), "the open issue holds the cell: {:?}", held.filed);
-    assert!(next.lines.contains(&format!("  held by an issue filed for it: {title}")), "{:#?}", next.lines);
+    let next = |previous: &Tick| Prior { cells: previous.cells.clone(), breaches: previous.breaches.clone(), ..Prior::default() };
+    let second = tick(&estimated_ledger(), &next(&first), &[], &mut issues, AT, false);
+    let drifts = drift_issues(&issues);
+    assert_eq!(drifts.len(), 1, "two drifted cells share one issue: {:#?}", second.lines);
+    let body = &drifts[0].1;
+    assert!(!body.contains("Category:") && !body.contains("Done when"), "dispatch staffs no box from it: {body}");
+    assert!(body.contains("## haiku research\n\n- minutes: actual over estimate median 3.00x p90 3.00x inside 0% (n 3)\n"), "{body}");
+    assert!(body.contains("## opus-medium feature\n\n- minutes: actual over estimate median 2.50x p90 3.00x inside 0% (n 3)\n- cost: actual over estimate median 2.50x"), "{body}");
+    assert_eq!(body.matches("## ").count(), 2, "sonnet research holds 2 runs, too few, and sonnet tooling sits inside the band: {body}");
+    assert!(!second.failed, "{:#?}", second.lines);
+
+    let third = tick(&estimated_ledger(), &next(&second), &[], &mut issues, AT, false);
+    assert!(drift_issues(&issues).len() == 1 && issues.edited.is_empty() && issues.settled.is_empty(), "an unchanged tick posts nothing: {:#?}", third.lines);
+
+    let calm = Ledger { estimates: Ok(Vec::new()), ..estimated_ledger() };
+    tick(&calm, &next(&third), &[], &mut issues, AT, false);
+    assert!(!issues.rolling.contains_key(estimates::TITLE) && issues.settled.iter().any(|comment| comment.contains("sits inside 0.67-1.5x")), "the first calm tick closes it: {:?}", issues.settled);
 
     let unread = tick(&Ledger { estimates: Err("no such table: runs".into()), ..ledger() }, &Prior::default(), &[], &mut Issues::default(), AT, false);
     assert!(unread.failed && unread.lines.contains(&"estimates: unread (no such table: runs)".to_owned()), "{:#?}", unread.lines);
