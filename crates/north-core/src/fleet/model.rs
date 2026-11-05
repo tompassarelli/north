@@ -6,6 +6,7 @@ use crate::error::{NorthError, NorthResult};
 
 pub use super::effort::Effort;
 use super::prompt::PromptMode;
+use super::sender::Sender;
 use super::turns::{Turn, Turns};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash, Serialize, Deserialize)]
@@ -222,6 +223,8 @@ pub struct SessionRecord {
     pub addressed_since_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<Role>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_sender: Option<Sender>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -276,6 +279,7 @@ impl SessionRecord {
             eta_min: request.eta_min(),
             addressed_since_ms: None,
             role: Some(request.role()),
+            prompt_sender: None,
         }
     }
 

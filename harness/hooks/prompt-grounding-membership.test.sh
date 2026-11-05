@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The prompt-grounding hook checks the kill-switch before any north call and decides fleet membership from this host's session records, never from `north fleet`.
+# The prompt-grounding hook checks the kill-switch before any north call and never asks `north fleet`; north grounding hook decides fleet membership from this host's session records (fleet::audience tests).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/prompt-grounding-membership.XXXXXX")"
@@ -17,8 +17,6 @@ unset AGENT_NO_AUTHORING_HOOKS
 hook() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"%s","prompt":"plan a trip"}' "$1" | env "${@:2}" bash "$here/prompt-grounding.sh"; }
 
 : >"$CALLS"
-[ -z "$(hook s)" ] || fail "a session with a fleet record was grounded"
-[ ! -s "$CALLS" ] || fail "fleet membership ran north: $(cat "$CALLS")"
 for id in unknown '' '\n' 'x\ny'; do
   [ "$(hook "$id")" = GROUNDED ] || fail "session id '$id' was not grounded beside the decoy fleet records"
 done
@@ -26,4 +24,4 @@ grep -q '^fleet' "$CALLS" && fail "grounding ran north fleet: $(cat "$CALLS")"
 : >"$CALLS"
 [ -z "$(hook unknown AGENT_NO_AUTHORING_HOOKS=1)" ] || fail "kill-switch env still grounded"
 [ ! -s "$CALLS" ] || fail "kill-switch still ran north: $(cat "$CALLS")"
-echo "PASS fleet membership is a local read after the kill-switch, and no fleet record matches an unrelated or malformed session id"
+echo "PASS the kill-switch is checked before north, north fleet is never asked, and an unrelated or malformed session id reaches north grounding hook"

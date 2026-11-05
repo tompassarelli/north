@@ -43,7 +43,7 @@ export NORTH_GROUNDING_CONVO_DB="$scratch/missing.db" NORTH_GROUNDING_STATE="$sc
   NORTH_GROUNDING_NORTH="$north" NORTH_GROUNDING_SOUTH="$scratch/missing" NORTH_GROUNDING_HANDOFFS="$scratch/handoffs" \
   NORTH_GROUNDING_LEDGER="$scratch/ledger.jsonl" NORTH_GROUNDING_PACE="$scratch/pace.json" NORTH_FLEET_DIR="$scratch/fleet" \
   NORTH_BIN="$scratch/bin/north" NORTH_REAL="$runner" NORTH_AGENT_ACTIVE="$scratch/active" NORTH_GROUNDING_BUN="$bun" NORTH_GROUNDING_BIN="$runner" CLAUDE_CODE_ENTRYPOINT=cli PATH="/etc/codex/hooks/runtime:$PATH"
-unset AGENT_NO_AUTHORING_HOOKS
+unset AGENT_NO_AUTHORING_HOOKS NORTH_FLEET_SESSION
 
 hook() { printf '%s' "$1" | env "${@:2}" bash "$here/prompt-grounding.sh"; }
 prompt() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s","prompt":"%s"}' "$1"; }

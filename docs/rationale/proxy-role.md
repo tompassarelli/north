@@ -435,7 +435,8 @@ push access to South and the Firn timers are host configuration.
    passes, and `proxy.md`'s tools carry `Agent(Explore, Plan)`.
 9. **R2 role prompt and grounding.** feature, cross-module, rust, local-test; 30 min. Files:
    `crates/north-core/src/fleet/prompt.rs`, `harness/hooks/prompt-grounding.sh`,
-   `harness/hooks/prompt-grounding.test.sh`. Needs: R1, W1. Done when: `bash harness/hooks/prompt-grounding.test.sh`
+   `crates/north-core/src/fleet/audience.rs` (the hook's audience, passed into `north grounding hook`
+   by the CLI root). Needs: R1, W1. Done when: `cargo test -p north-core fleet::audience`
    passes cases where a role-proxy session gets the block for a `Tom` message and not for a `Service`
    or `Session` one and a worker gets none, and `cargo test -p north-core fleet::prompt` shows the
    proxy preamble.

@@ -301,6 +301,7 @@ impl Fleet {
         let extra = record.system_prompt.as_deref().map(fs::read_to_string).transpose()?;
         let inputs = PromptInputs {
             session: &record.name,
+            role: record.role(),
             mode: record.prompt_mode,
             orders: &orders,
             foreground_cap_secs: record.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS),

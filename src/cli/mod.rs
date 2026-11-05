@@ -170,7 +170,11 @@ fn dispatch(command: Command) -> ExitCode {
             contract_probe::run(&arguments, probe_account::invocation).await.map(ExitCode::from)
         }),
         Command::Grounding(arguments) => in_runtime(async move {
-            grounding::main(&arguments).map(|code| ExitCode::from(code as u8))
+            grounding::main(&arguments, &|conversation| {
+                let named = std::env::var("NORTH_FLEET_SESSION").ok();
+                let entrypoint = std::env::var("CLAUDE_CODE_ENTRYPOINT").ok();
+                crate::fleet::audience::grounded(&crate::fleet::audience::fleet_dir(), named.as_deref(), conversation, entrypoint.as_deref())
+            }).map(|code| ExitCode::from(code as u8))
         }),
     }
 }

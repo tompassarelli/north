@@ -115,16 +115,16 @@ fn command(program: &str, args: &[&str]) -> Result<String> {
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
-pub fn main(args: &[String]) -> NorthResult<i32> {
+pub fn main(args: &[String], grounded: &dyn Fn(&str) -> bool) -> NorthResult<i32> {
     if args.first().is_some_and(|a| a == "distill") {
         return distill::main(&args[1..]);
     }
     if args.first().is_some_and(|a| a == "score") {
         return score::main(&args[1..]);
     }
-    run(args).map_err(|e| NorthError::Configuration(e.to_string()))
+    run(args, grounded).map_err(|e| NorthError::Configuration(e.to_string()))
 }
-fn run(args: &[String]) -> Result<i32> {
+fn run(args: &[String], grounded: &dyn Fn(&str) -> bool) -> Result<i32> {
     if has(args, "--help") || has(args, "-h") {
         println!(
             "usage: north grounding query [--query TEXT] [--tier A|B] [--hook] | refresh [--force] [--if-idle] [--source NAME]... | hook | distill | score"
@@ -165,6 +165,9 @@ fn run(args: &[String]) -> Result<i32> {
                 .get("hook_event_name")
                 .is_some_and(|v| v != "UserPromptSubmit")
         {
+            return Ok(0);
+        }
+        if !grounded(&s(&payload, "session_id")) {
             return Ok(0);
         }
         let prompt = s(&payload, "prompt");

@@ -8,12 +8,17 @@ use sha2::{Digest, Sha256};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
+use super::model::Role;
+
 const TEMPLATE: &str = include_str!("prompt.md");
 const SEED_ORDERS: &str = include_str!("standing-orders.md");
 const DEEPEN: &str = include_str!("deepen.md");
 const ORDERS_SLOT: &str = "{standing_orders}";
 const CAP_SLOT: &str = "{foreground_cap_secs}";
 const SESSION_SLOT: &str = "{session}";
+const REACH_SLOT: &str = "{reach}";
+const PROXY_REACH: &str = "As Tom's proxy you hear Tom directly, typed in the fleet TUI; every message from anyone else starts with `[from NAME]`.";
+const MEMBER_REACH: &str = "Tom and the proxy reach you only through fleet messages.";
 const ORDERS_FILE: &str = "standing-orders.md";
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -69,6 +74,7 @@ impl StandingOrders {
 #[derive(Clone, Copy)]
 pub struct PromptInputs<'a> {
     pub session: &'a str,
+    pub role: Role,
     pub mode: PromptMode,
     pub orders: &'a str,
     pub foreground_cap_secs: u64,
@@ -81,6 +87,7 @@ pub fn render(inputs: &PromptInputs) -> String {
             TEMPLATE
                 .replace(CAP_SLOT, &inputs.foreground_cap_secs.to_string())
                 .replace(SESSION_SLOT, inputs.session)
+                .replace(REACH_SLOT, reach(inputs.role))
                 .replace(ORDERS_SLOT, inputs.orders.trim_end()),
         ),
         PromptMode::Vanilla => None,
@@ -92,6 +99,13 @@ pub fn render(inputs: &PromptInputs) -> String {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+fn reach(role: Role) -> &'static str {
+    match role {
+        Role::Proxy => PROXY_REACH,
+        Role::Lead | Role::Worker => MEMBER_REACH,
+    }
 }
 
 pub fn prompt_sha(text: &str) -> String {
@@ -117,7 +131,7 @@ mod tests {
     #[test]
     fn north_prompt_carries_the_cap_every_standing_order_and_the_extra_file() {
         let orders = "- first order (2026-10-15)\n- second order (2026-10-16)\n";
-        let inputs = PromptInputs { session: "worker", mode: PromptMode::North, orders, foreground_cap_secs: 45, extra: Some("project rules\n") };
+        let inputs = PromptInputs { session: "worker", role: Role::Worker, mode: PromptMode::North, orders, foreground_cap_secs: 45, extra: Some("project rules\n") };
         let north = render(&inputs);
         assert!(north.contains("longer than 45 seconds"));
         assert!(north.contains(orders.trim_end()));
@@ -130,12 +144,31 @@ mod tests {
 
     #[test]
     fn questions_to_tom_name_the_session_gate_and_one_variant_spans_every_session() {
-        let inputs = PromptInputs { session: "worker", mode: PromptMode::North, orders: "", foreground_cap_secs: 30, extra: None };
+        let inputs = PromptInputs { session: "worker", role: Role::Worker, mode: PromptMode::North, orders: "", foreground_cap_secs: 30, extra: None };
         let north = render(&inputs);
         let questions = north.split("Questions to Tom").nth(1).unwrap().split("Standing orders").next().unwrap();
         assert!(questions.contains("north gate open --session worker "));
         assert_eq!(variant_sha(&inputs), variant_sha(&PromptInputs { session: "other", ..inputs }));
         assert_ne!(variant_sha(&inputs), variant_sha(&PromptInputs { foreground_cap_secs: 31, ..inputs }));
+    }
+
+    #[test]
+    fn the_proxy_preamble_keeps_the_standing_orders_and_drops_the_worker_reach_line() {
+        let orders = "- first order (2026-10-15)\n";
+        let worker = PromptInputs { session: "worker", role: Role::Worker, mode: PromptMode::North, orders, foreground_cap_secs: 30, extra: None };
+        let proxy = PromptInputs { session: "proxy", role: Role::Proxy, ..worker };
+        let rendered = render(&proxy);
+        println!("{}", rendered.lines().next().unwrap_or_default());
+        assert!(rendered.contains(PROXY_REACH));
+        assert!(!rendered.contains(MEMBER_REACH), "the proxy got the worker reach line: {rendered}");
+        assert!(rendered.contains(orders.trim_end()));
+        assert!(!rendered.contains('{'), "an unfilled slot reached the proxy: {rendered}");
+        for role in [Role::Lead, Role::Worker] {
+            let member = render(&PromptInputs { role, ..worker });
+            assert!(member.contains(MEMBER_REACH) && !member.contains(PROXY_REACH));
+        }
+        assert_ne!(variant_sha(&worker), variant_sha(&proxy));
+        assert_eq!(render(&PromptInputs { mode: PromptMode::Vanilla, ..proxy }), "");
     }
 
     #[test]

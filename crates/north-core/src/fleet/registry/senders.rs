@@ -53,10 +53,13 @@ impl Fleet {
         await_reply(self.runtime(&record)?.as_ref(), &record, asked_from, question, timeout)
     }
 
-    pub(super) fn note_sender(&self, name: &str, from: &str) -> NorthResult<()> {
+    pub(super) fn note_sender(&self, name: &str, from: &Sender) -> NorthResult<()> {
         let session_dir = self.session_dir(name)?;
         let mut record = read_record(&session_dir)?;
-        record.last_sender = Some(LastSender { name: from.to_owned(), at_ms: now_ms() });
+        if let Some(session) = from.session() {
+            record.last_sender = Some(LastSender { name: session.to_owned(), at_ms: now_ms() });
+        }
+        record.prompt_sender = Some(from.clone());
         write_record(&session_dir, &record)
     }
 }
@@ -127,8 +130,12 @@ mod tests {
         lead(&fleet, "wisp-lead", "c0ffee");
         assert_eq!(fleet.rival(&Sender::Session("proxy".into()), "wisp-lead"), None, "a lead nobody messaged has no rival");
 
-        fleet.note_sender("wisp-lead", "28c1c1d1").unwrap();
+        fleet.note_sender("wisp-lead", &Sender::Session("28c1c1d1".into())).unwrap();
         assert_eq!(fleet.session("wisp-lead").unwrap().last_sender.map(|last| last.name).as_deref(), Some("28c1c1d1"));
+        fleet.note_sender("wisp-lead", &Sender::Tom).unwrap();
+        let record = fleet.session("wisp-lead").unwrap();
+        assert_eq!(record.prompt_sender, Some(Sender::Tom), "the record names the sender of the prompt it was last handed");
+        assert_eq!(record.last_sender.map(|last| last.name).as_deref(), Some("28c1c1d1"), "Tom is no rival sender");
         let warned = fleet.rival(&Sender::Session("proxy".into()), "wisp-lead").expect("a fresh order from another sender warns");
         assert_eq!((warned.name.as_str(), warned.minutes_ago), ("28c1c1d1", 0));
         assert!(warned.to_string().contains("28c1c1d1 also messaged wisp-lead 0m ago"), "{warned}");
@@ -147,7 +154,7 @@ mod tests {
         std::thread::scope(|scope| {
             let writers: Vec<_> = (0..8).map(|n| scope.spawn({
                 let fleet = &fleet;
-                move || fleet.note_sender("wisp-lead", &format!("proxy-{n}"))
+                move || fleet.note_sender("wisp-lead", &Sender::Session(format!("proxy-{n}")))
             })).collect();
             for writer in writers {
                 writer.join().unwrap().unwrap();
