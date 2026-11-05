@@ -11,6 +11,7 @@ use crate::platform::run_roles::ROLE_SQL;
 use crate::platform::sqlite::{self, Access};
 use crate::platform::github;
 
+use crate::threads::calibration::predictions::{self, Brier};
 use crate::threads::calibration::rework::{Rework, Sources};
 use crate::threads::catalog::{CATALOG, Catalog};
 
@@ -238,6 +239,15 @@ pub fn estimated_runs(window: &str) -> NorthResult<Vec<EstimatedRun>> {
             Some(EstimatedRun { tier: super::closed::tier_label(&tier), category: text(row, "category"), minutes: row["minutes"].as_f64()?, eta_min: row["eta_min"].as_f64()?, usd, estimated_usd: row["budget_usd"].as_f64().filter(|budget| *budget > 0.0) })
         })
         .collect())
+}
+
+/// Each category's tier success predictions scored against the first runs that ended in the window.
+pub fn tier_briers(window: &str) -> NorthResult<Vec<Brier>> {
+    let since = window_start(window)?;
+    let database = threads_database();
+    let failed = |why: rusqlite::Error| NorthError::Configuration(format!("tier predictions in {}: {why}", database.display()));
+    let db = Connection::open_with_flags(&database, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(failed)?;
+    predictions::score(&db, &since).map_err(failed)
 }
 
 /// A worker's Not done or Stop report and when its run ended, as unix seconds.

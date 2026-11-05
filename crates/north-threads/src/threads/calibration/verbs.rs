@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, params};
 
 use super::mode::{self, Mode};
+use super::predictions::{self, Source};
 use super::read::{escalated, raw_runs};
 use super::recommend::{Eta, asked_of, expected_line, recommend, recommend_eta, recommend_expected, recommend_usd};
-use super::{Knobs, Pick, median, provider, scaled, tier_rank};
+use super::{Knobs, Pick, median, provider, scaled, tier_key, tier_rank};
 use crate::foundation::clock::Timestamp;
 use crate::router::brief::CATEGORIES;
 use crate::threads::runs::brief::Fields;
@@ -89,8 +90,8 @@ pub fn eta_pred_scale(database: &Path, now: Timestamp, tier: &str) -> Result<(Op
 }
 
 fn recommend_verb(argv: &[String], context: &Context) -> Outcome {
-    let args = Args::parse(argv, &["--since"], &[])?;
-    let [facets] = args.positional.as_slice() else { return Err(Failure::Usage("usage: threads recommend [--since DATE] FACETS".into())) };
+    let args = Args::parse(argv, &["--since", "--launched"], &[])?;
+    let [facets] = args.positional.as_slice() else { return Err(Failure::Usage("usage: threads recommend [--since DATE] [--launched TIER] FACETS".into())) };
     let fields = Fields::read(facets);
     if fields.category.as_deref() == Some(REVIEW) {
         return crate::threads::review_findings::recommend(context, args.get("--since").unwrap_or(""));
@@ -116,6 +117,8 @@ pub(super) fn recommend_with(args: &Args, context: &Context, fields: &Fields, co
     let codex_only = mode.name == "codex-only";
     if codex_only {
         runs.retain(|run| mode.allowed.contains(&run.tier));
+    } else {
+        runs.retain(|run| provider(&run.tier) != "codex");
     }
     let incumbent: BTreeMap<String, String> = db.prepare("SELECT cell, tier FROM tier_choice")?.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?.collect::<Result<_, _>>()?;
     let asked = asked_of(fields);
@@ -127,8 +130,22 @@ pub(super) fn recommend_with(args: &Args, context: &Context, fields: &Fields, co
         tx.execute("INSERT INTO tier_choice(cell, tier, since) VALUES (?1,?2,?3) ON CONFLICT(cell) DO UPDATE SET tier = excluded.tier, since = excluded.since", params![pick.cell, tier, context.now.iso()])?;
         tx.commit()?;
     }
+    if let Some(item) = fields.item.as_deref().filter(|_| fields.follows.is_none() && !context.replica) {
+        let (predicted, source) = match args.get("--launched") {
+            Some(tier) => (vec![(tier_key(tier), success_of(&pick, tier))], Source::Dispatch),
+            None => (pick.stats.iter().map(|(tier, stat)| (tier.clone(), stat.shrunk)).collect(), Source::Recommend),
+        };
+        let db = open(context.database, true)?;
+        predictions::record(&db, item, fields.known_category().unwrap_or_default(), &predicted, context.now, source)?;
+    }
     let db = open(context.database, false)?;
     report_pick(&db, &knobs, context, &mode, &runs, &pick, fields)
+}
+
+/// The tier's shrunk success in the pick's cell, else the category's pooled rate it would shrink to with no runs.
+fn success_of(pick: &Pick, tier: &str) -> f64 {
+    let wanted = tier_key(tier);
+    pick.stats.iter().find(|(key, _)| *key == wanted).map_or(pick.pooled, |(_, stat)| stat.shrunk)
 }
 
 fn report_pick(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, runs: &[super::Run], pick: &Pick, fields: &Fields) -> Outcome {

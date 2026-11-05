@@ -47,6 +47,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | run_costs | bin/threads:987 | crates/north-threads/src/threads/runs/costs.rs rolls into runs.cost_usd | read | |
 | usage | crates/north-pace/src/usage/refresh/ | crates/north-pace/src/usage/store.rs latest, routing and the pace gate | read | |
 | claims.eta_min | crates/north-threads/src/threads/claims/ledger.rs take | crates/north-threads/src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; crates/north-threads/src/work_items.rs:82 | read | |
+| tier_predictions (item, tier, p, at, source) | crates/north-threads/src/threads/calibration/verbs.rs recommend_with: `threads recommend` with an Item and no Follows line stores each listed tier's shrunk success, and `--launched TIER` from crates/north-dispatch/src/dispatch/effects.rs predict stores the launched tier's | crates/north-threads/src/threads/calibration/predictions.rs score, printed by `north tune` as each category's walk-forward Brier against its base rate's | read | |
 | tier_choice | bin/threads:1431 | crates/north-threads/src/threads/calibration/verbs.rs incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |

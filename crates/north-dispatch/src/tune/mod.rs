@@ -19,6 +19,7 @@
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, EstimatedRun};
 use crate::dispatch::{Evidence, LEDGER_WINDOW, arm_evidence, evidenced};
+use crate::threads::calibration::predictions::Brier;
 use crate::platform::github;
 use crate::platform::rolling_issue::{self, Breaches, alarm};
 use cells::{Cells, Change};
@@ -67,6 +68,7 @@ pub struct Ledger {
     pub evidence: BTreeMap<String, Evidence>,
     pub notes: Vec<String>,
     pub estimates: Result<Vec<EstimatedRun>, String>,
+    pub briers: Result<Vec<Brier>, String>,
     pub runs: Result<Vec<Value>, String>,
     pub skills: Vec<String>,
     /// The week's launches' projections, each window beside what it read at the launch's ETA.
@@ -129,6 +131,11 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
         lines.push(budgets::summary(LEDGER_WINDOW, &scores));
         lines.extend(scores.iter().map(budgets::Score::line));
     }
+    match &ledger.briers {
+        Ok(briers) if briers.is_empty() => lines.push(format!("tier success: no first run in {LEDGER_WINDOW} carries a stored prediction")),
+        Ok(briers) => lines.extend(briers.iter().map(|brier| brier.line(LEDGER_WINDOW))),
+        Err(error) => lines.push(format!("tier success: unread ({error})")),
+    }
     let (covered, uncovered) = coverage::check(&ledger.runs);
     lines.extend(covered);
     let mut breaches = prior.breaches.clone();
@@ -140,7 +147,7 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
         Ok(open) => format!("open north issues: {open}"),
         Err(error) => format!("open north issues: unread ({error})"),
     });
-    let failed = !ledger.notes.is_empty() || ledger.estimates.is_err() || ledger.projections.is_err() || risen.is_err() || unfiled || open.is_err() || told_failed || uncovered;
+    let failed = !ledger.notes.is_empty() || ledger.estimates.is_err() || ledger.projections.is_err() || ledger.briers.is_err() || risen.is_err() || unfiled || open.is_err() || told_failed || uncovered;
     Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, readings, breaches, failed }
 }
 
@@ -238,7 +245,8 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
         Vec::new()
     });
     let projections = projections::live(Timestamp::now().unix_seconds() as f64);
-    let ledger = Ledger { week, before, evidence, notes, estimates, runs: coverage::read(), skills, projections };
+    let briers = ledger::tier_briers(LEDGER_WINDOW).map_err(|error| error.user_message());
+    let ledger = Ledger { week, before, evidence, notes, estimates, briers, runs: coverage::read(), skills, projections };
     let files = Files::here()?;
     let at = Timestamp::now().iso();
     let prior = Prior { cells: files.cells()?, costs: files.costs()?, readings: files.readings()?, breaches: files.breaches()? };

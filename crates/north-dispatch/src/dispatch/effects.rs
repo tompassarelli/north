@@ -15,6 +15,7 @@ use std::time::Duration;
 use toml_edit::{DocumentMut, Item};
 
 const LAUNCH_WAIT: Duration = Duration::from_secs(180);
+const PREDICT_WAIT: Duration = Duration::from_secs(30);
 const REPEAT_ALERT_S: f64 = 6.0 * 3600.0;
 const BOXLESS_EVERY_S: f64 = 24.0 * 3600.0;
 pub const REVIVED: &str = "revived.json";
@@ -85,7 +86,22 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         projection: launch.projection.clone(),
     };
     record::append(&record::directory(), &entry)?;
+    if result.is_ok() {
+        predict(launch);
+    }
     result
+}
+
+/// Stores the launched tier's shrunk success probability for the box's first run, so `north tune` scores it; a
+/// failed store is printed and leaves the launch standing.
+fn predict(launch: &Launch) {
+    let north = crate::fleet::runtime::binary("north");
+    let words = ["threads", "recommend", "--launched", launch.route.tier.key(), &launch.brief];
+    match run_within(&north.to_string_lossy(), &words, PREDICT_WAIT) {
+        Some(output) if output.status.success() => {}
+        Some(output) => println!("prediction for {} unstored: {}", launch.item, refusal_line(&String::from_utf8_lossy(&output.stderr))),
+        None => println!("prediction for {} unstored: north threads recommend did not return within {} s", launch.item, PREDICT_WAIT.as_secs()),
+    }
 }
 
 fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Result<String, String> {

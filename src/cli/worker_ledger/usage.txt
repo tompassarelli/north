@@ -45,7 +45,7 @@ the tip's subject committed on origin/main after the push.
 --landed-issues joins each such landing on DATE to its fleet session's task_ref; an issue counts when a run of that
 session landed and reported Done, or reported Not done with its box ticked, because a box worker's report judges the issue.
 A `[routine:<name>]` brief records role routine and a session run from a /tmp cwd role probe, outside worker cells.
---recommend uses an 80% measured success threshold over every provider's tiers (orchestration.toml keys); in the finest cell with >= 5 runs,
+--recommend uses an 80% measured success threshold over the Claude tiers of orchestration.toml (Codex only in codex-only mode); in the finest cell with >= 5 runs,
 backing off Surface, Verify, Scope, then Spec, it picks the passing tier with the lowest measured $ per success, or the cheapest by
 tier order when a passing tier has under 5 priced runs, and prints the rule; a dearer passing tier replaces a cell's last pick only when 15 points better.
 When no tier passes, it picks the sampled tier with the lowest measured $ per success, or prints insufficient evidence when none has measured costs.
