@@ -10,8 +10,8 @@ Read this when you write a brief in full, queue a box behind another lane, or br
 - Build rule: a worker runs `cargo check` on the crates it touched plus the named tests in its Done when, then queues the lane; the full workspace clippy and `cargo test` are left to the lander's per-lane precheck, which reports a failure back in about two minutes, unless the Done when names a full run.
 - A bug brief's Done when covers every instance of its `Class:`, not the one symptom seen.
 - A bug-fix brief's Done when names the test that fails on the old code and asks the report to paste that failure and the passing run after the fix; a refactor brief asks for `Behavior: unchanged` in the commit message and its changed tests passing on the old code. Which kind of test to ask for is in the [verification skill](../../verification/SKILL.md).
-- Queue each box that waits on another lane by piping its brief, carrying `Follows: <commit subject, SHA or Item>`, to `threads queue follow <repo#N> --tier <tier> --parent <your Fleet session name>`, so the predecessor's landing starts it instead of someone noticing.
-- Pick ready work with `threads ready` and read its Done when with `threads show repo#N`. Claim shared-resource work through `threads`; a running worker's brief is its claim.
-- Workers on native items (life, accounts, travel, ops) report with `threads note REF TEXT`, never issue comments, because those items are private.
+- Queue each box that waits on another lane by piping its brief, carrying `Follows: <commit subject, SHA or Item>`, to `north threads queue follow <repo#N> --tier <tier> --parent <your Fleet session name>`, so the predecessor's landing starts it instead of someone noticing.
+- Pick ready work with `north threads ready` and read its Done when with `north threads show repo#N`. Claim shared-resource work through `north threads`; a running worker's brief is its claim.
+- Workers on native items (life, accounts, travel, ops) report with `north threads note REF TEXT`, never issue comments, because those items are private.
 - Research Tom asks for inline is timeboxed at 5 minutes and ends by offering a deeper pass with its own ETA.
 - Brief a tooling or infrastructure box with its Payback line per [payback.md](payback.md).

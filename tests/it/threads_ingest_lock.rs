@@ -4,9 +4,9 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 fn threads(root: &Path, verb: &str) -> Command {
-    let mut command = Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/threads"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
     command
-        .arg(verb)
+        .args(["threads", verb])
         .env("HOME", root)
         .env("THREADS_DB", root.join("threads.db"))
         .env("NORTH_BIN", env!("CARGO_BIN_EXE_north"))

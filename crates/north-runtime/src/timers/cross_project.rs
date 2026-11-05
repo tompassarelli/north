@@ -75,7 +75,7 @@ pub(super) fn section(title: &str, body: &str) -> String {
 
 fn bundle() -> String {
     let mut parts: Vec<String> = REPOS.iter().map(|repo| section(&format!("open issues: tompassarelli/{repo}"), &issues(repo))).collect();
-    let threads = Command::new("threads").arg("list").output().map(|output| text(&output).trim_end_matches('\n').to_owned()).unwrap_or_default();
+    let threads = Command::new(north_program()).args(["threads", "list"]).output().map(|output| text(&output).trim_end_matches('\n').to_owned()).unwrap_or_default();
     parts.push(section("threads list (open)", &threads));
     parts.extend(REPOS.iter().map(|repo| section(&format!("landings last 24h: {repo}"), &landings(crate::threads::catalog::checkout(repo)))));
     let tree = Command::new(north_program()).args(["fleet", "tree"]).output().map(|output| text(&output).trim_end_matches('\n').to_owned()).unwrap_or_default();

@@ -9,7 +9,8 @@ const NORTH: &str = "case \"$1\" in ssh-argv) exec \"$REAL_NORTH\" \"$@\" ;; esa
 
 fn threads(root: &Path, args: &[&str], stdin: &[u8]) -> std::process::Output {
     let path = format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default());
-    let mut child = Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/threads"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_north"))
+        .arg("threads")
         .args(args)
         .env_remove("THREADS_DB")
         .env("HOME", root)
@@ -27,7 +28,7 @@ fn threads(root: &Path, args: &[&str], stdin: &[u8]) -> std::process::Output {
 }
 
 #[test]
-fn a_busy_ledger_host_spools_the_python_sender_batch_and_other_commands_still_reach_it() {
+fn a_busy_ledger_host_spools_the_sender_batch_and_other_commands_still_reach_it() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fs::create_dir_all(root.join("bin")).unwrap();
@@ -46,5 +47,5 @@ fn a_busy_ledger_host_spools_the_python_sender_batch_and_other_commands_still_re
     assert!(show.status.success(), "a busy ingest lock is not an unreachable host: {}", String::from_utf8_lossy(&show.stderr));
     assert_eq!(queued(), ["jsonl"], "the busy batch stays queued, never .failed");
     let log = fs::read_to_string(root.join("ssh.log")).unwrap();
-    assert!(log.lines().last().unwrap().contains("threads show"), "{log}");
+    assert!(log.lines().any(|line| line.contains("north threads show")), "{log}");
 }
