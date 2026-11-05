@@ -23,3 +23,15 @@ fn logins_control_calls_git_transport_and_north_protocol_pass_through_unchanged(
         assert_eq!(scoped(&call, "n-626", "0a1b2c3d"), call);
     }
 }
+
+// KEEP(contract): a script after `ssh HOST --` reaches the far shell as the command, without the `--`, and systemd-run expands none of its `${...}` words (north#654)
+#[test]
+fn a_script_after_the_destination_and_double_dash_is_wrapped_without_the_dash_or_environment_expansion() {
+    let script = r#"if [ "${command#nix develop}" = "$command" ]; then echo hi; fi"#;
+    let wrapped = scoped(&words(&["-T", "ccx33", "--", "setsid -w sh -c 'x'", script]), "n-626", "0a1b2c3d");
+    assert_eq!(wrapped[..2], words(&["-T", "ccx33"]));
+    assert_eq!(wrapped.len(), 3);
+    assert!(wrapped[2].contains("--expand-environment=no"), "{}", wrapped[2]);
+    assert!(wrapped[2].contains("-c 'setsid -w sh -c "), "{}", wrapped[2]);
+    assert!(!wrapped[2].contains("-c '-- "), "{}", wrapped[2]);
+}

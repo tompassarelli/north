@@ -53,6 +53,7 @@ fn scoped(arguments: &[String], session: &str, suffix: &str) -> Vec<String> {
     let Some(at) = command_start(arguments) else { return arguments.to_vec() };
     let (options, command) = arguments.split_at(at);
     let destination = options.last().map_or("", String::as_str);
+    let command = command.strip_prefix(&["--".to_owned()]).unwrap_or(command);
     let remote = command.join(" ");
     let program = remote.split_whitespace().next().unwrap_or_default().rsplit('/').next().unwrap_or_default();
     let protocol = PROTOCOLS.contains(&program) || program.starts_with("git-") || destination.split_once('@').is_some_and(|(user, _)| user == "git");
@@ -62,7 +63,7 @@ fn scoped(arguments: &[String], session: &str, suffix: &str) -> Vec<String> {
     let quoted = format!("'{}'", remote.replace('\'', r"'\''"));
     let unit = scope_unit(session, suffix);
     let wrapped = format!(
-        "if [ -S \"$XDG_RUNTIME_DIR/bus\" ] && command -v systemd-run >/dev/null 2>&1; then exec systemd-run --user --scope --quiet --collect --unit={unit} -- \"${{SHELL:-/bin/sh}}\" -c {quoted}; else exec \"${{SHELL:-/bin/sh}}\" -c {quoted}; fi"
+        "if [ -S \"$XDG_RUNTIME_DIR/bus\" ] && command -v systemd-run >/dev/null 2>&1; then exec systemd-run --user --scope --quiet --collect --expand-environment=no --unit={unit} -- \"${{SHELL:-/bin/sh}}\" -c {quoted}; else exec \"${{SHELL:-/bin/sh}}\" -c {quoted}; fi"
     );
     options.iter().cloned().chain([wrapped]).collect()
 }
