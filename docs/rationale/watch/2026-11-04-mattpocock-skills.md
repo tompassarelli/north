@@ -125,7 +125,7 @@ cut, which is a finding: an adopted rule left with no trace of its removal.
 | Rank | Mechanism (source) | Basis | North today | Decision |
 | --- | --- | --- | --- | --- |
 | 1 | A retro on a clock over a sample of finished sessions, failures first, with mechanical findings turned into checks (`retro`, `chief-of-staff` `5ae4816`, `software-factory` retro task) | Measured: incident ledger frozen since 2026-10-14; 1,254 unclassified candidates in 7 days; 39% of Done runs not kept | Miner, classifier recipe (south `agents/incident-baseline.toml`), rules register and enforcer ladder exist; the loop has run once, by hand | Kept by E1: 8 recurring modes with no enforcer |
-| 2 | A Spec axis kept apart from Standards: missing, unasked-for and wrong-looking work against the brief, each quoting its line (`code-review`) | Measured for the gap (39% of Done runs not kept, 77 lenses with no brief check); reasoned for how much a spec check would catch | Done when oracles check named outcomes; no check of the diff against the rest of the brief | Test with E2 |
+| 2 | A Spec axis kept apart from Standards: missing, unasked-for and wrong-looking work against the brief, each quoting its line (`code-review`) | Measured for the gap (39% of Done runs not kept, 77 lenses with no brief check); reasoned for how much a spec check would catch | Done when oracles check named outcomes; no check of the diff against the rest of the brief | Not kept by E2: 0 of 20 not-kept runs had a gap the next run fixed; 6 of 20 kept runs flagged |
 | 3 | The no-op test settled by running the document, and positive targets in place of prohibitions (`writing-for-agents` § Pruning and Leading words) | Measured: taken in July, cut on 2026-08-02, not live; 7 of 25 startup bullets lead with a prohibition. Reasoned for the effect | `agents sync` gates additions by replay; deletions only by length (`skill-prune`) | Test with E3 |
 | - | Fresh context for every subagent, never a fork (`7739eae`) | Measured: 0.5% of subagent launches are forks | Fleet sessions are fresh | Leave out |
 | - | A ratchet that takes one exception off a list a day (`software-factory`) | Measured: Python files fell from 66 to 25 in 15 days without one | Code-enforced expiry and no-widening in `language_gate.rs` | Leave out (live, stronger) |
@@ -177,7 +177,7 @@ having no mechanical signal; the unnoticed stall is dropped, since `agents-flow-
 already hold it. The sampled retro runs weekly as `north incident-retro` (Thursday 9:30 AM on the laptop), filing
 each new recurring mode with no enforcer as an open candidate.
 
-### E2, a Spec axis before landing (filed)
+### E2, a Spec axis before landing (ran 2026-11-05)
 
 Frozen input: north Claude worker runs that finished Done between 2026-10-28 and 2026-11-03, 20 not kept (another
 run on the item within 24 h) and 20 kept, each with its brief and its landed diff. One fresh Sonnet reviewer per
@@ -185,6 +185,34 @@ run, blind to the outcome, answers the source's three Spec questions against the
 not-kept runs where the reviewer names the gap that the next run on the item then fixed. Keep rule: add a Spec-axis
 reviewer before landing `Spec: judged` lanes if that share is at least 30% and the reviewer flags at most 2 of the 20
 kept runs; otherwise record the numbers and change nothing.
+
+How it ran. The ledger snapshot (`~/.local/state/threads/snapshot.db`, read 10:20 AM on 2026-11-05) holds 159 such
+runs with a `landed_sha`, 87 kept and 72 not kept, kept meaning no other run on the item starts within 24 h after
+`ended`. 51 of them have both a transcript on the laptop's profiles and a commit in north (29 kept, 22 not kept);
+the rest ran on gex45 or in the cloud. Each group was sorted by `ended` and 20 taken evenly spaced, then the 40
+were shuffled under neutral ids (`R01` to `R40`). The brief is the transcript's first user turn, with a box file it
+points to inlined; the diff is `git diff <sha>^1 <sha>` with the commit message, cut at 120 KB. A run is flagged when
+its reviewer marks any finding blocking. Each reviewer was one general-purpose Sonnet subagent, about 30k tokens.
+
+Result. The share is 0 of 20 (0%), and the reviewer flagged 6 of the 20 kept runs, so the keep rule fails on both
+counts and § Review is unchanged. The not-kept runs were flagged at the same rate as the kept ones, 6 of 20, so the
+flag did not separate them.
+
+- No next run fixed a gap in the run before it. 9 of the 20 not-kept runs are boxes of north#429, and the next run
+  built the next box or reviewed the landed one; the rest went on to another box of a multi-box issue (#255, #112,
+  #88, #259, #308, #407), re-queued a landing, or stopped on an unreachable host. In this ledger, not kept means the
+  next box started within a day, not that the work was redone.
+- 6 of the 12 flags come from a wrong `landed_sha`: in 6 of the 40 runs the ledger's sha is another lane's commit,
+  while the run's own report names the commit it landed (for one, `17852abbb` for north#112 against the reported
+  `775512235` for north#255). The reviewer correctly found that the diff did not match the brief.
+- Without those 6, the kept runs still have 4 flags out of 18: a lane that added code comments the brief forbade,
+  a free-form request answered by a report and not a diff, a fix that only added diagnostics, and one box of a multi-box plan. The 2 remaining
+  not-kept flags (of 16) were also cases where the next run did other work.
+
+To measure this metric, the input needs runs whose follow-up redid their work, such as a REJECT by the lead or a
+fix commit on the same files. "Another run within 24 h" does not pick those out. The rows (ids, agents, items, shas,
+verdicts, finding counts, the attribution check; no brief text) are in south
+`agents/decisions/harness/watch-2026-11-04-mattpocock-e2/rows.tsv`. The wrong `landed_sha` is filed as north#567, owned with the ledger work of north#255.
 
 ### E3, the no-op test by replay (ran 2026-11-04)
 
@@ -213,9 +241,6 @@ for such a rule without a replay that carries the hook. Arm B changes nothing me
 tokens. `cleanup` went from 3/3 to 2/3 and `flaky-test-not-weakened` from 2/3 to 3/3, each within one trial. Neither arm
 is kept, so the live policy is unchanged and the July prose stays out.
 
-E2 is on north#525 with its Done-when box and owner; it costs over 30 minutes: 40 reviews plus gathering briefs
-and diffs.
-
 ## Decided
 
 - Ideas only; no file from `mattpocock/skills` copied.
@@ -225,7 +250,7 @@ and diffs.
 - Keep the sampled retro (E1): a weekly timer mines the last 7 days, classifies every fifth candidate against
   `enforcers.md` and the startup policy, and files each mode seen at least twice with no enforcer into the rules
   register as an enforcer candidate. The timer and a decision on each of the 8 modes above are boxes on north#525.
-- Test a Spec axis (E2) before any change to § Review.
+- No Spec-axis reviewer: E2 kept no change to § Review (0 of 20, 6 kept runs flagged), and its "not kept" label measured the next box starting, not rework.
 - Leave out fresh-context, ratchet, mechanical-rules-as-checks, forced-mutation proof and dated-claim rules: each is
   live in north already or measured as not a problem.
 - Next review of this source: from `4ae2317`, when it next comes due under watching.md.
