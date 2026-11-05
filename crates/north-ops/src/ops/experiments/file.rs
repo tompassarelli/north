@@ -26,7 +26,11 @@ pub fn numbers(entry: &Experiment, before: Option<Reading>, after: Option<Readin
     }
     let base = entry.before.map_or_else(|| "baseline 0".to_owned(), |window| reading(entry, before, &window.text()));
     let moved = judged.moved.map_or_else(String::new, |moved| format!(", moved {moved:.3} toward the predicted {} against a bar of {}", entry.direction.word(), entry.bar));
-    format!("{} over {}: {base} -> {}{moved}", entry.metric.name(), entry.scope.text(), reading(entry, after, &entry.after.text()))
+    let over = match &entry.metric {
+        Metric::IncidentRows(class) => format!("incident class {class}"),
+        _ => entry.scope.text(),
+    };
+    format!("{} over {over}: {base} -> {}{moved}", entry.metric.name(), reading(entry, after, &entry.after.text()))
 }
 
 pub fn line(entry: &Experiment, before: Option<Reading>, after: Option<Reading>, judged: &Judged) -> String {

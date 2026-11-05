@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use super::file::{self, Filed, Issues};
-use super::read;
+use super::read::{self, Detected, Recorded};
 use crate::ledger::outcome::{Landing, Outcome};
 use super::registry::{self, Day, Experiment, Issue, Metric};
 use super::rules;
@@ -41,7 +41,7 @@ fn day(text: &str) -> i64 {
 const NOW: i64 = 1_800_000_000;
 
 fn measure(outcomes: &[Outcome], metric: &Metric, scope: &super::registry::Scope, window: super::registry::Window) -> Option<Reading> {
-    read::measure(outcomes, metric, scope, window, NOW)
+    read::measure(Recorded { outcomes, incidents: &[] }, metric, scope, window, NOW)
 }
 
 fn landed(at: &str, reworked: Option<bool>) -> Outcome {
@@ -189,7 +189,7 @@ fn each_verdict_is_filed_once_and_a_left_open_box_reopens_its_issue() {
     let entries = [entry("")];
     let path = scratch("once");
     let mut filed = Filed::load(path.clone());
-    let (lines, failed) = judge_due(&entries, Day::parse("2026-10-23").unwrap(), &rows, Some((&issues as &dyn Issues, &mut filed)));
+    let (lines, failed) = judge_due(&entries, Day::parse("2026-10-23").unwrap(), Recorded { outcomes: &rows, incidents: &[] }, Some((&issues as &dyn Issues, &mut filed)));
     assert!(!failed, "{lines:?}");
     let body = issues.body.borrow().clone();
     assert!(body.starts_with("Done when:\n- [x] adopt\n- [ ] Revert abcdef1 (a probe change): rework_rate over every worker run: 0.100 (n=10, 2026-10-01 to 2026-10-11) -> 0.400 (n=10, 2026-10-11 to 2026-10-21), moved -0.300"), "{body}");
@@ -197,10 +197,10 @@ fn each_verdict_is_filed_once_and_a_left_open_box_reopens_its_issue() {
     assert_eq!((*issues.edits.borrow(), *issues.reopened.borrow()), (1, 1));
     assert!(Filed::load(path).has(&entries[0]));
     let mut again = Filed::load(scratch("again"));
-    let (lines, _) = judge_due(&entries, Day::parse("2026-10-24").unwrap(), &rows, Some((&issues as &dyn Issues, &mut again)));
+    let (lines, _) = judge_due(&entries, Day::parse("2026-10-24").unwrap(), Recorded { outcomes: &rows, incidents: &[] }, Some((&issues as &dyn Issues, &mut again)));
     assert!(lines.iter().any(|line| line == "probe: already on tompassarelli/north#9"), "{lines:?}");
     assert_eq!(*issues.edits.borrow(), 1);
-    let (lines, _) = judge_due(&entries, Day::parse("2026-10-22").unwrap(), &rows, None);
+    let (lines, _) = judge_due(&entries, Day::parse("2026-10-22").unwrap(), Recorded { outcomes: &rows, incidents: &[] }, None);
     assert!(lines.is_empty(), "judged before its review day: {lines:?}");
 }
 
@@ -209,7 +209,7 @@ fn keep_is_a_ticked_box_and_decide_is_one_line_for_tom() {
     let issues = Fake { open: RefCell::new(false), ..Fake::default() };
     let keep = [cohort("2026-10-02", 4, 6), cohort("2026-10-12", 1, 9)].concat();
     let mut filed = Filed::load(scratch("keep"));
-    judge_due(&[entry("")], Day::parse("2026-10-23").unwrap(), &keep, Some((&issues as &dyn Issues, &mut filed)));
+    judge_due(&[entry("")], Day::parse("2026-10-23").unwrap(), Recorded { outcomes: &keep, incidents: &[] }, Some((&issues as &dyn Issues, &mut filed)));
     assert!(issues.body.borrow().contains("- [x] Keep probe (abcdef1)"), "{}", issues.body.borrow());
     assert_eq!(*issues.reopened.borrow(), 0);
     let flat = [cohort("2026-10-02", 2, 8), cohort("2026-10-12", 2, 8)].concat();
@@ -218,3 +218,31 @@ fn keep_is_a_ticked_box_and_decide_is_one_line_for_tom() {
     assert!(line.starts_with("- [ ] Tom decides probe (a probe change):") && line.contains("recommend revert"), "{line}");
 }
 
+
+#[test]
+fn an_incident_class_entry_reads_rows_per_week_and_every_card_needs_exactly_one() {
+    let class = ENTRY.replace("metric = \"rework_rate\"", "metric = \"incident_rows_per_week\"\nclass = \"nix-x\"").replace("bar = 0.05", "bar = 0.5").replace("min_n = 4", "min_n = 0");
+    let guard = registry::parse(&class).unwrap().remove(0);
+    let at = |day_text: &str, class: &str| Detected { class: class.into(), at: (day(day_text) + 60) as f64 };
+    let incidents = [at("2026-10-02", "nix-x"), at("2026-10-03", "nix-x"), at("2026-10-05", "nix-x"), at("2026-10-10", "nix-x"), at("2026-10-12", "nix-x"), at("2026-10-12", "nix-y")];
+    let recorded = Recorded { outcomes: &[], incidents: &incidents };
+    let before = read::measure(recorded, &guard.metric, &guard.scope, guard.before.unwrap(), NOW);
+    let after = read::measure(recorded, &guard.metric, &guard.scope, guard.after, NOW);
+    assert_eq!((before, after), (Some(Reading { value: Some(2.8), n: 4 }), Some(Reading { value: Some(0.7), n: 1 })));
+    let judged = judge(&guard, before, after);
+    assert_eq!(judged.verdict, Verdict::Keep);
+    assert!(file::numbers(&guard, before, after, &judged).starts_with("incident_rows_per_week over incident class nix-x: 2.800 (n=4"), "{}", file::numbers(&guard, before, after, &judged));
+    assert!(registry::parse(&class.replace("class = \"nix-x\"", "class = \"nix-x\"\ntier = \"sonnet\"")).is_err());
+    assert!(registry::parse(&ENTRY.replace("min_n = 4", "min_n = 4\nclass = \"nix-x\"")).is_err());
+    let classes = ["nix-x".to_owned(), "nix-z".to_owned()];
+    assert_eq!(rules::unmeasured(&classes, std::slice::from_ref(&guard)), ["harness/nix/cards.toml: card class nix-z has 0 entries in docs/rationale/experiments.toml measuring incident_rows_per_week; it needs exactly one"]);
+    assert_eq!(rules::unmeasured(&classes[..1], &[guard.clone(), guard]).len(), 1);
+}
+
+#[test]
+fn the_registry_measures_every_nix_card_once() {
+    let classes = rules::card_classes(&repo()).unwrap();
+    assert_eq!(classes.len(), 12, "{classes:?}");
+    let entries = registry::parse(&std::fs::read_to_string(repo().join(registry::PATH)).unwrap()).unwrap();
+    assert_eq!(rules::unmeasured(&classes, &entries), Vec::<String>::new());
+}

@@ -50,13 +50,20 @@ pub enum Metric {
     FirstCommitP50Minutes,
     Landed,
     Runs,
+    IncidentRows(String),
     Unread(String),
 }
 
 impl Metric {
-    pub const NAMES: [&'static str; 5] = ["rework_rate", "usd_per_surviving", "first_commit_p50_minutes", "landed", "runs"];
+    pub const NAMES: [&'static str; 6] = ["rework_rate", "usd_per_surviving", "first_commit_p50_minutes", "landed", "runs", "incident_rows_per_week"];
 
-    fn parse(name: &str, measure: Option<&str>) -> Result<Self, String> {
+    fn parse(name: &str, measure: Option<&str>, class: Option<&str>) -> Result<Self, String> {
+        match (name, class) {
+            ("incident_rows_per_week", Some(class)) if measure.is_none() && !class.trim().is_empty() => return Ok(Self::IncidentRows(class.trim().to_owned())),
+            ("incident_rows_per_week", _) => return Err("metric incident_rows_per_week needs a class and no measure".into()),
+            (_, Some(_)) => return Err(format!("class is only for metric incident_rows_per_week, not {name}")),
+            _ => {}
+        }
         match (name, measure) {
             ("rework_rate", None) => Ok(Self::ReworkRate),
             ("usd_per_surviving", None) => Ok(Self::UsdPerSurviving),
@@ -77,6 +84,7 @@ impl Metric {
             Self::FirstCommitP50Minutes => "first_commit_p50_minutes",
             Self::Landed => "landed",
             Self::Runs => "runs",
+            Self::IncidentRows(_) => "incident_rows_per_week",
             Self::Unread(_) => "none",
         }
     }
@@ -183,6 +191,7 @@ struct Raw {
     rule: Option<String>,
     metric: String,
     measure: Option<String>,
+    class: Option<String>,
     tier: Option<String>,
     arm: Option<String>,
     direction: String,
@@ -230,7 +239,7 @@ fn entry(raw: Raw) -> Result<Experiment, String> {
         (None, None) => None,
         _ => return Err(format!("{id}: note and rule come together")),
     };
-    let metric = Metric::parse(&raw.metric, raw.measure.as_deref()).map_err(|why| format!("{id}: {why}"))?;
+    let metric = Metric::parse(&raw.metric, raw.measure.as_deref(), raw.class.as_deref()).map_err(|why| format!("{id}: {why}"))?;
     let direction = match raw.direction.as_str() {
         "up" => Direction::Up,
         "down" => Direction::Down,
@@ -250,6 +259,9 @@ fn entry(raw: Raw) -> Result<Experiment, String> {
     }
     let owner = Issue::parse(&raw.owner).ok_or_else(|| format!("{id}: owner {} is not owner/repo#N", raw.owner))?;
     let scope = Scope { tier: raw.tier.filter(|tier| !tier.is_empty()), arm: raw.arm.filter(|arm| !arm.is_empty()) };
+    if matches!(metric, Metric::IncidentRows(_)) && scope != Scope::default() {
+        return Err(format!("{id}: an incident_rows_per_week entry reads one incident class, not a tier or arm"));
+    }
     Ok(Experiment { id, change: collapse(&raw.change), landed: raw.landed, cited, metric, scope, direction, bar: raw.bar, min_n: raw.min_n, before, after, review, owner })
 }
 

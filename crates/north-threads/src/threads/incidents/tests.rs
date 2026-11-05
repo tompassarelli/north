@@ -8,6 +8,7 @@ use crate::threads::fake::Recorded;
 use crate::threads::verb::Context;
 
 const NIGHT: &str = include_str!("fixtures/2026-11-04-night.jsonl");
+const NIX_FOOTGUNS: &str = include_str!("fixtures/2026-11-05-nix-footguns.jsonl");
 const NOW: f64 = 1_793_800_000.0;
 
 struct Ledger {
@@ -59,6 +60,18 @@ fn the_backfilled_night_reads_nine_classes_none_noticed_by_a_detector_first() {
 }
 
 #[test]
+fn the_nix_footguns_replay_lists_nested_shells_and_gate_paths_with_d1_and_d3_as_their_guards() {
+    let ledger = ledger();
+    let (code, out, err) = ledger.call(&["import"], NIX_FOOTGUNS, NOW);
+    assert_eq!((code, err.as_str(), out.as_str()), (0, "", "incident import: 71 of 71 rows recorded, 12 guards set\n"));
+    let report = ledger.ok(&["report", "--since", "1790812800", "--until", "1793923200"]);
+    assert!(report.contains(": 71 by class: nix-ad-hoc-toolchain 5, nix-gate-path 10, nix-gc-roots 7, nix-host-paths 7, nix-lease-shell 8, nix-lease-skip 4, nix-nested-shell 6,"), "{report}");
+    assert!(report.contains("guarded: nix-ad-hoc-toolchain by 37ab206be, nix-gate-path by 37ab206be,"), "{report}");
+    assert!(report.contains("nix-nested-shell by b92df67c8,"), "{report}");
+    assert!(report.contains("no class recurred after its guard landed"), "{report}");
+}
+
+#[test]
 fn an_incident_after_its_class_guard_landed_is_a_recurrence_and_one_before_is_fixed_by_it() {
     let ledger = ledger();
     let hour = 3600.0;
@@ -87,7 +100,8 @@ fn an_incident_after_its_class_guard_landed_is_a_recurrence_and_one_before_is_fi
 fn a_ledger_without_incidents_reads_none_and_a_bad_record_is_refused() {
     let ledger = ledger();
     assert!(super::report::week(&ledger.path, NOW).is_none());
-    assert!(ledger.ok(&["report"]).contains("incidents 7d: 0 by class: none"));
+    let empty = ledger.ok(&["report"]);
+    assert!(empty.contains("incidents 7d: 0 by class: none") && empty.contains("incidents 7d: no class has a guard"), "{empty}");
     assert_eq!(ledger.call(&["record", "--class", "x", "--noticed-by", "proxy"], "", NOW).0, 2);
     assert_eq!(ledger.call(&["record", "--key", "k", "--class", "x", "--noticed-by", "proxy", "--detected-at", "soon"], "", NOW).0, 2);
     assert_eq!(ledger.call(&["guard", "--class", "x", "--guard", "abc"], "", NOW).0, 2);

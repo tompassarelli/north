@@ -18,7 +18,9 @@ use crate::foundation::clock::Timestamp;
 use crate::threads::calibration::rework::Sources;
 use file::{Filed, GitHub, Issues};
 use crate::ledger::outcome::{Outcome, read::outcomes};
+use read::{Detected, Recorded};
 use registry::{Day, Experiment};
+use crate::threads::incidents::report::detected;
 use verdict::{due, judge};
 
 const USAGE: &str = "usage: north experiments check [--root DIR] | north experiments judge [--root DIR] [--today YYYY-MM-DD] [--file]";
@@ -62,19 +64,22 @@ fn load(root: &Path) -> Result<Vec<Experiment>, Vec<String>> {
     registry::parse(&text)
 }
 
-fn recorded() -> Result<Vec<Outcome>, String> {
+fn recorded() -> Result<(Vec<Outcome>, Vec<Detected>), String> {
     let path = ledger();
     let db = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(|why| format!("ledger {}: {why}", path.display()))?;
-    outcomes(&db, &Sources::live()).map_err(|why| format!("ledger {}: {why}", path.display()))
+    let failed = |why: String| format!("ledger {}: {why}", path.display());
+    let outcomes = outcomes(&db, &Sources::live()).map_err(failed)?;
+    let incidents = detected(&db).map_err(|why| failed(why.to_string()))?.into_iter().map(|(class, at)| Detected { class, at }).collect();
+    Ok((outcomes, incidents))
 }
 
-/// Judges every due entry over the recorded `outcomes`, filing each verdict once when `issues` is given.
-pub fn judge_due(entries: &[Experiment], today: Day, outcomes: &[Outcome], mut filing: Option<(&dyn Issues, &mut Filed)>) -> (Vec<String>, bool) {
+/// Judges every due entry over what the ledger recorded, filing each verdict once when `issues` is given.
+pub fn judge_due(entries: &[Experiment], today: Day, recorded: Recorded, mut filing: Option<(&dyn Issues, &mut Filed)>) -> (Vec<String>, bool) {
     let mut lines = Vec::new();
     let mut failed = false;
     for entry in entries.iter().filter(|entry| due(entry, today)) {
-        let before = entry.before.and_then(|window| read::measure(outcomes, &entry.metric, &entry.scope, window, today.unix()));
-        let after = read::measure(outcomes, &entry.metric, &entry.scope, entry.after, today.unix());
+        let before = entry.before.and_then(|window| read::measure(recorded, &entry.metric, &entry.scope, window, today.unix()));
+        let after = read::measure(recorded, &entry.metric, &entry.scope, entry.after, today.unix());
         let judged = judge(entry, before, after);
         let line = file::line(entry, before, after, &judged);
         lines.push(format!("{}: {} ({})", entry.id, judged.verdict.word(), file::numbers(entry, before, after, &judged)));
@@ -105,14 +110,14 @@ fn judge_command(options: &Options) -> u8 {
         println!("experiments: nothing due unfiled on {}", options.today.text());
         return 0;
     }
-    let outcomes = match recorded() {
-        Ok(outcomes) => outcomes,
+    let (outcomes, incidents) = match recorded() {
+        Ok(recorded) => recorded,
         Err(why) => {
             eprintln!("north experiments: {why}");
             return 1;
         }
     };
-    let (lines, failed) = judge_due(&pending, options.today, &outcomes, options.file.then_some((&GitHub as &dyn Issues, &mut filed)));
+    let (lines, failed) = judge_due(&pending, options.today, Recorded { outcomes: &outcomes, incidents: &incidents }, options.file.then_some((&GitHub as &dyn Issues, &mut filed)));
     lines.iter().for_each(|line| println!("experiments: {line}"));
     u8::from(failed)
 }
@@ -132,7 +137,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let problems = rules::check(&options.root);
     problems.iter().for_each(|problem| eprintln!("north experiments check: {problem}"));
     if problems.is_empty() {
-        println!("north experiments check: every review rule in {} has a registry entry", rules::NOTES);
+        println!("north experiments check: every review rule in {} and every card in {} has a registry entry", rules::NOTES, rules::CARDS);
     }
     u8::from(!problems.is_empty())
 }

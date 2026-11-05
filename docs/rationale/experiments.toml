@@ -4,7 +4,9 @@
 # rationale review rule (an `Overturned by:` paragraph or a `## Review` section) no entry quotes.
 #
 # metric: a north flow outcome metric over finished worker runs (rework_rate, first_commit_p50_minutes,
-# landed, runs), or none with a measure naming how the rule is judged instead (always re-measure).
+# landed, runs), incident_rows_per_week with a class (that incidents-ledger class's rows per 7 days, every
+# card in harness/nix/cards.toml needing exactly one), or none with a measure naming how the rule is judged instead
+# (always re-measure).
 # bar: the move toward `direction`, in the metric's units, that keeps the change; a move as large
 # the other way reverts it, and anything between goes to Tom. Without `before` the baseline is 0.
 # Days are UTC, windows [start, end), and review falls at least 2 days after `after` ends.
@@ -166,3 +168,174 @@ min_n = 0
 after = ["2026-11-05", "2026-11-19"]
 review = "2026-11-21"
 owner = "tompassarelli/north#259"
+
+# One entry per card in harness/nix/cards.toml: its incident class's rows per 7 days, against the 2026-11-05 transcript rescan of
+# docs/rationale/nix-footguns.md imported as the before window; bar is half that before rate.
+
+[[experiment]]
+id = "card-nix-nested-shell"
+change = "One dev-shell entry, north dev-shell run (D1), with the N1 Nix card (nix-nested-shell: Nested dev shells and sandboxes), guards nested dev shells"
+landed = "b92df67c8"
+metric = "incident_rows_per_week"
+class = "nix-nested-shell"
+direction = "down"
+bar = 0.75
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-gate-path"
+change = "The N2 Nix card (nix-gate-path: PATH, shims and the real program behind the capacity gate) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-gate-path"
+direction = "down"
+bar = 1.25
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-lease-shell"
+change = "The N3 Nix card (nix-lease-shell: Leased or offloaded runs that lose or never enter the dev shell) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-lease-shell"
+direction = "down"
+bar = 1
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-lease-skip"
+change = "The N4 Nix card (nix-lease-skip: Nix forms that skip the capacity lease) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-lease-skip"
+direction = "down"
+bar = 0.5
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-offline"
+change = "The N5 Nix card (nix-offline: Offline, eval-cache and substituter assumptions) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-offline"
+direction = "down"
+bar = 0.5
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-ad-hoc-toolchain"
+change = "The N6 Nix card (nix-ad-hoc-toolchain: nix develop against nix shell, nix run, nix-shell -p and direnv) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-ad-hoc-toolchain"
+direction = "down"
+bar = 0.625
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-system-closure"
+change = "The N7 Nix card (nix-system-closure: Project flakes against the system closure) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-system-closure"
+direction = "down"
+bar = 1.375
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-host-paths"
+change = "The N8 Nix card (nix-host-paths: Store paths and host impurity in tests and goldens) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-host-paths"
+direction = "down"
+bar = 0.875
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-gc-roots"
+change = "The N9 Nix card (nix-gc-roots: GC roots, pins and flake.lock drift) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-gc-roots"
+direction = "down"
+bar = 0.875
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-shellhook"
+change = "The N10 Nix card (nix-shellhook: shellHook side effects) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-shellhook"
+direction = "down"
+bar = 0.25
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-sandbox-visibility"
+change = "The N11 Nix card (nix-sandbox-visibility: Sandbox visibility) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-sandbox-visibility"
+direction = "down"
+bar = 0.25
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-nix-path-context"
+change = "The N12 Nix card (nix-path-context: PATH differs by context) guards its class in north hook and north nix explain"
+landed = "37ab206be"
+metric = "incident_rows_per_week"
+class = "nix-path-context"
+direction = "down"
+bar = 0.625
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-17"]
+review = "2026-11-19"
+owner = "tompassarelli/north#523"

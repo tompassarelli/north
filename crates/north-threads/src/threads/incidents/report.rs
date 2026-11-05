@@ -26,6 +26,7 @@ pub struct Reading {
     pub label: String,
     pub total: usize,
     pub by_class: BTreeMap<String, usize>,
+    pub guards: BTreeMap<String, String>,
     pub detector_first: usize,
     pub detect_minutes: Vec<f64>,
     pub fix_minutes: Vec<f64>,
@@ -58,7 +59,7 @@ pub fn read(db: &Connection, since: f64, until: f64, label: &str) -> rusqlite::R
     }
     let (from, to) = (Timestamp::from_unix_seconds_f64(since).iso(), Timestamp::from_unix_seconds_f64(until).iso());
     let mut statement = db.prepare(
-        "SELECT i.key, i.class, i.noticed_by, i.started_at, i.detected_at, i.fixed_at, i.guard, i.recurred_after_guard, i.detail, coalesce(g.issue, '') \
+        "SELECT i.key, i.class, i.noticed_by, i.started_at, i.detected_at, i.fixed_at, i.guard, i.recurred_after_guard, i.detail, coalesce(g.issue, ''), g.guard \
          FROM incidents i LEFT JOIN incident_guards g ON g.class = i.class WHERE i.detected_at >= ?1 AND i.detected_at < ?2 ORDER BY i.detected_at, i.id",
     )?;
     let mut reading = Reading { label: label.to_owned(), ..Reading::default() };
@@ -74,11 +75,15 @@ pub fn read(db: &Connection, since: f64, until: f64, label: &str) -> rusqlite::R
             row.get::<_, i64>(7)?,
             row.get::<_, String>(8)?,
             row.get::<_, String>(9)?,
+            row.get::<_, Option<String>>(10)?,
         ))
     })?;
     for row in rows {
-        let (key, class, noticed_by, started_at, detected_at, fixed_at, guard, recurred, detail, issue) = row?;
+        let (key, class, noticed_by, started_at, detected_at, fixed_at, guard, recurred, detail, issue, landed) = row?;
         reading.total += 1;
+        if let Some(landed) = landed {
+            reading.guards.insert(class.clone(), landed);
+        }
         *reading.by_class.entry(class.clone()).or_default() += 1;
         reading.detector_first += usize::from(!HUMANS.contains(&noticed_by.as_str()));
         let detected = seconds(&detected_at);
@@ -93,6 +98,21 @@ pub fn read(db: &Connection, since: f64, until: f64, label: &str) -> rusqlite::R
         }
     }
     Ok(Some(reading))
+}
+
+/// Every incident's class and detection time in Unix seconds; none when the ledger has no incidents table.
+pub fn detected(db: &Connection) -> rusqlite::Result<Vec<(String, f64)>> {
+    if !present(db)? {
+        return Ok(Vec::new());
+    }
+    let mut statement = db.prepare("SELECT class, detected_at FROM incidents ORDER BY detected_at, id")?;
+    let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let mut found = Vec::new();
+    for row in rows {
+        let (class, at) = row?;
+        found.extend(seconds(&at).map(|at| (class, at)));
+    }
+    Ok(found)
 }
 
 /// The reading of the seven days before `now` in the ledger at `ledger`.
@@ -115,6 +135,11 @@ impl Reading {
             format!("incidents {label}: {} by class: {classes}", self.total),
             format!("incidents {label}: detector-first {} of {} ({share}); median to detect {}, to fix {}", self.detector_first, self.total, minutes(&self.detect_minutes), minutes(&self.fix_minutes)),
         ];
+        lines.push(if self.guards.is_empty() {
+            format!("incidents {label}: no class has a guard")
+        } else {
+            format!("incidents {label}: guarded: {}", self.guards.iter().map(|(class, guard)| format!("{class} by {guard}")).collect::<Vec<_>>().join(", "))
+        });
         let mut recurred: BTreeMap<&str, (&str, usize)> = BTreeMap::new();
         for recurrence in &self.recurred {
             recurred.entry(&recurrence.class).or_insert((&recurrence.guard, 0)).1 += 1;
