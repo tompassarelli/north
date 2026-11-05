@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Passes only when the family's own check, read from its workflow step or .safe-push line, fails on the planted fault.
 set -euo pipefail
+tools=(git yq); [ "${GITHUB_ACTIONS:-}" = true ] || tools+=(fd)
+for tool in "${tools[@]}"; do command -v "$tool" >/dev/null || { printf "canary: required tool %s not found on PATH\n" "$tool" >&2; exit 127; }; done
 family=${1:?usage: canary.sh FAMILY}
 root=$(git rev-parse --show-toplevel)
 conf="$root/harness/canaries/canaries.conf"

@@ -8,6 +8,8 @@ names=() bun=()
 for name in "${claimed[@]}"; do
   if [[ $name =~ ^[A-Za-z0-9_:]+$ ]]; then names+=("$name"); else bun+=("$name"); fi
 done
+need=(); ((${#bun[@]})) && need+=(bun); ((${#names[@]})) && need+=(cargo flock rsync)
+for tool in "${need[@]}"; do command -v "$tool" >/dev/null || { printf "mutant-tests: required tool %s not found on PATH\n" "$tool" >&2; exit 127; }; done
 while IFS= read -r tree; do
   for name in "${bun[@]}"; do
     mapfile -t files < <(cd "$tree" && grep -rlF --include='*.test.ts' -- "$name" .)
