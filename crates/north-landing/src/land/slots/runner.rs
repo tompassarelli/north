@@ -13,6 +13,7 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::JoinSet;
 
 use super::affected::{self, CPUS_ENV, PACKAGES_ENV, Scope};
+use super::it_modules::{self, IT_ENV};
 use super::clippy_first;
 use super::deps;
 use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement, path_class};
@@ -146,6 +147,7 @@ struct Shared {
     paths: String,
     fail_fast: bool,
     scope: Option<Scope>,
+    it: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -361,9 +363,12 @@ impl Shared {
     }
 
     fn scope_environment(&self) -> Vec<(&'static str, String)> {
-        let Some(scope) = &self.scope else { return Vec::new() };
-        let mut environment = vec![(PACKAGES_ENV, scope.arguments())];
-        environment.extend(scope.cpus().map(|cpus| (CPUS_ENV, cpus.to_string())));
+        let mut environment = Vec::new();
+        if let Some(scope) = &self.scope {
+            environment.push((PACKAGES_ENV, scope.arguments()));
+            environment.extend(scope.cpus().map(|cpus| (CPUS_ENV, cpus.to_string())));
+        }
+        environment.extend(self.it.clone().map(|filters| (IT_ENV, filters)));
         environment
     }
 
@@ -1003,6 +1008,20 @@ fn scope_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<
     Some(scope)
 }
 
+fn it_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<String> {
+    if !commands.iter().any(|command| command.contains(IT_ENV)) {
+        return None;
+    }
+    let selection = it_modules::selection(root, &arguments.base, &arguments.head).unwrap_or_else(|error| {
+        warn(&format!("safe-push: {error}; the tests/it run covers every module"));
+        it_modules::Selection::Every
+    });
+    if !arguments.leased {
+        say(&format!("safe-push: the tests/it run is {}", selection.arguments()));
+    }
+    Some(selection.arguments())
+}
+
 fn portable(arguments: &Arguments) -> u8 {
     let Some(root) = toplevel() else { return 1 };
     let config = Config::load(&root, &arguments.head);
@@ -1084,6 +1103,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         arguments.runner_host = runner_host(&environment, &config).await;
     }
     let scope = scope_for(&root, &arguments, &commands);
+    let it = it_for(&root, &arguments, &commands);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let paths = path_class(&root, &arguments.base, &arguments.head);
     let mut shared = Shared {
@@ -1100,6 +1120,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         free_slots: None,
         actions_down: false,
         scope,
+        it,
     };
     if !shared.arguments.leased && !commands.is_empty() {
         shared.free_slots = shared.count_free_slots().await;
@@ -1171,9 +1192,10 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     arguments.runner_host = runner_host(&environment, &config).await;
     let (_cancel_sender, cancel) = watch::channel(false);
     let scope = scope_for(&root, &arguments, &commands);
+    let it = it_for(&root, &arguments, &commands);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let paths = path_class(&root, &arguments.base, &arguments.head);
-    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope });
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it });
     let mut pending = Vec::new();
     for command in commands {
         if !shared.cache_reused(&command).await {

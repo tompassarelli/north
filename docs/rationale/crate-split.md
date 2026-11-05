@@ -498,6 +498,15 @@ Its compile cost is small: 2.6 CPU-s after a north-core edit, with incremental o
 run, through a module-to-crate table, not moving files. `land_repositories` and `stub_exec_policy` (library
 tests on `north_landing` alone) move to `crates/north-landing/tests/it`.
 
+The table is `tests/it/crates.txt` (box 4-20), one line per module, merged as a set. It names planned crates,
+so `crates/north-landing/src/land/slots/it_modules.rs` resolves a changed file through `structure.toml`'s
+`[crate_dag]` globs, not through `cargo metadata`, and the selection holds before and after each move. A
+module runs when one of its crates, or a crate whose `may_use` reaches one, changed. Any change outside
+`crates/` except `docs/` runs every module. The lander exports the result as
+`SAFE_PUSH_LAND_IT` (`--test it -- MODULE::` filters) to any check that names it. The selection follows the
+planned DAG, so a back-edge still listed under "Edges to cut" can let a test outside the selection fail; the full
+suite in main CI catches it.
+
 ### Lander selection
 
 `crates/north-landing/src/land/slots/affected.rs` (lander box B, f9142b21b) already maps changed files to

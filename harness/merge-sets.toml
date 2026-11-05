@@ -44,6 +44,10 @@ path = "tests/it/main.rs"
 kind = "lines"
 
 [[set]]
+path = "tests/it/crates.txt"
+kind = "lines"
+
+[[set]]
 path = "crates/north-landing/tests/it/main.rs"
 kind = "lines"
 

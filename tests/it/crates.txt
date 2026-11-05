@@ -1,0 +1,115 @@
+# Each `mod` of tests/it/main.rs and the crates its tests exercise, by the [[crate_dag.crate]] names of structure.toml.
+# The lander turns a lane's changed files into `--test it -- MODULE::` filters (SAFE_PUSH_LAND_IT): a module runs when one of its crates, or a crate that uses one, changed.
+# `north` marks a module that reads repo files outside crates/: a docs/ change selects it. Any other change outside crates/ runs every module.
+# One line per module, merged as a set.
+affected_modules north-landing north
+agent_spawn_hook north-guard
+agents_dispatch north-dispatch north-ops
+agents_plan north-ops north-pace
+agents_plan_score north-ops north-pace
+agents_sync_runtime_skew north-runtime
+autoland_rebased north-landing
+automation_chrome_service north
+capacity_admission_lock north-capacity
+capacity_aperture north-capacity
+capacity_clamp north-capacity north-capacity-host
+capacity_db_lock north-capacity
+capacity_desktop_bus north-capacity
+capacity_dev_shell north-capacity-host
+capacity_disk north-capacity
+capacity_exclusive_native north-capacity
+capacity_game_reserve north-capacity
+capacity_game_reserve_verbs north-capacity
+capacity_gaming north-capacity
+capacity_gate north-capacity-host
+capacity_gpu_size north-capacity
+capacity_host north-capacity-host
+capacity_land_queue north-capacity-host
+capacity_leases north-capacity
+capacity_native_alone north-capacity
+capacity_native_clients north-capacity
+capacity_native_pair north-capacity
+capacity_native_quiet north-capacity
+capacity_native_wait north-capacity
+capacity_north_path north-capacity-host
+capacity_orphan_reaper north-capacity
+capacity_overload north-capacity
+capacity_queue_ticket north-capacity
+capacity_runtime_follow north-capacity-host north-runtime
+capacity_status north-capacity
+capacity_unseen_pressure north-capacity
+claim_readers north-threads
+code_health_edit_hook north-guard
+code_health_signal north-guard
+command_guards_hook north-guard
+desktop_action_guard north-guard
+dev_shell_target north-capacity-host
+fleet_launch north-fleet north-dispatch
+fleet_list_ledger_lock north-fleet north-providers
+fleet_row_leased north-fleet
+fleet_send north-fleet
+fleet_spool north-fleet
+fleet_wait_rows north-fleet
+golden_path north-fleet north-landing
+heavy_command_hook north-guard
+job_run north-threads north-fleet
+land_actions north-landing
+land_candidate_indexes north-landing
+land_checks north-landing
+land_ci north-landing
+land_clippy_first north-landing
+land_drivers north-landing
+land_enqueue north-landing
+land_offload north-runtime north-landing
+land_rebase north-landing
+land_scan north-landing
+land_scan_language north-landing
+land_scan_outgoing north-landing
+land_scan_policy north-landing
+land_serve north-landing
+land_squash north-landing
+land_tests north-landing
+land_warm_overflow north-landing
+landing_targets north-landing
+lane_gc_activity north-guard
+lane_gc_journeys north-guard
+laptop_holds north-dispatch
+ledger_claude_runs north-providers
+ledger_closed_summary north-providers
+merge_driver_set north-landing north
+mutant_cargo_slots north-capacity
+placement_gate north-pace north-fleet
+policy_guards_hook north-guard
+policy_replay_login north-ops
+policy_replay_promote north-ops
+policy_replay_run north-ops
+private_desktop_capture north-ops north-capacity
+private_desktop_signal north-ops north-capacity
+provenance north-landing
+proxy north-core
+readme_links north
+red_main_notify north
+registry north
+resident_cap north-dispatch
+runtime_update north-runtime
+safe_push_land_branch north-landing
+safe_push_tag north-landing
+search_guards_hook north-guard
+session_link_exit north-fleet
+session_path north-fleet
+session_scope north-fleet
+session_start_hook north-guard
+stdio north-fleet
+subagent_teardown_hook north-guard
+support north
+threads_idle_outcome north-threads
+threads_ingest_busy north-threads
+threads_ingest_lock north-threads
+threads_snapshot north-threads
+usage_gate north-pace
+usage_snapshot north-pace
+worker_handoff_hook north-guard
+worker_ledger_argv north-threads
+worker_ledger_ingest_lock north-threads
+worker_ledger_record north-threads north-ops
+worker_ledger_resumed_session north-threads
