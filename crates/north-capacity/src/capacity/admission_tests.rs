@@ -68,3 +68,19 @@ mod properties {
         }
     }
 }
+
+#[test]
+fn a_waiting_land_check_runs_ahead_of_queued_worker_builds_which_it_refuses() {
+    let gex45 = |class, land_check_waiting, queued_ahead| Facts { profile: Profile::Unattended, cores: 20, leased_batch_cpus: 2.0, requested_cpus: 6.0, queued_ahead, land_check_waiting, ..super::fixtures::facts(class) };
+    assert_eq!(decide(&gex45(Class::Heavy, false, 0)), Reason::Run, "with no land check waiting the host admits a worker build");
+    for class in [Class::Heavy, Class::Moderate, Class::Exclusive] {
+        assert_eq!(decide(&gex45(class, true, 0)), Reason::DeferLandCheckWaiting, "{class:?} worker lease while a land check waits");
+    }
+    assert_eq!(decide(&gex45(Class::Heavy, true, 3)), Reason::DeferLandCheckWaiting, "a worker build queued first still yields");
+    assert_eq!(decide(&gex45(Class::Critical, true, 3)), Reason::Run, "the land check runs as critical ahead of the queued worker builds");
+    for class in [Class::Agent, Class::Gpu, Class::Tom, Class::Runtime] {
+        assert_ne!(decide(&gex45(class, true, 0)), Reason::DeferLandCheckWaiting, "{class:?} keeps its own rules");
+    }
+    assert_eq!(serde_json::to_value(Reason::DeferLandCheckWaiting).unwrap(), "DEFER_LAND_CHECK_WAITING");
+    assert_eq!(super::land_claim::REASON, "land check waiting");
+}
