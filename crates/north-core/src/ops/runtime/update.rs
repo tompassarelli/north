@@ -506,6 +506,8 @@ fn collect(layout: &Layout, target: &str, previous: Option<&Path>) -> std::io::R
     let names = listed.into_iter().map(|(_, name)| name).collect::<Vec<_>>();
     let mut keep = vec![target];
     keep.extend(previous.and_then(layout::linked_sha));
+    let lander = fs::read_link(layout.lander()).ok();
+    keep.extend(lander.as_deref().and_then(layout::linked_sha));
     let running = layout::running(Path::new("/proc"), &layout.runtimes());
     keep.extend(running.iter().map(String::as_str));
     let current = fs::canonicalize(layout.current()).ok();
@@ -533,6 +535,22 @@ fn fetch(checkout: &Path) -> Result<(), Failure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collecting_old_runtimes_keeps_the_runtime_the_lander_link_pins() {
+        let state = tempfile::tempdir().unwrap();
+        let layout = Layout { state: state.path().to_path_buf() };
+        let shas: Vec<String> = (0..7).map(|digit| digit.to_string().repeat(40)).collect();
+        for sha in &shas {
+            fs::create_dir_all(layout.runtime(sha)).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        std::os::unix::fs::symlink(layout::link(&shas[0]), layout.lander()).unwrap();
+        std::os::unix::fs::symlink(layout::link(&shas[6]), layout.current()).unwrap();
+        collect(&layout, &shas[6], None).unwrap();
+        assert!(layout.runtime(&shas[0]).is_dir());
+        assert!(!layout.runtime(&shas[1]).exists());
+    }
 
     fn machine(name: &str) -> gate::Machine {
         gate::Machine { name: name.to_owned(), ssh: name.to_owned(), serves: Vec::new(), pushes: None, reaches: None, cap: 0, live: None, accounts: Vec::new(), saturation: None }

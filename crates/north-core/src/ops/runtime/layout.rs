@@ -35,6 +35,10 @@ impl Layout {
         self.state.join("runtime-previous")
     }
 
+    pub fn lander(&self) -> PathBuf {
+        self.state.join("lander")
+    }
+
     pub fn canaried(&self) -> PathBuf {
         self.state.join("runtime-canary")
     }
