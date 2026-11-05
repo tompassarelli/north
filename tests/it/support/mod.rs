@@ -3,6 +3,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 pub mod template;
+pub mod test_env;
 pub mod tree;
 
 pub fn fake_claude() -> String {

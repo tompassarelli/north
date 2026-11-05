@@ -6,7 +6,7 @@ use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 use serde_json::Value;
 
-use super::{Range, git};
+use super::{Range, git, host_paths};
 
 static MUTANT_MARKER: LazyLock<BytesRegex> =
     LazyLock::new(|| BytesRegex::new(r"MUTANT:[[:alnum:]_-]").expect("mutant pattern"));
@@ -104,6 +104,15 @@ fn judge(diff: &[u8], trees: &[String], skip_allowed: bool, out: &mut impl Write
                 "a skip or focus",
                 added,
                 "name the changed requirement in a Test-change: trailer",
+            );
+            bad = true;
+        } else if let Some(found) = host_paths::find(path, added) {
+            refusal(
+                out,
+                path,
+                &format!("the host path {}", String::from_utf8_lossy(found)),
+                added,
+                "tests run on hosts without it; build a PATH with support::test_env or use a path every host has",
             );
             bad = true;
         }

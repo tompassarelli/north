@@ -383,6 +383,54 @@ fn test_integrity() {
     assert_eq!(fixture.scan("test-integrity").status, 0);
 }
 
+const CURRENT_SYSTEM: &str = concat!("/run/current-", "system");
+const NIX_VAR: &str = concat!("/nix/", "var");
+const NIX_PROFILE: &str = concat!("~/.nix-", "profile");
+const STORE_PATH: &str = concat!("/nix/", "store/n51dhmdbik1kfrsm62j5knavmigwrl1a-glibc-2.42-84");
+
+#[test]
+fn tests_name_no_host_paths() {
+    let mut fixture = Fixture::new("remote.git");
+    write(&fixture.repo.join("src/guard/fixtures/search_guards.json"), "{\"cases\":[]}\n");
+    fixture.commit(&["guard fixtures"]);
+    fixture.mark_base();
+    let case = format!("{{\"g\":\"resource\",\"w\":\"{{home}}/code/proj/main\",\"c\":\"rg TARGET {CURRENT_SYSTEM}\",\"d\":\"deny\"}}");
+    write(&fixture.repo.join("src/guard/fixtures/search_guards.json"), &format!("{{\"cases\":[\n{case}\n]}}\n"));
+    fixture.commit(&["recorded guard case on a NixOS-only path"]);
+    let scan = fixture.scan("test-integrity");
+    assert_eq!(scan.status, 1);
+    assert_eq!(
+        scan.stdout,
+        format!(
+            "safe-push: ✗ src/guard/fixtures/search_guards.json adds the host path {CURRENT_SYSTEM}: {case} — tests run on hosts without it; build a PATH with support::test_env or use a path every host has; NOT pushed.\n"
+        )
+    );
+    for (path, text, named) in [
+        ("tests/it/store.rs", format!("const GLIBC: &str = \"{STORE_PATH}\";\n"), STORE_PATH.split_at(STORE_PATH.len() - 14).0),
+        ("crates/north-core/tests/gc.rs", format!("let root = \"{NIX_VAR}/nix/profiles\";\n"), NIX_VAR),
+        ("crates/north-ops/src/ops/flow/tests.rs", format!("let home = \"{NIX_PROFILE}/bin\";\n"), ".nix-profile"),
+        ("bin/helper.test.sh", format!("PATH={CURRENT_SYSTEM}/sw/bin\n"), CURRENT_SYSTEM),
+    ] {
+        fixture.reset();
+        write(&fixture.repo.join(path), &text);
+        fixture.commit(&["host path in a test"]);
+        let scan = fixture.scan("test-integrity");
+        assert_eq!(scan.status, 1, "{path}: {}", scan.stdout);
+        assert!(scan.stdout.contains(&format!("adds the host path {named}")), "{path}: {}", scan.stdout);
+    }
+    for (path, text) in [
+        ("tests/fixtures/recorded.jsonl", format!("{{\"cmd\":\"{CURRENT_SYSTEM}/sw/bin/git\"}}\n")),
+        ("src/runtime.rs", format!("const SYSTEM: &str = \"{CURRENT_SYSTEM}\";\n")),
+        ("tests/it/stub_store.rs", "let shell_closure = \"/nix/store/shell\";\n".to_owned()),
+    ] {
+        fixture.reset();
+        write(&fixture.repo.join(path), &text);
+        fixture.commit(&["allowed or outside tests"]);
+        let scan = fixture.scan("test-integrity");
+        assert_eq!(scan.status, 0, "{path}: {}", scan.stdout);
+    }
+}
+
 #[test]
 fn mutant_record() {
     let mut fixture = Fixture::new("remote.git");

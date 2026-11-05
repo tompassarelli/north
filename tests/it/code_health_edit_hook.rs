@@ -1,17 +1,9 @@
 use north_core::foundation::shim;
 use serde_json::{Value, json};
 use std::io::Write;
-use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-
-fn which(name: &str) -> PathBuf {
-    std::env::split_paths(&std::env::var_os("PATH").unwrap())
-        .map(|dir| dir.join(name))
-        .find(|path| path.is_file())
-        .unwrap_or_else(|| panic!("{name} not on PATH"))
-}
 
 struct Rig {
     root: tempfile::TempDir,
@@ -24,17 +16,14 @@ impl Rig {
         let root = tempfile::tempdir().unwrap();
         let base = root.path();
         let (tools, stub) = (base.join("tools"), base.join("stub"));
-        std::fs::create_dir_all(&tools).unwrap();
         std::fs::create_dir_all(&stub).unwrap();
-        for name in ["git", "cat", "sleep", "sh"] {
-            symlink(which(name), tools.join(name)).unwrap();
-        }
+        crate::support::test_env::minimal_path(&tools, &["git", "cat", "sleep", "sh"]);
         let script = stub.join("code-health");
         shim::write_executable(
             &script,
             format!(
                 "#!{}\n[ \"$1\" = check ] || exit 2\ncase \"$(cat \"$2\")\" in\n  *slow*) exec sleep 5 ;;\n  *orphan*) (sleep 30 & echo $! >\"$HOME/orphan.pid\"); echo orphan; exit 1 ;;\n  *broken*) echo 'internal error'; exit 2 ;;\n  *clean*) exit 0 ;;\nesac\necho \"file-size ${{2#$PWD/}}: 612 lines > 500; split the file\"\nexit 1\n",
-                which("sh").display()
+                crate::support::test_env::require("sh").display()
             ),
         );
         let (repo, bare) = (base.join("repo"), base.join("bare"));

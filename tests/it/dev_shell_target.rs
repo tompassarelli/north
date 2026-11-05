@@ -65,7 +65,11 @@ fn the_dev_shell_keys_a_shared_target_to_its_checkout_and_leaves_the_checkouts_o
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let own = dev_shell(&lane, Path::new("target"), &["sh", "-c", "printf %s \"${RUSTFLAGS:-}\""]);
-    assert!(own.status.success(), "{}", String::from_utf8_lossy(&own.stderr));
-    assert_eq!(String::from_utf8_lossy(&own.stdout), "", "the checkout's own target is keyed to it");
+    let mut own_flags = Vec::new();
+    for checkout in [&lane, &copy] {
+        let own = dev_shell(checkout, Path::new("target"), &["sh", "-c", "printf %s \"${RUSTFLAGS:-}\""]);
+        assert!(own.status.success(), "{}", String::from_utf8_lossy(&own.stderr));
+        own_flags.push(String::from_utf8_lossy(&own.stdout).into_owned());
+    }
+    assert_eq!(own_flags, ["", ""], "a checkout's own target is keyed to its path; two checkouts at different paths must share RUSTFLAGS for their own target");
 }

@@ -562,10 +562,6 @@ impl Fixture {
     }
 }
 
-fn which(name: &str) -> PathBuf {
-    std::env::split_paths(&std::env::var_os("PATH").unwrap()).map(|directory| directory.join(name)).find(|path| path.is_file()).unwrap()
-}
-
 #[test]
 fn inferred_checks_run_in_the_dev_shell_of_a_repository_without_land_check_lines() {
     let fixture = Fixture::tree(&[("land.inferred", "true")], &[("Cargo.toml", "[package]\n"), ("flake.nix", DEV_SHELL_FLAKE)]);
@@ -623,11 +619,7 @@ fn an_inferred_check_fails_the_landing_with_its_exit_status() {
 #[test]
 fn a_missing_toolchain_is_an_infrastructure_exit() {
     let fixture = Fixture::tree(&[("land.inferred", "true")], &[("Cargo.toml", "[package]\n")]);
-    let bare = fixture.path("bare");
-    fs::create_dir_all(&bare).unwrap();
-    for tool in ["bash", "git"] {
-        std::os::unix::fs::symlink(which(tool), bare.join(tool)).unwrap();
-    }
+    let bare = crate::support::test_env::minimal_path(&fixture.path("bare"), &["bash", "git"]);
     let output = fixture.command().env("PATH", &bare).output().unwrap();
     assert_eq!(output.status.code(), Some(75), "{}", text(&output));
 }

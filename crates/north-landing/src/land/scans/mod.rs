@@ -2,6 +2,7 @@ pub mod boxes;
 pub mod dropped_commits;
 pub mod generated;
 pub(crate) mod git;
+pub(crate) mod host_paths;
 pub mod language;
 pub mod outgoing;
 pub mod policy;

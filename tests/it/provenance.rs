@@ -695,13 +695,7 @@ fn test_steering_records_refuse_missing_grounding_and_rank_revisit_evidence() {
         ],
     );
     git(repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
-    let git_only = tmp.path().join("git-only");
-    std::fs::create_dir(&git_only).unwrap();
-    let git_path = std::env::split_paths(&std::env::var_os("PATH").unwrap())
-        .map(|p| p.join("git"))
-        .find(|p| p.is_file())
-        .unwrap();
-    std::os::unix::fs::symlink(git_path, git_only.join("git")).unwrap();
+    let git_only = crate::support::test_env::minimal_path(&tmp.path().join("git-only"), &["git"]);
     for command in ["debt", "audit"] {
         let mut invocation = Command::new(env!("CARGO_BIN_EXE_north"));
         invocation.args(["provenance", command, "--repo", repo.to_str().unwrap()]);
