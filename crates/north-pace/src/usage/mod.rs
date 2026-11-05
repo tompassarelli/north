@@ -1,6 +1,7 @@
-//! `north usage`: the latest reading of each account window in the threads ledger's usage table, as the
-//! `agents usage` table (with the plan, reset and burn columns and the cost lines) or, with `--json`,
-//! the same rows with whether each is older than `usage_stale_min`.
+//! `north usage`: the latest reading of each account window in the threads ledger's usage table, as a short
+//! table of each account's windows, weekly reset and outlook with this week's cost; with `--verbose`, one
+//! detail line per account with every window, billing, reset, burn and cost line; with `--json`, the same
+//! rows with whether each is older than `usage_stale_min`.
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -12,6 +13,7 @@ mod burn;
 mod costs;
 pub mod events;
 mod ctx;
+mod detail;
 mod fast;
 mod gate;
 pub mod breaker;
@@ -23,12 +25,13 @@ mod render;
 mod settings;
 pub mod shell;
 mod store;
+mod plain;
 mod table;
 #[cfg(test)]
 mod tests;
 mod web;
 
-const USAGE: &str = "usage: north usage [--refresh [--local]] [--json] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | decide --dry-run BRIEF | sample";
+const USAGE: &str = "usage: north usage [--refresh [--local]] [--json | --verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | decide --dry-run BRIEF | sample";
 const PACED: [&str; 2] = ["claude", "gemini"];
 
 pub struct Places {
@@ -54,7 +57,7 @@ enum Action {
     Decide { brief: PathBuf },
     WritePaceGate,
     Fast { provider: String, cached: bool },
-    Show { refresh: bool, json: bool, remote: bool },
+    Show { refresh: bool, json: bool, verbose: bool, remote: bool },
 }
 
 impl Action {
@@ -70,11 +73,12 @@ impl Action {
         {
             return Some(Self::Decide { brief: brief.into() });
         }
-        let (mut json, mut local, mut refresh, mut write_gate, mut cached, mut fast) = (false, false, false, false, false, None);
+        let (mut json, mut verbose, mut local, mut refresh, mut write_gate, mut cached, mut fast) = (false, false, false, false, false, false, None);
         let mut rest = arguments.iter();
         while let Some(argument) = rest.next() {
             match argument.as_str() {
                 "--json" => json = true,
+                "--verbose" => verbose = true,
                 "--local" => local = true,
                 "--refresh" => refresh = true,
                 "--write-pace-gate" => write_gate = true,
@@ -91,7 +95,7 @@ impl Action {
         }
         Some(match fast {
             Some(provider) => Self::Fast { provider, cached },
-            None => Self::Show { refresh, json, remote: !local },
+            None => Self::Show { refresh, json, verbose, remote: !local },
         })
     }
 
@@ -105,12 +109,18 @@ impl Action {
             Self::Decide { brief } => decide(db, places, host, brief),
             Self::WritePaceGate => gate::write(db, &PACED, places, clock()).map(|verdicts| (verdicts.to_string(), 0)),
             Self::Fast { provider, cached } => fast::decide(db, source, places, provider, *cached, host),
-            Self::Show { refresh, json, remote } => {
+            Self::Show { refresh, json, verbose, remote } => {
                 if *refresh {
                     refresh::refresh_readings(db, source, places, *remote, host)?;
                 }
                 let now = clock();
-                if *json { report(db, &places.policy, now).map(|text| (text, 0)) } else { table::render(db, places, now) }
+                if *json {
+                    report(db, &places.policy, now).map(|text| (text, 0))
+                } else if *verbose {
+                    detail::render(db, places, now)
+                } else {
+                    table::render(&table::View { db, places, now, offset_seconds: crate::foundation::clock::local_offset_seconds() })
+                }
             }
         }
     }

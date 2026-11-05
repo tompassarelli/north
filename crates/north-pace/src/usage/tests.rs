@@ -6,7 +6,7 @@ use rusqlite::Connection;
 use serde_json::Value;
 
 use super::store::{self, Source};
-use super::{Action, Places, costs, report, table};
+use super::{Action, Places, costs, detail, report};
 use crate::foundation::clock::Timestamp;
 
 const STATES: &str = include_str!("fixtures/states.json");
@@ -47,7 +47,7 @@ impl Scratch {
     }
 
     fn text(&self) -> String {
-        table::render(&self.open(), &self.places(), frozen()).unwrap().0 + "\n"
+        detail::render(&self.open(), &self.places(), frozen()).unwrap().0 + "\n"
     }
 }
 
@@ -117,7 +117,7 @@ fn a_ledger_without_a_usage_table_or_file_prints_no_readings_and_exits_1() {
     for db in [bare, scratch.dir.path().join("absent.db")] {
         let source = Source::locate(scratch.dir.path(), Some(db.clone().into()));
         let open = || store::open(&source, &|| {}).unwrap();
-        let (json, (text, code)) = (report(&open(), &scratch.places().policy, frozen()).unwrap(), table::render(&open(), &scratch.places(), frozen()).unwrap());
+        let (json, (text, code)) = (report(&open(), &scratch.places().policy, frozen()).unwrap(), detail::render(&open(), &scratch.places(), frozen()).unwrap());
         assert_eq!((json.as_str(), code), ("[]", 1), "{}", db.display());
         assert!(text.starts_with("agents usage: no snapshot yet"), "{text}");
     }
@@ -211,7 +211,7 @@ rental (gpu-rental, prepaid): $20.00 spent 2026-10-01..2026-10-15, balance $14.5
 weekly operating $113.85 = fixed $90.00 + metered $23.85";
     assert_eq!(costs::lines(&places, now).unwrap().join("\n"), want);
     let empty = Connection::open_in_memory().unwrap();
-    assert_eq!(table::render(&empty, &places, now).unwrap(), (format!("agents usage: no snapshot yet; run `agents usage --refresh`\n{want}"), 1));
+    assert_eq!(detail::render(&empty, &places, now).unwrap(), (format!("agents usage: no snapshot yet; run `agents usage --refresh`\n{want}"), 1));
     fs::remove_file(places.state.join("agents/costs/cloud-credit.json")).unwrap();
     assert_eq!(
         costs::lines(&places, now).unwrap()[0],

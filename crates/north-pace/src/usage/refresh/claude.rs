@@ -178,7 +178,7 @@ fn web_rows(settings: &Settings, key: &str, account: &str, ts: &Value) -> Vec<Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::usage::{Places, table};
+    use crate::usage::{Places, detail};
     use rusqlite::Connection;
     use std::fs;
 
@@ -299,7 +299,7 @@ mod tests {
         super::super::record::record(&db, &upgraded).unwrap();
         let places = Places { policy: world.root.path().join("orchestration.toml"), operator: world.root.path().join("op"), state: world.root.path().join("state") };
         fs::write(&places.policy, "[accounts.claude]\nplans = { c = \"max-5x\" }\n[accounts.claude.profiles.b]\nfixture-host = {}\n[accounts.claude.profiles.c]\nfixture-host = {}\n").unwrap();
-        let (text, _) = table::render(&db, &places, Timestamp::now()).unwrap();
+        let (text, _) = detail::render(&db, &places, Timestamp::now()).unwrap();
         let line = text.lines().find(|line| line.starts_with("claude c ")).unwrap();
         assert!(line.contains("weekly_all 7%") && line.contains("plan Claude Max 5x $100/month"), "{line}");
     }

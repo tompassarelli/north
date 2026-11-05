@@ -192,7 +192,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   pace-control.json" with each account's windows and `allowed_workers N[ held]` (called from
   `C/grounding/compose.rs:357,378`). With the controller marking every account `held`, every lead that asks about
   usage reads "held", which is how leads come to hold on projections the written rule forbids.
-- `north usage` / `agents usage` (`C/usage/table.rs:64-71`): per account `{windows} | {resets} | {burn}{plan}`;
+- `north usage --verbose` / `agents usage` (`C/usage/detail.rs`, the default view until 2026-11-06): per account `{windows} | {resets} | {burn}{plan}`;
   `:41` each window; `C/usage/burn.rs:18-48` the burn column, including the projection "burn X%/h, empty in
   {duration} ({time})"; `C/usage/mod.rs:152-161` JSON with `stale` past `usage_stale_min`.
 - `C/usage/fast.rs:8-24` `north usage --fast` and `C/router/route.rs:143` allow fast mode only while every window
@@ -636,20 +636,25 @@ nothing new built, and Gemini's five-hour and weekly rows map to the same window
 
 ### 3.5 What Tom is shown
 
-`north usage` and the grounding readout print, per provider:
+`north usage` (`C/usage/table.rs`, since 2026-11-06, when Tom found the one-line-per-account detail unreadable)
+prints one aligned row per Claude account, one line per other provider and the week's cost:
 
 ```
-claude: reserve 0%, free 12% of the week
-  a  week 100% (resets Thu 9:00 AM)  5h out with the week
-  c  week 100% (resets Thu 7:00 PM)  5h 0% (not started)
-  d  week 50% (resets Tue 3:00 PM)  5h 41% (resets 7:10 PM)
-  b  reading 2 h old (Wed 12:50 AM); not counted as free
-  warning north#88: spent $9.40, 2.1x its p90 $4.54
+Claude       5 hours        week          week resets   outlook
+a  Max 20x   —              65%           Wed 9:00 AM   lasts to reset
+b  Max 20x   —              100% (full)   Sat 6:00 PM   out until reset
+d  Max 20x   10% (52m)      97%           Tue 2:00 PM   runs out in 4h 28m
+
+Gemini       week 51% (Claude and GPT models), 5% (Gemini Models)   read 9 min ago
+This week    $320.07: $308.27 fixed, $11.80 metered (gex45, DigitalOcean $8.09)
 ```
 
-Each account shows week used and its reset, five-hour used and its reset, or its named state (`not read`, `reading N
-min old`, `signed out`); then active warnings and trips, one line each. Nothing else: no burn, projection, "empty in",
-pace line, target, band or held flag. Times are Tom's local 12-hour time, with the weekday when not today.
+A 5-hour window whose reset has passed shows `—`; a stale reading says how old it is; deleted hosts, expired
+credits and deprecated providers are left out. `north usage --verbose` keeps every window, billing and burn detail.
+The earlier plan for this view, which the table keeps except for its outlook column: each account shows week used
+and its reset, five-hour used and its reset, or its named state (`not read`, `reading N min old`, `signed out`); then
+active warnings and trips, one line each. Nothing else: no burn, projection, "empty in", pace line, target, band or
+held flag. Times are Tom's local 12-hour time, with the weekday when not today.
 
 ### 3.6 Alerts to Tom
 

@@ -298,7 +298,7 @@ pub fn parse_python_date(value: &str) -> Option<Date> {
     Date::from_calendar_date(year, Month::try_from(m[2].parse::<u8>().ok()?).ok()?, m[3].parse().ok()?).ok()
 }
 
-fn local_offset_seconds() -> i64 {
+pub fn local_offset_seconds() -> i64 {
     static OFFSET: OnceLock<i64> = OnceLock::new();
     *OFFSET.get_or_init(|| {
         let output = Command::new("date").arg("+%z").output().ok();

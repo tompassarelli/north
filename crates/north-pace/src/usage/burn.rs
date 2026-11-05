@@ -7,7 +7,31 @@ use crate::foundation::clock::Timestamp;
 
 const HOURS_BACK: i64 = 3 * 3600;
 
+pub(super) enum Burn {
+    Unknown(String),
+    Lasts { rate: f64, resets_at: String, count: String },
+    Empties { rate: f64, at: Timestamp, count: String },
+}
+
 pub(super) fn describe(db: &Connection, mine: &[&Row], now: Timestamp) -> Result<String, String> {
+    match assess(db, mine, now)? {
+        Burn::Unknown(reason) => Ok(format!("burn unknown ({reason})")),
+        Burn::Lasts { rate, resets_at, count } => Ok(format!("burn {rate:.1}%/h, lasts to reset ({}; {count})", py::until(Some(&resets_at), now)?)),
+        Burn::Empties { rate, at, count } => {
+            let moment = py::civil(at);
+            Ok(format!(
+                "burn {rate:.1}%/h, empty in {} ({} {} {:02}:{:02}Z; {count})",
+                py::until(Some(&py::second(at)), now)?,
+                moment.day(),
+                py::month(&moment),
+                moment.hour(),
+                moment.minute()
+            ))
+        }
+    }
+}
+
+pub(super) fn assess(db: &Connection, mine: &[&Row], now: Timestamp) -> Result<Burn, String> {
     let weekly = mine.iter().find(|row| {
         row.text("kind") == Some("window")
             && matches!(row.text("name"), Some("week" | "weekly_all"))
@@ -15,7 +39,7 @@ pub(super) fn describe(db: &Connection, mine: &[&Row], now: Timestamp) -> Result
             && row.text("resets_at").is_some_and(|text| !text.is_empty())
             && row.number("window_min").is_some_and(|minutes| minutes != 0.0)
     });
-    let Some(row) = weekly else { return Ok("burn unknown (no weekly window)".into()) };
+    let Some(row) = weekly else { return Ok(Burn::Unknown("no weekly window".into())) };
     let (resets_at, used) = (row.text("resets_at").unwrap_or_default(), row.number("used_pct").unwrap_or_default());
     let readings: i64 = db
         .query_row(
@@ -27,25 +51,17 @@ pub(super) fn describe(db: &Connection, mine: &[&Row], now: Timestamp) -> Result
         .map_err(|error| error.to_string())?;
     let count = format!("{readings} reading{}", if readings == 1 { "" } else { "s" });
     if readings < 2 {
-        return Ok(format!("burn unknown ({count})"));
+        return Ok(Burn::Unknown(count));
     }
     let Some(rate) = beta(db, row, now)? else {
-        return Ok(format!("burn unknown (need two readings in last 3h; {count})"));
+        return Ok(Burn::Unknown(format!("need two readings in last 3h; {count}")));
     };
     let reset = py::parse(resets_at)?;
     let empty = if rate > 0.0 { py::after_hours(now, (100.0 - used).max(0.0) / rate) } else { reset };
     if empty >= reset {
-        return Ok(format!("burn {rate:.1}%/h, lasts to reset ({}; {count})", py::until(Some(resets_at), now)?));
+        return Ok(Burn::Lasts { rate, resets_at: resets_at.to_owned(), count });
     }
-    let moment = py::civil(empty);
-    Ok(format!(
-        "burn {rate:.1}%/h, empty in {} ({} {} {:02}:{:02}Z; {count})",
-        py::until(Some(&py::second(empty)), now)?,
-        moment.day(),
-        py::month(&moment),
-        moment.hour(),
-        moment.minute()
-    ))
+    Ok(Burn::Empties { rate, at: empty, count })
 }
 
 pub(super) fn beta(db: &Connection, row: &Row, now: Timestamp) -> Result<Option<f64>, String> {

@@ -29,21 +29,29 @@ fn keys(table: Option<&toml_edit::Item>) -> BTreeSet<String> {
     table.and_then(toml_edit::Item::as_table_like).map(|table| table.iter().map(|(name, _)| name.to_owned()).collect()).unwrap_or_default()
 }
 
-pub(super) fn plan_text(policy: &Path, provider: &str, account: Option<&str>, observed: Option<&str>) -> String {
+pub(super) enum Plan {
+    Named { name: String, price: String },
+    Key(String),
+}
+
+pub(super) fn plan(policy: &Path, provider: &str, account: Option<&str>, observed: Option<&str>) -> Option<Plan> {
     let declared = || {
         let document: DocumentMut = fs::read_to_string(policy).ok()?.parse().ok()?;
         let plans = document.get("accounts")?.get(provider)?.get("plans")?.as_table_like()?;
         plans.get(account?)?.as_str().map(str::to_owned)
     };
-    let Some(key) = observed.filter(|key| !key.is_empty()).map(str::to_owned).or_else(declared) else {
-        return String::new();
-    };
+    let key = observed.filter(|key| !key.is_empty()).map(str::to_owned).or_else(declared)?;
     let catalog = catalog();
     let plan = catalog.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|account| account.get("plans")).and_then(|plans| plans.get(&key));
-    let named = plan.and_then(|plan| Some((plan.get("name")?.as_str()?.to_owned(), number_text(plan.get("monthly_price")?))));
-    match named {
-        Some((name, price)) => format!(" | plan {name} ${price}/month"),
-        None => format!(" | plan {key}"),
+    let named = plan.and_then(|plan| Some(Plan::Named { name: plan.get("name")?.as_str()?.to_owned(), price: number_text(plan.get("monthly_price")?) }));
+    Some(named.unwrap_or(Plan::Key(key)))
+}
+
+pub(super) fn plan_text(policy: &Path, provider: &str, account: Option<&str>, observed: Option<&str>) -> String {
+    match plan(policy, provider, account, observed) {
+        Some(Plan::Named { name, price }) => format!(" | plan {name} ${price}/month"),
+        Some(Plan::Key(key)) => format!(" | plan {key}"),
+        None => String::new(),
     }
 }
 
