@@ -21,7 +21,7 @@ static SUBJECT: LazyLock<Regex> = LazyLock::new(|| {
 static HEREDOC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s-[a-zA-Z]*F\s*-\s*<<-?['"]?\w+['"]?[^\n]*\n([^\n]+)"#).unwrap());
 static LANE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^([0-9a-f]{7,40}) (.+)$").unwrap());
 static MADE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\[[^\]\s]+(?: \([^)]*\))? ([0-9a-f]{7,40})\] (.+)$").unwrap());
-static PUSHED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^safe-push: (?:landed|✓ Autoland landed this lane: origin \S+ is at) ([0-9a-f]{40})\b").unwrap());
+static PUSHED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^(?:\s*\d+\t)?safe-push: (?:landed|✓ Autoland landed this lane: origin \S+ is at) ([0-9a-f]{40})\b").unwrap());
 static ISSUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:tompassarelli/)?([a-z][\w.-]*#\d+)\b").unwrap());
 static GH_ISSUE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\bgh issue (?:view|close|comment|edit|reopen) (\d+)\b.*?(?:-R|--repo)[ =](?:[\w-]+/)?([\w.-]+)").unwrap()
@@ -141,6 +141,9 @@ pub(super) fn checks(records: &[Value], main: &MainIndex) -> Map<String, Value> 
         if record["type"] == "user" && !truthy(&record["isMeta"]) && (content.is_string() || texted(content)) {
             review = review.or(pending);
         }
+        if let Some(notice) = notice(record) {
+            steps.push(Step { command: None, code: Some(0), output: Some(notice.to_owned()), finished: record["timestamp"].as_str().map(str::to_owned) });
+        }
         let Some(parts) = content.as_array() else { continue };
         if record["type"] == "assistant" {
             if parts.iter().any(|part| part["type"] == "tool_use") {
@@ -173,11 +176,24 @@ pub(super) fn checks(records: &[Value], main: &MainIndex) -> Map<String, Value> 
     out
 }
 
+fn notice(record: &Value) -> Option<&str> {
+    let (attachment, origin) = (&record["attachment"], &record["origin"]["kind"]);
+    if record["type"] == "attachment" && attachment["type"] == "queued_command" && attachment["commandMode"] == "task-notification" {
+        return attachment["prompt"].as_str();
+    }
+    (record["type"] == "user" && origin == "task-notification").then(|| record["message"]["content"].as_str()).flatten()
+}
+
 pub fn tally(steps: &[Step], main: &MainIndex) -> Map<String, Value> {
     let (mut pushed, mut committed, mut first_commit) = (false, false, None);
     let (mut made_shas, mut made_subjects, mut listed_subjects, mut refs) = (Vec::<String>::new(), Vec::<String>::new(), Vec::<String>::new(), Vec::<String>::new());
     for step in steps {
-        let Some(command) = step.command.as_deref().filter(|command| !command.is_empty()) else { continue };
+        let Some(command) = step.command.as_deref().filter(|command| !command.is_empty()) else {
+            if committed && step.code == Some(0) {
+                made_shas.extend(PUSHED.captures_iter(step.output.as_deref().unwrap_or("")).map(|landed| landed[1].to_owned()));
+            }
+            continue;
+        };
         let succeeded = step.code == Some(0);
         pushed |= succeeded && LAND.is_match(command);
         if let Some(found) = COMMIT.find(command).filter(|_| step.code.unwrap_or(0) == 0) {
