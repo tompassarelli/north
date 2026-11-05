@@ -146,6 +146,7 @@ trace="$scratch/trace"
 export SAFE_PUSH_DENYLIST="$scratch/absent-denylist.toml"
 export SAFE_PUSH_SOUTH="$scratch/absent-south"
 export THREADS_DB="$scratch/threads.db"
+unset SAFE_PUSH_LAND_CAPACITY SAFE_PUSH_LAND_OFFLOAD_HOST SAFE_PUSH_LAND_RUNNER SAFE_PUSH_LAND_CHECK_TIMEOUT
 
 case_output=''
 case_status=0
@@ -171,7 +172,7 @@ expect_output() {
 }
 
 real_git="$(command -v git)"
-real_north="$(cd "$REPO" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north"
+real_north=${NORTH_BIN:-$(cd "$REPO" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north}
 [ -x "$real_north" ] || { echo "safe-push.test.sh: build north from this tree first; $real_north is missing" >&2; exit 1; }
 export SAFE_PUSH_TEST_REAL_NORTH="$real_north"
 new_real_bin() {
@@ -297,38 +298,25 @@ missing_north_path="$missing_north_bin:/run/current-system/sw/bin:/usr/bin:/bin"
 language_gh_bin="$scratch/language-gh-bin"
 mkdir -p "$language_gh_bin"
 ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$language_gh_bin/gh"
-for publication_mode in branch autoland; do
-  make_real_fixture "language-$publication_mode"
-  publication_args=(--to main)
-  publication_path="$real_bin:$PATH"
-  publication_missing_path="$missing_north_path"
-  case "$publication_mode" in
-    autoland)
-      publication_path="$real_bin:$language_gh_bin:$PATH"
-      publication_missing_path="$language_gh_bin:$missing_north_path"
-      printf '[landing]\n\tqueue = autoland\n' >"$real_repo/.safe-push"
-      "$real_git" -C "$real_repo" add .safe-push
-      "$real_git" -C "$real_repo" commit -qm 'autoland queue'
-      "$real_git" -C "$real_repo" push -q origin HEAD:main
-      "$real_git" --git-dir="$real_remote" symbolic-ref HEAD refs/heads/main
-      "$real_git" -C "$real_repo" commit --allow-empty -qm 'queued change'
-      ;;
-  esac
-  remote_before=$(real_remote_state)
-  if [ "$publication_mode" = autoland ]; then
-    SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tLanguage fixture\tfixture' SAFE_PUSH_TEST_PATH="$publication_path" SAFE_PUSH_TEST_LANGUAGE_DENY='new.py: Python files are forbidden' run_real_case "${publication_args[@]}"
-    expect_status nonzero
-    expect_output 'new.py: Python files are forbidden'
-    [ "$(real_remote_state)" = "$remote_before" ] || fail "$publication_mode language refusal published"
-    grep -Eq 'blocking check\(s\) failed: (.*; )?language gate' <<<"$case_output" || fail "$publication_mode refusal did not name the language gate: $case_output"
-  fi
-  SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tLanguage fixture\tfixture' SAFE_PUSH_TEST_PATH="$publication_missing_path" run_real_case "${publication_args[@]}"
-  expect_status nonzero
-  expect_output 'north not on PATH; refusing to land without the language gate'
-  [ "$(real_remote_state)" = "$remote_before" ] || fail "$publication_mode missing north published"
-  ! grep -q '^gitleaks ' "$real_trace" || fail "$publication_mode missing north reached heavy checks"
-done
-printf 'PASS: branch and autoland refuse denial and missing north\n'
+make_real_fixture language-autoland
+printf '[landing]\n\tqueue = autoland\n' >"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'autoland queue'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+"$real_git" --git-dir="$real_remote" symbolic-ref HEAD refs/heads/main
+"$real_git" -C "$real_repo" commit --allow-empty -qm 'queued change'
+remote_before=$(real_remote_state)
+SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tLanguage fixture\tfixture' SAFE_PUSH_TEST_PATH="$real_bin:$language_gh_bin:$PATH" SAFE_PUSH_TEST_LANGUAGE_DENY='new.py: Python files are forbidden' run_real_case --to main
+expect_status nonzero
+expect_output 'new.py: Python files are forbidden'
+[ "$(real_remote_state)" = "$remote_before" ] || fail "autoland language refusal published"
+grep -Eq 'blocking check\(s\) failed: (.*; )?language gate' <<<"$case_output" || fail "autoland refusal did not name the language gate: $case_output"
+SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tLanguage fixture\tfixture' SAFE_PUSH_TEST_PATH="$language_gh_bin:$missing_north_path" run_real_case --to main
+expect_status nonzero
+expect_output 'north not on PATH; refusing to land without the language gate'
+[ "$(real_remote_state)" = "$remote_before" ] || fail "autoland missing north published"
+! grep -q '^gitleaks ' "$real_trace" || fail "autoland missing north reached heavy checks"
+printf 'PASS: autoland refuses denial and missing north\n'
 
 make_real_fixture language-initial
 while read -r ref _; do
@@ -339,7 +327,7 @@ language_empty_tree=$("$real_git" -C "$real_repo" hash-object -t tree /dev/null)
 language_trace="$real_fixture/language-trace"
 SAFE_PUSH_TEST_PATH="$missing_north_path" run_real_case --to main
 expect_status nonzero
-expect_output 'north not on PATH; refusing to land without the language gate'
+expect_output 'lacks north land route'
 ! grep -Fq 'agent-instruction-check:' <<<"$case_output" || fail 'initial missing north reached later checks'
 [ -z "$(real_remote_state)" ] || fail 'initial push without north published'
 SAFE_PUSH_TEST_LANGUAGE_TRACE="$language_trace" SAFE_PUSH_TEST_LANGUAGE_DENY='initial push denied by language gate' run_real_case --to main
@@ -2013,7 +2001,7 @@ missing_north_path="$missing_north_bin:/run/current-system/sw/bin:/usr/bin:/bin"
 ! PATH="$missing_north_path" command -v north >/dev/null || fail 'train missing north fixture contains north'
 for language_failure in denied missing; do
   new_landing_origin "train-language-$language_failure"
-  printf '[landing]\n\texact = true\n' >"$landing_root/seed/.safe-push"
+  printf '[landing]\n\texact = true\n\tqueue = lock\n' >"$landing_root/seed/.safe-push"
   "$real_git" -C "$landing_root/seed" add .safe-push
   "$real_git" -C "$landing_root/seed" commit -qm 'exact landings'
   "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main

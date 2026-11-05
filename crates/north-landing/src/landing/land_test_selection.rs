@@ -47,6 +47,7 @@ impl ChildEnv {
         if root.join("Cargo.toml").is_file()
             && let Ok(north) = std::env::current_exe()
         {
+            set.push(("NORTH_BIN", north.clone().into_os_string()));
             set.push(("NORTH_PACE_BIN", north.into_os_string()));
         }
         ChildEnv { set, remove: vec!["THREADS_ACTOR"] }

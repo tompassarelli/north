@@ -1,7 +1,7 @@
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/follows-release-test.XXXXXX")
 export scratch
-export NORTH_LOCAL=$(cd "$repo" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north
+export NORTH_LOCAL=${NORTH_BIN:-$(cd "$repo" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north}
 trap 'rm -rf "${scratch:?}"' EXIT
 mkdir -p "$scratch/installed"
 cat >"$scratch/installed/north" <<'SH'
@@ -11,7 +11,7 @@ exit 97
 SH
 chmod +x "$scratch/installed/north"
 export PATH=$scratch/installed:$PATH
-export THREADS_DB=$scratch/threads.db XDG_STATE_HOME=$scratch/state
+export THREADS_DB=$scratch/threads.db XDG_STATE_HOME=$scratch/state GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=landing.lander-host GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=landing.remote-hosts GIT_CONFIG_VALUE_1=
 export SPAWN_CAPACITY_HOME=$scratch/home SPAWN_CAPACITY_STATUS=$scratch/probe.json
 export AGENTS_ORCHESTRATION=$scratch/orchestration.toml
 export FOLLOWS_RELEASE_ROOT=$scratch/code
