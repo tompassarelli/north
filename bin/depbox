@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 class=
-if [ -z "${DEPBOX_ADMITTED:-}" ]; then north target-seed; class=$(north capacity gate --class depbox "$@" 2>/dev/null) || class=; fi
+if [ -z "${DEPBOX_ADMITTED:-}" ] && command -v north >/dev/null; then north target-seed; class=$(north capacity gate --class depbox "$@" 2>/dev/null) || class=; fi
 if [ -n "$class" ]; then
   DEPBOX_ADMITTED=1 exec north capacity host run --class "$class" --owner "gate:${NORTH_FLEET_SESSION:-${PWD##*/}}" --timeout-seconds 3600 -- "$0" "$@"
 fi

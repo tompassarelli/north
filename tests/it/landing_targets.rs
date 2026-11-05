@@ -60,6 +60,12 @@ fn fake_home(checkout: &Path) -> std::path::PathBuf {
     checkout.parent().unwrap().join("home")
 }
 
+/// The checkout's `target/` as cargo sees it inside depbox, which mounts the checkout again at `~/code/<project>/sandbox`.
+fn sandbox_target(checkout: &Path) -> String {
+    let project = checkout.parent().unwrap().file_name().unwrap();
+    fake_home(checkout).join("code").join(project).join("sandbox/target").display().to_string()
+}
+
 #[test]
 fn each_checkout_runs_its_own_binary_even_when_its_sources_predate_another_checkouts_build() {
     let depbox = std::env::current_dir().unwrap().join("bin/depbox");
@@ -86,7 +92,7 @@ fn a_relative_cargo_target_naming_the_checkout_target_is_used_without_a_warning(
     let scratch = tempfile::tempdir().unwrap();
     let checkout = scratch.path().join("relative");
     let output = run(&depbox, &checkout, Some(Path::new("target")), METADATA);
-    assert_eq!(target(&output), checkout.join("target").display().to_string());
+    assert_eq!(target(&output), sandbox_target(&checkout));
     assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
 }
 
@@ -99,7 +105,7 @@ fn any_other_cargo_target_is_ignored_with_a_warning_and_never_created() {
     let home = fake_home(&checkout);
     for chosen in [outside, checkout.join("custom"), home.join(".cache/cargo-target"), home.join(".cache/cargo-target/north")] {
         let output = run(&depbox, &checkout, Some(&chosen), METADATA);
-        assert_eq!(target(&output), checkout.join("target").display().to_string(), "{}", chosen.display());
+        assert_eq!(target(&output), sandbox_target(&checkout), "{}", chosen.display());
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains(&format!("depbox: ignoring CARGO_TARGET_DIR {}", chosen.display())), "{stderr}");
         assert!(!chosen.exists(), "{}", chosen.display());
