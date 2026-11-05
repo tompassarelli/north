@@ -189,6 +189,7 @@ impl HookKind {
                 crate::guard::native_item::evaluate,
                 crate::guard::generated_policy::evaluate,
                 crate::guard::model_identity::evaluate,
+                crate::guard::nix_activity::evaluate,
             ],
             Self::PreEdit => &[
                 crate::guard::launch_critical::evaluate,
@@ -197,6 +198,7 @@ impl HookKind {
                 crate::guard::model_identity::evaluate,
                 crate::guard::file_skill::evaluate,
                 crate::guard::node_modules_write::evaluate,
+                crate::guard::nix_activity::evaluate,
             ],
             Self::PreAgent => &[crate::guard::agent_cwd::evaluate, crate::guard::worker_tier::evaluate, crate::guard::spawn_capacity::evaluate],
             Self::PreTimer => &[crate::guard::lead_timer::evaluate],

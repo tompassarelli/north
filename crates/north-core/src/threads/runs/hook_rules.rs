@@ -79,6 +79,8 @@ pub const RULES: &[Rule] = &[
     rule("model-identity", TrueBlock, &["a todo model field must name an exact"], ""),
     rule("lead-timer", TrueBlock, &["lead-timer-guard:"], "workers: a lead wakes on messages, never timers."),
     rule("handoff-record", Advice, &["handoff-record:"], ""),
+    rule("nix-activity.deny", TrueBlock, &["nix-activity: refused"], "repo-safety: never nest dev-shell wrappers around a land check or collect the Nix store by hand."),
+    rule("nix-activity", Advice, &["nix-activity:"], ""),
     rule("file-skill", Advice, &["You are editing the Firn"], ""),
     rule("code-health", Advice, &["code-health:"], ""),
     rule("worker-handoff", Advice, &["Land anything that passes now", "handoff point"], ""),

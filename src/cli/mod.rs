@@ -2,7 +2,7 @@ use std::env;
 use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
-use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, hook, language_gate, runtime_floor_gate, work_items};
+use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, hook, language_gate, nix_explain, runtime_floor_gate, work_items};
 
 mod abandon_witness;
 mod agents;
@@ -45,6 +45,7 @@ enum Command {
     Help,
     DesktopIdleState(Option<String>),
     Hook(Vec<String>),
+    Nix(Vec<String>),
     Threads(Vec<String>),
     Ledger(Vec<String>),
     Agents(Vec<String>),
@@ -97,6 +98,7 @@ type Forward = fn(&str, Vec<String>) -> Command;
 
 const FORWARDED: &[(&str, Forward)] = &[
     ("hook", |_, rest| Command::Hook(rest)),
+    ("nix", |_, rest| Command::Nix(rest)),
     ("threads", |_, rest| Command::Threads(rest)),
     ("fleet", |_, rest| Command::Fleet(rest)),
     ("ledger", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
@@ -169,6 +171,16 @@ fn dispatch(command: Command) -> ExitCode {
             _ => ExitCode::from(1),
         },
         Command::Hook(arguments) => hook_command(arguments),
+        Command::Nix(arguments) => match nix_explain::run(&arguments) {
+            Ok(text) => {
+                println!("{text}");
+                ExitCode::SUCCESS
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                ExitCode::from(2)
+            }
+        },
         Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet::Registry))),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),

@@ -1,0 +1,161 @@
+stamps = """
+nix-version: 2.34
+nixpkgs-lock: 2026-08-31
+"""
+
+[[card]]
+class = "N1"
+incident = "nix-nested-shell"
+title = "Nested dev shells and sandboxes"
+commands = ["nix develop", "nix-shell", "land-shell", "depbox"]
+path_dirs = ["harness/scripts/", "bin/"]
+text = """
+Inside an offload slot, a land check or any dev shell you are already in the project's dev shell.
+Never nest `nix develop`, `land-shell --dev` or `depbox run`: depbox clears the environment, so every layer
+re-enters the shell, the shellHook finds no `north` and starts cold, and two sandboxes nested exit 127.
+Run the tool directly (`cargo test`, `bash harness/scripts/check-owners.sh`).
+A land-check runner (`north land checks`, `safe-push`) is never wrapped in `land-shell` or depbox.
+"""
+
+[[card.deny]]
+wrappers = ["land-shell", "depbox"]
+inner = ["north land checks", "safe-push"]
+why = "a land-check runner wrapped in land-shell or depbox nests two sandboxes and every check exits 127"
+
+[[card]]
+class = "N2"
+incident = "nix-gate-path"
+title = "PATH, shims and the real program behind the capacity gate"
+commands = ["cargo", "rustc", "bun", "bunx"]
+text = """
+Behind the capacity gate only the gate's PATH applies: `cargo`, `bun` and `nix` there can be the gate shim, and
+the real program exists only inside the project's dev shell.
+`cargo: command not found behind the north capacity gate` (exit 127) means you are outside that shell: enter it
+once with `nix develop -c CMD` from outside any dev shell. Inside one, run the program directly.
+"""
+
+[[card]]
+class = "N3"
+incident = "nix-lease-shell"
+title = "Leased or offloaded runs that lose or never enter the dev shell"
+commands = ["north capacity", "north dev-shell"]
+text = """
+A leased or offloaded run (`north capacity host run`, `capacity exec --dev-shell`, an offload slot) does not
+inherit your dev shell. `--dev-shell` sets a marker only (north#546), so cargo can still resolve to the gate shim.
+Put the entry inside the run: `north capacity exec -- nix develop DIR -c CMD`.
+"""
+
+[[card]]
+class = "N4"
+incident = "nix-lease-skip"
+title = "Nix forms that skip the capacity lease"
+commands = ["nix build", "nix flake", "nix-build", "nix-instantiate"]
+explain = ["build", "flake"]
+options = ["--cores", "--max-jobs"]
+text = """
+The gate leases only `nix develop … -c X`. `nix build`, `nix flake check`, `nix-build` and `nix -L develop` run
+unleased, and nix-daemon builds in its own cgroup, outside the lease's quota.
+Run a heavy Nix build under `machine-capacity run` and pass `--cores` and `--max-jobs` sized to the lease.
+"""
+
+[[card]]
+class = "N5"
+incident = "nix-offline"
+title = "Offline, eval-cache and substituter assumptions"
+commands = ["nix --offline", "nix --no-build", "nix --no-update-lock-file", "depbox fetch", "cargo fetch", "cargo --offline"]
+explain = ["develop"]
+options = ["--offline", "--no-update-lock-file"]
+text = """
+A shell that built yesterday may not enter offline today: depbox cuts the network, so a dev shell whose closure
+was collected, or a changed Cargo.lock, cannot be rebuilt (`unable to download …nixpkgs/archive/…`).
+Realise the shell once with the network, outside depbox, then enter with `--offline --no-update-lock-file`.
+`error (ignored): SQLite database … is busy` is noise from shared eval-cache files.
+"""
+
+[[card]]
+class = "N6"
+incident = "nix-ad-hoc-toolchain"
+title = "nix develop against nix shell, nix run, nix-shell -p and direnv"
+commands = ["nix shell", "nix run", "nix-shell -p", "direnv"]
+path_suffixes = [".envrc"]
+explain = ["shell", "run"]
+options = ["--command"]
+text = """
+`nix shell nixpkgs#…`, `nix run nixpkgs#…` and `nix-shell -p` give unpinned packages, not the project's toolchain.
+Add the package to flake.nix's dev shell and run through `nix develop -c`. North uses no direnv.
+A flake lacking the output you ask for (`formatter`, a dev shell) fails at eval.
+"""
+
+[[card]]
+class = "N7"
+incident = "nix-system-closure"
+title = "Project flakes against the system closure"
+commands = ["firn", "agent-config-check", "north land serve"]
+text = """
+What a project's dev shell has, the deployed system may lack, and the other way round.
+A check that finds no tool or zero inputs must exit non-zero, never pass empty.
+Landing a removed or renamed `north` subcommand or flag breaks deployed units that still call it: grep
+nixos-config first. Runtime libraries live only on the dev shell's LD_LIBRARY_PATH.
+"""
+
+[[card]]
+class = "N8"
+incident = "nix-host-paths"
+title = "Store paths and host impurity in tests and goldens"
+commands = ["env -i"]
+path_suffixes = [".test.sh"]
+text = """
+Tests and goldens name no host path: not `/nix/store/<hash>`, `/run/current-system`, `/nix/var` or
+`~/.nix-profile`, and not the checkout path (a RUSTFLAGS keyed on it recompiles every crate per checkout).
+`env -i PATH=<minimal>` loses git and grep on NixOS: build a minimal PATH from `command -v` at start.
+"""
+
+[[card]]
+class = "N9"
+incident = "nix-gc-roots"
+title = "GC roots, pins and flake.lock drift"
+commands = ["nix-collect-garbage", "nix-store", "nix store", "nix-env", "nix flake update", "nix flake lock"]
+path_suffixes = ["flake.lock"]
+explain = ["store"]
+text = """
+Never collect the store by hand: GC removed the glibc loader every `north` call needs (north#227), depbox's dev
+shell, StormLib and the linker rustup bakes in. Collections stay frozen until `north nix gc` roots every promoted
+runtime and live worktree (box D13).
+A flake.lock with a second nixpkgs node gives CI different tools: check `nix flake metadata` after an update.
+"""
+
+[[card.deny]]
+commands = ["nix-collect-garbage", "nix-store --gc", "nix store gc"]
+why = "store collections are frozen on agent hosts"
+
+[[card]]
+class = "N10"
+incident = "nix-shellhook"
+title = "shellHook side effects"
+path_suffixes = [".nix"]
+text = """
+A dev shell's shellHook must be a pure function of the flake. `north target-seed || true` fails silently
+wherever `north` is hidden (every depbox), and a RUSTFLAGS computed from the checkout path costs a full
+recompile per checkout. Add no `|| true` and no program the shell's own packages do not provide.
+"""
+
+[[card]]
+class = "N11"
+incident = "nix-sandbox-visibility"
+title = "Sandbox visibility"
+commands = ["depbox run"]
+text = """
+depbox mounts tmpfs on /tmp and $HOME: a script in /tmp or ~/.cache is invisible inside it and exits 127 with
+"No such file". Keep the script in the checkout, which depbox binds read-only.
+"""
+
+[[card]]
+class = "N12"
+incident = "nix-path-context"
+title = "PATH differs by context"
+commands = ["machine-capacity", "node", "systemd-run"]
+text = """
+PATH differs between an ssh login, a fleet service, a systemd timer and a hook. `machine-capacity` and `node`
+are not installed on gex45; a unit without the Nix profile had a bun shim that exited 127 hourly.
+Run `command -v PROGRAM` where the command will run before relying on it.
+"""

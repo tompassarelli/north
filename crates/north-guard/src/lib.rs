@@ -4,5 +4,6 @@ pub mod code_health;
 pub mod guard;
 pub mod hook;
 pub mod lanes;
+pub mod nix_explain;
 #[cfg(test)]
 use north_dispatch::pacing;

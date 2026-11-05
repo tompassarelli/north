@@ -128,7 +128,7 @@ fn body(dir: &Path) -> Option<String> {
     Some(text.trim().replace("](references/", &format!("]({}/references/", dir.display())))
 }
 
-fn claim(seen: &Path, session: &str, key: &str) -> bool {
+pub(super) fn claim(seen: &Path, session: &str, key: &str) -> bool {
     let session: String = session.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
     let dir = seen.join(session);
     let hash = format!("{:x}", Sha256::digest(key.as_bytes()));

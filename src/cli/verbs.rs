@@ -99,6 +99,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("mutant", Diagnosis),
     ("nexus-ram", Status),
     ("nexus-run", Diagnosis),
+    ("nix", Diagnosis),
     ("ops", Status),
     ("orders", Bookkeeping),
     ("outside-watch", Status),

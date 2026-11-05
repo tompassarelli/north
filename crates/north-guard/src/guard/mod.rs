@@ -11,6 +11,7 @@ pub mod masked_pipeline;
 pub mod node_modules_write;
 pub mod handoff_record;
 pub mod file_skill;
+pub mod nix_activity;
 mod file_skill_tests;
 pub mod native_evidence;
 pub mod frozen_topics;
