@@ -30,6 +30,7 @@ mod capacity_north_path;
 mod capacity_orphan_reaper;
 mod capacity_overload;
 mod capacity_queue_ticket;
+mod capacity_queue_timeout;
 mod capacity_runtime_follow;
 mod capacity_status;
 mod capacity_unseen_pressure;

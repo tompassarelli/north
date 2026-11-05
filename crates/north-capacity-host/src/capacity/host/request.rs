@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use super::json::{Obj, field, num, round2, text};
-use super::policy::{Resources, batch_class, clamp_to_grantable, grantable_maximum, running_cpu_commitment, running_memory_charge, scope_cpu_quota};
+use super::policy::{Resources, batch_class, clamp_to_grantable, declared_memory_ceiling, grantable_maximum, running_cpu_commitment, running_memory_charge, scope_cpu_quota};
 use super::state::read_usage;
 
 const FRESH_USAGE_MILLISECONDS: f64 = 3000.0;
@@ -29,6 +29,7 @@ pub struct Request {
     pub priority: Option<&'static str>,
     pub forecast: Option<Value>,
     pub memory_from_model: bool,
+    pub memory_declared: bool,
 }
 
 impl Request {
@@ -58,7 +59,10 @@ pub struct Granted {
 }
 
 pub fn grant(profile: &str, cores: f64, slice_cpus: Option<f64>, memory_total_mib: f64, request: &Request) -> Granted {
-    let maximum = grantable_maximum(profile, cores, slice_cpus, memory_total_mib);
+    let mut maximum = grantable_maximum(profile, cores, slice_cpus, memory_total_mib);
+    if let Some(ceiling) = declared_memory_ceiling(&request.name, memory_total_mib).filter(|_| request.memory_declared) {
+        maximum.memory_mib = maximum.memory_mib.min(ceiling);
+    }
     let (charged, clamped) = clamp_to_grantable(request.resources(), maximum);
     let declared = request.declared.map(|declared| clamp_to_grantable(declared, maximum));
     Granted { charged, clamped, declared: declared.as_ref().map(|(resources, _)| *resources), declared_clamped: declared.and_then(|(_, clamped)| clamped) }

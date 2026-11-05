@@ -128,6 +128,6 @@ impl Options {
             }
             positive_integer(text, "--wait-seconds", None)
         });
-        Request { name: name.to_owned(), resources: Some(resources), new_clients, new_desktops, pair, wait_seconds, ..Request::default() }
+        Request { name: name.to_owned(), resources: Some(resources), new_clients, new_desktops, pair, wait_seconds, memory_declared: !self.has("--memory-gib"), ..Request::default() }
     }
 }

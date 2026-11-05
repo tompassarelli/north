@@ -82,6 +82,7 @@ pub fn charge_from_usage(mut request: Request, owner: &str, command: &[String], 
     let memory_mib = model_memory(&request.name, forecast.prediction.as_ref(), declared.memory_mib).unwrap_or(charged.memory_mib);
     request.memory_from_model = forecast.prediction.as_ref().is_some_and(Prediction::sizes_memory);
     request.resources = Some(Resources { cpus: round2(charged.cpus), memory_mib: memory_mib.ceil() });
+    request.memory_declared &= !request.memory_from_model && runs.len() < learned_minimum_runs();
     request.declared = Some(declared);
     request.evidence = Some(json!({
         "key": if class_wide { format!("{} class", request.name) } else { format!("{prefix} {shape}") }, "runs": runs.len(),

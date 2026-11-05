@@ -35,6 +35,7 @@ capacity_north_path north-capacity-host
 capacity_orphan_reaper north-capacity
 capacity_overload north-capacity
 capacity_queue_ticket north-capacity
+capacity_queue_timeout north-capacity-host
 capacity_runtime_follow north-capacity-host north-runtime
 capacity_status north-capacity
 capacity_unseen_pressure north-capacity

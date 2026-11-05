@@ -216,6 +216,11 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
             dequeue(root, &ticket);
             return Admitted::Here(result.put("decision", "REFUSED"));
         }
+        if create.timeout_seconds.is_some_and(|timeout| queued_seconds >= timeout as f64) {
+            dequeue(root, &ticket);
+            let ended = if reason(&result).as_deref() == Some("DEFER_NATIVE_QUIET") { "REFUSED" } else { "TIMED_OUT" };
+            return Admitted::Here(result.put("decision", ended));
+        }
         if offer && now_ms() - offered_at >= OFFLOAD_RETRY_MILLISECONDS {
             offered_at = now_ms();
             if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, &result, host, terminations).await {
@@ -232,12 +237,18 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
         }
         tokio::select! {
             () = state_change(root, watch(reason(&result).as_deref())) => {}
+            () = tokio::time::sleep(queue_time_left(create.timeout_seconds, queued_seconds)) => {}
             number = terminations.next() => {
                 dequeue(root, &ticket);
                 std::process::exit(128 + number);
             }
         }
     }
+}
+
+/// How long a queued request may still wait before its --timeout-seconds ends it; without one it waits on.
+fn queue_time_left(timeout_seconds: Option<u64>, queued_seconds: f64) -> Duration {
+    timeout_seconds.map_or(Duration::MAX, |timeout| Duration::from_secs_f64((timeout as f64 - queued_seconds).max(0.0)))
 }
 
 /// The batch lease this process already runs inside, by its environment or its cgroup scope.
@@ -481,6 +492,9 @@ fn refusal(admitted: &Obj) -> Option<String> {
     if text(&view, "reason") == Some("PAIR_HELD") {
         let holder = view.get("holder").map_or_else(String::new, |holder| holder.as_str().map_or_else(|| holder.to_string(), str::to_owned));
         return Some(format!("refused: pair {} is held by {holder}; free pair: {}", view["pair"], view["freePair"]));
+    }
+    if text(&view, "decision") == Some("TIMED_OUT") {
+        return Some(format!("queued {}s, past its --timeout-seconds, never admitted: {}", view["queuedSeconds"], text(&view, "reason").unwrap_or("unknown")));
     }
     (text(&view, "decision") == Some("REFUSED")).then(|| {
         format!("refused after {}s: native evidence run {} is live; retry after it ends", view["queuedSeconds"], quiet_owners(&view).join(", "))

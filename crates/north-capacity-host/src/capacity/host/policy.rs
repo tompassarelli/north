@@ -47,6 +47,11 @@ pub fn grantable_maximum(profile: &str, cores: f64, slice_cpus: Option<f64>, mem
     Resources { cpus: aggregate_cpus(profile, cores, slice_cpus), memory_mib: (memory_total_mib * 3.0 / 4.0).floor() }
 }
 
+/// A batch class's default memory, unmeasured on this host, cut to a quarter of the host so a small host whose memory is half free admits it.
+pub fn declared_memory_ceiling(kind: &str, memory_total_mib: f64) -> Option<f64> {
+    batch_class(kind).then(|| (memory_total_mib / 4.0).floor())
+}
+
 /// The request cut to what may be granted, with each cut field as `[requested, granted]`.
 pub fn clamp_to_grantable(request: Resources, maximum: Resources) -> (Resources, Option<Value>) {
     let granted = Resources { cpus: request.cpus.min(maximum.cpus), memory_mib: request.memory_mib.min(maximum.memory_mib) };
