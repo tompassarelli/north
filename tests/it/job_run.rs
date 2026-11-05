@@ -69,8 +69,10 @@ fn job_run_keeps_the_exit_code_and_spools_the_finish_while_the_ledger_host_is_do
     let delivered: Vec<String> = ssh_log(root).into_iter().filter(|line| line.contains("--finished")).collect();
     assert_eq!(delivered.len(), 2, "{delivered:?}");
     assert!(delivered.iter().any(|line| line.ends_with("--rc 0")) && delivered.iter().any(|line| line.ends_with("--rc 3")), "{delivered:?}");
+    let listed = ssh_log(root).iter().position(|line| line.ends_with("north threads list")).expect("the read reached the ledger host");
+    assert_eq!(ssh_log(root)[..listed].iter().filter(|line| line.contains("--finished")).count(), 2, "{:?}", ssh_log(root));
     let begun = Instant::now();
-    while !ssh_log(root).iter().any(|line| line.ends_with("north threads snapshot-pages")) {
+    while !ssh_log(root)[listed..].iter().any(|line| line.ends_with("north threads snapshot-pages")) {
         assert!(begun.elapsed() < Duration::from_secs(10), "the stale snapshot was never pulled: {:?}", ssh_log(root));
         std::thread::sleep(Duration::from_millis(50));
     }
