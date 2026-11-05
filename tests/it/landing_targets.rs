@@ -163,3 +163,25 @@ fn an_unfetched_cargo_lock_names_the_fetch_command_until_a_cargo_fetch_succeeds(
     let after = run(&depbox, &checkout, None, "exit 0");
     assert!(after.status.success() && !String::from_utf8_lossy(&after.stderr).contains(fetch), "{}", String::from_utf8_lossy(&after.stderr));
 }
+
+#[test]
+fn a_command_whose_link_resolves_through_a_symlinked_state_directory_into_a_bound_runtime_runs() {
+    let depbox = std::env::current_dir().unwrap().join("bin/depbox");
+    let scratch = tempfile::tempdir().unwrap();
+    let checkout = scratch.path().join("linked");
+    write_checkout(&checkout, SystemTime::now());
+    let home = fake_home(&checkout);
+    let runtime = home.join("code/north-data/runtimes/abc/tree/bin");
+    fs::create_dir_all(&runtime).unwrap();
+    shim::write_script(&runtime.join("north-linked-tool"), "echo linked\n");
+    fs::create_dir_all(home.join(".local/state")).unwrap();
+    std::os::unix::fs::symlink(home.join("code/north-data"), home.join(".local/state/north")).unwrap();
+    std::os::unix::fs::symlink("runtimes/abc", home.join("code/north-data/current")).unwrap();
+    fs::create_dir_all(home.join(".local/bin")).unwrap();
+    std::os::unix::fs::symlink(home.join(".local/state/north/current/tree/bin/north-linked-tool"), home.join(".local/bin/north-linked-tool")).unwrap();
+    let tool = home.join(".local/bin/north-linked-tool");
+    let output = run_command(&depbox, &checkout, None, "run", &[tool.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "linked\n");
+}

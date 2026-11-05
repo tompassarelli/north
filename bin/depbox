@@ -51,7 +51,7 @@ for dir in .bun/install/cache .cargo/registry .cargo/git .cache/nix "${cache_dir
   args+=(--bind "$home/$dir" "$home/$dir"); binds+=("$home/$dir")
 done
 for path in .cargo/bin .rustup .gitconfig .config/git .nix-profile .local/bin .local/share/north .local/state/north/current .local/state/north/runtimes .local/state/nix/profile .local/state/nix/profiles .local/lib/firn/cli code/nixos-config/pins code/north/pins; do
-  if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); binds+=("$home/$path"); fi
+  if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); binds+=("$home/$path" "$(realpath -m -- "$home/$path")"); fi
 done
 
 visible() {
