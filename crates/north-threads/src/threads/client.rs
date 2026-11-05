@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
@@ -12,14 +12,28 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::{board, calibration, claims, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, review_findings, runs, snapshot, staffing, verb};
+use crate::threads::{board, calibration, claims, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, review_findings, runs, schema, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 10] = [
     "job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate",
     "routing-compare",
 ];
+/// Each family of ledger verbs and the function that runs it; `claim` and `list` run through claims.
+const PORTED: [(&[&str], verb::Verb); 9] = [
+    (&jobs::VERBS, jobs::run),
+    (&items::VERBS, items::run),
+    (&board::VERBS, board::run),
+    (&staffing::VERBS, staffing::run),
+    (&runs::VERBS, runs::run),
+    (&calibration::VERBS, calibration::run),
+    (&landing::VERBS, landing::run),
+    (&incidents::VERBS, incidents::run),
+    (&review_findings::VERBS, review_findings::run),
+];
 const UNREACHABLE: i32 = 255;
+/// Set on a `queue follow` the sender has vetted against its own checkouts before forwarding it.
+const FORWARDED: &str = "THREADS_FORWARDED";
 const TIMED_OUT: i32 = 124;
 const SSH_TIMEOUT: Duration = Duration::from_secs(20);
 const RECORD_WAIT: Duration = Duration::from_secs(10);
@@ -33,9 +47,9 @@ pub struct Client {
     snapshot: PathBuf,
     env: BTreeMap<String, String>,
     ssh: Vec<OsString>,
-    threads: Vec<OsString>,
     fleet: Arc<dyn outside::FleetView>,
     record_wait: Duration,
+    ssh_wait: Duration,
     ingest_wait: Duration,
     ingest_hold: Duration,
     clock: Arc<dyn Fn() -> Timestamp + Send + Sync>,
@@ -127,15 +141,11 @@ fn ambient_client(fleet: Arc<dyn outside::FleetView>) -> Option<Client> {
 
 fn client_in(env: BTreeMap<String, String>, fleet: Arc<dyn outside::FleetView>) -> Option<Client> {
     let home = env.get("HOME").cloned()?;
-    Some(Client::new(Path::new(&home), env, vec!["ssh".into()], vec![local_threads()], fleet))
-}
-
-fn local_threads() -> OsString {
-    crate::platform::harness::harness_root().map_or_else(|_| "threads".into(), |root| root.join("bin/threads").into_os_string())
+    Some(Client::new(Path::new(&home), env, vec!["ssh".into()], fleet))
 }
 
 impl Client {
-    fn new(home: &Path, env: BTreeMap<String, String>, ssh: Vec<OsString>, threads: Vec<OsString>, fleet: Arc<dyn outside::FleetView>) -> Self {
+    fn new(home: &Path, env: BTreeMap<String, String>, ssh: Vec<OsString>, fleet: Arc<dyn outside::FleetView>) -> Self {
         Self {
             home: home.to_path_buf(),
             remote: home.join(".config/threads/remote"),
@@ -143,9 +153,9 @@ impl Client {
             snapshot: home.join(".local/state/threads/snapshot.db"),
             env,
             ssh,
-            threads,
             fleet,
             record_wait: RECORD_WAIT,
+            ssh_wait: SSH_TIMEOUT,
             ingest_wait: INGEST_WAIT,
             ingest_hold: INGEST_HOLD,
             clock: Arc::new(Timestamp::now),
@@ -165,7 +175,7 @@ impl Client {
         if first == Some("queue") && argv.get(1).map(String::as_str) == Some("follow") {
             let mut brief = Vec::new();
             stdin.read_to_end(&mut brief)?;
-            let vetted = if self.var(verb::SCHEMA_READY).is_some() { Ok(()) } else { self.vet_follows(argv, &brief) };
+            let vetted = if self.var(FORWARDED).is_some() { Ok(()) } else { self.vet_follows(argv, &brief) };
             if let Err(why) = vetted {
                 writeln!(err, "NorthThreads: queue follow: {why}")?;
                 return Ok(1);
@@ -198,7 +208,7 @@ impl Client {
                 None => self.local(argv, Some(&self.snapshot), replay),
             };
         }
-        if first == Some("ingest") && self.var(verb::SCHEMA_READY).is_none() {
+        if first == Some("ingest") {
             return self.ingest_locally(argv, stdin, err);
         }
         self.local(argv, None, replay)
@@ -219,17 +229,19 @@ impl Client {
             return Ok(ingest_lock::RETRY);
         };
         let acquired = (self.clock)();
-        let mut command = self.threads_command(argv, Some(&ledger));
-        command.stdin(Stdio::piped()).process_group(0);
-        let code = match command.spawn().map_err(NorthError::from).and_then(|child| held(feed(child, Some(data)), self.ingest_hold)) {
-            Ok(Some(status)) => code_of(status),
-            Ok(None) => {
-                writeln!(err, "NorthThreads: ingest held the ledger past {} s; stopped it uncommitted, retry", self.ingest_hold.as_secs())?;
-                ingest_lock::RETRY
-            }
-            Err(error) => {
+        let hold = hold::Hold::start(self.ingest_hold);
+        let outcome = self.local(argv, Some(&ledger), Some(&data));
+        let expired = hold.expired();
+        drop(hold);
+        let code = match outcome {
+            Ok(code) if code == 0 || !expired => code,
+            Err(error) if !expired => {
                 record(Some(acquired), 1);
                 return Err(error);
+            }
+            _ => {
+                writeln!(err, "NorthThreads: ingest held the ledger past {} s; stopped it uncommitted, retry", self.ingest_hold.as_secs())?;
+                ingest_lock::RETRY
             }
         };
         record(Some(acquired), code);
@@ -241,57 +253,26 @@ impl Client {
         let ledger = database.map(Path::to_path_buf).or_else(|| self.var("THREADS_DB").map(PathBuf::from));
         let ledger = ledger.unwrap_or_else(|| self.ledger());
         let actor = self.var("THREADS_ACTOR").or_else(|| self.var("USER")).unwrap_or("unknown").to_owned();
-        if claims::verbs::VERBS.contains(&verb) {
+        let replica = ledger == self.snapshot;
+        let ported = PORTED.iter().find(|(verbs, _)| verbs.contains(&verb)).map(|(_, run)| *run);
+        let claim = claims::verbs::VERBS.contains(&verb);
+        if ported.is_none() && !claim {
+            let known: Vec<&str> = claims::verbs::VERBS.iter().chain(PORTED.iter().flat_map(|(verbs, _)| verbs.iter())).copied().chain(["snapshot-pages", "snapshot-pull"]).collect();
+            eprintln!("usage: north threads VERB [ARGS]\nverbs: {}", known.join(", "));
+            return Ok(if matches!(verb, "-h" | "--help" | "help") { 0 } else { 2 });
+        }
+        if !replica && let Err(verb::Failure::Refused(why) | verb::Failure::Usage(why)) = schema::ensure(&ledger) {
+            eprintln!("NorthThreads: {why}");
+            return Ok(1);
+        }
+        let Some(run) = ported else {
             let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, alive: verb::Outside::alive_owners(&outside::Live::new(&self.env, self.fleet.clone())), now: Timestamp::now().unix_seconds() };
             return Ok(claims::verbs::run(argv, &context, &mut io::stdout().lock(), &mut io::stderr()));
-        }
-        let ported: Option<verb::Verb> = if jobs::VERBS.contains(&verb) {
-            Some(jobs::run)
-        } else if items::VERBS.contains(&verb) {
-            Some(items::run)
-        } else if board::VERBS.contains(&verb) {
-            Some(board::run)
-        } else if staffing::VERBS.contains(&verb) {
-            Some(staffing::run)
-        } else if runs::VERBS.contains(&verb) {
-            Some(runs::run)
-        } else if calibration::VERBS.contains(&verb) {
-            Some(calibration::run)
-        } else if landing::VERBS.contains(&verb) {
-            Some(landing::run)
-        } else if incidents::VERBS.contains(&verb) {
-            Some(incidents::run)
-        } else if review_findings::VERBS.contains(&verb) {
-            Some(review_findings::run)
-        } else {
-            None
         };
-        if let Some(run) = ported.filter(|_| self.var(verb::SCHEMA_READY).is_some()) {
-            let live = outside::Live::new(&self.env, self.fleet.clone());
-            let replica = ledger == self.snapshot;
-            let context = verb::Context { database: &ledger, actor, no_native: self.no_native_reason(), outside: &live, now: Timestamp::now(), replica };
-            let mut stdin: Box<dyn Read> = replay.map_or_else(|| Box::new(io::stdin()) as Box<dyn Read>, |brief| Box::new(io::Cursor::new(brief.to_vec())));
-            return Ok(run(argv, &context, &mut stdin, &mut io::stdout().lock(), &mut io::stderr()));
-        }
-        let mut command = self.threads_command(argv, database);
-        let Some(input) = replay else { return Ok(code_of(command.status()?)) };
-        let mut child = command.stdin(Stdio::piped()).spawn()?;
-        child.stdin.take().ok_or_else(|| io::Error::other("no stdin pipe"))?.write_all(input)?;
-        Ok(code_of(child.wait()?))
-    }
-
-    fn threads_command(&self, argv: &[String], database: Option<&Path>) -> Command {
-        let mut command = Command::new(&self.threads[0]);
-        command.args(&self.threads[1..]).args(argv);
-        if let Some(database) = database {
-            command.env("THREADS_DB", database);
-        }
-        if let Some(north) = self.var("NORTH_BIN") {
-            command.env("NORTH_BIN", north);
-        } else if let Ok(own) = std::env::current_exe() {
-            command.env("NORTH_BIN", own);
-        }
-        command
+        let live = outside::Live::new(&self.env, self.fleet.clone());
+        let context = verb::Context { database: &ledger, actor, no_native: self.no_native_reason(), outside: &live, now: Timestamp::now(), replica };
+        let mut stdin: Box<dyn Read> = replay.map_or_else(|| Box::new(io::stdin()) as Box<dyn Read>, |brief| Box::new(io::Cursor::new(brief.to_vec())));
+        Ok(run(argv, &context, &mut stdin, &mut io::stdout().lock(), &mut io::stderr()))
     }
 
     fn proxy(&self, dest: &str, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<Option<i32>> {
@@ -368,6 +349,9 @@ impl Client {
             let calibrate_write = first == Some("calibrate") && has("--write");
             if !(code == 0 && calibrate_write && has("--goal-row")) {
                 self.refresh_snapshot(dest, code == 0 && (first == Some("record-priors") || calibrate_write))?;
+            }
+            if code == 0 && first == Some("show") && let Some((repo, number)) = shown_issue(&argv).filter(|(repo, _)| !crate::threads::catalog::CATALOG.is_native(repo)) {
+                print!("{}", crate::platform::archive_tags::report(&repo, number, None));
             }
             return Ok(Some(code));
         }
@@ -513,18 +497,18 @@ impl Client {
         if first == Some("show") {
             remote.push("THREADS_ARCHIVES_LOCAL=1".to_owned());
         }
+        if first == Some("queue") && args.get(1).map(String::as_str) == Some("follow") {
+            remote.push(format!("{FORWARDED}=1"));
+        }
         if !remote.is_empty() {
             remote.insert(0, "env".to_owned());
         }
-        if first == Some("ingest") {
-            remote.push("north".to_owned());
-        }
-        remote.push("threads".to_owned());
+        remote.extend(["north".to_owned(), "threads".to_owned()]);
         remote.extend(args.iter().cloned());
         let command = remote.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
         let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
         let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
-        let wait = if first == Some("job-run") { self.record_wait } else { SSH_TIMEOUT };
+        let wait = if first == Some("job-run") { self.record_wait } else { self.ssh_wait };
         match execute(&argv, input, stdout, wait)? {
             Some(status) => Ok(code_of(status)),
             None => {
@@ -573,6 +557,12 @@ impl Client {
     fn ssh_argv(&self, arguments: &[&str]) -> Vec<OsString> {
         crate::platform::ssh::argv(&self.ssh, &self.env, arguments)
     }
+}
+
+/// The issue a `show` names: its first word that is no option and no `--by` value.
+fn shown_issue(argv: &[String]) -> Option<(String, u64)> {
+    let word = argv.iter().zip(argv.iter().skip(1)).find(|(before, word)| !word.starts_with('-') && *before != "--by").map(|(_, word)| word)?;
+    crate::threads::catalog::CATALOG.parse_ref(word).ok()
 }
 
 fn agent_event_checks(argv: &[String]) -> Result<(), String> {
@@ -638,21 +628,6 @@ fn execute(argv: &[OsString], input: Input, stdout: Stdio, wait: Duration) -> No
         std::thread::sleep(Duration::from_millis(10));
     };
     Ok(Some(status))
-}
-
-fn held(mut child: Child, cap: Duration) -> NorthResult<Option<ExitStatus>> {
-    let deadline = Instant::now() + cap;
-    loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(Some(status));
-        }
-        if Instant::now() >= deadline {
-            let _ = rustix::process::kill_process_group(rustix::process::Pid::from_child(&child), rustix::process::Signal::Kill);
-            child.wait()?;
-            return Ok(None);
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
 }
 
 fn code_of(status: ExitStatus) -> i32 {
@@ -758,7 +733,6 @@ exit "$(cat "$ROOT/code")"
         snapshot::serve(&ledger, &mut &snapshot::manifest_bytes(0, &[])[..], &mut pages).unwrap();
         fs::write(root.join("pages"), pages).unwrap();
         let ssh = format!("ROOT='{}'\n{FAKE_SSH}", root.display());
-        let threads = format!("printf '%s|%s\\n' \"$THREADS_DB\" \"$*\" >> '{}/threads.log'", root.display());
         let mut variables: BTreeMap<String, String> = env.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect();
         variables.insert("HOME".into(), root.display().to_string());
         let fleet_file = root.join("fleet.json");
@@ -767,7 +741,6 @@ exit "$(cat "$ROOT/code")"
             &root,
             variables,
             vec!["/bin/sh".into(), "-c".into(), ssh.into(), "ssh".into()],
-            vec!["/bin/sh".into(), "-c".into(), threads.into(), "threads".into()],
             fleet,
         );
         Rig { _directory: directory, root, client }
@@ -796,11 +769,11 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
         assert_eq!(call(&rig, &["list"], b"").0, 0);
         assert_eq!(log(&rig, "ssh.log"), [
-            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 THREADS_ARCHIVES_LOCAL=1 threads show 'north#63'"),
+            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 THREADS_ARCHIVES_LOCAL=1 north threads show 'north#63'"),
             format!("{PREFIX} north threads snapshot-pages"),
-            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' threads unowned"),
-            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' threads claim 'north#63'"),
-            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' threads list"),
+            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' north threads unowned"),
+            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' north threads claim 'north#63'"),
+            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' north threads list"),
         ]);
         assert!(fs::read(&rig.client.snapshot).unwrap().starts_with(b"SQLite format 3"));
     }
@@ -823,9 +796,9 @@ exit "$(cat "$ROOT/code")"
         fs::write(rig.root.join("code"), "0").unwrap();
         assert_eq!(call(&rig, &["list"], b"").0, 0);
         assert_eq!(log(&rig, "ssh.log")[attempts..], [
-            format!("{PREFIX} threads job-run nightly --host laptop"),
+            format!("{PREFIX} north threads job-run nightly --host laptop"),
             format!("{PREFIX} north threads ingest"),
-            format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' threads list"),
+            format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads list"),
             format!("{PREFIX} north threads snapshot-pages"),
         ]);
         assert_eq!(log(&rig, "ingest.log"), ["{\"type\": \"run\"}"]);
@@ -844,7 +817,7 @@ exit "$(cat "$ROOT/code")"
         let (code, err) = call(&rig, &["job-run", "fleet-relay", "--host", "laptop", "--started", "s", "--finished", "f", "--rc", "0"], b"");
         assert!(begun.elapsed() < Duration::from_secs(5), "{:?}", begun.elapsed());
         assert_eq!((code, err.as_str()), (0, "NorthThreads: ledger-host timed out; remote outcome unknown\n"));
-        assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} threads job-run fleet-relay --host laptop --started s --finished f --rc 0")]);
+        assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} north threads job-run fleet-relay --host laptop --started s --finished f --rc 0")]);
         let mut packets: Vec<String> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().path())
             .filter(|path| path.extension().is_some_and(|extension| extension == "argv"))
             .map(|path| fs::read_to_string(path).unwrap()).collect();
@@ -853,6 +826,19 @@ exit "$(cat "$ROOT/code")"
             r#"["job-run", "earlier", "--host", "laptop"]"#,
             r#"["job-run", "fleet-relay", "--host", "laptop", "--started", "s", "--finished", "f", "--rc", "0"]"#,
         ]);
+    }
+
+    #[test]
+    fn a_stalled_ledger_host_fails_a_write_within_its_bound_and_never_replays_or_spools_it() {
+        let mut rig = rig(&[]);
+        rig.client.ssh_wait = Duration::from_millis(300);
+        fs::write(rig.root.join("sleep"), "30").unwrap();
+        let begun = Instant::now();
+        assert_eq!(call(&rig, &["claim", "wisp#99", "--by", "stall"], b"").0, TIMED_OUT);
+        assert_eq!(call(&rig, &["ingest"], b"{}\n").0, TIMED_OUT);
+        assert!(begun.elapsed() < Duration::from_secs(5), "{:?}", begun.elapsed());
+        assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'wisp#99' --by stall"), format!("{PREFIX} north threads ingest")]);
+        assert!(!rig.client.spool.exists(), "a timed-out write was queued for replay");
     }
 
     #[test]
@@ -882,7 +868,7 @@ exit "$(cat "$ROOT/code")"
         let database = ledger.path().join("threads.db");
         rusqlite::Connection::open(&database).unwrap().execute_batch("CREATE TABLE job_queue(id INTEGER PRIMARY KEY, placement TEXT NOT NULL, item TEXT, cmd TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued', queued TEXT NOT NULL, taken TEXT, finished TEXT, result TEXT) STRICT").unwrap();
         let database = database.to_str().unwrap();
-        let rig = rig(&[("THREADS_DB", database), (verb::SCHEMA_READY, "1"), ("FOLLOWS_RELEASE_ROOT", ledger.path().to_str().unwrap())]);
+        let rig = rig(&[("THREADS_DB", database), (FORWARDED, "1"), ("FOLLOWS_RELEASE_ROOT", ledger.path().to_str().unwrap())]);
         let (code, err) = call(&rig, &["queue", "follow", "north#9", "--tier", "sonnet", "--parent", "p"], b"Item: north#9 x\nFollows: Land the ledger fix\n");
         assert_eq!((code, err.as_str()), (0, ""));
         assert!(log(&rig, "ssh.log").is_empty());
@@ -919,17 +905,18 @@ exit "$(cat "$ROOT/code")"
     fn threads_client_reads_fall_back_to_the_snapshot_with_the_stale_line() {
         let rig = rig(&[]);
         fs::write(rig.root.join("code"), "255").unwrap();
-        fs::write(&rig.client.snapshot, "SQLite format 3\0").unwrap();
+        schema::ensure(&rig.client.snapshot).unwrap();
+        rusqlite::Connection::open(&rig.client.snapshot).unwrap().execute("INSERT INTO job_runs VALUES ('nightly', 'laptop', '2026-11-05T00:00:00Z', NULL, NULL)", []).unwrap();
         File::options().write(true).open(&rig.client.snapshot).unwrap()
             .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000)).unwrap();
-        let (code, err) = call(&rig, &["ready"], b"");
+        let (code, err) = call(&rig, &["job-runs"], b"");
         assert_eq!(code, 0);
         assert_eq!(err, "STALE: ledger snapshot from 2023-11-14T22:13:20Z; ledger-host unreachable\n");
-        assert_eq!(log(&rig, "threads.log"), [format!("{}|ready", rig.client.snapshot.display())]);
         let (code, err) = call(&rig, &["claim", "north#63"], b"");
         assert_eq!(code, 255);
         assert_eq!(err, "NorthThreads: ledger-host unreachable; the ledger lives there, so nothing was read or recorded\n");
-        assert_eq!(log(&rig, "threads.log").len(), 1);
+        let held: i64 = rusqlite::Connection::open(&rig.client.snapshot).unwrap().query_row("SELECT count(*) FROM claims", [], |row| row.get(0)).unwrap();
+        assert_eq!(held, 0, "an unreachable host records nothing in the snapshot");
     }
 
     #[test]
@@ -938,30 +925,14 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(call(&rig, &["snapshot-pages"], b""), (1, "NorthThreads: the snapshot holds native items: THREADS_NO_NATIVE is set (agy)\n".to_owned()));
     }
 
-    const STAND_IN: &str = "NORTH_THREADS_STAND_IN";
-
-    #[test]
-    fn north_threads_stand_in() {
-        let Ok(arguments) = std::env::var(STAND_IN) else { return };
-        let arguments: Vec<String> = arguments.lines().map(str::to_owned).collect();
-        std::process::exit(i32::from(run(&arguments, unread_fleet())));
-    }
-
     fn ledger_host(wait: Duration) -> (tempfile::TempDir, Client) {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
-        let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/threads");
-        let script = format!("echo start >> '{0}/order.log'; sleep 1; '{1}' \"$@\"; code=$?; echo end >> '{0}/order.log'; exit $code", root.display(), real.display());
-        let north = root.join("north");
-        let stand_in = format!("#!/bin/sh\nshift\n{STAND_IN}=\"$(printf '%s\\n' \"$@\")\" exec '{}' --exact threads::client::tests::north_threads_stand_in --nocapture --quiet\n", std::env::current_exe().unwrap().display());
-        fs::write(&north, stand_in).unwrap();
-        fs::set_permissions(&north, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         let variables = BTreeMap::from([
             ("HOME".to_owned(), root.display().to_string()),
             ("THREADS_DB".to_owned(), root.join("threads.db").display().to_string()),
-            ("NORTH_BIN".to_owned(), north.display().to_string()),
         ]);
-        let mut client = Client::new(root, variables, vec!["ssh".into()], vec!["/bin/sh".into(), "-c".into(), script.into(), "threads".into()], unread_fleet());
+        let mut client = Client::new(root, variables, vec!["ssh".into()], unread_fleet());
         client.ingest_wait = wait;
         (directory, client)
     }
@@ -995,8 +966,10 @@ exit "$(cat "$ROOT/code")"
             (first.join().unwrap(), second.join().unwrap())
         });
         assert_eq!((first.0, second.0), (0, 0), "{first:?} {second:?}");
-        let order = fs::read_to_string(directory.path().join("order.log")).unwrap();
-        assert_eq!(order.lines().collect::<Vec<_>>(), ["start", "end", "start", "end"]);
+        let millis = |line: &Value, field: &str| Timestamp::parse_loose(line[field].as_str().unwrap()).unwrap().unix_millis();
+        let mut holds: Vec<(i64, i64)> = logged(directory.path()).iter().map(|line| (millis(line, "ended") - line["held_ms"].as_i64().unwrap(), millis(line, "ended"))).collect();
+        holds.sort_unstable();
+        assert!(holds.len() == 2 && holds[0].1 <= holds[1].0, "the two ingests held the ledger at once: {holds:?}");
         assert_eq!(recorded(directory.path()), ["one", "two"]);
     }
 
@@ -1038,6 +1011,16 @@ exit "$(cat "$ROOT/code")"
             assert_eq!(client.main(&["ingest".to_owned()], &mut &[batch("one"), batch("two")].concat()[..], &mut Vec::new()).unwrap(), 0);
         }
         assert_eq!(recorded(directory.path()), ["one", "two"]);
+    }
+
+    #[test]
+    fn incident_runs_in_process_without_a_schema_marker_or_the_python_script() {
+        let (directory, client) = ledger_host(Duration::from_secs(5));
+        let argv = ["incident", "record", "--key", "k1", "--class", "withdraw", "--noticed-by", "proxy"].map(str::to_owned);
+        assert_eq!(client.main(&argv, &mut &b""[..], &mut Vec::new()).unwrap(), 0);
+        let db = rusqlite::Connection::open(directory.path().join("threads.db")).unwrap();
+        let rows: i64 = db.query_row("SELECT count(*) FROM incidents WHERE key = 'k1'", [], |row| row.get(0)).unwrap();
+        assert_eq!(rows, 1);
     }
 
     fn logged(root: &Path) -> Vec<Value> {

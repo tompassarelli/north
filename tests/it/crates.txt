@@ -117,6 +117,8 @@ support north
 threads_idle_outcome north-threads
 threads_ingest_busy north-threads
 threads_ingest_lock north-threads
+threads_ledger north-threads
+threads_resume north-threads
 threads_snapshot north-threads
 usage_gate north-pace
 usage_snapshot north-pace

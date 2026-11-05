@@ -9,12 +9,14 @@ use rusqlite::Connection;
 const MAGIC: &[u8] = b"NORTH-SNAPSHOT-PAGES 1\n";
 
 const FAKE_SSH: &str = r#"for a; do last=$a; done
+[ "${MODE:-}" = down ] && exit 255
 [ "$last" = "north threads snapshot-pages" ] || exit 97
 "$NORTH" threads snapshot-pages >"$SCRATCH/out" || exit $?
 wc -c <"$SCRATCH/out" >"$SCRATCH/bytes"
 half=$(( $(cat "$SCRATCH/bytes") / 2 ))
 case "${MODE:-}" in
   truncate) head -c "$half" "$SCRATCH/out" ;;
+  flip) head -c -1 "$SCRATCH/out"; tail -c 1 "$SCRATCH/out" | LC_ALL=C tr '\000-\377' '\001-\377\000' ;;
   stall) echo $$ >"$SCRATCH/ssh.pid"; head -c "$half" "$SCRATCH/out"; touch "$SCRATCH/stalled"; exec sleep 30 ;;
   *) cat "$SCRATCH/out" ;;
 esac
@@ -34,6 +36,7 @@ impl Rig {
         fs::create_dir_all(root.join("bin")).unwrap();
         fs::create_dir_all(root.join("state")).unwrap();
         shim::write_script(&root.join("bin/ssh"), FAKE_SSH);
+        shim::write_script(&root.join("bin/gh"), "exit 1\n");
         let source = root.join("ledger.db");
         let snapshot = root.join("state/snapshot.db");
         Rig { _scratch: scratch, root, source, snapshot }
@@ -218,4 +221,37 @@ fn d_the_page_server_refuses_under_the_no_native_signals() {
     child.stdin.take().unwrap().write_all(&manifest).unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success() && output.stdout.starts_with(MAGIC), "{output:?}");
+}
+
+#[test]
+fn e_a_stream_with_a_flipped_byte_keeps_the_previous_snapshot_and_leaves_no_temporary_file() {
+    let rig = Rig::new();
+    let db = ledger(&rig.source, 300);
+    assert!(rig.pull("").status.success());
+    let before = fs::read(&rig.snapshot).unwrap();
+    insert(&db, 5000..5100);
+    assert!(!rig.pull("flip").status.success());
+    assert_eq!(fs::read(&rig.snapshot).unwrap(), before);
+    assert!(rig.leftovers().is_empty(), "{:?}", rig.leftovers());
+}
+
+#[test]
+fn f_an_offline_read_serves_the_snapshot_without_touching_it_or_its_wal_while_another_reader_holds_it() {
+    let rig = Rig::new();
+    assert!(rig.north(&["threads", "claim", "wisp#7", "--by", "fixture"], "").output().unwrap().status.success());
+    fs::create_dir_all(rig.root.join(".config/threads")).unwrap();
+    fs::write(rig.root.join(".config/threads/remote"), "ledger-host\n").unwrap();
+    let snapshot = rig.root.join(".local/state/threads/snapshot.db");
+    fs::create_dir_all(snapshot.parent().unwrap()).unwrap();
+    let pulled = rig.north(&["threads", "snapshot-pull", "--force", "--snapshot", snapshot.to_str().unwrap(), "ledger-host"], "").output().unwrap();
+    assert!(pulled.status.success(), "{pulled:?}");
+    let hold = Connection::open(&snapshot).unwrap();
+    hold.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; BEGIN; SELECT count(*) FROM claims;").unwrap();
+    let wal = rig.root.join(".local/state/threads/snapshot.db-wal");
+    let (before, before_wal) = (fs::read(&snapshot).unwrap(), fs::read(&wal).unwrap());
+    let read = rig.north(&["threads", "list"], "down").env_remove("THREADS_DB").env("THREADS_ALIVE_OWNERS", r#"["fixture"]"#).output().unwrap();
+    assert!(read.status.success() && String::from_utf8_lossy(&read.stdout).contains("wisp#7"), "{read:?}");
+    assert!(String::from_utf8_lossy(&read.stderr).starts_with("STALE: ledger snapshot from "), "{read:?}");
+    assert!(fs::read(&snapshot).unwrap() == before && fs::read(&wal).unwrap() == before_wal, "the offline read changed the snapshot or its WAL");
+    drop(hold);
 }

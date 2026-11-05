@@ -8,7 +8,6 @@ const EMBEDDED: &[&str] = &[
     "agent-machinery/file-skills.toml",
     "north-data/private-checks.toml",
     "north-data/expectations.toml",
-    "bin/threads",
     "docs/feedback-loop.md",
     ".safe-push",
     "harness/loops.toml",

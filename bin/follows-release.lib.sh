@@ -1,5 +1,4 @@
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-threads=$repo/bin/threads
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/follows-release-test.XXXXXX")
 export scratch
 export NORTH_LOCAL=$(cd "$repo" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north
@@ -10,8 +9,7 @@ cat >"$scratch/installed/north" <<'SH'
 printf '%s\n' "$*" >>"$scratch/installed-calls"
 exit 97
 SH
-cp "$scratch/installed/north" "$scratch/installed/threads"
-chmod +x "$scratch/installed/north" "$scratch/installed/threads"
+chmod +x "$scratch/installed/north"
 export PATH=$scratch/installed:$PATH
 export THREADS_DB=$scratch/threads.db XDG_STATE_HOME=$scratch/state
 export SPAWN_CAPACITY_HOME=$scratch/home SPAWN_CAPACITY_STATUS=$scratch/probe.json
@@ -55,4 +53,4 @@ check() {
   else fail=$((fail + 1)); printf 'FAIL  %s\n' "$1"; return 1; fi
 }
 queue() { printf 'Delegation: role=worker budget=0\nItem: north#%s\nFollows: %s\nCategory: feature\n' "$1" "$2" \
-  | "$threads" queue follow "north#$1" --tier "$3" --parent galileo-parent; }
+  | THREADS_FORWARDED=1 "$NORTH_LOCAL" threads queue follow "north#$1" --tier "$3" --parent galileo-parent; }

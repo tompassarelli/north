@@ -1,4 +1,4 @@
-//! Claims as the NorthThreads SQLite ledger stores them; bin/threads owns the schema.
+//! Claims as the NorthThreads SQLite ledger stores them; threads::schema creates the table.
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Duration;
