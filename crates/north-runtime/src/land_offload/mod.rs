@@ -31,6 +31,10 @@ pub fn run(arguments: &[String]) -> u8 {
                 }
             }
         }
+        ["run", "--host", _, "--base", _, "--head", _, "--timeout", _, "--", _, _, ..] => {
+            eprintln!("north capacity offload run: COMMAND after -- is one shell string, so quote it: -- 'cargo nextest run -p north'");
+            2
+        }
         _ => usage(),
     }
 }
