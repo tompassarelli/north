@@ -20,6 +20,9 @@ mod restart;
 mod speculate;
 mod spread;
 
+#[path = "../support/land_serve_template.rs"]
+mod template;
+
 fn git(directory: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").arg("-C").arg(directory).args(arguments).output().unwrap();
     assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
@@ -95,37 +98,43 @@ struct Fixture {
     queued: u128,
 }
 
+fn layout(root: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf, PathBuf) {
+    (root.join("origin.git"), root.join("proj/main"), root.join("state"), root.join("trace"), root.join("bin"))
+}
+
+fn build_template(root: &Path) -> String {
+    let (origin, repo, state, trace, bin) = layout(root);
+    for directory in [&state, &trace, &bin] {
+        fs::create_dir_all(directory).unwrap();
+    }
+    fs::write(root.join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
+    git(root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "Lander scenario"]);
+    git(&repo, &["config", "user.email", "lander@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    git(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    fs::write(repo.join("app.txt"), "alpha\nbeta\ngamma\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-qm", "base"]);
+    git(&repo, &["push", "-q", "origin", "main"]);
+    fs::write(root.join("threads.db"), b"").unwrap();
+    executable(&trace.join("checker"), CHECKER);
+    executable(&trace.join("north"), NORTH);
+    executable(&trace.join("mint"), MINT);
+    std::os::unix::fs::symlink(crate::support::push_trace_git(), bin.join("git")).unwrap();
+    git(&repo, &["rev-parse", "HEAD"])
+}
+
 impl Fixture {
     fn new() -> Self {
         let scratch = tempfile::tempdir().unwrap();
         let root = scratch.path().to_owned();
-        let (origin, repo, state, trace, bin) = (root.join("origin.git"), root.join("proj/main"), root.join("state"), root.join("trace"), root.join("bin"));
-        for directory in [&state, &trace, &bin] {
-            fs::create_dir_all(directory).unwrap();
-        }
-        fs::write(root.join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
-        git(&root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
-        fs::create_dir_all(&repo).unwrap();
-        git(&repo, &["init", "-q", "-b", "main"]);
-        git(&repo, &["config", "user.name", "Lander scenario"]);
-        git(&repo, &["config", "user.email", "lander@example.invalid"]);
-        git(&repo, &["config", "commit.gpgsign", "false"]);
-        git(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
-        fs::write(repo.join("app.txt"), "alpha\nbeta\ngamma\n").unwrap();
-        git(&repo, &["add", "."]);
-        git(&repo, &["commit", "-qm", "base"]);
-        git(&repo, &["push", "-q", "origin", "main"]);
-        let base = git(&repo, &["rev-parse", "HEAD"]);
-        fs::write(root.join("threads.db"), b"").unwrap();
-        executable(&trace.join("checker"), CHECKER);
-        executable(&trace.join("north"), NORTH);
-        executable(&trace.join("mint"), MINT);
-        let real_git = String::from_utf8(Command::new("bash").args(["-c", "command -v git"]).output().unwrap().stdout).unwrap().trim().to_owned();
-        executable(
-            &bin.join("git"),
-            &format!("#!/usr/bin/env bash\npushing=0\nfor a in \"$@\"; do if [ \"$a\" = push ]; then pushing=1; printf '%s token=%s app=%s\\n' \"$*\" \"${{GH_TOKEN:-none}}\" \"${{NORTH_LAND_PUSH_TOKEN:-none}}\" >>\"$LAND_TRACE/pushes\"; break; fi; done\nif [ $pushing = 1 ] && [ -e \"$LAND_TRACE/kill-after-push\" ]; then\n  {real_git} \"$@\"; rc=$?\n  rm -f \"$LAND_TRACE/kill-after-push\"\n  kill -9 $PPID\n  exit $rc\nfi\nexec {real_git} \"$@\"\n"),
-        );
-        Self { _scratch: scratch, root, origin, repo, state, trace, bin, base, queued: now_micros() }
+        let template = template::Template::get(build_template);
+        template.copy_into(&root);
+        let (origin, repo, state, trace, bin) = layout(&root);
+        Self { _scratch: scratch, root, origin, repo, state, trace, bin, base: template.base.clone(), queued: now_micros() }
     }
 
     fn lane(&self, name: &str, file: &str, text: &str) -> PathBuf {

@@ -1,20 +1,36 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::{PoisonError, RwLock};
 
 use super::queue::Ticket;
 use crate::landing::{merge_continue, merge_set, stale_revert};
 
-pub fn output(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
+static WORKTREES: RwLock<()> = RwLock::new(());
+
+fn run(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
     Command::new("git").arg("-C").arg(directory).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
 }
 
-pub fn git(directory: &Path, arguments: &[&str]) -> Result<String, String> {
-    let output = output(directory, arguments)?;
+fn stdout(arguments: &[&str], output: Output) -> Result<String, String> {
     if !output.status.success() {
         return Err(format!("git {} failed: {}", arguments.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+pub fn output(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
+    let _shared = WORKTREES.read().unwrap_or_else(PoisonError::into_inner);
+    run(directory, arguments)
+}
+
+pub fn git(directory: &Path, arguments: &[&str]) -> Result<String, String> {
+    stdout(arguments, output(directory, arguments)?)
+}
+
+pub fn change_worktrees_alone(repo: &Path, arguments: &[&str]) -> Result<String, String> {
+    let _sole = WORKTREES.write().unwrap_or_else(PoisonError::into_inner);
+    stdout(arguments, run(repo, arguments)?)
 }
 
 fn succeeds(directory: &Path, arguments: &[&str]) -> bool {

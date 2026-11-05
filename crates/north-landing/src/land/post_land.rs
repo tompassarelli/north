@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::after::{follow, send};
-use super::candidate::git;
+use super::candidate::{change_worktrees_alone, git};
 use super::checks::Verdict;
 use super::lander::{Lander, state_home};
 use super::telemetry;
@@ -61,12 +61,12 @@ pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) ->
 
 fn check(landed: &Landed, run: &Run) -> Verdict {
     let Some((program, prefix)) = run.runner.split_first() else { return Verdict::Transient("no post-land runner".to_owned()) };
-    let _ = git(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
-    if let Err(error) = git(&landed.repo, &["worktree", "add", "--detach", &run.worktree.to_string_lossy(), &landed.head]) {
+    let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
+    if let Err(error) = change_worktrees_alone(&landed.repo, &["worktree", "add", "--detach", &run.worktree.to_string_lossy(), &landed.head]) {
         return Verdict::Transient(format!("post-land worktree: {error}"));
     }
     let verdict = execute(program, prefix, landed, run);
-    let _ = git(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
+    let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
     verdict
 }
 
