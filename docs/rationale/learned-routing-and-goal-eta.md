@@ -39,7 +39,7 @@ facets cover most runs or (b) passes about 300 labelled cases.
 
 ### Similar-task retrieval: keep current routing (2026-10-15)
 
-The narrow `--retrieval-only --boot 2000 --seed 7` replay completed on a frozen read-only snapshot with 344 finished worker runs satisfying the exact `flow.brief_coverage` contract, above the >=300 retrieval trigger, among 3600 finished workers. It evaluated 138 targets. The broad model/retry replay still waits for >500; its CLI and arms are preserved.
+The narrow `--retrieval-only --boot 2000 --seed 7` replay completed on a frozen read-only snapshot with 344 finished worker runs satisfying the exact `flow.brief_coverage` contract, above the >=300 retrieval trigger, among 3600 finished workers. It evaluated 138 targets. The script holding both replays was deleted on 2026-10-30 (cbe96542f), and the `north flow` trigger line went with it on 2026-11-05.
 
 The new arm scores the same source-qualified first-assignment targets for k=10 and k=20. Original brief token-count cosine similarity uses no fitted vocabulary or corpus statistics. Training runs must finish strictly before each target starts; decisions and recommend incumbents advance in target-start order. Success uses the existing `succeeded` rule, with Follows labels and required landings available before the decision. Invalid historical tiers are excluded, never coerced. The baseline calls the corrected pure `recommend` with its existing sparse-evidence rules.
 

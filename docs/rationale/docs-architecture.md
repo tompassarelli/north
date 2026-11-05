@@ -26,7 +26,7 @@ step 9b).
   4,000-character bullet retrieves as a 200-character fragment of something else, and a terse
   "path: doc" router line is not indexed at all.
 - `crates/north-core/src/health/loops.rs` reads `docs/feedback-loop.md` and checks its "File
-  signals" and "Still unread" sections, so that file and those headings must stay.
+  signals" and "Recorded readings" sections, so that file and those headings must stay.
 - `north citation-check` already fails on a doc, skill or hook citing a `north` subcommand the CLI
   does not define, but it ran only inside `cargo test` and `north health`. `.safe-push` runs the cargo
   tests only when code paths change, so a docs-only landing was never checked, and a doc naming a

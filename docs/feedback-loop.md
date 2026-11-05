@@ -52,7 +52,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | capacity_runs.wallSeconds | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/estimate.rs duration p75 | read | 4aecdaf9 |
 | capacity_runs io, diskBusyShare | crates/north-core/src/capacity/host/run.rs record | crates/north-core/src/capacity/host/estimate.rs estimate output | read | |
 | capacity_runs.exitCode | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
-| capacity_runs.command, cpuSeconds | crates/north-core/src/capacity/host/run.rs usage_entry | none | held for north#17 | |
+| capacity_runs.command, cpuSeconds | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/model.rs Subject::levels keys the model by command; update folds cpu_seconds into each level | read | |
 | job_runs | bin/threads:1748 | crates/north-core/src/threads/jobs/mod.rs job_runs; crates/north-core/src/ops/job_watch/mod.rs | read | |
 | model_events | crates/north-core/src/ops/model_watch | crates/north-core/src/usage/ctx.rs successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | crates/north-core/src/capacity/host/database.rs record_usage | crates/north-core/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
@@ -105,13 +105,6 @@ Rows a writer records into a database, judged like the file signals above. The d
 | reading | database | query | writer | cadence | owner |
 |---|---|---|---|---|---|
 | usage header rows | `ledger` | `SELECT max(ts) FROM usage WHERE source LIKE 'Messages response%'` | crates/north-core/src/providers/claude/token_quota.rs | 5m | north#35 |
-
-## Still unread
-
-- capacity_runs.command, cpuSeconds: held for north#17's resource estimator, which needs 7 days of command data
-  (about 18 Oct); north#17 wires or drops them.
-
-Thresholds and priors in these loops, and the 350k handoff decision, belong to north#35 lane D.
 
 See [learned routing and goal ETA measurements](rationale/learned-routing-and-goal-eta.md) for the dated routing backtest and the goal ETA replay.
 

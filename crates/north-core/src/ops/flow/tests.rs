@@ -84,28 +84,6 @@ fn parent() -> Vec<Node> {
 }
 
 #[test]
-fn test_spawn_recording_flow_boundary() {
-    let directory = tempfile::tempdir().unwrap();
-    let places = places(directory.path());
-    let db = rusqlite::Connection::open(&places.ledger).unwrap();
-    db.execute("CREATE TABLE runs(role TEXT,outcome TEXT,category TEXT,spec TEXT,scope TEXT,surface TEXT,verify TEXT,brief_text TEXT,brief_origin TEXT)", []).unwrap();
-    let brief = "Category: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: native";
-    let origin = "codex.PostToolUse.spawn_agent";
-    let rows = [
-        ("done", Some("measured"), Some(brief), Some(origin)),
-        ("running", Some("measured"), Some(brief), Some(origin)),
-        ("done", Some("measured"), None, Some(origin)),
-        ("done", None, Some(brief), Some(origin)),
-        ("done", Some("measured"), Some(brief), Some("claude.PostToolUse.Agent")),
-        ("running", Some("measured"), Some(brief), Some("claude.PostToolUse.Agent")),
-    ];
-    for (outcome, spec, text, from) in rows {
-        db.execute("INSERT INTO runs VALUES('worker',?1,'tooling',?2,'module','shell','native',?3,?4)", rusqlite::params![outcome, spec, text, from]).unwrap();
-    }
-    assert_eq!(super::notes::brief_coverage(&places), Some(2));
-}
-
-#[test]
 fn test_recorded_11_oct_landing_window() {
     let recorded = recorded();
     replay_alerts(&recorded);

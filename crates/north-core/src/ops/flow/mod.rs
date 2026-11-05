@@ -15,7 +15,7 @@ use guards::actions_verdict;
 use host::valid_name;
 use jobs::account_busy;
 use measure::{Env, get, project_targets};
-use notes::{brief_coverage, watch_silent};
+use notes::watch_silent;
 use render::format_row;
 
 pub use capacity::read_hosts;
@@ -100,8 +100,6 @@ fn announce(places: &Places, now: f64, options: &Options) {
         Some(None) => println!("landing watch: silent: north watch has never finished a pass on this host"),
         None => {}
     }
-    let covered = brief_coverage(places).map_or("unknown".into(), |covered| covered.to_string());
-    println!("agents flow: tagged finished worker briefs {covered}/300 retrieval trigger; backtest requires >500");
 }
 
 fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
