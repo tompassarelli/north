@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::actual::actual_row;
 use super::estimate::{Estimate, estimate};
 use super::metrics::delivery_metrics;
-use super::plan::record;
+use super::plan::{prediction_row, record};
 use super::schedule::{Task, schedule};
 use super::stamp;
 use crate::threads::calibration::box_durations;
@@ -135,15 +135,68 @@ fn a_schedule_runs_the_longest_path_first_at_the_width_and_refuses_a_cycle() {
     assert!(schedule(&cycle, 2, 0.0).unwrap_err().starts_with("dependency cycle at"));
 }
 
+fn goal_issue(number: i64, state: &str, closed: Option<&str>, body: &str) -> Value {
+    json!({"number": number, "state": state, "closedAt": closed, "body": body, "labels": [], "blockedBy": {"nodes": []}})
+}
+
+fn predicted(at: &str, value: f64, open: &[&str], etas: &[f64]) -> Value {
+    let etas: serde_json::Map<String, Value> = open.iter().zip(etas).map(|(key, eta)| ((*key).to_owned(), json!(eta))).collect();
+    let source = json!({"predicted_finish": "2026-11-05T13:00:00Z", "target": "2026-11-05T18:00:00Z", "open": open, "etas": etas});
+    json!({"kind": "goal_eta", "cell": "north", "at": at, "n": open.len(), "value": value, "source": source.to_string()})
+}
+
+fn detail(row: &Value) -> Value {
+    serde_json::from_str(row["source"].as_str().unwrap()).unwrap()
+}
+
 #[test]
-fn a_finished_goal_scores_its_first_prediction_against_the_last_close() {
+fn a_finished_goal_scores_its_first_prediction_since_the_last_score_against_the_last_close() {
+    let now = stamp("2026-10-12T12:00:00Z").unwrap();
     let prediction = json!({"kind": "goal_eta", "cell": "north", "at": "2026-10-12T08:00:00Z", "n": 3, "value": 60.0, "source": json!({"predicted_finish": "2026-10-12T09:00:00Z"}).to_string()});
-    let closed = json!({"state": "CLOSED", "closedAt": "2026-10-12T10:00:00Z"});
-    let row = actual_row("north", std::slice::from_ref(&prediction), None, std::slice::from_ref(&closed)).unwrap();
-    assert_eq!(row["value"].as_f64(), Some(2.0));
-    assert_eq!(serde_json::from_str::<Value>(row["source"].as_str().unwrap()).unwrap()["actual_minutes"], 120.0);
-    assert!(actual_row("north", std::slice::from_ref(&prediction), Some("2026-10-12T08:30:00Z"), &[closed]).is_none());
-    assert!(actual_row("north", &[prediction], None, &[json!({"state": "OPEN", "closedAt": null})]).is_none());
+    let closed = goal_issue(7, "CLOSED", Some("2026-10-12T10:00:00Z"), "");
+    let row = actual_row("north", std::slice::from_ref(&prediction), std::slice::from_ref(&closed), now).unwrap();
+    assert_eq!((row["kind"].as_str(), row["n"].as_i64(), row["value"].as_f64()), (Some("goal_actual"), Some(3), Some(2.0)));
+    assert_eq!((detail(&row)["actual_minutes"].as_f64(), detail(&row)["partial"].as_bool()), (Some(120.0), Some(false)));
+    let scored = json!({"kind": "goal_actual", "cell": "north", "at": "2026-10-12T08:30:00Z", "n": 3, "value": 2.0, "source": "{}"});
+    assert!(actual_row("north", &[prediction.clone(), scored], std::slice::from_ref(&closed), now).is_none());
+    assert!(actual_row("north", &[prediction], &[goal_issue(7, "OPEN", None, "")], now).is_none());
+}
+
+#[test]
+fn an_open_goal_is_scored_per_landed_box_against_the_landed_share_of_its_prediction() {
+    let now = stamp("2026-11-05T12:00:00Z").unwrap();
+    let prediction = predicted("2026-11-05T11:00:00Z", 90.0, &["north#5/1", "north#5/2", "north#6/1"], &[30.0, 30.0, 60.0]);
+    let open = |body: &str| goal_issue(5, "OPEN", None, body);
+    let untouched = [open("Done when:\n- [ ] a\n- [ ] b"), goal_issue(6, "OPEN", None, "Done when:\n- [ ] c")];
+    assert!(actual_row("north", std::slice::from_ref(&prediction), &untouched, now).is_none());
+    let one_landed = [open("Done when:\n- [x] a\n- [ ] b"), untouched[1].clone()];
+    let row = actual_row("north", std::slice::from_ref(&prediction), &one_landed, now).unwrap();
+    assert_eq!((row["n"].as_i64(), row["value"].as_f64()), (Some(1), Some(60.0 / 22.5)));
+    assert_eq!((detail(&row)["landed"].clone(), detail(&row)["partial"].as_bool(), detail(&row)["boxes"].as_i64()), (json!(["north#5/1"]), Some(true), Some(3)));
+    let issue_closed = [untouched[0].clone(), goal_issue(6, "CLOSED", Some("2026-11-05T11:40:00Z"), "Done when:\n- [ ] c")];
+    let row = actual_row("north", std::slice::from_ref(&prediction), &issue_closed, now).unwrap();
+    assert_eq!((row["n"].as_i64(), row["value"].as_f64(), detail(&row)["landed"].clone()), (Some(1), Some(60.0 / 45.0), json!(["north#6/1"])));
+    let later = predicted("2026-11-05T12:00:00Z", 60.0, &["north#5/2", "north#6/1"], &[30.0, 60.0]);
+    let scored = json!({"kind": "goal_actual", "cell": "north", "at": "2026-11-05T12:00:00Z", "n": 1, "value": 2.0, "source": "{}"});
+    let closing = [goal_issue(5, "CLOSED", Some("2026-11-05T13:00:00Z"), "Done when:\n- [x] a\n- [x] b"), goal_issue(6, "CLOSED", Some("2026-11-05T13:30:00Z"), "Done when:\n- [x] c")];
+    let row = actual_row("north", &[prediction, scored, later], &closing, stamp("2026-11-05T14:00:00Z").unwrap()).unwrap();
+    assert_eq!((row["n"].as_i64(), row["value"].as_f64(), detail(&row)["partial"].as_bool()), (Some(2), Some(1.5), Some(false)));
+    assert_eq!(detail(&row)["landed"], json!(["north#5/2", "north#6/1"]));
+}
+
+#[test]
+fn a_prediction_carries_its_open_boxes_and_is_refused_once_its_target_has_passed() {
+    let now = stamp("2026-11-05T12:00:00Z").unwrap();
+    let measure = |facets: &[String]| Ok::<Value, String>(json!({"boxes": facets.iter().map(|_| json!({"minutes": 20.0, "n": 4, "source": "p75"})).collect::<Vec<_>>()}));
+    let issues = [goal_issue(5, "OPEN", None, "Done when:\n- [x] a\n- [ ] b\n- [ ] c")];
+    let result = estimate("north", &issues, &measure, None, 2, now).unwrap();
+    let row = prediction_row("north", &json!({"target": "2026-11-05T18:00:00Z"}), &result, now).unwrap().unwrap();
+    assert_eq!((row["kind"].as_str(), row["n"].as_i64(), row["value"].as_f64()), (Some("goal_eta"), Some(2), Some(20.0)));
+    assert_eq!((detail(&row)["open"].clone(), detail(&row)["etas"].clone()), (json!(["north#5/2", "north#5/3"]), json!({"north#5/2": 20.0, "north#5/3": 20.0})));
+    assert_eq!(
+        prediction_row("north", &json!({"target": "2026-10-16T14:00:00Z"}), &result, now),
+        Err("target 2026-10-16T14:00:00Z has passed; set a current target".to_owned())
+    );
 }
 
 #[test]

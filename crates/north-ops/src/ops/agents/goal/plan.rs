@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use super::actual::actual_row;
 use super::estimate::{Estimate, estimate, line};
 use super::metrics::delivery_metrics;
 use super::stamp;
@@ -70,37 +71,69 @@ pub fn snapshot(database: &Path) -> Result<Vec<Value>, String> {
     sqlite::rows(database, Access::ReadOnly, Duration::from_secs(10), "SELECT * FROM runs").map_err(|error| error.to_string())
 }
 
-fn estimate_project(project: &str, config: &Value, database: &Path, now: Timestamp) -> Result<(Estimate, String), String> {
+pub fn calibration_rows(database: &Path) -> Vec<Value> {
+    sqlite::rows(database, Access::ReadOnly, Duration::from_secs(10), "SELECT at, kind, cell, n, p25, median, p75, value, source FROM calibration").unwrap_or_default()
+}
+
+fn estimate_project(project: &str, issues: &[Value], database: &Path, now: Timestamp) -> Result<(Estimate, String), String> {
     let rows = snapshot(database)?;
     let metrics = delivery_metrics(&rows, Some(project));
     let (width, note) = gate_width(delivery_metrics(&rows, None).concurrency);
     let measure = |facets: &[String]| box_durations(database, now, facets, None).map_err(|failure| match failure {
         crate::threads::verb::Failure::Usage(why) | crate::threads::verb::Failure::Refused(why) => why,
     });
-    let result = estimate(project, &goal_issues(project, config)?, &measure, metrics.median_brief_to_landed_min, width, now)?;
+    let result = estimate(project, issues, &measure, metrics.median_brief_to_landed_min, width, now)?;
     Ok((result, note))
 }
 
-fn recorded(project: &str, config: &Value, result: &Estimate) -> Option<String> {
-    let target = target_stamp(config)?.iso();
-    let source = json!({"predicted_finish": result.finish, "boxes": result.boxes, "width": result.width, "target": target}).to_string();
-    let row = json!({"kind": "goal_eta", "cell": project, "n": result.boxes, "value": result.minutes, "source": source});
-    record(&row, &north_binary(), &mut std::io::stderr()).map(|failed| format!("goal {project}: prediction not recorded ({failed})"))
+/// The goal_eta row for an estimate quoted against a target still ahead of `now`; Err names a target already past.
+pub fn prediction_row(project: &str, config: &Value, result: &Estimate, now: Timestamp) -> Result<Option<Value>, String> {
+    let Some(target) = target_stamp(config) else { return Ok(None) };
+    if target < now {
+        return Err(format!("target {} has passed; set a current target", target.iso()));
+    }
+    let open: Vec<&str> = result.detail.iter().map(|found| found.key.as_str()).collect();
+    let etas: serde_json::Map<String, Value> = result.detail.iter().map(|found| (found.key.clone(), json!(found.eta))).collect();
+    let source = json!({"predicted_finish": result.finish, "boxes": result.boxes, "width": result.width, "target": target.iso(), "open": open, "etas": etas}).to_string();
+    Ok(Some(json!({"kind": "goal_eta", "cell": project, "n": result.boxes, "value": result.minutes, "source": source})))
 }
 
-/// One line per project that has a target: its ETA against the target, and the prediction recorded unless `write` is off.
+fn scored(project: &str, issues: &[Value], database: &Path, now: Timestamp) -> Option<String> {
+    let row = actual_row(project, &calibration_rows(database), issues, now)?;
+    let failed = record(&row, &north_binary(), &mut std::io::stderr());
+    let source: Value = serde_json::from_str(row["source"].as_str().unwrap_or("{}")).unwrap_or_default();
+    let ratio = row["value"].as_f64().map_or("n/a".to_owned(), |ratio| format!("{ratio:.2}x"));
+    let kind = if source["partial"] == true { "partial" } else { "closed" };
+    Some(match failed {
+        None => format!("goal {project}: scored {kind}, {} boxes landed at {ratio} of predicted", row["n"]),
+        Some(failed) => format!("goal {project}: actual not recorded ({failed})"),
+    })
+}
+
+/// One line per project that has a target: its ETA against the target; unless `write` is off, the landed boxes scored as a
+/// goal_actual row and the prediction recorded while its target is ahead.
 pub fn plan_lines(cfg: &Value, database: &Path, now: Timestamp, write: bool) -> Vec<String> {
     let mut lines = Vec::new();
     let mut projects: Vec<(&String, &Value)> = cfg["projects"].as_object().into_iter().flatten().filter(|(_, config)| config.get("target").is_some()).collect();
     projects.sort_by(|left, right| left.0.cmp(right.0));
     for (project, config) in projects {
-        match estimate_project(project, config, database, now) {
+        let estimated = goal_issues(project, config).and_then(|issues| Ok((estimate_project(project, &issues, database, now)?, issues)));
+        match estimated {
             Err(error) => lines.push(format!("goal {project}: ETA n/a ({error})")),
-            Ok((result, note)) => {
+            Ok(((result, note), issues)) => {
                 lines.push(format!("{}; {note}", line(&result, config["target"].as_str())));
-                if write && result.minutes.is_some() && result.boxes > 0 && let Some(failed) = recorded(project, config, &result) {
-                    lines.push(failed);
+                if !write {
+                    continue;
                 }
+                lines.extend(scored(project, &issues, database, now));
+                if result.minutes.is_none() || result.boxes == 0 {
+                    continue;
+                }
+                let failed = match prediction_row(project, config, &result, now) {
+                    Err(refused) => Some(refused),
+                    Ok(row) => row.and_then(|row| record(&row, &north_binary(), &mut std::io::stderr())),
+                };
+                lines.extend(failed.map(|failed| format!("goal {project}: prediction not recorded ({failed})")));
             }
         }
     }

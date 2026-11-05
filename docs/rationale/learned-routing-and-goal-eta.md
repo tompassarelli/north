@@ -72,9 +72,13 @@ since a chain mixes providers), applied once it holds `box_calibration_n` (200) 
 through `depends on box N` / `after #N` lines and GitHub blockedBy, and are otherwise independent. Width is the
 measured peak of parallel landed workers while the spawn gate admits the project (capacity under its CPU and pressure
 limits, at least one account without a usage refusal), else 1. A chain ends at its landing, so no landing overhead is added.
-Every run appends a `goal_eta` calibration row through `threads calibrate --write --goal-row`; `agents plan --score`
-appends a `goal_actual` row (actual/predicted) once the goal's issues are closed; `agents report` shows the newest of
-each. `agents flow` raises the projected-miss decision only when the newest `goal_eta` prediction for the current
+Every run first scores the goal, then appends a `goal_eta` calibration row through `threads calibrate --write --goal-row`.
+The `goal_eta` source names each open box and its minutes. Scoring takes the first `goal_eta` since the project's last
+`goal_actual` and appends a `goal_actual` row (actual/predicted) when a goal closes, scored against its last issue
+close. Partial goals are scored per landed box: the boxes the prediction named that have since ticked or closed,
+against the landed share of its predicted box minutes. `agents plan --score` scores the same way after the target.
+`threads calibrate` refuses a `goal_eta` whose target is already past, and `agents plan` records no prediction then,
+so a goal ETA is always quoted against a current target. `agents report` shows the newest of each. `agents flow` raises the projected-miss decision only when the newest `goal_eta` prediction for the current
 target lands after it, not from the whole-repo open-issue count. `agents plan --quote` uses the same schedule for N
 independent boxes (`--category` for the box duration) and keeps its $ part.
 

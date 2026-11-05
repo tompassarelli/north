@@ -137,6 +137,10 @@ pub(super) fn goal_eta_lines(rows: &[Row]) -> Vec<String> {
                 "  {project} predicted at {}: finish {} vs target {}, {boxes} boxes at width {}",
                 row.at, plain(&detail["predicted_finish"]), plain(&detail["target"]), plain(&detail["width"])
             ),
+            (_, landed) if detail["partial"] == true => format!(
+                "  {project} landed {} of {} boxes by {} (actual/predicted {}, predicted at {})",
+                landed.unwrap_or_default(), plain(&detail["boxes"]), plain(&detail["actual_finish"]), row.value.map_or("?".into(), |ratio| format!("{ratio:.2}")), plain(&detail["predicted_at"])
+            ),
             _ => format!(
                 "  {project} finished {} vs predicted {} (actual/predicted {}, predicted at {})",
                 plain(&detail["actual_finish"]), plain(&detail["predicted_finish"]), row.value.map_or("?".into(), |ratio| format!("{ratio:.2}")), plain(&detail["predicted_at"])

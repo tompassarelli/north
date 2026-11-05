@@ -7,10 +7,9 @@ use regex::Regex;
 use serde_json::{Value, json};
 
 use super::actual::actual_row;
-use super::plan::{goal_issues, north_binary, record, snapshot};
+use super::plan::{calibration_rows, goal_issues, north_binary, record, snapshot};
 use super::{plus_minutes, read_config, snapshot_path, state_dir, stamp};
 use crate::foundation::clock::Timestamp;
-use crate::platform::sqlite::{self, Access};
 
 static CHECKBOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[([ xX])\]").expect("checkbox pattern"));
 
@@ -46,10 +45,6 @@ fn budget(harness: &Path, config_path: &Path, database: &Path, share: Option<f64
     Some(super::super::status::available_usd(harness, config_path, database, now).ok()?? * share? / 100.0)
 }
 
-fn previous_scores(path: &Path) -> Vec<Value> {
-    fs::read_to_string(path).map(|text| text.lines().filter_map(|line| serde_json::from_str(line).ok()).collect()).unwrap_or_default()
-}
-
 fn week_runs(runs: Vec<Value>, project: &str, target: Timestamp) -> Vec<Value> {
     let since = plus_minutes(target, -7.0 * 1440.0);
     let item = Regex::new(&format!(r"(?:^|\s){}#\d+\b", regex::escape(project))).expect("item pattern");
@@ -73,9 +68,7 @@ fn run_score(harness: &Path, project: &str, config_path: &Path) -> Result<(), St
     let row = score(project, target, now, issues.as_deref(), &runs, budget(harness, config_path, &database, config["share"].as_f64(), now))?;
     let state = state_dir().join("agents/goal-scores.jsonl");
     fs::create_dir_all(state.parent().ok_or("no state directory")?).map_err(|error| error.to_string())?;
-    let scored = previous_scores(&state).into_iter().rev().find(|previous| previous["project"] == project).and_then(|previous| previous["scored_at"].as_str().map(str::to_owned));
-    let predictions = sqlite::rows(&database, Access::ReadOnly, std::time::Duration::from_secs(10), "SELECT at, kind, cell, n, p25, median, p75, value, source FROM calibration").unwrap_or_default();
-    if let Some(actual) = issues.as_deref().and_then(|issues| actual_row(project, &predictions, scored.as_deref(), issues))
+    if let Some(actual) = issues.as_deref().and_then(|issues| actual_row(project, &calibration_rows(&database), issues, now))
         && let Some(failed) = record(&actual, &north_binary(), &mut std::io::stderr())
     {
         eprintln!("{project} goal ETA actual not recorded: {failed}");

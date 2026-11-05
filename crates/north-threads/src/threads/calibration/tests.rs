@@ -724,3 +724,27 @@ fn expected_spend_without_enough_priced_runs_says_no_dollar_figure_and_why() {
     );
     assert!(expected_for(&runs, "Category: research", "claude:haiku").starts_with("E n/a"));
 }
+
+#[test]
+fn a_goal_eta_quoted_against_a_past_target_is_refused_and_a_current_one_is_recorded() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("threads.db");
+    let db = Connection::open(&database).unwrap();
+    db.execute_batch("CREATE TABLE calibration(at TEXT NOT NULL, kind TEXT NOT NULL, cell TEXT NOT NULL, n INTEGER NOT NULL, p25 REAL, median REAL, p75 REAL, value REAL, source TEXT NOT NULL) STRICT;").unwrap();
+    let outside = crate::threads::fake::Recorded::default();
+    let context = crate::threads::verb::Context { database: &database, actor: "tester".into(), no_native: None, outside: &outside, now: Timestamp::parse("2026-11-05T12:00:00Z").unwrap(), replica: false };
+    let row = |kind: &str, target: &str| {
+        let source = serde_json::json!({"predicted_finish": "2026-11-05T13:00:00Z", "target": target}).to_string();
+        vec!["--write".to_owned(), "--goal-row".to_owned(), serde_json::json!({"kind": kind, "cell": "north", "n": 2, "value": 60.0, "source": source}).to_string()]
+    };
+    match super::calibrate::run(&row("goal_eta", "2026-10-16T14:00:00Z"), &context) {
+        Err(crate::threads::verb::Failure::Refused(why)) => assert!(why.contains("target 2026-10-16T14:00:00Z, which is already past"), "{why}"),
+        _ => panic!("a past target was recorded"),
+    }
+    assert!(super::calibrate::run(&row("goal_eta", "2026-11-05T18:00:00Z"), &context).is_ok());
+    assert!(super::calibrate::run(&row("goal_actual", "2026-10-16T14:00:00Z"), &context).is_ok());
+    let fixture = vec!["--write".to_owned(), "--goal-row".to_owned(), r#"{"kind":"goal_eta","cell":"wisp","n":1,"value":5,"source":"fixture"}"#.to_owned()];
+    assert!(super::calibrate::run(&fixture, &context).is_ok());
+    let kinds: Vec<String> = db.prepare("SELECT kind || ' ' || cell FROM calibration ORDER BY rowid").unwrap().query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
+    assert_eq!(kinds, ["goal_eta north", "goal_actual north", "goal_eta wisp"]);
+}

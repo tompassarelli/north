@@ -8,6 +8,7 @@ use super::{Knobs, Run};
 use super::boxes::box_chains;
 use super::rates::calibrate_rates;
 use super::forward::{calibrate_box, calibrate_eta, calibrate_eta_pred, calibrate_tier, calibrate_usd};
+use crate::foundation::clock::Timestamp;
 use crate::threads::verb::{Args, Context, Failure, Outcome, immediate, open, table};
 
 const GOAL_KINDS: [&str; 2] = ["goal_eta", "goal_actual"];
@@ -45,6 +46,12 @@ fn insert(db: &mut Connection, at: &str, rows: &[Stored]) -> Result<(), Failure>
     Ok(())
 }
 
+fn past_target(source: &str, now: Timestamp) -> Option<String> {
+    let detail: serde_json::Value = serde_json::from_str(source).ok()?;
+    let target = detail["target"].as_str()?;
+    Timestamp::parse_loose(target).filter(|at| *at < now).map(|_| target.to_owned())
+}
+
 fn goal_row(text: &str, context: &Context, at: &str) -> Outcome {
     let refused = |why: String| Failure::Refused(format!("calibrate --goal-row takes a JSON object with kind, cell, n, value and source: {why}"));
     let row: serde_json::Value = serde_json::from_str(text).map_err(|error| refused(error.to_string()))?;
@@ -60,6 +67,9 @@ fn goal_row(text: &str, context: &Context, at: &str) -> Outcome {
     };
     if !GOAL_KINDS.contains(&kind.as_str()) {
         return Err(Failure::Refused(format!("calibrate --goal-row kind must be one of {} with a numeric value", GOAL_KINDS.join(", "))));
+    }
+    if kind == "goal_eta" && let Some(target) = past_target(&source, context.now) {
+        return Err(Failure::Refused(format!("calibrate --goal-row refuses a goal_eta quoted against target {target}, which is already past; set a current target first")));
     }
     insert(&mut open(context.database, true)?, at, &[Stored { kind: kind.clone(), cell: cell.clone(), n, p25: None, median: None, p75: None, value, source }])?;
     Ok(format!("{kind} {cell} recorded at {at}\n"))
