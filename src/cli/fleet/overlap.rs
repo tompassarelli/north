@@ -82,7 +82,7 @@ fn canonical(item: &str) -> String {
 
 fn queue(item: &str, tier: &str, parent: &str, brief: &str) -> NorthResult<String> {
     let item = canonical(item);
-    if let Some(open) = open_follows_box(&item)? {
+    if let Some(open) = open_follows_box(&item, brief)? {
         return Ok(open);
     }
     let mut child = Command::new(std::env::current_exe()?).args(queue_words(&item, tier, parent)).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
@@ -98,10 +98,13 @@ fn queue_words(item: &str, tier: &str, parent: &str) -> Vec<String> {
     ["threads", "queue", "follow", item, "--tier", tier, "--parent", parent].map(str::to_owned).to_vec()
 }
 
-fn open_follows_box(item: &str) -> NorthResult<Option<String>> {
+fn open_follows_box(item: &str, brief: &str) -> NorthResult<Option<String>> {
     let output = Command::new(std::env::current_exe()?).args(["threads", "queue", "follow-list"]).stdin(Stdio::null()).output()?;
-    let boxes: Value = serde_json::from_slice(&output.stdout).unwrap_or(Value::Null);
-    Ok(boxes.as_array().into_iter().flatten().find(|found| found["item"] == item).map(|found| found["id"].to_string()))
+    Ok(same_box(&serde_json::from_slice(&output.stdout).unwrap_or(Value::Null), item, brief))
+}
+
+fn same_box(boxes: &Value, item: &str, brief: &str) -> Option<String> {
+    boxes.as_array().into_iter().flatten().find(|found| found["item"] == item && found["brief"] == brief).map(|found| found["id"].to_string())
 }
 
 struct Repo {
