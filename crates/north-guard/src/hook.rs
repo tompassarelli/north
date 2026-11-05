@@ -207,7 +207,7 @@ impl HookKind {
             Self::NativeSpawn => &[crate::guard::spawn_capacity::evaluate],
             Self::PostTool => &[crate::guard::worker_handoff::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate, crate::guard::spawn_capacity::confirm_native],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
-            Self::Stop => &[crate::guard::permission_offer::evaluate],
+            Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::recommendation_grounding::evaluate],
             Self::SubagentStop => &[crate::guard::subagent_teardown::evaluate],
             Self::SessionStart => &[crate::guard::unlanded_work::evaluate],
             Self::UserPromptSubmit => &[crate::guard::quiet_phrase::evaluate],
@@ -234,6 +234,7 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
     let mut context = Vec::new();
     let mut updated_input = None;
     let mut rewritten = None;
+    let mut blocks: Vec<String> = Vec::new();
     for guard in guards {
         match guard(rewritten.as_ref().unwrap_or(input)) {
             Verdict::Allow => {}
@@ -244,12 +245,7 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
             Verdict::Deny(reason) if event == "PermissionRequest" => {
                 return Some(permission_decision("deny", Some(reason)));
             }
-            Verdict::Deny(reason) if matches!(event, "Stop" | "SubagentStop") => {
-                return Some(Value::object([
-                    ("decision", "block".into()),
-                    ("reason", reason.into()),
-                ]));
-            }
+            Verdict::Deny(reason) if matches!(event, "Stop" | "SubagentStop") => blocks.push(reason),
             Verdict::Deny(reason) => {
                 return Some(Value::object([(
                     "hookSpecificOutput",
@@ -269,6 +265,12 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
                 context.push(text);
             }
         }
+    }
+    if !blocks.is_empty() {
+        return Some(Value::object([
+            ("decision", "block".into()),
+            ("reason", blocks.join("\n\n").into()),
+        ]));
     }
     let mut output = Value::object([("hookEventName", event.into())]);
     if let Some(updated) = updated_input {

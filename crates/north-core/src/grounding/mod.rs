@@ -1,3 +1,4 @@
+pub mod bearing;
 pub mod common;
 pub mod compose;
 pub mod distill;

@@ -4,11 +4,13 @@ use std::sync::OnceLock;
 
 pub type Pace = fn(&Value) -> Result<Value, String>;
 pub type PickTier = fn(&str) -> Result<Tier, String>;
+pub type RecordedDecisions = fn(&str, f64) -> Vec<String>;
 
 #[derive(Clone, Copy)]
 pub struct Host {
     pub pace: Pace,
     pub picked_tier: PickTier,
+    pub recorded_decisions: RecordedDecisions,
 }
 
 static INSTALLED: OnceLock<Host> = OnceLock::new();
@@ -27,4 +29,8 @@ pub fn pace(request: &Value) -> Result<Value, String> {
 
 pub fn picked_tier(brief: &str) -> Result<Tier, String> {
     installed().and_then(|host| (host.picked_tier)(brief))
+}
+
+pub fn recorded_decisions(paragraph: &str, now: f64) -> Vec<String> {
+    installed().map_or_else(|_| Vec::new(), |host| (host.recorded_decisions)(paragraph, now))
 }

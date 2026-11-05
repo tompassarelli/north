@@ -98,6 +98,7 @@ private_desktop_signal north-ops north-capacity
 provenance north-landing
 proxy north-core
 readme_links north
+recommendation_grounding_hook north-guard north-core
 registry north
 resident_cap north-dispatch
 run_bounded north-ops north-capacity-host

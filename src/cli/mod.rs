@@ -171,7 +171,7 @@ fn hook_command(arguments: Vec<String>) -> ExitCode {
         }
         _ => {
             guard::worker_handoff::install_confirm(crate::pacing::confirm_spawn);
-            guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier });
+            guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records });
             reported(hook::run(&arguments))
         }
     }

@@ -29,16 +29,19 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 pub fn decide(input: &HookInput, session: &str) -> Verdict {
-    if input.data["stop_hook_active"] == Value::Bool(true) || !(session.is_empty() || session == crate::fleet::runtime::PROXY) {
-        return Verdict::Allow;
-    }
-    let text = match input.data["last_assistant_message"].as_str() {
-        Some(text) => Some(text.to_owned()),
-        None => input.data["transcript_path"].as_str().and_then(final_text),
-    };
-    match text.as_deref().and_then(offer) {
+    match proxy_report(input, session).as_deref().and_then(offer) {
         Some(_) => Verdict::Deny(REASON.into()),
         None => Verdict::Allow,
+    }
+}
+
+pub fn proxy_report(input: &HookInput, session: &str) -> Option<String> {
+    if input.data["stop_hook_active"] == Value::Bool(true) || !(session.is_empty() || session == crate::fleet::runtime::PROXY) {
+        return None;
+    }
+    match input.data["last_assistant_message"].as_str() {
+        Some(text) => Some(text.to_owned()),
+        None => input.data["transcript_path"].as_str().and_then(final_text),
     }
 }
 

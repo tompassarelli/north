@@ -58,6 +58,8 @@ mod unlanded_work_tests;
 pub mod worker_handoff;
 pub mod quiet_phrase;
 pub mod permission_offer;
+pub mod recommendation_grounding;
+mod recommendation_grounding_tests;
 mod quiet_phrase_tests;
 mod clipboard_tests;
 mod native_item_tests;

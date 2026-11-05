@@ -331,7 +331,7 @@ pub fn retrieve(
     };
     run().map_err(|e| NorthError::Configuration(e.to_string()))
 }
-fn retrieve_db(
+pub(super) fn retrieve_db(
     message: &str,
     db: &mut Sqlite,
     now: f64,
@@ -420,7 +420,7 @@ pub fn indexed(message: &str, db: &mut Sqlite, now: f64, shape: &Shape) -> Resul
     let (hits, words) = retrieve_db(message, db, now, 80, 0.0, "")?;
     Ok(assemble(message, &hits, &words, Vec::new(), &[], shape))
 }
-fn code(hit: &Hit) -> bool {
+pub(super) fn code(hit: &Hit) -> bool {
     hit.source == "policy" && re(r"\.(rs|ts|mjs|js|sh|py|nix)$|/bin/[^/]+$").is_match(&hit.reference)
 }
 fn opening(words: &[String], live: &[String], extra: &[String], shape: &Shape) -> Vec<String> {

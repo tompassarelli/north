@@ -441,6 +441,19 @@ push access to South and the Firn timers are host configuration.
    passes cases where a role-proxy session gets the block for a `Tom` message and not for a `Service`
    or `Session` one and a worker gets none, and `cargo test -p north-core fleet::prompt` shows the
    proxy preamble.
+   **R2b grounded recommendations** extends R2 to the proxy's final report. When the last paragraph
+   that says "I recommend", "Recommended:", "the fix is" or "the fix would be" reaches the Stop hook,
+   `crates/north-guard/src/guard/recommendation_grounding.rs` runs that paragraph through the
+   UserPromptSubmit hook's retrieval (`north_core::grounding::bearing`) and, when a decision record or
+   policy section hits at tier A (cover at the hook floor, code files left out), blocks once:
+   "These recorded decisions bear on your recommendation: …; read them and confirm or revise."
+   `stop_hook_active` lets the revised report through, and a Stop that also carries an ask joins both
+   reasons in one block. Recurrence on 2026-11-05: the proxy recommended building the laptop runtime
+   on gex45 and shipping it, which South's gex45 access plan (P3b, B3, B17) forbids, and found the
+   record only after Tom replied. **Enforced by** the Stop hook; its tests in
+   `crates/north-guard/src/guard/recommendation_grounding_tests.rs` cover a fixture decision record
+   named, a recommendation with no hit passing, `stop_hook_active` passing and the handler under
+   300 ms on a warm fixture index.
 10. **G1 the delegation guard.** feature, module, rust, local-test; 45 min. Files:
     `crates/north-guard/src/guard/proxy_delegation.rs`, `crates/north-core/src/hook.rs` (`PreOther`),
     `harness/defaults.toml` (`proxy.warn_streak`, `proxy.deny_streak`). Needs: R1, P2, W1. Done when:

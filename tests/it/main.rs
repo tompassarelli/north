@@ -122,3 +122,4 @@ mod land_scan_shell_hook;
 mod capacity_fixture;
 mod capacity_host_state;
 mod capacity_queue_timeout;
+mod recommendation_grounding_hook;
