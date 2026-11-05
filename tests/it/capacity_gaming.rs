@@ -297,8 +297,8 @@ fn a_nested_run_frozen_with_its_parent_outlives_its_timeout_by_the_time_it_spent
     let clock = DrivenClock::new(&host);
     let started = host.path("started");
     let nested = format!(
-        "exec bun {bundle} run --class heavy --owner fixture:/nested --timeout-seconds {WALL_CLOCK_TIMEOUT} -- sh -c 'touch {started}; exec sleep 60'",
-        bundle = Host::bundle().display(),
+        "exec {launcher} run --class heavy --owner fixture:/nested --timeout-seconds {WALL_CLOCK_TIMEOUT} -- sh -c 'touch {started}; exec sleep 60'",
+        launcher = Host::launcher(),
         started = started.display(),
     );
     let arguments = ["run", "--class", "heavy", "--owner", "fixture:/parent", "--timeout-seconds", "60", "--", "sh", "-c", &nested];

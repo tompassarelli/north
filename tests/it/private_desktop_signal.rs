@@ -3,19 +3,14 @@ use crate::capacity_host;
 use capacity_host::{Host, SCOPE_SYSTEMCTL, Wrapper, scope_systemd_run};
 use serde_json::Value;
 use std::fs;
-use std::os::unix::fs::symlink;
 use std::process::{Command, Stdio};
-
-const AGENTS: &str = "#!/bin/sh\necho \"$XDG_STATE_HOME/machine-capacity/SKILL.md\"\n";
 
 #[test]
 fn sigterm_to_private_desktop_start_stops_its_desktop_and_releases_its_lease() {
     let host = Host::new(
         "desktop-signal-",
-        &[("systemd-run", &scope_systemd_run("sleep 600")), ("systemctl", SCOPE_SYSTEMCTL), ("agents", AGENTS)],
+        &[("systemd-run", &scope_systemd_run("sleep 600")), ("systemctl", SCOPE_SYSTEMCTL)],
     );
-    fs::create_dir_all(host.path("state/machine-capacity/scripts")).unwrap();
-    symlink(Host::bundle(), host.path("state/machine-capacity/scripts/machine-capacity.mjs")).unwrap();
     fs::write(host.path("render-node"), "").unwrap();
     let render = host.path("render-node");
     let mut start = host.command("bwrap");

@@ -14,10 +14,9 @@ fn builder_offers(host: &Host) {
     );
     script(&host.path("bin/nix-store"), "printf 'nix-store %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n");
     script(&host.path("bin/ssh"), &format!("case \"$*\" in *nproc*) printf '{probe}'; exit 0;; esac\nprintf 'ssh %s\\n' \"$*\" >>\"$TEST_ALERTS\"\nexit 0\n", probe = ROOM_PROBE.replace('%', "%%")));
-    let skill = host.path("skill/machine-capacity");
-    script(&host.path("bin/agents"), &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()));
+    script(&host.path("bin/agents"), "case \"$1\" in sync) exit 0;; esac\n");
     script(
-        &host.path("bin/bun"),
+        &host.path("bin/capacity-north"),
         "release=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\nfor program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\nprintf 'local build %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n",
     );
 }

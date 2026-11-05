@@ -73,9 +73,8 @@ fn exclusive_lease_and_native_timing_session_started_in_the_same_instant_never_r
 #[test]
 fn quiet_native_run_inside_its_own_exclusive_lease_is_admitted() {
     let host = host();
-    let bundle = Host::bundle();
     let inner = ["session", "--class", "native", "--new-clients", "0", "--quiet", "--owner", "sc-239-laptop3:pair-1-capture", "--", "true"];
-    let command = [&["run", "--class", "exclusive", "--owner", "sc-239-laptop3:pair-1", "--timeout-seconds", "60", "--", "bun", bundle.to_str().unwrap()][..], &inner].concat();
+    let command = [&["run", "--class", "exclusive", "--owner", "sc-239-laptop3:pair-1", "--timeout-seconds", "60", "--", env!("CARGO_BIN_EXE_north"), "capacity", "host"][..], &inner].concat();
     let lines = settle(&mut helper(&host, &command));
     let decisions: Vec<_> = lines.iter().map(|line| (line["class"].clone(), line["decision"].clone())).collect();
     assert!(lines.iter().any(|line| line["class"] == "exclusive" && line["decision"] == "RESERVED"), "{decisions:?}");

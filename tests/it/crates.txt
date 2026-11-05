@@ -18,12 +18,14 @@ capacity_desktop_bus north-capacity
 capacity_dev_shell north-capacity-host
 capacity_disk north-capacity
 capacity_exclusive_native north-capacity
+capacity_fixture north-capacity-host
 capacity_game_reserve north-capacity
 capacity_game_reserve_verbs north-capacity
 capacity_gaming north-capacity
 capacity_gate north-capacity-host
 capacity_gpu_size north-capacity
 capacity_host north-capacity-host
+capacity_host_state north-capacity-host
 capacity_land_queue north-capacity-host
 capacity_leases north-capacity
 capacity_native_alone north-capacity

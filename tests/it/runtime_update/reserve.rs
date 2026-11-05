@@ -51,10 +51,9 @@ fn a_game_reserve_host_that_no_other_host_has_room_for_builds_the_runtime_itself
     let peer_built = host.path("peer-built");
     let environment = reserved_puller(&host, &peer_built);
     script(&host.path("bin/ssh"), "exit 255\n");
-    let skill = host.path("skill/machine-capacity");
-    script(&host.path("bin/agents"), &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()));
+    script(&host.path("bin/agents"), "case \"$1\" in sync) exit 0;; esac\n");
     script(
-        &host.path("bin/bun"),
+        &host.path("bin/capacity-north"),
         "release=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\nfor program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\n",
     );
     let output = tick(&host, &environment, 0);

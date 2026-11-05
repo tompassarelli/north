@@ -236,13 +236,12 @@ fn a_build_whose_commit_is_no_longer_origin_main_is_abandoned_and_the_new_head_i
     let host = Host::new();
     host.built(PREVIOUS);
     host.select(PREVIOUS);
-    let skill = host.path("skill/machine-capacity");
     script(
         &host.path("bin/agents"),
-        &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()),
+        "case \"$1\" in sync) exit 0;; esac\n",
     );
     script(
-        &host.path("bin/bun"),
+        &host.path("bin/capacity-north"),
         "n=$(cat \"$TEST_COUNT\" 2>/dev/null || echo 0)\necho $((n + 1)) >\"$TEST_COUNT\"\n[ \"$n\" = 0 ] && exec sleep 120\n\
          release=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\n\
          for program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\n",
@@ -279,10 +278,9 @@ fn a_build_a_tenth_done_when_origin_main_moves_is_abandoned_though_the_last_buil
     host.built(PREVIOUS);
     host.select(PREVIOUS);
     fs::write(host.path("state/north/runtime-build-seconds"), "100").unwrap();
-    let skill = host.path("skill/machine-capacity");
-    script(&host.path("bin/agents"), &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()));
+    script(&host.path("bin/agents"), "case \"$1\" in sync) exit 0;; esac\n");
     script(
-        &host.path("bin/bun"),
+        &host.path("bin/capacity-north"),
         "n=$(cat \"$TEST_COUNT\" 2>/dev/null || echo 0)\necho $((n + 1)) >\"$TEST_COUNT\"\n[ \"$n\" = 0 ] && exec sleep 120\n\
          release=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\n\
          for program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\n",
@@ -313,9 +311,8 @@ fn a_build_that_capacity_stops_before_cargo_runs_is_deferred_and_one_that_cargo_
         let host = Host::new();
         host.built(PREVIOUS);
         host.select(PREVIOUS);
-        let skill = host.path("skill/machine-capacity");
-        script(&host.path("bin/agents"), &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()));
-        script(&host.path("bin/bun"), bun);
+        script(&host.path("bin/agents"), "case \"$1\" in sync) exit 0;; esac\n");
+        script(&host.path("bin/capacity-north"), bun);
         let output = host.update(0, 0);
         assert_eq!(output.status.code(), Some(expected), "{}", String::from_utf8_lossy(&output.stderr));
         assert_eq!(host.path("state/north/runtime-failed").exists(), held);
@@ -368,13 +365,12 @@ fn a_build_more_than_half_done_when_origin_main_moves_is_finished_and_promoted_b
     host.built(PREVIOUS);
     host.select(PREVIOUS);
     fs::write(host.path("state/north/runtime-build-seconds"), "1").unwrap();
-    let skill = host.path("skill/machine-capacity");
     script(
         &host.path("bin/agents"),
-        &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()),
+        "case \"$1\" in sync) exit 0;; esac\n",
     );
     script(
-        &host.path("bin/bun"),
+        &host.path("bin/capacity-north"),
         "n=$(cat \"$TEST_COUNT\" 2>/dev/null || echo 0)\necho $((n + 1)) >\"$TEST_COUNT\"\n[ \"$n\" = 0 ] && sleep 4\n\
          release=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\n\
          for program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\n",
@@ -502,13 +498,12 @@ fn landed_after(host: &Host, relative: &str) -> String {
 }
 
 fn counting_builder(host: &Host) {
-    let skill = host.path("skill/machine-capacity");
     script(
         &host.path("bin/agents"),
-        &format!("case \"$1\" in path) echo {};; sync) [[ \"$(readlink \"$XDG_STATE_HOME/north/current\")\" == \"runtimes/$TEST_TARGET\" ]] || exit 91;; esac\n", skill.display()),
+        "case \"$1\" in sync) [[ \"$(readlink \"$XDG_STATE_HOME/north/current\")\" == \"runtimes/$TEST_TARGET\" ]] || exit 91;; esac\n",
     );
     script(
-        &host.path("bin/bun"),
+        &host.path("bin/capacity-north"),
         "echo built >>\"$TEST_COUNT\"\nrelease=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\n\
          for program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\n",
     );

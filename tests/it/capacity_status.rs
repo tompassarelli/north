@@ -3,10 +3,8 @@ use std::process::Command;
 #[test]
 fn capacity_status_writes_json_to_stdout() {
     let scratch = tempfile::tempdir().unwrap();
-    let bundle = std::env::current_dir().unwrap().join("harness/skills/machine-capacity/scripts/machine-capacity.mjs");
-    let output = Command::new("bun")
-        .arg(bundle)
-        .arg("status")
+    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["capacity", "host", "status"])
         .env("XDG_RUNTIME_DIR", scratch.path())
         .env("XDG_STATE_HOME", scratch.path())
         .env("AGENT_CAPACITY_NORTH", env!("CARGO_BIN_EXE_north"))

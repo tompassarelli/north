@@ -115,9 +115,13 @@ impl Host {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/skills/machine-capacity/scripts/machine-capacity.mjs")
     }
 
+    pub fn launcher() -> String {
+        format!("{} capacity host", env!("CARGO_BIN_EXE_north"))
+    }
+
     pub fn helper(&self, arguments: &[&str]) -> Command {
-        let mut command = self.command("bun");
-        command.arg(Self::bundle()).args(arguments);
+        let mut command = self.command(env!("CARGO_BIN_EXE_north"));
+        command.args(["capacity", "host"]).args(arguments);
         command.stderr(self.helper_log());
         command
     }

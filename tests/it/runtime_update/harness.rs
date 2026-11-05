@@ -127,6 +127,7 @@ impl Host {
             .args(args)
             .env("PATH", path)
             .env("HOME", self.path("home"))
+            .env("AGENT_CAPACITY_NORTH", self.path("bin/capacity-north"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("XDG_STATE_HOME", self.path("state"))
             .env("NORTH_HOME", self.path("checkout"))

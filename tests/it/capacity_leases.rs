@@ -46,9 +46,9 @@ fn child_lease_of_a_held_lease_runs_nested_while_an_exclusive_waits() {
     let host = host();
     let (go, done) = (host.path("go"), host.path("done"));
     let child = format!(
-        "while [ ! -e {go} ]; do sleep 0.05; done; exec bun {bundle} run --class heavy --owner fixture:/child --timeout-seconds 3600 -- touch {done}",
+        "while [ ! -e {go} ]; do sleep 0.05; done; exec {launcher} run --class heavy --owner fixture:/child --timeout-seconds 3600 -- touch {done}",
         go = go.display(),
-        bundle = Host::bundle().display(),
+        launcher = Host::launcher(),
         done = done.display(),
     );
     let mut parent = run(&host, "heavy", "fixture:/parent", "30", &["sh", "-c", &child]);
