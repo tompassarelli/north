@@ -2,7 +2,7 @@
 //! on week, together as the one rolling north issue a tick keeps for them.
 use crate::ledger::{ClosedBox, ClosedReport};
 
-/// The rise over the week before past which a cell gets an issue.
+/// The rise over the week before past which a cell gets an issue; it must hold with the week's dearest box dropped, so one dear box moves no median past it.
 pub const RISE: f64 = 0.25;
 /// Closed boxes a cell needs in each week before its rise counts, so one dear box files nothing.
 pub const RISE_MIN_BOXES: usize = 3;
@@ -24,8 +24,9 @@ pub fn rises(week: &ClosedReport, before: &ClosedReport) -> Vec<Rise> {
         .filter(|cell| cell.staffed && cell.category != UNLABELED)
         .filter_map(|cell| {
             let earlier = before.cells.iter().find(|earlier| earlier.tier == cell.tier && earlier.category == cell.category)?;
-            let (was, now) = (earlier.median_box_usd()?, cell.median_box_usd()?);
-            (earlier.closed >= RISE_MIN_BOXES && cell.closed >= RISE_MIN_BOXES && was > 0.0 && now > was * (1.0 + RISE)).then(|| Rise {
+            let (was, now, steady) = (earlier.median_box_usd()?, cell.median_box_usd()?, cell.median_box_usd_without_dearest()?);
+            let bar = was * (1.0 + RISE);
+            (earlier.closed >= RISE_MIN_BOXES && cell.closed >= RISE_MIN_BOXES && was > 0.0 && now > bar && steady > bar).then(|| Rise {
                 tier: cell.tier.clone(),
                 category: cell.category.clone(),
                 before: (was, earlier.closed),

@@ -31,7 +31,7 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let mint = || {
         let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
-        github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds())
+        github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds()).or_else(|why| session_token(std::env::var("GH_TOKEN").ok()).ok_or(why))
     };
     match answer(arguments, std::io::stdin().lock(), mint) {
         Ok(Some(reply)) => match std::io::stdout().write_all(reply.as_bytes()) {
@@ -44,6 +44,11 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
     }
+}
+
+/// The installation token the launcher gave this session, for a host that holds no sops key to mint a fresh one from.
+fn session_token(token: Option<String>) -> Option<String> {
+    token.filter(|token| token.starts_with("ghs_"))
 }
 
 fn answer(arguments: &[String], input: impl BufRead, mint: impl FnOnce() -> Result<String, String>) -> Result<Option<String>, String> {

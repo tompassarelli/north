@@ -113,6 +113,14 @@ impl Cell {
         (!spends.is_empty()).then(|| percentile(&mut spends, 50))
     }
 
+    /// The median cost of the cell's closed boxes without its dearest one, which shows whether the median rests on more than that one box; None when fewer than two boxes are recorded.
+    pub fn median_box_usd_without_dearest(&self) -> Option<f64> {
+        let mut spends: Vec<f64> = self.boxes.iter().map(|closed| closed.usd).collect();
+        spends.sort_by(f64::total_cmp);
+        spends.pop()?;
+        (!spends.is_empty()).then(|| percentile(&mut spends, 50))
+    }
+
     /// The closed boxes of the cell with what each cost, dearest first.
     pub fn boxes_dearest_first(&self) -> Vec<ClosedBox> {
         let mut boxes = self.boxes.clone();

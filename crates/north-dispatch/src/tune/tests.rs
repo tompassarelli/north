@@ -181,3 +181,16 @@ fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise
     assert!(issues.created.is_empty(), "{:#?}", ticked.lines);
 }
 
+
+#[test]
+fn a_rise_files_only_while_it_holds_with_the_weeks_dearest_box_dropped() {
+    let filed = |outputs: [i64; 3]| {
+        let week: Vec<SpendRun> = outputs.iter().enumerate().map(|(index, output)| spent(&format!("north#5{index}"), OPUS, "tooling", "2026-10-24", *output)).collect();
+        let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&boxes("40", 3, OPUS, "tooling", "2026-10-17", 2_000_000), "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new(), projections: Ok(Vec::new()) };
+        let mut issues = Issues::default();
+        let (_, ticked) = two_ticks(&ledger, &mut issues);
+        ticked.lines.iter().any(|line| line.starts_with("rose "))
+    };
+    assert!(!filed([1_000_000, 5_000_000, 9_000_000]), "the median box alone is past the bar, the box beside it is not");
+    assert!(filed([5_000_000, 5_000_000, 9_000_000]));
+}

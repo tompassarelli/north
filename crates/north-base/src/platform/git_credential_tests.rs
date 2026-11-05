@@ -21,3 +21,10 @@ fn other_hosts_store_and_erase_get_no_answer_and_mint_nothing() {
     assert!(answer(&words(&[]), "".as_bytes(), unminted).is_err());
 }
 
+
+#[test]
+fn a_host_that_cannot_mint_falls_back_to_the_installation_token_the_session_was_launched_with() {
+    assert_eq!(session_token(Some("ghs_launched".to_owned())), Some("ghs_launched".to_owned()));
+    assert_eq!(session_token(Some("ghp_personal".to_owned())), None);
+    assert_eq!(session_token(None), None);
+}
