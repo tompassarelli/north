@@ -372,19 +372,12 @@ fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     let mut backoff = Backoff::default();
     let mut watch = Watch::resume(lander);
-    let mut draining = false;
     loop {
         if retire.load(Ordering::Relaxed) {
-            if watch.in_flight() == 0 {
-                return 0;
+            if watch.in_flight() > 0 {
+                println!("north land: the live runtime changed; exiting now, and the restarted lander reruns the {} journaled after-landing run(s)", watch.in_flight());
             }
-            if !draining {
-                draining = true;
-                println!("north land: the live runtime changed; finishing {} after-landing run(s) already started before exiting, and landing nothing more", watch.in_flight());
-            }
-            watch.settle(lander);
-            std::thread::sleep(TICK);
-            continue;
+            return 0;
         }
         let round = lander.round(&mut watch);
         watchdog::after_round(lander, watch.in_flight(), &round);
