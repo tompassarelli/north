@@ -871,40 +871,9 @@ north_offers() {
 }
 
 run_language_gate() {
-  local base="$1" head="$2" root status
-  root=$(git rev-parse --show-toplevel)
-  [ -n "$base" ] || base=$(git hash-object -t tree /dev/null)
-  command -v north >/dev/null 2>&1 || {
-    echo 'safe-push: north not on PATH; refusing to land without the language gate; NOT pushed.' >&2
-    exit 1
-  }
-  north_offers language-gate && north_offers build-cache-gate || exit 1
-  north language-gate --repo "$root" --base "$base" --head "$head" || {
-    status=$?
-    echo 'safe-push: language gate refused the landing; NOT pushed.' >&2
-    return "$status"
-  }
-  north build-cache-gate --repo "$root" --base "$base" --head "$head" || {
-    status=$?
-    echo 'safe-push: build-cache gate refused the landing; NOT pushed.' >&2
-    return "$status"
-  }
-  if north_offers runtime-floor-gate 2>/dev/null; then
-    north runtime-floor-gate --repo "$root" --base "$base" --head "$head" || { status=$?; echo 'safe-push: runtime-floor gate refused the landing; NOT pushed.' >&2; return "$status"; }
-  fi
-  run_bin_reference_gate "$root" "$base" "$head"
-}
-
-# A north landing may not delete a bin/ entry that a deployed nixos-config or south unit, or this host, still runs.
-run_bin_reference_gate() {
-  local root="$1" base="$2" head="$3"
-  case "${origin_url:-}" in *tompassarelli/north | *tompassarelli/north.git) ;; *) return 0 ;; esac
-  [ -n "$(git -C "$root" diff --no-renames --name-only --diff-filter=D "$base" "$head" -- bin)" ] || return 0
-  north bin-references --help >/dev/null 2>&1 || {
-    echo "safe-push: this host's north runtime lacks north bin-references, so a deleted bin/ entry cannot be checked against deployed units; run north runtime update; NOT pushed." >&2
-    return 1
-  }
-  north bin-references --repo "$root" --base "$base" --head "$head"
+  command -v north >/dev/null 2>&1 || { echo 'safe-push: north not on PATH; refusing to land without the language gate; NOT pushed.' >&2; exit 1; }
+  local status=0; north land scan language --base "$1" --head "$2" --origin "${origin_url:-}" --safe-push "$safe_push_self" || status=$?
+  [ "$status" -ne 69 ] || exit 1; return "$status"
 }
 
 land_offload_host() {
