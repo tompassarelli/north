@@ -156,6 +156,10 @@ fn queue(places: &Places, repo: &str) -> Result<PathBuf, String> {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
+    if arguments.iter().any(|word| word == "--help" || word == "-h") {
+        println!("{USAGE}");
+        return 0;
+    }
     let Some(options) = parse(arguments) else {
         eprintln!("{USAGE}");
         return 2;
