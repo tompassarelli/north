@@ -26,7 +26,7 @@ use crate::capacity::dev_shell;
 
 const QUEUE_POLL_MILLISECONDS: u64 = 1000;
 const BEHIND_POLL_MILLISECONDS: u64 = 10_000;
-const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
+pub(super) const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
 const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
 const FROZEN_CLASSES: [&str; 4] = ["heavy", "moderate", "exclusive", "gpu"];
 const USER_HZ: f64 = 100.0;
@@ -112,15 +112,32 @@ struct Waiting<'a> {
     request: &'a Request,
     create: &'a Create,
     command: &'a [String],
-    declined: &'a mut Option<String>,
+    declined: &'a mut Declines,
 }
 
-fn report_declined(why: Option<Declined>, create: &Create, last: &mut Option<String>) {
-    let Some(why) = why else { return };
-    if !why.changes(last) {
-        return;
+/// What the offload offers so far have declined for: the reason last printed, which an unchanged decline stays silent about, and how long the next offer waits, stretched while every offload host is out of reach so a queued build stops probing hosts this host has no path to.
+pub(super) struct Declines {
+    printed: Option<String>,
+    pub(super) retry_milliseconds: f64,
+}
+
+impl Declines {
+    pub(super) fn new() -> Self {
+        Self { printed: None, retry_milliseconds: OFFLOAD_RETRY_MILLISECONDS }
     }
-    print_to(&Obj::new().put("decision", "OFFLOAD_DECLINED").put("reason", why.reason()).put("detail", why.detail()).put("owner", create.owner.as_str()), true);
+
+    /// The OFFLOAD_DECLINED line a decline earns, None when it repeats the reason already printed.
+    pub(super) fn note(&mut self, why: Option<Declined>, owner: &str) -> Option<Obj> {
+        let why = why?;
+        self.retry_milliseconds = why.retry_milliseconds(OFFLOAD_RETRY_MILLISECONDS);
+        why.changes(&mut self.printed).then(|| Obj::new().put("decision", "OFFLOAD_DECLINED").put("reason", why.reason()).put("detail", why.detail()).put("owner", owner))
+    }
+}
+
+fn report_declined(why: Option<Declined>, create: &Create, declines: &mut Declines) {
+    if let Some(line) = declines.note(why, create.owner.as_str()) {
+        print_to(&line, true);
+    }
 }
 
 /// A heavy build this host defers runs on another host with room instead of queueing here; None leaves it on the local path, printing why once per change of reason.
@@ -193,7 +210,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
         return Admitted::Here(decision(root, request, Some(create), None, host));
     }
     let offer = request.name == "heavy" && !request.landing;
-    let mut declined = None;
+    let mut declined = Declines::new();
     let resumed = requeue::resumed(root);
     if resumed.is_none() && offer && let Some(admitted) = offer_first(Waiting { root, ticket: None, request, create, command, declined: &mut declined }, host, terminations).await {
         return admitted;
@@ -221,7 +238,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
             let ended = if reason(&result).as_deref() == Some("DEFER_NATIVE_QUIET") { "REFUSED" } else { "TIMED_OUT" };
             return Admitted::Here(result.put("decision", ended));
         }
-        if offer && now_ms() - offered_at >= OFFLOAD_RETRY_MILLISECONDS {
+        if offer && now_ms() - offered_at >= declined.retry_milliseconds {
             offered_at = now_ms();
             if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, &result, host, terminations).await {
                 dequeue(root, &ticket);

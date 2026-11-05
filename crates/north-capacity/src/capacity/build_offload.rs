@@ -3,6 +3,7 @@
 pub const REASON: &str = "OFFLOAD";
 pub const REMOTE_MARK: &str = "NORTH_BUILD_OFFLOADED";
 pub const PROBE_LIMIT_SECONDS: u64 = 5;
+pub const UNREACHABLE_RETRY_FACTOR: f64 = 20.0;
 
 /// A host's admission state as `north capacity host status` reports it: what its own admission would let a build start against.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -89,6 +90,11 @@ impl Declined {
             Self::Refused { detail, .. } => detail.clone(),
             Self::Failed(why) => why.clone(),
         }
+    }
+
+    /// How long a queued build waits before offering itself again: a decline that found every host out of reach waits `UNREACHABLE_RETRY_FACTOR` times as long, since only a changed path to a host can end it.
+    pub fn retry_milliseconds(&self, base: f64) -> f64 {
+        if matches!(self, Self::Unreachable(_)) { base * UNREACHABLE_RETRY_FACTOR } else { base }
     }
 
     pub fn refused(class: &str, detail: String) -> Self {

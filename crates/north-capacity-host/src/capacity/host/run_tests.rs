@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use super::json::Obj;
 use super::request::Request;
-use super::run::{cache_server_socket, scope_command, watch, watched_state};
+use super::run::{Declines, OFFLOAD_RETRY_MILLISECONDS, cache_server_socket, scope_command, watch, watched_state};
+use crate::capacity::build_offload::{Declined, Room, first_free};
 
 fn server_socket(root: &std::path::Path, class: &str) -> Option<std::ffi::OsString> {
     let request = Request { name: class.to_owned(), ..Request::default() };
@@ -134,4 +135,23 @@ fn state_resolved_from_a_private_desktops_runtime_directory_is_the_hosts_state()
     assert_eq!(state_root("/run/user/1000/private-desktop.0rJtMv", 1000), host);
     assert_eq!(state_root("/run/user/1001/private-desktop.TFxebN/runtime", 1000), std::path::PathBuf::from("/run/user/1001/private-desktop.TFxebN/runtime/agent-capacity-v1"));
     assert_eq!(state_root("/tmp/scratch", 1000), std::path::PathBuf::from("/tmp/scratch/agent-capacity-v1"));
+}
+
+fn dark_hosts() -> Declined {
+    first_free(vec![("ccx33".to_owned(), Room::Unreachable), ("cx53".to_owned(), Room::Unreachable)]).unwrap_err()
+}
+
+#[test]
+fn offload_hosts_this_host_cannot_reach_decline_once_and_are_not_probed_again_soon() {
+    let mut declines = Declines::new();
+    let printed: Vec<_> = (0..4).filter_map(|_| declines.note(Some(dark_hosts()), "p88-router-files")).collect();
+    assert_eq!(printed.len(), 1, "four offers to unreachable hosts print one OFFLOAD_DECLINED");
+    assert_eq!(printed[0].get("reason").and_then(|reason| reason.as_str()), Some("unreachable"));
+    assert!(declines.retry_milliseconds >= 10.0 * OFFLOAD_RETRY_MILLISECONDS, "unreachable hosts are probed far less often than hosts that may free up");
+
+    let short = first_free(vec![("ccx33".to_owned(), Room::Short("busy".to_owned()))]).unwrap_err();
+    assert!(declines.note(Some(short), "p88-router-files").is_some(), "a reachability change prints again");
+    assert_eq!(declines.retry_milliseconds, OFFLOAD_RETRY_MILLISECONDS);
+    assert!(declines.note(Some(dark_hosts()), "p88-router-files").is_some());
+    assert!(declines.note(None, "p88-router-files").is_none());
 }

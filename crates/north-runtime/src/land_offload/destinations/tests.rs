@@ -48,3 +48,14 @@ fn a_host_with_runtime_source_false_is_no_pull_source_but_still_a_deploy_and_set
     let unmarked: DocumentMut = include_str!("../../runtime/fixtures/orchestration-hosts.toml").parse().unwrap();
     assert_eq!(super::pull_sources(&unmarked, "nexus"), ["tom@gex45"]);
 }
+
+#[test]
+fn a_host_absent_from_the_inventory_is_never_offered_a_build_and_one_removed_later_stops_being_offered() {
+    let listed: DocumentMut = "[hosts.gex45]\nssh = \"tom@gex45\"\noffload_builds = true\n[hosts.ccx33]\nssh = \"ccx33\"\noffload_builds = true\n[hosts.cx53]\nssh = \"cx53\"\noffload_builds = true\n".parse().unwrap();
+    let names = |cfg: &DocumentMut, here: &str| super::build_hosts(cfg, here).into_iter().map(|(name, _)| name).collect::<Vec<_>>();
+    assert_eq!(names(&listed, "gex45"), ["ccx33", "cx53"]);
+    let removed: DocumentMut = "[hosts.gex45]\nssh = \"tom@gex45\"\noffload_builds = true\n".parse().unwrap();
+    assert_eq!(names(&removed, "gex45"), Vec::<String>::new(), "gex45 offers nothing when no other host is in the inventory");
+    assert_eq!(names(&removed, "laptop"), ["gex45"]);
+    assert!(!names(&removed, "laptop").iter().any(|name| name == "ccx33" || name == "cx53"));
+}

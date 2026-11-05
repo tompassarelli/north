@@ -277,6 +277,7 @@ constants = [
   "crates/north-capacity/src/capacity/aperture.rs::NVIDIA_SMI_TIMEOUT",
   "crates/north-capacity/src/capacity/build_offload.rs::MAX_DIFF_BYTES",
   "crates/north-capacity/src/capacity/build_offload.rs::PROBE_LIMIT_SECONDS",
+  "crates/north-capacity/src/capacity/build_offload.rs::UNREACHABLE_RETRY_FACTOR",
   "crates/north-capacity/src/capacity/deadline.rs::ANCESTRY_LIMIT",
   "crates/north-capacity/src/capacity/deadline.rs::KILL_AFTER",
   "crates/north-capacity/src/capacity/deadline.rs::KILLED",
