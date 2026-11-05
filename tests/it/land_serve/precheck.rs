@@ -62,11 +62,11 @@ fn precheck_checks_each_lane_alone_as_it_arrives() {
     let refused = fixture.verdict(&tickets[2].0).unwrap();
     assert!(refused.starts_with("failed ") && refused.ends_with("-precheck.log"), "{refused}");
     assert_eq!(fixture.fleet().iter().filter(|call| call.starts_with("fleet send --from service:north-land session-lane-c ")).count(), 1);
-    assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from d", "change from e", "change from f"], "the five green lanes land in enqueue order");
+    assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from e", "change from f", "change from d"], "green lanes land as their checks finish: e and f land while d is rechecked in full");
     for (index, (path, _)) in tickets.iter().enumerate().filter(|(index, _)| *index != 2) {
         assert!(fixture.verdict(path).is_some_and(|verdict| verdict.starts_with("landed ")), "lane {} did not land", lanes[index].0);
     }
-    assert_eq!(fixture.verdict(&tickets[5].0), Some(format!("landed {}", fixture.main())));
+    assert_eq!(fixture.verdict(&tickets[3].0), Some(format!("landed {}", fixture.main())));
     for (name, _, _) in lanes.iter().filter(|(name, _, _)| *name != "d") {
         assert_eq!(starts(&fixture, name).len(), 1, "lane {name} is checked once");
     }
@@ -147,4 +147,55 @@ fn a_runtime_change_lets_the_running_precheck_finish_and_land_before_the_lander_
     assert_eq!(fixture.verdict(&path_a), Some(format!("landed {}", fixture.main())), "lane a's finished precheck lands before the lander exits");
     assert!(starts(&fixture, "b").is_empty(), "no precheck starts once the runtime changed");
     assert!(path_b.exists(), "lane b stays queued for the restarted lander");
+}
+
+const OFFLOAD_NORTH: &str = r#"#!/usr/bin/env bash
+stamp() { date +%s.%N >"$LAND_TRACE/.$1" && mv "$LAND_TRACE/.$1" "$LAND_TRACE/$1"; }
+if [ "$1 $2 $3" = "capacity offload choose" ]; then
+  echo stub-a
+  exit 0
+fi
+if [ "$1 $2 $3" = "capacity offload run" ]; then
+  lane=$(command git log -1 --format=%s); lane=${lane##* }
+  case $lane in a) sleep 8 ;; b) sleep 1 ;; *) sleep 2 ;; esac
+  stamp "end-$lane"
+fi
+if [ "$1 $2" = "fleet send" ] && [ "${6%% *}" = landed ]; then
+  stamp "landed-${5#session-lane-}"
+fi
+exit 0
+"#;
+
+const OFFLOAD_CHECK: &str = r#"#!/usr/bin/env bash
+"$NORTH_LAND_NORTH" capacity offload run --host "$SAFE_PUSH_LAND_RUNNER" --base HEAD~1 --head HEAD --timeout 60 -- 'cargo test'
+"#;
+
+#[test]
+fn an_offloaded_green_verdict_lands_while_an_earlier_lane_still_checks() {
+    let mut fixture = Fixture::new();
+    git(&fixture.repo, &["config", "landing.slots", "3"]);
+    git(&fixture.repo, &["config", "land.runner", "build-host"]);
+    executable(&fixture.trace.join("north-hook"), OFFLOAD_NORTH);
+    executable(&fixture.trace.join("hook"), OFFLOAD_CHECK);
+    let tickets: Vec<PathBuf> = ["a", "b", "c"]
+        .iter()
+        .map(|name| {
+            let lane = fixture.lane(name, &format!("{name}.txt"), name);
+            fixture.enqueue(&lane, None)
+        })
+        .collect();
+    let output = fixture.serve();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(output.status.success(), "{stdout}");
+    let stamp = |name: &str| -> f64 { fixture.read(name).trim().parse().unwrap_or_else(|_| panic!("{name} holds no time: {stdout}")) };
+    for name in ["b", "c"] {
+        assert!(stamp(&format!("landed-{name}")) < stamp("end-a"), "lane {name}'s green verdict waited for lane a, queued ahead of it, to finish its check: {stdout}");
+    }
+    let waited = stamp("landed-b") - stamp("end-b");
+    assert!(waited < 1.5, "lane b landed {waited:.3} s after its offloaded check ended: {stdout}");
+    assert!(stdout.contains("main moved to main@") && stdout.contains("since lane-c was checked"), "lane c, whose check ended after lane b landed, is rechecked on the new main: {stdout}");
+    assert_eq!(fixture.subjects(), ["change from b", "change from c", "change from a"], "green lanes land as their checks finish");
+    for ticket in &tickets {
+        assert!(fixture.verdict(ticket).is_some_and(|verdict| verdict.starts_with("landed ")), "{} did not land: {stdout}", ticket.display());
+    }
 }

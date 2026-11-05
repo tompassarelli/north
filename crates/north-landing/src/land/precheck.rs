@@ -142,10 +142,6 @@ impl State {
         self.checking.iter().any(|checking| checking.lane.path == path) || self.ready.iter().any(|lane| lane.path == path) || self.recheck.iter().any(|recheck| recheck.path == path) || self.held.get(path).is_some_and(|held| held.since.elapsed() < HOLD)
     }
 
-    fn ahead(&self, of: &Order) -> bool {
-        self.checking.iter().any(|checking| order(&self.rank, &checking.lane.path) < *of) || self.recheck.iter().any(|recheck| order(&self.rank, &recheck.path) < *of)
-    }
-
     fn forget_replaced(&mut self) {
         self.checking.retain(|checking| checking.lane.path.exists());
         self.ready.retain(|lane| lane.path.exists());
@@ -331,16 +327,13 @@ fn checked_on_main(tick: &mut Tick, state: &mut State, lane: &Lane) -> Result<Op
 
 fn land(tick: &mut Tick, state: &mut State) -> Result<Option<Round>, String> {
     state.ready.sort_by_key(|lane| order(&state.rank, &lane.path));
-    while let Some(first) = state.ready.first() {
-        if state.ahead(&order(&state.rank, &first.path)) {
-            return Ok(None);
-        }
+    while !state.ready.is_empty() {
         let mut lane = state.ready.remove(0);
         if !lane.path.exists() {
             continue;
         }
         let Some(head) = checked_on_main(tick, state, &lane)? else {
-            return Ok(None);
+            continue;
         };
         let token = match tick.lander.push_token(&lane.base) {
             Ok(token) => token,
