@@ -47,7 +47,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let directory = PathBuf::from(".");
     match arguments {
         [name, rest @ ..] if name == "language" => language::run(rest),
-        [name, rest @ ..] if matches!(name.as_str(), "ci-budget" | "code-health" | "instruction-limits") => crate::land::after::gates::scan(name, rest),
+        [name, rest @ ..] if matches!(name.as_str(), "ci-budget" | "code-health" | "crate-lines" | "instruction-limits") => crate::land::after::gates::scan(name, rest),
         [name, rest @ ..] if name == "dropped-commits" => dropped_commits::run(&directory, rest),
         [name, rest @ ..] if name == "stale-revert" => stale_revert::run(rest),
         [name] if name == "deps" => super::slots::deps::run(&directory),

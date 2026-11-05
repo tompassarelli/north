@@ -164,14 +164,35 @@ fn item_end(bytes: &[u8], from: usize) -> usize {
 }
 
 pub(super) fn mask(text: &str) -> String {
+    blank_literals(text, |_| true)
+}
+
+pub(super) fn non_test_lines(text: &str) -> usize {
+    let file = RustFile::new("", text);
+    if file.whole_test {
+        return 0;
+    }
+    let code = blank_literals(text, |first| first == b'/');
+    let mut start = 0;
+    code.split_inclusive('\n')
+        .filter(|line| {
+            let at = start;
+            start += line.len();
+            let indent = line.len() - line.trim_start().len();
+            !line.trim().is_empty() && !file.is_test(at + indent)
+        })
+        .count()
+}
+
+fn blank_literals(text: &str, blanks: impl Fn(u8) -> bool) -> String {
     let bytes = text.as_bytes();
     let mut out = bytes.to_vec();
     let mut at = 0;
     while at < bytes.len() {
         let end = literal_end(bytes, at);
         if end > at {
-            for byte in &mut out[at..end] {
-                if *byte != b'\n' {
+            if blanks(bytes[at]) {
+                for byte in out[at..end].iter_mut().filter(|byte| **byte != b'\n') {
                     *byte = b' ';
                 }
             }

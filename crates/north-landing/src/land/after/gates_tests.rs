@@ -39,3 +39,31 @@ fn every_gate_runs_and_only_the_failing_ones_are_reported_with_their_output() {
     let root_path = fs::canonicalize(&tree).unwrap();
     assert!(trace.contains(&format!("instructions --repo {} --ref {head}", root_path.display())), "{trace}");
 }
+
+#[test]
+fn the_crate_lines_gate_runs_north_beside_safe_push_only_where_structure_toml_enrolls_it() {
+    let root = tempfile::tempdir().unwrap();
+    let tree = root.path().join("tree");
+    fs::create_dir_all(&tree).unwrap();
+    git(&tree, &["init", "-q", "-b", "main"]);
+    fs::write(tree.join("structure.toml"), "[thresholds]\nfile_lines = 500\n").unwrap();
+    git(&tree, &["add", "-A"]);
+    git(&tree, &["commit", "-q", "-m", "base"]);
+    let base = git(&tree, &["rev-parse", "HEAD"]);
+    let tools = root.path().join("bin");
+    let trace = root.path().join("trace");
+    stub(&tools.join("safe-push"), "exit 9");
+    stub(&tools.join("code-health"), "exit 0");
+    stub(&tools.join("agent-instruction-check"), "exit 0");
+    stub(&tools.join("north"), &format!("echo \"north $*\" >>{}; echo 'north-core grew 10 -> 11'; exit 1", trace.display()));
+    let gates = |head: &str| run(&Landed { tree: &tree, base: &base, head, safe_push: &tools.join("safe-push") });
+    assert!(gates(&base).iter().all(|failure| failure.gate != "crate-lines"));
+    assert!(!trace.exists());
+    fs::write(tree.join("structure.toml"), "[crate_lines]\ndefault = 25000\n").unwrap();
+    git(&tree, &["commit", "-q", "-am", "enroll"]);
+    let head = git(&tree, &["rev-parse", "HEAD"]);
+    let failures = gates(&head);
+    let refused = failures.iter().find(|failure| failure.gate == "crate-lines").expect("crate-lines refused");
+    assert!(refused.output.contains("north-core grew 10 -> 11") && refused.output.contains("✗ crate-lines gate refused"), "{}", refused.output);
+    assert_eq!(fs::read_to_string(trace).unwrap(), format!("north code-health crate-lines {base} {head}\n"));
+}

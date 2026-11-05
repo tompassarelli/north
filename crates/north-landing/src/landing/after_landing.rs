@@ -7,7 +7,7 @@ use crate::platform::rolling_issue::{self, Tracker};
 
 const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD --safe-push PATH
 
-Run the after-landing gates (code-health, instruction-limits, generated-rewrite, ci-budget) and each `after-landing.check = NAME :: COMMAND`
+Run the after-landing gates (code-health, crate-lines, instruction-limits, generated-rewrite, ci-budget) and each `after-landing.check = NAME :: COMMAND`
 in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then add a section for HEAD naming every gate that failed to the repository's one open After-landing gate debt issue; a gate already marked
 for HEAD is not added again.";
 const MARKER: &str = "<!-- after-landing-gate: ";

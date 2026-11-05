@@ -4,6 +4,11 @@ function_lines = 60
 function_complexity = 15
 hotspot_top = 10
 
+[crate_lines]
+default = 25000
+hub = 10000
+hub_dependents = 3
+
 [review]
 commits = 600
 hand_lines_added = 20000

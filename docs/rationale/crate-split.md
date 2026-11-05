@@ -55,3 +55,18 @@ to the new main and run it again rather than merging by hand.
 See north#402 for the numbers; the method is a blank line appended to `provenance.rs`, `cargo build --bin
 north` inside one `nix develop` shell, median of 3, taken against a worktree at the pre-split commit under
 the same machine load.
+
+## Crate-size gate
+
+So no crate grows back into one giant rustc run, `structure.toml` `[crate_lines]` caps each workspace
+crate's non-test Rust lines: `default` (25000) for most crates, `hub` (10000) for a crate that `hub_dependents`
+(3) or more workspace crates list under `[dependencies]`, and `[crate_lines.overrides]` for a named crate.
+Non-test lines are the lines of `src/**` and `build.rs` that are neither blank, comment-only nor inside a
+`#[cfg(test)]` item, in files not named `tests.rs` or `*_tests.rs` and not under a `tests/` directory.
+`north code-health` prints each crate's count against its cap. `north code-health crate-lines BASE HEAD`
+counts both revisions from git and refuses a crate over its cap whose count grew, and a new crate over its
+cap; crates already over (north-core) may shrink or stay but not grow. The refusal names where the new
+code goes: the smallest crate under its cap that the grown crate already depends on, or a new
+`crates/<name>/` named after the module that grew most. It runs as the `crate-lines` after-landing gate
+beside `code-health`, through the `north` beside `safe-push`, wherever HEAD's `structure.toml` has
+`[crate_lines]`.

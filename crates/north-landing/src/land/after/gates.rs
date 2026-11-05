@@ -7,17 +7,18 @@ use super::follow;
 use crate::land::scans::{generated, git};
 use crate::landing::after_landing::Failure;
 
-const USAGE: &str = "usage: north land scan code-health|instruction-limits|ci-budget BASE..HEAD [--safe-push PATH]";
+const USAGE: &str = "usage: north land scan code-health|crate-lines|instruction-limits|ci-budget BASE..HEAD [--safe-push PATH]";
 
 #[derive(Clone, Copy)]
 enum Gate {
     CodeHealth,
+    CrateLines,
     InstructionLimits,
     GeneratedRewrite,
     CiBudget,
 }
 
-const GATES: [Gate; 4] = [Gate::CodeHealth, Gate::InstructionLimits, Gate::GeneratedRewrite, Gate::CiBudget];
+const GATES: [Gate; 5] = [Gate::CodeHealth, Gate::CrateLines, Gate::InstructionLimits, Gate::GeneratedRewrite, Gate::CiBudget];
 
 pub struct Landed<'a> {
     pub tree: &'a Path,
@@ -30,6 +31,7 @@ impl Gate {
     fn name(self) -> &'static str {
         match self {
             Self::CodeHealth => "code-health",
+            Self::CrateLines => "crate-lines",
             Self::InstructionLimits => "instruction-limits",
             Self::GeneratedRewrite => "generated-rewrite",
             Self::CiBudget => "ci-budget",
@@ -44,6 +46,7 @@ impl Gate {
         let range = format!("{}..{}", landed.base, landed.head);
         match self {
             Self::CodeHealth => code_health(landed, out),
+            Self::CrateLines => crate_lines(landed, out),
             Self::InstructionLimits => {
                 let mut command = Command::new(tools(landed.safe_push).join("agent-instruction-check"));
                 command.arg("--repo").arg(root(landed.tree)).args(["--ref", landed.head]);
@@ -109,6 +112,27 @@ fn code_health(landed: &Landed, out: &mut Vec<u8>) -> bool {
     };
     let _ = writeln!(out, "after-landing: {verdict}");
     false
+}
+
+fn crate_lines(landed: &Landed, out: &mut Vec<u8>) -> bool {
+    let structure = git::text(landed.tree, &["show", &format!("{}:structure.toml", landed.head)]).unwrap_or_default();
+    if structure.parse::<toml_edit::DocumentMut>().ok().and_then(|document| document.get("crate_lines").cloned()).is_none() {
+        return true;
+    }
+    let beside = tools(landed.safe_push).join("north");
+    let mut command = if is_executable(&beside) { Command::new(beside) } else { Command::new(follow::program()) };
+    command.args(["code-health", "crate-lines", landed.base, landed.head]);
+    match captured(&mut command, &root(landed.tree), out).unwrap_or(-1) {
+        0 => true,
+        1 => {
+            let _ = writeln!(out, "after-landing: ✗ crate-lines gate refused: a crate over its cap grew.");
+            false
+        }
+        status => {
+            let _ = writeln!(out, "after-landing: ✗ crate-lines gate failed (exit {status}) — fix the tool.");
+            false
+        }
+    }
 }
 
 fn is_executable(path: &Path) -> bool {

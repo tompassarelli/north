@@ -1,3 +1,4 @@
+mod crate_lines;
 mod habits;
 #[cfg(test)]
 mod habits_tests;
@@ -53,7 +54,9 @@ pub fn run(arguments: &[String]) -> u8 {
         },
         Some("habits") => habits_command(&arguments[1..]),
         Some("tick") => tick::run_tick(&arguments[1..]),
-        _ => fail("usage: north code-health imports (JSON request on stdin, JSON response on stdout) | habits [--repo DIR] | tick [--dry-run] [--repos=a,b]"),
+        Some("crate-lines") => crate_lines::run(&arguments[1..]),
+        None => crate_lines::run(&[]),
+        _ => fail("usage: north code-health [crate-lines [--repo DIR] [BASE HEAD]] | imports (JSON request on stdin, JSON response on stdout) | habits [--repo DIR] | tick [--dry-run] [--repos=a,b]"),
     }
 }
 
