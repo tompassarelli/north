@@ -32,23 +32,40 @@ const REMOTE: &str = r#"set -eu
 repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-}
 root=@ROOT@
 mkdir -p "$root"
-waited=0
-while :; do
+bundle=$(mktemp "$root/$name.bundle.XXXXXX")
+trap 'rm -f "$bundle"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
+trap 'exit 143' HUP INT TERM
+cat >"$bundle"
+if ! git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1; then
+  git -C "$repo" fetch -q --no-auto-maintenance origin 2>/dev/null || true
+  git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1 || { echo "offload: $repo lacks the commits under $base" >&2; exit 97; }
+fi
+git -C "$repo" fetch -q --no-auto-maintenance "$bundle" "+$ref:$ref"
+nearest=$(
   i=0
   while [ "$i" -lt @SLOTS@ ]; do
     s=$name
     [ "$i" -eq 0 ] || s=$name-$i
+    d=999999999
+    if [ -d "$root/$s/target" ] && at=$(git -C "$root/$s" rev-parse -q --verify HEAD 2>/dev/null) && files=$(git -C "$repo" diff --name-only "$at" "$head" 2>/dev/null); then
+      d=$(printf '%s\n' "$files" | grep -c . || true)
+    fi
+    echo "$d $s"
+    i=$((i + 1))
+  done | sort -n -s -k1,1 | cut -d ' ' -f2
+)
+waited=0
+while :; do
+  for s in $nearest; do
     exec 9>"$root/$s.lock"
     if flock -n 9; then break 2; fi
     exec 9>&-
-    i=$((i + 1))
   done
   [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: all @SLOTS@ $name slots stayed busy for @LOCK_WAIT@ s" >&2; exit @SLOTS_BUSY@; }
   [ $((waited % 60)) -ne 0 ] || echo "offload: all @SLOTS@ $name slots busy for ${waited}s, waiting up to @LOCK_WAIT@ s; held by: $(cat "$root/$name".holder "$root/$name"-*.holder 2>/dev/null | tr '\n' ';')" >&2
   sleep 2
   waited=$((waited + 2))
 done
-bundle=$root/$s.bundle
 slot=$root/$s
 printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
 printf '%s\n' "$owner" >"$root/$s.owner"
@@ -68,12 +85,6 @@ if [ -d "$slot/target" ]; then
     rm -rf -- "$slot/target"
   fi
 fi
-cat >"$bundle"
-if ! git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1; then
-  git -C "$repo" fetch -q --no-auto-maintenance origin 2>/dev/null || true
-  git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1 || { echo "offload: $repo lacks the commits under $base" >&2; exit 97; }
-fi
-git -C "$repo" fetch -q --no-auto-maintenance "$bundle" "+$ref:$ref"
 if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
 git -C "$slot" clean -ffdxq -e /target
 "#;

@@ -341,3 +341,47 @@ fn a_job_whose_base_is_its_head_bundles_the_head_over_its_parent() {
     let listed = Command::new("git").current_dir(dir.path()).args(["bundle", "list-heads", "-"]).stdin(file).output().unwrap();
     assert_eq!(String::from_utf8(listed.stdout).unwrap().trim(), format!("{} {reference}", head.as_str()));
 }
+
+#[test]
+fn a_job_takes_the_free_slot_whose_checkout_differs_least_from_its_head() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = home.path().join("code/p/main");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+    for file in ["a", "b", "c"] {
+        fs::write(repo.join(file), file).unwrap();
+    }
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "far"]);
+    let far = git(&repo, &["rev-parse", "HEAD"]);
+    for file in ["a", "b"] {
+        fs::write(repo.join(file), "near").unwrap();
+    }
+    git(&repo, &["commit", "-q", "-am", "near"]);
+    let near = git(&repo, &["rev-parse", "HEAD"]);
+    fs::write(repo.join("c"), "head").unwrap();
+    git(&repo, &["commit", "-q", "-am", "head"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    git(&repo, &["update-ref", "refs/land-offload/job", &head]);
+    let bundle = home.path().join("job.bundle");
+    git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), "refs/land-offload/job"]);
+    git(&repo, &["update-ref", "-d", "refs/land-offload/job"]);
+    let root = home.path().join(".cache/land-offload");
+    for (slot, at) in [("code-p-main", &far), ("code-p-main-1", &near)] {
+        git(&repo, &["worktree", "add", "-q", "--detach", root.join(slot).to_str().unwrap(), at]);
+        fs::create_dir_all(root.join(slot).join("target")).unwrap();
+    }
+    let script = super::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "3").replace("@TARGET_CAP@", "1024").replace("@TARGET_FLOOR@", "0");
+    let output = Command::new("sh")
+        .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
+        .env("HOME", home.path())
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .stdin(fs::File::open(&bundle).unwrap())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(git(&root.join("code-p-main-1"), &["rev-parse", "HEAD"]), head, "the job skipped the slot one file from its head");
+    assert_eq!(git(&root.join("code-p-main"), &["rev-parse", "HEAD"]), far);
+    assert!(!root.join("code-p-main-2").exists(), "the job took a slot with no build output over a warm one");
+    assert_eq!(fs::read_dir(&root).unwrap().filter_map(Result::ok).filter(|entry| entry.file_name().to_string_lossy().contains(".bundle")).count(), 0, "the job left its bundle behind");
+}

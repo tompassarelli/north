@@ -81,3 +81,28 @@ runner slots, and north's land checks filled gex45's disk. North's `.safe-push` 
 the checks that need this host (the owner check, the machine-bound harness tests and the dev-shell
 test, each `land.local-only` with its reason) run locally. The landing lock is released for every
 check run, not only the first three, so it covers the fetch, scans and push alone.
+
+## North verification, 2026-11-06
+
+One cargo verification of a one-line north-tui change, run on gex45 at load 25 to 57 in an offload
+slot whose target sat at an older commit: clippy on north-tui and north 69 s, their unit tests 27 s,
+the whole tests/it suite 174 s (680 tests). Three causes, each measured:
+
+- A job took the first free of the host's six slots, whatever commit that slot last built, so most
+  checks rebuilt crates main had already built in another slot. A job now fetches its bundle first
+  and tries the free slots in order of how many files differ between each slot's checkout and its
+  head; a slot with no target comes last.
+- cargo test runs one test binary at a time. The after-landing test check is one `cargo nextest
+  run` over the affected packages' lib and bin tests and tests/it, each test its own process. On
+  ccx33 (8 cores) tests/it took 142.7 s wall for 1,008 test-seconds; the slowest test took 38 s and
+  the fleet_launch module alone 276 test-seconds. nextest selects exactly the tests the replaced `cargo test`
+  commands list (3,668 for every module, 1,659 for one north-landing and north-runtime change).
+- gex45 ran six slot jobs at once at load 45 to 57 on 20 threads, and a job waited up to 5 minutes
+  for a slot. Under that load nextest's tests/it run took 200 s, two threads_snapshot tests took 72
+  and 78 s, and two land_serve::precheck tests that compare sub-second check start and end stamps
+  failed; on ccx33 at load 6 both passed.
+
+Skipping a test binary whose crate and dependency sources match a recorded pass is not sound here:
+27 crate test files read paths outside their crate through `CARGO_MANIFEST_DIR` (`../..`, other
+crates' sources, `harness/`, `bin/safe-push`), so a crate's own source hash does not cover its
+tests' inputs. The land-cache keeps its whole-check reuse keyed on every path the check names.

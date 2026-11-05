@@ -11,7 +11,8 @@ pub const IT_ENV: &str = "SAFE_PUSH_LAND_IT";
 pub const TABLE: &str = "tests/it/crates.txt";
 pub const STRUCTURE: &str = "structure.toml";
 pub const ROOT: &str = "north";
-const NO_MODULE: &str = "--exact no-module-selected";
+const UNIT: &str = "kind(lib)|kind(bin)";
+const IT: &str = "binary_id(north::it)";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Selection {
@@ -22,9 +23,9 @@ pub enum Selection {
 impl Selection {
     pub fn arguments(&self) -> String {
         match self {
-            Self::Every => "--test it".to_owned(),
-            Self::Modules(modules) if modules.is_empty() => format!("--test it -- {NO_MODULE}"),
-            Self::Modules(modules) => format!("--test it -- {}", modules.iter().map(|module| format!("{module}::")).collect::<Vec<_>>().join(" ")),
+            Self::Every => format!("-E {UNIT}|{IT}"),
+            Self::Modules(modules) if modules.is_empty() => format!("-E {UNIT}"),
+            Self::Modules(modules) => format!("-E {UNIT}|({IT}&test(/{}/))", modules.iter().map(|module| format!("{module}::")).collect::<Vec<_>>().join("|")),
         }
     }
 }

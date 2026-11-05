@@ -27,6 +27,7 @@
                     rustToolchain
                     pkgs.shellcheck
                     pkgs.cargo-mutants
+                    pkgs.cargo-nextest
                     pkgs.bun
                     pkgs.openssh
                     pkgs.ast-grep

@@ -34,10 +34,17 @@ fn pid_namespace() {
     let mut fixture = Fixture::new();
     let lane = landed_lane(&mut fixture);
     fixture.enqueue(&lane, None);
+    let mount = tempfile::tempdir().unwrap();
+    let inside = mount.path().join("lane");
     let mut occupant = Command::new("bwrap")
-        .args(["--unshare-user", "--unshare-pid", "--die-with-parent", "--dev-bind", "/", "/", "--tmpfs", "/mnt", "--bind"])
+        .args(["--unshare-user", "--unshare-pid", "--die-with-parent", "--dev-bind", "/", "/", "--tmpfs"])
+        .arg(mount.path())
+        .arg("--bind")
         .arg(&lane)
-        .args(["/mnt/lane", "--chdir", "/mnt/lane", "--", "sleep", "120"])
+        .arg(&inside)
+        .arg("--chdir")
+        .arg(&inside)
+        .args(["--", "sleep", "120"])
         .current_dir("/")
         .spawn()
         .unwrap();
