@@ -28,6 +28,7 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
             }
             let expected = match args.as_slice() {
                 [] => Some(Command::Fleet(Vec::new())),
+                [verb, ..] if defines(verb) && super::verb_help::requested(&args) => Some(Command::VerbHelp(super::verb_help::path(&args))),
                 [help] if ["help", "-h", "--help"].contains(&help.as_str()) => Some(Command::Help),
                 [config, agents, rest @ ..] if config == "config" && agents == "agents" => {
                     Some(Command::Agents(rest.to_vec()))

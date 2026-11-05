@@ -64,6 +64,7 @@ Commands:
   agent-config-check policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses
   agent-config-check tree-policy [--tree DIR]  Check one north tree's skills against the byte and playbook limits with no other checkout or live state; the land check for harness/ and agent-machinery/
   agent-policy-contract --repo FIRN [--north DIR] [--local] [--write] [--codex-adapters]  Check policy surface ownership and generate or verify provider hook wiring
+  mutant sweep --repo DIR... [--host NAME] [--mutants N] [--timeout SECONDS_PER_TREE] [--days N] [--issue OWNER_REPO#N] [--remote-north COMMAND]  Run a mutation sweep over the named repositories and file surviving mutants
   mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease
   threads ARGV                                  Run a NorthThreads command on the ledger host
   remote-serve --peer HOST [--repos REPO,...] [--log FILE]  The ssh forced command for a peer key: run SSH_ORIGINAL_COMMAND only if the allowlist and the peer's guards admit it, exit 126 on a refusal, and log one row per call
@@ -95,8 +96,13 @@ Commands:
   capacity mode status|tick|hold [--minutes N]|extend|release  Show or set the laptop mode (away, desktop, play) and why; hold starts or extends a playtest lease
   capacity gaming on|off|status                 Set or release a play hold, which expires by itself
   capacity game-reserve on [--auto]|off|playing|status Reserve CPUs for Tom's game (Warcraft III or a Wisp native window), moving Warcraft III only once it has run 60 s; the playtest lease (capacity mode hold) turns it on and off
+  capacity host run [--class CLASS] [--owner OWNER] [--timeout-seconds N] [--cpus N] [--memory-gib N] [--wait-seconds N] [--priority tom-ask] -- COMMAND...  Run one command inside a machine-capacity lease and scope
+  capacity host estimate|status|backlog|land-waiting|probe|mode|reserve|renew|release|session|offload-cost ...  Read or drive the host's capacity leases (see the machine-capacity skill)
   capacity offload choose | run --host H --base B --head S --timeout N -- CMD  Run a held land check on another host with room, shipped by git bundle
-  capacity watchdog step < SAMPLE.json | replay SAMPLES.jsonl  On sustained host overload name the top process trees by fleet session, cap the offending session scope and tell its owner and coordinators
+  capacity watchdog sample [--once] [--interval SECONDS]  Every 30 s append host load, pressure and top processes to samples.jsonl, log unleased overload and step each sample
+  capacity watchdog report [--minutes N]... [--since DATE]  Summarize the last N minutes of watchdog samples and incidents with flags
+  capacity watchdog rest-check [--seconds N] [--expected FILE] [--observed FILE] [--save FILE]  Compare running units, timers and sockets with the host's expected-at-rest set
+  capacity watchdog step < SAMPLE.json | replay SAMPLES.jsonl [--owners OWNERS.json] [--cpus N] | replay --snapshots SNAPSHOTS.jsonl  On sustained host overload name the top process trees by fleet session, cap the offending session scope and tell its owner and coordinators
   nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)
   nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
   laptop open|close|drain|toggle|status|tick|observe  Set or read the laptop's placement availability on the ledger host
@@ -142,6 +148,41 @@ Commands:
   agent-capture --screen|--window ID|--region "X,Y WxH" OUT.png  Screenshot without touching Tom's clipboard
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there
   runtime health                                Check that the running binary is the current runtime with its programs and tree
+  after-landing --git-dir DIR --base BASE --head HEAD --safe-push PATH  Run the after-landing checks on a landed range
+  build-cache-gate --repo DIR --base REV --head REV  Refuse a landing that breaks build-cache reuse
+  cleanup-sweep [--dry-run] [north|makgora|wisp...]  Remove spent lanes, targets and scratch of the named projects
+  convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex]  Search and read past agent transcripts
+  desktop-idle-state idle|active                Record whether Tom's desktop is idle
+  evidence start RUN                            Start an evidence folder for one run
+  experiments check|judge [--root DIR] [--today YYYY-MM-DD] [--file]  Check or judge the declared experiments
+  flow [--json] [--repo NAME]... [--stall-alarm] | row REPO [FIELD]... | detect [--dry-run]  Show the flow of work to main and its stalls
+  gh-app-token [--app socrates|lander] [--repos NAME,NAME [--permissions JSON]]  Mint a GitHub App installation token
+  gh-broker serve [--resident]|release|quota    Serve, release or read the GitHub call broker
+  gh-session REAL_GH [ARGS...]                  Run gh through the GitHub broker (gh's own --help passes through)
+  git-credential get|store|erase                Git credential helper backed by the GitHub broker
+  goals check [--root DIR] [PROJECT...]         Check each project's declared goals
+  hook prompt-grounding|stats [--since 7d|48h]|HOOK  Run an agent hook, the prompt grounding hook, or hook statistics
+  job-run [--path DIRS] [--user USER] [--notify] NAME -- CMD...  Run a scheduled job and record its result
+  land-fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
+  land-red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault
+  land-red-wait --main SHA [--timeout SECONDS]  Wait for a red main to turn green
+  loops check [--role ledger|lander|here]       Check the declared control loops and their scores
+  pace [place|sample|grant|gate PROVIDER]       Admit or place a launch against account pace
+  private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]  Run the private-value checks
+  provider-capacity events|status [--minutes N]  Read provider capacity events
+  remote-land routes SAFE-PUSH-ARGUMENTS...     Exit 0 when safe-push lands through the ledger host's south land, 1 when it pushes with git
+  report                                        Print the fleet report
+  resident-cap gate claude|codex [ARG...] | status  Refuse a launch over this host's resident session cap, or print the count and cap
+  run-bounded DURATION -- COMMAND [ARGS...]     Run a command bounded in time and memory
+  runtime-floor-gate --repo DIR --base REV --head REV [--north DIR]  Refuse a landing that needs a newer runtime than deployed
+  session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND  Link a remote session unit
+  session-unit SYSTEMD-RUN-ARGS...              Run systemd-run in the fleet session's scope (systemd-run's own --help passes through)
+  split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...  Move modules into a crate
+  ssh-argv SSH-ARGS...                          Print the attributed ssh argv, NUL separated
+  ssh-session REAL_SSH [ARGS...]                Run ssh with session attribution
+  target-seed [DIR]                             Seed a lane's cargo target from the shared one
+  tool-mine [--days N] [--min-sessions N] [--min-steps N] [--max N] [--owner REPO#N] [--dry-run]  Mine transcripts for repeated tool sequences
+  usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | decide --dry-run BRIEF | sample  Read account usage
   help                                          Show this help
 
 Options:

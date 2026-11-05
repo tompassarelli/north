@@ -22,7 +22,7 @@ use super::repositories;
 use super::steps;
 use crate::platform::decision_log;
 
-const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
+pub const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
 const POLL: Duration = Duration::from_secs(2);
 const TICK: Duration = Duration::from_millis(250);

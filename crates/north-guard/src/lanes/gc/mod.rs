@@ -33,7 +33,7 @@ use state::{StaleReport, write_atomically};
 pub use audit::run as repo;
 
 const SKIP: [&str; 3] = ["clients", "resources", "archive"];
-const USAGE: &str = include_str!("usage.txt").trim_ascii_end();
+pub const USAGE: &str = include_str!("usage.txt").trim_ascii_end();
 
 #[derive(Clone, Debug)]
 pub(super) struct Options {

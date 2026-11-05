@@ -25,7 +25,7 @@ mod spool;
 mod tick;
 mod tier;
 mod tree;
-mod usage;
+pub(super) mod usage;
 mod window_move;
 mod view;
 mod usage_ingest;

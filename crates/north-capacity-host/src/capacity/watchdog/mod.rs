@@ -22,7 +22,7 @@ mod tests;
 
 use detect::{Action, Owner, Sample, Settings, State};
 
-const USAGE: &str = "usage: north capacity watchdog sample [--once] [--interval SECONDS]
+pub const USAGE: &str = "usage: north capacity watchdog sample [--once] [--interval SECONDS]
        north capacity watchdog report [--minutes N]... [--since DATE]
        north capacity watchdog replay SAMPLES.jsonl [--owners OWNERS.json] [--cpus N] | replay --snapshots SNAPSHOTS.jsonl
        north capacity watchdog rest-check [--seconds N] [--expected FILE] [--observed FILE] [--save FILE]

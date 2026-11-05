@@ -1,4 +1,5 @@
 mod gc;
+pub use gc::USAGE as GC_USAGE;
 mod hardcoded_paths;
 mod layout_check;
 mod live_process;

@@ -42,6 +42,7 @@ mod south_policy_tests;
 #[cfg(test)]
 mod south_test_repo;
 mod tools;
+mod verb_help;
 mod verbs;
 mod worker_ledger;
 
@@ -72,6 +73,7 @@ enum Command {
     ContractProbe(Vec<String>),
     Grounding(Vec<String>),
     RemoteServe(Vec<String>),
+    VerbHelp(Vec<String>),
 }
 
 const CLI_HELP: &str = include_str!("help.txt");
@@ -80,6 +82,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
     let arguments = arguments.into_iter().collect::<Vec<_>>();
     if arguments.is_empty() {
         return Ok(Command::Fleet(Vec::new()));
+    }
+    if answers_help(&arguments) {
+        return Ok(Command::VerbHelp(verb_help::path(&arguments)));
     }
     if arguments[0] == "desktop-idle-state" {
         return Ok(Command::DesktopIdleState(arguments.get(1).cloned()));
@@ -146,6 +151,10 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
     FORWARDED.iter().find(|(name, _)| *name == command).map(|(name, forward)| forward(name, rest))
 }
 
+pub fn answers_help(arguments: &[String]) -> bool {
+    arguments.first().is_some_and(|verb| tools::defines(verb)) && verb_help::requested(arguments)
+}
+
 pub fn main() -> ExitCode {
     match parse_command(env::args().skip(1)) {
         Ok(command) => dispatch(command),
@@ -165,10 +174,6 @@ fn hook_command(arguments: Vec<String>) -> ExitCode {
     };
     match arguments.first().map(String::as_str) {
         Some("stats") => reported(hook_stats::run(&arguments[1..])),
-        Some("prompt-grounding") if arguments.iter().any(|argument| argument == "--help") => {
-            println!("usage: north hook prompt-grounding   (reads one UserPromptSubmit payload on stdin)");
-            ExitCode::SUCCESS
-        }
         Some("prompt-grounding") => {
             grounding::prompt_hook(|| guard::activation::authoring_guards_off("prompt-grounding"), grounded_session);
             ExitCode::SUCCESS
@@ -216,6 +221,13 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet::Registry))),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
+        Command::VerbHelp(path) => match verb_help::usage(&path) {
+            Some(text) => {
+                print!("{text}");
+                ExitCode::SUCCESS
+            }
+            None => failure(NorthError::Usage(format!("north {} has no line in north --help", path.join(" ")))),
+        },
         Command::Help => in_runtime(async {
             print!("{CLI_HELP}");
             Ok(ExitCode::SUCCESS)

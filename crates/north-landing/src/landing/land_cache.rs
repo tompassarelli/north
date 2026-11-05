@@ -5,7 +5,7 @@ use std::process::Command;
 use north_base::foundation::clock::Timestamp;
 use sha2::{Digest, Sha256};
 
-const USAGE: &str = "usage: north land-cache key|hit|record --repo DIR --head REV --command CMD [--host-class CLASS] [--status N] [--state DIR]";
+pub const USAGE: &str = "usage: north land-cache key|hit|record --repo DIR --head REV --command CMD [--host-class CLASS] [--status N] [--state DIR]";
 const ABSENT: &str = "absent";
 const TOOLCHAIN: [&str; 3] = ["flake.lock", "rust-toolchain.toml", "rust-toolchain"];
 
