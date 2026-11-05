@@ -13,6 +13,7 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::JoinSet;
 
 use super::affected::{self, CPUS_ENV, PACKAGES_ENV, Scope};
+use super::clippy_first;
 use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement, path_class};
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use fail_fast::Plan;
@@ -1070,7 +1071,16 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     if shared.arguments.leased {
         return shared.run_list(&commands).await.status();
     }
-    shared.execute(commands).await
+    let Some(plan) = clippy_first::plan(&commands, |command| !shared.config.is_inferred(command)).filter(|_| !shared.arguments.after) else {
+        return shared.execute(commands).await;
+    };
+    say(&clippy_first::order(&plan, shared.scope.as_ref()));
+    let status = Arc::clone(&shared).execute(vec![plan.clippy.clone()]).await;
+    if status != 0 {
+        warn(&format!("safe-push: clippy on the affected crates exited {status}, so the other {} land check(s) did not run; NOT pushed.", plan.rest.len()));
+        return status;
+    }
+    shared.execute(plan.rest).await
 }
 
 pub fn run(arguments: &[String]) -> u8 {
