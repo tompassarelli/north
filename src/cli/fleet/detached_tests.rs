@@ -20,14 +20,15 @@ async fn held(run_for: Option<Duration>, policy: crate::fleet::idle::Policy) -> 
     let started = Instant::now();
     let scope = Arc::new(Runs(Mutex::new(run_for.map(|run| started + run))));
     let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, Arc::new(Held::default()), root.path().to_path_buf(), root.path().join("worker")).reading_scope(scope).idling_by(policy);
-    let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
+    let (mut host, mut frames) = observed(&config, watch);
+    read_lines(&mut frames, 2).await;
     host.rest_when_idle(Some(Duration::from_secs(600)));
-    let code = tokio::time::timeout(Duration::from_secs(60), host.wait()).await.unwrap().unwrap();
+    let code = host.wait().await.unwrap();
     let written = std::fs::read_to_string(stdin).unwrap_or_default();
     (root, code, started.elapsed(), written)
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_session_with_a_detached_run_registers_it_and_parks_at_the_registered_park_limit_and_the_runs_end_revives_it_naming_the_run() {
     let (root, code, lasted, stdin) = held(None, crate::fleet::idle::Policy { registered_park_after: Duration::from_secs(2), ..seconds(600, 600) }).await;
     assert_eq!(code, 143);

@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::*;
 use super::show::entry_line;
 use serde_json::{Value, json};
+use tokio::time::Instant;
 use crate::fleet::claims::Held;
 use crate::fleet::books::{Books, Landing, SessionSpend};
 use crate::fleet::model::{Delivery, Ending, Entry, EntryKind};
@@ -12,7 +13,7 @@ use crate::fleet::gates::{ASKED_REPLY, Closure, Gate, GateBook, GateRequest};
 use crate::fleet::registry::TurnWatch;
 use crate::fleet::receipts::{Courier, ReceiptBook};
 use crate::fleet::turns::{RunRecord, RunSink, TurnExit};
-use crate::fleet::session_host::{SessionHost, Watcher};
+use crate::fleet::session_host::{FrameWatch, Rest, SentLog, SessionHost, Watcher};
 
 #[derive(Default)]
 struct Recorded(Mutex<Vec<RunRecord>>, Mutex<Vec<(String, String, Delivery)>>, Mutex<Vec<GateRequest>>, Mutex<Vec<(PathBuf, String)>>);
@@ -81,11 +82,59 @@ impl Books for Recorded {
     }
 }
 
-fn silent_codex_turn(root: &Path, silent_secs: u64) -> HostConfig {
+#[derive(Clone, Copy, Default)]
+struct Seen {
+    lines: usize,
+    in_flight: bool,
+}
+
+struct Reading {
+    watch: TurnWatch,
+    seen: tokio::sync::watch::Sender<Seen>,
+}
+
+impl FrameWatch for Reading {
+    fn line(&mut self, line: &[u8]) {
+        self.watch.line(line);
+        let in_flight = self.watch.in_flight();
+        self.seen.send_modify(|seen| *seen = Seen { lines: seen.lines + 1, in_flight });
+    }
+
+    fn sent_log(&self) -> Arc<dyn SentLog> {
+        self.watch.sent_log()
+    }
+
+    fn in_flight(&self) -> bool {
+        self.watch.in_flight()
+    }
+
+    fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest {
+        self.watch.rest(idle, park_after)
+    }
+
+    fn soonest_rest(&self) -> Option<Duration> {
+        self.watch.soonest_rest()
+    }
+
+    fn close(&mut self) {
+        self.watch.close();
+    }
+}
+
+fn observed(config: &HostConfig, watch: TurnWatch) -> (SessionHost, tokio::sync::watch::Receiver<Seen>) {
+    let (seen, frames) = tokio::sync::watch::channel(Seen::default());
+    let host = SessionHost::spawn_watched(config, Watcher::new(Box::new(Reading { watch, seen }))).unwrap();
+    (host, frames)
+}
+
+async fn read_lines(frames: &mut tokio::sync::watch::Receiver<Seen>, lines: usize) {
+    frames.wait_for(|seen| seen.lines >= lines).await.unwrap();
+}
+
+fn silent_codex_turn(root: &Path, wall_ms: u64) -> HostConfig {
     let thread = r#""threadId":"th-1""#;
     let script = format!(
-        r#"echo '{{"method":"turn/started","params":{{{thread},"turn":{{"id":"turn-1"}}}}}}'; sleep {silent_secs}; echo '{{"method":"turn/completed","params":{{{thread},"turn":{{"id":"turn-1","status":"completed","durationMs":{}}}}}}}'; exec sleep 60"#,
-        silent_secs * 1000
+        r#"echo '{{"method":"turn/started","params":{{{thread},"turn":{{"id":"turn-1"}}}}}}'; read -r _; echo '{{"method":"turn/completed","params":{{{thread},"turn":{{"id":"turn-1","status":"completed","durationMs":{wall_ms}}}}}}}'; exec sleep 60"#
     );
     HostConfig {
         name: "codex-test".into(),
@@ -98,16 +147,19 @@ fn silent_codex_turn(root: &Path, silent_secs: u64) -> HostConfig {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_silent_codex_turn_is_never_parked_mid_turn() {
     let root = tempfile::tempdir().unwrap();
-    let config = silent_codex_turn(root.path(), 3);
+    let config = silent_codex_turn(root.path(), 3000);
     let sink = Arc::new(Recorded::default());
     let watch = TurnWatch::new(Arc::new(Codex), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), root.path().to_path_buf());
-    let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
+    let (mut host, mut frames) = observed(&config, watch);
     let started = Instant::now();
+    frames.wait_for(|seen| seen.in_flight).await.unwrap();
     host.rest_when_idle(Some(Duration::from_secs(1)));
-    let code = tokio::time::timeout(Duration::from_secs(20), host.wait()).await.unwrap().unwrap();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    host.stdin.enqueue("{}".into(), None).await;
+    let code = host.wait().await.unwrap();
     assert_eq!(code, 143, "the host parks by SIGTERM once the turn has ended");
     assert!(started.elapsed() > Duration::from_secs(3), "parked after {:?}, inside the 3 s silent turn", started.elapsed());
     let runs = sink.0.lock().unwrap();
@@ -344,7 +396,8 @@ async fn rest(root: &Path, context: u64, reply: &str, policy: crate::fleet::idle
     let (config, stdin) = claude_turn(root, context, reply);
     let sink = Arc::new(Recorded::default());
     let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, Arc::new(Held::default()), root.to_path_buf(), root.join("worker")).idling_by(policy);
-    let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
+    let (mut host, mut frames) = observed(&config, watch);
+    read_lines(&mut frames, 2).await;
     host.rest_when_idle(park_after);
     let code = tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
     (code, std::fs::read_to_string(stdin).unwrap_or_default())

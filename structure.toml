@@ -384,12 +384,6 @@ reason = "Keeps the process host free of the turn watcher's parsing; candidate t
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
-path = "crates/north-fleet/src/fleet/session_host.rs"
-item = "FrameWatch"
-reason = "Keeps the process host free of the turn watcher's parsing; candidate to make concrete."
-
-[[rust_habits.allow]]
-rule = "single-impl-trait"
 path = "crates/north-fleet/src/fleet/test_support.rs"
 item = "Internals"
 reason = "Test seam behind the test-support feature: north-core's Claude-runtime fleet tests reach Fleet's crate-private accessors through it, so they stay crate-private in production."
