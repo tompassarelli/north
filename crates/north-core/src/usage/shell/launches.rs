@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::decide::world::Label;
 use super::super::decide::world::{
-    EstimateSource, Expected, ModelFamily, Name, Owner, Session, Usd, Workstream,
+    EstimateSource, Expected, ModelFamily, Name, Owner, Session, Standing, Usd, Workstream,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,7 +32,7 @@ impl Launch {
             family: family(&self.family)?,
             workstream: self.workstream.clone().map(Workstream),
             box_id: None,
-            lead: false,
+            standing: Standing::Worker,
             spent: None,
             active_minutes: 0.0,
             expected: Expected {

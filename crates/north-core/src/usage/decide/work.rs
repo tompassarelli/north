@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use super::LEAD_FAILOVER_AFTER;
 use super::place::{Decision, place};
 use super::state::{State, state};
-use super::world::{Label, ModelFamily, Name, Owner, Provider, Request, Session, Unix, World};
+use super::world::{Label, ModelFamily, Name, Owner, Provider, Request, Session, Standing, Unix, World};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -23,10 +23,10 @@ pub fn actions(world: &World) -> Vec<(Name, Action)> {
             continue;
         }
         match account_state {
-            State::Paused { resumes_at } if session.parked_since.is_none() => rest.push((!session.lead, session.name.clone(), Action::Park { resumes_at })),
+            State::Paused { resumes_at } if session.parked_since.is_none() => rest.push((session.standing == Standing::Worker, session.name.clone(), Action::Park { resumes_at })),
             State::WeekOut { .. } | State::ScopeOut { .. } => {
                 if let Some(to) = hand_over_target(world, session) {
-                    rest.push((!session.lead, session.name.clone(), Action::HandOver { to }));
+                    rest.push((session.standing == Standing::Worker, session.name.clone(), Action::HandOver { to }));
                 }
             }
             _ => {}
@@ -61,7 +61,12 @@ pub fn all_out(world: &World) -> Option<Option<Unix>> {
 }
 
 fn is_failover(world: &World, session: &Session, account_state: State) -> bool {
-    session.lead && matches!(account_state, State::Paused { .. }) && session.parked_since.is_some_and(|since| world.now.0 - since.0 >= LEAD_FAILOVER_AFTER.0)
+    let paused = matches!(account_state, State::Paused { .. });
+    match session.standing {
+        Standing::Proxy => paused,
+        Standing::Lead => paused && session.parked_since.is_some_and(|since| world.now.0 - since.0 >= LEAD_FAILOVER_AFTER.0),
+        Standing::Worker => false,
+    }
 }
 
 fn hand_over_target(world: &World, session: &Session) -> Option<Label> {

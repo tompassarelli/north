@@ -48,7 +48,7 @@ fn spend_row_1_a_box_with_no_estimate_or_a_zero_p90_is_unestimated_and_never_tri
 
 #[test]
 fn spend_row_1_a_workstream_with_only_a_lead_has_no_boxes_and_is_unestimated() {
-    let lead = Session { lead: true, ..worker("lead", "n#3", "b3", 50.0, 2.0) };
+    let lead = Session { standing: Standing::Lead, ..worker("lead", "n#3", "b3", 50.0, 2.0) };
     let answer = assess(&open_a().running(lead).world(), &Assessments::default());
     assert_eq!(workstream_state(&answer, "n#3"), Assessment::Unestimated);
     assert!(!answer.spend.contains_key(&Scope::Box(BoxId("b3".to_owned()))));
@@ -113,7 +113,7 @@ fn a_follows_chain_is_one_box_and_a_workstream_sums_its_boxes_without_the_lead()
         .running(worker("w1", "n#10", "b10", 1.0, 2.0))
         .running(worker("w2", "n#10", "b10", 2.0, 2.0))
         .running(worker("w3", "n#10", "b11", 3.0, 4.0))
-        .running(Session { lead: true, ..worker("lead", "n#10", "b12", 50.0, 9.0) });
+        .running(Session { standing: Standing::Lead, ..worker("lead", "n#10", "b12", 50.0, 9.0) });
     let answer = assess(&fixture.world(), &Assessments::default());
     let one_box = &answer.spend[&Scope::Box(BoxId("b10".to_owned()))];
     assert_eq!((one_box.spent, one_box.p90), (Usd(3.0), Usd(2.0)));
@@ -150,7 +150,7 @@ fn work_row_2_a_session_on_a_paused_account_parks_once_with_the_resume_time() {
 
 #[test]
 fn work_row_1_a_lead_paused_ten_minutes_is_handed_over_before_any_worker() {
-    let lead = Session { lead: true, parked_since: Some(Unix(NOW.0 - 601)), ..worker("lead", "n#13", "b15", 0.0, 2.0) };
+    let lead = Session { standing: Standing::Lead, parked_since: Some(Unix(NOW.0 - 601)), ..worker("lead", "n#13", "b15", 0.0, 2.0) };
     let fixture = Fixture::accounts(&["a", "b"])
         .open("a", 10.0, WEEK_RESET, 100.0, FIVE_RESET)
         .open("b", 10.0, WEEK_RESET, 0.0, FIVE_RESET)
@@ -164,8 +164,15 @@ fn work_row_1_a_lead_paused_ten_minutes_is_handed_over_before_any_worker() {
 }
 
 #[test]
+fn work_row_1_a_childless_proxy_on_a_paused_account_is_handed_over_at_once() {
+    let proxy = Session { standing: Standing::Proxy, ..worker("proxy", "n#14", "b17", 0.0, 2.0) };
+    let fixture = Fixture::accounts(&["a", "b"]).open("a", 10.0, WEEK_RESET, 100.0, FIVE_RESET).open("b", 10.0, WEEK_RESET, 0.0, FIVE_RESET).running(proxy);
+    assert_eq!(assess(&fixture.world(), &Assessments::default()).actions, vec![(Name("proxy".to_owned()), Action::HandOver { to: label("b") })]);
+}
+
+#[test]
 fn work_row_1_a_lead_paused_under_ten_minutes_is_not_handed_over() {
-    let lead = Session { lead: true, parked_since: Some(Unix(NOW.0 - 599)), ..worker("lead", "n#14", "b17", 0.0, 2.0) };
+    let lead = Session { standing: Standing::Lead, parked_since: Some(Unix(NOW.0 - 599)), ..worker("lead", "n#14", "b17", 0.0, 2.0) };
     let fixture = Fixture::accounts(&["a", "b"]).open("a", 10.0, WEEK_RESET, 100.0, FIVE_RESET).open("b", 10.0, WEEK_RESET, 0.0, FIVE_RESET).running(lead);
     assert!(assess(&fixture.world(), &Assessments::default()).actions.is_empty());
 }

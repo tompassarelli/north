@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use super::super::decide::Decision;
 use super::super::decide::world::{
-    EstimateSource, Expected, Label, ModelFamily, Name, Owner, Session, Unix, Usd, Workstream,
+    EstimateSource, Expected, Label, ModelFamily, Name, Owner, Session, Standing, Unix, Usd, Workstream,
 };
 use super::{Launch, Registry, Shell, brief, dry_run};
 use crate::foundation::clock::Timestamp;
@@ -79,7 +79,7 @@ fn session(name: &str, account: &Label) -> Session {
         family: ModelFamily::Sonnet,
         workstream: Some(Workstream("north#259".to_owned())),
         box_id: None,
-        lead: false,
+        standing: Standing::Worker,
         spent: None,
         active_minutes: 0.0,
         expected: Expected {

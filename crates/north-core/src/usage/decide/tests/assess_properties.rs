@@ -18,7 +18,7 @@ fn sessions() -> impl Strategy<Value = Vec<Session>> {
             .enumerate()
             .map(|(index, (account, owner, workstream, box_id, spent, lead, parked))| Session {
                 owner,
-                lead,
+                standing: if lead { Standing::Lead } else { Standing::Worker },
                 workstream: Some(Workstream(workstream.to_owned())),
                 box_id: Some(BoxId(box_id.to_owned())),
                 parked_since: parked.then_some(Unix(NOW.0 - 700)),
@@ -70,7 +70,7 @@ proptest! {
 
     #[test]
     fn prop_empty_workstreams_a_workstream_without_a_non_lead_boxed_session_is_unestimated(sessions in sessions()) {
-        let fleet_only: Vec<Session> = sessions.into_iter().map(|session| Session { lead: true, ..session }).collect();
+        let fleet_only: Vec<Session> = sessions.into_iter().map(|session| Session { standing: Standing::Lead, ..session }).collect();
         let answer = assess(&fixture_with(fleet_only).world(), &Assessments::default());
         for entry in answer.spend.values() {
             prop_assert_eq!(&entry.confirmed, &crate::usage::decide::Assessment::Unestimated);

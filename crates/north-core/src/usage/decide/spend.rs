@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::world::{BoxId, EstimateSource, Owner, Session, Trip, Usd, Workstream, World};
+use super::world::{BoxId, EstimateSource, Owner, Session, Standing, Trip, Usd, Workstream, World};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Scope {
@@ -60,7 +60,7 @@ pub fn spend(world: &World, previous: &BTreeMap<Scope, Spend>) -> BTreeMap<Scope
 
 fn box_totals(sessions: &[&Session]) -> BTreeMap<BoxId, (Option<Workstream>, Totals)> {
     let mut boxes: BTreeMap<BoxId, (Option<Workstream>, Totals)> = BTreeMap::new();
-    for session in sessions.iter().filter(|session| !session.lead) {
+    for session in sessions.iter().filter(|session| session.standing == Standing::Worker) {
         let Some(id) = &session.box_id else { continue };
         let (workstream, totals) = boxes.entry(id.clone()).or_default();
         if let Some(found) = &session.workstream

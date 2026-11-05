@@ -59,7 +59,7 @@ pub fn session(name: &str, account: &str, p50: f64, spent: Option<f64>) -> Sessi
         family: ModelFamily::Opus,
         workstream: None,
         box_id: None,
-        lead: false,
+        standing: Standing::Worker,
         spent: spent.map(Usd),
         active_minutes: 0.0,
         expected: expected(p50),

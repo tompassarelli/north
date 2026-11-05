@@ -10,7 +10,7 @@ use super::waits::Run;
 use crate::error::NorthResult;
 use crate::foundation::clock::Timestamp;
 use crate::usage::decide::world::{
-    Account, EstimateSource, Expected, Host, Label, LimitEvent, ModelFamily, Name, Owner, Provider, Rate, Rates, Reading, Session, Settings, Unix, Usd, Window, World,
+    Account, EstimateSource, Expected, Host, Label, LimitEvent, ModelFamily, Name, Owner, Provider, Rate, Rates, Reading, Session, Settings, Standing, Unix, Usd, Window, World,
 };
 use crate::usage::decide::{Action, Assessments, assess};
 
@@ -67,7 +67,8 @@ pub fn hand_over(
                     limits.push(LimitEvent { account, window, resets_at: Some(Unix((at_ms / 1000) as i64)), at });
                 }
             }
-            session_of(record, leads.contains(record.name.as_str()), parked.map(|(_, _, since_ms)| Unix((since_ms / 1000) as i64)))
+            let standing = if record.role() == Role::Proxy { Standing::Proxy } else if leads.contains(record.name.as_str()) { Standing::Lead } else { Standing::Worker };
+            session_of(record, standing, parked.map(|(_, _, since_ms)| Unix((since_ms / 1000) as i64)))
         })
         .collect();
     let settings = Settings::default();
@@ -140,7 +141,7 @@ fn account_of(label: String, host: &Host) -> Account {
     }
 }
 
-fn session_of(record: &SessionRecord, lead: bool, parked_since: Option<Unix>) -> Session {
+fn session_of(record: &SessionRecord, standing: Standing, parked_since: Option<Unix>) -> Session {
     Session {
         name: Name(record.name.clone()),
         owner: Owner::Fleet,
@@ -148,7 +149,7 @@ fn session_of(record: &SessionRecord, lead: bool, parked_since: Option<Unix>) ->
         family: family_of(record.model.as_deref()),
         workstream: None,
         box_id: None,
-        lead,
+        standing,
         spent: None,
         active_minutes: 0.0,
         expected: Expected { p50: Usd(0.0), p90: Usd(0.0), minutes: 0.0, source: EstimateSource::None },

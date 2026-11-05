@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use super::records::read_record;
 use crate::usage::decide::world::{
-    EstimateSource, Expected, Label, Name, Owner, Session, Usd, Workstream,
+    EstimateSource, Expected, Label, Name, Owner, Session, Standing, Usd, Workstream,
 };
 use crate::usage::shell::{Registry, family};
 
@@ -31,7 +31,7 @@ impl Registry for FleetRecords {
             })
             .filter_map(|record| {
                 Some(Session {
-                    lead: record.name.starts_with("lead-"),
+                    standing: if record.name.starts_with("lead-") { Standing::Lead } else { Standing::Worker },
                     name: Name(record.name),
                     owner: Owner::Fleet,
                     account: Label(record.account),

@@ -117,6 +117,13 @@ pub enum Owner {
     Tom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Standing {
+    Worker,
+    Lead,
+    Proxy,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Session {
     pub name: Name,
@@ -125,7 +132,7 @@ pub struct Session {
     pub family: ModelFamily,
     pub workstream: Option<Workstream>,
     pub box_id: Option<BoxId>,
-    pub lead: bool,
+    pub standing: Standing,
     pub spent: Option<Usd>,
     pub active_minutes: f64,
     pub expected: Expected,

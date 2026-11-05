@@ -1175,13 +1175,7 @@ fn a_running_proxy_whose_account_week_ran_out_is_handed_over_onto_an_account_wit
     use crate::fleet::model::{LaunchRequest, Role};
     let host = host("nexus");
     with_accounts(&host, &["a", "c"]);
-    let main = host.home.path().join("code/north/main");
-    std::fs::create_dir_all(&main).unwrap();
-    let _frames = live(&host, "proxy");
-    let file = host.root().join("proxy").join("session.json");
-    let mut record: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
-    (record["account"], record["cwd"], record["role"], record["conversation"]) = (json!("c"), json!(main), json!("proxy"), json!("conv-proxy"));
-    std::fs::write(&file, record.to_string()).unwrap();
+    let (main, _frames) = proxy_on(&host, "c");
     let launches = Launches::default();
     let take = |request: &LaunchRequest| {
         launches.borrow_mut().push(request.clone());
@@ -1197,6 +1191,41 @@ fn a_running_proxy_whose_account_week_ran_out_is_handed_over_onto_an_account_wit
     assert_eq!(done.lines, ["proxy: handed over from account c to a with its lane ".to_owned() + &main.display().to_string()]);
     let second = host.fleet.take_over(&LaunchRequest { name: "proxy-a".into(), resume: None, ..launched[0].clone() }).unwrap_err().user_message();
     assert!(second.contains("proxy is the live proxy"), "the one-live-proxy rule still refuses a second proxy: {second}");
+}
+
+fn proxy_on(host: &Host, account: &str) -> (std::path::PathBuf, Arc<Mutex<Vec<String>>>) {
+    let main = host.home.path().join("code/north/main");
+    std::fs::create_dir_all(&main).unwrap();
+    let frames = live(host, "proxy");
+    let file = host.root().join("proxy").join("session.json");
+    let mut record: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    (record["account"], record["cwd"], record["role"], record["conversation"]) = (json!(account), json!(main), json!("proxy"), json!("conv-proxy"));
+    std::fs::write(&file, record.to_string()).unwrap();
+    (main, frames)
+}
+
+#[test]
+fn a_childless_proxy_whose_account_five_hour_window_ran_out_is_handed_over_at_once_onto_an_account_with_headroom() {
+    use crate::fleet::model::LaunchRequest;
+    use crate::usage::decide::world::Window;
+    let host = host("nexus");
+    with_accounts(&host, &["a", "c"]);
+    let (main, _frames) = proxy_on(&host, "c");
+    let launches = Launches::default();
+    let take = |request: &LaunchRequest| {
+        launches.borrow_mut().push(request.clone());
+        host.fleet.session(&request.name)
+    };
+    let table = Table(crate::fleet::handover::Observed {
+        readings: vec![read(0, "c", Window::Week, 10.0, 400_000), read(1, "c", Window::FiveHour, 100.0, 10_800), read(2, "a", Window::Week, 10.0, 400_000), read(3, "a", Window::FiveHour, 5.0, 9_000)],
+        limits: Vec::new(),
+    });
+
+    let done = crate::fleet::handover::hand_over(&host.fleet, &table, &|_| false, &take, &|_| Ok(()), NOW_MS);
+
+    let launched = launches.borrow();
+    assert_eq!(launched.iter().map(|request| (request.name.as_str(), request.account.as_str(), request.resume.as_deref())).collect::<Vec<_>>(), [("proxy", "a", Some("conv-proxy"))]);
+    assert_eq!(done.lines, ["proxy: handed over from account c to a with its lane ".to_owned() + &main.display().to_string()]);
 }
 
 struct Placing(Duration);
