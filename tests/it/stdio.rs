@@ -1,6 +1,8 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{PipeReader, PipeWriter, Read};
 use std::process::{Child, Command, Stdio};
+
+use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
 
 struct Process(Child);
 
@@ -17,6 +19,12 @@ fn nonblocking(pid: u32, descriptor: u8) -> bool {
     u32::from_str_radix(flags, 8).unwrap() & 0o4000 != 0
 }
 
+fn nonblocking_pipe() -> (PipeReader, PipeWriter) {
+    let (reader, writer) = std::io::pipe().unwrap();
+    fcntl_setfl(&writer, fcntl_getfl(&writer).unwrap() | OFlags::NONBLOCK).unwrap();
+    (reader, writer)
+}
+
 #[test]
 fn cli_output_survives_backpressure_from_a_nonblocking_parent() {
     let scratch = tempfile::tempdir().unwrap();
@@ -27,31 +35,22 @@ fn cli_output_survives_backpressure_from_a_nonblocking_parent() {
         "name": name, "provider": "claude", "account": "fixture", "cwd": scratch.path(),
         "model": null, "created_ms": 1, "host_pid": null, "conversation": null
     })).unwrap()).unwrap();
-    let script = r#"
-process.stdout.write("");
-process.stderr.write("");
-const child = Bun.spawn([process.env.STDIO_NORTH, "fleet", "list", "--json"], {
-    stdin: "ignore", stdout: "inherit", stderr: "inherit",
-});
-process.stderr.write(child.pid + "\n");
-process.exitCode = await child.exited;
-"#;
-    let mut process = Process(Command::new("bun").args(["-e", script])
-        .env("STDIO_NORTH", env!("CARGO_BIN_EXE_north"))
+    let (mut output, output_writer) = nonblocking_pipe();
+    let (_errors, errors_writer) = nonblocking_pipe();
+    let mut process = Process(Command::new(env!("CARGO_BIN_EXE_north")).args(["fleet", "list", "--json"])
         .env("HOME", scratch.path())
         .env("NORTH_FLEET_SESSION", "")
-        .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap());
-    let mut errors = BufReader::new(process.0.stderr.take().unwrap());
-    let mut receipt = String::new();
-    errors.read_line(&mut receipt).unwrap();
-    let pid: u32 = receipt.trim().parse().unwrap();
-    let mut output = process.0.stdout.take().unwrap();
+        .stdin(Stdio::null())
+        .stdout(output_writer.try_clone().unwrap())
+        .stderr(errors_writer.try_clone().unwrap())
+        .spawn().unwrap());
     let mut first = [0];
     output.read_exact(&mut first).unwrap();
-    for descriptor in [1, 2] {
-        assert!(nonblocking(process.0.id(), descriptor), "the parent must keep its own descriptor flags");
-        assert!(!nonblocking(pid, descriptor), "the CLI must own blocking output descriptors");
+    for (descriptor, writer) in [(1, &output_writer), (2, &errors_writer)] {
+        assert!(fcntl_getfl(writer).unwrap().contains(OFlags::NONBLOCK), "the parent must keep its own descriptor flags");
+        assert!(!nonblocking(process.0.id(), descriptor), "the CLI must own blocking output descriptors");
     }
+    drop((output_writer, errors_writer));
     let mut text = first.to_vec();
     output.read_to_end(&mut text).unwrap();
     assert!(process.0.wait().unwrap().success());
