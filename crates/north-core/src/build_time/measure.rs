@@ -1,14 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-pub(super) trait Cargo {
-    fn run(&mut self, workspace: &Path, target: &Path, args: &[&str]) -> Result<Duration, String>;
-}
+pub(super) struct Cargo;
 
-pub(super) struct RealCargo;
-
-impl Cargo for RealCargo {
-    fn run(&mut self, workspace: &Path, target: &Path, args: &[&str]) -> Result<Duration, String> {
+impl Cargo {
+    pub(super) fn run(&mut self, workspace: &Path, target: &Path, args: &[&str]) -> Result<Duration, String> {
         let started = Instant::now();
         let output = std::process::Command::new("cargo")
             .args(args)
@@ -68,7 +64,7 @@ impl Drop for Probe {
     }
 }
 
-pub(super) fn measure(cargo: &mut dyn Cargo, workspace: &Path, leaf: &Path, hub: &Path, samples: usize) -> Result<Times, String> {
+pub(super) fn measure(cargo: &mut Cargo, workspace: &Path, leaf: &Path, hub: &Path, samples: usize) -> Result<Times, String> {
     let scratch = workspace.join("target");
     std::fs::create_dir_all(&scratch).map_err(|error| format!("{}: {error}", scratch.display()))?;
     let target = tempfile::Builder::new().prefix("build-time-").tempdir_in(&scratch).map_err(|error| error.to_string())?;
@@ -83,12 +79,12 @@ pub(super) fn measure(cargo: &mut dyn Cargo, workspace: &Path, leaf: &Path, hub:
     Ok(Times { cold_build, leaf_build, leaf_test, hub_build, hub_test, critical_path })
 }
 
-fn settle(cargo: &mut dyn Cargo, workspace: &Path, target: &Path) -> Result<(), String> {
+fn settle(cargo: &mut Cargo, workspace: &Path, target: &Path) -> Result<(), String> {
     cargo.run(workspace, target, &["build"])?;
     cargo.run(workspace, target, &["test", "--no-run"]).map(drop)
 }
 
-fn edited(cargo: &mut dyn Cargo, workspace: &Path, target: &Path, file: &Path, samples: usize) -> Result<(f64, f64), String> {
+fn edited(cargo: &mut Cargo, workspace: &Path, target: &Path, file: &Path, samples: usize) -> Result<(f64, f64), String> {
     let probe = Probe::open(file.to_path_buf())?;
     let mut builds = Vec::new();
     let mut tests = Vec::new();

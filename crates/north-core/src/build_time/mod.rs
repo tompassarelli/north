@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use config::Workspace;
 use ledger::{Row, Verdict};
-use measure::{Cargo, RealCargo};
+use measure::Cargo;
 
 use crate::platform::rolling_issue::{Gh, Tracker};
 
@@ -50,7 +50,7 @@ pub fn run(arguments: &[String]) -> u8 {
     if let Some(checkout) = &checkout {
         options.repo = checkout.path().to_path_buf();
     }
-    match measure_repo(&options, &mut RealCargo, &ledger, &host, crate::platform::host::contention(), tracker.as_mut().map(|gh| gh as &mut dyn Tracker)) {
+    match measure_repo(&options, &mut Cargo, &ledger, &host, crate::platform::host::contention(), tracker.as_mut().map(|gh| gh as &mut dyn Tracker)) {
         Ok(code) => code,
         Err(error) => fail(&error),
     }
@@ -103,7 +103,7 @@ fn workspaces(options: &Options) -> Result<Vec<Workspace>, String> {
     Ok(vec![Workspace { workspace: name.clone(), leaf, hub, threshold_seconds: found.as_ref().and_then(|entry| entry.threshold_seconds), contention_ceiling: found.and_then(|entry| entry.contention_ceiling) }])
 }
 
-fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &str, contention: Option<f64>, tracker: Option<&mut dyn Tracker>) -> Result<u8, String> {
+fn measure_repo(options: &Options, cargo: &mut Cargo, ledger: &Path, host: &str, contention: Option<f64>, tracker: Option<&mut dyn Tracker>) -> Result<u8, String> {
     let sha = git(&options.repo, &["rev-parse", "--short=10", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
     let repo_name = options.repo.canonicalize().ok().and_then(|path| repo_label(&path)).unwrap_or_else(|| "unknown".to_owned());
     let rustc = tool_version("rustc");

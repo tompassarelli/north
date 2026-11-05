@@ -6,12 +6,6 @@ use toml_edit::{DocumentMut, Item};
 use super::report::Report;
 use super::Context;
 
-pub(super) trait Profiles {
-    /// Whether `path` is a directory on `host`; None when this machine cannot look there.
-    fn has_directory(&self, host: &str, path: &str) -> Option<bool>;
-    fn tier(&self, host: &str, path: &str) -> Option<String>;
-}
-
 struct Machines<'a> {
     here: String,
     home: &'a Path,
@@ -24,7 +18,7 @@ impl Machines<'_> {
     }
 }
 
-impl Profiles for Machines<'_> {
+impl Machines<'_> {
     fn has_directory(&self, host: &str, path: &str) -> Option<bool> {
         if let Some(home) = self.local(host) {
             return Some(expand(&home, path).is_dir());
@@ -76,7 +70,7 @@ fn ssh_hosts(orchestration: &str) -> Vec<(String, String)> {
     hosts.iter().filter_map(|(name, host)| Some((name.to_owned(), host.get("ssh")?.as_str()?.to_owned()))).collect()
 }
 
-pub(super) fn problems(orchestration: &str, costs: &str, profiles: &dyn Profiles) -> Vec<String> {
+fn problems(orchestration: &str, costs: &str, profiles: &Machines<'_>) -> Vec<String> {
     let (Ok(orchestration), Ok(costs)) = (orchestration.parse::<DocumentMut>(), costs.parse::<DocumentMut>()) else {
         return vec!["orchestration.toml or costs.toml does not parse".to_owned()];
     };
