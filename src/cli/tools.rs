@@ -78,25 +78,29 @@ const UNIFORM: &[(&str, Run)] = &[
     ("gh-app-token", crate::platform::github_app::run),
 ];
 
+const DIRECT: &[(&str, Run)] = &[
+    ("nexus-ram", crate::ops::nexus_ram::run),
+    ("laptop", crate::ops::laptop::run),
+    ("laptop-runner", crate::ops::laptop_runner::run),
+    ("laptop-ntfy", crate::ops::laptop_ntfy::run),
+    ("agent-contain", crate::ops::agent_contain::run),
+    ("reclaim", crate::ops::reclaim::run),
+    ("retain", crate::ops::retention::run),
+    ("runtime", crate::ops::runtime::run),
+    ("tune", crate::ops::tune::run),
+    ("archives", crate::platform::archive_tags::run),
+    ("code-health", code_health),
+];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Tool {
     Uniform(&'static str),
+    Direct(&'static str),
     Wisp,
     Pace,
     Capacity,
-    NexusRam,
-    Laptop,
-    LaptopRunner,
-    LaptopNtfy,
-    AgentContain,
-    Reclaim,
-    Retain,
     SessionUnit,
-    Runtime,
     Dispatch,
-    Tune,
-    Archives,
-    CodeHealth,
     NexusRun,
     Timer(Timer),
 }
@@ -105,61 +109,52 @@ const OPERATIONS: &[(&str, Tool)] = &[
     ("wisp", Tool::Wisp),
     ("pace", Tool::Pace),
     ("capacity", Tool::Capacity),
-    ("nexus-ram", Tool::NexusRam),
-    ("laptop", Tool::Laptop),
-    ("laptop-runner", Tool::LaptopRunner),
-    ("laptop-ntfy", Tool::LaptopNtfy),
-    ("agent-contain", Tool::AgentContain),
-    ("reclaim", Tool::Reclaim),
-    ("retain", Tool::Retain),
     ("session-unit", Tool::SessionUnit),
-    ("runtime", Tool::Runtime),
     ("dispatch", Tool::Dispatch),
-    ("tune", Tool::Tune),
-    ("archives", Tool::Archives),
-    ("code-health", Tool::CodeHealth),
     ("nexus-run", Tool::NexusRun),
 ];
 
 impl Tool {
     pub(super) fn named(command: &str) -> Option<Self> {
-        UNIFORM.iter().find(|(name, _)| *name == command).map(|(name, _)| Self::Uniform(name)).or_else(|| Self::operations(command))
-    }
-
-    fn operations(command: &str) -> Option<Self> {
-        OPERATIONS.iter().find(|(name, _)| *name == command).map(|(_, tool)| *tool).or_else(|| Timer::named(command).map(Self::Timer))
+        named(UNIFORM, command)
+            .map(Self::Uniform)
+            .or_else(|| named(DIRECT, command).map(Self::Direct))
+            .or_else(|| OPERATIONS.iter().find(|(name, _)| *name == command).map(|(_, tool)| *tool))
+            .or_else(|| Timer::named(command).map(Self::Timer))
     }
 
     pub(super) fn run(self, arguments: &[String]) -> ExitCode {
         match self {
             Self::Uniform(name) => {
-                let run = UNIFORM.iter().find(|(known, _)| *known == name).map(|(_, run)| *run);
+                let run = runner(UNIFORM, name);
                 super::in_runtime(async move { Ok(ExitCode::from(run.map_or(2, |run| run(arguments)))) })
             }
+            Self::Direct(name) => ExitCode::from(runner(DIRECT, name).map_or(2, |run| run(arguments))),
             Self::Wisp => super::in_runtime(async move {
                 crate::platform::wisp_payoff::run(arguments).map(|()| ExitCode::SUCCESS)
             }),
             Self::Dispatch => ExitCode::from(crate::ops::dispatch::run(arguments, super::fleet::roster)),
             Self::Pace => ExitCode::from(crate::ops::pacing::run(arguments, crate::ops::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load }, super::token_usage::read)),
             Self::Capacity => ExitCode::from(capacity::run(arguments, capacity::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::ops::pacing::placement::local_bar1_margin_mib, offload: crate::ops::land_offload::run, build_offload: crate::ops::build_offload::offload, lease_builds: crate::ops::pacing::placement::local_lease_builds, reclaim_disk: crate::ops::reclaim::before_disk_defer_here })),
-            Self::NexusRam => ExitCode::from(crate::ops::nexus_ram::run(arguments)),
-            Self::Laptop => ExitCode::from(crate::ops::laptop::run(arguments)),
-            Self::LaptopRunner => ExitCode::from(crate::ops::laptop_runner::run(arguments)),
-            Self::LaptopNtfy => ExitCode::from(crate::ops::laptop_ntfy::run(arguments)),
-            Self::AgentContain => ExitCode::from(crate::ops::agent_contain::run(arguments)),
-            Self::Reclaim => ExitCode::from(crate::ops::reclaim::run(arguments)),
-            Self::Retain => ExitCode::from(crate::ops::retention::run(arguments)),
             Self::SessionUnit => super::failure(crate::platform::session_scope::run(arguments).into()),
-            Self::Runtime => ExitCode::from(crate::ops::runtime::run(arguments)),
-            Self::Tune => ExitCode::from(crate::ops::tune::run(arguments)),
-            Self::Archives => ExitCode::from(crate::platform::archive_tags::run(arguments)),
-            Self::CodeHealth => ExitCode::from(match arguments.first().map(String::as_str) {
-                Some("build-time") => crate::build_time::run(&arguments[1..]),
-                _ => crate::code_health::run(arguments),
-            }),
             Self::NexusRun => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(arguments).await)) }),
             Self::Timer(timer) => ExitCode::from(timer.run(arguments, &super::agents::claude_access())),
         }
+    }
+}
+
+fn named(table: &'static [(&'static str, Run)], command: &str) -> Option<&'static str> {
+    table.iter().find(|(name, _)| *name == command).map(|(name, _)| *name)
+}
+
+fn runner(table: &[(&str, Run)], name: &str) -> Option<Run> {
+    table.iter().find(|(known, _)| *known == name).map(|(_, run)| *run)
+}
+
+fn code_health(arguments: &[String]) -> u8 {
+    match arguments.first().map(String::as_str) {
+        Some("build-time") => crate::build_time::run(&arguments[1..]),
+        _ => crate::code_health::run(arguments),
     }
 }
 
@@ -181,6 +176,7 @@ pub(super) fn defines(command: &str) -> bool {
 #[cfg(test)]
 pub(super) fn verbs() -> impl Iterator<Item = &'static str> {
     UNIFORM.iter().map(|(name, _)| *name)
+        .chain(DIRECT.iter().map(|(name, _)| *name))
         .chain(OPERATIONS.iter().map(|(name, _)| *name))
         .chain(Timer::NAMES.iter().map(|(name, _)| *name))
         .chain(super::session::NAMES.iter().map(|(name, _)| *name))
