@@ -109,10 +109,14 @@ impl Refusal {
 }
 
 pub(super) fn refusal(command: &str, cwd: &str, home: &str) -> Option<String> {
-    inspect_command(command, cwd, home, 0).map(|found| found.reason())
+    let reasons: Vec<String> = inspect_command(command, cwd, home, 0)
+        .iter()
+        .map(Refusal::reason)
+        .collect();
+    (!reasons.is_empty()).then(|| reasons.join("\n"))
 }
 
-fn inspect_command(text: &str, base: &str, home: &str, depth: usize) -> Option<Refusal> {
+fn inspect_command(text: &str, base: &str, home: &str, depth: usize) -> Vec<Refusal> {
     let tokens = shell::tokenize(
         &shell::strip_heredocs(text),
         ";&|\n()`",
@@ -122,7 +126,8 @@ fn inspect_command(text: &str, base: &str, home: &str, depth: usize) -> Option<R
     );
     search_words::segments(tokens)
         .into_iter()
-        .find_map(|segment| inspect_segment(&segment.words, segment.piped, base, home, depth))
+        .flat_map(|segment| inspect_segment(&segment.words, segment.piped, base, home, depth))
+        .collect()
 }
 
 fn is_search(name: &str) -> bool {
@@ -135,28 +140,30 @@ fn inspect_segment(
     base: &str,
     home: &str,
     depth: usize,
-) -> Option<Refusal> {
+) -> Vec<Refusal> {
     if words.is_empty() || depth > MAX_NESTING {
-        return None;
+        return Vec::new();
     }
     let index = match search_words::locate(words, &["{", "}"], is_search) {
         Located::Nested(text) => return inspect_command(&text, base, home, depth + 1),
         Located::Tool(index) => index,
-        Located::Other => return None,
+        Located::Other => return Vec::new(),
     };
     let tool = shell::basename(&words[index]);
-    let operands = path_operands(tool, &words[index + 1..], piped)?;
-    let found = |target: String, shape, repository| Refusal {
+    let Some(operands) = path_operands(tool, &words[index + 1..], piped) else {
+        return Vec::new();
+    };
+    let found = |(target, shape), repository| Refusal {
         tool: tool.to_owned(),
         target,
         shape,
         repository,
     };
-    if let Some((target, shape)) = dangerous_virtual_operand(&operands, base, home) {
-        return Some(found(target, shape, false));
-    }
-    dangerous_repository_container(&operands, base, home)
-        .map(|(target, shape)| found(target, shape, true))
+    dangerous_virtual_operand(&operands, base, home)
+        .map(|hit| found(hit, false))
+        .into_iter()
+        .chain(dangerous_repository_container(&operands, base, home).map(|hit| found(hit, true)))
+        .collect()
 }
 
 #[derive(Default)]

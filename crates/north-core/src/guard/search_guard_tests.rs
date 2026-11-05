@@ -265,3 +265,10 @@ fn a_process_link_operand_ending_in_a_newline_is_still_refused() {
         "deny"
     );
 }
+
+#[test]
+fn resource_safe_search_names_every_refused_search_in_one_command() {
+    let command = filled("rg TARGET /sys; rg TARGET {home}/code/proj");
+    let reason = resource_safe_search::refusal(&command, &filled("{cwd}"), &HOME.path).unwrap();
+    assert!(reason.contains("virtual filesystem root") && reason.contains("traversing main and every worktree"), "{reason}");
+}

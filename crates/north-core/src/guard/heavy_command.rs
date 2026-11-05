@@ -75,13 +75,9 @@ pub(super) fn decide(source: &str, cwd: &Path, leased: bool, depth: usize) -> De
         return Decision::Allow;
     };
     let mut cwd = cwd.to_path_buf();
-    let mut result = Decision::Allow;
+    let (mut refusals, mut routed) = (Vec::new(), false);
     for body in shell::shell_substitutions(&text) {
-        match decide(&body, &cwd, leased, depth + 1) {
-            refused @ Decision::Refuse(_) => return refused,
-            Decision::Route => result = Decision::Route,
-            Decision::Allow => {}
-        }
+        fold(decide(&body, &cwd, leased, depth + 1), &mut refusals, &mut routed);
     }
     for segment in shell::segments(&tokens) {
         let words = &segment[shell::command(&segment, PREFIXES)..];
@@ -92,17 +88,26 @@ pub(super) fn decide(source: &str, cwd: &Path, leased: bool, depth: usize) -> De
             cwd = cwd.join(&words[1]);
             continue;
         }
-        let decision = segment_decision(words, &cwd, leased, depth);
-        match decision {
-            Decision::Refuse(_) => return decision,
-            Decision::Route => result = decision,
-            Decision::Allow => {}
-        }
+        fold(segment_decision(words, &cwd, leased, depth), &mut refusals, &mut routed);
     }
     if !leased && cpu_redirect(source) {
-        return refuse("only machine-capacity may throttle CPU");
+        fold(refuse("only machine-capacity may throttle CPU"), &mut refusals, &mut routed);
     }
-    result
+    if !refusals.is_empty() {
+        Decision::Refuse(refusals.join("\n"))
+    } else if routed {
+        Decision::Route
+    } else {
+        Decision::Allow
+    }
+}
+
+fn fold(decision: Decision, refusals: &mut Vec<String>, routed: &mut bool) {
+    match decision {
+        Decision::Refuse(reason) if !refusals.contains(&reason) => refusals.push(reason),
+        Decision::Route => *routed = true,
+        Decision::Refuse(_) | Decision::Allow => {}
+    }
 }
 
 fn segment_decision(words: &[String], cwd: &Path, leased: bool, depth: usize) -> Decision {

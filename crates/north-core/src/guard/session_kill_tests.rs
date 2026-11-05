@@ -22,7 +22,7 @@ const TRIGGERS: &[&str] = &[
 const NEAR_MISSES: &[&str] = &[
     "kill -1 1234",
     "kill -9 1234",
-    "pkill -u tom scoped",
+    "pkill -F /tmp/task.pid",
     "systemctl --user restart wob.service",
     "run-bounded 30m -- bun /tmp/task.mjs",
     "run-bounded 30m -- bun task > /tmp/task.log 2>&1 &",
@@ -47,7 +47,7 @@ const PREFIXES: &[&str] = &[
 ];
 
 fn denied(command: &str) -> bool {
-    decide(command).is_some()
+    !decide(command).is_empty()
 }
 
 fn single(text: &str) -> String {
@@ -123,57 +123,93 @@ fn quoted_and_heredoc_mentions_stay_inert() {
 
 #[test]
 fn remote_teardown_names_the_host_command() {
-    let hit = decide(
+    let hits = decide(
         "ssh -o BatchMode=yes root@gex45 'hostname; systemctl restart user@1000.service; echo rc $?'",
-    )
-    .unwrap();
+    );
     assert_eq!(
-        hit,
-        Hit::Teardown {
+        hits,
+        [Hit::Teardown {
             shape: "user-manager teardown",
             host: Some("gex45".into())
-        }
+        }]
     );
-    assert!(reason(&hit).contains("`firn host restart-user-manager gex45`"));
-    assert!(reason(&decide("loginctl terminate-user tom").unwrap()).contains(HOST_RESTART));
+    assert!(reason(&hits).contains("`firn host restart-user-manager gex45`"));
+    assert!(reason(&decide("loginctl terminate-user tom")).contains(HOST_RESTART));
 }
 
 #[test]
 fn full_command_patterns_that_match_their_own_command_line_are_refused() {
     for command in [
         "pgrep -f 'safe-push --to main'",
-        "pkill -f 'safe-push --to main'",
+        "pkill --cgroup app.slice -f 'safe-push --to main'",
         "pgrep -fa 'safe-push --to main'",
-        "pkill -9 -f 'cargo test'",
-        "pkill -TERM -f 'cargo test'",
+        "pkill -9 -P 1234 -f 'cargo test'",
         "pgrep --full 'cargo test'",
         "pgrep -u tom -f 'cargo test'",
         "pgrep -f \"cargo test\" || echo none",
-        "pgrep -f cargo; cargo test",
         "pgrep -fi 'CARGO TEST'",
-        "pkill -f 'cargo.*test'",
-        "sudo pkill -f 'cargo test'",
         "echo $(pgrep -f 'cargo test')",
         "bash -c \"pgrep -f 'cargo test'\"",
         "ssh gex45 pgrep -f 'cargo test'",
         "while pgrep -f 'cargo test'; do sleep 1; done",
     ] {
-        let hit = decide(command).unwrap_or_else(|| panic!("allowed {command}"));
-        assert!(matches!(hit, Hit::SelfMatch { .. }), "{command}: {hit:?}");
-        let reason = reason(&hit);
+        let hits = decide(command);
+        assert!(matches!(hits[..], [Hit::SelfMatch { .. }]), "{command}: {hits:?}");
+        let reason = reason(&hits);
         assert!(reason.contains("self-matching"), "{command}");
         assert!(reason.contains("bracket form"), "{command}");
         assert!(reason.contains("pid file"), "{command}");
     }
-    let reason = reason(&decide("pgrep -f 'cargo test'").unwrap());
+    let reason = reason(&decide("pgrep -f 'cargo test'"));
     assert!(reason.contains("'[c]argo test'"));
+}
+
+#[test]
+fn cross_session_pkill_and_killall_by_pattern_or_name_are_refused() {
+    for command in [
+        "pkill -f '[s]afe-push --to main'",
+        "pkill -f '[c]argo test'",
+        "killall cargo",
+        "pkill -f 'safe-push --to main'",
+        "pkill -9 -f 'cargo test'",
+        "pkill -TERM -f 'cargo test'",
+        "sudo pkill -f 'cargo.*test'",
+        "pkill -u tom cargo",
+        "pkill cargo",
+        "killall -9 cargo",
+        "echo $(killall -s TERM cargo)",
+    ] {
+        let hits = decide(command);
+        assert!(matches!(hits[..], [Hit::CrossSession { .. }]), "{command}: {hits:?}");
+        let reason = reason(&hits);
+        for alternative in ["`pkill --cgroup", "recorded pid", "`pkill -F pidfile`"] {
+            assert!(reason.contains(alternative), "{command}: {alternative}");
+        }
+    }
+    for command in [
+        "pkill -F /tmp/task.pid",
+        "pkill --pidfile=/tmp/task.pid",
+        "pkill --cgroup app.slice cargo",
+        "pkill -P 1234 cargo",
+        "killall -l",
+        "kill $(cat /tmp/task.pid)",
+    ] {
+        assert!(!denied(command), "allowed {command}");
+    }
+}
+
+#[test]
+fn a_command_breaking_two_rules_names_both() {
+    let hits = decide("killall cargo; kill -1");
+    assert_eq!(hits.len(), 2, "{hits:?}");
+    let reason = reason(&hits);
+    assert!(reason.contains("cross-session `killall cargo`") && reason.contains("broadcast kill -1"), "{reason}");
 }
 
 #[test]
 fn bracket_form_pid_files_and_non_full_matches_pass() {
     for command in [
         "pgrep -f '[c]argo test'",
-        "pkill -f '[s]afe-push --to main'",
         "pgrep -fa '[c]argo test'",
         "pkill -F /tmp/task.pid",
         "kill $(cat /tmp/task.pid)",
@@ -203,9 +239,9 @@ const SERVICE_CGROUP: &str =
     "0::/user.slice/user-1000.slice/user@1000.service/app.slice/run-r4242.service\n";
 
 fn unit_reason(command: &str, cgroup: &str) -> String {
-    match decide_in(command, cgroup).unwrap_or_else(|| panic!("allowed {command}")) {
-        hit @ Hit::Teardown { host: None, .. } => reason(&hit),
-        hit => panic!("{command}: {hit:?}"),
+    match &decide_in(command, cgroup)[..] {
+        hits @ [Hit::Teardown { host: None, .. }] => reason(hits),
+        hits => panic!("{command}: {hits:?}"),
     }
 }
 
@@ -259,8 +295,8 @@ fn the_callers_own_unit_and_every_parent_on_its_cgroup_path_are_refused() {
         assert!(reason.contains("own-session unit teardown"), "{command}");
         assert_safe_alternative(&reason, &command);
     }
-    assert!(decide_in("systemctl --user stop run-r4242", TERMINAL_CGROUP).is_none());
-    assert!(decide_in("systemctl --user stop run-r9.service", SERVICE_CGROUP).is_none());
+    assert!(decide_in("systemctl --user stop run-r4242", TERMINAL_CGROUP).is_empty());
+    assert!(decide_in("systemctl --user stop run-r9.service", SERVICE_CGROUP).is_empty());
 }
 
 #[test]
@@ -316,7 +352,7 @@ fn literal_launched_units_and_read_only_verbs_stay_allowed() {
         "xargs systemctl --user status < /tmp/units",
     ] {
         for cgroup in ["", TERMINAL_CGROUP, SERVICE_CGROUP] {
-            assert!(decide_in(command, cgroup).is_none(), "{command}");
+            assert!(decide_in(command, cgroup).is_empty(), "{command}");
         }
     }
 }

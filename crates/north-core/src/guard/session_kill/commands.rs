@@ -416,3 +416,34 @@ pub(super) fn shell_script(args: &[String]) -> Script<'_> {
     }
     Script::Stdin
 }
+
+const PKILL_SCOPES: &[&str] = &["-F", "--pidfile", "--cgroup", "-P", "--parent"];
+const KILLALL_VALUE_FLAGS: &[&str] = &["-s", "--signal", "-o", "--older-than", "-y", "--younger-than", "-n", "--ns", "-Z", "--context"];
+
+pub(super) fn cross_session(tool: &str, args: &[String]) -> bool {
+    let (values, scopes): (&[&str], &[&str]) = match tool {
+        "pkill" => (PKILL_VALUE_FLAGS, PKILL_SCOPES),
+        _ => (KILLALL_VALUE_FLAGS, &[]),
+    };
+    let mut named = false;
+    let mut iter = args.iter().map(String::as_str);
+    while let Some(arg) = iter.next() {
+        let flag = arg.split('=').next().unwrap_or(arg);
+        if scopes.contains(&flag) {
+            return false;
+        }
+        if matches!(arg, "-l" | "--list" | "-V" | "--version") && tool == "killall" {
+            return false;
+        }
+        if arg == "--" {
+            named |= iter.next().is_some();
+            break;
+        }
+        if values.contains(&arg) || arg == "--cgroup" {
+            iter.next();
+        } else if !arg.starts_with('-') {
+            named = true;
+        }
+    }
+    named
+}

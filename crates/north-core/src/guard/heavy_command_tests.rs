@@ -69,3 +69,12 @@ fn farm_declarations_still_refuse_leased_whole_roster_commands() {
         Decision::Allow
     );
 }
+
+#[test]
+fn a_command_breaking_two_rules_names_both() {
+    let command = "bun test && systemctl --user set-property app.slice CPUQuota=50%";
+    let Decision::Refuse(reason) = decide(command, Path::new("/tmp"), false, 0) else {
+        panic!("allowed {command}");
+    };
+    assert!(reason.contains("bun test (full suite)") && reason.contains("only machine-capacity may throttle CPU"), "{reason}");
+}
