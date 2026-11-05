@@ -1,4 +1,5 @@
 use super::*;
+use crate::foundation::redact::redact;
 use std::collections::HashSet;
 use store::{Hit, Sqlite};
 pub const LIMIT_CHARS: usize = 6000;

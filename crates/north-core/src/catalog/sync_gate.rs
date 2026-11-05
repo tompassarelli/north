@@ -109,16 +109,23 @@ pub(super) fn current_main(
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
     let dirty = git(&["status", "--porcelain", "--untracked-files=no"])
         .is_some_and(|output| !output.stdout.is_empty());
-    let reason = if branch.as_deref() != Some("main") {
-        "checkout is not on main".to_owned()
-    } else if ahead > 0 {
-        format!("diverged with {ahead} local commits")
-    } else if dirty {
-        "uncommitted changes".to_owned()
-    } else if !fetched || git(&["merge", "-q", "--ff-only", "origin/main"]).is_some() {
+    let reason = match (branch.as_deref(), ahead, dirty) {
+        (None, 0, false) => match reattach(&git) {
+            Ok(()) => {
+                say(format!(
+                    "agents sync: {name} checkout was detached at an ancestor of origin/main; switched to main"
+                ));
+                fast_forward(fetched, &git)
+            }
+            Err(reason) => Some(reason),
+        },
+        (branch, _, _) if branch != Some("main") => Some("checkout is not on main".to_owned()),
+        (_, ahead, _) if ahead > 0 => Some(format!("diverged with {ahead} local commits")),
+        (_, _, true) => Some("uncommitted changes".to_owned()),
+        _ => fast_forward(fetched, &git),
+    };
+    let Some(reason) = reason else {
         return Ok(());
-    } else {
-        "git merge --ff-only failed".to_owned()
     };
     Err(match fetched {
         true => {
@@ -126,6 +133,21 @@ pub(super) fn current_main(
         }
         false => format!("{name} main refused offline: {reason}"),
     })
+}
+
+fn reattach<T>(git: &impl Fn(&[&str]) -> Option<T>) -> Result<(), String> {
+    let main_absent = git(&["rev-parse", "-q", "--verify", "refs/heads/main"]).is_none();
+    if !main_absent && git(&["merge-base", "--is-ancestor", "refs/heads/main", "origin/main"]).is_none() {
+        return Err("checkout is detached and local main is not an ancestor of origin/main".to_owned());
+    }
+    git(&["switch", "-q", "main"])
+        .map(drop)
+        .ok_or_else(|| "checkout is detached and git switch main failed".to_owned())
+}
+
+fn fast_forward<T>(fetched: bool, git: &impl Fn(&[&str]) -> Option<T>) -> Option<String> {
+    let merged = !fetched || git(&["merge", "-q", "--ff-only", "origin/main"]).is_some();
+    (!merged).then(|| "git merge --ff-only failed".to_owned())
 }
 
 pub(super) fn north_checkout(

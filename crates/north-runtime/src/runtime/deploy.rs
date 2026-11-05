@@ -1,7 +1,7 @@
 use super::bounded;
 use super::failure::{Failure, failed};
 use super::layout::{self, Layout, PROGRAMS};
-use super::remote::{limit, run, ssh};
+use super::remote::{limit, run, run_reporting, ssh};
 use super::store::references;
 use super::update::{DEPLOY_LOCK, built_main, checkout, lock_waiting, named_lock_waiting};
 use crate::land_offload;
@@ -79,5 +79,5 @@ fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>)
     stage(host, target, runtime, references)?;
     println!("north runtime deploy: {host}: promoting {} with the shipped north", layout::short(target));
     let shipped = format!(".local/state/north/runtimes/{target}/north");
-    run(host, &format!("north runtime update --sha {}", layout::short(target)), ssh(host).args([shipped.as_str(), "runtime", "update", "--sha", target]), PROMOTE)
+    run_reporting(host, &format!("north runtime update --sha {}", layout::short(target)), ssh(host).args([shipped.as_str(), "runtime", "update", "--sha", target]), PROMOTE)
 }

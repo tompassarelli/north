@@ -12,6 +12,8 @@ mod laptop;
 mod prune;
 #[path = "runtime_update/reserve.rs"]
 mod reserve;
+#[path = "runtime_update/sync_step.rs"]
+mod sync_step;
 
 use harness::*;
 

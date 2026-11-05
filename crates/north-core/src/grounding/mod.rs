@@ -15,7 +15,7 @@ mod recall_tests;
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
-pub use common::{redact, state_dir};
+pub use common::state_dir;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

@@ -23,6 +23,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 const STEP_LIMIT: Duration = Duration::from_secs(300);
+const LOG_TAIL: usize = 8;
 const FETCH_LIMIT: Duration = Duration::from_secs(120);
 const PINNED_LOCK_WAIT: Duration = Duration::from_secs(10 * 60);
 const ROLLBACK_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
@@ -432,16 +433,25 @@ fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String
     swap(layout, &layout::link(target))?;
     let steps = [("health check", health_check(layout)), ("agents sync", agents_sync())];
     let mut failure = None;
+    let limit = remote::limit(STEP_LIMIT);
+    let append = || fs::OpenOptions::new().append(true).open(log.path());
+    let note = |line: String| {
+        let _ = append().and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+    };
     for (name, mut command) in steps {
-        let ran = log.reopen().and_then(|out| {
-            let err = log.reopen()?;
-            bounded::status(command.stdout(out).stderr(err), STEP_LIMIT)
-        });
+        let mut attempt = || bounded::status(command.stdout(append()?).stderr(append()?), limit);
+        let ran = match attempt() {
+            Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+                note(format!("{name} timed out after {}s; retrying once\n", limit.as_secs()));
+                attempt()
+            }
+            ran => ran,
+        };
         match ran {
             Ok(status) if status.success() => continue,
             Ok(status) => failure = Some((name, code(status))),
             Err(error) => {
-                let _ = fs::write(log.path(), format!("{name} did not run: {error}\n"));
+                note(format!("{name} did not run: {error}\n"));
                 failure = Some((name, 127));
             }
         }
@@ -457,6 +467,10 @@ fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String
     if let Some(previous) = previous {
         swap(layout, previous)?;
     }
+    let logged = fs::read_to_string(log.path()).unwrap_or_default();
+    for line in log_tail(&logged) {
+        eprintln!("north runtime update: {step} log: {line}");
+    }
     let (_, kept) = log.keep().map_err(|error| failed(1, error.to_string()))?;
     let was = previous.map_or_else(|| "<none>".to_owned(), |link| link.display().to_string());
     let message = format!(
@@ -465,6 +479,11 @@ fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String
     );
     alert(&message);
     Err(failed(1, message))
+}
+
+fn log_tail(logged: &str) -> Vec<String> {
+    let lines: Vec<&str> = logged.lines().filter(|line| !line.trim().is_empty()).collect();
+    lines[lines.len().saturating_sub(LOG_TAIL)..].iter().map(|line| crate::foundation::redact::redact(line)).collect()
 }
 
 fn health_check(layout: &Layout) -> Command {

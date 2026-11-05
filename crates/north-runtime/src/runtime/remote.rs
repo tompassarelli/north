@@ -11,11 +11,12 @@ use std::time::Duration;
 const BUILD_ELSEWHERE: Duration = Duration::from_secs(30 * 60);
 const COPY: Duration = Duration::from_secs(10 * 60);
 const RSYNC_SOURCE_MISSING: u8 = 23;
+const REPORTED_LINES: usize = 12;
 
 pub(super) fn build(machine: &gate::Machine, target: &str, runtime: &Path) -> Result<(), Failure> {
     let host = &machine.name;
     println!("north runtime: building {} on {host} while this host is in game-reserve", &target[..8]);
-    run(host, "north runtime update", ssh(&machine.ssh).args(["north", "runtime", "update"]), BUILD_ELSEWHERE)?;
+    run_reporting(host, "north runtime update", ssh(&machine.ssh).args(["north", "runtime", "update"]), BUILD_ELSEWHERE)?;
     let built = format!("{}:.local/state/north/runtimes/{target}", machine.ssh);
     fs::create_dir_all(runtime)?;
     let mut copy = Command::new("rsync");
@@ -41,12 +42,26 @@ pub(super) fn limit(default: Duration) -> Duration {
 
 pub(super) fn run(host: &str, step: &str, command: &mut Command, default: Duration) -> Result<(), Failure> {
     let limit = limit(default);
-    let status = bounded::status(command, limit).map_err(|error| match error.kind() {
+    let status = bounded::status(command, limit).map_err(|error| stopped(host, step, limit, error))?;
+    match status.success() {
+        true => Ok(()),
+        false => Err(failed(code(status), format!("{step} on {host} failed: {status}"))),
+    }
+}
+
+pub(super) fn run_reporting(host: &str, step: &str, command: &mut Command, default: Duration) -> Result<(), Failure> {
+    let limit = limit(default);
+    let (status, said) = bounded::status_keeping_stderr(command, limit, REPORTED_LINES).map_err(|error| stopped(host, step, limit, error))?;
+    match (status.success(), said.is_empty()) {
+        (true, _) => Ok(()),
+        (false, true) => Err(failed(code(status), format!("{step} on {host} failed: {status}"))),
+        (false, false) => Err(failed(code(status), format!("{step} on {host} failed: {status}; it said: {}", said.join(" | ")))),
+    }
+}
+
+fn stopped(host: &str, step: &str, limit: Duration, error: std::io::Error) -> Failure {
+    match error.kind() {
         ErrorKind::TimedOut => failed(1, format!("{step} on {host} did not finish within {}s and was stopped", limit.as_secs())),
         _ => Failure::from(error),
-    })?;
-    if !status.success() {
-        return Err(failed(code(status), format!("{step} on {host} failed: {status}")));
     }
-    Ok(())
 }

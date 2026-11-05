@@ -170,3 +170,45 @@ fn the_north_checkout_is_the_configured_root_then_north_home_then_the_home_check
         Path::new("/home/fixture/code/north/main")
     );
 }
+
+fn branch(dir: &Path) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+#[test]
+fn a_clean_checkout_detached_at_an_ancestor_of_origin_main_switches_to_main_and_fast_forwards() {
+    let pair = pair();
+    commit(&pair.origin, "first");
+    git(&pair.clone, &["fetch", "-q", "origin"]);
+    git(&pair.clone, &["checkout", "-q", "origin/main"]);
+    commit(&pair.origin, "second");
+    let (outcome, said) = sync(&pair);
+    assert_eq!(outcome, Ok(()));
+    assert_eq!(
+        said,
+        ["agents sync: south checkout was detached at an ancestor of origin/main; switched to main"]
+    );
+    assert_eq!(branch(&pair.clone), "main");
+    assert_eq!(head(&pair.clone), head(&pair.origin));
+}
+
+#[test]
+fn a_detached_checkout_whose_local_main_diverged_is_refused_and_left_detached() {
+    let pair = pair();
+    commit(&pair.clone, "local");
+    git(&pair.clone, &["checkout", "-q", "--detach", "origin/main"]);
+    commit(&pair.origin, "remote");
+    let before = head(&pair.clone);
+    let (outcome, _) = sync(&pair);
+    assert_eq!(
+        outcome.unwrap_err(),
+        "south main is behind origin by 1 and not fast-forwardable: checkout is detached and local main is not an ancestor of origin/main"
+    );
+    assert_eq!((branch(&pair.clone), head(&pair.clone)), ("HEAD".to_owned(), before));
+}

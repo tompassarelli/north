@@ -1,4 +1,5 @@
 use super::*;
+use crate::foundation::redact::redact;
 use rustix::fs::{FlockOperation, flock};
 use store::{Doc, Sqlite, quote};
 use crate::threads::catalog::CATALOG;

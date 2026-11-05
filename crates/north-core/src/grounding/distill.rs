@@ -11,7 +11,8 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::common::{redact, state_dir, SQLITE_BUSY};
+use super::common::{state_dir, SQLITE_BUSY};
+use crate::foundation::redact::redact;
 use crate::platform::sqlite::{self, Access};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
