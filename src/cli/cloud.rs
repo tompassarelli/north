@@ -10,13 +10,16 @@ const USAGE: &str = "usage: north cloud list | launch REPO SLUG BRIEF [--item RE
 launch refreshes /tmp/cloud/src/REPO, trusts it, starts BRIEF with its landing steps through claude --cloud and prints the session, claude/land-SLUG and the checkout; --item records the launch so north dispatch holds that issue for six hours.
 sweep archives only cloud-run sessions (environment_kind anthropic_cloud) waiting on a human, never Remote Control bridges.
 send posts FILE as a user message to the session and prints the HTTP status and the message's uuid.
-wait returns once the session is idle and its latest turn ended, after the message UUID when --after is given, then writes its events (default timeout 3600 s; exit 1 on timeout); when those events hold a patch handback it then lands it as land does.
+wait returns once the session is idle and its latest turn ended, after the message UUID when --after is given, then writes its events (default timeout 3600 s; exit 1 on timeout); a turn that ends with no Done:/Not done:/Split:/Blocked: line and no patch handback gets a continue message posted and is waited on again, at most twice, before wait reports the worker stalled and exits 1; when those events hold a patch handback it then lands it as land does.
 collect decodes the latest multi-part patch handback in a saved events transcript to an mbox, reading no session and needing no login; a missing part, a failed decode or output not starting with From is refused.
 land collects the handback, applies it with git am --3way in a fresh worktrees/cloud-SESSION lane off origin/main, folds it into one commit without the session trailers, runs north land checks on the lane and enqueues it with safe-push --to main, printing Done: queued; a patch that does not apply or a failed check stops with the reason and the lane path and queues nothing, and a handback already queued is a no-op.
 Run on the host whose ~/.claude login owns the cloud sessions (south:agents/skills/claude-accounts/).";
 
 const BASE: &str = "https://api.anthropic.com";
 const POLL: Duration = Duration::from_secs(30);
+const NUDGES: usize = 2;
+const REPORTS: [&str; 4] = ["Done:", "Not done:", "Split:", "Blocked:"];
+const CONTINUE: &str = "Your turn ended while a background run was still going, with no Done:/Not done:/Split: report and no patch handback. Run that work in the foreground now, finish the box, then hand back the patch with a Done:/Not done:/Split: report.";
 
 pub(super) type Api<'a> = dyn FnMut(&str, &str, Option<&str>) -> Result<(u16, String), String> + 'a;
 
@@ -309,18 +312,102 @@ pub(super) fn wait(
     after: Option<&str>,
     polls: u64,
     sleep: &mut dyn FnMut(),
-) -> Result<Option<usize>, String> {
+) -> Result<Option<Vec<Value>>, String> {
     for poll in 0..=polls {
         if poll > 0 {
             sleep();
         }
         match finished(api, id, after) {
-            Ok(Some(events)) => return save(&events, out).map(|()| Some(events.len())),
+            Ok(Some(events)) => return save(&events, out).map(|()| Some(events)),
             Ok(None) => {}
             Err(error) => eprintln!("north cloud wait: {error}"),
         }
     }
     Ok(None)
+}
+
+fn since<'a>(events: &'a [Value], after: Option<&str>) -> &'a [Value] {
+    let start = after
+        .and_then(|uuid| events.iter().position(|event| field(event, "uuid") == uuid))
+        .map_or(0, |index| index + 1);
+    &events[start..]
+}
+
+fn reply_text(event: &Value) -> String {
+    match event.pointer("/message/content") {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .filter(|block| field(block, "type") == "text")
+            .map(|block| field(block, "text"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+fn reports(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim_start_matches(|c: char| c.is_whitespace() || c == '*' || c == '_' || c == '#');
+        REPORTS.iter().any(|report| line.starts_with(report))
+    })
+}
+
+pub(super) fn stalled(events: &[Value], after: Option<&str>) -> bool {
+    let turn = since(events, after);
+    let last_reply = turn
+        .iter()
+        .rev()
+        .filter(|event| field(event, "type") == "assistant")
+        .map(reply_text)
+        .find(|text| !text.trim().is_empty())
+        .unwrap_or_default();
+    !reports(&last_reply) && !super::cloud_handback::has_handback(turn)
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum Finish {
+    Ended(usize),
+    Stalled(usize),
+    TimedOut,
+}
+
+pub(super) struct Waker<'a> {
+    pub(super) polls: u64,
+    pub(super) sleep: &'a mut dyn FnMut(),
+    pub(super) uuid: &'a mut dyn FnMut() -> Result<String, String>,
+    pub(super) report: &'a mut dyn Write,
+}
+
+pub(super) fn finish(
+    api: &mut Api,
+    id: &str,
+    out: &Path,
+    after: Option<&str>,
+    waker: Waker,
+) -> Result<Finish, String> {
+    let mut after = after.map(str::to_owned);
+    let mut nudges = 0;
+    loop {
+        let Some(events) = wait(api, id, out, after.as_deref(), waker.polls, waker.sleep)? else {
+            return Ok(Finish::TimedOut);
+        };
+        let stall = stalled(&events, after.as_deref());
+        if !stall || nudges == NUDGES {
+            return Ok(if stall { Finish::Stalled(events.len()) } else { Finish::Ended(events.len()) });
+        }
+        let uuid = (waker.uuid)()?;
+        let status = send(api, id, &uuid, CONTINUE)?;
+        if !(200..300).contains(&status) {
+            return Err(format!("posting the continue message to {id}: HTTP {status}"));
+        }
+        let _ = writeln!(
+            waker.report,
+            "{id} ended its turn with no report or handback; posted continue message {uuid}"
+        );
+        after = Some(uuid);
+        nudges += 1;
+    }
 }
 
 fn credentials() -> Result<Curl, String> {
@@ -371,19 +458,29 @@ pub(super) fn execute(command: Cloud, api: &mut Api, out: &mut dyn Write) -> Res
             return Ok(if (200..300).contains(&status) { 0 } else { 1 });
         }
         Cloud::Wait(id, path, timeout, after) => {
-            let polls = timeout / POLL.as_secs();
-            let Some(count) = wait(api, &id, &path, after.as_deref(), polls, &mut || {
-                std::thread::sleep(POLL)
-            })?
-            else {
-                let _ = writeln!(out, "{id} did not finish its turn within {timeout} s");
-                return Ok(1);
+            let waker = Waker {
+                polls: timeout / POLL.as_secs(),
+                sleep: &mut || std::thread::sleep(POLL),
+                uuid: &mut || crate::fleet::runtime::new_uuid().map_err(|error| error.user_message()),
+                report: &mut *out,
             };
-            let _ = writeln!(
-                out,
-                "{id} finished its turn; {count} events in {}",
-                path.display()
-            );
+            match finish(api, &id, &path, after.as_deref(), waker)? {
+                Finish::Ended(count) => {
+                    let _ = writeln!(out, "{id} finished its turn; {count} events in {}", path.display());
+                }
+                Finish::Stalled(count) => {
+                    let _ = writeln!(
+                        out,
+                        "{id} stalled: its turn still ended with no report or handback after {NUDGES} continue messages; {count} events in {}",
+                        path.display()
+                    );
+                    return Ok(1);
+                }
+                Finish::TimedOut => {
+                    let _ = writeln!(out, "{id} did not finish its turn within {timeout} s");
+                    return Ok(1);
+                }
+            }
         }
     }
     Ok(0)

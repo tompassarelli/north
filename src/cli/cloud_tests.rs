@@ -236,7 +236,8 @@ fn cloud_wait_returns_once_idle_with_an_ended_turn_and_times_out_otherwise() {
             5,
             &mut || { sleeps += 1 }
         )
-        .unwrap(),
+        .unwrap()
+        .map(|events| events.len()),
         Some(1)
     );
     assert_eq!(sleeps, 2);
@@ -244,6 +245,135 @@ fn cloud_wait_returns_once_idle_with_an_ended_turn_and_times_out_otherwise() {
         lines(&out),
         vec![json!({"type": "result", "subtype": "success"})]
     );
+}
+
+fn reply(text: &str) -> Value {
+    json!({"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": text}]}})
+}
+
+fn handback_output() -> Value {
+    json!({"type": "user", "message": {"content": [{"type": "tool_result",
+        "content": "BEGIN-HANDBACK part 1/1\nH4sIAAAAAAAAAwMAAAAAAAAAAAA=\nEND-HANDBACK part 1/1"}]}})
+}
+
+fn stalled_turn() -> Vec<Value> {
+    vec![
+        json!({"type": "user", "uuid": "brief", "message": {"content": "build the box"}}),
+        json!({"type": "assistant", "message": {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "Bash"}]}}),
+        json!({"type": "user", "message": {"content": [{"type": "tool_result", "content": "Command running in background"}]}}),
+        reply("The build is running in the background. I'll act on its result when the notice arrives."),
+        json!({"type": "result", "subtype": "success"}),
+    ]
+}
+
+fn sent(uuid: &str) -> Value {
+    json!({"type": "user", "uuid": uuid, "message": {"content": "continue"}})
+}
+
+type Waited = (Result<Finish, String>, Vec<(String, Option<String>)>, Option<Vec<Value>>, String);
+
+fn finish_on(pages: &[Vec<Value>]) -> Waited {
+    let page = |events: &Vec<Value>| json!({"data": events, "has_more": false});
+    let responses = script(&[
+        ("/v1/sessions/s1?beta=true", &[json!({"id": "s1", "session_status": "idle"})]),
+        (
+            "/v1/sessions/s1/events?beta=true&limit=1000",
+            &pages.iter().map(page).collect::<Vec<_>>(),
+        ),
+        ("/v1/sessions/s1/events?beta=true", &[json!({})]),
+    ]);
+    let calls = Calls::default();
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("s1.jsonl");
+    let mut count = 0;
+    let mut report = Vec::new();
+    let finished = finish(
+        &mut fake(&responses, &calls),
+        "s1",
+        &out,
+        None,
+        Waker {
+            polls: 0,
+            sleep: &mut || {},
+            uuid: &mut || {
+                count += 1;
+                Ok(format!("nudge-{count}"))
+            },
+            report: &mut report,
+        },
+    );
+    let posts = calls
+        .borrow()
+        .iter()
+        .filter(|(method, ..)| method == "POST")
+        .map(|(_, path, body)| (path.clone(), body.clone()))
+        .collect();
+    let saved = out.exists().then(|| lines(&out));
+    (finished, posts, saved, String::from_utf8(report).unwrap())
+}
+
+#[test]
+fn cloud_stall_is_a_turn_ending_with_no_report_and_no_handback() {
+    assert!(stalled(&stalled_turn(), None));
+    let mut done = stalled_turn();
+    done.extend([handback_output(), reply("Done: pushed claude/land-robust-7"), json!({"type": "result"})]);
+    assert!(!stalled(&done, None));
+    let mut pushed = stalled_turn();
+    pushed.push(reply("Checks passed.\n\n**Not done:** the push was refused"));
+    assert!(!stalled(&pushed, None));
+    let mut patch_only = stalled_turn();
+    patch_only.extend([handback_output(), reply("Handback above.")]);
+    assert!(!stalled(&patch_only, None));
+    let mut nudged = done.clone();
+    nudged.extend([sent("nudge-1"), reply("Still waiting on the build.")]);
+    assert!(stalled(&nudged, Some("nudge-1")));
+}
+
+#[test]
+fn cloud_wait_posts_one_continue_to_a_stalled_worker_and_returns_its_next_handback() {
+    let mut next = stalled_turn();
+    next.extend([
+        sent("nudge-1"),
+        handback_output(),
+        reply("Done: the build passed; handback above."),
+        json!({"type": "result", "subtype": "success"}),
+    ]);
+    let (finished, posts, saved, report) = finish_on(&[stalled_turn(), next.clone()]);
+    assert_eq!(finished, Ok(Finish::Ended(next.len())));
+    assert_eq!(
+        posts,
+        vec![(
+            "/v1/sessions/s1/events?beta=true".to_owned(),
+            Some(send_body("s1", "nudge-1", CONTINUE).to_string())
+        )]
+    );
+    assert!(CONTINUE.contains("background") && CONTINUE.contains("foreground") && CONTINUE.contains("Done:/Not done:/Split:"));
+    assert_eq!(saved, Some(next.clone()));
+    assert!(super::super::cloud_handback::has_handback(&saved.unwrap()));
+    assert_eq!(report, "s1 ended its turn with no report or handback; posted continue message nudge-1\n");
+}
+
+#[test]
+fn cloud_wait_posts_nothing_when_the_turn_ends_on_done_with_a_patch() {
+    let mut done = stalled_turn();
+    done.extend([handback_output(), reply("Done: pushed claude/land-robust-7"), json!({"type": "result"})]);
+    let (finished, posts, saved, report) = finish_on(std::slice::from_ref(&done));
+    assert_eq!(finished, Ok(Finish::Ended(done.len())));
+    assert!(posts.is_empty());
+    assert_eq!(saved, Some(done));
+    assert_eq!(report, "");
+}
+
+#[test]
+fn cloud_wait_gives_up_as_stalled_after_two_continue_messages() {
+    let mut once = stalled_turn();
+    once.extend([sent("nudge-1"), reply("Still building in the background."), json!({"type": "result"})]);
+    let mut twice = once.clone();
+    twice.extend([sent("nudge-2"), reply("I'll report when the build notice arrives."), json!({"type": "result"})]);
+    let (finished, posts, saved, _) = finish_on(&[stalled_turn(), once, twice.clone()]);
+    assert_eq!(finished, Ok(Finish::Stalled(twice.len())));
+    assert_eq!(posts.len(), 2);
+    assert_eq!(saved, Some(twice));
 }
 
 #[test]
