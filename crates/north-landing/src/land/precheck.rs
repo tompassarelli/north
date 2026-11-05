@@ -108,6 +108,18 @@ impl State {
         self.checking.len()
     }
 
+    pub fn slots(&self) -> usize {
+        self.count
+    }
+
+    pub fn draining(&self) -> bool {
+        self.draining
+    }
+
+    pub fn waiting(&self, queued: &[(PathBuf, Ticket)]) -> usize {
+        queued.iter().filter(|(path, _)| !self.tracked(path)).count()
+    }
+
     fn count(&mut self, lander: &Lander) -> usize {
         if self.counted.is_none_or(|at| at.elapsed() >= SURVEY) {
             self.count = slots(lander);

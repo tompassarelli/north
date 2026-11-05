@@ -14,7 +14,7 @@ use super::credential;
 use super::telemetry::Stages;
 use super::push_refusal::{self, Backoff, Refusal};
 use super::records::{self, Candidate, Decision};
-use super::{incidents, pause, precheck, queue, red, sheriff, speculate};
+use super::{incidents, pause, precheck, queue, red, sheriff, speculate, watchdog};
 use super::repositories;
 
 const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
@@ -366,6 +366,7 @@ fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
             }
         }
         let round = lander.round(&mut precheck);
+        watchdog::after_round(lander, &precheck, &round);
         if matches!(round, Ok(Round::Progress | Round::Idle | Round::Checking)) {
             backoff.clear();
         }
