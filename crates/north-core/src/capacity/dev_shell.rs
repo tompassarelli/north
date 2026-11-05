@@ -88,7 +88,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
-    let north = std::env::current_exe().map_or_else(|_| "north".to_owned(), |path| path.to_string_lossy().into_owned());
+    let north = north_base::platform::north_binary::north_binary().to_string_lossy().into_owned();
     let mut out = std::io::stdout().lock();
     let printed = enter(&north, command).iter().try_for_each(|word| out.write_all(word.as_bytes()).and_then(|()| out.write_all(b"\0")));
     u8::from(printed.and_then(|()| out.flush()).is_err())

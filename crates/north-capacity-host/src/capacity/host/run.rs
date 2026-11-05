@@ -257,9 +257,7 @@ fn timeout_text(timeout_seconds: Option<u64>) -> String {
 }
 
 pub fn north_command() -> String {
-    env("AGENT_CAPACITY_NORTH")
-        .or_else(|| std::env::current_exe().ok().filter(|path| path.exists()).map(|path| path.to_string_lossy().into_owned()))
-        .unwrap_or_else(|| format!("{}/.local/state/north/current/north", env("HOME").unwrap_or_default()))
+    north_base::platform::north_binary::north_binary().to_string_lossy().into_owned()
 }
 
 /// The lease's own compiler-cache server socket: sccache forks every compile from its server, so one server shared by every lease ran each lease's compiles in the scope of whichever process started it, outside the lease's CPU quota and measurement. Named by the lease's first uuid group because a Unix socket path holds 107 bytes and the private desktop's runtime directory already spends 68 of them before the file name.

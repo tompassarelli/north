@@ -13,6 +13,7 @@ pub mod github;
 pub mod github_app;
 pub mod hook_commands;
 pub mod host;
+pub mod north_binary;
 pub mod rolling_issue;
 pub mod process;
 pub mod shared_target;

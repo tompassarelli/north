@@ -85,7 +85,7 @@ fn directory() -> PathBuf {
 }
 
 fn north_binary() -> PathBuf {
-    std::env::var_os("NORTH_BIN").map(PathBuf::from).or_else(|| std::env::current_exe().ok()).unwrap_or_else(|| "north".into())
+    north_base::platform::north_binary::north_binary()
 }
 
 fn cpus() -> f64 {

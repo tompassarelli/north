@@ -41,7 +41,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             let executed = executed(&process, std::env::var(EXECUTED).ok().as_deref());
             let Some(real) = real_program(program, &name, rest, &executed) else {
                 let command: Vec<String> = std::iter::once(name.clone()).chain(rest.iter().cloned()).collect();
-                if let Some(words) = super::dev_shell::project(&std::env::current_exe().map_or_else(|_| "north".to_owned(), |path| path.to_string_lossy().into_owned()), &command) {
+                if let Some(words) = super::dev_shell::project(&north_base::platform::north_binary::north_binary().to_string_lossy(), &command) {
                     let error = std::process::Command::new(&words[0]).args(&words[1..]).exec();
                     eprintln!("north capacity gate: {}: {error}", words[0]);
                     return 126;

@@ -244,7 +244,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut laptop = match std::env::var_os("LAPTOP_AUTO_LAPTOP") {
         Some(program) => Command::new(program),
         None => {
-            let mut north = Command::new(std::env::current_exe().unwrap_or_else(|_| "north".into()));
+            let mut north = Command::new(north_base::platform::north_binary::north_binary());
             north.arg("laptop");
             north
         }
