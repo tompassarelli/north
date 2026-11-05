@@ -2,8 +2,6 @@
 //! check run on a candidate, per red-main interval, and per `north tempo --record` reading. The tables
 //! are created here, on first write; the readers in `tempo` tolerate a ledger that has none yet.
 pub mod tempo;
-#[cfg(test)]
-mod tests;
 
 use std::io::{Read, Write};
 

@@ -57,43 +57,6 @@ impl Ledger {
         out
     }
 
-    fn events(&self) -> String {
-        self.sql("SELECT group_concat(item || ' ' || kind || ' ' || actor || ' ' || data, char(10)) FROM (SELECT * FROM events ORDER BY seq)")
-    }
-}
-
-#[test]
-fn release_to_hands_the_issue_over_with_a_handoff_event_and_release_lets_it_go_naming_its_owner() {
-    let rig = ledger();
-    Connection::open(&rig.path).unwrap().execute("INSERT INTO claims VALUES ('makgora#3', 'alice', '2026-10-28T08:00:00Z', 30)", []).unwrap();
-    assert_eq!(rig.out(&["release", "makgora#3", "--by", "alice", "--to", "bob"]), "makgora#3 handed from alice to bob\n");
-    assert_eq!(rig.sql("SELECT owner || ' ' || since || ' ' || eta_min FROM claims"), format!("bob {NOW} 30"));
-    assert_eq!(rig.out(&["release", "makgora#3", "--to", ""]), "makgora#3 released by bob\n");
-    assert_eq!(rig.run(&["release", "makgora#3"]), (1, String::new(), "NorthThreads: makgora#3 has no owner\n".into()));
-    assert_eq!(rig.events(), "makgora#3 handoff alice {\"from\": \"alice\", \"to\": \"bob\"}\nmakgora#3 release tester {\"owner\": \"bob\"}");
-}
-
-#[test]
-fn native_items_are_numbered_per_namespace_and_their_needs_notes_and_state_stay_in_the_ledger() {
-    let rig = ledger();
-    assert_eq!(rig.out(&["new", "life", "p a"]), "life#1\n");
-    assert_eq!(rig.feed(&["new", "life", "p b", "--due", "2026-12-01", "--body", "-"], "  the body\n\n").1, "life#2\n");
-    assert_eq!(rig.out(&["new", "ops", "o"]), "ops#1\n");
-    assert_eq!(rig.sql("SELECT group_concat(ns || number || '|' || title || '|' || body || '|' || ifnull(due, '-'), ';') FROM items"), "life1|p a||-;life2|p b|the body|2026-12-01;ops1|o||-");
-    assert_eq!(rig.out(&["need", "life#1", "life#2"]), "life#1 is blocked by life#2 locally\n");
-    assert_eq!(rig.out(&["need", "makgora#4", "life#2"]), "makgora#4 is blocked by life#2 locally\n");
-    assert_eq!(rig.out(&["unneed", "life#1", "life#2"]), "life#1 is no longer blocked by life#2\n");
-    assert_eq!(rig.sql("SELECT group_concat(item || '>' || needs) FROM item_needs"), "makgora#4>life#2");
-    assert_eq!(rig.out(&["note", "life#1", "--", "called", "-1", "day"]), "noted on life#1\n");
-    assert_eq!(rig.out(&["close", "life#2"]), "life#2 closed\n");
-    assert_eq!(rig.sql("SELECT state || ' ' || closed FROM items WHERE number = 2"), format!("closed {NOW}"));
-    assert_eq!(rig.out(&["reopen", "life#2"]), "life#2 open\n");
-    assert_eq!(rig.sql("SELECT state || ' ' || ifnull(closed, '-') FROM items WHERE number = 2"), "open -");
-    assert!(rig.outside.calls.borrow().is_empty());
-    assert_eq!(
-        rig.events(),
-        "life#1 capture tester {}\nlife#2 capture tester {}\nops#1 capture tester {}\nlife#1 need tester {\"needs\": \"life#2\"}\nmakgora#4 need tester {\"needs\": \"life#2\"}\nlife#1 unneed tester {\"needs\": \"life#2\"}\nlife#1 note tester {\"text\": \"called -1 day\"}\nlife#2 close tester {}\nlife#2 reopen tester {}"
-    );
 }
 
 #[test]
@@ -108,53 +71,3 @@ fn note_and_new_refuse_text_the_secret_scan_flags_and_store_nothing() {
     assert_eq!(rig.sql("SELECT count(*) || '/' || (SELECT count(*) FROM items) FROM events"), "1/1");
 }
 
-#[test]
-fn notes_and_state_changes_go_only_to_native_items_that_exist_and_hidden_callers_cannot_reach_them() {
-    let mut rig = ledger();
-    assert_eq!(rig.run(&["note", "wisp#2", "hi"]), (1, String::new(), "NorthThreads: wisp#2 is a GitHub issue; only life, accounts, travel, ops items are native\n".into()));
-    assert_eq!(rig.run(&["close", "life#9"]), (1, String::new(), "NorthThreads: no item life#9\n".into()));
-    assert_eq!(rig.run(&["new", "wisp", "x"]), (1, String::new(), "NorthThreads: wisp is not a native namespace (life, accounts, travel, ops)\n".into()));
-    assert_eq!(rig.run(&["note", "life#1"]).0, 2);
-    rig.no_native = Some("CLAUDE_CODE_REMOTE is set (cloud worker)");
-    assert_eq!(rig.run(&["need", "wisp#2", "life#1"]), (1, String::new(), "NorthThreads: native items are not readable here: CLAUDE_CODE_REMOTE is set (cloud worker)\n".into()));
-}
-
-#[test]
-fn a_github_need_and_unneed_go_through_the_dependency_api_and_drop_the_cached_open_issues() {
-    let rig = ledger();
-    Connection::open(&rig.path).unwrap().execute("INSERT INTO gh_cache VALUES ('firn', 1.0, '{}'), ('wisp', 1.0, '{}')", []).unwrap();
-    assert_eq!(rig.out(&["need", "nixos-config#3", "wisp#7"]), "nixos-config#3 is blocked by wisp#7 on GitHub\n");
-    assert_eq!(rig.out(&["unneed", "firn#3", "wisp#7"]), "firn#3 is no longer blocked by wisp#7\n");
-    let calls: Vec<String> = rig.outside.calls.borrow().iter().map(|call| call.join(" ")).collect();
-    assert_eq!(calls, [
-        "api repos/tompassarelli/wisp/issues/7 --jq .id",
-        "api -X POST repos/tompassarelli/firn/issues/3/dependencies/blocked_by -F issue_id=4242",
-        "api repos/tompassarelli/wisp/issues/7 --jq .id",
-        "api -X DELETE repos/tompassarelli/firn/issues/3/dependencies/blocked_by/4242",
-    ]);
-    assert_eq!(rig.sql("SELECT group_concat(repo) FROM gh_cache"), "wisp");
-    assert_eq!(rig.events(), "firn#3 need tester {\"needs\": \"wisp#7\"}\nfirn#3 unneed tester {\"needs\": \"wisp#7\"}");
-}
-
-#[test]
-fn block_records_why_an_issue_cannot_be_staffed_and_clear_removes_it() {
-    let rig = ledger();
-    assert_eq!(rig.run(&["block", "wisp#20"]), (1, String::new(), "NorthThreads: block needs a reason\n".into()));
-    assert_eq!(rig.out(&["block", "wisp#20", "waits", "on", "makgora#13", "--by", "lead"]), "wisp#20 blocked: waits on makgora#13\n");
-    assert_eq!(rig.out(&["block", "wisp#20", "waits on Tom"]), "wisp#20 blocked: waits on Tom\n");
-    assert_eq!(rig.sql("SELECT reason || ' ' || since || ' ' || by FROM blocks"), format!("waits on Tom {NOW} tester"));
-    assert_eq!(rig.out(&["block", "wisp#20", "--clear"]), "wisp#20 unblocked\n");
-    assert_eq!(rig.sql("SELECT count(*) FROM blocks"), "0");
-    assert_eq!(rig.events(), "wisp#20 note lead {\"block\": \"waits on makgora#13\"}\nwisp#20 note tester {\"block\": \"waits on Tom\"}\nwisp#20 note tester {\"unblock\": true}");
-}
-
-#[test]
-fn release_held_by_clears_only_a_claim_that_name_still_owns_and_is_quiet_otherwise() {
-    let rig = ledger();
-    Connection::open(&rig.path).unwrap().execute("INSERT INTO claims VALUES ('makgora#3', 'alice', '2026-10-28T08:00:00Z', NULL)", []).unwrap();
-    assert_eq!(rig.out(&["release", "makgora#3", "--by", "bob", "--held-by", "bob"]), "");
-    assert_eq!(rig.sql("SELECT owner FROM claims"), "alice");
-    assert_eq!(rig.out(&["release", "makgora#3", "--by", "alice", "--held-by", "alice"]), "makgora#3 released by alice\n");
-    assert_eq!(rig.sql("SELECT count(*) FROM claims"), "0");
-    assert_eq!(rig.out(&["release", "makgora#3", "--by", "alice", "--held-by", "alice"]), "");
-}

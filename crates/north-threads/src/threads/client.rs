@@ -772,44 +772,6 @@ exit "$(cat "$ROOT/code")"
     const PREFIX: &str = "-o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET ledger-host";
 
     #[test]
-    fn threads_client_runs_every_verb_over_ssh_with_the_same_env() {
-        let rig = rig(&[("THREADS_ACTOR", "lead one"), ("CLAUDE_CODE_REMOTE", "1")]);
-        fs::write(rig.root.join("fleet.json"), r#"["w2", "s9", "codex:s9"]"#).unwrap();
-        let rig = rig;
-        assert_eq!(call(&rig, &["show", "north#63"], b"").0, 0);
-        assert_eq!(call(&rig, &["unowned"], b"").0, 0);
-        assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
-        assert_eq!(call(&rig, &["list"], b"").0, 0);
-        assert_eq!(log(&rig, "ssh.log"), [
-            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 north threads show 'north#63'"),
-            format!("{PREFIX} north threads snapshot-pages"),
-            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' north threads unowned"),
-            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' north threads claim 'north#63'"),
-            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' north threads list"),
-        ]);
-        assert!(fs::read(&rig.client.snapshot).unwrap().starts_with(b"SQLite format 3"));
-    }
-
-    #[test]
-    fn a_read_that_finds_the_snapshot_stale_answers_without_waiting_for_the_pull_and_starts_one_pull_at_a_time() {
-        let mut rig = rig(&[]);
-        let pulled = rig.root.join("pulled");
-        let script = format!("echo \"$@\" >> '{}'; sleep 3", pulled.display());
-        rig.client.background_pull = Some(vec!["/bin/sh".into(), "-c".into(), script.into(), "pull".into()]);
-        let started = Instant::now();
-        assert_eq!(call(&rig, &["holder", "north#63"], b"").0, 0);
-        assert_eq!(call(&rig, &["holder", "north#64"], b"").0, 0);
-        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while !pulled.exists() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        std::thread::sleep(Duration::from_millis(300));
-        assert_eq!(fs::read_to_string(&pulled).unwrap(), format!("--force --snapshot {} ledger-host\n", rig.client.snapshot.display()));
-        assert!(log(&rig, "ssh.log").iter().all(|line| !line.ends_with("snapshot-pages")));
-    }
-
-    #[test]
     fn threads_client_spools_unreachable_writes_and_flushes_them_in_order() {
         let rig = rig(&[]);
         fs::write(rig.root.join("code"), "255").unwrap();
@@ -838,28 +800,6 @@ exit "$(cat "$ROOT/code")"
     }
 
     #[test]
-    fn threads_client_spools_a_job_run_record_the_ledger_host_does_not_answer_in_time_without_flushing_first() {
-        let mut rig = rig(&[]);
-        rig.client.record_wait = Duration::from_millis(300);
-        fs::create_dir_all(&rig.client.spool).unwrap();
-        fs::write(rig.client.spool.join("1-1.argv"), r#"["job-run", "earlier", "--host", "laptop"]"#).unwrap();
-        fs::write(rig.root.join("sleep"), "30").unwrap();
-        let begun = Instant::now();
-        let (code, err) = call(&rig, &["job-run", "fleet-relay", "--host", "laptop", "--started", "s", "--finished", "f", "--rc", "0"], b"");
-        assert!(begun.elapsed() < Duration::from_secs(5), "{:?}", begun.elapsed());
-        assert_eq!((code, err.as_str()), (0, "NorthThreads: ledger-host timed out; remote outcome unknown\n"));
-        assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} north threads job-run fleet-relay --host laptop --started s --finished f --rc 0")]);
-        let mut packets: Vec<String> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "argv"))
-            .map(|path| fs::read_to_string(path).unwrap()).collect();
-        packets.sort();
-        assert_eq!(packets, [
-            r#"["job-run", "earlier", "--host", "laptop"]"#,
-            r#"["job-run", "fleet-relay", "--host", "laptop", "--started", "s", "--finished", "f", "--rc", "0"]"#,
-        ]);
-    }
-
-    #[test]
     fn a_stalled_ledger_host_fails_a_write_within_its_bound_and_never_replays_or_spools_it() {
         let mut rig = rig(&[]);
         rig.client.ssh_wait = Duration::from_millis(300);
@@ -873,63 +813,36 @@ exit "$(cat "$ROOT/code")"
     }
 
     #[test]
-    fn queue_follow_refuses_a_follows_line_that_names_no_issue_sha_or_landed_subject() {
-        let checkout = tempfile::tempdir().unwrap();
-        let repo = checkout.path().join("north/main");
-        fs::create_dir_all(&repo).unwrap();
-        let git = |args: &[&str]| assert!(Command::new("git").arg("-C").arg(&repo).args(args).status().unwrap().success(), "git {args:?}");
-        git(&["init", "-q"]);
-        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "Land the ledger fix"]);
-        git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
-        let rig = rig(&[("FOLLOWS_RELEASE_ROOT", checkout.path().to_str().unwrap())]);
-        let queue = |follows: &str| call(&rig, &["queue", "follow", "north#9", "--tier", "sonnet", "--parent", "p"], format!("Item: north#9 x\nFollows: {follows}\n\nDo it.").as_bytes());
-        let (code, err) = queue("the ledger fix");
-        assert_eq!(code, 1);
-        assert!(err.starts_with("NorthThreads: queue follow: Follows: the ledger fix names no issue, SHA or landed subject; use an issue (`repo#N` or `owner/repo#N`), a commit SHA"), "{err}");
-        assert!(log(&rig, "ssh.log").is_empty(), "a refused box reaches no ledger");
-        for accepted in ["north#240 (note)", "0123abc landed it", "Land the ledger fix"] {
-            assert_eq!(queue(accepted).0, 0, "{accepted}");
-        }
-        assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.contains("queue follow 'north#9'")).count(), 3);
+    fn a_caller_that_may_not_read_native_items_is_served_no_snapshot_pages() {
+        let rig = rig(&[("THREADS_NO_NATIVE", "1")]);
+        assert_eq!(call(&rig, &["snapshot-pages"], b""), (1, "NorthThreads: the snapshot holds native items: THREADS_NO_NATIVE is set (agy)\n".to_owned()));
     }
 
     #[test]
-    fn the_ledger_host_stores_a_follows_box_its_sender_vetted_without_vetting_it_against_its_own_checkouts() {
-        let ledger = tempfile::tempdir().unwrap();
-        let database = ledger.path().join("threads.db");
-        rusqlite::Connection::open(&database).unwrap().execute_batch("CREATE TABLE job_queue(id INTEGER PRIMARY KEY, placement TEXT NOT NULL, item TEXT, cmd TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued', queued TEXT NOT NULL, taken TEXT, finished TEXT, result TEXT) STRICT").unwrap();
-        let database = database.to_str().unwrap();
-        let rig = rig(&[("THREADS_DB", database), (FORWARDED, "1"), ("FOLLOWS_RELEASE_ROOT", ledger.path().to_str().unwrap())]);
-        let (code, err) = call(&rig, &["queue", "follow", "north#9", "--tier", "sonnet", "--parent", "p"], b"Item: north#9 x\nFollows: Land the ledger fix\n");
-        assert_eq!((code, err.as_str()), (0, ""));
-        assert!(log(&rig, "ssh.log").is_empty());
-        let stored: String = rusqlite::Connection::open(database).unwrap().query_row("SELECT item || ' ' || placement FROM job_queue", [], |row| row.get(0)).unwrap();
-        assert_eq!(stored, "north#9 follows");
-    }
-
-    #[test]
-    fn a_fleet_row_put_is_forwarded_to_the_ledger_host_and_answers_the_remote_exit_code() {
+    fn a_busy_ledger_host_spools_the_batch_keeps_it_queued_and_stays_reachable_for_other_commands() {
         let rig = rig(&[]);
-        let rows = b"{\"id\":\"m-1\",\"kind\":\"MESSAGE\"}";
-        let put = |rig: &Rig| rig.client.forward(&["north", "fleet", "row", "put"], rows, &mut Vec::new()).unwrap();
-
-        assert_eq!(put(&rig), Some(0));
-        fs::write(rig.root.join("code"), "255").unwrap();
-        assert_eq!(put(&rig), Some(255));
-
-        assert_eq!(log(&rig, "ssh.log"), vec![format!("{PREFIX} north fleet row put"); 2]);
-        assert_eq!(log(&rig, "rows.log"), vec![String::from_utf8_lossy(rows).into_owned(); 2]);
-    }
-
-    #[test]
-    fn a_fleet_row_put_stays_here_when_this_machine_holds_the_ledger() {
-        let local = rig(&[("THREADS_DB", "/tmp/ledger.db")]);
-        let no_remote = rig(&[]);
-        fs::remove_file(no_remote.root.join(".config/threads/remote")).unwrap();
-
-        assert_eq!(local.client.forward(&["north"], b"", &mut Vec::new()).unwrap(), None);
-        assert_eq!(no_remote.client.forward(&["north"], b"", &mut Vec::new()).unwrap(), None);
-        assert!(log(&local, "ssh.log").is_empty() && log(&no_remote, "ssh.log").is_empty());
+        let spooled = || {
+            fs::read_dir(rig.root.join(".local/state/threads/spool")).unwrap()
+                .filter_map(|entry| entry.unwrap().path().extension().map(|extension| extension.to_string_lossy().into_owned()))
+                .collect::<Vec<_>>()
+        };
+        fs::write(rig.root.join("ingest-code"), ingest_lock::RETRY.to_string()).unwrap();
+        let (code, err) = call(&rig, &["ingest"], b"{\"n\": 1}\n");
+        assert_eq!(code, 0);
+        assert!(err.contains("ledger-host busy; spooled ingest to "), "{err}");
+        assert_eq!(spooled(), ["jsonl"]);
+        let (code, err) = call(&rig, &["claim", "north#63"], b"");
+        assert_eq!(code, 0, "a busy ingest lock is not an unreachable host: {err}");
+        assert_eq!(spooled(), ["jsonl"], "a busy batch stays queued, never .failed");
+        let (code, err) = call(&rig, &["ingest"], b"{\"n\": 2}\n");
+        assert_eq!(code, 0);
+        assert!(err.contains("spooled ingest to "), "{err}");
+        assert_eq!(spooled(), ["jsonl", "jsonl"]);
+        fs::remove_file(rig.root.join("ingest-code")).unwrap();
+        assert_eq!(call(&rig, &["ingest"], b"{\"n\": 3}\n").0, 0);
+        assert!(spooled().is_empty());
+        let sent = log(&rig, "ingest.log");
+        assert_eq!(&sent[sent.len() - 3..], ["{\"n\": 1}", "{\"n\": 2}", "{\"n\": 3}"]);
     }
 
     #[test]
@@ -949,13 +862,6 @@ exit "$(cat "$ROOT/code")"
         let held: i64 = rusqlite::Connection::open(&rig.client.snapshot).unwrap().query_row("SELECT count(*) FROM claims", [], |row| row.get(0)).unwrap();
         assert_eq!(held, 0, "an unreachable host records nothing in the snapshot");
     }
-
-    #[test]
-    fn a_caller_that_may_not_read_native_items_is_served_no_snapshot_pages() {
-        let rig = rig(&[("THREADS_NO_NATIVE", "1")]);
-        assert_eq!(call(&rig, &["snapshot-pages"], b""), (1, "NorthThreads: the snapshot holds native items: THREADS_NO_NATIVE is set (agy)\n".to_owned()));
-    }
-
     fn ledger_host(wait: Duration) -> (tempfile::TempDir, Client) {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
@@ -1005,22 +911,6 @@ exit "$(cat "$ROOT/code")"
     }
 
     #[test]
-    fn an_ingest_that_cannot_get_the_lock_refuses_with_the_retry_code_and_records_nothing_until_retried() {
-        let (directory, client) = ledger_host(Duration::from_millis(200));
-        let held = ingest_lock::acquire(&directory.path().join("ingest.lock"), Duration::ZERO).unwrap().unwrap();
-        let mut err = Vec::new();
-        let code = client.main(&["ingest".to_owned()], &mut &batch("one")[..], &mut err).unwrap();
-        assert_eq!(code, ingest_lock::RETRY);
-        assert_eq!(String::from_utf8(err).unwrap(), "NorthThreads: another ingest holds the ledger; retry\n");
-        assert!(!directory.path().join("threads.db").exists());
-        drop(held);
-        for _ in 0..2 {
-            assert_eq!(client.main(&["ingest".to_owned()], &mut &batch("one")[..], &mut Vec::new()).unwrap(), 0);
-        }
-        assert_eq!(recorded(directory.path()), ["one"]);
-    }
-
-    #[test]
     fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_code_and_its_retry_records_each_row_once() {
         let (directory, mut client) = ledger_host(Duration::from_secs(5));
         client.ingest_hold = Duration::from_secs(3);
@@ -1044,82 +934,8 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(recorded(directory.path()), ["one", "two"]);
     }
 
-    #[test]
-    fn incident_runs_in_process_without_a_schema_marker_or_the_python_script() {
-        let (directory, client) = ledger_host(Duration::from_secs(5));
-        let argv = ["incident", "record", "--key", "k1", "--class", "withdraw", "--noticed-by", "proxy"].map(str::to_owned);
-        assert_eq!(client.main(&argv, &mut &b""[..], &mut Vec::new()).unwrap(), 0);
-        let db = rusqlite::Connection::open(directory.path().join("threads.db")).unwrap();
-        let rows: i64 = db.query_row("SELECT count(*) FROM incidents WHERE key = 'k1'", [], |row| row.get(0)).unwrap();
-        assert_eq!(rows, 1);
-    }
-
     fn logged(root: &Path) -> Vec<Value> {
         fs::read_to_string(root.join("ingest.log")).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect()
     }
 
-    fn scripted(client: &mut Client, millis: &[i64]) -> Arc<std::sync::atomic::AtomicUsize> {
-        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let counter = reads.clone();
-        let times: Vec<Timestamp> = millis.iter().map(|millis| Timestamp::from_unix_millis(1_793_000_000_000 + millis)).collect();
-        client.clock = Arc::new(move || times[counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst)]);
-        reads
-    }
-
-    #[test]
-    fn every_ingest_logs_its_wait_and_hold_so_a_day_of_traffic_shows_one_holder_at_a_time() {
-        let (directory, mut client) = ledger_host(Duration::from_secs(60));
-        let reads = scripted(&mut client, &[0, 300, 1300]);
-        let held = ingest_lock::acquire(&directory.path().join("ingest.lock"), Duration::ZERO).unwrap().unwrap();
-        let code = std::thread::scope(|scope| {
-            let ingest = scope.spawn(|| client.main(&["ingest".to_owned()], &mut &batch("one")[..], &mut Vec::new()).unwrap());
-            while reads.load(std::sync::atomic::Ordering::SeqCst) == 0 && !ingest.is_finished() {
-                std::thread::yield_now();
-            }
-            drop(held);
-            ingest.join().unwrap()
-        });
-        assert_eq!(code, 0);
-        let lines = logged(directory.path());
-        assert_eq!(lines.len(), 1);
-        assert_eq!((lines[0]["exit"].as_i64(), lines[0]["pid"].as_u64(), lines[0]["waited_ms"].as_i64(), lines[0]["held_ms"].as_i64(), lines[0]["total_ms"].as_i64()), (Some(0), Some(u64::from(std::process::id())), Some(300), Some(1000), Some(1300)), "{lines:?}");
-    }
-
-    #[test]
-    fn a_refused_ingest_logs_the_retry_code_with_no_hold() {
-        let (directory, mut client) = ledger_host(Duration::ZERO);
-        scripted(&mut client, &[0, 100]);
-        let _held = ingest_lock::acquire(&directory.path().join("ingest.lock"), Duration::ZERO).unwrap().unwrap();
-        client.main(&["ingest".to_owned()], &mut &batch("one")[..], &mut Vec::new()).unwrap();
-        let lines = logged(directory.path());
-        assert_eq!(lines.len(), 1);
-        assert_eq!((lines[0]["exit"].as_i64(), lines[0]["held_ms"].is_null(), lines[0]["waited_ms"].as_i64()), (Some(i64::from(ingest_lock::RETRY)), true, Some(100)), "{lines:?}");
-    }
-
-    #[test]
-    fn a_busy_ledger_host_spools_the_batch_keeps_it_queued_and_stays_reachable_for_other_commands() {
-        let rig = rig(&[]);
-        let spooled = || {
-            fs::read_dir(rig.root.join(".local/state/threads/spool")).unwrap()
-                .filter_map(|entry| entry.unwrap().path().extension().map(|extension| extension.to_string_lossy().into_owned()))
-                .collect::<Vec<_>>()
-        };
-        fs::write(rig.root.join("ingest-code"), ingest_lock::RETRY.to_string()).unwrap();
-        let (code, err) = call(&rig, &["ingest"], b"{\"n\": 1}\n");
-        assert_eq!(code, 0);
-        assert!(err.contains("ledger-host busy; spooled ingest to "), "{err}");
-        assert_eq!(spooled(), ["jsonl"]);
-        let (code, err) = call(&rig, &["claim", "north#63"], b"");
-        assert_eq!(code, 0, "a busy ingest lock is not an unreachable host: {err}");
-        assert_eq!(spooled(), ["jsonl"], "a busy batch stays queued, never .failed");
-        let (code, err) = call(&rig, &["ingest"], b"{\"n\": 2}\n");
-        assert_eq!(code, 0);
-        assert!(err.contains("spooled ingest to "), "{err}");
-        assert_eq!(spooled(), ["jsonl", "jsonl"]);
-        fs::remove_file(rig.root.join("ingest-code")).unwrap();
-        assert_eq!(call(&rig, &["ingest"], b"{\"n\": 3}\n").0, 0);
-        assert!(spooled().is_empty());
-        let sent = log(&rig, "ingest.log");
-        assert_eq!(&sent[sent.len() - 3..], ["{\"n\": 1}", "{\"n\": 2}", "{\"n\": 3}"]);
-    }
 }

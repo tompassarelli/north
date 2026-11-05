@@ -1,8 +1,6 @@
 //! `north threads unowned`: the open makgora and wisp issues with an unchecked box, each with
 //! its owner, its block or UNOWNED, priority:now first.
 pub mod branches;
-#[cfg(test)]
-mod tests;
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};

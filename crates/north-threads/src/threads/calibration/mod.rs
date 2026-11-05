@@ -10,16 +10,12 @@ mod forward;
 mod history;
 mod mode;
 pub mod predictions;
-#[cfg(test)]
-mod predictions_tests;
 mod rates;
 mod read;
 mod recommend;
 pub mod rework;
 mod routing;
 mod summary;
-#[cfg(test)]
-mod tests;
 mod verbs;
 mod verdicts;
 

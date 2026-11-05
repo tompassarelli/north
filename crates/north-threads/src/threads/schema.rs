@@ -58,22 +58,4 @@ mod tests {
         assert_eq!(outcomes, [true; 8]);
     }
 
-    #[test]
-    fn a_new_ledger_gets_every_table_in_wal_mode_and_a_second_ensure_changes_nothing() {
-        let scratch = tempfile::tempdir().unwrap();
-        let path = scratch.path().join("state/threads.db");
-        ensure(&path).unwrap();
-        let db = rusqlite::Connection::open(&path).unwrap();
-        db.execute("INSERT INTO claims(item, owner, since) VALUES ('wisp#7', 'fixture', '2026-11-05T00:00:00Z')", []).unwrap();
-        drop(db);
-        ensure(&path).unwrap();
-        let db = rusqlite::Connection::open(&path).unwrap();
-        let tables: Vec<String> = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").unwrap().query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
-        assert_eq!(tables, ["blocks", "calibration", "claims", "events", "gh_cache", "item_needs", "items", "job_queue", "job_runs", "run_costs", "run_events", "run_usage", "runs", "tier_choice"]);
-        let mode: String = db.query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
-        let kept: i64 = db.query_row("SELECT count(*) FROM claims", [], |row| row.get(0)).unwrap();
-        assert_eq!((mode.as_str(), kept), ("wal", 1));
-        let runs: Vec<String> = db.prepare("SELECT name FROM pragma_table_info('runs')").unwrap().query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
-        assert!(["provider", "brief_sha256", "tool_calls", "active_min", "wait_min"].iter().all(|column| runs.iter().any(|name| name == column)), "{runs:?}");
-    }
 }

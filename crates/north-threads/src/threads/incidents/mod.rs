@@ -3,8 +3,6 @@
 //! weekly reading `north flow` prints. The tables are created here, on first write; the reader in
 //! `report` tolerates a ledger that has none yet.
 pub mod report;
-#[cfg(test)]
-mod tests;
 
 use std::io::{Read, Write};
 

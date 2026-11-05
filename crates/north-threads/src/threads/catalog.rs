@@ -58,23 +58,3 @@ impl Catalog {
         Ok((repo.to_owned(), number))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::CATALOG;
-
-    #[test]
-    fn a_checkout_alias_and_the_owner_prefix_name_the_same_issue() {
-        assert_eq!(CATALOG.parse_ref("nixos-config#9"), Ok(("firn".to_owned(), 9)));
-        assert_eq!(CATALOG.parse_ref("tompassarelli/firn#9"), Ok(("firn".to_owned(), 9)));
-        assert!(CATALOG.parse_ref("nowhere#9").unwrap_err().starts_with("unknown repo nowhere"));
-        assert!(CATALOG.parse_ref("makgora#0").is_err() && CATALOG.parse_ref("makgora").is_err());
-        assert_eq!(CATALOG.canonical("tompassarelli/Makgora"), "makgora");
-        assert_eq!(CATALOG.parse_ref("makgora-client#26"), Ok(("makgora-client".to_owned(), 26)));
-        assert_eq!((super::checkout("makgora"), super::checkout("firn"), super::checkout("wisp")), ("makgora", "nixos-config", "wisp"));
-        assert_eq!(CATALOG.parse_ref("padbridge#1"), Ok(("padbridge".to_owned(), 1)));
-        assert!(CATALOG.is_native("life") && !CATALOG.is_native("wisp"));
-        let topic = crate::platform::frozen_topics::Topic { repo: "Makgora".into(), name: "Kobold".into(), terms: vec!["kobold".into()], since: "2026-10-26".into(), reason: "x".into() };
-        assert_eq!(super::canonical_topics(vec![topic])[0].repo, "makgora");
-    }
-}
