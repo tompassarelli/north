@@ -5,10 +5,10 @@ mod server;
 mod upstream;
 
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::net::{UnixDatagram, UnixListener};
+use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::platform::gh_broker_route::{Place, source_config};
 use broker::{Broker, Settings};
@@ -38,6 +38,7 @@ Each call is logged to calls.log beside the socket as: unix time, caller (the fl
 the caller's systemd unit), served from, status, method, target.";
 
 const IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
+const TAKE_OVER_LIMIT: Duration = Duration::from_secs(30);
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -59,8 +60,8 @@ pub fn run(arguments: &[String]) -> u8 {
 
 fn serve(resident: bool) -> u8 {
     let place = Place::from_env();
-    let lock = place.exclusive();
-    if lock.is_none() && !resident {
+    let lock = if resident { take_over(&place) } else { place.exclusive() };
+    if !resident && (lock.is_none() || UnixStream::connect(place.socket()).is_ok()) {
         return 0;
     }
     let _ = std::fs::remove_file(place.socket());
@@ -79,21 +80,49 @@ fn serve(resident: bool) -> u8 {
             return 1;
         }
         notify_ready();
-    } else {
-        exit_when_idle(&place.socket(), Arc::clone(&activity));
     }
+    watch(&place, Arc::clone(&activity), resident);
     server::serve(&listener, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls())));
+    drop(lock);
     0
 }
 
-fn exit_when_idle(socket: &Path, watched: Arc<server::Activity>) {
-    let socket = socket.to_path_buf();
+fn take_over(place: &Place) -> Option<std::fs::File> {
+    let _ = std::fs::write(place.resident_wanted(), b"");
+    let started = Instant::now();
+    let lock = loop {
+        if let Some(lock) = place.exclusive() {
+            break Some(lock);
+        }
+        if started.elapsed() >= TAKE_OVER_LIMIT {
+            eprintln!("north gh-broker: an on-demand broker kept the lock for {} s; serving without it", TAKE_OVER_LIMIT.as_secs());
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    let _ = std::fs::remove_file(place.resident_wanted());
+    lock
+}
+
+fn watch(place: &Place, watched: Arc<server::Activity>, resident: bool) {
+    let (socket, wanted) = (place.socket(), place.resident_wanted());
     let bound = inode(&socket);
     std::thread::spawn(move || {
         loop {
-            std::thread::sleep(Duration::from_secs(60));
-            if watched.idle_for().is_some_and(|idle| idle >= IDLE_EXIT) {
-                if bound.is_some() && inode(&socket) == bound {
+            std::thread::sleep(Duration::from_secs(1));
+            let superseded = inode(&socket) != bound;
+            if resident {
+                if superseded {
+                    eprintln!("north gh-broker: {} is no longer this broker's socket; exiting so the service binds it again", socket.display());
+                    std::process::exit(1);
+                }
+                continue;
+            }
+            let Some(idle) = watched.idle_for() else {
+                continue;
+            };
+            if superseded || wanted.exists() || idle >= IDLE_EXIT {
+                if !superseded {
                     let _ = std::fs::remove_file(&socket);
                 }
                 std::process::exit(0);

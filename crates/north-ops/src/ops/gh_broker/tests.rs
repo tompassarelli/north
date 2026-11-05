@@ -82,8 +82,12 @@ impl Harness {
     }
 
     fn send(&self, method: &str, target: &str, body: &str) -> Response {
+        self.send_as("token session", method, target, body)
+    }
+
+    fn send_as(&self, token: &str, method: &str, target: &str, body: &str) -> Response {
         let stream = UnixStream::connect(&self.socket).unwrap();
-        let headers = vec![("Host".to_owned(), "api.github.com".to_owned()), ("Authorization".to_owned(), "token session".to_owned()), ("Accept-Encoding".to_owned(), "gzip".to_owned())];
+        let headers = vec![("Host".to_owned(), "api.github.com".to_owned()), ("Authorization".to_owned(), token.to_owned()), ("Accept-Encoding".to_owned(), "gzip".to_owned())];
         write_request(&stream, &Request { method: method.to_owned(), target: target.to_owned(), headers, body: body.as_bytes().to_vec() }).unwrap();
         read_response(&stream).unwrap()
     }
@@ -129,7 +133,7 @@ fn a_repeat_read_is_answered_from_an_etag_304_costing_no_rate_limit() {
 }
 
 #[test]
-fn retry_after_holds_every_github_call_until_it_passes() {
+fn retry_after_holds_every_call_with_that_token_until_it_passes_and_no_other_token {
     let broker = Harness::start(Duration::from_secs(20));
     assert_eq!(broker.get("/limited/retry-after").status, 429);
     for (method, target) in [("GET", ISSUES), ("POST", "/repos/o/r/issues/1/comments")] {
@@ -139,6 +143,8 @@ fn retry_after_holds_every_github_call_until_it_passes() {
         assert!((100..=121).contains(&wait), "{wait}");
     }
     assert_eq!(broker.calls(), 1, "nothing reaches GitHub during the hold");
+    let other = broker.send_as("token personal", "GET", ISSUES, "");
+    assert_eq!((other.status, source(&other)), (200, "upstream"), "one exhausted token holds no other token on the host");
 }
 
 #[test]

@@ -34,6 +34,10 @@ impl Place {
         self.root.join("calls.log")
     }
 
+    pub fn resident_wanted(&self) -> PathBuf {
+        self.root.join("resident.wanted")
+    }
+
     pub fn exclusive(&self) -> Option<fs::File> {
         let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(self.root.join("broker.lock")).ok()?;
         flock(&file, FlockOperation::NonBlockingLockExclusive).ok()?;
@@ -57,7 +61,10 @@ impl Place {
 
     pub fn claim_user_gh(&self, source: &Path) -> std::io::Result<()> {
         fs::DirBuilder::new().recursive(true).mode(0o700).create(source)?;
-        let original = fs::read_to_string(source.join("config.yml")).unwrap_or_default();
+        let original = match fs::read_to_string(source.join("config.yml")) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            read => read?,
+        };
         replace(&source.join("config.yml"), &with_socket(&original, Some(&self.socket())))
     }
 

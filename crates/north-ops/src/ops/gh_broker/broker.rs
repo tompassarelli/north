@@ -53,7 +53,7 @@ struct Entry {
 struct State {
     cache: HashMap<Key, Entry>,
     inflight: HashSet<Key>,
-    hold_until: Option<Instant>,
+    holds: HashMap<Key, Instant>,
     next_write: Option<Instant>,
 }
 
@@ -91,10 +91,11 @@ impl Broker {
 
     fn read(&self, request: &Request) -> (Response, Source) {
         let key = key(request);
+        let bucket = bucket(request);
         let mut state = self.lock();
         loop {
             let now = Instant::now();
-            if let Some(until) = state.hold_until.filter(|until| *until > now) {
+            if let Some(until) = state.holds.get(&bucket).copied().filter(|until| *until > now) {
                 return match state.cache.get(&key) {
                     Some(entry) => (entry.response.clone(), Source::Stale),
                     None => (held(until - now), Source::Held),
@@ -114,7 +115,7 @@ impl Broker {
         let response = self.upstream.send(request, etag.as_deref());
         let mut state = self.lock();
         let now = Instant::now();
-        let outcome = if self.hold(&mut state, &response, now) {
+        let outcome = if self.hold(&mut state, bucket, &response, now) {
             (response, Source::Upstream)
         } else if let Some(entry) = state.cache.get_mut(&key).filter(|_| response.status == 304) {
             entry.fetched = now;
@@ -131,9 +132,10 @@ impl Broker {
     }
 
     fn write(&self, request: &Request) -> (Response, Source) {
+        let bucket = bucket(request);
         let mut state = self.lock();
         let now = Instant::now();
-        if let Some(until) = state.hold_until.filter(|until| *until > now) {
+        if let Some(until) = state.holds.get(&bucket).copied().filter(|until| *until > now) {
             return (held(until - now), Source::Held);
         }
         let slot = state.next_write.map_or(now, |next| next.max(now));
@@ -142,7 +144,7 @@ impl Broker {
         std::thread::sleep(slot - now);
         let response = self.upstream.send(request, None);
         let mut state = self.lock();
-        if !self.hold(&mut state, &response, Instant::now()) && (200..300).contains(&response.status) {
+        if !self.hold(&mut state, bucket, &response, Instant::now()) && (200..300).contains(&response.status) {
             state.cache.clear();
         }
         (response, Source::Upstream)
@@ -158,12 +160,13 @@ impl Broker {
         state.cache.insert(key, Entry { response: response.clone(), etag, fetched: now });
     }
 
-    fn hold(&self, state: &mut State, response: &Response, now: Instant) -> bool {
+    fn hold(&self, state: &mut State, bucket: Key, response: &Response, now: Instant) -> bool {
         let Some(wait) = hold_for(response, self.settings.default_hold) else {
             return false;
         };
         let until = now + wait;
-        state.hold_until = Some(state.hold_until.map_or(until, |current| current.max(until)));
+        let held = state.holds.entry(bucket).or_insert(until);
+        *held = (*held).max(until);
         true
     }
 }
@@ -177,6 +180,17 @@ fn is_read(request: &Request) -> bool {
             .unwrap_or(false),
         _ => false,
     }
+}
+
+fn bucket(request: &Request) -> Key {
+    let path = request.target.split('?').next().unwrap_or("");
+    let class = if path == "/graphql" { "graphql" } else if path.starts_with("/search/") { "search" } else { "core" };
+    let mut hash = Sha256::new();
+    for part in [request.header("host").unwrap_or(""), request.header("authorization").unwrap_or(""), class] {
+        hash.update(part.as_bytes());
+        hash.update([0]);
+    }
+    hash.finalize().into()
 }
 
 fn key(request: &Request) -> Key {
