@@ -7,6 +7,7 @@ pub mod issue_body;
 pub mod issue_box_lint;
 pub mod land;
 pub mod land_abandon;
+pub mod land_model;
 pub mod landing;
 pub mod language_gate;
 pub mod provenance;
