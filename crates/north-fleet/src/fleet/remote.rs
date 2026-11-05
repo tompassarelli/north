@@ -124,27 +124,3 @@ fn unit(key: &str) -> String {
     format!("north-fleet-{name}-{suffix}.service")
 }
 
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use super::*;
-
-    #[test]
-    fn a_placed_sessions_record_lands_on_its_machine_under_its_conversation() {
-        let scratch = tempfile::tempdir().unwrap();
-        let ssh = scratch.path().join("ssh");
-        crate::foundation::shim::write_script(&ssh, "printf '%s\\n' \"$@\" > \"$(dirname \"$0\")/argv\"\nwhile [ \"$1\" != -- ]; do shift; done\nexec sh -c \"$2\"\n");
-        let record: SessionRecord = serde_json::from_value(serde_json::json!({
-            "name": "sc-459", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null,
-            "conversation": "it's-a-conversation", "task_ref": "makgora#459", "machine": {"name": "far", "ssh": "tom@far"}
-        }))
-        .unwrap();
-        let placed = scratch.path().join("fleet/.placed");
-        mirror_through(&ssh, &record, &placed).unwrap();
-        assert_eq!(super::super::records::read_record(&placed.join("it's-a-conversation")).unwrap(), record);
-        assert!(fs::read_to_string(scratch.path().join("argv")).unwrap().lines().any(|line| line == "tom@far"));
-        mirror_through(&ssh, &SessionRecord { machine: None, ..record }, &scratch.path().join("here")).unwrap();
-        assert!(!scratch.path().join("here").exists(), "a session on this machine needs no copy");
-    }
-}

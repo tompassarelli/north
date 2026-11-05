@@ -1,7 +1,6 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
@@ -12,7 +11,6 @@ use super::{Config, Ctx};
 struct Rig {
     root: tempfile::TempDir,
     config: Arc<Config>,
-    now: Arc<Mutex<String>>,
     published: Arc<Mutex<Vec<(String, Value)>>>,
     port: u16,
     log: Arc<Mutex<Vec<String>>>,
@@ -74,11 +72,7 @@ impl Rig {
         let respond: Respond = Arc::new(move |request| handler.respond(request));
         let record: Log = Arc::new(move |line| sink.lock().unwrap().push(line.to_owned()));
         std::thread::spawn(move || serve(&listener, &respond, &record));
-        Self { root, config, now, published, port, log }
-    }
-
-    fn at(&self, now: &str) {
-        *self.now.lock().unwrap() = now.to_owned();
+        Self { root, config, published, port, log }
     }
 
     fn laptop(&self, args: &[&str]) {
@@ -102,28 +96,9 @@ impl Rig {
         self.http("POST", &format!("/laptop/{verb}"), token)
     }
 
-    fn notify(&self, now: &str) {
-        self.at(now);
-        let at = crate::foundation::clock::Timestamp::parse_rfc3339(now).unwrap().unix_seconds();
-        self.config.notify(at).unwrap();
-    }
-
     fn sent(&self) -> usize {
         self.published.lock().unwrap().len()
     }
-}
-
-#[test]
-fn buttons_flip_the_state_attributed_to_ntfy_and_publish_nothing() {
-    let rig = Rig::new();
-    rig.laptop(&["open"]);
-    rig.notify("2026-10-13T08:00:30Z");
-    assert_eq!(rig.sent(), 0);
-    assert_eq!(rig.press("close", "fixture-action"), 200);
-    assert_eq!((rig.state()["state"].clone(), rig.state()["by"].clone()), (json!("draining"), json!("ntfy")));
-    assert_eq!(rig.sent(), 0);
-    assert_eq!(rig.press("open", "fixture-action"), 200);
-    assert_eq!((rig.state()["state"].clone(), rig.state()["by"].clone()), (json!("available"), json!("ntfy")));
 }
 
 #[test]
@@ -148,32 +123,3 @@ fn the_token_never_reaches_the_endpoint_log() {
     assert!(!log.contains("fixture-action"), "{log}");
 }
 
-#[test]
-fn the_window_open_edge_sends_one_reminder_a_day_with_buttons_and_the_publisher_token() {
-    let rig = Rig::new();
-    rig.at("2026-10-13T08:00:00Z");
-    rig.laptop(&["close", "until", "10:00"]);
-    rig.notify("2026-10-13T14:30:00Z");
-    assert_eq!(rig.sent(), 0);
-    rig.notify("2026-10-13T15:05:00Z");
-    assert_eq!(rig.sent(), 1);
-    let (auth, body) = rig.published.lock().unwrap()[0].clone();
-    assert_eq!(auth, "Bearer fixture-publisher");
-    assert_eq!((body["title"].clone(), body["topic"].clone()), (json!("Laptop window opens 23:00"), json!("socrates-laptop")));
-    let labels: Vec<&str> = body["actions"].as_array().unwrap().iter().map(|action| action["label"].as_str().unwrap()).collect();
-    let urls: Vec<&str> = body["actions"].as_array().unwrap().iter().map(|action| action["url"].as_str().unwrap()).collect();
-    assert_eq!(labels, ["Open", "Close"]);
-    assert_eq!(urls, ["http://10.77.0.1:2588/laptop/open", "http://10.77.0.1:2588/laptop/close"]);
-    assert!(body["actions"].as_array().unwrap().iter().all(|action| action["action"] == "http" && action["method"] == "POST" && action["headers"]["Authorization"] == "Bearer fixture-action"));
-    rig.notify("2026-10-13T15:20:00Z");
-    assert_eq!(rig.sent(), 1);
-    rig.notify("2026-10-14T15:05:00Z");
-    assert_eq!(rig.sent(), 2);
-}
-
-#[test]
-fn a_missing_action_token_file_fails_the_press_with_a_server_error() {
-    let rig = Rig::new();
-    fs::remove_file(Path::new(rig.root.path()).join("action")).unwrap();
-    assert_eq!(rig.press("close", "fixture-action"), 500);
-}

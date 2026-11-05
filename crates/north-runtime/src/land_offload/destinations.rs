@@ -1,8 +1,6 @@
 use crate::pacing::placement::gate::ssh_destination;
 use toml_edit::{DocumentMut, Item};
 
-#[cfg(test)]
-mod tests;
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Deployment {

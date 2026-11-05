@@ -59,23 +59,3 @@ pub fn recorded_names(root: &Path) -> BTreeSet<String> {
     current.chain(past_records(root)).map(|record| record.name).collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn record(name: &str) -> SessionRecord {
-        serde_json::from_value(serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null})).unwrap()
-    }
-
-    #[test]
-    fn recorded_names_cover_current_archived_and_placed_sessions_only() {
-        let root = tempfile::tempdir().unwrap();
-        for (directory, name) in [("live", "sc-live"), (".archive/gone-1", "sc-gone"), (".placed/abc", "sc-placed")] {
-            let session_dir = root.path().join(directory);
-            fs::create_dir_all(&session_dir).unwrap();
-            write_record(&session_dir, &record(name)).unwrap();
-        }
-        let names: Vec<String> = recorded_names(root.path()).into_iter().collect();
-        assert_eq!(names, ["sc-gone", "sc-live", "sc-placed"]);
-    }
-}

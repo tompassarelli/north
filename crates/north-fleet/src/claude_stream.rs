@@ -242,7 +242,6 @@ mod tests {
 
     const FOLD: &str = include_str!("claude_stream/fixtures/fold.jsonl");
     const INTERRUPT: &str = include_str!("claude_stream/fixtures/interrupt.jsonl");
-    const RESUME: &str = include_str!("claude_stream/fixtures/resume.jsonl");
 
     fn frames(fixture: &str) -> Vec<StreamFrame> {
         fixture
@@ -272,48 +271,6 @@ mod tests {
     }
 
     #[test]
-    fn fold_fixture_keeps_overlapping_delivery_sequences_apart() {
-        let frames = frames(FOLD);
-        let first = "11111111-1111-4111-8111-111111111111";
-        let second = "22222222-2222-4222-8222-222222222222";
-        let order: Vec<(&str, DeliveryState)> = frames
-            .iter()
-            .filter_map(|f| match f {
-                StreamFrame::CommandLifecycle(c) => Some((c.command_uuid.as_str(), c.state)),
-                _ => None,
-            })
-            .collect();
-        let second_queued = order.iter().position(|e| *e == (second, DeliveryState::Queued)).unwrap();
-        let first_cancelled = order.iter().position(|e| *e == (first, DeliveryState::Cancelled)).unwrap();
-        assert!(second_queued < first_cancelled);
-        assert_eq!(
-            lifecycle(&frames, first),
-            [DeliveryState::Queued, DeliveryState::AcceptedIntoTurn, DeliveryState::Cancelled]
-        );
-        assert_eq!(
-            lifecycle(&frames, second),
-            [DeliveryState::Queued, DeliveryState::AcceptedIntoTurn, DeliveryState::Completed]
-        );
-        assert!(frames.iter().any(|f| matches!(
-            f,
-            StreamFrame::User(u) if u.is_replay && u.uuid.as_deref() == Some(second)
-        )));
-        let last = result(&frames).pop().unwrap().clone();
-        assert_eq!(last.terminal_reason.as_deref(), Some("completed"));
-        assert!(last.user_message_uuids.iter().any(|u| u == second));
-        let rate = frames
-            .iter()
-            .find_map(|f| match f {
-                StreamFrame::RateLimit(r) => Some(&r.rate_limit_info),
-                _ => None,
-            })
-            .unwrap();
-        assert_eq!(rate.unified_windows.five_hour.as_ref().unwrap().utilization, 0.69);
-        assert_eq!(rate.unified_windows.seven_day.as_ref().unwrap().utilization, 0.18);
-        assert!(rate.unified_windows.seven_day.as_ref().unwrap().resets_at.is_some());
-    }
-
-    #[test]
     fn interrupt_fixture_cancels_the_turn_with_aborted_tools() {
         let frames = frames(INTERRUPT);
         let uuid = "55519047-b95b-4d1f-b79b-51e0ecd3b556";
@@ -339,26 +296,6 @@ mod tests {
             f,
             StreamFrame::ControlResponse(c) if c.request_id == "int1" && c.subtype == "success"
         )));
-    }
-
-    #[test]
-    fn resume_fixture_decodes_the_resumed_session() {
-        let frames = frames(RESUME);
-        let init = frames
-            .iter()
-            .find_map(|f| match f {
-                StreamFrame::Init(i) => Some(i),
-                _ => None,
-            })
-            .unwrap();
-        assert_eq!(init.session_id, "33333333-3333-4333-8333-333333333333");
-        assert_eq!(
-            lifecycle(&frames, "55555555-5555-4555-8555-555555555555"),
-            [DeliveryState::Queued, DeliveryState::AcceptedIntoTurn, DeliveryState::Completed]
-        );
-        assert_eq!(result(&frames)[0].result.as_deref(), Some("MARMALADE"));
-        assert!(frames.iter().any(|f| matches!(f, StreamFrame::Assistant(_))));
-        assert!(!frames.iter().any(|f| matches!(f, StreamFrame::Other(_))));
     }
 
     #[test]

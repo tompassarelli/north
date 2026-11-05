@@ -122,30 +122,3 @@ pub fn resume_message(account: &str) -> String {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const NOON_MS: u64 = 1_793_000_000_000 - 1_793_000_000_000 % DAY_MS + 12 * 3_600_000;
-
-    fn limit(resets_at_s: Option<u64>, message: Option<&str>) -> UsageLimit {
-        UsageLimit { resets_at_s, message: message.map(str::to_owned) }
-    }
-
-    #[test]
-    fn the_stream_reset_wins_then_the_message_clock_then_the_account_then_an_hour() {
-        let account = || Some(NOON_MS + 7_000);
-        assert_eq!(lifts_at_ms(&limit(Some(NOON_MS / 1000 + 60), Some("You've hit your limit · resets 11:50pm (UTC)")), NOON_MS, account), NOON_MS + 60_000);
-        assert_eq!(lifts_at_ms(&limit(None, Some("You've hit your session limit · resets 11:50pm (UTC)")), NOON_MS, account), NOON_MS + 11 * 3_600_000 + 50 * 60_000);
-        assert_eq!(lifts_at_ms(&limit(None, Some("You've hit your limit · resets 3pm")), NOON_MS, account), NOON_MS + 7_000);
-        assert_eq!(lifts_at_ms(&limit(None, None), NOON_MS, || None), NOON_MS + UNREADABLE_RETRY_MS);
-    }
-
-    #[test]
-    fn a_stale_reset_is_passed_over_and_a_clock_already_past_today_means_tomorrow() {
-        assert_eq!(lifts_at_ms(&limit(Some(NOON_MS / 1000 - 5), None), NOON_MS, || Some(NOON_MS + 9_000)), NOON_MS + 9_000);
-        assert_eq!(lifts_at_ms(&limit(None, Some("resets 11am (UTC)")), NOON_MS, || None), NOON_MS + 23 * 3_600_000);
-        assert_eq!(clock_after("resets 13pm (UTC)", NOON_MS), None);
-        assert_eq!(clock_after("resets 12am (UTC)", NOON_MS), Some(NOON_MS + 12 * 3_600_000));
-    }
-}

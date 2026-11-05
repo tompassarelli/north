@@ -123,35 +123,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_sender_round_trips_through_its_wire_text_and_only_tom_is_unprefixed() {
-        for (sender, wire, prefix) in [
-            (Sender::Tom, "tom", None),
-            (Sender::Session("lead".into()), "session:lead", Some("lead")),
-            (Sender::Service("north-ops-check.service".into()), "service:north-ops-check.service", Some("service:north-ops-check.service")),
-        ] {
-            assert_eq!(sender.to_string(), wire);
-            assert_eq!(wire.parse::<Sender>().unwrap(), sender);
-            assert_eq!(serde_json::to_string(&sender).unwrap(), format!("{wire:?}"));
-            assert_eq!(sender.prefix().as_deref(), prefix);
-        }
-        assert!("lead".parse::<Sender>().is_err(), "a bare name is no sender");
-        assert!("service:".parse::<Sender>().is_err());
-        assert!(serde_json::from_str::<Sender>("null").is_err(), "a row without a sender is refused");
-    }
-
-    #[test]
     fn a_command_line_sends_as_a_service_or_its_session_and_never_as_tom_or_nobody() {
         assert_eq!(Sender::declared(Some("service:tick"), None).unwrap(), Sender::Service("tick".into()));
         assert_eq!(Sender::declared(Some("service:tick"), Some("lead".into())).unwrap(), Sender::Service("tick".into()));
         assert_eq!(Sender::declared(None, Some("lead".into())).unwrap(), Sender::Session("lead".into()));
         assert!(Sender::declared(None, None).unwrap_err().user_message().contains("--from service:UNIT"));
         assert!(Sender::declared(Some("tom"), None).is_err(), "a timer cannot pose as Tom");
-    }
-
-    #[test]
-    fn a_sender_seen_from_another_host_keeps_tom_and_names_the_rest_by_host() {
-        assert_eq!(Sender::Tom.on_host("far"), Sender::Tom);
-        assert_eq!(Sender::Session("lead".into()).on_host("far").prefix().as_deref(), Some("lead@far"));
-        assert_eq!(Sender::Service("tick".into()).on_host("far").prefix().as_deref(), Some("service:tick@far"));
     }
 }

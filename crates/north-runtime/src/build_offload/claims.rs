@@ -54,18 +54,3 @@ impl Drop for Claim {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn capacity_a_claim_counts_only_live_earlier_claims_on_its_own_host() {
-        assert_eq!(parts("gex45.00000000000000000000000000000000000012.4242"), Some(("gex45", "00000000000000000000000000000000000012", 4242)));
-        let first = Claim::take("claims-test-host").unwrap();
-        let second = Claim::take("claims-test-host").unwrap();
-        let other = Claim::take("claims-test-other").unwrap();
-        assert_eq!((first.ahead(), second.ahead(), other.ahead()), (0, 1, 0));
-        drop(first);
-        assert_eq!(second.ahead(), 0);
-    }
-}

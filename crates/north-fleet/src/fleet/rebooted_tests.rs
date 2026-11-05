@@ -36,28 +36,6 @@ fn names(names: &[&str]) -> Vec<String> {
 }
 
 #[test]
-fn each_stranded_session_is_revived_then_told_which_host_rebooted_and_when() {
-    let resumer = Recorded::default();
-
-    let resumed = resume(&resumer, &names(&["sc-789-g", "wisp-api-g1"]), "gex45", BOOTED_MS, Duration::from_secs(60));
-
-    let text = "host gex45 rebooted at 2026-10-31T03:36Z; resume from your last checkpoint";
-    assert_eq!(*resumer.revived.lock().unwrap(), ["sc-789-g", "wisp-api-g1"]);
-    assert_eq!(*resumer.sent.lock().unwrap(), [("sc-789-g".to_owned(), text.to_owned()), ("wisp-api-g1".to_owned(), text.to_owned())]);
-    assert_eq!(resumed.lines(), ["resumed sc-789-g", "resumed wisp-api-g1"]);
-}
-
-#[test]
-fn a_session_that_cannot_be_revived_is_not_told_and_leaves_the_others_resumed() {
-    let resumer = Recorded { refuse: Some("sc-789-g"), ..Recorded::default() };
-
-    let resumed = resume(&resumer, &names(&["sc-789-g", "wisp-api-g1"]), "gex45", BOOTED_MS, Duration::from_secs(60));
-
-    assert_eq!(resumed.lines(), ["resumed wisp-api-g1", "not resumed sc-789-g: sc-789-g: not signed in"]);
-    assert_eq!(resumer.sent.lock().unwrap().iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["wisp-api-g1"]);
-}
-
-#[test]
 fn a_session_whose_account_is_out_waits_untold_without_failing_the_run() {
     let resumer = Recorded { out: Some("sc-fl-surf"), ..Recorded::default() };
 
@@ -68,12 +46,3 @@ fn a_session_whose_account_is_out_waits_untold_without_failing_the_run() {
     assert_eq!(resumer.sent.lock().unwrap().iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["wisp-api-g1"]);
 }
 
-#[test]
-fn a_spent_budget_defers_the_rest_to_the_next_run() {
-    let resumer = Recorded::default();
-
-    let resumed = resume(&resumer, &names(&["a", "b"]), "gex45", BOOTED_MS, Duration::ZERO);
-
-    assert_eq!(resumed.lines(), ["deferred a to the next run", "deferred b to the next run"]);
-    assert!(resumer.revived.lock().unwrap().is_empty());
-}

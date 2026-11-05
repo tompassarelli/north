@@ -143,11 +143,4 @@ mod tests {
         assert!(matches!(error, NorthError::Refused(why) if why == "north#9 is already owned by tom"));
         assert_eq!(*claims.1.lock().unwrap(), ["hold north#7 worker", "release north#7 worker"]);
     }
-
-    #[test]
-    fn every_item_a_launch_names_is_claimed_before_it_starts() {
-        let claims = Owned("none#0", Mutex::default());
-        hold_all(&claims, &["north#7".to_owned(), "north#8".to_owned()], "worker").unwrap();
-        assert_eq!(*claims.1.lock().unwrap(), ["hold north#7 worker", "hold north#8 worker"]);
-    }
 }

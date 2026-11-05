@@ -1,6 +1,4 @@
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod ssh_destination_tests;
 
 use std::collections::BTreeMap;

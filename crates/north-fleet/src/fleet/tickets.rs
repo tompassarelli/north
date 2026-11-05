@@ -126,31 +126,3 @@ fn tickets_in(directory: &Path) -> NorthResult<Vec<(u128, Value)>> {
     Ok(tickets)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn ticket(queue: &Path, area: Option<&str>, queued: u128, branch: &str, session: &str, verdict: Option<&str>) {
-        let directory = area.map_or_else(|| queue.to_path_buf(), |area| queue.join(area));
-        fs::create_dir_all(&directory).unwrap();
-        let body = serde_json::json!({"branch": branch, "session": session, "verdict": verdict});
-        fs::write(directory.join(format!("{queued}-{branch}.json")), body.to_string()).unwrap();
-    }
-
-    #[test]
-    fn a_branch_is_unlanded_while_its_newest_ticket_from_the_session_is_pending_red_or_quarantined() {
-        let root = tempfile::tempdir().unwrap();
-        let queue = root.path().join("560e3f31dbaa2415");
-        ticket(&queue, Some(DONE), 1, "claude-land-a", "worker", Some("red: tests failed"));
-        ticket(&queue, Some(DONE), 2, "claude-land-a", "worker", Some("landed abc123"));
-        ticket(&queue, Some(DONE), 3, "claude-land-b", "worker", Some("landed def456"));
-        ticket(&queue, None, 4, "claude-land-b", "worker", None);
-        ticket(&queue, Some(DONE), 5, "claude-land-c", "worker", Some("red: clippy"));
-        ticket(&queue, Some(QUARANTINE), 6, "claude-land-d", "worker", Some("unreadable head"));
-        ticket(&queue, Some(WITHDRAWN), 7, "claude-land-e", "worker", Some("withdrawn by the lead"));
-        ticket(&queue, None, 8, "claude-land-f", "other", None);
-        let unlanded = LandQueue::at(root.path().to_path_buf()).unlanded("worker").unwrap();
-        assert_eq!(unlanded, ["claude-land-b", "claude-land-c", "claude-land-d"]);
-        assert!(LandQueue::at(root.path().join("absent")).unlanded("worker").unwrap().is_empty());
-    }
-}

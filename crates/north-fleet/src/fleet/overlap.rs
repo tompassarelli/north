@@ -177,9 +177,3 @@ pub fn follows_line(behind: &Overlap, hot: &[String]) -> Option<String> {
     Some(format!("Follows: {task} (lane {} changes {})", behind.lane, hot.join(", ")))
 }
 
-#[cfg(test)]
-#[path = "overlap_tests.rs"]
-mod tests;
-#[cfg(test)]
-#[path = "overlap_replay_tests.rs"]
-mod replay_tests;

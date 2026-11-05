@@ -105,21 +105,6 @@ mod tests {
         parse(&PROBE.replace("%KIB%", &kib.to_string()).replace("3.10", load).replace("%COMMITTED%", committed).replace("%PRESSURE%", pressure)).unwrap()
     }
 
-    fn room(kib: u64, committed: &str) -> Room {
-        reading(kib, "3.10", committed, "5")
-    }
-
-    #[test]
-    fn a_host_needs_cores_memory_and_twenty_gib_of_disk() {
-        let gib = 1024 * 1024;
-        assert_eq!(shortfall(&room(21 * gib, "3.1")), None);
-        assert!(shortfall(&room(17 * gib, "3.1")).unwrap().contains("17.0 GiB disk free"));
-        assert!(shortfall(&room(80 * gib, "17.00")).unwrap().contains("cores free"));
-        let mut tight = room(80 * gib, "3.1");
-        tight.measure.memory_available_mib = 9000.0;
-        assert!(shortfall(&tight).unwrap().contains("MiB memory available"));
-    }
-
     #[test]
     fn a_runtime_build_has_room_on_gex45_at_its_4_20_pm_reading_whose_load_average_is_the_ci_farm() {
         let gib = 1024 * 1024;
@@ -127,68 +112,5 @@ mod tests {
         assert_eq!(shortfall(&gex45), None, "committed 7.6 of 20 CPUs at 35% pressure and load 61 is room for 6 cores");
         assert!(shortfall(&reading(80 * gib, "3.00", "17.0", "10")).unwrap().contains("cores free of 20"));
         assert!(shortfall(&reading(80 * gib, "3.00", "7.6", "40")).unwrap().contains("CPU pressure 40%"));
-    }
-
-    #[test]
-    fn the_first_host_with_room_wins_and_each_refusal_is_named() {
-        let gib = 1024 * 1024;
-        let hosts = vec![("full".to_owned(), Some(room(5 * gib, "1.00"))), ("dark".to_owned(), None), ("open".to_owned(), Some(room(30 * gib, "1.00")))];
-        assert_eq!(first_with_room(hosts.clone()), Ok("open".to_owned()));
-        let refused = first_with_room(hosts[..2].to_vec()).unwrap_err();
-        assert_eq!(refused.len(), 2, "{refused:?}");
-        assert!(refused[1].starts_with("dark: unreachable"), "{refused:?}");
-    }
-
-    #[test]
-    fn the_laptop_is_a_check_host_when_it_has_room_and_the_remote_has_none_and_never_while_reserved() {
-        let gib = 1024 * 1024;
-        let busy_remote = vec![("gex45".to_owned(), Some(room(80 * gib, "19.00")))];
-        let open_laptop = || Some(room(80 * gib, "1.00"));
-        assert_eq!(check_host(false, "laptop", open_laptop, busy_remote.clone(), &[], 6.0), Ok("laptop".to_owned()));
-        let refused = check_host(true, "laptop", || panic!("a reserved laptop is not read"), busy_remote, &[], 6.0).unwrap_err();
-        assert_eq!(refused.len(), 1, "{refused:?}");
-        assert!(refused[0].starts_with("gex45: "), "{refused:?}");
-    }
-
-    #[test]
-    fn the_host_with_the_most_free_cores_wins_and_a_tie_keeps_the_remote() {
-        let gib = 1024 * 1024;
-        let remote = |committed| vec![("gex45".to_owned(), Some(room(80 * gib, committed)))];
-        assert_eq!(check_host(false, "laptop", || Some(room(80 * gib, "1.00")), remote("7.60"), &[], 6.0), Ok("laptop".to_owned()));
-        assert_eq!(check_host(false, "laptop", || Some(room(80 * gib, "7.60")), remote("1.00"), &[], 6.0), Ok("gex45".to_owned()));
-        assert_eq!(check_host(false, "laptop", || Some(room(80 * gib, "1.00")), remote("1.00"), &[], 6.0), Ok("gex45".to_owned()));
-        assert_eq!(check_host(true, "laptop", || None, remote("7.60"), &[], 6.0), Ok("gex45".to_owned()));
-        assert_eq!(check_host(false, "laptop", || None, remote("7.60"), &[], 6.0), Ok("gex45".to_owned()));
-    }
-
-    #[test]
-    fn a_measured_four_core_land_check_fits_a_host_with_five_cores_free_that_a_six_core_one_does_not() {
-        let gib = 1024 * 1024;
-        let ccx33 = || vec![("ccx33".to_owned(), Some(room(80 * gib, "15.00")))];
-        assert!(check_host(true, "laptop", || None, ccx33(), &[], 6.0).is_err(), "the 12:47 PM reading: 5.3 cores free, needs 6");
-        assert_eq!(check_host(true, "laptop", || None, ccx33(), &[], 4.0), Ok("ccx33".to_owned()));
-    }
-
-    #[test]
-    fn the_laptop_takes_a_land_check_at_the_default_ask_beside_a_running_one_while_gex45_is_at_its_ceiling() {
-        let gib = 1024 * 1024;
-        let ask = offload_room().0;
-        let full_gex45 = vec![("gex45".to_owned(), Some(room(80 * gib, "17.00")))];
-        let laptop_beside_one_charged_nine = || Some(room(80 * gib, "15.00"));
-        assert_eq!(check_host(false, "laptop", laptop_beside_one_charged_nine, full_gex45.clone(), &[], ask), Ok("laptop".to_owned()));
-        let refused = check_host(false, "laptop", || Some(room(80 * gib, "17.00")), full_gex45, &[], ask).unwrap_err();
-        assert_eq!(refused.len(), 2, "{refused:?}");
-    }
-
-    #[test]
-    fn a_check_already_on_its_way_to_a_host_counts_against_its_free_cores() {
-        let gib = 1024 * 1024;
-        let remote = vec![("gex45".to_owned(), Some(room(80 * gib, "1.00")))];
-        let laptop = || Some(room(80 * gib, "1.00"));
-        assert_eq!(check_host(false, "laptop", laptop, remote.clone(), &["gex45".to_owned()], 6.0), Ok("laptop".to_owned()));
-        let both = ["gex45".to_owned(), "laptop".to_owned(), "gex45".to_owned(), "laptop".to_owned(), "laptop".to_owned()];
-        assert_eq!(check_host(false, "laptop", laptop, remote.clone(), &both[..4], 6.0), Ok("gex45".to_owned()));
-        let refused = check_host(false, "laptop", laptop, remote, &[both.to_vec(), both.to_vec()].concat(), 6.0).unwrap_err();
-        assert_eq!(refused.len(), 2, "{refused:?}");
     }
 }

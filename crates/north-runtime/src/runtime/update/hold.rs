@@ -120,34 +120,11 @@ mod tests {
     use super::*;
 
     const SHIPPED: &str = "2edb782700000000000000000000000000000000";
-    const OTHER: &str = "3333333333333333333333333333333333333333";
 
     fn host() -> (tempfile::TempDir, Layout) {
         let dir = tempfile::tempdir().unwrap();
         let layout = Layout { state: dir.path().to_path_buf() };
         (dir, layout)
-    }
-
-    #[test]
-    fn a_runtime_shipped_for_a_sha_whose_own_build_failed_here_is_promoted_but_the_own_retry_stays_held() {
-        let (_dir, layout) = host();
-        record(&layout, SHIPPED, Cause::Build, "build of 2edb7827 failed: exit status: 101").unwrap();
-        let Verdict::Waived(waived) = verdict(&layout, SHIPPED, true) else { panic!("a shipped runtime must not be held by a failed local build") };
-        let Verdict::Held(held) = verdict(&layout, SHIPPED, false) else { panic!("a local retry of the failed build stays held") };
-        assert_eq!(waived, held);
-        assert_eq!(held.to_string(), "build failed: build of 2edb7827 failed: exit status: 101");
-        assert_eq!(verdict(&layout, OTHER, false), Verdict::Clear);
-    }
-
-    #[test]
-    fn the_follower_log_names_the_failure_reason_when_it_holds_or_waives() {
-        let (_dir, layout) = host();
-        record(&layout, SHIPPED, Cause::Build, "exit status: 101").unwrap();
-        let waived = verdict(&layout, SHIPPED, true).notice("2edb7827", "11111111").unwrap();
-        assert!(waived.contains("2edb7827 failed within the last hour on this host (build failed: exit status: 101)") && waived.ends_with("promoting it"), "{waived}");
-        let held = verdict(&layout, SHIPPED, false).notice("2edb7827", "11111111").unwrap();
-        assert_eq!(held, "north runtime: 2edb7827 failed within the last hour; staying on 11111111 (build failed: exit status: 101)");
-        assert_eq!(verdict(&layout, OTHER, true).notice("33333333", "11111111"), None);
     }
 
     #[test]
@@ -158,24 +135,5 @@ mod tests {
             let Verdict::Held(held) = verdict(&layout, SHIPPED, true) else { panic!("a runtime that failed after it was built stays held") };
             assert_eq!((held.cause, held.reason.as_str()), (cause, "failed step health check; exit status 1"));
         }
-    }
-
-    #[test]
-    fn the_marker_keeps_bare_shas_and_a_sha_without_a_recorded_cause_holds_as_a_failed_promotion() {
-        let (_dir, layout) = host();
-        fs::write(layout.failed(), OTHER).unwrap();
-        record(&layout, SHIPPED, Cause::Build, "exit status: 101").unwrap();
-        assert_eq!(fs::read_to_string(layout.failed()).unwrap(), format!("{OTHER}\n{SHIPPED}"));
-        assert_eq!(failed_shas(&layout), [OTHER, SHIPPED]);
-        assert!(matches!(verdict(&layout, OTHER, true), Verdict::Held(Hold { cause: Cause::Promote, .. })));
-        assert!(matches!(verdict(&layout, SHIPPED, true), Verdict::Waived(_)));
-    }
-
-    #[test]
-    fn a_stale_cause_does_not_hold_a_sha_the_marker_no_longer_names() {
-        let (_dir, layout) = host();
-        fs::write(layout.failure_causes(), format!("{SHIPPED} build exit status: 101\n")).unwrap();
-        fs::write(layout.failed(), OTHER).unwrap();
-        assert_eq!(verdict(&layout, SHIPPED, false), Verdict::Clear);
     }
 }

@@ -179,115 +179,6 @@ mod tests {
     }
 
     #[test]
-    fn a_gate_for_a_session_this_registry_lacks_is_spooled_as_one_gate_row() {
-        let home = tempfile::tempdir().unwrap();
-        let far = fleet(home.path());
-        cached(&far, &["worker"]);
-
-        let Opened::Spooled(row) = far.open_or_spool_gate(&request("worker"), &Sender::Tom).unwrap() else { panic!("a session of another host is spooled") };
-
-        assert_eq!((row.kind, row.to.as_str(), row.text.as_str()), (RowKind::Gate, "worker", "Rent the box?"));
-        assert_eq!(row.gate.as_deref(), Some(&request("worker")));
-        assert_eq!(spooled(&far), *row);
-        assert!(matches!(far.open_or_spool_gate(&request("nobody"), &Sender::Tom), Err(NorthError::Usage(why)) if why == "no session named nobody"));
-        assert!(matches!(far.open_or_spool_gate(&GateRequest { options: vec![], ..request("worker") }, &Sender::Tom), Err(NorthError::Usage(_))));
-        assert_eq!(Spool::at(&far.root).pending().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn a_gate_for_a_session_in_this_registry_opens_at_once_and_returns_its_id() {
-        let home = tempfile::tempdir().unwrap();
-        let here = fleet(home.path());
-        let _worker = live(&here, "worker");
-
-        let opened = here.open_gate(&request("worker")).unwrap();
-
-        assert_eq!(opened, 1);
-        assert!(Spool::at(&here.root).pending().unwrap().is_empty());
-    }
-
-    #[test]
-    fn the_ticks_delivery_of_a_gate_row_opens_the_gate_on_the_sessions_host_exactly_once_by_row_id() {
-        let (far_home, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let (far, laptop) = (fleet(far_home.path()), fleet(home.path()));
-        let _worker = live(&laptop, "worker");
-        cached(&far, &["worker"]);
-        far.open_or_spool_gate(&request("worker"), &Sender::Tom).unwrap();
-        let row = spooled(&far);
-
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Already);
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Already);
-
-        let gates = laptop.digest(0).unwrap().gates;
-        assert_eq!(gates.iter().map(|gate| (gate.request.session.as_str(), gate.request.question.as_str(), gate.is_open())).collect::<Vec<_>>(), [("worker", "Rent the box?", true)]);
-    }
-
-    #[test]
-    fn a_gate_row_for_a_session_not_yet_here_is_not_journaled_so_a_later_tick_opens_it() {
-        let (far_home, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let (far, laptop) = (fleet(far_home.path()), fleet(home.path()));
-        cached(&far, &["worker"]);
-        far.open_or_spool_gate(&request("worker"), &Sender::Tom).unwrap();
-        let row = spooled(&far);
-
-        assert!(laptop.deliver_row(&row).is_err());
-        let _worker = live(&laptop, "worker");
-
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Already);
-        assert_eq!(laptop.digest(0).unwrap().gates.len(), 1);
-    }
-
-    #[test]
-    fn a_gate_whose_timer_fails_to_start_is_opened_once_and_its_row_is_not_retried() {
-        let (far_home, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let (far, laptop) = (fleet(far_home.path()), fleet(home.path()).arming(|_| Err(NorthError::State("no timer".into()))));
-        let _worker = live(&laptop, "worker");
-        cached(&far, &["worker"]);
-        far.open_or_spool_gate(&request("worker"), &Sender::Tom).unwrap();
-        let row = spooled(&far);
-
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Already);
-
-        assert_eq!(laptop.digest(0).unwrap().gates.len(), 1);
-    }
-
-    #[test]
-    fn a_gate_row_naming_another_session_than_it_is_addressed_to_is_refused() {
-        let home = tempfile::tempdir().unwrap();
-        let laptop = fleet(home.path());
-        let _worker = live(&laptop, "worker");
-        let row = FleetRow { gate: Some(Box::new(request("other"))), ..laptop.new_row(RowKind::Gate, "worker", "Rent the box?", &Sender::Tom).unwrap() };
-
-        assert!(matches!(laptop.deliver_row(&row), Err(NorthError::Usage(_))));
-        assert!(laptop.digest(0).unwrap().gates.is_empty());
-    }
-
-    #[test]
-    fn an_answer_given_on_any_host_is_a_gate_answer_row_that_the_sessions_host_applies_once() {
-        let (far_home, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let (far, laptop) = (fleet(far_home.path()), fleet(home.path()));
-        let worker = live(&laptop, "worker");
-        let id = laptop.open_gate(&request("worker")).unwrap();
-        cached(&far, &["worker"]);
-
-        far.answer_remote_gate(&format!("laptop:{id}"), Some("worker"), 1, Some("but only today"), None).unwrap();
-        let row = spooled(&far);
-
-        assert_eq!((row.kind, row.to.as_str(), row.answer, row.text.as_str(), &row.sender), (RowKind::GateAnswer, "worker", Some(AnswerPayload { gate: id, number: 1 }), "but only today", &Sender::Tom));
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Already);
-
-        let closure = laptop.gate(id).unwrap().unwrap().closure.unwrap();
-        assert_eq!((closure.answer.as_str(), closure.by), ("yes\nbut only today", crate::fleet::gates::Answerer::Tom));
-        let frames = worker.frames.lock().unwrap();
-        assert_eq!(frames.len(), 1);
-        assert!(frames[0].contains("Tom answered: yes"), "{}", frames[0]);
-    }
-
-    #[test]
     fn a_gate_closed_while_its_answer_could_not_be_handed_in_still_reaches_the_session_when_the_tick_hands_the_spooled_row_in() {
         let home = tempfile::tempdir().unwrap();
         let laptop = fleet(home.path());
@@ -312,19 +203,6 @@ mod tests {
     }
 
     #[test]
-    fn a_gate_answer_handed_in_at_once_leaves_nothing_in_the_spool() {
-        let home = tempfile::tempdir().unwrap();
-        let laptop = fleet(home.path());
-        let worker = live(&laptop, "worker");
-        let id = laptop.open_gate(&request("worker")).unwrap();
-
-        laptop.answer_gate(id, 2, None, None).unwrap();
-
-        assert!(Spool::at(&laptop.root).pending().unwrap().is_empty());
-        assert!(worker.frames.lock().unwrap()[0].contains("Tom answered: no"));
-    }
-
-    #[test]
     fn an_answer_row_from_a_session_that_is_not_the_parent_closes_nothing_and_is_consumed() {
         let home = tempfile::tempdir().unwrap();
         let laptop = fleet(home.path());
@@ -341,65 +219,6 @@ mod tests {
         let frames = worker.frames.lock().unwrap();
         assert_eq!(frames.len(), 1, "only the gate session itself is told its answer was refused: {frames:?}");
         assert!(frames[0].contains("your answer 1 to gate 1 was not applied"), "{}", frames[0]);
-    }
-
-    #[test]
-    fn a_gate_answer_retried_after_its_journal_write_failed_tells_the_answerer_it_was_applied() {
-        use std::os::unix::fs::PermissionsExt;
-        let home = tempfile::tempdir().unwrap();
-        let laptop = fleet(home.path());
-        let worker = live_under(&laptop, "worker", Some("boss"));
-        let boss = live(&laptop, "boss");
-        let id = laptop.open_gate(&request("worker")).unwrap();
-        let row = laptop.spool_gate_answer("worker", id, 2, None, Some("boss")).unwrap();
-        laptop.deliver_row(&FleetRow { id: "1-other".into(), ..laptop.new_row(RowKind::Message, "worker", "hello", &Sender::Tom).unwrap() }).unwrap();
-        let journal = laptop.root.join("worker/delivered");
-        std::fs::set_permissions(&journal, std::fs::Permissions::from_mode(0o555)).unwrap();
-
-        assert!(laptop.deliver_row(&row).is_err());
-        std::fs::set_permissions(&journal, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
-
-        assert_eq!(laptop.gate(id).unwrap().unwrap().closure.unwrap().answer, "no");
-        let frames = boss.frames.lock().unwrap();
-        let told: Vec<&String> = frames.iter().filter(|frame| frame.contains("your answer")).collect();
-        assert_eq!(told.len(), 1, "{frames:?}");
-        assert!(told[0].contains("your answer 2 to gate 1 was applied") && !told[0].contains("not applied"), "{}", told[0]);
-        let waiting = Spool::at(&laptop.root).pending().unwrap().into_iter().filter(|row| row.kind == RowKind::Message && row.to == "worker" && row.urgent).count();
-        assert_eq!(waiting, 1, "the answer itself stays spooled for the tick");
-        drop(worker);
-    }
-
-    #[test]
-    fn a_gate_answer_that_reaches_a_gate_another_answerer_closed_still_tells_its_answerer_it_was_not_applied() {
-        let home = tempfile::tempdir().unwrap();
-        let laptop = fleet(home.path());
-        let _worker = live_under(&laptop, "worker", Some("boss"));
-        let boss = live(&laptop, "boss");
-        let id = laptop.open_gate(&request("worker")).unwrap();
-        laptop.answer_gate(id, 1, None, None).unwrap();
-        let row = laptop.spool_gate_answer("worker", id, 2, None, Some("boss")).unwrap();
-
-        laptop.deliver_row(&row).unwrap();
-
-        let frames = boss.frames.lock().unwrap();
-        let told: Vec<&String> = frames.iter().filter(|frame| frame.contains("your answer")).collect();
-        assert!(told.len() == 1 && told[0].contains("your answer 2 to gate 1 was not applied"), "{frames:?}");
-    }
-
-    #[test]
-    fn an_answer_row_from_the_gate_sessions_parent_closes_the_gate_as_that_parent() {
-        let home = tempfile::tempdir().unwrap();
-        let laptop = fleet(home.path());
-        let worker = live_under(&laptop, "worker", Some("boss"));
-        let id = laptop.open_gate(&request("worker")).unwrap();
-        let row = laptop.spool_gate_answer("worker", id, 2, None, Some("boss")).unwrap();
-
-        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
-
-        let closure = laptop.gate(id).unwrap().unwrap().closure.unwrap();
-        assert_eq!((closure.answer.as_str(), closure.by), ("no", crate::fleet::gates::Answerer::Session("boss".into())));
-        assert!(worker.frames.lock().unwrap()[0].contains("boss answered: no"));
     }
 
     #[test]

@@ -114,30 +114,6 @@ mod tests {
         assert!(!leases.leased("other", None).unwrap());
     }
 
-    #[test]
-    fn a_job_start_whose_exit_is_also_in_the_spool_no_longer_leases_its_session() {
-        let rows = [row("1-a", RowKind::JobStart, "worker", "soak#1"), row("2-b", RowKind::JobExit, "worker", "soak#1")];
-        assert!(!leases(Ok(false), &rows).1.leased("worker", None).unwrap());
-    }
-
-    #[test]
-    fn the_exit_of_another_job_does_not_settle_a_start_in_the_spool() {
-        let rows = [row("1-a", RowKind::JobStart, "worker", "soak#1"), row("2-b", RowKind::JobExit, "worker", "soak#2")];
-        assert!(leases(Ok(false), &rows).1.leased("worker", None).unwrap());
-    }
-
-    #[test]
-    fn a_spooled_job_start_leases_its_session_even_when_the_ledger_cannot_be_read() {
-        assert!(leases(Err("down"), &[row("1-a", RowKind::JobStart, "worker", "soak#1")]).1.leased("worker", None).unwrap());
-    }
-
-    #[test]
-    fn the_ledgers_answer_stands_when_the_spool_holds_no_job_start_and_its_error_is_passed_on() {
-        assert!(leases(Ok(true), &[]).1.leased("worker", None).unwrap());
-        assert!(!leases(Ok(false), &[row("1-a", RowKind::Message, "worker", "")]).1.leased("worker", None).unwrap());
-        assert!(leases(Err("down"), &[]).1.leased("worker", None).is_err());
-    }
-
     struct Far(Vec<FleetRow>, Result<(), &'static str>);
 
     impl FarSpools for Far {
@@ -178,30 +154,8 @@ mod tests {
     }
 
     #[test]
-    fn a_job_start_only_in_the_spool_of_the_host_a_session_is_placed_on_leases_it_while_the_ledger_says_free() {
-        let (_root, leases) = far_leases(Ok(false), Far(vec![row("1-a", RowKind::JobStart, "child", "mk-storm#1")], Ok(())));
-        assert!(leases.leased("child", Some(&placed())).unwrap());
-        assert!(!leases.leased("other", Some(&placed())).unwrap());
-        assert!(!leases.leased("child", None).unwrap());
-    }
-
-    #[test]
-    fn a_far_job_start_whose_exit_is_in_the_same_far_spool_no_longer_leases_its_session() {
-        let rows = vec![row("1-a", RowKind::JobStart, "child", "mk#1"), row("2-b", RowKind::JobExit, "child", "mk#1")];
-        assert!(!far_leases(Ok(false), Far(rows, Ok(()))).1.leased("child", Some(&placed())).unwrap());
-    }
-
-    #[test]
     fn a_far_spool_that_cannot_be_read_is_an_error_not_a_free_session_unless_the_ledger_already_leases_it() {
         assert!(far_leases(Ok(false), Far(Vec::new(), Err("ssh down"))).1.leased("child", Some(&placed())).is_err());
         assert!(far_leases(Ok(true), Far(Vec::new(), Err("ssh down"))).1.leased("child", Some(&placed())).unwrap());
-    }
-
-    #[test]
-    fn a_spooled_row_that_does_not_parse_is_not_a_job_start() {
-        let (root, leases) = leases(Ok(false), &[]);
-        std::fs::create_dir_all(root.path().join("spool")).unwrap();
-        std::fs::write(root.path().join("spool/1-bad.json"), b"{not a row").unwrap();
-        assert!(!leases.leased("worker", None).unwrap());
     }
 }

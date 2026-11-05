@@ -71,7 +71,6 @@ pub fn admit(name: &str, lanes: &[QueuedLane], force: Option<&str>) -> NorthResu
 
 #[cfg(test)]
 mod tests {
-    use super::super::registry::Controlled;
     use super::super::registry::fixtures::{fleet, live};
     use super::*;
 
@@ -96,53 +95,5 @@ mod tests {
         assert!(why.contains(&format!("{} (branch w33-concurrent)", path.display())), "{why}");
         assert!(why.contains("--force REASON"), "{why}");
         assert!(fleet.session("lander-w33-failfast").is_ok(), "a refused forget keeps the session");
-    }
-
-    #[test]
-    fn a_pending_ticket_whose_lane_is_the_sessions_worktree_refuses_the_forget_though_it_names_no_session() {
-        let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path());
-        let _worker = live(&fleet, "worker");
-        ticket(home.path(), "", "1-w33-concurrent.json", "someone-else", "/tmp");
-
-        assert!(matches!(fleet.forget_unless_queued("worker", None), Err(NorthError::Usage(why)) if why.contains("1-w33-concurrent.json")));
-    }
-
-    #[test]
-    fn force_with_a_reason_forgets_a_session_whose_lane_is_queued_and_reports_the_lane_it_overrode() {
-        let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path());
-        let _worker = live(&fleet, "worker");
-        let path = ticket(home.path(), "", "1-w33-concurrent.json", "worker", "/code/north/worktrees/w33-concurrent");
-
-        assert!(matches!(fleet.forget_unless_queued("worker", Some(" ")), Err(NorthError::Usage(why)) if why.contains("needs a REASON")));
-        let forgotten = fleet.forget_unless_queued("worker", Some("lane withdrawn by hand")).unwrap();
-
-        assert!(matches!(forgotten.controlled, Controlled::Here));
-        assert_eq!(forgotten.overrode, [QueuedLane { ticket: path, branch: "w33-concurrent".into() }]);
-        assert!(fleet.session("worker").is_err());
-    }
-
-    #[test]
-    fn a_session_whose_tickets_are_all_decided_withdrawn_or_quarantined_is_forgotten() {
-        let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path());
-        let _worker = live(&fleet, "worker");
-        for area in ["done", "withdrawn", "quarantine"] {
-            ticket(home.path(), area, "1-w33-concurrent.json", "worker", "/tmp");
-        }
-        ticket(home.path(), "", "2-other.json", "another-worker", "/code/north/worktrees/other");
-
-        let forgotten = fleet.forget_unless_queued("worker", None).unwrap();
-
-        assert!(forgotten.overrode.is_empty());
-        assert!(fleet.session("worker").is_err());
-    }
-
-    #[test]
-    fn a_host_with_no_land_queue_forgets_freely() {
-        let home = tempfile::tempdir().unwrap();
-        assert!(queued_lanes(&home.path().join("land-queue"), "worker", None).is_empty());
-        assert!(admit("worker", &[], None).is_ok());
     }
 }

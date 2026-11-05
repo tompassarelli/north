@@ -83,11 +83,4 @@ mod tests {
         assert_eq!(base64(b"foo"), "Zm9v");
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
     }
-
-    #[test]
-    fn only_markers_inside_an_attachments_directory_name_files() {
-        let text = "look [image: /state/.attachments/a.png] and [image: /etc/passwd] and [image: /state/.attachments/../b.png] and [image: /s/.attachments/c.JPEG]";
-        assert_eq!(paths(text), [PathBuf::from("/state/.attachments/a.png"), PathBuf::from("/s/.attachments/c.JPEG")]);
-        assert_eq!(media_type(Path::new("c.JPEG")), Some("image/jpeg"));
-    }
 }

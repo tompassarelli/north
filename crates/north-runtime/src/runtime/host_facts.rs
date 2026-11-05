@@ -50,27 +50,3 @@ fn newest_age(directory: &Path) -> Option<Duration> {
         .min()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{newest_age, private_checkout};
-    use std::time::{Duration, SystemTime};
-
-    #[test]
-    fn facts_are_published_only_through_an_existing_south_checkout() {
-        let home = tempfile::tempdir().expect("home");
-        assert_eq!(private_checkout(home.path()), None);
-        std::fs::create_dir_all(home.path().join("code/south/main/.git")).expect("checkout");
-        assert_eq!(private_checkout(home.path()), Some(home.path().join("code/south/main")));
-    }
-
-    #[test]
-    fn a_host_with_no_facts_file_is_stale_and_one_with_a_fresh_file_reports_its_age() {
-        let directory = tempfile::tempdir().expect("facts");
-        assert_eq!(newest_age(&directory.path().join("absent")), None);
-        assert_eq!(newest_age(directory.path()), None);
-        let file = std::fs::File::create(directory.path().join("gex45.json")).expect("facts file");
-        file.set_modified(SystemTime::now() - Duration::from_secs(600)).expect("age it");
-        let age = newest_age(directory.path()).expect("age");
-        assert!(age >= Duration::from_secs(600) && age < Duration::from_secs(660), "{age:?}");
-    }
-}

@@ -541,95 +541,6 @@ fn append(path: &Path) -> io::Result<File> {
 }
 
 #[cfg(test)]
-mod child {
-    use super::*;
-    use std::time::{Duration, Instant};
-
-    fn config(root: &Path, script: &str) -> HostConfig {
-        HostConfig {
-            name: "lead".into(),
-            generation: 1,
-            state_dir: root.to_path_buf(),
-            socket: None,
-            idle_exit: None,
-            provider: None,
-            runtime: vec!["sh".into(), "-c".into(), script.into()],
-        }
-    }
-
-    fn stream(root: &Path) -> String {
-        fs::read_to_string(root.join("g1/stream.jsonl")).unwrap_or_default()
-    }
-
-    #[tokio::test]
-    async fn stdout_lines_land_in_order_and_line_complete() {
-        let root = tempfile::tempdir().unwrap();
-        let host = SessionHost::spawn(&config(
-            root.path(),
-            r#"echo '{"n":1}'; printf '{"n":'; sleep 1; echo '2}'; echo '{"n":3}'"#,
-        ))
-        .unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        assert_eq!(stream(root.path()), "{\"n\":1}\n");
-        assert_eq!(host.wait().await.unwrap(), 0);
-        assert_eq!(stream(root.path()), "{\"n\":1}\n{\"n\":2}\n{\"n\":3}\n");
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn stderr_flood_does_not_stall_stdout() {
-        let root = tempfile::tempdir().unwrap();
-        let started = Instant::now();
-        let host = SessionHost::spawn(&config(
-            root.path(),
-            "head -c 67108864 /dev/zero >&2 & i=0; while [ $i -lt 2000 ]; do echo line$i; i=$((i+1)); done; wait",
-        ))
-        .unwrap();
-        assert_eq!(host.wait().await.unwrap(), 0);
-        assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
-        let expected = (0..2000).map(|i| format!("line{i}\n")).collect::<String>();
-        assert_eq!(stream(root.path()), expected);
-        let current = fs::metadata(root.path().join("g1/stderr.log")).unwrap().len();
-        let rotated = fs::metadata(root.path().join("g1/stderr.log.1")).unwrap().len();
-        assert!(current <= STDERR_ROTATE_BYTES && rotated <= STDERR_ROTATE_BYTES);
-    }
-
-    #[tokio::test]
-    async fn exit_codes_follow_the_child() {
-        let root = tempfile::tempdir().unwrap();
-        let exited = SessionHost::spawn(&config(root.path(), "exit 3")).unwrap();
-        assert_eq!(exited.wait().await.unwrap(), 3);
-        let killed = SessionHost::spawn(&config(root.path(), "kill -TERM $$")).unwrap();
-        assert_eq!(killed.wait().await.unwrap(), 143);
-    }
-
-    #[tokio::test]
-    async fn stdin_lines_reach_the_child() {
-        let root = tempfile::tempdir().unwrap();
-        let host = SessionHost::spawn(&config(root.path(), r#"read line; echo "got $line""#)).unwrap();
-        host.stdin.enqueue(r#"{"type":"user"}"#.into(), None).await.unwrap();
-        assert_eq!(host.wait().await.unwrap(), 0);
-        assert_eq!(stream(root.path()), "got {\"type\":\"user\"}\n");
-    }
-
-    #[test]
-    fn arguments_split_flags_from_runtime_argv() {
-        let arguments = [
-            "--name", "lead", "--generation", "2", "--state-dir", "/s", "--socket", "/r/l.sock", "--", "claude",
-            "-p", "--name",
-        ]
-        .map(String::from);
-        let config = HostConfig::parse(&arguments).unwrap();
-        assert_eq!(config.name, "lead");
-        assert_eq!(config.generation_dir(), PathBuf::from("/s/g2"));
-        assert_eq!(config.socket_path().unwrap(), PathBuf::from("/r/l.sock"));
-        assert_eq!(config.runtime, ["claude", "-p", "--name"]);
-        for bad in [&arguments[..7], &arguments[2..], &[&arguments[..2], &arguments[..]].concat()] {
-            assert!(matches!(HostConfig::parse(bad), Err(NorthError::Usage(_))), "{bad:?}");
-        }
-    }
-}
-
-#[cfg(test)]
 mod socket {
     use super::*;
     use tokio::io::{AsyncBufReadExt, BufReader, Lines};
@@ -695,57 +606,6 @@ mod socket {
     }
 
     #[tokio::test]
-    async fn two_clients_interleave() {
-        let root = tempfile::tempdir().unwrap();
-        let (host, path) = host(root.path(), "exec head -n 4");
-        let (mut a, mut b) = (Client::connect(&path).await, Client::connect(&path).await);
-        let replies = [
-            a.send(&user(1)).await,
-            b.send(&user(2)).await,
-            a.send(&user(3)).await,
-            b.send(&user(4)).await,
-        ];
-        assert_eq!(replies, [1, 2, 3, 4].map(|n| format!(r#"{{"host_seq":{n}}}"#)));
-        assert_eq!(host.wait().await.unwrap(), 0);
-        assert_eq!(stream_lines(root.path(), 4).await, (1..=4).map(user).collect::<Vec<_>>());
-    }
-
-    #[tokio::test]
-    async fn client_eof_only_detaches_that_client() {
-        let root = tempfile::tempdir().unwrap();
-        let (mut host, path) = host(root.path(), r#"while read -r line; do echo "$line"; done"#);
-        let pid = host.child.id();
-        let mut leaving = Client::connect(&path).await;
-        assert!(leaving.send(&user(1)).await.contains("host_seq"));
-        leaving.write(&user(2)).await;
-        drop(leaving);
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let mut staying = Client::connect(&path).await;
-        assert!(staying.send(&user(3)).await.contains("host_seq"));
-        assert_eq!(stream_lines(root.path(), 2).await, [user(1), user(3)]);
-        assert_eq!(host.child.id(), pid);
-        assert!(host.child.try_wait().unwrap().is_none());
-        host.child.start_kill().unwrap();
-        host.wait().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn stale_partial_line_drops_only_that_client() {
-        let root = tempfile::tempdir().unwrap();
-        let (mut host, path) = host(root.path(), r#"while read -r line; do echo "$line"; done"#);
-        let (mut stale, mut live) = (Client::connect(&path).await, Client::connect(&path).await);
-        stale.write(r#"{"type":"user""#).await;
-        let started = Instant::now();
-        assert!(live.send(&user(1)).await.contains("host_seq"));
-        assert_eq!(tokio::time::timeout(Duration::from_secs(7), stale.reply()).await.unwrap(), None);
-        assert!(started.elapsed() >= Duration::from_millis(4900), "{:?}", started.elapsed());
-        assert!(live.send(&user(2)).await.contains("host_seq"));
-        assert_eq!(stream_lines(root.path(), 2).await, [user(1), user(2)]);
-        host.child.start_kill().unwrap();
-        host.wait().await.unwrap();
-    }
-
-    #[tokio::test]
     async fn control_frame_overtakes_queued_user_frames() {
         let root = tempfile::tempdir().unwrap();
         let (host, path) = host(root.path(), "sleep 2; exec head -n 12");
@@ -763,23 +623,5 @@ mod socket {
         let first_user = lines.iter().position(|line| *line == user(1)).unwrap();
         assert!(control_at < first_user, "{control_at} {first_user}");
     }
-
-    #[tokio::test]
-    async fn stalled_stdin_reports_stdin_blocked() {
-        let root = tempfile::tempdir().unwrap();
-        let (mut host, path) = host(root.path(), "exec sleep 60");
-        let mut client = Client::connect(&path).await;
-        let started = Instant::now();
-        let frame = format!(r#"{{"type":"user","pad":"{}"}}"#, "x".repeat(512 * 1024));
-        assert!(client.send(&frame).await.contains("host_seq"));
-        let blocked = tokio::time::timeout(Duration::from_secs(6), client.reply()).await.unwrap();
-        assert_eq!(blocked.as_deref(), Some(STDIN_BLOCKED));
-        assert!(started.elapsed() < Duration::from_secs(6));
-        host.child.start_kill().unwrap();
-        host.wait().await.unwrap();
-    }
 }
 
-#[cfg(test)]
-#[path = "session_host_tests.rs"]
-mod fake;

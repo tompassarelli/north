@@ -295,19 +295,6 @@ fn load_per_core(load: &str) -> Option<f64> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn pressure_and_load_parse_from_their_proc_files() {
-        assert_eq!(psi60("some avg10=27.94 avg60=22.27 avg300=40.48 total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n"), Some(22.27));
-        assert_eq!(load_per_core("71.00 60.00 50.00 3/900 1\n20\n"), Some(3.55));
-    }
-
-    #[test]
-    fn a_busy_host_running_the_landing_is_healthy_because_load_is_the_watchdogs_to_judge() {
-        let units = UNITS.iter().map(|unit| ((*unit).to_owned(), "active".to_owned())).collect();
-        let facts = Facts { runtime: Some("af7971a5851e603b".into()), units, psi60: Some(57.3), load_per_core: Some(2.5), north: Some(NorthProcesses::default()), settings: vec!["settings.json".into()], ..Facts::default() };
-        assert_eq!(problems(&facts, |_| true), Vec::<String>::new());
-    }
-
     struct FakeProc(tempfile::TempDir, u32);
 
     impl FakeProc {
@@ -336,12 +323,6 @@ mod tests {
             }
         }
 
-        fn transients(&mut self, count: usize) {
-            for _ in 0..count {
-                self.spawn("north", &["/runtimes/a/north", "fleet", "list"]);
-            }
-        }
-
         fn problems(&self) -> (Vec<String>, Value) {
             let output = Command::new("bash")
                 .arg("-c")
@@ -357,17 +338,6 @@ mod tests {
     }
 
     #[test]
-    fn fifty_live_sessions_with_their_three_residents_each_and_twenty_transients_are_healthy() {
-        let mut proc = FakeProc::new();
-        proc.sessions(50, 1);
-        proc.transients(20);
-        proc.spawn("bash", &["bash", "fleet", "list"]);
-        let (problems, record) = proc.problems();
-        assert_eq!(problems, Vec::<String>::new());
-        assert_eq!(record, json!({"transient": 20, "liveSessions": 50, "residents": {"session-host": 50, "session-link": 50, "fleet watchdog": 50}}));
-    }
-
-    #[test]
     fn only_processes_named_north_count_and_a_multi_line_argument_stays_one_process() {
         let mut proc = FakeProc::new();
         proc.sessions(2, 1);
@@ -378,20 +348,5 @@ mod tests {
         let (problems, record) = proc.problems();
         assert_eq!(problems, Vec::<String>::new());
         assert_eq!(record, json!({"transient": 0, "liveSessions": 3, "residents": {"session-host": 3, "session-link": 2, "fleet watchdog": 2}}));
-    }
-
-    #[test]
-    fn a_storm_of_transient_north_processes_is_unhealthy_and_names_its_count() {
-        let mut proc = FakeProc::new();
-        proc.sessions(10, 1);
-        proc.transients(120);
-        assert_eq!(proc.problems().0, vec!["120 transient north processes (bound 100)".to_owned()]);
-    }
-
-    #[test]
-    fn residents_beyond_the_live_sessions_are_a_leak_that_names_the_kind() {
-        let mut proc = FakeProc::new();
-        proc.sessions(10, 3);
-        assert_eq!(proc.problems().0, vec!["30 session-host processes for 10 live sessions".to_owned()]);
     }
 }

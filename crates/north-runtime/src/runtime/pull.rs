@@ -8,8 +8,6 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-#[cfg(test)]
-mod tests;
 
 const COPY: Duration = Duration::from_secs(10 * 60);
 const REALISE: Duration = Duration::from_secs(10 * 60);

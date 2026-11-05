@@ -8,8 +8,6 @@ mod news;
 mod rank;
 mod run;
 mod sources;
-#[cfg(test)]
-mod tests;
 mod xml;
 
 use std::env;

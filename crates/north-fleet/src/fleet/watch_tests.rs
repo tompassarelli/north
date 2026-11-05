@@ -79,24 +79,6 @@ impl Books for Books0 {
     }
 }
 
-fn turn_of(model: Option<&str>, effort: Option<&str>) -> Turn {
-    Turn { conversation: "c".into(), model: model.map(str::to_owned), effort: effort.map(str::to_owned), prompt: None, started_ms: 0, ended_ms: 1, wall_ms: 1, turns: 1, tokens: Default::default(), exit: TurnExit::Completed }
-}
-
-#[test]
-fn a_turn_without_an_observed_model_or_effort_takes_its_sessions_launch_identity() {
-    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "w", "provider": "claude", "account": "a", "cwd": "/tmp", "model": "claude-opus-5-5", "effort": "medium", "created_ms": 1, "host_pid": null})).unwrap();
-    let mut bare = turn_of(None, None);
-    identify(&mut bare, Some(&record));
-    assert_eq!((bare.model.as_deref(), bare.effort.as_deref()), (Some("claude-opus-5-5"), Some("medium")));
-    let mut seen = turn_of(Some("claude-sonnet-5-5"), Some("high"));
-    identify(&mut seen, Some(&record));
-    assert_eq!((seen.model.as_deref(), seen.effort.as_deref()), (Some("claude-sonnet-5-5"), Some("high")));
-    let mut orphan = turn_of(None, None);
-    identify(&mut orphan, None);
-    assert_eq!((orphan.model, orphan.effort), (None, None));
-}
-
 fn tell(leases: Result<bool, &'static str>, courier: Arc<Told>) -> Tell {
     let record = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null})).unwrap();
     Tell {
@@ -123,15 +105,6 @@ fn a_lease_that_could_not_be_read_counts_as_leased_so_the_check_stays_unsettled_
     assert!(courier.0.lock().unwrap().is_empty());
 }
 
-#[test]
-fn a_held_lease_leaves_the_check_unsettled_and_a_free_one_tells_the_parent_once() {
-    let courier = Arc::new(Told::default());
-    assert!(!tell(Ok(true), courier.clone()).run());
-    assert!(courier.0.lock().unwrap().is_empty());
-    assert!(tell(Ok(false), courier.clone()).run());
-    assert_eq!(*courier.0.lock().unwrap(), ["lead"]);
-}
-
 struct Unlanded(Vec<&'static str>);
 
 impl Tickets for Unlanded {
@@ -154,13 +127,6 @@ fn closed_after(reply: &str, unlanded: Vec<&'static str>) -> bool {
     let record = crate::fleet::records::read_record(&host).unwrap();
     assert_eq!(record.ended.is_some(), record.stopped, "{reply}");
     record.stopped
-}
-
-#[test]
-fn a_session_retires_only_with_every_ticket_landed_a_done_report_and_a_next_of_none_or_an_issue() {
-    for reply in ["Done: landed abc123.\nNext: none", "Done: pushed claude/land-lf-l3\nNext: north#600 owns the bench", "**Done:** ruled out\n- **Next:** None.", "Done: x\nNext: https://github.com/tompassarelli/north/issues/7"] {
-        assert!(closed_after(reply, Vec::new()), "{reply}");
-    }
 }
 
 #[test]

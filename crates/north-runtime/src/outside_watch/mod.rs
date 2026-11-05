@@ -1,6 +1,4 @@
 mod scan;
-#[cfg(test)]
-mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;

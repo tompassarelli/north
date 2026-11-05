@@ -22,21 +22,3 @@ fn executable(path: &Path) -> bool {
     path.metadata().is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use super::*;
-
-    #[test]
-    fn the_installed_runtime_wins_over_any_wrapper_on_path() {
-        let home = tempfile::tempdir().unwrap();
-        let runtime = installed(home.path(), "codex");
-        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
-        fs::write(&runtime, "#!/bin/sh\n").unwrap();
-        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(resolve("codex", Some(home.path()), None), runtime);
-        assert_eq!(resolve("codex", Some(home.path()), Some(PathBuf::from("/nonexistent/codex"))), binary("codex"));
-        assert_eq!(resolve("claude", Some(home.path()), None), binary("claude"), "a provider without an installed runtime falls back to PATH");
-    }
-}

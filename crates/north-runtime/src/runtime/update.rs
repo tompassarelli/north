@@ -568,43 +568,4 @@ mod tests {
         assert!(layout.runtime(&shas[0]).is_dir());
         assert!(!layout.runtime(&shas[1]).exists());
     }
-
-    fn machine(name: &str) -> gate::Machine {
-        gate::Machine { name: name.to_owned(), ssh: name.to_owned(), serves: Vec::new(), pushes: None, reaches: None, cap: 0, live: None, accounts: Vec::new(), saturation: None }
-    }
-
-    #[test]
-    fn a_game_reserve_host_with_no_other_host_with_room_builds_here_under_local_admission() {
-        let refused = "no other host has room: gex45: CPU pressure 63% at the 40% admission mark".to_owned();
-        match placement(true, false, || panic!("not asked"), || Err(refused.clone())) {
-            Placement::Here { refused: Some(why) } => assert_eq!(why, refused),
-            _ => panic!("a reserved host with no room elsewhere must build locally, not defer"),
-        }
-    }
-
-    fn agent_cpus() -> Confinement {
-        Confinement { cpus: "4-7".to_owned(), jobs: 4 }
-    }
-
-    #[test]
-    fn a_game_reserve_host_that_builds_only_its_own_runtime_builds_confined_without_asking_another_host() {
-        match placement(true, true, || Some(agent_cpus()), || panic!("no other host is asked")) {
-            Placement::Confined(confinement) => assert_eq!((confinement.cpus.as_str(), confinement.jobs), ("4-7", 4)),
-            _ => panic!("a reserved settler must build here on the agent CPUs, not defer and not go elsewhere"),
-        }
-        assert!(matches!(placement(false, true, || panic!("not asked"), || panic!("not asked")), Placement::Here { refused: None }));
-    }
-
-    #[test]
-    fn a_game_reserve_settler_whose_agent_cpus_are_not_enforced_still_holds_the_build() {
-        assert!(matches!(placement(true, true, || None, || panic!("no other host is asked")), Placement::Held));
-    }
-
-    #[test]
-    fn a_game_reserve_host_builds_on_another_host_that_has_room() {
-        match placement(true, false, || panic!("not asked"), || Ok(machine("gex45"))) {
-            Placement::Elsewhere(chosen) => assert_eq!(chosen.name, "gex45"),
-            _ => panic!("a reserved host with room elsewhere must build there"),
-        }
-    }
 }

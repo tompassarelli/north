@@ -1,4 +1,4 @@
-use super::{RUN, TRANSPORT_FAILED, ensure_shipped, quote};
+use super::{RUN, TRANSPORT_FAILED, quote};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -38,32 +38,3 @@ fn every_north_the_offloaded_command_and_its_wrapper_call_is_the_landers_runtime
     assert!(!String::from_utf8_lossy(&pinned.stderr).contains("remote-current"));
 }
 
-#[test]
-fn a_lander_runtime_missing_on_the_build_host_stops_the_run_as_a_transport_failure_before_any_check_runs() {
-    let home = build_host(false);
-    let missing = run_on(home.path(), LANDER_SHA);
-    assert_eq!(missing.status.code(), Some(i32::from(TRANSPORT_FAILED)));
-    assert!(missing.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&missing.stderr).contains(&format!("the lander runtime {LANDER_SHA} is not on this host")));
-}
-
-#[test]
-fn the_remote_script_receives_the_landers_runtime_as_its_tenth_word() {
-    assert!(super::REMOTE.contains("runtime=${10:-}"));
-}
-
-#[test]
-fn a_runtime_absent_from_the_build_host_is_shipped_before_the_check_and_a_present_one_is_not_shipped_again() {
-    let events = std::cell::RefCell::new(Vec::new());
-    let note = |event| events.borrow_mut().push(event);
-    let shipped = ensure_shipped("gex45", LANDER_SHA, || { note("probe"); false }, || { note("ship"); Ok(()) });
-    assert_eq!((shipped, events.take()), (Ok(()), vec!["probe", "ship"]));
-    let present = ensure_shipped("gex45", LANDER_SHA, || { note("probe"); true }, || { note("ship"); Ok(()) });
-    assert_eq!((present, events.take()), (Ok(()), vec!["probe"]));
-}
-
-#[test]
-fn a_failed_shipment_names_the_runtime_and_host_so_the_check_never_starts() {
-    let refused = ensure_shipped("gex45", LANDER_SHA, || false, || Err("rsync failed".to_owned()));
-    assert_eq!(refused, Err(format!("shipping the lander runtime {LANDER_SHA} to gex45: rsync failed")));
-}

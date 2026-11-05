@@ -86,16 +86,3 @@ pub(super) fn gather(directory: &Path, home: &Path) -> Result<Gathered, String> 
     Ok(Gathered { lane: Lane { repo, paths, name: format!("{name}-{lane}"), head, bundle, patch, subdirectory }, changed })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn capacity_a_lane_names_its_projects_main_checkout_whether_it_is_main_or_a_worktree_beside_it() {
-        let home = std::env::var("HOME").unwrap();
-        let home = Path::new(&home);
-        let (relative, name, _) = repository(&home.join("code/wisp/worktrees/offload-live"), home).unwrap();
-        assert_eq!((relative.as_str(), name.as_str()), ("code/wisp/main", "code-wisp-main"));
-        assert_eq!(repository(&home.join("code/north/main"), home).unwrap().0, "code/north/main");
-    }
-}

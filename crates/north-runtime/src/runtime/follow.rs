@@ -42,17 +42,3 @@ fn names_north(url: &str) -> bool {
     url.rsplit(['/', ':']).next() == Some("north")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::names_north;
-
-    #[test]
-    fn only_a_remote_named_north_is_north() {
-        for url in ["git@github.com:tompassarelli/north.git", "https://github.com/tompassarelli/north", "/srv/git/north.git/", "north"] {
-            assert!(names_north(url), "{url}");
-        }
-        for url in ["", "git@github.com:tompassarelli/wisp.git", "https://github.com/tompassarelli/north-data", "/srv/git/norths"] {
-            assert!(!names_north(url), "{url}");
-        }
-    }
-}

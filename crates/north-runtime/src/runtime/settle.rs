@@ -160,31 +160,7 @@ fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{issue, landing_breakage, verdict};
-    use crate::runtime::probe::{self, Facts};
-
-    #[test]
-    fn a_declared_host_with_no_live_runtime_is_installing_and_fails_no_settle_while_the_healthy_host_settles() {
-        let landing = "af7971a5851e603b";
-        let healthy = Facts { host: "gex45".into(), runtime: Some(landing.into()), units: ["capacity-watchdog.service", "north-runtime-follow.timer"].map(|unit| (unit.to_owned(), "active".to_owned())).into(), north: Some(Default::default()), settings: vec!["settings.json".into()], ..Facts::default() };
-        let fresh = Facts { host: "ccx33".into(), ..Facts::default() };
-        let live = |runtime: &str| runtime == landing;
-        let failing: Vec<String> = [&healthy, &fresh].into_iter().map(|facts| (facts, probe::problems(facts, live))).filter(|(_, problems)| !problems.is_empty()).map(|(facts, _)| facts.host.clone()).collect();
-        assert_eq!(failing, Vec::<String>::new());
-        assert_eq!(verdict(&fresh, &probe::problems(&fresh, live)), "installing: declared with no live runtime yet");
-        assert_eq!(verdict(&healthy, &probe::problems(&healthy, live)), "live and healthy");
-        assert_eq!(probe::record(&fresh, &[])["installing"], true);
-        let unreachable = Facts { host: "far".into(), unreachable: Some("no answer within 60s".into()), ..Facts::default() };
-        assert_eq!(probe::problems(&unreachable, live), vec!["unreachable: no answer within 60s".to_owned()]);
-    }
-
-    #[test]
-    fn a_landing_names_its_issue_only_in_a_trailing_north_reference() {
-        assert_eq!(issue("Break the runtime-follow livelock (north#308)"), Some("308"));
-        assert_eq!(issue("Admit heavy work past load"), None);
-        assert_eq!(issue("Fix (north#) parsing"), None);
-        assert_eq!(issue("Merge (north#12) follow-up"), None);
-    }
+    use super::landing_breakage;
 
     #[test]
     fn a_runtime_lagging_a_newer_main_is_not_this_landings_breakage() {

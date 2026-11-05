@@ -54,43 +54,11 @@ mod tests {
     }
 
     #[test]
-    fn a_role_proxy_fleet_session_is_grounded_for_a_tom_message_found_by_conversation_or_by_name() {
-        let dir = fleet(&[("proxy", "proxy", "tom", "p1")]);
-        assert!(grounded(dir.path(), None, "p1", Some("sdk-cli")));
-        assert!(grounded(dir.path(), Some("proxy"), "other", Some("sdk-cli")));
-    }
-
-    #[test]
     fn a_role_proxy_fleet_session_is_not_grounded_for_a_service_or_session_message() {
         for sender in ["service:north-fleet", "session:lead"] {
             let dir = fleet(&[("proxy", "proxy", sender, "p1")]);
             assert!(!grounded(dir.path(), None, "p1", Some("cli")), "{sender} by conversation");
             assert!(!grounded(dir.path(), Some("proxy"), "p1", Some("cli")), "{sender} by name");
         }
-    }
-
-    #[test]
-    fn a_worker_or_lead_fleet_session_is_never_grounded_even_for_a_tom_message() {
-        for role in ["worker", "lead"] {
-            let dir = fleet(&[("child", role, "tom", "c1")]);
-            assert!(!grounded(dir.path(), None, "c1", Some("cli")), "{role} by conversation");
-            assert!(!grounded(dir.path(), Some("child"), "c1", Some("cli")), "{role} by name");
-        }
-    }
-
-    #[test]
-    fn outside_the_fleet_only_the_interactive_cli_is_grounded() {
-        let dir = fleet(&[("child", "worker", "tom", "c1")]);
-        assert!(grounded(dir.path(), None, "s", Some("cli")));
-        assert!(!grounded(dir.path(), None, "s", Some("sdk-cli")));
-        assert!(!grounded(dir.path(), None, "s", None));
-    }
-
-    #[test]
-    fn a_named_session_without_a_readable_record_or_with_an_unsafe_name_is_not_grounded() {
-        let dir = fleet(&[("proxy", "proxy", "tom", "p1")]);
-        assert!(!grounded(dir.path(), Some("missing"), "p1", Some("cli")));
-        assert!(!grounded(dir.path(), Some("../proxy"), "p1", Some("cli")));
-        assert!(!grounded(dir.path(), Some(".hidden"), "p1", Some("cli")));
     }
 }

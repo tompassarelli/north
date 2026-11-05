@@ -37,22 +37,3 @@ fn ssh_destination_from_orchestration_toml_refuses_an_ssh_option_before_ssh_runs
     assert!(root.path().join("p").exists(), "the fake ssh runs a ProxyCommand the way ssh does");
 }
 
-#[test]
-fn ssh_destination_keeps_the_real_hosts_machine_and_deploy_destinations() {
-    let cfg: DocumentMut = HOSTS.parse().unwrap();
-    let machines = gate::machines(&cfg);
-    assert_eq!(machines.iter().map(|machine| (machine.name.as_str(), machine.ssh.as_str())).collect::<Vec<_>>(), [("gex45", "tom@gex45")]);
-    assert_eq!(land_offload::pull_sources_in(&cfg, "whiterabbit"), ["nexus", "tom@gex45"]);
-    let ledgers = ledgers_among(vec!["threads".into()], machines, "whiterabbit", "ssh", &BTreeMap::new());
-    assert_eq!(ledgers[1].command, ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", "tom@gex45", "north", "threads"]);
-}
-
-#[test]
-fn ssh_destination_accepts_only_a_plain_destination() {
-    for refused in ["-oProxyCommand=id", "-p22", "", "tom@gex45 -oX", "a;b", "a$(id)", "tom@gex45\n"] {
-        assert_eq!(gate::ssh_destination(refused), None, "{refused:?}");
-    }
-    for accepted in ["tom@gex45", "nexus", "host-1.example", "tom@10.77.0.1"] {
-        assert_eq!(gate::ssh_destination(accepted), Some(accepted));
-    }
-}

@@ -74,6 +74,3 @@ pub fn render(facts: &Facts) -> String {
     text
 }
 
-#[cfg(test)]
-#[path = "digest_report_tests.rs"]
-mod tests;

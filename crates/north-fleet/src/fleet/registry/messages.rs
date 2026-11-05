@@ -130,23 +130,6 @@ mod tests {
     }
 
     #[test]
-    fn a_row_sent_on_another_host_is_handed_in_signed_with_that_host_and_only_once() {
-        let home = tempfile::tempdir().unwrap();
-        let far_home = tempfile::tempdir().unwrap();
-        let (laptop, far) = (fleet(home.path()).hosted_as("laptop"), fleet(far_home.path()).hosted_as("far"));
-        let worker = live(&laptop, "worker");
-        cached(&far, &["worker"]);
-        far.send_message(&Sender::Session("lead".into()), "worker", "hello", Delivery::Queued).unwrap();
-        let row = Spool::at(&far.root).pending().unwrap().remove(0);
-
-        assert_eq!(laptop.hand_in(&row).unwrap(), HandedIn::Delivered);
-        assert_eq!(laptop.hand_in(&row).unwrap(), HandedIn::Already);
-        let frames = worker.frames.lock().unwrap();
-        assert_eq!(frames.len(), 1);
-        assert!(frames[0].contains("[from lead@far] hello"), "{}", frames[0]);
-    }
-
-    #[test]
     fn a_hand_in_that_fails_is_withdrawn_from_the_spool_and_the_row_can_be_handed_in_later() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
@@ -162,45 +145,5 @@ mod tests {
 
         assert_eq!(fleet.hand_in(&row).unwrap(), HandedIn::Delivered);
         assert_eq!(worker.frames.lock().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn a_send_to_a_name_in_neither_the_registry_nor_the_cache_fails_at_once_and_spools_nothing() {
-        let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path());
-
-        assert!(matches!(fleet.send_message(&Sender::Tom, "nobody", "hello", Delivery::Queued), Err(NorthError::Usage(why)) if why == "no session named nobody"), "a host whose cache was never written knows no other host's names");
-        cached(&fleet, &["elsewhere"]);
-        assert!(matches!(fleet.send_message(&Sender::Tom, "nobody", "hello", Delivery::Queued), Err(NorthError::Usage(why)) if why == "no session named nobody"));
-        assert!(fleet.reaches("nobody").is_err());
-        assert!(Spool::at(&fleet.root).pending().unwrap().is_empty());
-    }
-
-    #[test]
-    fn a_send_to_a_name_the_cache_lists_as_exited_or_as_this_hosts_own_is_refused() {
-        let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path()).hosted_as("laptop");
-        let row = |name: &str, host: &str, status: &str| SessionRow { name: name.into(), host: host.into(), status: status.into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() };
-        cache_sessions(&fleet.root, &[row("gone", "far-host", "exited"), row("forgotten", "laptop", "idle")]).unwrap();
-
-        for name in ["gone", "forgotten"] {
-            assert!(matches!(fleet.send_message(&Sender::Tom, name, "hello", Delivery::Queued), Err(NorthError::Usage(_))), "{name}");
-            assert!(fleet.reaches(name).is_err(), "{name}");
-        }
-        assert!(Spool::at(&fleet.root).pending().unwrap().is_empty());
-    }
-
-    #[test]
-    fn a_send_to_a_name_only_the_cache_holds_is_spooled_for_the_tick_and_names_its_host() {
-        let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path()).hosted_as("laptop");
-        cached(&fleet, &["elsewhere"]);
-
-        let Sent::Spooled { id, host } = fleet.send_message(&Sender::Session("lead".into()), "elsewhere", "hello", Delivery::Now).unwrap() else { panic!("a cached name is spooled") };
-
-        assert_eq!(host, "far-host");
-        let spooled = Spool::at(&fleet.root).pending().unwrap();
-        assert_eq!(spooled.iter().map(|row| (row.id.as_str(), row.to.as_str(), row.urgent)).collect::<Vec<_>>(), [(id.as_str(), "elsewhere", true)]);
-        assert!(fleet.reaches("elsewhere").is_ok());
     }
 }

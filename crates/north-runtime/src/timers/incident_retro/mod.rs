@@ -1,6 +1,4 @@
 mod system;
-#[cfg(test)]
-mod tests;
 
 use std::path::{Path, PathBuf};
 

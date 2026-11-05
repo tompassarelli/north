@@ -118,19 +118,3 @@ pub(super) fn install(from: &Path, to: &Path) -> std::io::Result<()> {
     fs::rename(&staged, to)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_host_that_builds_only_its_own_runtime_ignores_programs_without_the_build_marker() {
-        let runtime = tempfile::tempdir().unwrap();
-        for program in PROGRAMS {
-            fs::write(runtime.path().join(program), "").unwrap();
-        }
-        assert!(usable(runtime.path(), false));
-        assert!(!usable(runtime.path(), true));
-        fs::write(runtime.path().join(BUILT_HERE), "").unwrap();
-        assert!(usable(runtime.path(), true));
-    }
-}

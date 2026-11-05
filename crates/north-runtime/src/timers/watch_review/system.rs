@@ -21,11 +21,6 @@ impl System {
             fleet: Fleet { south: env_or("WATCH_SOUTH", || home.join("code/south/main")) },
         }
     }
-
-    #[cfg(test)]
-    pub fn at(toml: PathBuf, cache: PathBuf) -> Self {
-        Self { toml, cache, fleet: Fleet { south: PathBuf::new() } }
-    }
 }
 
 impl World for System {

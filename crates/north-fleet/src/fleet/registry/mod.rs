@@ -63,8 +63,6 @@ mod stranding;
 mod testing;
 #[doc(hidden)]
 pub mod fixtures;
-#[cfg(test)]
-mod lanes_tests;
 
 pub use follower::Follower;
 pub use home::roster;

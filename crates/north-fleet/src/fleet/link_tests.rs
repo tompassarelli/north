@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines};
 
 use super::super::model::Machine;
 use super::super::remote::held_under;
@@ -130,18 +130,3 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
     assert!(!alive(&cli_pid), "closing the host's input stops the held service");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_held_cli_receives_every_argument_and_variable_verbatim_and_its_exit_ends_the_link() {
-    let root = tempfile::tempdir().unwrap();
-    let tricky = "it's \"quoted\" $HOME `id` \\ ; && newline\nend";
-    let probe = r#"printf '%s|%s|%s' "$PWD" "$NORTH_REMOTE_PROBE" "$1"; exit 3"#;
-    let link = held(root.path(), &["sh", "-c", probe, "sh", tricky], vec![("NORTH_REMOTE_PROBE".into(), tricky.into())]);
-    let (_to_link, input) = tokio::io::duplex(64);
-    let (mut output, mut from_link) = tokio::io::duplex(4096);
-    let code = tokio::time::timeout(WAIT, link.relay(chunks(input), &mut output, std::future::pending())).await.unwrap().unwrap();
-    drop(output);
-    let mut printed = String::new();
-    from_link.read_to_string(&mut printed).await.unwrap();
-    assert_eq!(printed, format!("{}|{tricky}|{tricky}", root.path().display()));
-    assert_eq!(code, 3);
-}

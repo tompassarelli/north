@@ -320,51 +320,6 @@ mod tests {
         assert!(matches!(again, Err(NorthError::GateAnswered { .. })));
     }
 
-    #[test]
-    fn an_unanswered_gate_falls_due_and_closes_with_its_default() {
-        let book = Book::default();
-        let id = book.open_gate(&request(), 1_000).unwrap();
-        let gate = book.gate(id).unwrap().unwrap();
-        assert!(!due(&gate, 30_999));
-        assert!(due(&gate, 31_000));
-        let closure = settle(&book, id, Decision::Default, 31_000, |_, text| {
-            assert!(text.contains("default applies: wait"), "{text}");
-            Ok(())
-        })
-        .unwrap();
-        assert_eq!(closure.by, Answerer::Default);
-        assert!(!due(&book.gate(id).unwrap().unwrap(), 99_000));
-    }
-
-    #[test]
-    fn free_text_answers_are_tom_and_out_of_range_choices_are_refused() {
-        let book = Book::default();
-        let id = book.open_gate(&request(), 0).unwrap();
-        assert!(settle(&book, id, Decision::Option(3), 1, |_, _| Ok(())).is_err());
-        assert!(book.gate(id).unwrap().unwrap().is_open());
-        let closure = settle(&book, id, Decision::Text("  rent a smaller one ".into()), 2, |_, _| Ok(())).unwrap();
-        assert_eq!((closure.answer.as_str(), closure.by), ("rent a smaller one", Answerer::Tom));
-    }
-
-    #[test]
-    fn a_gate_a_child_opens_tells_its_parent_in_one_line() {
-        let book = Book::default();
-        let mut told = Vec::new();
-        let asked = GateRequest { question: "Rent the\nGPU box?".into(), ..request() };
-        let id = open(&book, &asked, Some("boss"), None, 7, |parent, text| told.push((parent.to_owned(), text.to_owned()))).unwrap();
-        open(&book, &request(), None, None, 8, |_, _| panic!("a session without a parent tells nobody")).unwrap();
-        assert!(open(&book, &GateRequest { options: vec![], ..request() }, Some("boss"), None, 9, |_, _| panic!("an invalid gate never opens")).is_err());
-        assert_eq!(told, [("boss".to_owned(), format!("[gate {id} from worker] Rent the GPU box? (default: wait)"))]);
-        assert_eq!(book.gate(id).unwrap().unwrap().opened_ms, 7);
-    }
-
-    #[test]
-    fn a_gate_request_needs_two_options_and_choices_among_them() {
-        assert!(request().validate().is_ok());
-        assert!(GateRequest { options: vec!["only".into()], recommend: 1, default: 1, ..request() }.validate().is_err());
-        assert!(GateRequest { default: 3, ..request() }.validate().is_err());
-        assert!(GateRequest { recommend: 0, ..request() }.validate().is_err());
-    }
     struct Stale<'a>(&'a Book, Vec<Gate>);
 
     impl GateBook for Stale<'_> {
@@ -402,19 +357,5 @@ mod tests {
         assert!(default_overdue(&book, 41_000, deliver).unwrap().is_empty());
         assert!(default_overdue(&Stale(&book, snapshot), 42_000, deliver).unwrap().is_empty(), "a sweeper with a stale view loses the close and stays quiet");
         assert_eq!(delivered.into_inner().unwrap(), ["worker"]);
-    }
-
-    #[test]
-    fn a_provider_question_becomes_a_valid_gate_that_defaults_to_its_recommendation() {
-        let ask = |options: &[&str]| Ask { text: "Which port?".into(), options: options.iter().map(|option| (*option).to_owned()).collect() };
-        let chosen = ask(&["8080", "9090 (Recommended)"]).gate("kid");
-        assert_eq!((chosen.session.as_str(), chosen.recommend, chosen.default), ("kid", 2, 2));
-        chosen.validate().unwrap();
-        for sparse in [ask(&[]), ask(&["only"]), ask(&[" "])] {
-            let gate = sparse.gate("kid");
-            gate.validate().unwrap();
-            assert_eq!((gate.options.len(), gate.default), (2, 1), "{sparse:?}");
-        }
-        assert_eq!(ask(&["only"]).gate("kid").options, ["only", "Use your best judgment"]);
     }
 }

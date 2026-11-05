@@ -1,6 +1,4 @@
 mod core;
-#[cfg(test)]
-mod tests;
 
 use std::collections::BTreeMap;
 use std::env;

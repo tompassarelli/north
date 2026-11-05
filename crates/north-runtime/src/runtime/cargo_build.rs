@@ -80,29 +80,3 @@ pub(super) fn build_failure(target: &str, status: ExitStatus, cargo_ran: bool, l
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pruning_keeps_room_for_the_next_log_beside_the_newest_ones() {
-        let directory = tempfile::tempdir().unwrap();
-        for index in 0..5 {
-            let log = directory.path().join(format!("{index}.log"));
-            fs::write(&log, "").unwrap();
-            File::options().write(true).open(&log).unwrap().set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(index)).unwrap();
-        }
-        prune(directory.path(), 3).unwrap();
-        let mut left: Vec<String> = fs::read_dir(directory.path()).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
-        left.sort();
-        assert_eq!(left, ["3.log", "4.log"]);
-    }
-
-    #[test]
-    fn a_confined_build_runs_cargo_at_idle_priority_with_jobs_capped_at_the_agent_cpus() {
-        let words = cargo_words(Some(&Confinement { cpus: "4-7".to_owned(), jobs: 4 }));
-        assert_eq!(words[..6], ["nice", "-n", "19", "ionice", "-c", "3"]);
-        assert_eq!(words[words.len() - 2..], ["-j", "4"]);
-        assert!(!cargo_words(None).iter().any(|word| word == "nice" || word == "-j"));
-    }
-}

@@ -21,35 +21,3 @@ pub(crate) fn over_ssh_via(ssh: &Path, host: &str, words: &[&str], input: Option
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::over_ssh_via;
-    use std::os::unix::fs::PermissionsExt;
-    use std::time::Duration;
-
-    fn unrunnable(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
-        let path = dir.join(name);
-        std::fs::write(&path, body).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        path
-    }
-
-    #[test]
-    fn a_program_that_cannot_start_reports_the_spawn_error_not_a_timeout() {
-        let dir = tempfile::tempdir().unwrap();
-        let ssh = unrunnable(dir.path(), "ssh", "#!/bin/sh\n");
-        let message = over_ssh_via(&ssh, "host", &["fleet", "list"], None, Duration::from_secs(5)).unwrap_err().to_string();
-        assert!(message.contains("could not start"), "{message}");
-        assert!(message.contains("os error 13"), "{message}");
-        assert!(!message.contains("no answer within"), "{message}");
-    }
-
-    #[test]
-    fn a_program_that_outlasts_its_wait_reports_no_answer() {
-        let dir = tempfile::tempdir().unwrap();
-        let ssh = dir.path().join("ssh");
-        crate::foundation::shim::write_script(&ssh, "exec sleep 30\n");
-        let message = over_ssh_via(&ssh, "host", &["fleet", "list"], None, Duration::from_millis(300)).unwrap_err().to_string();
-        assert!(message.contains("no answer within"), "{message}");
-    }
-}

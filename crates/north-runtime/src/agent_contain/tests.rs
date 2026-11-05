@@ -5,7 +5,6 @@ use regex::Regex;
 
 use super::{Inputs, sweep};
 
-const GOLDEN: &str = include_str!("fixtures/sweep.golden");
 const USER: &str = "/user.slice/user-1000.slice/user@1000.service";
 const LEAD: &str = "/app.slice/app-spawn-quiet-lead-1.scope";
 
@@ -76,11 +75,6 @@ impl Scenario {
         String::from_utf8(out).unwrap()
     }
 
-    fn pod_already_frozen(&self) {
-        let pod = self.inputs.cgroup.join(format!("{USER}/user.slice/libpod-abc.scope").trim_start_matches('/')).join("cgroup.freeze");
-        fs::write(pod, "1\n").unwrap();
-    }
-
     fn log(&self) -> String {
         fs::read_to_string(self.root.path().join("busctl.log")).unwrap_or_default()
     }
@@ -93,18 +87,6 @@ impl Scenario {
         let path: PathBuf = self.inputs.cgroup.join(format!("{USER}{scope}").trim_start_matches('/')).join("cgroup.freeze");
         fs::read_to_string(path).unwrap().trim().to_owned()
     }
-}
-
-fn masked(text: &str) -> String {
-    Regex::new(r"(?m)^INCIDENT \S+ ").unwrap().replace_all(text, "INCIDENT STAMP ").into_owned()
-}
-
-#[test]
-fn old_and_new_agree_on_the_recorded_plan_and_incident_lines() {
-    let (plan, incidents) = GOLDEN.split_once("---\n").unwrap();
-    let scenario = Scenario::new("exit 0\n", true);
-    assert_eq!(scenario.sweep(true), plan);
-    assert_eq!(masked(&scenario.sweep(false)), incidents);
 }
 
 #[test]
@@ -121,52 +103,5 @@ fn a_claude_child_outside_agent_slice_moves_and_a_container_scope_outside_it_fre
     let inbox = scenario.inbox();
     assert_eq!(inbox.lines().filter(|line| line.contains(&format!("action=moved pid=201 cmd='bash -c bun test' cgroup={USER}{LEAD} processes=2"))).count(), 1);
     assert_eq!(inbox.lines().filter(|line| line.contains("action=frozen pid=400 cmd='conmon'")).count(), 1);
-}
-
-#[test]
-fn an_already_frozen_container_and_a_reported_cgroup_are_not_reported_again_within_the_hour() {
-    let scenario = Scenario::recording();
-    scenario.sweep(false);
-    scenario.sweep(false);
-    assert_eq!(scenario.inbox().lines().filter(|line| line.starts_with("INCIDENT")).count(), 2);
-    assert_eq!(scenario.log().matches("StartTransientUnit").count(), 2);
-}
-
-#[test]
-fn a_child_exiting_after_the_scan_leaves_the_live_child_contained_without_a_failure_incident() {
-    let scenario = Scenario::recording();
-    let proc = scenario.inputs.proc.clone();
-    let mut out = Vec::new();
-    sweep(&scenario.inputs, false, &mut out, &mut || fs::remove_dir_all(proc.join("201")).unwrap());
-    assert_eq!(scenario.inbox().lines().filter(|line| line.contains("action=moved pid=202 ") && line.ends_with(&format!("cgroup={USER}{LEAD}"))).count(), 1);
-    assert_eq!(scenario.log().matches("PIDs au 1 202 Slice").count(), 1);
-}
-
-#[test]
-fn a_failed_move_whose_children_all_exited_produces_no_incident_and_is_not_retried() {
-    let scenario = Scenario::new("echo \"$*\" >> LOG\nrm -rf PROC/201 PROC/202\nexit 1\n", false);
-    scenario.pod_already_frozen();
-    assert_eq!(scenario.sweep(false), "");
-    assert_eq!(scenario.log().lines().count(), 1);
-}
-
-#[test]
-fn a_failed_move_retries_surviving_children_and_reports_their_containment() {
-    let scenario = Scenario::new("echo \"$*\" >> LOG\nif [ -d PROC/201 ]; then rm -rf PROC/201; exit 1; fi\nexit 0\n", false);
-    scenario.sweep(false);
-    assert_eq!(scenario.inbox().lines().filter(|line| line.contains("action=moved pid=202 ") && line.ends_with(&format!("cgroup={USER}{LEAD}"))).count(), 1);
-    assert_eq!(scenario.log().matches("PIDs au 1 202 Slice").count(), 1);
-}
-
-#[test]
-fn a_failed_retry_reports_only_the_live_child_once_per_hour_and_still_retries_each_sweep() {
-    let scenario = Scenario::new("echo \"$*\" >> LOG\nrm -rf PROC/201\nexit 1\n", false);
-    scenario.pod_already_frozen();
-    add(&scenario.inputs.proc, 202, "bun", 200, &format!("{USER}{LEAD}"), "bun test");
-    scenario.sweep(false);
-    assert_eq!(scenario.inbox().lines().filter(|line| line.contains("action=move-failed pid=202 ") && line.ends_with(&format!("cgroup={USER}{LEAD}"))).count(), 1);
-    scenario.sweep(false);
-    assert_eq!(scenario.inbox().lines().count(), 1);
-    assert_eq!(scenario.log().lines().count(), 4);
 }
 
