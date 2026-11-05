@@ -244,3 +244,64 @@ fn tests_are_admitted_only_with_an_independent_review_of_their_final_hunks() {
     fixture.commit(&["move the test out of the source file"]);
     assert_eq!(admission_scan(&fixture, "author-1").status, 0);
 }
+
+const STUB_RUNNER: &str = "printf '%s\\n' \"$MUTANT_TREES\" | while read -r tree; do\n  for name in $MUTANT_TESTS; do\n    if [ \"$name\" = guards ] && ! grep -q fixed \"$tree/src/lib.rs\"; then v=fail; else v=pass; fi\n    printf '%s\\t%s\\n' \"$v\" \"$name\" >>\"$tree/.mutant-results\"\n  done\ndone\n";
+const GUARDS: &str = "#[test]\nfn guards() {}\n";
+const IDLE: &str = "#[test]\nfn idle() {}\n";
+
+fn fail_to_pass(fixture: &Fixture) -> Scan {
+    let range = format!("{}..{}", fixture.base, fixture.head());
+    let output = fixture.north(&fixture.repo, &["land", "scan", "test-admission", "run", &range]);
+    Scan { status: output.status.code().unwrap_or(-1), stdout: String::from_utf8_lossy(&output.stdout).into_owned() }
+}
+
+#[test]
+fn an_added_test_that_passes_without_the_fix_is_refused_after_the_push() {
+    let mut fixture = Fixture::new("remote.git");
+    write(&fixture.repo.join(".safe-push"), "[mutant]\n\trun = sh harness/runner.sh\n");
+    write(&fixture.repo.join("harness/runner.sh"), STUB_RUNNER);
+    write(&fixture.repo.join("src/lib.rs"), "pub fn f() {}\nfn g() {}\n");
+    fixture.commit(&["library"]);
+    fixture.mark_base();
+    write(&fixture.repo.join("src/lib.rs"), "pub fn f() { /* fixed */ }\nfn g() {}\n");
+    write(&fixture.repo.join("tests/bug.rs"), &format!("{GUARDS}{IDLE}"));
+    fixture.commit(&["fix f"]);
+    let idle = fail_to_pass(&fixture);
+    assert_eq!(idle.status, 1, "{}", idle.stdout);
+    assert!(idle.stdout.contains("so none guards the change: idle;"), "{}", idle.stdout);
+    fixture.reset();
+    write(&fixture.repo.join("src/lib.rs"), "pub fn f() { /* fixed */ }\nfn g() {}\n");
+    write(&fixture.repo.join("tests/bug.rs"), GUARDS);
+    fixture.commit(&["fix f"]);
+    let guarded = fail_to_pass(&fixture);
+    assert_eq!(guarded.status, 0, "{}", guarded.stdout);
+    fixture.reset();
+    write(&fixture.repo.join("src/lib.rs"), &format!("pub fn f() {{ /* fixed */ }}\nfn g() {{}}\n{IDLE}{GUARDS}"));
+    fixture.commit(&["fix f with inline tests"]);
+    let inline = fail_to_pass(&fixture);
+    assert_eq!(inline.status, 1, "{}", inline.stdout);
+    assert!(inline.stdout.contains("so none guards the change: idle;"), "{}", inline.stdout);
+    fixture.reset();
+    write(&fixture.repo.join("src/lib.rs"), "pub fn f() { /* fixed */ }\nfn g() {}\n");
+    write(&fixture.repo.join("tests/bug.rs"), IDLE);
+    fixture.commit(&["refactor f", "Behavior: unchanged"]);
+    assert_eq!(fail_to_pass(&fixture).status, 0);
+    fixture.reset();
+    write(&fixture.repo.join("tests/bug.rs"), IDLE);
+    fixture.commit(&["pin f"]);
+    assert_eq!(fail_to_pass(&fixture).status, 0);
+    fixture.reset();
+    write(&fixture.repo.join("src/lib.rs"), "pub fn f() {}\nfn g() { /* fixed */ }\n#[test]\nfn guards() {}\n");
+    fixture.commit(&["fix g next to its test"]);
+    let adjacent = fail_to_pass(&fixture);
+    assert_eq!(adjacent.status, 0, "{}", adjacent.stdout);
+    fixture.reset();
+    write(&fixture.repo.join("src/lib.rs"), "pub fn f() {}\n#[test]\nfn guards() {}\nfn g() { /* fixed */ }\n");
+    fixture.commit(&["fix g after its test"]);
+    let after = fail_to_pass(&fixture);
+    assert_eq!(after.status, 0, "{}", after.stdout);
+    fixture.reset();
+    write(&fixture.repo.join("src/lib.rs"), &format!("pub fn f() {{}}\nfn g() {{}}\n{IDLE}"));
+    fixture.commit(&["pin f inline"]);
+    assert_eq!(fail_to_pass(&fixture).status, 0);
+}

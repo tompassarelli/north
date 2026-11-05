@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -9,6 +10,7 @@ use regex::bytes::Regex as BytesRegex;
 use super::test_integrity::{in_vendored, vendored_trees};
 use super::{Range, git};
 use crate::dep_gate::trailer_lines;
+use crate::landing::fails_first;
 
 const TRAILER_FORMAT: &str =
     "Test-review: keep N of M; reviewer: <session>; patch-id <id from north land scan test-admission id BASE..HEAD>";
@@ -23,6 +25,9 @@ static TEST_FILE: LazyLock<BytesRegex> = LazyLock::new(|| {
 static RECORD_FILE: LazyLock<BytesRegex> = LazyLock::new(|| {
     BytesRegex::new(r"(?i)(^|/)(golden|goldens|snapshots?|__snapshots__)/|\.(snap|golden)$|[._-](golden|snapshot)s?\.[^/]*$")
         .expect("record file pattern")
+});
+static ADDED_FN: LazyLock<BytesRegex> = LazyLock::new(|| {
+    BytesRegex::new(r"^\+\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)").expect("added fn pattern")
 });
 static REVIEW: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\ATest-review:\s+keep\s+(\d+)\s+of\s+(\d+);\s*reviewer:\s*([a-z0-9](?:[a-z0-9._:/@_-]*[a-z0-9])?);\s*patch-id\s+([0-9a-f]{40,64})\s*\z")
@@ -114,6 +119,62 @@ fn count(section: &Section, sign: u8) -> usize {
     section.hunks.iter().map(|hunk| marked(hunk, sign)).sum()
 }
 
+static HUNK_HEADER: LazyLock<BytesRegex> = LazyLock::new(|| BytesRegex::new(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@").expect("hunk header pattern"));
+
+fn brace_change(text: &[u8]) -> (i32, bool) {
+    let (mut net, mut seen, mut quoted, mut index) = (0, false, false, 0);
+    while let Some(&byte) = text.get(index) {
+        index += 1;
+        match byte {
+            b'\\' if quoted => index += 1,
+            b'"' => quoted = !quoted,
+            b'\'' if !quoted && text.get(index + 1) == Some(&b'\'') => index += 2,
+            b'{' if !quoted => (net, seen) = (net + 1, true),
+            b'}' if !quoted => net -= 1,
+            _ => {}
+        }
+    }
+    (net, seen)
+}
+
+fn tests_only(hunk: &[&[u8]]) -> Vec<Vec<u8>> {
+    let owned = || hunk.iter().map(|line| line.to_vec()).collect();
+    let starts = |line: &&[u8]| line.first() == Some(&b'+') && (TEST_MARKER.is_match(line) || line[1..].trim_ascii().starts_with(b"#[cfg(test)]"));
+    let Some(first) = hunk.iter().position(starts) else { return owned() };
+    let Some(header) = hunk.first().and_then(|line| HUNK_HEADER.captures(line)) else { return owned() };
+    let number = |bytes: &[u8]| String::from_utf8_lossy(bytes).parse::<usize>().unwrap_or(0);
+    let (start, old) = (number(&header[1]), header.get(2).map_or(1, |count| number(count.as_bytes())));
+    let after = if old == 0 { start } else { start + old - 1 };
+    let (mut kept, mut depth, mut opened, mut skipping) = (Vec::new(), 0_i32, false, false);
+    for line in &hunk[first..] {
+        match line.first() {
+            Some(b'\\') => kept.push(line.to_vec()),
+            Some(b'+') => {
+                let text = line[1..].trim_ascii();
+                let begins = starts(&line);
+                if skipping && !begins {
+                    continue;
+                }
+                if opened && depth <= 0 && !begins && !text.starts_with(b"#[") {
+                    skipping = true;
+                    continue;
+                }
+                if skipping || opened && depth <= 0 {
+                    (skipping, opened, depth) = (false, false, 0);
+                }
+                kept.push(line.to_vec());
+                let (net, seen) = brace_change(text);
+                (depth, opened) = (depth + net, opened || seen);
+            }
+            _ => {}
+        }
+    }
+    let count = kept.iter().filter(|line| line.first() == Some(&b'+')).count();
+    let mut trimmed = vec![format!("@@ -{after},0 +{},{count} @@", after + 1).into_bytes()];
+    trimmed.extend(kept);
+    trimmed
+}
+
 fn admission(diff: &[u8], trees: &[String]) -> Admission {
     let all = sections(diff);
     let live: Vec<&Section> = all.iter().filter(|section| !section.path.is_empty() && !in_vendored(section.path, trees)).collect();
@@ -125,10 +186,11 @@ fn admission(diff: &[u8], trees: &[String]) -> Admission {
     for section in live {
         let named = TEST_FILE.is_match(section.path);
         let whole = section.created && (named || RECORD_FILE.is_match(section.path)) && (!rust(section) || net > 0);
-        let kept: Vec<&Vec<&[u8]>> = section
+        let kept: Vec<Vec<Vec<u8>>> = section
             .hunks
             .iter()
             .filter(|hunk| whole || (rust(section) && net > 0 && count(section, b'+') > 0 && (named || marked(hunk, b'+') > 0)))
+            .map(|hunk| if whole { hunk.iter().map(|line| line.to_vec()).collect() } else { tests_only(hunk) })
             .collect();
         if kept.is_empty() && !whole {
             continue;
@@ -136,7 +198,7 @@ fn admission(diff: &[u8], trees: &[String]) -> Admission {
         found.tests += usize::from(whole && !rust(section));
         found.files.push(String::from_utf8_lossy(section.path).into_owned());
         found.patch.extend(lines(section.header.iter()));
-        found.patch.extend(lines(kept.iter().flat_map(|hunk| hunk.iter())));
+        found.patch.extend(lines(kept.iter().flatten()));
     }
     found.tests = found.tests.max(usize::from(!found.patch.is_empty()));
     found
@@ -216,7 +278,7 @@ fn changes(directory: &Path, base: &str, head: &str) -> Admission {
     let trees = vendored_trees(directory, &base);
     let diff = git::bytes(
         directory,
-        &["--literal-pathspecs", "diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv", "-M", "--src-prefix=a/", "--dst-prefix=b/", "--diff-algorithm=myers", &base, head],
+        &["--literal-pathspecs", "diff", "--unified=0", "--binary", "--no-color", "--no-ext-diff", "--no-textconv", "-M", "--src-prefix=a/", "--dst-prefix=b/", "--diff-algorithm=myers", &base, head],
     )
     .unwrap_or_default();
     admission(&diff, &trees)
@@ -275,4 +337,71 @@ pub fn id(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
             1
         }
     }
+}
+
+fn added_names(patch: &[u8]) -> BTreeSet<String> {
+    let (mut names, mut armed, mut block) = (BTreeSet::new(), false, false);
+    for line in patch.split(|byte| *byte == b'\n') {
+        if line.starts_with(b"@@") || line.starts_with(b"diff --git ") {
+            (armed, block) = (false, false);
+        } else if TEST_MARKER.is_match(line) && line.first() == Some(&b'+') {
+            armed = true;
+            block = line.windows(9).any(|window| window == b"proptest!");
+        } else if let Some(found) = ADDED_FN.captures(line).filter(|_| armed) {
+            names.insert(String::from_utf8_lossy(&found[1]).into_owned());
+            armed = block;
+        }
+    }
+    names
+}
+
+fn fresh_names(directory: &Path, base: &str, patch: &[u8]) -> BTreeSet<String> {
+    added_names(patch)
+        .into_iter()
+        .filter(|name| git::bytes(directory, &["grep", "-q", "-E", &format!("fn {name}\\b"), base, "--", "*.rs"]).is_none())
+        .collect()
+}
+
+fn claims_a_bug(directory: &Path, base: &str, head: &str, patch: &[u8]) -> bool {
+    let parsed = sections(patch);
+    let tested = |path: &str| -> usize {
+        parsed.iter().filter(|section| section.path == path.as_bytes()).flat_map(|section| section.hunks.iter().flatten()).filter(|line| matches!(line.first(), Some(b'+' | b'-'))).count()
+    };
+    let numbers = git::text(directory, &["diff", "--numstat", "--no-renames", base, head]).unwrap_or_default();
+    let code = numbers.lines().any(|row| {
+        let mut columns = row.splitn(3, '\t');
+        let (Some(added), Some(removed), Some(path)) = (columns.next(), columns.next(), columns.next()) else { return false };
+        let changed = added.parse::<usize>().unwrap_or(1) + removed.parse::<usize>().unwrap_or(1);
+        fails_first::is_code(path) && changed > tested(path)
+    });
+    code && !git::messages(directory, base, head).lines().any(|line| line.trim() == fails_first::MARK)
+}
+
+pub fn fail_to_pass(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
+    let Some(Range { base, head }) = Range::parse(range) else {
+        eprintln!("usage: north land scan test-admission run BASE..HEAD");
+        return 64;
+    };
+    let base = git::merge_base(directory, base, head);
+    let found = changes(directory, &base, head);
+    let names = fresh_names(directory, &base, &found.patch);
+    if names.is_empty() || !claims_a_bug(directory, &base, head, &found.patch) {
+        let _ = writeln!(out, "fail-to-pass: not applicable ({range} adds no Rust test next to a code change, or is marked {})", fails_first::MARK);
+        return 0;
+    }
+    let passing = match fails_first::pass_on_base(directory, &base, &found.patch, &names, out) {
+        Ok(verdicts) => verdicts,
+        Err(reason) => {
+            let _ = writeln!(out, "fail-to-pass: could not run, not the lane's fault: {reason}");
+            return 75;
+        }
+    };
+    let guards: Vec<&str> = passing.iter().filter(|(_, passes)| !**passes).map(|(name, _)| name.as_str()).collect();
+    let idle: Vec<&str> = passing.iter().filter(|(_, passes)| **passes).map(|(name, _)| name.as_str()).collect();
+    if idle.is_empty() {
+        let _ = writeln!(out, "fail-to-pass: ✓ all {} added test(s) fail on base with the lane's code changes reverted: {}", guards.len(), guards.join(", "));
+        return 0;
+    }
+    let _ = writeln!(out, "after-landing: ✗ fail-to-pass: these added tests pass with the lane's non-test changes reverted, so none guards the change: {}; make each fail without the change, or put a line `{}` in the commit message of a behavior-preserving change.", idle.join(", "), fails_first::MARK);
+    1
 }

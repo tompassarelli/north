@@ -11,7 +11,7 @@ use super::mutant::{Env, Lease, Stop, git_bytes, git_text};
 use super::mutant_trees::{self, RunDir};
 
 const USAGE: &str = "usage: north land-fails-first [BASE HEAD] (default: $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)";
-const MARK: &str = "Behavior: unchanged";
+pub(crate) const MARK: &str = "Behavior: unchanged";
 const UNAVAILABLE: u8 = 75;
 
 static HUNK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@").unwrap());
@@ -66,12 +66,12 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-fn is_test(path: &str) -> bool {
+pub(crate) fn is_test(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
     path.split('/').rev().skip(1).any(|part| part == "tests") || name.ends_with("_tests.rs") || name.ends_with("_test.rs")
 }
 
-fn is_code(path: &str) -> bool {
+pub(crate) fn is_code(path: &str) -> bool {
     (path.starts_with("crates/") || path.starts_with("src/")) && !is_test(path)
 }
 
@@ -100,7 +100,7 @@ pub(super) fn check(cwd: &Path, base: &str, head: &str, env: &Env, out: &mut dyn
 fn against_base(cwd: &Path, base: &str, head: &str, tests: &[&str], names: &BTreeSet<String>, env: &Env, out: &mut dyn Write) -> Result<(), Stop> {
     let message = git_text(cwd, None, &["log", "-1", "--format=%B", head])?;
     let unchanged = message.lines().any(|line| line.trim() == MARK);
-    let verdicts = match on_base(cwd, base, head, tests, names, env, out)? {
+    let verdicts = match on_base(cwd, base, names, env, &|tree| overlay(cwd, head, tests, tree), out)? {
         Base::Verdicts(verdicts) => verdicts,
         Base::Unverified(reason) => return unverified(out, &reason),
     };
@@ -193,13 +193,39 @@ fn named(cwd: &Path, base: &str, head: &str, path: &str) -> Result<BTreeSet<Stri
     Ok(names)
 }
 
+fn apply(tree: &Path, patch: &[u8]) -> Result<Option<String>, Stop> {
+    let mut child = std::process::Command::new("git")
+        .args(["apply", "--unidiff-zero", "--whitespace=nowarn", "-"])
+        .current_dir(tree)
+        .env("GIT_CEILING_DIRECTORIES", tree.parent().unwrap_or(tree))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let mut stdin = child.stdin.take().ok_or_else(|| Stop::Fail("git apply has no stdin".to_owned()))?;
+    let patch = patch.to_vec();
+    let writer = std::thread::spawn(move || stdin.write_all(&patch));
+    let output = child.wait_with_output()?;
+    let _ = writer.join();
+    Ok((!output.status.success()).then(|| format!("the lane's added test hunks do not apply to base: {}", String::from_utf8_lossy(&output.stderr).trim())))
+}
+
+pub(crate) fn pass_on_base(cwd: &Path, base: &str, patch: &[u8], names: &BTreeSet<String>, out: &mut dyn Write) -> Result<BTreeMap<String, bool>, String> {
+    let env = Env { lease: Lease::Inherited, ..super::mutant_cli::process_env() };
+    match on_base(cwd, base, names, &env, &|tree| apply(tree, patch), out) {
+        Ok(Base::Verdicts(verdicts)) => Ok(verdicts.into_iter().map(|(name, verdict)| (name, verdict == Verdict::Passes)).collect()),
+        Ok(Base::Unverified(reason)) | Err(Stop::Usage(reason) | Stop::Fail(reason)) => Err(reason),
+        Err(Stop::Refused) => Err("the runner refused".to_owned()),
+    }
+}
+
+
 fn on_base(
     cwd: &Path,
     base: &str,
-    head: &str,
-    tests: &[&str],
     names: &BTreeSet<String>,
     env: &Env,
+    place: &dyn Fn(&Path) -> Result<Option<String>, Stop>,
     out: &mut dyn Write,
 ) -> Result<Base, Stop> {
     let Some(config) = super::mutant_verify::config(cwd, base)? else {
@@ -211,7 +237,7 @@ fn on_base(
     fs::create_dir_all(&dir.0)?;
     let tree = dir.0.join("base");
     mutant_trees::checkout(&top, &dir.0.join("index"), base, None, &tree)?;
-    if let Some(reason) = overlay(cwd, head, tests, &tree)? {
+    if let Some(reason) = place(&tree)? {
         return Ok(Base::Unverified(reason));
     }
     let shared = dir.0.join("links");
