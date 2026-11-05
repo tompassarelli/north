@@ -3,7 +3,7 @@ use serde_json::json;
 use super::super::database::insert_capacity_run;
 use super::super::estimate::task_signature;
 use super::super::model::tests::database;
-use super::{CalibrationRun, calibrate, calibration_runs, calibration_table, parse_window_seconds};
+use super::{CalibrationRun, calibrate, calibration_report, calibration_runs, calibration_table, parse_window_seconds, prediction_coverage};
 
 fn run(key: &str, predicted_wall: f64, wall_p90: f64, actual_wall: f64, predicted_memory: f64, actual_memory: f64) -> CalibrationRun {
     CalibrationRun {
@@ -16,6 +16,7 @@ fn run(key: &str, predicted_wall: f64, wall_p90: f64, actual_wall: f64, predicte
         predicted_memory: Some(predicted_memory),
         actual_memory: Some(actual_memory),
         censored: false,
+        failed: false,
     }
 }
 
@@ -68,6 +69,7 @@ fn calibration_reads_only_keyed_runs_inside_the_window() {
         predicted_memory: Some(90.0),
         actual_memory: Some(100.0),
         censored: true,
+        failed: false,
     };
     assert_eq!(found, vec![expected]);
 }
@@ -88,4 +90,26 @@ fn a_censored_run_is_a_memory_lower_bound_counting_only_as_a_coverage_miss_once_
     assert_eq!(report[0].censored, 2);
     assert_eq!(report[0].memory_error.p90, 0.0);
     assert_eq!(report[0].memory_coverage, Some(0.5));
+}
+
+#[test]
+fn a_failed_run_is_a_duration_lower_bound_counting_only_as_a_coverage_miss_once_past_the_prediction() {
+    let failed = |actual: f64| CalibrationRun { failed: true, ..run("flaky", 100.0, 120.0, actual, 1000.0, 1000.0) };
+    let report = calibrate(&[failed(5.0), failed(400.0), run("flaky", 100.0, 120.0, 100.0, 1000.0, 1000.0)]);
+    assert_eq!(report[0].failed, 2);
+    assert_eq!(report[0].wall_error.p90, 0.0);
+    assert_eq!(report[0].wall_coverage, Some(0.5));
+}
+
+#[test]
+fn the_printed_report_names_prediction_coverage_over_every_admitted_run() {
+    let unknown = CalibrationRun { basis: Some("unknown".to_owned()), ..run("heavy (cargo test", 100.0, 120.0, 100.0, 1000.0, 900.0) };
+    let unrecorded = CalibrationRun { basis: None, ..unknown.clone() };
+    let runs = [run("heavy (cargo test", 100.0, 120.0, 100.0, 1000.0, 900.0), run("heavy (cargo test", 100.0, 120.0, 100.0, 1000.0, 950.0), unknown, unrecorded];
+    assert_eq!(prediction_coverage(&runs), Some(0.5));
+    assert_eq!(prediction_coverage(&[]), None);
+    let report = calibration_report(&runs);
+    assert!(report.contains("FAIL") && report.contains("MEM COV"));
+    assert!(report.ends_with("prediction coverage: 50% (2 of 4 admitted runs carry a prediction)\n"), "{report}");
+    assert!(calibration_report(&[]).ends_with("prediction coverage: - (0 of 0 admitted runs carry a prediction)\n"));
 }

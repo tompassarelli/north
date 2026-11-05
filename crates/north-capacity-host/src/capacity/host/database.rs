@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::estimate::{CapacityRun, TaskSignature, task_signature};
 use super::machine::{env, read_text};
-use super::model::{MODEL_COLUMNS, MODEL_SCHEMA};
+use super::model::{MODEL_COLUMNS, MODEL_SCHEMA, MODEL_TABLE_COLUMNS};
 use super::policy::sizing_runs;
 
 pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS capacity_runs (
@@ -45,27 +45,34 @@ fn private_parent(path: &Path) -> std::io::Result<()> {
     path.parent().map_or(Ok(()), |parent| fs::DirBuilder::new().recursive(true).mode(0o700).create(parent))
 }
 
-fn table_columns(db: &Connection) -> Vec<String> {
-    db.prepare("PRAGMA table_info(capacity_runs)").and_then(|mut statement| statement.query_map([], |row| row.get::<_, String>(1)).map(|names| names.flatten().collect())).unwrap_or_default()
+fn table_columns(db: &Connection, table: &str) -> Vec<String> {
+    db.prepare(&format!("PRAGMA table_info({table})")).and_then(|mut statement| statement.query_map([], |row| row.get::<_, String>(1)).map(|names| names.flatten().collect())).unwrap_or_default()
 }
 
 fn run_columns() -> impl Iterator<Item = (&'static str, &'static str)> {
     std::iter::once(("command", "TEXT")).chain(OFFLOAD_COLUMNS).chain(MODEL_COLUMNS)
 }
 
-pub(super) fn add_run_columns(db: &Connection) -> rusqlite::Result<()> {
-    let present = table_columns(db);
-    for (name, kind) in run_columns() {
+fn add_columns(db: &Connection, table: &str, columns: impl Iterator<Item = (&'static str, &'static str)>) -> rusqlite::Result<()> {
+    let present = table_columns(db, table);
+    for (name, kind) in columns {
         if !present.iter().any(|column| column == name) {
-            db.execute_batch(&format!("ALTER TABLE capacity_runs ADD COLUMN {name} {kind}"))?;
+            db.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {name} {kind}"))?;
         }
     }
     Ok(())
 }
 
+pub(super) fn add_run_columns(db: &Connection) -> rusqlite::Result<()> {
+    add_columns(db, "capacity_runs", run_columns())
+}
+
 fn has_columns(db: &Connection) -> bool {
-    let columns = table_columns(db);
-    run_columns().all(|(name, _)| columns.iter().any(|column| column == name))
+    let holds = |table: &str, wanted: Vec<(&str, &str)>| {
+        let present = table_columns(db, table);
+        wanted.iter().all(|(name, _)| present.iter().any(|column| column == name))
+    };
+    holds("capacity_runs", run_columns().collect()) && holds("capacity_model", MODEL_TABLE_COLUMNS.to_vec())
 }
 
 /// Whether the schema is already in place, read without a write lock: every capacity command opens the database, and a write transaction per open queued forty queued wrappers behind each other's history reads past the busy timeout when a runtime update re-ran them at once.
@@ -100,6 +107,7 @@ pub(super) fn migrate(db: &mut Connection) -> rusqlite::Result<bool> {
     }
     add_run_columns(&transaction)?;
     transaction.execute_batch(MODEL_SCHEMA)?;
+    add_columns(&transaction, "capacity_model", MODEL_TABLE_COLUMNS.into_iter())?;
     transaction.commit()?;
     Ok(attached)
 }

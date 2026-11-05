@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 
 use rusqlite::Connection;
 
-use super::model::{ModelRow, Quantiles, level_of, rows};
+use super::model::{MODEL_MINIMUM_RUNS, ModelRow, Quantiles, WINDOW, level_of, rows};
 
 pub const DRIFT_ERROR: f64 = 0.5;
-pub const COVERAGE_TARGET: f64 = 0.8;
+pub const COVERAGE_TARGET: f64 = 0.9;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CalibrationRun {
@@ -18,6 +18,13 @@ pub struct CalibrationRun {
     pub predicted_memory: Option<f64>,
     pub actual_memory: Option<f64>,
     pub censored: bool,
+    pub failed: bool,
+}
+
+impl CalibrationRun {
+    fn predicted(&self) -> bool {
+        self.basis.as_deref().is_some_and(|basis| basis != "unknown")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,6 +33,7 @@ pub struct Calibration {
     pub host: String,
     pub runs: usize,
     pub censored: usize,
+    pub failed: usize,
     pub basis: String,
     pub predicted_wall: Quantiles,
     pub actual_wall: Quantiles,
@@ -47,6 +55,13 @@ fn measured(pair: (Option<f64>, Option<f64>)) -> Option<(f64, f64)> {
 
 fn errors(runs: &[&CalibrationRun], pick: fn(&CalibrationRun) -> (Option<f64>, Option<f64>)) -> Vec<f64> {
     runs.iter().filter_map(|run| measured(pick(run))).map(|(predicted, actual)| (predicted - actual).abs() / actual).collect()
+}
+
+fn bounded(bound: bool, (predicted, actual): (Option<f64>, Option<f64>)) -> (Option<f64>, Option<f64>) {
+    match (bound, predicted, actual) {
+        (true, Some(predicted), Some(actual)) if actual <= predicted => (None, None),
+        (_, predicted, actual) => (predicted, actual),
+    }
 }
 
 fn coverage(runs: &[&CalibrationRun], pick: fn(&CalibrationRun) -> (Option<f64>, Option<f64>)) -> Option<f64> {
@@ -71,19 +86,17 @@ pub fn calibrate(runs: &[CalibrationRun]) -> Vec<Calibration> {
         .into_iter()
         .map(|((key, host), runs)| {
             let values = |pick: fn(&CalibrationRun) -> Option<f64>| runs.iter().filter_map(|run| pick(run)).filter(|value| value.is_finite()).collect::<Vec<f64>>();
-            let wall_error = Quantiles::of(&errors(&runs, |run| (run.predicted_wall, run.actual_wall)));
+            let wall_error = Quantiles::of(&errors(&runs, |run| if run.failed { (None, None) } else { (run.predicted_wall, run.actual_wall) }));
             let memory_error = Quantiles::of(&errors(&runs, |run| if run.censored { (None, None) } else { (run.predicted_memory, run.actual_memory) }));
-            let wall_coverage = coverage(&runs, |run| (run.predicted_wall_p90, run.actual_wall));
-            let memory_coverage = coverage(&runs, |run| match (run.censored, run.predicted_memory, run.actual_memory) {
-                (true, Some(predicted), Some(actual)) if actual <= predicted => (None, None),
-                (_, predicted, actual) => (predicted, actual),
-            });
+            let wall_coverage = coverage(&runs, |run| bounded(run.failed, (run.predicted_wall_p90, run.actual_wall)));
+            let memory_coverage = coverage(&runs, |run| bounded(run.censored, (run.predicted_memory, run.actual_memory)));
             let short = |covered: Option<f64>| covered.is_some_and(|covered| covered < COVERAGE_TARGET);
             Calibration {
                 key: key.to_owned(),
                 host: host.to_owned(),
                 runs: runs.len(),
                 censored: runs.iter().filter(|run| run.censored).count(),
+                failed: runs.iter().filter(|run| run.failed).count(),
                 basis: most_common(&runs),
                 predicted_wall: Quantiles::of(&values(|run| run.predicted_wall)),
                 actual_wall: Quantiles::of(&values(|run| run.actual_wall)),
@@ -99,26 +112,40 @@ pub fn calibrate(runs: &[CalibrationRun]) -> Vec<Calibration> {
         .collect()
 }
 
+const RUN_COLUMNS: &str = "key, host, predictionBasis, predictedWallSeconds, predictedWallP90Seconds, wallSeconds, predictedMemoryMiB, anonPeakMiB, censored, exitCode";
+
+fn calibration_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<CalibrationRun> {
+    Ok(CalibrationRun {
+        key: row.get(0)?,
+        host: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+        basis: row.get(2)?,
+        predicted_wall: row.get(3)?,
+        predicted_wall_p90: row.get(4)?,
+        actual_wall: row.get(5)?,
+        predicted_memory: row.get(6)?,
+        actual_memory: row.get(7)?,
+        censored: row.get::<_, Option<i64>>(8)?.is_some_and(|flag| flag != 0),
+        failed: row.get::<_, Option<f64>>(9)?.is_some_and(|code| code != 0.0),
+    })
+}
+
 pub fn calibration_runs(db: &Connection, since: &str) -> rusqlite::Result<Vec<CalibrationRun>> {
-    let mut statement = db.prepare(
-        "SELECT key, host, predictionBasis, predictedWallSeconds, predictedWallP90Seconds, wallSeconds, predictedMemoryMiB, anonPeakMiB, censored
-         FROM capacity_runs WHERE key IS NOT NULL AND at >= ? ORDER BY at, source_id",
-    )?;
-    statement
-        .query_map([since], |row| {
-            Ok(CalibrationRun {
-                key: row.get(0)?,
-                host: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                basis: row.get(2)?,
-                predicted_wall: row.get(3)?,
-                predicted_wall_p90: row.get(4)?,
-                actual_wall: row.get(5)?,
-                predicted_memory: row.get(6)?,
-                actual_memory: row.get(7)?,
-                censored: row.get::<_, Option<i64>>(8)?.is_some_and(|flag| flag != 0),
-            })
-        })?
-        .collect()
+    let mut statement = db.prepare(&format!("SELECT {RUN_COLUMNS} FROM capacity_runs WHERE key IS NOT NULL AND at >= ? ORDER BY at, source_id"))?;
+    statement.query_map([since], calibration_run)?.collect()
+}
+
+/// Whether a key's newest predicted runs on a host drifted, which admission answers by widening its next prediction.
+pub fn drifting(db: &Connection, key: &str, host: &str) -> rusqlite::Result<bool> {
+    let mut statement = db.prepare(&format!(
+        "SELECT {RUN_COLUMNS} FROM capacity_runs WHERE key = ? AND host = ? AND predictionBasis IS NOT NULL AND predictionBasis != 'unknown' ORDER BY at DESC, source_id DESC LIMIT ?"
+    ))?;
+    let runs = statement.query_map(rusqlite::params![key, host, WINDOW as i64], calibration_run)?.collect::<rusqlite::Result<Vec<CalibrationRun>>>()?;
+    Ok(runs.len() as i64 >= MODEL_MINIMUM_RUNS && calibrate(&runs).iter().any(|calibration| calibration.drift))
+}
+
+/// The share of admitted runs that carried a prediction, or None for no runs.
+pub fn prediction_coverage(runs: &[CalibrationRun]) -> Option<f64> {
+    (!runs.is_empty()).then(|| runs.iter().filter(|run| run.predicted()).count() as f64 / runs.len() as f64)
 }
 
 pub fn parse_window_seconds(text: &str) -> Option<f64> {
@@ -178,12 +205,18 @@ pub fn model_table(rows: &[ModelRow]) -> String {
     text
 }
 
+pub fn calibration_report(runs: &[CalibrationRun]) -> String {
+    let predicted = runs.iter().filter(|run| run.predicted()).count();
+    let share = prediction_coverage(runs).map_or_else(|| "-".to_owned(), share);
+    format!("{}prediction coverage: {share} ({predicted} of {} admitted runs carry a prediction)\n", calibration_table(&calibrate(runs)), runs.len())
+}
+
 pub fn calibration_table(calibrations: &[Calibration]) -> String {
-    let header = ["KEY", "HOST", "RUNS", "CENS", "BASIS", "PRED WALL", "ACT WALL", "WALL ERR", "WALL COV", "PRED MEM", "ACT MEM", "MEM ERR", "MEM COV", "DRIFT"];
-    let line = |cells: [String; 14]| {
+    let header = ["KEY", "HOST", "RUNS", "CENS", "FAIL", "BASIS", "PRED WALL", "ACT WALL", "WALL ERR", "WALL COV", "PRED MEM", "ACT MEM", "MEM ERR", "MEM COV", "DRIFT"];
+    let line = |cells: [String; 15]| {
         format!(
-            "{:<40} {:<8} {:>4} {:>4} {:<18} {:>11} {:>11} {:>11} {:>8} {:>11} {:>11} {:>11} {:>7} {}\n",
-            cells[0], cells[1], cells[2], cells[3], cells[4], cells[5], cells[6], cells[7], cells[8], cells[9], cells[10], cells[11], cells[12], cells[13]
+            "{:<40} {:<8} {:>4} {:>4} {:>4} {:<18} {:>11} {:>11} {:>11} {:>8} {:>11} {:>11} {:>11} {:>7} {}\n",
+            cells[0], cells[1], cells[2], cells[3], cells[4], cells[5], cells[6], cells[7], cells[8], cells[9], cells[10], cells[11], cells[12], cells[13], cells[14]
         )
     };
     let mut text = line(header.map(str::to_owned));
@@ -194,6 +227,7 @@ pub fn calibration_table(calibrations: &[Calibration]) -> String {
             row.host.clone(),
             row.runs.to_string(),
             row.censored.to_string(),
+            row.failed.to_string(),
             row.basis.clone(),
             pair(row.predicted_wall),
             pair(row.actual_wall),
@@ -206,7 +240,7 @@ pub fn calibration_table(calibrations: &[Calibration]) -> String {
             (if row.drift { "DRIFT" } else { "ok" }).to_owned(),
         ]));
     }
-    text.push_str("wall s and anon MiB as p50/p90; error |predicted-actual|/actual p50/p90 (wall p50, memory p90); coverage: share of runs ending at or under the predicted p90; a censored run (CENS) is a memory lower bound: no memory error, and a coverage miss only when it already passed the prediction; BASIS unknown: no level of the key had 3 runs on this host\n");
+    text.push_str("wall s and anon MiB as p50/p90; error |predicted-actual|/actual p50/p90 (wall p50, memory p90); coverage: share of runs ending at or under the predicted p90; a censored run (CENS) is a memory lower bound: no memory error, and a coverage miss only when it already passed the prediction; a failed or timed-out run (FAIL) is a duration lower bound the same way; DRIFT widens the key's next prediction; BASIS unknown: no level of the key had 3 runs on this host\n");
     text
 }
 
@@ -243,7 +277,7 @@ pub fn calibration_command(arguments: &[String]) -> u8 {
     let since = crate::foundation::clock::Timestamp::from_unix_millis(now - (window * 1000.0) as i64).iso_millis();
     match super::database::capacity_database().and_then(|db| calibration_runs(&db, &since)) {
         Ok(runs) => {
-            print!("{}", calibration_table(&calibrate(&runs)));
+            print!("{}", calibration_report(&runs));
             0
         }
         Err(error) => {

@@ -371,12 +371,10 @@ fn model_fields(entry: Obj, owner: &str, request: &Request, command: &[String], 
 }
 
 pub(super) fn learn(db: &rusqlite::Connection, row: &Value) -> rusqlite::Result<()> {
-    if field(row, "exitCode") != Some(0.0) {
-        return Ok(());
-    }
     let subject = Subject {
         command: row.get("command").map_or_else(String::new, Value::to_string),
         key: text(row, "key").unwrap_or_default().to_owned(),
+        shape: text(row, "shape").unwrap_or_default().to_owned(),
         host: text(row, "host").unwrap_or_default().to_owned(),
         cache: text(row, "cache").unwrap_or_default().to_owned(),
     };
@@ -387,6 +385,7 @@ pub(super) fn learn(db: &rusqlite::Connection, row: &Value) -> rusqlite::Result<
         cpu_seconds: field(row, "cpuSeconds").unwrap_or(f64::NAN),
         anon_peak_mib: field(row, "anonPeakMiB").unwrap_or(f64::NAN),
         censored_at_mib: censored.then(|| field(row, "reservedMemoryMiB")).flatten(),
+        failed: field(row, "exitCode") != Some(0.0),
     };
     update(db, &observation)
 }
