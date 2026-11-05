@@ -18,14 +18,14 @@ use super::stall::{self, Facts, Job};
 use super::{refused, stranded};
 use crate::fleet::stranded::Stranded;
 use super::throughput::{self, Closed, Commit, DeadLane, Inputs};
-use super::windows;
+use super::boxes::{self, Boxes};
 
 pub type Row = Map<String, Value>;
 
 const CACHE_SECONDS: f64 = 300.0;
 const DAY: f64 = 86_400.0;
 const WISP_REPO: &str = "makgora";
-const THROUGHPUT: [&str; 8] = ["closed_per_hour", "needed_per_hour", "workable_boxes", "waiting_boxes", "land_to_close_minutes", "land_ratio_3h", "failed_unowned", "oldest_lane_wait_minutes"];
+const THROUGHPUT: [&str; 9] = ["closed_per_hour", "needed_per_hour", "workable_boxes", "waiting_boxes", "decision_boxes", "land_to_close_minutes", "land_ratio_3h", "failed_unowned", "oldest_lane_wait_minutes"];
 
 static GITHUB: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([\w.-]+/[\w.-]+?)(?:\.git)?/?$").unwrap());
@@ -293,7 +293,7 @@ impl Source<'_> {
     }
 
     fn add_throughput(&self, row: &mut Row, landing: Option<&Landing>, tips: &BTreeMap<String, (f64, String)>, states: &BTreeMap<String, Value>, dead: &BTreeSet<&String>, pending_since: &[f64]) {
-        let (open_count, waiting, closed) = issue_activity(self.env.host, &self.slug, self.now);
+        let (open_count, boxes, closed) = issue_activity(self.env.host, &self.slug, self.now);
         let (Some(landing), Some(closed), Some(main_log)) = (landing, closed, self.main_log()) else { return };
         let Some(pushes) = &landing.pushes else { return };
         let landings = landing.landed.clone().unwrap_or_else(|| landing.commits.iter().map(|(_, at)| *at as f64).collect());
@@ -301,7 +301,7 @@ impl Source<'_> {
             repo: self.repo,
             now: self.now,
             open_count,
-            waiting,
+            boxes,
             closed: &closed,
             main_log: &main_log,
             landings: &landings,
@@ -373,7 +373,7 @@ fn open_bodies(host: &dyn Host, owner: &str, name: &str) -> Option<Vec<String>> 
     None
 }
 
-pub(super) fn issue_activity(host: &dyn Host, slug: &str, now: f64) -> (Option<u64>, Option<u64>, Option<Vec<Closed>>) {
+pub(super) fn issue_activity(host: &dyn Host, slug: &str, now: f64) -> (Option<u64>, Option<Boxes>, Option<Vec<Closed>>) {
     let (owner, name) = slug.split_once('/').unwrap_or((slug, ""));
     let search = format!("repo:{slug} is:issue is:closed closed:>={}", iso(now - DAY));
     let labels = throughput::SIZED_LABELS;
@@ -399,7 +399,7 @@ pub(super) fn issue_activity(host: &dyn Host, slug: &str, now: f64) -> (Option<u
         Some((throughput::sized_open(data["repository"]["issues"]["totalCount"].as_u64()?, &labelled), closed))
     };
     match host.graphql(&query).as_ref().and_then(read) {
-        Some((open, closed)) => (Some(open), open_bodies(host, owner, name).map(|bodies| windows::waiting(&bodies, now)), Some(closed)),
+        Some((open, closed)) => (Some(open), open_bodies(host, owner, name).map(|bodies| boxes::count(&bodies, now)), Some(closed)),
         None => (None, None, None),
     }
 }

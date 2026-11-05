@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::Serialize;
 
+use super::boxes::Boxes;
 use super::host::{median, seconds};
 
 const WINDOW: f64 = 3.0 * 3600.0;
@@ -37,7 +38,7 @@ pub struct Inputs<'a> {
     pub repo: &'a str,
     pub now: f64,
     pub open_count: Option<u64>,
-    pub waiting: Option<u64>,
+    pub boxes: Option<Boxes>,
     pub closed: &'a [Closed],
     pub main_log: &'a [Commit],
     pub landings: &'a [f64],
@@ -55,6 +56,7 @@ pub struct Throughput {
     pub needed_per_hour: Option<f64>,
     pub workable_boxes: Option<u64>,
     pub waiting_boxes: Option<u64>,
+    pub decision_boxes: Option<u64>,
     pub land_to_close_minutes: Option<f64>,
     pub land_ratio_3h: Option<f64>,
     pub failed_unowned: usize,
@@ -86,8 +88,9 @@ pub fn throughput(inputs: &Inputs) -> Throughput {
     let recent: Vec<&Closed> = inputs.closed.iter().filter(|item| (now - DAY..=now).contains(&item.closed_at)).collect();
     let closed_per_hour = inputs.open_count.map(|_| recent.iter().filter(|item| item.closed_at >= now - WINDOW).count() as f64 / 3.0);
     let hours = inputs.target.map_or(0.0, |target| (target - now) / 3600.0);
-    let workable = inputs.open_count.map(|open| open.saturating_sub(inputs.waiting.unwrap_or(0)));
-    let needed_per_hour = workable.filter(|_| hours > 0.0).map(|open| open as f64 / hours);
+    let boxes = inputs.boxes.filter(|_| inputs.open_count.is_some());
+    let closable = inputs.open_count.map(|open| open.saturating_sub(boxes.map_or(0, |boxes| boxes.held_issues)));
+    let needed_per_hour = closable.filter(|_| hours > 0.0).map(|open| open as f64 / hours);
     let mut referenced: BTreeMap<u64, Vec<f64>> = BTreeMap::new();
     for commit in inputs.main_log {
         for number in issue_refs(&commit.message, inputs.repo) {
@@ -106,8 +109,9 @@ pub fn throughput(inputs: &Inputs) -> Throughput {
         target: inputs.target,
         closed_per_hour,
         needed_per_hour,
-        workable_boxes: workable,
-        waiting_boxes: inputs.waiting.filter(|_| workable.is_some()),
+        workable_boxes: boxes.map(|boxes| boxes.workable),
+        waiting_boxes: boxes.map(|boxes| boxes.waiting),
+        decision_boxes: boxes.map(|boxes| boxes.decision),
         land_to_close_minutes: median(&samples),
         land_ratio_3h: (pushed > 0).then(|| within(inputs.landings) as f64 / pushed as f64),
         failed_unowned: unowned,

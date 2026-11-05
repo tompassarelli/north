@@ -25,6 +25,7 @@ pub use host::{Host, Machine, Places, write_atomic};
 mod alerts;
 mod capacity;
 mod autoland;
+mod boxes;
 mod goal;
 mod guards;
 mod host;
@@ -40,7 +41,6 @@ mod routing;
 mod stall;
 mod stranded;
 mod throughput;
-mod windows;
 #[cfg(test)]
 mod routing_tests;
 #[cfg(test)]
@@ -60,7 +60,7 @@ mod slo_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod windows_tests;
+mod boxes_tests;
 
 const USAGE: &str = "usage: north flow [--json] [--repo NAME]... [--stall-alarm] | north flow row REPO [FIELD]... | north flow detect [--dry-run]";
 const FIELDS: [&str; 2] = ["reuse", "closed_per_hour"];
