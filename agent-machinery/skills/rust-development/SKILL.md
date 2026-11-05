@@ -15,8 +15,11 @@ written: 2026-10-15
 5. Preserve error sources and document public error, panic and safety contracts, so callers can diagnose failures and uphold obligations the types cannot express.
 6. Respect `forbid(unsafe_code)` or isolate unsafe invariants with relevant supported Miri checks, because the compiler cannot verify them.
 7. Keep async work owned, bounded and cancellation-safe without blocking executors or holding locks across `.await`, because blocked executors stall every task and held locks deadlock.
+8. Start a new subsystem as its own crate in `crates/` with a flat layout and a `lib.rs` that states what the crate may and may not depend on, after rust-analyzer's architecture invariants; a crate over its `crate_lines` cap in `structure.toml` gets no net growth and new code goes to a new crate, because one giant crate makes every leaf edit rebuild and retest everything.
 
 Clippy's clone lints and the code-health Rust habit checks enforce rules 2 and 3 at edit time and landing; a justified exception is an `#[allow(clippy::x, reason = "...")]` or a `[[rust_habits.allow]]` entry in `structure.toml`.
+
+Inner loop is `cargo check -p CRATE` or `cargo clippy -p CRATE --tests`; build and run the tests once at the end, because a test build links every test binary and starves the machine for an answer the type checker gives in seconds.
 
 ## Data-oriented hot paths
 
