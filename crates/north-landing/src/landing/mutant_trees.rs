@@ -70,7 +70,7 @@ pub(super) fn run(cwd: &Path, plan: &Plan, env: &Env, out: &mut dyn Write) -> Re
     writeln!(out, "mutant: running {} test(s) over {} tree(s)", tests.len(), trees.len())?;
     let mut seconds = 0.0;
     for group in trees.chunks((*trees_per_lease).max(1)) {
-        seconds += invoke(config, env, repo, group, tests, *timeout_seconds, &log)?;
+        seconds += invoke(&Runner { top: &top, config, repo }, env, group, tests, *timeout_seconds, &log)?;
     }
     let text = fs::read_to_string(&log).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
@@ -128,7 +128,14 @@ pub(super) fn link(shared: &Path, tree: &Path, links: &[String]) -> Result<(), S
     Ok(())
 }
 
-pub(super) fn invoke(config: &Config, env: &Env, repo: &str, trees: &[PathBuf], tests: &BTreeSet<String>, timeout_seconds: u64, log: &Path) -> Result<f64, Stop> {
+pub(super) struct Runner<'a> {
+    pub(super) top: &'a Path,
+    pub(super) config: &'a Config,
+    pub(super) repo: &'a str,
+}
+
+pub(super) fn invoke(runner: &Runner, env: &Env, trees: &[PathBuf], tests: &BTreeSet<String>, timeout_seconds: u64, log: &Path) -> Result<f64, Stop> {
+    let Runner { top, config, repo } = *runner;
     let mut command = match &env.lease {
         Lease::Inherited => Command::new("sh"),
         Lease::Host(north) => {
@@ -142,7 +149,7 @@ pub(super) fn invoke(config: &Config, env: &Env, repo: &str, trees: &[PathBuf], 
     let joined: Vec<String> = trees.iter().map(|tree| tree.display().to_string()).collect();
     command
         .args(["-c", &config.run])
-        .current_dir(&trees[0])
+        .current_dir(top)
         .env("MUTANT_TESTS", tests.iter().cloned().collect::<Vec<_>>().join("\n"))
         .env("MUTANT_TREES", joined.join("\n"))
         .stdin(Stdio::null())
