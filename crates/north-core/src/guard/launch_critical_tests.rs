@@ -202,3 +202,22 @@ fn the_same_in_place_edit_without_the_cd_is_refused_in_the_primary_checkout() {
     assert!(reason.contains("edit in place"), "{reason}");
     assert!(reason.contains("host/toolchain/package.ts"), "{reason}");
 }
+
+#[test]
+fn gawk_and_awk_in_place_edits_are_refused_in_the_primary_checkout() {
+    for command in [
+        "gawk -i inplace '{print}' host/toolchain/package.ts",
+        "awk -i inplace '{print}' host/toolchain/package.ts",
+        "gawk --include=inplace '{print}' host/toolchain/package.ts",
+    ] {
+        let reason = in_place_edit_from_main(|_| command.into()).unwrap();
+        assert!(reason.contains("edit in place"), "{command}: {reason}");
+        assert!(reason.contains("host/toolchain/package.ts"), "{command}: {reason}");
+    }
+}
+
+#[test]
+fn awk_without_in_place_is_allowed_in_the_primary_checkout() {
+    let reason = in_place_edit_from_main(|_| "awk '{print}' host/toolchain/package.ts".into());
+    assert_eq!(reason, None);
+}

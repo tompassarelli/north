@@ -190,7 +190,7 @@ fn a_worker_issue_for_a_blocker_a_measured_defect_or_its_own_launch_item_passes(
     for command in [
         "gh issue create --title 'Cargo registry mirror is unreachable' --body 'Blocks: north#316'",
         "gh issue create --title 'Ledger write contention drops runs' --body-file - <<'EOF'\n**Defect:** `north fleet list --json` exited 1 three times in 20 runs: database is locked\nEOF",
-        "gh issue create --title 'Delete the calibration helpers' --body-file - <<'EOF'\nDone when: bin/threads defines no calibration helper and\n`north threads summary` prints the closure table\nEOF",
+        "gh issue create --title 'Delete the calibration helpers' --body-file - <<'EOF'\nDone when:\n- [ ] bin/threads defines no calibration helper and\n`north threads summary` prints the closure table\nEOF",
     ] {
         assert_eq!(worker_decide(command), Verdict::Allow, "{command}");
     }
@@ -242,4 +242,16 @@ fn a_filing_that_splits_a_claimed_item_and_repeats_an_open_title_gets_both_refus
     let reason = denial(decide(command));
     assert!(reason.contains("split or follow-up of tompassarelli/north#316"), "{reason}");
     assert!(reason.contains("matches the open issue tompassarelli/north#301"), "{reason}");
+}
+
+#[test]
+fn a_done_when_line_with_no_box_is_refused_and_a_body_with_a_box_passes() {
+    let plain = "gh issue create --title 'Measure the cache' --body-file - <<'EOF'\nDone when: the cache hit rate prints\nEOF";
+    let reason = denial(decide(plain));
+    assert!(reason.contains("`- [ ]` box"), "{reason}");
+    assert!(reason.contains("## Done when"), "{reason}");
+    let boxed = "gh issue create --title 'Measure the cache' --body-file - <<'EOF'\n## Done when\n\n- [ ] (local test) the cache hit rate prints\nEOF";
+    assert!(matches!(decide(boxed), Verdict::Allow));
+    let inline_with_box = "gh issue create --title 'Measure the cache' --body-file - <<'EOF'\nDone when:\n- [ ] the cache hit rate prints\nEOF";
+    assert!(matches!(decide(inline_with_box), Verdict::Allow));
 }

@@ -17,6 +17,7 @@ static SPLIT: LazyLock<Regex> =
 static ISSUE_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https://github\.com/([\w.-]+/[\w.-]+)/issues/(\d+)").unwrap());
 static DEFECT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Defect:[\s*_]*\S").unwrap());
 static DONE_WHEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Done when:[ \t*_]*").unwrap());
+static BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t>]*[-*][ \t]+\[[ xX]\]").unwrap());
 static FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][\w -]*:").unwrap());
 static MARKER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t>*-]*(?:\[[ xX]\][ \t]*)?").unwrap());
 const BRIEF_LINES: usize = 64;
@@ -242,6 +243,9 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
             }
         }
     }
+    if DONE_WHEN.is_match(&body) && !BOX.is_match(&body) {
+        reasons.push(NO_BOX.to_owned());
+    }
     if let Some(brief) = world.worker_brief()
         && !BLOCKS.is_match(&body)
         && !DEFECT.is_match(&body)
@@ -259,6 +263,7 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
     (!reasons.is_empty()).then(|| reasons.join("\n"))
 }
 
+const NO_BOX: &str = "No. The body has a `Done when:` line but no `- [ ]` box, and north dispatch staffs only issues with an unticked box. Write each check as a `- [ ]` line under a `## Done when` heading, one per guarantee, each naming the command or observation that proves it.";
 const UNFOUNDED: &str = "No. A worker files an issue only for what it cannot finish in its lane: a blocker, with a `Blocks: repo#N` body line naming the issue it blocks, or a measured defect, with a `Defect:` body line giving the command you ran and what it showed. A finding you can fix in 20 minutes is fixed in this lane and lands with it. An idea or a possible follow-up goes under `Ideas:` in your final report, not into a new issue. The issue for the item you were launched on passes when its body carries your brief's Done when.";
 const OPAQUE: &str = " This body is built from a shell variable or a pipe the guard cannot read, so give it literally, in a heredoc or with --body-file PATH.";
 

@@ -100,6 +100,15 @@ impl Policy {
                         return Some(self.deny(arg, &hit, "edit in place"));
                     }
                 }
+            } else if matches!(base, "awk" | "gawk") && awk_in_place(&words[i + 1..]) {
+                let scripts = usize::from(!words[i + 1..].iter().any(|s| s == "-f"));
+                for arg in args.iter().filter(|s| s.as_str() != "inplace").skip(scripts) {
+                    if let Some((path, _)) = self.target(arg, env, cwd)
+                        && let Some(hit) = self.protected(&path)
+                    {
+                        return Some(self.deny(arg, &hit, "edit in place"));
+                    }
+                }
             } else if matches!(base, "python" | "python3") {
                 for literal in python_write_targets(&words[i + 1..]) {
                     if let Some((path, _)) = self.target(&literal, env, cwd)
@@ -200,4 +209,8 @@ const INTRODUCERS: &[&str] = &[
 ];
 fn introduced(words: &[String], executable: usize, at: usize) -> bool {
     at <= executable || words[executable..at].iter().any(|s| INTRODUCERS.contains(&basename(s)))
+}
+fn awk_in_place(words: &[String]) -> bool {
+    words.windows(2).any(|pair| pair[0] == "-i" && pair[1] == "inplace")
+        || words.iter().any(|s| s == "-iinplace" || s == "--include=inplace")
 }
