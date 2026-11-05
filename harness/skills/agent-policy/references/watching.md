@@ -11,7 +11,7 @@ each has a cited entry in docs/references.md.
 A source is due once 30 days have passed since its `last_reviewed`, or sooner once
 its `path` has 10 or more commits past `last_commit`. It stays due until step 7
 moves `last_reviewed`. The daily watch-review timer (`watch-review.timer` on the
-laptop, running `watch-review`) checks every source in the follow list and launches
+laptop, running `north watch-review`) checks every source in the follow list and launches
 one fleet session for each due source that has no live session, with fleet
 placement choosing the account. That session is how the lead learns a source is
 due; a failed run alerts the proxy.

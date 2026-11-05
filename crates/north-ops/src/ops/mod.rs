@@ -28,6 +28,7 @@ pub mod agent_capture;
 pub mod vendor_runtime;
 pub mod warcraft_close;
 pub mod wc3_login_field;
-pub mod done_when_boxes;
 pub mod job_run;
 pub mod run_bounded;
+pub mod ci_watch;
+pub mod done_when_boxes;

@@ -9,6 +9,9 @@ Commands:
   health [--dry-run]                             Check harness invariants
   citation-check [--root DIR] [--list]          Fail on a doc, skill or hook that cites a north subcommand the CLI does not define
   review-items PLAN [--author TIER] [--root DIR]  Split a design review into fact, scenario and architecture items, run the facts, route the rest by tier
+  ci-diagnose [--dry-run OWNER/REPO RUN_ID]      Comment a Haiku-extracted, Opus-judged diagnosis once per failed run on each open "main is red" issue
+  red-main-notify                               Tell each open "main is red" issue's culprit lane session and the proxy, once per culprit commit
+  main-red RUN_ID                               Confirm a failed main CI run once, then ask the lander to revert its culprit (GH_REPO names the repository)
   language-gate --repo DIR --base REV --head REV  Check language policy
   code-health crate-lines [--repo DIR] [BASE HEAD]  Print non-test Rust lines per workspace crate against structure.toml [crate_lines]; with BASE HEAD exit 1 when a crate over its cap grew
   code-health imports                           Resolve the imports of files given as JSON on stdin

@@ -53,7 +53,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/bun | 14 | stay | PATH shadow that routes bun through `north capacity gate` admission, then execs the real bun; must be an executable named bun (<=80-line glue) |
 | bin/capacity-watchdog | 549 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | Bun TS using bun:sqlite (rusqlite replaces it) and reading handoff_ctx from harness/defaults.toml; no Bun-only API that Rust lacks |
 | bin/cargo | 14 | stay | same admission shadow for cargo |
-| bin/ci-diagnose | 8 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | shim to harness/scripts/ci-diagnose.ts |
 | bin/claude-runtime-update | 49 | port: north#87 (Codex/runtime/desktop tools) | downloads and selects the Claude runtime |
 | bin/claude-runtime-update.test.sh | 63 | port: north#87 (Codex/runtime/desktop tools) | test of claude-runtime-update |
 | bin/code-health | 7 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | 9-line shim to harness/code-health/cli.ts |
@@ -76,8 +75,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/nix | 14 | stay | same admission shadow for nix |
 | bin/north | 15 | stay | launcher: execs the promoted runtime (selected outside the Nix closure); cannot be Rust |
 | bin/pace-control | 3 | stay | 3-line exec of `north pace sample`; nixos-config modules/pace-enforcement/default.nix:39 names ${northBin}/pace-control, so the nixos-config change lands before deletion |
-| bin/red-main-notify | 40 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | called by `north flow`; state read by calibration/rework.rs |
-| bin/red-main-notify.check.sh | 27 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | wrapped by tests/red_main_notify.rs; becomes a cargo test |
 | bin/safe-push | 2452 | port: landing-train B18 (north#76, north#88 land-check loop box) | a planner is decomposing it; do not edit |
 | bin/safe-push.test.sh | 2844 | port: landing-train B18 (north#76) | shell tests of the shell landing path; they move to cargo test with the train loop |
 | bin/supply-alert | 7 | stay | 7-line glue: one ssh exec to the nexus alert host; callers in Rust (supply_chain.rs, lane-gc) and the nixos-config supply-chain-scan unit |
@@ -87,8 +84,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/tom-warcraft-close | 60 | port: north#87 (Codex/runtime/desktop tools) | closes Tom's Steam launch by walking /proc |
 | bin/tom-warcraft-close.test.sh | 63 | port: north#87 (Codex/runtime/desktop tools) | test of tom-warcraft-close |
 | bin/verify-north | 9 | stay | launcher: execs the promoted verify-north runtime binary |
-| bin/watch-review | 65 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | monthly watch routine named by south agents/watch.toml |
-| bin/watch-review.test.sh | 78 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | test of watch-review |
 | bin/wc3-login-field | 34 | stay | 34-line foreign-boundary glue: types one SOPS field into the verified private login window through private-desktop.sh |
 | harness/code-health/check.ts | 49 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
 | harness/code-health/cli.ts | 87 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
@@ -141,12 +136,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | harness/lib/usage.test.sh | 59 | port: north#78 (usage family) | test of usage.py; cases move to cargo test with --refresh/--reservation-json |
 | harness/scripts/canary.sh | 55 | stay | 55-line CI glue that runs a family's own check on a planted fault; must run in CI before or beside the build, reads workflow YAML |
 | harness/scripts/cargo-tests.sh | 6 | stay | 6-line CI glue that builds test binaries for the offline land check |
-| harness/scripts/ci-diagnose.test.sh | 3 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | 3-line runner for the TS test |
-| harness/scripts/ci-diagnose.test.ts | 37 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun test of ci-diagnose.ts |
-| harness/scripts/ci-diagnose.ts | 153 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun TS over gh and claude calls |
-| harness/scripts/main-red.test.sh | 12 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | runner for main-red.test.ts |
-| harness/scripts/main-red.test.ts | 15 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun test |
-| harness/scripts/main-red.ts | 112 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun TS; run by workflow main-red.yml |
 | harness/scripts/mutant-tests.sh | 57 | stay | 57-line CI glue that runs the mutant cargo slots |
 | harness/scripts/read-isolation-probe.sh | 51 | stay | 51-line manual probe that drives Claude Code tools under a config; no Rust caller, delete if unused for a month |
 | harness/skills/machine-capacity/scripts/build-machine-capacity | 28 | stay | producer of the generated bundle (structure.toml); deleted with it |

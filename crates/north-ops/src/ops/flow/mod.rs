@@ -1,7 +1,7 @@
 //! `north flow`: how fast each repository's lanes land, whether landing has stalled, and which
 //! capacity is idle. With `--stall-alarm` it also tells the Fleet parent and the proxy of a stall or a
 //! saturated host every fifteen minutes while it lasts, tells lander-lead once on the day the lander's idle-slot
-//! budget is spent, runs `ci-diagnose`, and runs `red-main-notify`.
+//! budget is spent, runs `north ci-diagnose`, and runs `north red-main-notify`.
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -125,19 +125,19 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
     if routing::routing_alert(places, host, now).is_err() {
         println!("agents flow: routing alert state error");
     }
-    match host.output(&["ci-diagnose"], None, None, Duration::from_secs(1200)) {
+    match host.output(&["north", "ci-diagnose"], None, None, Duration::from_secs(1200)) {
         Some(output) => {
             print!("{}", String::from_utf8_lossy(&output.stdout));
             eprint!("{}", String::from_utf8_lossy(&output.stderr));
         }
-        None => println!("agents flow: ci-diagnose error"),
+        None => println!("agents flow: north ci-diagnose error"),
     }
-    match host.output(&["red-main-notify"], None, None, Duration::from_secs(120)) {
+    match host.output(&["north", "red-main-notify"], None, None, Duration::from_secs(120)) {
         Some(output) => {
             print!("{}", String::from_utf8_lossy(&output.stdout));
             eprint!("{}", String::from_utf8_lossy(&output.stderr));
         }
-        None => println!("agents flow: red-main-notify error"),
+        None => println!("agents flow: north red-main-notify error"),
     }
     match host.output(&["north", "experiments", "judge", "--file"], None, None, Duration::from_secs(300)) {
         Some(output) => {
