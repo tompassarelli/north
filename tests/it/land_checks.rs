@@ -490,7 +490,7 @@ fn rust_candidate_builds_north_only_on_the_build_host() {
     let offloaded = trace.lines().filter(|line| line.starts_with("north capacity offload run --host buildbox ")).count();
     assert!(started > bound.len() && started == offloaded, "{started} land checks started, {offloaded} on the build host:\n{trace}");
     assert!(!trace.contains("land-actions"), "{trace}");
-    assert!(!trace.lines().any(|line| line.starts_with("cargo ")), "a land check ran cargo on the lander host:\n{trace}");
+    assert!(!trace.lines().any(|line| line.starts_with("cargo ") && !line.starts_with("cargo metadata --no-deps ")), "a land check ran cargo on the lander host:\n{trace}");
     assert!(!text(&output).contains("runs on this host because"), "{}", text(&output));
     assert!(fixture.lease_events().is_empty(), "the lander took a local capacity lease: {:?}", fixture.lease_events());
 }
@@ -796,4 +796,54 @@ fn land_checks_replay_prints_cpu_before_the_failure_verdict_for_both_orders() {
     assert!(printed.contains("landings replayed: 6 failing, 4 passing"), "{printed}");
     assert!(printed.contains("median CPU-s before the failure verdict: 600.0 with today's order and cancel-on-first-failure, 200.0 with the fail-fast order"), "{printed}");
     assert!(printed.contains("median passing landing wall: 150.0 s today, 150.0 s with the fail-fast order (+0.0%)"), "{printed}");
+}
+
+const SCOPE_CHECK: &str = r#"printf '%s|%s\n' "${SAFE_PUSH_LAND_CPUS:-}" "${SAFE_PUSH_LAND_PACKAGES:---workspace}" >>../scopes"#;
+
+fn workspace_lane(fixture: &Fixture, changed: &[&str]) -> (String, String) {
+    let manifest = |name: &str, dependencies: &[(&str, &str)]| {
+        let dependencies: String = dependencies.iter().map(|(dependency, path)| format!("{dependency} = {{ path = \"{path}\" }}\n")).collect();
+        format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n{dependencies}")
+    };
+    for (name, dependencies) in [("north-base", vec![]), ("north-core", vec![("north-base", "../north-base")]), ("north-landing", vec![("north-base", "../north-base")])] {
+        let directory = fixture.repo.join("crates").join(name);
+        fs::create_dir_all(directory.join("src")).unwrap();
+        fs::write(directory.join("Cargo.toml"), manifest(name, &dependencies)).unwrap();
+        fs::write(directory.join("src/lib.rs"), "").unwrap();
+    }
+    fs::create_dir_all(fixture.repo.join("src")).unwrap();
+    fs::write(fixture.repo.join("src/main.rs"), "fn main() {}\n").unwrap();
+    let root = manifest("north", &[("north-core", "crates/north-core"), ("north-landing", "crates/north-landing")]);
+    fs::write(fixture.repo.join("Cargo.toml"), format!("[workspace]\nmembers = [\"crates/north-base\", \"crates/north-core\", \"crates/north-landing\"]\n\n{root}")).unwrap();
+    fs::write(fixture.repo.join(".gitignore"), "Cargo.lock\ntarget/\n").unwrap();
+    git(&fixture.repo, &["checkout", "-q", "-B", "workspace", &fixture.head]);
+    git(&fixture.repo, &["add", "-A"]);
+    git(&fixture.repo, &["commit", "-qm", "workspace"]);
+    let base = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    for path in changed {
+        let file = fixture.repo.join(path);
+        let text = fs::read_to_string(&file).unwrap_or_default();
+        fs::write(file, format!("{text}\n")).unwrap();
+    }
+    git(&fixture.repo, &["add", "-A", "-f"]);
+    git(&fixture.repo, &["commit", "-qm", "lane"]);
+    (base, git(&fixture.repo, &["rev-parse", "HEAD"]))
+}
+
+fn scope_of(changed: &[&str]) -> String {
+    let fixture = Fixture::new(&[("land.check", &format!("crates/,src/,Cargo.toml,Cargo.lock :: {SCOPE_CHECK}"))]);
+    let (base, lane) = workspace_lane(&fixture, changed);
+    let output = fixture.command_between(&base, &lane).output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    fs::read_to_string(fixture.path("scopes")).unwrap()
+}
+
+#[test]
+fn affected_crates_only() {
+    assert_eq!(scope_of(&["crates/north-landing/src/lib.rs"]), "4|-p north -p north-landing\n", "a north-landing lane checks north-landing and the north binary crate, not north-core");
+    assert_eq!(scope_of(&["crates/north-core/src/lib.rs"]), "4|-p north -p north-core\n");
+    assert_eq!(scope_of(&["src/main.rs"]), "4|-p north\n");
+    assert_eq!(scope_of(&["crates/north-base/src/lib.rs"]), "|--workspace\n", "every crate depends on north-base");
+    assert_eq!(scope_of(&["crates/north-landing/src/lib.rs", "Cargo.toml"]), "|--workspace\n");
+    assert_eq!(scope_of(&["crates/north-landing/src/lib.rs", "Cargo.lock"]), "|--workspace\n");
 }

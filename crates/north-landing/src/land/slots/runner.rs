@@ -12,6 +12,7 @@ use tokio::sync::watch;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::JoinSet;
 
+use super::affected::{self, CPUS_ENV, PACKAGES_ENV, Scope};
 use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement, path_class};
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use fail_fast::Plan;
@@ -134,6 +135,7 @@ struct Shared {
     actions_down: bool,
     paths: String,
     fail_fast: bool,
+    scope: Option<Scope>,
 }
 
 #[derive(Clone, Default)]
@@ -348,6 +350,13 @@ impl Shared {
         (!self.arguments.runner_host.is_empty() && self.config.local_reason(command).is_none()).then(|| self.arguments.runner_host.clone())
     }
 
+    fn scope_environment(&self) -> Vec<(&'static str, String)> {
+        let Some(scope) = &self.scope else { return Vec::new() };
+        let mut environment = vec![(PACKAGES_ENV, scope.arguments())];
+        environment.extend(scope.cpus().map(|cpus| (CPUS_ENV, cpus.to_string())));
+        environment
+    }
+
     fn land_runner(&self) -> String {
         self.environment.runner.clone().unwrap_or_else(|| self.config.runner.clone().unwrap_or_default())
     }
@@ -440,6 +449,7 @@ impl Shared {
         let mut child = match Command::new(&argv[0])
             .args(&argv[1..])
             .current_dir(&self.root)
+            .envs(self.scope_environment())
             .env("SAFE_PUSH_LAND_BASE", &self.arguments.base)
             .env("SAFE_PUSH_LAND_HEAD", &self.arguments.head)
             .env("SAFE_PUSH_LAND_REF", &self.arguments.published)
@@ -711,7 +721,7 @@ impl Shared {
             argv.extend(["--command".to_owned(), command.clone()]);
         }
         let argv = under_capacity(&self.environment.capacity, argv);
-        let mut child = match Command::new(&argv[0]).args(&argv[1..]).current_dir(&self.root).stdin(Stdio::null()).kill_on_drop(true).spawn() {
+        let mut child = match Command::new(&argv[0]).args(&argv[1..]).current_dir(&self.root).envs(self.scope_environment()).stdin(Stdio::null()).kill_on_drop(true).spawn() {
             Ok(child) => child,
             Err(error) => {
                 warn(&format!("safe-push: land check capacity: {error}; NOT pushed."));
@@ -967,6 +977,20 @@ async fn forward_signals(cancel: watch::Sender<bool>) {
     std::process::exit(CANCELLED);
 }
 
+fn scope_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<Scope> {
+    if !commands.iter().any(|command| command.contains(PACKAGES_ENV)) {
+        return None;
+    }
+    let scope = affected::scope(root, &arguments.base, &arguments.head).unwrap_or_else(|error| {
+        warn(&format!("safe-push: {error}; the Rust checks cover the whole workspace"));
+        Scope::Workspace
+    });
+    if !arguments.leased {
+        say(&format!("safe-push: the Rust checks cover {}", scope.arguments()));
+    }
+    Some(scope)
+}
+
 fn portable(arguments: &Arguments) -> u8 {
     let Some(root) = toplevel() else { return 1 };
     let config = Config::load(&root, &arguments.head);
@@ -1015,6 +1039,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     if !arguments.leased {
         arguments.runner_host = runner_host(&environment, &config).await;
     }
+    let scope = scope_for(&root, &arguments, &commands);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let paths = path_class(&root, &arguments.base, &arguments.head);
     let mut shared = Shared {
@@ -1030,6 +1055,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         cancel,
         free_slots: None,
         actions_down: false,
+        scope,
     };
     if !shared.arguments.leased && !commands.is_empty() {
         shared.free_slots = shared.count_free_slots().await;
@@ -1088,9 +1114,10 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     }
     arguments.runner_host = runner_host(&environment, &config).await;
     let (_cancel_sender, cancel) = watch::channel(false);
+    let scope = scope_for(&root, &arguments, &commands);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let paths = path_class(&root, &arguments.base, &arguments.head);
-    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false });
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope });
     let mut pending = Vec::new();
     for command in commands {
         if !shared.cache_reused(&command).await {

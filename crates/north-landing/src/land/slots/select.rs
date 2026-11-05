@@ -184,7 +184,7 @@ fn empty_tree(repo: &Path) -> String {
     git_lines(repo, &["hash-object", "-t", "tree", "--stdin"]).into_iter().next().unwrap_or_default()
 }
 
-fn changed(repo: &Path, base: &str, head: &str, specs: &[&str]) -> Vec<String> {
+pub(super) fn changed(repo: &Path, base: &str, head: &str, specs: &[&str]) -> Vec<String> {
     let mut arguments: Vec<&str> = if base.is_empty() {
         vec!["ls-tree", "-r", "--name-only", head, "--"]
     } else {

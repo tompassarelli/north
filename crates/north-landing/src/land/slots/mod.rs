@@ -1,3 +1,4 @@
+pub mod affected;
 pub mod deps;
 pub mod host;
 pub mod infer;

@@ -1076,5 +1076,12 @@ Rules adopted, each in its owner:
   lacks on the landed sha after the push
   (`crates/north-landing/src/land/post_land.rs`); a failure is recorded in
   `safe-push/post-land.tsv` and alarms the proxy.
+- A Rust precheck covers only the crates a lane changes and the workspace crates that depend on them
+  (2026-11-05): the clippy line's `${SAFE_PUSH_LAND_PACKAGES:---workspace}` becomes `-p` flags from `cargo metadata` and the
+  lane diff (`crates/north-landing/src/land/slots/affected.rs`), or `--workspace` when the lane changes
+  a workspace manifest, `Cargo.lock`, the toolchain, an embedded input, or a crate every member uses.
+  A narrowed check also leases fewer CPUs, two per crate with a floor of four, through
+  `SAFE_PUSH_LAND_CPUS`, so more prechecks are admitted at once under the build host's cap. Main's CI
+  still runs the whole workspace after landing.
 
 Urgent lanes (2026-11-05): a fix that unblocks the queue itself waited behind 45 lanes after the morning fan-out. `north land urgent TICKET --reason TEXT` marks a queued ticket so the lander orders it with red fixes, ahead of older tickets, in both the batch queue and the per-lane prechecks. The proxy or a lead sets it; the reason is kept on the ticket.

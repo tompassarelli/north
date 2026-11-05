@@ -44,6 +44,10 @@ fn remote_run_flake(command: &str, flake: Option<&str>, landing: &str, landref: 
         .env_remove("SAFE_PUSH_LAND_HEAD")
         .env_remove("SAFE_PUSH_LAND_REF")
         .env_remove("SAFE_PUSH_LANDING")
+        .env_remove("SAFE_PUSH_LAND_CPUS")
+        .env_remove("cpus")
+        .env_remove("SAFE_PUSH_LAND_PACKAGES")
+        .env_remove("packages")
         .envs(home.map(|home| ("HOME", home)))
         .output()
         .unwrap();
@@ -207,6 +211,18 @@ fn a_landing_run_sees_the_offloads_base_head_and_published_ref_exactly_as_a_loca
     assert_eq!(seen, "b h [land-check/lane-1] 1\n");
     let unpublished = remote_run_with("echo \"[$SAFE_PUSH_LAND_REF]\"", false, "1", "", None);
     assert_eq!(unpublished, "[]\n");
+}
+
+#[test]
+fn a_landing_run_sees_the_packages_and_cpus_the_lander_scoped_its_check_to() {
+    let seen = Command::new("sh")
+        .args(["-c", &format!("set -eu\nslot=. command={} limit=10 base=b head=h landing=1 landref= cpus=4 packages='-p north -p north-landing'\n{RUN}", super::quote("echo \"[$SAFE_PUSH_LAND_CPUS] [$SAFE_PUSH_LAND_PACKAGES]\""))])
+        .env_remove("SAFE_PUSH_LAND_CPUS")
+        .env_remove("SAFE_PUSH_LAND_PACKAGES")
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&seen.stdout), "[4] [-p north -p north-landing]\n", "{}", String::from_utf8_lossy(&seen.stderr));
+    assert_eq!(remote_run_with("echo \"[${SAFE_PUSH_LAND_CPUS-}]\"", false, "1", "", None), "[]\n");
 }
 
 #[test]

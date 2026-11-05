@@ -281,6 +281,8 @@ fn renew_or_release(root: &Path, argv: &[String]) -> u8 {
     0
 }
 
+const LAND_CPUS: &str = "SAFE_PUSH_LAND_CPUS";
+
 const RUN_OPTIONS: [&str; 15] = [
     "--class", "--owner", "--timeout-seconds", "--memory-gib", "--cpus", "--beside-native", "--new-clients", "--new-desktops", "--quiet", "--wait-seconds", "--quiet-seconds", "--pair", "--alone", "--latency", "--priority",
 ];
@@ -289,9 +291,12 @@ fn landing_run(operation: &str, owner: &str, class: &str, land_head: Option<&str
     operation == "run" && policy::batch_class(class) && land_head.is_some_and(|head| !head.is_empty()) && (owner == "land-check" || (owner.starts_with("gate:") && landing == Some("1")))
 }
 
-fn size_landing(request: &mut request::Request, cores: f64, charge: impl FnOnce() -> f64) {
+fn size_landing(request: &mut request::Request, cores: f64, cap: Option<f64>, charge: impl FnOnce() -> f64) {
     if request.landing {
-        let sized = policy::landing_check(cores);
+        let mut sized = policy::landing_check(cores);
+        if let Some(cap) = cap.filter(|cap| cap.is_finite() && *cap >= 1.0) {
+            sized.cpus = sized.cpus.min(cap.ceil());
+        }
         request.resources = Some(policy::Resources { cpus: sized.cpus.min(charge()), ..request.resources() });
         request.declared = Some(sized);
     }
@@ -334,7 +339,7 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
         request.latency = true;
     }
     request.landing = landing_run(operation, owner, &request.name, machine::env("SAFE_PUSH_LAND_HEAD").as_deref(), machine::env("SAFE_PUSH_LANDING").as_deref());
-    size_landing(&mut request, cores, land_check_cpus);
+    size_landing(&mut request, cores, machine::env(LAND_CPUS).and_then(|text| text.parse().ok()), land_check_cpus);
     if let Some(asked) = options.get("--priority") {
         if let Some(message) = priority::priority_refusal(asked, &request.name) {
             fail(&message, 2);

@@ -26,7 +26,7 @@ echo "$free"
 "#;
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 landing=${8:-} landref=${9:-} owner=${10:-} runtime=${11:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 landing=${8:-} landref=${9:-} owner=${10:-} runtime=${11:-} cpus=${12:-} packages=${13:-}
 root=@ROOT@
 mkdir -p "$root"
 waited=0
@@ -101,6 +101,8 @@ if [ -n "${runtime:-}" ]; then
 fi
 if [ "$landing" = 1 ]; then
   export SAFE_PUSH_LAND_BASE=$base SAFE_PUSH_LAND_HEAD=$head SAFE_PUSH_LAND_REF=$landref SAFE_PUSH_LANDING=1
+  if [ -n "${cpus:-}" ]; then export SAFE_PUSH_LAND_CPUS=$cpus; fi
+  if [ -n "${packages:-}" ]; then export SAFE_PUSH_LAND_PACKAGES=$packages; fi
 fi
 limited() {
   if command -v north >/dev/null 2>&1; then north capacity deadline - "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
@@ -246,7 +248,9 @@ pub(super) fn run(land: &Land) -> u8 {
     let landing = if std::env::var("SAFE_PUSH_LANDING").is_ok_and(|value| value == "1") { "1" } else { "" };
     let landref = if landing == "1" { std::env::var("SAFE_PUSH_LAND_REF").unwrap_or_default() } else { String::new() };
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, landing, &landref, &owner, &runtime].map(quote);
+    let cpus = if landing == "1" { std::env::var("SAFE_PUSH_LAND_CPUS").unwrap_or_default() } else { String::new() };
+    let packages = if landing == "1" { std::env::var("SAFE_PUSH_LAND_PACKAGES").unwrap_or_default() } else { String::new() };
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, landing, &landref, &owner, &runtime, &cpus, &packages].map(quote);
     let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
     let sent = Command::new("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])
