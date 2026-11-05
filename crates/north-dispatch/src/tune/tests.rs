@@ -623,6 +623,31 @@ fn the_coverage_table_prints_each_fields_share_and_fails_the_tick_with_one_field
 }
 
 #[test]
+fn category_facets_and_eta_are_read_over_launched_work_while_a_reviewer_without_them_is_set_aside_and_a_worker_without_them_still_fails() {
+    let reviewer = || {
+        let mut run = recorded_run("Agent tool");
+        run["role"] = json!("reviewer");
+        run["category"] = json!("unknown");
+        run["eta_min"] = Value::Null;
+        run
+    };
+    let mut runs: Vec<Value> = (0..98).map(|_| recorded_run("fleet launch")).collect();
+    runs.extend([reviewer(), reviewer()]);
+    let tick = covered(runs.clone());
+    assert!(tick.lines.contains(&"run field coverage 24h over 100 finished runs, floor 98%: every field holds".to_owned()), "{:#?}", tick.lines);
+    assert!(tick.lines.contains(&"  category 100% (98 of 98)".to_owned()), "{:#?}", tick.lines);
+    assert!(tick.lines.contains(&"  category, facets and ETA read over launched work: 2 reviewer, judge, probe or proxy runs set aside".to_owned()), "{:#?}", tick.lines);
+    assert!(!tick.failed);
+    for run in &mut runs[..3] {
+        run["role"] = json!("worker");
+        run["eta_min"] = Value::Null;
+    }
+    let short = covered(runs);
+    assert!(short.lines.contains(&"  ETA 96.9% (95 of 98)  BELOW".to_owned()), "{:#?}", short.lines);
+    assert!(short.failed);
+}
+
+#[test]
 fn unread_runs_fail_the_tick_and_a_day_without_finished_runs_does_not() {
     let unread = covered_from(Err("threads.db: no such table: runs".into()));
     assert!(unread.lines.contains(&"run field coverage 24h: unread (threads.db: no such table: runs)".to_owned()), "{:#?}", unread.lines);

@@ -10,7 +10,7 @@ use crate::platform::sqlite::{self, Access};
 
 pub const FLOOR: f64 = 0.98;
 pub const WINDOW: &str = "24h";
-const COLUMNS: &str = "model, effort, cost_usd, tokens, category, spec, scope, surface, verify, minutes, eta_min, active_min, turns, tool_calls, brief_text, compactions";
+const COLUMNS: &str = "role, model, effort, cost_usd, tokens, category, spec, scope, surface, verify, minutes, eta_min, active_min, turns, tool_calls, brief_text, compactions";
 
 /// What a run must carry for a field to count as recorded.
 enum Presence {
@@ -18,21 +18,40 @@ enum Presence {
     Known(&'static str),
 }
 
-const FIELDS: [(&str, Presence); 13] = [
-    ("model", Presence::Any(&["model"])),
-    ("effort", Presence::Any(&["effort"])),
-    ("cost", Presence::Any(&["cost_usd"])),
-    ("tokens", Presence::Any(&["tokens"])),
-    ("category", Presence::Known("category")),
-    ("facets", Presence::Any(&["spec", "scope", "surface", "verify"])),
-    ("wall minutes", Presence::Any(&["minutes"])),
-    ("ETA", Presence::Any(&["eta_min"])),
-    ("active minutes", Presence::Any(&["active_min"])),
-    ("turns", Presence::Any(&["turns"])),
-    ("tool calls", Presence::Any(&["tool_calls"])),
-    ("brief text", Presence::Any(&["brief_text"])),
-    ("compactions", Presence::Any(&["compactions"])),
+const FIELDS: [(&str, Presence, Scope); 13] = [
+    ("model", Presence::Any(&["model"]), Scope::Every),
+    ("effort", Presence::Any(&["effort"]), Scope::Every),
+    ("cost", Presence::Any(&["cost_usd"]), Scope::Every),
+    ("tokens", Presence::Any(&["tokens"]), Scope::Every),
+    ("category", Presence::Known("category"), Scope::Launched),
+    ("facets", Presence::Any(&["spec", "scope", "surface", "verify"]), Scope::Launched),
+    ("wall minutes", Presence::Any(&["minutes"]), Scope::Every),
+    ("ETA", Presence::Any(&["eta_min"]), Scope::Launched),
+    ("active minutes", Presence::Any(&["active_min"]), Scope::Every),
+    ("turns", Presence::Any(&["turns"]), Scope::Every),
+    ("tool calls", Presence::Any(&["tool_calls"]), Scope::Every),
+    ("brief text", Presence::Any(&["brief_text"]), Scope::Every),
+    ("compactions", Presence::Any(&["compactions"]), Scope::Every),
 ];
+
+/// Which runs a field is read over: a reviewer, judge, probe or proxy is launched without a category, facets or
+/// ETA of its own, so those three fields are read over the runs that carry a launch brief.
+#[derive(Clone, Copy)]
+enum Scope {
+    Every,
+    Launched,
+}
+
+const UNLAUNCHED_ROLES: [&str; 4] = ["reviewer", "judge", "probe", "proxy"];
+
+impl Scope {
+    fn covers(self, run: &Value) -> bool {
+        match self {
+            Self::Every => true,
+            Self::Launched => !run["role"].as_str().is_some_and(|role| UNLAUNCHED_ROLES.contains(&role)),
+        }
+    }
+}
 
 fn recorded(value: &Value) -> bool {
     match value {
@@ -61,7 +80,7 @@ pub struct Share {
 
 impl Share {
     fn ratio(&self) -> f64 {
-        self.recorded as f64 / self.runs as f64
+        if self.runs == 0 { 1.0 } else { self.recorded as f64 / self.runs as f64 }
     }
 
     fn short(&self) -> bool {
@@ -83,7 +102,13 @@ pub fn read() -> Result<Vec<Value>, String> {
 }
 
 pub fn shares(runs: &[Value]) -> Vec<Share> {
-    FIELDS.iter().map(|(field, presence)| Share { field, recorded: runs.iter().filter(|run| presence.holds(run)).count(), runs: runs.len() }).collect()
+    FIELDS
+        .iter()
+        .map(|(field, presence, scope)| {
+            let covered: Vec<&Value> = runs.iter().filter(|run| scope.covers(run)).collect();
+            Share { field, recorded: covered.iter().filter(|run| presence.holds(run)).count(), runs: covered.len() }
+        })
+        .collect()
 }
 
 /// The coverage table's lines and whether a field fell under the floor or the runs went unread.
@@ -98,6 +123,10 @@ pub fn check(runs: &Result<Vec<Value>, String>) -> (Vec<String>, bool) {
             let verdict = if short.is_empty() { "every field holds".to_owned() } else { format!("under {floor}%: {}", short.join(", ")) };
             let mut lines = vec![format!("run field coverage {WINDOW} over {} finished runs, floor {floor}%: {verdict}", runs.len())];
             lines.extend(shares.iter().map(Share::line));
+            let set_aside = runs.iter().filter(|run| !Scope::Launched.covers(run)).count();
+            if set_aside > 0 {
+                lines.push(format!("  category, facets and ETA read over launched work: {set_aside} reviewer, judge, probe or proxy runs set aside"));
+            }
             (lines, !short.is_empty())
         }
     }
