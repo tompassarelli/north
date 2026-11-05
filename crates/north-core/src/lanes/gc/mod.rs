@@ -6,10 +6,13 @@ mod local;
 mod remote;
 mod report;
 mod state;
+mod strays;
 mod trees;
 
 #[cfg(test)]
 mod classes_tests;
+#[cfg(test)]
+mod strays_tests;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

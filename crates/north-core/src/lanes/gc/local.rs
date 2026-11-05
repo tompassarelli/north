@@ -10,6 +10,7 @@ use super::super::live_process::any_inside;
 use super::super::repo::is_lander_tree;
 use super::liveness::{holds_git_dir, worktree_admin};
 use super::report::Row;
+use super::strays::modified_within;
 use super::state::{LocalStale, Owned};
 use super::super::verdict::{Facts, Verdict, retirement_verdict};
 use crate::foundation::clock::Timestamp;
@@ -71,7 +72,7 @@ impl Worktree {
     }
 }
 
-fn parse_worktrees(porcelain: &str) -> Vec<BTreeMap<String, String>> {
+pub(super) fn parse_worktrees(porcelain: &str) -> Vec<BTreeMap<String, String>> {
     porcelain
         .split("\n\n")
         .map(|block| block.lines().filter(|line| !line.is_empty()).map(|line| line.split_once(' ').map_or((line.into(), "true".into()), |(k, v)| (k.into(), v.into()))).collect::<BTreeMap<String, String>>())
@@ -117,6 +118,7 @@ impl Gc {
         if !dry {
             git(&main, &["worktree", "prune"]);
         }
+        self.move_strays(container, &main, &common, live);
         let worktrees = parse_worktrees(&git(&main, &["worktree", "list", "--porcelain"]).out);
         let listed = git(&main, &["for-each-ref", "--format=%(objectname)", "refs/heads"]).out;
         let mut tips: Vec<String> = worktrees.iter().filter_map(|fields| fields.get("HEAD").cloned()).chain(listed.lines().map(str::to_owned)).filter(|tip| !tip.is_empty()).collect();
@@ -174,9 +176,7 @@ impl Gc {
     }
 
     fn modified_since(&self, path: &Path, hours: f64) -> bool {
-        let since = Timestamp::from_unix_millis(self.now_ms - (hours * HOUR_MS) as i64).iso_millis();
-        let found = command(&["find", &path.to_string_lossy(), "-type", "f", "-newermt", &since, "-print", "-quit"]);
-        !found.ok || !found.out.is_empty()
+        modified_within(path, self.now_ms, hours)
     }
 
     fn idle_for(&self, lane: &Worktree, hours: f64) -> bool {
