@@ -1,6 +1,7 @@
 const SUBCOMMANDED: [&str; 11] = ["git", "cargo", "nix", "north", "gh", "bun", "npm", "systemctl", "journalctl", "docker", "safe-push"];
 const REMOTE: &str = "ssh";
 const WRAPPERS: [&[&str]; 5] = [&["depbox", "run", "--"], &["nix", "develop", "-c"], &["env"], &["time"], &["command"]];
+const TIMEOUT_VALUED: [&str; 2] = ["-s", "-k"];
 const INERT: [&str; 5] = ["cd", "true", "export", "set", "sleep"];
 const FILTERS: [&str; 15] = ["cat", "head", "tail", "rg", "grep", "sed", "ls", "wc", "cut", "jq", "sort", "uniq", "xargs", "echo", "printf"];
 const LOOPS: [&str; 5] = ["until", "while", "for", "do", "done"];
@@ -30,10 +31,20 @@ fn unwrapped<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
         if let Some(wrapper) = WRAPPERS.iter().find(|wrapper| words.starts_with(wrapper)) {
             words = &words[wrapper.len()..];
         }
+        if words.first() == Some(&"timeout") {
+            words = after_timeout(&words[1..]);
+        }
         if words.len() == before {
             return words;
         }
     }
+}
+
+fn after_timeout<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
+    while let Some(word) = words.first().filter(|word| word.starts_with('-')) {
+        words = &words[if TIMEOUT_VALUED.contains(word) || ["--signal", "--kill-after"].contains(word) { 2.min(words.len()) } else { 1 }..];
+    }
+    words.get(1..).unwrap_or(&[])
 }
 
 fn subcommand(word: &str) -> bool {

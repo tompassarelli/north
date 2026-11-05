@@ -52,6 +52,9 @@ fn a_bash_command_becomes_its_program_and_subcommand_steps() {
     assert_eq!(step("cd /x && FOO=1 depbox run -- nix develop -c cargo test --locked -p north-core | tail -3").as_deref(), Some("cargo test"));
     assert_eq!(step("git -C /x status; /usr/bin/rg -n foo; echo done").as_deref(), Some("git"));
     assert_eq!(step("rg -n foo src | head -3 && cargo check").as_deref(), Some("cargo check"));
+    assert_eq!(step("timeout 20 git fetch -q origin").as_deref(), Some("git fetch"));
+    assert_eq!(step("timeout --signal=KILL 5m cargo test").as_deref(), Some("cargo test"));
+    assert_eq!(step("timeout -k 5 -s KILL --foreground --preserve-status 1h env X=1 cargo check").as_deref(), Some("cargo check"));
     assert_eq!(step("sed -i s/a/b/ f").as_deref(), Some("sed"));
     assert_eq!(step("ssh gex45 uptime").as_deref(), Some("ssh"));
     for filter in ["head -5 a | rg x | head -2", "cat f | jq .x | sort | uniq", "sed -n 1,9p f", "ls -la && wc -l f", "until git status; do sleep 5; done", "for f in a b; do cargo test; done", "cd /x && echo hi"] {
