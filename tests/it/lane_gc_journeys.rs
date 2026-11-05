@@ -246,7 +246,7 @@ fn an_orphan_landing_ref_is_pinged_held_through_grace_and_archived_to_the_mirror
     }
 }
 
-const ARCHIVE_FAULT_WRAPPER: &str = "for last; do :; done\ncase \" $* \" in *\" ls-remote origin refs/tags/archive/\"*)\n  if [ -f \"$LANE_GC_FIXTURE/remote-fault\" ]; then\n    case $(cat \"$LANE_GC_FIXTURE/remote-fault\") in\n      missing) exit 0 ;;\n      unavailable) exit 1 ;;\n      mismatch) printf '%s\\t%s\\n' 0000000000000000000000000000000000000000 \"$last\"; exit 0 ;;\n    esac\n  fi ;;\nesac\nexec \"$LANE_GC_REAL_GIT\" \"$@\"\n";
+const MIRROR_FAULT_WRAPPER: &str = "if [ -f \"$LANE_GC_FIXTURE/mirror-fault\" ]; then\n  case \"$*\" in *mirrors/*)\n    case \" $* \" in *\" push \"*|*\" fetch \"*) exit 1 ;; esac ;;\n  esac\nfi\nexec \"$LANE_GC_REAL_GIT\" \"$@\"\n";
 
 static CLASSIFIED: LazyLock<Template> = LazyLock::new(|| Template::build(Classified::build));
 
@@ -325,7 +325,7 @@ impl Classified {
         let legacy_tag = format!("archive/north/equiv/{}", &legacy[..12]);
         rig.git(&main, &["tag", &legacy_tag, &legacy]);
         rig.git(&main, &["push", "-q", "origin", &format!("refs/tags/{legacy_tag}")]);
-        rig.stub("git", ARCHIVE_FAULT_WRAPPER);
+        rig.stub("git", MIRROR_FAULT_WRAPPER);
     }
 
     fn new(root: &Path) -> Self {
@@ -370,57 +370,67 @@ impl Classified {
             .all(|b| self.rig.home.join("code/north/worktrees").join(b).is_dir() && self.rig.git_ok(&self.main, &["rev-parse", "-q", "--verify", &format!("refs/heads/{b}")]))
     }
 
-    fn fault(&self, fault: Option<&str>) {
-        let path = self.rig.root.join("remote-fault");
-        match fault {
-            Some(fault) => write(&path, fault),
-            None => fs::remove_file(path).unwrap(),
-        }
+    fn mirror(&self) -> PathBuf {
+        self.rig.root.join("mirrors/north.git")
     }
 
-    fn remote_tag(&self, lane: &str) -> String {
-        let listed = self.rig.git(&self.main, &["ls-remote", "origin", &format!("refs/tags/archive/north/{lane}/*")]);
-        let rows: Vec<(&str, &str)> = listed.lines().filter_map(|line| line.split_once('\t')).collect();
-        rows.iter().find(|(_, name)| name.ends_with("^{}")).or(rows.first()).map(|(oid, _)| oid.to_string()).unwrap_or_default()
+    fn mirrored(&self, lane: &str) -> String {
+        let mirror = self.mirror();
+        if !mirror.exists() {
+            return String::new();
+        }
+        let listed = self.rig.git(&mirror, &["for-each-ref", "--format=%(objectname) %(refname)", "refs/archive/"]);
+        listed.lines().filter_map(|line| line.split_once(' ')).find(|(_, name)| name.ends_with(&format!("/{lane}"))).map(|(oid, _)| oid.to_string()).unwrap_or_default()
     }
 
     fn origin_has_sup(&self) -> bool {
         !self.rig.git(&self.main, &["ls-remote", "origin", "refs/heads/sup"]).is_empty()
     }
 
-    fn tagged_gone(&self, lane: &str, tip: &str) -> bool {
+    fn origin_extra_refs(&self) -> Vec<String> {
+        let listed = self.rig.git(&self.main, &["ls-remote", "origin", "refs/tags/*", "refs/archive/*"]);
+        listed.lines().map(|line| line.split('\t').next().unwrap().to_string()).collect()
+    }
+
+    fn archived_gone(&self, lane: &str, tip: &str) -> bool {
         !self.rig.home.join("code/north/worktrees").join(lane).exists()
             && !self.rig.git_ok(&self.main, &["rev-parse", "-q", "--verify", &format!("refs/heads/{lane}")])
-            && self.remote_tag(lane) == tip
-            && self.rig.git(&self.main, &["rev-parse", "-q", "--verify", &format!("refs/tags/archive/north/{lane}/{}^{{commit}}", &tip[..12])]) == tip
+            && self.mirrored(lane) == tip
     }
 }
 
 #[test]
-fn a_lane_whose_archive_tag_github_declines_for_email_privacy_retires_to_the_mirror() {
+fn retiring_each_class_archives_to_the_mirror_and_pushes_no_ref_to_origin() {
     let scratch = tempfile::tempdir().unwrap();
     let fixture = Classified::new(scratch.path());
     let (rig, main) = (&fixture.rig, &fixture.main);
-    executable(&fixture.origin.join("hooks/pre-receive"), "while read -r old new ref; do case \"$ref\" in refs/tags/*) echo 'push declined due to email privacy restrictions' >&2; exit 1 ;; esac; done\n");
+    executable(&fixture.origin.join("hooks/pre-receive"), "while read -r old new ref; do case \"$ref\" in refs/tags/*|refs/archive/*) echo \"archive ref pushed: $ref\" >&2; exit 1 ;; esac; done\n");
+    let before = fixture.origin_extra_refs();
+    assert_eq!(before, [fixture.legacy.as_str()]);
     let out = fixture.run(&[]);
-    let sup = &fixture.tips[1];
-    assert!(!rig.home.join("code/north/worktrees/sup").exists() && !rig.git_ok(main, &["rev-parse", "-q", "--verify", "refs/heads/sup"]), "{out}");
-    assert!(fixture.remote_tag("sup").is_empty() && !fixture.origin_has_sup(), "{out}");
-    let mirrored = rig.git(&rig.root.join("mirrors/north.git"), &["for-each-ref", "--format=%(objectname) %(refname)", "refs/archive/"]);
-    assert!(mirrored.lines().any(|line| line.starts_with(sup.as_str()) && line.ends_with("/sup")), "{mirrored}\n{out}");
+    let [equiv, sup, wip] = &fixture.tips;
+    assert!(fixture.archived_gone("equiv", equiv) && fixture.archived_gone("sup", sup), "{out}");
+    assert!(!fixture.origin_has_sup(), "{out}");
+    let snapshot = fixture.mirrored("wip");
+    assert!(!snapshot.is_empty() && !rig.home.join("code/north/worktrees/wip").exists(), "{out}");
+    assert_eq!(rig.git(&fixture.mirror(), &["rev-parse", &format!("{snapshot}^")]), *wip);
+    assert_eq!(fixture.origin_extra_refs(), before, "{out}");
+    assert!(rig.git(main, &["tag", "-l", "archive/*"]).lines().all(|tag| tag.ends_with(&fixture.legacy[..12])), "{out}");
+    let notices = rig.read("notices.md");
+    assert!(notices.contains("restore=git -C ") && notices.contains("mirrors/north.git"), "{notices}");
 }
 
 #[test]
-fn each_lane_class_retires_behind_a_verified_archive_tag_and_owned_work_stays_reported() {
+fn each_lane_class_retires_behind_a_verified_mirror_archive_and_owned_work_stays_reported() {
     let scratch = tempfile::tempdir().unwrap();
     let fixture = Classified::new(scratch.path());
     let (rig, main) = (&fixture.rig, &fixture.main);
 
     let dry = fixture.run(&["--dry-run"]);
     for expected in [
-        "north: landed-elsewhere ~/code/north/worktrees/equiv: archive to archive/north/equiv/",
-        "north: superseded ~/code/north/worktrees/sup: archive to archive/north/sup/",
-        "north: stale-dirty ~/code/north/worktrees/wip: archive to archive/north/wip/<snapshot>, then retire",
+        "north: landed-elsewhere ~/code/north/worktrees/equiv: archive equiv (",
+        "north: superseded ~/code/north/worktrees/sup: archive sup (",
+        "north: stale-dirty ~/code/north/worktrees/wip: archive wip (<snapshot>) to the north mirror, then retire",
         "north: owned ~/code/north/worktrees/own: surface to north-parent (north#5 north#6)",
         "north: owned ~/code/north/worktrees/held: surface to north-parent",
         "would alert scratch-parent: 26 owned unlanded lanes",
@@ -428,58 +438,27 @@ fn each_lane_class_retires_behind_a_verified_archive_tag_and_owned_work_stays_re
         assert!(dry.contains(expected), "{expected}\n{dry}");
     }
     assert!(dry.lines().any(|line| line == "north: owned branch loose: surface to north-parent"), "{dry}");
-    assert!(fixture.lanes_intact() && !rig.root.join("alerts").exists());
-    assert_eq!(rig.git(main, &["tag", "-l", "archive/*"]), format!("archive/north/equiv/{}", &fixture.legacy[..12]));
+    assert!(fixture.lanes_intact() && !rig.root.join("alerts").exists() && !fixture.mirror().exists());
 
-    let hook = fixture.origin.join("hooks/pre-receive");
-    executable(&hook, "while read -r old new ref; do case \"$ref\" in refs/tags/*) exit 1 ;; esac; done\n");
-    fixture.fault(Some("missing"));
-    let sup_short = rig.git(main, &["rev-parse", "--short=12", "sup"]);
-    let conflict = format!("archive/north/sup/{sup_short}");
-    rig.git(main, &["tag", &conflict, "main"]);
+    write(&rig.root.join("mirror-fault"), "1");
     let out = fixture.run(&[]);
-    assert!(fixture.lanes_intact() && rig.git(main, &["rev-parse", &conflict]) == rig.git(main, &["rev-parse", "main"]), "{out}");
-    assert!(out.contains("kept (archive tag conflict)"), "{out}");
-    rig.git(main, &["tag", "-d", &conflict]);
-    fixture.fault(None);
-
-    fixture.fault(Some("missing"));
-    let out = fixture.run(&[]);
-    let refused = Command::new(real_git()).args(["-C", main.to_str().unwrap(), "push", "-q", "origin", &format!("refs/tags/{conflict}:refs/tags/{conflict}")]).envs(rig.env.iter().filter(|(k, _)| k != "PATH").cloned()).output().unwrap();
-    assert!(!refused.status.success());
-    let push_error = String::from_utf8_lossy(&refused.stderr).lines().rfind(|line| !line.starts_with("error: failed to push some refs")).unwrap_or_default().to_string();
-    assert!(push_error.contains("pre-receive hook declined"), "{push_error}");
-    let reason = format!("archive tag push unverified: {push_error}");
     assert!(fixture.lanes_intact() && fixture.origin_has_sup(), "{out}");
-    let origin_tags = rig.git(main, &["ls-remote", "origin", "refs/tags/*"]);
-    assert_eq!(origin_tags.lines().map(|line| line.split('\t').next().unwrap()).collect::<Vec<_>>(), [fixture.legacy.as_str()], "{origin_tags}");
-    assert!(out.contains(&format!("kept ({reason})")), "{reason}\n{out}");
-    assert!(rig.read("notices.md").contains(&reason));
-    let stale: Value = serde_json::from_str(&rig.read("stale.json")).unwrap();
-    assert!(stale["notices"].as_array().unwrap().iter().any(|line| line.as_str().unwrap().contains(&reason)));
-    rig.git(main, &["tag", "-f", "-a", &conflict, "-m", "recorded superseded archive", "sup"]);
-    let annotated = rig.git(main, &["rev-parse", &conflict]);
-    fs::remove_file(hook).unwrap();
+    assert!(out.contains("kept (archive mirror copy failed)"), "{out}");
+    assert!(rig.read("notices.md").contains("kept (archive mirror copy failed)"));
+    fs::remove_file(rig.root.join("mirror-fault")).unwrap();
 
-    for fault in ["missing", "mismatch", "unavailable"] {
-        fixture.fault(Some(fault));
-        let out = fixture.run(&[]);
-        assert!(fixture.lanes_intact() && fixture.origin_has_sup() && out.contains("kept (archive tag push unverified)"), "{fault}\n{out}");
-    }
-    fixture.fault(None);
     let out = fixture.run(&[]);
     let [equiv, sup, wip] = &fixture.tips;
-    assert!(fixture.tagged_gone("equiv", equiv) && fixture.tagged_gone("sup", sup), "{out}");
-    assert_eq!(rig.git(main, &["rev-parse", &conflict]), annotated);
-    assert!(rig.git(main, &["ls-remote", "origin", &format!("refs/tags/{conflict}")]).starts_with(&annotated));
+    assert!(fixture.archived_gone("equiv", equiv) && fixture.archived_gone("sup", sup), "{out}");
     assert!(!fixture.origin_has_sup());
 
-    let snapshot = fixture.remote_tag("wip");
+    let snapshot = fixture.mirrored("wip");
+    let mirror = fixture.mirror();
     assert!(!snapshot.is_empty() && !rig.home.join("code/north/worktrees/wip").exists(), "{out}");
-    assert_eq!(rig.git(main, &["rev-parse", &format!("{snapshot}^")]), *wip);
-    assert_eq!(rig.git(main, &["show", &format!("{snapshot}:new.txt")]), "new");
-    assert!(rig.git(main, &["show", &format!("{snapshot}:README")]).contains("edited"));
-    assert!(!rig.git_ok(main, &["cat-file", "-e", &format!("{snapshot}:build.log")]));
+    assert_eq!(rig.git(&mirror, &["rev-parse", &format!("{snapshot}^")]), *wip);
+    assert_eq!(rig.git(&mirror, &["show", &format!("{snapshot}:new.txt")]), "new");
+    assert!(rig.git(&mirror, &["show", &format!("{snapshot}:README")]).contains("edited"));
+    assert!(!rig.git_ok(&mirror, &["cat-file", "-e", &format!("{snapshot}:build.log")]));
 
     assert!(rig.home.join("code/north/worktrees/own").is_dir() && rig.home.join("code/north/worktrees/held").is_dir());
     assert!(rig.git_ok(main, &["rev-parse", "-q", "--verify", "refs/heads/loose"]));

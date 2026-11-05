@@ -334,7 +334,7 @@ impl Gc {
         let (name, label) = (sweep.name.clone(), verdict.label);
         if self.options.dry_run {
             let target = if verdict.dirty { "<snapshot>" } else { short(&lane.tip) };
-            let action = if verdict.expired { "archive and retire (idle 72h)".into() } else { format!("archive to archive/{name}/{}/{target}, then retire", lane.label()) };
+            let action = if verdict.expired { "archive and retire (idle 72h)".into() } else { format!("archive {} ({target}) to the {name} mirror, then retire", lane.label()) };
             println!("{name}: {label} {}: {action}", lane.place);
             self.counts.retired_worktrees += 1;
             self.counts.deleted_branches += usize::from(!lane.branch.is_empty());
@@ -473,7 +473,7 @@ impl Gc {
             return Ok(());
         }
         if self.options.dry_run {
-            println!("{name}: {label} branch {branch}: archive to archive/{name}/{branch}/{}, then delete", short(tip));
+            println!("{name}: {label} branch {branch}: archive {branch} ({}) to the {name} mirror, then delete", short(tip));
             self.counts.deleted_branches += 1;
             return Ok(());
         }

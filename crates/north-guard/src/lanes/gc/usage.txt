@@ -16,11 +16,13 @@ are archived before deletion. Local unlanded lanes are flagged at 24h and clean,
 unlocked, unused lanes are archived and retired at 72h.
 Every other lane and branch gets a class: landed-elsewhere (patch-equivalent to main or its
 tree already there), superseded (every issue it names is closed), stale-dirty (uncommitted
-work idle 24h with no live holder) or owned. The first three are archived to
-archive/<container>/<branch-or-worktree>/<short tip> (a stale-dirty lane's tip is a commit of
-its full working state), the tag is verified and pushed to origin, and only then are the
-worktree, branch and origin branch deleted. An existing refs/archive/lanes/<name> at the same
-state counts as the archive. Owned lanes are grouped by their active Fleet parent in stale.json;
+work idle 24h with no live holder) or owned. The first three are archived into the
+lane-gc mirror (~/.local/state/agents/lane-gc/mirrors/<container>.git, refs/archive/DATE/<branch-or-worktree>; a
+stale-dirty lane's tip is a commit of its full working state), the tip is verified there
+and nothing is pushed to origin, and only then are the worktree, branch and origin branch
+deleted. Restore with git -C <mirror> push <origin url> refs/archive/DATE/NAME:refs/heads/NAME
+(printed in notices.md). An existing refs/archive/lanes/<name> at the same state is copied
+to the mirror as the archive. Owned lanes are grouped by their active Fleet parent in stale.json;
 parents with more than 25 or any over 72h get supply-alert. --dry-run prints each lane's class and action.
 then git worktree prune and git fetch --prune. Everything with unique commits or dirty
 state is kept and written to the unlanded report (default

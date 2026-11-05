@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -10,10 +9,7 @@ use super::super::live_process::{any_inside, open_paths};
 use super::state::{mirror_path, restore_command};
 use north_core::foundation::clock::Timestamp;
 
-const ZERO: &str = "0000000000000000000000000000000000000000";
 const NOTED_REPOS: [&str; 4] = ["life", "accounts", "travel", "ops"];
-// GitHub's wording for a push exposing a private author email, which no retry can pass.
-const EMAIL_PRIVACY_DECLINE: &str = "push declined due to email privacy restrictions";
 
 pub(super) struct Lane<'a> {
     pub(super) path: Option<&'a Path>,
@@ -73,11 +69,6 @@ fn delete_origin(main: &Path, branch: &str, target: &str) -> String {
     if deletion.ok { String::new() } else { "origin branch delete failed".into() }
 }
 
-fn push_failure(err: &str) -> String {
-    let last = err.lines().rfind(|line| !line.is_empty() && !line.starts_with("error: failed to push some refs"));
-    last.map_or_else(|| "archive tag push unverified".into(), |line| format!("archive tag push unverified: {line}"))
-}
-
 impl Gc {
     pub(super) fn notice(&mut self, repo: &str, branch: &str, action: &str, tag: &str) -> Result<(), String> {
         let owner = self.owner(repo)?;
@@ -95,45 +86,16 @@ impl Gc {
 
     fn archive(&mut self, main: &Path, container: &str, lane: &Lane, target: &str, shepherd: &str) -> Result<Result<String, String>, String> {
         let shepherd_ref = format!("refs/archive/lanes/{shepherd}");
-        if let Some(held) = (!shepherd.is_empty()).then(|| verified(main, &format!("{shepherd_ref}^{{commit}}"))).flatten()
-            && tree_of(main, &held) == tree_of(main, target)
-            && git(main, &["merge-base", "--is-ancestor", lane.tip, &held]).ok
-        {
-            return Ok(Ok(shepherd_ref));
-        }
-        let tag = format!("archive/{container}/{}/{}", lane.label, &target[..target.len().min(12)]);
-        let reference = format!("refs/tags/{tag}");
-        if !git(main, &["check-ref-format", &reference]).ok {
-            return Ok(Err("invalid archive tag name".into()));
-        }
-        let peeled = format!("{reference}^{{commit}}");
-        match verified(main, &peeled) {
-            Some(existing) if existing != target => return Ok(Err("archive tag conflict".into())),
-            None if !git(main, &["update-ref", &reference, target, ZERO]).ok => return Ok(Err("archive tag write failed".into())),
-            _ => {}
-        }
-        if verified(main, &peeled).as_deref() != Some(target) {
-            return Ok(Err("archive tag unverified".into()));
-        }
-        if git(main, &["remote", "get-url", "origin"]).ok {
-            let pushed = git_slow(main, &["push", "-q", "origin", &format!("{reference}:{reference}")]);
-            let peeled_name = format!("{reference}^{{}}");
-            let seen = git(main, &["ls-remote", "origin", &reference, &peeled_name]);
-            let refs: HashMap<&str, &str> = seen.out.lines().filter_map(|line| {
-                let mut fields = line.split_whitespace();
-                let oid = fields.next()?;
-                Some((fields.next().unwrap_or(""), oid))
-            }).collect();
-            if !pushed.ok || !seen.ok || refs.get(peeled_name.as_str()).or_else(|| refs.get(reference.as_str())).copied() != Some(target) {
-                if pushed.err.contains(EMAIL_PRIVACY_DECLINE) {
-                    return Ok(self.archive_to_mirror(main, container, lane.label, target));
-                }
-                let why = push_failure(&pushed.err);
+        let held = (!shepherd.is_empty()).then(|| verified(main, &format!("{shepherd_ref}^{{commit}}"))).flatten().filter(|held| {
+            tree_of(main, held) == tree_of(main, target) && git(main, &["merge-base", "--is-ancestor", lane.tip, held]).ok
+        });
+        match self.archive_to_mirror(main, container, lane.label, held.as_deref().unwrap_or(target)) {
+            Ok(reference) => Ok(Ok(reference)),
+            Err(why) => {
                 self.notice(container, lane.label, &format!("kept ({why})"), "")?;
-                return Ok(Err(why));
+                Ok(Err(why))
             }
         }
-        Ok(Ok(tag))
     }
 
     pub(super) fn archive_to_mirror(&self, main: &Path, container: &str, branch: &str, tip: &str) -> Result<String, String> {
