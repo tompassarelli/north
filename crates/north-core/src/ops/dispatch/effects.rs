@@ -119,7 +119,7 @@ pub fn revive(survey: &Survey, revive: &Revive) -> Result<(), String> {
         }
     }
     north_on(survey, &revive.registry, &words)?;
-    north_on(survey, &revive.registry, &["fleet".into(), "send".into(), revive.name.clone(), super::revive::prompt(revive)])?;
+    north_on(survey, &revive.registry, &["fleet".into(), "send".into(), "--from".into(), "service:north-dispatch".into(), revive.name.clone(), super::revive::prompt(revive)])?;
     let mut revived = placement::pace_state(&format!("dispatch/{REVIVED}"));
     revived[&revive.name] = json!(revive.ended_ms);
     remember(REVIVED, &revived);
@@ -202,7 +202,7 @@ pub fn ask_for_boxes(cfg: &DocumentMut, issues: &[&Issue], dry_run: bool, at: f6
         return;
     }
     let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
-    match run_within(&north, &["fleet", "send", lead, &text], Duration::from_secs(30)) {
+    match run_within(&north, &["fleet", "send", "--from", "service:north-dispatch", lead, &text], Duration::from_secs(30)) {
         Some(output) if output.status.success() => {
             println!("sent {lead}: {text}");
             remember("boxless.json", &json!({"to": lead, "at": at}));

@@ -4,6 +4,7 @@ use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
+use north_core::fleet::sender::Sender;
 use north_core::fleet::store::{FarSpools, FleetRow, OverSsh, RowKind, Spool};
 use north_core::foundation::shim;
 
@@ -59,7 +60,7 @@ impl Hosts {
 }
 
 fn message(id: &str) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: "sc-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: None, gate: None, answer: None, job: None, origin: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: "sc-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: Sender::Tom, gate: None, answer: None, job: None, origin: None }
 }
 
 fn taken(output: &Output) -> Vec<String> {

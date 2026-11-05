@@ -17,7 +17,7 @@ fn a_sampler_failing_past_ten_minutes_alerts_the_proxy_once_naming_the_provider_
     let sends = RefCell::new(Vec::<String>::new());
     let reply = |argv: &[&str]| match argv {
         ["north", "fleet", "list", "--json"] => Some("[]".into()),
-        ["north", "fleet", "send", node, text] => {
+        ["north", "fleet", "send", "--from", _, node, text] => {
             sends.borrow_mut().push(format!("{node}: {text}"));
             Some(String::new())
         }
@@ -50,7 +50,7 @@ fn a_sampler_with_no_good_reading_alerts_ten_minutes_after_flow_first_sees_it() 
     std::fs::write(&pace, json!({"providers": {"claude": {"code": 2, "interval_s": 30720.0, "sampled_at": null}}}).to_string()).unwrap();
     let sends = RefCell::new(Vec::<String>::new());
     let reply = |argv: &[&str]| match argv {
-        ["north", "fleet", "send", _, text] => {
+        ["north", "fleet", "send", "--from", _, _, text] => {
             sends.borrow_mut().push((*text).to_owned());
             Some(String::new())
         }

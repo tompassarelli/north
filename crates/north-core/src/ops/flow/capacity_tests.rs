@@ -66,7 +66,7 @@ fn test_saturation_alert_reaches_the_proxy_through_fleet_send() {
     let fleet = json!([{"name": "proxy", "conversation": "proxy-session", "parent": null, "provider": "claude", "status": "idle", "cwd": "/home/tom"}]).to_string();
     let reply = |argv: &[&str]| match argv {
         ["north", "fleet", "list", "--json"] => Some(fleet.clone()),
-        ["north", "fleet", "send", node, text] => {
+        ["north", "fleet", "send", "--from", _, node, text] => {
             sends.borrow_mut().push(format!("{node}: {text}"));
             Some(String::new())
         }
@@ -92,7 +92,7 @@ fn test_an_alert_still_reaches_the_proxy_when_the_fleet_list_does_not_answer() {
     std::fs::write(&policy, "[hosts.gex45]\nssh = \"tom@gex45\"\n").unwrap();
     let sends = RefCell::new(Vec::<String>::new());
     let reply = |argv: &[&str]| match argv {
-        ["north", "fleet", "send", node, text] => {
+        ["north", "fleet", "send", "--from", _, node, text] => {
             sends.borrow_mut().push(format!("{node}: {text}"));
             Some(String::new())
         }

@@ -286,7 +286,7 @@ fn lead() -> Option<String> {
 }
 
 fn send(target: &str, line: &str) {
-    let sent = Command::new("north").args(["fleet", "send", target, line]).output().is_ok_and(|output| output.status.success());
+    let sent = Command::new("north").args(["fleet", "send", "--from", "service:north-land-red-check", target, line]).output().is_ok_and(|output| output.status.success());
     if !sent {
         eprintln!("red check: could not send the event to {target}");
     }

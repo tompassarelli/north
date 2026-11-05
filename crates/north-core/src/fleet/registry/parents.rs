@@ -9,6 +9,7 @@ use super::super::host::{Host, alive};
 use super::super::model::{Delivery, SessionRecord};
 use super::super::receipts::{Courier, HostDeath, deliver_death, still_watched};
 use super::super::runtime::{Runtime, binary, now_ms};
+use super::super::sender::Sender;
 use super::super::turns::Turns;
 use super::super::unaccepted::Unaccepted;
 use super::Fleet;
@@ -45,7 +46,7 @@ impl Fleet {
     pub fn tell(&self, parent: &str, text: &str, delivery: Delivery) {
         let told = match self.record(parent) {
             Ok(record) if record.stopped => Ok(()),
-            _ => self.send_message(None, parent, text, delivery).map(drop),
+            _ => self.send_message(&Sender::fleet(), parent, text, delivery).map(drop),
         };
         if let Err(error) = told {
             eprintln!("north fleet: {parent} was not told: {}", error.user_message());

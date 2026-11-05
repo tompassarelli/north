@@ -31,10 +31,10 @@ for repo in $repos; do
       lane=$(clean "$lane")
       text="main is red in $repo from ${sha:0:10}: your lane $lane landed in the range that broke it (${tests:-no test named}); $url. Fix forward now${deadline:+; a lone culprit is reverted at $deadline}."
       target=$(jq -r --arg lane "$lane" '[.[] | select(.status != "exited" and ((.cwd // "") | endswith("/worktrees/" + $lane)))][0].name // empty' <<< "$sessions" 2> /dev/null || true)
-      [ -z "$target" ] || "$north" fleet send "$target" "$text" || true
-      "$north" fleet send proxy "$(if [ -n "$target" ]; then echo "(sent to $target)"; else echo "(no live session for lane $lane)"; fi) $text" || sent=0
+      [ -z "$target" ] || "$north" fleet send --from service:red-main-notify "$target" "$text" || true
+      "$north" fleet send --from service:red-main-notify proxy "$(if [ -n "$target" ]; then echo "(sent to $target)"; else echo "(no live session for lane $lane)"; fi) $text" || sent=0
     done <<< "$lanes"
-    [ -n "$lanes" ] || "$north" fleet send proxy "main is red in $repo from ${sha:0:10} with no lane recorded for it (${tests:-no test named}); $url." || sent=0
+    [ -n "$lanes" ] || "$north" fleet send --from service:red-main-notify proxy "main is red in $repo from ${sha:0:10} with no lane recorded for it (${tests:-no test named}); $url." || sent=0
     [ "$sent" = 0 ] || : > "$state/$key"
   done
 done

@@ -190,7 +190,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
 
     let notified = eventually("the landed message in the worker's session", || {
         let shown: Value = serde_json::from_slice(&rig.north(&["fleet", "show", "worker", "--json"]).stdout).ok()?;
-        shown["entries"].as_array()?.iter().any(|entry| entry["text"] == format!("landed worker as {landed}")).then_some(shown)
+        shown["entries"].as_array()?.iter().any(|entry| entry["text"] == format!("[from service:north-land] landed worker as {landed}")).then_some(shown)
     });
     assert_eq!(notified["conversation"], conversation.as_str());
 

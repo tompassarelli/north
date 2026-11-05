@@ -5,6 +5,7 @@ use crate::error::NorthResult;
 use crate::fleet::model::{Delivery, LastSender, SessionRecord};
 use crate::fleet::records::{read_record, write_record};
 use crate::fleet::runtime::{SESSION_ENV, now_ms};
+use crate::fleet::sender::Sender;
 use crate::fleet::store::Spool;
 use crate::fleet::transcript::stream_len;
 
@@ -30,12 +31,12 @@ impl Fleet {
         caller_name(std::env::var(SESSION_ENV).ok(), self.runtimes.caller_conversation(), || self.sessions().unwrap_or_default())
     }
 
-    pub fn rival(&self, from: &str, to: &str) -> Option<Rival> {
+    pub fn rival(&self, from: &Sender, to: &str) -> Option<Rival> {
         let last = self.record(to).ok()?.last_sender?;
-        rival(&last, from, to, now_ms())
+        rival(&last, from.session()?, to, now_ms())
     }
 
-    pub fn send_signed(&self, from: Option<&str>, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
+    pub fn send_signed(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
         self.record(name)?;
         let row = self.spool_message(from, name, text, delivery)?;
         self.hand_in(&row).map(drop).inspect_err(|_| {
@@ -45,7 +46,7 @@ impl Fleet {
         })
     }
 
-    pub fn ask(&self, from: Option<&str>, name: &str, question: &str, timeout: Duration) -> NorthResult<Option<String>> {
+    pub fn ask(&self, from: &Sender, name: &str, question: &str, timeout: Duration) -> NorthResult<Option<String>> {
         let record = self.revive(name, None)?;
         let asked_from = stream_len(&record.host_dir);
         self.send_signed(from, name, question, Delivery::Now)?;
@@ -60,9 +61,9 @@ impl Fleet {
     }
 }
 
-pub(super) fn signed(from: Option<&str>, text: &str) -> String {
-    match from {
-        Some(from) => format!("[from {from}] {text}"),
+pub(super) fn signed(from: &Sender, text: &str) -> String {
+    match from.prefix() {
+        Some(prefix) => format!("[from {prefix}] {text}"),
         None => text.to_owned(),
     }
 }
@@ -114,8 +115,9 @@ mod tests {
         assert_eq!(caller_name(Some(String::new()), Some("d11ef811".into()), || sessions.clone()).as_deref(), Some("proxy"));
         assert_eq!(caller_name(None, Some("28c1c1d1".into()), || sessions.clone()).as_deref(), Some("28c1c1d1"));
         assert_eq!(caller_name(None, None, || sessions.clone()), None);
-        assert_eq!(signed(Some("proxy"), "staff #70"), "[from proxy] staff #70");
-        assert_eq!(signed(None, "staff #70"), "staff #70");
+        assert_eq!(signed(&Sender::Session("proxy".into()), "staff #70"), "[from proxy] staff #70");
+        assert_eq!(signed(&Sender::Service("tick".into()), "staff #70"), "[from service:tick] staff #70");
+        assert_eq!(signed(&Sender::Tom, "staff #70"), "staff #70");
     }
 
     #[test]
@@ -123,14 +125,14 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
         lead(&fleet, "wisp-lead", "c0ffee");
-        assert_eq!(fleet.rival("proxy", "wisp-lead"), None, "a lead nobody messaged has no rival");
+        assert_eq!(fleet.rival(&Sender::Session("proxy".into()), "wisp-lead"), None, "a lead nobody messaged has no rival");
 
         fleet.note_sender("wisp-lead", "28c1c1d1").unwrap();
         assert_eq!(fleet.session("wisp-lead").unwrap().last_sender.map(|last| last.name).as_deref(), Some("28c1c1d1"));
-        let warned = fleet.rival("proxy", "wisp-lead").expect("a fresh order from another sender warns");
+        let warned = fleet.rival(&Sender::Session("proxy".into()), "wisp-lead").expect("a fresh order from another sender warns");
         assert_eq!((warned.name.as_str(), warned.minutes_ago), ("28c1c1d1", 0));
         assert!(warned.to_string().contains("28c1c1d1 also messaged wisp-lead 0m ago"), "{warned}");
-        assert_eq!(fleet.rival("28c1c1d1", "wisp-lead"), None, "the same sender is not its own rival");
+        assert_eq!(fleet.rival(&Sender::Session("28c1c1d1".into()), "wisp-lead"), None, "the same sender is not its own rival");
 
         let last = LastSender { name: "28c1c1d1".into(), at_ms: 1_000 };
         assert_eq!(rival(&last, "proxy", "wisp-lead", 1_000 + RIVAL_WINDOW_MS - 60_000).map(|rival| rival.minutes_ago), Some(29));

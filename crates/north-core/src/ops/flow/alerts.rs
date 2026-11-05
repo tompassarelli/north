@@ -195,7 +195,7 @@ pub fn deliver(places: &Places, host: &dyn Host, file: &str, plan: impl FnOnce(&
         let sent = if action.channel == SUPPLY {
             host.run(&["supply-alert", "normal", &action.text, "Tier routing"], None, None).is_some()
         } else if valid_name(&action.node) {
-            host.run(&["north", "fleet", "send", &action.node, &action.text], None, None).is_some()
+            host.run(&["north", "fleet", "send", "--from", "service:north-ops-flow", &action.node, &action.text], None, None).is_some()
         } else {
             return Err("invalid Fleet session name".into());
         };

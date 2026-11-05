@@ -6,6 +6,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::{Decision, Gate, GateRequest, due};
 use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::runtime::now_ms;
+use crate::fleet::sender::Sender;
 use crate::fleet::store::GateRow;
 use crate::ops::dispatch::IssueRef;
 
@@ -50,7 +51,7 @@ fn usage() -> NorthError {
 
 fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
     let request = gate_request(flags)?;
-    match fleet.open_or_spool_gate(&request)? {
+    match fleet.open_or_spool_gate(&request, &Sender::typed(fleet.caller()))? {
         Opened::Here(id) => println!("{id}"),
         Opened::Spooled(row) => {
             println!("{}", row.id);

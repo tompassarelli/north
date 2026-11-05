@@ -1,5 +1,6 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::runtime::{new_uuid, now_ms};
+use crate::fleet::sender::Sender;
 use crate::fleet::store::{ControlVerb, FleetRow, RowKind, cached_sessions};
 
 use super::{Fleet, HandedIn};
@@ -27,7 +28,7 @@ impl Fleet {
             urgent: false,
             sent_at,
             text: verb.label().into(),
-            sender: None,
+            sender: Sender::typed(self.caller()),
             gate: None,
             answer: None,
             job: None,

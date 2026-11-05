@@ -19,9 +19,9 @@ SH
 chmod +x "$work/gh" "$work/north"
 run() { RED_MAIN_REPOS=o/r RED_MAIN_GH="$work/gh" RED_MAIN_NORTH="$work/north" RED_MAIN_STATE="$work/state" "$here/red-main-notify"; }
 run
-grep -q '^fleet send author main is red in o/r from bbbbbbbbbb: your lane final-image landed in the range that broke it (cargo: render::gpu_tests::blend;cargo: render::gpu_tests::modulate)' "$work/sent"
-grep -q "^fleet send proxy (sent to author) " "$work/sent"
-grep -q "^fleet send proxy (no live session for lane other) " "$work/sent"
+grep -q '^fleet send --from service:red-main-notify author main is red in o/r from bbbbbbbbbb: your lane final-image landed in the range that broke it (cargo: render::gpu_tests::blend;cargo: render::gpu_tests::modulate)' "$work/sent"
+grep -q "^fleet send --from service:red-main-notify proxy (sent to author) " "$work/sent"
+grep -q "^fleet send --from service:red-main-notify proxy (no live session for lane other) " "$work/sent"
 run
 [ "$(wc -l < "$work/sent")" = 3 ]
 echo "red-main-notify: ok"

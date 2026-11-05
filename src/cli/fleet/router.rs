@@ -192,8 +192,12 @@ fn ask(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
     if question.is_empty() {
         return Err(usage());
     }
-    let from = send::signer(fleet, name);
-    match fleet.ask(from.as_deref(), name, &question.join(" "), Duration::from_secs(timeout))? {
+    let (flags, question) = send::leading_flags(question)?;
+    if question.is_empty() {
+        return Err(usage());
+    }
+    let from = send::signer(fleet, flags.from, name)?;
+    match fleet.ask(&from, name, &question.join(" "), Duration::from_secs(timeout))? {
         Some(reply) => {
             println!("{reply}");
             Ok(())

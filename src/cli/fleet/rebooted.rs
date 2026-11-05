@@ -6,6 +6,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Delivery;
 use crate::fleet::rebooted::{Resumer, Revived, resume};
 use crate::fleet::registry::Fleet;
+use crate::fleet::sender::Sender;
 use crate::platform::host;
 
 use super::placement::{Overrides, Refusal};
@@ -53,6 +54,6 @@ impl Resumer for Revival<'_> {
     }
 
     fn send(&self, name: &str, text: &str) -> NorthResult<()> {
-        self.0.send_signed(None, name, text, Delivery::Queued)
+        self.0.send_signed(&Sender::fleet(), name, text, Delivery::Queued)
     }
 }

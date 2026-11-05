@@ -210,7 +210,7 @@ impl Board for Gh {
             .unwrap_or_else(|_| "north".into());
         match run_within(
             &north,
-            &["fleet", "send", "proxy", text],
+            &["fleet", "send", "--from", "service:north-ops-dividend", "proxy", text],
             Duration::from_secs(30),
         ) {
             Some(output) if output.status.success() => Ok(()),

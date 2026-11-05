@@ -9,6 +9,7 @@ use crate::fleet::gates::{Decision, due};
 use crate::fleet::model::{Account, Delivery, Effort, LaunchRequest, SessionRecord, Status, Transcript};
 use crate::foundation::clock::Timestamp;
 use crate::fleet::registry::{Choices, Fleet, Follower};
+use crate::fleet::sender::Sender;
 
 use super::state_clock::StateClock;
 use crate::fleet::runtime::now_ms;
@@ -53,7 +54,7 @@ impl SessionActions for Fleet {
     }
 
     fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
-        self.send_signed(None, name, text, delivery)
+        self.send_signed(&Sender::Tom, name, text, delivery)
     }
 
     fn revive(&self, name: &str) -> NorthResult<()> {
@@ -214,4 +215,25 @@ fn upkeep(fleet: &Fleet) -> NorthResult<String> {
     fleet.observe_landings()?;
     undelivered.map_or(Ok(()), Err)?;
     Ok(crate::platform::wisp_payoff::collect(None).map(|report| report.summary()).unwrap_or_else(|error| format!("Wisp payoff unavailable: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fleet::registry::fixtures::{fleet, live};
+    use crate::fleet::sender::Sender;
+
+    #[test]
+    fn the_composers_message_carries_tom_and_reaches_the_session_unprefixed() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        let worker = live(&fleet, "worker");
+
+        SessionActions::send(&fleet, "worker", "ship it", Delivery::Queued).unwrap();
+
+        let rows = fleet.spool().pending().unwrap();
+        assert_eq!(rows.iter().map(|row| row.sender.clone()).collect::<Vec<_>>(), [Sender::Tom]);
+        let frames = worker.frames.lock().unwrap();
+        assert!(frames[0].contains("ship it") && !frames[0].contains("[from"), "{}", frames[0]);
+    }
 }

@@ -15,7 +15,7 @@ fn ledger() -> (tempfile::TempDir, std::path::PathBuf) {
 }
 
 fn message(id: &str, to: &str) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: None, gate: None, answer: None, job: None, origin: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: crate::fleet::sender::Sender::Tom, gate: None, answer: None, job: None, origin: None }
 }
 
 fn count(path: &std::path::Path, sql: &str) -> i64 {
@@ -94,8 +94,8 @@ fn a_batch_with_one_invalid_row_commits_nothing() {
 
 #[test]
 fn rows_parse_from_one_object_or_an_array_and_take_the_letter_field_to() {
-    let one = br#"{"id":"m-1","kind":"MESSAGE","to":"sc-1","from":"nexus","sent_at":5,"text":"hi"}"#;
-    let two = br#"[{"id":"m-1","kind":"JOB-EXIT","to_node":"sc-1","from":"nexus","urgent":true,"sent_at":5,"job":{"key":"j","exit":0}},{"id":"m-2","kind":"GATE","to":"sc-1","from":"nexus","sent_at":6}]"#;
+    let one = br#"{"id":"m-1","kind":"MESSAGE","to":"sc-1","from":"nexus","sender":"tom","sent_at":5,"text":"hi"}"#;
+    let two = br#"[{"id":"m-1","kind":"JOB-EXIT","to_node":"sc-1","from":"nexus","sender":"tom","urgent":true,"sent_at":5,"job":{"key":"j","exit":0}},{"id":"m-2","kind":"GATE","to":"sc-1","from":"nexus","sender":"tom","sent_at":6}]"#;
 
     let rows = FleetRow::parse(one).unwrap();
     assert_eq!((rows.len(), rows[0].to.as_str(), rows[0].urgent), (1, "sc-1", false));

@@ -5,6 +5,7 @@ use crate::error::{NorthError, NorthResult};
 
 use super::super::gates::GateRequest;
 use super::super::model::Delivery;
+use super::super::sender::Sender;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RowKind {
@@ -100,8 +101,7 @@ pub struct FleetRow {
     pub sent_at: u64,
     #[serde(default)]
     pub text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sender: Option<String>,
+    pub sender: Sender,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate: Option<Box<GateRequest>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -138,8 +138,8 @@ impl FleetRow {
         format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
     }
 
-    pub fn signer(&self) -> String {
-        self.sender.as_ref().map_or_else(|| self.from.clone(), |sender| format!("{sender}@{}", self.from))
+    pub fn signer(&self) -> Sender {
+        self.sender.on_host(&self.from)
     }
 
     pub fn check_id(id: &str) -> NorthResult<()> {

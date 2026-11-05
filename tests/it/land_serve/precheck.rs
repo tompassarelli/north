@@ -60,7 +60,7 @@ fn precheck_checks_each_lane_alone_as_it_arrives() {
     }
     let refused = fixture.verdict(&tickets[2].0).unwrap();
     assert!(refused.starts_with("failed ") && refused.ends_with("-precheck.log"), "{refused}");
-    assert_eq!(fixture.fleet().iter().filter(|call| call.starts_with("fleet send session-lane-c ")).count(), 1);
+    assert_eq!(fixture.fleet().iter().filter(|call| call.starts_with("fleet send --from service:north-land session-lane-c ")).count(), 1);
     assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from d", "change from e", "change from f"], "the five green lanes land in enqueue order");
     for (index, (path, _)) in tickets.iter().enumerate().filter(|(index, _)| *index != 2) {
         assert!(fixture.verdict(path).is_some_and(|verdict| verdict.starts_with("landed ")), "lane {} did not land", lanes[index].0);

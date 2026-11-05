@@ -36,7 +36,7 @@ fn limit(cap: &Cap, quota: &str, weight: &str) {
 
 fn deliver(north: &Path, to: &str, text: &str) {
     let mut send = Command::new(north);
-    send.args(["fleet", "send", "--now", to, text]);
+    send.args(["fleet", "send", "--now", "--from", "service:north-capacity-watchdog", to, text]);
     finish(&mut send, &format!("fleet send {to}"));
 }
 

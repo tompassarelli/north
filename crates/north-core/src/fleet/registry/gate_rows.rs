@@ -2,6 +2,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::{self, Answerer, GateRequest};
 use crate::fleet::model::Delivery;
 use crate::fleet::runtime::{new_uuid, now_ms};
+use crate::fleet::sender::Sender;
 use crate::fleet::store::{AnswerPayload, FleetRow, RowKind, Spool};
 
 use super::{Fleet, HandedIn};
@@ -12,7 +13,7 @@ pub enum Opened {
 }
 
 impl Fleet {
-    pub fn open_or_spool_gate(&self, request: &GateRequest) -> NorthResult<Opened> {
+    pub fn open_or_spool_gate(&self, request: &GateRequest, from: &Sender) -> NorthResult<Opened> {
         if self.session_dir(&request.session)?.exists() {
             return self.open_gate(request).map(Opened::Here);
         }
@@ -20,13 +21,13 @@ impl Fleet {
         if !self.known_elsewhere(&request.session)? {
             return Err(NorthError::Usage(format!("no session named {}", request.session)));
         }
-        let row = FleetRow { gate: Some(Box::new(request.clone())), ..self.new_row(RowKind::Gate, &request.session, &request.question, None)? };
+        let row = FleetRow { gate: Some(Box::new(request.clone())), ..self.new_row(RowKind::Gate, &request.session, &request.question, from)? };
         Spool::at(&self.root).put(&row)?;
         Ok(Opened::Spooled(Box::new(row)))
     }
 
     pub fn spool_gate_answer(&self, session: &str, gate: i64, number: usize, note: Option<&str>, caller: Option<&str>) -> NorthResult<FleetRow> {
-        let row = FleetRow { answer: Some(AnswerPayload { gate, number }), ..self.new_row(RowKind::GateAnswer, session, note.unwrap_or_default(), caller)? };
+        let row = FleetRow { answer: Some(AnswerPayload { gate, number }), ..self.new_row(RowKind::GateAnswer, session, note.unwrap_or_default(), &Sender::typed(caller.map(str::to_owned)))? };
         Spool::at(&self.root).put(&row)?;
         Ok(row)
     }
@@ -73,6 +74,9 @@ impl Fleet {
     }
 
     fn apply_gate_answer(&self, row: &FleetRow) -> NorthResult<HandedIn> {
+        if let Sender::Service(unit) = &row.sender {
+            return Err(NorthError::Usage(format!("GATE-ANSWER row {} is from service {unit}, which cannot answer a gate", row.id)));
+        }
         let AnswerPayload { gate, number } = row.answer.ok_or_else(|| NorthError::Usage(format!("GATE-ANSWER row {} carries no answer", row.id)))?;
         let note = Some(row.text.as_str()).filter(|note| !note.trim().is_empty());
         let mut told = None;
@@ -94,14 +98,14 @@ impl Fleet {
         for answer in &answers {
             self.hand_in_answer(answer)?;
         }
-        if let (Some(text), Some(answerer)) = (told, row.sender.as_deref()) {
+        if let (Some(text), Some(answerer)) = (told, row.sender.session()) {
             self.tell(answerer, &text, Delivery::Queued);
         }
         Ok(handed)
     }
 
     fn closed_by_this_answer(&self, row: &FleetRow, gate: i64, number: usize, note: Option<&str>) -> bool {
-        let by = row.sender.as_deref().map_or(Answerer::Tom, |name| Answerer::Session(name.to_owned()));
+        let by = row.sender.session().map_or(Answerer::Tom, |name| Answerer::Session(name.to_owned()));
         self.gate(gate).ok().flatten().is_some_and(|gate| gates::closed_by_answer(&gate, &by, number, note))
     }
 
@@ -110,7 +114,7 @@ impl Fleet {
         if asked.request.session != row.to {
             return Err(NorthError::Usage(format!("gate {gate} belongs to {}, not {}", asked.request.session, row.to)));
         }
-        self.answer_gate_with(gate, number, note, row.sender.as_deref(), deliver).map(drop)
+        self.answer_gate_with(gate, number, note, row.sender.session(), deliver).map(drop)
     }
 
     pub(super) fn answer_session(&self, session: &str, text: &str) -> NorthResult<()> {
@@ -119,7 +123,7 @@ impl Fleet {
     }
 
     fn spool_answer(&self, session: &str, text: &str) -> NorthResult<FleetRow> {
-        let row = FleetRow { urgent: true, ..self.new_row(RowKind::Message, session, text, None)? };
+        let row = FleetRow { urgent: true, ..self.new_row(RowKind::Message, session, text, &Sender::Tom)? };
         self.spool().put(&row)?;
         Ok(row)
     }
@@ -134,7 +138,7 @@ impl Fleet {
         }
     }
 
-    pub(super) fn new_row(&self, kind: RowKind, to: &str, text: &str, sender: Option<&str>) -> NorthResult<FleetRow> {
+    pub(super) fn new_row(&self, kind: RowKind, to: &str, text: &str, sender: &Sender) -> NorthResult<FleetRow> {
         let sent_at = now_ms();
         Ok(FleetRow {
             id: format!("{sent_at}-{}", new_uuid()?),
@@ -144,7 +148,7 @@ impl Fleet {
             urgent: false,
             sent_at,
             text: text.into(),
-            sender: sender.map(str::to_owned),
+            sender: sender.clone(),
             gate: None,
             answer: None,
             job: None,
@@ -180,13 +184,13 @@ mod tests {
         let far = fleet(home.path());
         cached(&far, &["worker"]);
 
-        let Opened::Spooled(row) = far.open_or_spool_gate(&request("worker")).unwrap() else { panic!("a session of another host is spooled") };
+        let Opened::Spooled(row) = far.open_or_spool_gate(&request("worker"), &Sender::Tom).unwrap() else { panic!("a session of another host is spooled") };
 
         assert_eq!((row.kind, row.to.as_str(), row.text.as_str()), (RowKind::Gate, "worker", "Rent the box?"));
         assert_eq!(row.gate.as_deref(), Some(&request("worker")));
         assert_eq!(spooled(&far), *row);
-        assert!(matches!(far.open_or_spool_gate(&request("nobody")), Err(NorthError::Usage(why)) if why == "no session named nobody"));
-        assert!(matches!(far.open_or_spool_gate(&GateRequest { options: vec![], ..request("worker") }), Err(NorthError::Usage(_))));
+        assert!(matches!(far.open_or_spool_gate(&request("nobody"), &Sender::Tom), Err(NorthError::Usage(why)) if why == "no session named nobody"));
+        assert!(matches!(far.open_or_spool_gate(&GateRequest { options: vec![], ..request("worker") }, &Sender::Tom), Err(NorthError::Usage(_))));
         assert_eq!(Spool::at(&far.root).pending().unwrap().len(), 1);
     }
 
@@ -208,7 +212,7 @@ mod tests {
         let (far, laptop) = (fleet(far_home.path()), fleet(home.path()));
         let _worker = live(&laptop, "worker");
         cached(&far, &["worker"]);
-        far.open_or_spool_gate(&request("worker")).unwrap();
+        far.open_or_spool_gate(&request("worker"), &Sender::Tom).unwrap();
         let row = spooled(&far);
 
         assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
@@ -224,7 +228,7 @@ mod tests {
         let (far_home, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let (far, laptop) = (fleet(far_home.path()), fleet(home.path()));
         cached(&far, &["worker"]);
-        far.open_or_spool_gate(&request("worker")).unwrap();
+        far.open_or_spool_gate(&request("worker"), &Sender::Tom).unwrap();
         let row = spooled(&far);
 
         assert!(laptop.deliver_row(&row).is_err());
@@ -241,7 +245,7 @@ mod tests {
         let (far, laptop) = (fleet(far_home.path()), fleet(home.path()).arming(|_| Err(NorthError::State("no timer".into()))));
         let _worker = live(&laptop, "worker");
         cached(&far, &["worker"]);
-        far.open_or_spool_gate(&request("worker")).unwrap();
+        far.open_or_spool_gate(&request("worker"), &Sender::Tom).unwrap();
         let row = spooled(&far);
 
         assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
@@ -255,7 +259,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let laptop = fleet(home.path());
         let _worker = live(&laptop, "worker");
-        let row = FleetRow { gate: Some(Box::new(request("other"))), ..laptop.new_row(RowKind::Gate, "worker", "Rent the box?", None).unwrap() };
+        let row = FleetRow { gate: Some(Box::new(request("other"))), ..laptop.new_row(RowKind::Gate, "worker", "Rent the box?", &Sender::Tom).unwrap() };
 
         assert!(matches!(laptop.deliver_row(&row), Err(NorthError::Usage(_))));
         assert!(laptop.digest(0).unwrap().gates.is_empty());
@@ -272,7 +276,7 @@ mod tests {
         far.answer_remote_gate(&format!("laptop:{id}"), Some("worker"), 1, Some("but only today"), None).unwrap();
         let row = spooled(&far);
 
-        assert_eq!((row.kind, row.to.as_str(), row.answer, row.text.as_str(), row.sender.as_deref()), (RowKind::GateAnswer, "worker", Some(AnswerPayload { gate: id, number: 1 }), "but only today", None));
+        assert_eq!((row.kind, row.to.as_str(), row.answer, row.text.as_str(), &row.sender), (RowKind::GateAnswer, "worker", Some(AnswerPayload { gate: id, number: 1 }), "but only today", &Sender::Tom));
         assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
         assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Already);
 
@@ -348,7 +352,7 @@ mod tests {
         let boss = live(&laptop, "boss");
         let id = laptop.open_gate(&request("worker")).unwrap();
         let row = laptop.spool_gate_answer("worker", id, 2, None, Some("boss")).unwrap();
-        laptop.deliver_row(&FleetRow { id: "1-other".into(), ..laptop.new_row(RowKind::Message, "worker", "hello", None).unwrap() }).unwrap();
+        laptop.deliver_row(&FleetRow { id: "1-other".into(), ..laptop.new_row(RowKind::Message, "worker", "hello", &Sender::Tom).unwrap() }).unwrap();
         let journal = laptop.root.join("worker/delivered");
         std::fs::set_permissions(&journal, std::fs::Permissions::from_mode(0o555)).unwrap();
 

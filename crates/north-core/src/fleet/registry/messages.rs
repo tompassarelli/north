@@ -1,6 +1,7 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Delivery, Status};
 use crate::fleet::runtime::{new_uuid, now_ms};
+use crate::fleet::sender::Sender;
 use crate::fleet::store::{FleetRow, RowKind, SessionRow, Spool, cached_sessions};
 
 use super::Fleet;
@@ -23,7 +24,7 @@ impl Fleet {
         Spool::at(&self.root)
     }
 
-    pub fn send_message(&self, from: Option<&str>, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
+    pub fn send_message(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
         if self.session_dir(name)?.exists() {
             return self.send_signed(from, name, text, delivery).map(|()| Sent::HandedIn);
         }
@@ -40,7 +41,7 @@ impl Fleet {
         Ok(cached_sessions(&self.root)?.unwrap_or_default().into_iter().find(|session| session.name == name && session.host != self.host && session.status != Status::Exited.label()))
     }
 
-    pub(super) fn spool_message(&self, from: Option<&str>, name: &str, text: &str, delivery: Delivery) -> NorthResult<FleetRow> {
+    pub(super) fn spool_message(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<FleetRow> {
         let sent_at = now_ms();
         let row = FleetRow {
             id: format!("{sent_at}-{}", new_uuid()?),
@@ -50,7 +51,7 @@ impl Fleet {
             urgent: delivery == Delivery::Now,
             sent_at,
             text: text.into(),
-            sender: from.map(str::to_owned),
+            sender: from.clone(),
             gate: None,
             answer: None,
             job: None,
@@ -79,15 +80,53 @@ mod tests {
         let fleet = fleet(home.path());
         let worker = live(&fleet, "worker");
 
-        assert_eq!(fleet.send_message(Some("lead"), "worker", "hello", Delivery::Queued).unwrap(), Sent::HandedIn);
+        assert_eq!(fleet.send_message(&Sender::Session("lead".into()), "worker", "hello", Delivery::Queued).unwrap(), Sent::HandedIn);
         let spooled = Spool::at(&fleet.root).pending().unwrap();
 
         assert_eq!(spooled.len(), 1);
-        assert_eq!((spooled[0].to.as_str(), spooled[0].text.as_str(), spooled[0].sender.as_deref()), ("worker", "hello", Some("lead")));
+        assert_eq!((spooled[0].to.as_str(), spooled[0].text.as_str(), &spooled[0].sender), ("worker", "hello", &Sender::Session("lead".into())));
         assert_eq!(fleet.hand_in(&spooled[0]).unwrap(), HandedIn::Already);
         let frames = worker.frames.lock().unwrap();
         assert_eq!(frames.len(), 1);
         assert!(frames[0].contains("[from lead] hello"), "{}", frames[0]);
+    }
+
+    #[test]
+    fn a_message_from_tom_reaches_the_session_unprefixed_and_any_other_sender_is_named() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        let worker = live(&fleet, "worker");
+
+        fleet.send_signed(&Sender::Tom, "worker", "ship it", Delivery::Queued).unwrap();
+        fleet.send_signed(&Sender::Service("north-ops-check".into()), "worker", "tick", Delivery::Queued).unwrap();
+        fleet.send_signed(&Sender::Session("lead".into()), "worker", "also", Delivery::Queued).unwrap();
+
+        let rows = Spool::at(&fleet.root).pending().unwrap();
+        for sender in [Sender::Tom, Sender::Service("north-ops-check".into()), Sender::Session("lead".into())] {
+            assert!(rows.iter().any(|row| row.sender == sender), "{sender:?}");
+        }
+        let frames = worker.frames.lock().unwrap();
+        let frame = |text: &str| frames.iter().find(|frame| frame.contains(text)).unwrap_or_else(|| panic!("{text}: {frames:?}")).clone();
+        assert!(!frame("ship it").contains("[from"), "{frames:?}");
+        assert!(frame("tick").contains("[from service:north-ops-check] tick"));
+        assert!(frame("also").contains("[from lead] also"));
+    }
+
+    #[test]
+    fn tom_on_another_host_is_still_unprefixed_where_a_service_names_its_host() {
+        let home = tempfile::tempdir().unwrap();
+        let far_home = tempfile::tempdir().unwrap();
+        let (laptop, far) = (fleet(home.path()).hosted_as("laptop"), fleet(far_home.path()).hosted_as("far"));
+        let worker = live(&laptop, "worker");
+        cached(&far, &["worker"]);
+        far.send_message(&Sender::Tom, "worker", "from the TUI", Delivery::Queued).unwrap();
+        far.send_message(&Sender::Service("tick".into()), "worker", "from a timer", Delivery::Queued).unwrap();
+        for row in Spool::at(&far.root).pending().unwrap() {
+            laptop.hand_in(&row).unwrap();
+        }
+        let frames = worker.frames.lock().unwrap();
+        assert!(frames.iter().any(|frame| frame.contains("from the TUI") && !frame.contains("[from")), "{frames:?}");
+        assert!(frames.iter().any(|frame| frame.contains("[from service:tick@far] from a timer")), "{frames:?}");
     }
 
     #[test]
@@ -97,7 +136,7 @@ mod tests {
         let (laptop, far) = (fleet(home.path()).hosted_as("laptop"), fleet(far_home.path()).hosted_as("far"));
         let worker = live(&laptop, "worker");
         cached(&far, &["worker"]);
-        far.send_message(Some("lead"), "worker", "hello", Delivery::Queued).unwrap();
+        far.send_message(&Sender::Session("lead".into()), "worker", "hello", Delivery::Queued).unwrap();
         let row = Spool::at(&far.root).pending().unwrap().remove(0);
 
         assert_eq!(laptop.hand_in(&row).unwrap(), HandedIn::Delivered);
@@ -115,9 +154,9 @@ mod tests {
         let socket = fleet.root.join("worker/host.sock");
         std::fs::rename(&socket, fleet.root.join("worker/host.moved")).unwrap();
 
-        assert!(fleet.send_signed(None, "worker", "hello", Delivery::Queued).is_err());
+        assert!(fleet.send_signed(&Sender::Tom, "worker", "hello", Delivery::Queued).is_err());
         assert!(Spool::at(&fleet.root).pending().unwrap().is_empty());
-        let row = fleet.spool_message(None, "worker", "again", Delivery::Queued).unwrap();
+        let row = fleet.spool_message(&Sender::Tom, "worker", "again", Delivery::Queued).unwrap();
         assert!(fleet.hand_in(&row).is_err());
         std::fs::rename(fleet.root.join("worker/host.moved"), &socket).unwrap();
 
@@ -130,9 +169,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
 
-        assert!(matches!(fleet.send_message(None, "nobody", "hello", Delivery::Queued), Err(NorthError::Usage(why)) if why == "no session named nobody"), "a host whose cache was never written knows no other host's names");
+        assert!(matches!(fleet.send_message(&Sender::Tom, "nobody", "hello", Delivery::Queued), Err(NorthError::Usage(why)) if why == "no session named nobody"), "a host whose cache was never written knows no other host's names");
         cached(&fleet, &["elsewhere"]);
-        assert!(matches!(fleet.send_message(None, "nobody", "hello", Delivery::Queued), Err(NorthError::Usage(why)) if why == "no session named nobody"));
+        assert!(matches!(fleet.send_message(&Sender::Tom, "nobody", "hello", Delivery::Queued), Err(NorthError::Usage(why)) if why == "no session named nobody"));
         assert!(fleet.reaches("nobody").is_err());
         assert!(Spool::at(&fleet.root).pending().unwrap().is_empty());
     }
@@ -145,7 +184,7 @@ mod tests {
         cache_sessions(&fleet.root, &[row("gone", "far-host", "exited"), row("forgotten", "laptop", "idle")]).unwrap();
 
         for name in ["gone", "forgotten"] {
-            assert!(matches!(fleet.send_message(None, name, "hello", Delivery::Queued), Err(NorthError::Usage(_))), "{name}");
+            assert!(matches!(fleet.send_message(&Sender::Tom, name, "hello", Delivery::Queued), Err(NorthError::Usage(_))), "{name}");
             assert!(fleet.reaches(name).is_err(), "{name}");
         }
         assert!(Spool::at(&fleet.root).pending().unwrap().is_empty());
@@ -157,7 +196,7 @@ mod tests {
         let fleet = fleet(home.path()).hosted_as("laptop");
         cached(&fleet, &["elsewhere"]);
 
-        let Sent::Spooled { id, host } = fleet.send_message(Some("lead"), "elsewhere", "hello", Delivery::Now).unwrap() else { panic!("a cached name is spooled") };
+        let Sent::Spooled { id, host } = fleet.send_message(&Sender::Session("lead".into()), "elsewhere", "hello", Delivery::Now).unwrap() else { panic!("a cached name is spooled") };
 
         assert_eq!(host, "far-host");
         let spooled = Spool::at(&fleet.root).pending().unwrap();

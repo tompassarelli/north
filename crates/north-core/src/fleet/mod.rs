@@ -26,6 +26,9 @@ pub mod registry;
 pub mod roster;
 pub mod runtime;
 pub mod runtimes;
+pub mod sender;
+#[cfg(test)]
+mod sender_tests;
 pub mod session_host;
 pub mod store;
 mod ssh;

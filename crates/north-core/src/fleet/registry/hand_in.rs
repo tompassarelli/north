@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use rustix::fs::{FlockOperation, flock};
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::sender::Sender;
 use crate::fleet::store::FleetRow;
 use crate::fleet::transcript::stream_path;
 use crate::fleet::unaccepted::Unaccepted;
@@ -98,10 +99,10 @@ impl Fleet {
     }
 
     fn deliver(&self, row: &FleetRow) -> NorthResult<()> {
-        let signer = if row.from == self.host { row.sender.clone() } else { Some(row.signer()) };
-        self.prompt(&row.to, &row.prompt_id(), &signed(signer.as_deref(), &row.text), row.delivery())?;
-        if let Some(signer) = signer
-            && let Err(error) = self.note_sender(&row.to, &signer)
+        let signer = if row.from == self.host { row.sender.clone() } else { row.signer() };
+        self.prompt(&row.to, &row.prompt_id(), &signed(&signer, &row.text), row.delivery())?;
+        if let Sender::Session(name) = &signer
+            && let Err(error) = self.note_sender(&row.to, name)
         {
             eprintln!("north fleet: delivered to {}, but its sender was not recorded: {}", row.to, error.user_message());
         }

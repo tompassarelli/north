@@ -271,7 +271,7 @@ impl Gc {
                 branch.name,
                 branch.age_h.floor() as i64
             );
-            if !command(&["north", "fleet", "send", &parent, &text]).ok {
+            if !command(&["north", "fleet", "send", "--from", "service:north-lane-gc", &parent, &text]).ok {
                 println!("{name}: origin {}: keep (Fleet parent notification failed)", branch.name);
                 return Ok(false);
             }

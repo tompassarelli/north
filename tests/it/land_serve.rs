@@ -57,11 +57,11 @@ const NORTH: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "${*//$'\n'/\\n}" >>"$LAND_TRACE/north-calls"
 if { [ "$1" = land-train ] || [ "$1" = incident ]; } && [ -n "${LAND_LEDGER:-}" ]; then THREADS_DB="$LAND_LEDGER" THREADS_SCHEMA_READY=1 exec "$LAND_REAL_NORTH" "$@"; fi
 if [ "$1 $2" = "runtime follow" ] && [ -n "${NORTH_RUNTIME_LINK:-}" ]; then ln -sfn gen-2 "$NORTH_RUNTIME_LINK"; fi
-if [ "$1" = fleet ] && [ "$2" = send ] && [ "${4%% *}" = landed ]; then
-  branch=$(printf '%s' "$4" | awk '{print $2}')
+if [ "$1" = fleet ] && [ "$2" = send ] && [ "${6%% *}" = landed ]; then
+  branch=$(printf '%s' "$6" | awk '{print $2}')
   main=$(git -C "$LAND_ORIGIN" rev-parse main)
-  printf '%s %s\n' "$3" "$(git -C "$LAND_REPO" cherry "$main" "$branch" | tr '\n' ' ')" >>"$LAND_TRACE/send-cherry"
-  printf '%s %s\n' "$3" "$4" >>"$LAND_TRACE/sent"
+  printf '%s %s\n' "$5" "$(git -C "$LAND_REPO" cherry "$main" "$branch" | tr '\n' ' ')" >>"$LAND_TRACE/send-cherry"
+  printf '%s %s\n' "$5" "$6" >>"$LAND_TRACE/sent"
 fi
 "#;
 
@@ -375,7 +375,7 @@ fn serve_archived_origin_refusal_is_terminal() {
     let verdict = fixture.verdict(&ticket).unwrap();
     assert!(verdict.starts_with("failed origin refused the push of ") && verdict.ends_with(": remote: This repository was archived so it is read-only."), "{verdict}");
     let fleet = fixture.fleet();
-    assert!(fleet.len() == 1 && fleet[0].starts_with("fleet send session-lane-a north land: lane-a ") && fleet[0].contains("This repository was archived so it is read-only."), "{fleet:?}");
+    assert!(fleet.len() == 1 && fleet[0].starts_with("fleet send --from service:north-land session-lane-a north land: lane-a ") && fleet[0].contains("This repository was archived so it is read-only."), "{fleet:?}");
     assert!(fixture.serve().status.success());
     assert_eq!(fixture.checks().len(), 1, "no further candidate is checked for the refused ticket");
     assert_eq!(fixture.read("pushes").lines().count(), 1);
@@ -562,9 +562,9 @@ echo "safe-push: ✗ the pre-push checks failed in check $1; NOT pushed."
     assert_eq!(fixture.verdict(&tickets[0]), Some(format!("landed {}", fixture.main())));
     let failure = fixture.verdict(&tickets[1]).unwrap();
     let fleet = fixture.fleet();
-    let told: Vec<&String> = fleet.iter().filter(|call| call.starts_with("fleet send session-lane-b ")).collect();
+    let told: Vec<&String> = fleet.iter().filter(|call| call.starts_with("fleet send --from service:north-land session-lane-b ")).collect();
     assert_eq!(told.len(), 1, "{fleet:?}");
-    let lines: Vec<&str> = told[0].trim_start_matches("fleet send session-lane-b ").split("\\n").collect();
+    let lines: Vec<&str> = told[0].trim_start_matches("fleet send --from service:north-land session-lane-b ").split("\\n").collect();
     let log = lines.last().unwrap().strip_prefix("full log: ").unwrap();
     assert!(log.ends_with("-candidate.log") && fs::read_to_string(log).unwrap().contains(&format!("check {n}")), "the full log is the culprit's own check: {log}");
     assert_eq!(
@@ -621,10 +621,10 @@ fn serve_mixed() {
     assert_eq!(checks.len(), 5, "the refused candidate of a, b and d, each lane alone, then a and b together");
     assert!(checks.iter().any(|(checked, _)| *checked == main), "main is a commit the checks passed");
     let fleet = fixture.fleet();
-    assert!(fleet.iter().any(|line| line.starts_with("fleet send session-lane-d ") && line.contains("did not land") && line.contains("https://github.com/o/r/actions/runs/4242")), "{fleet:?}");
-    assert!(fleet.iter().any(|line| line.starts_with("fleet send session-lane-c ") && line.contains("did not land") && line.contains("shared.txt")), "{fleet:?}");
+    assert!(fleet.iter().any(|line| line.starts_with("fleet send --from service:north-land session-lane-d ") && line.contains("did not land") && line.contains("https://github.com/o/r/actions/runs/4242")), "{fleet:?}");
+    assert!(fleet.iter().any(|line| line.starts_with("fleet send --from service:north-land session-lane-c ") && line.contains("did not land") && line.contains("shared.txt")), "{fleet:?}");
     for (lane, sha) in [("a", &main), ("b", &main), ("e", &e_landed)] {
-        assert!(fleet.contains(&format!("fleet send session-lane-{lane} landed lane-{lane} as {sha}")), "{fleet:?}");
+        assert!(fleet.contains(&format!("fleet send --from service:north-land session-lane-{lane} landed lane-{lane} as {sha}")), "{fleet:?}");
     }
     assert_eq!(fleet.len(), 5, "each lane is told once: {fleet:?}");
     for landed in [0, 1, 4] {
@@ -717,7 +717,7 @@ fn serve_transient_not_culprit() {
     }
     let mut fleet = fixture.fleet();
     fleet.sort();
-    assert_eq!(fleet, ["a", "b", "c"].map(|name| format!("fleet send session-lane-{name} landed lane-{name} as {main}")), "only landed messages go out");
+    assert_eq!(fleet, ["a", "b", "c"].map(|name| format!("fleet send --from service:north-land session-lane-{name} landed lane-{name} as {main}")), "only landed messages go out");
 }
 
 fn persistent_isolates(verdict: &str, exit: &str, class: &str) {
@@ -755,7 +755,7 @@ fn persistent_isolates(verdict: &str, exit: &str, class: &str) {
     assert_eq!(fixture.verdict(&tickets[2]), Some(format!("landed {main}")));
     assert_eq!(fixture.subjects(), ["change from a", "change from c"]);
     let fleet = fixture.fleet();
-    assert!(fleet.iter().any(|call| call.starts_with("fleet send session-lane-b ") && call.contains(&format!("did not land: {failure}"))), "{fleet:?}");
+    assert!(fleet.iter().any(|call| call.starts_with("fleet send --from service:north-land session-lane-b ") && call.contains(&format!("did not land: {failure}"))), "{fleet:?}");
     assert!(fleet.iter().filter(|call| call.contains("did not land")).count() == 1, "{fleet:?}");
 }
 
@@ -906,7 +906,7 @@ fn serve_landed_only_on_main() {
     fs::write(refused.trace.join("verdict"), "refused https://github.com/o/r/actions/runs/7").unwrap();
     assert!(refused.serve().status.success());
     let told = refused.fleet();
-    assert!(told.len() == 1 && told[0].starts_with("fleet send session-lane-a north land: lane-a ") && told[0].contains("did not land"), "nothing landed, so the lane is told only its refusal: {told:?}");
+    assert!(told.len() == 1 && told[0].starts_with("fleet send --from service:north-land session-lane-a north land: lane-a ") && told[0].contains("did not land"), "nothing landed, so the lane is told only its refusal: {told:?}");
     assert!(followed(&refused).is_empty(), "nothing landed, so nothing is followed");
     assert!(refused.pushes_tsv().is_empty());
 }
@@ -1152,7 +1152,7 @@ fn remote_outbox_lands() {
     let remote = queue::read(&outbox.join("taken").join(&names[0])).unwrap();
     let done = queue::read(&fixture.queue().join("done").join(&names[0])).unwrap();
     assert_eq!((done.host.as_str(), done.root.as_path()), (remote.host.as_str(), remote.root.as_path()), "the pulled ticket keeps its host and root");
-    assert!(fixture.fleet().contains(&format!("fleet send session-remote landed lane-r as {main}")), "{:?}", fixture.fleet());
+    assert!(fixture.fleet().contains(&format!("fleet send --from service:north-land session-remote landed lane-r as {main}")), "{:?}", fixture.fleet());
     let ssh = fixture.read("ssh");
     assert!(ssh.lines().all(|line| line.contains("ConnectTimeout=5")), "{ssh}");
     assert!(ssh.lines().any(|line| line.contains("git-upload-pack") && line.contains(&top)), "the lane is fetched from ssh://gex45{top}: {ssh}");
@@ -1745,7 +1745,7 @@ fn culprit_search_names_the_culprit_in_one_round() {
     let log = failure.trim_start_matches("failed ");
     assert!(fs::read_to_string(log).unwrap().contains(&format!("failed in check {culprit}")), "the culprit's own log: {log}");
     let fleet = fixture.fleet();
-    let told: Vec<&String> = fleet.iter().filter(|call| call.starts_with("fleet send session-lane-c ")).collect();
+    let told: Vec<&String> = fleet.iter().filter(|call| call.starts_with("fleet send --from service:north-land session-lane-c ")).collect();
     assert_eq!(told.len(), 1, "{fleet:?}");
     assert!(told[0].contains(&format!("safe-push: ✗ the pre-push checks failed in check {culprit}; NOT pushed.")) && told[0].contains(&format!("full log: {log}")), "{told:?}");
     let main = fixture.main();

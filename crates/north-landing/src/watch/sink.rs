@@ -46,7 +46,7 @@ impl Fleet {
 
 impl Outbox for Fleet {
     fn send(&self, to: &str, text: &str) -> bool {
-        Command::new("north").args(["fleet", "send", to, text]).status().is_ok_and(|status| status.success())
+        Command::new("north").args(["fleet", "send", "--from", "service:north-land-watch", to, text]).status().is_ok_and(|status| status.success())
     }
 
     fn notify(&self, text: &str) {

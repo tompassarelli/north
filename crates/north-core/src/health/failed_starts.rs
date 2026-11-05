@@ -112,7 +112,7 @@ pub(super) fn journal() -> Result<String, String> {
 }
 
 pub(super) fn tell_proxy(message: &str) -> bool {
-    super::command("north", &["fleet", "send", "proxy", message], None, 20).is_ok()
+    super::command("north", &["fleet", "send", "--from", "service:north-health", "proxy", message], None, 20).is_ok()
 }
 
 pub(super) fn check(dry_run: bool, now: u64, state_file: &std::path::Path, read: &dyn Fn() -> Result<String, String>, send: &mut dyn FnMut(&str) -> bool) -> Result<(), String> {

@@ -47,12 +47,12 @@ fn a_failed_sync_restores_the_previous_runtime_and_alerts_once_without_the_log()
         assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
         let alerts = fs::read_to_string(host.path("alerts")).unwrap();
         let alert = alerts.lines().collect::<Vec<_>>();
-        assert_eq!(alert[..3], ["fleet", "send", "proxy"]);
-        assert_eq!(alert.len(), 4, "{alerts}");
+        assert_eq!(alert[..5], ["fleet", "send", "--from", "service:north-runtime-update", "proxy"]);
+        assert_eq!(alert.len(), 6, "{alerts}");
         let expected = format!("failed step agents sync on {}; rolled back to runtimes/{PREVIOUS}; exit status {}; local log: ", host.target, if launched { 42 } else { 127 });
-        assert!(alert[3].contains(&expected), "{}", alert[3]);
-        assert!(!alert[3].contains(SECRET) && !alert[3].contains("fixture sync error"));
-        let log = alert[3].rsplit("local log: ").next().unwrap();
+        assert!(alert[5].contains(&expected), "{}", alert[5]);
+        assert!(!alert[5].contains(SECRET) && !alert[5].contains("fixture sync error"));
+        let log = alert[5].rsplit("local log: ").next().unwrap();
         assert_eq!(fs::metadata(log).unwrap().permissions().mode() & 0o777, 0o600);
         let logged = if launched { SECRET } else { "agents sync did not run" };
         assert!(fs::read_to_string(log).unwrap().contains(logged));
@@ -424,7 +424,7 @@ fn the_fleet_settler_ships_its_build_and_a_broken_host_reopens_the_landing_issue
     script(
         &host.path("bin/north"),
         "case \"$1 $2\" in\n'fleet list') echo '[{\"name\": \"proxy\", \"tasks\": []}, {\"name\": \"live-landing\", \"status\": \"working\", \"tasks\": [\"north#308\"]}, {\"name\": \"finished-landing\", \"status\": \"exited\", \"tasks\": [\"north#308\"]}, {\"name\": \"other\", \"tasks\": [\"north#9\"]}]' ;;\n\
-         'fleet send') printf 'send %s\\n' \"$3\" >>\"$TEST_ALERTS\" ;;\n*) exit 94 ;;\nesac\n",
+         'fleet send') printf 'send %s\\n' \"$5\" >>\"$TEST_ALERTS\" ;;\n*) exit 94 ;;\nesac\n",
     );
     let orchestration = fleet(&host, "[hosts.hub]\nsettles_fleet = true\n[hosts.broken]\ndeploy_ssh = \"broken\"\n");
     let environment = [

@@ -60,7 +60,7 @@ mod rebooting;
 mod stranding;
 mod testing;
 #[cfg(test)]
-mod fixtures;
+pub(crate) mod fixtures;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

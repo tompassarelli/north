@@ -124,7 +124,7 @@ fn start(b: &Value) -> Result<bool, String> {
         b["id"]
     );
     let Ok(mut child) = Command::new("north")
-        .args(["fleet", "send", field(b, "parent"), &message])
+        .args(["fleet", "send", "--from", "service:follows-release", field(b, "parent"), &message])
         .stdin(Stdio::null())
         .spawn()
     else {
@@ -168,7 +168,7 @@ fn alert(root: &Path, b: &Value, why: &str, now: f64) -> Result<(), String> {
         return Ok(());
     }
     let _ = Command::new("north")
-        .args(["fleet", "send", field(b, "parent"), &line])
+        .args(["fleet", "send", "--from", "service:follows-release", field(b, "parent"), &line])
         .stdin(Stdio::null())
         .status();
     println!("{line}");

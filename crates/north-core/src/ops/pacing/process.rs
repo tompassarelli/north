@@ -86,7 +86,7 @@ pub(super) fn binary() -> String {
     std::env::var("NORTH_BIN").unwrap_or_else(|_| "north".into())
 }
 pub(super) fn send(name: &str, line: &str) -> Result<(), String> {
-    let output = run(&binary(), &["fleet", "send", name, line], None, 10.0)?;
+    let output = run(&binary(), &["fleet", "send", "--from", "service:north-pacing", name, line], None, 10.0)?;
     if output.code == 0 {
         Ok(())
     } else {

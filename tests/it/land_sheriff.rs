@@ -47,7 +47,7 @@ fn sheriff_queues_the_culprit_revert_first() {
     assert!(sheriff_record(&fixture, &head).starts_with("revert "), "{}", sheriff_record(&fixture, &head));
     let told: Vec<String> = fixture.fleet().into_iter().filter(|call| call.contains("sheriff")).collect();
     assert_eq!(told.len(), 1, "{told:?}");
-    assert!(told[0].starts_with("fleet send session-lane-older north land: main went red") && told[0].contains("lane-older"), "{told:?}");
+    assert!(told[0].starts_with("fleet send --from service:north-land session-lane-older north land: main went red") && told[0].contains("lane-older"), "{told:?}");
     assert_eq!(git(&fixture.origin, &["for-each-ref", "refs/heads/claude/"]), "");
 }
 

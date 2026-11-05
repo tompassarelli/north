@@ -6,20 +6,20 @@ use crate::fleet::runtimes::Runtimes;
 
 use super::Fleet;
 
-pub(super) struct Session {
-    pub(super) frames: Arc<Mutex<Vec<String>>>,
+pub(crate) struct Session {
+    pub(crate) frames: Arc<Mutex<Vec<String>>>,
 }
 
-pub(super) fn fleet(home: &Path) -> Fleet {
+pub(crate) fn fleet(home: &Path) -> Fleet {
     let ledger = Arc::new(crate::ledger::Ledger::open(&home.join("ledger.db")).unwrap());
     Fleet::at(home.into(), Runtimes::new(vec![Arc::new(crate::providers::claude::fleet::Claude)]), ledger).unwrap().arming(|_| Ok(()))
 }
 
-pub(super) fn live(fleet: &Fleet, name: &str) -> Session {
+pub(crate) fn live(fleet: &Fleet, name: &str) -> Session {
     live_under(fleet, name, None)
 }
 
-pub(super) fn live_under(fleet: &Fleet, name: &str, parent: Option<&str>) -> Session {
+pub(crate) fn live_under(fleet: &Fleet, name: &str, parent: Option<&str>) -> Session {
     let dir = fleet.root.join(name);
     std::fs::create_dir_all(dir.join("g1")).unwrap();
     let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": name, "parent": parent, "host_dir": dir, "stream_offset": 0});

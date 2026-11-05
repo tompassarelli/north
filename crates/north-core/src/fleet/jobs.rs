@@ -49,6 +49,7 @@ impl JobLeases for SpooledLeases {
 #[cfg(test)]
 mod tests {
     use crate::error::NorthError;
+    use crate::fleet::sender::Sender;
     use crate::fleet::store::JobPayload;
 
     use super::*;
@@ -70,7 +71,7 @@ mod tests {
             urgent: false,
             sent_at: 1,
             text: String::new(),
-            sender: None,
+            sender: Sender::Tom,
             gate: None,
             answer: None,
             job: Some(JobPayload { key: key.into(), lease_secs: None, exit: None }),

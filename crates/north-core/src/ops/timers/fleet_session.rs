@@ -92,6 +92,6 @@ impl Fleet {
     }
 
     pub fn tell_proxy(&self, text: &str) -> Result<(), String> {
-        run(Command::new(north_program()).args(["fleet", "send", "proxy"]).arg(text), "north fleet send proxy").map(drop)
+        run(Command::new(north_program()).args(["fleet", "send", "--from", "service:north-fleet-session", "proxy"]).arg(text), "north fleet send proxy").map(drop)
     }
 }

@@ -243,7 +243,7 @@ fn ledger_records(fleet: &Fleet, records: &[SessionRecord], now_ms: u64) -> Vec<
 }
 
 fn retired_report(row: &FleetRow, peer: &str, archived: &[SessionRecord]) -> bool {
-    row.kind == RowKind::Message && row.sender.as_deref().is_some_and(|sender| archived.iter().any(|record| record.name == sender && record.machine.as_ref().is_some_and(|machine| machine.name == peer)))
+    row.kind == RowKind::Message && row.sender.session().is_some_and(|sender| archived.iter().any(|record| record.name == sender && record.machine.as_ref().is_some_and(|machine| machine.name == peer)))
 }
 
 fn drop_far(pulls: &Pulls, taken: &[Taken]) -> Vec<(String, String)> {

@@ -254,7 +254,7 @@ struct Gh;
 
 fn tell(text: &str) -> Result<(), String> {
     let north = std::env::current_exe().map_err(|error| error.to_string())?;
-    let status = std::process::Command::new(north).args(["fleet", "send", "proxy"]).arg(text).status().map_err(|error| format!("cannot run north fleet send: {error}"))?;
+    let status = std::process::Command::new(north).args(["fleet", "send", "--from", "service:north-tune", "proxy"]).arg(text).status().map_err(|error| format!("cannot run north fleet send: {error}"))?;
     status.success().then_some(()).ok_or_else(|| format!("north fleet send proxy: {status}"))
 }
 

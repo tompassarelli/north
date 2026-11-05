@@ -1,3 +1,4 @@
+use super::sender::Sender;
 use super::store::{Addressee, Exchange, Exchanged, FleetRow, Registration, RowKind, SessionRow, WaitKey};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
@@ -20,7 +21,7 @@ pub fn admit(row: &FleetRow, peer: &str, ledger: &[SessionRow]) -> Result<FleetR
     if row.from != peer {
         return Err(Refusal::Spoofed(format!("row {} names from {} but came from {peer}", row.id, row.from)));
     }
-    if let Some(sender) = &row.sender {
+    if let Sender::Session(sender) = &row.sender {
         on_peer(ledger, peer, sender).map_err(|held| refusal(held, format!("row {} names sender {sender}, which is not a session on {peer}", row.id)))?;
     }
     if row.kind != RowKind::Message {

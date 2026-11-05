@@ -200,7 +200,7 @@ fn an_orphan_landing_ref_is_pinged_held_through_grace_and_archived_to_the_mirror
     fs::remove_file(rig.root.join("ping-fault")).unwrap();
     let pinged = rig.lane_gc("2026-10-14T11:00:00Z", &[], &["--repo", "north"]);
     assert!(!pushed(), "{pinged}");
-    assert!(rig.read("fleet-sends").lines().any(|line| line.starts_with("fleet send fixture-parent ") && line.contains("orphan landing")));
+    assert!(rig.read("fleet-sends").lines().any(|line| line.starts_with("fleet send --from service:north-lane-gc fixture-parent ") && line.contains("orphan landing")));
     let grace = rig.lane_gc("2026-10-14T11:30:00Z", &[], &["--repo", "north"]);
     assert!(!pushed() && grace.contains("owner ping grace"), "{grace}");
     for fault in ["error", "malformed", "refs-incomplete", "runs-capped"] {

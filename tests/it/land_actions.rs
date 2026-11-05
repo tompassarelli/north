@@ -36,7 +36,7 @@ case "$1 $2" in
     ;;
   "fleet list") echo '[{"name":"worker-1","parent":"lead-1"}]'; exit 0 ;;
   "fleet send")
-    printf '%s\t%s\n' "$3" "$4" >>"$state/events"
+    printf '%s\t%s\n' "$5" "$6" >>"$state/events"
     if [ ! -e "$state/conclusion" ]; then
       git -C "$FAKE_FIXER" pull -q origin main
       git -C "$FAKE_FIXER" commit -q --allow-empty -m 'Fix shared_test' -m 'Main-red: #812'

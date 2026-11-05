@@ -452,7 +452,7 @@ fn alert(message: &str) {
 
 pub(super) fn alert_proxy(text: &str) {
     let sent = Command::new("north")
-        .args(["fleet", "send", "proxy", text])
+        .args(["fleet", "send", "--from", "service:north-runtime-update", "proxy", text])
         .status();
     if !sent.is_ok_and(|status| status.success()) {
         eprintln!("north runtime update: rollback alert delivery failed");

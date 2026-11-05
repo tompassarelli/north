@@ -164,7 +164,7 @@ fn ask_codex(journey: &mut Journey) -> Result<String, String> {
     journey.north.run(&launch, LAUNCH_WAIT)?;
     journey.watch_host(&name, &before)?;
     journey.await_settled(&name, CODEX_READY_WAIT)?;
-    let reply = journey.north.run(&["fleet", "ask", &name, SIX_TIMES_SEVEN, "--timeout", &ASK_SECS.to_string()], Duration::from_secs(ASK_SECS) + QUERY_WAIT)?;
+    let reply = journey.north.run(&["fleet", "ask", &name, "--from", "service:verify-north", SIX_TIMES_SEVEN, "--timeout", &ASK_SECS.to_string()], Duration::from_secs(ASK_SECS) + QUERY_WAIT)?;
     if !holds_number(&reply, "42") {
         return Err(format!("`north fleet ask {name}` replied {:?}, which does not hold 42", shorten(&reply)));
     }

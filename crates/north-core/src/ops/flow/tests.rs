@@ -147,7 +147,7 @@ fn deliver_alerts(recorded: &Recorded) {
     let fleet = json!([{"name": "makgora-parent", "conversation": "makgora-session", "parent": null, "provider": "claude", "status": "working", "cwd": "/home/tom/code/makgora/main"}]).to_string();
     let reply = |argv: &[&str]| match argv {
         ["north", "fleet", "list", "--json"] => Some(fleet.clone()),
-        ["north", "fleet", "send", node, text] => {
+        ["north", "fleet", "send", "--from", _, node, text] => {
             sends.borrow_mut().push(format!("fleet send {node} {text}"));
             Some(String::new())
         }

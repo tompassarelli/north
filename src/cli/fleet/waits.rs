@@ -13,6 +13,7 @@ use crate::fleet::limit::park_limited;
 use crate::fleet::model::{Delivery, Ending};
 use crate::fleet::registry::{Fleet, Waiting};
 use crate::fleet::runtime::{SESSION_ENV, now_ms};
+use crate::fleet::sender::Sender;
 use crate::fleet::store::LedgerHost;
 use crate::fleet::tick::{Probed, WaitProbes};
 use crate::fleet::limit::Parked;
@@ -82,7 +83,7 @@ impl WaitProbes for Probes {
                 return Ok(());
             }
             revive::revive(fleet, name, None, None, Overrides::default())?;
-            fleet.send_signed(None, name, text, Delivery::Queued)
+            fleet.send_signed(&Sender::fleet(), name, text, Delivery::Queued)
         };
         let exists = |name: &str| fleet.session(name).is_ok();
         let told = fleet.waits().settle(&Runs::default(), &exists, &tell);

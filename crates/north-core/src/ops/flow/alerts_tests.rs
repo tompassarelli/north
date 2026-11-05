@@ -35,7 +35,7 @@ fn refusal(minutes: f64) -> Value {
 fn run(sends: &RefCell<Vec<String>>, rows: &[Value], at: f64, directory: &std::path::Path) {
     let reply = |argv: &[&str]| match argv {
         ["north", "fleet", "list", "--json"] => Some("[]".to_owned()),
-        ["north", "fleet", "send", node, text] => {
+        ["north", "fleet", "send", "--from", _, node, text] => {
             sends.borrow_mut().push(format!("{node} {text}"));
             Some(String::new())
         }

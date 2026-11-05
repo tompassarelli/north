@@ -49,16 +49,36 @@ fn text(bytes: &[u8]) -> String {
 #[test]
 fn a_send_on_a_host_without_the_session_spools_for_a_name_the_fleet_table_holds_and_refuses_any_other() {
     let hosts = Hosts::new();
-    let alone = hosts.north("far", &["send", "proxy", "rolled", "back"]);
+    let alone = hosts.north("far", &["send", "--from", "service:fleet-test", "proxy", "rolled", "back"]);
     assert!(!alone.status.success());
     assert!(text(&alone.stderr).contains("no session named proxy"), "{}", text(&alone.stderr));
 
     let table = hosts.path("far").join(".local/state/north/fleet/.fleet-sessions.json");
     fs::write(&table, r#"[{"name":"proxy","host":"nexus","status":"idle","created":"t","updated":"t"}]"#).unwrap();
-    let sent = hosts.north("far", &["send", "proxy", "rolled", "back"]);
+    let sent = hosts.north("far", &["send", "--from", "service:fleet-test", "proxy", "rolled", "back"]);
     assert!(sent.status.success(), "{}", text(&sent.stderr));
     assert!(text(&sent.stderr).contains("proxy runs on nexus; spooled "), "{}", text(&sent.stderr));
     let spooled: Vec<serde_json::Value> = serde_json::from_slice(&hosts.north("far", &["spool", "take"]).stdout).unwrap();
     let rows: Vec<(&str, &str, &str)> = spooled.iter().map(|entry| &entry["row"]).map(|row| (row["kind"].as_str().unwrap(), row["to_node"].as_str().unwrap(), row["text"].as_str().unwrap())).collect();
     assert_eq!(rows, [("MESSAGE", "proxy", "rolled back")]);
+}
+
+#[test]
+fn a_send_from_outside_a_session_names_a_service_or_is_refused_and_never_sends_as_tom() {
+    let hosts = Hosts::new();
+    let table = hosts.path("far").join(".local/state/north/fleet/.fleet-sessions.json");
+    fs::create_dir_all(table.parent().unwrap()).unwrap();
+    fs::write(&table, r#"[{"name":"proxy","host":"nexus","status":"idle","created":"t","updated":"t"}]"#).unwrap();
+    for args in [&["send", "proxy", "rolled", "back"][..], &["send", "--from", "tom", "proxy", "rolled", "back"][..]] {
+        let refused = hosts.north("far", args);
+        assert!(!refused.status.success(), "{args:?}");
+        assert!(text(&refused.stderr).contains("--from"), "{}", text(&refused.stderr));
+    }
+    let nothing: Vec<serde_json::Value> = serde_json::from_slice(&hosts.north("far", &["spool", "take"]).stdout).unwrap();
+    assert!(nothing.is_empty(), "a refused send spools nothing: {nothing:?}");
+
+    let sent = hosts.north("far", &["send", "--from", "service:north-ops-check", "proxy", "rolled", "back"]);
+    assert!(sent.status.success(), "{}", text(&sent.stderr));
+    let spooled: Vec<serde_json::Value> = serde_json::from_slice(&hosts.north("far", &["spool", "take"]).stdout).unwrap();
+    assert_eq!(spooled[0]["row"]["sender"], "service:north-ops-check");
 }

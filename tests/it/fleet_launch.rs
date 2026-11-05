@@ -224,7 +224,7 @@ fn sending_to_and_forgetting_a_session_whose_scope_is_gone_say_nothing_about_sto
     while Path::new(&format!("/proc/{pid}")).exists() && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    let sent = north(root, &["fleet", "send", "narrow", "carry on"]);
+    let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "narrow", "carry on"]);
     let forgot = north(root, &["fleet", "forget", "narrow"]);
     for (verb, output) in [("send", &sent), ("forget", &forgot)] {
         let said = String::from_utf8_lossy(&output.stderr);
@@ -544,7 +544,7 @@ fn a_prompt_queued_to_a_finished_worker_just_before_its_host_stops_runs_on_the_r
     until("the worker's final report", || stream().contains("Done: fake report"));
 
     let first_host = fs::read_to_string(session.join("host.pid")).unwrap();
-    let sent = north(root, &["fleet", "send", "kid", "stall this prompt, then run it on the next host"]);
+    let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "kid", "stall this prompt, then run it on the next host"]);
     until("the worker to hold the prompt unrun", || root.join("stalled").exists());
     let unit = fs::read_to_string(session.join("host.scope")).unwrap();
     let stopped = Command::new(root.join("bin/systemctl")).args(["--user", "stop", unit.trim()]).env("FLEET_LAUNCH_FIXTURE", root).status().unwrap();
@@ -581,7 +581,7 @@ fn a_message_sent_right_after_reviving_a_parked_session_shows_it_working_at_once
     executable(&root.join("bin/claude"), &format!("FAKE_CLAUDE_HOOK_MS=5000 exec {} --trace slow-hooks \"$@\"\n", support::fake_claude()));
 
     let revived = north(root, &["fleet", "revive", "kid"]);
-    let sent = north(root, &["fleet", "send", "kid", "resume from your handoff"]);
+    let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "kid", "resume from your handoff"]);
     let at_once = status();
     let ran = std::panic::catch_unwind(|| {
         until("a turn on the message", || {
@@ -840,7 +840,7 @@ fn a_launch_taking_over_a_live_lead_name_ends_the_holder_and_messages_to_the_nam
     let plain = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "lead", "--parent", "none", "--system-prompt", &brief, "lead now"]);
 
     let taken = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "lead", "--parent", "none", "--system-prompt", &brief, "--take-over", "lead now"]);
-    let sent = north(root, &["fleet", "send", "lead", "report for the lead"]);
+    let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "lead", "report for the lead"]);
     until("the report in the new lead's transcript", || text(&north(root, &["fleet", "show", "lead"]).stdout).contains("report for the lead"));
     let new: Value = serde_json::from_str(&fs::read_to_string(fleet.join("lead/session.json")).unwrap()).unwrap();
     let archived: Vec<_> = fs::read_dir(fleet.join(".archive")).unwrap().flatten().map(|entry| entry.path()).collect();

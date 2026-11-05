@@ -12,6 +12,7 @@ use crate::error::NorthError;
 use crate::fleet::gates::GateRequest;
 use crate::fleet::runtime::Runtime;
 use crate::fleet::runtimes::Runtimes;
+use crate::fleet::sender::Sender;
 use crate::fleet::registry::Controlled;
 use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, HandedRow, JobPayload, Pull, RowKind, SessionRow, Store, Undecodable, UnknownKind, WaitKey};
 use crate::providers::claude::fleet::Claude;
@@ -83,16 +84,16 @@ fn live_with(host: &Host, name: &str, reply: &str, task_ref: Option<&str>) -> Ar
 }
 
 fn message(id: &str, to: &str, sent_at: u64) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at, text: "hello".into(), sender: Some("lead".into()), gate: None, answer: None, job: None, origin: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at, text: "hello".into(), sender: Sender::Session("lead".into()), gate: None, answer: None, job: None, origin: None }
 }
 
 fn far_message(id: &str, machine: &str) -> FleetRow {
-    FleetRow { from: machine.into(), sender: None, ..message(id, "elsewhere", NOW_MS) }
+    FleetRow { from: machine.into(), sender: Sender::Tom, ..message(id, "elsewhere", NOW_MS) }
 }
 
 fn gate(id: &str, to: &str) -> FleetRow {
     let request = GateRequest { verification: false, issue: None, session: to.into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 60_000 };
-    FleetRow { kind: RowKind::Gate, text: request.question.clone(), sender: None, gate: Some(Box::new(request)), ..message(id, to, CREATED_MS) }
+    FleetRow { kind: RowKind::Gate, text: request.question.clone(), sender: Sender::Tom, gate: Some(Box::new(request)), ..message(id, to, CREATED_MS) }
 }
 
 fn count(ledger: &Path, sql: &str) -> i64 {
@@ -537,7 +538,7 @@ fn a_gate_answer_row_put_on_any_host_closes_the_gate_once_on_the_sessions_host_a
     let host = host("nexus");
     let frames = live(&host, "worker");
     let id = host.fleet.open_gate(gate("g-1", "worker").gate.as_deref().unwrap()).unwrap();
-    let answer = FleetRow { kind: RowKind::GateAnswer, text: String::new(), sender: None, gate: None, answer: Some(AnswerPayload { gate: id, number: 2 }), ..message("a-1", "worker", NOW_MS) };
+    let answer = FleetRow { kind: RowKind::GateAnswer, text: String::new(), sender: Sender::Tom, gate: None, answer: Some(AnswerPayload { gate: id, number: 2 }), ..message("a-1", "worker", NOW_MS) };
     host.store().put(&[answer]).unwrap();
 
     let first = host.tick();
@@ -630,7 +631,7 @@ fn a_forget_row_removes_a_stopped_session_from_the_holding_host_and_a_message_to
 }
 
 fn control_row(id: &str, to: &str, verb: ControlVerb, sent_at: u64) -> FleetRow {
-    FleetRow { kind: RowKind::Control, from: "laptop".into(), text: verb.label().into(), sender: None, ..message(id, to, sent_at) }
+    FleetRow { kind: RowKind::Control, from: "laptop".into(), text: verb.label().into(), sender: Sender::Tom, ..message(id, to, sent_at) }
 }
 
 #[test]
@@ -730,7 +731,7 @@ fn a_session_gone_from_this_hosts_registry_loses_its_row_in_the_fleet_table() {
 fn a_job_exit_row_from_another_host_wakes_its_session_once_by_row_id() {
     let host = host("nexus");
     let frames = live(&host, "worker");
-    let exit = FleetRow { kind: RowKind::JobExit, from: "gex45".into(), sender: None, text: "job soak exited 0".into(), job: Some(JobPayload { key: "soak".into(), lease_secs: None, exit: Some(0) }), ..message("x-1", "worker", NOW_MS) };
+    let exit = FleetRow { kind: RowKind::JobExit, from: "gex45".into(), sender: Sender::Service("job-run".into()), text: "job soak exited 0".into(), job: Some(JobPayload { key: "soak".into(), lease_secs: None, exit: Some(0) }), ..message("x-1", "worker", NOW_MS) };
     let beat = FleetRow { id: "b-1".into(), kind: RowKind::JobBeat, job: Some(JobPayload { key: "soak".into(), lease_secs: Some(180), exit: None }), ..exit.clone() };
     host.store().put(&[beat, exit.clone()]).unwrap();
 
@@ -740,7 +741,7 @@ fn a_job_exit_row_from_another_host_wakes_its_session_once_by_row_id() {
     assert_eq!(first.delivered, [("x-1".to_owned(), "worker".to_owned())]);
     assert_eq!((second.delivered.len(), second.already), (0, 0));
     assert_eq!(frame_uuids(&frames), [exit.prompt_id()]);
-    assert!(frames.lock().unwrap()[0].contains("[from gex45] job soak exited 0"), "{:?}", frames.lock().unwrap());
+    assert!(frames.lock().unwrap()[0].contains("[from service:job-run@gex45] job soak exited 0"), "{:?}", frames.lock().unwrap());
 }
 
 struct Legacy<'a>(&'a Host);
