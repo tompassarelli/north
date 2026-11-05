@@ -419,14 +419,15 @@ fn enqueue_refuses_a_lane_carrying_a_deny_listed_value_and_writes_no_ticket() {
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "Add identity"]);
     let list = deny_list(&fixture);
-    let (output, _) = north_enqueue_with(&fixture, &[("SAFE_PUSH_DENYLIST", &list)]);
+    let path = stub_gh(&fixture, "echo PUBLIC");
+    let (output, _) = north_enqueue_with(&fixture, &[("SAFE_PUSH_DENYLIST", &list), ("PATH", &path)]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "{stdout}{stderr}");
-    assert!(stdout.contains("denylist: fake-private-term"), "{stdout}{stderr}");
+    assert!(stdout.contains("denylist: fake-private-term") && stdout.contains("for a PUBLIC repository"), "{stdout}{stderr}");
     assert!(stderr.contains("deny-list scan refused the landing") && stderr.contains("NOT queued"), "{stderr}");
     assert!(!stdout.contains(PRIVATE_TERM) && !stderr.contains(PRIVATE_TERM));
-    assert!(!fixture.state.exists(), "a refused lane writes no ticket");
+    assert!(!fixture.state.exists(), "a refused lane writes nothing to the state directory: {:?}", written(&fixture.state));
 }
 
 #[test]
@@ -482,10 +483,19 @@ fn enqueue_queues_a_rust_lane_without_running_clippy_because_the_landers_prechec
 fn github_push_url(fixture: &Fixture, archived: &str) -> PathBuf {
     git(&fixture.repo, &["remote", "set-url", "--push", "origin", "https://github.com/o/wake.git"]);
     fixture.commit(&fixture.repo, "notes.txt", "Add notes");
+    stub_gh(fixture, archived)
+}
+
+fn stub_gh(fixture: &Fixture, answer: &str) -> PathBuf {
     let bin = fixture.root.join("bin");
     fs::create_dir_all(&bin).unwrap();
-    north_core::foundation::shim::write_executable(&bin.join("gh"), format!("#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{}\n{archived}\n", fixture.root.join("gh-calls").display()));
+    north_core::foundation::shim::write_executable(&bin.join("gh"), format!("#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{}\n{answer}\n", fixture.root.join("gh-calls").display()));
     PathBuf::from(format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()))
+}
+
+fn written(directory: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(directory) else { return Vec::new() };
+    entries.map(|entry| entry.unwrap().path()).flat_map(|path| if path.is_dir() { written(&path) } else { vec![path] }).collect()
 }
 
 #[test]
