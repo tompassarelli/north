@@ -921,11 +921,13 @@ fn serve_after_landing() {
     three_lanes(&mut fixture);
     assert!(fixture.serve().status.success());
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while followed(&fixture).len() < 3 && std::time::Instant::now() < deadline {
+    while followed(&fixture).len() < 4 && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    let calls = followed(&fixture);
     let main = fixture.main();
+    let (post_land, calls): (Vec<String>, Vec<String>) = followed(&fixture).into_iter().partition(|call| call.starts_with("land checks --after "));
+    assert_eq!(post_land.len(), 1, "the landed sha gets one post-land check: {post_land:?} {calls:?}");
+    assert!(post_land[0].contains(&format!("post-land-{}.outcome", &main[..12])), "the post-land check runs on the landed sha: {post_land:?}");
     assert_eq!(calls.len(), 3, "{calls:?}");
     assert!(calls[0].starts_with("after-landing --git-dir ") && calls[0].contains(&format!("--base {} --head {main}", fixture.base)), "{calls:?}");
     assert!(calls[1].starts_with("follows-release --repo-dir "), "{calls:?}");
@@ -933,7 +935,7 @@ fn serve_after_landing() {
     assert_eq!(fixture.fleet().len(), 3);
     assert!(fixture.serve().status.success());
     std::thread::sleep(std::time::Duration::from_millis(500));
-    assert_eq!(followed(&fixture).len(), 3, "an idle round follows nothing again");
+    assert_eq!(followed(&fixture).len(), 4, "an idle round follows and checks nothing again");
 }
 
 #[test]
@@ -1779,13 +1781,13 @@ fn culprit_search_checks_in_waves_of_the_free_slots() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     eprintln!("{stdout}{}", String::from_utf8_lossy(&output.stderr));
     assert!(output.status.success());
-    assert!(stdout.contains("1 of 2 offload slots are free, so they are checked alone in waves of 1"), "{stdout}");
+    assert!(stdout.contains("1 of 2 offload slots are free, so 4 checks run in waves of 1"), "{stdout}");
     assert!(fixture.verdict(&tickets[2]).unwrap().starts_with("failed "));
     assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from d"]);
 }
 
 #[test]
-fn culprit_search_falls_back_to_halving_when_every_lane_passes_alone() {
+fn culprit_search_lands_the_green_prefix_when_every_lane_passes_alone() {
     let mut fixture = Fixture::new();
     let tickets: Vec<PathBuf> = ["a", "b"].iter().map(|name| {
         let lane = fixture.lane(name, &format!("{name}.txt"), name);
@@ -1795,11 +1797,15 @@ fn culprit_search_falls_back_to_halving_when_every_lane_passes_alone() {
     let output = fixture.serve();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout.matches("every lane passed alone, so the refusal is an interaction; falling back to halving the candidate").count(), 1, "{stdout}");
-    assert_eq!(fixture.checks().len(), 5, "the pair, each lane alone, then the first half and the second half");
-    assert!(fixture.verdict(&tickets[0]).is_some_and(|verdict| verdict.starts_with("landed ")));
-    assert_eq!(fixture.verdict(&tickets[1]), Some(format!("landed {}", fixture.main())));
-    assert_eq!(fixture.subjects(), ["change from a", "change from b"]);
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 3, "the pair and each lane alone; the pair is known red and lane-a green alone, so no further check: {checks:?}");
+    let main = fixture.main();
+    assert_eq!(stdout.matches(&format!("the first 1 lanes pass together and lane-b breaks them; landing them as {main} and refusing it")).count(), 1, "{stdout}");
+    assert_eq!(fixture.verdict(&tickets[0]), Some(format!("landed {main}")));
+    assert!(checks.iter().any(|(head, _)| *head == main), "lane-a lands as the head it was checked alone at: {checks:?}");
+    let refused = fixture.verdict(&tickets[1]).unwrap();
+    assert!(refused.starts_with("failed interaction with lane-a: "), "{refused}");
+    assert_eq!(fixture.subjects(), ["change from a"]);
 }
 
 const RUNNER_CHECKER: &str = r#"#!/usr/bin/env bash

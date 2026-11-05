@@ -517,7 +517,7 @@ fn inferred_checks_without_a_flake_run_the_tool_directly_and_in_a_fixed_order() 
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
     let trace = fixture.trace();
     let runs: Vec<&str> = trace.lines().filter(|line| line.starts_with("cargo ") || line.starts_with("bun ")).collect();
-    assert_eq!(runs, ["cargo test --locked --offline", "cargo clippy --all-targets --locked --offline -- -D warnings", "bun test"]);
+    assert_eq!(runs, ["cargo test --locked --offline", "cargo clippy --all-targets --locked --offline -- -D warnings", "bun install --frozen-lockfile", "bun test"]);
     assert!(!trace.contains("nix "), "{trace}");
 }
 

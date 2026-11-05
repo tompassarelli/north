@@ -45,10 +45,14 @@ impl Fixture {
     }
 
     fn enqueue(&self, repo: &Path) -> Queued {
+        self.enqueue_keeping(repo, false)
+    }
+
+    fn enqueue_keeping(&self, repo: &Path, keep_lane: bool) -> Queued {
         git(repo, &["config", "landing.lander-host", "laptop"]);
         let south = self.root.join("no-south");
         let environment = Environment { state_home: &self.state, host: "laptop", session: Some("worker-7"), south: &south, denylist: None };
-        let queued = enqueue(repo, Shape::OneCommit { message: None }, false, &environment).unwrap();
+        let queued = enqueue(repo, Shape::OneCommit { message: None }, keep_lane, &environment).unwrap();
         git(repo, &["config", "--unset", "landing.lander-host"]);
         queued
     }
@@ -210,9 +214,8 @@ fn enqueue_replaces() {
 fn enqueue_records_keep_lane_on_the_ticket() {
     let fixture = Fixture::new();
     fixture.commit(&fixture.repo, "a.txt", "Add a");
-    let south = fixture.root.join("no-south");
-    let environment = Environment { state_home: &fixture.state, host: "laptop", session: None, south: &south, denylist: None };
-    let queued = enqueue(&fixture.repo, Shape::OneCommit { message: None }, true, &environment).unwrap();
+    let queued = fixture.enqueue_keeping(&fixture.repo, true);
+    assert!(!queued.outbox);
     assert!(queued.ticket.keep_lane);
     assert!(fixture.pending()[0].keep_lane);
 }
