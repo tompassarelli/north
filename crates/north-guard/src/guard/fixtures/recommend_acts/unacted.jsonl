@@ -1,0 +1,9 @@
+{"type":"user","uuid":"t1","message":{"role":"user","content":"earlier ask"}}
+{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"tool_use","id":"a1","name":"Bash","input":{"command":"gh issue create -R tompassarelli/north --title Old --body x"}}]}}
+{"type":"user","uuid":"r1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"a1","content":"ok"}]}}
+{"type":"assistant","uuid":"s1","message":{"role":"assistant","content":[{"type":"text","text":"Filed north#640."}]}}
+{"type":"user","uuid":"t2","message":{"role":"user","content":"[from lander-lead] the laptop lander is slow"}}
+{"type":"assistant","uuid":"a2","message":{"role":"assistant","content":[{"type":"tool_use","id":"a2","name":"Bash","input":{"command":"north fleet list --json"}}]}}
+{"type":"user","uuid":"r2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"a2","content":"ok"}]}}
+{"type":"assistant","uuid":"s2","message":{"role":"assistant","content":[{"type":"text","text":"I recommend moving the lander to gex45 because it is idle and the laptop is at load 50; the alternative is to keep it local, which slows every landing by about a minute."}]}}
+{"type":"user","uuid":"m1","isMeta":true,"message":{"role":"user","content":"Stop hook feedback:\nBLOCKED"}}

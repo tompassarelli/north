@@ -1,0 +1,2 @@
+{"type":"user","uuid":"t1","message":{"role":"user","content":"[from lander-lead] the laptop lander is slow"}}
+{"type":"assistant","uuid":"s1","message":{"role":"assistant","content":[{"type":"text","text":"I recommend renting a second GEX45 for the lander, which costs about 200 euros a month; the alternative is to keep landing on the laptop at load 50."}]}}

@@ -100,6 +100,7 @@ enum HookKind {
     PermissionRequest,
     Stop,
     SubagentStop,
+    RecommendActs,
     SessionStart,
     UserPromptSubmit,
     CodexConduct,
@@ -118,6 +119,7 @@ impl HookKind {
             "permission-request" => Self::PermissionRequest,
             "stop" => Self::Stop,
             "subagent-stop" => Self::SubagentStop,
+            "recommend-acts" => Self::RecommendActs,
             "session-start" => Self::SessionStart,
             "user-prompt-submit" => Self::UserPromptSubmit,
             "codex-conduct" => Self::CodexConduct,
@@ -151,7 +153,7 @@ impl HookKind {
             Self::PreBash | Self::PreEdit | Self::PreAgent | Self::PreTimer | Self::PreMessage | Self::SpawnCapacity | Self::NativeSpawn => "PreToolUse",
             Self::PostTool => "PostToolUse",
             Self::PermissionRequest => "PermissionRequest",
-            Self::Stop => "Stop",
+            Self::Stop | Self::RecommendActs => "Stop",
             Self::SubagentStop => "SubagentStop",
             Self::SessionStart => "SessionStart",
             Self::UserPromptSubmit => "UserPromptSubmit",
@@ -210,7 +212,8 @@ impl HookKind {
             Self::NativeSpawn => &[crate::guard::proxy_role::evaluate, crate::guard::spawn_capacity::evaluate],
             Self::PostTool => &[crate::guard::worker_handoff::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate, crate::guard::spawn_capacity::confirm_native],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
-            Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::recommendation_grounding::evaluate, crate::guard::proxy_role::evaluate],
+            Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::recommendation_grounding::evaluate, crate::guard::recommend_acts::evaluate, crate::guard::proxy_role::evaluate],
+            Self::RecommendActs => &[crate::guard::recommend_acts::evaluate],
             Self::SubagentStop => &[crate::guard::subagent_teardown::evaluate],
             Self::SessionStart => &[crate::guard::unlanded_work::evaluate],
             Self::UserPromptSubmit => &[crate::guard::quiet_phrase::evaluate],
@@ -328,7 +331,7 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
             return Ok(());
         }
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),
-        _ => return Err("Usage: north hook [stats [--since 7d]|pre-bash|pre-edit|post-tool|session-start|stop|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|permission-request|codex-conduct]".into()),
+        _ => return Err("Usage: north hook [stats [--since 7d]|pre-bash|pre-edit|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|permission-request|codex-conduct]".into()),
     };
     let _ = process(
         io::stdin().lock(),
