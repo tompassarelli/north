@@ -52,7 +52,7 @@ Core-minutes are per day. Laptop minutes count first: gex45 sits mostly idle, th
 
 | # | Candidate | Laptop | gex45 | Disk | Wall per landing/lane | Cost | Risk | Reverse |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `north target-seed` skips `incremental/` | 0 | 0 | ~2.2 GiB per lane (measured) | seed copy shorter | 1 box | none: sessions keyed to other lanes' hashes are never read | copy it again |
+| 1 | `north target-seed` skips `incremental/` (superseded 2026-11-05: Warm worktree builds) | 0 | 0 | ~2.2 GiB per lane (measured) | seed copy shorter | 1 box | none: sessions keyed to other lanes' hashes are never read | copy it again |
 | 2 | Runtime release builds incremental | ~200 (est. 50% of 401, unmeasured) | 0 once gex45 stops building | +1-2 GB in `~/.cache/cargo-target/north` (est.) | promotion ~100 s sooner (est.) | 2 boxes | no reuse: each build is a fresh `runtime-<sha8>` worktree path | drop the env |
 | 3 | The laptop is the only runtime builder | 0 | 289 freed headroom | 0 | +0-2 min on gex45 (settle deploy) | 1 config box | none | one config line |
 | 4 | Drop north-core's `test-support` feature | ~60 (est., one north-core debug compile per lane build/test pair) | ~10 | 0.4-1.4 GB per lane (measured) | one north-core compile fewer per build/test pair | 1 box | ~60 lines of test doubles become unconditionally `pub` in the binary | re-add the feature |
@@ -295,6 +295,41 @@ Shared-registry result (2026-11-04, laptop under 25 to 30 load, cargo `Finished`
   like-for-like comparison.
 - The seed takes the newest idle sibling target; until every lane rebases past this change, that target may hold
   only path-keyed registry artifacts from an old land check, and a seed from it still compiles all 150.
+
+### Warm worktree builds (north#360, 2026-11-05)
+
+Cause: fleet workers build with `depbox run -- nix develop -c cargo ...` (AGENTS.md). depbox hides `~/.local` and the
+sibling checkouts, so the shellHook's `north target-seed` found no `north` and every new lane compiled all 158 crates;
+and B1's seed dropped `incremental/`, so even a seeded lane recompiled north-core from scratch. Copying a sibling's
+`incremental/` did not help on its own: rustc keeps a session only when the build runs at the same checkout path.
+Now depbox runs `north target-seed` before its sandbox and lease, the seed keeps `incremental/`, and depbox mounts the
+checkout a second time at `~/code/<project>/sandbox` and builds there, so every lane of a project compiles at one
+path. B1 is superseded.
+
+Result: whiterabbit (24 threads), a fresh north worktree with one blank line appended to
+`crates/north-core/src/lanes/target_seed.rs`, `date +%s.%N` deltas around the whole command, one run per row:
+
+| Run in the fresh worktree | Seed | Load | Crates compiled | Wall s |
+| --- | --- | --- | --- | --- |
+| before, `depbox run -- nix develop -c cargo test -p north-core --no-run` | none (hook finds no `north`) | 17 | 158 | 102.0 |
+| before, `nix develop -c cargo test -p north-core --no-run` | sibling, no `incremental/` | 8 to 13 | 11 | 109.8 |
+| sibling's `incremental/` kept, other path | sibling built at its own path | 17 to 23 | 3 | 112.0 |
+| sibling's `incremental/` kept, same path | sibling built at this path | 20 to 25 | 2 | 14.4 |
+| in-place rebuild, no seed | the lane's own target | 20 to 25 | 2 | 23.0 |
+| after, `depbox run -- nix develop -c cargo test -p north-core --no-run` | lander lane built at its real path | 15 | 3 | 72.6 |
+| after, same command | sibling built in the sandbox | 11 | 2 | 16.4 |
+
+- The 72.6 s row is the transition: a seed built before this change is still at its real path; land checks run
+  through `land-shell` and so depbox, so lander lanes become sandbox-path seeds after their next check.
+- The seed copy is not the cost: `cp -a --reflink=auto` of a 2.2 GiB lane target took 3.1 s on gex45's ext4 at
+  load 26 and 0.1 s on the laptop's btrfs, so the seed stays synchronous; a background copy would race the first
+  build for `target/`.
+- sccache is already the `RUSTC_WRAPPER` on both hosts (firn module `sccache`) and depbox passes it; the cold row
+  still took 102 s because north-core is the critical path and sccache skips incremental crates.
+- Disk: a seeded lane now carries the sibling's `incremental/` (1.6 GiB for north on the laptop), shared by reflink on
+  btrfs and copied on ext4; the reclaim sweep still removes idle lane targets after 4 h.
+- A per-worktree `CARGO_TARGET_DIR` (option b of the brief) was not built: depbox already pins each checkout's own
+  `target/`, and a target outside the checkout gets the `-Cmetadata=checkout:` key that blocks reuse.
 
 Order: B1, B2, B4 and B5 run in parallel; B3 follows B2, B6 follows B5, B8 follows the pull closure, B10 follows B9,
 B11 follows the offload fix.

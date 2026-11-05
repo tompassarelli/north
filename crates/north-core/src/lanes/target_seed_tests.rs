@@ -33,7 +33,7 @@ fn lanes(scratch: &Path, lane_lock: &str) -> (std::path::PathBuf, std::path::Pat
 }
 
 #[test]
-fn a_new_lane_copies_a_sibling_target_built_from_the_same_lockfile_without_incremental_state_and_rebuilds_only_its_own_packages() {
+fn a_new_lane_copies_a_sibling_target_built_from_the_same_lockfile_keeping_incremental_state_and_rebuilds_only_its_own_packages() {
     let scratch = tempfile::tempdir().unwrap();
     let (main, lane) = lanes(scratch.path(), LOCK);
     assert_eq!(seed(&lane.join("sub")).unwrap(), Some(main.join("sub/target")));
@@ -42,7 +42,7 @@ fn a_new_lane_copies_a_sibling_target_built_from_the_same_lockfile_without_incre
         assert_eq!(fs::read_to_string(debug.join("libserde.rlib")).unwrap(), "built");
         assert!(debug.join(".fingerprint/serde-0123456789abcdef").is_dir());
         assert!(!debug.join(".fingerprint/app-0123456789abcdef").exists());
-        assert!(!debug.join("incremental").exists());
+        assert!(debug.join("incremental/app-1abc/dep-graph.bin").is_file());
     }
     assert!(main.join("sub/target/debug/.fingerprint/app-0123456789abcdef").is_dir());
     assert!(main.join("sub/target/debug/incremental/app-1abc/dep-graph.bin").is_file());

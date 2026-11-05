@@ -57,7 +57,7 @@ pub fn seed(here: &Path) -> io::Result<Option<PathBuf>> {
         return Ok(None);
     };
     let staging = workspace.join(format!("target.seeding-{}", std::process::id()));
-    let seeded = copy(&from, &staging).and_then(|()| forget_own_packages(&staging, &lock)).and_then(|()| drop_incremental(&staging));
+    let seeded = copy(&from, &staging).and_then(|()| forget_own_packages(&staging, &lock));
     if let Err(error) = seeded {
         let _ = fs::remove_dir_all(&staging);
         return Err(error);
@@ -121,16 +121,6 @@ fn forget_own_packages(target: &Path, lock: &[u8]) -> io::Result<()> {
             if hash.len() == HASH_LEN && hash.bytes().all(|byte| byte.is_ascii_hexdigit()) && names.contains(&name) {
                 fs::remove_dir_all(fingerprint.path())?;
             }
-        }
-    }
-    Ok(())
-}
-
-fn drop_incremental(target: &Path) -> io::Result<()> {
-    for unit in unit_dirs(target) {
-        let incremental = unit.join("incremental");
-        if incremental.is_dir() {
-            fs::remove_dir_all(incremental)?;
         }
     }
     Ok(())

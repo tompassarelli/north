@@ -397,7 +397,7 @@ during the runs), so each row is indicative only. Times are Cargo's own
   `Cargo.lock` and a `CACHEDIR.TAG`, then deletes the fingerprints of every
   `Cargo.lock` package without a registry or git source, in each profile and
   `--target` directory, so none reads as fresh from another checkout's sources.
-  `incremental/` is not seeded because its state is keyed to the sibling's sources and dropped fingerprints (measured 2.2 GiB per lane on 2026-11-04).
+  `incremental/` is seeded too: rustc keeps a copied session only when the build runs at the same path, so `depbox` builds every lane at `~/code/<project>/sandbox` (2026-11-05, docs/rationale/build-cost.md "Warm worktree builds").
   The copy is private to the lane, so parallel lanes never wait on one Cargo
   lock. An equal `Cargo.lock` does not guarantee reuse: the unrelated seed above
   was copied and rebuilt in full, most likely because that lane was built under the old per-checkout key **(not isolated)**.

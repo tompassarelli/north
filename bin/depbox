@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 class=
-if [ -z "${DEPBOX_ADMITTED:-}" ]; then class=$(north capacity gate --class depbox "$@" 2>/dev/null) || class=; fi
+if [ -z "${DEPBOX_ADMITTED:-}" ]; then north target-seed; class=$(north capacity gate --class depbox "$@" 2>/dev/null) || class=; fi
 if [ -n "$class" ]; then
   DEPBOX_ADMITTED=1 exec north capacity host run --class "$class" --owner "gate:${NORTH_FLEET_SESSION:-${PWD##*/}}" --timeout-seconds 3600 -- "$0" "$@"
 fi
@@ -77,12 +77,14 @@ if [ -n "${CARGO_TARGET_DIR:-}" ] && [ "$(realpath -m "$CARGO_TARGET_DIR")" != "
   printf 'depbox: ignoring CARGO_TARGET_DIR %s; building in %s\n' "$CARGO_TARGET_DIR" "$target" >&2
 fi
 
-args+=(--bind "$top" "$top" --ro-bind "$common" "$common")
+box=${common%/*/.git}; box=$home/code/${box##*/}/sandbox
+args+=(--bind "$top" "$top" --bind "$top" "$box" --ro-bind "$common" "$common")
 args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session --clearenv)
 for var in "${cache_vars[@]}" PATH HOME USER LANG TERM CARGO_BUILD_JOBS RUST_TEST_THREADS AGENT_CAPACITY_LEASE SAFE_PUSH_LAND_BASE SAFE_PUSH_LAND_HEAD SAFE_PUSH_LAND_REF SAFE_PUSH_LANDING NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
   if [ -n "${!var:-}" ]; then args+=(--setenv "$var" "${!var}"); fi
 done
-args+=(--setenv CARGO_TARGET_DIR "$target")
-args+=(--chdir "$PWD")
+args+=(--setenv CARGO_TARGET_DIR "$box/target")
+here=$(realpath "$PWD")
+args+=(--chdir "$box${here#"$top"}")
 
 exec "$bwrap" "${args[@]}" -- "$@"
