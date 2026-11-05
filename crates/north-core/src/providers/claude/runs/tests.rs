@@ -104,6 +104,42 @@ fn a_landed_commit_subject_naming_an_issue_is_reported_as_the_runs_landed_ref() 
 }
 
 #[test]
+fn a_run_whose_session_lists_another_lanes_earlier_landing_records_its_own_landing() {
+    let (own, other) = ("7".repeat(40), "1".repeat(40));
+    let step = |id: &str, at: &str, command: &str, output: &str| {
+        [
+            json!({"type": "assistant", "timestamp": at, "message": {"content": [{"type": "tool_use", "id": id, "name": "Bash", "input": {"command": command}}]}}),
+            json!({"type": "user", "timestamp": at, "message": {"content": [{"type": "tool_result", "tool_use_id": id, "content": output}]}}),
+        ]
+    };
+    let records: Vec<Value> = [
+        step("c", "2026-10-29T11:12:12Z", "git commit -q -m \"Reread a settled run (north#255)\"", ""),
+        step("l", "2026-10-29T11:20:00Z", "git log --oneline origin/main -3; git diff --stat origin/main..n112-tune", "1111111 Pin the tune route cell (north#112)\n0000000 Older change (north#7)"),
+        step("p", "2026-10-29T11:45:20Z", "safe-push", &format!("safe-push: landed {own}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let main = MainIndex::parse(&format!("{other} 2026-10-29T11:15:43Z Pin the tune route cell (north#112)\n{own} 2026-10-29T11:45:10Z Reread a settled run (north#255)\n"));
+
+    let landed = checks(&records, &main);
+
+    assert_eq!((landed["landed_sha"].as_str(), landed["landed_ref"].as_str()), (Some(own.as_str()), Some("north#255")));
+}
+
+#[test]
+fn a_run_known_only_by_its_lane_listing_lands_the_listed_commit() {
+    let sha = "a".repeat(40);
+    let records = [
+        json!({"type": "assistant", "timestamp": "2026-10-28T09:00:00Z", "message": {"content": [{"type": "tool_use", "id": "c", "name": "Bash", "input": {"command": "git commit --amend --no-edit"}}, {"type": "tool_use", "id": "l", "name": "Bash", "input": {"command": "git log --oneline origin/main..HEAD"}}]}}),
+        json!({"type": "user", "timestamp": "2026-10-28T09:01:00Z", "message": {"content": [{"type": "tool_result", "tool_use_id": "c", "content": ""}, {"type": "tool_result", "tool_use_id": "l", "content": "aaaaaaa Fix the thing (north#42)"}]}}),
+    ];
+    let main = MainIndex::parse(&format!("{sha} 2026-10-28T10:00:00Z Fix the thing (north#42)\n"));
+
+    assert_eq!(checks(&records, &main)["landed_sha"].as_str(), Some(sha.as_str()));
+}
+
+#[test]
 fn a_subagent_transcript_yields_its_turns_tool_calls_and_active_and_wait_minutes() {
     let text = include_str!("fixtures/subagent.jsonl");
     let lines: Vec<Value> = text.lines().map(|line| serde_json::from_str(line).unwrap()).collect();

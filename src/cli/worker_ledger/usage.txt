@@ -35,8 +35,9 @@ reviewers `Lens: <lens>`; a reviewer report stating `Accepted flaws: N` counts N
 A run reporting `Split:` counts in no tier rate; the runs whose `Follows:` names it are its parts.
 A run succeeds when it reports Done (ruled out included) with no later Follows: run, and landed when it made
 a commit (a git commit or push in its transcript), where a commit counts as landed when it, or one with
-its subject (from -m, a -F - heredoc, or its lane's origin/main.. listing), is on origin/main of a repo in
-${LEDGER_REPOS:-~/code/*/main}, whoever pushed it; no_landing counts committed runs that did not land.
+its subject (from -m or a -F - heredoc), is on origin/main of a repo in
+${LEDGER_REPOS:-~/code/*/main}, whoever pushed it, and the earliest such commit is its landed_sha; an origin/main.. listing
+in its commands counts only when none of its own commits landed, since that output can name other lanes. no_landing counts committed runs that did not land.
 A `[routine:<name>]` brief records role routine and a session run from a /tmp cwd role probe, outside worker cells.
 --recommend uses an 80% measured success threshold over every provider's tiers (orchestration.toml keys); in the finest cell with >= 5 runs,
 backing off Surface, Verify, Scope, then Spec, it picks the passing tier with the lowest measured $ per success, or the cheapest by

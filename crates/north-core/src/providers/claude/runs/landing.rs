@@ -107,7 +107,7 @@ pub(super) fn checks(records: &[Value], main: &MainIndex) -> Map<String, Value> 
 
 pub fn tally(steps: &[Step], main: &MainIndex) -> Map<String, Value> {
     let (mut pushed, mut committed, mut first_commit) = (false, false, None);
-    let (mut made_shas, mut made_subjects, mut refs) = (Vec::<String>::new(), Vec::<String>::new(), Vec::<String>::new());
+    let (mut made_shas, mut made_subjects, mut listed_subjects, mut refs) = (Vec::<String>::new(), Vec::<String>::new(), Vec::<String>::new(), Vec::<String>::new());
     for step in steps {
         let Some(command) = step.command.as_deref().filter(|command| !command.is_empty()) else { continue };
         let succeeded = step.code == Some(0);
@@ -124,7 +124,7 @@ pub fn tally(steps: &[Step], main: &MainIndex) -> Map<String, Value> {
                 made_subjects.push(made[2].trim().to_owned());
             }
         } else if committed && succeeded && command.contains("origin/main..") && let Some(output) = &step.output {
-            made_subjects.extend(LANE.captures_iter(output).map(|lane| lane[2].trim().to_owned()));
+            listed_subjects.extend(LANE.captures_iter(output).map(|lane| lane[2].trim().to_owned()));
         } else if succeeded && THREADS_REF.is_match(command) {
             refs.extend(ISSUE.captures_iter(command).map(|c| c[1].to_owned()));
         }
@@ -135,10 +135,12 @@ pub fn tally(steps: &[Step], main: &MainIndex) -> Map<String, Value> {
             refs.extend(GH_ISSUE.captures_iter(command).map(|c| format!("{}#{}", &c[2], &c[1])));
         }
     }
-    landing(main, &made_shas, &made_subjects, first_commit, committed || pushed, refs)
+    let made = landed_commits(main, &made_shas, &made_subjects, first_commit);
+    let commits = if made.is_empty() { landed_commits(main, &[], &listed_subjects, first_commit) } else { made };
+    landing(&commits, committed || pushed, refs)
 }
 
-fn landing(main: &MainIndex, made_shas: &[String], made_subjects: &[String], first_commit: Option<&str>, expects: bool, refs: Vec<String>) -> Map<String, Value> {
+fn landed_commits<'a>(main: &'a MainIndex, made_shas: &[String], made_subjects: &[String], first_commit: Option<&str>) -> Vec<(String, Option<String>, &'a str)> {
     let mut seen_subjects: Vec<&String> = Vec::new();
     for subject in made_subjects {
         if !seen_subjects.contains(&subject) {
@@ -152,12 +154,18 @@ fn landing(main: &MainIndex, made_shas: &[String], made_subjects: &[String], fir
         .map(|(sha, date, subject)| (sha.clone(), utc(Some(date)), subject.as_str()))
         .collect();
     for subject in seen_subjects {
-        on_main.extend(main.subjects.get(subject).into_iter().flatten().map(|(sha, date)| (sha.clone(), utc(Some(date)), subject.as_str())));
+        if let Some((subject, landings)) = main.subjects.get_key_value(subject) {
+            on_main.extend(landings.iter().map(|(sha, date)| (sha.clone(), utc(Some(date)), subject.as_str())));
+        }
     }
     if let Some(first) = first_commit {
         let day: String = utc(Some(first)).unwrap_or_default().chars().take(11).collect();
         on_main.retain(|(_, date, _)| date.as_deref().is_some_and(|date| date >= day.as_str()));
     }
+    on_main
+}
+
+fn landing(on_main: &[(String, Option<String>, &str)], expects: bool, refs: Vec<String>) -> Map<String, Value> {
     let landing = on_main.iter().min_by(|left, right| (&left.1, &left.0).cmp(&(&right.1, &right.0)));
     let landed_ref = landing.and_then(|(_, _, subject)| ISSUE.captures_iter(subject).last()).map(|found| found[1].to_owned());
     let mut ranked: Vec<&String> = Vec::new();
