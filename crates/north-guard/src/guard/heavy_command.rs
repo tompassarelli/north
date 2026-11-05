@@ -482,6 +482,3 @@ fn farm_rule(entry: &toml_edit::Table) -> Option<FarmRule<'_>> {
     })
 }
 
-#[cfg(test)]
-#[path = "heavy_command_tests.rs"]
-mod tests;

@@ -116,11 +116,6 @@ impl Rules {
         }
         out
     }
-
-    #[cfg(test)]
-    pub(super) fn crate_plan(&self) -> BTreeMap<String, BTreeSet<String>> {
-        self.crates.iter().map(|krate| (krate.name.clone(), krate.may_use.iter().cloned().collect())).collect()
-    }
 }
 
 fn first<'a>(groups: &'a [Group], path: &str) -> Option<&'a Group> {

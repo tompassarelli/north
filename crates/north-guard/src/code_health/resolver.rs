@@ -15,11 +15,6 @@ fn is_manifest(path: &str) -> bool {
 }
 
 impl Resolver {
-    #[cfg(test)]
-    pub(super) fn new(source: Source, manifests: &[(&str, &str)]) -> Self {
-        Self { source, crates: Crate::from_manifests(manifests.iter().copied()) }
-    }
-
     pub(super) fn of_snapshot(snapshot: &Snapshot) -> Self {
         let manifests: Vec<(String, String)> = snapshot.paths().iter().filter(|path| is_manifest(path)).map(|path| (path.clone(), snapshot.text(path).map(|text| text.to_string()).unwrap_or_default())).collect();
         Self { source: Source::tree(snapshot.paths().to_vec()), crates: Crate::from_manifests(manifests.iter().map(|(path, text)| (path.as_str(), text.as_str()))) }

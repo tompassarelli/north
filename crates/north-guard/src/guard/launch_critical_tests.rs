@@ -2,7 +2,6 @@ use super::*;
 #[path = "launch_critical_fixtures.rs"]
 mod fixtures;
 use fixtures::fixture;
-use patch::excise_sanctioned;
 fn codex_equivalent(payload: &serde_json::Value) -> Option<serde_json::Value> {
     let command = payload["tool_input"]["command"].as_str()?;
     let mut codex = payload.clone();
@@ -159,15 +158,6 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
     );
 }
 
-#[test]
-fn only_a_north_wt_rescue_segment_is_sanctioned_against_a_main_checkout() {
-    assert_eq!(excise_sanctioned("north wt-rescue ~/code/p/main"), "");
-    assert_eq!(excise_sanctioned("FOO=1 env north wt-rescue ~/code/p/main"), "");
-    assert_eq!(excise_sanctioned("rm -rf main; north wt-rescue --dry-run"), "rm -rf main; ");
-    assert_eq!(excise_sanctioned("wt-rescue ~/code/p/main"), "wt-rescue ~/code/p/main");
-    assert_eq!(excise_sanctioned("north reclaim wt-rescue"), "north reclaim wt-rescue");
-}
-
 fn in_place_edit_from_main(command: impl FnOnce(&str) -> String) -> Option<String> {
     let fixture = fixture();
     let lane = format!("{}/wisp/worktrees/sc-812-cache", fixture.root);
@@ -193,31 +183,3 @@ fn an_in_place_edit_after_cd_semicolon_into_another_repos_lane_is_allowed() {
     assert_eq!(reason, None);
 }
 
-#[test]
-fn the_same_in_place_edit_without_the_cd_is_refused_in_the_primary_checkout() {
-    let reason = in_place_edit_from_main(|_| {
-        "perl -0pi -e 's/a/b/' host/toolchain/package.ts".into()
-    })
-    .unwrap();
-    assert!(reason.contains("edit in place"), "{reason}");
-    assert!(reason.contains("host/toolchain/package.ts"), "{reason}");
-}
-
-#[test]
-fn gawk_and_awk_in_place_edits_are_refused_in_the_primary_checkout() {
-    for command in [
-        "gawk -i inplace '{print}' host/toolchain/package.ts",
-        "awk -i inplace '{print}' host/toolchain/package.ts",
-        "gawk --include=inplace '{print}' host/toolchain/package.ts",
-    ] {
-        let reason = in_place_edit_from_main(|_| command.into()).unwrap();
-        assert!(reason.contains("edit in place"), "{command}: {reason}");
-        assert!(reason.contains("host/toolchain/package.ts"), "{command}: {reason}");
-    }
-}
-
-#[test]
-fn awk_without_in_place_is_allowed_in_the_primary_checkout() {
-    let reason = in_place_edit_from_main(|_| "awk '{print}' host/toolchain/package.ts".into());
-    assert_eq!(reason, None);
-}

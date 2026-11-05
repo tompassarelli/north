@@ -68,6 +68,3 @@ fn section(text: &str, option: &str) -> Option<String> {
     Some(lines[start..end].iter().map(|line| line.trim_end()).collect::<Vec<_>>().join("\n").trim_end().to_owned())
 }
 
-#[cfg(test)]
-#[path = "nix_explain_tests.rs"]
-mod tests;

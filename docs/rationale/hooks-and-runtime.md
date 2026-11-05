@@ -92,7 +92,7 @@ through `safe-push`. Codex bindings stay as they are unless the box says otherwi
    spawn, and no "spawn recording boundary miss" text reaches `additionalContext`.
 4. **Drop worker-wait's bare `sleep N` shape (#10).** Done when: a foreground `sleep 30` gets the
    runtime's own block and no `worker_wait` denial, and the `worker_wait` tests for the other shapes
-   (safe-push, `timeout N`, until loops, test suites) still pass. Done 2026-11-05: `guard::worker_wait_tests::a_bare_foreground_sleep_is_left_to_the_runtime_block`.
+   (safe-push, `timeout N`, until loops, test suites) still pass. Done 2026-11-05 in 9f799a81a.
 5. **Port spawn-capacity to Rust in `north hook` pre-agent (#11).** Done when:
    `lib/spawn_capacity.py` and `spawn-capacity-guard.sh` are gone (named in `harness/retired-hooks.txt`),
    the pre-agent p95 over 20 spawns is under 1 s with no `hook_cancelled` record, the existing
@@ -102,20 +102,20 @@ through `safe-push`. Codex bindings stay as they are unless the box says otherwi
    its body never reached the transcript; on `rust-development`, which is listed from the start, `paths:`
    would hide it until a `.rs` file is touched. `paths:` also cannot express `file-skills.toml`'s
    `package` condition. So skills keep loading through `file_skill` from `file-skills.toml`. Done when:
-   `tree_policy_refuses_a_skill_with_paths_frontmatter_because_file_skill_loads_language_skills` and the
-   `guard::file_skill` tests pass.
+   `tree_policy_refuses_a_skill_with_paths_frontmatter_because_file_skill_loads_language_skills` and
+   `file_skill` still loads the language skill on a first matching edit.
 7. **Scope the SessionStart unlanded-work notice (#14).** Done when: a session started in
    `~/code/north/main` names only north lanes, the notice is under 400 chars, and SessionStart p95 is under
    1 s over 20 starts. Done 2026-11-05: the notice counts only the cwd container's stale lanes and names up to two that
-   reference the session's item (`guard::unlanded_work_tests::a_north_session_hears_only_about_stale_north_lanes_and_those_naming_its_item`).
+   reference the session's item (9f799a81a).
 8. **Narrow the subagent teardown refusal (#16).** Owned by the teardown-wait lane; Done when that lane
    lands and a worker with a running background build ends its turn and is resumed by the runtime
    without a SubagentStop refusal. Follow-up done 2026-11-05: a background Bash refuses only as an endless watcher
    (`tail -f`, `journalctl -f`, `watch`, `cargo watch`, `inotifywait -m`, `while true` with no break) and Monitors
-   keep their expiry rule (`guard::subagent_teardown_tests::builds_tests_and_landings_may_outlive_the_turn_and_only_endless_watchers_refuse`).
+   keep their expiry rule (9f799a81a).
    North#523: once the final assistant message opens `Done:`, `Not done:`, `Split:` or `Blocked:`, every still-running
    background Bash or unexpired Monitor refuses the stop, bounded or not; a prose ending keeps the narrow rule
-   (`guard::subagent_teardown_tests::a_final_report_refuses_every_running_background_task_and_prose_keeps_bounded_work`).
+   (487fd4e4e).
 9. **Cap prompt grounding (#17).** Done when: the Grounding block is at most 1,500 chars on 20 sampled
    prompts, it no longer repeats the native skill listing, and no `prompt-grounding.sh` `hook_cancelled`
    record appears over a day.

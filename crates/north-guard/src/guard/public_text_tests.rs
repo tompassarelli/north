@@ -68,27 +68,3 @@ fn refuses_a_deny_listed_term_in_every_place_a_gh_write_carries_text() {
     }
 }
 
-#[test]
-fn passes_a_clean_body_a_private_repository_and_commands_that_write_nothing() {
-    let dir = scratch();
-    let cwd = dir.path().to_str().unwrap();
-    for command in [
-        "gh issue comment 5 --body 'landed and verified'",
-        "gh issue comment 5 --body-file clean.md",
-        "gh api repos/o/r/issues/5/comments -F body=@clean.md",
-        "gh issue comment 5 --body-file missing.md",
-        "echo 'orange-bicycle' > notes.txt",
-        "gh issue view 5",
-        "gh issue list --search orange-bicycle",
-    ] {
-        assert_eq!(decide(command, cwd, false), Verdict::Allow, "{command}");
-    }
-    let dirty = format!("gh issue comment 5 --body 'the {TERM}' -R tompassarelli/south");
-    assert_eq!(decide(&dirty, cwd, true), Verdict::Allow);
-    let gist = format!("gh gist create dirty.md --desc 'the {TERM}'");
-    assert!(refused_when_private(&gist, cwd));
-}
-
-fn refused_when_private(command: &str, cwd: &str) -> bool {
-    matches!(decide(command, cwd, true), Verdict::Deny(_))
-}

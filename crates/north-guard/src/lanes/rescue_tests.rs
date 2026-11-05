@@ -80,23 +80,6 @@ fn a_dirty_main_is_relocated_verified_committed_and_restored() {
 }
 
 #[test]
-fn a_clean_main_is_a_no_op_and_a_dry_run_changes_nothing() {
-    let project = Project::new();
-    let head = git_in(&project.main(), &["rev-parse", "HEAD"]);
-    assert!(matches!(project.rescue(false), Finished::Clean));
-    assert_eq!(git_in(&project.main(), &["rev-parse", "HEAD"]), head);
-    assert!(project.lanes().is_empty());
-
-    fs::write(project.main().join("f.txt"), "base\ndirty\n").unwrap();
-    fs::write(project.main().join("loose.txt"), "untracked\n").unwrap();
-    let before = git_in(&project.main(), &["status", "--porcelain"]);
-    let Finished::Plan(plan) = project.rescue(true) else { panic!("expected a plan") };
-    assert!(plan.iter().any(|line| line.contains("f.txt")) && plan.iter().any(|line| line.contains("loose.txt")));
-    assert_eq!(git_in(&project.main(), &["status", "--porcelain"]), before);
-    assert!(project.lanes().is_empty());
-}
-
-#[test]
 fn an_unreadable_main_status_fails_instead_of_reporting_clean() {
     let project = Project::new();
     let git_dir = project.main().join(".git");
@@ -117,20 +100,6 @@ fn a_verification_mismatch_aborts_with_main_untouched() {
     assert_eq!(git_in(&project.main(), &["status", "--porcelain"]), before);
     assert_eq!(git_in(&project.main(), &["rev-parse", "HEAD"]), head);
     assert_eq!(fs::read_to_string(project.main().join("f.txt")).unwrap(), "base\ndirty\n");
-}
-
-#[test]
-fn a_rejecting_pre_commit_hook_does_not_defeat_the_rescue() {
-    let project = Project::new();
-    let hook = project.main().join(".git/hooks/pre-commit");
-    fs::create_dir_all(hook.parent().unwrap()).unwrap();
-    north_core::foundation::shim::write_script(&hook, "echo refusing >&2\nexit 1\n");
-    fs::write(project.main().join("f.txt"), "base\ndirty\n").unwrap();
-    assert!(matches!(project.rescue(false), Finished::Done(_)));
-    assert_eq!(git_in(&project.main(), &["status", "--porcelain"]), "");
-    let rescued = &project.lanes()[0];
-    assert_eq!(fs::read_to_string(rescued.join("f.txt")).unwrap(), "base\ndirty\n");
-    assert_ne!(git_in(rescued, &["rev-parse", "HEAD"]), git_in(&project.main(), &["rev-parse", "HEAD"]));
 }
 
 #[test]

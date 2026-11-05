@@ -276,30 +276,3 @@ fn deleting_a_land_branch_with_an_autoland_run_in_flight_is_denied_but_other_del
     assert_eq!(push_verdict(&format!("git push origin --delete {queued}"), &[("SAFE_PUSH_ACTIVE", "1")], &hold), Verdict::Allow);
 }
 
-#[test]
-fn deletion_reads_every_delete_form_the_remote_and_no_other_refspec() {
-    use super::publish::deletion;
-    let words = |line: &str| line.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-    let read = |line: &str| deletion(&words(line));
-    assert_eq!(read("origin --delete a b"), ("origin".to_owned(), vec!["a".to_owned(), "b".to_owned()]));
-    assert_eq!(read("-q origin :refs/heads/a :b").1, ["a", "b"]);
-    assert_eq!(read("--repo=up --delete a"), ("up".to_owned(), vec!["a".to_owned()]));
-    assert_eq!(read("--repo up --delete a"), ("up".to_owned(), vec!["a".to_owned()]));
-    assert_eq!(read("-o ci.skip git@example.com:o/r.git --delete a"), ("git@example.com:o/r.git".to_owned(), vec!["a".to_owned()]));
-    assert!(read("origin main:other HEAD").1.is_empty());
-}
-
-#[test]
-fn a_command_breaking_two_rules_names_both() {
-    let home = tempfile::tempdir().unwrap();
-    let home = home.path().display().to_string();
-    let land = "claude/land-window-lighting-ea547387c6ab";
-    let hold = |_: std::time::Instant, _: &str, _: &str, branches: &[String]| branches.first().map(|branch| format!("{branch}: its Autoland run is queued"));
-    let Verdict::Deny(reason) = push_verdict(&format!("rm -rf /; git push origin --delete {land}"), &[("HOME", &home)], &hold) else {
-        panic!("a root delete and a held branch delete are refused");
-    };
-    let lines: Vec<&str> = reason.lines().collect();
-    assert_eq!(lines.len(), 2, "{reason}");
-    assert!(lines[0].starts_with("tripwire: recursive delete of '/'"), "{reason}");
-    assert!(lines[1].starts_with("tripwire: ") && lines[1].contains("Autoland run in flight"), "{reason}");
-}

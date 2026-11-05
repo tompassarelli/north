@@ -187,7 +187,3 @@ pub(crate) fn decide(ctx: &Ctx, input: &HookInput) -> Verdict {
 }
 
 
-#[cfg(test)]
-pub(crate) fn sentence_for_tests(text: &str) -> String {
-    stop::sentence(text)
-}

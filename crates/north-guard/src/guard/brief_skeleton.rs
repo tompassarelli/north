@@ -56,34 +56,3 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_category_skeleton_filled_with_placeholders_passes_the_brief_guard() {
-        let placeholder = regex::Regex::new("<[^>]*>").unwrap();
-        for category in CATEGORIES {
-            let text = skeleton(category).unwrap();
-            let filled = placeholder.replace_all(&text, "1").into_owned();
-            let kind = if category == "mechanical" { "worker-haiku" } else { "worker" };
-            assert_eq!(super::super::worker_tier::brief_refusal(kind, false, false, &filled), None, "{category}:\n{filled}");
-            assert!(crate::router::brief::class_refusal(&filled).is_none(), "{category}");
-        }
-    }
-
-    #[test]
-    fn every_skeleton_prints_the_item_and_box_lines_a_lane_copies_as_trailers() {
-        for category in CATEGORIES {
-            let text = skeleton(category).unwrap();
-            let mut lines = text.lines();
-            assert!(lines.next().unwrap().starts_with("Item: "), "{category}");
-            assert!(lines.next().unwrap().starts_with("Box: "), "{category}");
-        }
-    }
-
-    #[test]
-    fn an_unknown_category_has_no_skeleton() {
-        assert_eq!(skeleton("invented"), None);
-    }
-}

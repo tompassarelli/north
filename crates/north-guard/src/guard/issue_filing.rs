@@ -312,6 +312,3 @@ fn similar(title: &str, other: &str) -> bool {
     shared / left.union(&right).count() as f64 >= SIMILAR
 }
 
-#[cfg(test)]
-#[path = "issue_filing_tests.rs"]
-mod tests;

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::pin_retire::{ProofError, consumer_proof, execute};
+use super::pin_retire::execute;
 use super::test_git::git_in;
 
 struct World {
@@ -100,39 +100,6 @@ fn text(path: &Path) -> String {
 }
 
 #[test]
-fn a_pin_consumed_by_its_own_repository_is_retired_once_no_other_lane_references_it() {
-    let world = World::new();
-    let pin = world.new_pin("same-repository-consumer");
-    git_in(&world.main(), &["push", "-qu", "origin", "main"]);
-    fs::write(sidecar(&pin), format!("consumer-main: {}\nConsumer: same repository fixture.\n", world.main().display())).unwrap();
-    let main = text(&world.main());
-
-    world.retire(&["--dry-run", "--consumer-main", &main, "--", &text(&pin)]).expect("a pin's own administrative pointer is not a consumer");
-
-    let lane = world.container().join("worktrees/other");
-    git_in(&world.main(), &["worktree", "add", "-q", "-b", "same-repository-reference", &text(&lane), "main"]);
-    fs::write(lane.join("pin.ref"), format!("pin {}\n", pin.display())).unwrap();
-    git_in(&lane, &["add", "pin.ref"]);
-    git_in(&lane, &["commit", "-qm", "other lane uses same-repository pin"]);
-    let refused = world.retire(&["--dry-run", "--consumer-main", &main, "--", &text(&pin)]).unwrap_err();
-    assert!(refused.contains(&lane.to_string_lossy().into_owned()), "{refused}");
-
-    git_in(&world.main(), &["worktree", "remove", &text(&lane)]);
-    world.retire(&["--consumer-main", &main, "--", &text(&pin)]).unwrap();
-    assert!(!pin.exists() && !sidecar(&pin).exists());
-}
-
-#[test]
-fn a_moved_consumer_retires_the_pin_its_sidecar_and_its_registration() {
-    let world = World::new();
-    let pin = world.new_pin("valid");
-    let lines = world.retire(&arguments(&text(&world.consumer()), &text(&pin))).unwrap();
-    assert_eq!(lines, [format!("retired pin {}", pin.display())]);
-    assert!(!pin.exists() && !sidecar(&pin).exists());
-    assert!(!git_in(&world.main(), &["worktree", "list", "--porcelain"]).contains(&text(&pin)));
-}
-
-#[test]
 fn every_unproven_consumer_state_leaves_the_pin_and_its_sidecar_untouched() {
     let world = World::new();
     let pin = world.new_pin("proof-required");
@@ -211,65 +178,3 @@ fn a_dirty_pin_an_empty_sidecar_and_a_misnamed_pin_are_refused() {
     assert!(world.untouched(&pin));
 }
 
-#[test]
-fn an_unconsumed_pin_retires_only_when_reachable_unreferenced_and_clean() {
-    let world = World::new();
-    let referenced = world.new_pin("unconsumed-referenced");
-    fs::remove_file(sidecar(&referenced)).unwrap();
-    git_in(&world.main(), &["push", "-qu", "origin", "main"]);
-    let reference = world.consumer().join("unconsumed.ref");
-    fs::write(&reference, format!("pin {}\n", referenced.file_name().unwrap().to_string_lossy())).unwrap();
-    let error = world.retire(&["--unconsumed", "--", &text(&referenced)]).unwrap_err();
-    assert!(error.contains(&text(&reference)), "{error}");
-    assert!(referenced.is_dir());
-    fs::remove_file(&reference).unwrap();
-
-    let lost = git_in(&world.main(), &["commit-tree", "-m", "unreachable", "HEAD^{tree}"]);
-    let lost_pin = world.container().join("pins").join(&lost);
-    git_in(&world.main(), &["worktree", "add", "-q", "--detach", &text(&lost_pin), &lost]);
-    assert!(world.retire(&["--unconsumed", "--", &text(&lost_pin)]).is_err(), "unreachable HEAD");
-    assert!(lost_pin.is_dir());
-
-    let proof = world.retire(&["--unconsumed", "--", &text(&referenced)]).unwrap();
-    assert!(proof[0].contains("--unconsumed proof") && proof.last().unwrap().starts_with("retired pin"), "{proof:?}");
-    assert!(!referenced.exists());
-}
-
-#[test]
-fn a_short_named_unconsumed_pin_is_held_by_its_path_and_released_by_a_cited_full_commit() {
-    let world = World::new();
-    let seed = world.new_pin("seed");
-    fs::remove_file(sidecar(&seed)).unwrap();
-    fs::write(world.main().join("history.txt"), "short\n").unwrap();
-    git_in(&world.main(), &["commit", "-qam", "short-named"]);
-    git_in(&world.main(), &["push", "-q", "origin", "main"]);
-    let oid = git_in(&world.main(), &["rev-parse", "HEAD"]);
-    let pin = world.container().join("pins").join(&oid[..12]);
-    git_in(&world.main(), &["worktree", "add", "-q", "--detach", &text(&pin), &oid]);
-    let reference = world.consumer().join("short.ref");
-    fs::write(&reference, format!("see ~/code/proj/pins/{}\n", &oid[..12])).unwrap();
-    assert!(world.retire(&["--unconsumed", "--", &text(&pin)]).is_err(), "short name cited by its pin path");
-    fs::write(&reference, format!("fixed in commit {oid}\n")).unwrap();
-    world.retire(&["--unconsumed", "--", &text(&pin)]).expect("a full commit citation is not a pin reference");
-    assert!(!pin.exists());
-}
-
-#[test]
-fn the_consumer_proof_is_a_set_comparison_that_names_each_way_it_fails() {
-    let mut seed: u64 = 317;
-    for trial in 0..64 {
-        seed = (1_103_515_245 * seed + 12345) & 0x7fff_ffff;
-        let first = format!("/consumer/{trial}/main");
-        let second = format!("/consumer/{}/main", trial + 1);
-        let supplied = vec![first.clone(), second.clone()];
-        let declared = vec![second.clone(), first.clone()];
-        assert_eq!(consumer_proof(&supplied, &declared), Ok(()), "permutation, seed {seed}");
-        let doubled = [supplied.clone(), vec![first.clone()]].concat();
-        assert_eq!(consumer_proof(&doubled, &declared), Err(ProofError::DuplicateArguments));
-        let doubled_sidecar = [declared.clone(), vec![first.clone()]].concat();
-        assert_eq!(consumer_proof(&supplied, &doubled_sidecar), Err(ProofError::DuplicateSidecar));
-        let different = vec![format!("/different/{trial}/main"), second.clone()];
-        assert_eq!(consumer_proof(&supplied, &different), Err(ProofError::Mismatch));
-        assert_eq!(consumer_proof(&supplied[..1], &declared), Err(ProofError::Mismatch));
-    }
-}

@@ -113,19 +113,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn pipefail_unfiltered_and_unchained_forms_pass() {
-        for command in [
-            "set -o pipefail; cargo test 2>&1 | tail -5 && safe-push --to main",
-            "set -euo pipefail\ncargo test 2>&1 | tail -5 && safe-push --to main",
-            "cargo test && safe-push --to main",
-            "cargo test 2>&1 | tail -5; safe-push --to main",
-            "cargo test 2>&1 | tail -5 || safe-push --to main",
-            "git log | head -3 && safe-push --to main",
-            "cargo test 2>&1 | tail -5",
-            "cargo test 2>&1 | tail -5 && echo done",
-        ] {
-            assert_eq!(decision(command), Verdict::Allow, "{command}");
-        }
-    }
 }

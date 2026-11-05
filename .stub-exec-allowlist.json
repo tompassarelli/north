@@ -12,6 +12,5 @@
   "crates/north-threads/src/threads/client.rs": "production: spool directory mode",
   "crates/north-ops/src/ops/private_desktop/start.rs": "production: private desktop startup script",
   "crates/north-runtime/src/runtime/layout.rs": "production: stages the runtime binary",
-  "crates/north-ops/src/ops/reclaim/tests.rs": "data files that are never executed",
-  "crates/north-guard/src/lanes/hardcoded_paths_tests.rs": "a committed file that is never executed"
+  "crates/north-ops/src/ops/reclaim/tests.rs": "data files that are never executed"
 }

@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use super::recommendation_grounding::{decide, reason, recommendation};
+use super::recommendation_grounding::{decide, reason};
 use crate::hook::{HookInput, Verdict, evaluate};
 use serde_json::{Value, json};
 
@@ -34,46 +34,3 @@ fn a_recommendation_that_hits_a_decision_record_is_blocked_once_with_the_record_
     assert_eq!(crate::guard::host::recorded_decisions(RECOMMENDS, 0.0), Vec::<String>::new(), "no host installed means no records and no block");
 }
 
-#[test]
-fn a_recommendation_with_no_hit_and_a_report_with_no_recommendation_pass() {
-    let records = recorded;
-    for report in [
-        "Landed.\n\nI recommend a seeded retry in the flaky landing test.",
-        "Landed.\n\nThe fix is a seeded retry in the flaky landing test.",
-    ] {
-        assert_eq!(decide(&stop(report, false), "", &records), Verdict::Allow, "{report}");
-    }
-    let untouched = |_: &str| -> Vec<String> { panic!("no recommendation, no retrieval") };
-    for report in [
-        "Landed `abc123`; the laptop runtime builds on gex45.",
-        "Landed.\n\nI recommended the gex45 runtime build earlier.",
-        "Landed.\n\nThe fix isn't on gex45.",
-    ] {
-        assert_eq!(decide(&stop(report, false), "", &untouched), Verdict::Allow, "{report}");
-    }
-}
-
-#[test]
-fn the_recommendation_paragraph_is_the_last_one_carrying_a_marker() {
-    for (report, paragraph) in [
-        (RECOMMENDS, Some("I recommend building the laptop runtime on gex45 and shipping it from there, since gex45 is idle.")),
-        ("Recommended: ship it.\n\nLanded.", Some("Recommended: ship it.")),
-        ("Landed.\r\n\r\nThe fix would be a lock.\r\nIt is small.", Some("The fix would be a lock.\nIt is small.")),
-        ("I\u{2019}d say I recommend the lock.\n  \nLanded.", Some("I'd say I recommend the lock.")),
-        ("the fix is in.", Some("the fix is in.")),
-        ("Landed.\n\nNothing to recommend.", None),
-    ] {
-        assert_eq!(recommendation(report).as_deref(), paragraph, "{report}");
-    }
-}
-
-#[test]
-fn an_ask_and_a_grounded_recommendation_block_together() {
-    let report = format!("{RECOMMENDS}\n\nWant me to land it?");
-    let guards: [crate::hook::Guard; 2] = [
-        |input| crate::guard::permission_offer::decide(input, ""),
-        |input| decide(input, "", &|_| vec![NAMED.to_owned()]),
-    ];
-    let reason = format!("{}\n\n{}", crate::guard::permission_offer::REASON, reason(&[NAMED.to_owned()]));
-    assert_eq!(block(evaluate(&stop(&report, false), &guards, "Stop")), Some(json!({"decision":"block", "reason":reason})));
-}

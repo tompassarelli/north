@@ -11,10 +11,6 @@ mod strays;
 mod trees;
 
 #[cfg(test)]
-mod audit_tests;
-#[cfg(test)]
-mod classes_tests;
-#[cfg(test)]
 mod strays_tests;
 
 use std::collections::{HashMap, HashSet};

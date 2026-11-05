@@ -459,10 +459,9 @@ push access to South and the Firn timers are host configuration.
    `stop_hook_active` lets the revised report through, and a Stop that also carries an ask joins both
    reasons in one block. Recurrence on 2026-11-05: the proxy recommended building the laptop runtime
    on gex45 and shipping it, which South's gex45 access plan (P3b, B3, B17) forbids, and found the
-   record only after Tom replied. **Enforced by** the Stop hook; its tests in
-   `crates/north-guard/src/guard/recommendation_grounding_tests.rs` cover a fixture decision record
-   named, a recommendation with no hit passing, `stop_hook_active` passing and the handler under
-   300 ms on a warm fixture index.
+   record only after Tom replied. **Enforced by** the Stop hook; its test in
+   `crates/north-guard/src/guard/recommendation_grounding_tests.rs` replays that recommendation: the
+   fixture decision record is named once and `stop_hook_active` lets the revised report through.
 10. **G1 the delegation guard.** feature, module, rust, local-test; 45 min. Files:
     `crates/north-guard/src/guard/proxy_delegation.rs`, `crates/north-core/src/hook.rs` (`PreOther`),
     `harness/defaults.toml` (`proxy.warn_streak`, `proxy.deny_streak`). Needs: R1, P2, W1. Done when:

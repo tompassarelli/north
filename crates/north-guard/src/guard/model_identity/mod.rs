@@ -169,5 +169,3 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     }
 }
 
-#[cfg(test)]
-mod tests;

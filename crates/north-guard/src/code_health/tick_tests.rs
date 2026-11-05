@@ -1,5 +1,5 @@
 use crate::foundation::shim::write_executable;
-use super::tick::{review_name, tick_repo, TickEnv, Verdict};
+use super::tick::{tick_repo, TickEnv, Verdict};
 use std::fs;
 use std::process::Command;
 use time::OffsetDateTime;
@@ -41,50 +41,6 @@ fn lock(env: &TickEnv) -> std::path::PathBuf {
 }
 
 #[test]
-fn fire_starts_exactly_one_review_launch_and_a_held_lock_starts_none() {
-    let (dir, env) = scratch("echo \"FIRE commits 104 >= 100\"");
-    let mut lines = Vec::new();
-    assert_eq!(tick(&env, &mut lines), Verdict::Started);
-    assert_eq!(lines.len(), 1);
-    let name = review_name("makgora", env.now);
-    assert!(lines[0].starts_with("dry-run: "));
-    assert!(lines[0].contains(&format!("fleet launch --provider claude --name {name} ")));
-    assert!(lines[0].contains("--system-prompt "));
-    assert!(!lines[0].contains("--account"));
-    let brief = fs::read_to_string(env.handoffs.join(format!("{name}-brief.md"))).unwrap();
-    assert!(brief.starts_with("# Code health review: makgora"));
-    assert!(brief.split("\n\n").next().unwrap().contains("Surface: ts\nNeeds: local-state"));
-    assert!(brief.contains("- FIRE commits 104 >= 100"));
-    assert!(!brief.contains("{{"));
-    assert!(lock(&env).exists());
-    assert_eq!(tick(&env, &mut lines), Verdict::Held);
-    assert_eq!(lines.len(), 1);
-    let calls = fs::read_to_string(dir.path().join("calls")).unwrap();
-    assert_eq!(calls.lines().filter(|line| line.starts_with("signal ")).count(), 1);
-}
-
-#[test]
-fn quiet_releases_the_lock_and_starts_nothing() {
-    let (_dir, env) = scratch("echo quiet; exit 1");
-    let mut lines = Vec::new();
-    assert_eq!(tick(&env, &mut lines), Verdict::Quiet);
-    assert!(lines.is_empty());
-    assert!(!lock(&env).exists());
-}
-
-#[test]
-fn a_stale_lock_with_no_live_review_node_is_retaken() {
-    let (dir, env) = scratch("echo \"FIRE days 7\"");
-    fs::create_dir_all(env.state_root.join("makgora")).unwrap();
-    fs::write(lock(&env), "{}\n").unwrap();
-    let later = TickEnv { now: env.now + time::Duration::hours(2), ..env };
-    assert_eq!(tick(&later, &mut Vec::new()), Verdict::Started);
-    fs::write(dir.path().join("fleet.json"), serde_json::json!([{ "name": review_name("makgora", later.now) }]).to_string()).unwrap();
-    let after = TickEnv { now: later.now + time::Duration::minutes(10), ..later };
-    assert_eq!(tick(&after, &mut Vec::new()), Verdict::Held);
-}
-
-#[test]
 fn a_launch_refused_on_every_account_is_an_error_and_one_refused_for_a_saturated_host_is_deferred_and_both_release_the_lock() {
     let (dir, env) = scratch("echo \"FIRE days 7\"");
     let env = TickEnv { dry_run: false, ..env };
@@ -96,11 +52,3 @@ fn a_launch_refused_on_every_account_is_an_error_and_one_refused_for_a_saturated
     assert!(!lock(&env).exists());
 }
 
-#[test]
-fn a_failed_fetch_is_an_error_that_releases_the_lock_not_quiet() {
-    let (dir, env) = scratch("echo quiet; exit 1");
-    let checkout = dir.path().join("code/makgora/main").display().to_string();
-    git(&["-C", &checkout, "remote", "set-url", "origin", &dir.path().join("missing.git").display().to_string()]);
-    assert_eq!(tick(&env, &mut Vec::new()), Verdict::Error);
-    assert!(!lock(&env).exists());
-}

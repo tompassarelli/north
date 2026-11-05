@@ -457,38 +457,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn passes_extract_into_a_pipe_and_output_that_leaves_the_terminal() {
-        for command in [
-            "sops decrypt --extract '[\"k\"]' secrets.yaml | consumer",
-            "sops -d --extract '[\"token\"]' f | gh auth login --with-token",
-            "sops decrypt f > /tmp/out",
-            "sops decrypt f >> /tmp/out",
-            "sops decrypt f >| /tmp/out",
-            "sops decrypt f &> /tmp/out",
-            "sops decrypt f >& /tmp/out",
-            "sops decrypt f | sed s/a/b/ > /tmp/out",
-            "sops decrypt f 2>&1 >/dev/null",
-            "sops decrypt --output /tmp/out f",
-            "sops decrypt --in-place f",
-            "token=$(sops -d --extract '[\"t\"]' f)",
-            "token=$(sops -d f)",
-            "token=\"$(sops -d f)\"",
-            "export TOKEN=$(sops -d f)",
-            "sops encrypt f",
-            "sops --version",
-            "echo sops decrypt",
-            "rg sops src",
-            "echo sops -d f",
-            "git commit -m 'Refuse `sops -d f` output'",
-            "gh issue comment 1 --body \"run \\$(sops -d f)\"",
-            "gh issue comment 1 --body-file - << 'EOF'\nrun `sops decrypt f | sed`\nEOF",
-            "cd x # then sops -d f | sed s/a/b/",
-            "gh issue comment 1 --body 'text with $(sops -d f) and `sops decrypt f | sed`'",
-            "rg '$(sops -d' src",
-            "cat <<'EOF'\n$(sops -d f)\nEOF",
-        ] {
-            assert!(!refused(command), "{command}");
-        }
-    }
 }

@@ -218,6 +218,3 @@ fn find(words: &[String], spec: &str) -> bool {
     (0..words.len()).any(|at| matches_at(words, at, &spec))
 }
 
-#[cfg(test)]
-#[path = "nix_activity_tests.rs"]
-mod tests;

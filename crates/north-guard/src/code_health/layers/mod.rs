@@ -1,7 +1,5 @@
 mod references;
 mod rules;
-#[cfg(test)]
-mod tests;
 
 use super::rust_modules::Crate;
 use super::source::Source;

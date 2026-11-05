@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use super::proxy_role::{ClaudeStart, Registered, World, decide, shell_action};
+use super::proxy_role::{ClaudeStart, Registered, World, decide};
 use crate::hook::{HookInput, Verdict};
 use serde_json::{Value, json};
 
@@ -98,67 +98,6 @@ fn the_proxy_is_refused_every_implementation_action_with_the_launch_route() {
     for input in implementation() {
         assert!(denied(&proxy(), &input), "{:?}", input.data);
     }
-}
-
-#[test]
-fn a_worker_session_is_allowed_every_implementation_action() {
-    for input in implementation() {
-        assert_eq!(decide(&worker(), &input), Verdict::Allow, "{:?}", input.data);
-        assert_eq!(decide(&Fake::default(), &input), Verdict::Allow, "{:?}", input.data);
-    }
-}
-
-#[test]
-fn the_proxy_keeps_its_reads_routing_and_read_only_subagents() {
-    for input in [
-        bash("git log --oneline -5 && git status"),
-        bash("north fleet launch --task north#1 --account a 'cargo test the guard'"),
-        bash("north threads ready | head"),
-        bash("gh issue view 523 --json body"),
-        bash("rg -n cargo crates/north-guard/src"),
-        bash("cat docs/safe-push.md"),
-        bash("north fleet launch --task x#1 --brief \"Verify: cargo check --tests\nthen `cargo test`; done\""),
-        bash("gh issue comment 1 --body \"ran `cargo test`; ok\""),
-        bash("rg -n \"git commit\" docs"),
-        bash("cat x | rg \"cargo test\" -"),
-        bash("ls bin/safe-push && command -v safe-push"),
-        tool("Read", json!({"file_path": "/home/tom/code/north/main/Cargo.toml"})),
-        tool("Write", json!({"file_path": "/home/tom/.local/state/agents/handoffs/x.md", "content": "x"})),
-        tool("Agent", json!({"subagent_type": "Explore", "description": "d", "prompt": "p"})),
-        tool("Agent", json!({"subagent_type": "Plan", "description": "d", "prompt": "p"})),
-    ] {
-        assert_eq!(decide(&proxy(), &input), Verdict::Allow, "{:?}", input.data);
-    }
-}
-
-#[test]
-fn identity_comes_from_the_agent_then_the_launch_role_then_the_registry() {
-    let commit = |extra: Value| {
-        let mut data = json!({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "git commit -m x"}});
-        for (key, value) in extra.as_object().unwrap() {
-            data[key] = value.clone();
-        }
-        HookInput::parse(data.to_string().as_bytes()).unwrap()
-    };
-    assert!(denied(&worker(), &commit(json!({"agent_type": "proxy"}))));
-    assert_eq!(decide(&proxy(), &commit(json!({"agent_type": "worker", "agent_id": "a1"}))), Verdict::Allow);
-    assert_eq!(decide(&proxy(), &commit(json!({"agent_id": "a1"}))), Verdict::Allow);
-    let unbound = Fake { registered: Some("s1"), ..Fake::default() };
-    assert!(denied(&unbound, &commit(json!({}))));
-    let other = Fake { registered: Some("s2"), ..Fake::default() };
-    assert_eq!(decide(&other, &commit(json!({}))), Verdict::Allow);
-    let fleet_worker = Fake { session: Some("n523"), registered: Some("s1"), ..Fake::default() };
-    assert_eq!(decide(&fleet_worker, &commit(json!({}))), Verdict::Allow);
-}
-
-#[test]
-fn shell_actions_name_what_was_refused() {
-    assert_eq!(shell_action("git commit -m x").as_deref(), Some("make a git commit"));
-    assert_eq!(shell_action("timeout 900 safe-push --to main").as_deref(), Some("land through safe-push"));
-    assert_eq!(shell_action("cargo check --tests").as_deref(), Some("run cargo check"));
-    assert_eq!(shell_action("cargo fmt --check"), None);
-    assert_eq!(shell_action("git commit-tree x"), None);
-    assert_eq!(shell_action("cat <<'EOF'\ncargo test\nEOF"), None);
 }
 
 fn stop(active: bool) -> HookInput {

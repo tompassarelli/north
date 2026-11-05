@@ -187,7 +187,3 @@ fn missing_dev_profile(input: &HookInput, edited: &Path, skill: &Path, roots: &R
     Some(format!("file-skill: this Cargo workspace has no [profile.dev] section, so it builds on toolchain defaults (full debuginfo, unoptimised dependencies). Add one now, measured per the compile-times reference ({}/{PROFILE_FILE}):\n{}", skill.display(), lines.join("\n").trim()))
 }
 
-#[cfg(test)]
-pub(super) fn rules_len() -> usize {
-    rules().len()
-}

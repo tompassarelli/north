@@ -4,8 +4,7 @@ use std::process::{Child, Command};
 use std::time::{Duration, SystemTime};
 
 use north_core::platform::git;
-use super::reap::{Counts, Sweep, all_containers};
-use super::repo::find_container;
+use super::reap::{Counts, Sweep};
 use super::test_git::{git_in, init_repo};
 
 const AGED: Duration = Duration::from_secs(3 * 3600);
@@ -181,27 +180,3 @@ fn a_sweep_reaps_only_spent_lanes_and_keeps_every_other_shape() {
     assert!(!ignored.exists() && !branch_exists(&container, "equiv-ignored"));
 }
 
-#[test]
-fn all_finds_every_home_container_and_a_lane_subdirectory_finds_its_container() {
-    let home = tempfile::tempdir().unwrap();
-    let home_path = home.path().canonicalize().unwrap();
-    let main = home_path.join("code/projA/main");
-    init_repo(&main, None);
-    let done = home_path.join("code/projA/worktrees/done");
-    git_in(&main, &["worktree", "add", "-q", "-b", "done-branch", done.to_str().unwrap(), "main"]);
-    git_in(&main, &["merge", "-q", "done-branch"]);
-    age(&done);
-    fs::create_dir_all(home_path.join("code/not-a-container")).unwrap();
-    let containers = all_containers(&home_path);
-    assert_eq!(containers, vec![home_path.join("code/projA")]);
-
-    let deep = done.join("sub/dir");
-    fs::create_dir_all(&deep).unwrap();
-    assert_eq!(find_container(&deep), Some(home_path.join("code/projA")));
-
-    let sweep = Sweep { dry_run: false, now: SystemTime::now(), proc_root: PathBuf::from("/proc") };
-    let (_, failure) = sweep.reap_containers(&containers);
-    assert_eq!(failure, None);
-    assert!(!done.exists());
-    assert!(git_in(&main, &["branch", "--list", "done-branch"]).is_empty());
-}

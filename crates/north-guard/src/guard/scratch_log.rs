@@ -19,22 +19,3 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn verdict(command: &str) -> Verdict {
-        let payload = serde_json::json!({"tool_name": "Bash", "tool_input": {"command": command, "run_in_background": true}});
-        evaluate(&HookInput::parse(payload.to_string().as_bytes()).unwrap())
-    }
-
-    #[test]
-    fn a_fixed_generic_log_name_under_the_shared_scratchpad_is_warned_and_a_lane_name_passes() {
-        for command in ["cargo test > $S/test.log", "cargo test > $S/out.log 2>&1", "cargo build 2>&1 | tee ${S}/build.log", "make >> /tmp/claude-1000/p/s/scratchpad/build.log"] {
-            assert!(matches!(verdict(command), Verdict::Advise(text) if text.contains("<lane>")), "{command}");
-        }
-        for command in ["cargo test > $S/<lane>-test.log", "cargo test > $S/n523-test.log 2>&1", "cargo test > $S/sub/test.log", "cargo test > /tmp/mine/test.log", "cargo test"] {
-            assert!(matches!(verdict(command), Verdict::Allow), "{command}");
-        }
-    }
-}

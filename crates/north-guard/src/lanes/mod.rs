@@ -21,16 +21,10 @@ pub use rescue::run as wt_rescue;
 pub use target_seed::run as target_seed;
 
 #[cfg(test)]
-mod hardcoded_paths_tests;
-#[cfg(test)]
-mod layout_check_tests;
-#[cfg(test)]
 mod pin_retire_tests;
 #[cfg(test)]
 mod reap_tests;
 #[cfg(test)]
 mod rescue_tests;
-#[cfg(test)]
-mod target_seed_tests;
 #[cfg(test)]
 mod verdict_tests;

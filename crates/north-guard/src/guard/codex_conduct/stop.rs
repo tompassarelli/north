@@ -88,7 +88,3 @@ pub(super) fn stop(ctx: &Ctx, event: &Value) -> Verdict {
     Verdict::Allow
 }
 
-#[cfg(test)]
-pub(super) fn sentence(text: &str) -> String {
-    last_sentence(text)
-}

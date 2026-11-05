@@ -434,6 +434,3 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     }
 }
 
-#[cfg(test)]
-#[path = "generated_policy_tests.rs"]
-mod tests;

@@ -23,8 +23,3 @@ pub(super) fn init_repo(path: &Path, object_format: Option<&str>) {
     git_in(path, &["commit", "-qm", "base"]);
 }
 
-pub(super) fn init_checkout(path: &Path) {
-    git_in(path, &["init", "-q", "-b", "main"]);
-    git_in(path, &["add", "."]);
-    git_in(path, &["commit", "-qm", "fixture"]);
-}

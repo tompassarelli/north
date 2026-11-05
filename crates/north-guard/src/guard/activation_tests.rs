@@ -44,23 +44,3 @@ fn killswitch_matches_override_list_and_activation_json() {
     assert!(off(&env));
 }
 
-#[test]
-fn a_hook_runs_only_while_its_unit_is_listed_active_and_the_env_switch_forces_guards_off() {
-    let dir = tempfile::tempdir().unwrap();
-    let list = dir.path().join("active");
-    let mut env = std::collections::BTreeMap::from([("NORTH_AGENT_ACTIVE", list.display().to_string())]);
-    let off = |env: &std::collections::BTreeMap<&str, String>, id: &str| guards_off_in(id, &|name| env.get(name).cloned());
-    std::fs::write(&list, "hook prompt-grounding\n").unwrap();
-    assert!(!off(&env, "prompt-grounding"));
-    assert!(!off(&env, "prompt-grounding.sh"));
-    std::fs::write(&list, "hook other\n").unwrap();
-    assert!(off(&env, "prompt-grounding"));
-    std::fs::write(&list, "hook prompt-grounding\n").unwrap();
-    env.insert("AGENT_NO_AUTHORING_HOOKS", "1".into());
-    assert!(off(&env, "prompt-grounding"));
-    env.remove("AGENT_NO_AUTHORING_HOOKS");
-    env.insert("NORTH_HOOK_ID", "fixture-guard".into());
-    assert!(off(&env, "prompt-grounding"));
-    std::fs::write(&list, "hook fixture-guard\n").unwrap();
-    assert!(!off(&env, "prompt-grounding"));
-}

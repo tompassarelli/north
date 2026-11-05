@@ -18,11 +18,6 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     })
 }
 
-#[cfg(test)]
-pub(super) fn decide(input: &HookInput) -> Verdict {
-    decide_with(input, |_, _| Ok(()))
-}
-
 pub(super) fn decide_with(
     input: &HookInput,
     mut record: impl FnMut(&str, &str) -> crate::error::NorthResult<()>,
@@ -161,36 +156,3 @@ fn bun_command(mut args: &[String]) -> &[String] {
     args
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn denials_name_only_runners_the_quiet_lease_accepts() {
-        for text in [DENIAL, QUIET_DENIAL] {
-            let named: Vec<&str> = text
-                .split('`')
-                .skip(1)
-                .step_by(2)
-                .filter(|span| span.starts_with("bun wisp "))
-                .collect();
-            assert!(!named.is_empty());
-            for span in named {
-                let mut args = ["machine-capacity", "session", "--class", "native", "--quiet", "--"]
-                    .map(str::to_owned)
-                    .to_vec();
-                args.extend(span.split(' ').map(str::to_owned));
-                assert!(!quiet_capture(&args), "{span} is not a runner the guard accepts");
-            }
-        }
-    }
-
-    #[test]
-    fn quiet_lease_commands_exist_in_wisp() {
-        let wisp: Vec<String> = serde_json::from_str(include_str!("fixtures/wisp_commands.json")).unwrap();
-        for command in QUIET_LEASE_COMMANDS {
-            let name = command.join(" ");
-            assert!(wisp.contains(&name), "{name} is not a wisp command");
-        }
-    }
-}

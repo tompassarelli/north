@@ -8,11 +8,6 @@ pub(super) struct Snapshot {
 }
 
 impl Snapshot {
-    #[cfg(test)]
-    pub(super) fn from_files<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
-        Self { files: files.into_iter().filter(|(path, _)| wanted(path)).map(|(path, text)| (path.to_owned(), text.to_owned())).collect() }
-    }
-
     pub(super) fn at(repo: &Path, rev: &str) -> Result<Self, String> {
         let listing = git(repo, &["ls-tree", "-r", "-z", "--full-tree", rev])?;
         let entries: Vec<(String, String)> = listing

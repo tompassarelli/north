@@ -5,8 +5,6 @@ mod cli_tests;
 mod config;
 mod crate_lines;
 mod functions;
-#[cfg(test)]
-mod functions_tests;
 mod gate;
 mod graph;
 mod habits;

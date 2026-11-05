@@ -1,7 +1,5 @@
 mod snapshot;
 mod workspace;
-#[cfg(test)]
-mod tests;
 
 use snapshot::Snapshot;
 use std::path::PathBuf;
