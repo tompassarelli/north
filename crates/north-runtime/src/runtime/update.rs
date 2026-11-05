@@ -358,19 +358,21 @@ fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, co
         let status = supersede::run(&mut build, target, previous, || main_commit(checkout).ok()).inspect_err(|failure| {
             if failure.code == SUPERSEDED {
                 note_abandoned(layout, target);
+                let _ = cargo_build::forget_release_incremental(&built);
             }
         })?;
         Ok((status, cargo_build::cargo_ran(&built, wall)))
     };
     let (mut status, mut ran) = attempt()?;
-    if !status.success() && ran && log.links_against_stale_incremental_output() {
+    if let Some(archives) = log.stale_archives().filter(|_| !status.success() && ran) {
         println!(
-            "north runtime: build of {} failed to link against stale release incremental output (build log: {}); clearing {} and building once more",
+            "north runtime: build of {} failed to link against stale release incremental output (build log: {}); clearing {} and {} stale rlibs and building once more",
             layout::short(target),
             log.path().display(),
-            built.join("release/incremental").display()
+            built.join("release/incremental").display(),
+            archives.len()
         );
-        cargo_build::forget_release_incremental(&built)?;
+        cargo_build::recompile_from_scratch(&built, &archives)?;
         (status, ran) = attempt()?;
     }
     if !status.success() {

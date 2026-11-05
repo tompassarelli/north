@@ -137,8 +137,13 @@ cargo's build lock let only one cargo use the target at a time. Each build start
 `worktrees/runtime-build`, so cargo reruns rustc for every workspace crate each time. That leaves rustc's
 `release/incremental` sessions as the only state that carries over from build to build, and that is where the stale
 objects came from. Removing the workspace's release artifacts at 9:42 PM made the next build link, and no runtime build since
-has failed that way. A build that fails with that signature now removes `release/incremental` and builds once more, so
-incremental stays on. Each failed build keeps its compiler output in
+has failed that way. On gex45 on 2026-11-06 the first recovery, which only removed `release/incremental` and built
+once more, failed twice (58e4d3fe at 4:28 AM and c95d9b2f at 4:59 AM, UTC+7, each about 40 s after a superseded build was
+stopped): the first attempt had already compiled the broken rlib and written its fingerprint, so the retry only
+relinked it in 19 s and hit the same symbols (north#612). Now a superseded stop removes `release/incremental` at once,
+so the next build never reads a session an interrupted rustc left behind, and a build that still fails with that
+signature removes `release/incremental` and every rlib its `in archive` lines name, so the retry recompiles those
+crates from scratch. Incremental stays on. Each failed build keeps its compiler output in
 `~/.local/state/north/runtime-build-logs/<sha>.log`, and its failure line names that file.
 
 ### B3. Turn on incremental for runtime builds (candidate 2, if B2's on-row is at least 30% below off)
