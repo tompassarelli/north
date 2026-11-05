@@ -20,7 +20,8 @@ use super::editor::edit_textarea;
 use super::digest::{DigestPane, SessionFacts};
 use super::form::{FormOutcome, LaunchForm, newline_modifier};
 use super::order::arrange;
-use super::slash::SlashMenu;
+use super::help_panel::{HelpPanel, Reaction, Tab};
+use super::key_table::{Control, control_for};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Focus {
@@ -79,7 +80,7 @@ pub struct Screen {
     pub busy: BTreeMap<String, usize>,
     pub pending: Vec<PendingMessage>,
     pub digest: DigestPane,
-    pub slash: SlashMenu,
+    pub help: HelpPanel,
     attachments: Attachments,
     clipboard: Box<dyn Clipboard>,
     bell: bool,
@@ -105,7 +106,7 @@ impl Screen {
             busy: BTreeMap::new(),
             pending: Vec::new(),
             digest: DigestPane::default(),
-            slash: SlashMenu::default(),
+            help: HelpPanel::default(),
             attachments: Attachments::system(),
             clipboard: Box::new(Wayland),
             bell: false,
@@ -127,6 +128,14 @@ impl Screen {
 
     pub fn offer(&mut self, choices: Vec<Choices>) {
         self.choices = choices;
+    }
+
+    pub fn accounts(&self) -> &[Account] {
+        &self.accounts
+    }
+
+    pub fn workspace(&self) -> &std::path::Path {
+        &self.cwd
     }
 
     pub fn quitting(&self) -> bool {
@@ -180,6 +189,11 @@ impl Screen {
     }
 
     pub fn paste(&mut self, text: &str) {
+        self.insert_pasted(text);
+        self.settle_help();
+    }
+
+    fn insert_pasted(&mut self, text: &str) {
         match &mut self.dialog {
             Some(Dialog::Launch(form)) => form.paste(text),
             Some(Dialog::ConfirmStop(_)) => {}
@@ -302,11 +316,25 @@ impl Screen {
         if self.dialog.is_some() {
             return self.handle_dialog_key(key);
         }
-        if let Some(action) = control_action(key) {
-            return self.handle_control(action);
+        match self.help.key(key, &self.composer_text()) {
+            Reaction::Swallow => return None,
+            Reaction::Close { clear_composer } => {
+                if clear_composer {
+                    self.composer = composer_area();
+                }
+                return None;
+            }
+            Reaction::Run(name) => return self.run_slash(name),
+            Reaction::Pass => {}
         }
-        if self.focus == Focus::Composer && self.slash.intercept(&mut self.composer, key) {
-            return None;
+        let command = self.route_key(key);
+        self.settle_help();
+        command
+    }
+
+    fn route_key(&mut self, key: KeyEvent) -> Option<Command> {
+        if let Some(action) = control_for(key) {
+            return self.handle_control(action);
         }
         self.notice = None;
         match key.code {
@@ -319,18 +347,43 @@ impl Screen {
         None
     }
 
-    fn handle_control(&mut self, character: char) -> Option<Command> {
-        match character {
-            'q' => self.quitting = true,
-            'n' => self.open_launch_form(),
-            'c' => return self.interrupt_selected(),
-            'x' => self.confirm_stop(),
-            'd' => return self.forget_selected(),
-            'g' => return self.deepen(),
-            't' => self.toggle_digest(),
-            'v' => self.attach_image(),
-            'y' => self.copy_reply(),
-            _ => {}
+    fn composer_text(&self) -> String {
+        self.composer.lines().join("\n")
+    }
+
+    fn settle_help(&mut self) {
+        if self.dialog.is_some() {
+            self.help.close();
+        } else {
+            let text = self.composer_text();
+            self.help.reconcile(&text);
+        }
+    }
+
+    fn run_slash(&mut self, name: &str) -> Option<Command> {
+        self.composer = composer_area();
+        if name == "/help" {
+            self.composer.insert_str("?");
+            self.help.open(Tab::General);
+            return None;
+        }
+        self.composer.insert_str(name);
+        let command = self.submit(Delivery::Queued);
+        self.settle_help();
+        command
+    }
+
+    fn handle_control(&mut self, control: Control) -> Option<Command> {
+        match control {
+            Control::Quit => self.quitting = true,
+            Control::NewSession => self.open_launch_form(),
+            Control::Interrupt => return self.interrupt_selected(),
+            Control::Stop => self.confirm_stop(),
+            Control::Forget => return self.forget_selected(),
+            Control::Deepen => return self.deepen(),
+            Control::Digest => self.toggle_digest(),
+            Control::PasteImage => self.attach_image(),
+            Control::CopyReply => self.copy_reply(),
         }
         None
     }
@@ -577,12 +630,6 @@ fn composer_area() -> TextArea<'static> {
     area.set_cursor_line_style(Style::default());
     area.set_cursor_style(Style::default().add_modifier(Modifier::REVERSED));
     area
-}
-
-fn control_action(key: KeyEvent) -> Option<char> {
-    let KeyCode::Char(character) = key.code else { return None };
-    let character = character.to_ascii_lowercase();
-    (key.modifiers.contains(KeyModifiers::CONTROL) && matches!(character, 'q' | 'n' | 'c' | 'x' | 'd' | 'g' | 't' | 'v' | 'y')).then_some(character)
 }
 
 fn echoes(transcript: Option<&Transcript>, text: &str) -> usize {

@@ -16,25 +16,6 @@ use super::view;
 
 const MINUTE: u64 = 60_000;
 
-#[test]
-fn slash_suggestions_filter_close_and_insert_without_sending() {
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut screen = table_screen();
-    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
-    screen.handle_key(key(KeyCode::Char('/')));
-    let rows = frame(&mut screen, None, 100, 0).join("\n");
-    assert!(rows.contains("commands") && rows.contains("/config") && rows.contains("/model"), "{rows}");
-    screen.handle_key(key(KeyCode::Char('m')));
-    let rows = frame(&mut screen, None, 100, 0).join("\n");
-    assert!(rows.contains("/model") && !rows.contains("/config"), "{rows}");
-    screen.handle_key(key(KeyCode::Esc));
-    assert!(!frame(&mut screen, None, 100, 0).join("\n").contains("commands"));
-    screen.handle_key(key(KeyCode::Backspace));
-    screen.handle_key(key(KeyCode::Down));
-    assert!(screen.handle_key(key(KeyCode::Tab)).is_none());
-    assert_eq!(screen.composer.lines(), &["/effort "]);
-}
-
 fn family(name: &str, parent: Option<&str>, created_ms: u64, status: Status, since_ms: u64) -> SessionSummary {
     let record: SessionRecord = serde_json::from_value(serde_json::json!({
         "name": name,
@@ -243,3 +224,138 @@ fn a_working_session_shows_live_tokens_from_usage_frames_before_its_turn_ends() 
     pane.books = Digest { spend: vec![SessionSpend { session: "busy".into(), tokens: 10_000, api_usd: Some(0.5) }], ..Digest::default() };
     assert!(text(&pane).contains("12.7k tokens"), "{}", text(&pane));
 }
+
+fn sized_frame(screen: &mut Screen, width: u16, height: u16) -> (Vec<String>, ratatui::buffer::Buffer) {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| view::draw(frame, screen, None, &mut TranscriptPainter::default(), 0)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let rows = buffer.content.chunks(usize::from(buffer.area.width)).map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>().trim_end().to_owned()).collect();
+    (rows, buffer)
+}
+
+fn typed(screen: &mut Screen, text: &str) {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    for character in text.chars() {
+        screen.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+    }
+}
+
+fn pressed(screen: &mut Screen, code: crossterm::event::KeyCode) {
+    screen.handle_key(crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::NONE));
+}
+
+fn panel_rows(screen: &mut Screen, height: u16) -> Vec<String> {
+    let (rows, _) = sized_frame(screen, 100, height);
+    let top = rows.iter().position(|row| row.starts_with("general  commands  shortcuts")).expect("panel tab row");
+    let bottom = rows.iter().rposition(|row| row.starts_with("Keyboard:")).expect("panel footer");
+    rows[top..=bottom].to_vec()
+}
+
+const FOOTER: &str = "Keyboard: ↑/↓ Navigate  ←/→ ^H/^L Tab/Shift+Tab Switch View  esc Close";
+const TABS: &str = "general  commands  shortcuts  (←/→ or tab to cycle)";
+
+#[test]
+fn question_mark_opens_the_general_tab_below_the_composer() {
+    let mut screen = table_screen();
+    typed(&mut screen, "?");
+    let (rows, buffer) = sized_frame(&mut screen, 100, 40);
+    let panel = panel_rows(&mut screen, 40);
+    let composer = rows.iter().position(|row| row.contains("❯ ?")).expect("composer row");
+    let tabs = rows.iter().position(|row| row == TABS).unwrap();
+    assert!(tabs > composer, "{rows:#?}");
+    assert_eq!(panel.last().unwrap(), FOOTER);
+    let text = panel.join("\n");
+    for expected in ["Version:", "Account:", "work (claude)", "Workspace:", "/code/boss", "Quick Reference", "/  Type / to see available commands"] {
+        assert!(text.contains(expected), "{expected} missing from\n{text}");
+    }
+    let underlined: String = buffer.content.iter().filter(|cell| cell.modifier.contains(ratatui::style::Modifier::UNDERLINED)).map(|cell| cell.symbol()).collect();
+    assert_eq!(underlined, "general");
+}
+
+#[test]
+fn slash_opens_the_commands_tab_and_typing_filters_it() {
+    let mut screen = table_screen();
+    typed(&mut screen, "/");
+    let panel = panel_rows(&mut screen, 40);
+    assert_eq!(panel[0], TABS);
+    assert_eq!(panel[1], "Available Commands");
+    assert!(panel[3].starts_with("> /model") && panel[3].contains("choose the model for next turns"), "{panel:#?}");
+    assert!(panel.iter().any(|row| row.contains("/config")));
+    assert_eq!(panel.last().unwrap(), FOOTER);
+    typed(&mut screen, "m");
+    let text = panel_rows(&mut screen, 40).join("\n");
+    assert!(text.contains("/model") && !text.contains("/config"), "{text}");
+    pressed(&mut screen, crossterm::event::KeyCode::Down);
+    pressed(&mut screen, crossterm::event::KeyCode::Up);
+    assert!(panel_rows(&mut screen, 40)[3].starts_with("> /model"));
+}
+
+#[test]
+fn a_long_command_list_scrolls_with_a_counter() {
+    let mut screen = table_screen();
+    typed(&mut screen, "/");
+    let panel = panel_rows(&mut screen, 21);
+    assert!(panel.iter().any(|row| row.trim() == "[1-5 of 8 items]"), "{panel:#?}");
+    for _ in 0..5 {
+        pressed(&mut screen, crossterm::event::KeyCode::Down);
+    }
+    let panel = panel_rows(&mut screen, 21);
+    assert!(panel.iter().any(|row| row.trim() == "[2-6 of 8 items]") && panel.iter().any(|row| row.starts_with("> /fork")), "{panel:#?}");
+}
+
+#[test]
+fn the_shortcuts_tab_lists_every_binding_in_two_columns_with_a_moving_cursor() {
+    use crossterm::event::KeyCode;
+    let mut screen = table_screen();
+    typed(&mut screen, "?");
+    pressed(&mut screen, KeyCode::Right);
+    pressed(&mut screen, KeyCode::Right);
+    let panel = panel_rows(&mut screen, 60);
+    assert_eq!(panel[1], "Keyboard Shortcuts");
+    assert!(panel[3].starts_with("> ?") && panel[3].contains("open this help"), "{panel:#?}");
+    assert!(panel[4].starts_with("  /"), "{panel:#?}");
+    let text = panel.join("\n");
+    for binding in super::key_table::BINDINGS {
+        assert!(text.contains(binding.keys) && text.contains(binding.description), "{} missing", binding.keys);
+    }
+    pressed(&mut screen, KeyCode::Down);
+    let panel = panel_rows(&mut screen, 60);
+    assert!(panel[3].starts_with("  ?") && panel[4].starts_with("> /"), "{panel:#?}");
+}
+
+#[test]
+fn escape_closes_the_panel_and_clears_a_lone_question_mark() {
+    let mut screen = table_screen();
+    typed(&mut screen, "?");
+    pressed(&mut screen, crossterm::event::KeyCode::Esc);
+    let (rows, _) = sized_frame(&mut screen, 100, 40);
+    assert!(!rows.iter().any(|row| row == TABS || row.starts_with("Keyboard:")), "{rows:#?}");
+    assert!(screen.composer.is_empty());
+}
+
+#[test]
+fn a_question_mark_inside_a_message_is_typed_and_opens_nothing() {
+    let mut screen = table_screen();
+    typed(&mut screen, "why?");
+    let (rows, _) = sized_frame(&mut screen, 100, 40);
+    assert!(rows.iter().any(|row| row.contains("❯ why?")), "{rows:#?}");
+    assert!(!rows.iter().any(|row| row == TABS));
+}
+
+#[test]
+fn ctrl_h_ctrl_l_and_tab_cycle_the_views_and_backspace_still_deletes_when_closed() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut screen = table_screen();
+    typed(&mut screen, "?");
+    screen.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    assert_eq!(panel_rows(&mut screen, 40)[1], "Available Commands");
+    screen.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
+    assert!(panel_rows(&mut screen, 40)[1].starts_with("north fleet"));
+    screen.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+    assert_eq!(panel_rows(&mut screen, 40)[1], "Keyboard Shortcuts");
+    pressed(&mut screen, KeyCode::Esc);
+    typed(&mut screen, "ab");
+    pressed(&mut screen, KeyCode::Backspace);
+    assert_eq!(screen.composer.lines(), &["a"]);
+}
+

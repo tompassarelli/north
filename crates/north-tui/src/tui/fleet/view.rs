@@ -10,6 +10,7 @@ use super::desk::SessionSummary;
 use super::form::{Field, LaunchForm};
 use super::screen::{Dialog, Focus, Notice, Screen};
 use super::digest_view::{draw_digest, span};
+use super::help_view::{draw_help, rows as help_rows};
 use super::painter::TranscriptPainter;
 
 const MUTED: Style = Style::new().fg(Color::DarkGray);
@@ -19,9 +20,11 @@ const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Transcript>, painter: &mut TranscriptPainter, now_ms: u64) {
     let width = frame.area().width.saturating_sub(4).max(1);
     let composer_rows = screen.composer.measure(width).preferred_rows.clamp(1, 8);
+    let ceiling = frame.area().height.saturating_sub(composer_rows + 2 + 1 + 6).max(6);
+    let panel_rows = help_rows(screen, ceiling).min(frame.area().height.saturating_sub(composer_rows + 2 + 1 + 3));
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(1)])
+        .constraints([Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(panel_rows), Constraint::Length(1)])
         .split(frame.area());
     let panes = Layout::default()
         .direction(Direction::Horizontal)
@@ -34,10 +37,8 @@ pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Tran
         draw_transcript(frame, screen, transcript, painter, panes[1]);
     }
     draw_composer(frame, screen, rows[1]);
-    draw_status(frame, screen, rows[2]);
-    if screen.focus == Focus::Composer && screen.dialog.is_none() {
-        screen.slash.draw(frame, rows[1], &screen.composer.lines().join("\n"));
-    }
+    draw_help(frame, screen, rows[2]);
+    draw_status(frame, screen, rows[3]);
     match &screen.dialog {
         Some(Dialog::Launch(form)) => draw_launch_form(frame, form),
         Some(Dialog::ConfirmStop(name)) => draw_confirm_stop(frame, name),
