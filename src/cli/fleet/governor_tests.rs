@@ -274,3 +274,32 @@ fn every_spelling_of_an_origin_names_its_repository_and_its_github_slug() {
     assert_eq!(slug("https://github.com/tompassarelli/wisp").as_deref(), Some("tompassarelli/wisp"));
     assert_eq!(slug("/srv/git/smashcraft.git"), None);
 }
+
+#[test]
+fn the_queue_hold_refuses_a_proxy_even_with_staffing_ok_and_admits_only_a_brief_naming_the_ticket_at_the_front() {
+    use north_landing::land::queue::{Ticket, file_name, write};
+    let queues = Queues::new();
+    let queue = queues.repo("north", 0, 50);
+    let behind: Vec<(u128, String)> = (0..30).map(|index| (3_000_000 + index, format!("lane-{index}"))).collect();
+    for (micros, branch) in [(1_000_000, "fix-lander".to_owned()), (2_000_000, "worker-lane".to_owned())].into_iter().chain(behind) {
+        let ticket = Ticket { origin: NORTH.into(), branch: branch.clone(), queued_at: queued_at(5.0), ..Default::default() };
+        write(&queue.join(file_name(micros, &branch)), &ticket).unwrap();
+    }
+    let front = front(&queue);
+    assert_eq!(front.as_deref(), Some("1000000-fix-lander"));
+    let assessment = assessed(&queue, Load::default());
+    let refusal = assessment.refusal.as_deref();
+    assert!(refusal.is_some());
+    let worker = "Item: north#9 a feature\n";
+    let fix = "Item: north#9 repair the lander\nTicket: 1000000-fix-lander\n";
+    let second = "Item: north#9 a feature\nTicket: 2000000-worker-lane\n";
+    let Hold::Refused(said) = hold(refusal, worker, front.as_deref(), Some("repairs the lander"), true) else { panic!("the proxy overrode the queue hold") };
+    assert!(said.contains("the proxy cannot override the queue hold with --staffing-ok") && said.contains("(1000000-fix-lander)"), "{said}");
+    assert!(matches!(hold(refusal, second, front.as_deref(), Some("repairs the lander"), true), Hold::Refused(_)), "a ticket behind the front does not pass");
+    assert_eq!(hold(refusal, fix, front.as_deref(), Some("repairs the lander"), true), Hold::Front);
+    assert_eq!(hold(refusal, fix, front.as_deref(), None, true), Hold::Front);
+    assert_eq!(hold(refusal, worker, front.as_deref(), Some("repairs the lander"), false), Hold::Excused, "a session that is not the proxy keeps --staffing-ok");
+    assert_eq!(hold(refusal, worker, front.as_deref(), None, false), Hold::Refused(refusal.unwrap().to_owned()));
+    assert_eq!(hold(None, worker, front.as_deref(), Some("x"), true), Hold::Clear);
+    assert_eq!((Hold::Front.label(), Hold::Excused.label()), ("front-of-queue", "staffing-ok"));
+}

@@ -180,7 +180,8 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
-    let LaunchParts { mut request, mut overrides, wait, take_over, overlap_ok, staffing_ok } = launch_parts(&fleet.providers(), words, caller, proxy)?;
+    let LaunchParts { mut request, mut overrides, wait, take_over, overlap_ok, staffing_ok } = launch_parts(&fleet.providers(), words, caller.clone(), proxy)?;
+    lineage::reader(fleet, &mut request, caller.as_deref())?;
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;
     if !take_over {
@@ -198,7 +199,7 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     (request.placement, request.capacity_need) = (governor::noted(overlap::noted(duplicate::noted(fleet, &request, &overrides, placed.note)?, overlap_ok.as_deref()), staffing_ok.as_deref()), placed.need);
     request.machine = placed.machine.or(request.machine);
     if !take_over {
-        governor::guard(fleet, &request, staffing_ok.as_deref())?;
+        governor::guard(fleet, &request, staffing_ok.as_deref(), lineage::from_proxy(fleet, caller.as_deref()))?;
     }
     let tasks = request.tasks();
     fleet.release_exited_claims_on(&tasks).map_err(|error| {

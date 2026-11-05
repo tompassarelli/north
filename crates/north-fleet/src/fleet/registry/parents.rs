@@ -6,7 +6,7 @@ use crate::error::NorthResult;
 
 use super::super::gates::GateRequest;
 use super::super::host::{Host, alive};
-use super::super::model::{Delivery, SessionRecord};
+use super::super::model::{Delivery, Role, SessionRecord, Status};
 use super::super::receipts::{Courier, HostDeath, deliver_death, still_watched};
 use super::super::runtime::{Runtime, binary, now_ms};
 use super::super::sender::Sender;
@@ -41,6 +41,17 @@ impl Fleet {
             self.revive_held(name, None, None, None)?;
         }
         Ok(())
+    }
+
+    pub fn listens(&self, name: &str) -> NorthResult<bool> {
+        match self.record(name) {
+            Ok(record) => Ok(self.status(&record) != Status::Exited),
+            Err(_) => self.known_elsewhere(name),
+        }
+    }
+
+    pub fn role_of(&self, name: &str) -> Option<Role> {
+        self.record(name).ok().map(|record| record.role())
     }
 
     pub fn tell(&self, parent: &str, text: &str, delivery: Delivery) {

@@ -192,7 +192,7 @@ pub(super) fn working(peers: &[Peer], origin: &str) -> usize {
 }
 
 pub(super) fn pending_admits(log_tail: &str, repo: &str, running: &BTreeSet<String>, now: f64) -> usize {
-    let admitted = |line: &Value| matches!(line["decision"].as_str(), Some("allow" | "staffing-ok")) && line["repo"] == repo;
+    let admitted = |line: &Value| matches!(line["decision"].as_str(), Some("allow" | "front-of-queue" | "staffing-ok")) && line["repo"] == repo;
     let recent = |line: &Value| line["at"].as_f64().is_some_and(|at| now - at < PENDING_ADMIT_SECS);
     let names: BTreeSet<String> = log_tail
         .lines()
@@ -212,7 +212,7 @@ pub(super) fn record(log: &Path, entry: &Decision) -> std::io::Result<()> {
     writeln!(OpenOptions::new().create(true).append(true).open(log)?, "{line}")
 }
 
-pub(super) fn guard(fleet: &Fleet, request: &LaunchRequest, excuse: Option<&str>) -> NorthResult<()> {
+pub(super) fn guard(fleet: &Fleet, request: &LaunchRequest, excuse: Option<&str>, proxy: bool) -> NorthResult<()> {
     if request.verification {
         return Ok(());
     }
@@ -249,24 +249,70 @@ pub(super) fn guard(fleet: &Fleet, request: &LaunchRequest, excuse: Option<&str>
         pressure_basis_points: local.then(|| protected_pressure_basis_points(&Host::from_env())),
     };
     let assessment = assess(&repo, read_lander(&queue, now), read_landings(&all_queues(&queue), now), load, bounds());
-    let decision = match (&assessment.refusal, excuse) {
-        (None, _) => "allow",
-        (Some(_), Some(_)) => "staffing-ok",
-        (Some(_), None) => "refuse",
-    };
-    let recorded = record(&log, &Decision { at: now, repo: &repo, session: &request.name, decision, note: None, staffing_ok: excuse.filter(|_| assessment.refusal.is_some()), assessment: Some(&assessment) });
+    let front = front(&queue);
+    let held = hold(assessment.refusal.as_deref(), &brief, front.as_deref(), excuse, proxy);
+    let recorded = record(&log, &Decision { at: now, repo: &repo, session: &request.name, decision: held.label(), note: None, staffing_ok: excuse.filter(|_| held == Hold::Excused), assessment: Some(&assessment) });
     drop(lock);
     if let Err(error) = recorded {
         eprintln!("governor: decision not recorded: {error}");
     }
-    let Some(refused) = assessment.refusal else { return Ok(()) };
-    if let Some(reason) = excuse {
-        eprintln!("{refused}");
-        eprintln!("staffing-ok: {} starts anyway: {reason}", request.name);
-        return Ok(());
+    let refused = assessment.refusal.unwrap_or_default();
+    match held {
+        Hold::Clear => Ok(()),
+        Hold::Front => {
+            eprintln!("{refused}");
+            eprintln!("governor: {} starts: its brief names {}, the ticket at the front of the land queue", request.name, front.unwrap_or_default());
+            Ok(())
+        }
+        Hold::Excused => {
+            eprintln!("{refused}");
+            eprintln!("staffing-ok: {} starts anyway: {}", request.name, excuse.unwrap_or_default());
+            Ok(())
+        }
+        Hold::Refused(refused) => {
+            admission::tell_parent(fleet, request.parent.as_deref(), &format!("Stop: landing. {} was not launched: {refused}", request.name));
+            Err(NorthError::Refused(refused))
+        }
     }
-    admission::tell_parent(fleet, request.parent.as_deref(), &format!("Stop: landing. {} was not launched: {refused}", request.name));
-    Err(NorthError::Refused(refused))
+}
+
+#[derive(Debug, PartialEq)]
+pub(super) enum Hold {
+    Clear,
+    Front,
+    Excused,
+    Refused(String),
+}
+
+impl Hold {
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Clear => "allow",
+            Self::Front => "front-of-queue",
+            Self::Excused => "staffing-ok",
+            Self::Refused(_) => "refuse",
+        }
+    }
+}
+
+pub(super) fn hold(refusal: Option<&str>, brief: &str, front: Option<&str>, excuse: Option<&str>, proxy: bool) -> Hold {
+    let Some(refusal) = refusal else { return Hold::Clear };
+    if front.is_some_and(|ticket| brief.contains(ticket)) {
+        return Hold::Front;
+    }
+    match excuse {
+        Some(_) if !proxy => Hold::Excused,
+        Some(_) => Hold::Refused(format!(
+            "{refusal}; the proxy cannot override the queue hold with --staffing-ok: only a launch whose brief names the ticket at the front of the land queue ({}) starts",
+            front.unwrap_or("none queued")
+        )),
+        None => Hold::Refused(refusal.to_owned()),
+    }
+}
+
+pub(super) fn front(queue: &Path) -> Option<String> {
+    let (path, _) = north_landing::land::queue::pending(queue).ok()?.into_iter().next()?;
+    path.file_stem().and_then(|stem| stem.to_str()).map(str::to_owned)
 }
 
 pub(super) fn noted(placement: Option<String>, excuse: Option<&str>) -> Option<String> {
