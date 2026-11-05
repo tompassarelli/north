@@ -51,7 +51,27 @@ pub fn is_revert(message: &str) -> bool {
     message.starts_with("Revert ") || message.lines().any(|line| line.starts_with("Sheriff-Reverts:"))
 }
 
-pub fn find(request: &Request, tip: &str, lanes: &[Lane], reverted: &BTreeSet<String>, mut probe: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>) -> Finding {
+fn bisect(request: &Request, lanes: &[Lane], mut at: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>) -> Option<usize> {
+    let (mut culprit, mut passing) = (0, lanes.len());
+    while passing - culprit > 1 {
+        let middle = culprit + (passing - culprit) / 2;
+        if at(&lanes[middle])?.is_disjoint(&request.failing) {
+            passing = middle;
+        } else {
+            culprit = middle;
+        }
+    }
+    Some(culprit)
+}
+
+pub fn find(
+    request: &Request,
+    tip: &str,
+    lanes: &[Lane],
+    reverted: &BTreeSet<String>,
+    at: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>,
+    mut probe: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>,
+) -> Finding {
     if tip != request.head {
         return Finding::Stale(format!("main moved past {} to {tip}; a later landing may already fix it, so nothing is reverted", request.head));
     }
@@ -59,7 +79,11 @@ pub fn find(request: &Request, tip: &str, lanes: &[Lane], reverted: &BTreeSet<St
         return Finding::Unnamed;
     }
     let cases: Vec<Failure> = request.failing.iter().cloned().collect();
-    for lane in lanes {
+    let suspects = match bisect(request, lanes, at) {
+        Some(culprit) => &lanes[culprit..=culprit],
+        None => lanes,
+    };
+    for lane in suspects {
         if is_revert(&lane.message) || reverted.contains(&lane.commit) {
             continue;
         }
@@ -104,12 +128,9 @@ fn without(worktree: &Path, head: &str, lane: &str) -> Result<bool, String> {
     Ok(false)
 }
 
-fn probe(worktree: &Path, request: &Request, lane: &Lane) -> Option<BTreeSet<Failure>> {
+fn run_cases(worktree: &Path, request: &Request, tree: &str) -> Option<BTreeSet<Failure>> {
     let command = red_check::rerun_command(&request.failing)?;
-    if !without(worktree, &request.head, &lane.commit).ok()? {
-        return None;
-    }
-    println!("north land: sheriff: running {} on main without {}", names(&request.failing.iter().cloned().collect::<Vec<_>>()), short(&lane.commit));
+    println!("north land: sheriff: running {} on {tree}", names(&request.failing.iter().cloned().collect::<Vec<_>>()));
     let run = Command::new("timeout").args([PROBE_SECONDS, "bash", "-c", &command]).current_dir(worktree).output().ok()?;
     let log = format!("{}\n{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
     let still = red_check::failures(&log);
@@ -117,6 +138,19 @@ fn probe(worktree: &Path, request: &Request, lane: &Lane) -> Option<BTreeSet<Fai
         return None;
     }
     Some(still)
+}
+
+fn probe(worktree: &Path, request: &Request, lane: &Lane) -> Option<BTreeSet<Failure>> {
+    if !without(worktree, &request.head, &lane.commit).ok()? {
+        return None;
+    }
+    run_cases(worktree, request, &format!("main without {}", short(&lane.commit)))
+}
+
+fn at(worktree: &Path, request: &Request, lane: &Lane) -> Option<BTreeSet<Failure>> {
+    git(worktree, &["reset", "-q", "--hard"]).ok()?;
+    git(worktree, &["checkout", "-q", "--detach", &lane.commit]).ok()?;
+    run_cases(worktree, request, &format!("main at {}", short(&lane.commit)))
 }
 
 fn lane_ticket(lander: &Lander, request: &Request, lane: &str) -> Option<Ticket> {
@@ -185,7 +219,7 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
         return Ok(format!("malformed: {name} names no Green-parent"));
     }
     let lanes = if main == head { lanes(worktree, &request)? } else { Vec::new() };
-    match find(&request, &main, &lanes, &reverted(lander), |lane| probe(worktree, &request, lane)) {
+    match find(&request, &main, &lanes, &reverted(lander), |lane| at(worktree, &request, lane), |lane| probe(worktree, &request, lane)) {
         Finding::Stale(reason) => Ok(format!("stale {reason}")),
         Finding::Unnamed => Ok("unnamed: the failing run names no test, so nothing is reverted".to_owned()),
         Finding::Environment { cases } => Ok(format!("environment {} still fail on main without each landed lane; nothing is reverted", names(&cases))),

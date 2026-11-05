@@ -147,10 +147,13 @@ and run as a service.
     judged cross-repo lanes and is fixed in the lane before it queues), so the lander carries no review
     record and a rebase never re-opens a review.
 11. **Sheriff through the lander.** main-red.yml stops pushing main (the ruleset refuses its
-    `GITHUB_TOKEN`); it pushes `claude/land-revert-<sha>` naming the failing run. The sheriff, in the
+    `GITHUB_TOKEN`); it pushes `claude/land-revert-<sha>` naming the failing run and, as its green parent,
+    the newest earlier green run that is an ancestor of the failing commit, so cancelled or red runs
+    in between (cancel-in-progress leaves many) no longer stop it. The sheriff, in the
     lander: new failing cases on main = failing cases minus quarantined cases minus the parent landing's
-    failing cases. It picks the newest lander-recorded lane whose landing record has those cases passing
-    on its parent, and builds main minus that lane's commit. If the failing cases pass there, it lands
+    failing cases. It bisects the landings between the green parent and the failing commit by halves,
+    running the failing cases at the middle landing, to find the first landing where they fail, and
+    builds main minus that lane's commit. If the failing cases pass there, it lands
     that revert first in the queue and re-queues the lane to its author with `Follows:`. If they still
     fail, the lane is not the cause: no revert; the cases are quarantined as `environment`, and their
     env inputs are diffed against the last green record. Loop breaker: at most one revert per lane per

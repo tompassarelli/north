@@ -147,7 +147,7 @@ pub fn decide(s: &Situation) -> Decision {
         return report("A setup step failed; report infrastructure failure");
     }
     let Some(previous) = s.previous.as_ref().filter(|p| p.conclusion.as_deref() == Some("success")) else {
-        return report("The previous main run of this workflow was not green");
+        return report("No earlier green main run of this workflow is an ancestor of the failing commit");
     };
     if s.commits.is_empty() {
         return report("No landed commits after the previous run");
@@ -265,6 +265,10 @@ fn is_ancestor(ancestor: &str, descendant: &str) -> bool {
     std::process::Command::new("git").args(["merge-base", "--is-ancestor", ancestor, descendant]).status().is_ok_and(|s| s.success())
 }
 
+fn green_parent(history: &[CiRun], id: u64, reaches_head: impl Fn(&str) -> bool) -> Option<&CiRun> {
+    history.iter().filter(|r| r.id < id && r.conclusion.as_deref() == Some("success") && reaches_head(&r.head_sha)).max_by_key(|r| r.id)
+}
+
 fn open_issue() -> Result<Option<Issue>, String> {
     let search = format!("\"{TITLE}\" in:title");
     let issues: Vec<Issue> = gh_json(&["issue", "list", "--state", "open", "--search", &search, "--json", "number,title,body", "--limit", "100"])?;
@@ -328,7 +332,7 @@ pub fn sheriff(id: u64) -> Result<(), String> {
     });
     let history: Runs = repo.api(&format!("actions/workflows/{}/runs?branch=main&event=push&status=completed&per_page=100", ci.workflow_id))?;
     let history: Vec<CiRun> = history.workflow_runs.into_iter().filter_map(|run| serde_json::from_value(run).ok()).collect();
-    let prior = history.iter().filter(|r| r.id < id).max_by_key(|r| r.id);
+    let prior = green_parent(&history, id, |sha| is_ancestor(sha, &ci.head_sha));
     let commits = match prior {
         Some(prior) if is_ancestor(&prior.head_sha, &ci.head_sha) => landed(&prior.head_sha, &ci.head_sha)?,
         _ => Vec::new(),

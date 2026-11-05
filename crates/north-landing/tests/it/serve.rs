@@ -15,24 +15,24 @@ fn lander_process() {
     std::process::exit(i32::from(north_landing::land::run(&arguments)));
 }
 
-fn git(dir: &Path, arguments: &[&str]) -> String {
+pub(super) fn git(dir: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").arg("-C").arg(dir).args(arguments).env("GIT_CONFIG_GLOBAL", dir.ancestors().find(|path| path.join("gitconfig").is_file()).unwrap().join("gitconfig")).env("GIT_CONFIG_NOSYSTEM", "1").output().unwrap();
     assert!(output.status.success(), "git {arguments:?} in {}: {}", dir.display(), String::from_utf8_lossy(&output.stderr));
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
-struct World {
+pub(super) struct World {
     root: tempfile::TempDir,
 }
 
-struct Repository {
-    origin: PathBuf,
-    checkout: PathBuf,
-    queue: PathBuf,
+pub(super) struct Repository {
+    pub(super) origin: PathBuf,
+    pub(super) checkout: PathBuf,
+    pub(super) queue: PathBuf,
 }
 
 impl World {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("gitconfig"), "[user]\n\tname = t\n\temail = t@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n").unwrap();
         let bin = root.path().join("bin");
@@ -49,7 +49,7 @@ impl World {
         self.root.path()
     }
 
-    fn repository(&self, name: &str) -> Repository {
+    pub(super) fn repository(&self, name: &str) -> Repository {
         let project = self.path().join(name);
         let origin = project.join("origin.git");
         std::fs::create_dir_all(&origin).unwrap();
@@ -64,7 +64,7 @@ impl World {
         Repository { origin, checkout, queue }
     }
 
-    fn lander(&self, repository: &Repository, hold: Option<&Path>) -> Child {
+    pub(super) fn lander(&self, repository: &Repository, hold: Option<&Path>) -> Child {
         let arguments = ["serve", "--once", "--repo", repository.checkout.to_str().unwrap(), "--depth", "1", "--checker", self.path().join("bin/checker").to_str().unwrap()].join("\n");
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
@@ -88,7 +88,7 @@ impl World {
 }
 
 impl Repository {
-    fn lane(&self, branch: &str) -> String {
+    pub(super) fn lane(&self, branch: &str) -> String {
         let lane = self.checkout.parent().unwrap().join("worktrees").join(branch);
         git(&self.checkout, &["worktree", "add", "-q", "-b", branch, lane.to_str().unwrap(), "origin/main"]);
         std::fs::write(lane.join(format!("{branch}.txt")), "lane\n").unwrap();
@@ -116,7 +116,7 @@ impl Repository {
         ticket.head
     }
 
-    fn main(&self) -> String {
+    pub(super) fn main(&self) -> String {
         git(&self.origin, &["rev-parse", "refs/heads/main"])
     }
 
@@ -127,7 +127,7 @@ impl Repository {
     }
 }
 
-fn report(output: &Output) -> String {
+pub(super) fn report(output: &Output) -> String {
     format!("exit {:?}\nstdout:\n{}\nstderr:\n{}", output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
 }
 
