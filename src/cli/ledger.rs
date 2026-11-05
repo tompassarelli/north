@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::ledger::{self, Ledger};
 
-const USAGE: &str = "Usage: north ledger runs [--json] | north ledger summary [--json] [--since 24h] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD...";
+const USAGE: &str = "Usage: north ledger runs [--json] | north ledger summary [--json] [--since 24h] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let outcome = match arguments {
@@ -33,6 +33,10 @@ fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
             let sha = ledger::landed(store, &std::env::current_dir()?, task_ref, revision)?;
             println!("{task_ref} landed {sha}");
             Ok(ExitCode::SUCCESS)
+        }
+        ["task", "check", rest @ ..] if rest.contains(&"--done-when") => {
+            let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();
+            crate::ops::done_when_boxes::run(&rest).map(|()| ExitCode::SUCCESS)
         }
         ["task", "check", rest @ ..] if rest.first().is_some_and(|word| ["--observations", "--dry-run", "--body-file", "--repo"].contains(word)) => {
             let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();
