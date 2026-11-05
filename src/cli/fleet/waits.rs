@@ -20,6 +20,7 @@ use crate::fleet::tick::{Probed, WaitProbes};
 use crate::fleet::limit::Parked;
 use crate::fleet::waits::{Probe, Registered, Run, Settled};
 use crate::foundation::clock::Timestamp;
+use crate::ops::pacing::placement::{config, gate};
 use crate::platform::process::{run_command_within, run_within};
 
 use super::placement::Overrides;
@@ -76,6 +77,12 @@ fn settle(fleet: &Fleet) -> NorthResult<()> {
 pub(super) struct Probes;
 
 impl WaitProbes for Probes {
+    fn prepare(&self, _: &Fleet) {
+        if let Ok(cfg) = config() {
+            gate::probed(&cfg, &std::collections::BTreeMap::new());
+        }
+    }
+
     fn settle(&self, fleet: &Fleet) -> Probed {
         let parked = park_limited(fleet, &UsageTable, now_ms());
         let handed = hand_over(fleet, &UsageTable, &|record| holds_unlanded_lane(&record.cwd), &|request| fleet.take_over(request), &tell_tom, now_ms());

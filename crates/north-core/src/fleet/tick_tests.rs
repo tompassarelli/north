@@ -1197,3 +1197,65 @@ fn a_running_proxy_whose_account_week_ran_out_is_handed_over_onto_an_account_wit
     let second = host.fleet.take_over(&LaunchRequest { name: "proxy-a".into(), resume: None, ..launched[0].clone() }).unwrap_err().user_message();
     assert!(second.contains("proxy is the live proxy"), "the one-live-proxy rule still refuses a second proxy: {second}");
 }
+
+struct Placing(Duration);
+
+impl WaitProbes for Placing {
+    fn prepare(&self, _: &Fleet) {
+        std::thread::sleep(self.0);
+    }
+
+    fn settle(&self, _: &Fleet) -> Probed {
+        Probed { lines: Vec::new(), settled: Vec::new() }
+    }
+}
+
+fn step<'a>(ticked: &'a Ticked, name: &str) -> &'a Step {
+    ticked.steps.iter().find(|step| step.name == name).unwrap_or_else(|| panic!("no {name} step in {:?}", ticked.steps))
+}
+
+fn overlap(one: &Step, other: &Step) -> bool {
+    one.began < other.began + other.took && other.began < one.began + one.took
+}
+
+#[test]
+fn a_tick_prints_one_line_with_its_wall_time_and_each_steps_share() {
+    let host = host("nexus");
+    let _frames = live(&host, "worker");
+    host.store().put(&[message("m-1", "worker", NOW_MS)]).unwrap();
+    host.fleet.spool().put(&message("m-2", "elsewhere", NOW_MS)).unwrap();
+    let far = Far::holding("tom@gex45", Vec::new());
+    let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
+    let key = WaitKey { session: "worker".into(), kind: crate::fleet::store::WaitKind::Job, key: "nexus-build".into(), created: None };
+
+    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &Over(key), NOW_MS, BUDGET).unwrap();
+
+    let line = ticked.timing();
+    assert!(line.starts_with(&format!("tick took {}ms: ", ticked.wall.as_millis())), "{line}");
+    assert!(!line.contains('\n'), "{line}");
+    for name in ["spool", "take_far", "registry", "ledger.exchange", "cache_table", "hand_in_all", "drop_far", "cache_far", "deliver_far", "probes.settle", "settle", "prune"] {
+        let step = step(&ticked, name);
+        assert!(step.began + step.took <= ticked.wall, "{name} ends inside the tick: {step:?} in {:?}", ticked.wall);
+        let share = format!("{name} {}ms {:.0}%", step.took.as_millis(), 100.0 * step.took.as_secs_f64() / ticked.wall.as_secs_f64());
+        assert!(line.contains(&share), "{share} in {line}");
+    }
+}
+
+#[test]
+fn the_sessions_and_cache_reads_run_together_and_the_registry_and_placement_probe_run_beside_take_far() {
+    let host = host("nexus");
+    let _frames = live(&host, "worker");
+    let slow = Slow(Duration::from_millis(300));
+    let pulls = Pulls { spools: &slow, always: vec![far_host("gex45")] };
+
+    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &Placing(Duration::from_millis(300)), NOW_MS, BUDGET).unwrap();
+
+    let (take_far, placement, registry) = (step(&ticked, "take_far"), step(&ticked, "placement"), step(&ticked, "registry"));
+    assert!(overlap(take_far, placement), "the placement probe runs beside take_far: {:?}", ticked.steps);
+    assert!(overlap(take_far, registry), "the registry builds beside take_far: {:?}", ticked.steps);
+    for read in ["sessions", "cache_read", "spool"] {
+        let read = step(&ticked, read);
+        assert!(read.began + read.took <= take_far.began, "{read:?} is read before take_far starts");
+    }
+    assert!(ticked.wall < take_far.took + placement.took, "{:?} is shorter than the two slow steps one after the other", ticked.wall);
+}

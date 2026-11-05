@@ -1,3 +1,4 @@
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::error::NorthResult;
@@ -29,6 +30,15 @@ pub struct Ticked {
     pub unsettled: Option<String>,
     pub uncached: Vec<(String, String)>,
     pub far_failed: Vec<(String, String)>,
+    pub wall: Duration,
+    pub steps: Vec<Step>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Step {
+    pub name: &'static str,
+    pub began: Duration,
+    pub took: Duration,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47,7 +57,9 @@ pub struct Probed {
     pub settled: Vec<WaitKey>,
 }
 
-pub trait WaitProbes {
+pub trait WaitProbes: Sync {
+    fn prepare(&self, _: &Fleet) {}
+
     fn settle(&self, fleet: &Fleet) -> Probed;
 }
 
@@ -56,6 +68,34 @@ pub struct NoProbes;
 impl WaitProbes for NoProbes {
     fn settle(&self, _: &Fleet) -> Probed {
         Probed { lines: Vec::new(), settled: Vec::new() }
+    }
+}
+
+struct Clock {
+    origin: Instant,
+    steps: Mutex<Vec<Step>>,
+}
+
+impl Clock {
+    fn new() -> Self {
+        Self { origin: Instant::now(), steps: Mutex::new(Vec::new()) }
+    }
+
+    fn time<R>(&self, name: &'static str, run: impl FnOnce() -> R) -> R {
+        let began = self.origin.elapsed();
+        let ran = run();
+        let took = self.origin.elapsed().saturating_sub(began);
+        if let Ok(mut steps) = self.steps.lock() {
+            steps.push(Step { name, began, took });
+        }
+        ran
+    }
+
+    fn stop(self, ticked: &mut Ticked) {
+        ticked.wall = self.origin.elapsed();
+        let mut steps = self.steps.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+        steps.sort_by_key(|step| step.began);
+        ticked.steps = steps;
     }
 }
 
@@ -92,50 +132,83 @@ impl Ticked {
         let unsettled = self.unsettled.iter().map(|why| format!("waits not settled in the store: {why}"));
         delivered.chain(failed).chain(held).chain(unpulled).chain(undropped).chain(refused).chain(left).chain(unregistered).chain(uncached).chain(undelivered).chain(self.probed.iter().cloned()).chain(unsettled).chain([counts]).collect()
     }
+
+    pub fn timing(&self) -> String {
+        let wall = self.wall.as_secs_f64().max(f64::EPSILON);
+        let steps: Vec<String> = self.steps.iter().map(|step| format!("{} {}ms {:.0}%", step.name, step.took.as_millis(), 100.0 * step.took.as_secs_f64() / wall)).collect();
+        format!("tick took {}ms: {}", self.wall.as_millis(), steps.join(", "))
+    }
 }
 
 pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &dyn WaitProbes, now_ms: u64, budget: Duration) -> NorthResult<Ticked> {
-    let spool = fleet.spool();
-    let mut rows = spool.pending()?;
-    let spooled: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
-    let records = fleet.sessions()?;
+    let clock = Clock::new();
     let mut ticked = Ticked::default();
-    let taken = take_far(fleet, &records, pulls, &mut rows, &mut ticked, now_ms);
+    std::thread::scope(|scope| -> NorthResult<()> {
+        let placing = scope.spawn(|| clock.time("placement", || probes.prepare(fleet)));
+        let exchanged = exchange_and_hand_in(fleet, ledger, pulls, &clock, &mut ticked, (now_ms, budget));
+        joined(placing);
+        exchanged?;
+        settle(fleet, ledger, probes, &clock, &mut ticked)
+    })?;
+    ticked.pruned = clock.time("prune", || fleet.prune_delivered(SystemTime::now() - JOURNAL_KEPT))?;
+    clock.stop(&mut ticked);
+    Ok(ticked)
+}
+
+fn exchange_and_hand_in(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, clock: &Clock, ticked: &mut Ticked, (now_ms, budget): (u64, Duration)) -> NorthResult<()> {
+    let spool = fleet.spool();
+    let (rows, records, cached) = std::thread::scope(|scope| {
+        let reading = scope.spawn(|| clock.time("sessions", || fleet.sessions()));
+        let caching = scope.spawn(|| clock.time("cache_read", || fleet.cached_sessions().ok().flatten().unwrap_or_default()));
+        let rows = clock.time("spool", || spool.pending());
+        (rows, joined(reading), joined(caching))
+    });
+    let (mut rows, records) = (rows?, records?);
+    let spooled: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+    let (taken, registered) = std::thread::scope(|scope| {
+        let building = scope.spawn(|| clock.time("registry", || registry(fleet, &records, now_ms)));
+        let taken = clock.time("take_far", || take_far(fleet, &records, cached, pulls, &mut rows, ticked, now_ms));
+        (taken, joined(building))
+    });
     let pulled = rows.len() - spooled.len();
-    let FarRegistry { sessions, addressees, gates, .. } = registry(fleet, &records, now_ms)?;
+    let FarRegistry { sessions, addressees, gates, .. } = registered?;
     let outranks = far_hosts(fleet, &records, pulls).into_iter().map(|host| host.name).collect();
     let exchange = Exchange { rows, host: fleet.host().to_owned(), sessions, addressees, gates, outranks };
-    let exchanged = ledger.exchange(&exchange)?;
-    for id in &spooled {
-        spool.withdraw(id)?;
-    }
+    let exchanged = clock.time("ledger.exchange", || ledger.exchange(&exchange))?;
+    clock.time("spool.withdraw", || spooled.iter().try_for_each(|id| spool.withdraw(id)))?;
     let table = FleetTable { sessions: exchanged.sessions.clone(), gates: exchanged.gates.clone() };
-    fleet.cache_table(&table)?;
+    clock.time("cache_table", || fleet.cache_table(&table))?;
     let started = Instant::now();
     ticked.flushed = spooled.len();
     ticked.pulled = pulled;
     ticked.held_elsewhere = exchanged.held_elsewhere.clone();
     let here: Vec<FleetRow> = exchanged.rows.iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)).cloned().collect();
-    ticked.note(hand_in_all(fleet, &here, started, budget));
-    ticked.drop_failed = drop_far(pulls, &taken);
-    ticked.uncached = cache_far(pulls, &taken, &table);
-    deliver_far(ledger, pulls, &taken, &exchanged.sessions, &mut ticked, (started, budget, now_ms));
-    let probed = probes.settle(fleet);
+    ticked.note(clock.time("hand_in_all", || hand_in_all(fleet, &here, started, budget)));
+    ticked.drop_failed = clock.time("drop_far", || drop_far(pulls, &taken));
+    ticked.uncached = clock.time("cache_far", || cache_far(pulls, &taken, &table));
+    clock.time("deliver_far", || deliver_far(ledger, pulls, &taken, &exchanged.sessions, ticked, (started, budget, now_ms)));
+    Ok(())
+}
+
+fn settle(fleet: &Fleet, ledger: &mut dyn LedgerHost, probes: &dyn WaitProbes, clock: &Clock, ticked: &mut Ticked) -> NorthResult<()> {
+    let probed = clock.time("probes.settle", || probes.settle(fleet));
     ticked.probed = probed.lines;
-    let pending = fleet.unsettled_waits();
-    let settled: Vec<WaitKey> = pending.into_iter().chain(probed.settled).collect();
-    if !settled.is_empty() {
-        let left = match ledger.settle(&settled) {
-            Ok(()) => Vec::new(),
-            Err(error) => {
-                ticked.unsettled = Some(error.user_message());
-                settled
-            }
-        };
-        fleet.set_unsettled_waits(&left)?;
+    let settled: Vec<WaitKey> = fleet.unsettled_waits().into_iter().chain(probed.settled).collect();
+    if settled.is_empty() {
+        return Ok(());
     }
-    ticked.pruned = fleet.prune_delivered(SystemTime::now() - JOURNAL_KEPT)?;
-    Ok(ticked)
+    let left = match clock.time("settle", || ledger.settle(&settled)) {
+        Ok(()) => Vec::new(),
+        Err(error) => {
+            ticked.unsettled = Some(error.user_message());
+            settled
+        }
+    };
+    fleet.set_unsettled_waits(&left)
+}
+
+fn joined<R>(handle: std::thread::ScopedJoinHandle<'_, R>) -> R {
+    handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 pub fn registry(fleet: &Fleet, records: &[SessionRecord], now_ms: u64) -> NorthResult<FarRegistry> {
@@ -184,10 +257,10 @@ fn deliver_far(ledger: &mut dyn LedgerHost, pulls: &Pulls, taken: &[Taken], know
     }
 }
 
-fn take_far(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls, rows: &mut Vec<FleetRow>, ticked: &mut Ticked, now_ms: u64) -> Vec<Taken> {
+fn take_far(fleet: &Fleet, records: &[SessionRecord], cached: Vec<SessionRow>, pulls: &Pulls, rows: &mut Vec<FleetRow>, ticked: &mut Ticked, now_ms: u64) -> Vec<Taken> {
     let hosts = far_hosts(fleet, records, pulls);
     let answers = in_parallel(&hosts, |host| pulls.spools.take(&host.ssh));
-    let known = ledger_records(fleet, records, now_ms);
+    let known = ledger_records(fleet, records, cached, now_ms);
     let archived: Vec<SessionRecord> = fleet.past_sessions();
     let mut taken = Vec::new();
     for (host, answer) in hosts.into_iter().zip(answers) {
@@ -235,8 +308,7 @@ fn take_far(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls, rows: &mut 
     taken
 }
 
-fn ledger_records(fleet: &Fleet, records: &[SessionRecord], now_ms: u64) -> Vec<SessionRow> {
-    let mut known = fleet.cached_sessions().ok().flatten().unwrap_or_default();
+fn ledger_records(fleet: &Fleet, records: &[SessionRecord], mut known: Vec<SessionRow>, now_ms: u64) -> Vec<SessionRow> {
     let unlisted: Vec<SessionRow> = records.iter().filter(|record| !known.iter().any(|row| row.name == record.name)).map(|record| fleet.table_row(record, now_ms)).collect();
     known.extend(unlisted);
     known
@@ -263,7 +335,7 @@ fn cache_far(pulls: &Pulls, taken: &[Taken], table: &FleetTable) -> Vec<(String,
 fn in_parallel<T: Sync, R: Send>(items: &[T], run: impl Fn(&T) -> R + Sync) -> Vec<R> {
     std::thread::scope(|scope| {
         let running: Vec<_> = items.iter().map(|item| scope.spawn(|| run(item))).collect();
-        running.into_iter().map(|handle| handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+        running.into_iter().map(joined).collect()
     })
 }
 

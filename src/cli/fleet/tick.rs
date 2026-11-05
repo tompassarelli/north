@@ -26,6 +26,8 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let pulls = Pulls { spools: &OverSsh::default(), always: always_pulled(fleet) };
     let ticked = tick(fleet, &mut Ledger, &pulls, &Probes, now_ms(), BUDGET);
     let revived = rebooted::run(fleet, &["--revive"]);
-    ticked?.lines().iter().for_each(|line| println!("{line}"));
+    let ticked = ticked?;
+    ticked.lines().iter().for_each(|line| println!("{line}"));
+    println!("{}", ticked.timing());
     revived
 }
