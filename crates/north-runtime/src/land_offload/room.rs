@@ -10,6 +10,7 @@ const LIMIT: Duration = Duration::from_secs(15);
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
 const STATUS_MARK: &str = "@ADMISSION@";
 const STATUS_PROBE: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host status"#;
+const CLAIM: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host land-waiting"#;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Room {
@@ -45,6 +46,14 @@ pub fn read_within(ssh: &str, limit: Duration) -> Option<Room> {
     output.status.success().then(|| parse(&String::from_utf8_lossy(&output.stdout))).flatten()
 }
 
+/// Claims `ssh`, or this host when None, for a waiting land check, so it admits no new worker build until the claim lapses; a host on an older runtime ignores it.
+pub(super) fn claim(ssh: Option<&str>) {
+    let _ = match ssh {
+        Some(ssh) => run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &format!("sh -c {}", quote(CLAIM))], LIMIT),
+        None => run_within("sh", &["-c", CLAIM], LIMIT),
+    };
+}
+
 pub(super) fn shortfall(room: &Room) -> Option<String> {
     shortfall_reserving(room, 0.0)
 }
@@ -52,6 +61,14 @@ pub(super) fn shortfall(room: &Room) -> Option<String> {
 /// The shortfall once `reserved` cores are counted as taken by builds already on their way to the host.
 pub fn shortfall_reserving(room: &Room, reserved: f64) -> Option<String> {
     shortfall_needing(room, reserved, offload_room().0)
+}
+
+/// The shortfall for a worker build, which also waits while a land check claims the host.
+pub fn build_shortfall_reserving(room: &Room, reserved: f64) -> Option<String> {
+    if room.admission.land_check_waiting {
+        return Some(crate::capacity::land_claim::REASON.to_owned());
+    }
+    shortfall_reserving(room, reserved)
 }
 
 fn shortfall_needing(room: &Room, reserved: f64, cores: f64) -> Option<String> {
@@ -112,5 +129,14 @@ mod tests {
         assert_eq!(shortfall(&gex45), None, "committed 7.6 of 20 CPUs at 35% pressure and load 61 is room for 6 cores");
         assert!(shortfall(&reading(80 * gib, "3.00", "17.0", "10")).unwrap().contains("cores free of 20"));
         assert!(shortfall(&reading(80 * gib, "3.00", "7.6", "40")).unwrap().contains("CPU pressure 40%"));
+    }
+
+    #[test]
+    fn a_host_a_land_check_claims_refuses_worker_builds_and_still_takes_the_land_check() {
+        let gib = 1024 * 1024;
+        let claimed = parse(&PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", "2.0").replace("%PRESSURE%", "5").replace("\"cpuSomeAvg10\":5", "\"cpuSomeAvg10\":5,\"landCheckWaiting\":true")).unwrap();
+        assert_eq!(build_shortfall_reserving(&claimed, 0.0).as_deref(), Some("land check waiting"));
+        assert_eq!(check_host(true, "laptop", || None, vec![("gex45".to_owned(), Some(claimed))], &[], 6.0), Ok("gex45".to_owned()));
+        assert_eq!(build_shortfall_reserving(&reading(80 * gib, "3.10", "2.0", "5"), 0.0), None);
     }
 }

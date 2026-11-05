@@ -107,7 +107,7 @@ mod properties {
     use proptest::prelude::*;
 
     fn admission() -> impl Strategy<Value = Admission> {
-        (0.0..64.0f64, 0.0..64.0f64, 0.0..100.0f64, 1.0..100.0f64).prop_map(|(limit_cpus, committed_cpus, cpu_pressure_percent, pressure_high_percent)| Admission { limit_cpus, committed_cpus, cpu_pressure_percent, pressure_high_percent })
+        (0.0..64.0f64, 0.0..64.0f64, 0.0..100.0f64, 1.0..100.0f64).prop_map(|(limit_cpus, committed_cpus, cpu_pressure_percent, pressure_high_percent)| Admission { limit_cpus, committed_cpus, cpu_pressure_percent, pressure_high_percent, land_check_waiting: false })
     }
 
     fn named<T>(items: Vec<T>) -> Vec<(String, T)> {

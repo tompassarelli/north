@@ -1154,3 +1154,11 @@ unit = "median minutes from a fleet launch to its lane's first land-queue ticket
 source = "measured: loops-lead's north#112 governor plan, 2026-11-05: launch-to-queued p50 on north, 66 min"
 fallback = "the in-flight ceiling counts 66 minutes of work ahead of the drain bound"
 consumers = ["src/cli/fleet/governor.rs"]
+
+[land_check_claim_seconds]
+value = 60
+unit = "seconds a land check's claim on a check host holds new worker build and test leases there after the lander last failed to place it"
+source = "prior: the lander retries placement every 15 s (crates/north-landing/src/land/precheck.rs ROOM_RETRY), so 60 s outlasts three missed retries and lapses within a minute of the lander stopping; 16 north lanes waited behind worker builds on every check host on 2026-11-06"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes on check hosts, among them worker leases deferred as DEFER_LAND_CHECK_WAITING, whose wait can be set against the land check that took the host" }
+fallback = "none; a host with no claim file admits worker builds as before"
+consumers = ["crates/north-capacity/src/capacity/land_claim.rs"]

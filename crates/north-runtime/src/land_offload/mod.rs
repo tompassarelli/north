@@ -189,6 +189,14 @@ fn choose(any: bool, placement: &Placement) -> u8 {
             0
         }
         Err(refused) => {
+            std::thread::scope(|scope| {
+                for machine in &others {
+                    scope.spawn(|| room::claim(Some(&machine.ssh)));
+                }
+                if !reserved {
+                    scope.spawn(|| room::claim(None));
+                }
+            });
             eprintln!("north capacity offload: no host has room: {}", if refused.is_empty() { "none has an ssh destination".to_owned() } else { refused.join("; ") });
             1
         }

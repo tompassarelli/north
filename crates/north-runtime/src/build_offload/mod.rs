@@ -15,7 +15,7 @@ mod tests;
 fn room_of(ssh: &str, claim: Option<&claims::Claim>) -> Room {
     let Some(read) = room::read_within(ssh, Duration::from_secs(PROBE_LIMIT_SECONDS)) else { return Room::Unreachable };
     let reserved = claim.map_or(0.0, |claim| claim.ahead() as f64 * offload_room().0);
-    room::shortfall_reserving(&read, reserved).map_or(Room::Free, Room::Short)
+    room::build_shortfall_reserving(&read, reserved).map_or(Room::Free, Room::Short)
 }
 
 /// Ok(exit code) when the build ran on another host; Err leaves it to the local path, naming why when an offload host was configured.

@@ -430,6 +430,7 @@ defaults = [
   "backfill_seconds",
   "codex_eta_max_min",
   "codex_files_max",
+  "land_check_claim_seconds",
   "priority_lease_cap",
   "reservation_fallback_points",
   "staffing_drain_minutes",

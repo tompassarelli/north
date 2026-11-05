@@ -12,6 +12,7 @@ pub struct Admission {
     pub committed_cpus: f64,
     pub cpu_pressure_percent: f64,
     pub pressure_high_percent: f64,
+    pub land_check_waiting: bool,
 }
 
 impl Admission {
@@ -22,7 +23,7 @@ impl Admission {
             "unattended" => "admit_psi_unattended_high",
             _ => return None,
         };
-        Some(Self { limit_cpus: number("aggregateCpuLimit")?, committed_cpus: number("committedBatchCpus")?, cpu_pressure_percent: number("cpuSomeAvg10")?, pressure_high_percent: super::admission::default_mib(band) })
+        Some(Self { limit_cpus: number("aggregateCpuLimit")?, committed_cpus: number("committedBatchCpus")?, cpu_pressure_percent: number("cpuSomeAvg10")?, pressure_high_percent: super::admission::default_mib(band), land_check_waiting: status.get("landCheckWaiting").and_then(serde_json::Value::as_bool).unwrap_or(false) })
     }
 
     /// Why a build declaring `needs` CPUs would wait on this host's admission, with `reserved` CPUs counted as taken by builds already on their way; the host's load average, which its CI farm fills inside quota, never counts.

@@ -10,6 +10,7 @@ use super::json::{Obj, field, num, text};
 use super::machine::{now_ms, process_start, read_signals, read_text, wrapper_identity};
 use super::policy::gpu_busy_observation;
 use super::systemd::{apply_profile, kill_scope, scope_live};
+use crate::capacity::land_claim;
 
 const LOCK_PATIENCE_MILLISECONDS: u32 = 60_000;
 pub const RUN_LEASE_GRACE_MILLISECONDS: f64 = 5000.0;
@@ -200,14 +201,23 @@ pub fn read_queue(root: &Path) -> Vec<Value> {
 }
 
 pub fn native_waiting(root: &Path, now: f64) -> u32 {
-    let modified = fs::metadata(root.join("native-waiting")).and_then(|metadata| metadata.modified());
-    match modified {
-        Ok(modified) => {
-            let at = modified.duration_since(std::time::UNIX_EPOCH).map_or(0.0, |since| since.as_secs_f64() * 1000.0);
-            u32::from(now - at < NATIVE_WAITING_MILLISECONDS)
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(error) => fail(&format!("native-waiting: {error}"), 1),
+    marked_at(root, "native-waiting").map_or(0, |at| u32::from(now - at < NATIVE_WAITING_MILLISECONDS))
+}
+
+pub fn land_check_waiting(root: &Path, now: f64) -> bool {
+    marked_at(root, land_claim::FILE).is_some_and(|at| land_claim::stands(at, now))
+}
+
+pub fn claim_land_check(root: &Path) {
+    let path = root.join(land_claim::FILE);
+    or_fail(write_private(&path, "", false), &path);
+}
+
+fn marked_at(root: &Path, name: &str) -> Option<f64> {
+    match fs::metadata(root.join(name)).and_then(|metadata| metadata.modified()) {
+        Ok(modified) => Some(modified.duration_since(std::time::UNIX_EPOCH).map_or(0.0, |since| since.as_secs_f64() * 1000.0)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => fail(&format!("{name}: {error}"), 1),
     }
 }
 

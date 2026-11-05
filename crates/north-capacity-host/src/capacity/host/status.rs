@@ -103,6 +103,7 @@ pub fn status(root: &Path) -> Obj {
             .put("cpuSomeAvg10", num(signals.cpu_some / 100.0))
             .put("committedBatchCpus", num(accounting.committed_batch_cpus))
             .put("committedNativeCpus", num(accounting.committed_native_cpus))
+            .put("landCheckWaiting", super::state::land_check_waiting(root, now))
             .put("holding", holding.iter().map(Obj::value).collect::<Vec<_>>())
             .put("queued", queued(&read_queue(root), super::priority::open(&active), &draining, now).iter().map(Obj::value).collect::<Vec<_>>())
             .put("unleasedHeavy", accounting.unleased)

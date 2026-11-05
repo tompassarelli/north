@@ -59,6 +59,7 @@ pub fn facts(class: Class) -> Facts {
         disk_free_gib: None,
         ticket: None,
         requester_lease: None,
+        land_check_waiting: false,
         client_hold: Default::default(),
     }
 }

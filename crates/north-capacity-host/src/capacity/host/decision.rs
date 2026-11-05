@@ -9,7 +9,7 @@ use super::machine::{Gpu, Signals, enclosing_lease, env, lease_slice, now_ms, re
 use super::policy::{GPU_BUSY_LIMIT_PERCENT, batch_class};
 use super::request::{Create, Request, Totals, class, cpu_accounting, grant, granted_view, id, is_run, lease_facts, totals};
 use super::priority;
-use super::state::{RUN_LEASE_GRACE_MILLISECONDS, active_profile, dequeue, lease_path, mark_native_waiting, native_waiting, read_leases, read_queue, record_gpu_busy, with_lock, write_lease};
+use super::state::{RUN_LEASE_GRACE_MILLISECONDS, active_profile, dequeue, land_check_waiting, lease_path, mark_native_waiting, native_waiting, read_leases, read_queue, record_gpu_busy, with_lock, write_lease};
 use super::systemd::scope_unit;
 use crate::capacity::effects::Host;
 use crate::capacity::cpus::aggregate_cpus;
@@ -115,6 +115,7 @@ fn facts(root: &Path, request: &Request, create: Option<&Create>, ticket: Option
         .put("newDesktops", request.new_desktops)
         .put("gpuRuns", count(&|lease| class(lease) == "gpu"))
         .put("nativeWaiting", native_waiting(root, observed.now))
+        .put("landCheckWaiting", land_check_waiting(root, observed.now))
         .put("leases", with_started_clients(root, lease_facts(root, &runs)))
         .put_some("requesterLease", requester_lease(&runs))
         .put("queue", observed.queue.clone())
