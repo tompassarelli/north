@@ -194,3 +194,43 @@ fn arguments_name_a_known_app_and_at_least_one_repository() {
     assert!(words(&["--app"]).is_err());
     assert_eq!(words(&["--help"]), Ok(Parsed::Help));
 }
+
+const WRITE_TOKEN_REPOS: &str = "north,south,firn,wisp,smashcraft,nixos-config";
+
+#[test]
+fn permissions_scope_the_six_repositories_and_never_grant_workflows() {
+    let server = Server::start();
+    let fixture = Fixture::new("github-app.yaml");
+    let creds = json!({ "app_id": 123, "installation_id": 42, "private_key": fixture.pem });
+    let words = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+
+    let scoped = words(&["--repos", WRITE_TOKEN_REPOS, "--permissions", r#"{"pull_requests":"write","issues":"write"}"#]);
+    assert_eq!(run_on(&scoped, || fixture.host(&server, creds.clone()), NOW), 0);
+    let body: Value = serde_json::from_str(&server.seen.lock().unwrap()[0].body).unwrap();
+    assert_eq!(
+        body,
+        json!({
+            "repositories": ["north", "south", "firn", "wisp", "smashcraft", "nixos-config"],
+            "permissions": { "contents": "write", "issues": "write", "metadata": "read", "pull_requests": "write" }
+        })
+    );
+    assert!(body["permissions"].get("workflows").is_none());
+    assert!(!fixture.run().join("gh-app-token").exists());
+
+    for permissions in [r#"{"workflows":"write"}"#, r#"{"contents":"write","workflows":"read"}"#] {
+        let refused = words(&["--repos", WRITE_TOKEN_REPOS, "--permissions", permissions]);
+        assert_eq!(run_on(&refused, || fixture.host(&server, creds.clone()), NOW), 1);
+        assert_eq!(parse(&refused), Err("--permissions may not grant workflows".to_owned()));
+    }
+    assert_eq!(server.requests(), 1);
+}
+
+#[test]
+fn permissions_take_a_json_object_of_levels_and_need_repositories() {
+    let words = |words: &[&str]| parse(&words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>());
+    assert_eq!(words(&["--permissions", r#"{"issues":"write"}"#]), Err("--permissions needs --repos".to_owned()));
+    for malformed in ["write", r#"["contents"]"#, r#"{"contents":1}"#] {
+        assert_eq!(words(&["--repos", "north", "--permissions", malformed]), Err("--permissions takes a JSON object of permission levels".to_owned()));
+    }
+    assert_eq!(request(&["--repos", "north"]).permissions, default_permissions());
+}

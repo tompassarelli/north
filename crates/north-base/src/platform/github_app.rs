@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -14,11 +15,13 @@ use serde_json::{Value, json};
 use super::process;
 use crate::foundation::clock::Timestamp;
 
-const USAGE: &str = "usage: north gh-app-token [--app socrates|lander] [--repos NAME,NAME]
+const USAGE: &str = "usage: north gh-app-token [--app socrates|lander] [--repos NAME,NAME [--permissions JSON]]
 
 Print an installation access token for the Socrates Agent GitHub App, or with --app lander for the
 north-lander App (secrets/nexus/north-lander.yaml, field pem, cached apart from the default).
 With --repos, the token is limited to those repositories and contents write, and is not cached.
+With --permissions, a JSON object of permission levels is added over contents write and metadata
+read; a workflows permission is refused.
 Credentials: ${SOUTH_SECRETS:-$HOME/code/south/main/secrets}/github-app.yaml (sops).
 API base: ${GH_APP_API:-https://api.github.com}. Cache: ${XDG_RUNTIME_DIR}/gh-app-token,
 reused while more than 5 minutes remain.";
@@ -43,6 +46,7 @@ const APPS: &[(&str, App)] = &[
 pub struct Request {
     pub app: App,
     pub repos: Option<Vec<String>>,
+    pub permissions: BTreeMap<String, String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -54,6 +58,8 @@ enum Parsed {
 fn parse(arguments: &[String]) -> Result<Parsed, String> {
     let mut app_name = "socrates";
     let mut repos = None;
+    let mut permissions = default_permissions();
+    let mut granted = false;
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         if word == "-h" || word == "--help" {
@@ -68,11 +74,30 @@ fn parse(arguments: &[String]) -> Result<Parsed, String> {
                 }
                 repos = Some(names);
             }
-            _ => return Err("takes --app socrates|lander and --repos NAME,NAME".to_owned()),
+            ("--permissions", Some(value)) => {
+                permissions.extend(requested_permissions(value)?);
+                granted = true;
+            }
+            _ => return Err("takes --app socrates|lander, --repos NAME,NAME and --permissions JSON".to_owned()),
         }
     }
+    if granted && repos.is_none() {
+        return Err("--permissions needs --repos".to_owned());
+    }
     let app = APPS.iter().find(|(name, _)| *name == app_name).map(|(_, app)| *app).ok_or_else(|| format!("unknown app {app_name}"))?;
-    Ok(Parsed::Mint(Request { app, repos }))
+    Ok(Parsed::Mint(Request { app, repos, permissions }))
+}
+
+fn default_permissions() -> BTreeMap<String, String> {
+    BTreeMap::from([("contents".to_owned(), "write".to_owned()), ("metadata".to_owned(), "read".to_owned())])
+}
+
+fn requested_permissions(value: &str) -> Result<BTreeMap<String, String>, String> {
+    let requested: BTreeMap<String, String> = serde_json::from_str(value).map_err(|_| "--permissions takes a JSON object of permission levels".to_owned())?;
+    if requested.contains_key("workflows") {
+        return Err("--permissions may not grant workflows".to_owned());
+    }
+    Ok(requested)
 }
 
 pub type Decrypt = Box<dyn Fn(&Path) -> Option<Vec<u8>>>;
@@ -108,6 +133,10 @@ fn sops_decrypt(key_file: &str, file: &Path) -> Option<Vec<u8>> {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
+    run_on(arguments, Host::from_env, Timestamp::now().unix_seconds())
+}
+
+fn run_on(arguments: &[String], host: impl FnOnce() -> Host, now: i64) -> u8 {
     let request = match parse(arguments) {
         Ok(Parsed::Help) => {
             println!("{USAGE}");
@@ -116,7 +145,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Ok(Parsed::Mint(request)) => request,
         Err(message) => return fail(&message),
     };
-    match mint(&request, &Host::from_env(), Timestamp::now().unix_seconds()) {
+    match mint(&request, &host(), now) {
         Ok(token) => {
             println!("{token}");
             0
@@ -153,7 +182,8 @@ pub fn mint(request: &Request, host: &Host, now: i64) -> Result<String, String> 
         return Err(format!("{} lacks app_id, installation_id or {}", app.file, app.pem));
     }
     let jwt = app_jwt(&app_id, private_key, now).ok_or("could not sign the app JWT")?;
-    let (token, expires_at) = exchange(host, &installation_id, &jwt, request.repos.as_deref())?;
+    let scope = request.repos.as_deref().map(|repos| (repos, &request.permissions));
+    let (token, expires_at) = exchange(host, &installation_id, &jwt, scope)?;
     if let Some(path) = cache {
         store(&path, &token, &expires_at).map_err(|_| format!("could not write {}", path.display()))?;
     }
@@ -192,13 +222,13 @@ fn signing_key(pem: &str) -> Option<RsaKeyPair> {
     if pkcs1 { RsaKeyPair::from_der(&der) } else { RsaKeyPair::from_pkcs8(&der) }.ok()
 }
 
-fn exchange(host: &Host, installation_id: &str, jwt: &str, repos: Option<&[String]>) -> Result<(String, String), String> {
+fn exchange(host: &Host, installation_id: &str, jwt: &str, scope: Option<(&[String], &BTreeMap<String, String>)>) -> Result<(String, String), String> {
     let installation = percent_encoding::utf8_percent_encode(installation_id, percent_encoding::NON_ALPHANUMERIC);
     let url = format!("{}/app/installations/{installation}/access_tokens", host.api);
     let mut command = Command::new("curl");
     command.args(["--silent", "--show-error", "--max-time", "30", "--request", "POST", "--config", "-", "--write-out", "\n%{http_code}"]);
-    if let Some(repos) = repos {
-        command.args(["--data-binary", &json!({ "repositories": repos, "permissions": { "contents": "write", "metadata": "read" } }).to_string()]);
+    if let Some((repos, permissions)) = scope {
+        command.args(["--data-binary", &json!({ "repositories": repos, "permissions": permissions }).to_string()]);
     }
     command.arg(&url);
     let headers = format!(
