@@ -95,7 +95,7 @@ impl Rig {
 
     fn launch_worker(&self) -> Value {
         let lane = self.lane.display().to_string();
-        let launched = self.north(&["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "worker", "--parent", "none", "--local", "hermetic golden path", "--cwd", &lane, BRIEF]);
+        let launched = self.north(&["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "worker", "--parent", "reader", "--local", "hermetic golden path", "--cwd", &lane, BRIEF]);
         assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
         eventually("the worker's Done report", || {
             let show = self.north(&["fleet", "show", "worker", "--json"]);

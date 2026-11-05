@@ -17,7 +17,15 @@ static FIXTURE: std::sync::LazyLock<support::template::Template> = std::sync::La
 
 pub(crate) fn fixture(root: &Path, trace: &str) {
     FIXTURE.copy_into(root);
+    reader(root);
     executable(&root.join("bin/claude"), &format!("exec {} --trace {trace} \"$@\"\n", support::fake_claude()));
+}
+
+fn reader(root: &Path) {
+    let session = root.join(".local/state/north/fleet/reader");
+    fs::create_dir_all(&session).unwrap();
+    let record = serde_json::json!({"name": "reader", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "role": "lead", "stopped": false});
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
 }
 
 fn shared_fixture(root: &Path) {
@@ -305,7 +313,7 @@ fn a_second_task_launch_on_a_held_item_is_refused_unless_it_says_why_it_runs_bes
     fs::write(&brief, BRIEF).unwrap();
     let brief = brief.display().to_string();
     let task = |name: &str, extra: &[&str]| {
-        let mut words = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", "none", "--task", "makgora#4"];
+        let mut words = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", "reader", "--task", "makgora#4"];
         words.extend(extra);
         words.extend(["--system-prompt", &brief, "start the box"]);
         north(root, &words)
@@ -331,7 +339,7 @@ fn launch_task(root: &Path, category: &str, extra: &[&str]) -> Output {
     let brief = root.join("box.md");
     fs::write(&brief, format!("Item: north#9 tier check\nCategory: {category}\nClass: a stale tier pick\nSurface: lua\nNeeds: warcraft\n")).unwrap();
     let brief = brief.display().to_string();
-    let mut args = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "north#9", "--system-prompt", &brief];
+    let mut args = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "reader", "--task", "north#9", "--system-prompt", &brief];
     args.extend(extra);
     args.push("start the box");
     north(root, &args)
@@ -389,10 +397,10 @@ fn a_task_launch_holds_its_item_in_the_threads_ledger_under_the_session_name_unt
     fs::write(&brief, BRIEF).unwrap();
     let brief = brief.display().to_string();
 
-    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "makgora#4", "--system-prompt", &brief, "start the box"]);
+    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "reader", "--task", "makgora#4", "--system-prompt", &brief, "start the box"]);
     assert!(launched.status.success() && !String::from_utf8_lossy(&launched.stderr).contains("does not hold"), "{}", String::from_utf8_lossy(&launched.stderr));
     let held = held_by_name(root);
-    let refused = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "beside", "--parent", "none", "--task", "makgora#4", "--system-prompt", &brief, "start the box"]);
+    let refused = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "beside", "--parent", "reader", "--task", "makgora#4", "--system-prompt", &brief, "start the box"]);
     let stopped = north(root, &["fleet", "stop", "narrow"]);
     let after = held_by_name(root);
     north(root, &["fleet", "forget", "narrow"]);
@@ -705,7 +713,7 @@ fn holder(root: &Path, name: &str, stopped: bool) {
 fn launch_on_item(root: &Path) -> Output {
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
-    north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "makgora#4", "--system-prompt", &brief.display().to_string(), "start the box"])
+    north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "reader", "--task", "makgora#4", "--system-prompt", &brief.display().to_string(), "start the box"])
 }
 
 #[test]
@@ -896,7 +904,7 @@ fn a_launch_naming_files_two_queued_lanes_changed_is_queued_behind_the_earlier_l
     git_in(&main, &["push", "-q", "origin", "main"]);
     git_in(&main, &["fetch", "-q", "origin"]);
     let directory = north_landing::land::queue::directory(&root.join(".local/state"), origin.to_str().unwrap());
-    let sessions = [("lead", "makgora#10", "none"), ("lane-a", "makgora#11", "none"), ("lane-b", "makgora#12", "none")];
+    let sessions = [("lead", "makgora#10", "reader"), ("lane-a", "makgora#11", "reader"), ("lane-b", "makgora#12", "reader")];
     for (name, item, parent) in sessions {
         let started = start_task(root, name, item, &["--parent", parent], "hold the lane");
         assert!(started.status.success(), "{name}: {}", String::from_utf8_lossy(&started.stderr));
@@ -949,7 +957,7 @@ fn ledger_across_ssh(root: &Path, hung_read: Option<&str>) -> String {
 fn test_launch_on_item_across_ssh(root: &Path) -> Output {
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
-    let args = ["fleet", "launch", "--test", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "makgora#4", "--system-prompt", &brief.display().to_string(), "start the box"];
+    let args = ["fleet", "launch", "--test", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "reader", "--task", "makgora#4", "--system-prompt", &brief.display().to_string(), "start the box"];
     environment(Command::new(env!("CARGO_BIN_EXE_north")), root, "here").env_remove("THREADS_DB").args(args).output().unwrap()
 }
 
