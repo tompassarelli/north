@@ -1,12 +1,14 @@
+pub mod generated;
 mod git;
 pub mod language;
 pub mod outgoing;
+pub mod policy;
 pub mod test_integrity;
 pub mod tool_removal;
 
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]";
+const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]";
 
 struct Range<'a> {
     base: &'a str,
@@ -52,6 +54,12 @@ pub fn run(arguments: &[String]) -> u8 {
         }
         [name, range] if name == "test-integrity" => {
             test_integrity::scan(&directory, range, &mut std::io::stdout())
+        }
+        [name, range] if name == "policy-sweep" => {
+            policy::scan(&directory, range, &mut std::io::stdout())
+        }
+        [name, range] if name == "generated-rewrite" => {
+            generated::scan(&directory, range, &mut std::io::stderr())
         }
         [flag] if flag == "-h" || flag == "--help" => {
             println!("{USAGE}");

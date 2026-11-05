@@ -413,101 +413,11 @@ test_integrity_scan() {
 }
 
 generated_rewrite_scan() {
-  local base="${1%%..*}" head="${1##*..}"
-  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
-  python3 - "$base" "$head" <<'PYGENERATED'
-from collections import Counter
-from pathlib import PurePosixPath
-import subprocess
-import sys
-
-
-def git(*args, optional=False):
-    result = subprocess.run(["git", *args], capture_output=True)
-    if result.returncode and not optional:
-        raise ValueError("cannot read committed generated authority")
-    return result.stdout if not result.returncode else None
-
-
-def declarations(ref):
-    if git("cat-file", "-e", f"{ref}:.safe-push", optional=True) is None:
-        return {}
-    values = git("config", "--blob", f"{ref}:.safe-push", "--null", "--list")
-    records = {}
-    for entry in values.split(b"\0"):
-        key, _, value = entry.partition(b"\n")
-        name = key.decode("utf-8", "surrogateescape")
-        if name.startswith("generated.") and name.endswith(".input"):
-            output = name[len("generated."):-len(".input")]
-            records.setdefault(output, set())
-            if value:
-                records[output].add(value.decode("utf-8", "surrogateescape"))
-    return records
-
-
-def valid_path(path):
-    return bool(path and not path.startswith("/") and "\0" not in path
-                and all(part not in ("", ".", "..") for part in path.split("/"))
-                and not any(char in path for char in "*?[]") and str(PurePosixPath(path)) == path)
-
-
-def tree(ref):
-    entries = git("ls-tree", "-r", "-z", ref)
-    return {path.decode("utf-8", "surrogateescape"): metadata.split()[2]
-            for entry in entries.split(b"\0") if entry
-            for metadata, path in [entry.split(b"\t", 1)]}
-
-
-try:
-    base, head = sys.argv[1:]
-    old, new = declarations(base), declarations(head)
-    if not old and not new:
-        sys.exit(0)
-    before, after = tree(base), tree(head)
-    for output in sorted(old.keys() | new.keys()):
-        inputs = old.get(output, set()) | new.get(output, set())
-        if (not valid_path(output) or not inputs or output in inputs
-                or output not in before and output not in after
-                or output in old and output not in new
-                or any(not valid_path(path) or path not in before and path not in after for path in inputs)):
-            raise ValueError(f"{output}: missing or invalid generated input authority; declare repeated input = <tracked primary file> in [generated \"{output}\"]")
-        if not old.get(output) and output in old or not new.get(output) and output in new:
-            raise ValueError(f"{output}: enabled generated declaration has no primary inputs")
-        if before.get(output) == after.get(output):
-            continue
-        if output not in before:
-            continue
-        rows = git("show", f"{base}:{output}").splitlines()
-        next_rows = git("show", f"{head}:{output}").splitlines() if output in after else []
-        removed = sum((Counter(rows) - Counter(next_rows)).values())
-        changed = sum(before.get(path) != after.get(path) for path in inputs)
-        if removed * 2 > len(rows) and changed * 20 < len(inputs):
-            raise ValueError(f"{output}: rewrites {removed}/{len(rows)} old rows with {changed}/{len(inputs)} tracked primary inputs changed; keep generation proportional or fix its producer")
-except (ValueError, OSError) as error:
-    print(f"safe-push: ✗ {error}; NOT pushed.", file=sys.stderr)
-    sys.exit(1)
-PYGENERATED
+  north land scan generated-rewrite "$1"
 }
 
 policy_sweep_scan() {
-  local base="${1%%..*}" head="${1##*..}" policy=agents/AGENTS.md trials=3 sha wanted file
-  local -a files=() scenarios=()
-  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
-  git cat-file -e "$head:$policy" 2>/dev/null || return 0
-  [ "$(git rev-parse -q --verify "$base:$policy" 2>/dev/null)" != "$(git rev-parse "$head:$policy")" ] || return 0
-  sha=$(git show "$head:$policy" | sha256sum | cut -d' ' -f1)
-  mapfile -t files < <(git ls-tree --name-only "$head" -- agents/replay/ | grep -E '^agents/replay/sweep-[^/]*\.jsonl$' || true)
-  mapfile -t scenarios < <(git ls-tree --name-only "$head" -- agents/replay/ | grep -E '^agents/replay/[^/]*\.json$' || true)
-  wanted=$(for file in "${scenarios[@]}"; do
-    git show "$head:$file" | jq -r --arg stem "$(basename "$file" .json)" '.id // $stem'
-  done | jq -R . | jq -sc .)
-  if [ "${#files[@]}" -gt 0 ] && for file in "${files[@]}"; do git show "$head:$file"; done \
-    | jq -s -e --arg sha "$sha" --argjson wanted "$wanted" --argjson trials "$trials" \
-      'any(.[]; .policy_sha256 == $sha and ((.scenarios // {}) as $s | all($wanted[]; (($s[.] // [0, 0])[1]) >= $trials)))' >/dev/null 2>&1; then
-    return 0
-  fi
-  echo "safe-push: ✗ this change makes agents/AGENTS.md ${sha:0:8} live and the tree has no agents/replay/sweep-*.jsonl row for it with $trials trials on every scenario, so every host's agents sync would refuse it ('the live policy has no sweep row') and roll its runtime update back. Run the sweep in this worktree and commit the row it writes: north policy-replay sweep agents/replay/*.json --variants agents/replay/variants.toml --variant base --trials 3 (about 9 minutes and \$2 at list price: the 2026-10-27 sweeps took 480-567 s and \$1.35-\$2.23 for 42 runs); NOT pushed."
-  return 1
+  north land scan policy-sweep "$1"
 }
 
 ci_workflow_triggered() {

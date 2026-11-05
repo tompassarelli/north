@@ -52,6 +52,7 @@ mod land_offload;
 mod land_scan;
 mod land_scan_language;
 mod land_scan_outgoing;
+mod land_scan_policy;
 mod land_serve;
 mod land_repositories;
 mod land_tests;

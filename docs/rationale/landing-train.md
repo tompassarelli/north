@@ -534,7 +534,7 @@ Rust modules live in crates/north-landing/src/land/ (new, beside landing/).
 | gitleaks, deny-list, commit email, native-ref (~441-535, 2312-2330) | scans/secrets.rs on safe_push_guards, denylist.rs | S13 |
 | Dependency gate (`north dep-gate`) | scans/dep_gate.rs on dep_gate.rs, in-process | S14 |
 | Tool removal, test integrity, vendored trees (~536-606) | scans/tool_removal.rs, scans/test_integrity.rs | S14 |
-| Review gate (review coverage, durable paths, `north review-gate reviewers`), policy sweep (~100-115, 684-716) | scans/policy.rs on review_gate.rs | S15 |
+| Policy sweep (`policy_sweep_scan`); the review gate and durable paths were retired in 58df15b56 (2026-11-04) | scans/policy.rs | S15 |
 | Generated rewrite (~607-683) | scans/generated.rs | S15 |
 | CI budget, code health, instruction limits, after-landing gates (~717-1023) | after/gates.rs; `north after-landing` calls it in-process, not `safe-push --after-landing` | S16 |
 | Stale-revert and dropped-commit checks (~1024-1057) | candidate.rs, per lane as it is picked (stale-revert and already-landed in S2a; the bash functions in S17) | S2a, S17 |
@@ -554,7 +554,7 @@ suite until S20 ports it to `cargo test --test land`, under the same name.
 
 | Guarantee | Today's cases | After the port |
 |---|---|---|
-| Nothing lands unless every blocking gate passes; every failure is named once | all-at-once, language-gate-boundary, language-<mode>, dep-gate, denylist-public-finding, email-to-main, native-ref, test-integrity, vendored-tree, mutant-record, tool-removal, policy-sweep, review-coverage, generated-rewrite | per-lane, plus lander test `serve-gate-refusal` (a candidate whose check refuses is not pushed, and the lane is told which gates refused) |
+| Nothing lands unless every blocking gate passes; every failure is named once | all-at-once, language-gate-boundary, language-<mode>, dep-gate, denylist-public-finding, email-to-main, native-ref, test-integrity, vendored-tree, mutant-record, tool-removal, policy-sweep, generated-rewrite | per-lane, plus lander test `serve-gate-refusal` (a candidate whose check refuses is not pushed, and the lane is told which gates refused) |
 | Fail closed without north or gitleaks, or when origin can't be fetched | language-initial, train-language-<mode>, unreachable-fetch | per-lane, plus `serve-no-gitleaks` |
 | The pushed object is the one scanned; any change to repository, branch, HEAD, worktree or destination during the scan refuses | race-branch, race-commit, race-destination, race-worktree, lease-boundary | per-lane; the lander pushes the candidate sha it checked, pinned by `serve-pushes-checked-tree` and `serve-candidate-head-unchanged` (the lander worktree's HEAD or gitdir moved during the check: nothing pushed) |
 | No non-fast-forward, no silent publication of a non-main branch, symbolic destinations refused | non-fast-forward, no-upstream, inherited-upstream, symbolic-destination, normal, planning-outcomes, new-destination, explicit-main, dry-run-destination, argument-boundary | per-lane, then S19a's push.rs under the same names |
@@ -813,9 +813,10 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
 - **S14 Dependency gate, tool removal, test integrity** (`tool_removal_scan`, `vendored_trees`,
   `test_integrity_scan`). Cases dep-gate, tool-removal (including its eval'd block), vendored-tree,
   mutant-record, test-integrity.
-- **S15 Review coverage, policy sweep, generated rewrite** (`review_scan`, `policy_sweep_scan`,
-  `generated_rewrite_scan`, `durable_harness_paths`; codex_behavior.py's `--durable-harness-paths`
-  caller moves to `north land durable-paths`). Cases review-coverage, policy-sweep, generated-rewrite.
+- **S15 Policy sweep, generated rewrite** (`policy_sweep_scan`, `generated_rewrite_scan`, as
+  scans/policy.rs and scans/generated.rs). Cases policy-sweep, generated-rewrite. The review gate,
+  durable paths and codex_behavior.py's caller were retired in 58df15b56 (2026-11-04), so S15 ports
+  none of them.
 - **S16 CI budget, code health, instruction limits as after-landing gates** (`ci_budget_*`,
   `code_health_gate`, `run_after_landing_gates`); `north after-landing` stops calling
   `safe-push --after-landing`. Cases ci-budget, ci-unconfigured, ci-filtered, code-health-landed.
