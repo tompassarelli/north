@@ -32,3 +32,11 @@ existed only to record that string and went with it.
   (cross-host authority, credentials, rulesets, runtime pull or deploy, fleet admission) and `Spec: judged`
   cross-module or cross-repo lanes. Findings are fixed in the lane; nothing records a trailer.
 - Each reviewer report states `Accepted flaws: N`, so a trigger that keeps yielding nothing can be pruned on evidence.
+
+## Run-proven findings
+
+A code-review finding counts once the lead's rerun of its command reproduces the output the finding reports. The
+rule comes from pstack's `interrogate` rewrite and was kept by E1 of
+[the 2026-11-04 pstack review](watch/2026-11-04-pstack.md#experiments) on 2026-11-05. Every fix the peer-host row
+boundary review drove (9a2c5ab25) shipped with a test that drives the attack, so the rule would have dropped none of
+them. Plan and design reviews are exempt, because their findings are about a design no tree can run yet.
