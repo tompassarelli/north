@@ -72,6 +72,7 @@ impl Fixture {
     }
 
     fn try_enqueue(&self) -> Result<Queued, String> {
+        git(&self.repo, &["config", "landing.lander-host", "laptop"]);
         let south = self.root.join("no-south");
         let environment = Environment { state_home: &self.state, host: "laptop", session: None, south: &south, denylist: None };
         enqueue(&self.repo, Shape::OneCommit { message: None }, false, &environment)
