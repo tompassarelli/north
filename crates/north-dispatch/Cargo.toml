@@ -11,6 +11,7 @@ doctest = false
 
 [dependencies]
 north-capacity-host = { path = "../north-capacity-host" }
+north-github-mirror = { path = "../north-github-mirror" }
 north-core = { path = "../north-core" }
 regex.workspace = true
 rusqlite.workspace = true

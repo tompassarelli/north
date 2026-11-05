@@ -860,6 +860,7 @@ dependencies = [
  "north-capacity-host",
  "north-core",
  "north-dispatch",
+ "north-github-mirror",
  "north-guard",
  "north-landing",
  "north-ops",
@@ -972,6 +973,7 @@ version = "0.1.0"
 dependencies = [
  "north-capacity-host",
  "north-core",
+ "north-github-mirror",
  "proptest",
  "regex",
  "rusqlite",
@@ -997,6 +999,16 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "north-github-mirror"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

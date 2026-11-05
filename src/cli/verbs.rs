@@ -67,6 +67,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("gh-app-token", Bookkeeping),
     ("git-credential", Bookkeeping),
     ("git-maintenance-nightly", Bookkeeping),
+    ("github-mirror", Bookkeeping),
     ("grounding", Diagnosis),
     ("guard", Diagnosis),
     ("hardcoded-repo-path-check", Diagnosis),

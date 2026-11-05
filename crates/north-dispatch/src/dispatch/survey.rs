@@ -334,7 +334,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let (fleet_lists, gates, (mut issues, open), claim_lists, (report, ledger), remote_arms, grounds, cloud, strands) = std::thread::scope(|scope| {
         let fleet_lists = read(scope, |notes| fleets::everywhere(cfg_ref, here_ref, &["fleet", "list", "--json"], "fleet", at, PROBE, notes));
         let gates = read(scope, |notes| fleets::everywhere(cfg_ref, here_ref, &["gate", "list", "--json"], "gates", at, PROBE, notes));
-        let issues = read(scope, |notes| github::open_issues(repos, notes));
+        let issues = read(scope, |notes| github::open_issues(repos, at, notes));
         let claim_lists = read(scope, |notes| claim_listings(cfg_ref, here_ref, notes));
         let evidence = read(scope, |notes| {
             let report = closed(notes);
@@ -390,8 +390,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
 
 mod github {
     use super::*;
-
-    const QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body createdAt labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 10) { nodes { body createdAt updatedAt } } } } } }";
+    use north_github_mirror::store::{self, Mirror, OPEN_ISSUES, key};
 
     pub type OpenIssues = (Vec<Issue>, BTreeSet<IssueRef>);
 
@@ -424,40 +423,48 @@ mod github {
         })
     }
 
-    fn page(repo: &str, cursor: Option<&str>) -> Result<Value, String> {
-        let (query, owner, name) = (format!("query={QUERY}"), format!("owner={OWNER}"), format!("name={repo}"));
-        let mut args = vec!["api", "graphql", "-f", &query, "-F", &owner, "-F", &name];
-        let after = cursor.map(|cursor| format!("cursor={cursor}"));
-        if let Some(after) = &after {
-            args.extend(["-F", after]);
-        }
-        crate::platform::github::json(&args).map(|value| value["data"]["repository"]["issues"].clone())
+    pub trait Upstream {
+        fn open_issue_nodes(&self, repo: &str) -> Result<Vec<Value>, String>;
+        fn still_open(&self, reference: &IssueRef) -> Option<bool>;
     }
 
-    fn repository(repo: &str) -> Result<Vec<Issue>, String> {
-        let (mut found, mut cursor) = (Vec::new(), None::<String>);
-        loop {
-            let issues = page(repo, cursor.as_deref())?;
-            found.extend(issues["nodes"].as_array().into_iter().flatten().filter_map(|node| issue(repo, node)));
-            if issues["pageInfo"]["hasNextPage"] != true {
-                return Ok(found);
-            }
-            cursor = issues["pageInfo"]["endCursor"].as_str().map(str::to_owned);
+    pub struct Live;
+
+    impl Upstream for Live {
+        fn open_issue_nodes(&self, repo: &str) -> Result<Vec<Value>, String> {
+            store::fetch_open_issues(repo)
+        }
+
+        fn still_open(&self, reference: &IssueRef) -> Option<bool> {
+            let (number, repo) = (reference.number.to_string(), format!("{OWNER}/{}", reference.repo));
+            let state = crate::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "state"]).ok()?;
+            Some(state["state"] == "OPEN")
         }
     }
 
-    fn still_open(reference: &IssueRef) -> Option<bool> {
-        let (number, repo) = (reference.number.to_string(), format!("{OWNER}/{}", reference.repo));
-        let state = crate::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "state"]).ok()?;
-        Some(state["state"] == "OPEN")
+    fn nodes(repo: &str, mirror: &Mirror, at: f64, upstream: &dyn Upstream, notes: &mut Vec<String>) -> Result<Vec<Value>, String> {
+        if let Some(Value::Array(nodes)) = mirror.fresh(&key(repo, OPEN_ISSUES), at) {
+            return Ok(nodes);
+        }
+        notes.push(format!("{repo} issues read from GitHub: {} holds no copy under {:.0} min old", mirror.path().display(), store::FRESH_S / 60.0));
+        upstream.open_issue_nodes(repo)
     }
 
-    /// The staffed repositories' open issues, and every open issue they or their plans wait on.
-    pub fn open_issues(repos: &[String], notes: &mut Vec<String>) -> OpenIssues {
+    fn mirrored_open(reference: &IssueRef, mirror: &Mirror, at: f64) -> Option<bool> {
+        let nodes = mirror.fresh(&key(&reference.repo, OPEN_ISSUES), at)?;
+        Some(nodes.as_array()?.iter().any(|node| node["number"].as_u64() == Some(reference.number)))
+    }
+
+    pub fn open_issues(repos: &[String], at: f64, notes: &mut Vec<String>) -> OpenIssues {
+        read_open_issues(repos, &Mirror::local(), at, &Live, notes)
+    }
+
+    /// The staffed repositories' open issues, and every open issue they or their plans wait on, read from the GitHub mirror while it holds a fresh copy.
+    pub fn read_open_issues(repos: &[String], mirror: &Mirror, at: f64, upstream: &dyn Upstream, notes: &mut Vec<String>) -> OpenIssues {
         let mut found = Vec::new();
         for repo in repos {
-            match repository(repo) {
-                Ok(issues) => found.extend(issues),
+            match nodes(repo, mirror, at, upstream, notes) {
+                Ok(nodes) => found.extend(nodes.iter().filter_map(|node| issue(repo, node))),
                 Err(why) => notes.push(format!("{repo} issues unread: {why}")),
             }
         }
@@ -466,10 +473,14 @@ mod github {
         let named = found.iter().flat_map(|issue| issues::predecessors(issue).unwrap_or_default()).chain(planned.into_values().flatten());
         let elsewhere: BTreeSet<IssueRef> = named.filter(|reference| !repos.contains(&reference.repo)).collect();
         for reference in elsewhere {
-            if still_open(&reference) != Some(false) {
+            if mirrored_open(&reference, mirror, at).or_else(|| upstream.still_open(&reference)) != Some(false) {
                 open.insert(reference);
             }
         }
         (found, open)
     }
 }
+
+#[cfg(test)]
+#[path = "survey_tests.rs"]
+mod tests;

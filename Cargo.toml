@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch"]
-default-members = [".", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch"]
+members = ["crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror"]
+default-members = [".", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror"]
 
 [workspace.dependencies]
 crossterm = "0.28.1"
@@ -49,6 +49,7 @@ north-core = { path = "crates/north-core" }
 north-capacity-host = { path = "crates/north-capacity-host" }
 north-ops = { path = "crates/north-ops" }
 north-dispatch = { path = "crates/north-dispatch" }
+north-github-mirror = { path = "crates/north-github-mirror" }
 north-runtime = { path = "crates/north-runtime" }
 north-guard = { path = "crates/north-guard" }
 north-tui = { path = "crates/north-tui" }

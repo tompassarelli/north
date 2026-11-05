@@ -130,6 +130,7 @@ Commands:
   eta-calibration                               Post the last 7 days of stated ETA against measured active minutes, per category and tier, to north#255 (weekly timer)
   skill-review-queue                            Open, update or close the Skill review queue issue
   git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
+  github-mirror sync [--repo NAME]...            Copy north's, makgora's and wisp's open issues, main CI runs and main check results into ~/.local/state/north/github-mirror.db with conditional reads (an unchanged read answers 304), so dispatch reads the copy instead of GitHub (timer every two minutes)
   agent-runtime-update [VERSION]                Update the North, Claude and Agy runtimes
   claude-runtime-update [VERSION]               Install a checksum-verified Claude runtime, probe it and select it
   agy-runtime-update [VERSION]                  Install a checksum-verified Agy runtime and select it
