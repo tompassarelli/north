@@ -13,7 +13,15 @@ fn executable(path: &Path, body: &str) {
     shim::write_script(path, body);
 }
 
+static FIXTURE: std::sync::LazyLock<support::template::Template> = std::sync::LazyLock::new(|| support::template::Template::build(shared_fixture));
+
 pub(crate) fn fixture(root: &Path, trace: &str) {
+    FIXTURE.copy_into(root);
+    std::os::unix::fs::symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
+    executable(&root.join("bin/claude"), &format!("exec {} --trace {trace} \"$@\"\n", support::fake_claude()));
+}
+
+fn shared_fixture(root: &Path) {
     let op = root.join("op");
     let agents = root.join(".local/state/agents");
     let profile = root.join(".local/state/north/profiles/claude-a");
@@ -34,10 +42,10 @@ pub(crate) fn fixture(root: &Path, trace: &str) {
         &root.join("bin/systemctl"),
         "for a; do last=$a; done\nunit=\"$FLEET_LAUNCH_FIXTURE/units/$last\"\ncase \" $* \" in\n  *' --user stop '*)\n    [ -f \"$unit\" ] || { echo \"Failed to stop $last: Unit $last not loaded.\" >&2; exit 5; }\n    kill -s TERM -- \"-$(cat \"$unit\")\" 2>/dev/null\n    rm -f \"$unit\";;\n  *' show '*) pid=$(cat \"$unit\" 2>/dev/null); if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo \"$pid\"; else echo 0; fi;;\nesac\n",
     );
-    executable(&root.join("bin/claude"), &format!("exec {} --trace {trace} \"$@\"\n", support::fake_claude()));
     std::os::unix::fs::symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
     let ledger = north(root, &["threads", "release", "north#1", "--by", "setup"]);
     assert!(String::from_utf8_lossy(&ledger.stderr).contains("has no owner"), "{}", String::from_utf8_lossy(&ledger.stderr));
+    fs::remove_file(root.join("bin/threads")).unwrap();
 }
 
 fn north(root: &Path, args: &[&str]) -> Output {
@@ -879,6 +887,7 @@ fn a_launch_naming_files_two_queued_lanes_changed_is_queued_behind_the_earlier_l
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "fold");
+    executable(&root.join("bin/gh"), "exit 1\n");
     let origin = root.join("origin.git");
     let main = root.join("code/makgora/main");
     git_in(root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
@@ -895,7 +904,8 @@ fn a_launch_naming_files_two_queued_lanes_changed_is_queued_behind_the_earlier_l
         let started = start_task(root, name, item, &["--parent", parent], "hold the lane");
         assert!(started.status.success(), "{name}: {}", String::from_utf8_lossy(&started.stderr));
     }
-    for (micros, lane) in [(1_000_000, "lane-a"), (2_000_000, "lane-b")] {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros();
+    for (micros, lane) in [(now - 2_000_000, "lane-a"), (now - 1_000_000, "lane-b")] {
         let path = root.join("code/makgora/worktrees").join(lane);
         git_in(&main, &["worktree", "add", "-q", "-b", lane, path.to_str().unwrap(), "origin/main"]);
         fs::write(path.join("x.rs"), lane).unwrap();

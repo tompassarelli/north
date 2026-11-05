@@ -239,7 +239,7 @@ mod guard {
                 start.elapsed() < Duration::from_secs(5),
                 "swayidle callback did not record state"
             );
-            std::thread::yield_now();
+            std::thread::sleep(Duration::from_millis(2));
         };
         let mut busy = idle.clone();
         busy["idle"] = json!(false);
@@ -300,7 +300,8 @@ mod guard {
         ];
         let mut payloads = 0;
         f.state(&busy);
-        let multibyte = json!({"hook_event_name":"PreToolUse", "tool_name":"Bash", "tool_input":{"command":format!("wtype {}", "é".repeat(600_000))}}).to_string();
+        let multibyte = json!({"hook_event_name":"PreToolUse", "tool_name":"Bash", "tool_input":{"command":format!("wtype {}", "\u{1F600}".repeat(262_150))}}).to_string();
+        assert!(multibyte.len() > 1 << 20 && multibyte.chars().count() < 1 << 20, "the multibyte payload is over the hook's limit in bytes and under it in characters");
         assert_eq!(
             f.invoke("claude", "", Some(&multibyte), &[]).1.unwrap()["permissionDecision"],
             "deny"
