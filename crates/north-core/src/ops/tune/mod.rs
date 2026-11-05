@@ -6,9 +6,12 @@
 //! count. It keeps each staffed cell's cost per closed box once a day in the costs file and prints
 //! today's beside the last earlier day's. It reads each landed plan issue's dividend from the same
 //! week, keeps the reading once a day in the readings file, and tells the proxy once when one turns
-//! DECAYED. A failed read of the arms' evidence keeps the prior routing cells and fails the tick.
+//! DECAYED. It prints each tier and category's estimates against what the week's runs came to and
+//! files one north issue for each whose median ratio drifted out of the calibrated band, under the
+//! same rule as a rise. A failed read of the arms' evidence keeps the prior routing cells and fails
+//! the tick.
 use crate::foundation::clock::Timestamp;
-use crate::ledger::{self, ClosedReport};
+use crate::ledger::{self, ClosedReport, EstimatedRun};
 use crate::ops::dispatch::{ARMED, Evidence, LEDGER_WINDOW, arm_evidence};
 use crate::platform::github;
 use cells::{Cells, Change};
@@ -22,6 +25,7 @@ use std::path::PathBuf;
 mod cells;
 mod costs;
 mod dividends;
+mod estimates;
 mod rises;
 #[cfg(test)]
 mod tests;
@@ -47,6 +51,7 @@ pub struct Ledger {
     pub before: ClosedReport,
     pub evidence: BTreeMap<String, Evidence>,
     pub notes: Vec<String>,
+    pub estimates: Result<Vec<EstimatedRun>, String>,
 }
 
 /// What earlier ticks left: the cells they wrote and the costs and dividend readings they kept.
@@ -84,12 +89,25 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
     let checked = dividends::check(&ledger.week, dividends, &prior.readings, at);
     lines.extend(checked.lines);
     let (readings, told_failed) = tell_decays(tracker, checked.rows, checked.alerts, dry_run, &mut lines);
-    let filing = file_rises(ledger, tracker, at, dry_run, &mut lines);
+    let calibrations = match &ledger.estimates {
+        Ok(runs) => estimates::calibrations(runs),
+        Err(error) => {
+            lines.push(format!("estimates: unread ({error})"));
+            Vec::new()
+        }
+    };
+    lines.extend(calibrations.iter().map(estimates::Calibration::line));
+    let findings = rises::rises(&ledger.week, &ledger.before)
+        .into_iter()
+        .map(|rise| Finding { line: rise.line(), title: rise.title(), body: rise.body(at) })
+        .chain(calibrations.iter().filter(|calibration| calibration.drifted()).map(|calibration| Finding { line: calibration.drift_line(), title: calibration.title(), body: calibration.body(at) }))
+        .collect();
+    let filing = file_findings(findings, tracker, dry_run, &mut lines);
     lines.push(match &filing.open {
         Ok(open) => format!("open north issues: {open}"),
         Err(error) => format!("open north issues: unread ({error})"),
     });
-    let failed = !ledger.notes.is_empty() || filing.failed || filing.open.is_err() || told_failed;
+    let failed = !ledger.notes.is_empty() || ledger.estimates.is_err() || filing.failed || filing.open.is_err() || told_failed;
     Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, readings, failed }
 }
 
@@ -111,21 +129,27 @@ fn tell_decays(tracker: &mut dyn Tracker, rows: Vec<(String, Value)>, alerts: Ve
     (kept, !untold.is_empty())
 }
 
-/// What filing the risen cells came to: the open issue count after it, and whether a rise went
+/// A cell a tick files an issue for: the line it prints, and the issue's title and body.
+struct Finding {
+    line: String,
+    title: String,
+    body: String,
+}
+
+/// What filing the found cells came to: the open issue count after it, and whether a finding went
 /// unfiled for a failure rather than a holding issue or a dry run.
 struct Filing {
     open: Result<usize, String>,
     failed: bool,
 }
 
-/// Files each risen cell that no open or recently closed issue holds.
-fn file_rises(ledger: &Ledger, tracker: &mut dyn Tracker, at: &str, dry_run: bool, lines: &mut Vec<String>) -> Filing {
+/// Files each found cell that no open or recently closed issue holds.
+fn file_findings(findings: Vec<Finding>, tracker: &mut dyn Tracker, dry_run: bool, lines: &mut Vec<String>) -> Filing {
     let open = tracker.open();
     let held = open.clone().and_then(|open| Ok([open, tracker.recently_closed()?].concat()));
     let (mut filed, mut failed) = (0, false);
-    for rise in rises::rises(&ledger.week, &ledger.before) {
-        lines.push(rise.line());
-        let title = rise.title();
+    for Finding { line, title, body } in findings {
+        lines.push(line);
         lines.push(match &held {
             Err(error) => {
                 failed = true;
@@ -133,7 +157,7 @@ fn file_rises(ledger: &Ledger, tracker: &mut dyn Tracker, at: &str, dry_run: boo
             }
             Ok(held) if held.contains(&title) => format!("  held by an issue filed for it: {title}"),
             Ok(_) if dry_run => format!("  would file: {title}"),
-            Ok(_) => match tracker.file(&title, &rise.body(at)) {
+            Ok(_) => match tracker.file(&title, &body) {
                 Ok(url) => {
                     filed += 1;
                     format!("  filed {url}")
@@ -171,7 +195,8 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     let (week, before) = ledger::closed_report_and_previous(LEDGER_WINDOW).map_err(|error| error.user_message())?;
     let mut notes = Vec::new();
     let evidence = arm_evidence(&ARMED, &mut notes);
-    let ledger = Ledger { week, before, evidence, notes };
+    let estimates = ledger::estimated_runs(LEDGER_WINDOW).map_err(|error| error.user_message());
+    let ledger = Ledger { week, before, evidence, notes, estimates };
     let files = Files::here()?;
     let at = Timestamp::now().iso();
     let prior = Prior { cells: files.cells()?, costs: files.costs()?, readings: files.readings()? };
@@ -272,7 +297,8 @@ impl Tracker for Gh {
 
     fn recently_closed(&self) -> Result<Vec<String>, String> {
         let since = Timestamp::from_unix_seconds(Timestamp::now().unix_seconds() - 7 * 86_400).iso_date();
-        titles("closed", Some(&format!("closed:>={since} in:title \"Cost per closed box rose\"")))
+        let closed = |phrase: &str| titles("closed", Some(&format!("closed:>={since} in:title \"{phrase}\"")));
+        Ok([closed("Cost per closed box rose")?, closed("Estimates drifted outside")?].concat())
     }
 
     fn file(&mut self, title: &str, body: &str) -> Result<String, String> {

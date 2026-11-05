@@ -98,7 +98,8 @@ pub struct Figures {
     pub minutes_interval: (f64, f64),
 }
 
-fn percentile(values: &mut [f64], percent: usize) -> f64 {
+/// The nearest-rank `percent` percentile of `values`, which it sorts; `values` must not be empty.
+pub fn percentile(values: &mut [f64], percent: usize) -> f64 {
     values.sort_by(f64::total_cmp);
     values[(values.len() * percent).div_ceil(100).max(1) - 1]
 }

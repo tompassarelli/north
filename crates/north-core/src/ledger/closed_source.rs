@@ -185,6 +185,43 @@ pub fn window_start_ms(window: &str) -> NorthResult<i64> {
     Ok(Timestamp::parse(&window_start(window)?)?.unix_millis())
 }
 
+/// A finished worker run that was launched with an estimate: its minutes and cost against the ETA
+/// and the expected spend it carried, the spend absent while no run records one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EstimatedRun {
+    pub tier: String,
+    pub category: String,
+    pub minutes: f64,
+    pub eta_min: f64,
+    pub usd: f64,
+    pub estimated_usd: Option<f64>,
+}
+
+/// The worker runs that ended in the last `window` with an ETA and a wall time.
+pub fn estimated_runs(window: &str) -> NorthResult<Vec<EstimatedRun>> {
+    let since = window_start(window)?;
+    let rows = sqlite::rows(
+        &threads_database(),
+        Access::ReadOnly,
+        Duration::from_secs(5),
+        &format!(
+            "SELECT {ROLE_SQL} AS role, tier, category, model, minutes, eta_min, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
+             FROM runs WHERE outcome != 'running' AND ended >= '{}' AND eta_min > 0 AND minutes > 0",
+            since.replace('\'', "")
+        ),
+    )?;
+    let prices = PriceTable::load()?;
+    Ok(rows
+        .iter()
+        .filter(|row| row["role"].as_str() == Some("worker"))
+        .filter_map(|row| {
+            let tier = text(row, "tier");
+            let usd = prices.run_usd(row["model"].as_str(), &tier, row["input"].as_i64().unwrap_or(0), row["cache_read"].as_i64().unwrap_or(0), row["output"].as_i64().unwrap_or(0));
+            Some(EstimatedRun { tier: super::closed::tier_label(&tier), category: text(row, "category"), minutes: row["minutes"].as_f64()?, eta_min: row["eta_min"].as_f64()?, usd, estimated_usd: None })
+        })
+        .collect())
+}
+
 /// A worker's Not done or Stop report and when its run ended, as unix seconds.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PriorReport {
