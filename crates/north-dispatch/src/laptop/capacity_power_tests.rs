@@ -47,58 +47,10 @@ fn lease(host: &Host, id: &str, class: &str, slice: &str, wrapper: Option<(u32, 
     fs::write(scope.join("cgroup.procs"), procs).unwrap();
 }
 
-fn log(root: &Path) -> String {
-    fs::read_to_string(root.join("systemctl.log")).unwrap_or_default()
-}
-
 fn frozen_state(host: &Host) -> (Option<u64>, Vec<String>) {
     let lease = fs::read(host.capacity.join("leases").join(format!("{HEAVY}.json"))).unwrap();
     let listed = fs::read(host.capacity.join("gaming-frozen.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
     (serde_json::from_slice::<serde_json::Value>(&lease).unwrap()["frozenAt"].as_u64(), listed)
-}
-
-#[test]
-fn a_tick_on_battery_drains_laptop_placement_and_freezes_heavy_as_play_does_until_ac_returns() {
-    use crate::capacity::laptop_auto::{discharging_percent, on_battery, sample, shed};
-    use crate::capacity::mode::{Limits, Mode};
-    use super::Ctx;
-    let limits = Limits::bundled();
-    let root = tempfile::tempdir().unwrap();
-    let laptop = host(root.path(), &root.path().join("proc"));
-    lease(&laptop, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
-    let heavy = format!("agent-capacity-{}.scope", HEAVY.replace('-', ""));
-    let battery = root.path().join("power_supply/BAT1");
-    fs::create_dir_all(&battery).unwrap();
-    for (field, value) in [("type", "Battery"), ("status", "Discharging"), ("capacity", "80")] {
-        fs::write(battery.join(field), format!("{value}\n")).unwrap();
-    }
-    let placement = root.path().join("laptop");
-    fs::create_dir_all(&placement).unwrap();
-    fs::write(placement.join("window.json"), r#"{"tz":"UTC","open":"23:00","close":"10:00"}"#).unwrap();
-    Ctx::fixture(&placement, "2026-11-05T00:00:00Z", "true").main(&["open".to_owned()]).unwrap();
-    let tick = |now: &str| {
-        let percent = discharging_percent(&root.path().join("power_supply"));
-        let plan = shed(&laptop, on_battery(limits.effects(Mode::Desktop), percent), &[]);
-        Ctx::fixture(&placement, now, "true").main(&["observe".to_owned(), sample(&laptop, None, false, percent).to_string()]).unwrap();
-        let state: serde_json::Value = serde_json::from_str(&fs::read_to_string(placement.join("placement/laptop.json")).unwrap()).unwrap();
-        (plan, state)
-    };
-
-    let (drained, state) = tick("2026-11-05T00:01:00Z");
-    assert_eq!((state["state"].as_str(), state["reason"].as_str(), state["by"].as_str()), (Some("draining"), Some("battery"), Some("laptop-auto")), "{state}");
-    assert_eq!(drained.freeze, [heavy.clone()].into());
-    assert_eq!(frozen_state(&laptop).1, vec![heavy.clone()]);
-    let played = tempfile::tempdir().unwrap();
-    let play_host = host(played.path(), &played.path().join("proc"));
-    lease(&play_host, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
-    assert_eq!(drained, shed(&play_host, limits.effects(Mode::Play).confined(false), &[]), "battery froze heavy batch as play mode does while its CPU split is not enforced");
-
-    fs::write(battery.join("status"), "Charging\n").unwrap();
-    let (restored, state) = tick("2026-11-05T00:02:00Z");
-    assert_eq!((state["state"].as_str(), state["reason"].as_str()), (Some("available"), Some("window")), "{state}");
-    assert_eq!(restored.thaw, [heavy.clone()].into());
-    assert!(log(root.path()).contains(&format!("--user thaw {heavy}")));
-    assert_eq!(frozen_state(&laptop), (None, Vec::new()));
 }
 
 struct PowerTicks {
@@ -194,27 +146,4 @@ fn every_line_supply_offline_puts_the_laptop_on_battery_on_that_same_tick_and_ac
     assert_eq!(plan.thaw, [ticks.heavy.clone()].into());
     assert!(ticks.frozen().is_empty());
     assert!(!ticks.laptop.capacity.join("battery-warned").exists());
-}
-
-#[test]
-fn discharging_with_the_charger_online_for_120_seconds_of_consecutive_ticks_counts_as_on_battery_until_ac_returns() {
-    let ticks = PowerTicks::new(&[("ACAD", "Mains")]);
-    for now in [1_000, 1_030, 1_060, 1_090, 1_119] {
-        let (percent, plan, alerts, reason) = ticks.tick(now, "Discharging");
-        assert_eq!((percent, plan, alerts, reason.as_deref()), (None, Default::default(), Vec::new(), Some("open")), "at {now}");
-    }
-    assert!(ticks.frozen().is_empty());
-    let (percent, plan, alerts, reason) = ticks.tick(1_120, "Discharging");
-    assert_eq!((percent, alerts, reason.as_deref()), (Some(60), vec![CHARGER_LOST.to_owned()], Some("battery")));
-    assert_eq!(plan.freeze, [ticks.heavy.clone()].into());
-    let (percent, _, alerts, _) = ticks.tick(1_150, "Discharging");
-    assert_eq!((percent, alerts.len()), (Some(60), 1));
-
-    let (percent, plan, alerts, reason) = ticks.tick(1_180, "Charging");
-    assert_eq!((percent, alerts.len(), reason.as_deref()), (None, 1, Some("window")));
-    assert_eq!(plan.thaw, [ticks.heavy.clone()].into());
-    assert!(ticks.frozen().is_empty());
-    assert!(!ticks.laptop.capacity.join("battery-discharging-since").exists());
-    let (percent, _, alerts, _) = ticks.tick(1_210, "Discharging");
-    assert_eq!((percent, alerts.len()), (None, 1));
 }

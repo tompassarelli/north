@@ -215,12 +215,3 @@ impl Ctx {
         }
     }
 }
-
-#[cfg(test)]
-impl Ctx {
-    pub fn stalled(mut self, ssh: &std::path::Path, wait: Duration) -> Self {
-        self.ssh = vec![ssh.into()];
-        self.forward_wait = wait;
-        self
-    }
-}

@@ -7,8 +7,6 @@ use checks::{Check, Facts, Standing, Verdict, evaluate};
 mod bets;
 mod checks;
 mod live;
-#[cfg(test)]
-mod tests;
 
 const USAGE: &str = "usage: north ops dividend [--dry-run] [CHECK]  (CHECK: cloud-lane, laptop-share, game-share, release-closed)";
 

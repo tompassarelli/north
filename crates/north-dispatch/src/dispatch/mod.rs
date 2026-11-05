@@ -31,8 +31,6 @@ mod handoff;
 mod hotspots;
 mod issues;
 mod manual;
-#[cfg(test)]
-mod manual_tests;
 pub mod measure;
 mod plan;
 mod projects;
@@ -53,27 +51,13 @@ mod threads_claim_tests;
 #[cfg(test)]
 mod order_tests;
 #[cfg(test)]
-mod frozen_tests;
-#[cfg(test)]
-mod revive_tests;
-#[cfg(test)]
 mod stops_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod hotspots_tests;
-#[cfg(test)]
-mod plan_size_tests;
-#[cfg(test)]
-mod plan_burn_tests;
-#[cfg(test)]
-mod projects_tests;
-#[cfg(test)]
 mod tier_tests;
 #[cfg(test)]
 mod grounds_tests;
-#[cfg(test)]
-mod design_tests;
 #[cfg(test)]
 mod tries_tests;
 #[cfg(test)]

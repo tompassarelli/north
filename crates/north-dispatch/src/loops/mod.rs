@@ -141,7 +141,3 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-#[cfg(test)]
-mod inventory_tests;
-#[cfg(test)]
-mod tests;

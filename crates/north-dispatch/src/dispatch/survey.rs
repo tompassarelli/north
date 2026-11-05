@@ -23,8 +23,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::{DocumentMut, Item};
 
 pub(super) use crate::pacing::placement::room::room;
-#[cfg(test)]
-pub(super) use crate::pacing::placement::room::{CATALOG, plan};
 use crate::pacing::placement::room::{Basis, WEEK_H};
 const PACE_FRESH_S: f64 = 15.0 * 60.0;
 

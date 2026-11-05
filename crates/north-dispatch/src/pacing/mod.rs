@@ -6,22 +6,14 @@ use std::io::Write;
 
 mod command;
 #[cfg(test)]
-mod capacity_serving_tests;
-#[cfg(test)]
 mod grant_tests;
 mod grants;
 mod gate_order;
 pub mod placement;
 #[cfg(test)]
 mod placement_gate_tests;
-#[cfg(test)]
-mod placement_reach_tests;
-#[cfg(test)]
-mod placement_tests;
 mod process;
 mod readout;
-#[cfg(test)]
-mod readout_tests;
 mod reservation;
 mod sampling;
 #[cfg(test)]

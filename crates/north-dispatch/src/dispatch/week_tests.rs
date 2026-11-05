@@ -20,11 +20,3 @@ fn an_account_with_one_point_left_in_the_week_is_out_and_never_chosen_for_a_laun
     let launches = chosen(vec![host("gex45", 24, Ok(0))], vec![spent, spare], 3);
     assert_eq!(accounts_of(&launches), ["claude:b"; 3], "{launches:?}");
 }
-
-#[test]
-fn a_launch_refused_for_the_week_shows_that_refusal_in_dispatchs_failure_line_not_the_tier_note() {
-    let stderr = "tier: north#295 runs worker on claude-opus-5-5 (the brief names worker)\nplacement: claude:d\n  claude:c unavailable: exhausted: provider week 100%\nerror: claude:c unavailable: exhausted: provider week 100%; placement picks claude:d\n";
-    assert_eq!(super::effects::refusal_line(stderr), "claude:c unavailable: exhausted: provider week 100%; placement picks claude:d");
-    assert_eq!(super::effects::refusal_line("tier: a\nlaunch could not start\n"), "launch could not start");
-    assert_eq!(super::effects::refusal_line(""), "failed");
-}

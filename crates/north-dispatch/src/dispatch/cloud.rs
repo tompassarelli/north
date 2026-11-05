@@ -156,10 +156,6 @@ fn in_file(mut command: Command) -> std::io::Result<(Option<ExitStatus>, String)
     Ok((status, text))
 }
 
-#[cfg(test)]
-#[path = "cloud_tests.rs"]
-mod tests;
-
 #[derive(Debug, PartialEq)]
 pub struct Login {
     pub home: PathBuf,

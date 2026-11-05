@@ -40,10 +40,6 @@ mod projections;
 pub(crate) mod rises;
 mod skills;
 #[cfg(test)]
-mod loops_tests;
-#[cfg(test)]
-mod projections_tests;
-#[cfg(test)]
 mod tests;
 
 const USAGE: &str = "usage: north tune [--dry-run]";

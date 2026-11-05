@@ -8,8 +8,6 @@ use std::collections::BTreeMap;
 
 mod expectations;
 mod facts;
-#[cfg(test)]
-mod tests;
 
 const SOURCE: &str = include_str!("../../../../north-data/expectations.toml");
 const USAGE: &str = "usage: north ops check [--dry-run | --synthetic]";

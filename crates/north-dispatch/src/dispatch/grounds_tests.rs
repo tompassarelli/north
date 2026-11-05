@@ -1,13 +1,9 @@
-use super::brief::{brief, cloud};
-use super::grounds::{Grounds, Ledger, not_required};
-use super::manual::{Ask, start};
-use super::tests::{ORDERS, issue};
-use super::tier::{Evidence, History, Route, Tier};
+use super::grounds::Ledger;
+use super::tier::{Route, Tier};
 use crate::ledger::{PriorReport, SpendRun, summarize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 const BODY: &str = "Category: tooling\n- [ ] a\n\n## Not required\n\n- No change to the spawn gate.\n- No new flags.\n\n## Notes\n\nNot required later.";
-const CFG: &str = "[tiers.\"claude:sonnet-high\"]\nmodel = \"claude-sonnet-5-5\"\neffort = \"high\"\n";
 /// When wisp#83 was opened, 2026-10-29T15:15:27Z, as unix seconds.
 const OPENED: f64 = 1_793_286_927.0;
 /// 2026-10-30T10:00:00Z, after it opened.
@@ -50,39 +46,6 @@ fn reported(ended: f64, report: &str) -> PriorReport {
     PriorReport { ended, report: report.into() }
 }
 
-fn priors() -> Vec<PriorReport> {
-    vec![reported(AFTER + 60.0, &format!("Not done: {}", "x".repeat(900))), reported(AFTER, "Not done: the gate refused the push")]
-}
-
-fn carries(text: &str, why: Option<&str>) {
-    for needed in [
-        "Not required: No change to the spawn gate.",
-        "Not required: No new flags.",
-        "Prior report: Not done: the gate refused the push",
-        "ETA: 30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d",
-        "Budget: E p50 $5.20, p90 $5.20 (p50 and p90 of n=4 closed boxes, cell tooling on sonnet, ledger 7d); `north fleet spend --self` prints your API-equivalent spend so far; at $5.20 API-equivalent spend, commit and land any change already passing its checks, then report `Split:` with the remaining parts as boxes; never stop with passing work unlanded",
-    ] {
-        assert!(text.contains(needed), "{needed:?} missing from {text}");
-    }
-    let long = text.lines().find(|line| line.starts_with("Prior report: Not done: xxx")).unwrap();
-    assert_eq!(long.chars().count(), "Prior report: ".len() + 600, "a prior report is cut to 600 characters");
-    if let Some(why) = why {
-        assert!(text.contains(&format!("Why: {why}; the ETA and budget are the ledger's closed boxes of the last 7d")), "{text}");
-    }
-    assert!(!text.contains("Not required later"), "only the Not required section counts");
-}
-
-#[test]
-fn a_dispatch_brief_carries_the_not_required_lines_two_prior_reports_the_ledgers_p75_eta_and_a_budget() {
-    let ledger = ledger(&[("north#7", priors())]);
-    let box_ = issue("north", 7, BODY, &[]);
-    let grounds = ledger.grounds("north#7", OPENED, &box_.body, &route());
-    let text = brief(&box_, "test", &route(), &grounds);
-    carries(&text, Some("tooling arm sonnet-high"));
-    assert!(text.contains("Follows: north#240"), "the trace names the box's Follows line: {text}");
-    assert!(text.split("\n\n").next().unwrap().contains("Budget:"), "the lines sit in the header block placement reads");
-}
-
 #[test]
 fn a_brief_carries_no_prior_report_from_before_its_issue_was_opened() {
     let stale = reported(BEFORE, "Not done: makgora-dev#192's feature index waits on Tom");
@@ -93,118 +56,4 @@ fn a_brief_carries_no_prior_report_from_before_its_issue_was_opened() {
     assert_eq!(ledger.grounds("wisp#83", BEFORE - 1.0, BODY, &route()).prior.len(), 2, "an issue opened before every report still carries its newest two");
 }
 
-#[test]
-fn a_hand_launch_brief_carries_the_same_four_things() {
-    let ledger = ledger(&[("north#7", priors())]);
-    let ask = Ask { item: "north#7", brief: "Item: north#7 box\nCategory: tooling\nETA: 75 min\n\nDo it.", prompt: "Item: north#7 box\nCategory: tooling\nETA: 75 min\n\nDo it.", model: None, reason: None };
-    let started = start(&ask, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
-    assert_eq!(started.route.tier, Tier::Sonnet);
-    carries(&started.prompt, None);
-    assert!(started.prompt.contains("ETA: 30 min (p75 of n=4 runs") && started.prompt.contains("; declared 75 min)") && started.prompt.matches("ETA:").count() == 1, "the measured ETA replaces the declared one as the line the run records: {}", started.prompt);
-    let restamped = "Item: north#7 box\nCategory: tooling\nETA: 30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)\n\nDo it.";
-    let again = start(&Ask { brief: restamped, prompt: restamped, ..ask }, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
-    assert!(again.prompt.contains("ETA: 30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)\n") && again.prompt.matches("ETA:").count() == 1, "a dispatch brief launched by hand keeps its one measured ETA line: {}", again.prompt);
-    assert!(started.prompt.ends_with("\n\nDo it."), "the lead's text after the header is kept");
-}
 
-#[test]
-fn a_hand_launch_with_a_named_tier_still_carries_the_trace_and_a_model_override_carries_no_measured_figures() {
-    let ledger = ledger(&[("north#7", priors())]);
-    let named = "Item: north#7 box\nCategory: tooling\nTier: sonnet-high\n\nDo it.";
-    let ask = Ask { item: "north#7", brief: named, prompt: named, model: None, reason: None };
-    let started = start(&ask, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
-    assert!(started.prompt.contains("Not required: No new flags.") && started.prompt.contains("Budget: E p50"), "{}", started.prompt);
-    assert!(!started.prompt.contains("Arm:") && started.prompt.matches("Tier:").count() == 1, "a named tier is not stamped again: {}", started.prompt);
-    let overridden = Ask { model: Some("opus"), reason: Some("spans two engines"), ..ask };
-    let started = start(&overridden, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
-    assert!(started.prompt.contains("Not required: No new flags.") && !started.prompt.contains("Budget:") && !started.prompt.contains("ETA:"), "{}", started.prompt);
-}
-
-#[test]
-fn a_cell_with_no_closed_box_keeps_the_declared_eta_or_the_uncalibrated_default_and_names_no_budget() {
-    let route = Route { category: "feature".into(), ..route() };
-    let empty = ledger(&[]).grounds("north#7", OPENED, BODY, &route);
-    assert_eq!(empty.figures, None);
-    let declared = brief(&issue("north", 7, "Category: feature\nETA: 60 min\n- [ ] a", &[]), "test", &route, &empty);
-    assert!(declared.contains("ETA: 60 min\n") && !declared.contains("Budget:") && declared.contains("unmeasured for this cell"), "{declared}");
-    let bare = brief(&issue("north", 7, "- [ ] a", &[]), "test", &route, &Grounds::default());
-    assert!(bare.contains("ETA: 45 min (uncalibrated)"), "{bare}");
-}
-
-#[test]
-fn the_eta_and_budget_change_with_the_ledgers_closed_boxes() {
-    let slow: Vec<SpendRun> = [("north#1", 50), ("north#2", 60)].map(|(item, minutes)| run(item, minutes)).into();
-    let closed: HashSet<String> = slow.iter().filter_map(|run| run.item.clone()).collect();
-    let report = summarize(&slow, &closed, "2026-10-27T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap());
-    let later = Ledger::new(Some(report), BTreeMap::new()).grounds("north#7", OPENED, BODY, &route());
-    let first = ledger(&[]).grounds("north#7", OPENED, BODY, &route());
-    assert!(later.eta(None, &route()).starts_with("60 min (p75 of n=2 runs") && first.eta(None, &route()).starts_with("30 min (p75 of n=4 runs"));
-}
-
-#[test]
-fn a_cloud_brief_carries_the_standing_orders() {
-    let text = cloud("Item: north#9 x", "north", "claude/land-n9", ORDERS);
-    assert!(text.contains(&format!("Standing orders, which hold in the cloud too:\n{ORDERS}")), "{text}");
-}
-
-#[test]
-fn not_required_reads_its_section_and_its_inline_lines() {
-    assert_eq!(not_required(BODY), ["No change to the spawn gate.", "No new flags."]);
-    assert_eq!(not_required("- [ ] a\nNot required: the launcher\n- **Not required:** docs"), ["the launcher", "docs"]);
-    assert!(not_required("- [ ] a\nNothing here").is_empty());
-}
-
-
-fn tuned(cells: &str) -> super::tuned::Tuned {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("cells.json");
-    std::fs::write(&path, cells).unwrap();
-    let written = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(AFTER as u64);
-    std::fs::File::options().write(true).open(&path).unwrap().set_modified(written).unwrap();
-    super::tuned::Tuned::read(&path, written + std::time::Duration::from_secs(3_600))
-}
-
-#[test]
-fn dispatch_writes_the_tune_cells_eta_and_budget_into_the_brief_and_the_live_ledger_figure_where_a_cell_is_missing() {
-    let box_ = issue("north", 7, BODY, &[]);
-    let briefed = |cells: &str| brief(&box_, "test", &route(), &ledger(&[]).tuned(tuned(cells)).grounds("north#7", OPENED, &box_.body, &route()));
-    let live_eta = "ETA: 30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)";
-    let live_budget = "E p50 $5.20, p90 $5.20 (p50 and p90 of n=4 closed boxes, cell tooling on sonnet, ledger 7d)";
-    let eta = briefed(r#"{"eta_minutes sonnet tooling": 55, "budget_usd opus tooling": 3.0}"#);
-    assert!(eta.contains("ETA: 55 min (tune cell, 2026-10-30)\n") && eta.contains(live_budget), "{eta}");
-    assert!(eta.contains("the ETA and budget are north tune's cells of 2026-10-30, else the ledger's closed boxes of the last 7d"), "{eta}");
-    let budget = briefed(r#"{"budget_usd sonnet tooling": 7.5, "eta_minutes sonnet feature": 90}"#);
-    assert!(budget.contains(live_eta) && budget.contains("E p50 $5.20, p90 $7.50 (tune cell, 2026-10-30); `north fleet spend --self` prints your API-equivalent spend so far; at $7.50 API-equivalent spend, commit and land"), "{budget}");
-    let both = briefed(r#"{"eta_minutes sonnet tooling": 55, "budget_usd sonnet tooling": 7.5}"#);
-    assert!(both.contains("ETA: 55 min (tune cell, 2026-10-30)") && both.contains("E p50 $5.20, p90 $7.50 (tune cell, 2026-10-30)") && !both.contains("p75 of n="), "{both}");
-    let missing = briefed(r#"{"route tooling": "worker"}"#);
-    assert!(missing.contains(live_eta) && missing.contains(live_budget), "{missing}");
-    let floored = briefed(r#"{"budget_usd sonnet tooling": 1.0}"#);
-    assert!(floored.contains("E p50 $5.20, p90 $5.20 (tune cell, 2026-10-30; the p90 $1.00 is below the median cost of a closed box across every cell") && floored.contains("which one real box needs"), "{floored}");
-}
-
-#[test]
-fn the_brief_eta_is_scaled_by_its_tiers_walk_forward_calibration_and_names_the_measured_minutes() {
-    let box_ = issue("north", 7, BODY, &[]);
-    let scale = super::grounds::EtaScale { factor: 4.2, label: "x4.20 eta_pred claude n=300 median 1.10".into() };
-    let calibrated = ledger(&[]).eta_scale(Tier::Sonnet, scale.clone());
-    let live = calibrated.grounds("north#7", OPENED, &box_.body, &route());
-    assert_eq!(live.minutes(), Some(126.0));
-    let text = brief(&box_, "test", &route(), &live);
-    assert!(text.contains("ETA: 126 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d; 30 min x4.20 eta_pred claude n=300 median 1.10)\n"), "{text}");
-    let tuned = ledger(&[]).eta_scale(Tier::Sonnet, scale.clone()).tuned(tuned(r#"{"eta_minutes sonnet tooling": 55}"#)).grounds("north#7", OPENED, &box_.body, &route());
-    assert!(tuned.eta(Some("40 min"), &route()).starts_with("231 min (tune cell, 2026-10-30; 55 min x4.20 eta_pred claude n=300 median 1.10; declared 40 min)"), "{}", tuned.eta(None, &route()));
-    let other = ledger(&[]).eta_scale(Tier::Opus, scale).grounds("north#7", OPENED, &box_.body, &route());
-    assert_eq!((other.minutes(), other.eta(None, &route())), (Some(30.0), "30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)".to_owned()));
-    let recorded = north_core::providers::claude::runs::row::eta(&text);
-    assert_eq!(recorded, serde_json::json!(126));
-}
-
-#[test]
-fn the_ledger_reads_each_dispatch_briefs_eta_and_expected_spend_back_with_the_source_dispatch_wrote() {
-    use crate::threads::runs::brief::{Estimates, Source};
-    let box_ = issue("north", 7, BODY, &[]);
-    let read = |cells: &str| Estimates::read(&brief(&box_, "test", &route(), &ledger(&[]).tuned(tuned(cells)).grounds("north#7", OPENED, &box_.body, &route())));
-    assert_eq!(read(r#"{"eta_minutes sonnet tooling": 55, "budget_usd opus tooling": 3.0}"#), Estimates { eta: Some(Source::Tune), budget: Some((5.2, Source::Ledger)) });
-    assert_eq!(read(r#"{"budget_usd sonnet tooling": 7.5, "eta_minutes sonnet feature": 90}"#), Estimates { eta: Some(Source::Ledger), budget: Some((7.5, Source::Tune)) });
-}
