@@ -1,14 +1,19 @@
 const HEAD_NORTH: &str = "./bin/head-north";
+const NO_BUILD: &str = "--no-build";
+
+fn builds(words: &[&str]) -> Option<usize> {
+    words.iter().position(|word| *word == HEAD_NORTH).filter(|at| words.get(at + 1) != Some(&NO_BUILD))
+}
 
 pub fn runs_head_north(command: &str) -> bool {
-    command.split_whitespace().any(|word| word == HEAD_NORTH)
+    builds(&command.split_whitespace().collect::<Vec<_>>()).is_some()
 }
 
 pub fn command(commands: &[String]) -> Option<String> {
     let (mut environment, mut code, mut any) = (None, Vec::new(), false);
     for command in commands {
         let words: Vec<&str> = command.split_whitespace().collect();
-        let Some(at) = words.iter().position(|word| *word == HEAD_NORTH) else { continue };
+        let Some(at) = builds(&words) else { continue };
         environment.get_or_insert_with(|| words[..at].iter().filter(|word| word.contains('=')).map(|word| format!("{word} ")).collect::<String>());
         match words.get(at + 1..at + 3) {
             Some(["--code", paths]) => code.extend(paths.split(',').filter(|path| !path.is_empty())),
@@ -33,3 +38,7 @@ pub fn phases(commands: Vec<String>) -> Result<Phases, Vec<String>> {
     let (head_north, others): (Vec<String>, Vec<String>) = commands.into_iter().partition(|command| runs_head_north(command));
     Ok(Phases { others, build, head_north })
 }
+
+#[cfg(test)]
+#[path = "shared_build_tests.rs"]
+mod tests;

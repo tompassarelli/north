@@ -253,3 +253,100 @@ fn check_a_lane_adds_is_not_judged_against_base() {
 impl Fixture {
 }
 
+
+fn safe_push_entries(key: &str) -> Vec<String> {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join(".safe-push");
+    let output = Command::new("git").args(["config", "--file"]).arg(file).args(["--get-all", key]).output().unwrap();
+    String::from_utf8(output.stdout).unwrap().lines().map(str::to_owned).collect()
+}
+
+fn split_entry(entry: &str) -> (&str, &str) {
+    entry.split_once(" :: ").unwrap()
+}
+
+fn verb(command: &str) -> Option<&str> {
+    Some(command.split_once(" --code ")?.1.split_once(' ')?.1)
+}
+
+fn before_the_push() -> Vec<String> {
+    safe_push_entries("land.check").into_iter().filter(|entry| entry.contains("./bin/head-north --no-build ")).collect()
+}
+
+#[test]
+fn every_check_run_before_the_push_without_a_build_has_an_after_landing_backstop() {
+    let after = safe_push_entries("land.after");
+    let early = before_the_push();
+    assert_eq!(early.len(), 9, "{early:?}");
+    for entry in early {
+        let (patterns, command) = split_entry(&entry);
+        let backstop = after.iter().find(|candidate| verb(split_entry(candidate).1) == verb(command));
+        let (after_patterns, _) = split_entry(backstop.unwrap_or_else(|| panic!("no land.after line builds and runs {command}")));
+        assert_eq!(after_patterns, patterns, "a lane the check skips for want of a covering runtime must still reach its after-landing run: {command}");
+    }
+}
+
+const LIVE_RUNTIME: &str = "if [ \"$1 $2\" = 'runtime covers' ]; then [ -z \"${STUB_UNCOVERED:-}\" ] || { echo 'runtime older than the checker code' >&2; exit 1; }; printf '%s' \"$0\"; exit 0; fi\nprintf '%s\\n' \"$*\" >>\"$STUB_TRACE\"\nexec \"$REAL_NORTH\" \"$@\"\n";
+
+fn live_runtime(fixture: &Fixture) {
+    let live = fixture.path("state/north/current/north");
+    fs::create_dir_all(live.parent().unwrap()).unwrap();
+    script(&live, LIVE_RUNTIME);
+}
+
+fn with_real_head_north(command: &str) -> String {
+    command.replace("./bin/head-north", Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/head-north").to_str().unwrap())
+}
+
+fn head_north(fixture: &Fixture, command: &str, uncovered: bool) -> Command {
+    let mut run = Command::new("bash");
+    run.current_dir(&fixture.repo).args(["-c", command]);
+    run.env("REAL_NORTH", env!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("live-trace")).env("XDG_STATE_HOME", fixture.path("state")).env("SAFE_PUSH_LAND_HEAD", &fixture.head);
+    if uncovered {
+        run.env("STUB_UNCOVERED", "1");
+    }
+    run
+}
+
+#[test]
+fn a_features_entry_over_its_cap_is_refused_before_the_push() {
+    let entry = before_the_push().into_iter().find(|entry| entry.contains("docs features-index --check")).expect("the features-index check runs before the push");
+    let command = with_real_head_north(split_entry(&entry).1);
+    let command = command.as_str();
+    let fixture = Fixture::new(&[("land.check", &format!("docs/features/ :: {command}"))]);
+    live_runtime(&fixture);
+    let section = fixture.repo.join("docs/features/core");
+    fs::create_dir_all(&section).unwrap();
+    fs::write(fixture.repo.join("docs/features/_header.md"), "# Features\n").unwrap();
+    fs::write(section.join("_title.md"), "## Core\n").unwrap();
+    fs::write(section.join("small.md"), "- A short entry.\n").unwrap();
+    let render = Command::new(env!("CARGO_BIN_EXE_north")).current_dir(&fixture.repo).args(["docs", "features-index"]).output().unwrap();
+    assert!(render.status.success(), "{}", text(&render));
+    git(&fixture.repo, &["add", "docs"]);
+    git(&fixture.repo, &["commit", "-qm", "features"]);
+    let clean = git(&fixture.repo, &["rev-parse", "HEAD"]);
+
+    let run_check = |uncovered: bool| head_north(&fixture, command, uncovered).output().unwrap();
+    let output = run_check(false);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(fixture.path("live-trace").exists(), "the covering live runtime did not run the checker");
+
+    fs::write(section.join("long.md"), format!("- {}\n", "x".repeat(1_300))).unwrap();
+    let render = Command::new(env!("CARGO_BIN_EXE_north")).current_dir(&fixture.repo).args(["docs", "features-index"]).output().unwrap();
+    assert!(render.status.success(), "{}", text(&render));
+    let output = run_check(false);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+    assert!(text(&output).contains("over the 1200-character entry cap"), "{}", text(&output));
+
+    fs::remove_file(fixture.path("live-trace")).unwrap();
+    let output = run_check(true);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(text(&output).contains("not run before the push"), "{}", text(&output));
+    assert!(!fixture.path("live-trace").exists(), "a runtime that does not cover the checker ran it anyway");
+
+    git(&fixture.repo, &["add", "docs"]);
+    git(&fixture.repo, &["commit", "-qm", "over the cap"]);
+    let over = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    let landed = fixture.command_between(&clean, &over).output().unwrap();
+    assert_eq!(landed.status.code(), Some(1), "the lander ran the check from the lane's own .safe-push and the cap refused the lane: {}", text(&landed));
+    assert!(text(&landed).contains("over the 1200-character entry cap"), "{}", text(&landed));
+}

@@ -1149,7 +1149,12 @@ reservation, offload, runner, Actions dispatch or publication (`land.check-local
 - the clean pick of every queued lane onto main (one candidate for all of them),
 - the outgoing scans (secrets, email, deny-list, language, native references), the stale-revert
   gate, the dropped-commit gate and the review and trailer gates,
-- the `land.check` lines that finish in seconds: the verb-table sort and the tests/it module list.
+- the `land.check` lines that finish in seconds: the verb-table sort, the tests/it module list, and
+  code-health layers, agent-config tree-policy, package, features-index, rationale-index, doctor nix,
+  citation, nix-entry and experiments (north#634). Each runs as `head-north --no-build`: the live
+  runtime when it covers the checker, else a note and exit 0, never a compile on the lander. An entry
+  over its cap is refused before the push, not found by a red main; the `land.after` line of the same
+  check stays as the backstop for the lane that skipped it.
 
 There is no per-lane precheck, no numbered build slot and no `landing.slots`. Every queued lane joins
 the next candidate; the push is the only wait after the scans.
@@ -1160,7 +1165,7 @@ Every other check is a `land.after` line and runs once per landed batch on main,
 (`landing.runner`) under capacity admission: owners, clippy, code-health, agent-config, package,
 features-index, rationale-index, doctor nix, citation, nix-entry, experiments, cargo test, cargo
 check and the changed-tests selection. The affected-tests pre-land selection of north#360 moved here
-with them. Each landed commit still has every check run on it; none was deleted or weakened, and the
+with them. Each landed commit still has every check run on it, the nine checks above included; none was deleted or weakened, and the
 two coverage waivers are the `Removes-check:` trailers on commit 9fe95ca5a.
 
 ### Red after landing: bisect inside the batch, revert the culprit

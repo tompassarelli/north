@@ -454,7 +454,7 @@ Churn counts commits that touched each area, so one commit can count in two area
   accounts) and the gex45, nexus and ccx33 saturation cache, is 3,816 bytes as compact JSON.
 
 
-## Review
+## Reviewer findings
 
 A reviewer on a different model tier (Sonnet, 2026-11-06) read the first landed version (`e96d6a3bb`)
 against the code and tried to break it. Its findings, and the one revision that answers each:
