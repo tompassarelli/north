@@ -106,22 +106,3 @@ Skipping a test binary whose crate and dependency sources match a recorded pass 
 27 crate test files read paths outside their crate through `CARGO_MANIFEST_DIR` (`../..`, other
 crates' sources, `harness/`, `bin/safe-push`), so a crate's own source hash does not cover its
 tests' inputs. The land-cache keeps its whole-check reuse keyed on every path the check names.
-
-After those changes, clippy lints only the crates whose files changed (`SAFE_PUSH_LAND_CHANGED`), the
-nextest check builds tests/it only when a module is selected, and the separate `cargo check --tests`
-after line is gone. Timed the same morning through `north capacity offload run`, each run in the slot
-nearest its head, the slot last built at main:
-
-- One-crate change (a line in north-tui), on ccx33 at load 6 to 11: clippy on north-tui 4 to 5 s,
-  nextest build and 248 tests 14 to 15 s (tests 7.4 s), 19 s in the slot, 23 s wall end to end. The
-  same change on a slot that had not built main took 62 s (clippy 16 s, nextest 46 s).
-- The same change on gex45 at load 37: clippy on north-tui and north 37 s, nextest 49 s, 86 s in the
-  slot and 151 s wall, 60 s of it waiting for one of six busy slots.
-- Hub change (a line in north-core), on ccx33: clippy on north-core 11 s, nextest 58 s (its build 35 s
-  over north-core's seven dependents, 1,287 tests 18.8 s), 73 s wall. Under 20 s needs the build and the
-  tests split: build on gex45's 20 threads instead of ccx33's 8, run the tests from one `cargo nextest
-  archive` partitioned over gex45 and ccx33, and finish north-core's split (north#259) so a north-core
-  edit stops rebuilding north-guard and north-ops (34,000 lines each) whose code does not use it.
-
-gex45 is the binding constraint: through the morning it ran six slot jobs at once at load 37 to 57 on
-20 threads, and a job waited 1 to 5 minutes for a slot, longer than the verification itself.
