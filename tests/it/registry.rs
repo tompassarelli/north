@@ -5,6 +5,20 @@ fn tests_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests")
 }
 
+fn lexical(path: &Path) -> PathBuf {
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                resolved.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => resolved.push(other),
+        }
+    }
+    resolved
+}
+
 fn declared(file: &Path, reached: &mut BTreeSet<PathBuf>) {
     if !reached.insert(file.to_path_buf()) {
         return;
@@ -22,7 +36,7 @@ fn declared(file: &Path, reached: &mut BTreeSet<PathBuf>) {
         let name = line.strip_prefix("pub ").unwrap_or(line).strip_prefix("mod ").and_then(|rest| rest.strip_suffix(';'));
         if let Some(name) = name {
             let target = match path_attr.take() {
-                Some(path) => parent.join(path),
+                Some(path) => lexical(&parent.join(path)),
                 None if children.join(format!("{name}.rs")).exists() => children.join(format!("{name}.rs")),
                 None => children.join(name).join("mod.rs"),
             };
