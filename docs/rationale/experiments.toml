@@ -153,3 +153,16 @@ before = ["2026-10-21", "2026-11-04"]
 after = ["2026-11-05", "2026-11-19"]
 review = "2026-11-21"
 owner = "tompassarelli/north#360"
+
+[[experiment]]
+id = "rust-inner-loop-check"
+change = "The rust-development skill tells agents to run cargo check -p CRATE or cargo clippy -p CRATE --tests in the inner loop and to build and run the tests once at the end, and to start a new subsystem as its own crate"
+landed = "d8d8f1bb4"
+metric = "none"
+measure = "north capacity unleased: heavy cores held by cargo test builds in worker sessions, and cargo test --no-run runs per landed lane from the ledger"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-05", "2026-11-19"]
+review = "2026-11-21"
+owner = "tompassarelli/north#259"
