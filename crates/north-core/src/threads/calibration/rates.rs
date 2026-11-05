@@ -69,8 +69,10 @@ pub fn measure(samples: &[Sample], costs: &[Cost]) -> Vec<Row> {
 }
 
 pub fn calibrate_rates(db: &Connection, start: &str, end: &str) -> rusqlite::Result<Vec<Row>> {
+    let present = |table: &str| db.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?1", [table], |row| row.get::<_, i64>(0)).map(|count| count > 0);
     let mut samples = Vec::new();
-    for (window, name) in WINDOWS {
+    let windows = if present("usage")? { WINDOWS.as_slice() } else { &[] };
+    for &(window, name) in windows {
         let mut statement = db.prepare("SELECT account, ts, used_pct, COALESCE(resets_at, '') FROM usage WHERE provider = 'claude' AND kind = 'window' AND name = ?1 AND used_pct IS NOT NULL AND ts >= ?2 AND ts < ?3")?;
         let found = statement.query_map([name, start, end], |row| Ok(Sample { account: row.get(0)?, window, at: row.get(1)?, used_pct: row.get(2)?, resets_at: row.get(3)? }))?;
         for sample in found {
@@ -78,8 +80,7 @@ pub fn calibrate_rates(db: &Connection, start: &str, end: &str) -> rusqlite::Res
         }
     }
     let mut costs = Vec::new();
-    let present: i64 = db.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'run_costs'", [], |row| row.get(0))?;
-    if present > 0 {
+    if present("run_costs")? {
         let mut statement = db.prepare("SELECT account, started, cost_usd FROM run_costs WHERE started >= ?1 AND started < ?2")?;
         let found = statement.query_map([start, end], |row| Ok(Cost { account: row.get::<_, String>(0)?.trim_start_matches("claude-").to_owned(), at: row.get(1)?, usd: row.get(2)? }))?;
         for cost in found {

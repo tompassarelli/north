@@ -23,6 +23,7 @@
 	check = harness/defaults.toml,harness/skills/machine-capacity/scripts/ :: harness/skills/machine-capacity/scripts/build-machine-capacity --check
 	check = ** :: CARGO_TARGET_DIR=target bash harness/scripts/citation-check.sh
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-core/src/ops/experiments/ experiments check --root .
+	after = src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh portable
 	after = bin/,lib/,harness/,src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh machine-bound
 	after = "agent-machinery/ :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test; ../bin/land-shell -- bun run check'"
 	machine-bound = reads the south and nixos-config checkouts beside north :: CARGO_TARGET_DIR=target bash harness/scripts/check-owners.sh

@@ -30,6 +30,6 @@ output=$(SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD=HEAD bash "$script")
 [[ "$output" == *'land check: bin/threads.test.sh'* && "$output" == *'land check: bin/run-bounded.test.sh'* ]] || { printf 'FAIL: the all mode did not select both north-binary tests\n' >&2; exit 1; }
 printf 'PASS: a change under crates/north-core/src/threads/calibration selects bin/threads.test.sh in portable mode and bin/run-bounded.test.sh in machine-bound mode, both in the all mode\n'
 for mode in portable machine-bound; do
-  grep -E "^	check = .*land-checks\.sh $mode\$" "$safe_push" | grep -qE '= [^:]*(^|[ ,])crates/,' || { printf 'FAIL: the %s land check in .safe-push does not run for a change under crates/\n' "$mode" >&2; exit 1; }
+  grep -E "^	(check|after) = .*land-checks\.sh $mode\$" "$safe_push" | grep -qE '= [^:]*(^|[ ,])crates/,' || { printf 'FAIL: the %s land check in .safe-push does not run for a change under crates/\n' "$mode" >&2; exit 1; }
 done
 printf 'PASS: both land-checks.sh checks in .safe-push run for a change under crates/\n'

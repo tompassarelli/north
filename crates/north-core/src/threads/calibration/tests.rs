@@ -590,6 +590,12 @@ fn rates_land_per_account_and_window_with_n_and_the_pooled_fallback() {
 }
 
 #[test]
+fn a_ledger_that_never_recorded_usage_measures_no_rates() {
+    let db = Connection::open_in_memory().unwrap();
+    assert_eq!(super::rates::calibrate_rates(&db, "2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z").unwrap(), Vec::new());
+}
+
+#[test]
 fn a_rise_across_a_window_reset_is_not_counted() {
     let samples = [("2026-10-01T00:10:00Z", 90.0, "r1"), ("2026-10-01T00:40:00Z", 3.0, "r2")]
         .map(|(at, used_pct, resets_at)| super::rates::Sample { account: "a".into(), window: "week", at: at.into(), used_pct, resets_at: resets_at.into() });
