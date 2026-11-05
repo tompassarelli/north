@@ -141,7 +141,7 @@ fn lander_queue_without_north_refuses_instead_of_pushing() {
     let main_before = fixture.main();
     let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::join_paths(without_north).unwrap().to_string_lossy());
     assert_ne!(run.status, 0, "{}", run.output);
-    assert!(run.output.contains("lacks north land route"), "{}", run.output);
+    assert!(run.output.contains("north not on PATH; refusing to land without the language gate"), "{}", run.output);
     assert_eq!(fixture.main(), main_before, "a lander repository pushed main without north land route");
     assert!(fixture.tickets(&fixture.queue()).is_empty(), "{}", run.output);
 }
