@@ -9,21 +9,24 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::detached;
-use crate::fleet::model::Delivery;
+use crate::fleet::limit::park_limited;
+use crate::fleet::model::{Delivery, Ending};
 use crate::fleet::registry::{Fleet, Waiting};
-use crate::fleet::runtime::SESSION_ENV;
+use crate::fleet::runtime::{SESSION_ENV, now_ms};
 use crate::fleet::store::LedgerHost;
 use crate::fleet::tick::{Probed, WaitProbes};
-use crate::fleet::waits::{Probe, Registered, Run};
+use crate::fleet::limit::Parked;
+use crate::fleet::waits::{Probe, Registered, Run, Settled};
 use crate::foundation::clock::Timestamp;
 use crate::platform::process::run_command_within;
 
 use super::placement::Overrides;
+use super::limit::{UsageTable, holds_unqueued_lane};
 use super::row;
 use super::ledger::Ledger;
 use super::revive;
 
-const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH or pid:PID@START)";
+const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME)";
 const PROBE: Duration = Duration::from_secs(30);
 const JOB_STARTED_BEFORE_MS: f64 = 30.0 * 60_000.0;
 
@@ -71,8 +74,11 @@ pub(super) struct Probes;
 
 impl WaitProbes for Probes {
     fn settle(&self, fleet: &Fleet) -> Probed {
+        let parked = park_limited(fleet, &UsageTable, now_ms());
+        let usage_parked = |name: &str| fleet.waits().of(name).iter().any(|wait| matches!(wait.run, Run::Usage { .. }));
         let tell = |name: &str, text: &str| -> NorthResult<()> {
-            if fleet.session(name).map_or(true, |record| record.stopped) {
+            let Ok(record) = fleet.session(name) else { return Ok(()) };
+            if record.ended == Some(Ending::Stopped) || (record.stopped && !usage_parked(name)) {
                 return Ok(());
             }
             revive::revive(fleet, name, None, None, Overrides::default())?;
@@ -80,7 +86,8 @@ impl WaitProbes for Probes {
         };
         let exists = |name: &str| fleet.session(name).is_ok();
         let told = fleet.waits().settle(&Runs::default(), &exists, &tell);
-        Probed { lines: told.iter().map(|settled| settled.line()).collect(), settled: told.iter().filter_map(|settled| settled.run.request(&settled.session)).map(|request| request.key()).collect() }
+        let lines = parked.iter().map(Parked::line).chain(told.iter().map(Settled::line)).collect();
+        Probed { lines, settled: told.iter().filter_map(|settled| settled.run.request(&settled.session)).map(|request| request.key()).collect() }
     }
 }
 
@@ -107,7 +114,15 @@ impl Probe for Runs {
             Run::Farm(id) => farm(id, &wait.cwd),
             Run::Branch(branch) => branch_state(branch, &wait.cwd),
             Run::Capture(path) => wait.cwd.join(path).exists().then(|| "written".to_owned()),
+            Run::Usage { at_ms, .. } => (now_ms() >= *at_ms).then(|| "reset".to_owned()),
             Run::Process { pid, started } => (!detached::alive(Path::new("/proc"), *pid, *started)).then(|| "ended".to_owned()),
+        }
+    }
+
+    fn precedence(&self, session: &str, wait: &Registered) -> u8 {
+        match wait.run {
+            Run::Usage { .. } if holds_unqueued_lane(session, &wait.cwd) => 0,
+            _ => 1,
         }
     }
 }

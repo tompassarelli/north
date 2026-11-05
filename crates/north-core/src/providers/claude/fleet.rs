@@ -4,14 +4,14 @@ use serde_json::Value;
 
 use crate::claude_stream::{encode_interrupt, encode_user_message};
 use crate::error::NorthResult;
-use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
+use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript, UsageLimit};
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
 use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, Opening, Runtime, new_uuid, summarize};
 use crate::fleet::install;
 
 use super::session_env::{self, claude_env};
-use super::{accounts, quota, turns, user_text};
+use super::{accounts, limit, quota, turns, user_text};
 
 const PROVIDER: &str = "claude";
 const TOOL_RESULT_CHARS: usize = 400;
@@ -114,6 +114,7 @@ impl Runtime for Claude {
             Some("user") => observe_user(frame, transcript),
             Some("assistant") => observe_assistant(frame, transcript),
             Some("result") => observe_result(frame, transcript),
+            Some("rate_limit_event") => observe_rate_limit(frame, transcript),
             _ => {}
         }
     }
@@ -174,6 +175,7 @@ fn observe_user(frame: &Value, transcript: &mut Transcript) {
 }
 
 fn observe_user_text(frame: &Value, text: &str, transcript: &mut Transcript) {
+    transcript.limit = None;
     transcript.status = Status::Working;
     transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
     let (kind, text) = user_text::entry(text, frame["isReplay"] == true, frame["isSynthetic"] == true);
@@ -191,7 +193,7 @@ fn tool_result_text(block: &Value) -> String {
 fn observe_assistant(frame: &Value, transcript: &mut Transcript) {
     for block in frame["message"]["content"].as_array().into_iter().flatten() {
         match block["type"].as_str() {
-            Some("text") => push(transcript, EntryKind::Assistant, block["text"].as_str().unwrap_or_default().to_owned()),
+            Some("text") => observe_assistant_text(block["text"].as_str().unwrap_or_default(), transcript),
             Some("tool_use") => push(transcript, EntryKind::Tool, tool_use_text(block)),
             _ => {}
         }
@@ -208,7 +210,23 @@ fn tool_use_text(block: &Value) -> String {
     format!("{name} {}", summarize(&detail, TOOL_RESULT_CHARS))
 }
 
+fn observe_rate_limit(frame: &Value, transcript: &mut Transcript) {
+    if let Some(rejected) = limit::rejected_window(frame) {
+        limit::record(rejected, &mut transcript.limit);
+    }
+}
+
+fn observe_assistant_text(text: &str, transcript: &mut Transcript) {
+    if limit::stop_text(text) {
+        limit::record(UsageLimit { resets_at_s: None, message: Some(text.to_owned()) }, &mut transcript.limit);
+    }
+    push(transcript, EntryKind::Assistant, text.to_owned());
+}
+
 fn observe_result(frame: &Value, transcript: &mut Transcript) {
+    if let Some(stopped) = limit::rate_limited_result(frame) {
+        limit::record(stopped, &mut transcript.limit);
+    }
     transcript.status = Status::Idle;
     transcript.active_turn = None;
     let subtype = frame["subtype"].as_str().unwrap_or("result");

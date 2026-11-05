@@ -9,11 +9,12 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::clock::Timestamp;
 
 use super::runtime::now_ms;
 use super::store::{WaitKind, WaitRequest};
 
-const USAGE: &str = "a run is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH or pid:PID@START";
+const USAGE: &str = "a run is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME";
 const FARM_DEADLINE_SECS: u64 = 4 * 3600;
 const BRANCH_DEADLINE_SECS: u64 = 24 * 3600;
 const CAPTURE_DEADLINE_SECS: u64 = 4 * 3600;
@@ -26,6 +27,7 @@ pub enum Run {
     Branch(String),
     Capture(PathBuf),
     Process { pid: u32, started: u64 },
+    Usage { account: String, at_ms: u64 },
 }
 
 impl FromStr for Run {
@@ -46,6 +48,11 @@ impl FromStr for Run {
                 let (pid, started) = id.split_once('@').ok_or_else(usage)?;
                 Ok(Self::Process { pid: pid.parse().map_err(|_| usage())?, started: started.parse().map_err(|_| usage())? })
             }
+            "usage" => {
+                let (account, time) = id.split_once('@').filter(|(account, _)| !account.is_empty()).ok_or_else(usage)?;
+                let at_ms = u64::try_from(Timestamp::parse(time).map_err(|_| usage())?.unix_millis()).map_err(|_| usage())?;
+                Ok(Self::Usage { account: account.into(), at_ms })
+            }
             _ => Err(usage()),
         }
     }
@@ -57,7 +64,7 @@ impl Run {
             Self::Farm(id) => (WaitKind::Farm, id.clone(), FARM_DEADLINE_SECS),
             Self::Branch(branch) => (WaitKind::Branch, branch.clone(), BRANCH_DEADLINE_SECS),
             Self::Capture(path) => (WaitKind::Capture, path.display().to_string(), CAPTURE_DEADLINE_SECS),
-            Self::Job { .. } | Self::Process { .. } => return None,
+            Self::Job { .. } | Self::Process { .. } | Self::Usage { .. } => return None,
         };
         Some(WaitRequest { session: session.to_owned(), kind, key, within_secs })
     }
@@ -86,6 +93,7 @@ impl fmt::Display for Run {
             Self::Branch(branch) => write!(out, "branch:{branch}"),
             Self::Capture(path) => write!(out, "capture:{}", path.display()),
             Self::Process { pid, started } => write!(out, "pid:{pid}@{started}"),
+            Self::Usage { account, at_ms } => write!(out, "usage:{account}@{}", Timestamp::from_unix_millis(i64::try_from(*at_ms).unwrap_or(i64::MAX)).iso()),
         }
     }
 }
@@ -117,6 +125,11 @@ pub struct Registered {
 /// Whether a run is over, and how it ended.
 pub trait Probe {
     fn result(&self, wait: &Registered) -> Option<String>;
+
+    /// Which of the waits that are over revives first: the lower number.
+    fn precedence(&self, _session: &str, _wait: &Registered) -> u8 {
+        0
+    }
 }
 
 const DIR: &str = ".waits";
@@ -178,23 +191,35 @@ impl Waits {
     /// Tells each session whose registered run is over what it was and how it ended, then forgets
     /// the wait; `tell` revives a parked session. A wait whose message fails stays for the next tick.
     pub fn settle(&self, probe: &dyn Probe, exists: &dyn Fn(&str) -> bool, tell: &dyn Fn(&str, &str) -> NorthResult<()>) -> Vec<Settled> {
-        let mut told = Vec::new();
+        let mut over = Vec::new();
         for (session, waits) in self.all() {
             if !exists(&session) {
                 let _ = self.store(&session, &[]);
                 continue;
             }
             for wait in waits {
-                let named = wait.label.as_ref().map_or_else(|| wait.run.to_string(), |label| format!("{} `{label}`", wait.run));
-                let Some(result) = probe.result(&wait) else { continue };
-                let text = format!("[north: the run you waited on is over] {named}: {result}. Read its output and continue to a final report.");
-                if tell(&session, &text).is_ok() && self.release(&session, &wait.run).is_ok() {
-                    told.push(Settled { session: session.clone(), run: wait.run.clone(), result });
+                if let Some(result) = probe.result(&wait) {
+                    over.push((probe.precedence(&session, &wait), session.clone(), wait, result));
                 }
+            }
+        }
+        over.sort_by_key(|(precedence, _, wait, _)| (*precedence, wait.since_ms));
+        let mut told = Vec::new();
+        for (_, session, wait, result) in over {
+            if tell(&session, &revival(&wait, &result)).is_ok() && self.release(&session, &wait.run).is_ok() {
+                told.push(Settled { session, run: wait.run, result });
             }
         }
         told
     }
+}
+
+fn revival(wait: &Registered, result: &str) -> String {
+    if let Run::Usage { account, .. } = &wait.run {
+        return super::limit::resume_message(account);
+    }
+    let named = wait.label.as_ref().map_or_else(|| wait.run.to_string(), |label| format!("{} `{label}`", wait.run));
+    format!("[north: the run you waited on is over] {named}: {result}. Read its output and continue to a final report.")
 }
 
 #[cfg(test)]
@@ -219,7 +244,7 @@ mod tests {
 
     #[test]
     fn a_run_round_trips_through_its_text_and_refuses_an_unnamed_kind() {
-        for text in ["job:nexus-build", "job:build@nexus", "farm:123456", "branch:claude/land-x", "capture:/tmp/batch/done", "pid:4242@99"] {
+        for text in ["job:nexus-build", "job:build@nexus", "farm:123456", "branch:claude/land-x", "capture:/tmp/batch/done", "pid:4242@99", "usage:d@2026-11-05T09:00:00Z"] {
             assert_eq!(text.parse::<Run>().unwrap().to_string(), text);
         }
         assert!("soak:1".parse::<Run>().is_err() && "job:".parse::<Run>().is_err() && "pid:4242".parse::<Run>().is_err() && "nexus".parse::<Run>().is_err());
@@ -234,7 +259,7 @@ mod tests {
         assert_eq!((branch.kind, branch.key.as_str(), branch.within_secs), (WaitKind::Branch, "claude/land-x", BRANCH_DEADLINE_SECS));
         let capture = request("capture:/tmp/batch/done").unwrap();
         assert_eq!((capture.kind, capture.key.as_str(), capture.within_secs), (WaitKind::Capture, "/tmp/batch/done", CAPTURE_DEADLINE_SECS));
-        assert!(request("job:soak").is_none() && request("pid:4242@99").is_none());
+        assert!(request("job:soak").is_none() && request("pid:4242@99").is_none() && request("usage:d@2026-11-05T09:00:00Z").is_none());
     }
 
     #[test]
@@ -295,5 +320,43 @@ mod tests {
         assert_eq!(*probe.0.borrow(), 1);
         assert!(told.borrow().is_empty());
         assert!(waits.of("gone").is_empty() && waits.of("here").len() == 1);
+    }
+    struct ResetAt {
+        now_ms: u64,
+        unqueued: Vec<&'static str>,
+    }
+
+    impl Probe for ResetAt {
+        fn result(&self, wait: &Registered) -> Option<String> {
+            matches!(wait.run, Run::Usage { at_ms, .. } if self.now_ms >= at_ms).then(|| "reset".to_owned())
+        }
+
+        fn precedence(&self, session: &str, _: &Registered) -> u8 {
+            u8::from(!self.unqueued.contains(&session))
+        }
+    }
+
+    #[test]
+    fn a_usage_wait_revives_after_its_reset_with_the_resume_message_and_a_worker_holding_an_unqueued_lane_revives_first() {
+        let (_root, waits) = waits();
+        let run: Run = "usage:d@2026-11-05T09:00:00Z".parse().unwrap();
+        let Run::Usage { at_ms, .. } = run else { panic!("{run}") };
+        for session in ["worker-a", "worker-b", "worker-c"] {
+            waits.register(session, run.clone(), Path::new("/repo"), Some("usage limit")).unwrap();
+        }
+        let sent = RefCell::new(Vec::new());
+        let tell = |session: &str, text: &str| {
+            sent.borrow_mut().push((session.to_owned(), text.to_owned()));
+            Ok(())
+        };
+
+        assert!(waits.settle(&ResetAt { now_ms: at_ms - 1, unqueued: vec!["worker-b"] }, &|_| true, &tell).is_empty(), "nothing revives before the reset");
+        let told = waits.settle(&ResetAt { now_ms: at_ms, unqueued: vec!["worker-b"] }, &|_| true, &tell);
+
+        assert_eq!(told.iter().map(|settled| settled.session.as_str()).collect::<Vec<_>>(), ["worker-b", "worker-a", "worker-c"]);
+        let sent = sent.into_inner();
+        assert_eq!(sent.iter().map(|(session, _)| session.as_str()).collect::<Vec<_>>(), ["worker-b", "worker-a", "worker-c"]);
+        assert!(sent[0].1.contains("account d") && sent[0].1.contains("git fetch origin") && sent[0].1.contains("safe-push --to main") && sent[0].1.contains("`Done:`"), "{}", sent[0].1);
+        assert!(waits.all().is_empty());
     }
 }

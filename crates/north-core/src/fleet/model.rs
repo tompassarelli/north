@@ -328,6 +328,13 @@ pub struct Quota {
     pub windows: Vec<QuotaWindow>,
 }
 
+/// A turn that ended on the account's usage limit: the reset the stream carried, in unix seconds, and the limit message.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct UsageLimit {
+    pub resets_at_s: Option<u64>,
+    pub message: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Transcript {
     pub name: String,
@@ -339,6 +346,7 @@ pub struct Transcript {
     pub turns: Vec<Turn>,
     pub tracker: Turns,
     pub quota: Option<Quota>,
+    pub limit: Option<UsageLimit>,
 }
 
 impl Default for Transcript {
@@ -359,6 +367,7 @@ impl Transcript {
             turns: Vec::new(),
             tracker: Turns::default(),
             quota: None,
+            limit: None,
         }
     }
 }

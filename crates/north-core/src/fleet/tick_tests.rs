@@ -874,3 +874,52 @@ fn a_cached_gate_whose_host_stopped_ticking_a_day_past_its_default_no_longer_hol
     assert!(laptop.fleet.gated_issues().unwrap().is_empty());
     assert!(laptop.fleet.gates_elsewhere().unwrap().is_empty());
 }
+
+struct AccountReset(Option<u64>);
+
+impl crate::fleet::limit::AccountResets for AccountReset {
+    fn reset_ms(&self, _: &str, _: u64) -> Option<u64> {
+        self.0
+    }
+}
+
+fn hit_the_limit(host: &Host, name: &str, event: Option<u64>) {
+    let _frames = live(host, name);
+    let at = |frame: Value| format!("{frame}\n");
+    let prompt = json!({"type": "user", "session_id": name, "uuid": "u-1", "message": {"role": "user", "content": "land the lane"}});
+    let rejected = json!({"type": "rate_limit_event", "session_id": name, "rate_limit_info": {"status": "rejected", "rateLimitType": "five_hour", "resetsAt": event}});
+    let says = json!({"type": "assistant", "session_id": name, "message": {"content": [{"type": "text", "text": "You've hit your limit \u{b7} resets 3pm"}]}});
+    let result = json!({"type": "result", "subtype": "success", "session_id": name, "is_error": true, "api_error_status": 429, "result": "You've hit your limit \u{b7} resets 3pm"});
+    let frames = [prompt, rejected, says, result].into_iter().map(at).collect::<String>();
+    std::fs::write(host.root().join(name).join("g1/stream.jsonl"), frames).unwrap();
+}
+
+#[test]
+fn a_session_whose_turn_ended_on_the_usage_limit_parks_until_the_reset_and_accrues_nothing_while_parked() {
+    let host = host("nexus");
+    let reset_ms = NOW_MS + 3_600_000;
+    hit_the_limit(&host, "worker", Some(reset_ms / 1000));
+    let _quiet = live(&host, "quiet");
+    let spend = host.fleet.spend_of("worker").unwrap();
+
+    let parked = crate::fleet::limit::park_limited(&host.fleet, &AccountReset(None), NOW_MS);
+
+    assert_eq!(parked.iter().map(|parked| (parked.session.as_str(), parked.account.as_str(), parked.until_ms)).collect::<Vec<_>>(), [("worker", "a", reset_ms)]);
+    let waits = host.fleet.waits().of("worker");
+    assert_eq!(waits.len(), 1);
+    assert_eq!(waits[0].run.to_string(), format!("usage:a@{}", crate::foundation::clock::Timestamp::from_unix_millis(reset_ms as i64).iso()));
+    assert!(host.fleet.waits().of("quiet").is_empty(), "a session that ended its turn normally is not parked");
+    assert!(crate::fleet::limit::park_limited(&host.fleet, &AccountReset(None), NOW_MS + 60_000).is_empty(), "a parked session is parked once");
+    assert_eq!(host.fleet.spend_of("worker").unwrap(), spend);
+    assert!(host.fleet.follow("worker").unwrap().transcript().tracker.live_usage().is_empty(), "no turn is open while parked");
+}
+
+#[test]
+fn a_limit_without_a_stream_reset_parks_until_the_message_clock_or_the_accounts_reset() {
+    let host = host("nexus");
+    hit_the_limit(&host, "worker", None);
+
+    let parked = crate::fleet::limit::park_limited(&host.fleet, &AccountReset(Some(NOW_MS + 5_000_000)), NOW_MS);
+
+    assert_eq!(parked[0].until_ms, NOW_MS + 5_000_000, "the message's `3pm` carries no zone, so the account's reset stands");
+}
