@@ -80,3 +80,17 @@ fn durations_parse_with_unit_suffixes() {
     assert_eq!(parse_duration_ms("30").expect("seconds"), 30_000);
     assert!(parse_duration_ms("soon").is_err());
 }
+
+#[test]
+fn a_facts_directory_with_no_host_in_it_refuses_instead_of_passing_silently() {
+    let report = judge(&[], "prompt-grounding.sh", &[], 2_000, HOUR);
+    assert_eq!(report.unknown, ["no host has recorded facts"]);
+    assert!(!report.is_clean());
+}
+
+#[test]
+fn the_report_lists_each_recorded_host_with_its_fact_age() {
+    let (_directory, home, state) = host_with_hooks(&["kept.sh"]);
+    let report = judge(&[collect("gex45", 1_000, &home, &state, "")], "gone.sh", &[], 8_000, HOUR);
+    assert_eq!(report.ages, ["gex45 7 s"]);
+}

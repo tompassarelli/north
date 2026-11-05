@@ -43,6 +43,7 @@ pub struct UnitFact {
 pub struct Report {
     pub naming: Vec<String>,
     pub unknown: Vec<String>,
+    pub ages: Vec<String>,
 }
 
 impl Report {
@@ -104,6 +105,7 @@ fn names(path: &str, name: &str) -> bool {
 pub fn judge(all: &[Facts], name: &str, hosts: &[String], now_ms: u64, max_age_ms: u64) -> Report {
     let mut report = Report::default();
     for fact in all {
+        report.ages.push(format!("{} {} s", fact.host, now_ms.saturating_sub(fact.recorded_at_ms) / 1000));
         if now_ms.saturating_sub(fact.recorded_at_ms) > max_age_ms {
             report.unknown.push(format!("{} (facts older than {} s)", fact.host, max_age_ms / 1000));
             continue;
@@ -119,6 +121,9 @@ pub fn judge(all: &[Facts], name: &str, hosts: &[String], now_ms: u64, max_age_m
         if !all.iter().any(|fact| &fact.host == host) {
             report.unknown.push(format!("{host} (no facts recorded)"));
         }
+    }
+    if all.is_empty() && hosts.is_empty() {
+        report.unknown.push("no host has recorded facts".into());
     }
     report
 }
@@ -239,7 +244,7 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
         (false, Some(name)) => {
             let report = hosts_naming(&directory, &name, &hosts, now_ms(), max_age)?;
             if report.is_clean() {
-                println!("no recorded host names {name}");
+                println!("no recorded host names {name}; fact ages: {}", report.ages.join(", "));
                 return Ok(());
             }
             let mut lines = Vec::new();
@@ -249,6 +254,7 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
             if !report.unknown.is_empty() {
                 lines.push(format!("unknown, so refused: {}", report.unknown.join("; ")));
             }
+            lines.push(format!("fact ages: {}", report.ages.join(", ")));
             configuration(format!("{name} is not safe to remove: {}", lines.join("; ")))
         }
         _ => Err(NorthError::Usage(USAGE.into())),
