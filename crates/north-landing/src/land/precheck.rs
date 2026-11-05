@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -294,42 +294,14 @@ fn poll(tick: &mut Tick, state: &mut State) -> Result<(), String> {
     Ok(())
 }
 
-fn changed(worktree: &Path, from: &str, to: &str) -> Result<HashSet<String>, String> {
-    Ok(git(worktree, &["diff", "--no-renames", "--name-only", from, to])?.lines().map(str::to_owned).collect())
-}
-
-enum Placed {
-    Landed(String),
-    Waiting,
-    Refused(String),
-}
-
-fn place(tick: &mut Tick, state: &mut State, lane: &mut Lane) -> Result<Placed, String> {
+fn checked_on_main(tick: &mut Tick, state: &mut State, lane: &Lane) -> Result<Option<String>, String> {
     let main = tick.main()?;
     if main == lane.base {
-        return Ok(Placed::Landed(lane.head.clone()));
+        return Ok(Some(lane.head.clone()));
     }
-    let worktree = tick.lander.worktree.clone();
-    let overlap: Vec<String> = changed(&worktree, &lane.base, &lane.head)?.intersection(&changed(&worktree, &lane.base, &main)?).cloned().collect();
-    if !overlap.is_empty() {
-        println!("north land: {} changes {} that main changed since its check started; rechecking it on main@{main}", lane.ticket.branch, overlap.join(", "));
-        state.recheck.push((lane.path.clone(), lane.ticket.clone(), lane.stages.attempts));
-        return Ok(Placed::Waiting);
-    }
-    let built = candidate::build(&worktree, &main, &[(lane.path.clone(), lane.ticket.clone())], 1, &tick.logs)?;
-    match built.picks.into_iter().next() {
-        Some(Pick::Included) => {
-            println!("north land: {} touches none of the files main changed since its check started; rebased onto main@{main} without a second check", lane.ticket.branch);
-            lane.head = built.head.clone();
-            lane.base = main;
-            Ok(Placed::Landed(built.head))
-        }
-        Some(Pick::Decided(verdict)) => Ok(Placed::Refused(verdict)),
-        Some(Pick::Undecided(_) | Pick::Deferred(_)) | None => {
-            state.recheck.push((lane.path.clone(), lane.ticket.clone(), lane.stages.attempts));
-            Ok(Placed::Waiting)
-        }
-    }
+    println!("north land: main moved to main@{main} since {} was checked on main@{}; rechecking it on the main it would land on", lane.ticket.branch, lane.base);
+    state.recheck.push((lane.path.clone(), lane.ticket.clone(), lane.stages.attempts));
+    Ok(None)
 }
 
 fn land(tick: &mut Tick, state: &mut State) -> Result<Option<Round>, String> {
@@ -342,13 +314,8 @@ fn land(tick: &mut Tick, state: &mut State) -> Result<Option<Round>, String> {
         if !lane.path.exists() {
             continue;
         }
-        let head = match place(tick, state, &mut lane)? {
-            Placed::Landed(head) => head,
-            Placed::Waiting => return Ok(None),
-            Placed::Refused(verdict) => {
-                tick.refuse(&lane, 1, verdict, None)?;
-                continue;
-            }
+        let Some(head) = checked_on_main(tick, state, &lane)? else {
+            return Ok(None);
         };
         let token = match tick.lander.push_token(&lane.base) {
             Ok(token) => token,
