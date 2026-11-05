@@ -5,6 +5,7 @@ use std::process::{Command, Output};
 const NORTH: &str = env!("CARGO_BIN_EXE_north");
 const SETS: &str = include_str!("../../harness/merge-sets.toml");
 const ATTRIBUTES: &str = include_str!("../../.gitattributes");
+const LAND_COMMANDS: &str = include_str!("../../crates/north-landing/src/land/commands.rs");
 
 fn git(root: &Path, args: &[&str]) -> Output {
     Command::new("git").current_dir(root).env("GIT_EDITOR", "true").args(args).output().unwrap()
@@ -27,6 +28,7 @@ fn repo(files: &[(&str, &str)]) -> tempfile::TempDir {
     fs::write(root.join("harness/merge-sets.toml"), SETS).unwrap();
     fs::write(root.join(".gitattributes"), ATTRIBUTES).unwrap();
     for (path, text) in files {
+        fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
         fs::write(root.join(path), text).unwrap();
     }
     git_ok(root, &["add", "-A"]);
@@ -144,4 +146,19 @@ fn two_lanes_that_each_add_a_module_to_the_fleet_mod_list_rebase_with_both_kept(
     let rebase = rebase_second_onto_first(root);
     assert!(rebase.status.success(), "{}{}", String::from_utf8_lossy(&rebase.stdout), String::from_utf8_lossy(&rebase.stderr));
     assert_eq!(fs::read_to_string(root.join(FLEET)).unwrap(), format!("{base}mod second_cut;\npub mod first_cut;\n"));
+}
+
+#[test]
+fn two_lanes_that_each_add_a_land_subcommand_line_rebase_without_conflict_and_stay_sorted() {
+    let path = "crates/north-landing/src/land/commands.rs";
+    let add = |line: &str| LAND_COMMANDS.replace("\n]\n", &format!("\n{line}\n]\n"));
+    let yank = "Command { name: \"yank\", usage: \"north land yank\", run: yank::run },";
+    let zap = "Command { name: \"zap\", usage: \"north land zap\", run: zap::run },";
+    let dir = repo(&[(path, LAND_COMMANDS)]);
+    let root = dir.path();
+    lane(root, "first", path, &add(zap));
+    lane(root, "second", path, &add(yank));
+    let rebase = rebase_second_onto_first(root);
+    assert!(rebase.status.success(), "{}{}", String::from_utf8_lossy(&rebase.stdout), String::from_utf8_lossy(&rebase.stderr));
+    assert_eq!(fs::read_to_string(root.join(path)).unwrap(), add(&format!("{yank}\n{zap}")));
 }

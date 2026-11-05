@@ -10,3 +10,4 @@ crates/north-ops/src/ops/mod.rs merge=set
 crates/north-core/src/capacity/mod.rs merge=set
 crates/north-core/src/fleet/mod.rs merge=set
 crates/north-guard/src/guard/mod.rs merge=set
+crates/north-landing/src/land/commands.rs merge=set

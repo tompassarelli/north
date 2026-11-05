@@ -1,0 +1,13 @@
+&[
+Command { name: "checks", usage: "north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]", run: slots::runner::run },
+Command { name: "enqueue", usage: "north land enqueue [--repo DIR] [--message FILE]", run: enqueue::run },
+Command { name: "follow", usage: "", run: after::follow::run },
+Command { name: "promote", usage: "north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]", run: promote::run },
+Command { name: "replay", usage: "north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...", run: replay::run },
+Command { name: "reuse", usage: "north land reuse hash|record|lookup", run: reuse::run },
+Command { name: "scan", usage: "north land scan dep-gate|tool-removal|test-integrity BASE..HEAD", run: scans::run },
+Command { name: "serve", usage: "north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]", run: serve::run },
+Command { name: "urgent", usage: "north land urgent TICKET --reason TEXT [--repo DIR]", run: urgent::run },
+Command { name: "watchdog", usage: "north land watchdog --once [--queue-root DIR]", run: watchdog::run },
+Command { name: "withdraw", usage: "north land withdraw TICKET --reason TEXT [--repo DIR] [--noticed-by WHO] [--class CLASS]", run: withdraw::run },
+]
