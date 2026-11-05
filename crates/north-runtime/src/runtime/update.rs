@@ -40,6 +40,12 @@ enum Pass {
 }
 
 pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
+    let updated = update_locked(layout);
+    host_facts::record_if_stale(layout);
+    updated
+}
+
+fn update_locked(layout: &Layout) -> Result<(), Failure> {
     let Some(_lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? else {
         println!("north runtime update already running");
         return Ok(());
