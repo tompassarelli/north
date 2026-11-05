@@ -69,6 +69,17 @@ fn the_dashboard_line_names_all_each_cell_and_the_leads_term() {
 }
 
 #[test]
+fn runs_per_closed_counts_every_worker_run_on_a_closed_landed_box_by_category() {
+    let prices = PriceTable::load().unwrap();
+    let report = summarize(&fixture(), &closed(&["north#1", "north#2", "north#3", "north#5"]), "2026-10-27T00:00:00Z", &prices);
+    assert_eq!(report.runs_per_closed(), [("feature".to_owned(), 2, 1), ("tooling".to_owned(), 2, 2)]);
+    assert_eq!(report.runs_line("24h"), "runs/closed 24h: feature 2.00 (2/1) | tooling 1.00 (2/2)");
+    assert_eq!(report.json("24h")["runs_per_closed"][0], json!({"category": "feature", "runs": 2, "closed": 1, "runs_per_closed": 2.0}));
+    let none = summarize(&fixture(), &closed(&[]), "2026-10-27T00:00:00Z", &prices);
+    assert_eq!(none.runs_line("24h"), "runs/closed 24h: -");
+}
+
+#[test]
 fn no_closed_box_leaves_every_per_closed_figure_empty() {
     let report = summarize(&fixture(), &closed(&[]), "2026-10-27T00:00:00Z", &PriceTable::load().unwrap());
     assert_eq!(report.dashboard("24h"), "cost/closed 24h: all - (0) | leads -/closed");

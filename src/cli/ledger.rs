@@ -64,6 +64,7 @@ fn closed_summary(words: &[String]) -> NorthResult<ExitCode> {
     } else {
         println!("{}", report.dashboard(window));
         report.print_table();
+        println!("{}", report.runs_line(window));
         if let Some(line) = report.skipped_line() {
             println!("{line}");
         }

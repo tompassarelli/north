@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
-const FLEET: &str = r#"[{"name":"d-ledgersee","conversation":"resumed","parent":null,"task_ref":"north#255","effort":"medium"},{"name":"d-parked","conversation":"parked","parent":null,"task_ref":"north#252","effort":"medium"}]"#;
+const FLEET: &str = r#"[{"name":"d-ledgersee","conversation":"resumed","parent":null,"task_ref":"north#255","effort":"medium"},{"name":"d-parked","conversation":"parked","parent":null,"task_ref":"north#252","effort":"medium"},{"name":"d-watchdog","conversation":"watchdog","parent":null,"task_ref":"north#284","effort":"medium"}]"#;
 
 fn rig(root: &Path) {
     fs::create_dir_all(root.join("bin")).unwrap();
@@ -106,4 +106,19 @@ fn a_recorded_fleet_session_parked_mid_turn_takes_the_landing_the_land_queue_pus
     fs::write(root.join("state/safe-push/pushes.tsv"), "1791425100\tnorth\td-parked\t5678ef01\t5678ef01\td-parked\n").unwrap();
     record(root);
     assert_eq!(run_of(root, "parked"), "north#252|done|2026-10-08T01:00:30Z|0|Done: the fi|1|5678ef01|2026-10-08T02:05:00Z");
+}
+
+#[test]
+fn an_unrecorded_fleet_session_left_on_an_unanswered_message_after_its_done_report_is_recorded_done_and_landed_by_its_push() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    rig(root);
+    let transcript = root.join("claude/projects/-home-tom-code-north-main/watchdog.jsonl");
+    turn(&transcript, "01:00", "Item: north#284 watchdog test", "Done: the test fix is reviewed and queued for the land slot.");
+    let mut file = OpenOptions::new().append(true).open(&transcript).unwrap();
+    writeln!(file, r#"{{"type":"user","timestamp":"2026-10-08T02:10:00Z","sessionId":"watchdog","message":{{"content":"landed as 9abc0123; you can stop"}}}}"#).unwrap();
+    fs::create_dir_all(root.join("state/safe-push")).unwrap();
+    fs::write(root.join("state/safe-push/pushes.tsv"), "1791425100\tnorth\td-watchdog\t9abc0123\t9abc0123\td-watchdog\n").unwrap();
+    record(root);
+    assert_eq!(run_of(root, "watchdog"), "north#284|done|2026-10-08T02:10:00Z|70|Done: the te|1|9abc0123|2026-10-08T02:05:00Z");
 }

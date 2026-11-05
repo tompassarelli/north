@@ -53,6 +53,7 @@ pub struct Cell {
     pub staffed: bool,
     pub unclosed_usd: f64,
     pub reworked: usize,
+    pub runs: usize,
     boxes: Vec<(String, f64)>,
     run_minutes: Vec<f64>,
 }
@@ -60,7 +61,7 @@ pub struct Cell {
 impl Cell {
     #[cfg(test)]
     pub fn priced(tier: &str, category: &str, closed: usize, usd: f64) -> Self {
-        Self { tier: tier.into(), category: category.into(), closed, usd, staffed: true, unclosed_usd: 0.0, reworked: 0, boxes: Vec::new(), run_minutes: Vec::new() }
+        Self { tier: tier.into(), category: category.into(), closed, usd, staffed: true, unclosed_usd: 0.0, reworked: 0, runs: 0, boxes: Vec::new(), run_minutes: Vec::new() }
     }
 
     pub fn usd_per_closed(&self) -> f64 {
@@ -155,9 +156,10 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let key = (tier_label(&runs[0].tier), category.to_owned());
-        let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, unclosed_usd: 0.0, reworked: 0, boxes: Vec::new(), run_minutes: Vec::new() });
+        let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, unclosed_usd: 0.0, reworked: 0, runs: 0, boxes: Vec::new(), run_minutes: Vec::new() });
         let spent = runs.iter().map(|run| run.usd(prices)).sum::<f64>();
         cell.closed += 1;
+        cell.runs += runs.len();
         let reworked = runs.iter().any(|run| run.landed && run.reworked);
         cell.reworked += usize::from(reworked);
         cell.usd += spent;
@@ -244,6 +246,22 @@ impl ClosedReport {
         })
     }
 
+    /// Worker runs per closed box in each category, pooled over its tiers: (category, runs, closed boxes).
+    pub fn runs_per_closed(&self) -> Vec<(String, usize, usize)> {
+        let mut categories: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+        for cell in &self.cells {
+            let tally = categories.entry(&cell.category).or_default();
+            tally.0 += cell.runs;
+            tally.1 += cell.closed;
+        }
+        categories.into_iter().map(|(category, (runs, closed))| (category.to_owned(), runs, closed)).collect()
+    }
+
+    pub fn runs_line(&self, window: &str) -> String {
+        let parts: Vec<String> = self.runs_per_closed().iter().map(|(category, runs, closed)| format!("{category} {:.2} ({runs}/{closed})", *runs as f64 / *closed as f64)).collect();
+        format!("runs/closed {window}: {}", if parts.is_empty() { "-".to_owned() } else { parts.join(" | ") })
+    }
+
     pub fn dashboard(&self, window: &str) -> String {
         let money = |usd: Option<f64>| usd.map_or_else(|| "-".to_owned(), |usd| format!("${usd:.2}"));
         let mut parts = vec![format!("all {} ({})", money(self.per_closed(self.spend_usd)), self.closed)];
@@ -262,6 +280,7 @@ impl ClosedReport {
                 "tier": cell.tier, "category": cell.category, "closed": cell.closed, "usd": cell.usd, "unclosed_usd": cell.unclosed_usd, "reworked": cell.reworked, "usd_per_closed": cell.usd_per_closed(),
                 "boxes": cell.boxes.iter().map(|(item, usd)| json!({"item": item, "usd": usd})).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
+            "runs_per_closed": self.runs_per_closed().iter().map(|(category, runs, closed)| json!({"category": category, "runs": runs, "closed": closed, "runs_per_closed": *runs as f64 / *closed as f64})).collect::<Vec<_>>(),
             "arms": self.arms,
             "skipped_repositories": self.skipped.iter().map(|(repo, runs)| json!({"repo": repo, "landed_runs": runs})).collect::<Vec<_>>(),
         })

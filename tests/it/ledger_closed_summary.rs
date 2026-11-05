@@ -68,4 +68,14 @@ fn ledger_summary_since_prints_usd_per_closed_for_each_tier_and_category_from_th
     let spend = 10.4 + 5.2 * 2.0 + 0.27 + 10.4;
     assert!(near(&report["all_usd_per_closed"], spend / 3.0), "{report}");
     assert!(near(&report["leads_usd_per_closed"], 10.4 / 3.0));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["ledger", "summary", "--since", "24h"])
+        .env("THREADS_DB", &database)
+        .env("HOME", root)
+        .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()))
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.lines().any(|line| line == "runs/closed 24h: feature 2.00 (2/1) | tooling 1.00 (2/2)"), "{text}");
 }

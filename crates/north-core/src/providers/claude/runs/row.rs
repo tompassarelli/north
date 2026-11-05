@@ -141,14 +141,16 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     row.insert("eta_min".into(), eta(&brief));
     if !done && transcript.role == "worker" {
         let running = transcript.now.unix_seconds() - seconds(ended)? < RUNNING_SECONDS;
-        row.insert("status".into(), json!(if running { "running" } else { "stale" }));
-        row.insert("backfill".into(), json!(transcript.backfill));
-        return Some(row);
+        if running || transcript.backfill {
+            row.insert("status".into(), json!(if running { "running" } else { "stale" }));
+            row.insert("backfill".into(), json!(transcript.backfill));
+            return Some(row);
+        }
     }
     let (report, quiet) = turn_report(lines)?;
     let head = prefix(&report, 600);
     let usage = &last_usage["message"]["usage"];
-    row.insert("status".into(), json!(if done { "finished" } else { "active" }));
+    row.insert("status".into(), json!(if done || transcript.role == "worker" { "finished" } else { "active" }));
     row.insert("ended".into(), json!(ended));
     row.insert("actual_min".into(), json!((seconds(ended)? - seconds(started.as_str()?)?).div_euclid(60)));
     activity::insert(&mut row, &activity::measure(lines), seconds(ended)? - seconds(started.as_str()?)?);
