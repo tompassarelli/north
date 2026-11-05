@@ -178,6 +178,14 @@ fn root() -> PathBuf {
     }
 }
 
+/// The turns in the last `minutes` that failed because the model had no capacity.
+pub(crate) fn capacity_events(minutes: f64) -> Result<Vec<Outcome>, String> {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |age| age.as_secs_f64());
+    let since = now - minutes * 60.0;
+    let rows = outcomes(&rollouts(&root(), since)?, since);
+    Ok(rows.into_iter().filter(|row| row.kind == "capacity").collect())
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let Some(verb) = arguments.first().filter(|verb| matches!(verb.as_str(), "events" | "status")) else {
         eprintln!("{USAGE}");

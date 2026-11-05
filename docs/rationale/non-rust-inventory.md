@@ -52,7 +52,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/automation-chrome.test.sh | 9 | stay | test of the Playwright wrapper |
 | bin/bun | 14 | stay | PATH shadow that routes bun through `north capacity gate` admission, then execs the real bun; must be an executable named bun (<=80-line glue) |
 | bin/capacity-watchdog | 549 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | Bun TS using bun:sqlite (rusqlite replaces it) and reading handoff_ctx from harness/defaults.toml; no Bun-only API that Rust lacks |
-| bin/capacity-watchdog.test.sh | 175 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | test of capacity-watchdog |
 | bin/cargo | 14 | stay | same admission shadow for cargo |
 | bin/ci-diagnose | 8 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | shim to harness/scripts/ci-diagnose.ts |
 | bin/claude-runtime-update | 49 | port: north#87 (Codex/runtime/desktop tools) | downloads and selects the Claude runtime |

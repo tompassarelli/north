@@ -18,7 +18,7 @@ const CAPPED_WEIGHT: u32 = 10;
 
 static DEFAULTS: std::sync::LazyLock<DocumentMut> = std::sync::LazyLock::new(|| include_str!("../../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
 
-fn registry(name: &str) -> f64 {
+pub(super) fn registry(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
