@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::subagent_message::notice;
 use crate::hook::HookInput;
 use serde_json::json;

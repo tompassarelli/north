@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::agent_cwd::evaluate;
 use crate::hook::{HookInput, Verdict};
 use serde_json::json;

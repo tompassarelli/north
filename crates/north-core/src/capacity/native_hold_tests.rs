@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::admission::{Class, Facts, Reason, admit, decide};
 use serde_json::json;
 

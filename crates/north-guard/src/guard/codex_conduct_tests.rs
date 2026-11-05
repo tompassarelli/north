@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::codex_conduct::{Ctx, decide};
 use crate::hook::{HookInput, Verdict};
 use serde_json::{Value, json};

@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::trigger_matrix::exercise;
 use super::{corpus_scan, modern_search, resource_safe_search};
 use regex::Regex;

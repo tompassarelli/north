@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::gate::{Class, class_of, inside_lease};
 
 fn class(line: &str) -> Option<Class> {

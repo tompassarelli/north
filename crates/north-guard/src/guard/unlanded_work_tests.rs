@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::unlanded_work::{Scope, container, stale_lanes_notice};
 use crate::platform::archive_tags::{mentions, shell_quote};
 use std::path::Path;

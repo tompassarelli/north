@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::clipboard::touches_clipboard;
 use super::trigger_matrix::exercise;
 

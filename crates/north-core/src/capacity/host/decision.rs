@@ -11,7 +11,7 @@ use super::request::{Create, Request, Totals, class, cpu_accounting, grant, gran
 use super::priority;
 use super::state::{RUN_LEASE_GRACE_MILLISECONDS, active_profile, dequeue, lease_path, mark_native_waiting, native_waiting, read_leases, read_queue, record_gpu_busy, with_lock, write_lease};
 use super::systemd::scope_unit;
-use crate::capacity::Host;
+use crate::capacity::effects::Host;
 
 const NATIVE_GPU_SAMPLES: u32 = 10;
 
@@ -42,7 +42,7 @@ pub fn gpu_view(gpu: Gpu) -> Obj {
 /// Runs admission on the facts and returns its reason and the rest of its advice.
 pub fn admit(facts: Obj, host: &Host) -> (String, Value) {
     let facts = serde_json::from_value(facts.value()).unwrap_or_else(|error| fail(&format!("north capacity admission failed: {error}"), 75));
-    let mut advice = serde_json::to_value(crate::capacity::admit_enriched(facts, host)).unwrap_or(Value::Null);
+    let mut advice = serde_json::to_value(crate::capacity::enrich::admit_enriched(facts, host)).unwrap_or(Value::Null);
     let reason = advice.as_object_mut().and_then(|map| map.remove("reason")).and_then(|reason| reason.as_str().map(str::to_owned)).unwrap_or_default();
     (reason, advice)
 }

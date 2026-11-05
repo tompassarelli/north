@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::admission::{Class, Facts, Profile, Reason, decide};
 use super::tests::facts;
 

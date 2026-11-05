@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::worker_tier::{brief_refusal, is_native, spawn_parts};
 use crate::hook::HookInput;
 use serde_json::{Value, json};

@@ -165,7 +165,7 @@ pub fn before_disk_defer_here() -> Option<f64> {
     if env::var_os("AGENT_CAPACITY_DISK_FREE_GIB").is_some() {
         return None;
     }
-    before_disk_defer(&crate::capacity::agent_load::capacity_root().join("disk-reclaim.stamp"), crate::capacity::root_disk_free_gib)
+    before_disk_defer(&crate::capacity::agent_load::capacity_root().join("disk-reclaim.stamp"), crate::capacity::enrich::root_disk_free_gib)
 }
 
 /// Runs every reclaim sweep once before admission defers on the disk floor, at most once per `disk_reclaim_cooldown_minutes` on this host, and

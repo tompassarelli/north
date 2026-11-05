@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::native_item::{names_native_item, writes_to_github};
 use super::trigger_matrix::exercise;
 use crate::platform::sqlite;

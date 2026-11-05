@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::admission::{AheadTicket, Admission, Class, Facts, Profile, Reason, admit, decide};
 use super::native_hold::{LeaseFact, QuietNative};
 
@@ -328,8 +330,8 @@ fn a_heavy_build_waits_while_the_root_disk_is_under_its_floor_and_names_the_free
     assert_eq!(decide(&Facts { disk_free_gib: Some(1.0), ..facts(Class::Agent) }), Reason::Run);
 }
 
-fn reclaiming_host(reclaim_disk: fn() -> Option<f64>) -> super::Host {
-    super::Host { serving: |_| None, warcraft_clients: || None, bar1_margin_mib: || None, offload: |_| 0, build_offload: |_, _, _| Err(None), lease_builds: || false, reclaim_disk }
+fn reclaiming_host(reclaim_disk: fn() -> Option<f64>) -> super::effects::Host {
+    super::effects::Host { serving: |_| None, warcraft_clients: || None, bar1_margin_mib: || None, offload: |_| 0, build_offload: |_, _, _| Err(None), lease_builds: || false, reclaim_disk }
 }
 
 #[test]
@@ -341,12 +343,12 @@ fn a_disk_floor_deferral_reclaims_once_and_admits_when_the_reclaim_freed_enough(
     });
     let mut low = Facts { disk_free_gib: Some(9.5), ..facts(Class::Heavy) };
     let deferred = admit(&low, |_| None);
-    assert_eq!(super::reclaim_before_disk_defer(&mut low, deferred, &host).reason, Reason::Run);
+    assert_eq!(super::enrich::reclaim_before_disk_defer(&mut low, deferred, &host).reason, Reason::Run);
     assert_eq!((RECLAIMS.load(std::sync::atomic::Ordering::SeqCst), low.disk_free_gib), (1, Some(60.0)));
 
     let mut roomy = Facts { disk_free_gib: Some(60.0), ..facts(Class::Heavy) };
     let admitted = admit(&roomy, |_| None);
-    assert_eq!(super::reclaim_before_disk_defer(&mut roomy, admitted, &host).reason, Reason::Run);
+    assert_eq!(super::enrich::reclaim_before_disk_defer(&mut roomy, admitted, &host).reason, Reason::Run);
     assert_eq!(RECLAIMS.load(std::sync::atomic::Ordering::SeqCst), 1, "an admission that does not defer on the disk never reclaims");
 }
 
@@ -359,7 +361,7 @@ fn a_disk_floor_deferral_that_one_reclaim_cannot_lift_stays_deferred_after_exact
     });
     let mut low = Facts { disk_free_gib: Some(9.5), ..facts(Class::Heavy) };
     let deferred = admit(&low, |_| None);
-    let after = super::reclaim_before_disk_defer(&mut low, deferred, &host);
+    let after = super::enrich::reclaim_before_disk_defer(&mut low, deferred, &host);
     assert_eq!((after.reason, after.disk_free_gib), (Reason::DeferDiskFree, Some(11.0)));
     assert_eq!(RECLAIMS.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
@@ -427,8 +429,8 @@ fn heavy_builds_held_by_the_disk_floor_do_not_queue_moderate_work_behind_them() 
 
 #[test]
 fn a_configured_client_cap_prints_its_number_and_an_unconfigured_host_prints_nothing() {
-    assert_eq!(super::limit_text(Some(6)), "6");
-    assert_eq!(super::limit_text(None), "");
+    assert_eq!(super::command::limit_text(Some(6)), "6");
+    assert_eq!(super::command::limit_text(None), "");
 }
 
 fn heavy_beside_clients(leased_batch_cpus: f64, gpu_clients: u32) -> Facts {
@@ -460,18 +462,18 @@ fn a_runtime_build_runs_past_the_run_queue_gate_full_heavy_leases_and_heavy_tick
 
 #[test]
 fn the_run_queue_is_the_higher_of_the_one_and_five_minute_loads_so_a_brief_dip_admits_nothing() {
-    assert_eq!(super::sustained_load("12.40 25.10 26.22 3/2210 4096\n", 400), Some(25.1));
-    assert_eq!(super::sustained_load("31.73 25.10 26.22 3/2210 4096\n", 400), Some(31.73));
-    assert_eq!(super::sustained_load("7.5\n", 400), Some(7.5));
-    assert_eq!(super::sustained_load("", 0), None);
-    let dip = Facts { run_queue_load: super::sustained_load("12.40 25.10 26.22 3/2210 4096\n", 400), ..heavy_beside_clients(0.0, 0) };
+    assert_eq!(super::enrich::sustained_load("12.40 25.10 26.22 3/2210 4096\n", 400), Some(25.1));
+    assert_eq!(super::enrich::sustained_load("31.73 25.10 26.22 3/2210 4096\n", 400), Some(31.73));
+    assert_eq!(super::enrich::sustained_load("7.5\n", 400), Some(7.5));
+    assert_eq!(super::enrich::sustained_load("", 0), None);
+    let dip = Facts { run_queue_load: super::enrich::sustained_load("12.40 25.10 26.22 3/2210 4096\n", 400), ..heavy_beside_clients(0.0, 0) };
     assert_eq!(decide(&dip), Reason::DeferRunQueue);
 }
 
 #[test]
 fn once_cpu_pressure_is_calm_the_run_queue_is_the_one_minute_load_so_an_idle_host_admits_heavy_work() {
     let whiterabbit = Facts { class: Class::Heavy, profile: Profile::Unattended, cores: 16, leased_batch_cpus: 2.0, requested_cpus: 4.0, requested_memory_mib: 8192.0, cpu_some_avg10_basis_points: 3, ..facts(Class::Heavy) };
-    let load = super::sustained_load("6.85 14.44 18.68 2/1904 88213\n", whiterabbit.cpu_some_avg10_basis_points);
+    let load = super::enrich::sustained_load("6.85 14.44 18.68 2/1904 88213\n", whiterabbit.cpu_some_avg10_basis_points);
     assert_eq!(load, Some(6.85));
     assert_eq!(decide(&Facts { run_queue_load: load, ..whiterabbit }), Reason::Run);
 }

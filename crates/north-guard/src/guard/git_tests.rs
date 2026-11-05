@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use crate::hook::{HookInput, Verdict};
 use serde_json::{Value, json};
 

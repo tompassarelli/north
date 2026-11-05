@@ -1,7 +1,9 @@
+#![cfg(test)]
+
 use serde_json::{Value, json};
 
-use super::hook_events::events;
-use super::hook_rules::{RULES, classify};
+use crate::threads::runs::hook_events::events;
+use crate::threads::runs::hook_rules::{RULES, classify};
 use super::hook_stats::{Fire, compute, render};
 
 fn call(id: &str, tool: &str) -> Value {

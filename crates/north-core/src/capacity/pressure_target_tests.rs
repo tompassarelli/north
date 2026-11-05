@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::admission::{Class, Facts, Reason, admit, decide};
 use super::native_hold::LeaseFact;
 use super::tests::{facts, running};

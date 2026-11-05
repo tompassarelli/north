@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use crate::guard::spawn_capacity::{Event, World, decide, gate_summary, launch_refusal};
 use crate::foundation::clock::Timestamp;
 use crate::hook::HookInput;

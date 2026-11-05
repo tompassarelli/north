@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use std::cell::Cell;
 
 use super::quiet_phrase::{Phrase, Table, classify, decide, lease_minutes};

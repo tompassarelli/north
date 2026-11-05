@@ -3,7 +3,7 @@
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 
-use super::Host;
+use super::effects::Host;
 use crate::shell;
 
 const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time", "env"];

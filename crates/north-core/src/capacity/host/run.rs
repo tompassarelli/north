@@ -19,7 +19,7 @@ use super::shape::{command_shape, recorded_command};
 use super::state::{active_profile, dequeue, enqueue, exact_lease, read_leases, with_lock};
 use super::systemd::{apply_profile, client_environment, scope_live, scope_unit, stop_scope};
 use super::{change_lease, fail, print_to};
-use crate::capacity::Host;
+use crate::capacity::effects::Host;
 use crate::capacity::build_offload::{self, Candidate, Declined, Job};
 use crate::capacity::dev_shell;
 

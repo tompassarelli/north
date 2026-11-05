@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::admission::*;
 
 fn native_with(gpu_clients: u32, new_clients: u32) -> Reason {

@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use serde_json::Value;
 
 use super::unleased::summarize;

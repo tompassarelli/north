@@ -128,3 +128,20 @@ fn a_lane_adding_a_feature_beside_one_main_added_rebases_through_continue_with_a
     let index = fs::read_to_string(root.join("docs/features.md")).unwrap();
     assert!(index.contains("- first:") && index.contains("- second:"), "{index}");
 }
+
+#[test]
+fn two_lanes_that_each_add_a_module_to_the_fleet_mod_list_rebase_with_both_kept() {
+    const FLEET: &str = "crates/north-core/src/fleet/mod.rs";
+    let base = include_str!("../../crates/north-core/src/fleet/mod.rs");
+    let dir = repo(&[]);
+    let root = dir.path();
+    fs::create_dir_all(root.join("crates/north-core/src/fleet")).unwrap();
+    fs::write(root.join(FLEET), base).unwrap();
+    git_ok(root, &["add", "-A"]);
+    git_ok(root, &["commit", "-qm", "fleet"]);
+    lane(root, "first", FLEET, &format!("{base}pub mod first_cut;\n"));
+    lane(root, "second", FLEET, &format!("{base}mod second_cut;\n"));
+    let rebase = rebase_second_onto_first(root);
+    assert!(rebase.status.success(), "{}{}", String::from_utf8_lossy(&rebase.stdout), String::from_utf8_lossy(&rebase.stderr));
+    assert_eq!(fs::read_to_string(root.join(FLEET)).unwrap(), format!("{base}mod second_cut;\npub mod first_cut;\n"));
+}

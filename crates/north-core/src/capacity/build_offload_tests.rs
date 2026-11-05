@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::build_offload::*;
 
 fn heavy() -> Candidate<'static> {

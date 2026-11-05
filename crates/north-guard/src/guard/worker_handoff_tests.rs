@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::worker_handoff::{Env, decide};
 use crate::foundation::clock::Timestamp;
 use crate::hook::HookInput;

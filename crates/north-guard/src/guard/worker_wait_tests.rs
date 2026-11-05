@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::worker_wait::refusal;
 use crate::hook::HookInput;
 use serde_json::{Value, json};

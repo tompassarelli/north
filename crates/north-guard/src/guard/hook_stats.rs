@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
 
-use super::hook_rules::{Class, OTHER, RULES, find};
+use crate::threads::runs::hook_rules::{Class, OTHER, RULES, find};
 
 pub const PRUNE_DAYS: i64 = 30;
 

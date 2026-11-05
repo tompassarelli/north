@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::native_launch::launches_unwrapped_client;
 use super::trigger_matrix::exercise;
 

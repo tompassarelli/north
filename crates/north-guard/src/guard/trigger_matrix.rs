@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 const PREFIXES: &[&str] = &[
     "",
     "CHECK=1 ",

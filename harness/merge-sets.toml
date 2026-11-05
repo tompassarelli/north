@@ -38,3 +38,19 @@ kind = "lines"
 [[set]]
 path = "tests/land/main.rs"
 kind = "lines"
+
+[[set]]
+path = "crates/north-core/src/ops/mod.rs"
+kind = "lines"
+
+[[set]]
+path = "crates/north-core/src/capacity/mod.rs"
+kind = "lines"
+
+[[set]]
+path = "crates/north-core/src/fleet/mod.rs"
+kind = "lines"
+
+[[set]]
+path = "crates/north-guard/src/guard/mod.rs"
+kind = "lines"

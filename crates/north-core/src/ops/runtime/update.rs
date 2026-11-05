@@ -8,7 +8,7 @@ use super::remote;
 use super::reuse;
 use super::store;
 use super::supersede::{self, SUPERSEDED};
-use crate::capacity::Confinement;
+use crate::capacity::game_reserve::Confinement;
 use crate::ops::land_offload;
 use crate::ops::pacing::placement::gate;
 use crate::platform::process;
@@ -326,7 +326,7 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
         false => Err("it never takes a runtime built on another host".to_owned()),
     };
     let mut confined = None;
-    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), crate::capacity::confinement, other_host) {
+    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), crate::capacity::game_reserve::confinement, other_host) {
         Placement::Elsewhere(machine) => return remote::build(&machine, target, runtime),
         Placement::Confined(confinement) => {
             println!("north runtime: this host is in game-reserve; building {} on the agent CPUs {} at idle priority", layout::short(target), confinement.cpus);

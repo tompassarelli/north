@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::file_skill::{Roots, decide, rules_len};
 use crate::hook::{HookInput, Verdict};
 use serde_json::json;

@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::subagent_teardown::{refusal_in, transcript};
 use crate::hook::HookInput;
 use serde_json::{Value, json};

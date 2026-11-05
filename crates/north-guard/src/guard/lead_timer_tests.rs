@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::lead_timer::refusal;
 use crate::hook::HookInput;
 use serde_json::json;
