@@ -775,6 +775,11 @@ D3's deny forms.
 After D1, D2 and D5 have moved every caller, the lint refuses `nix develop`, `nix-shell` and `land-shell --dev` in
 `harness/scripts`, `bin`, `harness/lib` and `land.check` lines, except D1's module, and refuses `nix shell nixpkgs#`,
 `nix run nixpkgs#` and `nix-shell -p` in a repository whose flake has a dev shell. D3 gains the same deny for Bash.
+Landed as `north land scan nix-entry` (2026-11-05). `bin/land-shell` is the shell face of D1's entry (depbox around
+`north dev-shell run`, with the literal fallback before any north exists), so it is exempt from the entry forms. `land-shell
+--dev` is refused only in `harness/scripts` and `harness/lib`, where a land check already runs inside the shell: the
+top-level check lines and `bin/head-north`'s bootstrap keep it for its depbox sandbox and its Actions passthrough, which
+`north dev-shell run` lacks.
 
 Done when:
 - Replay nix-gate-127's trigger: the lint refuses f1745de2e's `check-owners.sh:9` and `citation-check.sh:8`.

@@ -4,6 +4,7 @@ pub mod generated;
 pub(crate) mod git;
 pub(crate) mod host_paths;
 pub mod language;
+pub mod nix_entry;
 pub mod outgoing;
 pub mod policy;
 pub mod stale_revert;
@@ -13,7 +14,7 @@ pub mod tool_removal;
 use std::path::{Path, PathBuf};
 
 const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan boxes BASE..HEAD
-       north land scan ci-budget|code-health|instruction-limits BASE..HEAD [--safe-push PATH]\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan deps";
+       north land scan ci-budget|code-health|instruction-limits BASE..HEAD [--safe-push PATH]\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan deps";
 
 struct Range<'a> {
     base: &'a str,
@@ -54,6 +55,7 @@ pub fn run(arguments: &[String]) -> u8 {
         [name, rest @ ..] if name == "dropped-commits" => dropped_commits::run(&directory, rest),
         [name, rest @ ..] if name == "stale-revert" => stale_revert::run(rest),
         [name] if name == "deps" => super::slots::deps::run(&directory),
+        [name, rest @ ..] if name == "nix-entry" => nix_entry::run(&directory, rest),
         [name, range] if name == "dep-gate" => dep_gate(&directory, range),
         [name, range] if name == "boxes" => boxes::run(&directory, range),
         [name, range] if name == "tool-removal" => {

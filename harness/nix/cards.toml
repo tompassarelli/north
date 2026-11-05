@@ -82,9 +82,14 @@ explain = ["shell", "run"]
 options = ["--command"]
 text = """
 `nix shell nixpkgs#…`, `nix run nixpkgs#…` and `nix-shell -p` give unpinned packages, not the project's toolchain.
-Add the package to flake.nix's dev shell and run through `nix develop -c`. North uses no direnv.
+Add the package to flake.nix's dev shell and run through `north dev-shell run --`. North uses no direnv.
 A flake lacking the output you ask for (`formatter`, a dev shell) fails at eval.
 """
+
+[[card.deny]]
+commands = ["nix shell nixpkgs#", "nix run nixpkgs#", "nix-shell -p"]
+dev_shell = true
+why = "an ad-hoc nixpkgs toolchain beside a flake with a dev shell builds with unpinned packages"
 
 [[card]]
 class = "N7"

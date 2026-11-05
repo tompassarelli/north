@@ -8,7 +8,7 @@
 	slots = 10
 [mutant]
 	class = heavy
-	run = nix develop --no-update-lock-file -c bash harness/scripts/mutant-tests.sh
+	run = ./bin/head-north --code crates/north-core/src/capacity/dev_shell.rs,src/cli/ dev-shell run -- bash harness/scripts/mutant-tests.sh
 [flake]
 	build = cargo test --locked --offline --no-run --message-format=json-render-diagnostics
 [ci]
@@ -25,6 +25,7 @@
 	check = flake.lock,harness/nix/lock-allow.toml :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/doctor_nix/,src/cli/ doctor nix --lock flake.lock --allow harness/nix/lock-allow.toml
 	check = harness/defaults.toml,harness/skills/machine-capacity/scripts/ :: harness/skills/machine-capacity/scripts/build-machine-capacity --check
 	check = ** :: CARGO_TARGET_DIR=target bash harness/scripts/citation-check.sh
+	check = harness/scripts/,harness/lib/,bin/,.safe-push,flake.nix :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-landing/src/land/scans/nix_entry.rs land scan nix-entry ${SAFE_PUSH_LAND_HEAD}
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-ops/src/ops/experiments/ experiments check --root .
 	check = "src/cli/verbs.rs :: sed -n '/VerbKinds::new(&[[]$/,/^]);$/{//!p}' src/cli/verbs.rs | LC_ALL=C sort -c -u"
 	check = "tests/it/main.rs,tests/it/crates.txt :: comm -3 <(sed -n 's/^mod //p' tests/it/main.rs | tr -d ';' | LC_ALL=C sort -u) <(grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort -u) | { ! grep .; }"

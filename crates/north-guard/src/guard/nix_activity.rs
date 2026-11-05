@@ -16,6 +16,7 @@ pub struct Deny {
     wrappers: Vec<String>,
     inner: Vec<String>,
     commands: Vec<String>,
+    dev_shell: bool,
     why: String,
 }
 
@@ -69,7 +70,7 @@ pub fn cards() -> Vec<Card> {
                 .and_then(|v| v.as_array_of_tables())
                 .into_iter()
                 .flatten()
-                .map(|deny| Deny { wrappers: strings(deny, "wrappers"), inner: strings(deny, "inner"), commands: strings(deny, "commands"), why: text(deny, "why") })
+                .map(|deny| Deny { wrappers: strings(deny, "wrappers"), inner: strings(deny, "inner"), commands: strings(deny, "commands"), dev_shell: deny.get("dev_shell").and_then(|v| v.as_bool()).unwrap_or(false), why: text(deny, "why") })
                 .collect(),
         })
         .collect()
@@ -96,8 +97,13 @@ pub(super) fn decide(input: &HookInput, seen: &Path) -> Verdict {
         };
         let runs = runs(&command, 0);
         for card in &cards {
-            if let Some(deny) = card.deny.iter().find(|deny| refuses(deny, &runs)) {
-                return Verdict::Deny(format!("nix-activity: refused, {}.\n{}", deny.why, card.render()));
+            for deny in card.deny.iter().filter(|deny| refuses(deny, &runs)) {
+                if !deny.dev_shell {
+                    return Verdict::Deny(format!("nix-activity: refused, {}.\n{}", deny.why, card.render()));
+                }
+                if let Some(flake) = input.data["cwd"].as_str().and_then(|cwd| dev_shell_flake(Path::new(cwd))) {
+                    return Verdict::Deny(format!("nix-activity: refused, {}: {} has a dev shell (devShells), so add the package to it and run through `north dev-shell run -- COMMAND`.\n{}", deny.why, flake.display(), card.render()));
+                }
             }
         }
         cards.iter().filter(|card| card.commands.iter().any(|spec| runs.iter().any(|words| launches(words, spec)))).collect()
@@ -189,11 +195,15 @@ fn matches_at(words: &[String], at: usize, spec: &[&str]) -> bool {
             if VALUE_FLAGS.contains(&word.as_str()) {
                 cursor += 1;
             } else if !word.starts_with('-') {
-                return word == want;
+                return word == want || (want.ends_with('#') && word.starts_with(want));
             }
         }
         false
     })
+}
+
+fn dev_shell_flake(cwd: &Path) -> Option<PathBuf> {
+    cwd.ancestors().map(|dir| dir.join("flake.nix")).find(|flake| flake.is_file()).filter(|flake| std::fs::read_to_string(flake).is_ok_and(|text| text.contains("devShell")))
 }
 
 fn refuses(deny: &Deny, runs: &[Vec<String>]) -> bool {

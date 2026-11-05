@@ -117,3 +117,27 @@ fn nix_gc_is_named_by_the_deny_of_every_store_collection_form() {
     }
     assert_eq!(observed("north nix gc --dry-run"), "");
 }
+
+fn bash_in(cwd: &Path, command: &str) -> HookInput {
+    let payload = json!({ "tool_name": "Bash", "session_id": "wisp-129", "cwd": cwd, "tool_input": { "command": command } });
+    HookInput::parse(&serde_json::to_vec(&payload).unwrap()).unwrap()
+}
+
+#[test]
+fn nix_ad_hoc_toolchain_in_a_dev_shell_worktree_is_denied_naming_the_dev_shell() {
+    let root = tempfile::tempdir().unwrap();
+    let worktree = root.path().join("code/wisp/worktrees/wisp-129");
+    std::fs::create_dir_all(worktree.join("src")).unwrap();
+    std::fs::write(worktree.join("flake.nix"), "{ outputs = { self, nixpkgs }: { devShells.x86_64-linux.default = {}; }; }\n").unwrap();
+    let seen = tempfile::tempdir().unwrap();
+    for command in ["nix shell nixpkgs#pkg-config -c cargo build", "nix run nixpkgs#hello", "nix-shell -p pkg-config --run 'cargo build'"] {
+        let Verdict::Deny(reason) = decide(&bash_in(&worktree.join("src"), command), seen.path()) else {
+            panic!("not denied: {command}");
+        };
+        assert!(reason.contains(&format!("{} has a dev shell", worktree.join("flake.nix").display())), "{command}: {reason}");
+        assert!(reason.contains("`north dev-shell run -- COMMAND`") && classes(&reason).contains(&"N6".to_owned()), "{command}: {reason}");
+    }
+    assert!(!matches!(decide(&bash_in(&worktree, "nix shell .#north -c north --version"), seen.path()), Verdict::Deny(_)));
+    std::fs::write(worktree.join("flake.nix"), "{ outputs = { self, nixpkgs }: { packages.x86_64-linux.default = {}; }; }\n").unwrap();
+    assert!(!matches!(decide(&bash_in(&worktree, "nix shell nixpkgs#pkg-config -c cargo build"), seen.path()), Verdict::Deny(_)));
+}
