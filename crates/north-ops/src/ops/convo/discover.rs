@@ -72,6 +72,7 @@ pub(super) fn transcript_roots(env: &Env) -> Result<Vec<Root>> {
             (env.codex_home.clone(), "openai", "configured", "codex", env.codex_home.is_some(), "CODEX_HOME"),
             (env.pooled_home.clone(), "openai", "pooled", "codex", env.pooled_home.is_some(), "NORTH_CODEX_POOLED_HOME"),
             (Some(local(".local/state/north/codex-pooled")), "openai", "pooled", "codex", false, "default pooled transcript root"),
+            (Some(local(".local/state/north/profiles")), "anthropic", "", "profiles", false, "north account profiles root"),
             (env.claude_config.as_ref().map(|dir| format!("{dir}/projects")), "anthropic", "local", "claude", env.claude_config.is_some(), "CLAUDE_CONFIG_DIR projects"),
             (Some(local(".claude/projects")), "anthropic", "local", "claude", false, "Claude Code projects root"),
         ]
@@ -153,6 +154,18 @@ fn trees(root: &Root) -> Result<Vec<(String, String, String, Kind)>> {
     let tree = |provider: &str, account: &str, base: String, kind| (provider.to_owned(), account.to_owned(), base, kind);
     match root.layout {
         "claude" => Ok(vec![tree(&root.provider, &root.account, root.path.clone(), Kind::Claude)]),
+        "profiles" => {
+            let top = Path::new(&root.path);
+            let mut out = Vec::new();
+            for profile in listdir(top)?.into_iter().filter(|name| !name.starts_with("stale-")) {
+                let home = top.join(&profile);
+                let projects = home.join("projects");
+                if fs::symlink_metadata(&home).is_ok_and(|meta| meta.is_dir()) && projects.is_dir() {
+                    out.push(tree(&root.provider, &profile, display(&projects), Kind::Claude));
+                }
+            }
+            Ok(out)
+        }
         "codex" => {
             let account = if root.account.is_empty() { Path::new(&root.path).file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned()) } else { root.account.clone() };
             Ok(vec![tree(&root.provider, &account, format!("{}/sessions", root.path), Kind::Codex)])

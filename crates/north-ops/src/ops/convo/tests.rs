@@ -222,3 +222,13 @@ fn compression_never_touches_claude_transcripts() {
     assert!(!transcript.with_extension("jsonl.zst").exists());
     assert_eq!(fs::read(&transcript).unwrap(), before);
 }
+
+#[test]
+fn indexing_reads_every_north_account_profile_not_only_the_callers() {
+    let mut lab = Lab::new();
+    lab.env.root_pinned = false;
+    let other = lab.env.home.join(".local/state/north/profiles/claude-x/projects/-synthetic-claude");
+    write(&other.join(format!("{CSID}.jsonl")), &[claude_record("user", json!("OTHERPROFILETOKEN typed in another account"), "2026-08-08T10:00:00Z", json!({}))]);
+    lab.index();
+    assert_eq!(lab.run(&["OTHERPROFILETOKEN"]).0, 0);
+}
