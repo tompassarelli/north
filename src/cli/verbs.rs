@@ -44,6 +44,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("digest", Status),
     ("dispatch", Delegate),
     ("docs", Diagnosis),
+    ("doctor", Diagnosis),
     ("eta-calibration", Bookkeeping),
     ("evidence", Diagnosis),
     ("experiments", Bookkeeping),

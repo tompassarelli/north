@@ -22,6 +22,7 @@ pub mod usage_table;
 pub mod wayland_idle;
 pub mod ssh;
 pub mod stdio;
+pub mod store_refs;
 pub mod terminal;
 pub mod session_scope;
 pub mod pyjson;

@@ -105,3 +105,15 @@ fn every_class_has_one_short_card() {
         assert!(!card.incident.is_empty() && !card.title.is_empty());
     }
 }
+
+#[test]
+fn nix_gc_is_named_by_the_deny_of_every_store_collection_form() {
+    let seen = tempfile::tempdir().unwrap();
+    for command in ["run-bounded 20m -- nix-collect-garbage", "nix-store --gc", "nix store gc", "sudo nix-collect-garbage -d"] {
+        let Verdict::Deny(reason) = decide(&bash("6430b666", command), seen.path()) else {
+            panic!("not denied: {command}");
+        };
+        assert!(reason.contains("`north nix gc`"), "{command}: {reason}");
+    }
+    assert_eq!(observed("north nix gc --dry-run"), "");
+}

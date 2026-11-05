@@ -4,17 +4,13 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::LazyLock;
 
-const STORE: &[u8] = b"/nix/store/";
-const HASH: usize = 32;
 const ROOT_PREFIX: &str = "gcroot-";
-static STORE_LITERAL: LazyLock<regex::bytes::Regex> = LazyLock::new(|| regex::bytes::Regex::new(&regex::escape(std::str::from_utf8(STORE).unwrap())).unwrap());
 
 pub(super) fn references(runtime: &Path) -> Result<BTreeSet<String>, Failure> {
     let mut references = BTreeSet::new();
     for program in PROGRAMS {
-        references.extend(scan(&fs::read(runtime.join(program))?));
+        references.extend(crate::platform::store_refs::roots(&fs::read(runtime.join(program))?));
     }
     Ok(references)
 }
@@ -36,27 +32,3 @@ pub(super) fn root(runtime: &Path) -> Result<(), Failure> {
     Ok(())
 }
 
-fn scan(bytes: &[u8]) -> Vec<String> {
-    let named = |byte: &u8| byte.is_ascii_alphanumeric() || b"+-._?=".contains(byte);
-    let hashed = |byte: &u8| matches!(byte, b'0'..=b'9' | b'a'..=b'z') && !b"eotu".contains(byte);
-    let mut found = Vec::new();
-    let starts = std::iter::successors(STORE_LITERAL.find(bytes), |found| STORE_LITERAL.find_at(bytes, found.start() + 1));
-    for at in starts.map(|found| found.start()) {
-        let rest = &bytes[at + STORE.len()..];
-        if rest.len() > HASH && rest[..HASH].iter().all(hashed) && rest[HASH] == b'-' {
-            let name = rest[HASH + 1..].iter().take_while(|byte| named(byte)).count();
-            found.push(String::from_utf8_lossy(&bytes[at..at + STORE.len() + HASH + 1 + name]).into_owned());
-        }
-    }
-    found
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn scan_finds_each_store_path_root_once_per_mention() {
-        let hash = "n51dhmdbik1kfrsm62j5knavmigwrl1a";
-        let bytes = format!("\0/nix/store/{hash}-glibc-2.42-84/lib/ld.so\0/nix/store/short-x\0/nix/store/{hash}-gcc-15.3.0-lib:");
-        assert_eq!(super::scan(bytes.as_bytes()), [format!("/nix/store/{hash}-glibc-2.42-84"), format!("/nix/store/{hash}-gcc-15.3.0-lib")]);
-    }
-}

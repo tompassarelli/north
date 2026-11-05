@@ -15,6 +15,7 @@ mod fleet;
 mod gate;
 mod hook_stats;
 mod ledger;
+mod nix;
 mod orders;
 mod probe_account;
 pub(crate) mod remote_land;
@@ -54,6 +55,8 @@ enum Command {
     DesktopIdleState(Option<String>),
     Hook(Vec<String>),
     Nix(Vec<String>),
+    NixGc(Vec<String>),
+    Doctor(Vec<String>),
     Threads(Vec<String>),
     Ledger(Vec<String>),
     Agents(Vec<String>),
@@ -107,7 +110,11 @@ type Forward = fn(&str, Vec<String>) -> Command;
 
 const FORWARDED: &[(&str, Forward)] = &[
     ("hook", |_, rest| Command::Hook(rest)),
-    ("nix", |_, rest| Command::Nix(rest)),
+    ("nix", |_, rest| match rest.split_first() {
+        Some((verb, tail)) if verb == "gc" => Command::NixGc(tail.to_vec()),
+        _ => Command::Nix(rest),
+    }),
+    ("doctor", |_, rest| Command::Doctor(rest)),
     ("threads", |_, rest| Command::Threads(rest)),
     ("fleet", |_, rest| Command::Fleet(rest)),
     ("ledger", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
@@ -191,6 +198,8 @@ fn dispatch(command: Command) -> ExitCode {
                 ExitCode::from(2)
             }
         },
+        Command::NixGc(arguments) => nix::gc(&arguments),
+        Command::Doctor(arguments) => nix::doctor(&arguments),
         Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet::Registry))),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),

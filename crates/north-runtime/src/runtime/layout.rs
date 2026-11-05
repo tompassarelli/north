@@ -2,7 +2,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-pub const PROGRAMS: [&str; 2] = ["north", "verify-north"];
+pub use crate::platform::store_refs::RUNTIME_PROGRAMS as PROGRAMS;
 pub const BUILT_HERE: &str = "built-here";
 pub use crate::platform::harness::{TREE, is_sha};
 const KEPT_OLDER: usize = 3;

@@ -119,14 +119,15 @@ path_suffixes = ["flake.lock"]
 explain = ["store"]
 text = """
 Never collect the store by hand: GC removed the glibc loader every `north` call needs (north#227), depbox's dev
-shell, StormLib and the linker rustup bakes in. Collections stay frozen until `north nix gc` roots every promoted
-runtime and live worktree (box D13).
+shell, StormLib and the linker rustup bakes in. Run `north nix gc [--dry-run] [--max-freed SIZE]`: it roots every
+promoted runtime, live worktree dev shell and rustup wrapper store path, then collects. `north doctor nix` reports
+what a collection would break.
 A flake.lock with a second nixpkgs node gives CI different tools: check `nix flake metadata` after an update.
 """
 
 [[card.deny]]
 commands = ["nix-collect-garbage", "nix-store --gc", "nix store gc"]
-why = "store collections are frozen on agent hosts"
+why = "collect the store with `north nix gc`, which roots every promoted runtime, live worktree dev shell and rustup wrapper store path first"
 
 [[card]]
 class = "N10"

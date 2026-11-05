@@ -1,5 +1,5 @@
 const ROOT_FILES: [&str; 8] = ["Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml", "rust-toolchain", "flake.nix", "flake.lock", "bin/cargo"];
-const ROOT_DIRS: [&str; 4] = ["crates/", "src/", ".cargo/", "harness/claude/agents/"];
+const ROOT_DIRS: [&str; 5] = ["crates/", "src/", ".cargo/", "harness/claude/agents/", "harness/nix/"];
 const EMBEDDED: [&str; 14] = [
     "harness/code-health/review-brief.md",
     "harness/defaults.toml",
