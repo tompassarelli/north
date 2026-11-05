@@ -79,7 +79,7 @@ fn needs_on_separate_lines_place_like_needs_on_one_line() {
 
 #[test]
 fn placement_never_pairs_a_machine_with_a_label_not_signed_in_there() {
-    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"warcraft\", \"native\"]\n[hosts.laptop]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\nserves = [\"warcraft\", \"native\"]\n[hosts.laptop]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let quota = gate(&[
         ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
         ("claude:b", control((5.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
@@ -100,7 +100,7 @@ fn placement_never_pairs_a_machine_with_a_label_not_signed_in_there() {
 
 #[test]
 fn a_box_never_goes_to_a_host_that_cannot_push_its_repository() {
-    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\nprivate_repos = [\"north\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\npushes = [\"north\", \"wisp\"]\n[hosts.laptop]\nresident_cap = 8\n".parse().unwrap();
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\nprivate_repos = [\"north\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\npushes = [\"north\", \"wisp\"]\n[hosts.laptop]\nresident_cap = 8\n".parse().unwrap();
     let quota = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
     let mut machines = gate::machines(&cfg);
     machines[0].live = Some(0);
@@ -118,6 +118,38 @@ fn a_box_never_goes_to_a_host_that_cannot_push_its_repository() {
     let sent = decide(north, &cfg, &quota, credit, &machines, "laptop");
     assert_eq!(sent.machine.as_ref().map(|machine| machine.name.as_str()), Some("gex45"), "{:?}", sent.machine_lines);
     assert_eq!(gate::lacks(&cfg, "gex45", north), None);
+}
+
+#[test]
+fn a_needs_host_launch_runs_on_that_host_and_only_a_launch_host_with_room_takes_a_box() {
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\", \"ccx33\", \"nexus\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\n[hosts.ccx33]\nresident_cap = 8\nssh = \"tom@ccx33\"\nlaunches = true\n[hosts.nexus]\nresident_cap = 6\nssh = \"tom@nexus\"\n[hosts.laptop]\nresident_cap = 8\nreaches = [\"gex45\"]\n".parse().unwrap();
+    let quota = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
+    let credit = (false, "cloud credit: spent".to_owned());
+    let brief = "Item: north#9 gex45 build\nSurface: rust\nNeeds: gex45\n";
+    let machines = |gex45_live: i64| {
+        let mut machines = gate::machines(&cfg);
+        for machine in &mut machines {
+            machine.live = Some(0);
+            machine.accounts = vec!["c".into()];
+        }
+        machines[0].live = Some(gex45_live);
+        machines
+    };
+
+    let placed = decide(brief, &cfg, &quota, credit.clone(), &machines(3), "laptop");
+    assert_eq!(placed.machine.as_ref().map(|machine| machine.name.as_str()), Some("gex45"), "{:?}", placed.machine_lines);
+    assert!(placed.machine_lines.contains(&"ccx33 skipped: cannot reach gex45".to_owned()), "{:?}", placed.machine_lines);
+    assert!(placed.machine_lines.contains(&"nexus skipped: not a launch host".to_owned()), "{:?}", placed.machine_lines);
+
+    let full = decide(brief, &cfg, &quota, credit.clone(), &machines(24), "laptop");
+    assert_eq!(full.machine, None, "a host at its cap is never chosen: {:?}", full.machine_lines);
+    assert!(full.machine_lines.contains(&"gex45 full: 24/24 resident CLIs".to_owned()), "{:?}", full.machine_lines);
+
+    let code = "Item: north#9 tidy\nSurface: rust\nNeeds: code\n";
+    let mut only_nexus = machines(24);
+    only_nexus[1].live = Some(8);
+    let held = decide(code, &cfg, &quota, credit, &only_nexus, "laptop");
+    assert_eq!(held.machine, None, "nexus is not a launch host even with room: {:?}", held.machine_lines);
 }
 
 mod properties {

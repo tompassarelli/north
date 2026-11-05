@@ -1,6 +1,6 @@
 //! The hosts a box's `Needs:` line names, and whether a target host can reach them: a `[hosts.NAME]`
 //! word that is not a local need must be the target itself or in the target's `reaches` list; a host
-//! that declares no list reaches any.
+//! that declares no list reaches only itself.
 use super::needs::{is_local_need, words};
 use super::strings;
 use toml_edit::{DocumentMut, Item};
@@ -25,7 +25,7 @@ impl Reach {
 
     /// The first named host `host` cannot reach, None when it reaches them all.
     pub(super) fn unreached(&self, host: &str, reaches: Option<&[String]>) -> Option<&str> {
-        self.named.iter().map(String::as_str).find(|named| *named != host && reaches.is_some_and(|reaches| !reaches.iter().any(|reached| reached == named)))
+        self.named.iter().map(String::as_str).find(|named| *named != host && !reaches.is_some_and(|reaches| reaches.iter().any(|reached| reached == named)))
     }
 
     pub(super) fn unreached_here(&self) -> Option<&str> {

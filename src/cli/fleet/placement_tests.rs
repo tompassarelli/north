@@ -67,7 +67,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     assert_eq!(Overrides::default().recorded(note.as_deref()), tiered, "revive keeps the tier reason");
 
     let mut remote = decision(Target::Account("claude:a".into()));
-    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()], saturation: None });
+    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()], saturation: None });
     let launch = Launch { name: "box", account: "a", brief: None, cwd: None, machine: None };
     let placed = admit(&remote, &launch, "", &Overrides::default()).unwrap();
     assert_eq!(placed, Placed { account: None, note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }), need: None });
@@ -86,7 +86,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
 fn the_account_placement_resolved_for_the_machine_needs_no_pin_beside_a_roomier_one_elsewhere() {
     let mut remote = decision(Target::Account("claude:a".into()));
     remote.verdicts.push(verdict("claude:b", Some(90.0)));
-    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(0), accounts: vec!["a".into()], saturation: None });
+    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: 4, live: Some(0), accounts: vec!["a".into()], saturation: None });
     let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: Some("far") };
     assert_eq!(admit(&remote, &launch("a"), "", &Overrides::default()).unwrap().note, None);
     let here = decision(Target::Account("claude:a".into()));
@@ -122,7 +122,7 @@ fn the_account_the_shared_rank_puts_first_is_admitted_without_a_pin_though_anoth
 #[test]
 fn a_launch_on_a_saturated_named_machine_needs_a_pin_and_a_local_keep_does_not() {
     let mut saturated = decision(Target::Account("claude:a".into()));
-    saturated.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
+    saturated.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
     saturated.saturated = Some("far skipped: 14.0 GiB free on the root disk, under 15".into());
     let launch = Launch { name: "worker", account: "a", brief: None, cwd: None, machine: Some("far") };
     let refused = admit(&saturated, &launch, "", &Overrides::default()).unwrap_err();
@@ -157,7 +157,7 @@ fn a_box_kept_on_a_saturated_launching_host_needs_local_or_a_pin_and_a_move_else
     assert_eq!(admit(&held, &launch, "", &pinned).unwrap().note.as_deref(), Some("pin: urgent"));
 
     let mut elsewhere = decision(Target::Account("claude:a".into()));
-    elsewhere.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
+    elsewhere.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
     elsewhere.here_saturated = Some(why.into());
     elsewhere.hold_here();
     assert_eq!(elsewhere.target, Target::Account("claude:a".into()));
@@ -276,7 +276,7 @@ fn a_local_launch_on_a_host_past_the_spawn_gate_cpu_line_needs_a_pin_and_local_d
     assert!(admit(&cloud, &launch, "", &Overrides::default()).unwrap_err().to_string().contains("north cloud launch"), "a cloud box is sent to the cloud, not held");
 
     let mut elsewhere = decision(Target::Account("claude:a".into()));
-    elsewhere.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
+    elsewhere.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
     elsewhere.here_cpu_held = Some(why.into());
     assert_eq!(admit(&elsewhere, &launch, "", &Overrides::default()).unwrap().machine.map(|machine| machine.name), Some("far".to_owned()), "a box placed on another machine is not this host's load");
 }
@@ -284,11 +284,11 @@ fn a_local_launch_on_a_host_past_the_spawn_gate_cpu_line_needs_a_pin_and_local_d
 #[test]
 fn a_launch_whose_named_machine_is_saturated_falls_through_to_the_next_open_machine_in_order_and_holds_only_when_none_is_open() {
     use crate::capacity::saturation::{Backlog, Saturation};
-    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"gex45\", \"anthropic-cloud\", \"nexus\", \"laptop\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"native\"]\n[hosts.nexus]\nresident_cap = 8\nssh = \"tom@nexus\"\nserves = [\"native\"]\n[hosts.laptop]\nresident_cap = 8\nssh = \"tom@laptop\"\n".parse().unwrap();
+    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"gex45\", \"anthropic-cloud\", \"nexus\", \"ccx33\", \"laptop\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\nserves = [\"native\"]\n[hosts.nexus]\nresident_cap = 8\nssh = \"tom@nexus\"\nserves = [\"native\"]\n[hosts.ccx33]\nresident_cap = 8\nssh = \"tom@ccx33\"\nlaunches = true\nserves = [\"native\"]\n[hosts.laptop]\nresident_cap = 8\nssh = \"tom@laptop\"\n".parse().unwrap();
     let reading = |load: f64| Saturation { memory_total_mib: 96000.0, memory_available_mib: 55000.0, disk_free_gib: 40.0, backlog: Some(Backlog { queued: 0, load, threads: 20 }) };
     let text = "Item: wisp#3 native window change\nSurface: rust\nNeeds: native\n";
     let launch = Launch { name: "wisp-3-d0250", account: "a", brief: None, cwd: Some(Path::new("/home/tom/code/wisp/main")), machine: Some("gex45") };
-    let placed_for = |launch: &Launch, nexus_live: i64, nexus_accounts: &[&str], overrides: &Overrides| {
+    let placed_for = |launch: &Launch, ccx33_live: i64, ccx33_accounts: &[&str], overrides: &Overrides| {
         let mut machines = placement::machines(&cfg);
         for machine in &mut machines {
             machine.live = Some(3);
@@ -296,21 +296,21 @@ fn a_launch_whose_named_machine_is_saturated_falls_through_to_the_next_open_mach
             machine.saturation = Some(reading(4.0));
         }
         machines[0].saturation = Some(reading(39.0));
-        machines[1].live = Some(nexus_live);
-        machines[1].accounts = nexus_accounts.iter().map(|&label| label.to_owned()).collect();
+        machines[2].live = Some(ccx33_live);
+        machines[2].accounts = ccx33_accounts.iter().map(|&label| label.to_owned()).collect();
         let mut decision = placement::decide(text, &cfg, vec![verdict("claude:a", Some(60.0))], (false, String::new()), &machines, "laptop", false);
         decision.run_on(machines[0].clone());
         fall_through(&mut decision, launch, overrides);
         admit(&decision, launch, text, overrides)
     };
-    let placed = |nexus_live, nexus_accounts: &[&str], overrides: &Overrides| placed_for(&launch, nexus_live, nexus_accounts, overrides);
+    let placed = |ccx33_live, ccx33_accounts: &[&str], overrides: &Overrides| placed_for(&launch, ccx33_live, ccx33_accounts, overrides);
 
     let moved = placed(3, &["a"], &Overrides::default()).unwrap();
-    assert_eq!(moved.machine.map(|machine| machine.name).as_deref(), Some("nexus"));
-    assert_eq!(moved.note.as_deref(), Some("gex45 saturated; placed on nexus (gex45 skipped: load 39 on 20 threads)"));
+    assert_eq!(moved.machine.map(|machine| machine.name).as_deref(), Some("ccx33"));
+    assert_eq!(moved.note.as_deref(), Some("gex45 saturated; placed on ccx33 (gex45 skipped: load 39 on 20 threads)"));
 
     let full = placed(8, &["a"], &Overrides::default()).unwrap_err();
-    assert_eq!(full, Refusal::Saturated("gex45 skipped: load 39 on 20 threads; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\"".into()), "nexus full and the laptop serves no native box, so the launch waits");
+    assert_eq!(full, Refusal::Saturated("gex45 skipped: load 39 on 20 threads; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\"".into()), "ccx33 full, nexus is open but no launch host, and the laptop serves no native box, so the launch waits");
     assert!(matches!(placed(3, &["c"], &Overrides::default()), Err(Refusal::Saturated(_))), "a machine not signed in to the launch's account never takes it");
 
     let pinned = placed(3, &["a"], &Overrides { pin: Some("Tom named gex45".into()), ..Overrides::default() }).unwrap();

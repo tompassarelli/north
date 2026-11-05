@@ -62,8 +62,10 @@ pub struct Machine {
     pub ssh: String,
     pub serves: Vec<String>,
     pub pushes: Option<Vec<String>>,
-    /// The `[hosts]` names a session there can reach over ssh, None when the host declares no list and so reaches any.
+    /// The `[hosts]` names a session there can reach over ssh besides itself, None when the host declares no list and so reaches only itself.
     pub reaches: Option<Vec<String>>,
+    /// Whether `[hosts.NAME] launches = true` marks it a host fleet sessions start on; a host that only deploys, builds or checks lands is not.
+    pub launches: bool,
     pub cap: i64,
     pub live: Option<i64>,
     pub accounts: Vec<String>,
@@ -314,7 +316,7 @@ pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
             let host = hosts.get(&name)?;
             let ssh = ssh_destination(host.get("ssh")?.as_str()?)?.to_owned();
             let cap = host.get("resident_cap").and_then(Item::as_integer).unwrap_or(0);
-            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), name, ssh, cap, live: None, accounts: Vec::new(), saturation: None })
+            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, cap, live: None, accounts: Vec::new(), saturation: None })
         })
         .collect()
 }
@@ -401,6 +403,9 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
             let name = &machine.name;
             if !declared && !here_gaming {
                 return format!("{name} skipped: no Surface: declared");
+            }
+            if !machine.launches {
+                return format!("{name} skipped: not a launch host");
             }
             if let Some(need) = missing(&machine.serves) {
                 return format!("{name} skipped: needs {need}");
