@@ -579,9 +579,9 @@ fallback = "a host whose total memory cannot admit this class takes no box"
 consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [land_offload_cpus]
-value = 6
+value = 4
 unit = "free cores (the admission limit less the CPUs committed to batch runs) a host needs to take an offloaded land check"
-source = "standard: machine-capacity's heavy class asks 6 cores on a host above 8 cores (crates/north-capacity-host/src/capacity/host/policy.rs resource_class)"
+source = "measured: the newest 856 land-check heavy runs on the laptop (2026-11-05 to 2026-11-06) averaged 2.3 cores, 75% of runs meaned 4.0 or less, p90 of run means 5.7; at 6 the laptop (14-core attended limit) took one land check beside the 9-core charge of a running one while the GPU host sat full, and the CPU pressure gate (admit_psi_attended_high) and the 4 reserved cores still bound it"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
 consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 

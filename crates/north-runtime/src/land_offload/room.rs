@@ -114,7 +114,7 @@ mod tests {
         let gib = 1024 * 1024;
         assert_eq!(shortfall(&room(21 * gib, "3.1")), None);
         assert!(shortfall(&room(17 * gib, "3.1")).unwrap().contains("17.0 GiB disk free"));
-        assert!(shortfall(&room(80 * gib, "16.00")).unwrap().contains("cores free"));
+        assert!(shortfall(&room(80 * gib, "17.00")).unwrap().contains("cores free"));
         let mut tight = room(80 * gib, "3.1");
         tight.measure.memory_available_mib = 9000.0;
         assert!(shortfall(&tight).unwrap().contains("MiB memory available"));
@@ -125,7 +125,7 @@ mod tests {
         let gib = 1024 * 1024;
         let gex45 = reading(80 * gib, "61.00", "7.6", "35");
         assert_eq!(shortfall(&gex45), None, "committed 7.6 of 20 CPUs at 35% pressure and load 61 is room for 6 cores");
-        assert!(shortfall(&reading(80 * gib, "3.00", "15.0", "10")).unwrap().contains("cores free of 20"));
+        assert!(shortfall(&reading(80 * gib, "3.00", "17.0", "10")).unwrap().contains("cores free of 20"));
         assert!(shortfall(&reading(80 * gib, "3.00", "7.6", "40")).unwrap().contains("CPU pressure 40%"));
     }
 
@@ -167,6 +167,17 @@ mod tests {
         let ccx33 = || vec![("ccx33".to_owned(), Some(room(80 * gib, "15.00")))];
         assert!(check_host(true, "laptop", || None, ccx33(), &[], 6.0).is_err(), "the 12:47 PM reading: 5.3 cores free, needs 6");
         assert_eq!(check_host(true, "laptop", || None, ccx33(), &[], 4.0), Ok("ccx33".to_owned()));
+    }
+
+    #[test]
+    fn the_laptop_takes_a_land_check_at_the_default_ask_beside_a_running_one_while_gex45_is_at_its_ceiling() {
+        let gib = 1024 * 1024;
+        let ask = offload_room().0;
+        let full_gex45 = vec![("gex45".to_owned(), Some(room(80 * gib, "17.00")))];
+        let laptop_beside_one_charged_nine = || Some(room(80 * gib, "15.00"));
+        assert_eq!(check_host(false, "laptop", laptop_beside_one_charged_nine, full_gex45.clone(), &[], ask), Ok("laptop".to_owned()));
+        let refused = check_host(false, "laptop", || Some(room(80 * gib, "17.00")), full_gex45, &[], ask).unwrap_err();
+        assert_eq!(refused.len(), 2, "{refused:?}");
     }
 
     #[test]
