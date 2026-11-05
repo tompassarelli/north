@@ -8,6 +8,7 @@ use super::blame;
 use super::candidate::{change_worktrees_alone, git};
 use super::checks::Verdict;
 use super::lander::{Lander, state_home};
+use super::setting;
 use super::telemetry;
 
 const TAIL_LINES: usize = 20;
@@ -35,6 +36,7 @@ pub struct Run {
     pub outcome: PathBuf,
     pub ledger: PathBuf,
     pub offload_owner: String,
+    pub capacity: String,
 }
 
 impl Run {
@@ -48,6 +50,7 @@ impl Run {
             outcome: beside(&self.outcome, format!("{name}.outcome")),
             ledger: self.ledger.clone(),
             offload_owner: self.offload_owner.clone(),
+            capacity: self.capacity.clone(),
         }
     }
 }
@@ -62,6 +65,7 @@ pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>, tips: 
         outcome: lander.queue.join("logs").join("post-land"),
         ledger: state_home().join("safe-push").join("post-land.tsv"),
         offload_owner: lander.offload_owner.clone(),
+        capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
     }
     .at(head);
     std::thread::spawn(move || {
@@ -120,7 +124,7 @@ fn execute(program: &str, prefix: &[String], landed: &Landed, run: &Run) -> Verd
         Err(error) => return Verdict::Transient(format!("{}: {error}", run.log.display())),
     };
     let mut command = Command::new(program);
-    command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner);
+    command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity).env_remove("SAFE_PUSH_LAND_RUNNER");
     for name in super::checks::SCRUBBED {
         command.env_remove(name);
     }
