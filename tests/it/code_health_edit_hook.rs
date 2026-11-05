@@ -18,11 +18,11 @@ impl Rig {
         let (tools, stub) = (base.join("tools"), base.join("stub"));
         std::fs::create_dir_all(&stub).unwrap();
         crate::support::test_env::minimal_path(&tools, &["git", "cat", "sleep", "sh"]);
-        let script = stub.join("code-health");
+        let script = stub.join("north");
         shim::write_executable(
             &script,
             format!(
-                "#!{}\n[ \"$1\" = check ] || exit 2\ncase \"$(cat \"$2\")\" in\n  *slow*) exec sleep 5 ;;\n  *orphan*) (sleep 30 & echo $! >\"$HOME/orphan.pid\"); echo orphan; exit 1 ;;\n  *broken*) echo 'internal error'; exit 2 ;;\n  *clean*) exit 0 ;;\nesac\necho \"file-size ${{2#$PWD/}}: 612 lines > 500; split the file\"\nexit 1\n",
+                "#!{}\n[ \"$1\" = code-health ] && [ \"$2\" = check ] || exit 2\ncase \"$(cat \"$3\")\" in\n  *slow*) exec sleep 5 ;;\n  *orphan*) (sleep 30 & echo $! >\"$HOME/orphan.pid\"); echo orphan; exit 1 ;;\n  *broken*) echo 'internal error'; exit 2 ;;\n  *clean*) exit 0 ;;\nesac\necho \"file-size ${{3#$PWD/}}: 612 lines > 500; split the file\"\nexit 1\n",
                 crate::support::test_env::require("sh").display()
             ),
         );

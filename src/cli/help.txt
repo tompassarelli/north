@@ -12,6 +12,8 @@ Commands:
   language-gate --repo DIR --base REV --head REV  Check language policy
   code-health crate-lines [--repo DIR] [BASE HEAD]  Print non-test Rust lines per workspace crate against structure.toml [crate_lines]; with BASE HEAD exit 1 when a crate over its cap grew
   code-health imports                           Resolve the imports of files given as JSON on stdin
+  code-health report|gate|check|signal|review-done [--repo DIR] [--config FILE] [--rev REV] [--json]  Measure structure.toml debt: full report, new debt between two commits, one dirty file, the recurring-review signal, record a review
+  code-health habits [--repo DIR]               Run the Rust habit checks
   code-health build-time --repo DIR [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE] [--rev REF] [--file]  Time cold and one-line-edit cargo build and test --no-run, append to the build-time ledger, exit 1 over the structure.toml threshold; --rev measures a fresh detached checkout of REF, --file keeps one rolling split issue per repo
   guard language                                PreToolUse language guard
   grounding [refresh|query|hook|distill|score]    Retrieve existing infrastructure and history

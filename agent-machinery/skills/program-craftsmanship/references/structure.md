@@ -70,8 +70,8 @@ producer that exists in the tree; `[ignore]` covers vendored and fixture data.
 
 ## Reading a code-health message
 
-`code-health gate BASE HEAD` runs in safe-push and CI and blocks only new debt;
-existing debt never blocks. `code-health check FILE` runs after each edit and
+`north code-health gate BASE HEAD` runs in safe-push and CI and blocks only new debt;
+existing debt never blocks. `north code-health check FILE` runs after each edit and
 returns the same rules for that file as feedback, never blocking. Each line
 names the rule, the path and line, the measured value against the limit, and
 the fix. The rules:
@@ -108,10 +108,10 @@ change `structure.toml`.
 
 ## The recurring review
 
-An hourly timer runs `code-health signal` per enrolled repo. It fires after
+An hourly timer runs `north code-health signal` per enrolled repo. It fires after
 the `[review]` thresholds (commits, hand lines added, days with a landing, or a
 hotspot score) since the last review. A fired review starts one worker or lead
-that reads `code-health report`, lands behavior-preserving slices against the
+that reads `north code-health report`, lands behavior-preserving slices against the
 top hotspots, allowed debt, cycles and layer violations, then runs
-`code-health report --save` and `code-health review-done`. Ordinary work does
+`north code-health report --save` and `code-health review-done`. Ordinary work does
 not wait for it; fix what your own change touches.

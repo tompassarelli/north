@@ -13,7 +13,7 @@ is refreshed and the review marker is recorded. Nobody asked for this review; To
 Read {{checkout}}/AGENTS.md, its `structure.toml`, and the program-craftsmanship, planning, workers and repo-safety
 skills first. Fleet records delivery and session completion; your final message is your report.
 
-1. Read the report the tick saved at {{report}} (or rerun `code-health report --repo {{checkout}} --rev origin/main`). Write a
+1. Read the report the tick saved at {{report}} (or rerun `north code-health report --repo {{checkout}} --rev origin/main`). Write a
    ranked refactor list to {{list}}: cycles and layer violations first, then hotspots (churn x complexity),
    then oversize functions and files, then `Code-health-allow` debt the report lists, then test value (below). Each item names the
    files, the split or move, the test that covers the behavior, and an ETA. Price each item with a
@@ -32,12 +32,12 @@ skills first. Fleet records delivery and session completion; your final message 
 3. Land each finished slice through the repo's normal path (`safe-push --to main`, or the Autoland queue in an
    Autoland repo) and delete its branch. Stop staffing when the remaining items are minor or the run passes
    4 hours; leave the rest on the list for the next review.
-4. When the slices have landed: `git -C {{checkout}} fetch -q origin`, `code-health report --repo {{checkout}} --rev origin/main --save`, then
-   `code-health review-done --repo {{checkout}} --rev origin/main`, then remove the lock: `rm -f {{lock}}`.
+4. When the slices have landed: `git -C {{checkout}} fetch -q origin`, `north code-health report --repo {{checkout}} --rev origin/main --save`, then
+   `north code-health review-done --repo {{checkout}} --rev origin/main`, then remove the lock: `rm -f {{lock}}`.
 5. Report landed slices and remaining items in your final Fleet message.
 
 Done when: (1) every landed slice's SHA is on {{repo}} origin/main with the repo's gate green;
-(2) `code-health signal --repo {{checkout}} --rev origin/main` prints `quiet`; (3) the proxy event is sent.
+(2) `north code-health signal --repo {{checkout}} --rev origin/main` prints `quiet`; (3) the proxy event is sent.
 
 Not required: new features, metric changes (that is north's code-health tool), Tom-facing notices, paid compute.
 

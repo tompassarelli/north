@@ -1,12 +1,28 @@
+mod check;
+mod cli;
+#[cfg(test)]
+mod cli_tests;
+mod config;
 mod crate_lines;
+mod functions;
+#[cfg(test)]
+mod functions_tests;
+mod gate;
+mod graph;
 mod habits;
 #[cfg(test)]
 mod habits_tests;
+mod history;
 mod imports;
 mod layers;
+mod report;
+mod resolver;
 mod rust_modules;
 mod rust_text;
+mod signal;
+mod snapshot;
 mod source;
+mod state;
 mod tick;
 #[cfg(test)]
 mod tick_tests;
@@ -58,7 +74,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Some("crate-lines") => crate_lines::run(&arguments[1..]),
         Some("layers") => layers::run(&arguments[1..]),
         None => crate_lines::run(&[]),
-        _ => fail("usage: north code-health [crate-lines [--repo DIR] [BASE HEAD]] | layers [--repo DIR] BASE HEAD | imports (JSON request on stdin, JSON response on stdout) | habits [--repo DIR] | tick [--dry-run] [--repos=a,b]"),
+        _ => cli::run(arguments),
     }
 }
 

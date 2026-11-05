@@ -207,7 +207,7 @@ may_use = ["domain", "platform", "foundation", "crate-roots"]
 [[module]]
 name = "code_health"
 paths = ["crates/north-guard/src/code_health/**"]
-responsibility = "Import resolution for the code-health report, gate and edit check; the Rust habit checks; the hourly review tick."
+responsibility = "The code-health report, gate, edit check and review signal over structure.toml, their import resolution and function metrics; the Rust habit checks; the hourly review tick."
 may_use = ["platform", "foundation", "crate-roots"]
 
 [[module]]

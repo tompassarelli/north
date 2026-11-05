@@ -1,6 +1,8 @@
 use super::imports::imports_of;
 use super::rust_modules::Crate;
 use super::source::Source;
+use super::functions::SourceText;
+use super::resolver::Resolver;
 use super::{Existence, Request, SourceFile, answer};
 
 fn tree(paths: &[&str]) -> Source {
@@ -121,4 +123,16 @@ fn an_absolute_c_include_is_looked_up_inside_the_root_only() {
     let source = Source::root(dir.path().to_path_buf());
     let text = format!("#include \"{}\"\n", header.display());
     assert_eq!(imports_of("a.c", &text, &source, &[]), Vec::<String>::new());
+}
+
+#[test]
+fn the_resolver_answers_in_file_order_for_a_tree_and_a_root() {
+    let resolver = Resolver::new(tree(&["Cargo.toml", "src/lib.rs", "src/util.rs"]), &[("Cargo.toml", "[package]\nname = \"app\"\n")]);
+    let files = [SourceText { path: "src/lib.rs".into(), text: "use crate::util::A;".into() }, SourceText { path: "src/util.rs".into(), text: "use crate::A;".into() }];
+    assert_eq!(resolver.imports_all(&files), [vec!["src/util.rs".to_owned()], vec!["src/lib.rs".to_owned()]]);
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("b.ts"), "").unwrap();
+    let resolver = Resolver::new(Source::root(dir.path().to_path_buf()), &[]);
+    assert_eq!(resolver.imports("a.ts", "import './b';"), ["b.ts"]);
 }

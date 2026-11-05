@@ -240,7 +240,7 @@ fn default_env(dry_run: bool) -> TickEnv {
         code_root: env_or("CODE_HEALTH_CODE_ROOT", || under_home("code")).into(),
         state_root: env_or("CODE_HEALTH_STATE", || under_home(".local/state/code-health")).into(),
         handoffs: env_or("AGENTS_HANDOFFS", || under_home(".local/state/agents/handoffs")).into(),
-        code_health: env_or("CODE_HEALTH_BIN", || "code-health".to_owned()).split(' ').map(str::to_owned).collect(),
+        code_health: env_or("CODE_HEALTH_BIN", || "north code-health".to_owned()).split(' ').map(str::to_owned).collect(),
         north: env_or("CODE_HEALTH_NORTH_BIN", north),
         dry_run,
         now: OffsetDateTime::now_utc(),

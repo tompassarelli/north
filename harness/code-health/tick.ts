@@ -115,7 +115,7 @@ export function defaultEnv(argv: string[]): { env: TickEnv; repos: string[] } {
       codeRoot: process.env.CODE_HEALTH_CODE_ROOT ?? join(home, "code"),
       stateRoot: process.env.CODE_HEALTH_STATE ?? join(home, ".local/state/code-health"),
       handoffs: process.env.AGENTS_HANDOFFS ?? join(home, ".local/state/agents/handoffs"),
-      codeHealth: (process.env.CODE_HEALTH_BIN ?? "code-health").split(" "),
+      codeHealth: (process.env.CODE_HEALTH_BIN ?? "north code-health").split(" "),
       north: process.env.CODE_HEALTH_NORTH_BIN ?? "north",
       template: join(import.meta.dir, "review-brief.md"),
       dryRun: argv.includes("--dry-run"),

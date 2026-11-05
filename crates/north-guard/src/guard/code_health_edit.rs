@@ -125,7 +125,7 @@ fn findings(path: &Path, cwd: &Path, limit: Duration) -> Vec<String> {
     if top.as_os_str().is_empty() || !top.join("structure.toml").is_file() {
         return Vec::new();
     }
-    let mut lines: Vec<String> = run("code-health", &["check".as_ref(), path.as_os_str()], &top, limit)
+    let mut lines: Vec<String> = run("north", &["code-health".as_ref(), "check".as_ref(), path.as_os_str()], &top, limit)
         .unwrap_or_default()
         .lines()
         .filter(|line| !line.trim().is_empty())
