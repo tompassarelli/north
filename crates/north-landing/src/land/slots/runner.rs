@@ -12,7 +12,7 @@ use tokio::sync::watch;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::JoinSet;
 
-use super::affected::{self, CPUS_ENV, PACKAGES_ENV, Scope};
+use super::affected::{self, CHANGED_ENV, CPUS_ENV, PACKAGES_ENV, Scope};
 use super::it_modules::{self, IT_ENV};
 use super::clippy_first;
 use super::deps;
@@ -372,6 +372,7 @@ impl Shared {
         let mut environment = Vec::new();
         if let Some(scope) = &self.scope {
             environment.push((PACKAGES_ENV, scope.arguments()));
+            environment.push((CHANGED_ENV, scope.changed_arguments()));
             environment.extend(scope.cpus().map(|cpus| (CPUS_ENV, cpus.to_string())));
         }
         environment.extend(self.it.clone().map(|filters| (IT_ENV, filters)));
@@ -1033,7 +1034,7 @@ async fn forward_signals(cancel: watch::Sender<bool>) {
 }
 
 fn scope_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<Scope> {
-    if !commands.iter().any(|command| command.contains(PACKAGES_ENV)) {
+    if !commands.iter().any(|command| command.contains(PACKAGES_ENV) || command.contains(CHANGED_ENV)) {
         return None;
     }
     let scope = affected::scope(root, &arguments.base, &arguments.head).unwrap_or_else(|error| {

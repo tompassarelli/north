@@ -8,6 +8,7 @@ use serde::Deserialize;
 use super::select::changed;
 
 pub const PACKAGES_ENV: &str = "SAFE_PUSH_LAND_PACKAGES";
+pub const CHANGED_ENV: &str = "SAFE_PUSH_LAND_CHANGED";
 pub const CPUS_ENV: &str = "SAFE_PUSH_LAND_CPUS";
 const WORKSPACE: &str = "--workspace";
 const ROOT_SOURCES: [&str; 4] = ["src/", "tests/", "examples/", "benches/"];
@@ -51,23 +52,34 @@ struct Dependency {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Scope {
     Workspace,
-    Packages(Vec<String>),
+    Packages { affected: Vec<String>, changed: Vec<String> },
 }
 
 impl Scope {
     pub fn arguments(&self) -> String {
         match self {
             Self::Workspace => WORKSPACE.to_owned(),
-            Self::Packages(names) => names.iter().map(|name| format!("-p {name}")).collect::<Vec<_>>().join(" "),
+            Self::Packages { affected, .. } => flags(affected),
+        }
+    }
+
+    pub fn changed_arguments(&self) -> String {
+        match self {
+            Self::Workspace => WORKSPACE.to_owned(),
+            Self::Packages { changed, .. } => flags(changed),
         }
     }
 
     pub fn cpus(&self) -> Option<usize> {
         match self {
             Self::Workspace => None,
-            Self::Packages(names) => Some((names.len() * CPUS_PER_PACKAGE).max(MINIMUM_CPUS)),
+            Self::Packages { affected, .. } => Some((affected.len() * CPUS_PER_PACKAGE).max(MINIMUM_CPUS)),
         }
     }
+}
+
+fn flags(names: &[String]) -> String {
+    names.iter().map(|name| format!("-p {name}")).collect::<Vec<_>>().join(" ")
 }
 
 struct Member<'a> {
@@ -111,11 +123,11 @@ pub fn select(metadata: &str, files: &[String], dep_info: &[DepInfo]) -> Result<
             Owner::Nothing => {}
         }
     }
-    let affected = dependents(&members, changed);
+    let affected = dependents(&members, changed.clone());
     if affected.is_empty() || affected.len() == members.len() || !library(&members, &affected) {
         return Ok(Scope::Workspace);
     }
-    Ok(Scope::Packages(affected.into_iter().map(str::to_owned).collect()))
+    Ok(Scope::Packages { affected: affected.into_iter().map(str::to_owned).collect(), changed: changed.into_iter().map(str::to_owned).collect() })
 }
 
 fn library(members: &[Member], affected: &BTreeSet<&str>) -> bool {
