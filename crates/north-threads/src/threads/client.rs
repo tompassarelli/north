@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Seek, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
@@ -117,16 +117,6 @@ pub fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
 
 pub fn ledger_path() -> NorthResult<PathBuf> {
     ambient_client(unread_fleet()).map(|client| client.ledger()).ok_or_else(|| NorthError::Usage("no home directory".into()))
-}
-
-pub fn forward_to_ledger_host(words: &[&str], input: &[u8]) -> NorthResult<Option<i32>> {
-    let client = ambient_client(unread_fleet()).ok_or_else(|| NorthError::Usage("no home directory".into()))?;
-    client.forward(words, input, &mut io::stderr())
-}
-
-pub fn ask_ledger_host(words: &[&str], input: &[u8]) -> NorthResult<Option<Vec<u8>>> {
-    let client = ambient_client(unread_fleet()).ok_or_else(|| NorthError::Usage("no home directory".into()))?;
-    client.ask(words, input)
 }
 
 fn unread_fleet() -> Arc<dyn outside::FleetView> {
@@ -311,6 +301,8 @@ impl Client {
                 let code = self.ssh(dest, &argv, Input::Bytes(data.clone()), false, err)?;
                 if code == ingest_lock::RETRY {
                     state = "busy";
+                } else if code == TIMED_OUT {
+                    state = "timed out";
                 } else if code != UNREACHABLE {
                     if code == 0 && has_usage(&data)? {
                         self.refresh_snapshot(dest, true)?;
@@ -324,7 +316,7 @@ impl Client {
         }
         if first == Some("agent-event") {
             let code = if clear { self.ssh(dest, &argv, Input::Null, false, err)? } else { UNREACHABLE };
-            if code != UNREACHABLE {
+            if code != UNREACHABLE && code != TIMED_OUT {
                 return Ok(Some(code));
             }
             self.spool_argv(&argv)?;
@@ -428,7 +420,7 @@ impl Client {
             if code == UNREACHABLE {
                 return Ok(Flush::Down);
             }
-            if code == ingest_lock::RETRY {
+            if code == ingest_lock::RETRY || code == TIMED_OUT {
                 return Ok(Flush::Busy);
             }
             if code != 0 {
@@ -541,42 +533,6 @@ impl Client {
                 writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
                 Ok(TIMED_OUT)
             }
-        }
-    }
-
-    fn forward(&self, words: &[&str], input: &[u8], err: &mut dyn Write) -> NorthResult<Option<i32>> {
-        if self.var("THREADS_DB").is_some() || !self.remote.exists() {
-            return Ok(None);
-        }
-        let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
-        let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
-        match execute(&argv, Input::Bytes(input.to_vec()), Stdio::inherit(), SSH_TIMEOUT)? {
-            Some(status) => Ok(Some(code_of(status))),
-            None => {
-                writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
-                Ok(Some(TIMED_OUT))
-            }
-        }
-    }
-
-    fn ask(&self, words: &[&str], input: &[u8]) -> NorthResult<Option<Vec<u8>>> {
-        if self.var("THREADS_DB").is_some() || !self.remote.exists() {
-            return Ok(None);
-        }
-        let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
-        let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
-        let mut output = tempfile::tempfile()?;
-        match execute(&argv, Input::Bytes(input.to_vec()), Stdio::from(output.try_clone()?), SSH_TIMEOUT)? {
-            Some(status) if status.success() => {
-                let mut answer = Vec::new();
-                output.seek(io::SeekFrom::Start(0))?;
-                output.read_to_end(&mut answer)?;
-                Ok(Some(answer))
-            }
-            Some(status) => Err(NorthError::Refused(format!("{dest} answered exit {}", code_of(status)))),
-            None => Err(NorthError::Refused(format!("{dest} timed out; remote outcome unknown"))),
         }
     }
 
@@ -809,16 +765,69 @@ exit "$(cat "$ROOT/code")"
     }
 
     #[test]
-    fn a_stalled_ledger_host_fails_a_write_within_its_bound_and_never_replays_or_spools_it() {
+    fn a_stalled_ledger_host_returns_a_claim_as_outcome_unknown_within_its_bound_and_never_replays_it() {
         let mut rig = rig(&[]);
         rig.client.ssh_wait = Duration::from_millis(300);
         fs::write(rig.root.join("sleep"), "30").unwrap();
         let begun = Instant::now();
-        assert_eq!(call(&rig, &["claim", "wisp#99", "--by", "stall"], b"").0, TIMED_OUT);
-        assert_eq!(call(&rig, &["ingest"], b"{}\n").0, TIMED_OUT);
+        assert_eq!(call(&rig, &["claim", "wisp#99", "--by", "stall"], b""), (TIMED_OUT, "NorthThreads: ledger-host timed out; remote outcome unknown\n".to_owned()));
         assert!(begun.elapsed() < Duration::from_secs(5), "{:?}", begun.elapsed());
-        assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'wisp#99' --by stall"), format!("{PREFIX} north threads ingest")]);
-        assert!(!rig.client.spool.exists(), "a timed-out write was queued for replay");
+        assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'wisp#99' --by stall")]);
+        assert!(!rig.client.spool.exists(), "a timed-out claim was queued for replay");
+    }
+
+    fn spooled(rig: &Rig) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(&rig.client.spool).map(|entries| entries.map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).filter(|name| name != ".lock").collect()).unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_spooled_batch_whose_flush_times_out_stays_spooled_and_is_sent_again_once_the_host_answers() {
+        let mut rig = rig(&[]);
+        rig.client.ssh_wait = Duration::from_millis(300);
+        let kept = rig.client.write_spool(b"{\"n\": 1}\n").unwrap();
+        fs::write(rig.root.join("sleep"), "30").unwrap();
+        let (_, err) = call(&rig, &["claim", "north#63"], b"");
+        assert!(!err.contains("refused"), "{err}");
+        assert_eq!(spooled(&rig), [kept.file_name().unwrap().to_string_lossy().into_owned()], "a timed-out flush is neither .failed nor dropped");
+        fs::remove_file(rig.root.join("sleep")).unwrap();
+        assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
+        assert!(spooled(&rig).is_empty());
+        assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 1}"]);
+    }
+
+    fn stalled_rig() -> Rig {
+        let mut rig = rig(&[]);
+        rig.client.ssh_wait = Duration::from_millis(300);
+        fs::write(rig.root.join("sleep"), "30").unwrap();
+        rig
+    }
+
+    #[test]
+    fn an_ingest_that_times_out_is_spooled_not_refused_and_sent_again_once_the_host_answers() {
+        let rig = stalled_rig();
+        let (code, err) = call(&rig, &["ingest"], b"{\"n\": 1}\n");
+        assert_eq!(code, 0, "{err}");
+        assert!(err.contains("ledger-host timed out; spooled ingest to ") && !err.contains("refused"), "{err}");
+        assert_eq!(spooled(&rig).iter().filter(|name| name.ends_with(".jsonl")).count(), 1);
+        fs::remove_file(rig.root.join("sleep")).unwrap();
+        assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
+        assert!(spooled(&rig).is_empty());
+        assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 1}"]);
+    }
+
+    #[test]
+    fn an_agent_event_that_times_out_is_spooled_and_sent_again_once_the_host_answers() {
+        let rig = stalled_rig();
+        let event = ["agent-event", "--session", "s", "--kind", "note", "--key", "k1"];
+        let (code, err) = call(&rig, &event, b"");
+        assert_eq!(code, 0, "{err}");
+        assert_eq!(spooled(&rig).iter().filter(|name| name.ends_with(".argv")).count(), 1, "a timed-out agent-event is kept for replay");
+        fs::remove_file(rig.root.join("sleep")).unwrap();
+        assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
+        assert!(spooled(&rig).is_empty());
+        assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.ends_with("north threads agent-event --session s --kind note --key k1")).count(), 2);
     }
 
     #[test]
