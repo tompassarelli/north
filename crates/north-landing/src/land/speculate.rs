@@ -107,7 +107,7 @@ fn fresh(lander: &Lander, taken: &Taken, stack: &[Next], seen: &mut HashSet<Path
 fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)]) -> Result<Option<Next>, String> {
     let Some(worktree) = lander.spares.get(level) else { return Ok(None) };
     candidate::ensure(&lander.repo, worktree)?;
-    let built = candidate::build(worktree, &candidate::speculative_branch(level), head, arrived, usize::MAX, &lander.queue.join("logs"))?;
+    let built = candidate::build(worktree, head, arrived, usize::MAX, &lander.queue.join("logs"))?;
     let tickets: Vec<_> = arrived.iter().zip(&built.picks).filter(|(_, pick)| matches!(pick, Pick::Included)).map(|(entry, _)| entry.clone()).collect();
     if tickets.is_empty() {
         return Ok(None);

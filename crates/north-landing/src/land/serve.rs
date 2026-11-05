@@ -173,7 +173,7 @@ impl Lander {
                 Ok(base) => base,
                 Err(error) => return Ok(Round::Waiting(format!("transient: {error}"))),
             };
-            let built = candidate::build(&self.worktree, candidate::BRANCH, &base, &tickets, limit, &logs)?;
+            let built = candidate::build(&self.worktree, &base, &tickets, limit, &logs)?;
             let mut included = Vec::new();
             let mut undecided = None;
             for ((path, ticket), pick) in tickets.iter().zip(&built.picks) {

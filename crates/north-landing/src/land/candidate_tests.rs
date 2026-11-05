@@ -47,7 +47,7 @@ fn two_lanes_that_each_add_a_note_without_its_index_build_a_candidate_with_a_fre
     }
     let worktree = dir.path().join("lander");
     ensure(&repo, &worktree).unwrap();
-    let built = build(&worktree, BRANCH, &base, &tickets, 2, &dir.path().join("logs")).unwrap();
+    let built = build(&worktree, &base, &tickets, 2, &dir.path().join("logs")).unwrap();
     assert_eq!(built.included(), 2);
     assert_eq!(git(&worktree, &["show", "HEAD:index.txt"]).unwrap(), "a\nb\nc");
     assert_eq!(git(&worktree, &["show", "HEAD~1:index.txt"]).unwrap(), "a\nb");
@@ -90,7 +90,7 @@ fn a_merge_set_generator_change_defers_a_later_lane_on_its_sources_and_not_a_lan
     .collect::<Vec<_>>();
     let worktree = dir.path().join("lander");
     ensure(&repo, &worktree).unwrap();
-    let built = build(&worktree, BRANCH, &base, &tickets, 3, &dir.path().join("logs")).unwrap();
+    let built = build(&worktree, &base, &tickets, 3, &dir.path().join("logs")).unwrap();
     assert!(matches!(&built.picks[..], [Pick::Included, Pick::Deferred(reason), Pick::Included] if reason.starts_with("source: ") && reason.contains("index.txt")));
     assert_eq!(git(&worktree, &["show", "HEAD:index.txt"]).unwrap(), "a");
     assert_eq!(git(&worktree, &["rev-list", "--count", &format!("{base}..HEAD")]).unwrap(), "2");
@@ -110,10 +110,11 @@ fn a_moved_lander_worktree_builds_while_its_old_worktree_still_holds_the_candida
     let base = git(&repo, &["rev-parse", "HEAD"]).unwrap();
     let old = dir.path().join("worktrees/worktrees/lander");
     ensure(&repo, &old).unwrap();
-    build(&old, BRANCH, &base, &[], 1, &dir.path().join("logs")).unwrap();
+    build(&old, &base, &[], 1, &dir.path().join("logs")).unwrap();
+    git(&old, &["checkout", "-q", "-B", "land-candidate", &base]).unwrap();
     let moved = dir.path().join("worktrees/lander");
     ensure(&repo, &moved).unwrap();
-    let built = build(&moved, BRANCH, &base, &[], 1, &dir.path().join("logs")).unwrap();
+    let built = build(&moved, &base, &[], 1, &dir.path().join("logs")).unwrap();
     assert_eq!(built.included(), 0);
     assert_eq!(git(&moved, &["rev-parse", "HEAD"]).unwrap(), base);
 }

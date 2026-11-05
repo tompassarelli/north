@@ -5,12 +5,6 @@ use std::process::{Command, Output};
 use super::queue::Ticket;
 use crate::landing::{merge_continue, merge_set, stale_revert};
 
-pub const BRANCH: &str = "land-candidate";
-
-pub fn speculative_branch(level: usize) -> String {
-    format!("{BRANCH}-{}", level + 2)
-}
-
 pub fn output(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
     Command::new("git").arg("-C").arg(directory).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
 }
@@ -36,7 +30,7 @@ pub fn lander_worktree(repo: &Path, name: &str) -> Result<PathBuf, String> {
 pub fn ensure(repo: &Path, worktree: &Path) -> Result<(), String> {
     if !worktree.join(".git").exists() {
         let path = worktree.to_str().ok_or_else(|| format!("{} is not UTF-8", worktree.display()))?;
-        git(repo, &["worktree", "add", "-q", "--detach", path, "HEAD"])?;
+        git(repo, &["worktree", "add", "-q", "-f", "--detach", path, "HEAD"])?;
     }
     if worktree.join(".git").is_file() && succeeds(worktree, &["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]) {
         git(worktree, &["cherry-pick", "--abort"])?;
@@ -146,9 +140,9 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -
     }
 }
 
-pub fn build(worktree: &Path, branch: &str, base: &str, tickets: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
+pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
     git(worktree, &["reset", "-q", "--hard"])?;
-    git(worktree, &["checkout", "-q", "--ignore-other-worktrees", "-B", branch, base])?;
+    git(worktree, &["checkout", "-q", "--detach", base])?;
     let mut picks = Vec::new();
     let mut included = 0;
     for (path, ticket) in tickets {

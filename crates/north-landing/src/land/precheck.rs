@@ -204,7 +204,7 @@ fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<Che
     let main = tick.main()?;
     let worktree = state.worktrees[slot].clone();
     let attempt = state.attempts.get(path).copied().unwrap_or(0) + 1;
-    let built = candidate::build(&worktree, &format!("land-precheck-{slot}"), &main, &[(path.to_owned(), ticket.clone())], 1, &tick.logs)?;
+    let built = candidate::build(&worktree, &main, &[(path.to_owned(), ticket.clone())], 1, &tick.logs)?;
     let name = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("lane");
     let mut lane = Lane { path: path.to_owned(), ticket: ticket.clone(), base: main.clone(), head: built.head, log: tick.logs.join(format!("{}-{name}-precheck.log", micros())), stages: Stages::start() };
     lane.stages.attempts = attempt;
@@ -304,7 +304,7 @@ fn place(tick: &mut Tick, state: &mut State, lane: &mut Lane) -> Result<Placed, 
         state.recheck.push((lane.path.clone(), lane.ticket.clone(), lane.stages.attempts));
         return Ok(Placed::Waiting);
     }
-    let built = candidate::build(&worktree, candidate::BRANCH, &main, &[(lane.path.clone(), lane.ticket.clone())], 1, &tick.logs)?;
+    let built = candidate::build(&worktree, &main, &[(lane.path.clone(), lane.ticket.clone())], 1, &tick.logs)?;
     match built.picks.into_iter().next() {
         Some(Pick::Included) => {
             println!("north land: {} touches none of the files main changed since its check started; rebased onto main@{main} without a second check", lane.ticket.branch);

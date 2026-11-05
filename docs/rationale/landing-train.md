@@ -613,7 +613,7 @@ then S2b and S2c in parallel; then S3 and S4.
   S1 fills), bin/safe-push (`--check-candidate --base SHA` as described above, and `usage()` deleted),
   tests/land_serve.rs. `north land serve [--once]` reads the queue and builds one candidate for an
   origin: red-fix tickets first, then oldest, re-enqueued tickets replacing older ones. The candidate
-  is branch `land-candidate` in the stable worktree `~/code/<repo>/worktrees/lander`. At each pick it
+  is a detached HEAD in the stable worktree `~/code/<repo>/worktrees/lander`. At each pick it
   runs `git cherry`, so a lane already on main counts as landed, and `north stale-revert` against the
   lane's head. A conflict ejects that lane and records its files. The candidate is checked with
   `safe-push --check-candidate`, in an environment with `GH_TOKEN` and the App key removed. On green
@@ -679,8 +679,8 @@ then S2b and S2c in parallel; then S3 and S4.
   throws away N+1's verdict, and N+1 is rebuilt without the culprit and checked again; (3)
   `speculate-real-gates`: N lands while N+1's real `--check-candidate --base N` run is in flight, and
   N+1 still lands without re-running; (4) every test asserts that the pushed tree equals a checked
-  tree. `--depth D` generalises it: D-1 spare worktrees (`worktrees/lander-2..lander-D`, branches
-  `land-candidate-2..D`), each speculative candidate built on the head of the one beneath it and
+  tree. `--depth D` generalises it: D-1 spare worktrees (`worktrees/lander-2..lander-D`, each
+  on a detached HEAD), each speculative candidate built on the head of the one beneath it and
   checked beside it, pushed in order only while everything beneath landed at the head it was built
   on. A red speculative candidate stops the candidates stacked on it at once; their lanes stay queued
   and are rebuilt on the new main. `speculate-depth-three` lands three lanes arriving during a 5 s

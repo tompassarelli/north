@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use north_landing::land::candidate::{self, BRANCH};
+use north_landing::land::candidate;
 use north_landing::land::queue::Ticket;
 
 const NORTH: &str = env!("CARGO_BIN_EXE_north");
@@ -46,7 +46,7 @@ fn two_lanes_that_each_add_a_rationale_note_on_a_main_without_the_index_land_a_c
     }
     let worktree = dir.path().join("lander");
     candidate::ensure(&repo, &worktree).unwrap();
-    let built = candidate::build(&worktree, BRANCH, &base, &tickets, 2, &dir.path().join("logs")).unwrap();
+    let built = candidate::build(&worktree, &base, &tickets, 2, &dir.path().join("logs")).unwrap();
     assert_eq!(built.included(), 2);
     let readme = git(&worktree, &["show", "HEAD:docs/rationale/README.md"]);
     for line in ["- [Alpha](alpha.md): Why Alpha exists.", "- [Beta](beta.md): Why Beta exists.", "- [Gamma](gamma.md): Why Gamma exists."] {
