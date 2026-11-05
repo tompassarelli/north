@@ -2,11 +2,12 @@ use super::fleets;
 use super::issues::{Issue, IssueRef};
 use super::plan::Cloud;
 use super::record::{self, Record};
-use super::survey::claim_rows;
+use super::survey::{Survey, claim_rows};
 use super::tests::{fleet, issue, survey};
 use super::{decide, tries};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 
 const SEQUENCES: u64 = 300;
 const EVENTS: usize = 40;
@@ -75,11 +76,17 @@ fn launch_record(world: &World, number: u64, name: &str, started: bool, hand: bo
     Record { at: world.at, item: item(number).to_string(), host: host.into(), account: "claude:b".into(), name: name.into(), cloud, launched: started, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand }
 }
 
+struct Snapshot {
+    gone: BTreeSet<String>,
+    holds: BTreeMap<IssueRef, String>,
+    launching: BTreeMap<IssueRef, String>,
+}
+
 impl World {
-    fn apply(&mut self, event: &Event, rng: &mut Rng) {
+    fn apply(&mut self, event: &Event, held: &BTreeMap<IssueRef, String>, rng: &mut Rng) {
         match event {
             Event::Launch { number, started, hand, cloud, host } => {
-                if !hand && self.all_holds().contains_key(&item(*number)) {
+                if !hand && held.contains_key(&item(*number)) {
                     return;
                 }
                 self.serial += 1;
@@ -129,14 +136,15 @@ impl World {
         fleets::gone(&self.listings(), &BTreeMap::new(), &self.records, self.at)
     }
 
-    fn holds(&self) -> BTreeMap<IssueRef, String> {
-        record::holds(&self.records, self.at, &self.unspent, &self.gone())
+    fn snapshot(&self) -> Snapshot {
+        let gone = self.gone();
+        Snapshot { holds: record::holds(&self.records, self.at, &self.unspent, &gone), launching: record::launching(&self.records, self.at, &gone), gone }
     }
 
-    fn all_holds(&self) -> BTreeMap<IssueRef, String> {
-        let mut holds = self.holds();
-        for (held, why) in record::launching(&self.records, self.at, &self.gone()) {
-            holds.entry(held).or_insert(why);
+    fn all_holds(&self, snapshot: &Snapshot) -> BTreeMap<IssueRef, String> {
+        let mut holds = snapshot.holds.clone();
+        for (held, why) in &snapshot.launching {
+            holds.entry(held.clone()).or_insert_with(|| why.clone());
         }
         for (host, listing) in self.listings() {
             for session in fleets::running_sessions(&listing) {
@@ -163,6 +171,18 @@ fn started_hold(record: &Record) -> f64 {
     }
 }
 
+struct Trail<'a> {
+    seed: u64,
+    events: &'a [Event],
+}
+
+impl fmt::Display for Trail<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "seed {}:", self.seed)?;
+        self.events.iter().try_for_each(|event| write!(formatter, " {event:?};"))
+    }
+}
+
 #[derive(Default)]
 struct Broken(BTreeMap<&'static str, String>);
 
@@ -174,9 +194,8 @@ impl Broken {
     }
 }
 
-fn check_tries(world: &World, trail: &str, broken: &mut Broken) {
-    let holds = world.holds();
-    let launching = record::launching(&world.records, world.at, &world.gone());
+fn check_tries(world: &World, snapshot: &Snapshot, trail: &Trail, broken: &mut Broken) {
+    let Snapshot { gone, holds, launching } = snapshot;
     for number in 1..=3 {
         let held = item(number);
         let mine: Vec<&Record> = world.records.iter().filter(|record| record.item == held.to_string() && !record.hand).collect();
@@ -208,18 +227,18 @@ fn check_tries(world: &World, trail: &str, broken: &mut Broken) {
     if let Some(name) = world.records.iter().find(|record| record.launched && !record.hand).map(|record| record.name.clone()) {
         spared.insert(name, "waited".into());
     }
-    broken.expect("sparing a session never adds a hold", record::holds(&world.records, world.at, &spared, &world.gone()).keys().all(|held| holds.contains_key(held)), || trail.to_owned());
+    broken.expect("sparing a session never adds a hold", record::holds(&world.records, world.at, &spared, gone).keys().all(|held| holds.contains_key(held)), || trail.to_string());
 
     let mut turned = world.records.clone();
     turned.reverse();
     let same: BTreeSet<_> = holds.keys().cloned().collect();
-    broken.expect("holds do not depend on the order launches were recorded in", record::holds(&turned, world.at, &world.unspent, &world.gone()).keys().cloned().collect::<BTreeSet<_>>() == same, || trail.to_owned());
+    broken.expect("holds do not depend on the order launches were recorded in", record::holds(&turned, world.at, &world.unspent, gone).keys().cloned().collect::<BTreeSet<_>>() == same, || trail.to_string());
 
-    let later = record::holds(&world.records, world.at + 25.0 * HOUR, &world.unspent, &world.gone());
+    let later = record::holds(&world.records, world.at + 25.0 * HOUR, &world.unspent, gone);
     broken.expect("a day with no launch frees every item", later.is_empty(), || format!("{later:?}\n{trail}"));
 }
 
-fn check_claims(world: &World, trail: &str, broken: &mut Broken) {
+fn check_claims(world: &World, trail: &Trail, broken: &mut Broken) {
     let listings = world.listings();
     let stopped = fleets::exited_names(&listings);
     for (name, status) in &world.gex45 {
@@ -237,16 +256,19 @@ fn check_claims(world: &World, trail: &str, broken: &mut Broken) {
     }
 }
 
-fn check_decide(world: &World, rng: &mut Rng, trail: &str, broken: &mut Broken) {
-    let holds = world.all_holds();
+fn check_decide(holds: BTreeMap<IssueRef, String>, surveyed: &mut Survey, rng: &mut Rng, trail: &Trail, broken: &mut Broken) {
     let gated = rng.chance(50);
     let boxes: Vec<Issue> = (1..=3).map(|number| issue("makgora", number, &format!("- [ ] build it{}", if gated && number == 2 { format!(" (not before {GATE})") } else { String::new() }), &[])).collect();
     let (hosts, accounts) = fleet();
-    let mut surveyed = survey(boxes, Cloud::Closed(String::new()), hosts, accounts);
+    surveyed.open = boxes.iter().map(Issue::reference).collect();
+    surveyed.issues = boxes;
+    surveyed.cloud = Cloud::Closed(String::new());
+    surveyed.hosts = hosts;
+    surveyed.accounts = accounts;
     let before = rng.chance(50);
     surveyed.at = if before { GATE_AT - 100.0 } else { GATE_AT + 100.0 };
     surveyed.holds = holds.clone();
-    let outcome = decide(&surveyed, "order test");
+    let outcome = decide(surveyed, "order test");
     for launched in &outcome.launches {
         broken.expect("dispatch launches nothing that is held", !holds.contains_key(&launched.item), || format!("{}\n{trail}", launched.item));
     }
@@ -268,18 +290,24 @@ fn check_decide(world: &World, rng: &mut Rng, trail: &str, broken: &mut Broken) 
 #[test]
 fn holds_and_claims_obey_the_rules_over_every_generated_order_of_events() {
     let mut broken = Broken::default();
+    let (hosts, accounts) = fleet();
+    let mut surveyed = survey(Vec::new(), Cloud::Closed(String::new()), hosts, accounts);
     for seed in 0..SEQUENCES {
         let mut rng = Rng(seed);
         let mut world = World { at: START, ..World::default() };
-        let mut trail = format!("seed {seed}:");
+        let mut events = Vec::with_capacity(EVENTS);
+        let mut snapshot = world.snapshot();
         for step in 0..EVENTS {
             let next = event(&mut rng);
-            trail.push_str(&format!(" {next:?};"));
-            world.apply(&next, &mut rng);
-            check_tries(&world, &trail, &mut broken);
+            let held = if matches!(next, Event::Launch { hand: false, .. }) { world.all_holds(&snapshot) } else { BTreeMap::new() };
+            world.apply(&next, &held, &mut rng);
+            events.push(next);
+            snapshot = world.snapshot();
+            let trail = Trail { seed, events: &events };
+            check_tries(&world, &snapshot, &trail, &mut broken);
             check_claims(&world, &trail, &mut broken);
             if step % 5 == 0 {
-                check_decide(&world, &mut rng, &trail, &mut broken);
+                check_decide(world.all_holds(&snapshot), &mut surveyed, &mut rng, &trail, &mut broken);
             }
         }
     }

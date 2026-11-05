@@ -363,12 +363,19 @@ fn calibrating_the_walk_forward_eta_brings_its_coverage_closer_to_the_target_on_
     let pairs = walk_forward_eta(&knobs, &runs, &since_start("7d", now), &now.iso());
     let share = |hits: usize| hits as f64 / pairs.len() as f64;
     let raw = share(pairs.iter().filter(|(run, eta)| run.minutes.unwrap() <= *eta).count());
+    let ledger = walk_forward_eta(&knobs, &runs, "", "9999");
     let calibrated = share(
         pairs
             .iter()
-            .filter(|(run, eta)| {
-                let ended = Timestamp::parse_loose(&run.ended).unwrap();
-                let scale = calibrate_eta_pred(&knobs, &runs, &since_start("7d", ended), &run.ended).into_iter().find(|row| row.cell == "all").and_then(|row| row.value).map(super::forward::Figure::real);
+            .enumerate()
+            .filter(|(index, (run, eta))| {
+                let start = since_start("7d", Timestamp::parse_loose(&run.ended).unwrap());
+                let ratios: Vec<f64> = ledger.iter().filter(|(earlier, _)| start <= earlier.ended && earlier.ended < run.ended).map(|(earlier, earlier_eta)| earlier.minutes.unwrap() / earlier_eta).collect();
+                let scale = quantile(&ratios, knobs.eta_coverage);
+                if index.is_multiple_of(24) || index + 1 == pairs.len() {
+                    let whole = calibrate_eta_pred(&knobs, &runs, &start, &run.ended).into_iter().find(|row| row.cell == "all").and_then(|row| row.value).map(super::forward::Figure::real);
+                    assert_eq!(scale, whole, "incremental scale at {}", run.ended);
+                }
                 run.minutes.unwrap() <= scaled(*eta, scale, true)
             })
             .count(),
