@@ -12,11 +12,10 @@ pub enum Mapping {
 }
 
 pub fn checkout(root: &Path) -> Result<PathBuf, String> {
-    let common = PathBuf::from(git(root, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?);
-    match (common.file_name(), common.parent()) {
-        (Some(name), Some(checkout)) if name == ".git" => Ok(checkout.to_owned()),
-        _ => Err(format!("{} keeps its git directory at {}, not in a .git directory inside a checkout, so a lander cannot give it worktrees", root.display(), common.display())),
-    }
+    let listed = git(root, &["worktree", "list", "--porcelain"])?;
+    let worktrees: Vec<PathBuf> = listed.split("\n\n").filter(|entry| !entry.lines().any(|line| line == "bare")).filter_map(|entry| entry.lines().find_map(|line| line.strip_prefix("worktree ")).map(PathBuf::from)).collect();
+    let named = worktrees.iter().find(|path| path.file_name().is_some_and(|name| name == "main"));
+    named.or(worktrees.first()).cloned().ok_or_else(|| format!("{} is a bare repository with no worktree, so a lander has no checkout to give it worktrees", root.display()))
 }
 
 fn origin_key(checkout: &Path) -> Result<String, String> {

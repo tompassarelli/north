@@ -28,8 +28,8 @@ fn succeeds(directory: &Path, arguments: &[&str]) -> bool {
 }
 
 pub fn lander_worktree(repo: &Path, name: &str) -> Result<PathBuf, String> {
-    let common = PathBuf::from(git(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?);
-    let container = common.parent().and_then(Path::parent).ok_or_else(|| format!("{} has no project container", common.display()))?;
+    let checkout = super::repositories::checkout(repo)?;
+    let container = checkout.parent().ok_or_else(|| format!("{} has no project container", checkout.display()))?;
     Ok(container.join("worktrees").join(name))
 }
 

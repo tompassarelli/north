@@ -158,3 +158,20 @@ fn a_repository_that_keeps_its_git_directory_elsewhere_is_unservable() {
     let error = repositories::servable(&world.root.join("kept.git")).unwrap_err();
     assert!(!error.is_empty());
 }
+
+#[test]
+fn a_checkout_whose_common_git_directory_sits_in_a_lane_resolves_to_main() {
+    let world = World::new();
+    let (first, _) = world.checkout("wisp-layout");
+    let container = first.parent().unwrap().to_owned();
+    let owner = container.join("worktrees/extract");
+    fs::create_dir_all(owner.parent().unwrap()).unwrap();
+    fs::rename(&first, &owner).unwrap();
+    git(&owner, &["switch", "-q", "-c", "extract"]);
+    git(&owner, &["worktree", "add", "-q", first.to_str().unwrap(), "main"]);
+    let lane = container.join("worktrees/lane");
+    git(&first, &["worktree", "add", "-q", "--detach", lane.to_str().unwrap()]);
+    assert_eq!(git(&lane, &["rev-parse", "--path-format=absolute", "--git-common-dir"]), owner.join(".git").to_str().unwrap());
+    assert_eq!(repositories::checkout(&lane), Ok(first));
+    assert_eq!(north_landing::land::candidate::lander_worktree(&lane, "lander"), Ok(container.join("worktrees/lander")));
+}
