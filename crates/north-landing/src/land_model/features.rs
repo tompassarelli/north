@@ -4,6 +4,8 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
+use serde::{Deserialize, Serialize};
+
 use super::{Class, Era, Lane};
 use crate::land::queue;
 
@@ -35,7 +37,7 @@ pub struct Change {
     pub main_overlap: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Columns {
     pub shared_files: u32,
     pub depth: u32,

@@ -10,6 +10,8 @@ pub mod first_commit;
 pub mod hold;
 pub mod incidents;
 pub mod lander;
+pub mod model_cmd;
+pub mod outcomes;
 pub mod pause;
 pub mod precheck;
 pub mod promote;
