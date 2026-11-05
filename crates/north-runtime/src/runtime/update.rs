@@ -358,7 +358,7 @@ fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, co
         let status = supersede::run(&mut build, target, previous, || main_commit(checkout).ok()).inspect_err(|failure| {
             if failure.code == SUPERSEDED {
                 note_abandoned(layout, target);
-                let _ = cargo_build::forget_release_incremental(&built);
+                let _ = cargo_build::forget_interrupted_incremental(&built);
             }
         })?;
         Ok((status, cargo_build::cargo_ran(&built, wall)))

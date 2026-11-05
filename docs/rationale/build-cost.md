@@ -140,8 +140,9 @@ objects came from. Removing the workspace's release artifacts at 9:42 PM made th
 has failed that way. On gex45 on 2026-11-06 the first recovery, which only removed `release/incremental` and built
 once more, failed twice (58e4d3fe at 4:28 AM and c95d9b2f at 4:59 AM, UTC+7, each about 40 s after a superseded build was
 stopped): the first attempt had already compiled the broken rlib and written its fingerprint, so the retry only
-relinked it in 19 s and hit the same symbols (north#612). Now a superseded stop removes `release/incremental` at once,
-so the next build never reads a session an interrupted rustc left behind, and a build that still fails with that
+relinked it in 19 s and hit the same symbols (north#612). Now a superseded stop removes the `release/incremental` sessions of every crate whose rustc it interrupted (those
+holding a `-working` session), so the next build never reads what an interrupted rustc left behind while the crates
+that finished keep their sessions, and a build that still fails with that
 signature removes `release/incremental` and every rlib its `in archive` lines name, so the retry recompiles those
 crates from scratch. Incremental stays on. Each failed build keeps its compiler output in
 `~/.local/state/north/runtime-build-logs/<sha>.log`, and its failure line names that file.

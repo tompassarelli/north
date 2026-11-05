@@ -66,6 +66,17 @@ pub(super) fn forget_release_incremental(built: &Path) -> io::Result<()> {
     }
 }
 
+pub(super) fn forget_interrupted_incremental(built: &Path) -> io::Result<()> {
+    let Ok(crates) = fs::read_dir(built.join("release/incremental")) else { return Ok(()) };
+    for sessions in crates.flatten().map(|entry| entry.path()) {
+        let interrupted = fs::read_dir(&sessions)?.flatten().any(|session| session.file_name().to_string_lossy().ends_with("-working"));
+        if interrupted {
+            fs::remove_dir_all(&sessions)?;
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn recompile_from_scratch(built: &Path, archives: &[PathBuf]) -> io::Result<()> {
     forget_release_incremental(built)?;
     for archive in archives.iter().filter(|archive| archive.starts_with(built)) {
