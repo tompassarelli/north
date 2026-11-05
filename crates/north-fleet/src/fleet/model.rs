@@ -122,6 +122,11 @@ impl LaunchRequest {
         super::silent::eta_minutes(&self.prompt).or_else(|| self.named_brief().and_then(|brief| super::silent::eta_minutes(&brief)))
     }
 
+    /// The box the brief names, in the prompt or else in the brief it points at: see [`box_name`].
+    pub fn box_name(&self) -> Option<String> {
+        box_name(&self.prompt).or_else(|| self.named_brief().and_then(|brief| box_name(&brief)))
+    }
+
     /// The `Budget:` line's E, in the prompt or else in the brief it points at.
     pub fn budget(&self) -> Option<super::budget::Stated> {
         super::budget::stated(&self.prompt).or_else(|| self.named_brief().and_then(|brief| super::budget::stated(&brief)))
@@ -168,6 +173,15 @@ pub fn item_issues(text: &str) -> Vec<String> {
         }
     }
     found
+}
+
+/// The brief's `Box:` line, else its first `Item:` line when that names more than its issues; None for a bare `Item: repo#N`.
+pub fn box_name(text: &str) -> Option<String> {
+    let named = |label: &str| text.lines().find_map(|line| line.trim_start_matches(|c: char| c == '#' || c.is_whitespace()).strip_prefix(label).map(str::trim));
+    if let Some(name) = named("Box:").filter(|name| !name.is_empty()) {
+        return Some(name.to_owned());
+    }
+    named("Item:").filter(|item| item.split_whitespace().any(|word| issue_word(word).is_none())).map(str::to_owned)
 }
 
 pub fn first_item_issue(text: &str) -> Option<String> {
@@ -232,6 +246,8 @@ pub struct SessionRecord {
     pub prompt_sender: Option<Sender>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<super::budget::Stated>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub box_name: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -288,6 +304,7 @@ impl SessionRecord {
             role: Some(request.role()),
             prompt_sender: None,
             budget: request.budget(),
+            box_name: request.box_name(),
         }
     }
 

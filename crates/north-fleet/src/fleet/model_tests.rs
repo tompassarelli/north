@@ -127,3 +127,12 @@ fn a_record_from_before_roles_reads_its_role_from_its_name_parent_and_task() {
     assert_eq!(legacy("lf-r1", Some("lead-fleet"), None), Role::Worker);
     assert_eq!(legacy("lf-r1", None, Some("north#112")), Role::Worker);
 }
+
+#[test]
+fn a_box_is_named_by_the_briefs_box_line_else_an_item_line_that_says_more_than_its_issues() {
+    use super::box_name;
+    assert_eq!(box_name("Item: north#112 Proxy role R1: role on the session record\nCategory: feature").as_deref(), Some("north#112 Proxy role R1: role on the session record"));
+    assert_eq!(box_name("Item: north#112\n# Box: fleet TUI transcript tables").as_deref(), Some("fleet TUI transcript tables"), "a Box line wins");
+    assert_eq!(box_name("Item: north#112\nCategory: tooling"), None, "a bare Item line names no box");
+    assert_eq!(box_name("Item: north#306, north#314\nBox: "), None);
+}

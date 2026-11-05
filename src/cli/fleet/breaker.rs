@@ -61,9 +61,9 @@ fn record(path: &Path, events: &[Event]) -> Result<(), String> {
 
 fn spendings(fleet: &Fleet, now_ms: u64) -> Vec<Spending> {
     let live: Vec<SessionRecord> = fleet.sessions().unwrap_or_default().into_iter().filter(|record| record.provider.label() == "claude" && !record.verification && fleet.running(record)).collect();
-    let boxes: BTreeSet<(String, String)> = live.iter().filter_map(|record| Some((record.task_ref.clone()?, record.cwd.display().to_string()))).collect();
+    let boxes: BTreeSet<String> = live.iter().filter_map(box_of).collect();
     let live_names: BTreeSet<String> = live.iter().map(|record| record.name.clone()).collect();
-    let earlier = fleet.past_sessions().into_iter().filter(|record| !live_names.contains(&record.name) && record.task_ref.clone().is_some_and(|task| boxes.contains(&(task, record.cwd.display().to_string()))));
+    let earlier = fleet.past_sessions().into_iter().filter(|record| !live_names.contains(&record.name) && box_of(record).is_some_and(|named| boxes.contains(&named)));
     let leads: BTreeSet<String> = live.iter().filter_map(|record| record.parent.clone()).collect();
     live.iter().map(|record| spending(fleet, record, true, &leads, now_ms)).chain(earlier.map(|record| spending(fleet, &record, false, &leads, now_ms))).flatten().collect()
 }
@@ -74,7 +74,7 @@ fn spending(fleet: &Fleet, record: &SessionRecord, live: bool, leads: &BTreeSet<
     Some(Spending {
         name: record.name.clone(),
         parent: record.parent.clone(),
-        box_id: format!("{workstream}@{}", record.cwd.display()),
+        box_id: box_of(record)?,
         workstream,
         lead: role == Role::Lead || leads.contains(&record.name),
         tom: role == Role::Proxy,
@@ -84,6 +84,13 @@ fn spending(fleet: &Fleet, record: &SessionRecord, live: bool, leads: &BTreeSet<
         created_ms: record.created_ms,
         estimate: record.budget.as_ref().map(|stated| Estimate { p50: stated.p50(), p90: stated.p90(), minutes: stated.minutes as f64 }),
     })
+}
+
+/// A session's box: the one its brief names, else the session alone, since sessions of one issue often share a
+/// checkout and a bare `Item:` line tells their boxes apart by nothing else.
+fn box_of(record: &SessionRecord) -> Option<String> {
+    let workstream = record.task_ref.as_deref()?;
+    Some(record.box_name.clone().unwrap_or_else(|| format!("{workstream}@{}", record.name)))
 }
 
 fn answers(fleet: &Fleet, now_ms: u64) -> Vec<Answer> {

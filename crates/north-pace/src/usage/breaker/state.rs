@@ -8,7 +8,7 @@ use crate::usage::decide::world::{BoxId, Usd, Workstream};
 use crate::usage::decide::{Assessment, Scope, Spend};
 
 /// What the breaker remembers between ticks: each scope's last assessments (a condition must hold at two ticks to
-/// change one), the workstreams whose session was told, when each tripped, and the clears in force.
+/// change one), the scopes whose sessions were told of a trip, when each workstream tripped, and the clears in force.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct State {
     pub scopes: BTreeMap<String, Remembered>,

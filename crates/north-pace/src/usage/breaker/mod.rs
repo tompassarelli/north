@@ -1,6 +1,7 @@
 //! The spend breaker's tick (north#259 box 10b): `decide::assess` judges each box's and workstream's spend against the E its
 //! brief stated, this module turns the judgement into what the tick does: record warnings, trips, clears and outcomes,
-//! tell a tripped workstream's sessions once, and take clears from newer briefs and Tom's gate answers.
+//! tell a tripped workstream's sessions once, and a tripped box's where its issue holds several boxes, and take clears
+//! from newer briefs and Tom's gate answers.
 mod ledger;
 mod state;
 #[cfg(test)]
@@ -95,8 +96,8 @@ pub fn judge(now_ms: u64, sessions: &[Spending], answers: &[Answer], previous: &
             _ => None,
         };
         let event = Event { at_ms: now_ms, kind, scope: state::key(scope), spent: spend.spent.0, p50: spend.p50.0, p90: spend.p90.0, by };
-        if let Scope::Workstream(Workstream(workstream)) = scope {
-            note(&mut judged, &mut state, sessions, &event, workstream);
+        if speaks(scope, sessions) {
+            note(&mut judged, &mut state, sessions, &event, scope);
         }
         judged.events.push(event);
     }
@@ -105,9 +106,9 @@ pub fn judge(now_ms: u64, sessions: &[Spending], answers: &[Answer], previous: &
         let seen = &previous.scopes[gone];
         judged.events.push(Event { at_ms: now_ms, kind: "outcome", scope: gone.clone(), spent: seen.spent, p50: seen.p50, p90: seen.p90, by: Some(seen.confirmed.clone()) });
         if let Some(workstream) = gone.strip_prefix("workstream:") {
-            state.told.remove(workstream);
             state.tripped_at_ms.remove(workstream);
         }
+        state.told.remove(gone);
     }
     state.remember(&assessed.spend);
     judged.state = state;
@@ -134,13 +135,38 @@ fn session(spending: &Spending) -> Session {
     }
 }
 
-fn note(judged: &mut Judged, state: &mut State, sessions: &[Spending], event: &Event, workstream: &str) {
-    let who = |spending: &&Spending| spending.workstream == workstream && spending.live && !spending.tom;
+/// Whether a scope's changes reach Tom, its leads and its sessions: every workstream, and a box when its workstream
+/// holds others, since there the workstream sums every box's E and one box past its own p90 would pass unheard.
+fn speaks(scope: &Scope, sessions: &[Spending]) -> bool {
+    match scope {
+        Scope::Workstream(_) => true,
+        Scope::Box(BoxId(id)) => sessions.iter().find(|spending| &spending.box_id == id).is_some_and(|spending| boxes(sessions, &spending.workstream).len() > 1),
+    }
+}
+
+fn named(scope: &Scope) -> &str {
+    match scope {
+        Scope::Workstream(Workstream(name)) | Scope::Box(BoxId(name)) => name,
+    }
+}
+
+fn within(spending: &Spending, scope: &Scope) -> bool {
+    match scope {
+        Scope::Workstream(Workstream(workstream)) => &spending.workstream == workstream,
+        Scope::Box(BoxId(id)) => &spending.box_id == id,
+    }
+}
+
+fn note(judged: &mut Judged, state: &mut State, sessions: &[Spending], event: &Event, scope: &Scope) {
+    let name = named(scope);
+    let who = |spending: &&Spending| within(spending, scope) && spending.live && !spending.tom;
     let leads: BTreeSet<&str> = sessions.iter().filter(who).filter_map(|spending| spending.parent.as_deref()).collect();
-    let line = format!("{workstream} has spent ${:.2} against E p50 ${:.2}, p90 ${:.2}", event.spent, event.p50, event.p90);
+    let line = format!("{name} has spent ${:.2} against E p50 ${:.2}, p90 ${:.2}", event.spent, event.p50, event.p90);
     match event.kind {
         "trip" => {
-            state.tripped_at_ms.insert(workstream.to_owned(), event.at_ms);
+            if let Scope::Workstream(Workstream(workstream)) = scope {
+                state.tripped_at_ms.insert(workstream.clone(), event.at_ms);
+            }
             judged.alerts.push(format!("Budget tripped: {line}, 4x its p90; its sessions are told to finish their step, commit and report Split: or Not done: Stop: budget."));
         }
         "warn" => {
@@ -151,25 +177,31 @@ fn note(judged: &mut Judged, state: &mut State, sessions: &[Spending], event: &E
             judged.tells.extend(leads.iter().map(|lead| Tell { to: (*lead).to_owned(), text: format!("[north: budget] {line}, past half of p50 in under a quarter of the expected minutes.") }));
         }
         "clear" => {
-            state.told.remove(workstream);
-            state.tripped_at_ms.remove(workstream);
+            if let Scope::Workstream(Workstream(workstream)) = scope {
+                state.tripped_at_ms.remove(workstream);
+            }
         }
         _ => {}
     }
 }
 
 fn tell_the_tripped(judged: &mut Judged, state: &mut State, sessions: &[Spending], spends: &BTreeMap<Scope, super::decide::Spend>) {
-    for (scope, spend) in spends {
-        let Scope::Workstream(Workstream(workstream)) = scope else { continue };
-        if spend.confirmed != Assessment::Tripped || state.told.contains(workstream) {
+    for (scope, spend) in spends.iter().filter(|(scope, _)| speaks(scope, sessions)) {
+        let told = state::key(scope);
+        if spend.confirmed != Assessment::Tripped {
+            state.told.remove(&told);
             continue;
         }
+        if state.told.contains(&told) {
+            continue;
+        }
+        let name = named(scope);
         let text = format!(
-            "[north: budget] {workstream} has spent ${:.2}, past 4x its p90 ${:.2}. Finish your step, commit what passes, and report `Split:` or `Not done:` with `Stop: budget` and what you learned. A newer brief whose Budget line states a higher p90, or Tom's answer to a gate that names one, clears this.",
+            "[north: budget] {name} has spent ${:.2}, past 4x its p90 ${:.2}. Finish your step, commit what passes, and report `Split:` or `Not done:` with `Stop: budget` and what you learned. A newer brief whose Budget line states a higher p90, or Tom's answer to a gate that names one, clears this.",
             spend.spent.0, spend.p90.0
         );
-        judged.tells.extend(sessions.iter().filter(|spending| &spending.workstream == workstream && spending.live && !spending.tom && !spending.lead).map(|spending| Tell { to: spending.name.clone(), text: text.clone() }));
-        state.told.insert(workstream.clone());
+        judged.tells.extend(sessions.iter().filter(|spending| within(spending, scope) && spending.live && !spending.tom && !spending.lead).map(|spending| Tell { to: spending.name.clone(), text: text.clone() }));
+        state.told.insert(told);
     }
 }
 
