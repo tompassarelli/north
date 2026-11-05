@@ -1,3 +1,5 @@
+mod assess;
+mod assess_properties;
 mod free;
 mod place;
 mod place_properties;
