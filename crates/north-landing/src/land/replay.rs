@@ -5,7 +5,6 @@ use super::checks::{self, Verdict};
 use super::queue::{self, Ticket};
 
 const USAGE: &str = "usage: north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...";
-pub const BRANCH: &str = "land-replay";
 pub const WORKTREE: &str = "lander-replay";
 pub const PREFIX: &str = "replay: verdict ";
 
@@ -49,7 +48,7 @@ fn replay(options: &Options) -> Result<String, String> {
     let base = git(&worktree, &["rev-parse", &format!("{}^{{commit}}", options.base)])?;
     let tickets: Vec<(PathBuf, Ticket)> = options.tickets.iter().map(|path| queue::read(path).map(|ticket| (path.clone(), Ticket { verdict: None, ..ticket })).map_err(|error| error.to_string())).collect::<Result<_, _>>()?;
     let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
-    let built = candidate::build(&worktree, BRANCH, &base, &tickets, usize::MAX, scratch.path())?;
+    let built = candidate::build(&worktree, &base, &tickets, usize::MAX, scratch.path())?;
     for pick in &built.picks {
         match pick {
             Pick::Included => {}
@@ -61,7 +60,7 @@ fn replay(options: &Options) -> Result<String, String> {
         return Ok("undecided not every lane was picked".to_owned());
     }
     let log = scratch.path().join("replay-check.log");
-    let verdict = match checks::start(&options.checker, &worktree, &base, &log, false, "replay") {
+    let verdict = match checks::start(&options.checker, &worktree, &base, &log, false, "replay", None) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     };
