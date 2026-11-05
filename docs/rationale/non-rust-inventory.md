@@ -43,20 +43,14 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | agent-machinery/tests/capability-contract.test.mjs | 19 | stay | bun tests of the published package modules above |
 | agent-machinery/tests/contracts.test.mjs | 37 | stay | bun tests of the published package modules above |
 | agent-machinery/tests/package-boundary.test.mjs | 24 | stay | bun tests of the published package modules above |
-| bin/agent-capture | 60 | stay | 60-line glue over niri msg and grim; foreign desktop tools, no Rust library for the niri IPC screenshot path; policy names it as the only allowed capture |
 | bin/agy | 6 | stay | 6-line launcher for the downloaded agy runtime (exports env then execs a vendor binary) |
-| bin/agy-runtime-update | 52 | port: north#87 (Codex/runtime/desktop tools) | download and select the agy runtime |
 | bin/automation-chrome | 9 | stay | 9-line flock wrapper that execs the Playwright CLI in lib/automation-chrome |
 | bin/automation-chrome.test.sh | 9 | stay | test of the Playwright wrapper |
 | bin/bun | 14 | stay | PATH shadow that routes bun through `north capacity gate` admission, then execs the real bun; must be an executable named bun (<=80-line glue) |
 | bin/capacity-watchdog | 549 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | Bun TS using bun:sqlite (rusqlite replaces it) and reading handoff_ctx from harness/defaults.toml; no Bun-only API that Rust lacks |
 | bin/cargo | 14 | stay | same admission shadow for cargo |
-| bin/claude-runtime-update | 49 | port: north#87 (Codex/runtime/desktop tools) | downloads and selects the Claude runtime |
-| bin/claude-runtime-update.test.sh | 63 | port: north#87 (Codex/runtime/desktop tools) | test of claude-runtime-update |
 | bin/code-health | 3 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | shim to north code-health; deleted once no host unit names it |
 | bin/code-health-tick | 3 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | shim to north code-health tick; nixos-config modules/code-health-review/default.nix names it, so the unit change lands first |
-| bin/codex-runtime-update | 159 | port: north#87 (Codex/runtime/desktop tools) | 159 lines, over the 80-line glue limit |
-| bin/codex-runtime-update.test.sh | 149 | port: north#87 (Codex/runtime/desktop tools) | test of codex-runtime-update |
 | bin/depbox | 88 | stay | execs bwrap/unshare sandbox around an arbitrary command (namespace setup before any runtime exists); glue under 80 code lines |
 | bin/effect-kit | 4 | stay | 4-line PATH name for agent-machinery/scripts/effect-kit.mjs |
 | bin/follows-release-gates.test.sh | 59 | port: landing-train B18 (north#76) | drive bin/safe-push against the Rust `north follows-release`; the tool itself is ported and its old script is gone; delete with safe-push.test.sh |
@@ -78,10 +72,7 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/threads | 789 | port: north#77 (bin/threads) | 789 lines of Python; verbs already move to Rust (RUST_VERBS) |
 | bin/threads-resume.test.sh | 80 | port: north#77 (bin/threads) | test of bin/threads |
 | bin/threads.test.sh | 684 | port: north#77 (bin/threads) | test of bin/threads |
-| bin/tom-warcraft-close | 60 | port: north#87 (Codex/runtime/desktop tools) | closes Tom's Steam launch by walking /proc |
-| bin/tom-warcraft-close.test.sh | 63 | port: north#87 (Codex/runtime/desktop tools) | test of tom-warcraft-close |
 | bin/verify-north | 9 | stay | launcher: execs the promoted verify-north runtime binary |
-| bin/wc3-login-field | 34 | stay | 34-line foreign-boundary glue: types one SOPS field into the verified private login window through private-desktop.sh |
 | harness/hooks/firn-system-policy | 42 | stay | 42-line hook owned by Firn and installed from this tree; belongs in nixos-config, move there rather than port |
 | harness/hooks/language-guard.sh | 10 | stay | 10-line hook wrapper that execs `north guard language`; same condition |
 | harness/hooks/north-hook.sh | 9 | stay | 9-line hook wrapper that execs `north hook`; same condition |
@@ -122,7 +113,7 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | harness/skills/machine-capacity/scripts/machine-capacity-host.mjs | 8 | stay | source of the generated bundle above; deleted with it |
 | harness/skills/machine-capacity/scripts/machine-capacity.mjs | 3 | stay | generated 3-line Bun bundle that spawns `north capacity host`; nixos-config dotfiles/bin/machine-update, firn-runtime-update and south hosts/gex45/configuration.nix:32 run it by path, so those callers switch to `north capacity host` first (nixos-config and south changes land first), then delete it and its producer |
 | harness/skills/machine-capacity/scripts/machine-capacity.test.sh | 578 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | shell tests of the capacity commands |
-| harness/skills/private-desktop-development/scripts/private-desktop.sh | 3 | stay | 3-line exec of `north private-desktop`; named by lib/automation-chrome/cli.mjs, bin/wc3-login-field and the desktop-action guard; delete when those name `north private-desktop` |
+| harness/skills/private-desktop-development/scripts/private-desktop.sh | 3 | stay | 3-line exec of `north private-desktop`; named by lib/automation-chrome/cli.mjs and the desktop-action guard; delete when those name `north private-desktop` |
 | lib/automation-chrome/actions.mjs | 79 | stay | Playwright (playwright-core 1.63.0) browser automation; no maintained Rust Playwright, and CDP-only crates lack its auto-wait and context model; Bun package |
 | lib/automation-chrome/actions.test.mjs | 54 | stay | Playwright (playwright-core 1.63.0) browser automation; no maintained Rust Playwright, and CDP-only crates lack its auto-wait and context model; Bun package |
 | lib/automation-chrome/cli.mjs | 96 | stay | Playwright (playwright-core 1.63.0) browser automation; no maintained Rust Playwright, and CDP-only crates lack its auto-wait and context model; Bun package |
