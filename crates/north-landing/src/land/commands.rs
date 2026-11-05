@@ -7,6 +7,7 @@ Command { name: "promote", usage: "north land promote [--dry-run] [--shadow-minu
 Command { name: "push", usage: "", run: push::run },
 Command { name: "replay", usage: "north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...", run: replay::run },
 Command { name: "reuse", usage: "north land reuse hash|record|lookup", run: reuse::run },
+Command { name: "route", usage: "", run: route::run },
 Command { name: "scan", usage: "north land scan dep-gate|tool-removal|test-integrity BASE..HEAD", run: scans::run },
 Command { name: "serve", usage: "north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]", run: serve::run },
 Command { name: "shadow", usage: "north land shadow tick [--repo DIR]", run: shadow::run },

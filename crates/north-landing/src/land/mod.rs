@@ -36,6 +36,7 @@ pub mod telemetry;
 pub mod watchdog;
 pub mod repositories;
 pub mod reservation;
+pub mod route;
 pub mod setting;
 pub mod shadow;
 
