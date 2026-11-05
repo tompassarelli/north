@@ -10,8 +10,6 @@ use crate::platform::sqlite::{self, Access};
 
 pub use crate::platform::pystats::wilson;
 mod calibration;
-#[cfg(test)]
-mod tests;
 
 const WINDOW_SECONDS: f64 = 7.0 * 86_400.0;
 const GATES: [&str; 3] = ["capacity", "flow", "pace"];

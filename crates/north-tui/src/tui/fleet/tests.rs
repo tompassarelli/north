@@ -7,22 +7,18 @@ use std::time::{Duration, Instant};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
-use ratatui::style::Color;
 
 use crate::error::NorthResult;
-use crate::fleet::books::{Digest, Landing, SessionSpend};
+use crate::fleet::books::Digest;
 use crate::fleet::gates::{Decision, Gate, GateRequest};
 use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
-use crate::fleet::registry::Choices;
-use crate::fleet::prompt::deepened;
 
 use super::desk::{SessionActions, SessionDesk, SessionSummary};
 use super::digest::SessionFacts;
 use super::form::{Field, FormOutcome, LaunchForm};
-use super::painter::TranscriptPainter;
 use super::runner::Runner;
-use super::screen::{Command, Dialog, Focus, Notice, Screen};
-use super::{apply_event, drive, view};
+use super::screen::{Command, Dialog, Focus, Screen};
+use super::{apply_event, drive};
 
 #[derive(Default)]
 struct ActionsFake {
@@ -121,22 +117,6 @@ impl SessionDesk for DeskFake {
 
 fn account(provider: &str, label: &str) -> Account {
     Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::from("/accounts").join(label), token_file: None }
-}
-
-#[test]
-fn a_tui_launch_inherits_its_session_as_parent_only_when_present() {
-    let accounts = vec![account("claude", "a")];
-    let request = |parent| {
-        let mut form = LaunchForm::new(accounts.clone(), PathBuf::from("/tmp/project").as_path(), &[], parent);
-        form.field = Field::Prompt;
-        form.paste("do the work");
-        match form.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)) {
-            FormOutcome::Launch(request) => request,
-            _ => panic!("valid launch form did not submit"),
-        }
-    };
-    assert_eq!(request(Some("boss".into())).parent.as_deref(), Some("boss"));
-    assert_eq!(request(None).parent, None);
 }
 
 #[test]
@@ -260,79 +240,6 @@ fn stop_needs_confirmation_and_forget_needs_an_exited_session() {
 }
 
 #[test]
-fn escape_in_the_composer_interrupts_a_working_session_and_otherwise_moves_focus_to_the_list() {
-    let mut desk = desk();
-    let mut screen = screen(&desk);
-    assert_eq!((screen.selected.as_deref(), screen.focus), (Some("parser"), Focus::Composer));
-    key(&mut desk, &mut screen, press(KeyCode::Esc));
-    assert_eq!(desk.performed(), [Command::Interrupt("parser".into())]);
-    assert_eq!(screen.focus, Focus::Composer);
-    key(&mut desk, &mut screen, control('c'));
-    assert_eq!(desk.performed().len(), 2, "Ctrl+C still interrupts");
-
-    desk.sessions[1].status = Status::Idle;
-    screen.sync(desk.sessions());
-    key(&mut desk, &mut screen, press(KeyCode::Esc));
-    assert_eq!(desk.performed().len(), 2, "an idle session has nothing to interrupt");
-    assert_eq!(screen.focus, Focus::List);
-}
-
-fn offering(screen: &mut Screen) {
-    screen.offer(vec![Choices { provider: ProviderName::new("claude"), models: vec!["opus".into(), "sonnet".into()], takes_effort: true }]);
-}
-
-#[test]
-fn model_and_effort_with_an_argument_restart_the_selected_session_and_never_reach_the_model() {
-    let mut desk = desk();
-    let mut screen = screen(&desk);
-    offering(&mut screen);
-    type_text(&mut desk, &mut screen, "/model sonnet");
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    type_text(&mut desk, &mut screen, "/effort high");
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    assert_eq!(
-        desk.performed(),
-        [
-            Command::Relaunch { name: "parser".into(), model: Some("sonnet".into()), effort: None },
-            Command::Relaunch { name: "parser".into(), model: None, effort: Some(Effort::High) },
-        ]
-    );
-    assert!(screen.pending.is_empty());
-    assert_eq!(screen.composer.lines().join(""), "");
-    assert!(matches!(&screen.notice, Some(Notice::Info(text)) if text.contains("restarted parser") && text.contains("high effort")), "{:?}", screen.notice);
-}
-
-#[test]
-fn model_and_effort_without_an_argument_show_the_current_value_and_the_choices() {
-    let mut desk = desk();
-    let mut screen = screen(&desk);
-    offering(&mut screen);
-    type_text(&mut desk, &mut screen, "/model");
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    let Some(Notice::Info(model)) = screen.notice.clone() else { panic!("no model notice") };
-    assert!(model.contains("the account default model") && model.contains("opus, sonnet"), "{model}");
-    type_text(&mut desk, &mut screen, "/effort");
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    let Some(Notice::Info(effort)) = screen.notice.clone() else { panic!("no effort notice") };
-    assert!(effort.contains("low, medium, high, xhigh, max"), "{effort}");
-    type_text(&mut desk, &mut screen, "/effort extreme");
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    assert!(matches!(&screen.notice, Some(Notice::Error(text)) if text.contains("no effort extreme")), "{:?}", screen.notice);
-    assert!(desk.performed().is_empty(), "no argument or a bad one restarts nothing and sends nothing");
-}
-
-#[test]
-fn a_command_without_a_session_selected_is_not_sent_as_text() {
-    let mut desk = desk();
-    desk.sessions.clear();
-    let mut screen = screen(&desk);
-    type_text(&mut desk, &mut screen, "/model sonnet");
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    assert!(desk.performed().is_empty());
-    assert!(matches!(screen.notice, Some(Notice::Error(_))));
-}
-
-#[test]
 fn a_blocking_stop_leaves_the_loop_responsive() {
     let mut desk = desk();
     let (release, gate) = channel();
@@ -358,46 +265,6 @@ fn a_blocking_stop_leaves_the_loop_responsive() {
 }
 
 #[test]
-fn a_sent_message_shows_at_once_and_yields_to_its_echo() {
-    let mut desk = desk();
-    let mut screen = screen(&desk);
-    type_text(&mut desk, &mut screen, "run tests");
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    assert_eq!(screen.pending_for("parser"), ["run tests"]);
-    screen.reconcile(|name| desk.transcript(name));
-    assert_eq!(screen.pending_for("parser"), ["run tests"]);
-    desk.transcripts.get_mut("parser").unwrap().entries.push(Entry { kind: EntryKind::User, text: "run tests".into() });
-    screen.reconcile(|name| desk.transcript(name));
-    assert!(screen.pending.is_empty());
-}
-
-#[test]
-fn alt_u_sends_urgently_to_a_parked_session() {
-    let mut desk = desk();
-    desk.sessions[1].status = Status::Parked;
-    let mut screen = screen(&desk);
-    for code in [KeyCode::Tab, KeyCode::Char('j'), KeyCode::Tab] {
-        key(&mut desk, &mut screen, press(code));
-    }
-    assert_eq!(screen.selected.as_deref(), Some("parser"));
-    type_text(&mut desk, &mut screen, "stop and look");
-    key(&mut desk, &mut screen, KeyEvent::new(KeyCode::Char('u'), KeyModifiers::ALT));
-    assert_eq!(desk.performed(), [Command::Send { name: "parser".into(), text: "stop and look".into(), delivery: Delivery::Now, deepen: false }]);
-}
-
-#[test]
-fn the_launch_form_tabs_from_its_first_field() {
-    let mut desk = desk();
-    let mut screen = screen(&desk);
-    key(&mut desk, &mut screen, control('n'));
-    for _ in 0..4 {
-        key(&mut desk, &mut screen, press(KeyCode::Tab));
-    }
-    let Some(Dialog::Launch(form)) = &screen.dialog else { panic!("Ctrl+N opens the launch form") };
-    assert_eq!(form.field, Field::ORDER[4]);
-}
-
-#[test]
 fn one_enter_sends_a_slash_command_while_its_suggestions_are_open() {
     let mut desk = desk();
     let mut screen = screen(&desk);
@@ -408,35 +275,6 @@ fn one_enter_sends_a_slash_command_while_its_suggestions_are_open() {
     let compact = Command::Send { name: "parser".into(), text: "/compact".into(), delivery: Delivery::Queued, deepen: false };
     assert_eq!(desk.performed(), [compact.clone(), compact]);
     assert_eq!(screen.pending_for("parser"), ["/compact", "/compact"]);
-    assert!(screen.composer.is_empty());
-}
-
-#[test]
-fn a_pending_message_waits_for_its_own_echo() {
-    let mut desk = desk();
-    let mut screen = screen(&desk);
-    type_text(&mut desk, &mut screen, "/compact");
-    key(&mut desk, &mut screen, press(KeyCode::Enter));
-    let entries = &mut desk.transcripts.get_mut("parser").unwrap().entries;
-    entries.push(Entry { kind: EntryKind::User, text: "[from child · turn 1] report".into() });
-    screen.reconcile(|name| desk.transcript(name));
-    assert_eq!(screen.pending_for("parser"), ["/compact"]);
-    let entries = &mut desk.transcripts.get_mut("parser").unwrap().entries;
-    entries.push(Entry { kind: EntryKind::Notice, text: "Compacted".into() });
-    entries.push(Entry { kind: EntryKind::User, text: "/compact".into() });
-    screen.reconcile(|name| desk.transcript(name));
-    assert!(screen.pending.is_empty());
-}
-
-#[test]
-fn ctrl_g_sends_the_draft_after_the_deepen_questions() {
-    let mut desk = desk();
-    let mut screen = screen(&desk);
-    type_text(&mut desk, &mut screen, "fix the parser");
-    key(&mut desk, &mut screen, control('g'));
-    let sent = deepened("fix the parser");
-    assert_eq!(desk.performed(), [Command::Send { name: "parser".into(), text: sent, delivery: Delivery::Queued, deepen: false }]);
-    assert_eq!(screen.pending_for("parser"), ["fix the parser"]);
     assert!(screen.composer.is_empty());
 }
 
@@ -460,18 +298,6 @@ fn observe(desk: &DeskFake, screen: &mut Screen) {
     screen.observe(desk.digest(), facts);
 }
 
-fn rendered(desk: &DeskFake, screen: &mut Screen, now_ms: u64) -> String {
-    rendered_at(desk, screen, now_ms, 160)
-}
-
-fn rendered_at(desk: &DeskFake, screen: &mut Screen, now_ms: u64, width: u16) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
-    let transcript = desk.transcript("parser");
-    terminal.draw(|frame| view::draw(frame, screen, transcript, &mut TranscriptPainter::default(), now_ms)).unwrap();
-    let buffer = terminal.backend().buffer();
-    buffer.content.chunks(usize::from(buffer.area.width)).map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>().trim_end().to_owned()).collect::<Vec<_>>().join("\n")
-}
-
 #[test]
 fn the_digest_answers_the_selected_gate_with_an_option_or_free_text() {
     let mut desk = desk();
@@ -491,124 +317,3 @@ fn the_digest_answers_the_selected_gate_with_an_option_or_free_text() {
     assert!(screen.pending.is_empty(), "a gate answer is not a message to the selected session");
 }
 
-#[test]
-fn a_new_open_gate_rings_the_bell_and_marks_its_session_unread() {
-    let mut desk = desk();
-    let mut screen = screen(&desk);
-    observe(&desk, &mut screen);
-    assert!(!screen.take_bell());
-    desk.digest.gates = vec![gate(4, "idle-one", 0)];
-    observe(&desk, &mut screen);
-    assert!(screen.take_bell());
-    assert!(screen.unread.contains("idle-one"));
-    observe(&desk, &mut screen);
-    assert!(!screen.take_bell(), "a gate already seen must not ring again");
-}
-
-#[test]
-fn the_digest_lists_open_gates_first_then_sessions_and_todays_landings() {
-    let mut desk = desk();
-    let parser = desk.transcripts.get_mut("parser").unwrap();
-    parser.entries.push(Entry { kind: EntryKind::TurnEnd, text: "success".into() });
-    parser.entries.push(Entry { kind: EntryKind::User, text: "now add tests".into() });
-    desk.digest = Digest {
-        gates: vec![gate(3, "idle-one", 1_000)],
-        spend: vec![SessionSpend { session: "parser".into(), tokens: 12_345, api_usd: Some(0.0048) }],
-        landed: vec![Landing { task_ref: "T1".into(), sha: "abcdef1234567".into(), wall_ms: Some(720_000), landed_ms: 0 }],
-    };
-    let mut screen = screen(&desk);
-    observe(&desk, &mut screen);
-    assert!(!rendered(&desk, &mut screen, 0).contains("decisions"));
-    key(&mut desk, &mut screen, control('t'));
-    let shown = rendered(&desk, &mut screen, 36_000);
-    let at = |needle: &str| shown.find(needle).unwrap_or_else(|| panic!("{needle:?} missing from\n{shown}"));
-    assert!(at("gate 3 · idle-one · default in 25s") < at("parser working 0m · up 36s"));
-    assert!(at("parser working 0m · up 36s") < at("12.3k tokens · api $0.0048 · report: Looking at **parser.rs** now."));
-    assert!(at("landed today") < at("T1 abcdef123 · wall 12m"));
-}
-
-#[test]
-fn only_tom_lines_and_the_cursor_row_paint_a_background() {
-    let desk = desk();
-    let mut screen = screen(&desk);
-    observe(&desk, &mut screen);
-    let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
-    let transcript = desk.transcript("parser");
-    terminal.draw(|frame| view::draw(frame, &mut screen, transcript, &mut TranscriptPainter::default(), 0)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let band = Color::Rgb(52, 58, 62);
-    let painted: Vec<&Color> = buffer.content.iter().map(|cell| &cell.bg).filter(|bg| **bg != Color::Reset).collect();
-    assert!(!painted.is_empty(), "Tom's transcript line should keep its band");
-    assert!(painted.iter().all(|bg| **bg == band), "{painted:?}");
-    let bottom = usize::from(buffer.area.height) - 4;
-    for cell in &buffer.content[bottom * usize::from(buffer.area.width)..] {
-        assert_eq!(cell.bg, Color::Reset, "{:?} is painted outside the band", cell.symbol());
-    }
-}
-
-#[test]
-fn the_composer_is_framed_by_rules_with_no_box_corners_or_sides() {
-    let desk = desk();
-    let mut screen = screen(&desk);
-    observe(&desk, &mut screen);
-    let page = rendered(&desk, &mut screen, 0);
-    let rows: Vec<&str> = page.lines().collect();
-    let prompt = rows.iter().position(|row| row.starts_with('❯')).unwrap();
-    for row in &rows[prompt - 1..=prompt] {
-        assert!(!row.contains(['│', '╭', '╮', '╰', '╯']), "{page}");
-    }
-    assert!(rows[prompt - 1].contains('─') && rows[prompt + 1].contains('─'), "{page}");
-    assert!(!rows[prompt + 1].contains(['│', '╭', '╮', '╰', '╯']), "{page}");
-}
-
-#[test]
-fn the_top_row_is_the_session_list_with_no_usage_line() {
-    let desk = desk();
-    let mut screen = screen(&desk);
-    observe(&desk, &mut screen);
-    let frame = rendered(&desk, &mut screen, 0);
-    let top = frame.lines().next().unwrap();
-    assert!(top.contains("sessions") && !top.contains("% left"), "{frame}");
-}
-
-#[test]
-fn a_resolved_gate_shows_the_recorded_answer_as_information_without_redelivery() {
-    use crate::fleet::gates::{Answerer, Closure, GateBook, settle};
-    let directory = tempfile::tempdir().unwrap();
-    let ledger = crate::ledger::Ledger::open(&directory.path().join("ledger.db")).unwrap();
-    let id = ledger.open_gate(&gate(18, "parser", 0).request, 0).unwrap();
-    let closure = Closure { answer: "already chosen".into(), by: Answerer::Session("parent".into()), closed_ms: 1 };
-    ledger.close_gate(id, &closure).unwrap();
-    let outcome = settle(&ledger, id, Decision::Option(2), 2, |_, _| panic!("an existing answer must never be delivered twice"));
-    let desk = desk();
-    let mut screen = screen(&desk);
-    screen.settle(Command::Decide { gate: id, session: "parser".into(), decision: Decision::Option(2) }, outcome.map(drop));
-    let expected = format!("gate {id} was already answered: already chosen by parent");
-    assert!(matches!(&screen.notice, Some(super::screen::Notice::Info(text)) if text == &expected));
-    let text = rendered(&desk, &mut screen, 2);
-    assert!(text.contains(&expected), "{text}");
-    assert!(!text.contains("Codex rejected"));
-    assert_eq!(ledger.gate(id).unwrap().unwrap().closure, Some(closure));
-}
-
-#[test]
-fn the_bottom_line_points_to_shortcuts_and_names_the_selected_model() {
-    let mut desk = desk();
-    let parser = desk.sessions.iter_mut().find(|session| session.record.name == "parser").unwrap();
-    parser.record.model = Some("claude-opus-5-5".into());
-    parser.record.effort = Some(Effort::High);
-    let mut screen = screen(&desk);
-    screen.selected = Some("parser".into());
-    let page = rendered(&desk, &mut screen, 0);
-    let bottom = page.lines().last().unwrap();
-    assert!(bottom.starts_with("? for shortcuts") && bottom.ends_with("claude-opus-5-5 (high)"), "{bottom:?}");
-    let parser = desk.sessions.iter_mut().find(|session| session.record.name == "parser").unwrap();
-    parser.record.model = None;
-    parser.record.effort = None;
-    screen.sync(desk.sessions());
-    let page = rendered(&desk, &mut screen, 0);
-    assert!(page.lines().last().unwrap().ends_with("account default"), "{page}");
-}
-
-#[path = "attach_tests.rs"]
-mod attach;

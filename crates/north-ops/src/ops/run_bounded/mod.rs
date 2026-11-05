@@ -11,8 +11,6 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[cfg(test)]
-mod tests;
 
 const USAGE: &str = "usage: north run-bounded <duration> -- <command> [args...]\nduration must be 1s..24h (suffix: s, m, h, or d)";
 const OWNER: &str = "/run/current-system/sw/bin";

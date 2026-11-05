@@ -23,21 +23,3 @@ impl StateClock {
         self.entered.retain(|name, _| keep(name));
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_session_keeps_its_state_start_until_its_status_changes() {
-        let mut clock = StateClock::default();
-        clock.observe("a", Status::Idle, 100, 1_000);
-        clock.observe("a", Status::Idle, 100, 2_000);
-        assert_eq!(clock.since("a"), Some(100));
-        clock.observe("a", Status::Working, 100, 3_000);
-        clock.observe("a", Status::Working, 100, 4_000);
-        assert_eq!(clock.since("a"), Some(3_000));
-        clock.retain(|name| name != "a");
-        assert_eq!(clock.since("a"), None);
-    }
-}

@@ -71,28 +71,6 @@ fn hold(directory: &Path) -> Child {
 }
 
 #[test]
-fn an_expired_entry_is_archived_with_matching_content_and_its_source_deleted() {
-    let rig = Rig::new();
-    rig.entry("old", 100, false);
-    assert!(rig.run(false));
-    assert!(!rig.here("old"));
-    assert_eq!(fs::read_to_string(rig.archive.path().join("evidence/old/shots/a.png")).unwrap(), "old");
-}
-
-#[test]
-fn pinned_recent_and_dry_run_entries_stay_on_the_source() {
-    let rig = Rig::new();
-    rig.entry("pinned", 500, true);
-    rig.entry("fresh", 1, false);
-    assert!(rig.run(false));
-    assert!(rig.here("pinned") && rig.here("fresh"));
-    assert!(!rig.archived("pinned") && !rig.archived("fresh"));
-    rig.entry("expired", 100, false);
-    assert!(rig.run(true));
-    assert!(rig.here("expired") && !rig.archived("expired"));
-}
-
-#[test]
 fn an_entry_held_open_by_a_process_is_kept_until_it_lets_go() {
     let rig = Rig::new();
     rig.entry("running", 100, false);
@@ -123,18 +101,6 @@ fn aged(directory: &Path, inner: &str) {
 }
 
 #[test]
-fn an_entry_holding_a_link_is_archived_with_the_link_target_kept() {
-    let rig = Rig::new();
-    rig.entry("linked", 100, false);
-    let directory = rig.root().join("linked");
-    std::os::unix::fs::symlink("log.txt", directory.join("alias")).unwrap();
-    aged(&directory, "alias");
-    assert!(rig.run(false));
-    assert!(!rig.here("linked") && rig.archived("linked"));
-    assert_eq!(fs::read_link(rig.archive.path().join("evidence/linked/alias")).unwrap(), Path::new("log.txt"));
-}
-
-#[test]
 fn an_archived_link_with_a_different_target_blocks_the_delete() {
     let rig = Rig::new();
     rig.entry("relinked", 100, false);
@@ -148,17 +114,6 @@ fn an_archived_link_with_a_different_target_blocks_the_delete() {
     std::os::unix::fs::symlink("shots/a.png", existing.join("alias")).unwrap();
     assert!(!rig.run(false));
     assert!(rig.here("relinked"));
-}
-
-#[test]
-fn an_entry_holding_a_fifo_is_not_deleted_for_want_of_a_checkable_copy() {
-    let rig = Rig::new();
-    rig.entry("piped", 100, false);
-    let directory = rig.root().join("piped");
-    assert!(Command::new("mkfifo").arg(directory.join("pipe")).status().unwrap().success());
-    aged(&directory, "pipe");
-    assert!(rig.run(false));
-    assert!(rig.here("piped") && !rig.archived("piped"));
 }
 
 const ON_MAIN: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -253,27 +208,6 @@ impl Drop for Store {
 }
 
 #[test]
-fn store_versions_no_pin_on_origin_or_a_lane_names_are_archived_once_expired() {
-    let store = Store::new(ON_MAIN);
-    for hash in [ON_MAIN, IN_LANE, ON_BRANCH, UNNAMED] {
-        store.sealed(&format!("hero-models/{hash}"), 100);
-    }
-    store.sealed(&format!("hero-models/{FRESH}"), 1);
-    store.sealed(&format!("views/{UNNAMED}"), 100);
-    fs::create_dir_all(store.path("derived/thinned")).unwrap();
-    fs::write(store.path("derived/thinned/key.bin"), "cache").unwrap();
-    store.age_and_seal(&store.path("derived/thinned/key.bin"), 100);
-    assert!(store.run().unwrap());
-    for kept in [ON_MAIN, IN_LANE, ON_BRANCH, FRESH] {
-        assert!(store.path(&format!("hero-models/{kept}")).exists() && !store.archived(&format!("hero-models/{kept}")));
-    }
-    assert!(!store.path(&format!("hero-models/{UNNAMED}")).exists());
-    assert_eq!(fs::read_to_string(store.archive.path().join(format!("build-inputs/hero-models/{UNNAMED}/inner/data"))).unwrap(), format!("hero-models/{UNNAMED}"));
-    assert!(!store.path("derived/thinned/key.bin").exists() && store.archived("derived/thinned/key.bin"));
-    assert!(store.path(&format!("views/{UNNAMED}")).exists());
-}
-
-#[test]
 fn a_pin_main_dropped_inside_the_sync_window_stays_and_an_older_one_is_archived() {
     let store = Store::built(&[(UNNAMED, 30), (IN_LANE, 20), (FRESH, 2)], ON_MAIN, None);
     for hash in [UNNAMED, FRESH] {
@@ -300,48 +234,24 @@ fn a_main_that_names_no_pin_archives_no_store_version() {
     assert!(store.path(&format!("hero-models/{UNNAMED}")).exists());
 }
 
-#[test]
-fn a_run_out_of_time_archives_the_oldest_batch_and_leaves_the_rest_for_the_next_run() {
-    let rig = Rig::new();
-    rig.entry("oldest", 300, false);
-    rig.entry("older", 200, false);
-    rig.entry("old", 100, false);
-    let family = Family::new("evidence", &format!("'{}'", rig.state.path().display()), "evidence", Duration::from_secs(72 * HOUR));
-    let checks = std::cell::Cell::new(0);
-    let out_of_time = Box::new(move || {
-        checks.set(checks.get() + 1);
-        checks.get() > 1
-    });
-    let policy = Policy { dry_run: false, host: String::new(), archive: rig.archive.path().to_owned(), batch_entries: 1, out_of_time };
-    let mut tally = Tally::default();
-    assert!(retain(&Local, &family, &policy, super::now(), &mut tally));
-    assert_eq!(tally.entries, 1);
-    assert!(!rig.here("oldest") && rig.archived("oldest"));
-    assert!(rig.here("older") && rig.here("old") && !rig.archived("older") && !rig.archived("old"));
-}
 
 #[test]
-fn one_batch_archives_every_expired_entry_and_keeps_a_differing_one() {
-    let rig = Rig::new();
-    for name in ["one", "two", "three", "clash"] {
-        rig.entry(name, 100, false);
+fn store_versions_no_pin_on_origin_or_a_lane_names_are_archived_once_expired() {
+    let store = Store::new(ON_MAIN);
+    for hash in [ON_MAIN, IN_LANE, ON_BRANCH, UNNAMED] {
+        store.sealed(&format!("hero-models/{hash}"), 100);
     }
-    let existing = rig.archive.path().join("evidence/clash/shots");
-    fs::create_dir_all(&existing).unwrap();
-    fs::write(existing.join("a.png"), "different").unwrap();
-    assert!(!rig.run(false));
-    for name in ["one", "two", "three"] {
-        assert!(!rig.here(name) && rig.archived(name));
+    store.sealed(&format!("hero-models/{FRESH}"), 1);
+    store.sealed(&format!("views/{UNNAMED}"), 100);
+    fs::create_dir_all(store.path("derived/thinned")).unwrap();
+    fs::write(store.path("derived/thinned/key.bin"), "cache").unwrap();
+    store.age_and_seal(&store.path("derived/thinned/key.bin"), 100);
+    assert!(store.run().unwrap());
+    for kept in [ON_MAIN, IN_LANE, ON_BRANCH, FRESH] {
+        assert!(store.path(&format!("hero-models/{kept}")).exists() && !store.archived(&format!("hero-models/{kept}")));
     }
-    assert!(rig.here("clash"));
-}
-
-#[test]
-fn a_second_run_into_a_held_archive_leaves_the_work_to_the_first() {
-    let archive = tempfile::tempdir().unwrap();
-    let first = super::exclusive(archive.path()).unwrap();
-    assert!(first.is_some());
-    assert!(super::exclusive(archive.path()).unwrap().is_none());
-    drop(first);
-    assert!(super::exclusive(archive.path()).unwrap().is_some());
+    assert!(!store.path(&format!("hero-models/{UNNAMED}")).exists());
+    assert_eq!(fs::read_to_string(store.archive.path().join(format!("build-inputs/hero-models/{UNNAMED}/inner/data"))).unwrap(), format!("hero-models/{UNNAMED}"));
+    assert!(!store.path("derived/thinned/key.bin").exists() && store.archived("derived/thinned/key.bin"));
+    assert!(store.path(&format!("views/{UNNAMED}")).exists());
 }

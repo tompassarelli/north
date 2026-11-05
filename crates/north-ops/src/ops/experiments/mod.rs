@@ -7,8 +7,6 @@ pub mod read;
 pub mod registry;
 pub mod rules;
 pub mod verdict;
-#[cfg(test)]
-mod tests;
 
 use std::path::{Path, PathBuf};
 

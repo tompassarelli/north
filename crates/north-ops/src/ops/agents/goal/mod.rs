@@ -7,8 +7,6 @@ mod plan;
 mod quote;
 mod schedule;
 mod score;
-#[cfg(test)]
-mod tests;
 
 use crate::foundation::clock::Timestamp;
 

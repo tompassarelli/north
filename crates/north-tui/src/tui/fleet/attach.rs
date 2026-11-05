@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::attachments;
 
-use super::clipboard::{ClipImage, Clipboard};
+use super::clipboard::{ClipImage, Wayland};
 
 const KIB: usize = 1024;
 
@@ -25,7 +25,7 @@ impl Attachments {
         Self { dir, items: Vec::new() }
     }
 
-    pub fn attach(&mut self, clipboard: &dyn Clipboard) -> NorthResult<String> {
+    pub fn attach(&mut self, clipboard: &Wayland) -> NorthResult<String> {
         let image = clipboard.image()?.ok_or_else(|| NorthError::Usage("no image on the clipboard".into()))?;
         let path = self.store(&image)?;
         let chip = format!("[image {}: {} {}]", self.items.len() + 1, size(image.bytes.len()), image.extension);

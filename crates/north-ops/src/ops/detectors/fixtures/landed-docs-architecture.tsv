@@ -1,8 +1,0 @@
-1793815883	Rewrite the AGENTS.md router as one sentence per code area naming its files, so the grounding index keys each line (docs-architecture box 2a)
-1793815945	Cut the section 03 fleet feature entries to one short paragraph each (docs-architecture box 3a)
-1793815954	Cut the oversize feature entries outside sections 02, 03 and 08 to one paragraph each on what the feature is for and which command runs it, linking --help, harness/defaults.toml keys and rationale notes instead of restating flags, thresholds and row fields (docs-architecture box 3c)
-1793815975	Cut the feature entries of sections 02 and 08 to one short paragraph each (docs-architecture box 3b)
-1793816012	Concept docs carry no dates or versions: harness.md links to owners, feedback-loop's dated sections move to a rationale note, and readme_links checks the concept docs (docs-architecture box 7)
-1793816063	Check that each flag cited after a north subcommand in docs, skills and hooks occurs as a string literal in src/ or crates/, so a removed or renamed flag fails north citation-check (docs-architecture box 4)
-1793816171	Check config tables and keys that living docs name: a backticked [table], [table] key or .safe-push section.key fails north citation-check unless harness/defaults.toml holds the table and key, .safe-push or its reader holds the key, or north code reads every part as a string literal (docs-architecture box 5)
-1793816279	Fail north citation-check on a top-level docs/*.md that neither README.md nor AGENTS.md links and on a file.md#anchor link whose file has no heading with that GitHub slug, and link docs/nexus-run.md from the README (docs-architecture box 2b)

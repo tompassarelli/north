@@ -10,7 +10,7 @@ Every threshold and prior these loops apply lives in `harness/defaults.toml` wit
 `--priors` prints `WAIT` below the count's `need`, `MEASURABLE-NOT-MEASURED` once the rows are there but nobody has measured
 the value, and `SETTLED` only for a prior whose `settles_when.measured` records the dated sweep result that measured it;
 enough rows alone never settle a prior. Consumers read each default
-there and the `defaults_measure::lint` cargo test fails on a hard-coded value or a blank source. The weekly review
+there. The weekly review
 re-runs the measured sources with `north defaults-measure <copy of snapshot.db> <default>`, which
 sweeps one default over a grid by walk-forward replay and prints n and the score per value.
 

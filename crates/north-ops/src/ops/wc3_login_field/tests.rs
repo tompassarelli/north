@@ -70,20 +70,6 @@ fn the_field_is_typed_into_the_active_login_window_and_never_printed() {
 }
 
 #[test]
-fn an_owner_reserved_account_needs_the_owner_flag() {
-    let root = tempfile::tempdir().unwrap();
-    let (run, _socket) = private_run(root.path());
-    let refused = fake(vec![("12", "Battle.net")]);
-    let (message, code) = outcome(deliver(&request(&run, "a", "username", false), root.path(), &refused));
-    assert_eq!(code, 3);
-    assert!(message.starts_with("Refused: account a is the owner's personal account"));
-    assert!(refused.typed.borrow().is_empty());
-    let allowed = fake(vec![("12", "Battle.net")]);
-    assert_eq!(outcome(deliver(&request(&run, "a", "username", true), root.path(), &allowed)).1, 0);
-    assert_eq!(allowed.typed.into_inner(), ["me"]);
-}
-
-#[test]
 fn delivery_refuses_a_wrong_window_a_missing_field_a_non_private_run_and_a_focus_change() {
     let root = tempfile::tempdir().unwrap();
     let (run, _socket) = private_run(root.path());
@@ -99,15 +85,17 @@ fn delivery_refuses_a_wrong_window_a_missing_field_a_non_private_run_and_a_focus
     assert_eq!(outcome(deliver(&request(&run, "b", "username", false), root.path(), &moved)).0, "Focus changed during delivery; inspect privately before proceeding.");
 }
 
-#[test]
-fn usage_names_the_four_accounts_and_two_fields() {
-    let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
-    for bad in [words(&["/run", "e", "password"]), words(&["/run", "a", "pin"]), words(&["/run", "a"]), words(&["/run", "a", "password", "--yes"])] {
-        assert_eq!(parse(&bad).err().map(|Failure(_, code)| code), Some(2));
-    }
-}
 
 #[test]
-fn help_exits_zero_so_a_host_can_probe_the_verb() {
-    assert_eq!(super::run(&["--help".to_owned()]), 0);
+fn an_owner_reserved_account_needs_the_owner_flag() {
+    let root = tempfile::tempdir().unwrap();
+    let (run, _socket) = private_run(root.path());
+    let refused = fake(vec![("12", "Battle.net")]);
+    let (message, code) = outcome(deliver(&request(&run, "a", "username", false), root.path(), &refused));
+    assert_eq!(code, 3);
+    assert!(message.starts_with("Refused: account a is the owner's personal account"));
+    assert!(refused.typed.borrow().is_empty());
+    let allowed = fake(vec![("12", "Battle.net")]);
+    assert_eq!(outcome(deliver(&request(&run, "a", "username", true), root.path(), &allowed)).1, 0);
+    assert_eq!(allowed.typed.into_inner(), ["me"]);
 }

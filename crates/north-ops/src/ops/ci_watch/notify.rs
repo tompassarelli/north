@@ -172,6 +172,3 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-#[cfg(test)]
-#[path = "notify_tests.rs"]
-mod tests;

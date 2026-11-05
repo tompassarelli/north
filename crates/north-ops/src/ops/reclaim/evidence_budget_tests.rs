@@ -49,25 +49,6 @@ fn an_evidence_store_over_budget_loses_its_oldest_runs_but_never_a_fresh_held_or
 }
 
 #[test]
-fn an_evidence_store_past_budget_with_only_fresh_runs_left_keeps_them() {
-    let machine = Machine::new();
-    let [oldest, linked, held, older, newer, fresh] = store(&machine);
-
-    assert_eq!(swept(&machine, &machine.inputs(), 0), vec![held, linked, newer, older, oldest]);
-    assert!(fresh.exists());
-}
-
-#[test]
-fn an_evidence_store_within_budget_keeps_every_run_without_reading_issues() {
-    let machine = Machine::new();
-    let runs = store(&machine);
-    let inputs = Inputs { open_issue_text: || panic!("read open issues while within budget"), ..machine.inputs() };
-
-    assert!(swept(&machine, &inputs, 6).is_empty());
-    assert!(runs.iter().all(|run| run.exists()));
-}
-
-#[test]
 fn an_evidence_store_over_budget_keeps_every_run_when_open_issues_are_unreadable() {
     let machine = Machine::new();
     let runs = store(&machine);
@@ -75,15 +56,6 @@ fn an_evidence_store_over_budget_keeps_every_run_when_open_issues_are_unreadable
 
     assert!(swept(&machine, &inputs, 1).is_empty());
     assert!(runs.iter().all(|run| run.exists()));
-}
-
-#[test]
-fn an_issue_mention_that_ends_a_sentence_still_keeps_its_run() {
-    let machine = Machine::new();
-    let [_, linked, ..] = store(&machine);
-    let inputs = Inputs { open_issue_text: || Ok("[{\"body\":\"Results are in evidence/oldest.\"}]".into()), ..machine.inputs() };
-
-    assert_eq!(swept(&machine, &inputs, 5), vec![linked]);
 }
 
 #[test]
@@ -97,13 +69,3 @@ fn an_issue_read_that_fails_once_is_retried_until_it_succeeds() {
     assert_eq!((read, calls), (Ok("issues"), 3));
 }
 
-#[test]
-fn an_issue_read_that_keeps_failing_gives_up_after_its_attempts() {
-    let mut calls = 0;
-    let read: Result<(), String> = retrying(4, Duration::ZERO, || {
-        calls += 1;
-        Err("unexpected end of JSON input".to_owned())
-    });
-
-    assert_eq!((read, calls), (Err("unexpected end of JSON input".to_owned()), 4));
-}

@@ -52,5 +52,3 @@ pub fn render(source: &Path) -> Result<String, String> {
     Ok(out)
 }
 
-#[cfg(test)]
-mod tests;

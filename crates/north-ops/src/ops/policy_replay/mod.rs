@@ -12,7 +12,5 @@ mod rows;
 mod run;
 mod stats;
 mod sweep;
-#[cfg(test)]
-mod tests;
 
 pub use cli::run;

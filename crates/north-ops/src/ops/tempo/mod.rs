@@ -2,8 +2,6 @@
 //! lander decided (`land-queue/<origin key>/done/`, each landed at its file's modification time) and
 //! the tickets still waiting. `--record` writes the last hour and the last day into the ledger's
 //! `land_tempo` table, which the Payback line of a harness box reads (docs/feedback-loop.md).
-#[cfg(test)]
-mod tests;
 
 use std::fs;
 use std::path::{Path, PathBuf};

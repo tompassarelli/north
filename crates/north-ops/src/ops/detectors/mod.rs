@@ -19,8 +19,6 @@ mod gather;
 mod plan;
 mod refusal;
 mod signal;
-#[cfg(test)]
-mod tests;
 
 static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
 

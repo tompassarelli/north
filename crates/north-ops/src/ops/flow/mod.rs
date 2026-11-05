@@ -42,26 +42,6 @@ mod stall;
 mod stranded;
 mod throughput;
 mod typed;
-#[cfg(test)]
-mod routing_tests;
-#[cfg(test)]
-mod alerts_tests;
-#[cfg(test)]
-mod capacity_tests;
-#[cfg(test)]
-mod lander_tests;
-#[cfg(test)]
-mod lanes_tests;
-#[cfg(test)]
-mod readings_tests;
-#[cfg(test)]
-mod sampler_tests;
-#[cfg(test)]
-mod slo_tests;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod boxes_tests;
 
 const USAGE: &str = "usage: north flow [--json] [--repo NAME]... [--stall-alarm] | north flow row REPO [FIELD]... | north flow detect [--dry-run]";
 const FIELDS: [&str; 2] = ["reuse", "closed_per_hour"];

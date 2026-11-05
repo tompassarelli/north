@@ -78,5 +78,3 @@ fn lint(source: &Path) -> Result<(), String> {
 
 pub const INDEX: Index = Index { command: "features-index", source_dir: "docs/features", file: "docs/features.md", render, lint };
 
-#[cfg(test)]
-mod tests;

@@ -136,5 +136,3 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests;

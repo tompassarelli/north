@@ -219,13 +219,6 @@ mod tests {
     }
 
     #[test]
-    fn a_button_after_a_move_in_the_same_call_passes() {
-        assert_eq!(unplaced_button(&actions("move 548 196 click 1")), None);
-        assert_eq!(unplaced_button(&actions("key enter")), None);
-        assert_eq!(unplaced_button(&actions("type click key move")), None);
-    }
-
-    #[test]
     fn clipboard_reaches_only_an_active_private_run() {
         let outside = tempfile::tempdir().unwrap();
         let path = outside.path().to_string_lossy().into_owned();

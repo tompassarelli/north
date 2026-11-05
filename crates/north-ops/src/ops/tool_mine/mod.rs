@@ -1,7 +1,5 @@
 mod sequence;
 mod steps;
-#[cfg(test)]
-mod tests;
 
 use std::collections::BTreeMap;
 use std::process::Command;

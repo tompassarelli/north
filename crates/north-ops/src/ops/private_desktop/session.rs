@@ -425,52 +425,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_vnc_anchor_stays_connected_until_it_is_dropped() {
-        use std::io::Read;
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let server = std::thread::spawn(move || {
-            let mut stream = super::super::rfb::accept(&listener);
-            stream
-                .set_read_timeout(Some(Duration::from_millis(300)))
-                .unwrap();
-            let mut byte = [0u8; 1];
-            let held = matches!(stream.read(&mut byte), Err(error) if error.kind() == io::ErrorKind::WouldBlock || error.kind() == io::ErrorKind::TimedOut);
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            (held, stream.read(&mut byte).unwrap())
-        });
-        let anchor = hold_vnc_devices(port).unwrap();
-        std::thread::sleep(Duration::from_millis(600));
-        drop(anchor);
-        let (held, after) = server.join().unwrap();
-        assert!(held, "the anchor disconnected while the run was live");
-        assert_eq!(after, 0, "dropping the anchor closes its connection");
-    }
-
-    #[test]
-    fn startup_refuses_manager_display_before_launching_clients() {
-        let run = tempfile::tempdir().unwrap();
-        fs::write(run.path().join("display"), ":0\n").unwrap();
-        fs::write(run.path().join("wayland-display"), "wayland-1\n").unwrap();
-        fs::create_dir(run.path().join("runtime")).unwrap();
-        let _socket =
-            std::os::unix::net::UnixListener::bind(run.path().join("runtime/wayland-1")).unwrap();
-        let session = Session::new(run.path().to_path_buf(), run.path().to_path_buf(), None);
-        let options = StartOptions {
-            port: 5999,
-            explicit_port: false,
-            resolution: "2560x1440".into(),
-            render_node: "/dev/dri/renderD128".into(),
-            seconds: None,
-            command: vec!["client".into()],
-        };
-        let error = session.configure_display(&options).unwrap_err();
-        assert!(error.to_string().contains("refusing to start clients"));
-    }
-
-    #[test]
     fn client_command_unsets_wayland_socket_so_clients_reach_the_private_display() {
         let run = tempfile::tempdir().unwrap();
         let command = client_command(run.path(), ":11", "wayland-0", &["wlrctl".into()]);

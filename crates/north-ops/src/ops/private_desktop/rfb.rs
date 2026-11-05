@@ -41,23 +41,3 @@ fn handshake<S: Read + Write>(stream: &mut S) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-pub(super) fn accept(listener: &std::net::TcpListener) -> TcpStream {
-    let (mut stream, _) = listener.accept().unwrap();
-    stream.write_all(b"RFB 003.008\n").unwrap();
-    let mut reply = [0u8; 12];
-    stream.read_exact(&mut reply).unwrap();
-    assert_eq!(&reply, b"RFB 003.008\n");
-    stream.write_all(&[1, 1]).unwrap();
-    let mut chosen = [0u8; 1];
-    stream.read_exact(&mut chosen).unwrap();
-    assert_eq!(chosen, [1]);
-    stream.write_all(&[0; 4]).unwrap();
-    let mut shared = [0u8; 1];
-    stream.read_exact(&mut shared).unwrap();
-    let mut init = [0u8; 24];
-    init[23] = 4;
-    stream.write_all(&init).unwrap();
-    stream.write_all(b"test").unwrap();
-    stream
-}

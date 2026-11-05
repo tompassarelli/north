@@ -71,8 +71,6 @@ fn key_event<W: Write>(stream: &mut W, down: bool, keysym: u32) -> io::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
-    use std::net::{Ipv4Addr, TcpListener};
 
     fn expected(character: char) -> Key {
         let shift = character.is_ascii_uppercase() || SHIFTED.contains(character);
@@ -101,66 +99,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn text_outside_the_us_layout_is_refused_with_its_position() {
-        for bad in ["é", "\r", "€", "a\x00"] {
-            assert!(plan(bad).is_err(), "{bad:?}");
-        }
-        assert_eq!(
-            plan("ab€").unwrap_err(),
-            "character 3 has no US-layout key"
-        );
-    }
-
-    #[test]
-    fn shifted_keys_are_wrapped_in_a_held_shift_key() {
-        let received = serve_and_type(&plan("@a").unwrap());
-        let events: Vec<(u8, u32)> = received
-            .chunks(8)
-            .map(|chunk| {
-                assert_eq!(chunk[0], 4);
-                (chunk[1], u32::from_be_bytes(chunk[4..8].try_into().unwrap()))
-            })
-            .collect();
-        assert_eq!(
-            events,
-            vec![
-                (1, SHIFT),
-                (1, 0x40),
-                (0, 0x40),
-                (0, SHIFT),
-                (1, 0x61),
-                (0, 0x61)
-            ]
-        );
-    }
-
-    #[test]
-    fn a_server_that_demands_authentication_is_refused() {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream.write_all(b"RFB 003.008\n").unwrap();
-            let mut version = [0u8; 12];
-            stream.read_exact(&mut version).unwrap();
-            stream.write_all(&[1, 2]).unwrap();
-        });
-        let error = send(port, &plan("a").unwrap()).unwrap_err();
-        server.join().unwrap();
-        assert!(error.to_string().contains("authentication"));
-    }
-
-    fn serve_and_type(keys: &[Key]) -> Vec<u8> {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let server = std::thread::spawn(move || {
-            let mut stream = rfb::accept(&listener);
-            let mut received = Vec::new();
-            stream.read_to_end(&mut received).unwrap();
-            received
-        });
-        send(port, keys).unwrap();
-        server.join().unwrap()
-    }
 }

@@ -14,7 +14,7 @@ use crate::fleet::registry::Choices;
 use crate::fleet::runtime::SESSION_ENV;
 
 use super::attach::Attachments;
-use super::clipboard::{Clipboard, Wayland};
+use super::clipboard::Wayland;
 use super::desk::SessionSummary;
 use super::editor::edit_textarea;
 use super::digest::{DigestPane, SessionFacts};
@@ -82,7 +82,7 @@ pub struct Screen {
     pub digest: DigestPane,
     pub help: HelpPanel,
     attachments: Attachments,
-    clipboard: Box<dyn Clipboard>,
+    clipboard: Wayland,
     bell: bool,
     scroll_limit: u16,
     page: u16,
@@ -108,7 +108,7 @@ impl Screen {
             digest: DigestPane::default(),
             help: HelpPanel::default(),
             attachments: Attachments::system(),
-            clipboard: Box::new(Wayland),
+            clipboard: Wayland,
             bell: false,
             scroll_limit: u16::MAX,
             page: 10,
@@ -117,13 +117,6 @@ impl Screen {
             cwd,
             quitting: false,
         }
-    }
-
-    #[cfg(test)]
-    pub fn with_clipboard(mut self, clipboard: Box<dyn Clipboard>, attachments: Attachments) -> Self {
-        self.clipboard = clipboard;
-        self.attachments = attachments;
-        self
     }
 
     pub fn offer(&mut self, choices: Vec<Choices>) {
@@ -209,7 +202,7 @@ impl Screen {
         if self.dialog.is_some() {
             return;
         }
-        match self.attachments.attach(self.clipboard.as_ref()) {
+        match self.attachments.attach(&self.clipboard) {
             Ok(chip) => {
                 self.focus = Focus::Composer;
                 self.composer.insert_str(chip);

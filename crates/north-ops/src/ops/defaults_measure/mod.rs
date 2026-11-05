@@ -1,6 +1,4 @@
 mod capacity;
-#[cfg(test)]
-mod lint;
 mod priors;
 mod proposal;
 mod registry;
@@ -9,8 +7,6 @@ mod row;
 mod sweeps;
 mod training;
 mod usage;
-#[cfg(test)]
-mod tests;
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};

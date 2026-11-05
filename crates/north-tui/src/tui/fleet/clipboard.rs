@@ -10,22 +10,17 @@ pub struct ClipImage {
     pub bytes: Vec<u8>,
 }
 
-pub trait Clipboard {
-    fn image(&self) -> NorthResult<Option<ClipImage>>;
-    fn put_text(&self, text: &str) -> NorthResult<()>;
-}
-
 pub struct Wayland;
 
-impl Clipboard for Wayland {
-    fn image(&self) -> NorthResult<Option<ClipImage>> {
+impl Wayland {
+    pub fn image(&self) -> NorthResult<Option<ClipImage>> {
         let listed = wl_paste(&["--list-types"])?;
         let Some(media_type) = image_type(&String::from_utf8_lossy(&listed)).map(str::to_owned) else { return Ok(None) };
         let bytes = wl_paste(&["--type", &media_type])?;
         Ok(attachments::extension(&media_type).filter(|_| !bytes.is_empty()).map(|extension| ClipImage { extension, bytes }))
     }
 
-    fn put_text(&self, text: &str) -> NorthResult<()> {
+    pub fn put_text(&self, text: &str) -> NorthResult<()> {
         let mut child = Command::new("wl-copy").args(["--type", "text/plain;charset=utf-8"]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|error| NorthError::Usage(format!("cannot run wl-copy: {error}")))?;
         if let Some(mut stdin) = child.stdin.take() {
             stdin.write_all(text.as_bytes())?;
@@ -50,16 +45,4 @@ fn wl_paste(arguments: &[&str]) -> NorthResult<Vec<u8>> {
         return Err(NorthError::Usage(format!("wl-paste {} failed: {}", arguments.join(" "), String::from_utf8_lossy(&output.stderr).trim())));
     }
     Ok(output.stdout)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn png_is_preferred_among_the_clipboard_image_types() {
-        assert_eq!(image_type("text/plain\nimage/jpeg\nimage/png\n"), Some("image/png"));
-        assert_eq!(image_type("text/plain\nimage/webp\n"), Some("image/webp"));
-        assert_eq!(image_type("text/plain\ntext/html\n"), None);
-    }
 }

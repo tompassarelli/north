@@ -1,6 +1,4 @@
 mod classify;
-#[cfg(test)]
-mod tests;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;

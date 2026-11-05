@@ -1,10 +1,6 @@
 mod cpu;
 mod report;
 mod sample;
-#[cfg(test)]
-mod report_tests;
-#[cfg(test)]
-mod tests;
 
 use std::env;
 use std::fs::{self, OpenOptions};

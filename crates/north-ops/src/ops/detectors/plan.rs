@@ -175,7 +175,3 @@ pub fn stalled(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
     findings
 }
 
-#[cfg(test)]
-pub(super) fn parsed(text: &str) -> Vec<(String, Vec<String>, bool)> {
-    boxes(text).into_iter().map(|plan_box| (plan_box.id, plan_box.after, plan_box.marked_landed)).collect()
-}

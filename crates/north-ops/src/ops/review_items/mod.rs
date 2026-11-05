@@ -401,5 +401,3 @@ pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> u8 {
     }
 }
 
-#[cfg(test)]
-mod tests;

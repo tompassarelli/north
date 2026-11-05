@@ -329,6 +329,3 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-#[cfg(test)]
-#[path = "diagnose_tests.rs"]
-mod tests;

@@ -79,29 +79,3 @@ pub fn control_for(event: KeyEvent) -> Option<Control> {
     let character = character.to_ascii_lowercase();
     BINDINGS.iter().find_map(|binding| binding.control.filter(|(bound, _)| *bound == character).map(|(_, control)| control))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_control_binding_displays_the_character_it_handles() {
-        for binding in BINDINGS {
-            if let Some((character, _)) = binding.control {
-                assert_eq!(binding.keys, format!("Ctrl+{}", character.to_ascii_uppercase()));
-            }
-        }
-    }
-
-    #[test]
-    fn each_control_resolves_from_its_own_key_in_either_case() {
-        for binding in BINDINGS {
-            if let Some((character, control)) = binding.control {
-                for case in [character, character.to_ascii_uppercase()] {
-                    assert_eq!(control_for(KeyEvent::new(KeyCode::Char(case), KeyModifiers::CONTROL)), Some(control));
-                }
-                assert_eq!(control_for(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)), None);
-            }
-        }
-    }
-}

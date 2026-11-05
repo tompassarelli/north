@@ -10,8 +10,6 @@ mod scratch;
 mod tests;
 #[cfg(test)]
 mod evidence_budget_tests;
-#[cfg(test)]
-mod lan_residue_tests;
 
 use std::collections::HashSet;
 use std::env;

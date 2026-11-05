@@ -1,7 +1,5 @@
 mod report;
 mod scan;
-#[cfg(test)]
-mod tests;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;

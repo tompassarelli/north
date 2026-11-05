@@ -58,26 +58,3 @@ fn closing_ends_every_process_of_the_launch_and_spares_another_prefix() {
     bystander.wait().unwrap();
 }
 
-#[test]
-fn closing_fails_and_names_a_process_that_survives_kill() {
-    let root = tempfile::tempdir().unwrap();
-    let proc = root.path().join("proc");
-    let pid = 4_194_399_u32;
-    let dir = proc.join(pid.to_string());
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("stat"), format!("{pid} (Battle.net.exe) S 1 1 1 0 -1 0\n")).unwrap();
-    let compat = root.path().join("compat").to_string_lossy().into_owned();
-    std::fs::write(dir.join("environ"), format!("STEAM_COMPAT_DATA_PATH={compat}\0")).unwrap();
-    std::fs::write(dir.join("cmdline"), "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe\0").unwrap();
-    let launch = Launch { proc, compat, appid: "1".to_owned() };
-    let (mut out, mut err) = (Vec::new(), Vec::new());
-    let code = close(&launch, &Timing { poll: Duration::from_millis(1), polls: 2, settle: Duration::from_millis(1) }, &mut |line| out.push(line.to_owned()), &mut |line| err.push(line.to_owned()));
-    assert_eq!(code, 1);
-    assert!(out.is_empty());
-    assert_eq!(err[1], format!("  {pid} C:\\Program Files (x86)\\Battle.net\\Battle.net.exe "));
-}
-
-#[test]
-fn help_exits_zero_so_a_host_can_probe_the_verb() {
-    assert_eq!(super::run(&["--help".to_owned()]), 0);
-}

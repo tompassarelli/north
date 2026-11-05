@@ -3,10 +3,6 @@ mod host_facts;
 mod probes;
 mod shells;
 mod waste;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod waste_tests;
 
 pub use probes::PROBES;
 

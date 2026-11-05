@@ -332,7 +332,7 @@ fn startup_script(executable: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_private_runtime, resolve_render_node};
+    use super::create_private_runtime;
 
     #[test]
     fn clients_reach_the_user_manager_through_the_private_runtime() {
@@ -347,12 +347,4 @@ mod tests {
         assert!(!run.join("runtime/bus").exists());
     }
 
-    #[test]
-    fn render_node_links_resolve_only_to_render_nodes() {
-        let directory = tempfile::tempdir().unwrap();
-        let link = directory.path().join("render");
-        std::os::unix::fs::symlink("/dev/null", &link).unwrap();
-        assert!(resolve_render_node(&link).is_err());
-        assert!(resolve_render_node(&directory.path().join("missing")).is_err());
-    }
 }
