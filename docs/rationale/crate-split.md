@@ -370,11 +370,11 @@ rebuild every lib chain up to `ops`. The gate times a single leaf file (`structu
   need the pair (`fleet/tick_tests.rs:18,33`, `fleet/registry/tests.rs:10,25`,
   `fleet/registry/senders.rs:96-97`) switch to fleet-local fakes of `Runtimes` and `Books`, or move to
   north-providers.
-- C4, `ops/pacing` and `ops/agents` → `guard`: `ops/pacing/placement/hosts.rs:156` and
-  `ops/agents/goal/plan.rs:20` call `guard::spawn_capacity::{launch_refusal, gate_summary, Live}`. The refusal
-  policy moves into `ops/pacing` (north-dispatch), and the hook adapter stays in guard (`guard/spawn_capacity.rs:1`, `hook.rs:320`).
-  `ops/pacing/spawn_capacity_tests.rs:1,3`, which box 1 moved there, tests the policy where it lands and
-  stops importing `guard` and `hook`.
+- C4, `ops/pacing` and `ops/agents` → `guard`: cut by box 5 (26eaddb97), not by moving the policy. `ops/pacing/placement/hosts.rs:156`
+  and `ops/agents/goal/plan.rs:20` call `ops::pacing::spawn_gate`, which `main` installs from
+  `guard::spawn_capacity::{launch_refusal, gate_summary, Live}`, so `ops` names no `crate::guard`. The policy and
+  its tests stay beside the hook adapter in north-guard, which already sits above `ops`. Moving the policy into
+  `ops/pacing` would drag the `World` trait, `usage`, `logs` and part of `briefs` along, all of which `decide` shares.
 - C5, `capacity` → its host code, 11 production references:
   - `capacity/admission.rs:398` (`host::policy::aggregate_cpus`), `capacity/deadline.rs:100`
     (`host::runtime_root`) and `capacity/mod.rs:164` (`host::host_name`): these three primitives move into
