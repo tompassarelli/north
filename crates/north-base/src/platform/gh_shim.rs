@@ -22,3 +22,7 @@ fn executable(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
+
+pub fn real_on_path(path: &str) -> Option<PathBuf> {
+    candidates(path).find(|candidate| !is_shim(candidate))
+}

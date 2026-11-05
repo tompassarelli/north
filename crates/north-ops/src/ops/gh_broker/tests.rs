@@ -199,3 +199,22 @@ fn read_response(stream: impl Read) -> std::io::Result<Response> {
     reader.read_to_end(&mut body)?;
     Ok(Response { status, headers, body })
 }
+
+#[test]
+fn the_resident_broker_claims_the_users_gh_config_and_releases_only_its_own_line() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("gh");
+    std::fs::create_dir_all(&source).unwrap();
+    let original = "git_protocol: https\nhttp_unix_socket:\nprompt: enabled\n";
+    std::fs::write(source.join("config.yml"), original).unwrap();
+    let place = Place::at(root.path().join("broker"));
+    place.claim_user_gh(&source).unwrap();
+    let claimed = std::fs::read_to_string(source.join("config.yml")).unwrap();
+    assert_eq!(claimed, format!("git_protocol: https\nprompt: enabled\nhttp_unix_socket: {}\n", place.socket().display()));
+    assert!(place.release_user_gh(&source).unwrap());
+    assert_eq!(std::fs::read_to_string(source.join("config.yml")).unwrap(), "git_protocol: https\nprompt: enabled\n");
+    let elsewhere = "git_protocol: https\nhttp_unix_socket: /elsewhere.sock\n";
+    std::fs::write(source.join("config.yml"), elsewhere).unwrap();
+    assert!(!place.release_user_gh(&source).unwrap());
+    assert_eq!(std::fs::read_to_string(source.join("config.yml")).unwrap(), elsewhere);
+}

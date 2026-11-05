@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use super::broker::Source;
 use super::http::{Request, Response};
 
+const ROTATE_BYTES: u64 = 32 << 20;
+
 pub struct CallLog {
     path: Option<PathBuf>,
 }
@@ -26,6 +28,9 @@ impl CallLog {
         let caller = caller(stream);
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
         let line = format!("{at}\t{caller}\t{}\t{}\t{}\t{}\n", source.name(), response.status, request.method, request.target);
+        if std::fs::metadata(path).is_ok_and(|meta| meta.len() > ROTATE_BYTES) {
+            let _ = std::fs::rename(path, path.with_extension("log.1"));
+        }
         let _ = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut file| file.write_all(line.as_bytes()));
     }
 }
@@ -35,10 +40,17 @@ fn caller(stream: &UnixStream) -> String {
         return "unknown".to_owned();
     };
     let pid = peer.pid.as_raw_nonzero().get();
-    session_of(Path::new(&format!("/proc/{pid}"))).unwrap_or_else(|| format!("pid-{pid}"))
+    let process = PathBuf::from(format!("/proc/{pid}"));
+    session_of(&process).or_else(|| unit_of(&process)).unwrap_or_else(|| format!("pid-{pid}"))
 }
 
 fn session_of(process: &Path) -> Option<String> {
     let environ = std::fs::read(process.join("environ")).ok()?;
     environ.split(|byte| *byte == 0).find_map(|entry| entry.strip_prefix(b"NORTH_FLEET_SESSION=")).filter(|session| !session.is_empty()).map(|session| String::from_utf8_lossy(session).into_owned())
+}
+
+fn unit_of(process: &Path) -> Option<String> {
+    let cgroup = std::fs::read_to_string(process.join("cgroup")).ok()?;
+    let path = cgroup.lines().find_map(|line| line.strip_prefix("0::"))?;
+    path.rsplit('/').find(|part| part.ends_with(".service") || part.ends_with(".scope")).map(str::to_owned)
 }

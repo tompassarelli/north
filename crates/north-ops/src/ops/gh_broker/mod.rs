@@ -4,17 +4,19 @@ mod http;
 mod server;
 mod upstream;
 
-use std::os::unix::net::UnixListener;
+use std::os::unix::fs::MetadataExt;
+use std::os::unix::net::{UnixDatagram, UnixListener};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::platform::gh_broker_route::Place;
+use crate::platform::gh_broker_route::{Place, source_config};
 use broker::{Broker, Settings};
 use upstream::Upstream;
 
-const USAGE: &str = "usage: north gh-broker serve
+const USAGE: &str = "usage: north gh-broker serve [--resident] | north gh-broker release | north gh-broker quota
 
-The one local GitHub broker every fleet session's gh calls go through (north#638). north gh-session,
+The one local GitHub broker every gh call on this host goes through (north#638). north gh-session,
 which bin/gh runs in a fleet session, starts the broker when its socket does not answer and runs
 the real gh with a private GH_CONFIG_DIR whose http_unix_socket points at the broker. The broker
 forwards each request with the caller's own credentials and: answers identical reads from one
@@ -22,14 +24,29 @@ GitHub call (in flight, or fetched within 20 s); revalidates older reads with If
 304 serves the stored body without spending rate limit; after a 403 or 429 with Retry-After, an
 exhausted x-ratelimit-remaining or a secondary limit, makes no GitHub call until the wait passes,
 serving stored reads and refusing the rest with 429; spaces writes 1 s apart. Socket:
-${XDG_RUNTIME_DIR}/north-gh-broker/broker.sock. It exits after 30 idle minutes.";
+${XDG_RUNTIME_DIR}/north-gh-broker/broker.sock. It exits after 30 idle minutes.
+
+--resident    run as the host's user service: never exit idle, and once listening set
+              http_unix_socket in the user's own gh config, so every gh on the host (timers,
+              services, scripts, interactive shells) goes through the broker; tells systemd READY=1
+release       remove that http_unix_socket line again (the service's ExecStopPost), so gh
+              calls GitHub directly while the broker is down
+quota         print the user's own login's core and graphql rate limit left (GET /rate_limit costs none),
+              so its hourly drop can be set against the call log
+
+Each call is logged to calls.log beside the socket as: unix time, caller (the fleet session, else
+the caller's systemd unit), served from, status, method, target.";
 
 const IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
 
 pub fn run(arguments: &[String]) -> u8 {
-    match arguments.first().map(String::as_str) {
-        Some("serve") if arguments.len() == 1 => serve(),
-        Some("-h" | "--help") => {
+    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        ["serve"] => serve(false),
+        ["serve", "--resident"] => serve(true),
+        ["release"] => release(),
+        ["quota"] => quota(),
+        ["-h" | "--help"] => {
             println!("{USAGE}");
             0
         }
@@ -40,11 +57,12 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-fn serve() -> u8 {
+fn serve(resident: bool) -> u8 {
     let place = Place::from_env();
-    let Some(_lock) = place.exclusive() else {
+    let lock = place.exclusive();
+    if lock.is_none() && !resident {
         return 0;
-    };
+    }
     let _ = std::fs::remove_file(place.socket());
     let listener = match UnixListener::bind(place.socket()) {
         Ok(listener) => listener,
@@ -55,18 +73,93 @@ fn serve() -> u8 {
     };
     let broker = Arc::new(Broker::new(Upstream::new(upstream::GITHUB_API), Settings::default()));
     let activity = Arc::new(server::Activity::default());
-    let watched = Arc::clone(&activity);
-    let socket = place.socket();
+    if resident {
+        if let Err(error) = place.claim_user_gh(&source_config()) {
+            eprintln!("north gh-broker: cannot point the user's gh config at the broker: {error}");
+            return 1;
+        }
+        notify_ready();
+    } else {
+        exit_when_idle(&place.socket(), Arc::clone(&activity));
+    }
+    server::serve(&listener, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls())));
+    0
+}
+
+fn exit_when_idle(socket: &Path, watched: Arc<server::Activity>) {
+    let socket = socket.to_path_buf();
+    let bound = inode(&socket);
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(Duration::from_secs(60));
             if watched.idle_for().is_some_and(|idle| idle >= IDLE_EXIT) {
-                let _ = std::fs::remove_file(&socket);
+                if bound.is_some() && inode(&socket) == bound {
+                    let _ = std::fs::remove_file(&socket);
+                }
                 std::process::exit(0);
             }
         }
     });
-    server::serve(&listener, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls())));
+}
+
+fn inode(path: &Path) -> Option<(u64, u64)> {
+    std::fs::symlink_metadata(path).ok().map(|meta| (meta.dev(), meta.ino()))
+}
+
+fn notify_ready() {
+    let Some(socket) = std::env::var_os("NOTIFY_SOCKET") else {
+        return;
+    };
+    if let Ok(datagram) = UnixDatagram::unbound() {
+        let _ = datagram.send_to(b"READY=1", socket);
+    }
+}
+
+fn release() -> u8 {
+    match Place::from_env().release_user_gh(&source_config()) {
+        Ok(true) => {
+            println!("north gh-broker: gh calls GitHub directly until the broker runs again");
+            0
+        }
+        Ok(false) => 0,
+        Err(error) => {
+            eprintln!("north gh-broker: cannot clear http_unix_socket from the user's gh config: {error}");
+            1
+        }
+    }
+}
+
+fn quota() -> u8 {
+    let Some(gh) = crate::platform::gh_shim::real_on_path(&std::env::var("PATH").unwrap_or_default()) else {
+        eprintln!("north gh-broker: no gh on PATH apart from the north shim");
+        return 1;
+    };
+    let mut command = std::process::Command::new(gh);
+    command.args(["api", "rate_limit"]);
+    for name in ["NORTH_FLEET_SESSION", "GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR"] {
+        command.env_remove(name);
+    }
+    command.env("GH_CONFIG_DIR", source_config());
+    let output = match command.output() {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => {
+            eprintln!("north gh-broker: gh api rate_limit failed: {}", String::from_utf8_lossy(&output.stderr).trim());
+            return 1;
+        }
+        Err(error) => {
+            eprintln!("north gh-broker: cannot run gh: {error}");
+            return 1;
+        }
+    };
+    let Ok(answer) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        eprintln!("north gh-broker: gh api rate_limit printed no JSON");
+        return 1;
+    };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    for resource in ["core", "graphql"] {
+        let field = |name: &str| answer["resources"][resource][name].as_u64().unwrap_or(0);
+        println!("{resource}\t{} of {} left\tresets in {} min", field("remaining"), field("limit"), field("reset").saturating_sub(now).div_ceil(60));
+    }
     0
 }
 

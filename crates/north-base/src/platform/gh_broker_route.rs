@@ -44,12 +44,7 @@ impl Place {
         let directory = self.root.join("gh-config");
         fs::DirBuilder::new().recursive(true).mode(0o700).create(&directory)?;
         let original = fs::read_to_string(source.join("config.yml")).unwrap_or_default();
-        let mut config: String = original.lines().filter(|line| !line.starts_with("http_unix_socket:")).map(|line| format!("{line}\n")).collect();
-        config.push_str(&format!("http_unix_socket: {}\n", self.socket().display()));
-        let staged = directory.join(format!("config.yml.{}", std::process::id()));
-        fs::write(&staged, config)?;
-        fs::set_permissions(&staged, fs::Permissions::from_mode(0o600))?;
-        fs::rename(&staged, directory.join("config.yml"))?;
+        replace(&directory.join("config.yml"), &with_socket(&original, Some(&self.socket())))?;
         let hosts = directory.join("hosts.yml");
         let target = source.join("hosts.yml");
         if fs::read_link(&hosts).ok().as_deref() != Some(target.as_path()) {
@@ -58,6 +53,24 @@ impl Place {
             fs::rename(&staged, &hosts)?;
         }
         Ok(directory)
+    }
+
+    pub fn claim_user_gh(&self, source: &Path) -> std::io::Result<()> {
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(source)?;
+        let original = fs::read_to_string(source.join("config.yml")).unwrap_or_default();
+        replace(&source.join("config.yml"), &with_socket(&original, Some(&self.socket())))
+    }
+
+    pub fn release_user_gh(&self, source: &Path) -> std::io::Result<bool> {
+        let Ok(original) = fs::read_to_string(source.join("config.yml")) else {
+            return Ok(false);
+        };
+        let ours = format!("http_unix_socket: {}", self.socket().display());
+        if !original.lines().any(|line| line.trim_end() == ours) {
+            return Ok(false);
+        }
+        replace(&source.join("config.yml"), &with_socket(&original, None))?;
+        Ok(true)
     }
 
     pub fn ensure_running(&self) -> Result<(), String> {
@@ -85,7 +98,22 @@ impl Place {
     }
 }
 
-fn source_config() -> PathBuf {
+fn with_socket(original: &str, socket: Option<&Path>) -> String {
+    let mut config: String = original.lines().filter(|line| !line.starts_with("http_unix_socket:")).map(|line| format!("{line}\n")).collect();
+    if let Some(socket) = socket {
+        config.push_str(&format!("http_unix_socket: {}\n", socket.display()));
+    }
+    config
+}
+
+fn replace(path: &Path, text: &str) -> std::io::Result<()> {
+    let staged = path.with_extension(format!("yml.{}", std::process::id()));
+    fs::write(&staged, text)?;
+    fs::set_permissions(&staged, fs::Permissions::from_mode(0o600))?;
+    fs::rename(&staged, path)
+}
+
+pub fn source_config() -> PathBuf {
     let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
     var("GH_CONFIG_DIR")
         .filter(|directory| !directory.ends_with("north-gh-broker/gh-config"))
