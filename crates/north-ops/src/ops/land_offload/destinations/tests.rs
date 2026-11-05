@@ -35,7 +35,7 @@ fn a_host_that_does_not_settle_the_fleet_leaves_a_host_that_builds_no_runtime_ou
 }
 
 fn no_gex45_source() -> DocumentMut {
-    include_str!("../../../fixtures/orchestration-hosts.toml").replace("[hosts.gex45]\n", "[hosts.gex45]\nruntime_source = false\n").parse().unwrap()
+    include_str!("../../runtime/fixtures/orchestration-hosts.toml").replace("[hosts.gex45]\n", "[hosts.gex45]\nruntime_source = false\n").parse().unwrap()
 }
 
 #[test]
@@ -45,6 +45,6 @@ fn a_host_with_runtime_source_false_is_no_pull_source_but_still_a_deploy_and_set
     assert_eq!(super::pull_sources(&cfg, "whiterabbit"), ["nexus"]);
     assert_eq!(deploy(&cfg, "whiterabbit").destinations, ["nexus", "tom@gex45"]);
     assert_eq!(crate::ops::land_offload::pull_sources_in(&cfg, "nexus"), Vec::<String>::new());
-    let unmarked: DocumentMut = include_str!("../../../fixtures/orchestration-hosts.toml").parse().unwrap();
+    let unmarked: DocumentMut = include_str!("../../runtime/fixtures/orchestration-hosts.toml").parse().unwrap();
     assert_eq!(super::pull_sources(&unmarked, "nexus"), ["tom@gex45"]);
 }

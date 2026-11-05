@@ -8,7 +8,7 @@ use super::ledgers_among;
 use crate::ops::land_offload;
 use crate::ops::pacing::placement::gate;
 
-const HOSTS: &str = include_str!("../../fixtures/orchestration-hosts.toml");
+const HOSTS: &str = include_str!("../runtime/fixtures/orchestration-hosts.toml");
 const FAKE_SSH: &str = "cd \"$(dirname \"$0\")\"\nfor word; do [ \"$word\" = -- ] && break; case \"$word\" in -oProxyCommand=*) sh -c \"${word#-oProxyCommand=}\" ;; esac; done\nexit 255\n";
 
 fn planted(root: &Path) -> DocumentMut {

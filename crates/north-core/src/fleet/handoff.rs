@@ -49,8 +49,7 @@ mod tests {
         assert!(due(150_000, 150_000, None) && !due(150_000, 149_999, None));
         assert_eq!(handoff_ctx(), 350_000);
         let watchdog = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/capacity/watchdog/report_command.rs")).unwrap();
-        let hook = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../north-guard/src/guard/worker_handoff.rs")).unwrap();
-        assert!(watchdog.contains("registry(\"handoff_ctx\")") && hook.contains("limits::handoff_ctx()"));
+        assert!(watchdog.contains("registry(\"handoff_ctx\")"));
     }
 
     #[test]

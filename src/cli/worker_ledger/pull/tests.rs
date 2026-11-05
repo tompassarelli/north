@@ -4,7 +4,7 @@ use crate::ops::pacing::placement::gate;
 use std::process::Command;
 use toml_edit::DocumentMut;
 
-const HOSTS: &str = include_str!("../../../../crates/north-ops/src/fixtures/orchestration-hosts.toml");
+const HOSTS: &str = include_str!("../../../../crates/north-ops/src/ops/runtime/fixtures/orchestration-hosts.toml");
 const FAKE_SSH: &str = "cd \"$(dirname \"$0\")\"\nfor word; do [ \"$word\" = -- ] && break; case \"$word\" in -oProxyCommand=*) sh -c \"${word#-oProxyCommand=}\" ;; esac; done\nexit 255\n";
 
 fn options() -> Options {

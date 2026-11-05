@@ -240,9 +240,9 @@ fn control_request(request_id: &str, request: Value) -> String {
 mod tests {
     use super::*;
 
-    const FOLD: &str = include_str!("fixtures/claude-stream/fold.jsonl");
-    const INTERRUPT: &str = include_str!("fixtures/claude-stream/interrupt.jsonl");
-    const RESUME: &str = include_str!("fixtures/claude-stream/resume.jsonl");
+    const FOLD: &str = include_str!("claude_stream/fixtures/fold.jsonl");
+    const INTERRUPT: &str = include_str!("claude_stream/fixtures/interrupt.jsonl");
+    const RESUME: &str = include_str!("claude_stream/fixtures/resume.jsonl");
 
     fn frames(fixture: &str) -> Vec<StreamFrame> {
         fixture

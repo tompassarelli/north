@@ -4,7 +4,7 @@
 //! each launch meets all the lanes started before it.
 use super::*;
 
-const LANES: &str = include_str!("../fixtures/staffing-overlap-2026-11-05.tsv");
+const LANES: &str = include_str!("fixtures/staffing-overlap-2026-11-05.tsv");
 const BEFORE_REGENERATE_DRIVERS: &str = "harness/skills/machine-capacity/scripts/machine-capacity.mjs linguist-generated=true\nstructure.toml merge=set\nharness/machine-bound-tests merge=set\n";
 const WITH_REGENERATE_DRIVERS: &str = "harness/skills/machine-capacity/scripts/machine-capacity.mjs linguist-generated=true\nstructure.toml merge=set\nharness/machine-bound-tests merge=set\ndocs/features.md merge=set\ndocs/rationale/README.md merge=set\n";
 

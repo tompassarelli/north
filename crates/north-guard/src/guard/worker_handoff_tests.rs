@@ -135,3 +135,9 @@ fn worker_handoff_decisions_hold() {
     the_usage_scan_widens_and_skips_unusable_lines();
     a_window_reads_past_the_first_quarter_megabyte();
 }
+
+#[test]
+fn the_hook_nudges_at_the_shared_handoff_point() {
+    let hook = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/guard/worker_handoff.rs")).unwrap();
+    assert!(hook.contains("limits::handoff_ctx()"));
+}

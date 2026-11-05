@@ -4,7 +4,7 @@ use crate::ops::land_offload::pull_sources_in;
 use std::cell::Cell;
 use toml_edit::DocumentMut;
 
-const HOSTS: &str = include_str!("../../../fixtures/orchestration-hosts.toml");
+const HOSTS: &str = include_str!("../fixtures/orchestration-hosts.toml");
 const NEWER: &str = "1111111111111111111111111111111111111111";
 
 fn caught_up_from(cfg: &DocumentMut) -> Option<String> {

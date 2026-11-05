@@ -307,7 +307,7 @@ fn new_uuid() -> NorthResult<String> {
 mod tests {
     use super::*;
 
-    const INTERRUPT: &str = include_str!("fixtures/claude-stream/interrupt.jsonl");
+    const INTERRUPT: &str = include_str!("claude_stream/fixtures/interrupt.jsonl");
     const MESSAGE: &str = "55519047-b95b-4d1f-b79b-51e0ecd3b556";
     const TOOL_RESULT: &str = "5a598f27-ad02-46a1-b28d-ebfd5b03dbcb";
 
