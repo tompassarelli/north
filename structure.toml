@@ -256,6 +256,11 @@ checks = ["shared-mutability", "single-impl-trait"]
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
+path = "crates/north-core/src/fleet/registry/fixtures.rs"
+reason = "Test fixture, doc(hidden) and public since 895bb0e6f so north-tui's tests reach it; a fake session's frames are shared between its reader thread and the test."
+
+[[rust_habits.allow]]
+rule = "shared-mutability"
 path = "crates/north-core/src/fleet/session_host.rs"
 reason = "Activity, the prompt counter and the frame watcher are shared between the stdin writer and stdout reader threads of one session."
 
