@@ -70,8 +70,8 @@ fn promote_replays_each_recorded_round_then_shadows_the_queue_before_it_swaps_th
     let (output, stdout) = promote(&fixture, &[]);
     assert!(output.status.success());
     assert_eq!(lander_link(&fixture), Some(good.clone()));
-    assert_eq!(fixture.read("systemctl"), "--user restart north-land*\n");
-    assert!(stdout.lines().last().unwrap().ends_with("restarted north-land*"));
+    assert_eq!(fixture.read("systemctl"), "", "promotion only swaps the link; each lander drains its after-landing runs and restarts itself");
+    assert!(stdout.lines().last().unwrap().ends_with("each lander whose inputs changed finishes its after-landing runs, exits and restarts on it"));
     let (output, stdout) = promote(&fixture, &[]);
     assert!(output.status.success());
     assert!(stdout.contains(&format!("the lander already runs {}", good.display())));
