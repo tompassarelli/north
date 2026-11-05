@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
@@ -117,6 +117,16 @@ pub fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
 
 pub fn ledger_path() -> NorthResult<PathBuf> {
     ambient_client(unread_fleet()).map(|client| client.ledger()).ok_or_else(|| NorthError::Usage("no home directory".into()))
+}
+
+pub fn forward_to_ledger_host(words: &[&str], input: &[u8]) -> NorthResult<Option<i32>> {
+    let client = ambient_client(unread_fleet()).ok_or_else(|| NorthError::Usage("no home directory".into()))?;
+    client.forward(words, input, &mut io::stderr())
+}
+
+pub fn ask_ledger_host(words: &[&str], input: &[u8]) -> NorthResult<Option<Vec<u8>>> {
+    let client = ambient_client(unread_fleet()).ok_or_else(|| NorthError::Usage("no home directory".into()))?;
+    client.ask(words, input)
 }
 
 fn unread_fleet() -> Arc<dyn outside::FleetView> {
@@ -533,6 +543,42 @@ impl Client {
                 writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
                 Ok(TIMED_OUT)
             }
+        }
+    }
+
+    fn forward(&self, words: &[&str], input: &[u8], err: &mut dyn Write) -> NorthResult<Option<i32>> {
+        if self.var("THREADS_DB").is_some() || !self.remote.exists() {
+            return Ok(None);
+        }
+        let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
+        let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
+        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
+        match execute(&argv, Input::Bytes(input.to_vec()), Stdio::inherit(), SSH_TIMEOUT)? {
+            Some(status) => Ok(Some(code_of(status))),
+            None => {
+                writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
+                Ok(Some(TIMED_OUT))
+            }
+        }
+    }
+
+    fn ask(&self, words: &[&str], input: &[u8]) -> NorthResult<Option<Vec<u8>>> {
+        if self.var("THREADS_DB").is_some() || !self.remote.exists() {
+            return Ok(None);
+        }
+        let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
+        let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
+        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
+        let mut output = tempfile::tempfile()?;
+        match execute(&argv, Input::Bytes(input.to_vec()), Stdio::from(output.try_clone()?), SSH_TIMEOUT)? {
+            Some(status) if status.success() => {
+                let mut answer = Vec::new();
+                output.seek(io::SeekFrom::Start(0))?;
+                output.read_to_end(&mut answer)?;
+                Ok(Some(answer))
+            }
+            Some(status) => Err(NorthError::Refused(format!("{dest} answered exit {}", code_of(status)))),
+            None => Err(NorthError::Refused(format!("{dest} timed out; remote outcome unknown"))),
         }
     }
 
