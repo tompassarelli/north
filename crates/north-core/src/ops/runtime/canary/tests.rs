@@ -69,13 +69,13 @@ fn a_promoted_runtime_that_fails_the_canary_land_check_is_rolled_back_with_an_al
     let fleet = host.fleet(exited(127, "nix develop: exec loop\nbash: nix: command not found\n"));
     assert_eq!(check(&host.layout, "gex45", PROMOTED, &fleet), Verdict::RolledBack);
     assert_eq!(host.current(), layout::link(PREVIOUS));
-    assert!(fs::read_to_string(host.layout.failed()).unwrap().starts_with(&format!("{PROMOTED} rollback ")));
+    assert_eq!(fs::read_to_string(host.layout.failed()).unwrap(), PROMOTED);
     let alarms = fleet.alarms.borrow();
     assert_eq!(alarms.len(), 1);
     assert!(alarms[0].contains("land check `true` on gex45 exited 127"), "{}", alarms[0]);
     assert!(alarms[0].contains("bash: nix: command not found"), "{}", alarms[0]);
     assert!(alarms[0].contains("rolled back to 11111111"), "{}", alarms[0]);
-    assert!(matches!(update::hold::verdict(&host.layout, PROMOTED, true), update::hold::Verdict::Held(_)));
+    assert!(update::held_back(&host.layout, PROMOTED));
     assert!(!host.layout.canaried().exists());
 }
 
