@@ -60,14 +60,20 @@ fn read(path: &Path, key: &str) -> Value {
     fs::read_to_string(path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).map_or(Value::Null, |data| data[key].clone())
 }
 
-pub fn observed_plan(home: &Path, directory: Option<&Path>) -> String {
-    let account = read(&directory.unwrap_or(home).join(".claude.json"), "oauthAccount");
-    let oauth = read(&directory.map_or_else(|| home.join(".claude"), Path::to_path_buf).join(".credentials.json"), "claudeAiOauth");
+/// Claude Code keeps `.claude.json` current and writes the credentials tier only at sign-in, so the account entry wins.
+pub fn rate_limit_tier(config: &Path, credentials: &Path) -> Option<String> {
+    let account = read(config, "oauthAccount");
+    let oauth = read(credentials, "claudeAiOauth");
     let text = |value: &Value, key: &str| value[key].as_str().filter(|text| !text.is_empty()).map(str::to_owned);
-    match text(&account, "organizationRateLimitTier").or_else(|| text(&oauth, "rateLimitTier")).as_deref() {
-        Some("default_claude_max_5x") => "max-5x".into(),
-        Some("default_claude_max_20x") => "max-20x".into(),
-        _ => text(&oauth, "subscriptionType").unwrap_or_else(|| "unknown".into()),
+    let tier = text(&account, "organizationRateLimitTier").or_else(|| text(&oauth, "rateLimitTier"))?;
+    Some(tier.strip_prefix("default_claude_").unwrap_or(&tier).replace('_', "-"))
+}
+
+pub fn observed_plan(home: &Path, directory: Option<&Path>) -> String {
+    let credentials = directory.map_or_else(|| home.join(".claude"), Path::to_path_buf).join(".credentials.json");
+    match rate_limit_tier(&directory.unwrap_or(home).join(".claude.json"), &credentials) {
+        Some(tier) if tier.starts_with("max-") => tier,
+        _ => read(&credentials, "claudeAiOauth")["subscriptionType"].as_str().filter(|text| !text.is_empty()).unwrap_or("unknown").to_owned(),
     }
 }
 

@@ -117,6 +117,10 @@ pub fn fixture() -> Fixture {
             true,
         ),
         (format!("git -C {main} worktree add $UNSET"), true),
+        (format!("git -C {main} worktree add {root}/proj/lanes/x -b x"), true),
+        (format!("git -C {main} worktree add -b x {root}/proj/x"), true),
+        (format!("git -C {main} worktree add /tmp/proj-lane"), true),
+        (format!("git -C {root}/proj/worktrees/main worktree add ../y -b y"), false),
         (
             "cargo test --target-dir /tmp/galileo-target-agent-a".into(),
             false,

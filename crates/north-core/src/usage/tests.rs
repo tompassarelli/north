@@ -525,3 +525,15 @@ fn the_rows_entry_takes_one_provider_and_an_optional_no_refresh_and_nothing_else
     assert_eq!(super::rows_request(&words("--rows")), None);
     assert!(super::handles(&words("--rows gemini")));
 }
+
+#[test]
+fn the_account_tier_outranks_the_tier_the_credentials_kept_from_sign_in() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, credentials) = (dir.path().join(".claude.json"), dir.path().join(".credentials.json"));
+    fs::write(&credentials, r#"{"claudeAiOauth": {"subscriptionType": "max", "rateLimitTier": "default_claude_max_5x"}}"#).unwrap();
+    assert_eq!(super::profiles::rate_limit_tier(&config, &credentials).as_deref(), Some("max-5x"));
+    fs::write(&config, r#"{"oauthAccount": {"organizationRateLimitTier": "default_claude_max_20x"}}"#).unwrap();
+    assert_eq!(super::profiles::rate_limit_tier(&config, &credentials).as_deref(), Some("max-20x"));
+    assert_eq!(super::profiles::observed_plan(dir.path(), Some(dir.path())), "max-20x");
+    assert_eq!(super::profiles::rate_limit_tier(&dir.path().join("none.json"), &dir.path().join("none.json")), None);
+}

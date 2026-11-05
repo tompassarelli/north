@@ -146,7 +146,7 @@ fn classify(
     report.strays += 1;
 }
 
-fn exempt(code: &Path, home: &Path, worktree: &Path) -> bool {
+pub fn exempt(code: &Path, home: &Path, worktree: &Path) -> bool {
     let text = worktree.to_string_lossy();
     let under = |marker: &str| text.split_once(marker).is_some_and(|(_, rest)| !rest.is_empty());
     under("/store-runtime/deployments/")

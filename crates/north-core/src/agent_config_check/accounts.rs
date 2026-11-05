@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -48,10 +47,8 @@ impl Profiles for Machines<'_> {
     }
 
     fn tier(&self, host: &str, path: &str) -> Option<String> {
-        let home = self.local(host)?;
-        let credentials = fs::read_to_string(expand(&home, path).join(".credentials.json")).ok()?;
-        let tier = serde_json::from_str::<serde_json::Value>(&credentials).ok()?["claudeAiOauth"]["rateLimitTier"].as_str()?.to_owned();
-        Some(tier.strip_prefix("default_claude_").unwrap_or(&tier).replace('_', "-"))
+        let directory = expand(&self.local(host)?, path);
+        crate::usage::profiles::rate_limit_tier(&directory.join(".claude.json"), &directory.join(".credentials.json"))
     }
 }
 

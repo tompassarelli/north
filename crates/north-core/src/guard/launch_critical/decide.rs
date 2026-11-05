@@ -108,6 +108,11 @@ impl Policy {
             }
         }
         for call in calls {
+            if call.verb == "worktree"
+                && let Some(refusal) = self.worktree_layout(&call)
+            {
+                return Some(refusal);
+            }
             let decision = if call.verb == "worktree" {
                 self.worktree_decision(&call)
             } else if call.verb == "fetch" || git_read_form(&call.verb, &call.args) {

@@ -86,34 +86,24 @@ impl Policy {
         }
         found
     }
-    pub(super) fn worktree_decision(&self, call: &GitCall) -> Option<(String, String)> {
-        let start = call.args.iter().position(|s| !s.starts_with('-'))?;
-        let sub = call.args[start].as_str();
-        let mut paths = Vec::new();
-        let mut skip = false;
-        let mut literal = false;
-        for arg in &call.args[start + 1..] {
-            if skip {
-                skip = false;
-                continue;
-            }
-            if literal {
-                paths.push(arg);
-                continue;
-            }
-            if arg == "--" {
-                literal = true;
-                continue;
-            }
-            if ["-b", "-B", "--reason"].contains(&arg.as_str()) {
-                skip = true;
-                continue;
-            }
-            if arg.starts_with('-') {
-                continue;
-            }
-            paths.push(arg);
+    pub(super) fn worktree_layout(&self, call: &GitCall) -> Option<String> {
+        let (sub, paths) = worktree_paths(call)?;
+        if sub != "add" {
+            return None;
         }
+        let (project, _) = self.slot(&self.parts(&call.target)?)?;
+        let path = resolve(&self.substitute(paths.first()?, &call.env), &call.target)?;
+        let container = format!("{}/{project}", self.root);
+        let placed = ["worktrees", "pins"].iter().any(|kind| path.strip_prefix(&format!("{container}/{kind}/")).is_some_and(|leaf| !leaf.is_empty()));
+        if placed || crate::lanes::layout_exempt(Path::new(&self.root), Path::new(&self.home), Path::new(&path)) {
+            return None;
+        }
+        Some(format!(
+            "`git worktree add {path}` puts a {project} worktree outside the layout, and every stray fails `north worktree-layout-check` and `north agent-config-check` on this host until someone moves it. A lane goes in {container}/worktrees/SLUG and a pin in {container}/pins/FULL_OBJECT_ID:\n  git -C {container}/main worktree add {container}/worktrees/SLUG -b SLUG"
+        ))
+    }
+    pub(super) fn worktree_decision(&self, call: &GitCall) -> Option<(String, String)> {
+        let (sub, paths) = worktree_paths(call)?;
         if sub == "add" {
             if self
                 .protected(&call.target)
@@ -165,6 +155,22 @@ impl Policy {
         }
         None
     }
+}
+fn worktree_paths(call: &GitCall) -> Option<(&str, Vec<&String>)> {
+    let start = call.args.iter().position(|s| !s.starts_with('-'))?;
+    let (mut paths, mut skip, mut literal) = (Vec::new(), false, false);
+    for arg in &call.args[start + 1..] {
+        if skip {
+            skip = false;
+        } else if literal || !arg.starts_with('-') {
+            paths.push(arg);
+        } else if arg == "--" {
+            literal = true;
+        } else {
+            skip = ["-b", "-B", "--reason"].contains(&arg.as_str());
+        }
+    }
+    Some((call.args[start].as_str(), paths))
 }
 fn short_letters(args: &[String]) -> Vec<char> {
     args.iter()

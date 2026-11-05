@@ -193,7 +193,7 @@ fn selected_base(context: &Context) -> Option<PathBuf> {
     let host = root.filter(|root| root.join("flake.nix").is_file()).unwrap_or(&context.firn);
     let output = Command::new("nix")
         .args(["eval", "--raw", "--no-write-lock-file"])
-        .arg(format!("path:{}#nixosConfigurations.whiterabbit.config.myConfig.modules.codex.configFile", host.display()))
+        .arg(format!("path:{}#nixosConfigurations.{}.config.myConfig.modules.codex.configFile", host.display(), crate::platform::host::name()))
         .output()
         .ok()?;
     output.status.success().then(|| PathBuf::from(String::from_utf8_lossy(&output.stdout).into_owned()))
