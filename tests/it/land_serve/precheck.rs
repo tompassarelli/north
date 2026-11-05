@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use north_landing::land::queue::{self, Ticket};
@@ -101,4 +101,48 @@ fn precheck_falls_back_to_one_batch_when_the_build_slots_cannot_be_prepared() {
     for ticket in &tickets {
         assert_eq!(fixture.verdict(ticket), Some(format!("landed {main}")));
     }
+}
+
+#[test]
+fn a_runtime_change_lets_the_running_precheck_finish_and_land_before_the_lander_exits() {
+    let mut fixture = Fixture::new();
+    git(&fixture.repo, &["config", "landing.slots", "1"]);
+    let link = fixture.root.join("runtime-current");
+    std::os::unix::fs::symlink("gen-1", &link).unwrap();
+    executable(&fixture.trace.join("hook"), ALONE);
+    let a = fixture.lane("a", "a.txt", "a");
+    let b = fixture.lane("b", "b.txt", "b");
+    let (path_a, ticket_a) = fixture.ticket(&a, None);
+    let (path_b, ticket_b) = fixture.ticket(&b, None);
+    queue::write(&path_a, &ticket_a).unwrap();
+    queue::write(&path_b, &ticket_b).unwrap();
+    let command = fixture.command_with(["--repo", fixture.repo.to_str().unwrap()]);
+    let arguments: Vec<String> = command.get_args().map(|argument| argument.to_string_lossy().into_owned()).filter(|argument| argument != "--once").collect();
+    let mut serve = Command::new(env!("CARGO_BIN_EXE_north"));
+    serve.args(&arguments).envs(command.get_envs().filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))).env("NORTH_RUNTIME_LINK", &link);
+    let mut child = serve.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while starts(&fixture, "a").is_empty() {
+        assert!(Instant::now() < deadline, "lane a's precheck never started");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink("gen-2", &link).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "the lander did not exit after the runtime changed");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let output = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    eprintln!("{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(status.code(), Some(0));
+    assert!(!stdout.contains("the check of lane-a stopped"), "the runtime change killed lane a's running precheck: {stdout}");
+    assert!(stdout.contains("finishing 1 lane check(s) already running before exiting"), "{stdout}");
+    assert_eq!(fixture.verdict(&path_a), Some(format!("landed {}", fixture.main())), "lane a's finished precheck lands before the lander exits");
+    assert!(starts(&fixture, "b").is_empty(), "no precheck starts once the runtime changed");
+    assert!(path_b.exists(), "lane b stays queued for the restarted lander");
 }

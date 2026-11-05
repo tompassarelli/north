@@ -90,9 +90,19 @@ pub struct State {
     warned: bool,
     count: usize,
     counted: Option<Instant>,
+    draining: bool,
 }
 
 impl State {
+    pub fn drain(&mut self) -> usize {
+        self.draining = true;
+        self.checking.len()
+    }
+
+    pub fn in_flight(&self) -> usize {
+        self.checking.len()
+    }
+
     fn count(&mut self, lander: &Lander) -> usize {
         if self.counted.is_none_or(|at| at.elapsed() >= SURVEY) {
             self.count = slots(lander);
@@ -392,6 +402,7 @@ pub fn round(lander: &Lander, state: &mut State) -> Result<Option<Round>, String
     let wanted = !state.recheck.is_empty() || queued.iter().any(|(path, _)| !state.tracked(path));
     let paused = if wanted { pause::held(&lander.queue) } else { None };
     if wanted
+        && !state.draining
         && paused.is_none()
         && state.free_slot(count).is_some()
         && let Err(error) = fill(&mut tick, state, count, &queued)

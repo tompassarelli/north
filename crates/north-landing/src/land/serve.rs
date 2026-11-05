@@ -350,9 +350,20 @@ fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     let mut backoff = Backoff::default();
     let mut precheck = precheck::State::default();
+    let mut draining = false;
     loop {
         if retire.load(Ordering::Relaxed) {
-            return 0;
+            if draining && precheck.in_flight() == 0 {
+                return 0;
+            }
+            if !draining {
+                draining = true;
+                let in_flight = precheck.drain();
+                if in_flight == 0 {
+                    return 0;
+                }
+                println!("north land: the live runtime changed; finishing {in_flight} lane check(s) already running before exiting, and starting none");
+            }
         }
         let round = lander.round(&mut precheck);
         if matches!(round, Ok(Round::Progress | Round::Idle | Round::Checking)) {
