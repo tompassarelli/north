@@ -13,6 +13,7 @@ struct Fake {
     units: Vec<String>,
     refuse_pages: bool,
     restarted: RefCell<Vec<String>>,
+    reasons: RefCell<Vec<String>>,
     pages: RefCell<Vec<(String, String)>>,
 }
 
@@ -21,8 +22,9 @@ impl Hands for Fake {
         self.units.iter().any(|known| known == unit)
     }
 
-    fn restart(&self, unit: &str) -> Result<(), String> {
+    fn restart(&self, unit: &str, why: &str) -> Result<(), String> {
         self.restarted.borrow_mut().push(unit.to_owned());
+        self.reasons.borrow_mut().push(why.to_owned());
         Ok(())
     }
 
@@ -71,7 +73,7 @@ impl Fixture {
     }
 
     fn round(&self, at: u64, slots: usize, busy: usize, waiting: usize, problem: Option<&str>) {
-        let observation = Observation { at_micros: at, repo: self.repo.clone(), worktree: self.lander(), slots, busy, waiting, paused: false, problem: problem.map(str::to_owned) };
+        let observation = Observation { at_micros: at, repo: self.repo.clone(), worktree: self.lander(), slots, busy, waiting, paused: false, hosts_full: false, problem: problem.map(str::to_owned) };
         assert!(watchdog::observe(&self.queue, observation, false).unwrap());
     }
 
@@ -109,6 +111,7 @@ fn a_check_slot_idle_while_lanes_wait_for_two_rounds_restarts_the_repository_loo
     assert_eq!(invariants(&report), vec![Invariant::IdleSlot]);
     assert_eq!(report.violations[0].repairs, vec![Repair::RestartedLoop("north-land@wisp.service".to_owned())]);
     assert_eq!(*hands.restarted.borrow(), vec!["north-land@wisp.service".to_owned()]);
+    assert!(hands.reasons.borrow()[0].contains("2 of 2 check slots idled while 1 lanes waited"), "{:?}", hands.reasons.borrow());
     assert!(matches!(&report.pages[..], [(Invariant::IdleSlot, Page::Sent(text))] if text.contains("2 of 2 check slots idled while 1 lanes waited")));
     assert_eq!(hands.pages.borrow()[0].0, "lander-lead");
     assert!(watchdog::rounds(&fixture.queue).is_empty());
@@ -140,7 +143,7 @@ fn an_idle_slot_for_one_round_a_full_house_or_a_paused_queue_holds_the_invariant
     fixture.round(NOW - 1_000_000, 2, 0, 0, None);
     assert!(fixture.patrol(NOW, &hands).clean());
     for at in [NOW, NOW + 1] {
-        let observation = Observation { at_micros: at, repo: fixture.repo.clone(), worktree: fixture.lander(), slots: 2, busy: 0, waiting: 3, paused: true, problem: None };
+        let observation = Observation { at_micros: at, repo: fixture.repo.clone(), worktree: fixture.lander(), slots: 2, busy: 0, waiting: 3, paused: true, hosts_full: false, problem: None };
         watchdog::observe(&fixture.queue, observation, false).unwrap();
     }
     assert!(fixture.patrol(NOW + 2, &hands).clean());
@@ -292,4 +295,30 @@ fn the_standalone_command_requires_once_and_passes_a_clean_root() {
     let root = fixture.root.to_str().unwrap().to_owned();
     assert_eq!(north_landing::land::run(&["watchdog".to_owned(), "--queue-root".to_owned(), root.clone()]), 64);
     assert_eq!(north_landing::land::run(&["watchdog".to_owned(), "--once".to_owned(), "--queue-root".to_owned(), root]), 0);
+}
+
+#[test]
+fn slots_idle_only_because_every_check_host_is_full_do_not_restart_the_loop() {
+    let fixture = Fixture::new();
+    let hands = Fake { units: vec!["north-land@wisp.service".to_owned()], ..Fake::default() };
+    fixture.lane(NOW - MINUTE, "lane/a");
+    for at in [NOW - 4_000_000, NOW - 2_000_000] {
+        let observation = Observation { at_micros: at, repo: fixture.repo.clone(), worktree: fixture.lander(), slots: 8, busy: 7, waiting: 4, paused: false, hosts_full: true, problem: None };
+        assert!(watchdog::observe(&fixture.queue, observation, false).unwrap());
+    }
+    assert!(fixture.patrol(NOW, &hands).clean());
+    assert!(hands.restarted.borrow().is_empty());
+}
+
+#[test]
+fn an_urgent_lane_is_aged_from_when_its_ticket_was_written_not_its_ordering_prefix() {
+    let fixture = Fixture::new();
+    let hands = Fake::default();
+    let path = fixture.queue.join(queue::file_name(1_700_000_000_000_033, "lane/urgent"));
+    let ticket = Ticket { origin: "git@example.com:o/wisp.git".to_owned(), root: fixture.repo.clone(), host: "h".to_owned(), branch: "lane/urgent".to_owned(), head: "0".repeat(40), ..Ticket::default() };
+    queue::write(&path, &ticket).unwrap();
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_micros(NOW - 5 * MINUTE);
+    std::fs::File::options().write(true).open(&path).unwrap().set_modified(written).unwrap();
+    assert!(fixture.patrol(NOW, &hands).clean());
+    assert!(path.exists());
 }

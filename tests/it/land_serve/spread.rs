@@ -75,3 +75,29 @@ fn prechecks_spread_over_hosts() {
     assert_eq!(fixture.verdict(&tickets[4]), Some(format!("landed {}", fixture.main())));
     assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from c", "change from d", "change from e"]);
 }
+
+#[test]
+fn full_check_hosts_do_not_trip_the_idle_slot_watchdog() {
+    let mut fixture = Fixture::new();
+    git(&fixture.repo, &["config", "landing.slots", "8"]);
+    git(&fixture.repo, &["config", "land.runner", "build-host"]);
+    executable(&fixture.trace.join("north-hook"), SPREAD_NORTH);
+    executable(&fixture.trace.join("hook"), SPREAD_CHECK);
+    let names = ["a", "b", "c", "d", "e", "f", "g"];
+    let tickets: Vec<PathBuf> = names
+        .iter()
+        .map(|name| {
+            let lane = fixture.lane(name, &format!("{name}.txt"), name);
+            fixture.enqueue(&lane, None)
+        })
+        .collect();
+    let output = fixture.serve();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    eprintln!("{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success());
+    assert!(stdout.contains("no check host has room for another"), "{stdout}");
+    assert!(!stdout.contains("violated (a)") && !stdout.contains("watchdog: restarting"), "{stdout}");
+    for (ticket, name) in tickets.iter().zip(names) {
+        assert!(fixture.verdict(ticket).is_some_and(|verdict| verdict.starts_with("landed ")), "lane {name} has no landed verdict");
+    }
+}

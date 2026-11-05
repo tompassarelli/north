@@ -108,6 +108,10 @@ impl State {
         self.checking.len()
     }
 
+    pub fn hosts_full(&self) -> bool {
+        self.no_room.is_some()
+    }
+
     pub fn slots(&self) -> usize {
         self.count
     }

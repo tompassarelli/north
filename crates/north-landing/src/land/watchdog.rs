@@ -41,6 +41,8 @@ pub struct Observation {
     pub waiting: usize,
     #[serde(default)]
     pub paused: bool,
+    #[serde(default)]
+    pub hosts_full: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
 }
@@ -149,7 +151,7 @@ impl fmt::Display for Report {
 
 pub trait Hands {
     fn unit_exists(&self, unit: &str) -> bool;
-    fn restart(&self, unit: &str) -> Result<(), String>;
+    fn restart(&self, unit: &str, why: &str) -> Result<(), String>;
     fn page(&self, session: &str, text: &str) -> bool;
 }
 
@@ -160,7 +162,9 @@ impl Hands for Host {
         Command::new("systemctl").args(["--user", "cat", unit]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
     }
 
-    fn restart(&self, unit: &str) -> Result<(), String> {
+    fn restart(&self, unit: &str, why: &str) -> Result<(), String> {
+        println!("north land watchdog: restarting {unit}: {why}");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
         let output = Command::new("systemctl").args(["--user", "restart", unit]).stdin(Stdio::null()).output().map_err(|error| format!("systemctl: {error}"))?;
         if output.status.success() { Ok(()) } else { Err(format!("systemctl --user restart {unit}: {}", String::from_utf8_lossy(&output.stderr).trim())) }
     }
@@ -231,8 +235,9 @@ fn inspect(queue: &Path, now: u64, hands: &dyn Hands) -> Result<Vec<Violation>, 
             reset = true;
         }
         if let Some(detail) = idle(&rounds) {
-            let repairs = vec![restart(&latest.repo, hands, &mut restarted)];
-            found.push(Violation { invariant: Invariant::IdleSlot, queue: queue.to_owned(), detail: format!("{}: {detail}", latest.repo.display()), repairs });
+            let detail = format!("{}: {detail}", latest.repo.display());
+            let repairs = vec![restart(&latest.repo, &format!("{}: {detail}", Invariant::IdleSlot.statement()), hands, &mut restarted)];
+            found.push(Violation { invariant: Invariant::IdleSlot, queue: queue.to_owned(), detail, repairs });
             reset = true;
         }
         if reset {
@@ -240,7 +245,9 @@ fn inspect(queue: &Path, now: u64, hands: &dyn Hands) -> Result<Vec<Violation>, 
         }
     }
     for (path, ticket) in queue::pending(queue).map_err(|error| error.to_string())? {
-        let age = now.saturating_sub(u64::try_from(queue::queued_micros(&path)).unwrap_or(u64::MAX));
+        let named = u64::try_from(queue::queued_micros(&path)).unwrap_or(u64::MAX);
+        let written = fs::metadata(&path).and_then(|metadata| metadata.modified()).ok().and_then(|modified| modified.duration_since(UNIX_EPOCH).ok()).map_or(0, |since| u64::try_from(since.as_micros()).unwrap_or(u64::MAX));
+        let age = now.saturating_sub(named.max(written));
         if age <= STALE_MICROS {
             continue;
         }
@@ -263,7 +270,7 @@ fn repeated(rounds: &[Observation]) -> Option<String> {
 
 fn idle(rounds: &[Observation]) -> Option<String> {
     let recent = rounds.get(rounds.len().checked_sub(IDLE_ROUNDS)?..)?;
-    if !recent.iter().all(|round| !round.paused && round.busy < round.slots && round.waiting > 0) {
+    if !recent.iter().all(|round| !round.paused && !round.hosts_full && round.busy < round.slots && round.waiting > 0) {
         return None;
     }
     let last = recent.last()?;
@@ -281,7 +288,7 @@ fn repair_error(queue: &Path, latest: &Observation, problem: &str, reason: &str,
     }
     let unit = unit(&latest.repo);
     if hands.unit_exists(&unit) {
-        return Ok(vec![restart(&latest.repo, hands, restarted)]);
+        return Ok(vec![restart(&latest.repo, reason, hands, restarted)]);
     }
     let pending = queue::pending(queue).map_err(|error| error.to_string())?;
     if pending.is_empty() {
@@ -308,7 +315,7 @@ pub fn unit(repo: &Path) -> String {
     format!("north-land@{}.service", project.unwrap_or_default().to_string_lossy())
 }
 
-fn restart(repo: &Path, hands: &dyn Hands, restarted: &mut BTreeSet<String>) -> Repair {
+fn restart(repo: &Path, why: &str, hands: &dyn Hands, restarted: &mut BTreeSet<String>) -> Repair {
     let unit = unit(repo);
     if restarted.contains(&unit) {
         return Repair::AlreadyRestarted(unit);
@@ -316,7 +323,7 @@ fn restart(repo: &Path, hands: &dyn Hands, restarted: &mut BTreeSet<String>) -> 
     if !hands.unit_exists(&unit) {
         return Repair::Nothing(format!("no {unit} unit to restart"));
     }
-    match hands.restart(&unit) {
+    match hands.restart(&unit, why) {
         Ok(()) => {
             restarted.insert(unit.clone());
             Repair::RestartedLoop(unit)
@@ -419,6 +426,7 @@ pub fn after_round(lander: &Lander, state: &precheck::State, round: &Result<Roun
         busy: state.in_flight(),
         waiting: state.waiting(&queued),
         paused: state.draining() || pause::held(&lander.queue).is_some(),
+        hosts_full: state.hosts_full(),
         problem,
     };
     let at = observation.at_micros;
