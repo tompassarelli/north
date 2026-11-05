@@ -127,12 +127,6 @@ fn tick(body: &str, box_text: &str) -> Change {
     }
 }
 
-pub trait Github {
-    fn body(&self, issue: &Issue) -> Result<String, String>;
-    fn set_body(&self, issue: &Issue, body: &str) -> Result<(), String>;
-    fn close(&self, issue: &Issue, comment: &str) -> Result<(), String>;
-}
-
 pub struct Gh {
     program: PathBuf,
     limit: Duration,
@@ -141,10 +135,6 @@ pub struct Gh {
 impl Gh {
     pub fn new(limit: Duration) -> Gh {
         Gh { program: PathBuf::from("gh"), limit }
-    }
-
-    pub fn at(program: impl Into<PathBuf>, limit: Duration) -> Gh {
-        Gh { program: program.into(), limit }
     }
 
     fn run(&self, arguments: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
@@ -156,22 +146,20 @@ impl Gh {
         }
         Err(format!("gh {verb}: {}", String::from_utf8_lossy(&output.stderr).trim()))
     }
-}
 
-impl Github for Gh {
-    fn body(&self, issue: &Issue) -> Result<String, String> {
+    pub fn body(&self, issue: &Issue) -> Result<String, String> {
         let number = issue.number.to_string();
         let stdout = self.run(&["issue", "view", &number, "--repo", &issue.repo, "--json", "body", "--jq", ".body"], None)?;
         let text = String::from_utf8(stdout).map_err(|error| error.to_string())?;
         Ok(text.strip_suffix('\n').unwrap_or(&text).to_owned())
     }
 
-    fn set_body(&self, issue: &Issue, body: &str) -> Result<(), String> {
+    pub fn set_body(&self, issue: &Issue, body: &str) -> Result<(), String> {
         let number = issue.number.to_string();
         self.run(&["issue", "edit", &number, "--repo", &issue.repo, "--body-file", "-"], Some(body.as_bytes())).map(|_| ())
     }
 
-    fn close(&self, issue: &Issue, comment: &str) -> Result<(), String> {
+    pub fn close(&self, issue: &Issue, comment: &str) -> Result<(), String> {
         let number = issue.number.to_string();
         self.run(&["issue", "close", &number, "--repo", &issue.repo, "--comment", comment], None).map(|_| ())
     }
@@ -184,7 +172,7 @@ pub enum Outcome {
     Refused(String),
 }
 
-pub fn write(github: &dyn Github, issue: &Issue, edit: &Edit, deadline: Instant) -> Result<Outcome, String> {
+pub fn write(github: &Gh, issue: &Issue, edit: &Edit, deadline: Instant) -> Result<Outcome, String> {
     for _ in 0..ATTEMPTS {
         if Instant::now() >= deadline {
             return Err(format!("{issue}: the deadline passed before the edit was verified"));
@@ -202,7 +190,7 @@ pub fn write(github: &dyn Github, issue: &Issue, edit: &Edit, deadline: Instant)
     Err(format!("{issue}: the edit did not stay after {ATTEMPTS} attempts (a concurrent writer replaced the body, or a write was dropped)"))
 }
 
-pub fn close_when_done(github: &dyn Github, issue: &Issue, edit: &Edit) -> Result<bool, String> {
+pub fn close_when_done(github: &Gh, issue: &Issue, edit: &Edit) -> Result<bool, String> {
     let Edit::Land { sha, .. } = edit else { return Ok(false) };
     if !landing::closable(&github.body(issue)?) {
         return Ok(false);
@@ -273,7 +261,7 @@ pub struct Drained {
     pub failure: Option<String>,
 }
 
-pub fn drain(directory: &Path, github: &dyn Github, limit: Duration) -> io::Result<Drained> {
+pub fn drain(directory: &Path, github: &Gh, limit: Duration) -> io::Result<Drained> {
     let deadline = Instant::now() + limit;
     let entries = pending(directory)?;
     let mut drained = Drained::default();
@@ -313,6 +301,6 @@ pub fn drain(directory: &Path, github: &dyn Github, limit: Duration) -> io::Resu
     Ok(drained)
 }
 
-pub fn drain_in_background(directory: PathBuf, github: impl Github + Send + 'static, limit: Duration) -> JoinHandle<io::Result<Drained>> {
+pub fn drain_in_background(directory: PathBuf, github: Gh, limit: Duration) -> JoinHandle<io::Result<Drained>> {
     std::thread::spawn(move || drain(&directory, &github, limit))
 }

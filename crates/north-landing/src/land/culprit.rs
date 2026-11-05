@@ -44,12 +44,6 @@ enum Outcome<'a> {
     Paused(String),
 }
 
-trait Bench {
-    fn room(&self, wanted: usize) -> usize;
-    fn check(&self, sets: &[&[Entry]]) -> Result<Vec<Checked>, String>;
-    fn moved(&self) -> Result<bool, String>;
-}
-
 struct Offload<'a> {
     lander: &'a Lander,
     base: &'a str,
@@ -152,7 +146,7 @@ fn check_wave(lander: &Lander, base: &str, wave: &[&[Entry]], logs: &Path) -> Re
     Ok(finished.into_iter().flatten().collect())
 }
 
-impl Bench for Offload<'_> {
+impl Offload<'_> {
     fn room(&self, wanted: usize) -> usize {
         let (width, slots) = wave_size(&self.lander.repo, wanted);
         if let Some((free, total)) = slots.filter(|_| width < wanted) {
@@ -217,7 +211,7 @@ fn boundary<'a>(included: &[Entry<'a>], lanes: usize, known: &mut BTreeMap<usize
     }
 }
 
-fn interaction<'a>(bench: &impl Bench, included: &[Entry<'a>], first: Checked, together: Checked, strikes: &mut Strikes) -> Result<Outcome<'a>, String> {
+fn interaction<'a>(bench: &Offload, included: &[Entry<'a>], first: Checked, together: Checked, strikes: &mut Strikes) -> Result<Outcome<'a>, String> {
     let lanes = included.len();
     let mut known = BTreeMap::from([(1, first), (lanes, together)]);
     let mut widest = lanes - 1;
@@ -244,7 +238,7 @@ fn interaction<'a>(bench: &impl Bench, included: &[Entry<'a>], first: Checked, t
     }
 }
 
-fn find<'a>(bench: &impl Bench, included: &[Entry<'a>], together: Checked, strikes: &mut Strikes) -> Result<Outcome<'a>, String> {
+fn find<'a>(bench: &Offload, included: &[Entry<'a>], together: Checked, strikes: &mut Strikes) -> Result<Outcome<'a>, String> {
     println!("north land: {} lanes refused together; checking each alone at once to find the culprit", included.len());
     let singles: Vec<&[Entry]> = included.chunks(1).collect();
     let mut alone = Vec::new();

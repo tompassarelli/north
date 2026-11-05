@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 
-use crate::issue_body::{Gh, Github, Issue, CALL_LIMIT};
+use crate::issue_body::{Gh, Issue, CALL_LIMIT};
 use crate::land::after::tick::{self, Tick};
 
 const SHORT_SHA: usize = 12;
@@ -45,7 +45,7 @@ pub fn gather_trailers<'a>(messages: &[&'a str]) -> (Vec<String>, Vec<&'a str>) 
     (bodies, trailers)
 }
 
-pub fn scan(directory: &Path, base: &str, head: &str, github: &dyn Github, out: &mut impl Write) -> u8 {
+pub fn scan(directory: &Path, base: &str, head: &str, github: &Gh, out: &mut impl Write) -> u8 {
     let commits = match tick::commits(directory, base, head) {
         Ok(commits) => commits,
         Err(error) => {

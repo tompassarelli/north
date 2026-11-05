@@ -23,13 +23,6 @@ pub struct Incident {
     pub desktop: bool,
 }
 
-pub trait Outbox {
-    fn send(&self, to: &str, text: &str) -> bool;
-    fn notify(&self, text: &str);
-    fn lead_of(&self, session: &str) -> Option<String>;
-    fn is_working(&self, session: &str) -> bool;
-}
-
 #[derive(Default)]
 pub struct Fleet {
     sessions: OnceCell<Vec<Value>>,
@@ -42,28 +35,26 @@ impl Fleet {
             listed.and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok()).and_then(|value| value.as_array().cloned()).unwrap_or_default()
         })
     }
-}
 
-impl Outbox for Fleet {
-    fn send(&self, to: &str, text: &str) -> bool {
+    pub fn send(&self, to: &str, text: &str) -> bool {
         Command::new("north").args(["fleet", "send", "--from", "service:north-land-watch", to, text]).status().is_ok_and(|status| status.success())
     }
 
-    fn notify(&self, text: &str) {
+    pub fn notify(&self, text: &str) {
         let _ = Command::new("notify-send").args(["--urgency=critical", "north watch", text]).status();
     }
 
-    fn lead_of(&self, session: &str) -> Option<String> {
+    pub fn lead_of(&self, session: &str) -> Option<String> {
         let found = self.sessions().iter().find(|entry| entry["name"].as_str() == Some(session))?;
         Some(found["parent"].as_str().filter(|parent| *parent != PROXY).unwrap_or(session).to_owned())
     }
 
-    fn is_working(&self, session: &str) -> bool {
+    pub fn is_working(&self, session: &str) -> bool {
         self.sessions().iter().find(|entry| entry["name"].as_str() == Some(session)).is_some_and(|entry| matches!(entry["status"].as_str(), Some("working" | "starting")))
     }
 }
 
-fn recipients(owner: Option<&str>, outbox: &dyn Outbox) -> Vec<String> {
+fn recipients(owner: Option<&str>, outbox: &Fleet) -> Vec<String> {
     let mut to = vec![PROXY.to_owned()];
     if let Some(lead) = owner.map(|owner| outbox.lead_of(owner).unwrap_or_else(|| owner.to_owned()))
         && !to.contains(&lead)
@@ -74,7 +65,7 @@ fn recipients(owner: Option<&str>, outbox: &dyn Outbox) -> Vec<String> {
     to
 }
 
-fn send_all(to: &[String], text: &str, outbox: &dyn Outbox, lines: &mut Vec<String>) {
+fn send_all(to: &[String], text: &str, outbox: &Fleet, lines: &mut Vec<String>) {
     for recipient in to {
         let sent = outbox.send(recipient, text);
         lines.push(format!("{} -> {recipient}: {text}", if sent { "sent" } else { "NOT sent" }));
@@ -85,7 +76,7 @@ pub fn load(path: &Path) -> BTreeMap<String, Incident> {
     fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
 }
 
-pub fn deliver(path: &Path, alerts: &[Alert], unavailable: &[String], now: u64, outbox: &dyn Outbox) -> Vec<String> {
+pub fn deliver(path: &Path, alerts: &[Alert], unavailable: &[String], now: u64, outbox: &Fleet) -> Vec<String> {
     let mut incidents = load(path);
     let mut lines = Vec::new();
     for alert in alerts {
@@ -105,7 +96,7 @@ pub fn deliver(path: &Path, alerts: &[Alert], unavailable: &[String], now: u64, 
     lines
 }
 
-fn step(incidents: &mut BTreeMap<String, Incident>, alert: &Alert, now: u64, outbox: &dyn Outbox, lines: &mut Vec<String>) {
+fn step(incidents: &mut BTreeMap<String, Incident>, alert: &Alert, now: u64, outbox: &Fleet, lines: &mut Vec<String>) {
     let to = recipients(alert.owner.as_deref(), outbox);
     let entry = incidents.entry(alert.key.clone());
     let incident = match entry {
