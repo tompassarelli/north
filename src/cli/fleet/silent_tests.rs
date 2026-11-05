@@ -103,9 +103,9 @@ async fn a_child_whose_host_ends_with_a_background_task_still_out_tells_its_pare
     config.runtime[2] = config.runtime[2].replacen("; while read", &format!("; echo '{task}'; while read"), 1);
     let sink = Arc::new(Recorded::default());
     let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), root.path().join("worker"));
-    let host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
+    let (host, mut frames) = observed(&config, watch);
     host.end_with_host_signal();
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    read_lines(&mut frames, 3).await;
     rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::Term).unwrap();
     tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
     let posted = sink.1.lock().unwrap().clone();
