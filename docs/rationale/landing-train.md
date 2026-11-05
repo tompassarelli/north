@@ -1189,4 +1189,23 @@ lander did not see.
 
 ### Measured after
 
-Recorded below from the lander's journal once this change is the live runtime (north#633).
+Runtime 157baa951 (precheck removed, after run leased and offloaded) was promoted to the live lander
+at 4:14 AM on 2026-11-06 with `north land promote --shadow-minutes 1`; the lander's journal lines
+`candidate X carries N lanes ... checking it` and `(branch): landed X` give the time from the lander
+picking up the queue to the push having reached origin/main (the landed line is written after the
+push and the record write). Eleven consecutive real north landings, one lane each:
+
+- 4:15:03 to 4:15:10 (7 s), 4:15:22 to 4:15:28 (6 s), 4:16:12 to 4:16:19 (7 s), 4:16:34 to 4:16:40 (6 s),
+  4:17:15 to 4:17:21 (6 s), 4:18:19 to 4:18:25 (6 s), 4:18:42 to 4:18:50 (8 s), 4:19:41 to 4:19:49 (8 s),
+  4:20:58 to 4:21:04 (6 s), 4:23:02 to 4:23:08 (6 s), 4:23:50 to 4:23:57 (7 s).
+
+Before the change the same journal showed `checks alone on main@...` prechecks of 10 s to several
+minutes plus minutes of `no check host has room` waits per lane.
+
+Finding from the first hour: with one lane the culprit is the lane, but main was already red from
+an earlier commit (the test cull deleted fixtures a feature line cited), so the lander reverted
+fast-verify-4 and fast-verify-5 twice over innocently. The fix, landed as 8f51ede07, probes the base
+once before blaming the first landed lane and blames nobody when the base is red too; the lander
+runs it from 4:25 AM.
+
+Batch of three or more lanes: recorded in the paragraph below once measured.
