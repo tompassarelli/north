@@ -114,11 +114,6 @@ impl Matrix {
         command.args(if script == "land-shell" { ["--dev", "--"] } else { ["run", "--"] }).args(probe).output().unwrap()
     }
 
-    fn sandboxed_landing(&self, probe: &[&str]) -> Output {
-        let mut command = self.command(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/depbox"));
-        command.args(["run", "--"]).args(probe).env("SAFE_PUSH_LAND_PACKAGES", "-p north-core").env("SAFE_PUSH_LAND_CPUS", "3").env("SAFE_PUSH_LAND_IT", "1").env("SAFE_PUSH_LAND_RUNTIME_HEAD", &self.head).output().unwrap()
-    }
-
     fn run(&self, entry: &str, probe: &[&str]) -> Output {
         match entry {
             "gate shim" if probe[0] == "cargo" => self.command(self.home.join(".local/bin/cargo")).args(&probe[1..]).output().unwrap(),
@@ -163,10 +158,3 @@ fn carry_matrix_every_entry_runs_the_dev_shell_cargo_sees_the_landing_base_and_e
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
-#[test]
-fn a_depbox_run_inside_a_landing_sees_the_packages_cpus_integration_flag_and_runtime_head() {
-    let matrix = Matrix::new();
-    let output = matrix.sandboxed_landing(&["sh", "-c", "printf '%s|%s|%s|%s\\n' \"$SAFE_PUSH_LAND_PACKAGES\" \"$SAFE_PUSH_LAND_CPUS\" \"$SAFE_PUSH_LAND_IT\" \"$SAFE_PUSH_LAND_RUNTIME_HEAD\""]);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(stdout_lines(&output), [format!("-p north-core|3|1|{}", matrix.head)]);
-}

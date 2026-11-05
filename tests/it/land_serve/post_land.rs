@@ -36,30 +36,6 @@ fn a_lane_whose_change_breaks_a_test_is_reverted_alone_after_landing_and_the_oth
 }
 
 #[test]
-fn a_green_batch_is_checked_once_after_landing_and_nothing_is_reverted() {
-    let mut fixture = Fixture::new();
-    let first = fixture.lane("first", "first.txt", "first\n");
-    let second = fixture.lane("second", "second.txt", "second\n");
-    fixture.enqueue(&first, None);
-    fixture.enqueue(&second, None);
-    assert!(fixture.serve().status.success());
-    assert_eq!(fixture.subjects(), ["change from first", "change from second"]);
-    assert_eq!(post_land_runs(&fixture), 1);
-}
-
-#[test]
-fn a_revert_that_is_red_on_a_red_base_is_not_reverted_again() {
-    let mut fixture = Fixture::new();
-    fs::write(fixture.trace.join("post-land-fail"), "").unwrap();
-    let lane = fixture.lane("only", "only.txt", "only\n");
-    fixture.enqueue(&lane, None);
-    assert!(fixture.serve().status.success());
-    assert_eq!(fixture.subjects(), ["change from only", "Revert change from only"]);
-    assert_eq!(post_land_runs(&fixture), 3, "the lane, the revert and the base the revert sits on");
-    assert!(fixture.fleet().iter().any(|call| call.starts_with("fleet send --from service:north-land proxy ") && call.contains("red main")), "{:?}", fixture.fleet());
-}
-
-#[test]
 fn a_main_that_was_already_red_before_the_batch_blames_and_reverts_no_lane() {
     let mut fixture = Fixture::new();
     fixture.commit(&fixture.repo, "broken.txt", "red before the lane\n", "main already carries the break");

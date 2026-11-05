@@ -13,7 +13,6 @@ const EMBEDDED: &[&str] = &[
     "harness/loops.toml",
     "harness/merge-sets.toml",
     "harness/policy-owners.toml",
-    "tests/fixtures/capacity-unseen-pressure.recorded.json",
     "harness/skills/machine-capacity/scripts/capacity-run-queue-overload.recorded.json",
 ];
 

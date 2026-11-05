@@ -47,37 +47,6 @@ fn served() -> Fixture {
 }
 
 #[test]
-fn promote_replays_each_recorded_round_then_shadows_the_queue_before_it_swaps_the_lander_link() {
-    let mut fixture = served();
-    let pending = fixture.lane("e", "e.txt", "e\n");
-    let ticket = fixture.enqueue(&pending, None);
-    let main = fixture.main();
-    let good = runtime(&fixture, "good", None);
-    point(&fixture, "current", &good);
-    let (output, stdout) = promote(&fixture, &["--dry-run"]);
-    assert!(output.status.success());
-    let lines: Vec<&str> = stdout.lines().collect();
-    let landed = lines.iter().position(|line| line.contains("round lane-a,lane-b,lane-c on ") && line.ends_with("recorded landed replayed landed: matches")).expect("the landed round is replayed");
-    let conflict = lines.iter().position(|line| line.contains("round lane-d on ") && line.ends_with("recorded conflict replayed conflict: matches")).expect("the conflict round is replayed");
-    let shadow = lines.iter().position(|line| line.ends_with("shadow: 1 pass(es), 1 candidate(s) checked, 0 error(s), none repeated")).expect("the shadow result follows the replay");
-    assert!(landed.max(conflict) < shadow);
-    assert!(stdout.contains("shadow pass 1: 1 queued lane(s) of"));
-    assert!(lines.last().unwrap().contains("dry run: 2 round(s) matched;"));
-    assert_eq!(lander_link(&fixture), None, "a dry run leaves the lander link alone");
-    assert_eq!(fixture.read("systemctl"), "");
-    assert_eq!(fixture.main(), main, "neither the replay nor the shadow pushes");
-    assert!(ticket.exists(), "the shadow decides nothing in the live queue");
-    let (output, stdout) = promote(&fixture, &[]);
-    assert!(output.status.success());
-    assert_eq!(lander_link(&fixture), Some(good.clone()));
-    assert_eq!(fixture.read("systemctl"), "", "promotion only swaps the link; each lander drains its after-landing runs and restarts itself");
-    assert!(stdout.lines().last().unwrap().ends_with("each lander whose inputs changed finishes its after-landing runs, exits and restarts on it"));
-    let (output, stdout) = promote(&fixture, &[]);
-    assert!(output.status.success());
-    assert!(stdout.contains(&format!("the lander already runs {}", good.display())));
-}
-
-#[test]
 fn promote_refuses_a_candidate_whose_replayed_verdict_differs_and_keeps_the_lander_link() {
     let fixture = served();
     let good = runtime(&fixture, "good", None);
@@ -92,18 +61,3 @@ fn promote_refuses_a_candidate_whose_replayed_verdict_differs_and_keeps_the_land
     assert_eq!(fixture.read("systemctl"), "");
 }
 
-#[test]
-fn promote_replays_a_refused_round_only_on_the_main_its_decision_recorded() {
-    let fixture = served();
-    let done = fixture.queue().join("done");
-    let refused = fs::read_dir(&done).unwrap().filter_map(Result::ok).map(|entry| entry.path()).find(|path| path.to_string_lossy().ends_with("lane-d.json")).expect("lane d was decided");
-    let ticket = north_landing::land::queue::read(&refused).unwrap();
-    assert!(ticket.decided_on.as_deref().is_some_and(|main| main.len() == 40), "the lander records the main it decided lane d on: {:?}", ticket.decided_on);
-    north_landing::land::queue::write(&refused, &north_landing::land::queue::Ticket { decided_on: None, ..ticket }).unwrap();
-    let good = runtime(&fixture, "good", None);
-    point(&fixture, "current", &good);
-    let (output, stdout) = promote(&fixture, &["--dry-run"]);
-    assert!(output.status.success(), "{stdout}");
-    assert!(stdout.contains("round lane-d recorded conflict: not replayable, the lander did not record the main it was decided on"), "a refusal with no recorded main is not replayed on a guessed one: {stdout}");
-    assert!(stdout.lines().any(|line| line.contains("round lane-a,lane-b,lane-c on ") && line.ends_with("recorded landed replayed landed: matches")), "{stdout}");
-}

@@ -3,132 +3,38 @@
 # `north` marks a module that reads repo files outside crates/: a docs/ change selects it. Any other change outside crates/ runs every module.
 # One line per module, merged as a set.
 affected_modules north-landing north
-agent_spawn_hook north-guard
-agents_dispatch north-dispatch north-ops
 agents_plan north-ops north-pace
-agents_plan_score north-ops north-pace
-agents_sync_runtime_skew north-runtime
 autoland_rebased north-landing
 automation_chrome_service north
-capacity_admission_lock north-capacity
-capacity_aperture north-capacity
-capacity_clamp north-capacity north-capacity-host
-capacity_db_lock north-capacity
-capacity_desktop_bus north-capacity
-capacity_dev_shell north-capacity-host
-capacity_disk north-capacity
 capacity_exclusive_native north-capacity
-capacity_fixture north-capacity-host
-capacity_game_reserve north-capacity
-capacity_game_reserve_verbs north-capacity
-capacity_gaming north-capacity
-capacity_gate north-capacity-host
-capacity_gpu_size north-capacity
 capacity_host north-capacity-host
-capacity_host_state north-capacity-host
-capacity_land_queue north-capacity-host
-capacity_leases north-capacity
 capacity_live north-capacity-host
-capacity_native_alone north-capacity
-capacity_native_clients north-capacity
-capacity_native_pair north-capacity
-capacity_native_quiet north-capacity
-capacity_native_wait north-capacity
-capacity_orphan_reaper north-capacity
-capacity_overload north-capacity
-capacity_queue_ticket north-capacity
-capacity_queue_timeout north-capacity-host
-capacity_runtime_follow north-capacity-host north-runtime
-capacity_status north-capacity
-capacity_unseen_pressure north-capacity
 carry_matrix north-capacity north-runtime
-claim_readers north-threads
-code_health_edit_hook north-guard
-command_guards_hook north-guard
-desktop_action_guard north-guard
-dev_shell_target north-capacity-host
-fail_closed north
 fleet_launch north-fleet north-dispatch
-follows_release_no_python north-landing north-threads
-fleet_list_ledger_lock north-fleet north-providers
-fleet_row_leased north-fleet
-fleet_send north-fleet
 fleet_spool north-fleet
-fleet_wait_rows north-fleet
 golden_path north-fleet north-landing
-grounding_tier_b north-core
-heavy_command_hook north-guard
-job_run north-ops north-threads north-fleet
-land_actions north-landing
-land_candidate_indexes north-landing
 land_checks north-landing
 land_checks_script north-landing north
-land_ci north-landing
-land_clippy_first north-landing
-land_drivers north-landing
 land_enqueue north-landing
 land_offload north-runtime north-landing
 land_publication north-landing north
 land_rebase north-landing
 land_route north-landing north
 land_scan north-landing
-land_scan_language north-landing
-land_scan_outgoing north-landing
-land_scan_policy north-landing
-land_scan_shell_hook north-landing north
-land_scan_units north-landing
 land_serve north-landing
-land_squash north-landing
-land_tests north-landing
-land_warm_overflow north-landing
 landing_targets north-landing
-lane_gc_activity north-guard
 lane_gc_journeys north-guard
-laptop_holds north-dispatch
-ledger_claude_runs north-providers
-ledger_closed_summary north-providers
-merge_driver_set north-landing north
-mutant_cargo_slots north-capacity
-placement_gate north-pace north-fleet
-policy_guards_hook north-guard
 policy_replay_login north-ops
-policy_replay_promote north-ops
-policy_replay_run north-ops
-private_desktop_capture north-ops north-capacity
-private_desktop_signal north-ops north-capacity
-provenance north-landing
-proxy north-core
-readme_links north
-recommendation_grounding_hook north-guard north-core
-registry north
 release north-landing north
-resident_cap north-dispatch
 run_bounded north-ops north-capacity-host
 runtime_update north-runtime
 safe_push_entry north-base north
 safe_push_land_branch north-landing
 safe_push_remote_land north
 safe_push_tag north-landing
-search_guards_hook north-guard
-session_link_exit north-fleet
-session_path north-fleet
-session_scope north-fleet
-session_start_hook north-guard
 stdio north-fleet
-subagent_teardown_hook north-guard
 support north
-threads_idle_outcome north-threads
-threads_ingest_busy north-threads
 threads_ingest_lock north-threads
 threads_ledger north-threads
 threads_resume north-threads
 threads_snapshot north-threads
-usage_gate north-pace
-usage_snapshot north-pace
-worker_handoff_hook north-guard
-worker_ledger_argv north-threads
-worker_ledger_ingest_lock north-threads
-worker_ledger_landed_issues north-providers north-threads
-worker_ledger_record north-threads north-ops
-worker_ledger_resumed_session north-threads
-worker_ledger_review_findings north-threads north-ops

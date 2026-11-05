@@ -84,11 +84,6 @@ impl Host {
         }
     }
 
-    pub fn built_here(&self, sha: &str) {
-        self.built(sha);
-        fs::write(self.runtime(sha).join("built-here"), "").unwrap();
-    }
-
     pub fn select(&self, sha: &str) {
         symlink(Path::new("runtimes").join(sha), self.path("state/north/current")).unwrap();
     }

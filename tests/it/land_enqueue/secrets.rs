@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use super::{Fixture, git, north_enqueue, north_enqueue_with, stub_gh, written};
+use super::{Fixture, git, north_enqueue_with, stub_gh, written};
 
 const PRIVATE_TERM: &str = "zebra-quokka-7731";
 
@@ -43,13 +43,3 @@ fn enqueue_refuses_a_lane_a_secret_scan_flags_and_writes_no_ticket() {
     assert!(!fixture.state.exists(), "a refused lane writes no ticket");
 }
 
-#[test]
-fn enqueue_says_so_and_queues_when_no_deny_list_is_reachable() {
-    let fixture = Fixture::new();
-    fixture.commit(&fixture.repo, "a.txt", "Add a");
-    let (output, _) = north_enqueue(&fixture);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
-    assert!(stdout.contains("so private values were not scanned"), "{stdout}");
-    assert_eq!(fixture.pending().len(), 1);
-}

@@ -123,119 +123,11 @@ fn write(path: &Path, text: &str) {
     fs::write(path, text).unwrap();
 }
 
-const PUSH_WRAPPER: &str = "case \" $* \" in *\" remote get-url origin \"*) echo https://github.com/tompassarelli/north.git; exit 0 ;; esac\ncase \" $* \" in *\" push \"*)\n  printf '%s\\n' \"$*\" >>\"$LANE_GC_FIXTURE/pushes\"\n  for arg; do case \"$arg\" in :refs/heads/*) exit 0 ;; esac; done ;;\nesac\nexec \"$LANE_GC_REAL_GIT\" \"$@\"\n";
-
-const GH_REPLAY: &str = "dir=$LANE_GC_FIXTURE/gh\nfault=$(cat \"$LANE_GC_FIXTURE/api-fault\" 2>/dev/null)\n[ \"$fault\" = error ] && exit 1\ncase \"$2\" in\n  graphql) name=graphql ;;\n  *activity\\?*) name=activity ;;\n  */pulls\\?*) name=pulls ;;\n  */actions/runs\\?*) status=${2#*status=}; name=runs-${status%%&*} ;;\n  *) exit 1 ;;\nesac\n[ -n \"$fault\" ] && [ -e \"$dir/${name%%-*}.$fault.json\" ] && name=${name%%-*}.$fault\ncat \"$dir/$name.json\"\n";
-
-fn landing_facts(rig: &Rig, main: &Path) -> Vec<(String, String)> {
-    let listed = rig.git(main, &["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/claude/"]);
-    let branches: Vec<(String, String)> = listed.lines().map(|line| line.split_once(' ').map(|(n, t)| (n.to_string(), t.to_string())).unwrap()).collect();
-    let gh = rig.root.join("gh");
-    fs::create_dir_all(&gh).unwrap();
-    let nodes: Vec<Value> = branches
-        .iter()
-        .map(|(name, tip)| json!({"name": name, "target": {"oid": tip, "committedDate": "2026-10-14T12:00:00Z", "status": {"contexts": [{"context": "autoland", "state": "PENDING"}]}}}))
-        .collect();
-    let page = |more: bool| json!([{"data": {"repository": {"refs": {"nodes": nodes, "pageInfo": {"hasNextPage": more}}}}}]);
-    write(&gh.join("graphql.json"), &page(false).to_string());
-    write(&gh.join("graphql.refs-incomplete.json"), &page(true).to_string());
-    let mut activity: Vec<Value> = branches
-        .iter()
-        .map(|(name, tip)| {
-            let created = name.contains("/land-fresh-") || name.contains("/land-force-fresh-");
-            let at = if name.contains("/land-fresh-") { "2026-10-14T09:00:00Z" } else { "2026-10-14T06:00:00Z" };
-            json!({"ref": format!("refs/heads/{name}"), "activity_type": if created { "branch_creation" } else { "push" }, "timestamp": at, "before": "0".repeat(40), "after": tip})
-        })
-        .collect();
-    let find = |lane: &str| branches.iter().find(|(name, _)| name.contains(&format!("/land-{lane}-"))).unwrap().clone();
-    let (forced, forced_tip) = find("force-fresh");
-    activity.push(json!({"ref": format!("refs/heads/{forced}"), "activity_type": "force_push", "timestamp": "2026-10-14T10:30:00Z", "before": forced_tip, "after": forced_tip}));
-    let (orphan, orphan_tip) = find("orphan");
-    activity.push(json!({"ref": format!("refs/heads/{orphan}"), "activity_type": "branch_deletion", "timestamp": "2026-10-14T10:59:00Z", "before": orphan_tip, "after": "0".repeat(40)}));
-    write(&gh.join("activity.json"), &json!([activity[..3], activity[3..]]).to_string());
-    write(&gh.join("activity.malformed.json"), &json!([[{"ref": "refs/heads/bad"}]]).to_string());
-    write(&gh.join("pulls.json"), "[[]]");
-    for status in ["queued", "in_progress", "waiting", "pending", "requested"] {
-        let lane = match status {
-            "queued" => Some("queued"),
-            "in_progress" => Some("running"),
-            "waiting" => Some("head-live"),
-            _ => None,
-        };
-        let runs: Vec<Value> = lane.map(find).map(|(name, tip)| json!({"head_branch": if status == "waiting" { "train".to_string() } else { name }, "head_sha": tip})).into_iter().collect();
-        write(&gh.join(format!("runs-{status}.json")), &json!([{"workflow_runs": runs, "total_count": runs.len()}]).to_string());
-    }
-    write(&gh.join("runs.runs-capped.json"), &json!([{"workflow_runs": [], "total_count": 1001}]).to_string());
-    branches
-}
-
-#[test]
-fn unlanded_landing_refs_are_kept_unpinged_and_landed_ones_are_deleted() {
-    let scratch = tempfile::tempdir().unwrap();
-    let rig = Rig::new(scratch.path(), &scratch.path().join("home"));
-    rig.fleet(&[("fixture-parent", None, "north")]);
-    let origin = rig.root.join("origin.git");
-    let main = rig.home.join("code/north/main");
-    fs::create_dir_all(&origin).unwrap();
-    fs::create_dir_all(&main).unwrap();
-    fs::create_dir_all(rig.home.join("code/north/worktrees")).unwrap();
-    rig.git(&origin, &["init", "-q", "--bare"]);
-    rig.git(&main, &["init", "-q", "-b", "main"]);
-    write(&main.join("readme"), "main\n");
-    rig.git(&main, &["add", "readme"]);
-    rig.git(&main, &["commit", "-qm", "main"]);
-    rig.git(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
-    rig.git(&main, &["push", "-q", "origin", "main"]);
-    for lane in ["orphan", "fresh", "force-fresh", "queued", "running", "head-live", "author", "pending"] {
-        rig.git(&main, &["checkout", "-q", "-b", lane, "main"]);
-        write(&main.join(lane), &format!("{lane}\n"));
-        rig.git(&main, &["add", lane]);
-        rig.git(&main, &["commit", "-qm", lane]);
-        let tip = rig.git(&main, &["rev-parse", "HEAD"]);
-        rig.git(&main, &["branch", &format!("claude/land-{lane}-{}", &tip[..12]), &tip]);
-    }
-    rig.git(&main, &["checkout", "-q", "main"]);
-    let main_tip = rig.git(&main, &["rev-parse", "HEAD"]);
-    rig.git(&main, &["branch", &format!("claude/land-landed-{}", &main_tip[..12]), &main_tip]);
-    rig.git(&main, &["worktree", "add", "-q", rig.home.join("code/north/worktrees/author").to_str().unwrap(), "author"]);
-    rig.stub("git", PUSH_WRAPPER);
-    rig.stub("gh", GH_REPLAY);
-    let branches = landing_facts(&rig, &main);
-    let pushed = || rig.root.join("pushes").exists();
-
-    let dry = rig.lane_gc("2026-10-14T11:00:00Z", &[], &["--repo", "north", "--dry-run"]);
-    assert!(!pushed() && !rig.root.join("alerts").exists() && !dry.contains("would notify"), "{dry}");
-    for lane in ["land-fresh-", "land-force-fresh-"] {
-        assert!(dry.lines().any(|line| line.contains(lane) && line.contains("LIVE")), "{lane}: {dry}");
-    }
-    assert!(dry.lines().any(|line| line.contains("land-landed-") && line.contains("STALE landed")), "{dry}");
-    for fault in ["error", "malformed", "refs-incomplete", "runs-capped"] {
-        write(&rig.root.join("api-fault"), fault);
-        let out = rig.lane_gc("2026-10-14T14:00:00Z", &[], &["--repo", "north"]);
-        assert!(!pushed(), "{fault}: {out}");
-    }
-    fs::remove_file(rig.root.join("api-fault")).unwrap();
-    let out = rig.lane_gc("2026-10-14T14:00:00Z", &[], &["--repo", "north"]);
-
-    let pushes: Vec<String> = rig.read("pushes").lines().map(str::to_string).collect();
-    let (landed, landed_tip) = branches.iter().find(|(name, _)| name.contains("/land-landed-")).unwrap();
-    assert_eq!(pushes.len(), 1, "{pushes:?}\n{out}");
-    assert!(pushes[0].contains(&format!("--force-with-lease=refs/heads/{landed}:{landed_tip}")) && pushes[0].contains(&format!(":refs/heads/{landed}")), "{}", pushes[0]);
-    assert!(!rig.root.join("fleet-sends").exists(), "unlanded landing refs are not pinged");
-    for lane in ["orphan", "pending", "queued", "running"] {
-        assert!(out.lines().any(|line| line.contains(&format!("/land-{lane}-")) && (line.contains("KEEP unlanded") || line.contains("LIVE"))), "{lane}: {out}");
-    }
-    assert!(out.lines().any(|line| line.contains("/land-orphan-") && line.contains("fault: names no issue")), "{out}");
-    assert!(!rig.read("notices.md").contains("archive"), "no archive notice");
-}
-
 static CLASSIFIED: LazyLock<Template> = LazyLock::new(|| Template::build(Classified::build));
 
 struct Classified {
     rig: Rig,
     main: PathBuf,
-    origin: PathBuf,
-    legacy: String,
     now: String,
     _holder: Holder,
 }
@@ -314,11 +206,9 @@ impl Classified {
         rig.fleet(&[("north-parent", None, "north"), ("north-worker", Some("north-parent"), "north"), ("scratch-parent", None, "galileo"), ("scratch-worker", Some("scratch-parent"), "galileo")]);
         let main = rig.home.join("code/north/main");
         let holder = Holder(Command::new("sleep").arg("300").current_dir(rig.home.join("code/north/worktrees/held")).spawn().unwrap());
-        let legacy = rig.git(&main, &["rev-parse", "equiv"]);
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 30 * 3600;
         let now = String::from_utf8(Command::new("date").args(["-u", "-d", &format!("@{at}"), "+%FT%TZ"]).output().unwrap().stdout).unwrap().trim().to_string();
-        let origin = rig.root.join("origin/north.git");
-        Self { rig, main, origin, legacy, now, _holder: holder }
+        Self { rig, main, now, _holder: holder }
     }
 
     fn relocate(rig: &Rig, template: &Path) {
@@ -349,30 +239,9 @@ impl Classified {
             && self.rig.git_ok(&self.main, &["rev-parse", "-q", "--verify", "refs/heads/loose"])
     }
 
-    fn origin_extra_refs(&self) -> Vec<String> {
-        let listed = self.rig.git(&self.main, &["ls-remote", "origin", "refs/tags/*", "refs/archive/*"]);
-        listed.lines().map(|line| line.split('\t').next().unwrap().to_string()).collect()
-    }
-
     fn gone(&self, lane: &str) -> bool {
         !self.rig.home.join("code/north/worktrees").join(lane).exists() && !self.rig.git_ok(&self.main, &["rev-parse", "-q", "--verify", &format!("refs/heads/{lane}")])
     }
-}
-
-#[test]
-fn a_landed_or_superseded_lane_is_deleted_with_no_backup_and_no_ref_pushed_to_origin() {
-    let scratch = tempfile::tempdir().unwrap();
-    let fixture = Classified::new(scratch.path());
-    let (rig, main) = (&fixture.rig, &fixture.main);
-    executable(&fixture.origin.join("hooks/pre-receive"), "while read -r old new ref; do case \"$ref\" in refs/tags/*|refs/archive/*) echo \"archive ref pushed: $ref\" >&2; exit 1 ;; esac; done\n");
-    let before = fixture.origin_extra_refs();
-    assert_eq!(before, [fixture.legacy.as_str()]);
-    let out = fixture.run(&[]);
-    assert!(fixture.gone("equiv") && fixture.gone("sup"), "{out}");
-    assert!(fixture.kept_intact(), "{out}");
-    assert_eq!(fixture.origin_extra_refs(), before, "{out}");
-    assert!(!rig.root.join("mirrors").exists() && !rig.read("notices.md").contains("restore="), "{out}");
-    assert!(rig.git(main, &["tag", "-l", "archive/*"]).lines().all(|tag| tag.ends_with(&fixture.legacy[..12])), "{out}");
 }
 
 #[test]

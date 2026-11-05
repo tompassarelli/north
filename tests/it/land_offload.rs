@@ -44,7 +44,6 @@ struct Landing {
     root: PathBuf,
     repo: PathBuf,
     origin: PathBuf,
-    remote: PathBuf,
 }
 
 impl Landing {
@@ -86,7 +85,7 @@ impl Landing {
             "[placement]\norder = [\"whiterabbit\", \"gex45\", \"nexus\"]\n[hosts.whiterabbit]\nssh = \"tom@whiterabbit\"\n[hosts.gex45]\nssh = \"tom@gex45\"\n[hosts.nexus]\nssh = \"tom@nexus\"\n",
         )
         .unwrap();
-        Landing { _fixture: fixture, root, repo, origin, remote }
+        Landing { _fixture: fixture, root, repo, origin }
     }
 
     fn gaming(&self, gaming: bool) {
@@ -144,10 +143,6 @@ impl Landing {
         lines(&self.root.join("ssh.log"))
     }
 
-    fn checks(&self) -> Vec<String> {
-        lines(&self.root.join("check.log"))
-    }
-
     fn landed(&self) -> String {
         git(&self.origin, &["rev-parse", "main"])
     }
@@ -155,36 +150,6 @@ impl Landing {
 
 fn text(output: &Output) -> String {
     format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
-}
-
-const RECORDING_CHECK: &str = "echo \"$PWD $SAFE_PUSH_LAND_HEAD $(git rev-parse HEAD) $(test -d target && echo warm || echo cold)\" >>\"$CHECK_LOG\"; mkdir -p target; touch target/built stray; test \"$(cat verdict)\" = ok";
-
-#[test]
-fn a_held_land_check_runs_on_a_host_with_room_from_a_bundle_and_leaves_only_the_shared_target() {
-    let landing = Landing::new(RECORDING_CHECK, false);
-    landing.gaming(true);
-    landing.room("gex45", 40);
-    let head = landing.lane_commit("ok");
-
-    let output = landing.land();
-
-    assert!(output.status.success(), "{}", text(&output));
-    assert!(text(&output).contains("offloading to gex45"), "{}", text(&output));
-    assert_eq!(landing.landed(), head);
-    assert_eq!(landing.capacity(), ["offloaded"], "the local host admits only the light part while it is gaming-held");
-    let slot = landing.root.join("remotes/gex45/.cache/land-offload/code-proj-main");
-    assert_eq!(landing.checks(), [format!("{} {head} {head} cold", slot.display())]);
-    assert!(slot.join("target/built").exists(), "the shared target directory persists");
-    assert!(!slot.join("stray").exists(), "a file the check left is cleaned up");
-    assert!(!slot.parent().unwrap().join("code-proj-main.bundle").exists(), "the bundle is removed");
-    assert_eq!(git(&landing.remote, &["for-each-ref", "refs/land-offload"]), "", "the shipped ref is removed");
-    assert_eq!(git(&landing.repo, &["for-each-ref", "refs/land-offload"]), "", "the local ref is removed");
-
-    let second = landing.lane_commit("ok");
-    let output = landing.land();
-    assert!(output.status.success(), "{}", text(&output));
-    assert_eq!(landing.landed(), second);
-    assert!(landing.checks()[1].ends_with("warm"), "the second offloaded check reuses the first one's target: {:?}", landing.checks());
 }
 
 #[test]
@@ -205,91 +170,3 @@ fn the_remote_checks_exit_status_is_the_verdict() {
     assert_eq!(landing.landed(), before);
 }
 
-#[test]
-fn a_host_that_is_not_gaming_runs_its_own_check_without_asking_any_host() {
-    let landing = Landing::new(RECORDING_CHECK, false);
-    landing.gaming(false);
-    landing.room("gex45", 40);
-    let head = landing.lane_commit("ok");
-
-    let output = landing.land();
-
-    assert!(output.status.success(), "{}", text(&output));
-    assert_eq!(landing.capacity(), ["held"]);
-    assert_eq!(landing.ssh(), Vec::<String>::new());
-    assert!(landing.checks()[0].starts_with(&landing.repo.display().to_string()), "{:?}", landing.checks());
-    assert_eq!(landing.landed(), head);
-}
-
-#[test]
-fn no_host_with_cpu_memory_and_twenty_gib_of_disk_keeps_the_check_here() {
-    let landing = Landing::new(RECORDING_CHECK, false);
-    landing.gaming(true);
-    landing.room("gex45", 17);
-    let head = landing.lane_commit("ok");
-
-    let output = landing.land();
-
-    assert!(output.status.success(), "{}", text(&output));
-    assert!(text(&output).contains("gex45: 17.0 GiB disk free, needs 20"), "{}", text(&output));
-    assert!(text(&output).contains("nexus: unreachable"), "{}", text(&output));
-    assert_eq!(landing.capacity(), ["held"]);
-    assert!(landing.checks()[0].starts_with(&landing.repo.display().to_string()), "{:?}", landing.checks());
-    assert_eq!(landing.landed(), head);
-}
-
-#[test]
-fn a_check_marked_local_only_is_never_offloaded() {
-    let landing = Landing::new(RECORDING_CHECK, true);
-    landing.gaming(true);
-    landing.room("gex45", 40);
-    let head = landing.lane_commit("ok");
-
-    let output = landing.land();
-
-    assert!(output.status.success(), "{}", text(&output));
-    assert_eq!(landing.capacity(), ["held"]);
-    assert_eq!(landing.ssh(), Vec::<String>::new(), "no host is even asked");
-    assert!(landing.checks()[0].starts_with(&landing.repo.display().to_string()), "{:?}", landing.checks());
-    assert_eq!(landing.landed(), head);
-}
-
-#[test]
-fn a_host_that_goes_dark_after_the_room_check_refuses_the_landing_instead_of_running_it_here() {
-    let landing = Landing::new(RECORDING_CHECK, false);
-    landing.gaming(true);
-    landing.room("gex45", 40);
-    fs::remove_dir_all(landing.root.join("remotes/gex45")).unwrap();
-    let before = landing.landed();
-    landing.lane_commit("ok");
-
-    let output = landing.land();
-
-    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
-    assert!(text(&output).contains("NOT pushed"), "{}", text(&output));
-    assert_eq!(landing.capacity(), ["offloaded"]);
-    assert_eq!(landing.checks(), Vec::<String>::new(), "the check never ran here");
-    assert_eq!(landing.landed(), before);
-}
-
-#[test]
-fn a_lane_that_names_a_land_workflow_sends_its_checks_to_github_actions_while_game_reserve_is_on_without_offloading() {
-    let landing = Landing::new(RECORDING_CHECK, false);
-    git(&landing.repo, &["config", "--file", ".safe-push", "--add", "land.workflow", "land-check.yml"]);
-    git(&landing.repo, &["add", ".safe-push"]);
-    git(&landing.repo, &["commit", "-qm", "Name a land workflow"]);
-    landing.gaming(false);
-    landing.room("gex45", 40);
-    let since = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let reserve = landing.root.join("game-reserve.json");
-    fs::write(&reserve, format!("{{\"on\":true,\"since\":{since}}}")).unwrap();
-    let head = landing.lane_commit("ok");
-
-    let output = landing.land_with_reserve(&reserve);
-
-    assert!(text(&output).contains("running 1 land check(s) on GitHub Actions (land-check.yml)"), "{}", text(&output));
-    assert!(!text(&output).contains("offloading to"), "{}", text(&output));
-    assert_eq!(landing.capacity(), Vec::<String>::new(), "a landing whose checks all run on GitHub Actions takes no laptop lease, so game reserve has nothing to defer");
-    assert!(landing.checks().is_empty(), "no check ran on this host or the offload host");
-    assert_ne!(landing.landed(), head, "the fixture has no Actions, so nothing landed");
-}

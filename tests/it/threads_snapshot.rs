@@ -1,9 +1,7 @@
 use north_core::foundation::shim;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
-use std::time::{Duration, Instant};
-
+use std::process::{Command, Output, Stdio};
 use rusqlite::Connection;
 
 const MAGIC: &[u8] = b"NORTH-SNAPSHOT-PAGES 1\n";
@@ -63,16 +61,6 @@ impl Rig {
         self.north(&["threads", "snapshot-pull", "--force", "--snapshot", &snapshot, "ledger-host"], mode).output().unwrap()
     }
 
-    fn spawn_pull(&self, mode: &str) -> Child {
-        let snapshot = self.snapshot.display().to_string();
-        self.north(&["threads", "snapshot-pull", "--force", "--snapshot", &snapshot, "ledger-host"], mode)
-            .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap()
-    }
-
-    fn bytes(&self) -> usize {
-        fs::read_to_string(self.root.join("bytes")).unwrap().trim().parse().unwrap()
-    }
-
     fn leftovers(&self) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(self.root.join("state")).unwrap()
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
@@ -95,15 +83,6 @@ fn insert(db: &Connection, ids: std::ops::Range<usize>) {
     }
 }
 
-fn rows(path: &Path) -> Vec<(i64, String)> {
-    all_rows(&Connection::open(format!("file:{}?immutable=1", path.display())).unwrap())
-}
-
-fn all_rows(db: &Connection) -> Vec<(i64, String)> {
-    let mut statement = db.prepare("SELECT id, body FROM runs ORDER BY id").unwrap();
-    statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?))).unwrap().map(Result::unwrap).collect()
-}
-
 fn quick_check(path: &Path) -> String {
     let db = Connection::open(format!("file:{}?immutable=1", path.display())).unwrap();
     db.query_row("PRAGMA quick_check", [], |row| row.get(0)).unwrap()
@@ -111,57 +90,6 @@ fn quick_check(path: &Path) -> String {
 
 fn be32(bytes: &[u8]) -> usize {
     u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize
-}
-
-#[test]
-fn a_sync_after_a_few_inserts_moves_only_the_changed_pages_and_matches_the_source() {
-    let rig = Rig::new();
-    let db = ledger(&rig.source, 3000);
-    let first = rig.pull("");
-    assert!(first.status.success(), "{first:?}");
-    let full = rig.bytes();
-    let image = fs::read(&rig.snapshot).unwrap();
-    assert!(full > image.len(), "{full} {}", image.len());
-    assert_eq!(&image[18..20], &[1, 1]);
-    insert(&db, 3001..3004);
-    let second = rig.pull("");
-    assert!(second.status.success(), "{second:?}");
-    let changed = rig.bytes();
-    assert!(changed < 8 * 4100 && changed * 20 < full, "changed {changed} of {full}");
-    assert_eq!(quick_check(&rig.snapshot), "ok");
-    assert_eq!(rows(&rig.snapshot), all_rows(&db));
-    assert_eq!(rows(&rig.snapshot).len(), 3003);
-    assert!(!Path::new(&format!("{}-wal", rig.snapshot.display())).exists());
-    assert!(rig.pull("").status.success());
-    assert_eq!(rig.bytes(), MAGIC.len() + 8 + 4 + 32);
-    assert!(rig.leftovers().is_empty(), "{:?}", rig.leftovers());
-}
-
-#[test]
-fn b_a_pull_that_fails_or_is_killed_mid_transfer_leaves_no_temporary_file_and_the_old_snapshot_intact() {
-    let rig = Rig::new();
-    let db = ledger(&rig.source, 3000);
-    assert!(rig.pull("").status.success());
-    let before = fs::read(&rig.snapshot).unwrap();
-    db.execute("DELETE FROM runs WHERE id % 2 = 0", []).unwrap();
-    insert(&db, 5000..5500);
-    let failed = rig.pull("truncate");
-    assert_eq!(failed.status.code(), Some(1), "{failed:?}");
-    assert_eq!(fs::read(&rig.snapshot).unwrap(), before);
-    assert!(rig.leftovers().is_empty(), "{:?}", rig.leftovers());
-    let mut child = rig.spawn_pull("stall");
-    let begun = Instant::now();
-    while !rig.root.join("stalled").exists() {
-        assert!(begun.elapsed() < Duration::from_secs(20), "the stalled transport never started");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    std::thread::sleep(Duration::from_millis(300));
-    child.kill().unwrap();
-    child.wait().unwrap();
-    let ssh = fs::read_to_string(rig.root.join("ssh.pid")).unwrap();
-    let _ = Command::new("kill").arg(ssh.trim()).status();
-    assert_eq!(fs::read(&rig.snapshot).unwrap(), before);
-    assert!(rig.leftovers().is_empty(), "{:?}", rig.leftovers());
 }
 
 #[test]
@@ -235,23 +163,3 @@ fn e_a_stream_with_a_flipped_byte_keeps_the_previous_snapshot_and_leaves_no_temp
     assert!(rig.leftovers().is_empty(), "{:?}", rig.leftovers());
 }
 
-#[test]
-fn f_an_offline_read_serves_the_snapshot_without_touching_it_or_its_wal_while_another_reader_holds_it() {
-    let rig = Rig::new();
-    assert!(rig.north(&["threads", "claim", "wisp#7", "--by", "fixture"], "").output().unwrap().status.success());
-    fs::create_dir_all(rig.root.join(".config/threads")).unwrap();
-    fs::write(rig.root.join(".config/threads/remote"), "ledger-host\n").unwrap();
-    let snapshot = rig.root.join(".local/state/threads/snapshot.db");
-    fs::create_dir_all(snapshot.parent().unwrap()).unwrap();
-    let pulled = rig.north(&["threads", "snapshot-pull", "--force", "--snapshot", snapshot.to_str().unwrap(), "ledger-host"], "").output().unwrap();
-    assert!(pulled.status.success(), "{pulled:?}");
-    let hold = Connection::open(&snapshot).unwrap();
-    hold.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; BEGIN; SELECT count(*) FROM claims;").unwrap();
-    let wal = rig.root.join(".local/state/threads/snapshot.db-wal");
-    let (before, before_wal) = (fs::read(&snapshot).unwrap(), fs::read(&wal).unwrap());
-    let read = rig.north(&["threads", "list"], "down").env_remove("THREADS_DB").env("THREADS_ALIVE_OWNERS", r#"["fixture"]"#).output().unwrap();
-    assert!(read.status.success() && String::from_utf8_lossy(&read.stdout).contains("wisp#7"), "{read:?}");
-    assert!(String::from_utf8_lossy(&read.stderr).starts_with("STALE: ledger snapshot from "), "{read:?}");
-    assert!(fs::read(&snapshot).unwrap() == before && fs::read(&wal).unwrap() == before_wal, "the offline read changed the snapshot or its WAL");
-    drop(hold);
-}

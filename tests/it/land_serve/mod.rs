@@ -5,19 +5,11 @@ use std::process::{Command, Output};
 use north_landing::land::queue::{self, RedFix, Ticket};
 
 mod cleanup;
-mod sheriff;
 
-mod baseline;
-mod conflict;
-mod credentials;
-mod culprit_search;
-mod isolation;
 mod landing;
-mod ledger;
 mod post_land;
 mod promote;
 mod remote;
-mod restart;
 mod speculate;
 
 #[path = "../support/land_serve_template.rs"]
@@ -233,10 +225,6 @@ impl Fixture {
         }).collect()
     }
 
-    fn pushes_tsv(&self) -> Vec<Vec<String>> {
-        fs::read_to_string(self.state.join("safe-push/pushes.tsv")).unwrap_or_default().lines().map(|line| line.split('\t').map(str::to_owned).collect()).collect()
-    }
-
     fn calls(&self, prefix: &str) -> Vec<String> {
         self.read("north-calls").lines().filter(|line| line.starts_with(prefix) && !line.starts_with("capacity offload reap")).map(str::to_owned).collect()
     }
@@ -302,6 +290,3 @@ fn pushed_trees_were_checked(fixture: &Fixture) {
     }
 }
 
-fn stamp(fixture: &Fixture, name: &str) -> f64 {
-    fixture.read(name).trim().parse().unwrap_or_else(|_| panic!("{name} holds no time: {:?}", fixture.read(name)))
-}

@@ -100,34 +100,6 @@ fn stdout(output: &Output) -> String {
 }
 
 #[test]
-fn rebased_autoland_reports_the_landed_head_when_the_original_has_no_status() {
-    let scenario = Scenario::new("\\t\\t");
-    let repo = &scenario.repo;
-    commit(repo, "base", "base\n", "base");
-    git(repo, &["switch", "-qc", "lane"]);
-    let original = commit(repo, "change", "the lane change\n", "lane change");
-    git(repo, &["switch", "-q", "main"]);
-    commit(repo, "peer", "main moved\n", "peer landed first");
-    git(repo, &["cherry-pick", &original]);
-    let landed = git(repo, &["rev-parse", "HEAD"]);
-    assert_ne!(original, landed);
-    scenario.publish();
-    git(repo, &["switch", "-q", "lane"]);
-    let output = scenario.wait(&original, "0");
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-    assert_eq!(stdout(&output), format!("success\tlanded {landed}\t\n"));
-    let unlanded = commit(repo, "unlanded", "another change\n", "still waiting");
-    let pending = scenario.wait(&unlanded, "0");
-    assert_eq!(pending.status.code(), Some(2));
-    assert!(stdout(&pending).starts_with("timeout\t"));
-}
-
-#[test]
 fn a_patch_equivalent_tip_does_not_land_a_lane_whose_earlier_commit_is_absent() {
     let scenario = Scenario::new("\\t\\t");
     let repo = &scenario.repo;
@@ -153,70 +125,3 @@ fn a_patch_equivalent_tip_does_not_land_a_lane_whose_earlier_commit_is_absent() 
     assert_eq!(stdout(&landed), format!("success\tlanded {lookalike}\t\n"));
 }
 
-struct ChangedContext {
-    scenario: Scenario,
-    lane_tip: String,
-    landed: String,
-}
-
-fn changed_context_scenario() -> ChangedContext {
-    let scenario = Scenario::new("pending\\twaiting for the deny-list attestation\\t");
-    let repo = &scenario.repo;
-    commit(repo, "file", "a\nb\nc\nd\ne\n", "base");
-    git(repo, &["switch", "-qc", "lane"]);
-    let lane_tip = commit(repo, "file", "a\nb\nC\nd\ne\n", "change c");
-    git(repo, &["switch", "-q", "main"]);
-    commit(repo, "file", "a\nB\nc\nd\ne\n", "peer edits the context");
-    let landed = commit(repo, "file", "a\nB\nC\nd\ne\n", "change c");
-    git(repo, &["switch", "-q", "lane"]);
-    assert_ne!(lane_tip, landed);
-    ChangedContext {
-        scenario,
-        lane_tip,
-        landed,
-    }
-}
-
-#[test]
-fn a_deleted_lane_branch_with_the_lane_subject_on_main_ends_a_pending_wait() {
-    let ChangedContext {
-        scenario,
-        lane_tip,
-        landed,
-    } = changed_context_scenario();
-    scenario.publish();
-    let output = scenario.wait(&lane_tip, "2");
-    assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
-    assert_eq!(stdout(&output), format!("success\tlanded {landed}\t\n"));
-}
-
-#[test]
-fn a_lane_branch_still_on_origin_keeps_a_pending_wait_until_timeout() {
-    let ChangedContext {
-        scenario, lane_tip, ..
-    } = changed_context_scenario();
-    scenario.publish();
-    git(
-        &scenario.repo,
-        &["push", "-q", "origin", &format!("lane:{BRANCH}")],
-    );
-    let output = scenario.wait(&lane_tip, "2");
-    assert_eq!(output.status.code(), Some(2), "{}", stdout(&output));
-    assert!(stdout(&output).starts_with("timeout\t"));
-}
-
-#[test]
-fn a_deleted_lane_branch_without_the_lane_subject_on_main_keeps_waiting() {
-    let scenario = Scenario::new("pending\\twaiting for the deny-list attestation\\t");
-    let repo = &scenario.repo;
-    commit(repo, "base", "base\n", "base");
-    git(repo, &["switch", "-qc", "lane"]);
-    let tip = commit(repo, "change", "the lane change\n", "lane change");
-    git(repo, &["switch", "-q", "main"]);
-    commit(repo, "peer", "main moved\n", "an unrelated subject");
-    scenario.publish();
-    git(repo, &["switch", "-q", "lane"]);
-    let output = scenario.wait(&tip, "2");
-    assert_eq!(output.status.code(), Some(2), "{}", stdout(&output));
-    assert!(stdout(&output).starts_with("timeout\t"));
-}

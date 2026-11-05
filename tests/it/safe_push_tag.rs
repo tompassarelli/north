@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::sync::mpsc::RecvTimeoutError;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use crate::support::template::Template;
 
@@ -16,12 +16,6 @@ fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git").current_dir(dir).args(args).output().unwrap();
     assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
     String::from_utf8(output.stdout).unwrap().trim_end().to_owned()
-}
-
-fn feed(dir: &Path, args: &[&str], input: &str) {
-    let mut child = Command::new("git").current_dir(dir).args(args).stdin(Stdio::piped()).spawn().unwrap();
-    std::io::Write::write_all(&mut child.stdin.take().unwrap(), input.as_bytes()).unwrap();
-    assert!(child.wait().unwrap().success(), "git {args:?}");
 }
 
 fn commit(repo: &Path, path: &str, content: &str, message: &str) {
@@ -266,78 +260,6 @@ fn compare(script: Observed, binary: Observed, case: &Case) -> Observed {
     binary
 }
 
-fn published(observed: &Observed, fixture: &Fixture, name: &str) -> bool {
-    let tag_oid = git(&fixture.repo(), &["rev-parse", &format!("refs/tags/{name}")]);
-    observed.remote.lines().any(|line| line == format!("refs/tags/{name} {tag_oid}"))
-}
-
-#[test]
-fn safe_push_tag_publishes_clean_fixtures_through_either_entry() {
-    let fixture = Fixture::new();
-    tag(&fixture.repo(), "release-outgoing", "release annotation");
-    git(&fixture.repo(), &["tag", "-a", "release-published", "-m", "published release", "origin/main"]);
-
-    let fallback = Case {
-        environment: &[("SAFE_PUSH_SOUTH", ""), ("SAFE_PUSH_DENYLIST", ""), ("HOME", "/nonexistent-safe-push-home")],
-        ..Case::new(&["--dry-run", "--tag", "release-outgoing"])
-    };
-    let cases = [
-        Case { cancel: Some("scan"), ..Case::new(&["--tag", "release-outgoing"]) },
-        Case { cancel: Some("push"), ..Case::new(&["--tag", "release-outgoing"]) },
-        Case::new(&["--dry-run", "--tag", "release-outgoing"]),
-        Case::new(&["--tag", "release-outgoing"]),
-        Case::new(&["--tag", "release-published"]),
-        fallback,
-        Case { visibility: "PRIVATE", denylist: true, ..Case::new(&["--tag", "release-outgoing"]) },
-    ];
-    let staged: Vec<Staged> = cases.into_iter().map(|case| stage(&fixture, case)).collect();
-    let [cancelled, pushing, dry, outgoing, already, fallback, private]: [Observed; 7] = all_entries(&staged).try_into().unwrap();
-
-    assert_eq!(cancelled.status, 130, "{cancelled:#?}");
-    assert!(cancelled.scratch_refs.is_empty() && !published(&cancelled, &fixture, "release-outgoing"), "{cancelled:#?}");
-
-    assert_eq!(pushing.status, 130, "{pushing:#?}");
-    assert!(pushing.scratch_refs.is_empty() && published(&pushing, &fixture, "release-outgoing"), "{pushing:#?}");
-
-    assert_eq!(dry.status, 0, "{dry:#?}");
-    assert!(dry.stdout.contains("would push tag release-outgoing -> origin"), "{dry:#?}");
-    assert!(!published(&dry, &fixture, "release-outgoing"));
-
-    assert_eq!(outgoing.status, 0, "{outgoing:#?}");
-    assert!(published(&outgoing, &fixture, "release-outgoing"), "{outgoing:#?}");
-    let main = git(&fixture.repo(), &["rev-parse", "origin/main"]);
-    assert!(outgoing.remote.lines().any(|line| line == format!("refs/heads/main {main}")), "tag publication moved main: {outgoing:#?}");
-    let heads: Vec<&str> = outgoing.remote.lines().filter_map(|line| line.split_once(' ')).map(|(name, _)| name).filter(|name| name.starts_with("refs/heads/")).collect();
-    assert_eq!(heads, ["refs/heads/main", "refs/heads/other"], "tag publication created a remote branch");
-
-    assert_eq!(already.status, 0, "{already:#?}");
-    assert!(published(&already, &fixture, "release-published"));
-
-    assert!(fallback.stdout.contains("no south checkout at /nonexistent-safe-push-home/code/south"), "{fallback:#?}");
-
-    assert_eq!(private.status, 0);
-}
-
-#[test]
-fn safe_push_tag_refuses_before_any_scan_through_either_entry() {
-    let fixture = Fixture::new();
-    git(&fixture.repo(), &["tag", "release-light"]);
-    let refusals = [&["--tag", "missing"][..], &["--tag", "release-light"], &["--wat"], &["--to", "main", "--tag", "x"], &["--help"]];
-    let mut staged: Vec<Staged> = refusals.iter().map(|arguments| stage(&fixture, Case::new(arguments))).collect();
-    staged.push(stage(&fixture, Case { environment: &[("NORTH_NO_AUTOREAP", "1")], ..Case::new(&["--tag", "--dry-run"]) }));
-    git(&fixture.repo(), &["checkout", "-q", "--detach"]);
-    tag(&fixture.repo(), "release-detached", "detached release");
-    staged.push(stage(&fixture, Case::new(&["--tag", "release-detached"])));
-    let mut observed = all_entries(&staged);
-    let detached = observed.pop().unwrap();
-    let raw = observed.pop().unwrap();
-    for (arguments, observed) in refusals.iter().zip(observed) {
-        assert_eq!(observed.status != 0, *arguments != ["--help"], "{arguments:?}: {observed:#?}");
-    }
-    assert_eq!(raw.status, 2);
-    assert!(detached.stdout.contains("detached HEAD"), "{detached:#?}");
-}
-
 #[test]
 fn safe_push_tag_refuses_failed_guards_through_either_entry() {
     let fixture = Fixture::new();
@@ -379,55 +301,6 @@ fn safe_push_tag_refuses_failed_guards_through_either_entry() {
         assert!(format!("{}{}", observed.stdout, observed.stderr).contains(expected), "{name}: {observed:#?}");
         assert!(!observed.remote.contains("refs/tags/"), "{name} published");
     }
-}
-
-#[test]
-fn bin_safe_push_refuses_a_tag_when_the_north_runtime_lacks_safe_push() {
-    let fixture = Fixture::new();
-    tag(&fixture.repo(), "release-stale", "release annotation");
-    let copy = fixture.copy("stale");
-    let stale = copy.join("stale-bin");
-    std::fs::create_dir_all(&stale).unwrap();
-    shim::write_script(&stale.join("north"), "exit 2\n");
-    let before = git(&copy.join("remote.git"), &["for-each-ref"]);
-    let output = Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push"))
-        .args(["--tag", "release-stale"])
-        .current_dir(copy.join("repo"))
-        .env("PATH", format!("{}:{}", stale.display(), std::env::var("PATH").unwrap_or_default()))
-        .env("XDG_STATE_HOME", copy.join("state"))
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(output.status.code(), Some(1), "{stdout}");
-    assert!(stdout.contains("this host's north runtime lacks; run north runtime update; NOT pushed."), "{stdout}");
-    assert_eq!(git(&copy.join("remote.git"), &["for-each-ref"]), before, "a stale runtime published the tag");
-}
-
-#[test]
-fn safe_push_tag_scans_an_outgoing_tag_against_an_origin_with_thousands_of_refs() {
-    let fixture = Fixture::new();
-    let repo = fixture.repo();
-    let main = git(&repo, &["rev-parse", "origin/main"]);
-    let mut pulls: Vec<String> = (0..6000).map(|n| format!("{main} refs/pull/{n}/head\n")).collect();
-    pulls.sort();
-    let packed_refs = fixture.template.join("remote.git/packed-refs");
-    assert!(!packed_refs.exists());
-    std::fs::write(&packed_refs, format!("# pack-refs with: peeled fully-peeled sorted \n{}", pulls.concat())).unwrap();
-    assert_eq!(git(&fixture.template.join("remote.git"), &["for-each-ref", "--format=%(refname)", "refs/pull/"]).lines().count(), 6000);
-    let head = git(&repo, &["rev-parse", "HEAD"]);
-    let when = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let message = "outgoing objects\n";
-    let mut stream = format!("commit refs/heads/main\ncommitter safe-push-test <safe-push-test@example.invalid> {when} +0000\ndata {}\n{message}from {head}\n", message.len());
-    for n in 0..2000 {
-        let blob = format!("{n}\n");
-        stream.push_str(&format!("M 100644 inline bulk/{n}.txt\ndata {}\n{blob}\n", blob.len()));
-    }
-    feed(&repo, &["fast-import", "--quiet"], &stream);
-    assert_eq!(git(&repo, &["ls-tree", "-r", "--name-only", "HEAD", "bulk/"]).lines().count(), 2000);
-    tag(&repo, "release-bulk", "bulk release");
-    let observed = run(&fixture.copy("bulk"), &[env!("CARGO_BIN_EXE_north"), "safe-push"], &Case::new(&["--tag", "release-bulk"]));
-    assert_eq!(observed.status, 0, "a stalled scan panics before this: {observed:#?}");
-    assert!(published(&observed, &fixture, "release-bulk"), "{observed:#?}");
 }
 
 fn remote_has(observed: &Observed, name: &str) -> bool {

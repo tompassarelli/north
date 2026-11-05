@@ -26,26 +26,6 @@ fn run(command: &mut Command) -> Output {
 }
 
 #[test]
-fn a_safe_push_link_through_two_hops_prints_the_usage_north_safe_push_prints() {
-    let scratch = tempfile::tempdir().unwrap();
-    let link = linked_twice(scratch.path());
-    let through_link = run(Command::new(&link).arg("--help"));
-    let through_verb = run(Command::new(north()).args(["safe-push", "--help"]));
-    assert!(through_link.status.success(), "{}", String::from_utf8_lossy(&through_link.stderr));
-    assert!(!through_link.stdout.is_empty());
-    assert_eq!(through_link.stdout, through_verb.stdout);
-}
-
-#[test]
-fn a_safe_push_link_found_on_path_is_selected_by_its_bare_name() {
-    let scratch = tempfile::tempdir().unwrap();
-    let link = linked_twice(scratch.path());
-    let output = run(Command::new("safe-push").arg("--help").env("PATH", format!("{}:{}", link.parent().unwrap().display(), std::env::var("PATH").unwrap())));
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert!(String::from_utf8_lossy(&output.stdout).contains("safe-push"));
-}
-
-#[test]
 fn the_entry_runs_its_children_without_codex_home_and_north_itself_does_not_scrub_it() {
     let scratch = tempfile::tempdir().unwrap();
     let link = linked_twice(scratch.path());

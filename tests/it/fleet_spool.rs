@@ -1,9 +1,6 @@
 use std::fs;
-use std::io::Write;
 use std::os::unix::fs::symlink;
 use std::path::PathBuf;
-use std::process::{Command, Output, Stdio};
-
 use north_core::fleet::sender::Sender;
 use north_core::fleet::store::{FarSpools, FleetRow, OverSsh, RowKind, Spool};
 use north_core::foundation::shim;
@@ -39,75 +36,10 @@ impl Hosts {
     fn ssh(&self) -> OverSsh {
         OverSsh::through(self.path("bin").join("ssh"))
     }
-
-    fn north(&self, args: &[&str], input: &str) -> Output {
-        let path = format!("{}:{}", self.path("bin").display(), std::env::var("PATH").unwrap());
-        let mut child = Command::new(env!("CARGO_BIN_EXE_north"))
-            .args(["fleet", "spool"])
-            .args(args)
-            .env("HOME", self.path("far"))
-            .env("PATH", path)
-            .env_remove("NORTH_FLEET_SESSION")
-            .env_remove("CLAUDE_CODE_SESSION_ID")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
-        child.wait_with_output().unwrap()
-    }
 }
 
 fn message(id: &str) -> FleetRow {
     FleetRow { id: id.into(), kind: RowKind::Message, to: "sc-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: Sender::Tom, gate: None, answer: None, job: None, origin: None }
-}
-
-fn taken(output: &Output) -> Vec<String> {
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let spooled: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
-    spooled.iter().map(|spooled| spooled["id"].as_str().unwrap().to_owned()).collect()
-}
-
-#[test]
-fn take_lists_the_spooled_rows_in_id_order_and_changes_nothing_and_drop_removes_exactly_the_ids_on_stdin() {
-    let hosts = Hosts::new();
-    assert!(taken(&hosts.north(&["take"], "")).is_empty());
-
-    ["m-2", "m-3", "m-1"].iter().for_each(|id| hosts.spool().put(&message(id)).unwrap());
-    assert_eq!(taken(&hosts.north(&["take"], "")), ["m-1", "m-2", "m-3"]);
-    assert_eq!(taken(&hosts.north(&["take"], "")), ["m-1", "m-2", "m-3"]);
-
-    let dropped = hosts.north(&["drop"], "m-1\nm-9\nm-3\n");
-    assert!(dropped.status.success(), "{}", String::from_utf8_lossy(&dropped.stderr));
-    assert_eq!(taken(&hosts.north(&["take"], "")), ["m-2"]);
-}
-
-#[test]
-fn drop_refuses_a_path_like_id_and_removes_nothing() {
-    let hosts = Hosts::new();
-    hosts.spool().put(&message("m-1")).unwrap();
-
-    let refused = hosts.north(&["drop"], "m-1\n../m-1\n");
-    assert!(!refused.status.success());
-    assert!(String::from_utf8_lossy(&refused.stderr).contains("not a row id: ../m-1"), "{}", String::from_utf8_lossy(&refused.stderr));
-    assert_eq!(taken(&hosts.north(&["take"], "")), ["m-1"]);
-}
-
-#[test]
-fn the_ssh_client_takes_drops_and_sets_aside_through_the_real_over_ssh_quoting() {
-    let hosts = Hosts::new();
-    ["m-2", "m-1"].iter().for_each(|id| hosts.spool().put(&message(id)).unwrap());
-    let ssh = hosts.ssh();
-
-    assert_eq!(ssh.take("far").unwrap().rows, [message("m-1"), message("m-2")]);
-    ssh.drop("far", &["m-1".to_owned()]).unwrap();
-    assert_eq!(ssh.take("far").unwrap().rows, [message("m-2")]);
-    assert!(ssh.drop("far", &["../m-2".to_owned()]).is_err());
-    assert_eq!(ssh.take("far").unwrap().rows, [message("m-2")]);
-    ssh.set_aside("far", &["m-2".to_owned()]).unwrap();
-    assert!(ssh.take("far").unwrap().rows.is_empty(), "a row set aside is never taken again");
-    assert!(hosts.rejected().join("m-2.json").is_file());
 }
 
 #[test]

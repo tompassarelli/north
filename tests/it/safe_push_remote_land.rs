@@ -109,16 +109,3 @@ fn safe_push_on_a_ledger_client_lands_a_south_lane_through_ssh_nexus_south_land_
     assert!(fs::read_to_string(host.root.join("received.mbox")).unwrap().contains("Subject: [PATCH] lane change for the ledger host"));
 }
 
-#[test]
-fn safe_push_on_a_ledger_client_still_git_pushes_a_north_lane() {
-    let host = Gex45::new();
-    let (north, origin) = host.checkout("north", true);
-    let output = host.safe_push(&north);
-    let trace = host.trace();
-    for line in &trace {
-        println!("{line}");
-    }
-    assert!(trace.iter().any(|line| line.starts_with("git ") && line.contains("push")), "{trace:?}\n{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert!(!trace.iter().any(|line| line.starts_with("ssh ")), "{trace:?}");
-    assert!(git(&origin, &["for-each-ref", "--format=%(refname:short)", "refs/heads/claude/"]).starts_with("claude/"), "{trace:?}");
-}

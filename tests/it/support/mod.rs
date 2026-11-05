@@ -3,7 +3,6 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 pub mod template;
-pub mod test_env;
 pub mod tree;
 
 pub fn fake_claude() -> String {
@@ -39,12 +38,3 @@ fn example(name: &str, source: &str) -> String {
     built.to_string_lossy().into_owned()
 }
 
-#[allow(dead_code)]
-pub fn fleet_ledger(home: &Path) {
-    let dir = home.join(".local/state/threads");
-    std::fs::create_dir_all(&dir).unwrap();
-    rusqlite::Connection::open(dir.join("threads.db"))
-        .unwrap()
-        .execute_batch("CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('claim','release')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;")
-        .unwrap();
-}
