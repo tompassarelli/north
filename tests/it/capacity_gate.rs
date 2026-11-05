@@ -25,6 +25,21 @@ fn host(prefix: &str, orchestration: &str) -> Host {
     host
 }
 
+fn within_20_seconds(mut child: std::process::Child) -> Option<std::process::ExitStatus> {
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
+        }
+        if started.elapsed() > std::time::Duration::from_secs(20) {
+            let _ = Command::new("kill").args(["-KILL", &format!("-{}", child.id())]).status();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 fn cargo(host: &Host, arguments: &[&str]) -> Command {
     gated(host, "cargo", arguments)
 }
@@ -138,19 +153,8 @@ fn a_stub_that_execs_the_gate_shim_reaches_the_real_program_instead_of_looping()
     shim::write_script(&stub, &format!("exec {} \"$@\"\n", host.path("shims/bun").display()));
     let mut command = gated(&host, "bun", &["test"]);
     let path = format!("{}:{}:{}:{}:{}", host.path("stubs").display(), host.path("shims").display(), host.path("toolchain").display(), host.path("bin").display(), std::env::var("PATH").unwrap_or_default());
-    let mut child = command.env("PATH", path).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().unwrap();
-    let started = std::time::Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            break Some(status);
-        }
-        if started.elapsed() > std::time::Duration::from_secs(20) {
-            let _ = Command::new("kill").args(["-KILL", &format!("-{}", child.id())]).status();
-            let _ = child.wait();
-            break None;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    };
+    let child = command.env("PATH", path).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn_exclusive().unwrap();
+    let status = within_20_seconds(child);
     assert!(status.is_some_and(|status| status.success()), "a stub that execs the gate shim looped through the gate instead of reaching the real program");
     assert_eq!(fs::read_to_string(host.path("ran")).unwrap(), "real test\n");
 }
@@ -163,4 +167,25 @@ fn a_check_script_that_runs_nix_develop_inside_a_dev_shell_reaches_the_real_nix_
     let output = gated(&host, "nix", &["develop", "--command", "bash", &check.to_string_lossy()]).output_exclusive().unwrap();
     assert!(output.status.success(), "the nested nix did not resolve behind the gate: {}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(fs::read_to_string(host.path("built")).unwrap(), " fmt\n");
+}
+
+#[test]
+fn a_stub_that_names_the_dev_shell_shim_ahead_of_the_real_bun_is_skipped_as_a_shim_before_the_loop_guard_fires() {
+    let host = host("capacity-gate-shim-identity-", "[hosts.gex45]\nresident_cap = 24\n");
+    shim::write_script(&host.path("toolchain/bun"), &format!("printf '%s\\n' \"$NORTH_CAPACITY_GATE_EXECUTED\" >{}\n", host.path("ran").display()));
+    let shims = host.path("store/0123456789abcdefghijklmnopqrstuv-capacity-gate-shims/bin");
+    fs::create_dir_all(&shims).unwrap();
+    shim::copy_executable(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/bun"), shims.join("bun"));
+    let stub = host.path("stubs/bun");
+    fs::create_dir_all(stub.parent().unwrap()).unwrap();
+    shim::write_script(&stub, &format!("[ \"$*\" = \"install --frozen-lockfile\" ] || exec {} \"$@\"\n", shims.join("bun").display()));
+    let path = format!("{}:{}:{}:{}:{}", host.path("stubs").display(), shims.display(), host.path("toolchain").display(), host.path("bin").display(), std::env::var("PATH").unwrap_or_default());
+    let _ = std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), host.path("bin/north"));
+    let child = host.command(&stub).arg("test").env("PATH", path).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self")).env_remove("NORTH_CAPACITY_GATE_EXECUTED").stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn_exclusive().unwrap();
+    let status = within_20_seconds(child);
+    assert!(status.is_some_and(|status| status.success()), "the gate looped through the stub instead of reaching the real bun");
+    let chain = fs::read_to_string(host.path("ran")).unwrap();
+    let executed: Vec<&str> = chain.trim_end().split('\t').skip(1).collect();
+    assert_eq!(executed.len(), 1, "the gate executed the stub before the real bun, so only the loop guard stopped it: {chain}");
+    assert!(executed[0].ends_with(&format!(" {}", fs::canonicalize(host.path("toolchain/bun")).unwrap().display())), "{chain}");
 }

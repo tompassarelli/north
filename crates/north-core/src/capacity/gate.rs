@@ -10,6 +10,8 @@ const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionic
 const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
 const EXECUTED: &str = "NORTH_CAPACITY_GATE_EXECUTED";
 const TOOLCHAIN_MISSING: u8 = 75;
+const SHIM_MARKER: &str = "# north capacity gate shim: the real program is the next one on PATH that is not a shim";
+const SHIMS_OUTPUT: &str = "-capacity-gate-shims/bin/";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Class {
@@ -123,9 +125,13 @@ fn executable(path: &Path) -> bool {
 
 fn is_shim(path: &Path) -> bool {
     use std::io::Read;
-    let mut head = [0u8; 256];
-    let read = std::fs::File::open(path).and_then(|mut file| file.read(&mut head)).unwrap_or(0);
-    head[..read].starts_with(b"#!") && head[..read].windows(13).any(|window| window == b"capacity gate")
+    if std::fs::canonicalize(path).is_ok_and(|real| real.to_string_lossy().contains(SHIMS_OUTPUT)) {
+        return true;
+    }
+    let mut head = Vec::with_capacity(4096);
+    let _ = std::fs::File::open(path).and_then(|file| file.take(4096).read_to_end(&mut head));
+    let head = String::from_utf8_lossy(&head);
+    head.starts_with("#!") && (head.lines().any(|line| line == SHIM_MARKER) || head.contains(SHIMS_OUTPUT))
 }
 
 pub fn class_of(words: &[String], depth: usize) -> Option<Class> {

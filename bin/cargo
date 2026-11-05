@@ -1,4 +1,5 @@
 #!/bin/sh
+# north capacity gate shim: the real program is the next one on PATH that is not a shim
 if north capacity gate --class "$0" >/dev/null 2>&1; then
   exec north capacity gate "$0" "$@"
 fi
