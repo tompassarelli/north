@@ -149,3 +149,31 @@ fn not_required_reads_its_section_and_its_inline_lines() {
     assert!(not_required("- [ ] a\nNothing here").is_empty());
 }
 
+
+fn tuned(cells: &str) -> super::tuned::Tuned {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cells.json");
+    std::fs::write(&path, cells).unwrap();
+    let written = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(AFTER as u64);
+    std::fs::File::options().write(true).open(&path).unwrap().set_modified(written).unwrap();
+    super::tuned::Tuned::read(&path, written + std::time::Duration::from_secs(3_600))
+}
+
+#[test]
+fn dispatch_writes_the_tune_cells_eta_and_budget_into_the_brief_and_the_live_ledger_figure_where_a_cell_is_missing() {
+    let box_ = issue("north", 7, BODY, &[]);
+    let briefed = |cells: &str| brief(&box_, "test", &route(), &ledger(&[]).tuned(tuned(cells)).grounds("north#7", OPENED, &box_.body, &route()));
+    let live_eta = "ETA: 30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)";
+    let live_budget = "at $10.40 API-equivalent spend (twice the cell's median cost per closed box, median $5.20 of n=4 boxes, cell tooling on sonnet, ledger 7d)";
+    let eta = briefed(r#"{"eta_minutes sonnet tooling": 55, "budget_usd opus tooling": 3.0}"#);
+    assert!(eta.contains("ETA: 55 min (tune cell, 2026-10-30)\n") && eta.contains(live_budget), "{eta}");
+    assert!(eta.contains("the ETA and budget are north tune's cells of 2026-10-30, else the ledger's closed boxes of the last 7d"), "{eta}");
+    let budget = briefed(r#"{"budget_usd sonnet tooling": 7.5, "eta_minutes sonnet feature": 90}"#);
+    assert!(budget.contains(live_eta) && budget.contains("at $7.50 API-equivalent spend (tune cell, 2026-10-30), commit and land"), "{budget}");
+    let both = briefed(r#"{"eta_minutes sonnet tooling": 55, "budget_usd sonnet tooling": 7.5}"#);
+    assert!(both.contains("ETA: 55 min (tune cell, 2026-10-30)") && both.contains("$7.50 API-equivalent spend (tune cell, 2026-10-30)") && !both.contains("p75 of n="), "{both}");
+    let missing = briefed(r#"{"route tooling": "worker"}"#);
+    assert!(missing.contains(live_eta) && missing.contains(live_budget), "{missing}");
+    let floored = briefed(r#"{"budget_usd sonnet tooling": 1.0}"#);
+    assert!(floored.contains("at $5.20 API-equivalent spend") && floored.contains("since the tune cell's budget ($1.00; tune cell, 2026-10-30) is below what one real box needs"), "{floored}");
+}

@@ -1,7 +1,9 @@
 //! What a brief tells its worker about the box beyond its facets: what the issue says is not
-//! required, what the last two tries reported, and the ETA and budget the ledger's closed boxes set
-//! for the box's tier and category, the budget never below the window's median closed box.
+//! required, what the last two tries reported, and the ETA and budget north tune's cells set for the
+//! box's tier family and category, else the ledger's closed boxes live, the budget never below the
+//! window's median closed box.
 use super::tier::Route;
+use super::tuned::{Figure, Tuned};
 use crate::ledger::{self, ClosedReport, Figures, PriorReport};
 use std::collections::BTreeMap;
 
@@ -15,23 +17,29 @@ const READ_SPEND: &str = "`north fleet spend --self` prints your API-equivalent 
 const AT_THE_LINE: &str = "commit and land any change already passing its checks, then report `Split:` with the remaining parts as boxes; never stop with passing work unlanded";
 
 /// The ledger as one dispatch run reads it: the closed boxes of the window and each item's last
-/// Not done or Stop reports.
+/// Not done or Stop reports, and the cells north tune last wrote.
 #[derive(Default)]
 pub struct Ledger {
     closed: Option<ClosedReport>,
     prior: BTreeMap<String, Vec<PriorReport>>,
+    tuned: Tuned,
 }
 
 impl Ledger {
     pub fn read(notes: &mut Vec<String>) -> Self {
         let closed = ledger::closed_report(WINDOW).map_err(|error| notes.push(format!("ledger summary --since {WINDOW} unread, so briefs keep the uncalibrated ETA and carry no budget: {error}"))).ok();
         let prior = ledger::prior_reports().map_err(|error| notes.push(format!("prior Not done reports unread, so briefs carry none: {error}"))).unwrap_or_default();
-        Self { closed, prior }
+        Self { closed, prior, tuned: Tuned::current() }
     }
 
     #[cfg(test)]
     pub fn new(closed: Option<ClosedReport>, prior: BTreeMap<String, Vec<PriorReport>>) -> Self {
-        Self { closed, prior }
+        Self { closed, prior, tuned: Tuned::default() }
+    }
+
+    #[cfg(test)]
+    pub fn tuned(self, tuned: Tuned) -> Self {
+        Self { tuned, ..self }
     }
 
     /// What the brief for `item`, whose issue body is `body` and which was opened at `created` unix
@@ -41,6 +49,8 @@ impl Ledger {
         let prior = self.prior.get(item).into_iter().flatten().filter(|prior| prior.ended > created).take(PRIOR_REPORTS).map(|prior| prior.report.clone()).collect();
         Grounds {
             figures: self.closed.as_ref().and_then(|closed| closed.figures(route.tier.family(), &route.category)),
+            eta_cell: self.tuned.figure("eta_minutes", route),
+            budget_cell: self.tuned.figure("budget_usd", route),
             floor: self.closed.as_ref().and_then(ClosedReport::median_box_usd),
             prior,
             not_required: not_required(body),
@@ -51,6 +61,9 @@ impl Ledger {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Grounds {
     pub figures: Option<Figures>,
+    /// North tune's `eta_minutes` and `budget_usd` cells for the box's tier family and category.
+    pub eta_cell: Option<Figure>,
+    pub budget_cell: Option<Figure>,
     /// The median cost of a closed box across every cell of the window, and how many closed: what
     /// one real box needs, however little a cell's own few boxes cost.
     pub floor: Option<(f64, usize)>,
@@ -59,33 +72,43 @@ pub struct Grounds {
 }
 
 impl Grounds {
-    /// The ETA line's value: the ledger's p75 with its n, else what the issue declares, else the
-    /// uncalibrated default.
+    /// The ETA line's value: the tune cell, else the ledger's p75 with its n, else what the issue
+    /// declares, else the uncalibrated default.
     pub fn eta(&self, declared: Option<&str>, route: &Route) -> String {
-        match (&self.figures, declared) {
-            (Some(figures), declared) => {
-                let aside = declared.map_or_else(String::new, |declared| format!("; the issue declares {declared}"));
-                format!("{:.0} min (p75 of n={} runs, {}{aside})", eta_minutes(figures), figures.runs, cell(route))
-            }
-            (None, Some(declared)) => declared.to_owned(),
-            (None, None) => UNCALIBRATED.to_owned(),
+        let aside = declared.map_or_else(String::new, |declared| format!("; the issue declares {declared}"));
+        match (&self.eta_cell, &self.figures, declared) {
+            (Some(tuned), _, _) => format!("{:.0} min (tune cell, {}{aside})", tuned.value.ceil(), tuned.date),
+            (None, Some(figures), _) => format!("{:.0} min (p75 of n={} runs, {}{aside})", eta_minutes(figures), figures.runs, cell(route)),
+            (None, None, Some(declared)) => declared.to_owned(),
+            (None, None, None) => UNCALIBRATED.to_owned(),
         }
     }
 
+    /// The minutes the ETA line gives the box when the tune cell or the ledger measured it.
+    pub fn minutes(&self) -> Option<f64> {
+        self.eta_cell.as_ref().map(|tuned| tuned.value.ceil()).or_else(|| self.figures.as_ref().map(eta_minutes))
+    }
+
     pub fn measured(&self) -> bool {
-        self.figures.is_some()
+        self.figures.is_some() || self.eta_cell.is_some() || self.budget_cell.is_some()
     }
 
     pub fn budget(&self, route: &Route) -> Option<String> {
-        self.figures.as_ref().map(|figures| {
-            let twice = figures.median_usd * BUDGET_TIMES;
-            let measured = format!("median ${:.2} of n={} boxes, {}", figures.median_usd, figures.closed, cell(route));
-            match self.floor.filter(|(floor, _)| twice < *floor) {
-                Some((floor, boxes)) => format!(
-                    "Budget: {READ_SPEND}; at ${floor:.2} API-equivalent spend (the median cost of a closed box across every cell (n={boxes} boxes, ledger {WINDOW}), since twice the cell's median cost per closed box (${twice:.2}; {measured}) is below what one real box needs), {AT_THE_LINE}"
-                ),
-                None => format!("Budget: {READ_SPEND}; at ${twice:.2} API-equivalent spend (twice the cell's median cost per closed box, {measured}), {AT_THE_LINE}"),
-            }
+        let (usd, basis, source) = match (&self.budget_cell, &self.figures) {
+            (Some(tuned), _) => (tuned.value, "the tune cell's budget", format!("tune cell, {}", tuned.date)),
+            (None, Some(figures)) => (
+                figures.median_usd * BUDGET_TIMES,
+                "twice the cell's median cost per closed box",
+                format!("median ${:.2} of n={} boxes, {}", figures.median_usd, figures.closed, cell(route)),
+            ),
+            (None, None) => return None,
+        };
+        Some(match self.floor.filter(|(floor, _)| usd < *floor) {
+            Some((floor, boxes)) => format!(
+                "Budget: {READ_SPEND}; at ${floor:.2} API-equivalent spend (the median cost of a closed box across every cell (n={boxes} boxes, ledger {WINDOW}), since {basis} (${usd:.2}; {source}) is below what one real box needs), {AT_THE_LINE}"
+            ),
+            None if self.budget_cell.is_some() => format!("Budget: {READ_SPEND}; at ${usd:.2} API-equivalent spend ({source}), {AT_THE_LINE}"),
+            None => format!("Budget: {READ_SPEND}; at ${usd:.2} API-equivalent spend ({basis}, {source}), {AT_THE_LINE}"),
         })
     }
 
@@ -97,7 +120,14 @@ impl Grounds {
     }
 
     pub fn rationale(&self, route: &Route) -> String {
-        let source = if self.measured() { format!("the ledger's closed boxes of the last {WINDOW}") } else { "unmeasured for this cell".to_owned() };
+        let tuned = self.eta_cell.as_ref().or(self.budget_cell.as_ref()).map(|tuned| format!("north tune's cells of {}", tuned.date));
+        let live = self.figures.is_some().then(|| format!("the ledger's closed boxes of the last {WINDOW}"));
+        let source = match (tuned, live) {
+            (Some(tuned), Some(live)) if self.eta_cell.is_none() || self.budget_cell.is_none() => format!("{tuned}, else {live}"),
+            (Some(tuned), _) => tuned,
+            (None, Some(live)) => live,
+            (None, None) => "unmeasured for this cell".to_owned(),
+        };
         format!("Why: {}; the ETA and budget are {source}", route.why)
     }
 }

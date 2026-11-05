@@ -260,7 +260,7 @@ fn dispatch_follows_a_fresh_tune_route_cell_and_decides_live_when_it_is_stale_or
     let now = std::time::SystemTime::now();
     let category = |name: &'static str| move |key: &str| if key == "Category" { name.to_owned() } else { String::new() };
     let ledger = |routes: &BTreeMap<String, Tier>| ["tooling", "feature"].map(|name| (name.to_owned(), Evidence::default().tuned(routes, name))).into_iter().collect::<BTreeMap<_, _>>();
-    let fresh = super::tuned::routes(&path, now);
+    let fresh = super::tuned::Tuned::read(&path, now).routes();
     assert_eq!(fresh, BTreeMap::from([("tooling".to_owned(), Tier::Opus)]));
     let tuned = super::tier::route_for("north#1", &category("tooling"), &History::default(), &ledger(&fresh));
     assert_eq!((tuned.tier, tuned.arm), (Tier::Opus, false), "{}", tuned.why);
@@ -268,11 +268,11 @@ fn dispatch_follows_a_fresh_tune_route_cell_and_decides_live_when_it_is_stale_or
     let untuned = super::tier::route_for("north#2", &category("feature"), &History::default(), &ledger(&fresh));
     assert_eq!((untuned.tier, untuned.arm), (Tier::Sonnet, true), "{}", untuned.why);
     std::fs::File::options().write(true).open(&path).unwrap().set_modified(now - std::time::Duration::from_secs(37 * 3_600)).unwrap();
-    let stale = super::tuned::routes(&path, now);
+    let stale = super::tuned::Tuned::read(&path, now).routes();
     assert!(stale.is_empty());
     let live = super::tier::route_for("north#1", &category("tooling"), &History::default(), &ledger(&stale));
     assert_eq!((live.tier, live.arm), (Tier::Sonnet, true), "{}", live.why);
-    assert!(super::tuned::routes(&dir.path().join("absent.json"), now).is_empty());
+    assert!(super::tuned::Tuned::read(&dir.path().join("absent.json"), now).routes().is_empty());
 }
 
 #[test]
