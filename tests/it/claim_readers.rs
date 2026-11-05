@@ -1,5 +1,6 @@
 use north_core::foundation::shim;
 use std::fs;
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -32,6 +33,7 @@ impl Rig {
         let root = scratch.path().to_path_buf();
         fs::create_dir_all(root.join("bin")).unwrap();
         shim::write_script(&root.join("bin/gh"), FAKE_GH);
+        symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
         fs::write(root.join("orchestration.toml"), "").unwrap();
         Rig { _scratch: scratch, root }
     }
@@ -54,7 +56,7 @@ impl Rig {
     }
 
     fn threads(&self, arguments: &[&str]) -> String {
-        self.run(Path::new(env!("CARGO_BIN_EXE_north")), &[&["threads"], arguments].concat())
+        self.run(&self.root.join("bin/threads"), arguments)
     }
 }
 

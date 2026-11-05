@@ -6,7 +6,7 @@ set -uo pipefail
 probe 0
 sha=$(git -C "$container/main" rev-parse HEAD)
 sent() { grep -c "Item: north#$1" "$scratch/bin/started"; }
-listed() { "$NORTH_LOCAL" threads queue follow-list | grep -c "\"item\": \"north#$1\""; }
+listed() { "$threads" queue follow-list | grep -c "\"item\": \"north#$1\""; }
 
 : >"$scratch/bin/started"
 touch "$scratch/bin/start-fails"

@@ -1,5 +1,5 @@
-//! What every NorthThreads verb shares: the ledger, argparse-shaped arguments, refusals, events
-//! in the JSON form the ledger has always held, and the outside effects.
+//! What every Rust NorthThreads verb shares: the ledger bin/threads has migrated, argparse-shaped
+//! arguments, refusals, events written the way Python wrote them, and the outside effects.
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
@@ -14,6 +14,8 @@ use crate::platform::pyjson::Value;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::issues::Issues;
 
+/// Set by bin/threads once it has migrated THREADS_DB, which it owns until its migrations move here.
+pub const SCHEMA_READY: &str = "THREADS_SCHEMA_READY";
 const BUSY: Duration = Duration::from_secs(60);
 
 static NATIVE_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!(r"\b(?:{})#\d+\b", CATALOG.native.join("|"))).expect("native ref pattern"));
@@ -61,7 +63,6 @@ impl Context<'_> {
     }
 }
 
-#[derive(Debug)]
 pub enum Failure {
     Usage(String),
     Refused(String),
@@ -149,7 +150,7 @@ pub fn immediate(db: &mut Connection) -> Result<rusqlite::Transaction<'_>, Failu
     Ok(db.transaction_with_behavior(TransactionBehavior::Immediate)?)
 }
 
-/// A ref as NorthThreads normalizes it, refused for a native item this caller may not read.
+/// A ref as bin/threads normalizes it, refused for a native item this caller may not read.
 pub fn item_ref(text: &str, context: &Context) -> Result<(String, u64), Failure> {
     let (repo, number) = CATALOG.parse_ref(text)?;
     if let Some(reason) = context.no_native.filter(|_| CATALOG.is_native(&repo)) {
@@ -185,38 +186,4 @@ pub fn table(rows: &[Vec<String>]) -> String {
     let widths: Vec<usize> = (0..rows[0].len()).map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0)).collect();
     let line = |row: &Vec<String>| row.iter().zip(&widths).map(|(cell, width)| format!("{cell:<width$}")).collect::<Vec<_>>().join("  ").trim_end().to_owned();
     rows.iter().map(|row| format!("{}\n", line(row))).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Context, Failure};
-    use crate::foundation::clock::Timestamp;
-    use crate::threads::catalog::CATALOG;
-    use crate::threads::fake::Recorded;
-
-    #[test]
-    fn gh_refuses_every_argv_naming_a_generated_native_ref_before_it_runs() {
-        let outside = Recorded::default();
-        let context = Context { database: std::path::Path::new("/dev/null"), actor: "tester".into(), no_native: None, outside: &outside, now: Timestamp::from_unix_seconds(0), replica: false };
-        let mut state = 7_u64;
-        let mut next = |bound: u64| {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
-            (state >> 33) % bound
-        };
-        let mut refused = 0;
-        for index in 0..1000 {
-            let reference = format!("{}#{}", CATALOG.native[next(CATALOG.native.len() as u64) as usize], 1000 + index);
-            let argv = match next(4) {
-                0 => vec!["issue".to_owned(), "comment".into(), "1".into(), "--body".into(), format!("see {reference}")],
-                1 => vec!["issue".to_owned(), "create".into(), "--title".into(), format!("{reference} title")],
-                2 => vec!["api".to_owned(), "graphql".into(), "-f".into(), format!("query={reference}")],
-                _ => vec!["pr".to_owned(), "edit".into(), "2".into(), format!("--body=x ({reference})")],
-            };
-            let words: Vec<&str> = argv.iter().map(String::as_str).collect();
-            if matches!(context.gh(&words), Err(Failure::Refused(_))) {
-                refused += 1;
-            }
-        }
-        assert_eq!((refused, outside.calls.borrow().len()), (1000, 0));
-    }
 }

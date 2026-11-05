@@ -28,6 +28,7 @@ fn only_files_the_release_build_reads_count_as_rust_inputs() {
         "agent-machinery/file-skills.toml",
         "north-data/private-checks.toml",
         "north-data/expectations.toml",
+        "bin/threads",
     ] {
         assert!(rust_build_input(path), "{path}");
     }
