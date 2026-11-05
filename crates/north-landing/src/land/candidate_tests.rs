@@ -60,7 +60,7 @@ fn lane(repo: &Path, base: &str, name: &str, files: &[(&str, &str)]) -> Ticket {
     }
     commit_all(repo, name);
     let head = git(repo, &["rev-parse", "HEAD"]).unwrap();
-    Ticket { origin: String::new(), root: repo.to_owned(), host: String::new(), branch: name.to_owned(), head, session: None, queued_at: String::new(), first_commit_secs: None, several_commits: None, red_fix: None, verdict: None, keep_lane: false }
+    Ticket { root: repo.to_owned(), branch: name.to_owned(), head, ..Default::default() }
 }
 
 #[test]

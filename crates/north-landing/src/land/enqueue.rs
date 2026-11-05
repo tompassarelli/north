@@ -220,6 +220,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         red_fix,
         verdict: None,
         keep_lane,
+        urgent: None,
     };
     let outbox = off_lander_host(&root, &remote_ref, environment.host);
     let queue = queue::directory(environment.state_home, &origin);

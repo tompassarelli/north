@@ -36,7 +36,7 @@ fn parse(arguments: &[String]) -> Option<Options> {
 
 /// The queued ticket TICKET names, by file name with or without `.json` or by branch, newest first,
 /// in the landing queue or this host's outbox.
-fn find(queue: &Path, wanted: &str) -> Result<(PathBuf, Ticket), String> {
+pub(super) fn find(queue: &Path, wanted: &str) -> Result<(PathBuf, Ticket), String> {
     let file = if wanted.ends_with(".json") { wanted.to_owned() } else { format!("{wanted}.json") };
     let mut matches = Vec::new();
     for directory in [queue.to_path_buf(), queue.join(queue::OUTBOX)] {

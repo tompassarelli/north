@@ -1065,3 +1065,5 @@ Rules adopted, each in its owner:
   lacks on the landed sha after the push
   (`crates/north-landing/src/land/post_land.rs`); a failure is recorded in
   `safe-push/post-land.tsv` and alarms the proxy.
+
+Urgent lanes (2026-11-05): a fix that unblocks the queue itself waited behind 45 lanes after the morning fan-out. `north land urgent TICKET --reason TEXT` marks a queued ticket so the lander orders it with red fixes, ahead of older tickets, in both the batch queue and the per-lane prechecks. The proxy or a lead sets it; the reason is kept on the ticket.

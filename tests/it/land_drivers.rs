@@ -40,7 +40,7 @@ fn set_driver_without_shared_config() {
         fs::write(repo.join("structure.toml"), structure(&format!("\"base\", \"{entry}\""))).unwrap();
         git(&repo, &["commit", "-qam", entry]);
         let head = git(&repo, &["rev-parse", "HEAD"]);
-        let ticket = Ticket { origin: String::new(), root: repo.clone(), host: String::new(), branch: entry.to_owned(), head, session: None, queued_at: String::new(), first_commit_secs: None, several_commits: None, red_fix: None, verdict: None, keep_lane: false };
+        let ticket = Ticket { root: repo.clone(), branch: entry.to_owned(), head, ..Default::default() };
         tickets.push((dir.path().join(format!("{entry}.json")), ticket));
     }
     let worktree = dir.path().join("lander");

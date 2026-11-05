@@ -24,7 +24,7 @@ const WORKTREE: &str = "lander-precheck";
 type Order = (bool, u128, PathBuf);
 
 fn order(path: &Path, ticket: &Ticket) -> Order {
-    (ticket.red_fix.is_none(), queue::queued_micros(path), path.to_owned())
+    (!ticket.goes_first(), queue::queued_micros(path), path.to_owned())
 }
 
 fn micros() -> u128 {

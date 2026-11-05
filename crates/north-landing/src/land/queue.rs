@@ -48,6 +48,14 @@ pub struct Ticket {
     pub verdict: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub keep_lane: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub urgent: Option<String>,
+}
+
+impl Ticket {
+    pub fn goes_first(&self) -> bool {
+        self.red_fix.is_some() || self.urgent.is_some()
+    }
 }
 
 pub use crate::platform::land_queue::{directory, key};
@@ -96,7 +104,7 @@ pub fn pending(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
             tickets.push((path, ticket));
         }
     }
-    tickets.sort_by_key(|(path, ticket)| (ticket.red_fix.is_none(), queued_micros(path), path.clone()));
+    tickets.sort_by_key(|(path, ticket)| (!ticket.goes_first(), queued_micros(path), path.clone()));
     Ok(tickets)
 }
 
