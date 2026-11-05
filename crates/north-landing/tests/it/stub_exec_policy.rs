@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use north_landing::stub_exec_gate::{ALLOWLIST, ROOTS, allowlist, problems};
 
-const ROOT: &str = env!("CARGO_MANIFEST_DIR");
+const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
 fn rust_files(directory: &Path, found: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(directory).unwrap().flatten() {
