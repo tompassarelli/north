@@ -1,7 +1,7 @@
-use super::{Batch, Followed, Pending};
+use super::{Batch, Pending};
 
 fn batch(base: &str, head: &str) -> Batch {
-    Batch { base: base.to_owned(), head: head.to_owned(), lanes: Vec::new(), heads: vec![Followed { head: head.to_owned(), at: 0.0 }], started: None, retry_at: 0.0 }
+    Batch::landed(base.to_owned(), head.to_owned(), Vec::new(), 0.0)
 }
 
 #[test]

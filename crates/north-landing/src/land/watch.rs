@@ -47,6 +47,10 @@ struct Batch {
 }
 
 impl Batch {
+    fn landed(base: String, head: String, lanes: Vec<LandedLane>, at: f64) -> Self {
+        Self { base, heads: vec![Followed { head: head.clone(), at }], head, lanes, started: None, retry_at: 0.0 }
+    }
+
     fn covers(&self, head: &str) -> bool {
         self.heads.iter().any(|followed| followed.head == head)
     }
@@ -106,6 +110,10 @@ fn entry_path(lander: &Lander, head: &str) -> PathBuf {
     journal(lander).join(format!("{head}.json"))
 }
 
+fn journaled_at(path: &Path) -> f64 {
+    fs::metadata(path).and_then(|metadata| metadata.modified()).ok().and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok()).map_or_else(epoch, |since| since.as_secs_f64())
+}
+
 fn read_entry(path: &Path) -> Result<Entry, String> {
     let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
     serde_json::from_str(&text).map_err(|error| error.to_string())
@@ -115,13 +123,15 @@ impl Watch {
     pub fn resume(lander: &Lander) -> Self {
         let mut watch = Self::default();
         let Ok(entries) = fs::read_dir(journal(lander)) else { return watch };
-        let mut paths: Vec<PathBuf> = entries.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).collect();
-        paths.sort_by_key(|path| fs::metadata(path).and_then(|metadata| metadata.modified()).ok());
-        for path in paths {
+        let mut paths: Vec<(f64, PathBuf)> = entries.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).map(|path| (journaled_at(&path), path)).collect();
+        paths.sort_by(|left, right| left.0.total_cmp(&right.0));
+        for (at, path) in paths {
             match read_entry(&path) {
-                Ok(entry) => {
-                    println!("north land: rerunning the after-landing run of {}, which a stopped lander left without a verdict", entry.head);
-                    watch.follow(lander, &entry.base, &entry.head, entry.lanes);
+                Ok(Entry { base, head, lanes }) => {
+                    println!("north land: rerunning the after-landing run of {head}, which a stopped lander left without a verdict");
+                    if !watch.pending.covers(&head) {
+                        watch.pending.add(Batch::landed(base, head, lanes, at));
+                    }
                 }
                 Err(error) => {
                     println!("north land: dropping the unreadable after-landing journal entry {}: {error}", path.display());
@@ -146,7 +156,7 @@ impl Watch {
             println!("north land: could not journal the after-landing run of {head}, so a lander restart before its verdict loses it: {error}");
         }
         let Entry { base, head, lanes } = entry;
-        self.pending.add(Batch { base, heads: vec![Followed { head: head.clone(), at: epoch() }], head, lanes, started: None, retry_at: 0.0 });
+        self.pending.add(Batch::landed(base, head, lanes, epoch()));
         self.start_next(lander);
     }
 
