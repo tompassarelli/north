@@ -126,7 +126,8 @@ fn publish(directory: &Path, request: &Arguments, to: &str) -> Step<Published> {
     let outgoing = Outgoing::capture(directory, to)?;
     let range = outgoing.range();
     let mut refusals = Vec::new();
-    if scan(&["language", "--base", &outgoing.base, "--head", &outgoing.head, "--origin", &outgoing.identity.origin_url]).is_err() {
+    let safe_push = std::env::var("SAFE_PUSH_SELF").unwrap_or_default();
+    if scan(&["language", "--base", &outgoing.base, "--head", &outgoing.head, "--origin", &outgoing.identity.origin_url, "--safe-push", &safe_push]).is_err() {
         refusals.push("language gate");
     }
     if !guards::on_path("gitleaks") {

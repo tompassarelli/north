@@ -728,7 +728,7 @@ if [ "$to_seen" -eq 0 ] || [ "$to" != "$(default_branch)" ]; then
   safe_push_internal=1
   command -v north >/dev/null 2>&1 || { echo "safe-push: north not on PATH; refusing to land without the language gate; NOT pushed." >&2; exit 1; }
   north land push --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land push, which publishes every branch but $(default_branch); run north runtime update; NOT pushed." >&2; exit 1; }
-  exec north land push "${original_arguments[@]}"
+  SAFE_PUSH_SELF="$safe_push_self" exec north land push "${original_arguments[@]}"
 fi
 safe_push_common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
 
