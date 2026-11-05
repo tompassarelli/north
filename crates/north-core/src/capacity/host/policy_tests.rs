@@ -187,3 +187,14 @@ fn a_heavy_shape_whose_twenty_measured_runs_all_peaked_under_its_class_is_charge
     assert_eq!(heavy_peak_charge(6.0, &[0.0; 20]), None, "a run without a positive peak keeps the class");
     assert_eq!(heavy_peak_charge(6.0, &[0.6; 20].into_iter().chain([0.8]).collect::<Vec<_>>()), Some(1.0), "a tiny shape is charged at least one core");
 }
+
+#[test]
+fn a_land_check_asks_a_check_host_for_its_measured_peak_once_its_newest_runs_are_measured() {
+    use super::land_check_charge;
+    let run = |peak: f64| serde_json::json!({ "owner": "land-check", "class": "heavy", "peakCores": peak, "wallSeconds": 121.0 });
+    let mut runs: Vec<serde_json::Value> = (0..30).map(|_| run(9.0)).collect();
+    runs.extend((0..40).map(|index| run(if index == 7 { 4.0 } else { 2.4 })));
+    assert_eq!(land_check_charge(6.0, &runs), 4.0, "older runs past the newest forty do not hold the charge at the class");
+    assert_eq!(land_check_charge(6.0, &runs[..60]), 6.0, "a peak at or over the class among the newest forty keeps six");
+    assert_eq!(land_check_charge(6.0, &runs[..19]), 6.0, "too few runs keep six");
+}

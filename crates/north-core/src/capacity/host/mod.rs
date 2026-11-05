@@ -53,6 +53,21 @@ pub use actions_pull::run as actions_pull;
 pub use fleet_pull::run as pull;
 pub use model::host_name;
 
+/// The cores a land check asks of a check host: its highest measured peak once enough newest land-check runs all peaked under the heavy class, else `land_offload_cpus`.
+pub fn land_check_cpus() -> f64 {
+    land_check_charge(admission_default("land_offload_cpus"), &database::recent_usage(5000, |entry| entry["owner"].as_str() == Some("land-check") && entry["class"].as_str() == Some("heavy") && entry["wallSeconds"].as_f64().is_some_and(|wall| wall > 0.0)))
+}
+
+pub(super) fn land_check_charge(declared: f64, runs: &[Value]) -> f64 {
+    let newest = &runs[runs.len().saturating_sub(2 * policy::default_number("heavy_peak_charge_runs") as usize)..];
+    let peaks: Vec<f64> = newest.iter().map(|run| run["peakCores"].as_f64().unwrap_or(f64::NAN)).collect();
+    policy::heavy_peak_charge(declared, &peaks).unwrap_or(declared)
+}
+
+fn admission_default(name: &str) -> f64 {
+    crate::capacity::admission::default_mib(name)
+}
+
 pub fn fail(message: &str, status: i32) -> ! {
     eprintln!("machine-capacity: {message}");
     std::process::exit(status)

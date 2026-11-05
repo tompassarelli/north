@@ -157,7 +157,7 @@ fn choose(any: bool, taken: &[String]) -> u8 {
         let reads: Vec<_> = others.iter().map(|machine| scope.spawn(|| (machine.name.clone(), room::read(&machine.ssh)))).collect();
         reads.into_iter().filter_map(|read| read.join().ok()).collect::<Vec<_>>()
     });
-    match room::check_host(reserved, &here, room::read_local, remotes, taken) {
+    match room::check_host(reserved, &here, room::read_local, remotes, taken, crate::capacity::land_check_cpus()) {
         Ok(name) if name == here => {
             eprintln!("north capacity offload: {here} has the most room, so the land check runs here");
             0

@@ -14,6 +14,7 @@ pub mod teardown;
 pub mod seat_idle;
 mod game_reserve;
 pub use game_reserve::{Confinement, confinement};
+pub use host::land_check_cpus;
 mod gate;
 mod host;
 mod unleased;
