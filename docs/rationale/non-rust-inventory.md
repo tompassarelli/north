@@ -80,7 +80,6 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | bin/safe-push | 2452 | port: landing-train B18 (north#76, north#88 land-check loop box) | a planner is decomposing it; do not edit |
 | bin/safe-push.test.sh | 2844 | port: landing-train B18 (north#76) | shell tests of the shell landing path; they move to cargo test with the train loop |
 | bin/supply-alert | 7 | stay | 7-line glue: one ssh exec to the nexus alert host; callers in Rust (supply_chain.rs, lane-gc) and the nixos-config supply-chain-scan unit |
-| bin/test-health | 143 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | Bun TS with test-health-core.ts |
 | bin/threads | 789 | port: north#77 (bin/threads) | 789 lines of Python; verbs already move to Rust (RUST_VERBS) |
 | bin/threads-resume.test.sh | 80 | port: north#77 (bin/threads) | test of bin/threads |
 | bin/threads.test.sh | 684 | port: north#77 (bin/threads) | test of bin/threads |
@@ -137,7 +136,6 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | harness/lib/routines.py | 238 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/routing.test.sh | 83 | port: north#80 (placement, routing, calibration) | allowlisted; test of a routing bug fix pending port |
 | harness/lib/ssh_transport.py | 19 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/test-health-core.ts | 284 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | core of bin/test-health |
 | harness/lib/tree-north.sh | 18 | port: north#88 box "hook and harness shell to Rust" (family: tests) | sourced library that builds a tree's north binary for shell tests; goes when the shell tests that source it go |
 | harness/lib/tree-north.test.sh | 45 | port: north#88 box "hook and harness shell to Rust" (family: tests) | test of tree-north.sh |
 | harness/lib/usage_agy.py | 179 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
