@@ -111,6 +111,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("report", Status),
     ("resident-cap", Status),
     ("retain", Bookkeeping),
+    ("review-items", Diagnosis),
     ("runtime", Bookkeeping),
     ("runtime-floor-gate", Diagnosis),
     ("safe-push", Landing),

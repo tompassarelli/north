@@ -77,6 +77,26 @@ fn every_citation_in_docs_skills_and_hooks_exists_and_every_doc_is_linked() {
 }
 
 #[test]
+fn a_review_dispatch_of_the_proxy_role_plan_prints_items_by_kind_with_fact_results_and_tiers() {
+    use crate::ops::review_items::{dispatch, render, Tier};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let plan = "docs/rationale/proxy-role.md";
+    let lines = render(plan, Tier::OpusMedium, &dispatch(root, plan, Tier::OpusMedium, defines).unwrap());
+    assert!(lines[0].starts_with("review items docs/rationale/proxy-role.md, author opus-medium: "), "{}", lines[0]);
+    assert!(lines[0].contains("scenario -> sonnet-high") && lines[0].contains("architecture -> opus-high"), "{}", lines[0]);
+    let first = |prefix: &str| lines.iter().position(|line| line.starts_with(prefix)).unwrap_or_else(|| panic!("no {prefix} line in {lines:#?}"));
+    assert!(first("fact ") < first("scenario ") && first("scenario ") < first("architecture "), "{lines:#?}");
+    assert!(lines.iter().any(|line| line.starts_with("fact holds ") && line.contains("path src/cli/fleet/lineage.rs:19: line 19 of ")), "{lines:#?}");
+    assert!(lines.iter().any(|line| line.starts_with("fact holds ") && line.ends_with("verb north fleet: defined")), "{lines:#?}");
+    assert!(lines.iter().any(|line| line.starts_with("fact holds ") && line.ends_with("boxes R1 and R3 both change src/cli/fleet/launch.rs, src/cli/fleet/lineage.rs; R3 needs R1")), "{lines:#?}");
+    assert!(lines.iter().any(|line| line.starts_with("fact FAILS ") && line.contains("boxes W1 and L2 both change crates/north-landing/src/land/after/mod.rs and no Needs: orders them")), "{lines:#?}");
+    assert!(lines.iter().any(|line| line.starts_with("scenario sonnet-high ") && line.contains(": 2.1 The sender is a required value: Enforced by: types.")), "{lines:#?}");
+    assert!(lines.iter().any(|line| line.starts_with("architecture opus-high lens simpler-alternative ") && line.ends_with(": 2.3 The session Tom types into is that fleet session")), "{lines:#?}");
+    assert!(lines.iter().filter(|line| line.starts_with("scenario ")).all(|line| line.starts_with("scenario sonnet-high ")), "{lines:#?}");
+    assert!(lines.iter().filter(|line| line.starts_with("architecture ")).all(|line| line.starts_with("architecture opus-high lens ")), "{lines:#?}");
+}
+
+#[test]
 fn the_cli_defines_what_it_dispatches_and_nothing_else() {
     assert!(["fleet", "config", "guard", "private-desktop", "land-clean"].into_iter().all(defines));
     assert!(!["pace-refusal", "capture", "delegate", ""].into_iter().any(defines));

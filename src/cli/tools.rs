@@ -40,6 +40,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("issue-box-lint", issue_box_lint::run),
     ("follows-release", follows_release::run),
     ("citation-check", citation_check),
+    ("review-items", review_items),
     ("cloud", super::cloud::run),
     ("worktree-layout-check", crate::lanes::layout_check),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
@@ -165,6 +166,10 @@ fn ledger_verb(verb: &str, arguments: &[String]) -> u8 {
 
 fn citation_check(arguments: &[String]) -> u8 {
     crate::ops::citation_check::run(arguments, defines)
+}
+
+fn review_items(arguments: &[String]) -> u8 {
+    crate::ops::review_items::run(arguments, defines)
 }
 
 pub(super) const BUILT_IN: &[&str] = &["config", "desktop-idle-state", "guard", "help", "private-desktop"];

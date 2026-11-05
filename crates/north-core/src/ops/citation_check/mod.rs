@@ -238,6 +238,51 @@ pub fn scan_paths(path: &str, text: &str, known: &BTreeSet<String>, tops: &BTree
     found
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct CitedPath {
+    pub line: usize,
+    pub target: String,
+    pub resolved: Option<String>,
+    pub cited_line: Option<usize>,
+}
+
+fn cited_line(span: &str) -> Option<usize> {
+    let token = span.trim_end_matches(['.', ',', ';', ')']).split('#').next()?;
+    let (_, tail) = token.rsplit_once(':')?;
+    tail.split('-').next()?.parse().ok()
+}
+
+pub fn cited_paths(root: &Path, path: &str, text: &str) -> Result<Vec<CitedPath>, String> {
+    let files = all_tracked(root)?;
+    let known = known_paths(&files);
+    let tops: BTreeSet<String> = files.iter().filter_map(|file| file.split_once('/')).map(|(top, _)| top.to_owned()).collect();
+    let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let mut fenced = false;
+    let mut found = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim_start().starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if fenced {
+            continue;
+        }
+        for target in link_targets(line) {
+            let target = target.split('#').next().unwrap_or(target);
+            found.push(CitedPath { line: index + 1, target: target.into(), resolved: resolved(&known, dir, target), cited_line: None });
+        }
+        if names_paths(path) {
+            for span in spans(line) {
+                if let Some(target) = named_path(span, &tops) {
+                    let resolved = resolved(&known, "", target).or_else(|| resolved(&known, dir, target));
+                    found.push(CitedPath { line: index + 1, target: target.into(), resolved, cited_line: cited_line(span) });
+                }
+            }
+        }
+    }
+    Ok(found)
+}
+
 fn known_paths(files: &[String]) -> BTreeSet<String> {
     let mut known = BTreeSet::new();
     for file in files {

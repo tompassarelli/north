@@ -8,6 +8,7 @@ Commands:
   wisp payoff [--since YYYY-MM-DD] [--json]      Measure Wisp agreement and native utilization
   health [--dry-run]                             Check harness invariants
   citation-check [--root DIR] [--list]          Fail on a doc, skill or hook that cites a north subcommand the CLI does not define
+  review-items PLAN [--author TIER] [--root DIR]  Split a design review into fact, scenario and architecture items, run the facts, route the rest by tier
   language-gate --repo DIR --base REV --head REV  Check language policy
   code-health crate-lines [--repo DIR] [BASE HEAD]  Print non-test Rust lines per workspace crate against structure.toml [crate_lines]; with BASE HEAD exit 1 when a crate over its cap grew
   code-health imports                           Resolve the imports of files given as JSON on stdin
