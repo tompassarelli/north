@@ -13,12 +13,14 @@ use super::queue::{self, Ticket};
 use super::records::{self, Candidate, Decision};
 use super::serve::{Pushed, Round};
 use super::setting;
+use super::slots::host::{self, CheckHost};
 use super::sheriff;
 use super::telemetry::Stages;
 
 pub const TICK: Duration = Duration::from_millis(250);
 const SURVEY: Duration = Duration::from_secs(2);
 const HOLD: Duration = Duration::from_secs(30);
+const ROOM_RETRY: Duration = Duration::from_secs(15);
 const WORKTREE: &str = "lander-precheck";
 
 type Order = (bool, u128, PathBuf);
@@ -69,6 +71,7 @@ impl Drop for Running {
 struct Checking {
     lane: Lane,
     slot: usize,
+    host: Option<CheckHost>,
     running: Running,
 }
 
@@ -90,6 +93,8 @@ pub struct State {
     warned: bool,
     count: usize,
     counted: Option<Instant>,
+    placed: bool,
+    no_room: Option<Instant>,
     draining: bool,
 }
 
@@ -106,6 +111,7 @@ impl State {
     fn count(&mut self, lander: &Lander) -> usize {
         if self.counted.is_none_or(|at| at.elapsed() >= SURVEY) {
             self.count = slots(lander);
+            self.placed = host::placed(&lander.repo);
             self.counted = Some(Instant::now());
         }
         self.count
@@ -133,6 +139,30 @@ impl State {
 
     fn free_slot(&self, count: usize) -> Option<usize> {
         (0..count.min(self.worktrees.len())).find(|slot| !self.checking.iter().any(|checking| checking.slot == *slot))
+    }
+
+    fn taken(&self) -> Vec<String> {
+        self.checking.iter().filter_map(|checking| checking.host.as_ref()).map(|host| host.name().to_owned()).collect()
+    }
+
+    fn place(&mut self) -> Result<Option<CheckHost>, ()> {
+        if !self.placed {
+            return Ok(None);
+        }
+        if self.no_room.is_some_and(|at| at.elapsed() < ROOM_RETRY) {
+            return Err(());
+        }
+        match host::choose(&self.taken()) {
+            Ok(host) => {
+                self.no_room = None;
+                Ok(Some(host))
+            }
+            Err(why) => {
+                println!("north land: waiting: {} precheck(s) running and no check host has room for another: {why}", self.checking.len());
+                self.no_room = Some(Instant::now());
+                Err(())
+            }
+        }
     }
 }
 
@@ -170,7 +200,7 @@ fn prepare_worktrees(lander: &Lander, state: &mut State, count: usize) -> Result
     Ok(())
 }
 
-fn start(tick: &mut Tick, state: &mut State, slot: usize, path: &Path, ticket: &Ticket) -> Result<(), String> {
+fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<CheckHost>, path: &Path, ticket: &Ticket) -> Result<(), String> {
     let main = tick.main()?;
     let worktree = state.worktrees[slot].clone();
     let attempt = state.attempts.get(path).copied().unwrap_or(0) + 1;
@@ -194,10 +224,11 @@ fn start(tick: &mut Tick, state: &mut State, slot: usize, path: &Path, ticket: &
         }
     }
     state.attempts.insert(lane.path.clone(), attempt);
-    match checks::start(&tick.lander.checker, &worktree, &main, &lane.log, true, &tick.lander.round.load(std::sync::atomic::Ordering::Relaxed).to_string()) {
+    match checks::start(&tick.lander.checker, &worktree, &main, &lane.log, true, &tick.lander.round.load(std::sync::atomic::Ordering::Relaxed).to_string(), check_host.as_ref().map(CheckHost::runner)) {
         Ok(started) => {
-            println!("north land: {} checks alone on main@{main} in build slot {slot}", ticket.branch);
-            state.checking.push(Checking { running: Running { check: Some(started), branch: ticket.branch.clone() }, lane, slot });
+            let on = check_host.as_ref().map(|host| format!(" on {}", host.name())).unwrap_or_default();
+            println!("north land: {} checks alone on main@{main} in build slot {slot}{on}", ticket.branch);
+            state.checking.push(Checking { running: Running { check: Some(started), branch: ticket.branch.clone() }, lane, slot, host: check_host });
             Ok(())
         }
         Err(verdict) => settle(tick, state, lane, &worktree, verdict),
@@ -366,14 +397,18 @@ fn survey(lander: &Lander, state: &mut State) {
 fn fill(tick: &mut Tick, state: &mut State, count: usize, queued: &[(PathBuf, Ticket)]) -> Result<(), String> {
     state.recheck.sort_by_key(|(path, ticket, _)| order(path, ticket));
     while let Some(slot) = state.free_slot(count) {
+        if state.recheck.is_empty() && !queued.iter().any(|(path, _)| path.exists() && !state.tracked(path)) {
+            break;
+        }
+        let Ok(check_host) = state.place() else { break };
         if let Some((path, ticket, attempts)) = (!state.recheck.is_empty()).then(|| state.recheck.remove(0)) {
             state.attempts.insert(path.clone(), attempts);
-            start(tick, state, slot, &path, &ticket)?;
+            start(tick, state, slot, check_host, &path, &ticket)?;
             continue;
         }
         let Some((path, ticket)) = queued.iter().find(|(path, _)| path.exists() && !state.tracked(path)) else { break };
         state.held.remove(path);
-        start(tick, state, slot, path, ticket)?;
+        start(tick, state, slot, check_host, path, ticket)?;
     }
     Ok(())
 }

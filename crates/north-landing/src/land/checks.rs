@@ -38,7 +38,7 @@ pub struct Started {
     log: PathBuf,
 }
 
-pub fn start(checker: &[String], worktree: &Path, base: &str, log: &Path, own_group: bool, round: &str) -> Result<Started, Verdict> {
+pub fn start(checker: &[String], worktree: &Path, base: &str, log: &Path, own_group: bool, round: &str, runner: Option<&str>) -> Result<Started, Verdict> {
     let Some((program, prefix)) = checker.split_first() else {
         return Err(Verdict::Transient("no checker configured".to_owned()));
     };
@@ -58,6 +58,9 @@ pub fn start(checker: &[String], worktree: &Path, base: &str, log: &Path, own_gr
     }
     for name in SCRUBBED {
         command.env_remove(name);
+    }
+    if let Some(runner) = runner {
+        command.env("SAFE_PUSH_LAND_RUNNER", runner);
     }
     match command.spawn() {
         Ok(child) => Ok(Started { child, program: program.clone(), log: log.to_owned() }),
@@ -102,7 +105,7 @@ impl Started {
 }
 
 pub fn run(checker: &[String], worktree: &Path, base: &str, log: &Path, round: &str) -> Verdict {
-    match start(checker, worktree, base, log, false, round) {
+    match start(checker, worktree, base, log, false, round, None) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     }

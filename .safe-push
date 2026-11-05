@@ -4,7 +4,7 @@
 	queue = lander
 	lander-host = whiterabbit
 	push-app = lander
-	remote-hosts = gex45
+	remote-hosts = gex45 ccx33
 	slots = 5
 [mutant]
 	class = heavy

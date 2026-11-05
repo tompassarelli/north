@@ -7,13 +7,16 @@ mod destinations;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose [--any] (prints the host to run on, nothing when this host has the most room) | cost | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST) | cost | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["choose"] => choose(false),
-        ["choose", "--any"] => choose(true),
+        ["choose"] => choose(false, &[]),
+        ["choose", "--any", rest @ ..] => match taken(rest) {
+            Some(taken) => choose(true, &taken),
+            None => usage(),
+        },
         ["cost"] => cost(),
         ["free", "--host", host] => free(host),
         ["reap", "--owner", owner] if !owner.is_empty() => reap(owner),
@@ -130,7 +133,14 @@ fn reap(owner: &str) -> u8 {
     code
 }
 
-fn choose(any: bool) -> u8 {
+fn taken(words: &[&str]) -> Option<Vec<String>> {
+    words.chunks(2).map(|pair| match pair {
+        ["--taken", host] if !host.is_empty() => Some((*host).to_owned()),
+        _ => None,
+    }).collect()
+}
+
+fn choose(any: bool, taken: &[String]) -> u8 {
     let in_reserve = in_game_reserve();
     if !any && !in_reserve {
         eprintln!("north capacity offload: this host is not in game-reserve, so the land check runs here");
@@ -147,7 +157,7 @@ fn choose(any: bool) -> u8 {
         let reads: Vec<_> = others.iter().map(|machine| scope.spawn(|| (machine.name.clone(), room::read(&machine.ssh)))).collect();
         reads.into_iter().filter_map(|read| read.join().ok()).collect::<Vec<_>>()
     });
-    match room::check_host(reserved, &here, room::read_local, remotes) {
+    match room::check_host(reserved, &here, room::read_local, remotes, taken) {
         Ok(name) if name == here => {
             eprintln!("north capacity offload: {here} has the most room, so the land check runs here");
             0

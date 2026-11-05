@@ -752,6 +752,17 @@ then S2b and S2c in parallel; then S3 and S4.
   6beeefd52 (laptop as check host), and the placement rules are a small type in slots/select.rs.
   B28's self-hosted Actions runner on gex45 is not needed for this: gex45 takes checks over ssh
   offload, and Actions serves only overflow. tests/it/land_warm_overflow.rs.
+- **S6c Prechecks placed per slot across hosts (2026-11-05).** Each north land check leased 6 CPUs
+  under the laptop's 20-core cap, so `landing.slots = 5` ran only 3 prechecks at once and one 20-min
+  precheck at 10:48 AM waited 1038 s for admission. When `land.runner = build-host`, the lander now
+  picks each precheck's host before it builds the candidate, through `north capacity offload choose
+  --any --taken HOST...`: every running precheck counts its 6 cores against the host it was sent to,
+  the host with the most free cores wins, and `SAFE_PUSH_LAND_RUNNER` pins the checker there, so its
+  portable checks ship to that host's warm offload worktree. When no host has room, no slot starts
+  and the lander asks again after 15 s, so the hosts with room set how many prechecks run and
+  `landing.slots` is only the ceiling on the laptop's candidate worktrees. Machine-bound checks still
+  run on the laptop under its own lease. `remote-hosts` adds ccx33. tests/it/land_serve.rs
+  `prechecks_spread_over_hosts`.
 - **S7 Removed.** The scans bridge is not needed: S6a ports the land checks in place, and each Wave
   L2 box ports its scan in place, so `--check-candidate` keeps working throughout.
 - **S8 Lander App token.** Follows B16. Done when: a landing by the lander shows the App as its push
