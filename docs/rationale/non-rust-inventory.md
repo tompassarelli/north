@@ -69,9 +69,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/safe-push | 2452 | port: landing-train B18 (north#76, north#88 land-check loop box) | a planner is decomposing it; do not edit |
 | bin/safe-push.test.sh | 2844 | port: landing-train B18 (north#76) | shell tests of the shell landing path; they move to cargo test with the train loop |
 | bin/supply-alert | 7 | stay | 7-line glue: one ssh exec to the nexus alert host; callers in Rust (supply_chain.rs, lane-gc) and the nixos-config supply-chain-scan unit |
-| bin/threads | 789 | port: north#77 (bin/threads) | 789 lines of Python; verbs already move to Rust (RUST_VERBS) |
-| bin/threads-resume.test.sh | 80 | port: north#77 (bin/threads) | test of bin/threads |
-| bin/threads.test.sh | 684 | port: north#77 (bin/threads) | test of bin/threads |
 | bin/verify-north | 9 | stay | launcher: execs the promoted verify-north runtime binary |
 | harness/hooks/firn-system-policy | 42 | stay | 42-line hook owned by Firn and installed from this tree; belongs in nixos-config, move there rather than port |
 | harness/hooks/language-guard.sh | 10 | stay | 10-line hook wrapper that execs `north guard language`; same condition |
@@ -81,29 +78,27 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | harness/hooks/prompt-grounding.test.sh | 94 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests the Rust grounding hook through its wrapper |
 | harness/lib/authoring-killswitch.sh | 41 | port: north#88 box "hook and harness shell to Rust" (family: tests) | sourced by hook wrappers to read kill switches; goes when provider hook configs name `north hook` directly (nixos-config change first) |
 | harness/lib/authoring-killswitch.test.sh | 24 | port: north#88 box "hook and harness shell to Rust" (family: tests) | test of authoring-killswitch.sh |
-| harness/lib/billing_digitalocean.py | 54 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/calibration.py | 103 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/claude_profiles.py | 91 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/claude_profiles.test.py | 100 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/defaults.py | 12 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/durable_events.py | 108 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/durable-events.test.py | 166 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/goal_eta.py | 259 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/goal_eta.test.py | 64 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/ledger_context.py | 65 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
+| harness/lib/billing_digitalocean.py | 54 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/claude_profiles.py | 91 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/claude_profiles.test.py | 100 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/durable_events.py | 108 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/durable-events.test.py | 166 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/goal_eta.py | 259 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/goal_eta.test.py | 64 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/ledger_context.py | 65 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
 | harness/lib/north-agent-activation.sh | 83 | port: north#88 box "hook and harness shell to Rust" (family: tests) | sourced activation reader; Rust reads the same generation |
-| harness/lib/plan_usage.py | 213 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/presence.py | 301 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/presence.test.py | 221 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/project_plan.py | 88 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/project_score.py | 118 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/project_score.test.py | 74 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/provider_capacity.py | 103 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/routines.py | 238 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/ssh_transport.py | 19 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/usage_agy.py | 179 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/usage_claude.py | 137 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/usage.py | 409 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
+| harness/lib/plan_usage.py | 213 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/presence.py | 301 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/presence.test.py | 221 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/project_plan.py | 88 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/project_score.py | 118 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/project_score.test.py | 74 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/provider_capacity.py | 103 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/routines.py | 238 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/ssh_transport.py | 19 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/usage_agy.py | 179 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/usage_claude.py | 137 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
+| harness/lib/usage.py | 409 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
 | harness/lib/usage.test.sh | 59 | port: north#78 (usage family) | test of usage.py; cases move to cargo test with --refresh/--reservation-json |
 | harness/scripts/canary.sh | 55 | stay | 55-line CI glue that runs a family's own check on a planted fault; must run in CI before or beside the build, reads workflow YAML |
 | harness/scripts/cargo-tests.sh | 6 | stay | 6-line CI glue that builds test binaries for the offline land check |

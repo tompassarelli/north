@@ -26,7 +26,7 @@ value = 5
 unit = "runs in a cell before its success rate or $ per success counts, and before a tier calibration row applies"
 source = "measured: flat over {3,5,8,10}: picked-tier success 61.2-63.0%, Wilson 95% intervals overlap, n=263-380 of 801 decisions; $ per success 0.15 at 3, 0.11 at 5, 0.10 at 8-10 (priced n=75-80)"
 fallback = "back off surface, verify, scope, spec to the category cell; recommend reports insufficient evidence without a sampled priced tier"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs", "harness/lib/calibration.py"]
+consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
 
 [incumbent_margin]
 value = 15
@@ -61,14 +61,14 @@ value = 100
 unit = "runs behind a calibration ratio row (eta, eta_pred, usd) before readers apply it"
 source = "measured: bootstrap 80% half-width of the walk-forward ratio p75 at sample size n, 7d to 2026-10-12: eta_pred 74% at 5, 41% at 20, 29% at 50, 20% at 100 (pool 1902); usd 75% at 5, 26% at 50, 18% at 100 (pool 318); 100 is the first n under 20% for both, was 5 (delta +95); tier rate rows keep the min_runs floor"
 fallback = "readers use the uncalibrated rule and print (uncalibrated: n < floor)"
-consumers = ["harness/lib/calibration.py"]
+consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
 
 [calibration_stale_days]
 value = 7
 unit = "days before a calibration row is too old to apply"
 source = "tom: 2026-10-12 policy-lead-status.md item 20 (via tom-48): project shares are rolling 7-day $, the window every loop measures over"
 fallback = "readers use the uncalibrated rule and print (uncalibrated: older than 7 days)"
-consumers = ["harness/lib/calibration.py"]
+consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
 
 [calibrate_after_min]
 value = 55
@@ -265,7 +265,7 @@ value = 200
 unit = "box chains behind the box calibration ratio row before goal_eta applies it"
 source = "measured: north defaults-measure box_calibration_n, snapshot 2026-10-12T08:13Z: bootstrap 80% half-width of the walk-forward box actual/predicted p75 (1.97, pool 564 chains): 124% at 5, 35% at 50, 28% at 100, 20.3% at 150, 17% at 200; 200 is the first n under 20%, the calibration_thin_n rule"
 fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs", "harness/lib/calibration.py"]
+consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
 
 [pace_state_dwell_min]
 value = 10

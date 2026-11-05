@@ -55,7 +55,7 @@ fn a_hub_change_selects_the_modules_of_every_crate_that_uses_it() {
         assert!(!capacity.contains(module), "{module}: {capacity:?}");
     }
     assert_eq!(modules(&["crates/north-core/src/grounding/compose.rs"]), set(&["grounding_tier_b", "proxy", "recommendation_grounding_hook"]));
-    assert_eq!(modules(&["crates/north-landing/src/land/slots/affected.rs"]).iter().filter(|module| !module.starts_with("land") && !module.starts_with("safe_push")).cloned().collect::<BTreeSet<_>>(), set(&["affected_modules", "autoland_rebased", "golden_path", "merge_driver_set", "provenance"]));
+    assert_eq!(modules(&["crates/north-landing/src/land/slots/affected.rs"]).iter().filter(|module| !module.starts_with("land") && !module.starts_with("safe_push")).cloned().collect::<BTreeSet<_>>(), set(&["affected_modules", "follows_release_no_python", "autoland_rebased", "golden_path", "merge_driver_set", "provenance"]));
 }
 
 #[test]

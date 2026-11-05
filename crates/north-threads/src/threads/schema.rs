@@ -3,12 +3,30 @@ use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags};
 
+use crate::threads::hold;
 use crate::threads::verb::{Failure, immediate};
 
 const SCHEMA: &str = include_str!("ledger.sql");
+const RETRIES: u32 = 6000;
+const RETRY_PAUSE: std::time::Duration = std::time::Duration::from_millis(10);
 
-/// Creates the ledger at `path` with every NorthThreads table it lacks, in WAL mode.
+/// Creates the ledger at `path` with every NorthThreads table it lacks, in WAL mode. Switching a new file to WAL
+/// answers busy at once, without the busy handler, when another process is creating it too, so a busy answer is
+/// retried until the ingest hold cap or a minute has passed.
 pub fn ensure(path: &Path) -> Result<(), Failure> {
+    let mut tries = 0;
+    loop {
+        match attempt(path) {
+            Err(Failure::Refused(why)) if why.contains("database is locked") && tries < RETRIES && !hold::past_deadline() => {
+                tries += 1;
+                std::thread::sleep(RETRY_PAUSE);
+            }
+            other => return other,
+        }
+    }
+}
+
+fn attempt(path: &Path) -> Result<(), Failure> {
     let failed = |error: rusqlite::Error| Failure::Refused(format!("ledger {}: {error}", path.display()));
     if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|error| Failure::Refused(format!("ledger {}: {error}", parent.display())))?;
@@ -28,6 +46,17 @@ pub fn ensure(path: &Path) -> Result<(), Failure> {
 #[cfg(test)]
 mod tests {
     use super::ensure;
+
+    #[test]
+    fn processes_creating_the_same_new_ledger_at_once_all_succeed() {
+        let scratch = tempfile::tempdir().unwrap();
+        let path = scratch.path().join("state/threads.db");
+        let outcomes: Vec<bool> = std::thread::scope(|scope| {
+            let creators: Vec<_> = (0..8).map(|_| scope.spawn(|| ensure(&path).is_ok())).collect();
+            creators.into_iter().map(|creator| creator.join().unwrap()).collect()
+        });
+        assert_eq!(outcomes, [true; 8]);
+    }
 
     #[test]
     fn a_new_ledger_gets_every_table_in_wal_mode_and_a_second_ensure_changes_nothing() {

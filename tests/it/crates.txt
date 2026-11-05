@@ -49,6 +49,7 @@ desktop_action_guard north-guard
 dev_shell_target north-capacity-host
 fail_closed north
 fleet_launch north-fleet north-dispatch
+follows_release_no_python north-landing north-threads
 fleet_list_ledger_lock north-fleet north-providers
 fleet_row_leased north-fleet
 fleet_send north-fleet

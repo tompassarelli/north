@@ -21,12 +21,12 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.minutes | north worker-ledger | crates/north-threads/src/threads/calibration/recommend.rs recommend_eta (the wall p75 printed after the active-minute figures) | read | |
 | runs.outcome, follows, landed, expects_landing | north worker-ledger | crates/north-threads/src/threads/calibration/read.rs succeeded; crates/north-pace/src/usage/ctx.rs routing success | read | 4a58f21e |
 | runs.tier | north worker-ledger | crates/north-threads/src/threads/calibration/recommend.rs recommend, every provider | read | 4b71ac63 |
-| runs.category and facets | bin/threads brief_fields | crates/north-threads/src/threads/calibration/recommend.rs recommend, recommend_eta | read | |
-| runs.arm | bin/threads:967 | crates/north-ops/src/ops/report/arms.rs, Wilson 95% per arm | read | lane H |
+| runs.category and facets | crates/north-threads/src/threads/runs/brief.rs | crates/north-threads/src/threads/calibration/recommend.rs recommend, recommend_eta | read | |
+| runs.arm | crates/north-threads/src/threads/runs | crates/north-ops/src/ops/report/arms.rs, Wilson 95% per arm | read | lane H |
 | runs.lens, flaws | north worker-ledger | crates/north-threads/src/threads/calibration/summary.rs lens table | read | |
 | runs.repeats | none | none | dropped | 4aecdaf9 |
 | runs.tokens | north worker-ledger | crates/north-threads/src/threads/calibration/summary.rs tokens_med, tokens_per_closed | read | |
-| runs.cost_usd | bin/threads:989 | crates/north-threads/src/threads/calibration/recommend.rs recommend_usd median $ line (tier choice prices runs.tokens at API-equivalent rates); crates/north-ops/src/ops/agents/goal/metrics.rs delivery_metrics; crates/north-ops/src/ops/agents/goal/score.rs | read | 4b71ac63 |
+| runs.cost_usd | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/calibration/recommend.rs recommend_usd median $ line (tier choice prices runs.tokens at API-equivalent rates); crates/north-ops/src/ops/agents/goal/metrics.rs delivery_metrics; crates/north-ops/src/ops/agents/goal/score.rs | read | 4b71ac63 |
 | runs.staffed, review_requested, landed_at | north worker-ledger | crates/north-ops/src/ops/agents/goal/metrics.rs delivery_metrics | read | |
 | runs.landed_sha | north worker-ledger | crates/north-core/src/ledger/outcome/read.rs staffed joins each worker run to its landed commit for `north flow`; crates/north-threads/src/threads/calibration/rework.rs landings judges the commit on main; crates/north-core/src/ledger/closed_source.rs reworked_agents feeds the cost per closed box | read | |
 | landings.landed_sha, first_commit_at | north land-train record (the lander) | crates/north-core/src/ledger/outcome/read.rs landed, first-commit-to-main p50 in `north flow`; crates/north-threads/src/threads/landing/tempo.rs | read | |
@@ -41,15 +41,15 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.compactions, input_tokens, cache_read_tokens, idle_gap_misses | crates/north-core/src/providers/claude/runs/telemetry.rs (Claude); crates/north-core/src/providers/codex/runs/usage.rs (Codex) | crates/north-threads/src/threads/calibration/summary.rs context_summary | read | |
 | runs.provider, model, effort | crates/north-core/src/providers/claude/runs/mod.rs effort, telemetry.rs run_usage (Claude rows: the assistant message `model`; effort from the request's `output_config.effort` in the transcript, else the subagent's recorded effort, its harness/claude/agents/<type>.md `effort:`, its tier, a fleet session's launch effort, then the catalog default; provider `claude`); crates/north-core/src/fleet/watch.rs identify (fleet turn ledger runs.model, effort) | crates/north-threads/src/threads/runs/mod.rs run_ids --settled (a Claude row missing any of the three is re-read on the next ingest); tier routing and ETAs keyed on what ran | read | |
 | runs.role reviewer, judge | crates/north-base/src/platform/run_roles.rs ingest_role (stored at ingest for a finished worker; ROLE_SQL still reads rows stored before 2026-11-04) | calibration, ledger/closed_source.rs | read | |
-| runs.account, fast | bin/threads:902 | crates/north-threads/src/threads/calibration/summary.rs delivery_summary | read | |
-| runs.note, report, session, role | bin/threads | `threads show`, role filters | read | |
-| calibration | bin/threads calibrate | crates/north-threads/src/threads/calibration/forward.rs calibrate_eta; harness/lib/calibration.py:23 | read | ac79788c |
-| run_usage | bin/threads:897 | crates/north-threads/src/threads/runs/costs.rs allocate into run_costs | read | |
-| run_costs | bin/threads:987 | crates/north-threads/src/threads/runs/costs.rs rolls into runs.cost_usd | read | |
+| runs.account, fast | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/calibration/summary.rs delivery_summary | read | |
+| runs.note, report, session, role | crates/north-threads/src/threads/runs | `threads show`, role filters | read | |
+| calibration | north threads calibrate | crates/north-threads/src/threads/calibration/forward.rs calibrate_eta | read | ac79788c |
+| run_usage | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/runs/costs.rs allocate into run_costs | read | |
+| run_costs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/runs/costs.rs rolls into runs.cost_usd | read | |
 | usage | crates/north-pace/src/usage/refresh/ | crates/north-pace/src/usage/store.rs latest, routing and the pace gate | read | |
 | claims.eta_min | crates/north-threads/src/threads/claims/ledger.rs take | crates/north-threads/src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; crates/north-threads/src/work_items.rs:82 | read | |
 | tier_predictions (item, tier, p, at, source) | crates/north-threads/src/threads/calibration/verbs.rs recommend_with: `threads recommend` with an Item and no Follows line stores each listed tier's shrunk success, and `--launched TIER` from crates/north-dispatch/src/dispatch/effects.rs predict stores the launched tier's | crates/north-threads/src/threads/calibration/predictions.rs score, printed by `north tune` as each category's walk-forward Brier against its base rate's | read | |
-| tier_choice | bin/threads:1431 | crates/north-threads/src/threads/calibration/verbs.rs incumbent | read | |
+| tier_choice | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/calibration/verbs.rs incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |
 | capacity_runs cores, memory, signature | crates/north-capacity-host/src/capacity/host/run.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate_capacity | read | |
@@ -57,7 +57,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | capacity_runs io, diskBusyShare | crates/north-capacity-host/src/capacity/host/run.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate output | read | |
 | capacity_runs.exitCode | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
 | capacity_runs.command, cpuSeconds | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/model.rs Subject::levels keys the model by command; update folds cpu_seconds into each level | read | |
-| job_runs | bin/threads:1748 | crates/north-threads/src/threads/jobs/mod.rs job_runs; crates/north-runtime/src/job_watch/mod.rs | read | |
+| job_runs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/jobs/mod.rs job_runs; crates/north-runtime/src/job_watch/mod.rs | read | |
 | model_events | crates/north-runtime/src/model_watch | crates/north-pace/src/usage/ctx.rs successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | crates/north-capacity-host/src/capacity/host/database.rs record_usage | crates/north-capacity-host/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | crates/north-pace/src/usage/gate.rs | crates/north-guard/src/guard/spawn_capacity/usage.rs | read | |

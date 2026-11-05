@@ -38,6 +38,7 @@ mod command_guards_hook;
 mod desktop_action_guard;
 mod dev_shell_target;
 mod fleet_launch;
+mod follows_release_no_python;
 mod fleet_list_ledger_lock;
 mod fleet_row_leased;
 mod fleet_send;
