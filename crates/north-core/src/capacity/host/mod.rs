@@ -47,7 +47,7 @@ mod state;
 mod status;
 mod systemd;
 
-const USAGE: &str = "usage: offload-cost [--last N]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
+const USAGE: &str = "usage: offload-cost [--last N]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
 
 pub use actions_pull::run as actions_pull;
 pub use fleet_pull::run as pull;
@@ -370,6 +370,10 @@ pub fn run(argv: &[String], host: &Host) -> u8 {
             0
         }
         "status" => fail("status accepts no arguments", 2),
+        "backlog" if argv.len() == 1 => {
+            println!("{}", status::backlog(&root));
+            0
+        }
         "probe" => probe(&root, argv, host),
         "reserve" => reserve(&root, argv, host),
         "renew" | "release" => renew_or_release(&root, argv),

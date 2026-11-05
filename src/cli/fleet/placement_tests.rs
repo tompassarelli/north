@@ -27,6 +27,8 @@ fn decision(target: Target) -> Decision {
         saturated: None,
         here_saturated: None,
         here_on_battery: None,
+        crowded: Vec::new(),
+        here_closed: None,
     }
 }
 

@@ -108,3 +108,9 @@ pub fn status(root: &Path) -> Obj {
             .put("reclaimed", reclaimed)
     })
 }
+
+/// `QUEUED LOAD THREADS` for placement: the tickets waiting in admission, the one-minute load average and the host's threads.
+pub fn backlog(root: &Path) -> String {
+    let load = std::fs::read_to_string("/proc/loadavg").ok().and_then(|text| text.split_whitespace().next().map(str::to_owned)).unwrap_or_else(|| "0".to_owned());
+    format!("{} {load} {}", read_queue(root).len(), read_signals().cores)
+}

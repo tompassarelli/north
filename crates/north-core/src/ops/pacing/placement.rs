@@ -295,8 +295,7 @@ pub(super) fn cli(args: &[String], fleet: super::FleetFacts) -> Result<(), Strin
     if args.first().is_none_or(|s| s != "place") || args.len() < 2 {
         return Err("north place place BRIEF... | credit".into());
     }
-    let gate = storage::load(&storage::directory().join("usage-gate.json"));
-    let machines = gate::probed(&cfg, &(fleet.machine_load)().map_err(|error| error.to_string())?);
+    let fleet_load = (fleet.machine_load)().map_err(|error| error.to_string())?;
     let roster = (fleet.roster)().map_err(|error| error.to_string())?;
     for path in &args[1..] {
         let text = if path == "-" {
@@ -310,9 +309,7 @@ pub(super) fn cli(args: &[String], fleet: super::FleetFacts) -> Result<(), Strin
             std::fs::read_to_string(path).map_err(|e| e.to_string())?
         };
         let text = gate::anchored(&text, std::env::current_dir().ok().as_deref(), None);
-        let mut decision = gate::decide(&text, &cfg, gate::verdicts(&gate, &roster, &room::Basis::new(&cfg, storage::load(&storage::directory().join("pace-control.json")), at)), credit(&cfg, at), &machines, &local(), gate::here_in_game_reserve());
-        decision.here_saturated = here_saturation();
-        decision.hold_here();
+        let decision = gate::live(&text, &fleet_load, &roster, None)?;
         for line in decision.verdicts.iter().map(|v| &v.line).chain(&decision.machine_lines) {
             println!("  {line}");
         }

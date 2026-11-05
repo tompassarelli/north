@@ -8,8 +8,9 @@ use serde_json::Value;
 use super::alerts::{Action, Node, Record, State, deliver};
 use super::host::{Host, Places};
 use crate::capacity::admission::default_mib;
+use crate::capacity::saturation;
 
-const QUEUED_LIMIT: u64 = 4;
+const QUEUED_LIMIT: u64 = saturation::QUEUED_LIMIT as u64;
 const HOLD_SECONDS: f64 = 600.0;
 const STATE_FILE: &str = "saturation.json";
 const PROBE: &str = r#"bun "$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs" status; echo ---; df -BG --output=avail / | tail -1"#;

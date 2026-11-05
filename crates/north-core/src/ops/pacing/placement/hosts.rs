@@ -148,9 +148,12 @@ pub(in crate::ops::pacing) fn here_saturation() -> Option<String> {
 }
 
 impl super::gate::Decision {
+    /// Holds a box the launching host would keep when that host is saturated, or is closed to work that crowded machines turned away.
     pub fn hold_here(&mut self) {
-        let (None, super::gate::Target::Account(_), Some(why)) = (&self.machine, &self.target, &self.here_saturated) else { return };
-        let why = why.clone();
+        let (None, super::gate::Target::Account(_)) = (&self.machine, &self.target) else { return };
+        let closed = self.here_closed.clone().filter(|_| !self.crowded.is_empty());
+        let Some(why) = self.here_saturated.clone().or(closed) else { return };
+        let why = self.crowded.iter().cloned().chain([why]).collect::<Vec<_>>().join("; ");
         self.machine_lines.push(why.clone());
         self.target = super::gate::Target::Held(why);
     }
@@ -168,7 +171,7 @@ pub(in crate::ops::pacing) fn saturation(name: &str, destination: &str) -> Optio
     if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
         let fixture = load(Path::new(&path));
         let reading = &fixture[name]["saturation"];
-        return Some(Saturation { memory_total_mib: reading["memory_total_mib"].as_f64()?, memory_available_mib: reading["memory_available_mib"].as_f64()?, disk_free_gib: reading["disk_free_gib"].as_f64()? });
+        return Some(Saturation { memory_total_mib: reading["memory_total_mib"].as_f64()?, memory_available_mib: reading["memory_available_mib"].as_f64()?, disk_free_gib: reading["disk_free_gib"].as_f64()?, backlog: serde_json::from_value(reading["backlog"].clone()).ok() });
     }
     let cache = storage::directory().join("saturation").join(format!("{name}.json"));
     let now = storage::now();
@@ -408,12 +411,12 @@ mod tests {
 
     #[test]
     fn the_one_ssh_script_answers_live_roster_and_saturation_in_marked_sections() {
-        let output = "@@live\nfar: 3/24 resident agent CLIs\n@@rc 0\n@@accounts\nclaude\ta\ncodex\tpooled\n@@rc 0\n@@saturation\n98643000\n40960000\n/dev/md127 489970656 443351304 21656744 96% /\n@@rc 0\n";
+        let output = "@@live\nfar: 3/24 resident agent CLIs\n@@rc 0\n@@accounts\nclaude\ta\ncodex\tpooled\n@@rc 0\n@@saturation\n98643000\n40960000\n/dev/md127 489970656 443351304 21656744 96% /\n#backlog\n16 25.3 20\n@@rc 0\n";
         let found = super::sections(output);
         let body = |label: &str| found.iter().find(|(name, _)| name == label).map(|(_, body)| body.as_str());
         assert_eq!(body("live").and_then(super::live_count), Some(3));
         assert_eq!(body("accounts").map(super::claude_labels), Some(vec!["a".to_owned()]));
-        assert!(body("saturation").and_then(saturation::parse).is_some());
+        assert_eq!(body("saturation").and_then(saturation::parse).and_then(|reading| reading.backlog).map(|backlog| backlog.queued), Some(16));
     }
 
     #[test]

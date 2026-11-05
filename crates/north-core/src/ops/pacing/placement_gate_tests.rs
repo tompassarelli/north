@@ -350,7 +350,7 @@ fn a_saturated_machine_is_skipped_by_name_and_the_next_one_takes_the_box() {
     use crate::capacity::saturation::Saturation;
     let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"gex45\", \"nexus\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"private\"]\n[hosts.nexus]\nresident_cap = 8\nssh = \"tom@nexus\"\nserves = [\"private\"]\n[hosts.here]\n".parse().unwrap();
     let quota = gate(&[("claude:a", control((35.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0)))]);
-    let calm = Saturation { memory_total_mib: 96000.0, memory_available_mib: 55000.0, disk_free_gib: 40.0 };
+    let calm = Saturation { memory_total_mib: 96000.0, memory_available_mib: 55000.0, disk_free_gib: 40.0, backlog: None };
     let place = |gex45: Saturation| {
         let mut machines = gate::machines(&cfg);
         for machine in &mut machines {
@@ -576,4 +576,64 @@ fn a_laptop_on_battery_names_its_charge_and_the_machines_and_cloud_that_take_the
     assert_eq!(std::fs::read_to_string(&since).unwrap(), "880\n", "the gate reads laptop-auto's record and never writes it");
     std::fs::write(battery.join("status"), "Charging\n").unwrap();
     assert_eq!(gate::on_battery("laptop", root.path(), &since, 1000, &[gex45()]), None);
+}
+
+fn backlogged(queued: u32, load: f64) -> crate::capacity::saturation::Saturation {
+    use crate::capacity::saturation::{Backlog, Saturation};
+    Saturation { memory_total_mib: 96000.0, memory_available_mib: 55000.0, disk_free_gib: 40.0, backlog: Some(Backlog { queued, load, threads: 20 }) }
+}
+
+fn overflow(gex45_backlog: crate::capacity::saturation::Saturation, closed: Option<&str>, here_backlog: Option<crate::capacity::saturation::Saturation>) -> Decision {
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\n[hosts.whiterabbit]\nresident_cap = 8\n".parse().unwrap();
+    let quota = gate(&[("claude:a", control((35.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0)))]);
+    let mut machines = gate::machines(&cfg);
+    machines[0].live = Some(23);
+    machines[0].accounts = vec!["a".into()];
+    machines[0].saturation = Some(gex45_backlog);
+    let mut decision = decide(PRIVATE, &cfg, &quota, (false, "cloud credit: spent".to_owned()), &machines, "whiterabbit");
+    decision.here_closed = closed.map(str::to_owned);
+    decision.here_saturated = here_backlog.and_then(|reading| reading.refusal("whiterabbit"));
+    decision.hold_here();
+    decision
+}
+
+const GEX45_QUEUE: &str = "gex45 skipped: 16 jobs queued in machine-capacity admission (limit 4), load 25 on 20 threads";
+
+#[test]
+fn a_box_goes_to_the_laptop_when_gex45_has_a_queue_over_its_limit_and_load_over_its_threads() {
+    let free = backlogged(0, 1.0);
+    let placed = overflow(backlogged(16, 25.0), None, Some(free));
+    assert!(!placed.code_only, "a private repository never goes to the cloud, and needs nothing the laptop alone has");
+    assert_eq!((target(&placed), placed.machine.map(|machine| machine.name)), ("claude:a".to_owned(), None));
+    assert_eq!(placed.machine_lines, [GEX45_QUEUE]);
+    let calm = overflow(backlogged(1, 7.0), None, None);
+    assert_eq!(calm.machine.map(|machine| machine.name).as_deref(), Some("gex45"));
+}
+
+#[test]
+fn a_box_is_held_naming_gex45s_queue_when_the_laptop_is_over_too_or_closed() {
+    let held = overflow(backlogged(16, 25.0), None, Some(backlogged(9, 30.0)));
+    assert_eq!(target(&held), format!("held: {GEX45_QUEUE}; whiterabbit skipped: 9 jobs queued in machine-capacity admission (limit 4), load 30 on 20 threads"));
+    let leased = overflow(backlogged(16, 25.0), Some("whiterabbit is under a playtest lease until 9:40 AM"), None);
+    assert_eq!(target(&leased), format!("held: {GEX45_QUEUE}; whiterabbit is under a playtest lease until 9:40 AM"));
+    let unrelated = overflow(backlogged(1, 7.0), Some("whiterabbit is on battery (discharging at 80%)"), None);
+    assert_eq!(unrelated.machine.map(|machine| machine.name).as_deref(), Some("gex45"), "a closed laptop only matters when gex45 turns the box away");
+}
+
+#[test]
+fn the_laptop_is_closed_by_a_playtest_lease_read_from_the_mode_state_or_by_battery_never_by_an_open_game() {
+    use crate::capacity::mode::{Hold, Mode, State};
+    let root = tempfile::tempdir().unwrap();
+    let since = root.path().join("since");
+    let plain = State { mode: Mode::Desktop, reason: "the seat is in use and no playtest lease is on; Tom's game is open".into(), ..State::default() };
+    assert_eq!(gate::here_closed("whiterabbit", root.path(), &since, &plain, 1000), None);
+    let leased = State { mode: Mode::Play, hold: Some(Hold { since: 900, until: 1500, phrase: "online test".into(), minutes: 10, warned: false }), ..State::default() };
+    assert!(gate::here_closed("whiterabbit", root.path(), &since, &leased, 1000).is_some_and(|why| why.starts_with("whiterabbit is under a playtest lease until ")));
+    assert_eq!(gate::here_closed("whiterabbit", root.path(), &since, &leased, 1500), None, "a lease past its end returns the laptop");
+    let battery = root.path().join("BAT1");
+    std::fs::create_dir_all(&battery).unwrap();
+    for (field, value) in [("type", "Battery"), ("status", "Discharging"), ("capacity", "80")] {
+        std::fs::write(battery.join(field), format!("{value}\n")).unwrap();
+    }
+    assert_eq!(gate::here_closed("whiterabbit", root.path(), &since, &plain, 1000).as_deref(), Some("whiterabbit is on battery (discharging at 80%)"));
 }

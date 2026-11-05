@@ -83,6 +83,10 @@ pub struct Decision {
     pub saturated: Option<String>,
     pub here_saturated: Option<String>,
     pub here_on_battery: Option<String>,
+    /// Machines that serve the box and were skipped as saturated, each with why.
+    pub crowded: Vec<String>,
+    /// Why the launching host cannot take what crowded machines turned away: on battery or under a playtest lease.
+    pub here_closed: Option<String>,
 }
 
 impl Decision {
@@ -351,14 +355,22 @@ fn covers(serves: &[String], need: &str, repo: &str) -> bool {
     serves.iter().any(|served| served == need || served.split_once(':') == Some((need, repo)))
 }
 
+struct Choice {
+    chosen: Option<Machine>,
+    lines: Vec<String>,
+    here_lacks: Option<(String, String)>,
+    crowded: Vec<String>,
+}
+
 /// The first machine that serves every local need of the box and is below its cap, with one line per
-/// machine, and the need here does not serve with why no host serves it.
-fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_gaming: bool, reach: &Reach) -> (Option<Machine>, Vec<String>, Option<(String, String)>) {
+/// machine, the need here does not serve with why no host serves it, and the machines skipped as saturated.
+fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_gaming: bool, reach: &Reach) -> Choice {
     let declared = !words(text, "Surface").is_empty();
     let needs = if declared || !here_gaming { local_needs(text) } else { GAMING_NEEDS.iter().map(|need| (*need).to_owned()).collect() };
     let repo = repository(text);
     let missing = |serves: &[String]| needs.iter().find(|need| !covers(serves, need, &repo));
     let mut chosen = None;
+    let mut crowded = Vec::new();
     let lines = machines
         .iter()
         .map(|machine| {
@@ -375,18 +387,22 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
             if let Some(host) = reach.unreached(name, machine.reaches.as_deref()) {
                 return format!("{name} skipped: cannot reach {host}");
             }
-            machine.saturation_refusal().unwrap_or_else(|| match machine.live {
+            if let Some(why) = machine.saturation_refusal() {
+                crowded.push(why.clone());
+                return why;
+            }
+            match machine.live {
                 None => format!("{name} unreachable over ssh {}", machine.ssh),
                 Some(live) if live >= machine.cap => format!("{name} full: {live}/{} resident CLIs", machine.cap),
                 Some(live) => {
                     chosen.get_or_insert_with(|| machine.clone());
                     format!("{name} available: {live}/{} resident CLIs", machine.cap)
                 }
-            })
+            }
         })
         .collect();
     let here_lacks = missing(here_serves).map(|need| (need.clone(), format!("no host serves {need} for {repo}"))).or_else(|| reach.unreached_here().map(|host| (host.to_owned(), format!("no host reaches {host}"))));
-    (chosen, lines, here_lacks)
+    Choice { chosen, lines, here_lacks, crowded }
 }
 
 fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
@@ -427,7 +443,7 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
     let (code_only, surface) = surface(text, cfg);
     let here_serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(here)).and_then(|host| host.get("serves")));
     let reach = Reach::of(text, cfg, here);
-    let (machine, machine_lines, here_lacks) = machine_for(text, machines, &here_serves, here_gaming, &reach);
+    let Choice { chosen: machine, lines: machine_lines, here_lacks, crowded } = machine_for(text, machines, &here_serves, here_gaming, &reach);
     let mut decision = Decision {
         target: Target::Held(String::new()),
         code_only,
@@ -440,6 +456,8 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
         saturated: None,
         here_saturated: None,
         here_on_battery: None,
+        crowded,
+        here_closed: None,
     };
     decision.target = if let Some(lane) = code_only.then(|| decision.cloud_lane(credit.1)).flatten() {
         Target::Cloud(lane)
@@ -486,6 +504,7 @@ pub fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster, nam
     let here_on_battery = on_battery(&here, &laptop_auto::power_supply(), &laptop_auto::discharging_since(&agent_load::Host::from_env()), crate::capacity::mode::now(), &machines);
     let mut decision = decide(text, &cfg, verdicts(&gate, roster, &Basis::new(&cfg, load(&storage::directory().join("pace-control.json")), at)), credit(&cfg, at), &machines, &here, here_in_game_reserve());
     decision.here_on_battery = here_on_battery;
+    decision.here_closed = here_closed(&here, &laptop_auto::power_supply(), &laptop_auto::discharging_since(&agent_load::Host::from_env()), &crate::capacity::mode::read(&crate::capacity::mode::state_dir()), crate::capacity::mode::now());
     if let Some(name) = named {
         let machine = machines.into_iter().find(|machine| machine.name == name).ok_or_else(|| format!("no [hosts.{name}] with an ssh destination"))?;
         decision.run_on(machine);
@@ -502,6 +521,16 @@ pub fn on_battery(here: &str, power_supply: &Path, since: &Path, now: u64, machi
     Some(format!(
         "{here} is a laptop on battery (discharging at {percent}%), so --local would drain it; launch the box {instead} without --local, or keep it here with --pin \"<reason>\""
     ))
+}
+
+/// Why `here` takes no work that crowded machines turned away: a playtest lease is on, read from the capacity mode state and not inferred from an open game, or the laptop is on battery.
+pub fn here_closed(here: &str, power_supply: &Path, since: &Path, state: &crate::capacity::mode::State, now: u64) -> Option<String> {
+    if let Some(hold) = state.hold.as_ref().filter(|hold| hold.until > now) {
+        let until = crate::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(hold.until).unwrap_or(i64::MAX)).local_twelve_hour();
+        return Some(format!("{here} is under a playtest lease until {until}"));
+    }
+    let percent = laptop_auto::settled_battery(power_supply, since, now)?;
+    Some(format!("{here} is on battery (discharging at {percent}%)"))
 }
 
 pub fn here_in_game_reserve() -> bool {
