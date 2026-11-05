@@ -139,7 +139,7 @@ fn a_failed_launch_discards_its_lane() {
 #[test]
 fn the_brief_names_its_routing_lines_and_the_sample_path() {
     let text = brief(TODAY, Path::new("/state/2026-11-11/sample.jsonl"), 3, 12);
-    for line in ["Category: mechanical", "Tier: worker-haiku", "Spec: measured", "Verify: none", "Files: south agents/incidents.jsonl, south agents/rules.toml"] {
+    for line in ["Category: mechanical", "Tier: worker-haiku", "Tier-reason: the weekly retro is a fixed Haiku classification job (north#525)", "Spec: measured", "Verify: none", "Files: south agents/incidents.jsonl, south agents/rules.toml"] {
         assert!(text.lines().any(|row| row == line), "{line}");
     }
     assert!(text.contains("`/state/2026-11-11/sample.jsonl`"));

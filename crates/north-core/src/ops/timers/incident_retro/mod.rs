@@ -52,6 +52,7 @@ pub(super) fn brief(today: &str, sample: &Path, sampled: usize, mined: usize) ->
         "Item: incident-retro, the weekly sampled retro for the 7 days to {today} ({sampled} of {mined} mined candidates).
 Category: mechanical
 Tier: worker-haiku
+Tier-reason: the weekly retro is a fixed Haiku classification job (north#525)
 Spec: measured
 Scope: single-module
 Surface: docs
