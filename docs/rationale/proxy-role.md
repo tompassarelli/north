@@ -148,8 +148,13 @@ What Tom loses: a fleet session runs `claude -p --input-format stream-json`
 (`crates/north-core/src/providers/claude/fleet.rs:50`), which has no slash commands beyond the wired
 `/compact`, no image paste and no `!` shell. In the measured day he used each once (`/model`,
 `/effort`, `/goal`, one image, one shell line). `north proxy` covers model and effort with a TUI slash
-command that relaunches the proxy through take-over; image paste and `!` are not covered, and how voice
-dictation reaches the TUI is untested. Box F1 waits on Tom's answer for this reason.
+command that relaunches the proxy through take-over. The F1 test box (2026-11-05) found image paste
+works in the TUI (Ctrl+V from the Wayland clipboard), as do Esc interrupt and a 3,426-word reply;
+`!` is not covered. Voice dictation does not reach the TUI: Tom dictates with Claude Code's built-in
+voice mode (`voice.enabled`, `mode: hold`, sox `rec` as a child of the interactive `claude`), which
+records and transcribes inside Claude Code's own UI, and no desktop-wide dictation service exists to
+type into the focused window. Gate 154 closed by default on a hold-to-talk local Whisper module, filed
+as box F1v on north#112. Box F1 waits on Tom's answer and on that box.
 
 Rejected, two ways to keep the interactive Claude Code window as the proxy:
 
