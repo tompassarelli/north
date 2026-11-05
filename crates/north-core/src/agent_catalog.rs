@@ -13,6 +13,8 @@ mod guides;
 mod generation;
 #[path = "catalog/live_refs_transport.rs"]
 mod live_refs_transport;
+#[path = "catalog/live_refs_drops.rs"]
+mod live_refs_drops;
 #[path = "catalog/live_refs.rs"]
 pub mod live_refs;
 #[path = "catalog/owner_modules.rs"]
@@ -95,6 +97,7 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
             );
         }
         "check-owners" => registration_checks::check_registered_owners(rest)?,
+        "live-refs" if rest.iter().any(|flag| flag == "--dropped-by-catalog") => live_refs_drops::run(rest)?,
         "live-refs" => live_refs::run(rest)?,
         "stale" => {
             let json = only_json(rest)?;

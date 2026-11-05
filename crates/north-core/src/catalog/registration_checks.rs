@@ -315,7 +315,7 @@ pub(super) fn landing_hook_names(catalog: &Value) -> BTreeSet<String> {
     names
 }
 
-fn git_object(root: &Path, reference: &str, path: &str) -> NorthResult<Vec<u8>> {
+pub(super) fn git_object(root: &Path, reference: &str, path: &str) -> NorthResult<Vec<u8>> {
     git_output(root, &["show", &format!("{reference}:{path}")])
 }
 
@@ -402,7 +402,7 @@ pub(super) fn require_registered_owner(
     ))
 }
 
-fn canonical(root: &Path) -> NorthResult<String> {
+pub(super) fn canonical(root: &Path) -> NorthResult<String> {
     fs::canonicalize(root)
         .map(|path| path.display().to_string())
         .map_err(|error| {
@@ -410,7 +410,7 @@ fn canonical(root: &Path) -> NorthResult<String> {
         })
 }
 
-fn fetch_main(root: &Path) -> NorthResult<String> {
+pub(super) fn fetch_main(root: &Path) -> NorthResult<String> {
     static FETCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
     let fetch = FETCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -435,7 +435,7 @@ fn fetch_main(root: &Path) -> NorthResult<String> {
     fetched
 }
 
-fn git_text(root: &Path, arguments: &[&str]) -> NorthResult<String> {
+pub(super) fn git_text(root: &Path, arguments: &[&str]) -> NorthResult<String> {
     let output = git_output(root, arguments)?;
     String::from_utf8(output)
         .map(|text| text.trim().to_owned())

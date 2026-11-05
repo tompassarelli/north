@@ -13,8 +13,8 @@ use super::live_refs_transport as transport;
 use super::paths::home;
 
 pub const SCHEMA: &str = "north.host-config-facts/v1";
-const DEFAULT_MAX_AGE_MS: u64 = 24 * 60 * 60 * 1000;
-const USAGE: &str = "usage: north config agents live-refs --record [--facts-dir DIR] [--repo DIR [--remote NAME]]\n       north config agents live-refs --path NAME [--facts-dir DIR | --repo DIR [--remote NAME]] [--max-age 24h] [--hosts a,b,c]";
+pub(super) const DEFAULT_MAX_AGE_MS: u64 = 24 * 60 * 60 * 1000;
+const USAGE: &str = "usage: north config agents live-refs --record [--facts-dir DIR] [--repo DIR [--remote NAME]]\n       north config agents live-refs --path NAME [--facts-dir DIR | --repo DIR [--remote NAME]] [--max-age 24h] [--hosts a,b,c]\n       north config agents live-refs --dropped-by-catalog --south-root DIR --north-root DIR --repo DIR [--remote NAME] [--max-age 24h] [--hosts a,b,c]";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Facts {
@@ -164,7 +164,7 @@ pub fn write(directory: &Path, facts: &Facts) -> NorthResult<PathBuf> {
     Ok(target)
 }
 
-fn now_ms() -> u64 {
+pub(super) fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
@@ -198,7 +198,7 @@ fn user_units() -> NorthResult<String> {
     systemctl(&arguments)
 }
 
-fn parse_duration_ms(text: &str) -> NorthResult<u64> {
+pub(super) fn parse_duration_ms(text: &str) -> NorthResult<u64> {
     let (number, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len()));
     let scale = match unit {
         "" | "s" => 1000,

@@ -10,11 +10,11 @@ use crate::error::{NorthError, NorthResult};
 use super::configuration;
 use super::paths::owner_path;
 
-const LIST: &str = "harness/retired-hooks.txt";
+pub(super) const LIST: &str = "harness/retired-hooks.txt";
 const HOOKS: &str = "harness/hooks/";
 const STUB: &str = "#!/bin/sh\nexit 0\n";
 
-fn names(text: &str) -> impl Iterator<Item = &str> {
+pub(super) fn names(text: &str) -> impl Iterator<Item = &str> {
     text.lines().map(str::trim).filter(|line| !line.is_empty())
 }
 
