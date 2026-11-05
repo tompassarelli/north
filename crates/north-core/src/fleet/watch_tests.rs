@@ -11,7 +11,7 @@ use super::*;
 struct Leases(Result<bool, &'static str>);
 
 impl JobLeases for Leases {
-    fn leased(&self, _session: &str) -> NorthResult<bool> {
+    fn leased(&self, _session: &str, _machine: Option<&Machine>) -> NorthResult<bool> {
         self.0.map_err(|why| NorthError::Refused(why.into()))
     }
 }

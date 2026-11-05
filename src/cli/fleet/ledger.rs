@@ -2,6 +2,7 @@
 //! falls back to the fleet store on this machine when this machine is the ledger host.
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::jobs::JobLeases;
+use crate::fleet::model::Machine;
 use crate::fleet::store::{Claim, Exchange, Exchanged, LedgerHost, Registered, Registrar, Registration, SessionRow, Store, WaitKey};
 use crate::threads::client;
 
@@ -58,7 +59,7 @@ impl Registrar for LedgerRegistrar {
 pub(super) struct LedgerLeases;
 
 impl JobLeases for LedgerLeases {
-    fn leased(&self, session: &str) -> NorthResult<bool> {
+    fn leased(&self, session: &str, _machine: Option<&Machine>) -> NorthResult<bool> {
         let words: Vec<&str> = LEASED.iter().copied().chain([session]).collect();
         leased_by(client::ask_ledger_host(&words, &[]), || Store::open(&client::ledger_path()?)?.job_leased(session))
     }

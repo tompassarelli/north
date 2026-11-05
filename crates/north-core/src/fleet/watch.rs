@@ -89,7 +89,7 @@ impl Tell {
 
     /// Posts the note and reports whether the turn is settled; a lane read that failed at idle is tried again at park or exit.
     fn run(self) -> bool {
-        let leased = self.jobs.leased(&self.record.name).unwrap_or_else(|error| {
+        let leased = self.jobs.leased(&self.record.name, self.record.machine.as_ref()).unwrap_or_else(|error| {
             eprintln!("north fleet: the job leases of {} were not read: {}", self.record.name, error.user_message());
             true
         });
