@@ -102,6 +102,14 @@ pub enum Rate {
     Pooled { points_per_usd: f64, n: u32 },
 }
 
+impl Rate {
+    pub fn points_per_usd(self) -> f64 {
+        match self {
+            Self::Account { points_per_usd, .. } | Self::Pooled { points_per_usd, .. } => points_per_usd,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Owner {
     Fleet,
@@ -174,6 +182,13 @@ pub struct Clear {
     pub by: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Trip {
+    pub workstream: Workstream,
+    pub spent: Usd,
+    pub p90: Usd,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Settings {
     pub reserve: BTreeMap<Provider, Percent>,
@@ -188,6 +203,7 @@ pub struct World<'a> {
     pub readings: &'a [Reading],
     pub limits: &'a [LimitEvent],
     pub sessions: &'a [Session],
+    pub tripped: &'a [Trip],
     pub credit: Option<Credit>,
     pub settings: &'a Settings,
 }

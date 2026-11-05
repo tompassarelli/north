@@ -420,7 +420,7 @@ pub struct Settings { pub reserve: BTreeMap<Provider, Percent>, pub crossings: V
 
 pub struct World<'a> {
     pub now: Unix, pub accounts: &'a [Account], pub readings: &'a [Reading], pub limits: &'a [LimitEvent],
-    pub sessions: &'a [Session], pub credit: Option<Credit>, pub settings: &'a Settings,
+    pub sessions: &'a [Session], pub tripped: &'a [Trip], pub credit: Option<Credit>, pub settings: &'a Settings,
 }
 ```
 
@@ -446,7 +446,7 @@ pub fn free(world: &World, provider: Provider) -> Free;
 pub fn rank(world: &World, request: &Request) -> Ranked;
 pub fn place(world: &World, request: &Request) -> Decision;
 pub fn assess(world: &World, previous: &Assessments) -> Assessments;
-pub fn explain(decision: &Decision) -> String;
+pub fn explain(decision: &Decision, time: &dyn Fn(Unix) -> String) -> String;
 ```
 
 `rank` orders every account for a request with the reason each is placeable or not; `place` is `rank` restricted to
@@ -527,8 +527,10 @@ Placeable accounts are ordered in tiers, and within a tier by soonest week reset
 | 3 | `pin = Some(a)` and `a` is placeable on the request's host | `Place(a)` with `a`'s tier warning, plus `NotFirst { first }` when `rank` puts another account first |
 | 4 | `pin = Some(a)` otherwise | `Refuse(Pinned { a, state, first })` |
 | 5 | some account is placeable on the request's host | `Place` the first by tier and order |
+| 5b | an account is placeable but none is signed in on the request's host | `Refuse(NotOnHost { host, first })` |
 | 6 | every account is `Paused`, `WeekOut` or `ScopeOut` for the family | `Refuse(AllPaused { family, earliest_resume })` |
 | 7 | some account is `Open` but none passes the gate | `Refuse(Reserve { ... })` |
+| 7b | an `Open` account is blocked only because it would pause with extra usage enabled | `Refuse(ExtraUsage { accounts })` |
 | 8 | otherwise | `Refuse(NoneReadable { states })` |
 
 Usage chooses the account first. Machine placement (cores) then picks among the hosts where that account is signed

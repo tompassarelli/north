@@ -3,23 +3,23 @@ use proptest::prelude::*;
 use super::*;
 use crate::usage::decide::{FRESH_FOR, State, View, state, view};
 
-const NAMES: [&str; 2] = ["a", "b"];
-const FAMILIES: [ModelFamily; 2] = [ModelFamily::Opus, ModelFamily::Sonnet];
-const WINDOWS: [Window; 4] = [Window::FiveHour, Window::Week, Window::Scoped(ModelFamily::Opus), Window::Scoped(ModelFamily::Sonnet)];
+pub(super) const NAMES: [&str; 2] = ["a", "b"];
+pub(super) const FAMILIES: [ModelFamily; 2] = [ModelFamily::Opus, ModelFamily::Sonnet];
+pub(super) const WINDOWS: [Window; 4] = [Window::FiveHour, Window::Week, Window::Scoped(ModelFamily::Opus), Window::Scoped(ModelFamily::Sonnet)];
 
-fn window() -> impl Strategy<Value = Window> {
+pub(super) fn window() -> impl Strategy<Value = Window> {
     prop::sample::select(WINDOWS.to_vec())
 }
 
-fn source() -> impl Strategy<Value = Source> {
+pub(super) fn source() -> impl Strategy<Value = Source> {
     prop::sample::select(vec![Source::Stream, Source::Header, Source::Cli, Source::Web])
 }
 
-fn resets_at() -> impl Strategy<Value = Option<i64>> {
+pub(super) fn resets_at() -> impl Strategy<Value = Option<i64>> {
     prop::option::of(NOW.0 - 1_000..NOW.0 + 20_000)
 }
 
-fn readings() -> impl Strategy<Value = Vec<Reading>> {
+pub(super) fn readings() -> impl Strategy<Value = Vec<Reading>> {
     let one = (
         prop::sample::select(NAMES.to_vec()),
         window(),
@@ -36,17 +36,17 @@ fn readings() -> impl Strategy<Value = Vec<Reading>> {
     })
 }
 
-fn limits() -> impl Strategy<Value = Vec<LimitEvent>> {
+pub(super) fn limits() -> impl Strategy<Value = Vec<LimitEvent>> {
     let one = (prop::sample::select(NAMES.to_vec()), window(), resets_at(), NOW.0 - 2_000..NOW.0 + 100);
     prop::collection::vec(one.prop_map(|(name, window, resets_at, at)| limit(name, window, resets_at, at)), 0..3)
 }
 
-fn fixture() -> impl Strategy<Value = Fixture> {
+pub(super) fn fixture() -> impl Strategy<Value = Fixture> {
     (readings(), limits(), any::<bool>()).prop_map(|(readings, limits, b_signed_in)| Fixture {
         accounts: vec![account("a", &["gex45"]), account("b", if b_signed_in { &["laptop"] } else { &[] })],
         readings,
         limits,
-        settings: Settings::default(),
+        ..Fixture::default()
     })
 }
 
@@ -91,7 +91,7 @@ proptest! {
                 Just(fixture.readings.clone()).prop_shuffle(),
                 Just(fixture.limits.clone()).prop_shuffle(),
             );
-            (Just(fixture), parts.prop_map(|(accounts, readings, limits)| Fixture { accounts, readings, limits, settings: Settings::default() }))
+            (Just(fixture), parts.prop_map(|(accounts, readings, limits)| Fixture { accounts, readings, limits, ..Fixture::default() }))
         }),
     ) {
         prop_assert_eq!(answers(&fixture), answers(&shuffled));
