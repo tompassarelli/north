@@ -339,6 +339,12 @@ capture_repository_state() {
     || { echo "safe-push: cannot identify this Git worktree"; exit 1; }
   origin_url=$(git remote get-url --push origin 2>/dev/null) \
     || { echo "safe-push: origin has no push URL"; exit 1; }
+  if [ -n "$check_base" ]; then
+    branch="" branch_ref=""
+    head_oid=$(git rev-parse --verify "HEAD^{commit}" 2>/dev/null) \
+      || { echo "safe-push: cannot resolve HEAD to a commit"; exit 1; }
+    return 0
+  fi
   branch_ref=$(git symbolic-ref --quiet HEAD 2>/dev/null) \
     || { echo "safe-push: detached HEAD — checkout a branch first"; exit 1; }
   case "$branch_ref" in
