@@ -163,12 +163,12 @@ fn push(dir: &Path, origin_url: &str, request: &TagRequest, tag_oid: &str, tag_r
     cancelled()
 }
 
-struct Claims {
-    list: String,
+pub(crate) struct Claims {
+    pub(crate) list: String,
     _files: Vec<File>,
 }
 
-fn claim_output_log() -> Step<Claims> {
+pub(crate) fn claim_output_log() -> Step<Claims> {
     let claimed_before = std::env::var("SAFE_PUSH_OUTPUT_CLAIMED").unwrap_or_default();
     let mut claims: Vec<(String, File)> = Vec::new();
     for fd in [1, 2] {

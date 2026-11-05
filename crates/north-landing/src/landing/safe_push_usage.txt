@@ -30,8 +30,10 @@ Options:
                waits for the Autoland workflow's batched queue to land it;
                a stop, a refusal or a handback deletes that queue branch, and
                a Classic record refresh handback returns 75 keeping the lane;
-               a BRANCH other than origin's default (farm/*, scratch) skips
-               the lock and the queue and runs the hook in its own push
+               a BRANCH other than origin's default (farm/*, scratch) publishes
+               through north land push: no lock, no queue and no rebase (an
+               origin BRANCH that is not an ancestor of HEAD is refused), and
+               the hook runs in its own push
                (.safe-push land.check entries replace the hook; with
                land.workflow set, each check not in land.local-only or
                land.machine-bound, written REASON :: COMMAND, runs as a job of
@@ -63,7 +65,8 @@ Options:
                it has exited, or it has been untouched for a day; any other
                branch is refused
 
-On a non-default branch, plain "safe-push" (no --to/--tag) is refused —
+On the default branch, plain "safe-push" lands it as --to that branch. On
+any other branch, plain "safe-push" (no --to/--tag) is refused —
 one-branch-main doctrine: origin carries the default branch only. Publish
 with --to main, or --to another branch as a deliberate escape hatch.
 

@@ -4,6 +4,7 @@ Command { name: "enqueue", usage: "north land enqueue [--repo DIR] [--message FI
 Command { name: "follow", usage: "", run: after::follow::run },
 Command { name: "model", usage: "", run: model_cmd::run },
 Command { name: "promote", usage: "north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]", run: promote::run },
+Command { name: "push", usage: "", run: push::run },
 Command { name: "replay", usage: "north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...", run: replay::run },
 Command { name: "reuse", usage: "north land reuse hash|record|lookup", run: reuse::run },
 Command { name: "scan", usage: "north land scan dep-gate|tool-removal|test-integrity BASE..HEAD", run: scans::run },

@@ -910,6 +910,12 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   race-destination, race-worktree, no-upstream, inherited-upstream, dry-run-destination,
   new-destination, non-fast-forward, symbolic-destination, farm-scratch) pass against `north land
   push` under their names in `cargo test --test it land_`.
+  Built 2026-11-05: `north land push` takes every push but one to origin's default branch, and a
+  bare `safe-push` on the default branch now lands it as `--to` that branch, so the bash tracking
+  and same-name publication code went. It does not rebase: an origin destination that is not an
+  ancestor of HEAD is refused, because a scratch ref is per lane or per sha and rebasing the lane onto
+  an older scratch tip rewrote the lane with that tip's content. It takes no lock, so a farm scratch
+  push never waits on a landing.
 - **S19b bin/safe-push becomes an exec.** Follows S12-S18, S19a. The lander calls every stage
   in-process, and the change deletes `--check-candidate`, the lock, ticket queue, train, rebase and
   verdict loop, Autoland and the driver. bin/safe-push becomes `exec -a safe-push "$runtime" land "$@"`

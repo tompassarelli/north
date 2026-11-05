@@ -80,6 +80,18 @@ impl Identity {
         Ok(Self { root: PathBuf::from(root), origin_url, git_dir, branch_ref, head_oid })
     }
 
+    pub fn head_oid(&self) -> &str {
+        &self.head_oid
+    }
+
+    pub fn branch_ref(&self) -> &str {
+        &self.branch_ref
+    }
+
+    pub fn branch(&self) -> &str {
+        self.branch_ref.strip_prefix("refs/heads/").unwrap_or(&self.branch_ref)
+    }
+
     pub fn revalidate(&self, dir: &Path) -> Step {
         let root = self.root.to_string_lossy();
         let head = format!("{}^{{commit}}", self.branch_ref);

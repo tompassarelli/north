@@ -78,10 +78,6 @@ safe_push_terminal() {
     else
       terminal_sha=""
     fi
-    if [ -n "$terminal_sha" ] && [ -n "${safe_push_scratch_branch:-}" ]; then
-      printf 'safe-push: pushed %s to %s\n' "$terminal_sha" "$safe_push_scratch_branch"
-      exit 0
-    fi
     if [ -n "$terminal_sha" ]; then
       safe_push_event exit landed "$terminal_sha"
       local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
@@ -239,12 +235,6 @@ plan_push() {
         esac
       fi
       ;;
-    source)
-      [ "$1" = "$2" ] && return 0
-      printf 'safe-push: non-main branch %s: publish with safe-push --to main (one-branch-main doctrine)\n' "$1" >&2
-      printf 'safe-push: pushing branch names to origin is disabled\n' >&2
-      exit 1
-      ;;
     snapshot)
       local output="$1" destination_ref="$2" value ref extra count=0 oid=""
       if [ -z "$output" ]; then
@@ -287,13 +277,6 @@ if [ "$tag_seen" -eq 1 ]; then
   north safe-push --help >/dev/null 2>&1 || { echo "safe-push: tags publish through north safe-push, which this host's north runtime lacks; run north runtime update; NOT pushed."; exit 1; }
   exec north safe-push "${original_arguments[@]}"
 fi
-
-validate_destination_name() {
-  git check-ref-format "refs/heads/$1" >/dev/null 2>&1 \
-    || argument_error "invalid destination branch '$1'"
-}
-
-if [ "$to_seen" -eq 1 ]; then validate_destination_name "$to"; fi
 
 # A log file belongs to one safe-push tree: workers sharing a scratch push.log read each other's landings as their own.
 claim_output_log() {
@@ -376,24 +359,6 @@ resolve_origin_visibility() {
 
 commit_email_scan() {
   north land scan commit-email "$@"
-}
-
-# A claude/ tip on a public Autoland repository gets its denylist status now rather than on the timer.
-denylist_attest() {
-  local slug status=0
-  case "$1" in claude/*) ;; *) return 0 ;; esac
-  resolve_origin_visibility "$origin_url"
-  [ -d "$south" ] && [ "$origin_visibility" = PUBLIC ] || return 0
-  autoland_repo "refs/remotes/origin/$(default_branch)" || return 0
-  slug=${origin_url%.git}; slug=${slug##*:}
-  slug="$(basename "$(dirname "$slug")")/$(basename "$slug")"
-  north denylist attest --south "$south" --repo "$slug" --branch "$1" || status=$?
-  case "$status" in
-    0) ;;
-    1) echo "safe-push: ✗ the deny-list attester refused $1, so Autoland will not test this tip; reword the deny-listed text and push again." ;;
-    3) echo "safe-push: ✓ the deny-list scan of $1 is clean, but this host's GitHub token cannot post commit statuses; the nexus denylist-attest timer posts the status and dispatches Autoland within about five minutes, with nothing for you to run." ;;
-    *) echo "safe-push: ⚠ the deny-list attest for $1 failed (exit $status); the push stands and the nexus denylist-attest timer retries within about five minutes." ;;
-  esac
 }
 
 denylist_scan() {
@@ -757,25 +722,14 @@ revalidate_repository_state() {
   [ "$current_range" = "$scan_range" ] || state_changed 'outgoing range changed'
 }
 
-# --- one-branch-main doctrine: no silent default publish of a non-main branch -----
-# safe-push's own default (no --to) publishes HEAD under its CURRENT branch name —
-# exactly how feature-branch litter accumulates on origin from native sessions.
-# Refuse that default the moment the current branch isn't the repo's default
-# branch; an explicit --to (even to a non-main destination) is the deliberate
-# escape hatch and is left alone. Tag pushes are a different ref namespace and
-# are untouched by this guard.
-enforce_one_branch_main() {
-  local ref current default
-  ref=$(git symbolic-ref --quiet HEAD 2>/dev/null) || return 0
-  case "$ref" in
-    refs/heads/*) current=${ref#refs/heads/} ;;
-    *) return 0 ;;
-  esac
-  default=$(default_branch)
-  plan_push source "$current" "$default"
-}
-
-if [ "$to_seen" -eq 0 ]; then enforce_one_branch_main; fi
+# A bare safe-push on the default branch lands it; every other push publishes through north land push.
+if [ -z "$check_base" ] && [ "$to_seen" -eq 0 ] && [ "$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" = "$(default_branch)" ]; then to=$(default_branch) to_seen=1; fi
+if [ "$to_seen" -eq 0 ] || [ "$to" != "$(default_branch)" ]; then
+  safe_push_internal=1
+  command -v north >/dev/null 2>&1 || { echo "safe-push: north not on PATH; refusing to land without the language gate; NOT pushed." >&2; exit 1; }
+  north land push --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land push, which publishes every branch but $(default_branch); run north runtime update; NOT pushed." >&2; exit 1; }
+  exec north land push "${original_arguments[@]}"
+fi
 safe_push_common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
 
 # --- --to landings: serialize per origin, rebase onto the fresh destination -------
@@ -1355,17 +1309,6 @@ autoland_repo() {
 autoland_queue() {
   autoland_repo "$1" && ! git diff --name-only "$1...HEAD" -- .github/workflows | grep -q .
 }
-run_queue_branch_hook() {
-  local hook
-  [ "$to_seen" -eq 1 ] || return 0
-  case "$destination_branch" in claude/land-*) ;; *) return 0 ;; esac
-  [ "$hook_verified" -eq 0 ] || return 0
-  autoland_repo "refs/remotes/origin/$(default_branch)" || return 0
-  hook=$(pre_push_hook)
-  [ -n "$hook" ] || return 0
-  run_pre_push_hook "$hook" "${destination_oid:-}"
-  hook_verified=1
-}
 # A train fixes its base when its test starts, so a workflow lane waits for no train in flight, before it queues for the lock.
 autoland_gap() {
   local waited=0 limit="${SAFE_PUSH_AUTOLAND_GAP_SECONDS:-1800}" poll="${SAFE_PUSH_AUTOLAND_POLL_SECONDS:-30}" trains
@@ -1587,11 +1530,7 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
     red_fix=$(red_fix_issue "$red_base")
     stage "destination fetch and red-fix lookup"
   fi
-  if [ "$to" != "$(default_branch)" ]; then
-    echo "safe-push: $to is not origin's default branch — pushing without the landing lock"
-    safe_push_scratch_branch="$to"
-    sync_with_destination
-  elif [ -z "$hook" ] && { [ "$land_train" = 0 ] || ! exact_landing "${autoland_base:-HEAD}"; }; then
+  if [ -z "$hook" ] && { [ "$land_train" = 0 ] || ! exact_landing "${autoland_base:-HEAD}"; }; then
     land_train=0
     acquire_push_lock "$lock_url"
     sync_with_destination
@@ -1753,7 +1692,6 @@ else
 fi
 rm -f -- "$final_scans_failures"
 refuse_collected
-[ "$dry" = 1 ] || run_queue_branch_hook
 
 revalidate_repository_state
 plan_push publication "$head_oid" "$destination_ref" "$destination_oid"
@@ -1790,17 +1728,6 @@ record_push "$pushed_at" "$([ "$destination_branch" = main ] && printf '%s' "$br
 [ "$destination_branch" != "$(default_branch)" ] || record_solo_lane landed "$head_oid"
 release_push_lock
 stage "push"
-if [ "$to_seen" -eq 0 ]; then
-  tracking_ref="refs/remotes/origin/$destination_branch"
-  if git fetch -q "$origin_url" "${destination_ref}:${tracking_ref}" \
-      && git branch --set-upstream-to="origin/$destination_branch" "$branch" >/dev/null; then
-    :
-  else
-    printf 'safe-push: pushed successfully, but could not establish origin/%s tracking\n' \
-      "$destination_branch" >&2
-  fi
-fi
-denylist_attest "$destination_branch"
 [ "$destination_branch" != "$(default_branch)" ] || spawn_after_landing_gates "$destination_oid" "$head_oid"
 release_follows
 safe_push_published_head="$head_oid"; safe_push_landed_sha="$head_oid"
