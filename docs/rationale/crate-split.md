@@ -511,3 +511,17 @@ entry:
   `pub mod` lists merged as sets. Each new crate's `lib.rs` starts that way.
 - `src/cli/verbs.rs` becomes a one-line-per-verb table.
 - `structure.toml`'s `paths` arrays join the `toml-array` set beside `may_use`.
+
+## Before the split, fad7445bd
+
+Measured 2026-11-05 on gex45 under `north capacity host run --class heavy`, in a detached worktree at
+fad7445bd, with `RUSTC_WRAPPER` unset and rustc/cargo 1.96.1 on PATH. Lines counts the 229,818 tracked `.rs`
+files of the workspace. The host was contended (1-minute load about 19 at the start and 18 at the end on 20
+threads), and the cold build ran once, so treat the timings as a single contended sample.
+
+| Workspace | SHA | rustc | Lines | Cold build | Leaf build | Leaf test --no-run | Hub build | Hub test --no-run | Threshold | Verdict |
+|---|---|---|---|---|---|---|---|---|---|---|
+| north | fad7445bd | 1.96.1 | 229,818 | 96.4 s | 66.9 s | 88.0 s | 66.9 s | 93.9 s | 88 s | near |
+
+The cold build used 232.3 CPU-seconds (212.3 s user plus 20.0 s sys) over 87.4 s wall, measured in a
+separate cold run with the same toolchain and an empty target directory.
