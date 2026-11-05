@@ -111,10 +111,10 @@ fn due_landing(layout: &Layout, checkout: &Path) -> Result<Option<Landing>, Fail
 }
 
 fn verdict(facts: &probe::Facts, problems: &[String]) -> String {
-    match (probe::installing(facts), problems.is_empty()) {
-        (true, _) => "installing: declared with no live runtime yet".to_owned(),
-        (false, true) => "live and healthy".to_owned(),
-        (false, false) => problems.join("; "),
+    match (problems.is_empty(), probe::installing(facts)) {
+        (false, _) => problems.join("; "),
+        (true, true) => "installing: declared with no live runtime yet".to_owned(),
+        (true, false) => "live and healthy".to_owned(),
     }
 }
 

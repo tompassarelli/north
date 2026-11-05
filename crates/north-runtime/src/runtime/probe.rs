@@ -204,7 +204,7 @@ pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String
         return vec![format!("unreachable: {why}")];
     }
     if installing(facts) {
-        return Vec::new();
+        return if facts.unresolved.is_empty() { Vec::new() } else { std::iter::once("no live runtime".to_owned()).chain(facts.unresolved.iter().map(|unresolved| format!("unresolved hook path {unresolved}"))).collect() };
     }
     let mut problems = Vec::new();
     if let Some(runtime) = facts.runtime.as_deref().filter(|runtime| !live(runtime)) {
