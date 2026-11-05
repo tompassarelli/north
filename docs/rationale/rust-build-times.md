@@ -184,3 +184,123 @@ builds, and so the runtime that `north runtime update` builds with `--release`, 
 it passed 10 of 10 runs alone under each toolchain. `cargo fmt --check` reports the same 14,069 diffs
 with stable and nightly rustfmt, and no check runs it. `RUSTFLAGS`, which the dev shell exports for a
 foreign `CARGO_TARGET_DIR`, does not displace profile `rustflags`, so the levers hold in every lane.
+
+## Codegen cost of north-core, 2026-11-05
+
+Measured on gex45 at origin/main fad7445bd, rustc 1.96.1, in a detached scratch worktree under
+`north capacity host run --class heavy` (6 CPUs) at a host load of 19 to 20 on 20 threads. LLVM lines come
+from `cargo llvm-lines -p north-core --lib --profile test` (the lib test harness, the 77 s unit of
+`build-cost.md`) and rustc queries from `-Zself-profile` plus measureme `summarize` on the stable 1.96.1
+compiler with `RUSTC_BOOTSTRAP=1`, so no nightly was needed and no version could mismatch.
+
+### What gex45 builds: incremental is off
+
+gex45's `~/.cargo/config.toml` holds `[build] incremental = false` (written 2026-10-27, owned by no
+repository). Every cargo build there inherits it, so each north-core edit rebuilds the crate from scratch
+in 16 codegen units with no reuse: the leaf profile shows 17 `LLVM_module_codegen` items and 0 cache hits.
+`north code-health build-time` does not override it, so the 2026-11-04 rows and the 100 s harness timing
+above on gex45 measured non-incremental builds.
+
+### Where the time goes
+
+Self-profile of the lib test harness after a leaf edit (non-incremental, 214.5 s of self time summed
+over threads, 111 s wall):
+
+| Query (rustc component) | Self time | Share |
+|---|---|---|
+| `LLVM_module_codegen_emit_obj` (rustc_codegen_llvm, object emission) | 66.2 s | 30.9% |
+| `LLVM_passes` (rustc_codegen_llvm, the opt-level 0 pass pipeline) | 30.4 s | 14.2% |
+| `typeck_root` (rustc_hir_typeck) | 26.6 s | 12.4% |
+| `codegen_module` (rustc_codegen_ssa, MIR to LLVM IR) | 23.7 s | 11.0% |
+| `mir_borrowck` (rustc_borrowck) | 9.4 s | 4.4% |
+| `finish_ongoing_codegen` | 4.0 s | 1.8% |
+| `items_of_instance` (rustc_monomorphize, 184,705 instances) | 3.1 s | 1.4% |
+| `symbol_name` (343,915 symbols) | 2.8 s | 1.3% |
+| `expand_crate` (macro and derive expansion) | 2.4 s | 1.1% |
+
+LLVM and codegen together are 59% of the work. `-Ztime-passes` on a from-scratch build of the same unit
+(88.9 s wall) gives the serial front end: `type_check_crate` 16.8 s, `MIR_borrow_checking` 21.9 s,
+`monomorphization_collector_graph_walk` 15.9 s, `codegen_to_LLVM_IR` 20.1 s, `LLVM_passes` 21.4 s;
+`expand_crate`, which holds every serde derive, takes 2.0 s.
+
+### The 25 costliest generic functions
+
+The harness emits 5,770,112 LLVM lines in 176,394 function copies (the lib alone: 4,932,142 in 152,801).
+The profile is flat: the costliest single function, `threads::calibration::summary::Run::read`, is 3,890
+lines (0.07%). Copies were grouped by generic function with their type arguments erased. "Instantiated
+from" names the north-core module whose types appear most in the copies' arguments; "std types" means
+most copies are over std types such as `String`.
+
+| # | Generic function (crate::module) | LLVM lines | Copies | Instantiated from | Cheapest cut |
+|---|---|---|---|---|---|
+| 1 | `alloc::vec` `Vec::from_iter` (`SpecFromIterNested`) | 167,923 | 1,993 | threads::calibration | none per site; incremental reuses it |
+| 2 | `core::ptr` `drop_in_place` | 149,477 | 15,446 | std types | none: one copy per type with drop glue |
+| 3 | `alloc::vec` `Vec::extend_desugared` | 94,426 | 1,166 | threads::calibration | none per site |
+| 4 | `core::slice::iter` `Iter::fold` | 87,747 | 1,038 | threads::calibration | none per site |
+| 5 | `core::slice::sort::stable::quicksort` `stable_partition` | 78,960 | 642 | std types | `dyn` comparator (below) |
+| 6 | `alloc::vec` `Vec::extend_trusted` | 58,044 | 963 | std types | none per site |
+| 7 | `core::slice::sort::shared::smallsort` `small_sort_general_with_scratch` | 52,746 | 323 | std types | `dyn` comparator |
+| 8 | `alloc::collections::btree::node` `Handle::insert` | 49,399 | 302 | std types | none cheap: one per key and value type |
+| 9 | `core::slice::sort::stable::drift` `sort` | 46,545 | 321 | std types | `dyn` comparator |
+| 10 | `core::slice::sort::stable::quicksort` `quicksort` | 46,378 | 321 | std types | `dyn` comparator |
+| 11 | `alloc::collections::btree::node` `NodeRef::ascend` | 43,146 | 493 | std types | none cheap |
+| 12 | `core::iter::adapters::flatten` `FlattenCompat::size_hint` | 41,494 | 122 | std types | a loop for the costliest `flat_map` chains |
+| 13 | `alloc::collections::btree::node` `NodeRef::search_tree` | 40,826 | 298 | std types | none cheap |
+| 14 | `core::slice::sort::shared::smallsort` `bidirectional_merge` | 37,791 | 323 | std types | `dyn` comparator |
+| 15 | `alloc::collections::btree::node` `Handle::next_leaf_edge` | 37,324 | 301 | std types | none cheap |
+| 16 | `core::iter::adapters::map` `map_fold` closure | 36,099 | 1,319 | threads::calibration | none per site |
+| 17 | `alloc::collections::btree::node` `Handle::insert_recursing` | 35,843 | 151 | std types | none cheap |
+| 18 | `alloc::vec::into_iter` `IntoIter::try_fold` | 30,635 | 304 | fleet::store | none per site |
+| 19 | `serde_json::de` `Deserializer::deserialize_struct` | 28,139 | 65 | fleet::store | read each type from one input form |
+| 20 | `core::slice::sort::shared` `find_existing_run` | 27,300 | 325 | std types | `dyn` comparator |
+| 21 | `alloc::collections::btree::node` `Handle::split_leaf_data` | 27,194 | 302 | std types | none cheap |
+| 22 | `alloc::collections::btree::navigate` `LazyLeafRange::init_front` | 27,075 | 285 | std types | none cheap |
+| 23 | `core::option` `Option::filter` | 27,071 | 595 | threads::calibration | none per site |
+| 24 | `core::slice::iter` `Iter::try_fold` | 26,955 | 423 | std types | none per site |
+| 25 | `core::result` `Result::branch` (`?`) | 25,141 | 1,242 | std types | none per site |
+
+By family, over all grouped copies of the harness: Vec, iterator, Option and Result adapters 25.2%
+(1.45M lines), north-core's own non-test functions 18.5%, `BTreeMap`/`BTreeSet` 14.2% (821k lines, about
+150 map types), test functions 12.3%, slice sorting 8.7% (500k lines), other std 7.2%, serde 6.9%
+(serde_json plus the derived visitors; north-core's own derive code is 257k lines, 4.5%), other
+dependencies 4.5%, drop glue 2.6%.
+
+Derive expansions are not the cost. 187 `Deserialize` and 135 `Serialize` derives expand in 2.0 s, and
+their code is 4.5% of the lines. The costliest derived types are `router::ops::Request` (15,202 lines in
+79 copies), `pace::Request` (10,106 in 79), `fleet::store::row::FleetRow` (8,585 in 60),
+`fleet::model::SessionRecord` (8,439 in 32), `fleet::gates::GateRequest` (6,864 in 63) and
+`capacity::admission::Facts` (6,457 in 22). Their copy counts come from each type being read through
+several deserializers (`StrRead`, `SliceRead`, `Value`, and serde's `Content` buffer for tagged enums).
+That is the one serde cut worth naming, and it is small.
+
+Sorting is the one generic family with a code cut. Its 321 `driftsort_main` copies cover only 103
+element types, because every `sort_by`/`sort_by_key` closure is its own type (275 call sites). A helper
+that takes `&mut dyn FnMut(&T, &T) -> Ordering` would leave one sort per element type: about 68% of the
+500k sort lines, roughly 340k lines or 5.9% of the harness (estimated, not applied).
+
+### Cuts applied and measured
+
+Leaf edit as in the method above (`const _: u64 = K;` appended to `crates/north-core/src/code_health/source.rs`,
+a new K each sample), then a timed workspace `cargo test --locked --offline --no-run`, `RUSTC_WRAPPER`
+unset. Each variant had its own target directory and was warmed once unmeasured. The three variants were
+interleaved in each of the 3 rounds, so load drift hit them all alike. Every sample rebuilt north-core and
+north. Medians, seconds; CPU is user plus system:
+
+| Variant | Wall samples | Wall median | CPU median | Saving (wall) |
+|---|---|---|---|---|
+| gex45 as configured (incremental off) | 87.4, 88.4, 80.5 | 87.4 | 230.3 | baseline |
+| `CARGO_BUILD_INCREMENTAL=true` | 21.2, 24.3, 21.7 | 21.7 | 36.3 | 65.7 s, 4.0x (CPU 6.3x) |
+| incremental plus `CARGO_PROFILE_DEV_DEBUG=0` | 18.2, 26.6, 27.0 | 26.6 | 38.1 | none beyond incremental (inside the noise) |
+
+Incremental is the cut, and it costs code nothing: `[profile.dev]` already asks for it, and only gex45's
+user config turns it off. Its price is disk: each target directory gains 3.4 GiB of `incremental/`
+(3.0 GiB without debuginfo) on a root disk that was 90% full, which is probably why it was turned off.
+Dropping the remaining line tables saves nothing measurable once codegen is reused. The project already
+pairs incremental with sccache, which passes incremental crates through (`build_cache_gate.rs`).
+
+These rows ran on stable 1.96.1 with LLVM, before the Toolchain levers above were adopted. The
+Toolchain levers rows ran on gex45 under the same `incremental = false`, because the repo's
+`.cargo/config.toml` does not set `build.incremental` and so the user config's value stands. Incremental
+is independent of the codegen backend and stacks with Cranelift and `-Zthreads=8`. A
+`[build] incremental = true` line in the repo's `.cargo/config.toml` outranks the user config, so it
+turns incremental back on for every checkout on every host.
