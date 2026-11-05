@@ -2,10 +2,11 @@ use crate::guard::proxy_role;
 use crate::hook::{HookInput, Verdict};
 use regex::Regex;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 
 const UNIT: &str = "recommend-acts";
 const MAX_BLOCKS: u32 = 2;
@@ -28,19 +29,34 @@ pub const ASK_ONCE: [&str; 16] = [
     "cost", "costs", "money", "spend", "billing", "paid", "account", "accounts", "public", "publish", "credential", "credentials", "password", "delete", "deleting", "deletion",
 ];
 
-pub const ACTIONS: [&str; 3] = [
-    r"\bgh\b[^\n;&|]*?\bissue\s+(?:create|edit)\b",
-    r"\bthreads\s+(?:new|box\s+add)\b",
-    r"\bnorth\s+fleet\s+(?:launch|send)\b",
-];
+static GH_EDIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bgh\b([^\n;&|]*?)\bissue\s+edit\b([^\n;&|]*)").unwrap());
+static GH_CREATE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bgh\b[^\n;&|]*?\bissue\s+create\b").unwrap());
+static THREADS_NOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bthreads\s+(?:box\s+add|note)\s+(?:-\S+\s+)*(\S+)").unwrap());
+static THREADS_NEW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bthreads\s+new\b").unwrap());
+static ISSUE_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"github\.com/[\w.-]+/([\w.-]+)/issues/(\d+)").unwrap());
+static CITATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[^\w#/])(?:[\w.-]+/)?([A-Za-z][\w.-]*)#(\d+)\b").unwrap());
 
-pub const ACTION_TOOLS: [&str; 1] = ["SendMessage"];
+#[derive(Debug, Clone, PartialEq)]
+pub struct Issue {
+    pub repo: Option<String>,
+    pub number: u64,
+}
+
+impl Issue {
+    fn names(&self, cited: &Issue) -> bool {
+        self.number == cited.number && (self.repo.is_none() || cited.repo.is_none() || self.repo == cited.repo)
+    }
+
+    fn label(&self) -> String {
+        format!("{}#{}", self.repo.as_deref().unwrap_or(""), self.number)
+    }
+}
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Turn {
     pub id: String,
     pub commands: Vec<String>,
-    pub tools: Vec<String>,
+    pub moved: Vec<Issue>,
     pub reply: Option<String>,
 }
 
@@ -48,7 +64,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
-    if !proxy_role::is_proxy(&proxy_role::Live, input) {
+    if !proxy_role::is_tom_window(&proxy_role::Live, input) {
         return Verdict::Allow;
     }
     let Some(home) = std::env::var_os("HOME") else { return Verdict::Allow };
@@ -77,12 +93,15 @@ pub fn missing_step(reply: &str, turn: &Turn) -> Option<String> {
     if triggered.iter().any(|(_, sentence)| names_ask_once(sentence)) {
         return None;
     }
-    let acted = turn.tools.iter().any(|tool| ACTION_TOOLS.contains(&tool.as_str())) || turn.commands.iter().any(|command| actions().iter().any(|action| action.is_match(command)));
-    let cited = citation().is_match(&reply);
-    let step = match (acted, cited) {
-        (true, true) => return None,
-        (false, _) => "this turn filed no issue and staffed no one: act on it now, filing it (`gh issue create|edit`, `threads new`) or staffing it (`north fleet launch|send`), and cite the issue as repo#N",
-        (true, false) => "the reply cites no issue: name the issue it filed or moved as repo#N",
+    let cited = cited_issues(&reply);
+    if cited.iter().any(|cited| turn.moved.iter().any(|moved| moved.names(cited))) {
+        return None;
+    }
+    let step = match (turn.moved.first(), cited.first()) {
+        (None, Some(cited)) => format!("this turn created or edited no issue, so no box tracks this on {}: add it with `gh issue edit N` (a box) or `gh issue create`, then cite that issue", cited.label()),
+        (None, None) => "this turn created or edited no issue: file it with `gh issue create` or add a box with `gh issue edit N`, and cite the issue as repo#N".to_owned(),
+        (Some(moved), None) => format!("the reply cites no issue: name {} as repo#N", moved.label()),
+        (Some(moved), Some(cited)) => format!("the reply cites {} but this turn only created or edited {}: cite that issue, or add the box to {} with `gh issue edit N`", cited.label(), moved.label(), cited.label()),
     };
     Some(format!("BLOCKED ({UNIT}): your reply recommends or asks (\"{phrase}\") but {step}; ask Tom first only for cost, accounts, making something public, credentials or deleting valuable data."))
 }
@@ -163,6 +182,7 @@ pub fn turn_in(lines: &[u8]) -> Option<Turn> {
     let begin = entries.iter().rposition(starts_turn)?;
     let mut turn = Turn { id: entries[begin]["uuid"].as_str().unwrap_or_default().to_owned(), ..Turn::default() };
     let failed: Vec<&str> = entries[begin + 1..].iter().filter(|entry| entry["type"] == "user").filter_map(|entry| entry["message"]["content"].as_array()).flatten().filter(|block| block["type"] == "tool_result" && block["is_error"] == true).filter_map(|block| block["tool_use_id"].as_str()).collect();
+    let results: HashMap<&str, String> = entries[begin + 1..].iter().filter(|entry| entry["type"] == "user").filter_map(|entry| entry["message"]["content"].as_array()).flatten().filter(|block| block["type"] == "tool_result").filter_map(|block| Some((block["tool_use_id"].as_str()?, result_text(&block["content"])))).collect();
     for entry in &entries[begin + 1..] {
         if entry["type"] != "assistant" {
             continue;
@@ -177,8 +197,8 @@ pub fn turn_in(lines: &[u8]) -> Option<Turn> {
             if block["id"].as_str().is_some_and(|id| failed.contains(&id)) {
                 continue;
             }
-            turn.tools.push(block["name"].as_str().unwrap_or_default().rsplit('.').next().unwrap_or_default().to_owned());
             if let Some(command) = block["input"]["command"].as_str() {
+                turn.moved.extend(moved_by(command, results.get(block["id"].as_str().unwrap_or_default()).map_or("", String::as_str)));
                 turn.commands.push(command.to_owned());
             }
         }
@@ -197,14 +217,61 @@ fn starts_turn(entry: &Value) -> bool {
     }
 }
 
-fn actions() -> &'static [Regex] {
-    static ACTIONS_RE: OnceLock<Vec<Regex>> = OnceLock::new();
-    ACTIONS_RE.get_or_init(|| ACTIONS.iter().map(|pattern| Regex::new(pattern).unwrap()).collect())
+fn result_text(content: &Value) -> String {
+    match content {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks.iter().filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join("\n"),
+        _ => String::new(),
+    }
 }
 
-fn citation() -> &'static Regex {
-    static CITATION: OnceLock<Regex> = OnceLock::new();
-    CITATION.get_or_init(|| Regex::new(r"(?:^|[^\w#/])(?:[\w.-]+/)?[A-Za-z][\w.-]*#\d+\b").unwrap())
+fn moved_by(command: &str, output: &str) -> Vec<Issue> {
+    let mut moved = Vec::new();
+    for edit in GH_EDIT.captures_iter(command) {
+        moved.extend(edited_issue(&format!("{} {}", &edit[1], &edit[2])));
+    }
+    if GH_CREATE.is_match(command) {
+        moved.extend(cited_issues(output));
+    }
+    for note in THREADS_NOTE.captures_iter(command) {
+        moved.extend(cited_issues(&format!(" {}", &note[1])));
+    }
+    if THREADS_NEW.is_match(command) {
+        moved.extend(cited_issues(output));
+    }
+    moved
+}
+
+fn edited_issue(arguments: &str) -> Option<Issue> {
+    let mut repo = None;
+    let mut tokens = arguments.split_whitespace();
+    let mut number = None;
+    let mut positional = false;
+    while let Some(token) = tokens.next() {
+        if let Some(value) = token.strip_prefix("--repo=") {
+            repo = value.rsplit('/').next().map(str::to_owned);
+        } else if matches!(token, "-R" | "--repo") {
+            repo = tokens.next().and_then(|value| value.rsplit('/').next()).map(str::to_owned);
+        } else if !token.starts_with('-') && !positional {
+            positional = true;
+            number = issue_number(token);
+        }
+    }
+    let (url_repo, number) = number?;
+    Some(Issue { repo: repo.or(url_repo), number })
+}
+
+fn issue_number(token: &str) -> Option<(Option<String>, u64)> {
+    if let Some(url) = ISSUE_URL.captures(token) {
+        return Some((Some(url[1].to_owned()), url[2].parse().ok()?));
+    }
+    token.trim_start_matches('#').parse().ok().map(|number| (None, number))
+}
+
+fn cited_issues(text: &str) -> Vec<Issue> {
+    let urls = ISSUE_URL.captures_iter(text).filter_map(|url| Some(Issue { repo: Some(url[1].to_owned()), number: url[2].parse().ok()? }));
+    let short = CITATION.captures_iter(text).filter_map(|cited| Some(Issue { repo: Some(cited[1].to_owned()), number: cited[2].parse().ok()? }));
+    urls.chain(short).collect()
 }
 
 fn option_label() -> &'static Regex {

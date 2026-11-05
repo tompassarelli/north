@@ -144,3 +144,20 @@ fn a_proxy_resumed_by_hand_on_its_profile_is_the_proxy_and_a_claude_started_from
     let launched = Fake { start: Some((false, true)), ..proxy() };
     assert!(denied(&launched, &commit));
 }
+
+#[test]
+fn tom_resumed_window_on_another_profile_than_the_registered_proxy_is_his_window_but_not_the_proxy() {
+    use super::proxy_role::is_tom_window;
+    let input = tool("Bash", json!({"command": "git commit -m x"}));
+    let claude_c = Some("/home/tom/.local/state/north/profiles/claude-c");
+    let resumed = Fake { registered: Some("d11ef811"), account: Some("a"), config: claude_c, start: Some((false, false)), ..Fake::default() };
+    assert!(is_tom_window(&resumed, &input));
+    assert_eq!(decide(&resumed, &input), Verdict::Allow, "the code-work refusals stay with the registered proxy");
+    assert!(!is_tom_window(&Fake { start: Some((false, true)), ..resumed }, &input), "a claude -p is not his window");
+    let nested = Fake { registered: Some("d11ef811"), account: Some("a"), config: claude_c, start: Some((true, false)), ..Fake::default() };
+    assert!(!is_tom_window(&nested, &input));
+    let fleet_worker = Fake { registered: Some("d11ef811"), account: Some("a"), config: claude_c, start: Some((false, false)), ..worker() };
+    assert!(!is_tom_window(&fleet_worker, &input));
+    let unknown = Fake { start: None, ..Fake::default() };
+    assert!(!is_tom_window(&unknown, &input));
+}

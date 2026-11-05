@@ -143,6 +143,16 @@ pub fn is_proxy(world: &impl World, input: &HookInput) -> bool {
     start.is_some_and(|start| !start.print) && registered.account.and_then(|account| world.profile(&account)).is_some_and(|profile| own_profile(world).is_some_and(|own| normpath(&own) == normpath(&profile)))
 }
 
+pub fn is_tom_window(world: &impl World, input: &HookInput) -> bool {
+    if is_proxy(world, input) {
+        return true;
+    }
+    if input.data.get("agent_type").is_some() || input.data.get("agent_id").is_some() || world.var(ROLE_ENV).is_some() || world.var(SESSION_ENV).is_some() {
+        return false;
+    }
+    world.claude_start().is_some_and(|start| !start.nested && !start.print)
+}
+
 fn own_profile(world: &impl World) -> Option<String> {
     world.var(CONFIG_ENV).or_else(|| world.var("HOME").map(|home| format!("{home}/.claude")))
 }
