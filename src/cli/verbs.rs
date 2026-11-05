@@ -96,6 +96,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("laptop-ntfy", TomFacing),
     ("laptop-runner", Diagnosis),
     ("ledger", Status),
+    ("loops", Diagnosis),
     ("merge-driver", Landing),
     ("model-watch", Status),
     ("mutant", Diagnosis),

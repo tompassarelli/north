@@ -38,6 +38,8 @@ mod south_land_tests;
 mod south_policy_tests;
 #[cfg(test)]
 mod south_test_repo;
+#[cfg(test)]
+mod loops_tests;
 mod tools;
 mod verbs;
 mod worker_ledger;

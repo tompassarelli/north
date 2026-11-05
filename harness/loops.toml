@@ -1,0 +1,118 @@
+# Every automatic decision north makes, as a learning loop: the decision, the files that make it
+# (`sites`), the outcome signal it learns from, what updates it and how often, and the record under
+# the state root (XDG_STATE_HOME, else ~/.local/state) whose newest write is its last update.
+# `north loops check` fails a loop that has no outcome signal, or whose record is older than twice
+# its cadence; `owner` names the box that closes a loop without a signal. The bin test
+# `cli::loops_tests` fails when a decision site behind dispatch, fleet launch, capacity admission or
+# the lander is missing from every loop's sites.
+
+[[loop]]
+name = "tier"
+decision = "the model tier a box of a category gets from dispatch and north fleet launch"
+sites = [
+  "crates/north-dispatch/src/dispatch/tier.rs",
+  "crates/north-dispatch/src/dispatch/tuned.rs",
+  "crates/north-dispatch/src/dispatch/survey.rs",
+  "crates/north-dispatch/src/dispatch/manual.rs",
+  "crates/north-dispatch/src/dispatch/mod.rs",
+  "src/cli/fleet/tier.rs",
+]
+signal = "ledger cost per kept box with 48 h rework, per arm stamp"
+updated_by = "north tune"
+cadence_hours = 24
+record = "north/tune/cells.json"
+
+[[loop]]
+name = "eta"
+decision = "the ETA a dispatched box's brief states"
+sites = ["crates/north-dispatch/src/dispatch/grounds.rs"]
+signal = "p75 run wall of closed boxes per tier family and category"
+updated_by = "north tune"
+cadence_hours = 24
+record = "north/tune/cells.json"
+
+[[loop]]
+name = "budget"
+decision = "the dollar budget a dispatched box's brief states"
+sites = ["crates/north-dispatch/src/dispatch/grounds.rs"]
+signal = "median cost per closed box per tier family and category"
+updated_by = "north tune"
+cadence_hours = 24
+record = "north/tune/cells.json"
+
+[[loop]]
+name = "effort"
+decision = "the reasoning effort a launch runs at"
+sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-dispatch/src/dispatch/manual.rs", "src/cli/fleet/tier.rs"]
+updated_by = "orchestration.toml by hand"
+cadence_hours = 24
+owner = "north#112 Effort is an arm"
+
+[[loop]]
+name = "capacity-estimate"
+decision = "the cores and memory a capacity lease charges for a command, which admission weighs"
+sites = [
+  "crates/north-capacity-host/src/capacity/host/estimate.rs",
+  "crates/north-capacity-host/src/capacity/host/sizing.rs",
+  "crates/north-capacity-host/src/capacity/host/policy.rs",
+  "crates/north-capacity-host/src/capacity/host/mod.rs",
+  "crates/north-core/src/capacity/admission.rs",
+]
+signal = "measured cores, memory and wall per command signature of finished leases"
+updated_by = "north capacity run"
+cadence_hours = 24
+record = "agents/machine-capacity/capacity.db"
+
+[[loop]]
+name = "pressure-band"
+decision = "the CPU pressure under which capacity admission starts a heavy build"
+sites = ["crates/north-core/src/capacity/admission.rs", "crates/north-core/src/capacity/agent_load.rs", "crates/north-core/src/capacity/run_queue.rs"]
+updated_by = "harness/defaults.toml by hand"
+cadence_hours = 168
+owner = "north#112 Staffing governor"
+
+[[loop]]
+name = "check-deadline"
+decision = "the deadline the lander gives each land check"
+sites = ["crates/north-landing/src/landing/check_timings.rs", "crates/north-landing/src/land/slots/runner.rs"]
+signal = "p90 wall of the last passing runs of each check"
+updated_by = "north land"
+cadence_hours = 24
+record = "safe-push/check-timings/passes"
+
+[[loop]]
+name = "placement"
+decision = "the account and machine a fleet launch runs on"
+sites = [
+  "crates/north-dispatch/src/pacing/placement/gate.rs",
+  "crates/north-dispatch/src/pacing/placement/hosts.rs",
+  "crates/north-dispatch/src/pacing/placement/launch.rs",
+  "crates/north-dispatch/src/dispatch/plan.rs",
+]
+updated_by = "agents/orchestration.toml by hand"
+cadence_hours = 168
+owner = "north#112 (no box yet: placement learns nothing from cost per kept box)"
+
+[[loop]]
+name = "worker-concurrency"
+decision = "how many workers dispatch launches on a host"
+sites = ["crates/north-dispatch/src/dispatch/slots.rs", "crates/north-dispatch/src/dispatch/survey.rs"]
+updated_by = "resident_cap by hand"
+cadence_hours = 168
+owner = "north#112 Staffing governor"
+
+[[loop]]
+name = "landing-batch"
+decision = "how many lanes the lander tries in one round"
+sites = ["crates/north-landing/src/land/serve.rs"]
+updated_by = "north land serve"
+cadence_hours = 24
+owner = "north#360"
+
+[[loop]]
+name = "skill-routing"
+decision = "which skills a session loads"
+sites = ["harness/hooks/north-hook.sh"]
+updated_by = "skill frontmatter by hand"
+cadence_hours = 168
+owner = "north#112 Skill effect"

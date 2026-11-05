@@ -4,6 +4,7 @@ pub mod check;
 pub mod dispatch;
 pub mod dividend;
 pub mod laptop;
+pub mod loops;
 pub mod pacing;
 pub mod resident_cap;
 pub mod tune;

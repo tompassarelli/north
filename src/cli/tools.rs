@@ -98,6 +98,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("retain", crate::ops::retention::run),
     ("runtime", crate::runtime::run),
     ("tune", crate::tune::run),
+    ("loops", crate::loops::run),
     ("archives", crate::platform::archive_tags::run),
     ("code-health", code_health),
 ];
