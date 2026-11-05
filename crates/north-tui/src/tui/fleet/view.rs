@@ -1,45 +1,42 @@
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
-use crate::fleet::model::{Status, Transcript};
+use crate::fleet::model::{SessionRecord, Status, Transcript};
 
 use super::desk::SessionSummary;
 use super::form::{Field, LaunchForm};
 use super::screen::{Dialog, Focus, Notice, Screen};
-use super::digest_view::{draw_digest, header_lines, span};
+use super::digest_view::{draw_digest, span};
 use super::painter::TranscriptPainter;
 
 const MUTED: Style = Style::new().fg(Color::DarkGray);
-const COMPOSER: Style = Style::new().fg(Color::Rgb(229, 231, 235)).bg(Color::Rgb(37, 39, 45));
+const COMPOSER: Style = Style::new().fg(Color::Rgb(229, 231, 235));
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Transcript>, painter: &mut TranscriptPainter, now_ms: u64) {
     let width = frame.area().width.saturating_sub(4).max(1);
     let composer_rows = screen.composer.measure(width).preferred_rows.clamp(1, 8);
-    let header = header_lines(screen.accounts(), |account| screen.digest.quota(account, &screen.sessions), usize::from(frame.area().width));
-    let header_rows = u16::try_from(header.len()).unwrap_or(u16::MAX);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(header_rows), Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(1)])
+        .constraints([Constraint::Min(3), Constraint::Length(composer_rows + 2), Constraint::Length(1)])
         .split(frame.area());
     let panes = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(32), Constraint::Min(20)])
-        .split(rows[1]);
-    frame.render_widget(Paragraph::new(header), rows[0]);
+        .split(rows[0]);
     draw_sessions(frame, screen, panes[0], now_ms);
     if screen.digest.shown {
         draw_digest(frame, screen, panes[1], now_ms);
     } else {
         draw_transcript(frame, screen, transcript, painter, panes[1]);
     }
-    draw_composer(frame, screen, rows[2]);
-    draw_status(frame, screen, rows[3]);
+    draw_composer(frame, screen, rows[1]);
+    draw_status(frame, screen, rows[2]);
     if screen.focus == Focus::Composer && screen.dialog.is_none() {
-        screen.slash.draw(frame, rows[2], &screen.composer.lines().join("\n"));
+        screen.slash.draw(frame, rows[1], &screen.composer.lines().join("\n"));
     }
     match &screen.dialog {
         Some(Dialog::Launch(form)) => draw_launch_form(frame, form),
@@ -155,10 +152,11 @@ fn draw_composer(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
     let target = match (gate, screen.selected_session()) {
         (Some(gate), _) => format!(" answer gate {} for {} ", gate.id, gate.request.session),
         (None, Some(session)) if session.status == Status::Exited => format!(" resume {} ", session.record.name),
-        (None, Some(session)) => format!(" message {} ", session.record.name),
+        (None, Some(_)) => String::new(),
         (None, None) => " no session ".to_owned(),
     };
-    let block = pane(Line::from(target), screen.focus == Focus::Composer && screen.dialog.is_none()).style(COMPOSER);
+    let rule = if screen.focus == Focus::Composer && screen.dialog.is_none() { Style::default().fg(Color::Cyan) } else { MUTED };
+    let block = Block::default().borders(Borders::TOP | Borders::BOTTOM).border_type(BorderType::Plain).border_style(rule).title(Line::from(target)).style(COMPOSER);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(Span::styled("❯ ", COMPOSER.fg(Color::Cyan))), Rect { width: inner.width.min(2), ..inner });
@@ -171,35 +169,17 @@ fn draw_status(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
     let line = match &screen.notice {
         Some(Notice::Error(message)) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Red))),
         Some(Notice::Info(message)) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Yellow))),
-        None => hints(screen, usize::from(area.width)),
+        None => Line::from(Span::styled("? for shortcuts", MUTED)),
     };
     frame.render_widget(Paragraph::new(line), area);
+    if let Some(session) = screen.selected_session().filter(|_| screen.notice.is_none()) {
+        frame.render_widget(Paragraph::new(Span::styled(model_label(&session.record), MUTED)).alignment(Alignment::Right), area);
+    }
 }
 
-fn hints(screen: &Screen, width: usize) -> Line<'static> {
-    let answering = screen.digest.shown && screen.digest.selected().is_some();
-    let pairs: &[(&str, &str)] = match (screen.focus, answering) {
-        (Focus::List, true) => &[("j/k", "gate"), ("1-9", "answer with that option"), ("type", "answer in your words"), ("^T", "transcript"), ("Tab", "composer"), ("^Q", "quit")],
-        (Focus::Composer, true) => &[("Enter", "answer the gate"), ("Alt+Enter", "newline"), ("Tab", "gates"), ("^T", "transcript"), ("^Q", "quit")],
-        (Focus::List, false) => &[("j/k", "select"), ("r", "resume"), ("^T", "digest"), ("Tab", "composer"), ("PgUp/PgDn", "scroll"), ("^Y", "copy reply"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^D", "forget"), ("^Q", "quit")],
-        (Focus::Composer, false) => &[("Enter", "send"), ("Alt+Enter", "newline"), ("^Enter/Alt+U", "urgent"), ("Tab", "list"), ("^T", "digest"), ("^G", "deepen and send"), ("^Y", "copy reply"), ("Esc/^C", "interrupt"), ("^X", "stop"), ("^N", "new"), ("^Q", "quit")],
-    };
-    let mut spans = Vec::new();
-    let mut used = 0;
-    for (index, (key, action)) in pairs.iter().enumerate() {
-        let separator = if index > 0 { " · " } else { "" };
-        let cost = separator.chars().count() + key.chars().count() + 1 + action.chars().count();
-        if used + cost > width {
-            break;
-        }
-        used += cost;
-        if index > 0 {
-            spans.push(Span::styled(separator, MUTED));
-        }
-        spans.push(Span::styled(*key, Style::default().fg(Color::Cyan)));
-        spans.push(Span::styled(format!(" {action}"), MUTED));
-    }
-    Line::from(spans)
+fn model_label(record: &SessionRecord) -> String {
+    let model = record.model.as_deref().unwrap_or("account default");
+    record.effort.map_or_else(|| model.to_owned(), |effort| format!("{model} ({})", effort.label()))
 }
 
 fn centered(area: Rect, width: u16, height: u16) -> Rect {

@@ -78,6 +78,6 @@ impl SlashMenu {
         }).collect();
         lines.push(Line::from("↑/↓ select · Enter send · Tab insert · Esc close"));
         frame.render_widget(Clear, area);
-        frame.render_widget(Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" commands ").style(Style::default().bg(Color::Rgb(24, 26, 31)))), area);
+        frame.render_widget(Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" commands ")), area);
     }
 }

@@ -7,17 +7,17 @@ use std::time::{Duration, Instant};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::style::Color;
 
 use crate::error::NorthResult;
 use crate::fleet::books::{Digest, Landing, SessionSpend};
 use crate::fleet::gates::{Decision, Gate, GateRequest};
-use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
+use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
 use crate::fleet::registry::Choices;
 use crate::fleet::prompt::deepened;
 
 use super::desk::{SessionActions, SessionDesk, SessionSummary};
 use super::digest::SessionFacts;
-use super::digest_view::header_lines;
 use super::form::{Field, FormOutcome, LaunchForm};
 use super::painter::TranscriptPainter;
 use super::runner::Runner;
@@ -511,7 +511,6 @@ fn the_digest_lists_open_gates_first_then_sessions_and_todays_landings() {
     let parser = desk.transcripts.get_mut("parser").unwrap();
     parser.entries.push(Entry { kind: EntryKind::TurnEnd, text: "success".into() });
     parser.entries.push(Entry { kind: EntryKind::User, text: "now add tests".into() });
-    parser.quota = Some(Quota { windows: vec![QuotaWindow { label: "5h".into(), used_percent: 63 }] });
     desk.digest = Digest {
         gates: vec![gate(3, "idle-one", 1_000)],
         spend: vec![SessionSpend { session: "parser".into(), tokens: 12_345, api_usd: Some(0.0048) }],
@@ -519,37 +518,57 @@ fn the_digest_lists_open_gates_first_then_sessions_and_todays_landings() {
     };
     let mut screen = screen(&desk);
     observe(&desk, &mut screen);
-    assert!(rendered(&desk, &mut screen, 0).contains("^T digest"));
+    assert!(!rendered(&desk, &mut screen, 0).contains("decisions"));
     key(&mut desk, &mut screen, control('t'));
     let shown = rendered(&desk, &mut screen, 36_000);
     let at = |needle: &str| shown.find(needle).unwrap_or_else(|| panic!("{needle:?} missing from\n{shown}"));
     assert!(at("gate 3 · idle-one · default in 25s") < at("parser working 0m · up 36s"));
     assert!(at("parser working 0m · up 36s") < at("12.3k tokens · api $0.0048 · report: Looking at **parser.rs** now."));
     assert!(at("landed today") < at("T1 abcdef123 · wall 12m"));
-    assert!(at("claude work 5h 37% left") < at("codex plus unmeasured"));
 }
 
 #[test]
-fn the_header_wraps_at_account_boundaries_so_every_account_shows() {
-    let account = |provider: &str, label: &str| Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::new(), token_file: None };
-    let accounts = [
-        account("claude", "a"),
-        account("claude", "c"),
-        account("claude", "native"),
-        account("codex", "pooled"),
-        account("codex", "personal-azebaanbusiness-gmail"),
-        account("codex", "personal-tom-passarelli-pm"),
-        account("codex", "personal-tom-passarelli-proton"),
-        account("codex", "personal-tompas0x-gmail"),
-    ];
-    let quota = Quota { windows: vec![QuotaWindow { label: "5h".into(), used_percent: 37 }, QuotaWindow { label: "7d opus".into(), used_percent: 4 }] };
-    let lines = header_lines(&accounts, |_| Some(quota.clone()), 160);
-    let text: Vec<String> = lines.iter().map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect()).collect();
-    assert!(lines.len() > 1 && lines.iter().all(|line| line.width() <= 160), "{text:#?}");
-    for account in &accounts {
-        assert!(text.iter().any(|line| line.contains(&format!("{} 5h 63% 7d opus 96% left", account.label))), "{} missing from {text:#?}", account.label);
+fn only_tom_lines_and_the_cursor_row_paint_a_background() {
+    let desk = desk();
+    let mut screen = screen(&desk);
+    observe(&desk, &mut screen);
+    let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+    let transcript = desk.transcript("parser");
+    terminal.draw(|frame| view::draw(frame, &mut screen, transcript, &mut TranscriptPainter::default(), 0)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let band = Color::Rgb(52, 58, 62);
+    let painted: Vec<&Color> = buffer.content.iter().map(|cell| &cell.bg).filter(|bg| **bg != Color::Reset).collect();
+    assert!(!painted.is_empty(), "Tom's transcript line should keep its band");
+    assert!(painted.iter().all(|bg| **bg == band), "{painted:?}");
+    let bottom = usize::from(buffer.area.height) - 4;
+    for cell in &buffer.content[bottom * usize::from(buffer.area.width)..] {
+        assert_eq!(cell.bg, Color::Reset, "{:?} is painted outside the band", cell.symbol());
     }
-    assert_eq!(header_lines(&accounts[..2], |_| None, 160).len(), 1);
+}
+
+#[test]
+fn the_composer_is_framed_by_rules_with_no_box_corners_or_sides() {
+    let desk = desk();
+    let mut screen = screen(&desk);
+    observe(&desk, &mut screen);
+    let page = rendered(&desk, &mut screen, 0);
+    let rows: Vec<&str> = page.lines().collect();
+    let prompt = rows.iter().position(|row| row.starts_with('❯')).unwrap();
+    for row in &rows[prompt - 1..=prompt] {
+        assert!(!row.contains(['│', '╭', '╮', '╰', '╯']), "{page}");
+    }
+    assert!(rows[prompt - 1].contains('─') && rows[prompt + 1].contains('─'), "{page}");
+    assert!(!rows[prompt + 1].contains(['│', '╭', '╮', '╰', '╯']), "{page}");
+}
+
+#[test]
+fn the_top_row_is_the_session_list_with_no_usage_line() {
+    let desk = desk();
+    let mut screen = screen(&desk);
+    observe(&desk, &mut screen);
+    let frame = rendered(&desk, &mut screen, 0);
+    let top = frame.lines().next().unwrap();
+    assert!(top.contains("sessions") && !top.contains("% left"), "{frame}");
 }
 
 #[test]
@@ -573,12 +592,22 @@ fn a_resolved_gate_shows_the_recorded_answer_as_information_without_redelivery()
 }
 
 #[test]
-fn the_key_hints_end_on_a_whole_hint_in_a_narrow_window() {
-    let desk = desk();
+fn the_bottom_line_points_to_shortcuts_and_names_the_selected_model() {
+    let mut desk = desk();
+    let parser = desk.sessions.iter_mut().find(|session| session.record.name == "parser").unwrap();
+    parser.record.model = Some("claude-opus-5-5".into());
+    parser.record.effort = Some(Effort::High);
     let mut screen = screen(&desk);
-    let page = rendered_at(&desk, &mut screen, 0, 60);
-    let footer = page.lines().last().unwrap();
-    assert_eq!(footer, "Enter send · Alt+Enter newline · ^Enter/Alt+U urgent");
+    screen.selected = Some("parser".into());
+    let page = rendered(&desk, &mut screen, 0);
+    let bottom = page.lines().last().unwrap();
+    assert!(bottom.starts_with("? for shortcuts") && bottom.ends_with("claude-opus-5-5 (high)"), "{bottom:?}");
+    let parser = desk.sessions.iter_mut().find(|session| session.record.name == "parser").unwrap();
+    parser.record.model = None;
+    parser.record.effort = None;
+    screen.sync(desk.sessions());
+    let page = rendered(&desk, &mut screen, 0);
+    assert!(page.lines().last().unwrap().ends_with("account default"), "{page}");
 }
 
 #[path = "attach_tests.rs"]

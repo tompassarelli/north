@@ -6,7 +6,6 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 
 use crate::fleet::books::{Landing, SessionSpend};
 use crate::fleet::gates::Gate;
-use crate::fleet::model::{Account, Quota};
 use crate::foundation::clock::Timestamp;
 
 use super::desk::SessionSummary;
@@ -113,49 +112,6 @@ fn landing_line(landing: &Landing) -> Line<'static> {
     let sha: String = landing.sha.chars().take(9).collect();
     let wall = landing.wall_ms.map_or_else(|| "wall unmeasured".to_owned(), |wall| format!("wall {}", span(wall)));
     Line::from(vec![Span::raw(format!("  {} ", landing.task_ref)), Span::styled(sha, KEY), Span::styled(format!(" · {wall}"), MUTED)])
-}
-
-pub fn header_lines(accounts: &[Account], quota_of: impl Fn(&Account) -> Option<Quota>, width: usize) -> Vec<Line<'static>> {
-    let mut lines: Vec<Vec<Span<'static>>> = vec![Vec::new()];
-    let mut used = 0;
-    let mut provider = None;
-    for account in accounts {
-        let opens_provider = provider != Some(&account.provider);
-        provider = Some(&account.provider);
-        let mut entry = Vec::new();
-        if opens_provider {
-            entry.push(Span::styled(format!("{} ", account.provider.label()), BOLD));
-        }
-        entry.push(Span::raw(format!("{} ", account.label)));
-        entry.push(match quota_of(account) {
-            Some(quota) if !quota.windows.is_empty() => Span::styled(quota_text(&quota), Style::default().fg(Color::Green)),
-            _ => Span::styled("unmeasured", MUTED),
-        });
-        let entry_width: usize = entry.iter().map(Span::width).sum();
-        if used > 0 && used + header_gap(used, opens_provider).width() + entry_width > width {
-            lines.push(Vec::new());
-            used = 0;
-        }
-        let line = lines.last_mut().expect("header lines start non-empty");
-        let gap = header_gap(used, opens_provider);
-        used += gap.width() + entry_width;
-        line.push(gap);
-        line.extend(entry);
-    }
-    lines.into_iter().map(Line::from).collect()
-}
-
-fn header_gap(used: usize, opens_provider: bool) -> Span<'static> {
-    match (used, opens_provider) {
-        (0, _) => Span::raw(" "),
-        (_, true) => Span::raw("   "),
-        (_, false) => Span::styled(" · ", MUTED),
-    }
-}
-
-fn quota_text(quota: &Quota) -> String {
-    let windows: Vec<String> = quota.windows.iter().map(|window| format!("{} {}%", window.label, window.left_percent())).collect();
-    format!("{} left", windows.join(" "))
 }
 
 pub fn span(millis: u64) -> String {

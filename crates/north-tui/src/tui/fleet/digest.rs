@@ -5,10 +5,8 @@ use std::path::{Path, PathBuf};
 
 use crate::fleet::books::Digest;
 use crate::fleet::gates::Gate;
-use crate::fleet::model::{Account, EntryKind, Quota, SessionRecord, Transcript};
+use crate::fleet::model::{EntryKind, SessionRecord, Transcript};
 use crate::fleet::registry::urgent_text;
-
-use super::desk::SessionSummary;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SessionFacts {
@@ -16,7 +14,6 @@ pub struct SessionFacts {
     pub report: Option<String>,
     pub reply: Option<String>,
     pub live_tokens: u64,
-    pub quota: Option<Quota>,
 }
 
 impl SessionFacts {
@@ -32,8 +29,7 @@ impl SessionFacts {
             task: record.task_ref.clone().or(first_prompt),
             report: reply.as_deref().map(first_line),
             reply,
-            live_tokens: transcript.map_or(0, |transcript| transcript.tracker.live_tokens()),
-            quota: transcript.and_then(|transcript| transcript.quota.clone()) }
+            live_tokens: transcript.map_or(0, |transcript| transcript.tracker.live_tokens()) }
     }
 }
 
@@ -60,15 +56,6 @@ impl DigestPane {
     pub fn selected(&self) -> Option<&Gate> {
         let id = self.selected_gate?;
         self.books.open_gates().find(|gate| gate.id == id)
-    }
-
-    pub fn quota(&self, account: &Account, sessions: &[SessionSummary]) -> Option<Quota> {
-        sessions
-            .iter()
-            .filter(|session| session.record.provider == account.provider && session.record.account == account.label)
-            .filter_map(|session| Some((session.last_activity_ms, self.facts.get(&session.record.name)?.quota.clone()?)))
-            .max_by_key(|(seen, _)| *seen)
-            .map(|(_, quota)| quota)
     }
 
     pub fn move_selection(&mut self, delta: isize) {

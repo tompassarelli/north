@@ -152,10 +152,6 @@ impl Screen {
         std::mem::take(&mut self.bell)
     }
 
-    pub fn accounts(&self) -> &[Account] {
-        &self.accounts
-    }
-
     pub fn observe(&mut self, books: Digest, facts: BTreeMap<String, SessionFacts>) {
         self.digest.facts = facts;
         for session in self.digest.update(books) {
@@ -578,7 +574,6 @@ fn composer_area() -> TextArea<'static> {
     let mut area = TextArea::default();
     area.set_wrap_mode(WrapMode::WordOrGlyph);
     area.set_max_rows(8);
-    area.set_placeholder_text("message the selected session · Enter sends · Alt+Enter newline");
     area.set_cursor_line_style(Style::default());
     area.set_cursor_style(Style::default().add_modifier(Modifier::REVERSED));
     area
