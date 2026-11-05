@@ -116,6 +116,7 @@ fn initial(env: &Env, repo: &str, now: f64) -> Row {
         ("epoch", json!(now)),
         ("target", json!(target)),
         ("pending", error()),
+        ("actions_pending", error()),
         ("landed_per_hour", error()),
         ("push_to_land_minutes", error()),
         ("push_to_land_p90_minutes", error()),
@@ -169,6 +170,7 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
     let states = autoland::autoland_states(env.host, &source.slug, &unlanded);
     let (lanes, dead_count, dead_oldest) = autoland::lane_counts(&unlanded, &states, now);
     let mut pending = lanes as u64 + lander.depth as u64;
+    let mut actions_pending = if source.autoland { lanes as u64 } else { 0 };
     row.insert("dead".into(), json!(dead_count));
     row.insert("dead_oldest_minutes".into(), json!(dead_oldest));
     let dead: BTreeSet<&String> = unlanded.iter().filter(|sha| autoland::failed_since(&states, sha).is_some()).collect();
@@ -178,9 +180,11 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
     if source.autoland {
         let (count, since) = source.queued_runs()?;
         pending += count;
+        actions_pending += count;
         pending_since.extend(since);
     }
     row.insert("pending".into(), json!(pending));
+    row.insert("actions_pending".into(), json!(actions_pending));
     source.add_stall(row, landing.as_ref()?, pending, &pending_since, &lander.reasons)
 }
 

@@ -227,7 +227,7 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let samples = account_busy(&places, &machine, now);
     for row in &mut rows {
-        row["actions"] = json!(actions_verdict(row["pending"].as_u64(), &samples, now));
+        row["actions"] = json!(actions_verdict(row["actions_pending"].as_u64(), &samples, now));
     }
     if options.json {
         println!("{}", Value::Array(rows.clone()));
