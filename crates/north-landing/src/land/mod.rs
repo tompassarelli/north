@@ -33,6 +33,7 @@ pub mod watchdog;
 pub mod repositories;
 pub mod reservation;
 pub mod setting;
+pub mod shadow;
 
 pub struct Command {
     pub name: &'static str,
