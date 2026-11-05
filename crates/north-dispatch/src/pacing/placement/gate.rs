@@ -87,6 +87,10 @@ pub struct Decision {
     pub here_on_battery: Option<String>,
     /// Machines that serve the box and were skipped as saturated, each with why.
     pub crowded: Vec<String>,
+    /// Every machine that serves the box, is unsaturated and has a free resident slot, in placement order.
+    pub open: Vec<Machine>,
+    /// Why a fresh launch left the saturated machine it named for the next open one.
+    pub moved: Option<String>,
     /// Why the launching host cannot take what crowded machines turned away: on battery or under a playtest lease.
     pub here_closed: Option<String>,
 }
@@ -147,6 +151,10 @@ impl Decision {
         self.saturated = machine.saturation_refusal();
         self.machine_lines.extend(self.saturated.clone());
         self.machine = Some(machine);
+        self.account_on(&name, &accounts);
+    }
+
+    fn account_on(&mut self, name: &str, accounts: &[String]) {
         if matches!(self.target, Target::Held(_)) {
             return;
         }
@@ -154,6 +162,20 @@ impl Decision {
             Some(best) => Target::Account(best.account.clone()),
             None => Target::Held(format!("no available Claude account is signed in on {name}")),
         };
+    }
+
+    /// Moves a fresh launch off the saturated machine it named to the first open machine in placement order signed in
+    /// to `account` (any account when empty); the launch stays put, saturated, when no open machine takes it.
+    pub fn fall_through(&mut self, account: &str) {
+        let (Some(named), Some(why)) = (&self.machine, &self.saturated) else { return };
+        let takes = |machine: &&Machine| machine.name != named.name && (account.is_empty() || machine.accounts.iter().any(|label| label == account));
+        let Some(next) = self.open.iter().find(takes).cloned() else { return };
+        let moved = format!("{} saturated; placed on {} ({why})", named.name, next.name);
+        self.machine_lines.push(moved.clone());
+        self.saturated = None;
+        self.moved = Some(moved);
+        self.account_on(&next.name, &next.accounts);
+        self.machine = Some(next);
     }
 
     pub fn verdict(&self, account: &str) -> Option<&Verdict> {
@@ -358,20 +380,20 @@ fn covers(serves: &[String], need: &str, repo: &str) -> bool {
 }
 
 struct Choice {
-    chosen: Option<Machine>,
+    open: Vec<Machine>,
     lines: Vec<String>,
     here_lacks: Option<(String, String)>,
     crowded: Vec<String>,
 }
 
-/// The first machine that serves every local need of the box and is below its cap, with one line per
+/// The machines that serve every local need of the box, are unsaturated and below their cap, in order, with one line per
 /// machine, the need here does not serve with why no host serves it, and the machines skipped as saturated.
 fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_gaming: bool, reach: &Reach) -> Choice {
     let declared = !words(text, "Surface").is_empty();
     let needs = if declared || !here_gaming { local_needs(text) } else { GAMING_NEEDS.iter().map(|need| (*need).to_owned()).collect() };
     let repo = repository(text);
     let missing = |serves: &[String]| needs.iter().find(|need| !covers(serves, need, &repo));
-    let mut chosen = None;
+    let mut open = Vec::new();
     let mut crowded = Vec::new();
     let lines = machines
         .iter()
@@ -397,14 +419,14 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
                 None => format!("{name} unreachable over ssh {}", machine.ssh),
                 Some(live) if live >= machine.cap => format!("{name} full: {live}/{} resident CLIs", machine.cap),
                 Some(live) => {
-                    chosen.get_or_insert_with(|| machine.clone());
+                    open.push(machine.clone());
                     format!("{name} available: {live}/{} resident CLIs", machine.cap)
                 }
             }
         })
         .collect();
     let here_lacks = missing(here_serves).map(|need| (need.clone(), format!("no host serves {need} for {repo}"))).or_else(|| reach.unreached_here().map(|host| (host.to_owned(), format!("no host reaches {host}"))));
-    Choice { chosen, lines, here_lacks, crowded }
+    Choice { open, lines, here_lacks, crowded }
 }
 
 fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
@@ -445,13 +467,12 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
     let (code_only, surface) = surface(text, cfg);
     let here_serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(here)).and_then(|host| host.get("serves")));
     let reach = Reach::of(text, cfg, here);
-    let Choice { chosen: machine, lines: machine_lines, here_lacks, crowded } = machine_for(text, machines, &here_serves, here_gaming, &reach);
+    let Choice { open, lines: machine_lines, here_lacks, crowded } = machine_for(text, machines, &here_serves, here_gaming, &reach);
     let mut decision = Decision {
         target: Target::Held(String::new()),
         code_only,
         surface,
         verdicts,
-        machine: None,
         here: here.into(),
         here_lacks,
         machine_lines,
@@ -461,6 +482,9 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
         here_on_battery: None,
         crowded,
         here_closed: None,
+        machine: open.first().cloned(),
+        open,
+        moved: None,
     };
     decision.target = if let Some(lane) = code_only.then(|| decision.cloud_lane(credit.1)).flatten() {
         Target::Cloud(lane)
@@ -471,9 +495,9 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
     } else {
         Target::Held("every Claude account exhausted or over its burn cap".into())
     };
-    match machine {
-        Some(machine) if matches!(decision.target, Target::Account(_)) => decision.machine = Some(machine),
-        Some(_) => {}
+    match decision.machine {
+        Some(_) if matches!(decision.target, Target::Account(_)) => {}
+        Some(_) => decision.machine = None,
         None => decision.stay_here(None),
     }
     decision.sign_in_on_machine();

@@ -113,7 +113,7 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrid
 /// Runs live placement, prints one verdict line per account and machine when `report`, and returns where to run.
 /// `fleet_load` counts the live fleet sessions this machine runs on each other machine.
 pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>, roster: &Roster, report: bool) -> NorthResult<Result<Placed, Refusal>> {
-    let decision = decide(launch, text, fleet_load, roster)?;
+    let decision = decide(launch, text, overrides, fleet_load, roster)?;
     if report {
         eprintln!("placement: {}", gate::summary(&decision));
         for line in decision.verdicts.iter().map(|verdict| &verdict.line).chain(&decision.machine_lines) {
@@ -143,8 +143,9 @@ fn pick(decision: &Decision, overrides: &Overrides) -> Result<String, Refusal> {
     }
 }
 
-fn decide(launch: &Launch, text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster) -> NorthResult<Decision> {
+fn decide(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>, roster: &Roster) -> NorthResult<Decision> {
     let mut decision = gate::live(text, fleet_load, roster, launch.machine).map_err(|error| NorthError::Configuration(format!("placement: {error}")))?;
+    fall_through(&mut decision, launch, overrides);
     let absent = match (&decision.machine, launch.cwd) {
         (Some(machine), Some(cwd)) if !has_directory(&machine.ssh, cwd) => Some(format!("{} has no {}, so here", machine.name, cwd.display())),
         _ => None,
@@ -154,6 +155,13 @@ fn decide(launch: &Launch, text: &str, fleet_load: &BTreeMap<String, i64>, roste
     }
     decision.hold_here();
     Ok(decision)
+}
+
+/// A fresh launch without `--pin` or `--local` falls through a saturated machine it named; a revive stays where its conversation is.
+pub(super) fn fall_through(decision: &mut Decision, launch: &Launch, overrides: &Overrides) {
+    if launch.cwd.is_some() && overrides.pin.is_none() && overrides.local.is_none() {
+        decision.fall_through(launch.account);
+    }
 }
 
 /// Ok(where) when the launch may start, Err(refusal with the way forward) otherwise. `--local` keeps
@@ -172,6 +180,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
         (Some(chosen), None) => Some(Machine { name: chosen.name.clone(), ssh: chosen.ssh.clone() }),
         _ => None,
     };
+    notes.extend(decision.moved.clone().filter(|_| machine.is_some()));
     if let Some(out) = exhausted_refusal(decision, launch.account) {
         return Err(Refusal::Exhausted(out));
     }

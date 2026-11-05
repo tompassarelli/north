@@ -30,6 +30,8 @@ fn decision(target: Target) -> Decision {
         here_on_battery: None,
         crowded: Vec::new(),
         here_closed: None,
+        open: Vec::new(),
+        moved: None,
     }
 }
 
@@ -277,4 +279,42 @@ fn a_local_launch_on_a_host_past_the_spawn_gate_cpu_line_needs_a_pin_and_local_d
     elsewhere.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
     elsewhere.here_cpu_held = Some(why.into());
     assert_eq!(admit(&elsewhere, &launch, "", &Overrides::default()).unwrap().machine.map(|machine| machine.name), Some("far".to_owned()), "a box placed on another machine is not this host's load");
+}
+
+#[test]
+fn a_launch_whose_named_machine_is_saturated_falls_through_to_the_next_open_machine_in_order_and_holds_only_when_none_is_open() {
+    use crate::capacity::saturation::{Backlog, Saturation};
+    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"gex45\", \"anthropic-cloud\", \"nexus\", \"laptop\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"native\"]\n[hosts.nexus]\nresident_cap = 8\nssh = \"tom@nexus\"\nserves = [\"native\"]\n[hosts.laptop]\nresident_cap = 8\nssh = \"tom@laptop\"\n".parse().unwrap();
+    let reading = |load: f64| Saturation { memory_total_mib: 96000.0, memory_available_mib: 55000.0, disk_free_gib: 40.0, backlog: Some(Backlog { queued: 0, load, threads: 20 }) };
+    let text = "Item: wisp#3 native window change\nSurface: rust\nNeeds: native\n";
+    let launch = Launch { name: "wisp-3-d0250", account: "a", brief: None, cwd: Some(Path::new("/home/tom/code/wisp/main")), machine: Some("gex45") };
+    let placed_for = |launch: &Launch, nexus_live: i64, nexus_accounts: &[&str], overrides: &Overrides| {
+        let mut machines = placement::machines(&cfg);
+        for machine in &mut machines {
+            machine.live = Some(3);
+            machine.accounts = vec!["a".into()];
+            machine.saturation = Some(reading(4.0));
+        }
+        machines[0].saturation = Some(reading(39.0));
+        machines[1].live = Some(nexus_live);
+        machines[1].accounts = nexus_accounts.iter().map(|&label| label.to_owned()).collect();
+        let mut decision = placement::decide(text, &cfg, vec![verdict("claude:a", Some(60.0))], (false, String::new()), &machines, "laptop", false);
+        decision.run_on(machines[0].clone());
+        fall_through(&mut decision, launch, overrides);
+        admit(&decision, launch, text, overrides)
+    };
+    let placed = |nexus_live, nexus_accounts: &[&str], overrides: &Overrides| placed_for(&launch, nexus_live, nexus_accounts, overrides);
+
+    let moved = placed(3, &["a"], &Overrides::default()).unwrap();
+    assert_eq!(moved.machine.map(|machine| machine.name).as_deref(), Some("nexus"));
+    assert_eq!(moved.note.as_deref(), Some("gex45 saturated; placed on nexus (gex45 skipped: load 39 on 20 threads)"));
+
+    let full = placed(8, &["a"], &Overrides::default()).unwrap_err();
+    assert_eq!(full, Refusal::Saturated("gex45 skipped: load 39 on 20 threads; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\"".into()), "nexus full and the laptop serves no native box, so the launch waits");
+    assert!(matches!(placed(3, &["c"], &Overrides::default()), Err(Refusal::Saturated(_))), "a machine not signed in to the launch's account never takes it");
+
+    let pinned = placed(3, &["a"], &Overrides { pin: Some("Tom named gex45".into()), ..Overrides::default() }).unwrap();
+    assert_eq!((pinned.machine.map(|machine| machine.name).as_deref(), pinned.note.as_deref()), (Some("gex45"), Some("pin: Tom named gex45")));
+    let revived = placed_for(&Launch { cwd: None, ..launch }, 3, &["a"], &Overrides::default());
+    assert!(matches!(revived, Err(Refusal::Saturated(_))), "a revive stays on the machine that holds its conversation: {revived:?}");
 }
