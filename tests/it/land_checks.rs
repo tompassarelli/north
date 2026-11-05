@@ -723,7 +723,7 @@ impl Fixture {
         let source = Path::new(env!("CARGO_MANIFEST_DIR"));
         let settings: String = include_str!("../../.safe-push").lines().filter(|line| !line.starts_with("\tworkflow =") && !line.starts_with("\trunner =")).map(|line| format!("{line}\n")).collect();
         fs::write(fixture.repo.join(".safe-push"), settings).unwrap();
-        for path in ["bin/head-north", "harness/scripts/citation-check.sh", "harness/scripts/check-owners.sh", "harness/scripts/land-checks.sh"] {
+        for path in ["bin/head-north", "harness/scripts/citation-check.sh", "harness/scripts/check-owners.sh"] {
             let file = fixture.repo.join(path);
             fs::create_dir_all(file.parent().unwrap()).unwrap();
             fs::copy(source.join(path), file).unwrap();

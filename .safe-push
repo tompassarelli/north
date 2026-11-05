@@ -26,11 +26,11 @@
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-ops/src/ops/experiments/ experiments check --root .
 	check = "src/cli/verbs.rs :: sed -n '/VerbKinds::new(&[[]$/,/^]);$/{//!p}' src/cli/verbs.rs | LC_ALL=C sort -c -u"
 	recheck = ** :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo check --tests ${SAFE_PUSH_LAND_PACKAGES:---workspace} --locked --offline
-	after = src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh portable
-	after = bin/,lib/,harness/,src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh machine-bound
+	after = src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only portable
+	after = bin/,lib/,harness/,src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only machine-bound
 	after = "agent-machinery/ :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test; ../bin/land-shell -- bun run check'"
 	machine-bound = reads the south and nixos-config checkouts beside north :: CARGO_TARGET_DIR=target bash harness/scripts/check-owners.sh
-	machine-bound = "needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests) :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh machine-bound"
+	machine-bound = "needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests) :: CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only machine-bound"
 	machine-bound = "main's CI does not run the agent-machinery bun tests :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test; ../bin/land-shell -- bun run check'"
 	machine-bound = runs the live runtime's north when the citation checker is unchanged since it :: CARGO_TARGET_DIR=target bash harness/scripts/citation-check.sh
 	runner = build-host

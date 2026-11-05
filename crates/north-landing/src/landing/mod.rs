@@ -14,6 +14,7 @@ pub mod results;
 pub mod landed_tree;
 pub mod lane_squash;
 pub mod land_test_runner;
+pub mod land_test_selection;
 pub mod lane_target;
 pub mod fails_first;
 mod flake;

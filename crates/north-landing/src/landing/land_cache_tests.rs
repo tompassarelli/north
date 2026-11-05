@@ -1,6 +1,6 @@
 use super::*;
 
-const SAFE_PUSH: &str = "[land]\n\tcheck = src/,Cargo.toml :: cargo test\n\tcheck = ** :: owners south/main\n\tcheck = bin/ :: bash land-checks.sh machine-bound\n";
+const SAFE_PUSH: &str = "[land]\n\tcheck = src/,Cargo.toml :: cargo test\n\tcheck = ** :: owners south/main\n\tcheck = bin/ :: ./bin/head-north land-tests --select changed --only machine-bound\n";
 
 fn git_ok(root: &Path, args: &[&str]) -> String {
     git(root, args).unwrap_or_else(|| panic!("git {args:?} failed"))
@@ -108,7 +108,7 @@ fn whole_tree_check_misses_on_any_change() {
 #[test]
 fn machine_bound_check_misses_when_south_or_nixos_config_moves() {
     let (fixture, head) = fixture();
-    let command = "bash land-checks.sh machine-bound";
+    let command = "./bin/head-north land-tests --select changed --only machine-bound";
     let before = key_of(&fixture, &head, command);
     assert_eq!(before, key_of(&fixture, &head, command));
     commit(fixture.south.path(), &[("a", "2")], "south moved");
