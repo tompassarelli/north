@@ -175,7 +175,7 @@ pub fn budget_plan(rows: &[Value], previous: &State, now: f64) -> (State, Vec<Ac
             continue;
         };
         let key = format!("{KIND}:{}:fleet:{LEAD}", budget.day);
-        let record = state.entry(repo.to_owned()).or_insert_with(|| Record { since: now, sent: BTreeMap::new() });
+        let record = state.entry(repo.to_owned()).or_insert_with(|| Record { since: now, sent: BTreeMap::new(), breaches: Default::default() });
         record.sent.retain(|sent, _| *sent == key);
         if budget.spent && !record.sent.contains_key(&key) {
             actions.push(Action { repo: repo.into(), key, node: LEAD.into(), channel: "fleet", text: text(repo, &budget, &breaches) });
