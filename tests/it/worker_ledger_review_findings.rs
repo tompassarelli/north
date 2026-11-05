@@ -8,6 +8,7 @@ fn north(home: &Path, arguments: &[&str]) -> Output {
         .env("HOME", home)
         .env("XDG_STATE_HOME", home.join("state"))
         .env("THREADS_DB", home.join("threads.db"))
+        .env("THREADS_SCHEMA_READY", "1")
         .output()
         .unwrap()
 }

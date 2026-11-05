@@ -93,7 +93,6 @@ private_desktop_signal north-ops north-capacity
 provenance north-landing
 proxy north-core
 readme_links north
-red_main_notify north
 registry north
 resident_cap north-dispatch
 run_bounded north-ops north-capacity-host
@@ -112,8 +111,6 @@ support north
 threads_idle_outcome north-threads
 threads_ingest_busy north-threads
 threads_ingest_lock north-threads
-threads_ledger north-threads
-threads_resume north-threads
 threads_snapshot north-threads
 usage_gate north-pace
 usage_snapshot north-pace

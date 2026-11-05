@@ -17,6 +17,7 @@ static FIXTURE: std::sync::LazyLock<support::template::Template> = std::sync::La
 
 pub(crate) fn fixture(root: &Path, trace: &str) {
     FIXTURE.copy_into(root);
+    std::os::unix::fs::symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
     executable(&root.join("bin/claude"), &format!("exec {} --trace {trace} \"$@\"\n", support::fake_claude()));
 }
 
@@ -41,8 +42,10 @@ fn shared_fixture(root: &Path) {
         &root.join("bin/systemctl"),
         "for a; do last=$a; done\nunit=\"$FLEET_LAUNCH_FIXTURE/units/$last\"\ncase \" $* \" in\n  *' --user stop '*)\n    [ -f \"$unit\" ] || { echo \"Failed to stop $last: Unit $last not loaded.\" >&2; exit 5; }\n    kill -s TERM -- \"-$(cat \"$unit\")\" 2>/dev/null\n    rm -f \"$unit\";;\n  *' show '*) pid=$(cat \"$unit\" 2>/dev/null); if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo \"$pid\"; else echo 0; fi;;\nesac\n",
     );
+    std::os::unix::fs::symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
     let ledger = north(root, &["threads", "release", "north#1", "--by", "setup"]);
     assert!(String::from_utf8_lossy(&ledger.stderr).contains("has no owner"), "{}", String::from_utf8_lossy(&ledger.stderr));
+    fs::remove_file(root.join("bin/threads")).unwrap();
 }
 
 fn north(root: &Path, args: &[&str]) -> Output {

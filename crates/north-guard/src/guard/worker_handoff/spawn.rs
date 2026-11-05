@@ -104,9 +104,8 @@ fn ingest(line: &str) -> Result<(), &'static str> {
         Ok(false) => {}
         Err(_) => return Err("OSError"),
     }
-    let north = std::env::var_os("NORTH_BIN").filter(|path| !path.is_empty()).unwrap_or_else(|| "north".into());
-    let mut child = Command::new(north)
-        .args(["threads", "ingest"])
+    let mut child = Command::new("threads")
+        .arg("ingest")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

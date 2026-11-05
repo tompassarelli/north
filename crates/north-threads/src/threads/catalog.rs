@@ -1,8 +1,9 @@
-//! The repositories and native namespaces NorthThreads tracks: every GitHub repository under the
-//! owner whose issues it follows, the checkout names that stand in for one, and the namespaces
-//! that live only in the ledger and never reach GitHub.
+//! The repositories and native namespaces NorthThreads tracks, read from bin/threads, which
+//! owns them until the rest of NorthThreads moves to Rust.
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
+
+use regex::Regex;
 
 pub struct Catalog {
     pub owner: String,
@@ -11,17 +12,7 @@ pub struct Catalog {
     aliases: BTreeMap<String, String>,
 }
 
-const OWNER: &str = "tompassarelli";
-const REPOS: [&str; 10] = ["makgora", "makgora-client", "padbridge", "wisp", "firn", "north", "gjoa", "fram", "wake", "battlecraft"];
-const ALIASES: [(&str, &str); 1] = [("nixos-config", "firn")];
-const NATIVE: [&str; 4] = ["life", "accounts", "travel", "ops"];
-
-pub static CATALOG: LazyLock<Catalog> = LazyLock::new(|| Catalog {
-    owner: OWNER.to_owned(),
-    repos: REPOS.map(str::to_owned).to_vec(),
-    native: NATIVE.map(str::to_owned).to_vec(),
-    aliases: ALIASES.iter().map(|(alias, repo)| ((*alias).to_owned(), (*repo).to_owned())).collect(),
-});
+pub static CATALOG: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(include_str!("../../../../bin/threads")));
 
 pub fn checkout(repo: &str) -> &str {
     crate::platform::archive_tags::checkout_name(repo)
@@ -32,6 +23,18 @@ pub fn canonical_topics(topics: Vec<crate::platform::frozen_topics::Topic>) -> V
 }
 
 impl Catalog {
+    fn parse(source: &str) -> Self {
+        let quoted = Regex::new(r#""([^"]+)""#).expect("quoted pattern");
+        let assignment = |name: &str, open: char, close: char| {
+            let pattern = format!(r"(?m)^{name} = \{open}([^\{close}]*)\{close}");
+            Regex::new(&pattern).expect("assignment pattern").captures(source).map(|found| found[1].to_owned()).unwrap_or_default()
+        };
+        let list = |name: &str| quoted.captures_iter(&assignment(name, '[', ']')).map(|found| found[1].to_owned()).collect();
+        let pairs: Vec<String> = quoted.captures_iter(&assignment("ALIASES", '{', '}')).map(|found| found[1].to_owned()).collect();
+        let owner = Regex::new(r#"(?m)^OWNER = "([^"]+)""#).expect("owner pattern").captures(source).map(|found| found[1].to_owned()).unwrap_or_default();
+        Self { owner, repos: list("REPOS"), native: list("NATIVE"), aliases: pairs.chunks_exact(2).map(|pair| (pair[0].clone(), pair[1].clone())).collect() }
+    }
+
     pub fn is_native(&self, repo: &str) -> bool {
         self.native.iter().any(|name| name == repo)
     }

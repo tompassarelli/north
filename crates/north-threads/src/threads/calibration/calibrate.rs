@@ -138,37 +138,3 @@ pub(super) fn run(argv: &[String], context: &Context) -> Outcome {
     lines.extend(rows.iter().map(|r| vec![r.kind.to_owned(), r.row.cell.clone(), r.row.n.to_string(), fixed(r.row.p25), fixed(r.row.median), fixed(r.row.p75), fixed(r.row.value.map(Figure::real))]));
     Ok(table(&lines))
 }
-
-/// Appends one `prior` calibration row per `NAME:N:NEED[:VALUE]`: cell NAME, n its settling count, value the count it
-/// needs, and the measured VALUE in the source.
-pub(super) fn record_priors(argv: &[String], context: &Context) -> Outcome {
-    let args = Args::parse(argv, &[], &[])?;
-    if args.positional.is_empty() {
-        return Err(Failure::Usage("record-priors needs NAME:N:NEED[:VALUE]".into()));
-    }
-    if context.replica {
-        return Err(Failure::Refused("record-priors needs the live ledger; this is the read-only snapshot".into()));
-    }
-    let rows = args.positional.iter().map(|spec| prior(spec).ok_or_else(|| Failure::Refused(format!("record-priors: '{spec}' is not NAME:N:NEED[:VALUE]")))).collect::<Result<Vec<_>, _>>()?;
-    let mut db = open(context.database, true)?;
-    let tx = immediate(&mut db)?;
-    for (cell, n, need, source) in rows {
-        tx.execute("INSERT INTO calibration(at, kind, cell, n, value, source) VALUES (?1, 'prior', ?2, ?3, ?4, ?5)", params![context.now.iso(), cell, n, need, source])?;
-    }
-    tx.commit()?;
-    Ok(String::new())
-}
-
-fn prior(spec: &str) -> Option<(String, i64, f64, String)> {
-    let mut parts = spec.splitn(4, ':');
-    let name = parts.next().filter(|name| !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || "_.-".contains(c)))?;
-    let digits = |text: &str| !text.is_empty() && text.chars().all(|c| c.is_ascii_digit());
-    let n = parts.next().filter(|text| digits(text))?.parse().ok()?;
-    let need = parts.next().filter(|text| digits(text))?.parse().ok()?;
-    let value = match parts.next() {
-        None => String::new(),
-        Some(value) if !value.strip_prefix('-').unwrap_or(value).is_empty() && value.strip_prefix('-').unwrap_or(value).chars().all(|c| c.is_ascii_digit() || c == '.') => format!(" value={value}"),
-        Some(_) => return None,
-    };
-    Some((name.to_owned(), n, need, format!("defaults-measure --priors{value}")))
-}
