@@ -287,29 +287,42 @@ fn check_decide(holds: BTreeMap<IssueRef, String>, surveyed: &mut Survey, rng: &
     }
 }
 
-#[test]
-fn holds_and_claims_obey_the_rules_over_every_generated_order_of_events() {
+fn sequence(seed: u64) -> Broken {
     let mut broken = Broken::default();
     let (hosts, accounts) = fleet();
     let mut surveyed = survey(Vec::new(), Cloud::Closed(String::new()), hosts, accounts);
-    for seed in 0..SEQUENCES {
-        let mut rng = Rng(seed);
-        let mut world = World { at: START, ..World::default() };
-        let mut events = Vec::with_capacity(EVENTS);
-        let mut snapshot = world.snapshot();
-        for step in 0..EVENTS {
-            let next = event(&mut rng);
-            let held = if matches!(next, Event::Launch { hand: false, .. }) { world.all_holds(&snapshot) } else { BTreeMap::new() };
-            world.apply(&next, &held, &mut rng);
-            events.push(next);
-            snapshot = world.snapshot();
-            let trail = Trail { seed, events: &events };
-            check_tries(&world, &snapshot, &trail, &mut broken);
-            check_claims(&world, &trail, &mut broken);
-            if step % 5 == 0 {
-                check_decide(world.all_holds(&snapshot), &mut surveyed, &mut rng, &trail, &mut broken);
-            }
+    let mut rng = Rng(seed);
+    let mut world = World { at: START, ..World::default() };
+    let mut events = Vec::with_capacity(EVENTS);
+    let mut snapshot = world.snapshot();
+    for step in 0..EVENTS {
+        let next = event(&mut rng);
+        let held = if matches!(next, Event::Launch { hand: false, .. }) { world.all_holds(&snapshot) } else { BTreeMap::new() };
+        world.apply(&next, &held, &mut rng);
+        events.push(next);
+        snapshot = world.snapshot();
+        let trail = Trail { seed, events: &events };
+        check_tries(&world, &snapshot, &trail, &mut broken);
+        check_claims(&world, &trail, &mut broken);
+        if step % 5 == 0 {
+            check_decide(world.all_holds(&snapshot), &mut surveyed, &mut rng, &trail, &mut broken);
         }
+    }
+    broken
+}
+
+#[test]
+fn holds_and_claims_obey_the_rules_over_every_generated_order_of_events() {
+    let workers = std::thread::available_parallelism().map_or(1, std::num::NonZero::get) as u64;
+    let found: Vec<Broken> = std::thread::scope(|scope| {
+        let jobs: Vec<_> = (0..workers).map(|worker| scope.spawn(move || (worker..SEQUENCES).step_by(workers as usize).map(|seed| (seed, sequence(seed))).collect::<Vec<_>>())).collect();
+        let mut found: Vec<(u64, Broken)> = jobs.into_iter().flat_map(|job| job.join().unwrap()).collect();
+        found.sort_by_key(|(seed, _)| *seed);
+        found.into_iter().map(|(_, broken)| broken).collect()
+    });
+    let mut broken = Broken::default();
+    for (rule, trail) in found.into_iter().flat_map(|found| found.0) {
+        broken.0.entry(rule).or_insert(trail);
     }
     let report: Vec<String> = broken.0.iter().map(|(rule, trail)| format!("BROKEN RULE: {rule}\n{trail}")).collect();
     assert!(report.is_empty(), "{} rules broken\n{}", report.len(), report.join("\n"));

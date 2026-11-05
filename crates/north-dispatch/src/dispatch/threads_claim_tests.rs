@@ -36,7 +36,7 @@ fn at(text: &str) -> i64 {
 }
 
 fn ledger(issues: &[(u64, Issue)]) -> Ledger {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir_in("/dev/shm").or_else(|_| tempfile::tempdir()).unwrap();
     let path = directory.path().join("threads.db");
     Connection::open(&path).unwrap().execute_batch(SCHEMA).unwrap();
     let issues = Seen(issues.iter().map(|(number, issue)| (("makgora".to_owned(), *number), *issue)).collect());
