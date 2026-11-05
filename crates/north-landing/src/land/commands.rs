@@ -2,7 +2,7 @@
 Command { name: "checks", usage: "north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]", run: slots::runner::run },
 Command { name: "enqueue", usage: "north land enqueue [--repo DIR] [--message FILE]", run: enqueue::run },
 Command { name: "follow", usage: "", run: after::follow::run },
-Command { name: "model", usage: "", run: model_cmd::run },
+Command { name: "model", usage: "north land model [--repo DIR] [--era batch|precheck] [--base REF] [--json]", run: model_cmd::run },
 Command { name: "promote", usage: "north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]", run: promote::run },
 Command { name: "push", usage: "", run: push::run },
 Command { name: "replay", usage: "north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...", run: replay::run },

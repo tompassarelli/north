@@ -22,6 +22,7 @@ fn help_keeps_every_command_of_the_usage_line_it_replaced_and_one_line_per_liste
     let lines = |text: &str| text.trim_start_matches("usage: ").lines().map(|line| line.trim().to_owned()).collect::<BTreeSet<_>>();
     let help = usage();
     assert!(help.starts_with("usage: north land "));
+    assert!(help.contains("north land model [--repo DIR] [--era batch|precheck] [--base REF] [--json]"), "{help}");
     assert!(lines(replaced).is_subset(&lines(&help)), "{help}");
     assert_eq!(help.lines().count(), COMMANDS.iter().filter(|command| !command.usage.is_empty()).count());
 }
