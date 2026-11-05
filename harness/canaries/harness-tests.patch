@@ -1,13 +1,13 @@
-diff --git a/harness/lib/tree-north.sh b/harness/lib/tree-north.sh
-index eff0c9fe..2c3dc3a7 100644
---- a/harness/lib/tree-north.sh
-+++ b/harness/lib/tree-north.sh
-@@ -5,7 +5,7 @@ tree_north_stale() {
-   local dep deps
-   [ -f "$1.d" ] || return 0
-   read -ra deps <<<"$(sed -n '1s/^[^:]*: //p' "$1.d")"
--  for dep in "${deps[@]}"; do [ "$dep" -nt "$1" ] && return 0; done
-+  for dep in "${deps[@]}"; do [ "$dep" -nt "$1" ] && return 1; done
-   return 1
- }
- if [ -z "${NORTH_PACE_BIN:-}" ]; then
+diff --git a/bin/gh-app-token b/bin/gh-app-token
+index f994a172c..c71171da6 100755
+--- a/bin/gh-app-token
++++ b/bin/gh-app-token
+@@ -41,7 +41,7 @@ const cachePath = !repos && runtime ? join(runtime, app.cache) : undefined;
+ if (cachePath && existsSync(cachePath)) {
+   try {
+     const c = JSON.parse(readFileSync(cachePath, "utf8"));
+-    if (typeof c.token === "string" && Date.parse(c.expires_at) / 1000 - now() > 300) {
++    if (typeof c.token === "string" && Date.parse(c.expires_at) / 1000 - now() > 200) {
+       process.stdout.write(c.token + "\n");
+       process.exit(0);
+     }

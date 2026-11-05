@@ -3,7 +3,7 @@
 Measure first, change one input, measure again. Every item below says where
 it came from, what the Nix devShell must provide, what it is expected to buy and
 when it does not help. Nothing here is a default for our repositories until
-`harness/scripts/rust-build-timings.sh` shows it winning on Tom's machine.
+`north code-health build-time` shows it winning on Tom's machine.
 
 All sources were accessed 2026-10-12. The canonical pages were blocked by this
 container's egress policy, so each was read from its upstream source file on
@@ -252,7 +252,7 @@ covers `cargo test`. `dev` defaults: `opt-level = 0`, `debug = true`,
 - What: [rustd](https://github.com/DioxusLabs/rustd) (DioxusLabs, MIT/Apache-2.0, branch `rustd-spike`, read 2026-10-16 from `RUSTD.md`) keeps a workspace loaded in rust-analyzer's database and compiles changed functions from RA's MIR with Cranelift, linking them in front of rustc's rlibs. Its launch chart claims a saved edit becomes a linked debug binary in about 200 ms, 4.3x-11.6x faster than incremental `cargo build` on the regex workspace (8 cores).
 - Status: a prototype. Its own document says latency is "only comparable to cargo once a crate is at 100%" of functions compiled; there is no drop glue or unwinding yet (RA's MIR "has no cleanup edges"), async is planned as "the largest single item", unit tests inside `src/` are not relinked, there is no debug info, and no cargo subcommand exists (it scrapes `cargo rustc -- --print link-args`). The toolchain must be the exact rustc that rust-analyzer's `ra-ap-rustc_abi` was cut from; a mismatch miscompiled `?`. RA can take 0.5-8 GB per workspace.
 - Fit here: none today. This host repository has 89 `async fn` on tokio and relies on `Drop`, so rustd cannot build it, and our toolchain pin would have to follow rustd's.
-- Adopt when all hold: async, drop glue and unwinding supported; a cargo-integrated entry point; unit tests in `src/` relinked; its scoreboard shows 0 mismatches on a crate shaped like ours. Then measure it with `rust-build-timings.sh --label rustd` like any other lever.
+- Adopt when all hold: async, drop glue and unwinding supported; a cargo-integrated entry point; unit tests in `src/` relinked; its scoreboard shows 0 mismatches on a crate shaped like ours. Then measure it with `north code-health build-time` like any other lever.
 
 ## galileo
 
@@ -332,21 +332,21 @@ Split candidates, each a hypothesis for `--timings` on Tom's machine:
   smaller metadata. Confirm with `-Zsection-timings` and `cargo llvm-lines -p
   galileo-core` before any split.
 - **Linker first.** With GNU ld on 1.89, mold or wild should help items 2 and
-  3 above. Run the script with `--label gnu-ld` and `--label mold`.
+  3 above. Measure once with each linker.
 
 ## Measuring
 
-`harness/scripts/rust-build-timings.sh [--label NAME] REPO FILE` runs, inside
-`nix develop REPO -c`, a clean build in a fresh `CARGO_TARGET_DIR`, a rebuild
-after appending a blank line to `FILE` (restored on exit), `cargo test
---no-run`, then `cargo test --no-fail-fast`, and prints `label`, step and
-seconds as TSV. `--dry-run` prints the plan. Compare runs on one idle machine,
-change one input per label, and repeat each label at least three times before
+`north code-health build-time --repo PATH [--workspace REL --leaf REL --hub REL]`,
+run inside `nix develop PATH -c`, does a cold build in a fresh target directory,
+`cargo test --no-run`, then edits the leaf and hub files (restored afterwards)
+and times each rebuild and test build over `--samples` runs, appending one row
+per workspace to its ledger. Compare runs on one idle machine,
+change one input per run, and repeat each configuration at least three times before
 believing a difference.
 
 ## Measured on Tom's machine (12 Oct 2026, galileo)
 
-`rust-build-timings.sh` on galileo, one run per cell, nixpkgs 1.89 with GNU
+The retired `rust-build-timings.sh` on galileo, one run per cell, nixpkgs 1.89 with GNU
 ld. The unpinned rows ran 11:30-11:50Z at load 6-11 from other agents; the
 pinned rows ran back to back on cores 16-23 while other jobs held cores 0-15.
 

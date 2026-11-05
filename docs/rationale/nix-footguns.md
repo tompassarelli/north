@@ -181,7 +181,7 @@ One rule runs through every guard below: a footgun is closed where its wrong ass
 program that holds the fact, and its message names the fix. Most classes here share one root. North has five places
 that enter a dev shell on their own (`bin/land-shell --dev`, the offload's `RUN` script in
 `crates/north-core/src/ops/land_offload/ship.rs:61`, `capacity::dev_shell::enter`, three `exec nix develop` check
-scripts and `harness/lib/tree-north.sh`), each with its own idea of "already inside", none with `--offline`, and one GC
+scripts), each with its own idea of "already inside", none with `--offline`, and one GC
 root among them. So the first guard is architecture: one entry, `north dev-shell run`, that every other caller goes
 through (box D1). Several classes below close by moving their callers onto it.
 
@@ -518,7 +518,7 @@ replay without relying on D0, by removing the nesting.
 
 Category: tooling. Scope: cross-module. Surface: rust. Verify: local-test. Files: a `dev_shell` module beside
 `crates/north-core/src/capacity/dev_shell.rs` (which it absorbs), `src/cli/`, `ops/land_offload/ship.rs` (`RUN`),
-`harness/scripts/check-owners.sh`, `citation-check.sh`, `experiments-check.sh` if landed, `harness/lib/tree-north.sh`.
+`harness/scripts/check-owners.sh`, `citation-check.sh`, `experiments-check.sh` if landed.
 `north dev-shell run [--dir D] -- CMD` finds the flake's `devShells.<system>.default`, takes its derivation path as the
 shell's identity, runs CMD directly when `NORTH_DEV_SHELL` already holds that identity, and otherwise runs
 `nix develop D --offline --no-update-lock-file -c env NORTH_DEV_SHELL=<id> CMD`, with nix found on PATH or at the

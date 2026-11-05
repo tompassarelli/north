@@ -114,8 +114,8 @@ trust).
 
 - north `flake.nix:12-20`, wisp `window/flake.nix:16-24`, makgora `flake.nix:11-20`: flake `devShells.default`
   entered with `nix develop`. Current.
-- north `bin/land-shell:10`, `harness/lib/tree-north.sh:3`, `harness/scripts/citation-check.sh:8`,
-  `harness/scripts/check-owners.sh:9`, `harness/scripts/rust-build-timings.sh:20`,
+- north `bin/land-shell:10`, `harness/scripts/citation-check.sh:8`,
+  `harness/scripts/check-owners.sh:9`,
   `crates/north-core/src/ops/land_offload/ship.rs:66-67`: `nix develop -c CMD`. Current.
 - north `bin/depbox:43-50` roots the dev shell with `nix print-dev-env --profile`, keyed on the tracked `*.nix`,
   `flake.lock` and toolchain files, with `--no-update-lock-file`. Current: the same GC-root idea nix-direnv 3.1.1

@@ -15,6 +15,16 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | bin/farm-runner, bin/farm-runner-image, bin/farm-runner.test.sh | 101, 19, 42 | no caller in north, south or nixos-config; the deployed farm runners are nixos-config `modules/farm-runners` (its own image build and gate), and `north laptop-runner` replaced the laptop script |
 | bin/iteration-ledger, bin/iteration-ledger-page | 458, 56 | deleted 2026-11-05 instead of ported: its only caller was the Feature Bottlenecks refresh steps in harness/skills/workers/references/payback.md, last run 2026-10-15, and every Tom-ask input it read stopped then (last proxy KICKOFF and LAND-READY events in the threads snapshot 2026-10-15, land-checks.tsv 2026-10-12, handoffs/throughput-architect-measure.md 2026-10-15); payback rates now come from `git log --first-parent` |
 
+## Deleted for the north#88 hook and harness shell box (2026-11-05)
+
+Searched with `rg -l NAME` across north, south and nixos-config, decision records excluded.
+
+| File | Lines | Why it is safe |
+|---|---|---|
+| harness/lib/tree-north.sh, harness/lib/tree-north.test.sh | 18, 45 | nothing sources it; the only other hits were its own test and the harness-tests CI canary, which now breaks `bin/gh-app-token` instead (`tests/it/land_checks.rs` uses `tree-north` only as a stub trace label) |
+| harness/hooks/lib/bench.sh | 100 | no caller; nixos-config `bench-shield` is an unrelated core-reservation tool |
+| harness/scripts/rust-build-timings.sh, harness/scripts/rust-build-timings.test.sh | 47, 28 | only the rust-development compile-times reference named it, and `north code-health build-time` already times a cold build, edit rebuilds and test builds in a fresh target directory; the reference now names that verb |
+
 ## north#88 part (a) outcome
 
 - Already gone from `origin/main` before this change: dep-gate, provenance, convo, flow, report (Rust: `north dep-gate`, `provenance`, `convo`, `flow`, `report`), and the old `bin/follows-release` script itself.
@@ -107,7 +117,6 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | harness/code-health/tick.ts | 154 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
 | harness/hooks/firn-system-policy | 42 | stay | 42-line hook owned by Firn and installed from this tree; belongs in nixos-config, move there rather than port |
 | harness/hooks/language-guard.sh | 10 | stay | 10-line hook wrapper that execs `north guard language`; same condition |
-| harness/hooks/lib/bench.sh | 100 | port: north#88 box "hook and harness shell to Rust" (family: tests) | 100-line hook benchmark, over the 80-line limit; becomes a `north hook bench` or cargo bench |
 | harness/hooks/north-hook.sh | 9 | stay | 9-line hook wrapper that execs `north hook`; same condition |
 | harness/hooks/prompt-grounding-membership.test.sh | 29 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests the Rust grounding hook through its wrapper |
 | harness/hooks/prompt-grounding.sh | 32 | stay | 32-line hook wrapper that skips fleet sessions then calls `north grounding hook`; deleted with authoring-killswitch.sh when hook configs name `north hook` directly |
@@ -134,8 +143,6 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | harness/lib/provider_capacity.py | 103 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/routines.py | 238 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/ssh_transport.py | 19 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/tree-north.sh | 18 | port: north#88 box "hook and harness shell to Rust" (family: tests) | sourced library that builds a tree's north binary for shell tests; goes when the shell tests that source it go |
-| harness/lib/tree-north.test.sh | 45 | port: north#88 box "hook and harness shell to Rust" (family: tests) | test of tree-north.sh |
 | harness/lib/usage_agy.py | 179 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/usage_claude.py | 137 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/usage.py | 409 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
@@ -155,8 +162,6 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | harness/scripts/main-red.ts | 112 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun TS; run by workflow main-red.yml |
 | harness/scripts/mutant-tests.sh | 57 | stay | 57-line CI glue that runs the mutant cargo slots |
 | harness/scripts/read-isolation-probe.sh | 51 | stay | 51-line manual probe that drives Claude Code tools under a config; no Rust caller, delete if unused for a month |
-| harness/scripts/rust-build-timings.sh | 47 | stay | 47-line cargo timing glue |
-| harness/scripts/rust-build-timings.test.sh | 28 | port: north#88 box "hook and harness shell to Rust" (family: tests) | test of rust-build-timings.sh |
 | harness/skills/machine-capacity/scripts/build-machine-capacity | 28 | stay | producer of the generated bundle (structure.toml); deleted with it |
 | harness/skills/machine-capacity/scripts/capacity-clamp.recorded.test.ts | 63 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | recorded and replay tests of the TS logic; cases move to cargo test with fixtures |
 | harness/skills/machine-capacity/scripts/capacity-estimate.replay.test.sh | 3 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | shell tests of the capacity commands |
