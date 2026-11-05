@@ -1,7 +1,7 @@
 //! The cells a tick decides from the ledger: each armed category's tier once its arms decided, and
 //! the ETA and budget of each tier family and category with a closed box, each with its evidence.
 use crate::ledger::ClosedReport;
-use crate::ops::dispatch::{ARMED, BUDGET_TIMES, Evidence, LEDGER_WINDOW, Tier, eta_minutes};
+use crate::ops::dispatch::{ARM_WINDOW, ARMED, BUDGET_TIMES, Evidence, LEDGER_WINDOW, Tier, eta_minutes};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -69,7 +69,7 @@ fn route(week: &ClosedReport, category: &str, evidence: &Evidence) -> Option<Dec
             n: figures.as_ref().map_or(0, |figures| figures.closed),
             interval: figures.map(|figures| (round_cents(figures.usd_interval.0), round_cents(figures.usd_interval.1))),
             why: format!(
-                "lower mean cost per closed box over {LEDGER_WINDOW}: {}; {}; the interval is {}'s median box spend",
+                "lower mean cost per closed arm box over {ARM_WINDOW}: {}; {}; the interval is {}'s median box spend over {LEDGER_WINDOW}",
                 evidence.figures(Tier::Sonnet),
                 evidence.figures(Tier::Opus),
                 tier.name()

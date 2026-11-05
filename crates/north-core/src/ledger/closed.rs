@@ -32,6 +32,16 @@ pub struct ArmBox {
     pub tier: String,
     pub arm: String,
     pub usd: f64,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default = "closed_by_default")]
+    pub closed: bool,
+    #[serde(default)]
+    pub reworked: bool,
+}
+
+fn closed_by_default() -> bool {
+    true
 }
 
 #[derive(Debug, PartialEq)]
@@ -148,12 +158,13 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, unclosed_usd: 0.0, reworked: 0, boxes: Vec::new(), run_minutes: Vec::new() });
         let spent = runs.iter().map(|run| run.usd(prices)).sum::<f64>();
         cell.closed += 1;
-        cell.reworked += usize::from(runs.iter().any(|run| run.landed && run.reworked));
+        let reworked = runs.iter().any(|run| run.landed && run.reworked);
+        cell.reworked += usize::from(reworked);
         cell.usd += spent;
         cell.boxes.push(((*item).to_owned(), spent));
         cell.run_minutes.extend(runs.iter().filter_map(|run| run.minutes()));
         if !runs[0].arm.is_empty() {
-            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent });
+            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: true, reworked });
         }
     }
     let mut open: BTreeMap<&str, Vec<&SpendRun>> = BTreeMap::new();
@@ -162,14 +173,18 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
             open.entry(item).or_default().push(run);
         }
     }
-    for runs in open.values_mut() {
+    for (item, runs) in open.iter_mut() {
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         if runs[0].started.as_str() < since {
             continue;
         }
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
+        let spent = runs.iter().map(|run| run.usd(prices)).sum::<f64>();
         if let Some(cell) = cells.get_mut(&(tier_label(&runs[0].tier), category.to_owned())) {
-            cell.unclosed_usd += runs.iter().map(|run| run.usd(prices)).sum::<f64>();
+            cell.unclosed_usd += spent;
+        }
+        if !runs[0].arm.is_empty() {
+            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: false, reworked: false });
         }
     }
     let mut cells: Vec<Cell> = cells.into_values().collect();

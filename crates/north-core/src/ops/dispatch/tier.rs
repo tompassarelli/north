@@ -1,6 +1,7 @@
 //! Which worker tier a dispatched box starts on: Sonnet for art, Haiku for mechanical work with its
 //! retry on Sonnet, the Sonnet and Opus arms in turn on the armed categories until the ledger holds
-//! 15 runs of each, then the arm with the lower cost per closed box, and Opus for the rest.
+//! 15 runs and 15 closed boxes of each, then the arm with the lower cost per closed box, and Opus for
+//! the rest.
 use super::facets;
 use super::issues::Issue;
 use super::record::Record;
@@ -9,8 +10,9 @@ use crate::router::policy::ARM_RUNS;
 use std::collections::BTreeMap;
 use toml_edit::DocumentMut;
 
-/// Window of the ledger's closed boxes whose cost per closed box decides an armed category.
-pub const ARM_WINDOW: &str = "7d";
+/// Window of the ledger's arm boxes whose cost per closed box decides an armed category; it spans the
+/// arms' whole trial, because a week held 14 closed boxes per arm at most (north#242, 2026-11-05).
+pub const ARM_WINDOW: &str = "30d";
 /// Categories whose Sonnet and Opus arms dispatch compares.
 pub const ARMED: [&str; 5] = ["feature", "tooling", "native-check", "balance-tuning", "bug-known-cause"];
 const ART: [&str; 3] = ["anim", "animation", "art"];
@@ -79,13 +81,14 @@ impl Tier {
 }
 
 /// What the ledger holds for one category: each tier's success rate and runs there from
-/// `--recommend`, the runs stamped with each tier's arm, and each tier's cost per closed box from
-/// `north ledger summary`.
+/// `--recommend`, the runs stamped with each tier's arm, and each arm's closed boxes and cost per
+/// closed box from `north ledger summary`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Evidence {
     pub tiers: BTreeMap<String, (f64, usize)>,
     pub arm_runs: BTreeMap<Tier, usize>,
     pub usd_per_closed: Option<BTreeMap<Tier, f64>>,
+    pub arm_closed: BTreeMap<Tier, usize>,
     pub tuned: Option<Tier>,
 }
 
@@ -109,18 +112,23 @@ impl Evidence {
         Self { tiers, ..Self::default() }
     }
 
-    /// Adds each tier's cost per closed box in this category from the ledger's closed-box report,
-    /// the figures `north ledger summary` prints; a tier with no closed box has no cost.
+    /// Adds each arm's closed boxes and cost per closed box in this category from the boxes whose
+    /// first run carried its `Arm:` line in the ledger's closed-box report: the spend of all its boxes,
+    /// closed or not, over the closed boxes not reworked. A tier's unstamped boxes carry the earlier
+    /// routing's selection and are left out, as the arm run count leaves them out; an arm with no
+    /// closed box has no cost.
     pub fn priced(self, report: &ClosedReport, category: &str) -> Self {
-        let mut sums: BTreeMap<Tier, (f64, usize)> = BTreeMap::new();
-        for cell in report.cells.iter().filter(|cell| cell.category == category) {
-            if let Some(tier) = [Tier::Haiku, Tier::Sonnet, Tier::Opus].into_iter().find(|tier| tier.serves(&cell.tier)) {
+        let mut sums: BTreeMap<Tier, (f64, usize, usize)> = BTreeMap::new();
+        for armed in report.arms.iter().filter(|armed| armed.category == category) {
+            if let Some(tier) = [Tier::Sonnet, Tier::Opus].into_iter().find(|tier| tier.name() == armed.arm) {
                 let sum = sums.entry(tier).or_default();
-                *sum = (sum.0 + cell.usd + cell.unclosed_usd, sum.1 + cell.kept());
+                *sum = (sum.0 + armed.usd, sum.1 + usize::from(armed.closed), sum.2 + usize::from(armed.closed && !armed.reworked));
             }
         }
-        let per_kept = |(usd, kept): (f64, usize)| if kept == 0 { f64::INFINITY } else { usd / kept as f64 };
-        Self { usd_per_closed: Some(sums.into_iter().map(|(tier, sum)| (tier, per_kept(sum))).collect()), ..self }
+        let arm_closed = sums.iter().map(|(tier, (_, closed, _))| (*tier, *closed)).collect();
+        let per_kept = |(usd, _, kept): (f64, usize, usize)| if kept == 0 { f64::INFINITY } else { usd / kept as f64 };
+        let usd_per_closed = sums.into_iter().filter(|(_, (_, closed, _))| *closed > 0).map(|(tier, sum)| (tier, per_kept(sum))).collect();
+        Self { usd_per_closed: Some(usd_per_closed), arm_closed, ..self }
     }
 
     pub fn tuned(self, routes: &BTreeMap<String, Tier>, category: &str) -> Self {
@@ -152,14 +160,19 @@ impl Evidence {
     /// The arm with the lower cost per closed box, Sonnet on a tie. None until the closed-box
     /// report is read and both arms have a closed box in it, so an arm the window forgot keeps
     /// running rather than losing by default.
-    fn decided(&self) -> Option<Tier> {
+    pub(super) fn decided(&self) -> Option<Tier> {
         Some(if self.cost(Tier::Opus)? < self.cost(Tier::Sonnet)? { Tier::Opus } else { Tier::Sonnet })
     }
 
-    /// The arm the category routes to once both arms hold `ARM_RUNS` arm-stamped runs and a cost; None while
-    /// the arms still alternate.
+    fn closed(&self, tier: Tier) -> usize {
+        self.arm_closed.get(&tier).copied().unwrap_or(0)
+    }
+
+    /// The arm the category routes to once both arms hold `ARM_RUNS` arm-stamped runs and `ARM_RUNS`
+    /// closed arm boxes; None while the arms still alternate.
     pub fn settled(&self) -> Option<Tier> {
-        self.decided().filter(|_| self.runs(Tier::Sonnet) >= ARM_RUNS && self.runs(Tier::Opus) >= ARM_RUNS)
+        let full = |tier: Tier| self.runs(tier) >= ARM_RUNS && self.closed(tier) >= ARM_RUNS;
+        self.decided().filter(|_| full(Tier::Sonnet) && full(Tier::Opus))
     }
 
     /// Whether both arms hold `ARM_RUNS` arm-stamped runs, the point where a category stops alternating.
@@ -183,7 +196,7 @@ impl Evidence {
             Some(usd) if usd.is_infinite() => "every closed box reworked".to_owned(),
             Some(usd) => format!("${usd:.2} per closed box"),
         };
-        format!("{} {:.0}% of {}, {} of {ARM_RUNS} arm runs, {cost}", tier.name(), self.rate(tier), self.all_runs(tier), self.runs(tier))
+        format!("{} {:.0}% of {}, {} of {ARM_RUNS} arm runs, {} of {ARM_RUNS} closed arm boxes, {cost}", tier.name(), self.rate(tier), self.all_runs(tier), self.runs(tier), self.closed(tier))
     }
 }
 

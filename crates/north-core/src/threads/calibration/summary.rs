@@ -6,7 +6,7 @@ use rusqlite::{Connection, Row};
 
 use super::boxes::{BoxRun, box_groups, moment};
 use super::read::{attempts, escalated_with};
-use super::rework::{Rework, Sources};
+use super::rework::{Cause, Rework, Sources};
 use crate::platform::run_roles::ROLE_SQL;
 use super::{GROUPS, Knobs, cell_value, median, tier_rank};
 use crate::threads::board::issues::Board;
@@ -365,7 +365,7 @@ fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escal
         let cells = left.len() - 2;
         left[..cells].cmp(&right[..cells]).then(tier_rank(&left[cells]).cmp(&tier_rank(&right[cells]))).then(left[cells + 1].cmp(&right[cells + 1]))
     });
-    let mut out = vec![[keys.iter().map(|key| (*key).to_owned()).collect::<Vec<_>>(), strings(&["tier", "arm", "n", "attempts", "done", "success", "ok", "rework", "eta_med", "actual_med", "work_med", "wait_med", "x_eta_med", "over_2x_eta", "tokens_med", "no_landing", "usd_per_done"])].concat()];
+    let mut out = vec![[keys.iter().map(|key| (*key).to_owned()).collect::<Vec<_>>(), strings(&["tier", "arm", "n", "attempts", "done", "success", "ok", "rework", "revert/fix/culprit", "eta_med", "actual_med", "work_med", "wait_med", "x_eta_med", "over_2x_eta", "tokens_med", "no_landing", "usd_per_done"])].concat()];
     let knobs = Knobs::registry();
     for (key, runs) in groups {
         let n = runs.len();
@@ -387,6 +387,7 @@ fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escal
                     format!("{}%", done * 100 / n),
                     format!("{}%", ok * 100 / n),
                     rework_cell(&runs, rework),
+                    cause_cell(&runs, rework),
                     medians(runs.iter().filter_map(|run| run.eta_min)).filter(|eta| *eta != 0).map_or_else(|| "-".into(), |eta| eta.to_string()),
                     dash(medians(runs.iter().map(|run| run.minutes))),
                     spans(|run| run.staffed.as_deref(), |run| run.review_requested.as_deref()),
@@ -412,6 +413,16 @@ fn rework_cell(runs: &[&Run], rework: &Rework) -> String {
     }
     let reworked = judged.iter().filter(|reworked| **reworked).count();
     format!("{reworked} {}%", reworked * 100 / judged.len())
+}
+
+/// The reworked landings of the cell by cause (reverted/fixed forward/red-main culprit) of the landings found on main, or - when none was found.
+fn cause_cell(runs: &[&Run], rework: &Rework) -> String {
+    let judged: Vec<Option<Cause>> = runs.iter().filter_map(|run| rework.judged.get(&run.agent)).map(|judged| judged.cause).collect();
+    if judged.is_empty() {
+        return "-".into();
+    }
+    let count = |wanted: Cause| judged.iter().filter(|cause| **cause == Some(wanted)).count();
+    format!("{}/{}/{} of {}", count(Cause::Reverted), count(Cause::FixedForward), count(Cause::Culprit), judged.len())
 }
 
 fn has_table(db: &Connection, name: &str) -> rusqlite::Result<bool> {

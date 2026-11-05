@@ -57,7 +57,7 @@ impl Arms {
     pub fn priced(self, boxes: &[ArmBox]) -> Self {
         let mut sums: BTreeMap<(Tier, String), (f64, usize)> = BTreeMap::new();
         let mut seen = BTreeSet::new();
-        for closed in boxes.iter().filter(|closed| seen.insert(closed.item.as_str())) {
+        for closed in boxes.iter().filter(|closed| closed.closed && seen.insert(closed.item.as_str())) {
             if let Some(tier) = FAMILIES.into_iter().find(|tier| tier.serves(&closed.tier)) {
                 let sum = sums.entry((tier, closed.arm.clone())).or_default();
                 *sum = (sum.0 + closed.usd, sum.1 + 1);

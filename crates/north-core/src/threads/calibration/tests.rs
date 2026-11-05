@@ -522,7 +522,7 @@ fn rework_marks_reverted_fixed_forward_and_culprit_landings_within_48_hours_and_
     let header = text.lines().next().unwrap();
     let row = text.lines().find(|line| line.starts_with("bug-known-cause")).unwrap();
     let column = |name: &str| row[header.find(name).unwrap()..].split("  ").next().unwrap().trim().to_owned();
-    assert_eq!((column("n "), column("ok"), column("rework")), ("6".to_owned(), "33%".to_owned(), "4 66%".to_owned()));
+    assert_eq!((column("n "), column("ok"), column("rework "), column("revert/fix/culprit")), ("6".to_owned(), "33%".to_owned(), "4 66%".to_owned(), "1/2/1 of 6".to_owned()));
 }
 
 fn eta_sample(category: &str, tier: &str, predicted: f64, actual: f64) -> super::eta_calibration::Sample {

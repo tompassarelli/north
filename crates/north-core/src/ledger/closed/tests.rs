@@ -94,7 +94,7 @@ fn the_window_and_the_one_before_it_meet_at_one_instant_from_one_clock_reading()
 }
 
 #[test]
-fn a_closed_box_costs_its_whole_spend_to_the_tier_and_arm_of_its_first_run() {
+fn an_arm_box_costs_its_whole_spend_to_the_tier_and_arm_of_its_first_run_whether_or_not_it_closed() {
     let armed = |item: &str, arm: &str, ended: &str, landed: bool| SpendRun { arm: arm.into(), ..run(Some(item), "worker", "sonnet", "tooling", "claude-sonnet-5-5", ended, landed) };
     let runs = vec![
         armed("north#1", "handoff-350k", "2026-10-27T10:00:00Z", false),
@@ -105,7 +105,11 @@ fn a_closed_box_costs_its_whole_spend_to_the_tier_and_arm_of_its_first_run() {
         armed("north#5", "", "2026-10-27T15:00:00Z", true),
     ];
     let report = summarize(&runs, &closed(&["north#1", "north#2", "north#3", "north#5"]), "2026-10-27T00:00:00Z", &PriceTable::load().unwrap());
-    let arms: Vec<(&str, &str, &str, f64)> = report.arms.iter().map(|closed| (closed.item.as_str(), closed.tier.as_str(), closed.arm.as_str(), closed.usd)).collect();
+    let (arms, open): (Vec<&ArmBox>, Vec<&ArmBox>) = report.arms.iter().partition(|armed| armed.closed);
+    assert_eq!(open.iter().map(|armed| (armed.item.as_str(), armed.arm.as_str(), armed.category.as_str())).collect::<Vec<_>>(), [("north#4", "no-handoff", "tooling")], "an unclosed armed box is listed so its arm's closed-box rate and spend count it");
+    assert!((open[0].usd - SONNET).abs() < 1e-9, "{open:?}");
+    assert!(arms.iter().all(|armed| armed.category == "tooling" && !armed.reworked), "{arms:?}");
+    let arms: Vec<(&str, &str, &str, f64)> = arms.iter().map(|closed| (closed.item.as_str(), closed.tier.as_str(), closed.arm.as_str(), closed.usd)).collect();
     assert_eq!(arms.len(), 3, "{arms:?}");
     assert_eq!((arms[0].0, arms[0].1, arms[0].2), ("north#1", "sonnet", "handoff-350k"));
     assert!((arms[0].3 - 2.0 * SONNET).abs() < 1e-9, "{arms:?}");

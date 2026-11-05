@@ -3,6 +3,7 @@ use super::dividends::{self, Reading};
 use super::{Ledger, Prior, Tick, Tracker, tick};
 use crate::router::pricing::PriceTable;
 use crate::ledger::{ClosedReport, SpendRun, summarize};
+use crate::ledger::closed::ArmBox;
 use crate::ops::dispatch::{Evidence, Tier};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashSet};
@@ -65,8 +66,8 @@ fn ledger() -> Ledger {
     );
     let arms = |sonnet: (f64, usize), opus: (f64, usize)| BTreeMap::from([("claude:sonnet-high".to_owned(), sonnet), ("claude:opus-medium".to_owned(), opus)]);
     let evidence = BTreeMap::from([
-        ("feature".to_owned(), Evidence { tiers: arms((60.0, 15), (70.0, 15)), arm_runs: stamped(15, 15), usd_per_closed: None, tuned: None }.priced(&week, "feature")),
-        ("tooling".to_owned(), Evidence { tiers: arms((80.0, 4), (0.0, 0)), arm_runs: stamped(4, 0), usd_per_closed: None, tuned: None }.priced(&week, "tooling")),
+        ("feature".to_owned(), Evidence { tiers: arms((60.0, 15), (70.0, 15)), arm_runs: stamped(15, 15), ..Evidence::default() }.priced(&arm_boxes("feature", (15, 5.2), (15, 20.8)), "feature")),
+        ("tooling".to_owned(), Evidence { tiers: arms((80.0, 4), (0.0, 0)), arm_runs: stamped(4, 0), ..Evidence::default() }.priced(&arm_boxes("tooling", (4, 10.4), (0, 0.0)), "tooling")),
     ]);
     Ledger { week, before, evidence, notes: Vec::new() }
 }
@@ -235,6 +236,12 @@ fn boxes(prefix: &str, count: usize, arm: (&str, &str), category: &str, day: &st
     (0..count).map(|index| spent(&format!("north#{prefix}{index}"), arm, category, day, output)).collect()
 }
 
+/// Closed arm boxes of one category at one spend each: (count, usd) on the Sonnet arm and the Opus arm.
+fn arm_boxes(category: &str, sonnet: (usize, f64), opus: (usize, f64)) -> ClosedReport {
+    let armed = |arm: &str, (count, usd): (usize, f64)| (0..count).map(|number| ArmBox { item: format!("north#{arm}-{number}"), tier: String::new(), arm: arm.into(), usd, category: category.into(), closed: true, reworked: false }).collect::<Vec<_>>();
+    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: [armed("sonnet-high", sonnet), armed("worker", opus)].concat(), spend_usd: 0.0, leads_usd: 0.0 }
+}
+
 fn stamped(sonnet: usize, opus: usize) -> BTreeMap<Tier, usize> {
     BTreeMap::from([(Tier::Sonnet, sonnet), (Tier::Opus, opus)])
 }
@@ -247,13 +254,13 @@ fn arms(sonnet: (f64, usize), opus: (f64, usize)) -> BTreeMap<String, (f64, usiz
 fn sonnet_closing_60_percent_at_3_dollars_a_box_beats_opus_closing_70_percent_at_9_and_its_route_cell_is_written() {
     let runs = [boxes("1", 6, SONNET, "tooling", "2026-10-22", 300_000), boxes("2", 7, OPUS, "tooling", "2026-10-23", 450_000)].concat();
     let week = report(&runs, "2026-10-20T06:00:00Z");
-    let evidence = BTreeMap::from([("tooling".to_owned(), Evidence { tiers: arms((60.0, 15), (70.0, 15)), arm_runs: stamped(15, 15), usd_per_closed: None, tuned: None }.priced(&week, "tooling"))]);
+    let evidence = BTreeMap::from([("tooling".to_owned(), Evidence { tiers: arms((60.0, 15), (70.0, 15)), arm_runs: stamped(15, 15), ..Evidence::default() }.priced(&arm_boxes("tooling", (15, 3.0), (15, 9.0)), "tooling"))]);
     let ledger = Ledger { week, before: report(&[], "2026-10-13T06:00:00Z"), evidence, notes: Vec::new() };
     let tick = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false);
     assert_eq!(tick.cells.get("route tooling"), Some(&json!("sonnet-high")), "{:#?}", tick.lines);
     let record = tick.records.iter().find(|record| record["cell"] == "route tooling").unwrap();
     let claim = record["claim"].as_str().unwrap();
-    assert!(claim.contains("sonnet-high 60% of 15, 15 of 15 arm runs, $3.00 per closed box") && claim.contains("worker 70% of 15, 15 of 15 arm runs, $9.00 per closed box"), "{record}");
+    assert!(claim.contains("sonnet-high 60% of 15, 15 of 15 arm runs, 15 of 15 closed arm boxes, $3.00 per closed box") && claim.contains("worker 70% of 15, 15 of 15 arm runs, 15 of 15 closed arm boxes, $9.00 per closed box"), "{record}");
 }
 
 #[test]
