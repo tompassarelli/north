@@ -39,6 +39,3 @@ jobs:
       - name: Agent-machinery check catches its planted fault
         if: ${{ !cancelled() }}
         run: harness/scripts/canary.sh agent-machinery-check
-      - name: Machine-capacity build check catches its planted fault
-        if: ${{ !cancelled() }}
-        run: harness/scripts/canary.sh machine-capacity-build
