@@ -130,30 +130,45 @@ pub fn main() -> ExitCode {
     }
 }
 
+fn hook_command(arguments: Vec<String>) -> ExitCode {
+    let reported = |outcome: Result<(), String>| match outcome {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => {
+            eprintln!("{message}");
+            ExitCode::from(2)
+        }
+    };
+    match arguments.first().map(String::as_str) {
+        Some("stats") => reported(hook_stats::run(&arguments[1..])),
+        Some("prompt-grounding") if arguments.iter().any(|argument| argument == "--help") => {
+            println!("usage: north hook prompt-grounding   (reads one UserPromptSubmit payload on stdin)");
+            ExitCode::SUCCESS
+        }
+        Some("prompt-grounding") => {
+            grounding::prompt_hook(&|| guard::activation::authoring_guards_off("prompt-grounding"), &grounded_session);
+            ExitCode::SUCCESS
+        }
+        _ => {
+            guard::worker_handoff::install_confirm(crate::ops::pacing::confirm_spawn);
+            guard::host::install(guard::host::Host { pace: crate::ops::pacing::answer, picked_tier: crate::ops::dispatch::picked_tier });
+            reported(hook::run(&arguments))
+        }
+    }
+}
+
+fn grounded_session(conversation: &str) -> bool {
+    let named = std::env::var("NORTH_FLEET_SESSION").ok();
+    let entrypoint = std::env::var("CLAUDE_CODE_ENTRYPOINT").ok();
+    crate::fleet::audience::grounded(&crate::fleet::audience::fleet_dir(), named.as_deref(), conversation, entrypoint.as_deref())
+}
+
 fn dispatch(command: Command) -> ExitCode {
     match command {
         Command::DesktopIdleState(state) => match state {
             Some(value) if guard::desktop_action::record_idle(value == "idle").is_ok() => ExitCode::SUCCESS,
             _ => ExitCode::from(1),
         },
-        Command::Hook(arguments) if arguments.first().is_some_and(|verb| verb == "stats") => match hook_stats::run(&arguments[1..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(message) => {
-                eprintln!("{message}");
-                ExitCode::from(2)
-            }
-        },
-        Command::Hook(arguments) => {
-            guard::worker_handoff::install_confirm(crate::ops::pacing::confirm_spawn);
-            guard::host::install(guard::host::Host { pace: crate::ops::pacing::answer, picked_tier: crate::ops::dispatch::picked_tier });
-            match hook::run(&arguments) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(message) => {
-                    eprintln!("{message}");
-                    ExitCode::from(2)
-                }
-            }
-        }
+        Command::Hook(arguments) => hook_command(arguments),
         Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet::Registry))),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
@@ -178,11 +193,7 @@ fn dispatch(command: Command) -> ExitCode {
             contract_probe::run(&arguments, probe_account::invocation).await.map(ExitCode::from)
         }),
         Command::Grounding(arguments) => in_runtime(async move {
-            grounding::main(&arguments, &|conversation| {
-                let named = std::env::var("NORTH_FLEET_SESSION").ok();
-                let entrypoint = std::env::var("CLAUDE_CODE_ENTRYPOINT").ok();
-                crate::fleet::audience::grounded(&crate::fleet::audience::fleet_dir(), named.as_deref(), conversation, entrypoint.as_deref())
-            }).map(|code| ExitCode::from(code as u8))
+            grounding::main(&arguments, &grounded_session).map(|code| ExitCode::from(code as u8))
         }),
     }
 }

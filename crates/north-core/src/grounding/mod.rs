@@ -5,6 +5,7 @@ pub mod score;
 pub mod store;
 use compose as render;
 mod hook;
+mod prompt_hook;
 mod live;
 mod sources;
 mod tierb;
@@ -117,6 +118,7 @@ fn command(program: &str, args: &[&str]) -> Result<String> {
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
+pub use prompt_hook::run as prompt_hook;
 pub fn main(args: &[String], grounded: &dyn Fn(&str) -> bool) -> NorthResult<i32> {
     if args.first().is_some_and(|a| a == "distill") {
         return distill::main(&args[1..]);
@@ -154,45 +156,14 @@ fn run(args: &[String], grounded: &dyn Fn(&str) -> bool) -> Result<i32> {
     if args.first().is_some_and(|a| a == "hook") {
         let mut raw = String::new();
         std::io::stdin().take(1048577).read_to_string(&mut raw)?;
-        if ulen(&raw) > 1048576 {
-            return Ok(0);
-        }
-        let Ok(payload) = serde_json::from_str::<Value>(&raw) else {
-            return Ok(65);
-        };
-        if !payload.is_object()
-            || payload.get("agent_id").is_some()
-            || payload.get("agent_type").is_some()
-            || payload
-                .get("hook_event_name")
-                .is_some_and(|v| v != "UserPromptSubmit")
-        {
-            return Ok(0);
-        }
-        if !grounded(&s(&payload, "session_id")) {
-            return Ok(0);
-        }
-        let prompt = s(&payload, "prompt");
-        if hook::typed_text(&prompt).is_empty() {
-            return Ok(0);
-        }
-        sources::spawn_refresh_if_stale();
-        let id = s(&payload, "session_id");
-        let mut session = hook::load(&id);
-        let text = hook::render(
-            &prompt,
-            Timestamp::now().unix_seconds_f64(),
-            &prior_reply(&s(&payload, "transcript_path")),
-            &mut session,
-        )?;
-        hook::save(&id, &session);
-        if !text.is_empty() {
-            println!(
-                "{}",
-                json!({"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":text}})
-            );
-        }
-        return Ok(0);
+        return Ok(match hook_reply(&raw, grounded)? {
+            HookReply::Silent => 0,
+            HookReply::Unparsable => 65,
+            HookReply::Context(text) => {
+                println!("{}", hook_json(&text));
+                0
+            }
+        });
     }
     let query = flag(args, "--query")
         .or_else(|| flag(args, "-q"))
@@ -208,6 +179,49 @@ fn run(args: &[String], grounded: &dyn Fn(&str) -> bool) -> Result<i32> {
         println!("{text}");
     }
     Ok(0)
+}
+pub(crate) enum HookReply {
+    Silent,
+    Unparsable,
+    Context(String),
+}
+fn hook_json(text: &str) -> Value {
+    json!({"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":text}})
+}
+fn hook_reply(raw: &str, grounded: &dyn Fn(&str) -> bool) -> Result<HookReply> {
+    if ulen(raw) > 1048576 {
+        return Ok(HookReply::Silent);
+    }
+    let Ok(payload) = serde_json::from_str::<Value>(raw) else {
+        return Ok(HookReply::Unparsable);
+    };
+    if !payload.is_object()
+        || payload.get("agent_id").is_some()
+        || payload.get("agent_type").is_some()
+        || payload
+            .get("hook_event_name")
+            .is_some_and(|v| v != "UserPromptSubmit")
+    {
+        return Ok(HookReply::Silent);
+    }
+    if !grounded(&s(&payload, "session_id")) {
+        return Ok(HookReply::Silent);
+    }
+    let prompt = s(&payload, "prompt");
+    if hook::typed_text(&prompt).is_empty() {
+        return Ok(HookReply::Silent);
+    }
+    sources::spawn_refresh_if_stale();
+    let id = s(&payload, "session_id");
+    let mut session = hook::load(&id);
+    let text = hook::render(
+        &prompt,
+        Timestamp::now().unix_seconds_f64(),
+        &prior_reply(&s(&payload, "transcript_path")),
+        &mut session,
+    )?;
+    hook::save(&id, &session);
+    Ok(if text.is_empty() { HookReply::Silent } else { HookReply::Context(text) })
 }
 fn tail(path: &Path, limit: usize) -> String {
     use std::io::{Seek, SeekFrom};
