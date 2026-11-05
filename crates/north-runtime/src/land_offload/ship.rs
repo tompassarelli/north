@@ -10,6 +10,8 @@ const SLOTS_BUSY: u8 = 96;
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 const LOCK_WAIT_SECONDS: u32 = 600;
 const SLOTS: u32 = 6;
+const TARGET_CAP_MIB: u32 = 24 * 1024;
+const TARGET_FLOOR_MIB: u32 = 100 * 1024;
 pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
@@ -57,6 +59,14 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
+if [ -d "$slot/target" ]; then
+  used=$(du -sm "$slot/target" | cut -f1)
+  free=$(df -Pm "$root" | awk 'NR == 2 { print $4 }')
+  if [ "$used" -gt "${NORTH_OFFLOAD_TARGET_CAP_MIB:-@TARGET_CAP@}" ] || [ "$free" -lt "${NORTH_OFFLOAD_TARGET_FLOOR_MIB:-@TARGET_FLOOR@}" ]; then
+    echo "offload: removing $s/target ($used MiB, $free MiB free on the host)" >&2
+    rm -rf -- "$slot/target"
+  fi
+fi
 cat >"$bundle"
 if ! git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1; then
   git -C "$repo" fetch -q --no-auto-maintenance origin 2>/dev/null || true
@@ -236,6 +246,8 @@ pub(super) fn run(land: &Land) -> u8 {
         .replace("@ROOT@", OFFLOAD_ROOT)
         .replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string())
         .replace("@SLOTS@", &SLOTS.to_string())
+        .replace("@TARGET_CAP@", &TARGET_CAP_MIB.to_string())
+        .replace("@TARGET_FLOOR@", &TARGET_FLOOR_MIB.to_string())
         .replace("@SLOTS_BUSY@", &SLOTS_BUSY.to_string())
         .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
         .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string());

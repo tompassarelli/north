@@ -126,6 +126,7 @@ impl Landing {
             .env("RESIDENT_CAP_HOST", "whiterabbit")
             .env("GAME_RESERVE_STATE", reserve)
             .env("FAKE_SSH_LOG", self.root.join("ssh.log"))
+            .env("NORTH_OFFLOAD_TARGET_FLOOR_MIB", "0")
             .env("FAKE_ROOMS", self.root.join("rooms"))
             .env("FAKE_REMOTE_HOMES", self.root.join("remotes"))
             .env("CAPACITY_LOG", self.root.join("capacity.log"))
