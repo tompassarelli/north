@@ -13,7 +13,7 @@ text = """
 Inside an offload slot, a land check or any dev shell you are already in the project's dev shell.
 Never nest `nix develop`, `land-shell --dev` or `depbox run`: depbox clears the environment, so every layer
 re-enters the shell, the shellHook finds no `north` and starts cold, and two sandboxes nested exit 127.
-Run the tool directly (`cargo test`, `bash harness/scripts/check-owners.sh`).
+Run the tool directly (`cargo test`, `./bin/head-north citation-check`).
 A land-check runner (`north land checks`, `safe-push`) is never wrapped in `land-shell` or depbox.
 """
 

@@ -108,6 +108,7 @@ impl Fixture {
             .env("REAL_NORTH", env!("CARGO_BIN_EXE_north"))
             .env("STUB_TRACE", self.path("trace"))
             .env("XDG_STATE_HOME", self.path("state"))
+            .env("XDG_CACHE_HOME", self.path("cache"))
             .env("XDG_RUNTIME_DIR", self.path("runtime"))
             .env("LEASE_LOG", self.path("lease-log"))
             .env("LEASE_HELD", self.path("held"))
@@ -527,7 +528,7 @@ fn rust_candidate_builds_north_only_on_the_build_host() {
     git(&fixture.repo, &["commit", "-qm", "rust candidate"]);
     fixture.head = git(&fixture.repo, &["rev-parse", "HEAD"]);
     script(&fixture.path("stubs/cargo"), "printf 'cargo %s\\n' \"$*\" >>\"$STUB_TRACE\"\nexit 1\n");
-    let output = fixture.with_lease().output().unwrap();
+    let output = fixture.with_lease().arg("--after").output().unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
     let trace = fixture.trace();
     let safe_push = fixture.repo.join(".safe-push");
@@ -536,9 +537,9 @@ fn rust_candidate_builds_north_only_on_the_build_host() {
         String::from_utf8(output.stdout).unwrap().lines().filter_map(|entry| entry.split_once(" :: ").map(|(_, command)| command.to_owned())).collect()
     };
     assert!(entries("land.local-only").is_empty(), "a north land check is pinned to the lander host: {:?}", entries("land.local-only"));
-    let checks = entries("land.check");
-    let bound: Vec<String> = entries("land.machine-bound").into_iter().filter(|command| checks.contains(command)).collect();
-    assert!(bound.iter().any(|command| command.contains("citation-check.sh")) && bound.iter().any(|command| command.contains("check-owners.sh")));
+    let checks = entries("land.after");
+    let bound: Vec<String> = entries("land.machine-bound").into_iter().filter(|command| checks.contains(command) && command.contains("./bin/head-north --code ")).collect();
+    assert!(bound.iter().any(|command| command.contains(" citation-check --root ")) && bound.iter().any(|command| command.contains(" config agents check-owners ")));
     for command in &bound {
         let offloaded = format!("capacity offload run --host buildbox --base {} --head {} ", fixture.base, fixture.head);
         assert!(trace.lines().any(|line| line.contains(&offloaded) && line.ends_with(&format!("-- {command}"))), "{command} did not run on the build host:\n{trace}");
@@ -734,17 +735,15 @@ impl Fixture {
         let source = Path::new(env!("CARGO_MANIFEST_DIR"));
         let settings: String = include_str!("../../.safe-push").lines().filter(|line| !line.starts_with("\tworkflow =") && !line.starts_with("\trunner =")).map(|line| format!("{line}\n")).collect();
         fs::write(fixture.repo.join(".safe-push"), settings).unwrap();
-        for path in ["bin/head-north", "harness/scripts/citation-check.sh", "harness/scripts/check-owners.sh"] {
-            let file = fixture.repo.join(path);
-            fs::create_dir_all(file.parent().unwrap()).unwrap();
-            fs::copy(source.join(path), file).unwrap();
-        }
+        fs::create_dir_all(fixture.repo.join("bin")).unwrap();
+        fs::copy(source.join("bin/head-north"), fixture.repo.join("bin/head-north")).unwrap();
         script(&fixture.repo.join("bin/land-shell"), LAND_SHELL);
-        fs::write(fixture.repo.join("harness/machine-bound-tests"), "").unwrap();
         for directory in ["lib", "harness/hooks", "harness/lib"] {
             fs::create_dir_all(fixture.repo.join(directory)).unwrap();
             fs::write(fixture.repo.join(directory).join("keep"), "").unwrap();
         }
+        fs::write(fixture.repo.join("harness/machine-bound-tests"), "").unwrap();
+        fs::write(fixture.repo.join(".gitignore"), "target/\n").unwrap();
         git(&fixture.repo, &["add", "-A"]);
         git(&fixture.repo, &["commit", "-qm", "north tree"]);
         fixture.base = git(&fixture.repo, &["rev-parse", "HEAD"]);
@@ -766,7 +765,7 @@ impl Fixture {
 
     fn north_checks(&self) -> (Output, Duration) {
         let started = Instant::now();
-        let output = self.command().env("SAFE_PUSH_LAND_RUNNER", "").env("HOME", self.root.path()).env("TREE_NORTH", TREE_NORTH).output().unwrap();
+        let output = self.command().arg("--after").env("SAFE_PUSH_LAND_RUNNER", "").env("HOME", self.root.path()).env("TREE_NORTH", TREE_NORTH).output().unwrap();
         (output, started.elapsed())
     }
 }
@@ -777,7 +776,7 @@ fn a_candidate_with_no_rust_build_input_runs_its_checks_with_the_live_runtime_an
     let (output, elapsed) = fixture.north_checks();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
     let trace = fixture.trace();
-    assert!(!trace.lines().any(|line| line.starts_with("cargo ") || line.starts_with("land-shell ") || line.starts_with("tree-north ")), "a docs-only candidate built north:\n{trace}");
+    assert!(!trace.lines().any(|line| line.contains("cargo build") || line.starts_with("tree-north ")), "a docs-only candidate built north:\n{trace}");
     for run in ["citation-check --root", "config agents check-owners", "docs features-index --check", "docs rationale-index --check", "agent-config-check tree-policy"] {
         assert!(trace.lines().any(|line| line.starts_with(&format!("live-north {run}"))), "{run} did not run on the live runtime's north:\n{trace}");
     }
@@ -786,23 +785,28 @@ fn a_candidate_with_no_rust_build_input_runs_its_checks_with_the_live_runtime_an
 }
 
 #[test]
-fn a_rust_candidate_compiles_once_for_clippy_and_builds_north_only_for_a_check_whose_code_it_changes() {
+fn a_rust_candidate_builds_north_once_for_its_head_north_checks_and_runs_each_unchanged_checker_on_the_live_runtime() {
     let fixture = Fixture::north_candidate(&["crates/north-core/src/lib.rs", "docs/features.md", "docs/rationale/x.md"]);
     let (output, _) = fixture.north_checks();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
     let trace = fixture.trace();
     assert!(trace.lines().any(|line| line.starts_with("land-shell --dev -- cargo clippy --all-targets")), "clippy did not run:\n{trace}");
-    assert!(!trace.lines().any(|line| line.contains("cargo build") || line.starts_with("tree-north ")), "a Rust candidate that changes no check's code built north:\n{trace}");
+    let builds = trace.lines().filter(|line| line.contains("cargo build")).count();
+    assert_eq!(builds, 1, "the land-tests checks judge every Rust input, so the candidate builds north once for every head-north check:\n{trace}");
     for run in ["docs features-index --check", "docs rationale-index --check", "citation-check --root", "config agents check-owners"] {
         assert!(trace.lines().any(|line| line.starts_with(&format!("live-north {run}"))), "{run} did not run on the live runtime's north:\n{trace}");
     }
-    let indexer = Fixture::north_candidate(&["crates/north-ops/src/ops/features_index/mod.rs", "docs/features.md", "docs/rationale/x.md"]);
-    let (output, _) = indexer.north_checks();
+    let indexers = Fixture::north_candidate(&["crates/north-ops/src/ops/features_index/mod.rs", "crates/north-ops/src/ops/rationale_index/mod.rs", "docs/features.md", "docs/rationale/x.md"]);
+    let (output, _) = indexers.north_checks();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-    let trace = indexer.trace();
-    assert!(trace.lines().any(|line| line.starts_with("land-shell --dev -- cargo build -q --locked --offline --bin north")), "{trace}");
-    assert!(trace.lines().any(|line| line.starts_with("tree-north docs features-index --check")), "a changed features indexer ran on the live runtime:\n{trace}");
-    assert!(trace.lines().any(|line| line.starts_with("live-north docs rationale-index --check")), "{trace}");
+    let trace = indexers.trace();
+    let builds = trace.lines().filter(|line| line.starts_with("land-shell --dev -- cargo build -q --locked --offline --bin north")).count();
+    assert_eq!(builds, 1, "two checks whose code the candidate changes built north {builds} times:\n{trace}");
+    assert!(text(&output).contains("safe-push: land check order: the north build the head-north checks share ("), "{}", text(&output));
+    for run in ["docs features-index --check", "docs rationale-index --check"] {
+        assert!(trace.lines().any(|line| line.starts_with(&format!("tree-north {run}"))), "a changed {run} ran on the live runtime:\n{trace}");
+    }
+    assert!(trace.lines().any(|line| line.starts_with("live-north citation-check --root")), "{trace}");
     let embedded = Fixture::north_candidate(&["harness/model-catalog.toml"]);
     let (output, _) = embedded.north_checks();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
@@ -842,7 +846,7 @@ fn layers_lane(usage: &str) -> (Fixture, Output) {
     fixture.head = git(&fixture.repo, &["rev-parse", "HEAD"]);
     fs::create_dir_all(fixture.path("state/north/current")).unwrap();
     script(&fixture.path("state/north/current/north"), COVERING_NORTH);
-    let output = fixture.command().output().unwrap();
+    let output = fixture.command().arg("--after").output().unwrap();
     (fixture, output)
 }
 

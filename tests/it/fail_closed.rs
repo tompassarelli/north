@@ -73,13 +73,3 @@ fn mutant_tests_fails_closed_without_each_tool() {
     let output = run_without("mutant-tests.sh", "bun", &[], &[("MUTANT_TESTS", "a claimed bun test"), ("MUTANT_TREES", ""), ("XDG_CACHE_HOME", cache)]);
     assert_names(&output, "bun");
 }
-
-#[test]
-fn check_owners_fails_closed_without_head_north() {
-    assert_names(&run_without("check-owners.sh", "head-north", &[], &[]), "head-north");
-}
-
-#[test]
-fn citation_check_fails_closed_without_head_north() {
-    assert_names(&run_without("citation-check.sh", "head-north", &[], &[]), "head-north");
-}

@@ -430,3 +430,28 @@ pre-created `target/` so target-seed copies nothing, an empty local disk level, 
 - From Finland, a hit costs more than the compile it saves. nexus is in Singapore, 178 ms per round trip from ccx33
   (62 ms for a whole GET from the laptop), and a WebDAV read takes several round trips. gex45 and ccx33 are off the
   shared level until the store serves from Finland (north#259, box shared-cache-fi). The laptop keeps it.
+
+### The head-north checks share one build per candidate (north#634, 2026-11-06)
+
+Each `bin/head-north` land check runs the host's live runtime when the candidate leaves its `--code` paths as that
+runtime has them, and otherwise ran the lane's `north`, built in its own offload slot. The checks run in parallel in
+separate gex45 slots with separate `target/` directories, so a candidate that changed any checker built north once
+per check: in the 7 days to 2026-11-06 the six checks took 62 to 97 s each at p90 against 3 to 17 s at p50, and a
+candidate touching every checker's code took 78 to 164 s per check on gex45.
+
+- The runner adds one `head-north --code UNION --build`, the union of the `--code` lists of the head-north checks
+  the candidate selects (`land/slots/shared_build.rs`). In the after-landing run it starts beside every other check
+  and the head-north checks start once it passes, still beside the rest; before a push with clippy listed it runs
+  beside clippy. All of it uses one runner host, and when the live runtime covers the union the build is a no-op.
+- `bin/head-north` keeps the build per host under `~/.cache/north/head-north/TREE/north`, keyed by the clean
+  checkout's tree and built under a lock, so a second slot or a second check on the same tree runs it; a dirty tree
+  builds in place as before. It keeps the 4 most recently used trees and sets `NORTH_HOME` to the checkout, which is
+  where the in-tree `target/debug/north` resolved its harness.
+- The `citation-check.sh` and `check-owners.sh` wrappers are inlined into `.safe-push`, so every head-north check
+  names its `--code` list where the runner reads it.
+
+Measured on gex45 (2026-11-06) with a candidate on origin/main b9fd1e346 that touches every checker's code, warm
+slots: before, each check built north in its own slot and took citation-check 78 s, check-owners 97 s, code-health
+layers 112 s, experiments 124 s, features-index 135 s and rationale-index 164 s; after, the shared build took one
+slot and the same six checks ran from it in 3.6, 2.3, 0.1, 0.1, 1.7 and 0.1 s (check-owners, layers,
+features-index, rationale-index, citation-check, experiments).

@@ -16,6 +16,7 @@ use super::affected::{self, CPUS_ENV, PACKAGES_ENV, Scope};
 use super::it_modules::{self, IT_ENV};
 use super::clippy_first;
 use super::deps;
+use super::shared_build;
 use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement, path_class};
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use fail_fast::Plan;
@@ -912,6 +913,27 @@ impl Shared {
         }
     }
 
+    async fn execute_sharing_build(self: Arc<Self>, commands: Vec<String>) -> i32 {
+        let phases = match shared_build::phases(commands) {
+            Ok(phases) => phases,
+            Err(commands) => return self.execute(commands).await,
+        };
+        say(&format!("safe-push: land check order: the north build the head-north checks share ({}), then {} head-north check(s), beside {} other land check(s)", phases.build, phases.head_north.len(), phases.others.len()));
+        let others = async {
+            if phases.others.is_empty() { 0 } else { Arc::clone(&self).execute(phases.others).await }
+        };
+        let shared = async {
+            let built = Arc::clone(&self).execute(vec![phases.build]).await;
+            if built != 0 {
+                warn(&format!("safe-push: the north build the head-north checks share exited {built}, so the {} head-north check(s) did not run", phases.head_north.len()));
+                return built;
+            }
+            Arc::clone(&self).execute(phases.head_north).await
+        };
+        let (others, shared) = tokio::join!(others, shared);
+        if others != 0 { others } else { shared }
+    }
+
     async fn execute(self: Arc<Self>, commands: Vec<String>) -> i32 {
         let arguments = &self.arguments;
         let placement = self.placement();
@@ -1147,10 +1169,10 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         return shared.run_list(&commands).await.status();
     }
     let Some(plan) = clippy_first::plan(&commands, |command| !shared.config.is_inferred(command)).filter(|_| !shared.arguments.after) else {
-        return shared.execute(commands).await;
+        return shared.execute_sharing_build(commands).await;
     };
     say(&clippy_first::order(&plan, shared.scope.as_ref()));
-    let status = Arc::clone(&shared).execute(vec![plan.clippy.clone()]).await;
+    let status = Arc::clone(&shared).execute(plan.first()).await;
     if status != 0 {
         warn(&format!("safe-push: clippy on the affected crates exited {status}, so the other {} land check(s) did not run; NOT pushed.", plan.rest.len()));
         return status;

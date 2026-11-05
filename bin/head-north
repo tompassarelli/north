@@ -4,12 +4,49 @@ root=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
 code=()
 [ "${1:-}" != --code ] || { code=(--code "$2"); shift 2; }
 live=${XDG_STATE_HOME:-$HOME/.local/state}/north/current/north
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/north/head-north
+keep=4
+build() {
+  printf 'head-north: building north from the tree: %s\n' "${reason%%$'\n'*}" >&2
+  "$root/bin/land-shell" --dev -- cargo build -q --locked --offline --bin north >&2
+  readlink -f "${CARGO_TARGET_DIR:-target}/debug/north"
+}
+prune() {
+  find "$cache" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/[0-9a-f]{40}' -printf '%T@ %f\n' | sort -rn | tail -n +$((keep + 1)) | while read -r _ old; do
+    rm -f "$cache/$old/north" "$cache/$old.lock"
+    rmdir "$cache/$old" 2>/dev/null || true
+  done
+}
+from_tree() {
+  local tree built
+  if [ -n "$(git -C "$root" status --porcelain)" ] || ! tree=$(git -C "$root" rev-parse 'HEAD^{tree}'); then
+    north=$(build)
+    return
+  fi
+  mkdir -p "$cache"
+  exec 7>"$cache/$tree.lock"
+  flock 7
+  if [ -x "$cache/$tree/north" ]; then
+    printf 'head-north: running the north this host built from tree %.12s: %s\n' "$tree" "${reason%%$'\n'*}" >&2
+    touch "$cache/$tree"
+  else
+    built=$(build)
+    cp --reflink=auto "$built" "$cache/$tree.part"
+    mkdir -p "$cache/$tree"
+    mv -f "$cache/$tree.part" "$cache/$tree/north"
+    prune
+  fi
+  exec 7>&-
+  north=$cache/$tree/north
+  export NORTH_HOME=${NORTH_HOME:-$root}
+}
 north="" reason="no live runtime at $live"
 if [ -x "$live" ] && reason=$("$live" runtime covers --head "${SAFE_PUSH_LAND_RUNTIME_HEAD:-${SAFE_PUSH_LAND_HEAD:-HEAD}}" "${code[@]}" 2>&1); then
   north=$reason
 else
-  printf 'head-north: building north from the tree: %s\n' "${reason%%$'\n'*}" >&2
-  "$root/bin/land-shell" --dev -- cargo build -q --locked --offline --bin north >&2
-  north=$(readlink -f "${CARGO_TARGET_DIR:-target}/debug/north")
+  from_tree
 fi
-if [ "${1:-}" = --path ]; then printf '%s\n' "$north"; else exec "$north" "$@"; fi
+case "${1:-}" in
+  --build) ;;
+  *) exec "$north" "$@" ;;
+esac

@@ -102,11 +102,11 @@ Rejected, one line each:
 
 `north citation-check --root "$PWD"` runs as a `land.check` on every landing (`**`), so a docs-only
 landing is checked and a code landing that deletes a named file or subcommand is refused in its own
-lane rather than in the next unrelated one. `harness/scripts/citation-check.sh` runs it
+lane rather than in the next unrelated one. `bin/head-north` runs it
 with the held `north` runtime when the lane leaves `src/cli`, the checker and `Cargo.lock` as that
-runtime has them (the pattern of `harness/scripts/check-owners.sh`), so a docs landing builds
-nothing; otherwise it builds the lane's `north`. It is `land.local-only` because the held runtime
-exists only on a host.
+runtime has them, as it runs every head-north land check, so a docs landing builds nothing;
+otherwise it runs the lane's `north`, built once per candidate beside clippy. It is
+`land.machine-bound` because the held runtime exists only on a host.
 The same scan runs in `cargo test` (`src/cli/tests.rs`) and `north health`. It fails, naming
 `file:line`, on:
 
