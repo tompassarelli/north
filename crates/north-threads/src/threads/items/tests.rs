@@ -64,7 +64,7 @@ fn note_and_new_refuse_text_the_secret_scan_flags_and_store_nothing() {
     let mut rig = ledger();
     rig.out(&["new", "life", "p a"]);
     rig.outside.secret = Some("AKIA");
-    let refused = (1, String::new(), "NorthThreads: gitleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored\n".to_owned());
+    let refused = (1, String::new(), "NorthThreads: betterleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored\n".to_owned());
     assert_eq!(rig.run(&["note", "life#1", "creds", "AKIAX"]), refused);
     assert_eq!(rig.run(&["new", "life", "fake AKIAX"]), refused);
     assert_eq!(rig.feed(&["new", "life", "fine", "--body", "-"], "AKIAX"), refused);

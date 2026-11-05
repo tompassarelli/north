@@ -11,11 +11,11 @@ shim_main() {
     printf '\n'
   } >>"$tool_trace"
 
-  if [[ "$tool" == gitleaks && -n "${SAFE_PUSH_TEST_REAL_GITLEAKS:-}" && " $* " == *" --config "* ]]; then
-    exec "$SAFE_PUSH_TEST_REAL_GITLEAKS" "$@"
+  if [[ "$tool" == betterleaks && -n "${SAFE_PUSH_TEST_REAL_BETTERLEAKS:-}" && " $* " == *" --config "* ]]; then
+    exec "$SAFE_PUSH_TEST_REAL_BETTERLEAKS" "$@"
   fi
 
-  if [[ "$tool" == gitleaks && -n "${SAFE_PUSH_TEST_SCAN_GATE:-}" ]]; then
+  if [[ "$tool" == betterleaks && -n "${SAFE_PUSH_TEST_SCAN_GATE:-}" ]]; then
     if mkdir "$SAFE_PUSH_TEST_SCAN_GATE.scan-started" 2>/dev/null; then
       read -r _ <"$SAFE_PUSH_TEST_SCAN_GATE.scan-release"
     fi
@@ -83,10 +83,10 @@ shim_main() {
         return 1
       }
       ;;
-    gitleaks:detect)
-      [ "${SAFE_PUSH_TEST_GITLEAKS_LEAK:-0}" != 1 ] || { printf 'leaks found: 1\n'; return 1; }
+    betterleaks:git)
+      [ "${SAFE_PUSH_TEST_BETTERLEAKS_LEAK:-0}" != 1 ] || { printf 'leaks found: 1\n'; return 1; }
       ;;
-    gitleaks:dir) ;;
+    betterleaks:dir) ;;
     gh:repo)
       [ "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}" != fail ] || return 1
       printf '%s\n' "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}"
@@ -178,7 +178,7 @@ export SAFE_PUSH_TEST_REAL_NORTH="$real_north"
 new_real_bin() {
   real_bin="$scratch/real-bin${1:-}"
   mkdir -p "$real_bin"
-  ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/gitleaks"
+  ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/betterleaks"
   ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/north"
 }
 new_real_bin
@@ -292,7 +292,7 @@ printf 'PASS: a landing runs the after-landing gates on its range\n'
 missing_north_bin="$scratch/missing-north-bin"
 mkdir -p "$missing_north_bin"
 ln -s "$real_git" "$missing_north_bin/git"
-ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$missing_north_bin/gitleaks"
+ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$missing_north_bin/betterleaks"
 missing_north_path="$missing_north_bin:/run/current-system/sw/bin:/usr/bin:/bin"
 ! PATH="$missing_north_path" command -v north >/dev/null || fail 'missing north fixture contains north'
 language_gh_bin="$scratch/language-gh-bin"
@@ -315,7 +315,7 @@ SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tLanguage fixture\tfixture' SAFE_PUSH_T
 expect_status nonzero
 expect_output 'north not on PATH; refusing to land without the language gate'
 [ "$(real_remote_state)" = "$remote_before" ] || fail "autoland missing north published"
-! grep -q '^gitleaks ' "$real_trace" || fail "autoland missing north reached heavy checks"
+! grep -q '^betterleaks ' "$real_trace" || fail "autoland missing north reached heavy checks"
 printf 'PASS: autoland refuses denial and missing north\n'
 
 make_real_fixture language-initial
@@ -407,7 +407,7 @@ printf 'changed\n' >"$real_repo/file.txt"
 "$real_git" -C "$real_repo" add file.txt
 "$real_git" -C "$real_repo" commit -qm 'change under test beside a secret fixture'
 all_remote_before=$(real_remote_state)
-SAFE_PUSH_TEST_GITLEAKS_LEAK=1 HOME="$land_home" run_real_case --to main
+SAFE_PUSH_TEST_BETTERLEAKS_LEAK=1 HOME="$land_home" run_real_case --to main
 expect_status nonzero
 expect_output 'safe-push: ✗ 2 blocking check(s) failed: land checks; secret scan; NOT pushed.'
 expect_output 'safe-push: ✗ SECRET DETECTED'
@@ -1128,7 +1128,7 @@ if "$real_git" -C "$real_repo" rev-parse --verify '@{upstream}' >/dev/null 2>&1;
 fi
 
 # A branch landing to a public destination runs the deny-list gate with real
-# gitleaks before it pushes; the scanner and stage cases live in
+# betterleaks before it pushes; the scanner and stage cases live in
 # crates/north-landing/src/landing/denylist_publication_tests.rs and safe_push_guards_tests.rs.
 fixture_denylist="$scratch/denylist.toml"
 cat >"$fixture_denylist" <<'TOML'
@@ -1147,13 +1147,13 @@ description = "fake host named in a skill"
 regex = '''quokka-host-42'''
 path = '''^harness/skills/'''
 TOML
-real_gitleaks="$(command -v gitleaks)"
+real_betterleaks="$(command -v betterleaks)"
 gh_bin="$scratch/gh-bin"
 mkdir -p "$gh_bin"
 ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$gh_bin/gh"
 run_denylist_case() {
   PATH="$gh_bin:$PATH" SAFE_PUSH_TEST_VISIBILITY="$1" \
-    SAFE_PUSH_TEST_REAL_GITLEAKS="$real_gitleaks" run_real_case "${@:2}"
+    SAFE_PUSH_TEST_REAL_BETTERLEAKS="$real_betterleaks" run_real_case "${@:2}"
 }
 
 make_real_fixture denylist-public-finding
@@ -1996,7 +1996,7 @@ grep -q "^check .*--candidate $train_main --tree $train_tree .*--batch-size 3 --
 missing_north_bin="$scratch/train-missing-north-bin"
 mkdir -p "$missing_north_bin"
 ln -s "$real_git" "$missing_north_bin/git"
-ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$missing_north_bin/gitleaks"
+ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$missing_north_bin/betterleaks"
 missing_north_path="$missing_north_bin:/run/current-system/sw/bin:/usr/bin:/bin"
 ! PATH="$missing_north_path" command -v north >/dev/null || fail 'train missing north fixture contains north'
 for language_failure in denied missing; do

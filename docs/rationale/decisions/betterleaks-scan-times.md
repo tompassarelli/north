@@ -1,0 +1,29 @@
+# Betterleaks against gitleaks: measured scan times
+
+Measurements behind north#642 (see [betterleaks.md](../betterleaks.md)), taken on the laptop on 2026-11-06 with gitleaks 8.30.1 on its default config and betterleaks 1.10.0 on north's own config.
+
+Median of 3 to 9 runs.
+
+Range scan of `origin/main~N..origin/main` (gitleaks 8.30.1 with its default config; betterleaks 1.10.0 with the config above):
+
+| repository | commits | gitleaks | betterleaks |
+|---|---|---|---|
+| north | 3 | 44 ms | 21 ms |
+| north | 40 | 114 ms | 92 ms |
+| nixos-config | 3 | 49 ms | 20 ms |
+| nixos-config | 40 | 82 ms | 34 ms |
+| south | 3 | 53 ms | 17 ms |
+| south | 40 | 55 ms | 26 ms |
+
+Full history of `origin/main`:
+
+| repository | commits | gitleaks | betterleaks |
+|---|---|---|---|
+| south | 675 | 967 ms | 205 ms |
+| nixos-config | 2632 | 2090 ms | 1347 ms |
+| north | 4581 | 16346 ms | 6858 ms |
+
+Why not nixpkgs' 1.3.1: on the same ranges it took 104 to 160 ms for 3 commits (gitleaks 31 to 51 ms), because it loads the WebAssembly regex engine and a tokenizer before scanning, and spends 90 ms at start even for an empty range. 1.10.0 starts in 18 ms.
+
+Full history of makgora (7789 commits, 21 s) reports two findings, both TLS test keys in the first import of the vendored Effect packages (commit 66c1182e); the other repositories report none.
+

@@ -48,16 +48,6 @@ export function effectDiagnostics(output) {
   return [...new Set(output.split("\n").filter((line) => EFFECT_DIAGNOSTIC.test(line)).map((line) => line.trim()))];
 }
 
-export function gitleaksAllowlist(prefix) {
-  return `# Vendored upstream Effect source at the commit pinned in ${prefix}.json; its fixtures and docs carry dummy keys.
-[extend]
-useDefault = true
-
-[allowlist]
-paths = ['''^${prefix}/''']
-`;
-}
-
 export function hostToolViolations(ts, file, source) {
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const importsEffect = IMPORTS_EFFECT.test(source);
@@ -183,12 +173,8 @@ function init(root) {
     for (const flag of EXIT_FLAGS) plugin[flag] = false;
     writeJson(tsconfigPath, tsconfig);
   }
-  const gitleaks = join(root, ".gitleaks.toml");
-  if (!existsSync(gitleaks)) writeFileSync(gitleaks, gitleaksAllowlist(config.vendor));
-  else if (!readFileSync(gitleaks, "utf8").includes(`^${config.vendor}/`))
-    console.error(`effect-kit: allowlist ^${config.vendor}/ in .gitleaks.toml so secret scans skip upstream fixtures`);
   const commit = vendor(root, config.vendor, version);
-  console.log(`effect-kit: vendored effect@${version} (${commit.slice(0, 12)}) at ${config.vendor}; review and commit ${CONFIG}, .gitleaks.toml, ${relative(root, tsconfigPath)} and ${config.vendor}`);
+  console.log(`effect-kit: vendored effect@${version} (${commit.slice(0, 12)}) at ${config.vendor}; review and commit ${CONFIG}, ${relative(root, tsconfigPath)} and ${config.vendor}`);
 }
 
 export function newerVersion(current, candidate) {

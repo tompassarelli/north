@@ -61,7 +61,7 @@ fn push(rest: &[String], safe_push: bool) -> Result<(), String> {
         );
     }
     if !safe_push && !rest.iter().any(|s| s == "--delete" || s.starts_with(':')) {
-        return Err("raw 'git push' — house policy: use safe-push (gitleaks-scans the outgoing commits, then pushes)".into());
+        return Err("raw 'git push' — house policy: use safe-push (betterleaks-scans the outgoing commits, then pushes)".into());
     }
     Ok(())
 }

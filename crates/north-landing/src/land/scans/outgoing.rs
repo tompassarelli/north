@@ -1,14 +1,14 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
+use crate::platform::betterleaks;
 use crate::landing::safe_push_guards::{self as guards, Denylist};
 use crate::landing::safe_push_state::{Refused, Step, git_read};
 
-const GITLEAKS_MISSING: &str = "safe-push: gitleaks not on PATH — refusing to publish the land check branch without a secret scan; NOT pushed.";
+const BETTERLEAKS_MISSING: &str = "safe-push: betterleaks not on PATH — refusing to publish the land check branch without a secret scan; NOT pushed.";
 const SECRET_FOUND: &str = "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed.";
 
 pub fn secrets(dir: &Path, range: &str) -> Step {
-    guards::exit_status(Command::new("gitleaks").current_dir(dir).args(["detect", "--no-banner", "--redact", &format!("--log-opts={range}")]).status())
+    guards::exit_status(betterleaks::command("betterleaks").current_dir(dir).args(betterleaks::history_args(range)).status())
 }
 
 fn origin_url(dir: &Path) -> Step<String> {
@@ -26,8 +26,8 @@ pub fn denylist(dir: &Path, base: &str, head: &str, reference: &str) -> Step {
 
 pub fn publication(dir: &Path, base: &str, head: &str) -> Step {
     let origin = origin_url(dir)?;
-    if !guards::on_path("gitleaks") {
-        eprintln!("{GITLEAKS_MISSING}");
+    if !guards::on_path("betterleaks") {
+        eprintln!("{BETTERLEAKS_MISSING}");
         return Err(Refused(1));
     }
     let range = if base.is_empty() { head.to_owned() } else { format!("{base}..{head}") };
@@ -40,10 +40,10 @@ pub fn publication(dir: &Path, base: &str, head: &str) -> Step {
 }
 
 pub fn enqueue_gate(root: &Path, base: &str, denylist: &Denylist, origin: &str, destination: &str) -> Result<(), String> {
-    if guards::on_path("gitleaks") {
+    if guards::on_path("betterleaks") {
         secrets(root, &format!("{base}..HEAD")).map_err(|_| "secret scan refused the landing".to_owned())?;
     } else {
-        println!("safe-push: ⚠ gitleaks is not on PATH here, so this lane was not scanned for secrets before queueing; the lander's scan stays the gate.");
+        println!("safe-push: ⚠ betterleaks is not on PATH here, so this lane was not scanned for secrets before queueing; the lander's scan stays the gate.");
     }
     denylist.scan(root, origin, base, "HEAD", destination).map_err(|_| "deny-list scan refused the landing".to_owned())
 }

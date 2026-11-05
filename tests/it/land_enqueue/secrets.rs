@@ -35,7 +35,7 @@ fn enqueue_refuses_a_lane_a_secret_scan_flags_and_writes_no_ticket() {
     fixture.commit(&fixture.repo, "a.txt", "Add a");
     let stub = fixture.root.join("stub-bin");
     fs::create_dir_all(&stub).unwrap();
-    north_core::foundation::shim::write_executable(&stub.join("gitleaks"), "#!/bin/sh\nexit 1\n");
+    north_core::foundation::shim::write_executable(&stub.join("betterleaks"), "#!/bin/sh\nexit 1\n");
     let path = PathBuf::from(format!("{}:{}", stub.display(), std::env::var("PATH").unwrap_or_default()));
     let (output, _) = north_enqueue_with(&fixture, &[("PATH", &path)]);
     assert!(!output.status.success());

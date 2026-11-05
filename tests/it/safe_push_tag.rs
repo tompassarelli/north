@@ -106,7 +106,7 @@ fn shims(copy: &Path, case: &Case) -> PathBuf {
     symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
     shim::write_script(&bin.join("gh"), &format!("printf '%s\\n' {}\n", case.visibility));
     if case.cancel == Some("scan") {
-        shim::write_script(&bin.join("gitleaks"), "kill -TERM $PPID\nsleep 1\n");
+        shim::write_script(&bin.join("betterleaks"), "kill -TERM $PPID\nsleep 1\n");
     }
     if case.cancel == Some("push") {
         let hook = copy.join("repo/.git/hooks/pre-push");
@@ -200,7 +200,7 @@ fn run(copy: &Path, program: &[&str], case: &Case) -> Observed {
     let output = output_unless_stalled(&mut command, STALL_LIMIT);
     let root = copy.to_string_lossy().into_owned();
     let normal = |bytes: &[u8]| String::from_utf8_lossy(bytes).replace(&root, "FIXTURE");
-    let stderr = normal(&output.stderr).lines().filter(|line| !gitleaks_log(line)).map(|line| format!("{line}\n")).collect();
+    let stderr = normal(&output.stderr).lines().filter(|line| !betterleaks_log(line)).map(|line| format!("{line}\n")).collect();
     Observed {
         status: output.status.code().unwrap(),
         stdout: normal(&output.stdout),
@@ -210,7 +210,7 @@ fn run(copy: &Path, program: &[&str], case: &Case) -> Observed {
     }
 }
 
-fn gitleaks_log(line: &str) -> bool {
+fn betterleaks_log(line: &str) -> bool {
     let line = &plain(line);
     [" INF ", " WRN ", " ERR "].iter().any(|level| line.contains(level))
         && line.split(' ').next().is_some_and(|clock| clock.ends_with("AM") || clock.ends_with("PM") || clock.contains(':'))

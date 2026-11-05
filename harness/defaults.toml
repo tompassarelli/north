@@ -751,7 +751,7 @@ consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 [slice_weight_app_attended]
 value = 1000
 unit = "CPUWeight and IOWeight of Tom's desktop slice (app.slice, his browser and game) while the profile is attended"
-source = "prior: game-reserve.slice's weight of 1000 (crates/north-capacity/src/capacity/game_reserve.rs); the reason is that on 2026-10-31 unleased agent bursts (gitleaks at 400%, pre-push bun at 200%, rustc at 300%) held CPU pressure at 17 to 18% for 5 minutes and slowed Tom's browser while app.slice and agent.slice both stood at weight 100 by a stale runtime drop-in from 2026-10-29"
+source = "prior: game-reserve.slice's weight of 1000 (crates/north-capacity/src/capacity/game_reserve.rs); the reason is that on 2026-10-31 unleased agent bursts (betterleaks at 400%, pre-push bun at 200%, rustc at 300%) held CPU pressure at 17 to 18% for 5 minutes and slowed Tom's browser while app.slice and agent.slice both stood at weight 100 by a stale runtime drop-in from 2026-10-29"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose desktop CPU pressure can be compared at weight 1000 against the same agent bursts at the old even share" }
 fallback = "an unattended profile applies slice_weight_app_unattended"
 consumers = ["crates/north-capacity-host/src/capacity/host/systemd.rs"]

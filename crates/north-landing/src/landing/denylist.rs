@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
-use crate::platform::gitleaks::{Finding, Scanner};
+use crate::platform::betterleaks::{Finding, Scanner};
 use crate::platform::git as platform_git;
 
 #[path = "denylist_archive.rs"]
@@ -15,7 +15,6 @@ type Staged = BTreeMap<PathBuf, BTreeMap<String, String>>;
 
 const USAGE: &str = "usage: north denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]\n       north denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]";
 const SOUTH_DENYLIST: &str = "origin/main:privacy/public-denylist.toml";
-const IGNORE_FILE: &[u8] = b".gitleaksignore";
 const NON_FILE_MODES: [&str; 2] = ["160000", "040000"];
 
 #[derive(Debug, Eq, PartialEq)]
@@ -45,10 +44,14 @@ struct Blob {
     file: bool,
 }
 
-struct Gitleaks<'a> {
+struct Betterleaks<'a> {
     config: &'a str,
     scratch: &'a Path,
     ignore: PathBuf,
+}
+
+fn is_ignore_file(path: &[u8]) -> bool {
+    path.starts_with(b".") && path.ends_with(b"leaksignore") && !path.contains(&b'/')
 }
 
 fn parse(args: &[String]) -> Option<Request> {
@@ -209,7 +212,7 @@ fn locate<'a>(segments: &'a [Segment], starts: &[usize], line: usize) -> Option<
     Some(segments[index].label.as_str())
 }
 
-impl Gitleaks<'_> {
+impl Betterleaks<'_> {
     fn stage(&self, index: usize, staged: &mut Staged, path: &[u8], id: &str, depth: usize, content: &[u8]) -> Result<(), String> {
         let raw = self.scratch.join(format!("layer-{index}-{depth}-raw"));
         let text = self.scratch.join(format!("layer-{index}-{depth}-text"));
@@ -225,7 +228,7 @@ impl Gitleaks<'_> {
 
     fn scan_layer(&self, index: usize, layer: &[&Blob], root: &Path) -> Result<Vec<String>, String> {
         let (mut staged, mut names) = (Staged::new(), Vec::new());
-        for blob in layer.iter().filter(|blob| blob.path != IGNORE_FILE) {
+        for blob in layer.iter().filter(|blob| !is_ignore_file(&blob.path)) {
             let content = git_bytes(root, &["cat-file", "blob", &blob.oid])?;
             let mut members = Vec::new();
             Unpacker::new(archive::DEPTH_CAP, archive::BYTE_CAP).members(&blob.path, &content, 0, &mut members)?;
@@ -264,7 +267,7 @@ impl Gitleaks<'_> {
             .into_iter()
             .map(|f| {
                 let line = f.line.saturating_sub(1);
-                let place = locate(segments, &starts, line).ok_or("a gitleaks finding is outside the scanned text")?;
+                let place = locate(segments, &starts, line).ok_or("a betterleaks finding is outside the scanned text")?;
                 Ok(format!("{} in {place}", f.rule))
             })
             .collect()
@@ -290,8 +293,8 @@ fn text_segments(root: &Path, request: &Request, commits: &[String], blobs: &BTr
     segments.extend(request.ref_name.iter().flat_map(|name| ref_segments(root, name)));
     let names: BTreeSet<String> = blobs.iter().map(|blob| String::from_utf8_lossy(&blob.path).into_owned()).collect();
     segments.push(Segment { label: "file names".into(), text: names.into_iter().collect::<Vec<_>>().join("\n") });
-    for blob in blobs.iter().filter(|blob| blob.file && blob.path == IGNORE_FILE) {
-        segments.push(Segment { label: ".gitleaksignore".into(), text: text(&git_bytes(root, &["cat-file", "blob", &blob.oid])?) });
+    for blob in blobs.iter().filter(|blob| blob.file && is_ignore_file(&blob.path)) {
+        segments.push(Segment { label: String::from_utf8_lossy(&blob.path).into_owned(), text: text(&git_bytes(root, &["cat-file", "blob", &blob.oid])?) });
     }
     Ok(segments)
 }
@@ -342,11 +345,11 @@ fn scan(root: &Path, request: &Request) -> Result<BTreeSet<String>, String> {
     std::fs::create_dir_all(&work)
         .and_then(|()| std::fs::write(&ignore, ""))
         .map_err(|e| format!("cannot prepare the scan: {e}"))?;
-    let gitleaks = Gitleaks { config: &config, scratch: &work, ignore };
-    let mut findings: BTreeSet<String> = gitleaks.scan_text("text", &segments)?.into_iter().collect();
+    let betterleaks = Betterleaks { config: &config, scratch: &work, ignore };
+    let mut findings: BTreeSet<String> = betterleaks.scan_text("text", &segments)?.into_iter().collect();
     let files: BTreeSet<Blob> = blobs.into_iter().filter(|blob| blob.file).collect();
     for (index, layer) in layers(&files).iter().enumerate() {
-        findings.extend(gitleaks.scan_layer(index, layer, root)?);
+        findings.extend(betterleaks.scan_layer(index, layer, root)?);
     }
     Ok(findings)
 }

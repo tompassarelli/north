@@ -101,9 +101,14 @@ fn denylist_publication_scan_names_private_values_in_content_messages_and_refs()
     assert_eq!(branch.findings(Some("claude/record-owner")), BTreeSet::new());
 
     let ignored = Publication::new();
-    ignored.write(".gitleaksignore", b"identity.txt:fake-private-term:1\n");
+    ignored.write(".betterleaksignore", b"identity.txt:fake-private-term:1\n");
     ignored.commit("identity.txt", "owner: zebra-quokka-7731\n", "add identity");
     assert_eq!(ignored.findings(None), set(&["fake-private-term in identity.txt"]));
+
+    let former = Publication::new();
+    former.write(concat!(".git", "leaksignore"), b"identity.txt:fake-private-term:1\n");
+    former.commit("identity.txt", "owner: zebra-quokka-7731\n", "add identity");
+    assert_eq!(former.findings(None), set(&["fake-private-term in identity.txt"]));
 }
 
 #[test]

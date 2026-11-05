@@ -170,7 +170,7 @@ lanes" entries in [features.md](features.md#landing-and-lanes) describe each gat
    `north land-actions`; machine-bound checks run on the `land.runner` build host; and a host in
    game-reserve ships the lane to another host with room (`north capacity offload`);
 
-4. refuses the push unless every gate passes, among them a gitleaks secret scan, the dependency
+4. refuses the push unless every gate passes, among them a betterleaks secret scan, the dependency
    gate (`north land scan dep-gate`), the stale-revert gate (`north stale-revert`), the bin-reference gate
    (`north bin-references`) and the CI time budgets in `.safe-push`; it never force-pushes;
 

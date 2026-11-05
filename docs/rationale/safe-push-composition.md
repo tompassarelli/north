@@ -189,7 +189,7 @@ passed in, so tests are properties over the pure functions plus recorded scenari
   scan" rule. It uses `shell` and `report`.
 - `gates/`: which pre-publication gates apply, running them, and the one collected verdict.
   - `plan.rs`: `plan(&GateFacts) -> Vec<Gate>` from land checks present, destination, dry run,
-    gitleaks on PATH and origin visibility. Pure.
+    betterleaks on PATH and origin visibility. Pure.
   - `verdict.rs`: `verdict(&[(Gate, Outcome)]) -> Result<(), Refusal>` gives the "N blocking check(s)
     failed: a; b" line. `reuse(&Scanned, &Now) -> bool` reuses the background scans only when head,
     destination and range are unchanged. Pure.

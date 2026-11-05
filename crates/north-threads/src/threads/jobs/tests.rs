@@ -105,7 +105,7 @@ fn a_secret_in_a_result_is_never_posted_and_native_items_are_hidden_from_callers
     rig.out("queue add laptop life#1 -- true");
     rig.out("queue take laptop");
     let (code, _, err) = rig.run(&format!("queue msg {id} done token ghp_x"));
-    assert_eq!((code, err.as_str()), (1, "NorthThreads: gitleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored\n"));
+    assert_eq!((code, err.as_str()), (1, "NorthThreads: betterleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored\n"));
     assert!(rig.outside.calls.borrow().is_empty());
     rig.no_native = Some("THREADS_NO_NATIVE is set (agy)");
     assert!(rig.out("queue").lines().nth(2).unwrap().starts_with("2   laptop     native  queued"), "{}", rig.out("queue"));

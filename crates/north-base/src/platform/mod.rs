@@ -4,7 +4,7 @@ pub mod run_roles;
 pub mod repo_names;
 pub mod git;
 pub mod land_queue;
-pub mod gitleaks;
+pub mod betterleaks;
 pub mod harness;
 pub mod wisp_payoff;
 pub mod frozen_topics;

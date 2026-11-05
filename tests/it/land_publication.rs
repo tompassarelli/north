@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-const GITLEAKS: &str = r#"#!/bin/sh
-printf '%s\n' "$*" >>"$FIXTURE/gitleaks.trace"
+const BETTERLEAKS: &str = r#"#!/bin/sh
+printf '%s\n' "$*" >>"$FIXTURE/betterleaks.trace"
 if [ -n "${RACE:-}" ] && [ ! -e "$FIXTURE/raced" ]; then
   case "$RACE" in
     branch) git -C "$FIXTURE/repo" switch -q -c raced-branch ;;
@@ -63,7 +63,7 @@ impl Fixture {
         let destination_oid = fixture.git_at(&other, &["rev-parse", "HEAD"]);
         let bin = top.join("bin");
         fs::create_dir_all(&bin).unwrap();
-        shim::write_executable(&bin.join("gitleaks"), GITLEAKS);
+        shim::write_executable(&bin.join("betterleaks"), BETTERLEAKS);
         shim::write_executable(&bin.join("gh"), "#!/bin/sh\necho PUBLIC\n");
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
         Self { destination_oid, base_oid, ..fixture }
@@ -103,7 +103,7 @@ impl Fixture {
     }
 
     fn scanned(&self) -> String {
-        fs::read_to_string(self.top().join("gitleaks.trace")).unwrap_or_default()
+        fs::read_to_string(self.top().join("betterleaks.trace")).unwrap_or_default()
     }
 
     fn command(&self, program: &[&str], environment: &[(&str, &str)]) -> Command {
@@ -176,7 +176,7 @@ fn non_fast_forward() {
     assert_ne!(run.status, 0, "{}", run.output);
     assert!(run.output.contains("non-fast-forward"), "{}", run.output);
     assert_eq!(fixture.remote(), before, "the non-fast-forward refusal mutated origin");
-    assert_eq!(fixture.scanned(), "", "the non-fast-forward refusal reached gitleaks");
+    assert_eq!(fixture.scanned(), "", "the non-fast-forward refusal reached betterleaks");
 }
 
 impl Fixture {

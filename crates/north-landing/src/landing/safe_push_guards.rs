@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::denylist;
+use crate::platform::betterleaks;
 use crate::watch::facts::slug_of;
 use super::safe_push_state::{Refused, Step, cancelled, exit_code, git_quiet, git_read, refuse};
 
@@ -66,10 +67,9 @@ pub fn native_ref_scan(dir: &Path, names: &[&str], revisions: &[String]) -> Step
 }
 
 pub fn history_secret_scan(dir: &Path, revisions: &[String]) -> Step {
-    let log_opts = format!("--log-opts={}", revisions.join(" "));
-    let clean = Command::new("gitleaks")
+    let clean = betterleaks::command("betterleaks")
         .current_dir(dir)
-        .args(["detect", "--no-banner", "--redact", &log_opts])
+        .args(betterleaks::history_args(&revisions.join(" ")))
         .status()
         .is_ok_and(|status| status.success());
     if clean { Ok(()) } else { Err(refuse("safe-push: ✗ SECRET DETECTED in tag commit history — fix it; NOT pushed.")) }
@@ -78,23 +78,14 @@ pub fn history_secret_scan(dir: &Path, revisions: &[String]) -> Step {
 pub fn annotation_secret_scan(dir: &Path, annotation: &[u8]) -> Step {
     let scratch = tempfile::tempdir().map_err(|_| Refused(1))?;
     std::fs::write(scratch.path().join("tag-object.txt"), annotation).map_err(|_| Refused(1))?;
-    let source = scratch.path().to_string_lossy();
-    let quiet = |args: &[&str]| {
-        Command::new("gitleaks")
-            .current_dir(dir)
-            .args(args)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    };
-    // gitleaks CLI drift: 8.19+ uses `dir`, older uses `detect --no-git --source`.
-    if quiet(&["dir", &source, "--no-banner", "--redact"])
-        || quiet(&["detect", "--no-git", "--source", &source, "--no-banner", "--redact"])
-    {
-        return Ok(());
-    }
-    Err(refuse("safe-push: ✗ SECRET DETECTED in tag annotation — fix it; NOT pushed."))
+    let clean = betterleaks::command("betterleaks")
+        .current_dir(dir)
+        .args(betterleaks::directory_args(scratch.path()))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if clean { Ok(()) } else { Err(refuse("safe-push: ✗ SECRET DETECTED in tag annotation — fix it; NOT pushed.")) }
 }
 
 pub fn commit_email_scan(dir: &Path, revisions: &[String]) -> Step {

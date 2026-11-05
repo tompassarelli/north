@@ -53,7 +53,7 @@ impl Rig {
         for link in [tools.join("north"), runtime.join("north")] {
             std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), link).unwrap();
         }
-        shim::write_script(&tools.join("gitleaks"), "exit 0\n");
+        shim::write_script(&tools.join("betterleaks"), "exit 0\n");
         shim::write_script(&tools.join("gh"), "case \"$1\" in repo) echo PUBLIC;; issue) echo '[]';; *) exit 1;; esac\n");
         git(&root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
         fs::create_dir_all(&main).unwrap();

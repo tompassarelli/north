@@ -76,7 +76,7 @@ impl Landing {
         git(&repo, &["switch", "-qc", "lane"]);
         executable(&tools.join("ssh"), FAKE_SSH);
         executable(&tools.join("capacity-stub"), CAPACITY_STUB);
-        executable(&tools.join("gitleaks"), "exit 0\n");
+        executable(&tools.join("betterleaks"), "exit 0\n");
         executable(&tools.join("gh"), "case \"$1\" in repo) echo PUBLIC;; run) echo '[]';; *) exit 1;; esac\n");
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), tools.join("north")).unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), root.join("home/.local/state/north/current/north")).unwrap();

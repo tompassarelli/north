@@ -130,8 +130,8 @@ fn publish(directory: &Path, request: &Arguments, to: &str) -> Step<Published> {
     if scan(&["language", "--base", &outgoing.base, "--head", &outgoing.head, "--origin", &outgoing.identity.origin_url, "--safe-push", &safe_push]).is_err() {
         refusals.push("language gate");
     }
-    if !guards::on_path("gitleaks") {
-        return Err(refuse("safe-push: gitleaks not on PATH — refusing to push without a secret scan"));
+    if !guards::on_path("betterleaks") {
+        return Err(refuse("safe-push: betterleaks not on PATH — refusing to push without a secret scan"));
     }
     if refusals.is_empty() && outgoing.base == outgoing.head {
         println!("safe-push: nothing to push ({} already at origin {})", outgoing.head, outgoing.destination_ref);

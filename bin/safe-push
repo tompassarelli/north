@@ -1643,7 +1643,7 @@ stop_final_scans() {
 }
 final_scans_pid="" final_scans_log="" final_scans_head="" final_scans_destination="" final_scans_range="" final_scans_status=0
 final_scans_failures=$(mktemp)
-if has_land_checks && [ "$dry" = 0 ] && [ "$destination_branch" = main ] && command -v gitleaks >/dev/null 2>&1; then
+if has_land_checks && [ "$dry" = 0 ] && [ "$destination_branch" = main ] && command -v betterleaks >/dev/null 2>&1; then
   final_scans_log=$(mktemp)
   final_scans_head="$head_oid" final_scans_destination="${destination_oid:-}" final_scans_range="$scan_range"
   (drop_lock_fd; final_scans) >"$final_scans_log" 2>&1 &
@@ -1681,7 +1681,7 @@ while :; do
   capture_destination_state
 done
 if [ "$destination_branch" = main ] && has_land_checks; then hook_verified=1; fi
-command -v gitleaks >/dev/null 2>&1 || { echo "safe-push: gitleaks not on PATH — refusing to push without a secret scan"; exit 1; }
+command -v betterleaks >/dev/null 2>&1 || { echo "safe-push: betterleaks not on PATH — refusing to push without a secret scan"; exit 1; }
 (refuse_dropped_lane_commits) || refusals+=("lane commits dropped by the rebase")
 [ "$stale_revert_refused" -eq 1 ] || (refuse_stale_revert) || refusals+=("stale revert of newer main")
 if [ "${#refusals[@]}" -eq 0 ] && [ -n "$destination_oid" ] && [ "$destination_oid" = "$head_oid" ]; then

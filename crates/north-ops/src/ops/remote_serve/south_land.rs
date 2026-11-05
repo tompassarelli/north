@@ -8,6 +8,7 @@ use std::process::{Command, Output, Stdio};
 use rustix::fs::{FlockOperation, flock};
 
 use super::south_policy;
+use crate::platform::betterleaks;
 use crate::fleet::attachments::base64;
 
 pub const MAX_PATCH_BYTES: usize = 4 * 1024 * 1024;
@@ -20,7 +21,7 @@ const REMOTE_REF: &str = "refs/remotes/origin/main";
 pub struct Config {
     pub state_dir: PathBuf,
     pub remote: String,
-    pub gitleaks: PathBuf,
+    pub betterleaks: PathBuf,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -79,7 +80,7 @@ pub fn land(config: &Config, environment: &BTreeMap<String, String>, mbox: &[u8]
         return Err(Refusal::TooManyCommits(commits));
     }
     south_policy::check_raw_diff(&session.raw_diff()?).map_err(Refusal::Policy)?;
-    session.scan_secrets(&config.gitleaks)?;
+    session.scan_secrets(&config.betterleaks)?;
     session.push()?;
     Ok(Landed { sha: session.head()? })
 }
@@ -210,12 +211,13 @@ impl<'a> Session<'a> {
         Ok(self.git_ok("diff", &["diff", "--raw", "--no-renames", "-z", &range], false)?.stdout)
     }
 
-    fn scan_secrets(&self, gitleaks: &Path) -> Result<(), Refusal> {
+    fn scan_secrets(&self, betterleaks: &Path) -> Result<(), Refusal> {
         let range = format!("{REMOTE_REF}..HEAD");
         let output = self
-            .command(gitleaks, false)
+            .command(betterleaks, false)
             .current_dir(&self.clone)
-            .args(["detect", "--source", ".", "--log-opts", &range, "--redact", "--no-banner"])
+            .env(betterleaks::CONFIG_ENV, betterleaks::SECRET_CONFIG)
+            .args(betterleaks::history_args(&range))
             .output()
             .map_err(|error| Refusal::Secrets(error.to_string()))?;
         if output.status.success() {

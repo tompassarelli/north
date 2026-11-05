@@ -1,13 +1,14 @@
-//! The ledger's outside effects: gitleaks before text is stored or posted, gh, the fleet's live
+//! The ledger's outside effects: betterleaks before text is stored or posted, gh, the fleet's live
 //! sessions and the archive tags naming an issue.
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 
 use serde_json::Value;
 
+use crate::platform::betterleaks;
 use super::claims::Issue;
 use super::claims::issues::{GitHub, Issues};
 
@@ -61,7 +62,7 @@ impl Issues for Live {
 
 impl super::verb::Outside for Live {
     fn scan(&self, text: &str) -> Result<(), String> {
-        gitleaks_clean(text)
+        betterleaks_clean(text)
     }
 
     fn gh(&self, args: &[String]) -> Result<String, String> {
@@ -104,13 +105,13 @@ impl super::verb::Outside for Live {
     }
 }
 
-pub fn gitleaks_clean(text: &str) -> Result<(), String> {
-    let mut command = Command::new("gitleaks");
-    command.args(["stdin", "--no-banner", "--redact", "-l", "error"]).current_dir("/").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+pub fn betterleaks_clean(text: &str) -> Result<(), String> {
+    let mut command = betterleaks::command("betterleaks");
+    command.args(betterleaks::stdin_args()).current_dir("/").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Err("gitleaks is not on PATH; items are scanned for secrets before they are stored".into());
+            return Err("betterleaks is not on PATH; items are scanned for secrets before they are stored".into());
         }
         Err(error) => return Err(error.to_string()),
     };
@@ -122,7 +123,7 @@ pub fn gitleaks_clean(text: &str) -> Result<(), String> {
     }
     let output = child.wait_with_output().map_err(|error| error.to_string())?;
     if !output.status.success() {
-        return Err("gitleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored".into());
+        return Err("betterleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored".into());
     }
     Ok(())
 }

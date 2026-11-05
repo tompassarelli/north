@@ -601,7 +601,7 @@ fn agent_event_checks(argv: &[String]) -> Result<(), String> {
         found
     };
     if let Some(body) = option("--body") {
-        outside::gitleaks_clean(&body)?;
+        outside::betterleaks_clean(&body)?;
     }
     if option("--key").is_some_and(|key| key.trim().is_empty()) {
         return Err("key must be nonempty text".into());

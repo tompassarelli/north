@@ -35,7 +35,7 @@ impl Fixture {
         fixture.git(&["commit", "--allow-empty", "-qm", "outgoing"]);
         let bin = top.join("bin");
         fs::create_dir_all(&bin).unwrap();
-        shim::write_executable(&bin.join("gitleaks"), "#!/bin/sh\nexit 0\n");
+        shim::write_executable(&bin.join("betterleaks"), "#!/bin/sh\nexit 0\n");
         shim::write_executable(&bin.join("north"), NORTH);
         fixture
     }

@@ -37,7 +37,7 @@ impl Issues for Recorded {
 impl Outside for Recorded {
     fn scan(&self, text: &str) -> Result<(), String> {
         match self.secret {
-            Some(secret) if text.contains(secret) => Err("gitleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored".into()),
+            Some(secret) if text.contains(secret) => Err("betterleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored".into()),
             _ => Ok(()),
         }
     }

@@ -76,8 +76,8 @@ pub fn publish_tag(request: &TagRequest) -> Step<Scanned> {
         return Err(refuse(format!("safe-push: tag '{}' is not annotated — refusing", request.tag)));
     }
     let target = git_read(&dir, &["rev-list", "-n1", &tag_oid])?;
-    if !guards::on_path("gitleaks") {
-        return Err(refuse("safe-push: gitleaks not on PATH — refusing to push without a secret scan"));
+    if !guards::on_path("betterleaks") {
+        return Err(refuse("safe-push: betterleaks not on PATH — refusing to push without a secret scan"));
     }
     cancelled()?;
     Ok(match scan_and_push(&dir, &identity, request, &tag_oid, &target, &claims.list) {

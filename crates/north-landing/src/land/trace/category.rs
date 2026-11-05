@@ -73,7 +73,7 @@ impl Category {
             Category::Compile
         } else if has("docs ") || has("-index") || has("citation") {
             Category::Docs
-        } else if has("gitleaks") || has("scan") || has("denylist") {
+        } else if has("betterleaks") || has("scan") || has("denylist") {
             Category::Scans
         } else {
             Category::Check

@@ -399,7 +399,7 @@ the lander makes unnecessary instead of porting them. Planned at origin/main 602
   of the target (`sync_dependencies`, `tool_removal_scan`).
 - Already Rust, in crates/north-landing/src/landing/ (914 lines): arguments, help text, destination
   snapshot, publication plan and one-branch-main (safe_push_plan.rs); repository state and remote
-  snapshot (safe_push_state.rs); language gate, native-ref, gitleaks history and annotation scans,
+  snapshot (safe_push_state.rs); language gate, native-ref, betterleaks history and annotation scans,
   email scan, deny-list and instruction limits (safe_push_guards.rs); and the whole tag path
   (`north safe-push --tag`, safe_push_tag.rs). bash calls about 20 `north` subcommands: land-actions,
   land-red-check, land-red-wait, land-clean, stale-revert, lane-squash, dep-gate, denylist,
@@ -542,7 +542,7 @@ Rust modules live in crates/north-landing/src/land/ (new, beside landing/).
 | Land checks offloaded to gex45 (`north capacity offload`) | slots/runner.rs, placement rules in slots/select.rs | S6b |
 | Candidate check mode (`safe-push --check-candidate --base SHA`) | checks.rs calls it; deleted in S19b when every stage is in-process | S2a, S19b |
 | Language, build-cache and bin-reference gates (~1062-1096) | scans/language.rs on safe_push_guards::language_gate | S12 |
-| gitleaks, deny-list, commit email, native-ref (~441-535, 2312-2330) | scans/secrets.rs on safe_push_guards, denylist.rs | S13 |
+| betterleaks, deny-list, commit email, native-ref (~441-535, 2312-2330) | scans/secrets.rs on safe_push_guards, denylist.rs | S13 |
 | Dependency gate (`north dep-gate`) | scans/dep_gate.rs on dep_gate.rs, in-process | S14 |
 | Tool removal, test integrity, vendored trees (~536-606) | scans/tool_removal.rs, scans/test_integrity.rs | S14 |
 | Policy sweep (`policy_sweep_scan`); the review gate and durable paths were retired in 58df15b56 (2026-11-04) | scans/policy.rs | S15 |
@@ -566,7 +566,7 @@ suite until S20 ports it to `cargo test --test it land_`, under the same name.
 | Guarantee | Today's cases | After the port |
 |---|---|---|
 | Nothing lands unless every blocking gate passes; every failure is named once | all-at-once, language-gate-boundary, language-<mode>, dep-gate, denylist-public-finding, email-to-main, native-ref, test-integrity, vendored-tree, mutant-record, tool-removal, policy-sweep, generated-rewrite | per-lane, plus lander test `serve-gate-refusal` (a candidate whose check refuses is not pushed, and the lane is told which gates refused) |
-| Fail closed without north or gitleaks, or when origin can't be fetched | language-initial, train-language-<mode>, unreachable-fetch | per-lane, plus `serve-no-gitleaks` |
+| Fail closed without north or betterleaks, or when origin can't be fetched | language-initial, train-language-<mode>, unreachable-fetch | per-lane, plus `serve-no-betterleaks` |
 | The pushed object is the one scanned; any change to repository, branch, HEAD, worktree or destination during the scan refuses | race-branch, race-commit, race-destination, race-worktree, lease-boundary | per-lane; the lander pushes the candidate sha it checked, pinned by `serve-pushes-checked-tree` and `serve-candidate-head-unchanged` (the lander worktree's HEAD or gitdir moved during the check: nothing pushed) |
 | No non-fast-forward, no silent publication of a non-main branch, symbolic destinations refused | non-fast-forward, no-upstream, inherited-upstream, symbolic-destination, normal, planning-outcomes, new-destination, explicit-main, dry-run-destination, argument-boundary | per-lane, then S19a's push.rs under the same names |
 | Landings on one origin are ordered, red-fix lanes first | concurrent, queued, main-red-marker, red-fix, deferred-capacity | `serve-train`, `serve-red-fix-first`, `serve-reenqueue-replaces`, `serve-defer` (a capacity DEFER retries the same candidate and ejects no lane) |
@@ -862,7 +862,7 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   `run_bin_reference_gate`). Cases language-gate-boundary, language-<mode>, language-initial,
   train-language-<mode>, train-captured-candidate.
 - **S13 Secrets, deny-list, email, native-ref** (`denylist_scan`, `commit_email_scan`,
-  `native_ref_scan`, `publication_scan`, the gitleaks call). Cases denylist-public-finding,
+  `native_ref_scan`, `publication_scan`, the betterleaks call). Cases denylist-public-finding,
   email-to-main, race-* scan half, native-ref, all-at-once.
 - **S14 Dependency gate, tool removal, test integrity** (`tool_removal_scan`, `vendored_trees`,
   `test_integrity_scan`). Cases dep-gate, tool-removal (including its eval'd block), vendored-tree,

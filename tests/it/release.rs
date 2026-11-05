@@ -50,7 +50,7 @@ impl Fixture {
         std::fs::create_dir_all(root.join("gh-state")).unwrap();
         symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
         shim::write_script(&bin.join("gh"), GH);
-        shim::write_script(&bin.join("gitleaks"), "exit 0\n");
+        shim::write_script(&bin.join("betterleaks"), "exit 0\n");
         Self { scratch }
     }
 

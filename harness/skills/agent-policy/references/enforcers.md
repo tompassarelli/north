@@ -57,7 +57,7 @@ These run for every provider, because every landing goes through `safe-push`.
 | No force or destructive pushes | `safe-push` argument check |
 | Origin carries the default branch only; publish with `--to main` | `enforce_one_branch_main` |
 | Repository AGENTS.md and instruction files stay within their limits | `north after-landing` instruction-limits gate |
-| No secrets in pushed commits | gitleaks secret scan |
+| No secrets in pushed commits | betterleaks secret scan |
 | Private identity values never reach a public repository | `denylist_scan` |
 | Tom-specific facts in a public skill live behind a `south:` pointer | `denylist_scan` (south `privacy/public-denylist.toml` host, account, billing and ID rules; a missing deny-list refuses a public push where south exists) |
 | Author and committer emails match the configured identity | `commit_email_scan` |

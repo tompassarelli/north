@@ -18,7 +18,7 @@ export FOLLOWS_RELEASE_ROOT=$scratch/code
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 : >"$AGENTS_ORCHESTRATION"
 mkdir -p "$scratch/bin" "$SPAWN_CAPACITY_HOME/.local/state/agents"
-printf '#!/usr/bin/env bash\nexit 0\n' >"$scratch/bin/gitleaks"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$scratch/bin/betterleaks"
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"$scratch/gh-calls"\ncat "$scratch/gh-state" 2>/dev/null && exit 0\nexit 1\n' >"$scratch/bin/gh"
 cat >"$scratch/bin/north" <<'SH'
 #!/usr/bin/env bash

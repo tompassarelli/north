@@ -1,6 +1,6 @@
 use super::gh_write;
 use crate::hook::{HookInput, Verdict};
-use crate::platform::gitleaks;
+use crate::platform::betterleaks;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::Command;
@@ -18,7 +18,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     let cwd = input.cwd().map(str::to_owned);
     decide_with(
         input,
-        |text| gitleaks::scan_text(&config, text).unwrap_or_default(),
+        |text| betterleaks::scan_text(&config, text).unwrap_or_default(),
         |repo, dir| is_private(repo, dir.or(cwd.as_deref())),
     )
 }

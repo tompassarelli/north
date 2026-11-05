@@ -36,8 +36,8 @@ impl World {
         Self { root, remote, author, base }
     }
 
-    fn config(&self, gitleaks: &str) -> Config {
-        Config { state_dir: self.root.path().join("state"), remote: self.remote.to_string_lossy().into_owned(), gitleaks: PathBuf::from(gitleaks) }
+    fn config(&self, betterleaks: &str) -> Config {
+        Config { state_dir: self.root.path().join("state"), remote: self.remote.to_string_lossy().into_owned(), betterleaks: PathBuf::from(betterleaks) }
     }
 
     fn credentials(&self) -> PathBuf {

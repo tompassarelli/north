@@ -60,7 +60,7 @@ impl Lane {
         fs::create_dir_all(&runtime).unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), runtime.join("north")).unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), tools.join("north")).unwrap();
-        executable(&tools.join("gitleaks"), "exit 0\n");
+        executable(&tools.join("betterleaks"), "exit 0\n");
         executable(
             &tools.join("gh"),
             "case \"$1\" in repo) echo PUBLIC;; run) cat \"$GH_AUTOLAND_RUNS\" 2>/dev/null || echo '[]';; api) case \"$2\" in */actions/workflows) echo .github/workflows/autoland.yml;; *) cat \"$GH_AUTOLAND_STATUS\";; esac;; *) exit 1;; esac\n",

@@ -294,7 +294,7 @@ impl<'a> State<'a> {
     }
 }
 
-const PUSH_NOTE: &str = "tripwire: rewrote a raw `git push` to the equivalent `safe-push`, which gitleaks-scans the outgoing commits first. Write safe-push directly next time.";
+const PUSH_NOTE: &str = "tripwire: rewrote a raw `git push` to the equivalent `safe-push`, which betterleaks-scans the outgoing commits first. Write safe-push directly next time.";
 
 fn pushed(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Option<crate::platform::pyjson::Value> {
     if input.data["tool_name"] != "Bash" {
