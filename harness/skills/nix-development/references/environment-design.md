@@ -30,6 +30,8 @@ Start from the immediate workflow:
 - `packages.<system>` only when a Nix-built artifact is consumed;
 - `apps.<system>` for an intentional `nix run` interface;
 - `checks.<system>` only for checks that `nix flake check` should own;
+- `formatter.<system>` once the project formats Nix, so `nix fmt` runs the
+  same formatter as its check;
 - `nixosModules`, `darwinModules`, or templates only when the project actually
   exports those interfaces.
 
