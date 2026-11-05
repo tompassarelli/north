@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 
 use regex::bytes::Regex;
 
-use crate::platform::git;
+use north_core::platform::git;
 
 const ALLOWLIST: &str = "config/hardcoded-repo-paths.tsv";
 const ALLOW_MARKER: &[u8] = b"hardcoded-repo-path:allow";

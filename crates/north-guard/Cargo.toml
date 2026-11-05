@@ -6,6 +6,9 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.96"
 publish = false
 
+[lib]
+doctest = false
+
 [dependencies]
 north-base = { path = "../north-base" }
 north-core = { path = "../north-core" }
@@ -17,6 +20,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
+time.workspace = true
 toml_edit.workspace = true
 
 [lints]

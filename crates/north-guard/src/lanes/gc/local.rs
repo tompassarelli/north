@@ -13,7 +13,7 @@ use super::report::Row;
 use super::strays::modified_within;
 use super::state::{LocalStale, Owned};
 use super::super::verdict::{Facts, Verdict, retirement_verdict};
-use crate::foundation::clock::Timestamp;
+use north_core::foundation::clock::Timestamp;
 
 const BASES: [&str; 3] = ["refs/remotes/origin/main", "refs/remotes/origin/HEAD", "refs/heads/main"];
 const HOUR_MS: f64 = 3_600_000.0;

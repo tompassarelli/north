@@ -71,7 +71,7 @@ cold rows were checked as truly cold: `cargo build -v` runs plain `rustc`, no sc
 The verdicts are against the 10 s cap. When this table was first written, under the times-2 rule, north
 read `within (50%)` of an 88 s threshold.
 
-Leaf and hub files (relative to the workspace): north `crates/north-core/src/code_health/source.rs` and
+Leaf and hub files (relative to the workspace): north `crates/north-guard/src/code_health/source.rs` and
 `crates/north-base/src/foundation/mod.rs`; relay `relay-agent/src/wait.rs` and `relay-proto/src/wire.rs`
 (relay-proto is used by the other three crates); window `wisp-window/src/mixer.rs` and
 `wisp-window/src/settings/mod.rs` (49 `crate::settings` uses, the most); controller `src/profile.rs` and
@@ -150,7 +150,7 @@ were measured against the stable baseline: the Cranelift codegen backend and the
 (`-Zthreads=8`). Host gex45, heavy class (6 CPUs, `CARGO_BUILD_JOBS=6`), one worktree at
 origin/main fad7445bd7, `RUSTC_WRAPPER` unset, one `CARGO_TARGET_DIR` per configuration, each warmed by a
 full `cargo build` and `cargo test --no-run` first. Each sample appends `const _: u64 = K;` to
-`crates/north-core/src/code_health/source.rs` and times `cargo build`, then `cargo test --no-run`, with
+`crates/north-guard/src/code_health/source.rs` and times `cargo build`, then `cargo test --no-run`, with
 bash `time` (CPU is user + sys). Pass 1 (7:18-7:30 AM (+07)) ran stable, Cranelift and `-Zthreads=8` in
 a fixed order as load fell from 18.7 to 10.3; pass 2 (7:39-8:00 AM) rotated stable, `-Zthreads=8`,
 both levers and a plain-nightly control so that each took every slot once, at loads of 7.9 to 19.4. No

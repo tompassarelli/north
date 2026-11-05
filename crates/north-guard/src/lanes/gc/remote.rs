@@ -9,7 +9,7 @@ use super::exec::{api, command, git, git_slow, truthy, verified};
 use super::liveness::{open_pull_heads, pending_autoland, tree_is_live};
 use super::state::{LandingPing, RemoteStale};
 use super::super::verdict::{Facts, Verdict, retirement_verdict};
-use crate::foundation::clock::Timestamp;
+use north_core::foundation::clock::Timestamp;
 
 const BASE: &str = "refs/remotes/origin/main";
 const LANDING: &str = "claude/land-";

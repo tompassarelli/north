@@ -33,7 +33,7 @@ commits since the crate split on 2026-10-31).
 - Churn: 85 of 134 commits touch north-core, and only 4 of those touch no module in the
   `fleet`/`ops`/`capacity`/`threads`/`guard`/`providers`/`ledger`/`usage`/`health` cluster (88.8k of 125.9k lines).
 - Tests: 36 files match `rg -l 'from_mode\(0o7|PermissionsExt|set_permissions' tests`. No code calls `set_var` or
-  `remove_var`; `set_current_dir` appears only in `crates/north-core/src/lanes/gc/mod.rs:146`, which no test reaches.
+  `remove_var`; `set_current_dir` appears only in `crates/north-guard/src/lanes/gc/mod.rs:146`, which no test reaches.
   Two static mutexes: `FORK_GATE` (`tests/job_run.rs:21`) and `EXEC` (`tests/capacity_host/mod.rs:12`).
 
 Timed lane build (whiterabbit, origin/main f9aed891e, fresh lane seeded by `north target-seed`, heavy lease of
@@ -232,7 +232,7 @@ moved to `tests/it/*.rs`, `tests/it/main.rs`, `tests/it/support/`, `harness/scri
 `land_test_runner.rs` if they name binaries.
 
 Done when:
-- `! rg -q 'set_current_dir' tests src crates --glob '!crates/north-core/src/lanes/gc/mod.rs'` succeeds.
+- `! rg -q 'set_current_dir' tests src crates --glob '!crates/north-guard/src/lanes/gc/mod.rs'` succeeds.
 - `cargo test --locked --offline --no-run --message-format=json | jq -r 'select(.profile.test) | .executable' | rg -c
   .` prints the same command's origin/main count minus the merged files plus 1, the root-crate unit-test executable
   included in both.
@@ -307,7 +307,7 @@ checkout a second time at `~/code/<project>/sandbox` and builds there, so every 
 path. B1 is superseded.
 
 Result: whiterabbit (24 threads), a fresh north worktree with one blank line appended to
-`crates/north-core/src/lanes/target_seed.rs`, `date +%s.%N` deltas around the whole command, one run per row:
+`crates/north-guard/src/lanes/target_seed.rs`, `date +%s.%N` deltas around the whole command, one run per row:
 
 | Run in the fresh worktree | Seed | Load | Crates compiled | Wall s |
 | --- | --- | --- | --- | --- |

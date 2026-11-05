@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::Gc;
 use super::evidence::{item_ref, named_issues, origin_repo};
 use super::exec::{api, command, git, real, text, truthy, verified};
-use crate::foundation::clock::Timestamp;
+use north_core::foundation::clock::Timestamp;
 
 const RUN_STATUSES: [&str; 5] = ["queued", "in_progress", "waiting", "pending", "requested"];
 

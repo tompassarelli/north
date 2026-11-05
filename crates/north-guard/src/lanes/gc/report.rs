@@ -5,7 +5,7 @@ use super::Gc;
 use super::evidence::{LaneClass, cited_issues};
 use super::exec::{command, git};
 use super::state::Owned;
-use crate::foundation::clock::Timestamp;
+use north_core::foundation::clock::Timestamp;
 
 const DAY_MS: i64 = 86_400_000;
 

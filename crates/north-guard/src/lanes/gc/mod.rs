@@ -20,8 +20,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::live_process::open_paths;
-use crate::foundation::clock::Timestamp;
-use crate::platform::host;
+use north_core::foundation::clock::Timestamp;
+use north_core::platform::host;
 use evidence::{IssueState, origin_repo};
 use liveness::{GithubFacts, Hosts};
 use state::{StaleReport, write_atomically};

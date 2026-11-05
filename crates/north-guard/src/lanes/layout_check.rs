@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::platform::git;
+use north_core::platform::git;
 
 pub(super) const MINIMUM_REPOSITORIES: usize = 5;
 

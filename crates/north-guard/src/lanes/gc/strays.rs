@@ -8,7 +8,7 @@ use super::liveness::{holds_git_dir, worktree_admin};
 use super::local::parse_worktrees;
 use super::super::layout_check::exempt;
 use super::super::live_process::any_inside;
-use crate::foundation::clock::Timestamp;
+use north_core::foundation::clock::Timestamp;
 
 const HOUR_MS: f64 = 3_600_000.0;
 

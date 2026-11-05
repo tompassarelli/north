@@ -8,7 +8,7 @@ use super::evidence::refs_on;
 use super::exec::{command, git, git_slow, git_with, real, verified, LIMIT};
 use super::super::live_process::{any_inside, open_paths};
 use super::state::{mirror_path, restore_command};
-use crate::foundation::clock::Timestamp;
+use north_core::foundation::clock::Timestamp;
 
 const ZERO: &str = "0000000000000000000000000000000000000000";
 const NOTED_REPOS: [&str; 4] = ["life", "accounts", "travel", "ops"];

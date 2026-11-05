@@ -37,7 +37,7 @@ may_use = ["north-dispatch", "north-providers"]
 
 [[crate_dag.crate]]
 name = "north-capacity-host"
-paths = ["crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**", "crates/north-capacity-host/src/**"]
+paths = ["crates/north-capacity-host/src/**", "crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**"]
 may_use = ["north-capacity", "north-fleet", "north-threads"]
 
 [[crate_dag.crate]]
@@ -185,13 +185,13 @@ may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "capacity"
-paths = ["crates/north-core/src/capacity/**", "crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs"]
+paths = ["crates/north-capacity-host/src/lib.rs", "crates/north-core/src/capacity/**", "crates/north-capacity-host/src/capacity/**"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
 may_use = ["shell", "platform", "foundation", "crate-roots", "fleet", "threads"]
 
 [[module]]
 name = "lanes"
-paths = ["crates/north-core/src/lanes/**"]
+paths = ["crates/north-guard/src/lanes/**"]
 responsibility = "Worktree and pin lifecycle: reap, rescue, gc, layout checks."
 may_use = ["threads", "platform", "foundation", "crate-roots"]
 
@@ -209,7 +209,7 @@ may_use = ["domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "code_health"
-paths = ["crates/north-core/src/code_health/**"]
+paths = ["crates/north-guard/src/code_health/**"]
 responsibility = "Import resolution for the code-health report, gate and edit check; the Rust habit checks; the hourly review tick."
 may_use = ["platform", "foundation", "crate-roots"]
 
@@ -329,7 +329,7 @@ path = "crates/north-guard/src/guard/clipboard.rs"
 
 [[build_time]]
 workspace = "."
-leaf = "crates/north-core/src/code_health/source.rs"
+leaf = "crates/north-guard/src/code_health/source.rs"
 hub = "crates/north-base/src/foundation/mod.rs"
 test_no_run_seconds = 10
 contention_ceiling = 0.5
