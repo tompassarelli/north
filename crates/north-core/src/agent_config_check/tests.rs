@@ -12,6 +12,7 @@ use super::gate::{Gate, Mode, hex};
 use super::roots::Roots;
 use super::rules::rule_register;
 use super::tree::tree_policy;
+use super::programs::skill_programs;
 use super::vocabulary::harness_vocabulary;
 
 const FULL: &str = r#"{"force-push": [3, 3], "other": [3, 3]}"#;
@@ -551,4 +552,66 @@ fn tree_policy_refuses_a_skill_with_paths_frontmatter_because_file_skill_loads_l
     let verdicts = tree_policy(tree.path());
     assert!(!verdicts.passed && verdicts.text.contains("scoped: SKILL.md sets paths:"), "{}", verdicts.text);
     assert!(!verdicts.text.contains("listed"), "{}", verdicts.text);
+}
+
+fn gex45_with(programs: &[&str]) -> (TempDir, PathBuf, Vec<super::programs::HostClass>) {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("gex45-bin");
+    fs::create_dir_all(&bin).unwrap();
+    for program in programs {
+        let file = bin.join(program);
+        crate::foundation::shim::write_script(&file, "");
+    }
+    let host = super::programs::HostClass { name: "gex45".into(), bins: vec![bin.clone()] };
+    (dir, bin, vec![host])
+}
+
+fn machine_capacity_skill(root: &Path, text: &str) {
+    let skill = root.join("harness/skills/machine-capacity");
+    fs::create_dir_all(&skill).unwrap();
+    fs::write(skill.join("SKILL.md"), text).unwrap();
+}
+
+#[test]
+fn skill_programs_refuse_the_machine_capacity_line_694b2a05_ran_and_pass_once_it_is_installed_or_renamed() {
+    let committed = include_str!("fixtures/machine-capacity-f1745de2e.md");
+    let (dir, bin, hosts) = gex45_with(&["bun", "north"]);
+    machine_capacity_skill(dir.path(), committed);
+    let runtime = dir.path().join("runtime-bin");
+
+    let refused = skill_programs(dir.path(), &runtime, &hosts);
+    assert!(!refused.passed, "{}", refused.text);
+    assert!(refused.text.contains("harness/skills/machine-capacity/SKILL.md:18: machine-capacity is on no PATH of gex45"), "{}", refused.text);
+
+    crate::foundation::shim::write_script(&bin.join("machine-capacity"), "");
+    let after_install = skill_programs(dir.path(), &runtime, &hosts);
+    assert!(after_install.passed, "{}", after_install.text);
+    fs::remove_file(bin.join("machine-capacity")).unwrap();
+
+    let renamed = committed.replace("`machine-capacity run ", "`bun run ").replace("`machine-capacity estimate ", "`bun estimate ");
+    machine_capacity_skill(dir.path(), &renamed);
+    let after_rename = skill_programs(dir.path(), &runtime, &hosts);
+    assert!(after_rename.passed, "{}", after_rename.text);
+}
+
+#[test]
+fn skill_programs_resolve_in_the_runtime_bin_and_skip_skill_names() {
+    let (dir, _, hosts) = gex45_with(&[]);
+    let runtime = dir.path().join("runtime-bin");
+    fs::create_dir_all(&runtime).unwrap();
+    machine_capacity_skill(dir.path(), "# Skill\n\nRun `safe-push --to main` after `external-code` review.\nUse `external-code`.\n");
+    fs::create_dir_all(dir.path().join("harness/skills/external-code")).unwrap();
+    assert!(!skill_programs(dir.path(), &runtime, &hosts).passed);
+    let tool = runtime.join("safe-push");
+    crate::foundation::shim::write_script(&tool, "");
+    let verdicts = skill_programs(dir.path(), &runtime, &hosts);
+    assert!(verdicts.passed, "{}", verdicts.text);
+}
+
+#[test]
+fn skill_programs_skip_programs_a_skill_forbids() {
+    let (dir, _, hosts) = gex45_with(&[]);
+    machine_capacity_skill(dir.path(), "# Skill\n\n- Never use `ydotool` on the normal desktop.\n");
+    let verdicts = skill_programs(dir.path(), &dir.path().join("runtime-bin"), &hosts);
+    assert!(verdicts.passed, "{}", verdicts.text);
 }

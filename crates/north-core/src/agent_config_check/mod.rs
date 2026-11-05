@@ -7,6 +7,7 @@ mod accounts;
 mod advisory;
 mod codex;
 mod gate;
+mod programs;
 mod report;
 mod roots;
 mod rules;
@@ -197,6 +198,7 @@ fn execute(context: &Context, verbose: bool) -> u8 {
     skills_group(context, &mut report);
     rules_group(context, &mut report);
     vocabulary_group(context, &mut report);
+    programs_group(context, &mut report);
 
     if context.local {
         worktree_layout(context, &mut report);
@@ -307,4 +309,16 @@ pub fn startup_tokens() -> Result<usize, String> {
     let roots = Roots::from_env();
     let (repo, operator) = (roots.checkout("nixos-config"), operator_dir(&roots));
     gate_for(repo, operator, roots).startup_total()
+}
+
+fn programs_group(context: &Context, report: &mut Report) {
+    let before = report.fail;
+    let runtime_bin = context.north.join("bin");
+    let verdicts = programs::skill_programs(&context.north, &runtime_bin, &[programs::local_host(&runtime_bin)]);
+    if verdicts.passed {
+        report.ok(&verdicts.text);
+    } else {
+        report.bad(&verdicts.text);
+    }
+    report.group("programs", verdicts.text.lines().next().unwrap_or_default(), before);
 }
