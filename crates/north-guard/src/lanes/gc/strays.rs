@@ -3,12 +3,11 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use super::Gc;
-use super::exec::{command, git, real};
+use super::exec::{git, real};
 use super::liveness::{holds_git_dir, worktree_admin};
 use super::local::parse_worktrees;
 use super::super::layout_check::exempt;
 use super::super::live_process::any_inside;
-use north_core::foundation::clock::Timestamp;
 
 const HOUR_MS: f64 = 3_600_000.0;
 
@@ -40,9 +39,9 @@ fn newest_mtime_ms(paths: &[PathBuf]) -> f64 {
 }
 
 pub(super) fn modified_within(path: &Path, now_ms: i64, hours: f64) -> bool {
-    let since = Timestamp::from_unix_millis(now_ms - (hours * HOUR_MS) as i64).iso_millis();
-    let found = command(&["find", &path.to_string_lossy(), "-type", "f", "-newermt", &since, "-print", "-quit"]);
-    !found.ok || !found.out.is_empty()
+    let since = now_ms as f64 - hours * HOUR_MS;
+    let listed = git(path, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+    !listed.ok || listed.out.split('\0').filter(|name| !name.is_empty()).any(|name| newest_mtime_ms(&[path.join(name)]) > since)
 }
 
 fn stray_in(sweep: &Sweep, path: &Path) -> bool {

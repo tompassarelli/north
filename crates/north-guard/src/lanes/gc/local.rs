@@ -93,6 +93,20 @@ fn newest_mtime(paths: &[PathBuf]) -> f64 {
         .fold(0.0, f64::max)
 }
 
+pub(super) fn reflog_ms(path: &Path) -> f64 {
+    let Ok(text) = std::fs::read_to_string(path) else { return 0.0 };
+    let stamp = |line: &str| line.split('\t').next()?.split_whitespace().rev().nth(1)?.parse::<u64>().ok();
+    text.lines().filter_map(stamp).max().map_or(0.0, |secs| secs as f64 * 1000.0)
+}
+
+pub(super) fn lane_activity_ms(path: &Path, admin: &Path, common: &Path, branch: &str, committed_ms: f64) -> f64 {
+    let mut stamps = vec![reflog_ms(&admin.join("logs/HEAD")), newest_mtime(&[path.to_path_buf(), admin.join("HEAD"), admin.join("index")])];
+    if !branch.is_empty() {
+        stamps.push(reflog_ms(&common.join("logs/refs/heads").join(branch)));
+    }
+    stamps.into_iter().fold(committed_ms, f64::max)
+}
+
 fn short(tip: &str) -> &str {
     &tip[..tip.len().min(12)]
 }
@@ -205,12 +219,7 @@ impl Gc {
         let status = git(&path, &["status", "--porcelain", "--untracked-files=normal"]);
         let dirty = if !status.ok { "status failed" } else if status.out.is_empty() { "" } else { "dirty" };
         let admin = PathBuf::from(worktree_admin(&path));
-        let mut stamps = vec![path.clone(), admin.join("HEAD"), admin.join("index"), admin.join("logs/HEAD")];
-        if !branch.is_empty() {
-            stamps.push(sweep.common.join("logs/refs/heads").join(&branch));
-        }
-        let committed = sweep.committed(&tip) as f64 * 1000.0;
-        let activity_ms = committed.max(newest_mtime(&stamps));
+        let activity_ms = lane_activity_ms(&path, &admin, &sweep.common, &branch, sweep.committed(&tip) as f64 * 1000.0);
         let lane = Worktree {
             place: self.tilde(&path),
             landed: sweep.landed(&tip),
@@ -414,7 +423,7 @@ impl Gc {
             return Ok(());
         }
         let verdict = sweep.landed(tip);
-        let branch_age = sweep.cutoff_ms - newest_mtime(&[sweep.common.join("logs/refs/heads").join(branch)]);
+        let branch_age = sweep.cutoff_ms - reflog_ms(&sweep.common.join("logs/refs/heads").join(branch));
         if verdict.how != "ancestor" {
             return self.classify_branch(sweep, branch, tip, &verdict, branch_age);
         }
@@ -447,7 +456,7 @@ impl Gc {
         }
         let label = class.label();
         let committed = sweep.committed(tip) as f64 * 1000.0;
-        let activity_ms = committed.max(newest_mtime(&[sweep.common.join("logs/refs/heads").join(branch)]));
+        let activity_ms = committed.max(reflog_ms(&sweep.common.join("logs/refs/heads").join(branch)));
         let idle_hours = (self.now_ms as f64 - activity_ms) / HOUR_MS;
         let held = branch_hold(class, sweep.checked_out.contains(branch), idle_hours);
         let why = if !held.is_empty() {

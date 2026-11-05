@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, SystemTime};
 
-use super::strays::{Sweep, move_idle};
+use super::local::{lane_activity_ms, reflog_ms};
+use super::strays::{Sweep, modified_within, move_idle};
 use crate::lanes::live_process::open_paths;
 use crate::lanes::test_git::{git_in, init_repo};
 
@@ -129,4 +130,41 @@ fn lane_gc_leaves_a_stray_changed_within_the_idle_window_and_moves_nothing_in_a_
     let kept = outcomes.iter().find(|outcome| outcome.from == recent).unwrap();
     assert_eq!(kept.result, Err("touched within 3h".into()));
     assert!(recent.exists() && rig.container().join("worktrees/idle").exists());
+}
+
+#[test]
+fn a_lane_whose_reflog_files_were_rewritten_by_git_maintenance_keeps_its_reflog_entry_time() {
+    let rig = Rig::new();
+    let lane = rig.stray("lanes/old", false);
+    let admin = PathBuf::from(git_in(&lane, &["rev-parse", "--path-format=absolute", "--git-dir"]));
+    let now = SystemTime::now();
+    let secs = now.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() - 500 * 3600;
+    let entry = format!("0000000 1111111 tester <t@example.invalid> {secs} +0800\trebase (finish): returning to refs/heads/old\n");
+    let head_log = admin.join("logs/HEAD");
+    fs::create_dir_all(head_log.parent().unwrap()).unwrap();
+    fs::write(&head_log, &entry).unwrap();
+    let branch_log = rig.main().join(".git/logs/refs/heads/old");
+    fs::create_dir_all(branch_log.parent().unwrap()).unwrap();
+    fs::write(&branch_log, &entry).unwrap();
+    rig.idle_since(&lane, 700, now);
+
+    assert_eq!(reflog_ms(&head_log), secs as f64 * 1000.0);
+    assert_eq!(reflog_ms(&rig.main().join(".git/logs/refs/heads/absent")), 0.0);
+    assert_eq!(lane_activity_ms(&lane, &admin, &rig.main().join(".git"), "old", 0.0), secs as f64 * 1000.0);
+}
+
+#[test]
+fn build_output_the_repository_ignores_never_counts_as_a_lane_being_touched() {
+    let rig = Rig::new();
+    let lane = rig.stray("lanes/built", false);
+    let now = SystemTime::now();
+    rig.idle_since(&lane, 100, now);
+    let now_ms = now.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as i64;
+    fs::write(rig.main().join(".git/info/exclude"), "target/\n").unwrap();
+    fs::create_dir_all(lane.join("target/debug")).unwrap();
+    fs::write(lane.join("target/debug/out"), "built\n").unwrap();
+
+    assert!(!modified_within(&lane, now_ms, 72.0));
+    fs::write(lane.join("notes.txt"), "work\n").unwrap();
+    assert!(modified_within(&lane, now_ms, 72.0));
 }
