@@ -1,6 +1,8 @@
 use super::costs::Cost;
 use super::dividends::{self, Reading};
+use super::rises::TITLE;
 use super::{Ledger, Prior, Tick, Tracker, tick};
+use crate::platform::rolling_issue::{self, Breaches};
 use crate::router::pricing::PriceTable;
 use crate::ledger::{ClosedReport, EstimatedRun, SpendRun, summarize};
 use crate::ledger::closed::ArmBox;
@@ -82,6 +84,10 @@ struct Issues {
     refuses: bool,
     told: Vec<String>,
     mute: bool,
+    rolling: Option<(u64, String)>,
+    created: Vec<(String, String)>,
+    edited: Vec<String>,
+    settled: Vec<String>,
 }
 
 impl Tracker for Issues {
@@ -101,6 +107,7 @@ impl Tracker for Issues {
             return Err("gh issue create: HTTP 403".into());
         }
         self.filed.push((title.to_owned(), body.to_owned()));
+        self.open.push(title.to_owned());
         Ok(format!("https://github.com/tompassarelli/north/issues/{}", 900 + self.filed.len()))
     }
 
@@ -111,6 +118,64 @@ impl Tracker for Issues {
         self.told.push(text.to_owned());
         Ok(())
     }
+
+    fn rolling(&mut self) -> &mut dyn rolling_issue::Tracker {
+        self
+    }
+}
+
+impl rolling_issue::Tracker for Issues {
+    fn open(&self, title: &str) -> Result<Option<rolling_issue::Issue>, String> {
+        if self.unreadable {
+            return Err("gh: not logged in".into());
+        }
+        Ok(self.rolling.as_ref().filter(|_| title == TITLE).map(|(number, body)| rolling_issue::Issue { number: *number, body: body.clone() }))
+    }
+
+    fn body(&self, _: u64) -> Result<String, String> {
+        Ok(self.rolling.as_ref().map(|(_, body)| body.clone()).unwrap_or_default())
+    }
+
+    fn listed(&self, _: &str) -> Result<Vec<(u64, String)>, String> {
+        Ok(Vec::new())
+    }
+
+    fn create(&mut self, title: &str, body: &str) -> Result<(), String> {
+        if self.refuses {
+            return Err("gh issue create: HTTP 403".into());
+        }
+        self.created.push((title.to_owned(), body.to_owned()));
+        self.open.push(title.to_owned());
+        self.rolling = Some((950, body.to_owned()));
+        Ok(())
+    }
+
+    fn edit(&mut self, _: u64, body: &str) -> Result<(), String> {
+        self.edited.push(body.to_owned());
+        self.rolling = self.rolling.take().map(|(number, _)| (number, body.to_owned()));
+        Ok(())
+    }
+
+    fn close(&mut self, _: u64, comment: &str) -> Result<(), String> {
+        self.settled.push(comment.to_owned());
+        self.open.retain(|title| title != TITLE);
+        self.rolling = None;
+        Ok(())
+    }
+}
+
+fn two_ticks(ledger: &Ledger, issues: &mut Issues) -> (Tick, Tick) {
+    let first = tick(ledger, &Prior::default(), &[], issues, AT, false);
+    let second = tick(ledger, &Prior { cells: first.cells.clone(), breaches: first.breaches.clone(), ..Prior::default() }, &[], issues, AT, false);
+    (first, second)
+}
+
+fn rolled(ledger: &Ledger) -> String {
+    let mut issues = Issues::default();
+    let (_, second) = two_ticks(ledger, &mut issues);
+    assert_eq!(issues.created.len(), 1, "{:#?}", second.lines);
+    assert_eq!(issues.created[0].0, TITLE);
+    issues.created.remove(0).1
 }
 
 fn first_tick(issues: &mut Issues) -> Tick {
@@ -124,7 +189,7 @@ fn the_tick_prints_the_dashboard_line_first_and_the_open_north_issue_count_last(
     let tick = tick(&ledger, &Prior::default(), &[], &mut issues, AT, false);
     assert_eq!(tick.lines[0], ledger.week.dashboard("7d"));
     assert!(tick.lines[0].starts_with("cost/closed 7d: all $"), "{}", tick.lines[0]);
-    assert_eq!(tick.lines.last().unwrap(), "open north issues: 3", "the two open and the one filed: {:#?}", tick.lines);
+    assert_eq!(tick.lines.last().unwrap(), "open north issues: 2", "the two open; one risen tick files nothing: {:#?}", tick.lines);
     assert!(!tick.failed);
 }
 
@@ -172,46 +237,59 @@ fn each_change_records_its_rows_n_and_interval_and_an_unchanged_tick_records_non
 }
 
 #[test]
-fn a_cell_whose_cost_per_closed_box_rose_over_a_quarter_files_one_issue_and_an_open_one_holds_it() {
+fn one_risen_tick_posts_nothing_two_in_a_row_open_one_rolling_issue_an_unchanged_tick_posts_nothing_and_a_calm_one_closes_it() {
     let mut issues = Issues::default();
     let first = first_tick(&mut issues);
-    assert_eq!(issues.filed.len(), 1, "only sonnet tooling rose (100%, 3 boxes a week); opus feature doubled on one box a week, too few to count: {:#?}", first.lines);
-    let (title, body) = &issues.filed[0];
-    assert_eq!(title, "Cost per closed box rose more than 25% week on week in sonnet tooling");
-    assert!(body.starts_with("Category: tooling\n") && body.contains("from $5.20 over 3 closed boxes the week before to $10.40 over 3 this week (+100%)"), "{body}");
+    assert!(issues.created.is_empty() && issues.filed.is_empty(), "one risen tick posts nothing: {:#?}", first.lines);
     assert!(first.lines.contains(&"rose sonnet tooling: $5.20 (n 3) the week before -> $10.40 (n 3) this week, +100%".to_owned()), "{:#?}", first.lines);
 
-    let mut held = Issues { open: vec![title.clone()], ..Issues::default() };
-    let next = tick(&ledger(), &Prior { cells: first.cells, ..Prior::default() }, &[], &mut held, AT, false);
-    assert!(held.filed.is_empty(), "the open issue holds the cell");
-    assert!(next.lines.contains(&format!("  held by an issue filed for it: {title}")), "{:#?}", next.lines);
+    let next = |previous: &Tick| Prior { cells: previous.cells.clone(), breaches: previous.breaches.clone(), ..Prior::default() };
+    let second = tick(&ledger(), &next(&first), &[], &mut issues, AT, false);
+    assert_eq!(issues.created.len(), 1, "only sonnet tooling rose (100%, 3 boxes a week); opus feature doubled on one box a week, too few to count: {:#?}", second.lines);
+    let (title, body) = &issues.created[0];
+    assert_eq!(title, TITLE);
+    assert!(body.starts_with("Category: tooling\n") && body.contains("## sonnet tooling\n\nMedian cost of a closed box rose from $5.20 over 3 closed boxes the week before to $10.40 over 3 this week (+100%)"), "{body}");
+    assert_eq!(body.matches("\n## ").count(), 2, "the Done when and the one risen cell: {body}");
+    assert!(issues.filed.is_empty(), "rises file no issue of their own");
+    assert_eq!(second.lines.last().unwrap(), "open north issues: 1", "{:#?}", second.lines);
+
+    let third = tick(&ledger(), &next(&second), &[], &mut issues, AT, false);
+    assert!(issues.created.len() == 1 && issues.edited.is_empty() && issues.settled.is_empty(), "an unchanged tick posts nothing: {:#?}", third.lines);
+
+    let calm = Ledger { week: ledger().before, ..ledger() };
+    tick(&calm, &next(&third), &[], &mut issues, AT, false);
+    assert_eq!(issues.settled.len(), 1, "the first calm tick closes the rolling issue");
+    assert!(issues.rolling.is_none() && issues.created.len() == 1);
 }
 
 #[test]
 fn a_dry_run_or_an_unread_tracker_files_nothing() {
     let mut issues = Issues::default();
     let dry = tick(&ledger(), &Prior::default(), &[], &mut issues, AT, true);
-    assert!(issues.filed.is_empty());
-    assert!(dry.lines.iter().any(|line| line.starts_with("  would file: Cost per closed box rose")), "{:#?}", dry.lines);
+    assert!(issues.filed.is_empty() && issues.created.is_empty());
+    assert_eq!(dry.breaches, Breaches::default(), "a dry run leaves the gate as it was");
+    assert!(dry.lines.contains(&format!("  would file: {TITLE}")), "{:#?}", dry.lines);
 
     let mut unread = Issues { unreadable: true, ..Issues::default() };
-    let blind = tick(&ledger(), &Prior::default(), &[], &mut unread, AT, false);
-    assert!(unread.filed.is_empty(), "with no open list it cannot know an issue already holds the cell");
+    let (_, blind) = two_ticks(&ledger(), &mut unread);
+    assert!(unread.filed.is_empty() && unread.created.is_empty(), "with no open list it cannot know an issue already holds the cell");
+    assert!(blind.lines.contains(&format!("  not settled: {TITLE}: gh: not logged in")), "{:#?}", blind.lines);
     assert_eq!(blind.lines.last().unwrap(), "open north issues: unread (gh: not logged in)");
     assert!(blind.failed);
 }
 
 #[test]
-fn an_issue_closed_in_the_last_week_still_holds_its_cell_and_a_refused_filing_fails_the_tick() {
-    let title = "Cost per closed box rose more than 25% week on week in sonnet tooling".to_owned();
+fn an_issue_closed_in_the_last_week_still_holds_its_drifted_cell_and_a_refused_rolling_issue_fails_the_tick() {
+    let title = "Estimates drifted outside 0.67-1.5x of actual in opus-medium feature".to_owned();
     let mut closed = Issues { closed: vec![title.clone()], ..Issues::default() };
-    let held = first_tick(&mut closed);
+    let held = tick(&estimated_ledger(), &Prior::default(), &[], &mut closed, AT, false);
     assert!(closed.filed.is_empty() && !held.failed, "{:#?}", held.lines);
     assert!(held.lines.contains(&format!("  held by an issue filed for it: {title}")), "{:#?}", held.lines);
 
     let mut refusing = Issues { refuses: true, ..Issues::default() };
-    let refused = first_tick(&mut refusing);
-    assert!(refused.lines.contains(&"  not filed: gh issue create: HTTP 403".to_owned()), "{:#?}", refused.lines);
+    let (first, refused) = two_ticks(&ledger(), &mut refusing);
+    assert!(!first.failed, "one risen tick asks nothing of the tracker: {:#?}", first.lines);
+    assert!(refused.lines.contains(&format!("  not settled: {TITLE}: gh issue create: HTTP 403")), "{:#?}", refused.lines);
     assert_eq!(refused.lines.last().unwrap(), "open north issues: 0");
     assert!(refused.failed);
 }
@@ -269,12 +347,10 @@ fn a_cell_30_percent_dearer_than_the_week_before_files_exactly_one_issue_and_one
     let week = [boxes("1", 3, SONNET, "tooling", "2026-10-24", 1_300_000), boxes("2", 3, SONNET, "feature", "2026-10-24", 1_200_000)].concat();
     let before = [boxes("3", 3, SONNET, "tooling", "2026-10-17", 1_000_000), boxes("4", 3, SONNET, "feature", "2026-10-17", 1_000_000)].concat();
     let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) };
-    let mut issues = Issues::default();
-    let tick = tick(&ledger, &Prior::default(), &[], &mut issues, AT, false);
-    assert_eq!(issues.filed.len(), 1, "{:#?}", tick.lines);
-    assert_eq!(issues.filed[0].0, "Cost per closed box rose more than 25% week on week in sonnet tooling");
-    assert!(issues.filed[0].1.contains("from $10.00 over 3 closed boxes the week before to $13.00 over 3 this week (+30%)"), "{}", issues.filed[0].1);
-    assert!(issues.filed[0].1.contains("\n- north#10 $13.00: agent-north#10 sonnet tooling from 2026-10-24T10:00:00Z $13.00\n"), "{}", issues.filed[0].1);
+    let body = rolled(&ledger);
+    assert_eq!(body.matches("\n## sonnet ").count(), 1, "{body}");
+    assert!(body.contains("## sonnet tooling\n\nMedian cost of a closed box rose from $10.00 over 3 closed boxes the week before to $13.00 over 3 this week (+30%)"), "{body}");
+    assert!(body.contains("\n- north#10 $13.00: agent-north#10 sonnet tooling from 2026-10-24T10:00:00Z $13.00\n"), "{body}");
 }
 
 #[test]
@@ -284,9 +360,7 @@ fn a_rise_names_every_run_of_a_box_escalated_off_its_first_tier_so_the_issue_tra
     let week: Vec<SpendRun> = boxes("1", 3, HAIKU, "mechanical", "2026-10-24", 10_000).into_iter().chain(escalations).collect();
     let before = boxes("3", 3, HAIKU, "mechanical", "2026-10-17", 10_000);
     let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) };
-    let mut issues = Issues::default();
-    tick(&ledger, &Prior::default(), &[], &mut issues, AT, false);
-    let body = &issues.filed.first().expect("haiku mechanical rose").1;
+    let body = rolled(&ledger);
     assert!(body.contains("\n- north#10 $10.01: agent-north#10 haiku mechanical from 2026-10-24T10:00:00Z $0.01; agent-north#10 sonnet tooling from 2026-10-24T11:00:00Z $10.00\n"), "{body}");
 }
 
@@ -296,8 +370,8 @@ fn a_cell_of_boxes_no_label_has_named_yet_files_no_rise_however_dear_this_week_i
     let before = boxes("3", 3, OPUS, "unknown", "2026-10-17", 1_000_000);
     let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) };
     let mut issues = Issues::default();
-    let quiet = tick(&ledger, &Prior::default(), &[], &mut issues, AT, false);
-    assert!(issues.filed.is_empty(), "{:#?}", quiet.lines);
+    let (_, quiet) = two_ticks(&ledger, &mut issues);
+    assert!(issues.created.is_empty(), "{:#?}", quiet.lines);
     assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
 }
 
@@ -328,8 +402,8 @@ fn a_tier_that_staffed_no_run_this_week_files_no_rise_for_the_boxes_it_started_e
     assert!((was_n, now_n, was_staffed, now_staffed) == (3, 3, true, false) && now > was * 1.25, "{was} -> {now}");
 
     let mut issues = Issues::default();
-    let quiet = tick(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) }, &Prior::default(), &[], &mut issues, AT, false);
-    assert!(issues.filed.is_empty(), "{:#?}", quiet.lines);
+    let (_, quiet) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) }, &mut issues);
+    assert!(issues.created.is_empty(), "{:#?}", quiet.lines);
     assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
 }
 
@@ -429,8 +503,8 @@ fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise
     assert!((was_n, now_n) == (3, 4) && now > was * 1.25, "{was} -> {now}");
 
     let mut issues = Issues::default();
-    let ticked = tick(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) }, &Prior::default(), &[], &mut issues, AT, false);
-    assert!(issues.filed.is_empty(), "{:#?}", ticked.lines);
+    let (_, ticked) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) }, &mut issues);
+    assert!(issues.created.is_empty(), "{:#?}", ticked.lines);
 }
 
 fn estimated(tier: &str, category: &str, (minutes, eta_min): (f64, f64), (usd, estimated_usd): (f64, Option<f64>)) -> EstimatedRun {

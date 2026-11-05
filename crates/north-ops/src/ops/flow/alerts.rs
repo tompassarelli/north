@@ -17,7 +17,6 @@ use crate::platform::rolling_issue::Breaches;
 const GUARDS: [&str; 4] = ["actions", "wisp", "reuse", "pins"];
 const EPISODES: [&str; 4] = ["guard", "notice", "stranded", "refused"];
 pub const SUPPLY: &str = "supply";
-const TIMER_SLACK_SECONDS: f64 = 60.0;
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Record {
@@ -59,12 +58,6 @@ fn parent_of(nodes: &[Node], repo: &str) -> String {
         .iter()
         .find(|node| node.active && node.cwd.contains(&fragment))
         .map_or_else(|| format!("{repo}-parent"), |node| node.parent.clone().filter(|parent| !parent.is_empty()).unwrap_or_else(|| node.id.clone()))
-}
-
-impl Record {
-    pub fn due_after(&self, key: &str, now: f64, repeat: f64) -> bool {
-        self.sent.get(key).is_none_or(|at| now - at >= repeat - TIMER_SLACK_SECONDS)
-    }
 }
 
 fn candidates(repo: &str, parent: &str, key: &str, text: &str) -> Vec<Action> {

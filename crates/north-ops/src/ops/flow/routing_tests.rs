@@ -25,7 +25,7 @@ fn report(arms: &[&str]) -> ClosedReport {
     ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: boxes.collect(), spend_usd: 0.0, leads_usd: 0.0 }
 }
 
-fn run(sonnet: usize, opus: usize, closed: Result<ClosedReport, String>) -> Vec<String> {
+fn run(sonnet: usize, opus: usize, closed: impl Fn() -> Result<ClosedReport, String>) -> Vec<String> {
     let directory = tempfile::tempdir().unwrap();
     let places = places(directory.path());
     ledger(&places.ledger, sonnet, opus);
@@ -37,42 +37,51 @@ fn run(sonnet: usize, opus: usize, closed: Result<ClosedReport, String>) -> Vec<
         }
         None
     };
-    alert(&places, &Fake(&reply), &BTreeMap::new(), || closed, NOW).unwrap();
+    for minute in [0.0, 60.0] {
+        alert(&places, &Fake(&reply), &BTreeMap::new(), &closed, NOW + minute * 60.0).unwrap();
+    }
     sent.into_inner()
 }
 
 #[test]
 fn full_arms_with_an_unreadable_closed_report_raise_one_supply_alert_naming_the_category_and_the_input() {
-    let sent = run(20, 20, Err("gh issue list tompassarelli/galileo: not found".into()));
+    let sent = run(20, 20, || Err("gh issue list tompassarelli/galileo: not found".into()));
     assert_eq!(sent.len(), 1, "{sent:?}");
     assert!(sent[0].starts_with("normal|Tier routing of feature still alternates") && sent[0].contains("north ledger summary --since 30d is unread: gh issue list"), "{sent:?}");
 }
 
 #[test]
 fn full_arms_with_a_report_that_prices_both_arms_raise_nothing() {
-    assert!(run(20, 20, Ok(report(&["sonnet-high", "worker"]))).is_empty());
+    assert!(run(20, 20, || Ok(report(&["sonnet-high", "worker"]))).is_empty());
 }
 
 #[test]
 fn full_arms_whose_report_prices_only_one_arm_name_the_unpriced_one_and_short_arms_raise_nothing() {
-    let sent = run(20, 20, Ok(report(&["sonnet-high"])));
+    let sent = run(20, 20, || Ok(report(&["sonnet-high"])));
     assert!(sent.len() == 1 && sent[0].contains("prices worker"), "{sent:?}");
-    assert!(run(20, 14, Err("unread".into())).is_empty());
+    assert!(run(20, 14, || Err("unread".into())).is_empty());
 }
 
 #[test]
-fn the_alert_repeats_after_an_hour_not_before_and_clears_when_the_category_routes() {
+fn one_stalled_run_posts_nothing_two_in_a_row_post_once_an_unchanged_stall_posts_nothing_and_a_new_episode_posts_again() {
     let stalled = [("feature".to_owned(), "unread".to_owned())];
     let (mut state, mut sent) = (BTreeMap::new(), Vec::new());
-    for minute in 0..=125 {
-        let (next, actions) = routing_plan(&stalled, &state, NOW + f64::from(minute) * 60.0);
-        state = next;
+    let mut step = |stalled: &[(String, String)], hour: u32, state: &mut super::alerts::State| {
+        let at = NOW + f64::from(hour) * 3_600.0;
+        let (next, actions) = routing_plan(stalled, state, at);
+        *state = next;
         for action in actions {
-            state.get_mut(&action.repo).unwrap().sent.insert(action.key, NOW + f64::from(minute) * 60.0);
-            sent.push(minute);
+            state.get_mut(&action.repo).unwrap().sent.insert(action.key, at);
+            sent.push(hour);
         }
+    };
+    for hour in 0..=5 {
+        step(&stalled, hour, &mut state);
     }
-    assert_eq!(sent, [0, 59, 118]);
-    let (cleared, actions) = routing_plan(&[], &state, NOW + 8000.0);
-    assert!(cleared.is_empty() && actions.is_empty());
+    step(&[], 6, &mut state);
+    assert!(state.is_empty(), "a category that routes again drops its record");
+    for hour in 7..=9 {
+        step(&stalled, hour, &mut state);
+    }
+    assert_eq!(sent, [1, 8]);
 }

@@ -10,7 +10,7 @@ use crate::ledger::ClosedReport;
 use crate::ops::dispatch::{ARMED, ARM_WINDOW, Evidence, Tier};
 
 const STATE_FILE: &str = "routing.json";
-const REPEAT_SECONDS: f64 = 3_600.0;
+const KEY: &str = "routing:supply";
 
 /// The categories that keep alternating with full arms, each with the unread input.
 pub fn stalls(database: &Path, routes: &BTreeMap<String, Tier>, closed: impl FnOnce() -> Result<ClosedReport, String>) -> Vec<(String, String)> {
@@ -40,17 +40,16 @@ pub fn stalls(database: &Path, routes: &BTreeMap<String, Tier>, closed: impl FnO
         .collect()
 }
 
-/// One normal supply-alert per stalled category, again only after an hour; a category that routes
-/// again drops its record.
+/// One normal supply-alert per episode of a stalled category, once two runs in a row see it; a
+/// category that routes again drops its record, so its next stall is a new episode.
 pub fn routing_plan(stalled: &[(String, String)], previous: &State, now: f64) -> (State, Vec<Action>) {
     let mut state: State = previous.iter().filter(|(category, _)| stalled.iter().any(|(stalled, _)| stalled == *category)).map(|(category, record)| (category.clone(), record.clone())).collect();
     let mut actions = Vec::new();
     for (category, why) in stalled {
         let record = state.entry(category.clone()).or_insert_with(|| Record { since: now, ..Record::default() });
-        let key = "routing:supply";
-        if record.due_after(key, now, REPEAT_SECONDS) {
+        if record.breaches.record(KEY, true) && !record.sent.contains_key(KEY) {
             let text = format!("Tier routing of {category} still alternates its arms with {} arm runs on each: {why}", crate::router::policy::ARM_RUNS);
-            actions.push(Action { repo: category.clone(), key: key.into(), node: String::new(), channel: super::alerts::SUPPLY, text });
+            actions.push(Action { repo: category.clone(), key: KEY.into(), node: String::new(), channel: super::alerts::SUPPLY, text });
         }
     }
     (state, actions)

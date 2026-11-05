@@ -1,4 +1,5 @@
 use crate::platform::process;
+use crate::platform::rolling_issue::{self, Breaches, Tracker, alarm, section_box};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -117,11 +118,32 @@ fn gh(arguments: &[&str]) -> Option<String> {
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn record_path(tree: &str) -> PathBuf {
+fn state_directory() -> PathBuf {
     let state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).unwrap_or_else(|| {
         PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state")
     });
-    state.join("safe-push/red-check").join(format!("{tree}.tsv"))
+    state.join("safe-push/red-check")
+}
+
+fn record_path(tree: &str) -> PathBuf {
+    state_directory().join(format!("{tree}.tsv"))
+}
+
+fn breaches_path() -> PathBuf {
+    state_directory().join("breaches.json")
+}
+
+fn load_breaches() -> Breaches {
+    fs::read_to_string(breaches_path()).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
+}
+
+fn save_breaches(breaches: &Breaches) {
+    let path = breaches_path();
+    if path.parent().is_some_and(|parent| fs::create_dir_all(parent).is_ok())
+        && let Ok(text) = serde_json::to_string(breaches)
+    {
+        let _ = fs::write(path, text + "\n");
+    }
 }
 
 fn recorded(tree: &str) -> BTreeMap<String, bool> {
@@ -261,16 +283,23 @@ pub fn event_line(main: &str, red: &[&Failure], culprit: &str, issue: Option<&st
 
 const ISSUE_BODY: &str = "Main CI failures and confirmed culprit decisions.\n\n## Done when\n- [ ] The newest Harness and Cargo runs on main are green on a commit after the newest culprit range below: `gh run list --branch main --workflow Harness --limit 1` and the same for Cargo both print success; close this issue with that run's link.";
 
-fn record_red(line: &str) -> Option<String> {
-    let issues = gh(&["issue", "list", "--state", "open", "--search", "\"main is red\" in:title", "--json", "number,title"])?;
-    let issues: Value = serde_json::from_str(&issues).ok()?;
-    let open = issues.as_array()?.iter().find(|issue| issue.get("title").and_then(Value::as_str) == Some("main is red"));
-    if let Some(number) = open.and_then(|issue| issue.get("number")).and_then(Value::as_u64).map(|number| number.to_string()) {
-        gh(&["issue", "comment", &number, "--body", line])?;
-        return Some(number);
-    }
-    let url = gh(&["issue", "create", "--title", "main is red", "--body", &format!("{ISSUE_BODY}\n\n{line}")])?;
-    url.trim().rsplit('/').next().map(str::to_owned)
+fn repository() -> Option<String> {
+    gh(&["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).map(|name| name.trim().to_owned()).filter(|name| !name.is_empty())
+}
+
+pub const ISSUE_TITLE: &str = "main is red";
+const SECTION: &str = "## Red mains";
+
+pub fn record_red(tracker: &mut dyn Tracker, breaches: &mut Breaches, main: &str, line: &str) -> Result<Option<u64>, String> {
+    let base = tracker.open(ISSUE_TITLE)?.map_or_else(|| ISSUE_BODY.to_owned(), |issue| issue.body);
+    let key = format!("main is red at {}:", &main[..main.len().min(9)]);
+    let body = section_box(&base, SECTION, &key, &format!("- [ ] {line}"), true);
+    alarm(tracker, breaches, ISSUE_TITLE, Some(&body), "")?;
+    Ok(tracker.open(ISSUE_TITLE)?.map(|issue| issue.number))
+}
+
+pub fn record_green(breaches: &mut Breaches) {
+    breaches.record(ISSUE_TITLE, false);
 }
 
 fn lead() -> Option<String> {
@@ -311,12 +340,25 @@ pub fn run(arguments: &[String]) -> u8 {
         return UNKNOWN;
     };
     let red: Vec<&Failure> = failed.iter().filter(|failure| verdicts.get(&failure.key()).copied().unwrap_or(false)).collect();
+    let mut breaches = load_breaches();
     if red.is_empty() {
+        record_green(&mut breaches);
+        save_breaches(&breaches);
         println!("red check: {} failing test(s) pass on main's own tree ({source}); this lane broke them", failed.len());
         return 0;
     }
     let culprit = culprit(&request.main, &failed);
-    let issue = record_red(&event_line(&request.main, &red, &culprit, None));
+    let recorded = repository().ok_or_else(|| "gh repo view names no repository".to_owned()).and_then(|repo| {
+        record_red(&mut rolling_issue::Gh::of(&repo, &[]), &mut breaches, &request.main, &event_line(&request.main, &red, &culprit, None))
+    });
+    let issue = match recorded {
+        Ok(issue) => issue.map(|number| number.to_string()),
+        Err(error) => {
+            eprintln!("red check: the main is red issue is unsettled: {error}");
+            None
+        }
+    };
+    save_breaches(&breaches);
     let line = event_line(&request.main, &red, &culprit, issue.as_deref());
     let line = if request.lane.is_empty() { line } else { format!("{line} (seen landing {})", request.lane) };
     send("proxy", &line);

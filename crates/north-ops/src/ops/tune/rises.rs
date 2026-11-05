@@ -1,5 +1,5 @@
 //! Cells on a tier still staffed this week whose median cost of a closed box rose more than 25% week
-//! on week, each as the north issue a tick files for it.
+//! on week, together as the one rolling north issue a tick keeps for them.
 use crate::ledger::{ClosedBox, ClosedReport};
 
 /// The rise over the week before past which a cell gets an issue.
@@ -36,12 +36,22 @@ pub fn rises(week: &ClosedReport, before: &ClosedReport) -> Vec<Rise> {
         .collect()
 }
 
-impl Rise {
-    /// The issue title, the same every day the cell stays risen so an open issue holds it.
-    pub fn title(&self) -> String {
-        format!("Cost per closed box rose more than 25% week on week in {} {}", self.tier, self.category)
-    }
+pub const TITLE: &str = "Cost per closed box rose more than 25% week on week";
 
+pub fn issue_body(rises: &[Rise]) -> Option<String> {
+    if rises.is_empty() {
+        return None;
+    }
+    let sections: String = rises.iter().map(Rise::section).collect();
+    Some(format!(
+        "Category: tooling\nSpec: measured\nScope: cross-module\nSurface: rust\nVerify: local-test\n\n\
+         `north tune` keeps this issue while any staffed cell's median cost of a closed box sits more than {:.0}% above the week before (each week holding at least {RISE_MIN_BOXES} closed boxes), and closes it on the first tick no cell has.\n\n\
+         ## Done when\n- [ ] (headless run) Each rise below is traced to its runs in `north ledger summary --since 7d`, and either a fix lands or `north tune` shows the cell back within 25% of the week before.\n\n{sections}",
+        RISE * 100.0,
+    ))
+}
+
+impl Rise {
     fn percent(&self) -> f64 {
         (self.after.0 / self.before.0 - 1.0) * 100.0
     }
@@ -59,17 +69,14 @@ impl Rise {
         )
     }
 
-    pub fn body(&self, at: &str) -> String {
+    fn section(&self) -> String {
         format!(
-            "Category: tooling\nSpec: measured\nScope: cross-module\nSurface: rust\nVerify: local-test\n\n\
-             `north tune` on {at}: median cost of a closed box in {tier} {category} rose from ${:.2} over {} closed boxes the week before to ${:.2} over {} this week (+{:.0}%), past the {:.0}% bar (each week holds at least {RISE_MIN_BOXES} closed boxes).\n\n{boxes}\
-             ## Done when\n- [ ] (headless run) The rise is traced to its runs in `north ledger summary --since 7d`, and either a fix lands or `north tune` shows the cell back within 25% of the week before.\n",
+            "## {tier} {category}\n\nMedian cost of a closed box rose from ${:.2} over {} closed boxes the week before to ${:.2} over {} this week (+{:.0}%).\n\n{boxes}",
             self.before.0,
             self.before.1,
             self.after.0,
             self.after.1,
             self.percent(),
-            RISE * 100.0,
             tier = self.tier,
             category = self.category,
             boxes = self.boxes_paragraph(),
