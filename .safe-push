@@ -17,6 +17,7 @@
 [land]
 	check = ** :: CARGO_TARGET_DIR=target bash harness/scripts/check-owners.sh
 	check = @rust-input,src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets ${SAFE_PUSH_LAND_PACKAGES:---workspace} --locked --offline -- -D warnings
+	check = structure.toml,src/,crates/,tests/,examples/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/code_health/ code-health layers ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}
 	check = harness/,agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/agent_config_check/ agent-config-check tree-policy
 	check = docs/features.md,docs/features/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/features_index/ docs features-index --check
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/rationale_index/ docs rationale-index --check

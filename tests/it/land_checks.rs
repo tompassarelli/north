@@ -748,6 +748,58 @@ fn a_rust_candidate_compiles_once_for_clippy_and_builds_north_only_for_a_check_w
     assert!(trace.lines().any(|line| line.starts_with("land-shell --dev -- cargo clippy --all-targets")), "an embedded Rust input skipped clippy:\n{trace}");
 }
 
+const COVERING_NORTH: &str = "[ \"$1 $2\" != \"runtime covers\" ] || { printf '%s\\n' \"$REAL_NORTH\"; exit 0; }\nexec \"$REAL_NORTH\" \"$@\"\n";
+const USAGE_RS: &str = "crates/north-core/src/usage/mod.rs";
+
+fn layers_lane(usage: &str) -> (Fixture, Output) {
+    let mut fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let layers: Vec<&str> = include_str!("../../.safe-push").lines().filter(|line| line.contains(" code-health layers ")).collect();
+    assert_eq!(layers.len(), 1, "{layers:?}");
+    fs::write(fixture.repo.join(".safe-push"), format!("[land]\n{}\n", layers[0])).unwrap();
+    let files = [
+        ("crates/north-core/Cargo.toml", "[package]\nname = \"north-core\"\nversion = \"0.1.0\"\n"),
+        ("crates/north-core/src/lib.rs", "pub mod fleet;\npub mod usage;\n"),
+        ("crates/north-core/src/fleet/mod.rs", "pub mod records;\n"),
+        ("crates/north-core/src/fleet/records.rs", "pub fn read_record() {}\n"),
+        (USAGE_RS, "pub fn read() {}\n"),
+    ];
+    for (path, body) in files {
+        fs::create_dir_all(fixture.repo.join(path).parent().unwrap()).unwrap();
+        fs::write(fixture.repo.join(path), body).unwrap();
+    }
+    for path in ["bin/head-north", "structure.toml"] {
+        fs::create_dir_all(fixture.repo.join(path).parent().unwrap()).unwrap();
+        fs::copy(source.join(path), fixture.repo.join(path)).unwrap();
+    }
+    git(&fixture.repo, &["add", "-A"]);
+    git(&fixture.repo, &["commit", "-qm", "north layout"]);
+    fixture.base = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    fs::write(fixture.repo.join(USAGE_RS), usage).unwrap();
+    git(&fixture.repo, &["commit", "-qam", "usage lane"]);
+    fixture.head = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    fs::create_dir_all(fixture.path("state/north/current")).unwrap();
+    script(&fixture.path("state/north/current/north"), COVERING_NORTH);
+    let output = fixture.command().output().unwrap();
+    (fixture, output)
+}
+
+#[test]
+fn a_lane_adding_crate_fleet_to_usage_is_refused_at_landing_naming_the_rule() {
+    let (fixture, output) = layers_lane("use crate::fleet::records::read_record;\n\npub fn read() {\n    read_record();\n}\n");
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("code-health layers") && text(&output).contains("NOT pushed."), "{}", text(&output));
+    let logs = fixture.logs();
+    assert_eq!(logs.len(), 1, "{logs:?}");
+    let log = fs::read_to_string(&logs[0]).unwrap();
+    assert!(log.contains(&format!("✗ layer {USAGE_RS}:1 new reference -> crates/north-core/src/fleet/records.rs: module usage may not use fleet")), "{log}");
+    assert!(log.contains(&format!("✗ crate-dag {USAGE_RS}:1 new reference -> crates/north-core/src/fleet/records.rs: planned crate north-pace may not use north-fleet")), "{log}");
+
+    let (fixture, output) = layers_lane("pub fn read() -> u8 {\n    1\n}\n");
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(fixture.logs().is_empty(), "a passing layers check kept its log");
+}
+
 fn seed_outcomes(fixture: &Fixture, rows: &[(&str, &str, f64)]) -> PathBuf {
     let path = fixture.path("state/safe-push/check-timings/outcomes.tsv");
     fs::create_dir_all(path.parent().unwrap()).unwrap();

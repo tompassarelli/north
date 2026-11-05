@@ -12,6 +12,79 @@ hub_dependents = 3
 [crate_lines.overrides]
 north-ops = 37362
 
+[crate_dag]
+re_exports = ["crates/*/src/lib.rs"]
+
+[[crate_dag.crate]]
+name = "north-base"
+paths = ["crates/north-base/src/**"]
+may_use = []
+
+[[crate_dag.crate]]
+name = "north-landing"
+paths = ["crates/north-landing/src/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
+name = "north-tui"
+paths = ["crates/north-tui/src/**"]
+may_use = ["north-providers"]
+
+[[crate_dag.crate]]
+name = "north-guard"
+paths = ["crates/north-guard/src/**", "crates/*/src/lanes.rs", "crates/*/src/lanes/**", "crates/*/src/code_health.rs", "crates/*/src/code_health/**"]
+may_use = ["north-dispatch", "north-providers"]
+
+[[crate_dag.crate]]
+name = "north-capacity-host"
+paths = ["crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**"]
+may_use = ["north-capacity", "north-fleet", "north-threads"]
+
+[[crate_dag.crate]]
+name = "north-capacity"
+paths = ["crates/*/src/capacity.rs", "crates/*/src/capacity/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
+name = "north-dispatch"
+paths = ["crates/*/src/ops/dispatch.rs", "crates/*/src/ops/dispatch/**", "crates/*/src/ops/tune.rs", "crates/*/src/ops/tune/**", "crates/*/src/ops/check.rs", "crates/*/src/ops/check/**", "crates/*/src/ops/dividend.rs", "crates/*/src/ops/dividend/**", "crates/*/src/ops/pacing.rs", "crates/*/src/ops/pacing/**", "crates/*/src/ops/laptop.rs", "crates/*/src/ops/laptop/**", "crates/*/src/ops/resident_cap.rs", "crates/*/src/ops/resident_cap/**"]
+may_use = ["north-capacity", "north-fleet", "north-providers", "north-threads"]
+
+[[crate_dag.crate]]
+name = "north-runtime"
+paths = ["crates/*/src/ops/runtime.rs", "crates/*/src/ops/runtime/**", "crates/*/src/ops/land_offload.rs", "crates/*/src/ops/land_offload/**", "crates/*/src/ops/build_offload.rs", "crates/*/src/ops/build_offload/**", "crates/*/src/ops/laptop_runner.rs", "crates/*/src/ops/laptop_runner/**", "crates/*/src/ops/agent_contain.rs", "crates/*/src/ops/agent_contain/**", "crates/*/src/ops/laptop_ntfy.rs", "crates/*/src/ops/laptop_ntfy/**", "crates/*/src/ops/timers.rs", "crates/*/src/ops/timers/**", "crates/*/src/ops/model_watch.rs", "crates/*/src/ops/model_watch/**", "crates/*/src/ops/job_watch.rs", "crates/*/src/ops/job_watch/**", "crates/*/src/ops/outside_watch.rs", "crates/*/src/ops/outside_watch/**", "crates/*/src/ops/usage_web_read.rs", "crates/*/src/ops/usage_web_read/**", "crates/*/src/ops/runtime_access.rs", "crates/*/src/ops/runtime_access/**"]
+may_use = ["north-capacity-host", "north-dispatch", "north-providers"]
+
+[[crate_dag.crate]]
+name = "north-ops"
+paths = ["crates/*/src/ops.rs", "crates/*/src/ops/**", "crates/*/src/health.rs", "crates/*/src/health/**"]
+may_use = ["north-dispatch", "north-threads"]
+
+[[crate_dag.crate]]
+name = "north-pace"
+paths = ["crates/*/src/pace.rs", "crates/*/src/pace/**", "crates/*/src/router.rs", "crates/*/src/router/**", "crates/*/src/usage.rs", "crates/*/src/usage/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
+name = "north-threads"
+paths = ["crates/*/src/threads.rs", "crates/*/src/threads/**", "crates/*/src/work_items.rs", "crates/*/src/work_items/**"]
+may_use = ["north-pace"]
+
+[[crate_dag.crate]]
+name = "north-fleet"
+paths = ["crates/*/src/fleet.rs", "crates/*/src/fleet/**", "crates/*/src/claude_stream.rs", "crates/*/src/claude_stream/**"]
+may_use = ["north-pace"]
+
+[[crate_dag.crate]]
+name = "north-providers"
+paths = ["crates/*/src/providers.rs", "crates/*/src/providers/**", "crates/*/src/codex.rs", "crates/*/src/codex/**", "crates/*/src/ledger.rs", "crates/*/src/ledger/**"]
+may_use = ["north-fleet", "north-threads"]
+
+[[crate_dag.crate]]
+name = "north-core"
+paths = ["crates/north-core/src/**"]
+may_use = ["north-fleet", "north-threads"]
+
 [review]
 commits = 600
 hand_lines_added = 20000

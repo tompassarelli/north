@@ -15,7 +15,7 @@ static TS_BARE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?m)^\s*import\s*['"]([^'"]+)['"]"#).unwrap());
 static TS_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?-u:\b)(?:require|import)\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap());
-static RS_USE: LazyLock<Regex> =
+pub(super) static RS_USE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);").unwrap());
 static C_INCLUDE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?m)^\s*#\s*include\s*"([^"]+)""#).unwrap());
