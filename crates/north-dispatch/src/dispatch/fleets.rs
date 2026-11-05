@@ -95,13 +95,23 @@ fn names_outside(fleets: &[(String, Value)], holding: fn(&Value) -> bool) -> BTr
 }
 
 /// The names of dispatch launches whose sessions no longer hold their items: sessions some listing
-/// shows and none shows running, and sessions absent from every listing though the listing of the
-/// host they launched on was read and taken late enough after the launch for it to show. A listing
-/// was taken at `at` unless `copies` holds the time its host copied it.
+/// shows and none shows running, and the `forgotten` ones.
 pub fn gone(fleets: &[(String, Value)], copies: &BTreeMap<String, f64>, records: &[record::Record], at: f64) -> BTreeSet<String> {
-    let listed: BTreeSet<&str> = fleets.iter().flat_map(|(_, listing)| listing.as_array().into_iter().flatten()).filter_map(|session| session["name"].as_str()).collect();
-    let forgotten = records.iter().filter(|launch| launch.launched && !launch.cloud && !launch.hand && copies.get(&launch.host).copied().unwrap_or(at) - launch.at >= record::LAPTOP_SHOW_S).filter(|launch| !listed.contains(launch.name.as_str())).filter(|launch| fleets.iter().any(|(host, listing)| *host == launch.host && listing.is_array()));
-    stopped_names(fleets).into_iter().chain(forgotten.map(|launch| launch.name.clone())).collect()
+    stopped_names(fleets).into_iter().chain(forgotten(fleets, copies, records, at)).collect()
+}
+
+/// The names of dispatch launches absent from every listing though the listing of the host they
+/// launched on was read and taken late enough after the launch for it to show. A listing was taken
+/// at `at` unless `copies` holds the time its host copied it.
+pub fn forgotten(fleets: &[(String, Value)], copies: &BTreeMap<String, f64>, records: &[record::Record], at: f64) -> BTreeSet<String> {
+    let listed = listed(fleets);
+    records
+        .iter()
+        .filter(|launch| launch.launched && !launch.cloud && !launch.hand && copies.get(&launch.host).copied().unwrap_or(at) - launch.at >= record::LAPTOP_SHOW_S)
+        .filter(|launch| !listed.contains(&launch.name))
+        .filter(|launch| fleets.iter().any(|(host, listing)| *host == launch.host && listing.is_array()))
+        .map(|launch| launch.name.clone())
+        .collect()
 }
 
 /// The sessions this registry runs on other machines, which their resident counts miss, and the
@@ -247,4 +257,9 @@ pub fn everywhere(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, a
     }
     found.extend(others(cfg, here, command, kind, at, limit, notes));
     found
+}
+
+/// Every session name some listing shows, whatever its status.
+pub fn listed(fleets: &[(String, Value)]) -> BTreeSet<String> {
+    fleets.iter().flat_map(|(_, listing)| listing.as_array().into_iter().flatten()).filter_map(|session| session["name"].as_str().map(str::to_owned)).collect()
 }

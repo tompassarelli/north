@@ -16,6 +16,7 @@ const BODY_LIMIT: usize = 60_000;
 const TITLE: &str = "After-landing gate debt";
 const HEADER: &str = "Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit.";
 const DROPPED: &str = "Older sections dropped: ";
+const DONE_WHEN: &str = "\n## Done when\n- [ ] No section remains below: each failed gate is fixed forward on main and its section deleted.\n";
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Failure {
@@ -106,6 +107,7 @@ fn render(dropped: usize, sections: &[String]) -> String {
     if dropped > 0 {
         body.push_str(&format!("{DROPPED}{dropped}.\n"));
     }
+    body.push_str(DONE_WHEN);
     for section in sections {
         body.push('\n');
         body.push_str(section);
@@ -310,3 +312,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
+
+#[cfg(test)]
+#[path = "after_landing_tests.rs"]
+mod tests;

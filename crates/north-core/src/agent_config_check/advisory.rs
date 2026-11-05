@@ -17,10 +17,10 @@ pub(super) fn title(host: &str) -> String {
     format!("Agent configuration check failing on {host}")
 }
 
-fn body(host: &str, failures: &[String]) -> String {
+pub(super) fn body(host: &str, failures: &[String]) -> String {
     let lines: String = failures.iter().map(|failure| format!("- {failure}\n")).collect();
     format!(
-        "Category: bug-known-cause\nSpec: measured\nScope: cross-module\nSurface: rust\nVerify: local-test\nNeeds: local-state\n\n\
+        "Category: bug-known-cause\nClass: agent configuration drift `north agent-config-check --local` reports on {host}: every failing line below.\nSpec: measured\nScope: cross-module\nSurface: rust\nVerify: local-test\nNeeds: local-state\n\n\
          The one rolling issue `north agent-config-check --local` keeps for {host}. It opens when the check fails twice in a row, edits itself as the failures change and closes itself when a run passes.\n\n\
          Failing now:\n\n{lines}\n## Done when\n- [ ] (headless run) `north agent-config-check --local` exits 0 on {host}; this issue then closes itself.\n"
     )

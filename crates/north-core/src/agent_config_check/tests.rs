@@ -74,3 +74,9 @@ fn a_session_start_probe_that_stalls_on_an_idle_host_fails_the_generation_withou
     assert!(refused.contains("did not finish within 1 seconds"), "{refused}");
     assert!(!dir.path().join("leases").exists());
 }
+
+#[test]
+fn the_rolling_config_issue_carries_the_class_line_dispatch_needs_to_staff_a_bug() {
+    let body = super::advisory::body("whiterabbit", &["policy-contract: drift".into()]);
+    assert_eq!(crate::router::brief::class_refusal(&body), None, "{body}");
+}

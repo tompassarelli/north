@@ -1,6 +1,6 @@
 //! What a dispatch run does to the world: start each placed box in the cloud lane or through
 //! `north fleet launch` (on the laptop through its job queue), record the attempt, send Tom's one
-//! ntfy line, and send the triage lead its daily list of issues that need a box.
+//! ntfy line, and send the triage lead, else the proxy, its daily list of issues that need a box.
 use super::{brief, cloud};
 use super::issues::Issue;
 use super::plan::Launch;
@@ -8,8 +8,10 @@ use super::revive::Revive;
 use super::record::{self, Record};
 use super::survey::Survey;
 use crate::pacing::placement::{self, gate};
+use crate::fleet::runtime::PROXY;
 use crate::platform::process::run_within;
 use serde_json::json;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Duration;
 use toml_edit::{DocumentMut, Item};
@@ -203,29 +205,38 @@ pub fn boxless_summary(issues: &[&Issue]) -> String {
     format!("north dispatch: {} open issues have no Done-when box, so dispatch cannot staff them; give each a box, a roadmap label, or close it: {}", issues.len(), listed.join("; "))
 }
 
-/// Sends `boxless_summary` to the session `[dispatch] triage_lead` names, at most once a day.
-pub fn ask_for_boxes(cfg: &DocumentMut, issues: &[&Issue], dry_run: bool, at: f64) {
-    let Some(lead) = cfg.get("dispatch").and_then(|rules| rules.get("triage_lead")).and_then(Item::as_str) else {
-        println!("note: no [dispatch] triage_lead, so nobody is asked to box them");
-        return;
-    };
+/// Who is asked to box them: the session `[dispatch] triage_lead` names while some registry lists
+/// it, else the proxy.
+pub fn boxless_recipient<'a>(cfg: &'a DocumentMut, listed: &BTreeSet<String>) -> &'a str {
+    cfg.get("dispatch").and_then(|rules| rules.get("triage_lead")).and_then(Item::as_str).filter(|lead| listed.contains(*lead)).unwrap_or(PROXY)
+}
+
+/// Sends `boxless_summary` to `boxless_recipient` at most once a day; a failed send waits the day too,
+/// so a missing recipient is reported once a day, not every round.
+pub fn ask_for_boxes(cfg: &DocumentMut, listed: &BTreeSet<String>, issues: &[&Issue], dry_run: bool, at: f64) {
+    let to = boxless_recipient(cfg, listed);
     let last = placement::pace_state("dispatch/boxless.json");
     if let Some(sent) = last["at"].as_f64().filter(|sent| at - sent < BOXLESS_EVERY_S) {
-        println!("needs-a-box summary went to {lead} {:.0} h ago", (at - sent) / 3600.0);
+        let outcome = last["failed"].as_str().map_or_else(|| "went".to_owned(), |why| format!("failed ({why})"));
+        println!("needs-a-box summary to {} {outcome} {:.0} h ago", last["to"].as_str().unwrap_or(to), (at - sent) / 3600.0);
         return;
     }
     let text = boxless_summary(issues);
     if dry_run {
-        println!("would send {lead}: {text}");
+        println!("would send {to}: {text}");
         return;
     }
     let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
-    match run_within(&north, &["fleet", "send", "--from", "service:north-dispatch", lead, &text], Duration::from_secs(30)) {
+    match run_within(&north, &["fleet", "send", "--from", "service:north-dispatch", to, &text], Duration::from_secs(30)) {
         Some(output) if output.status.success() => {
-            println!("sent {lead}: {text}");
-            remember("boxless.json", &json!({"to": lead, "at": at}));
+            println!("sent {to}: {text}");
+            remember("boxless.json", &json!({"to": to, "at": at}));
         }
-        _ => eprintln!("north dispatch: north fleet send {lead} failed; the summary was: {text}"),
+        failed => {
+            let why = failed.map_or_else(|| "timed out".to_owned(), |output| refusal_line(&String::from_utf8_lossy(&output.stderr)));
+            eprintln!("north dispatch: north fleet send {to} failed: {why}; the summary was: {text}");
+            remember("boxless.json", &json!({"to": to, "at": at, "failed": why}));
+        }
     }
 }
 

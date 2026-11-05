@@ -37,6 +37,8 @@ pub struct Survey {
     pub holds: BTreeMap<IssueRef, String>,
     /// The fleet sessions every reached registry lists as running or parked on a wait, which own the boxes their names are on.
     pub live: BTreeSet<String>,
+    /// Every session name a reached registry lists, parked or stopped included.
+    pub listed: BTreeSet<String>,
     pub cloud: Cloud,
     /// The host reached through the laptop job queue, when one serves `laptop`.
     pub laptop: Option<String>,
@@ -236,7 +238,7 @@ pub fn laptop_running(sessions: &[(Session, String)], laptop: &str, dispatched: 
 
 /// A dispatched session's `north fleet show --json`: a launch registers where dispatch ran, except
 /// on the laptop, whose job queue starts it in the laptop's own registry.
-fn report(launch: &record::Record, laptop: Option<&str>) -> Result<Value, String> {
+fn shown(launch: &record::Record, laptop: Option<&str>) -> Result<Value, String> {
     if laptop == Some(launch.host.as_str()) {
         return Err(format!("{} runs in the laptop's registry", launch.name));
     }
@@ -248,7 +250,7 @@ fn stopped(laptop: Option<&str>, records: &[record::Record], issues: &mut [Issue
     let launches = super::stops::last_launches(records);
     for issue in issues.iter_mut().filter(|issue| issue.unticked() > 0) {
         let Some(launch) = launches.get(&issue.reference()) else { continue };
-        match report(launch, laptop) {
+        match shown(launch, laptop) {
             Ok(session) => issue.stopped = super::stops::stopped_at(&session),
             Err(why) => notes.push(format!("{} report unread, so {} may relaunch: {why}", launch.name, issue.reference())),
         }
@@ -256,11 +258,15 @@ fn stopped(laptop: Option<&str>, records: &[record::Record], issues: &mut [Issue
 }
 
 /// The sessions of contested tries that did no work on their item, each with why its try is not spent.
-fn unspent(laptop: Option<&str>, records: &[record::Record], at: f64, notes: &mut Vec<String>) -> BTreeMap<String, String> {
+/// A forgotten session's report went with it, so its try is not counted against the item.
+pub(super) fn unspent(records: &[record::Record], at: f64, forgotten: &BTreeSet<String>, report: impl Fn(&record::Record) -> Result<Value, String>, notes: &mut Vec<String>) -> BTreeMap<String, String> {
     let mut found = BTreeMap::new();
     for launch in record::contested(records, at) {
-        match report(launch, laptop) {
+        match report(launch) {
             Ok(session) => found.extend(super::tries::unspent(&session).map(|why| (launch.name.clone(), why))),
+            Err(_) if forgotten.contains(&launch.name) => {
+                found.insert(launch.name.clone(), "was forgotten before its report was read".to_owned());
+            }
             Err(why) => notes.push(format!("{} report unread, so its try counts: {why}", launch.name)),
         }
     }
@@ -363,7 +369,11 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let records = record::read(&record::directory());
     let stopped_sessions = fleets::exited_names(&fleet_lists);
     holds.extend(claim_lists.iter().flat_map(|(host, listing)| claim_rows(listing, host, &stopped_sessions)));
-    holds.extend(record::holds(&records, at, &unspent(laptop.as_deref(), &records, at, &mut notes), &fleets::gone(&fleet_lists, &fleets::copy_times(&record::directory(), "fleet", laptop.as_deref()), &records, at)));
+    let copies = fleets::copy_times(&record::directory(), "fleet", laptop.as_deref());
+    let forgotten = fleets::forgotten(&fleet_lists, &copies, &records, at);
+    let listed = fleets::listed(&fleet_lists);
+    let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop.as_deref()), &mut notes);
+    holds.extend(record::holds(&records, at, &unspent, &fleets::gone(&fleet_lists, &copies, &records, at)));
     let mut held: Vec<(IssueRef, String)> = gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)).collect();
     held.sort();
     held.dedup();
@@ -385,7 +395,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push(why);
         Vec::new()
     });
-    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, live, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, strands, saturated, revived, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, strands, saturated, revived, at })
 }
 
 mod github {

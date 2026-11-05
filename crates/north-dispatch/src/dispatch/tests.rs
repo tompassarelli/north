@@ -78,6 +78,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         open,
         holds: BTreeMap::new(),
         live: BTreeSet::new(),
+        listed: BTreeSet::new(),
         cloud,
         laptop: Some("whiterabbit".into()),
         cloud_running: 0,
@@ -149,4 +150,12 @@ fn an_issue_whose_every_open_box_names_a_live_owner_is_skipped_and_one_with_an_u
     assert_eq!(ready("- [ ] cull north (owners: n-cull-it, -landing)\n  - [ ] code: delete it. Owner: lead-88."), Err("every open box has a live owner: lead-88, n-cull-it, n-cull-landing".into()));
     assert_eq!(ready("- [ ] cores first (owner: n-land-first)\n- [ ] makgora culled the same way"), Ok(()), "a box with no owner is open to staff");
     assert_eq!(ready("- [ ] spans by category (owner: n-land-profile)"), Ok(()), "an owner the fleet does not list as live holds nothing");
+}
+
+#[test]
+fn the_needs_a_box_summary_goes_to_the_triage_lead_only_while_a_registry_lists_it_else_to_the_proxy() {
+    let cfg: toml_edit::DocumentMut = "[dispatch]\ntriage_lead = \"triage-lead\"\n".parse().unwrap();
+    assert_eq!(super::effects::boxless_recipient(&cfg, &BTreeSet::new()), "proxy");
+    assert_eq!(super::effects::boxless_recipient(&cfg, &BTreeSet::from(["triage-lead".to_owned()])), "triage-lead");
+    assert_eq!(super::effects::boxless_recipient(&toml_edit::DocumentMut::new(), &BTreeSet::from(["triage-lead".to_owned()])), "proxy");
 }

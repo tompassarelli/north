@@ -51,6 +51,12 @@ impl Record {
     pub fn staffing_held(&self) -> bool {
         !self.launched && self.detail.starts_with(STAFFING_REFUSAL)
     }
+
+    /// A launch that started nothing for a reason other than staffing refusing it or `north fleet launch`
+    /// queueing the box behind an in-flight lane, which are dispatch's own bookkeeping.
+    pub fn failed(&self) -> bool {
+        !self.launched && !self.staffing_held() && !self.detail.starts_with(crate::fleet::overlap::QUEUED)
+    }
 }
 
 fn hold(record: &Record) -> f64 {

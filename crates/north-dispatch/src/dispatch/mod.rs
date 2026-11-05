@@ -247,7 +247,7 @@ fn start(survey: &Survey, launch: &Launch, dry_run: bool) -> (String, Option<Str
     }
     match effects::launch(survey, launch) {
         Ok(name) => (format!("{line}: {name}"), None),
-        Err(why) if why.starts_with(STAFFING_REFUSAL) => (format!("{line} held: {why}"), None),
+        Err(why) if why.starts_with(STAFFING_REFUSAL) || why.starts_with(crate::fleet::overlap::QUEUED) => (format!("{line} held: {why}"), None),
         Err(why) => (format!("{line} failed: {why}"), Some(format!("{} on {}: {why}", launch.item, launch.host))),
     }
 }
@@ -290,7 +290,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     let boxless = boxless(&survey, &outcome);
     if !boxless.is_empty() {
         println!("needs a box: {}", boxless.iter().map(|issue| issue.reference().to_string()).collect::<Vec<_>>().join(", "));
-        effects::ask_for_boxes(&survey.cfg, &boxless, dry_run, placement::now());
+        effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
     let failures = execute(&survey, &outcome, dry_run);
     if let Some(line) = alert(&outcome, &failures, &survey.here) {
