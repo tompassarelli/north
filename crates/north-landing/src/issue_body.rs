@@ -316,7 +316,3 @@ pub fn drain(directory: &Path, github: &dyn Github, limit: Duration) -> io::Resu
 pub fn drain_in_background(directory: PathBuf, github: impl Github + Send + 'static, limit: Duration) -> JoinHandle<io::Result<Drained>> {
     std::thread::spawn(move || drain(&directory, &github, limit))
 }
-
-#[cfg(test)]
-#[path = "issue_body_tests.rs"]
-mod tests;

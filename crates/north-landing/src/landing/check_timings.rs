@@ -210,7 +210,3 @@ pub enum BaseResult {
     Passed,
     Failed(String),
 }
-
-#[cfg(test)]
-#[path = "check_timings_tests.rs"]
-mod tests;

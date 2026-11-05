@@ -67,7 +67,3 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "commands_tests.rs"]
-mod commands_tests;

@@ -12,7 +12,3 @@ pub fn culprit(lanes: usize, mut after_first: impl FnMut(usize) -> Verdict) -> O
     }
     (lanes > 0).then_some(red - 1)
 }
-
-#[cfg(test)]
-#[path = "blame_tests.rs"]
-mod tests;

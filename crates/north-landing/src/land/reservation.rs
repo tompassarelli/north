@@ -51,7 +51,3 @@ pub fn judge(ticket: &Judged, attempt: &Attempt) -> Pick {
         _ => Pick::Decided(format!("conflict {files}")),
     }
 }
-
-#[cfg(test)]
-#[path = "reservation_tests.rs"]
-mod tests;

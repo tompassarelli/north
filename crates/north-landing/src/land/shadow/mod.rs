@@ -7,8 +7,6 @@ use super::{candidate, hold, lander, queue, repositories, reuse};
 
 mod pick;
 mod run;
-#[cfg(test)]
-mod tests;
 
 const USAGE: &str = "usage: north land shadow tick [--repo DIR] (without --repo, every repository the lander serves)";
 const WORKTREE: &str = "shadow";

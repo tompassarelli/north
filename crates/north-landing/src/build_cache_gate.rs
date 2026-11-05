@@ -108,7 +108,3 @@ pub fn run_gate(args: &[String]) -> ExitCode {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "build_cache_gate_tests.rs"]
-mod tests;

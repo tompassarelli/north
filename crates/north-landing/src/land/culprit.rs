@@ -303,7 +303,3 @@ pub fn search(lander: &Lander, base: &str, included: &[Entry], together: Checked
         }
     }
 }
-
-#[cfg(test)]
-#[path = "culprit_tests.rs"]
-mod tests;

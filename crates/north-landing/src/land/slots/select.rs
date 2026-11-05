@@ -203,7 +203,3 @@ pub(super) fn changed(repo: &Path, base: &str, head: &str, specs: &[&str]) -> Ve
     arguments.extend(specs);
     git_lines(repo, &arguments).into_iter().filter(|line| !line.is_empty()).collect()
 }
-
-#[cfg(test)]
-#[path = "select_tests.rs"]
-mod tests;

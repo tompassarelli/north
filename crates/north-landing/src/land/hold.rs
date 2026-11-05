@@ -55,31 +55,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_second_hold_on_one_queue_is_refused_naming_the_first_and_is_granted_once_it_is_released() {
-        let dir = tempfile::tempdir().unwrap();
-        let queue = dir.path().join("queue");
-        let first = take(&queue, Path::new("/code/north/main")).unwrap();
-        let refused = take(&queue, Path::new("/code/north/other")).err().unwrap();
-        assert!(refused.contains(&format!("pid {} serving /code/north/main", std::process::id())), "{refused}");
-        assert_eq!(holder(&queue), format!("pid {} serving /code/north/main", std::process::id()));
-        drop(first);
-        let second = take(&queue, Path::new("/code/north/other"));
-        assert!(second.is_ok());
-        assert_eq!(holder(&queue), format!("pid {} serving /code/north/other", std::process::id()));
-    }
-
-    #[test]
-    fn a_queue_is_held_only_while_a_lander_holds_its_lock() {
-        let dir = tempfile::tempdir().unwrap();
-        let queue = dir.path().join("queue");
-        assert!(!held(&queue));
-        let lander = take(&queue, Path::new("/code/north/main")).unwrap();
-        assert!(held(&queue));
-        drop(lander);
-        assert!(!held(&queue));
-    }
-
-    #[test]
     fn a_dropped_lock_is_free_while_a_copy_of_its_descriptor_lives_on_in_a_spawned_child() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("lock");

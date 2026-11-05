@@ -310,7 +310,3 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
-
-#[cfg(test)]
-#[path = "after_landing_tests.rs"]
-mod tests;

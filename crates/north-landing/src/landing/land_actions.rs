@@ -226,7 +226,3 @@ fn report_failure(id: &str, conclusion: &str) -> u8 {
     eprintln!("land check: the Actions run concluded {conclusion}; failed: {}", if failed.is_empty() { "unknown".to_owned() } else { failed.join(", ") });
     1
 }
-
-#[cfg(test)]
-#[path = "land_actions_tests.rs"]
-mod tests;

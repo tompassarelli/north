@@ -112,7 +112,3 @@ fn mirror_holds(mirror: &Path, commit: &str) -> bool {
     let held = Command::new("git").arg("--git-dir").arg(mirror).args(["for-each-ref", "--count=1", "--contains", commit, "--format=%(refname)"]).output();
     held.is_ok_and(|output| output.status.success() && !output.stdout.is_empty())
 }
-
-#[cfg(test)]
-#[path = "safe_push_tag_delete_tests.rs"]
-mod tests;

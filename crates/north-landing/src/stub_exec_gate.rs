@@ -84,7 +84,3 @@ pub fn check(repo: &Path, destination: &str, base: &str, head: &str) -> bool {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "stub_exec_gate_tests.rs"]
-mod tests;

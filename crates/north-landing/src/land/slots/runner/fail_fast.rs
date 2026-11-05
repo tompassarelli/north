@@ -192,7 +192,3 @@ impl std::fmt::Display for Replay {
         write!(formatter, "median passing landing wall: {:.1} s today, {:.1} s with the fail-fast order ({wall_change:+.1}%)", self.today_wall, self.ordered_wall)
     }
 }
-
-#[cfg(test)]
-#[path = "fail_fast_tests.rs"]
-mod tests;

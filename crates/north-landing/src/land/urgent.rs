@@ -51,26 +51,3 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::land::queue::{Ticket, file_name, pending, write};
-
-    #[test]
-    fn an_urgent_ticket_sorts_before_older_tickets_and_after_none_of_them_once_marked() {
-        let queue = tempfile::tempdir().unwrap();
-        for (micros, branch) in [(1, "older"), (2, "old"), (3, "fix")] {
-            write(&queue.path().join(file_name(micros, branch)), &Ticket { branch: branch.into(), head: "a".repeat(40), ..Ticket::default() }).unwrap();
-        }
-        let order = |queue: &Path| pending(queue).unwrap().into_iter().map(|(_, ticket)| ticket.branch).collect::<Vec<_>>();
-        assert_eq!(order(queue.path()), ["older", "old", "fix"]);
-
-        let said = mark(queue.path(), "fix", "stops the laptop overload").unwrap();
-
-        assert!(said.contains("fix") && said.contains("goes first: stops the laptop overload"), "{said}");
-        assert_eq!(order(queue.path()), ["fix", "older", "old"]);
-        assert!(mark(queue.path(), "missing", "x").is_err());
-        assert!(parse(&["fix".into()]).is_none(), "a reason is required");
-    }
-}

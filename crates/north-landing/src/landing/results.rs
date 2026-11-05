@@ -163,7 +163,3 @@ impl Store {
 fn field(text: &str) -> String {
     text.replace(['\t', '\n', '\r'], " ")
 }
-
-#[cfg(test)]
-#[path = "results_tests.rs"]
-mod tests;

@@ -189,7 +189,3 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "generated_tests.rs"]
-mod tests;

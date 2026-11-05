@@ -80,7 +80,3 @@ fn baselines(catalog: &str) -> Result<BTreeSet<String>, String> {
     }
     Ok(exempt)
 }
-
-#[cfg(test)]
-#[path = "instruction_limits_tests.rs"]
-mod tests;

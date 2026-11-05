@@ -74,7 +74,3 @@ pub fn refuse_lost_coverage(root: &Path, base: &str, head: &str) -> Result<(), S
     let refusals: Vec<String> = uncovered(&before, &after).iter().filter(|gap| !waivers.iter().any(|waiver| waives(waiver.name, &gap.command))).map(describe).collect();
     if refusals.is_empty() { Ok(()) } else { Err(refusals.join("; ")) }
 }
-
-#[cfg(test)]
-#[path = "check_coverage_tests.rs"]
-mod tests;

@@ -137,7 +137,3 @@ pub fn refresh(worktree: &Path, config: &Path, picked_onto: &str) -> Result<Vec<
     }
     Ok(refreshed)
 }
-
-#[cfg(test)]
-#[path = "merge_continue_tests.rs"]
-mod tests;

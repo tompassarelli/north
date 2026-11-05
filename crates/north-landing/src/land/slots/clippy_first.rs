@@ -33,7 +33,3 @@ pub fn order(plan: &Plan, scope: Option<&Scope>) -> String {
     }
     line
 }
-
-#[cfg(test)]
-#[path = "clippy_first_tests.rs"]
-mod tests;

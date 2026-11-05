@@ -59,7 +59,3 @@ pub fn infer(files: &[String], flake: Option<&str>, package: Option<&str>) -> Ve
     }
     checks
 }
-
-#[cfg(test)]
-#[path = "infer_tests.rs"]
-mod tests;

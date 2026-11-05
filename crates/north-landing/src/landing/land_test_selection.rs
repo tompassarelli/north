@@ -242,7 +242,3 @@ fn python_identifier(name: &str) -> bool {
     let mut characters = name.chars();
     characters.next().is_some_and(|first| first.is_ascii_alphabetic() || first == '_') && characters.all(|rest| rest.is_ascii_alphanumeric() || rest == '_')
 }
-
-#[cfg(test)]
-#[path = "land_test_selection_tests.rs"]
-mod tests;

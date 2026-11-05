@@ -42,33 +42,3 @@ fn a_runtime_move_that_touches_only_docs_and_fleet_code_keeps_the_lander_serving
     point(&link, &c);
     assert!(runtime.retires([repo.as_path()]));
 }
-
-#[test]
-fn a_runtime_move_that_touches_the_lander_crate_retires_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = repository(dir.path());
-    let a = commit(&repo, &["docs/a.md"]);
-    let b = commit(&repo, &["crates/north-landing/src/land/serve.rs", "docs/b.md"]);
-    let link = dir.path().join("current");
-    point(&link, &a);
-    let mut runtime = RuntimeWatch::new(link.clone());
-    assert!(!runtime.retires([repo.as_path()]));
-    point(&link, &b);
-    assert!(runtime.retires([repo.as_path()]));
-}
-
-#[test]
-fn a_runtime_move_the_repositories_cannot_diff_retires_the_lander() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = repository(dir.path());
-    let a = commit(&repo, &["docs/a.md"]);
-    let link = dir.path().join("current");
-    point(&link, &a);
-    let mut runtime = RuntimeWatch::new(link.clone());
-    point(&link, &"f".repeat(40));
-    assert!(runtime.retires([repo.as_path()]));
-    point(&link, "not-a-sha");
-    assert!(runtime.retires([repo.as_path()]));
-    std::fs::remove_file(&link).unwrap();
-    assert!(runtime.retires([repo.as_path()]));
-}

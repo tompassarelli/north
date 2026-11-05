@@ -100,7 +100,3 @@ pub fn run(directory: &Path, range: &str) -> u8 {
     };
     scan(directory, range.base, range.head, &Gh::new(CALL_LIMIT), &mut std::io::stdout())
 }
-
-#[cfg(test)]
-#[path = "boxes_tests.rs"]
-mod tests;

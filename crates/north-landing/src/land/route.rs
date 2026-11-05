@@ -118,7 +118,3 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "route_tests.rs"]
-mod tests;

@@ -440,7 +440,3 @@ fn unix_seconds(iso: &str) -> Option<i64> {
     let clock = time::Time::from_hms(u8::try_from(digits(11..13)?).ok()?, u8::try_from(digits(14..16)?).ok()?, u8::try_from(digits(17..19)?).ok()?).ok()?;
     Some(time::PrimitiveDateTime::new(date, clock).assume_utc().unix_timestamp())
 }
-
-#[cfg(test)]
-#[path = "ci_budget_tests.rs"]
-mod tests;

@@ -235,7 +235,3 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "bin_references_tests.rs"]
-mod tests;

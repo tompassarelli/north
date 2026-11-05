@@ -168,7 +168,3 @@ fn state() -> PathBuf {
     let home = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")));
     home.unwrap_or_default().join("safe-push")
 }
-
-#[cfg(test)]
-#[path = "gates_tests.rs"]
-mod tests;

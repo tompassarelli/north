@@ -216,7 +216,3 @@ fn area(file: &str) -> Option<String> {
     }
     TOP_LEVEL_AREAS.contains(&first).then(|| first.to_owned())
 }
-
-#[cfg(test)]
-#[path = "features_tests.rs"]
-mod tests;

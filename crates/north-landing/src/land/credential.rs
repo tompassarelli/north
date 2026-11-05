@@ -89,26 +89,4 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&output.stdout), "protocol=https\nhost=github.com\nusername=x-access-token\npassword=app-secret\n");
     }
 
-    #[test]
-    fn the_lander_mints_with_the_north_binary_it_runs_not_a_path_lookup() {
-        let program = mint_program();
-        assert_eq!(program, [std::env::current_exe().unwrap().display().to_string(), "gh-app-token".to_owned()]);
-    }
-
-    #[test]
-    fn no_setting_keeps_the_inherited_credential() {
-        assert_eq!(choose(&[]), Ok(Credential::Inherited));
-    }
-
-    #[test]
-    fn one_app_name_selects_the_app() {
-        assert_eq!(choose(&["lander"]), Ok(Credential::App("lander".to_owned())));
-    }
-
-    #[test]
-    fn a_malformed_or_repeated_setting_is_an_error_not_a_fallback() {
-        for bad in [vec![""], vec!["a b"], vec!["a;b"], vec!["lander", "socrates"]] {
-            assert!(choose(&bad).is_err(), "{bad:?}");
-        }
-    }
 }

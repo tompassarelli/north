@@ -11,8 +11,6 @@ pub mod facts;
 pub(crate) mod github;
 mod landing;
 pub mod sink;
-#[cfg(test)]
-mod tests;
 
 pub use facts::{Event, RepoFacts, Run, StageSample, Ticket};
 

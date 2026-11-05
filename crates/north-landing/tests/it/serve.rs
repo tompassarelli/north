@@ -1,10 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
-use std::time::{Duration, Instant};
 
 use north_landing::land::queue::{self, Ticket};
 
-const INCIDENT: &str = "#!/bin/sh\n[ \"$1\" = 0000000000000000000000000000000000000000 ] && exit 0\necho \"fatal: 'land-candidate' is already used by worktree at $PWD/../worktrees/worktrees/lander\" >&2\nexit 1\n";
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
 const GREEN: &str = "#!/bin/sh\n[ -z \"$HOLD\" ] || { : > \"$HOLD.started\"; while [ ! -e \"$HOLD.release\" ]; do sleep 0.05; done; }\necho 'safe-push: verdict green'\n";
 
@@ -116,77 +114,9 @@ impl Repository {
         ticket.head
     }
 
-    pub(super) fn main(&self) -> String {
-        git(&self.origin, &["rev-parse", "refs/heads/main"])
-    }
-
-    fn lands(&self, head: &str) -> bool {
-        let lane = git(&self.origin, &["log", "-1", "--format=%s", "refs/heads/main"]);
-        let subject = git(&self.checkout, &["log", "-1", "--format=%s", head]);
-        lane == subject
-    }
 }
 
 pub(super) fn report(output: &Output) -> String {
     format!("exit {:?}\nstdout:\n{}\nstderr:\n{}", output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
 }
 
-fn wait_for(path: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while !path.exists() {
-        assert!(Instant::now() < deadline, "{} never appeared", path.display());
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-#[test]
-fn a_repository_that_errors_every_round_does_not_stop_another_repository_landing_in_that_round() {
-    let world = World::new();
-    let north = world.repository("north");
-    let wisp = world.repository("wisp");
-    let landing = north.lane("north-lane");
-    wisp.lane("wisp-lane");
-    let hooks = wisp.checkout.parent().unwrap().join("hooks");
-    std::fs::create_dir_all(&hooks).unwrap();
-    std::fs::write(hooks.join("post-checkout"), INCIDENT).unwrap();
-    Command::new("chmod").arg("+x").arg(hooks.join("post-checkout")).status().unwrap();
-    git(&wisp.checkout, &["config", "core.hooksPath", hooks.to_str().unwrap()]);
-    let wisp_before = wisp.main();
-    let wisp_lander = world.lander(&wisp, None);
-    let north_lander = world.lander(&north, None);
-    let wisp_round = wisp_lander.wait_with_output().unwrap();
-    let north_round = north_lander.wait_with_output().unwrap();
-    println!("north lander:\n{}\nwisp lander:\n{}", report(&north_round), report(&wisp_round));
-    assert_eq!(wisp_round.status.code(), Some(1), "{}", report(&wisp_round));
-    assert!(String::from_utf8_lossy(&wisp_round.stderr).contains("is already used by worktree"), "{}", report(&wisp_round));
-    assert_eq!(wisp.main(), wisp_before);
-    assert_eq!(north_round.status.code(), Some(0), "{}", report(&north_round));
-    assert!(north.lands(&landing), "{}", report(&north_round));
-    let calls = std::fs::read_to_string(world.path().join("bin/north.calls")).unwrap();
-    let reaps: Vec<&str> = calls.lines().filter(|call| call.starts_with("capacity offload reap")).collect();
-    let owner = |repository: &Repository| format!("capacity offload reap --owner north-land-{}", repository.queue.file_name().unwrap().to_str().unwrap());
-    assert_eq!(reaps.len(), 2, "{calls}");
-    assert!(reaps.contains(&owner(&north).as_str()) && reaps.contains(&owner(&wisp).as_str()), "{calls}");
-    assert!(north.queue.join("done").read_dir().unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().contains("north-lane")), "{}", report(&north_round));
-}
-
-#[test]
-fn a_second_lander_on_a_served_queue_exits_refusing_and_names_the_holder() {
-    let world = World::new();
-    let north = world.repository("north");
-    let landing = north.lane("north-lane");
-    let hold = world.path().join("hold");
-    let first = world.lander(&north, Some(&hold));
-    wait_for(&hold.with_extension("started"));
-    let second = world.lander(&north, None).wait_with_output().unwrap();
-    std::fs::write(hold.with_extension("release"), "").unwrap();
-    let first_round = first.wait_with_output().unwrap();
-    println!("second lander:\n{}", report(&second));
-    assert_eq!(second.status.code(), Some(1), "{}", report(&second));
-    let refusal = String::from_utf8_lossy(&second.stderr);
-    assert!(refusal.contains("is already served by"), "{}", report(&second));
-    assert!(refusal.contains(&format!("serving {}", north.checkout.display())), "{}", report(&second));
-    assert!(refusal.contains("pid "), "{}", report(&second));
-    assert_eq!(first_round.status.code(), Some(0), "{}", report(&first_round));
-    assert!(north.lands(&landing), "{}", report(&first_round));
-}

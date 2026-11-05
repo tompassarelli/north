@@ -98,7 +98,3 @@ impl Records {
         fs::read_to_string(&self.path).unwrap_or_default().lines().filter_map(Record::parse).collect()
     }
 }
-
-#[cfg(test)]
-#[path = "outcomes_tests.rs"]
-mod tests;

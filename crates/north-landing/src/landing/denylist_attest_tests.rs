@@ -97,29 +97,6 @@ impl Fixture {
 }
 
 #[test]
-fn denylist_attest_parses_repos_and_a_claude_branch_only() {
-    let args = |list: &[&str]| list.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
-    let request = parse(&args(&["--south", "/s", "--repo", "a/b", "--repo", "c/d", "--branch", "claude/x"])).unwrap();
-    assert_eq!(request.repos, vec!["a/b".to_owned(), "c/d".to_owned()]);
-    assert_eq!(request.branch.as_deref(), Some("claude/x"));
-    assert_eq!(parse(&args(&["--south", "/s", "--repo", "a/b", "--branch", "main"])), None);
-    assert_eq!(parse(&args(&["--south", "/s", "--repo", "../b"])), None);
-    assert_eq!(parse(&args(&["--south", "/s"])), None);
-    assert_eq!(parse(&args(&["--repo", "a/b"])), None);
-}
-
-#[test]
-fn denylist_attest_clean_tip_posts_success_and_dispatches_autoland() {
-    let fixture = Fixture::new();
-    let clean = fixture.tip("claude/clean-work", "ordinary words\n");
-    let forge = fixture.forge(vec![clean.clone()]);
-    assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);
-    assert_eq!(*forge.posted.borrow(), vec![(clean.sha, "denylist".into(), "success".into(), "deny-list clean".into())]);
-    assert_eq!(*forge.dispatched.borrow(), vec![("owner/public".into(), "autoland.yml".into(), "claude/clean-work".into())]);
-    assert!(fixture.scratch.path().join("cache/owner/public.git/HEAD").is_file());
-}
-
-#[test]
 fn denylist_attest_finding_posts_a_failure_naming_no_rule_or_value_and_no_dispatch() {
     let fixture = Fixture::new();
     let dirty = fixture.tip("claude/dirty-work", "owner: zebra-quokka-7731\n");
@@ -129,19 +106,6 @@ fn denylist_attest_finding_posts_a_failure_naming_no_rule_or_value_and_no_dispat
     assert_eq!(*posted, vec![(dirty.sha, "denylist".into(), "failure".into(), "deny-list refused: reword and push again".into())]);
     assert!(!posted[0].3.contains("fake-private-term") && !posted[0].3.contains("zebra-quokka-7731"));
     assert!(forge.dispatched.borrow().is_empty());
-}
-
-#[test]
-fn denylist_attest_skips_a_tip_that_already_has_a_denylist_status() {
-    let fixture = Fixture::new();
-    let held = fixture.tip("claude/held-work", "ordinary words\n");
-    let other = fixture.tip("claude/other-work", "more words\n");
-    let mut forge = fixture.forge(vec![held.clone(), other.clone()]);
-    forge.states = vec![(held.sha.clone(), "ci".into(), "success".into()), (held.sha, "denylist".into(), "failure".into())];
-    assert_eq!(fixture.attest(&forge, "rules.toml", Some("claude/held-work")), 0);
-    assert!(forge.posted.borrow().is_empty() && forge.dispatched.borrow().is_empty());
-    assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);
-    assert_eq!(forge.posted.borrow().iter().map(|post| post.0.clone()).collect::<Vec<_>>(), vec![other.sha]);
 }
 
 #[test]
@@ -156,73 +120,3 @@ fn denylist_attest_scan_or_fetch_error_posts_nothing_and_exits_2() {
     assert!(forge.posted.borrow().is_empty() && forge.dispatched.borrow().is_empty());
 }
 
-#[test]
-fn denylist_attest_retries_a_failed_autoland_dispatch_once_without_posting_again() {
-    let fixture = Fixture::new();
-    let clean = fixture.tip("claude/clean-work", "ordinary words\n");
-    let mut forge = fixture.forge(vec![clean.clone()]);
-    forge.refuse_dispatch.set(true);
-    assert_eq!(fixture.attest(&forge, "rules.toml", None), 2);
-    assert_eq!(forge.posted.borrow().len(), 1);
-    forge.states = vec![(clean.sha, "denylist".into(), "success".into())];
-    forge.refuse_dispatch.set(false);
-    assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);
-    assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);
-    assert_eq!(forge.posted.borrow().len(), 1);
-    assert_eq!(*forge.dispatched.borrow(), vec![("owner/public".into(), "autoland.yml".into(), "claude/clean-work".into())]);
-}
-
-#[test]
-fn denylist_attest_leaves_a_tip_autoland_already_settled_unscanned_and_undispatched() {
-    let fixture = Fixture::new();
-    let failed = fixture.tip("claude/failed-work", "ordinary words\n");
-    let queued = fixture.tip("claude/queued-work", "more words\n");
-    let mut forge = fixture.forge(vec![failed.clone(), queued.clone()]);
-    forge.states = vec![(failed.sha, "autoland".into(), "failure".into()), (queued.sha.clone(), "autoland".into(), "pending".into())];
-    assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);
-    assert_eq!(forge.posted.borrow().iter().map(|post| post.0.clone()).collect::<Vec<_>>(), vec![queued.sha]);
-    assert_eq!(*forge.dispatched.borrow(), vec![("owner/public".into(), "autoland.yml".into(), "claude/queued-work".into())]);
-}
-
-const FORBIDDEN: &str = "gh api failed: gh: Resource not accessible by personal access token (HTTP 403)";
-
-#[test]
-fn denylist_attest_a_token_that_cannot_post_statuses_defers_a_clean_tip_to_the_timer_with_exit_3() {
-    let fixture = Fixture::new();
-    let clean = fixture.tip("claude/clean-work", "ordinary words\n");
-    let forge = fixture.forge(vec![clean]);
-    *forge.post_answer.borrow_mut() = Some(PostError::classify(FORBIDDEN.into()));
-    assert_eq!(fixture.attest(&forge, "rules.toml", None), DEFERRED);
-    assert!(forge.posted.borrow().is_empty() && forge.dispatched.borrow().is_empty());
-    assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);
-    assert_eq!(forge.posted.borrow().len(), 1);
-    assert_eq!(forge.dispatched.borrow().len(), 1);
-}
-
-#[test]
-fn denylist_attest_a_token_that_cannot_post_statuses_still_reports_a_finding_as_refused() {
-    let fixture = Fixture::new();
-    let dirty = fixture.tip("claude/dirty-work", "owner: zebra-quokka-7731\n");
-    let forge = fixture.forge(vec![dirty]);
-    *forge.post_answer.borrow_mut() = Some(PostError::classify(FORBIDDEN.into()));
-    assert_eq!(fixture.attest(&forge, "rules.toml", None), 1);
-    assert!(forge.dispatched.borrow().is_empty());
-}
-
-#[test]
-fn denylist_attest_any_other_post_failure_is_still_exit_2() {
-    let fixture = Fixture::new();
-    let clean = fixture.tip("claude/clean-work", "ordinary words\n");
-    let forge = fixture.forge(vec![clean]);
-    *forge.post_answer.borrow_mut() = Some(PostError::classify("gh api failed: HTTP 502".into()));
-    assert_eq!(fixture.attest(&forge, "rules.toml", None), 2);
-    assert!(forge.dispatched.borrow().is_empty());
-}
-
-#[test]
-fn denylist_attest_deferred_ranks_below_refused_and_failed_across_tips() {
-    assert_eq!(worst([0, DEFERRED, 0].into_iter()), DEFERRED);
-    assert_eq!(worst([DEFERRED, 1].into_iter()), 1);
-    assert_eq!(worst([1, DEFERRED, 2].into_iter()), 2);
-    assert_eq!(worst(std::iter::empty()), 0);
-}

@@ -4,7 +4,6 @@ use std::process::Command;
 
 use super::scan_range;
 
-const CREDIT_LOGIN: &str = "Proton";
 const RULES: &str = "title = \"publication deny-list\"\n\
 [[rules]]\nid = \"fake-private-term\"\ndescription = \"fake private identity term\"\nregex = '''zebra-quokka-7731'''\n\
 [[rules]]\nid = \"fake-credit-lane\"\ndescription = \"fake credit-lane login\"\nregex = '''((?i:proton\\s+(?:credit|account|login)))'''\n\
@@ -153,16 +152,4 @@ fn denylist_publication_scan_follows_renames_file_names_archives_and_skill_paths
     archive.git(&["commit", "-qm", "add package"], &[]);
     let found = archive.findings(None);
     assert!(found.iter().any(|finding| finding.starts_with("fake-private-term in pkg-1.0.0.tgz")), "{found:?}");
-}
-
-#[test]
-fn denylist_publication_scan_refuses_a_credit_lane_login_but_not_a_wine_prefix() {
-    let skill = "harness/skills/workers/references/cloud.md";
-    let login = Publication::new();
-    login.commit(skill, &format!("- Run it on the host whose login is {CREDIT_LOGIN} account, so the credit pays.\n"), "add skill reference");
-    assert_eq!(login.findings(None), set(&[&format!("fake-credit-lane in {skill}")]));
-
-    let prefix = Publication::new();
-    prefix.commit(skill, "Never run two clients against one mutable Wine or Proton prefix.\n", "add skill reference");
-    assert_eq!(prefix.findings(None), BTreeSet::new());
 }

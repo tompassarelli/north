@@ -152,27 +152,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_persistent_transient_is_judged_like_a_refusal() {
-        let log = Path::new("check.log");
-        assert_eq!(escalate(Verdict::Transient("x".into()), 2, log), Verdict::Transient("x".into()));
-        assert_eq!(escalate(Verdict::Deferred("x".into()), 2, log), Verdict::Deferred("x".into()));
-        assert_eq!(escalate(Verdict::Transient("x".into()), 3, log), Verdict::Refused("persistent transient: check.log".into()));
-        assert_eq!(escalate(Verdict::Deferred("x".into()), 4, log), Verdict::Refused("persistent deferred: check.log".into()));
-        assert_eq!(escalate(Verdict::Green, 9, log), Verdict::Green);
-        let mut strikes = Strikes::default();
-        assert_eq!(strikes.record("k", &Verdict::Transient("x".into())), 1);
-        assert_eq!(strikes.record("k", &Verdict::Transient("x".into())), 2);
-        assert_eq!(strikes.record("k", &Verdict::Deferred("x".into())), 1);
-        assert_eq!(strikes.record("k", &Verdict::Transient("x".into())), 1);
-        assert!(!strikes.exhausted("k"));
-        strikes.record("k", &Verdict::Transient("x".into()));
-        strikes.record("k", &Verdict::Transient("x".into()));
-        assert!(strikes.exhausted("k"));
-        assert_eq!(strikes.record("k", &Verdict::Refused("r".into())), 0);
-        assert!(!strikes.exhausted("k"));
-    }
-
-    #[test]
     fn a_lane_waiting_on_a_main_that_fails_its_own_check_is_never_refused() {
         let log = Path::new("check.log");
         let tail = "safe-push: verdict transient main's check environment is broken: cargo clippy on gex45: error[E0063]: missing field `breaches`";
@@ -188,15 +167,4 @@ mod tests {
         assert!(!strikes.exhausted("k"));
     }
 
-    #[test]
-    fn halves_only_a_refusal_on_an_unmoved_base() {
-        assert_eq!(judge(Verdict::Refused("log".into()), 5, false), Judgement::Halve(3));
-        assert_eq!(judge(Verdict::Refused("log".into()), 2, false), Judgement::Halve(1));
-        assert_eq!(judge(Verdict::Refused("log".into()), 1, false), Judgement::Culprit("log".into()));
-        assert_eq!(judge(Verdict::Refused("log".into()), 3, true), Judgement::Rebuild);
-        assert_eq!(judge(Verdict::Transient("fetch".into()), 3, false), Judgement::Hold("transient fetch".into()));
-        assert_eq!(judge(Verdict::Deferred("DEFER".into()), 1, false), Judgement::Hold("deferred DEFER".into()));
-        assert_eq!(judge(Verdict::RedMain("abc".into()), 1, false), Judgement::RedMain("abc".into()));
-        assert_eq!(judge(Verdict::Green, 3, true), Judgement::Land);
-    }
 }

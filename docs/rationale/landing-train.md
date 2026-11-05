@@ -593,13 +593,7 @@ suite until S20 ports it to `cargo test --test it land_`, under the same name.
 
 ### The protocol model
 
-`crates/north-landing/tests/lander_model.rs` checks the landing protocol in stateright over every interleaving of 3
-lander lanes, one peer-host lane, speculative depth 2, bisection by halves and the sheriff. It covers
-`land/serve.rs`, `land/speculate.rs`, `land/bisect.rs`, `land/culprit.rs` and `land/sheriff.rs`, and last matched
-them at `ea630f870`: `4efb7995b` checks each lane of a refused candidate alone before halving, which the model does not
-yet do. It earns its place by failing on two seeded broken variants, a speculative push without its predecessor
-landed and a sheriff reverting a whole red range, both of which produce counterexamples (north#525, E2, 2026-11-05).
-A change to those files that the model no longer describes updates the model or this line.
+The stateright model of the landing protocol (`crates/north-landing/tests/lander_model.rs`) was deleted in the north-landing test cull (north#635, 2026-11-06): it checked a model rather than the lander, had already drifted from it (`4efb7995b`, then the batch landing of `152c6a303`), and its two seeded failures were variants of the model, not mutants of the code. The chaos and sheriff tests in `crates/north-landing/tests/it` replay the lander's real incidents instead.
 
 ### In-flight lanes land into this, not beside it
 

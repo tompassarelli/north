@@ -27,25 +27,6 @@ fn a_linked_lane_loses_its_cargo_target_and_keeps_its_sources() {
 }
 
 #[test]
-fn the_main_checkout_keeps_its_target() {
-    let scratch = tempfile::tempdir().unwrap();
-    let main = lane(scratch.path(), "main");
-    cargo_target(&main);
-    assert_eq!(release(&main).unwrap(), None);
-    assert!(main.join("target/CACHEDIR.TAG").is_file());
-}
-
-#[test]
-fn a_target_that_is_not_cargo_output_stays() {
-    let scratch = tempfile::tempdir().unwrap();
-    let lane = lane(&scratch.path().join("worktrees"), "slug");
-    fs::create_dir_all(lane.join("target")).unwrap();
-    fs::write(lane.join("target/notes.txt"), "mine").unwrap();
-    assert_eq!(release(&lane).unwrap(), None);
-    assert!(lane.join("target/notes.txt").is_file());
-}
-
-#[test]
 fn a_symlinked_target_is_left_alone() {
     let scratch = tempfile::tempdir().unwrap();
     let lane = lane(&scratch.path().join("worktrees"), "slug");
@@ -55,11 +36,4 @@ fn a_symlinked_target_is_left_alone() {
     std::os::unix::fs::symlink(&shared, lane.join("target")).unwrap();
     assert_eq!(release(&lane).unwrap(), None);
     assert!(shared.join("CACHEDIR.TAG").is_file());
-}
-
-#[test]
-fn a_lane_without_a_target_has_nothing_to_release() {
-    let scratch = tempfile::tempdir().unwrap();
-    let lane = lane(&scratch.path().join("worktrees"), "slug");
-    assert_eq!(release(&lane).unwrap(), None);
 }

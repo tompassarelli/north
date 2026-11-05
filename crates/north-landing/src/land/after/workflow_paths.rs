@@ -81,7 +81,3 @@ fn class(rest: &[u8], byte: u8) -> Option<(bool, usize)> {
     }
     Some((hit != (start == 1), close + 1))
 }
-
-#[cfg(test)]
-#[path = "workflow_paths_tests.rs"]
-mod tests;

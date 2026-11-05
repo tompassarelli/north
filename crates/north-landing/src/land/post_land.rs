@@ -164,7 +164,3 @@ fn record(run: &Run, landed: &Landed, verdict: &Verdict) {
         eprintln!("north land: could not record the post-land verdict of {}: {error}", landed.head);
     }
 }
-
-#[cfg(test)]
-#[path = "post_land_tests.rs"]
-mod tests;

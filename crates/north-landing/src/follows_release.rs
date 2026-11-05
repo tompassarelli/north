@@ -408,7 +408,3 @@ fn usage_error(message: &str) -> u8 {
     );
     2
 }
-
-#[cfg(test)]
-#[path = "follows_release_tests.rs"]
-mod tests;

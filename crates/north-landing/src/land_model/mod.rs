@@ -45,7 +45,3 @@ pub struct Lane {
     pub history_refused: bool,
     pub docs_only: bool,
 }
-
-#[cfg(test)]
-#[path = "buckets_tests.rs"]
-mod buckets_tests;

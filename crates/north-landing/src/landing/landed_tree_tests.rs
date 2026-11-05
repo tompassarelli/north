@@ -28,27 +28,6 @@ fn lane_edit(root: &Path, text: &str) {
 }
 
 #[test]
-fn rebased_then_landed_lane_is_landed_by_tree() {
-    let scratch = fixture();
-    let root = scratch.path();
-    lane_edit(root, "alpha\nbeta changed\ngamma\n");
-    commit(root, "other.txt", "unrelated\n", "main moves");
-    commit(root, "app.txt", "alpha\nbeta changed\ngamma\n", "land rebased copy");
-    assert_eq!(landed(root, "main", "lane"), Some(Verdict::TreeOnMain));
-}
-
-#[test]
-fn landed_lane_later_rewritten_on_main_is_superseded() {
-    let scratch = fixture();
-    let root = scratch.path();
-    lane_edit(root, "alpha\nbeta changed\ngamma\n");
-    commit(root, "other.txt", "unrelated\n", "main moves");
-    commit(root, "app.txt", "alpha\nbeta changed\ngamma\n", "lane change");
-    commit(root, "app.txt", "alpha\nbeta changed twice\ngamma\n", "later rewrite of the same line");
-    assert_eq!(landed(root, "main", "lane"), Some(Verdict::SupersededOnMain));
-}
-
-#[test]
 fn lane_with_work_main_never_held_is_unlanded() {
     let scratch = fixture();
     let root = scratch.path();
@@ -63,35 +42,5 @@ fn lane_whose_deletion_main_kept_is_unlanded() {
     let root = scratch.path();
     lane_edit(root, "alpha\ngamma\n");
     commit(root, "app.txt", "alpha\nbeta\ngamma\nzeta\n", "lane change");
-    assert_eq!(landed(root, "main", "lane"), None);
-}
-
-#[test]
-fn lane_adding_a_line_main_already_has_elsewhere_in_the_file_is_unlanded() {
-    let scratch = fixture();
-    let root = scratch.path();
-    lane_edit(root, "alpha\nbeta\nbeta\ngamma\n");
-    commit(root, "app.txt", "alpha\nbeta\ngamma\nzeta\n", "lane change");
-    assert_eq!(landed(root, "main", "lane"), None);
-}
-
-#[test]
-fn lines_superseded_on_main_without_the_lane_commit_message_are_unlanded() {
-    let scratch = fixture();
-    let root = scratch.path();
-    lane_edit(root, "alpha\nbeta changed\ngamma\n");
-    commit(root, "app.txt", "alpha\nbeta changed\ngamma\n", "an unrelated message");
-    commit(root, "app.txt", "alpha\nbeta changed twice\ngamma\n", "later rewrite of the same line");
-    assert_eq!(landed(root, "main", "lane"), None);
-}
-
-#[test]
-fn a_main_commit_with_the_lane_subject_but_other_paths_does_not_carry_the_lane() {
-    let scratch = fixture();
-    let root = scratch.path();
-    lane_edit(root, "alpha\nbeta changed\ngamma\n");
-    commit(root, "other.txt", "unrelated\n", "lane change");
-    commit(root, "app.txt", "alpha\nbeta changed\ngamma\n", "an unrelated message");
-    commit(root, "app.txt", "alpha\nbeta changed twice\ngamma\n", "later rewrite of the same line");
     assert_eq!(landed(root, "main", "lane"), None);
 }

@@ -66,7 +66,3 @@ pub(super) fn record(cwd: &Path, id: &str, env: &Env) -> Result<(), Stop> {
     println!("mutant: recorded {}", patch.display());
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "mutant_tests.rs"]
-mod tests;

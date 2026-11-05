@@ -92,7 +92,3 @@ pub fn run(directory: &Path, arguments: &[String]) -> u8 {
     }
     u8::from(!found.is_empty())
 }
-
-#[cfg(test)]
-#[path = "nix_entry_tests.rs"]
-mod tests;

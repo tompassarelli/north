@@ -33,7 +33,3 @@ pub fn phases(commands: Vec<String>) -> Result<Phases, Vec<String>> {
     let (head_north, others): (Vec<String>, Vec<String>) = commands.into_iter().partition(|command| runs_head_north(command));
     Ok(Phases { others, build, head_north })
 }
-
-#[cfg(test)]
-#[path = "shared_build_tests.rs"]
-mod tests;

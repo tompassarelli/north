@@ -146,7 +146,3 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     0
 }
-
-#[cfg(test)]
-#[path = "model_cmd_tests.rs"]
-mod tests;

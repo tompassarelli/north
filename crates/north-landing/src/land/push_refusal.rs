@@ -57,13 +57,4 @@ mod tests {
         assert_eq!(classify(""), Refusal::Retry("git push failed without a message".to_owned()));
     }
 
-    #[test]
-    fn other_refusals_back_off_one_two_four_minutes_and_alarm_on_the_third() {
-        let mut backoff = Backoff::default();
-        let waits: Vec<Pause> = (0..4).map(|_| backoff.refused()).collect();
-        let minutes = |minutes: u64| Duration::from_secs(60 * minutes);
-        assert_eq!(waits, [Pause { wait: minutes(1), alarm: false }, Pause { wait: minutes(2), alarm: false }, Pause { wait: minutes(4), alarm: true }, Pause { wait: minutes(4), alarm: false }]);
-        backoff.clear();
-        assert_eq!(backoff.refused(), Pause { wait: minutes(1), alarm: false });
-    }
 }

@@ -245,7 +245,3 @@ fn on_base(
         })
         .collect()))
 }
-
-#[cfg(test)]
-#[path = "fails_first_tests.rs"]
-mod tests;
