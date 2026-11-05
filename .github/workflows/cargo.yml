@@ -25,18 +25,65 @@ concurrency:
 
 jobs:
   test:
+    name: test ${{ matrix.shard }}/3
     runs-on: ubuntu-latest
+    env:
+      SHARD: ${{ matrix.shard }}
+      SHARDS: 3
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Toolchain and cargo cache
         uses: ./.github/actions/rust
         with:
           cache-key: cargo-test
-          save: ${{ github.ref == 'refs/heads/main' }}
+          save: ${{ github.ref == 'refs/heads/main' && matrix.shard == 1 }}
       - name: Cargo test environment
         uses: ./.github/actions/cargo-test
       - name: Test
-        run: cargo test --locked
+        run: |
+          shard=${SHARD:-1} shards=${SHARDS:-1} out=$RUNNER_TEMP/cargo-shard
+          mkdir -p "$out"
+          cargo test --locked --no-run --message-format=json-render-diagnostics | jq -r 'select(.reason == "compiler-artifact" and .profile.test and .executable) | [.executable, (.manifest_path | rtrimstr("Cargo.toml"))] | @tsv' | LC_ALL=C sort -u > "$out/binaries"
+          while IFS=$'\t' read -r exe dir; do
+            cases=$(cd "$dir" && "$exe" --list --format terse | sed -n 's/: test$//p')
+            printf '%s\n' "$cases" | awk -v prefix="$exe\t$dir\t" '{ print prefix $0 }'
+          done < "$out/binaries" | LC_ALL=C sort > "$out/cases"
+          awk -v shard="$shard" -v shards="$shards" '(NR - 1) % shards == shard - 1' "$out/cases" > "$out/mine"
+          status=0
+          while IFS=$'\t' read -r exe dir; do
+            mapfile -t names < <(awk -F'\t' -v exe="$exe" '$1 == exe { print $3 }' "$out/mine")
+            [ "${#names[@]}" -gt 0 ] || continue
+            if [ -z "${names[0]}" ]; then (cd "$dir" && "$exe") || status=1; else (cd "$dir" && "$exe" --exact "${names[@]}") || status=1; fi
+          done < "$out/binaries"
+          [ "$shard" != 1 ] || cargo test --locked --doc || status=1
+          exit "$status"
+      - name: Record this shard's tests
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cargo-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/cargo-shard
+          retention-days: 1
       - name: Warm the check artifacts the clippy land check restores
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && matrix.shard == 1
         run: cargo clippy --all-targets --locked
+  cover:
+    needs: test
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cargo-shard-*
+          path: shards
+      - name: The shards together run every cargo test binary and case once
+        run: |
+          [ "$(find shards -mindepth 1 -maxdepth 1 | wc -l)" = 3 ] || { echo "::error::expected 3 shard listings, found: $(ls shards)"; exit 1; }
+          for shard in shards/*; do cmp shards/cargo-shard-1/cases "$shard/cases" || { echo "::error::$shard listed different tests than shard 1"; exit 1; }; done
+          cat shards/*/mine | LC_ALL=C sort | cmp - shards/cargo-shard-1/cases || { echo "::error::the shards' tests are not exactly the cargo test --no-run list"; exit 1; }
+          cut -f1 shards/*/mine | LC_ALL=C sort -u | cmp - <(cut -f1 shards/cargo-shard-1/binaries) || { echo "::error::a cargo test --no-run binary is in no shard"; exit 1; }
+          echo "$(wc -l < shards/cargo-shard-1/binaries) binaries, $(wc -l < shards/cargo-shard-1/cases) cases across 3 shards"
