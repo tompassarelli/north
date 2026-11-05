@@ -12,6 +12,15 @@ gaps, and the boxes in landing order. Nothing here is built yet.
   `nix-shell`, `command not found`, `exit 127`, `depbox`, `land-shell`, `dev shell`, `capacity gate`, `flake.lock`,
   `/nix/store`, `eval-cache`, `substituter`, `unable to download`, `is not valid`, `gc root`. Repeats of one cause in one
   session count once. A session prefix below is the first 8 characters of the transcript file name.
+- The `claude-b` and `claude-c` profiles were rescanned on 2026-11-05: 4,643 jsonl files under their `projects`
+  directories changed since 2026-10-05 (400 MB), searched for the capacity gate message, `land-shell`, `depbox`,
+  `unable to download`, `nix-collect-garbage`, `NORTH_DEV_SHELL`, `IN_NIX_SHELL` and a missing `/nix/store` path, which
+  gave 1,383 hits in 118 transcripts. Each of the 118 was then read for tool results with `command not found`, exit
+  127, `unable to download`, `Cannot build`, `is not valid`, a missing linker, an eval-cache lock or an assistant
+  sentence about a refusal, and only real failures were kept (a session that merely names these words is not one).
+  Most rescan sessions repeat a cause already in a row, so they raise that row's session count; four rows are new
+  (N10 exit in the shellHook, N11 land-shell home and `.git`, N12 missing system tools and `convo`). Rescan minutes
+  use the 1 to 2 minutes per bare-tool failure below, except where a row gives its own.
 - The laptop proxy transcript (`proxy-transcript-895929a7.jsonl`, to 03:23 on 2026-11-05) and the lander logs of
   2026-11-05 00:40 to 03:48 (`~/.cache/north-evidence/nix-evidence/`, `lander-journal-0230-0330.txt`).
 - `gh issue list --state all --search "nix OR dev-shell OR depbox OR land-shell OR flake OR 127 OR shim"` on north, wisp,
@@ -37,8 +46,8 @@ are UTC unless a time carries +07. Ref is an issue, a commit, a lander candidate
 | --- | --- | --- | --- | --- | --- | --- |
 | 10-22 | north | north#124, 279cb3552 | depbox bwrap inside run-bounded | sandboxes nest | pid namespace mismatch, `open /proc/608/ns/ns` | workers ran safe-push outside the wrapper until the fix |
 | 10-24 | north | north#172, ad0e2863 | `run-bounded -- git ls-remote` over ssh | a user namespace is transparent | the root-owned store ssh config read as owned by nobody; ssh refused it | wisp#43 landing blocked |
-| 10-28 to 11-04 | north | 9822f8ba, b8214159, 74558b22, 25fc6e18 | `safe-push.test.sh`, `run-bounded.test.sh` under `nix develop` | bash is bash | `compgen: command not found`: the dev shell's bash lacks the completion builtins | 4 incidents, about 20 min, 1 land check failed |
-| 11-03 to 11-05 | north | 24+ sessions (045f70ad, 534a0712, …); lander logs | any `land-shell --dev` or offload `nix develop` | the shellHook works everywhere | `/tmp/nix-shell.XXXX: line 2189: north: command not found`; depbox hides `~/.local`, so `target-seed` is skipped | not fatal; every such build starts cold (unmeasured) |
+| 10-28 to 11-04 | north, smashcraft | 9822f8ba, b8214159, 74558b22, 25fc6e18, e9706fc9 | `safe-push.test.sh`, `run-bounded.test.sh`, and `run-bounded` itself under `nix develop` | bash is bash | `compgen: command not found`: the dev shell's bash lacks the completion builtins (e9706fc9, 11-01: `run-bounded: line 74`, 8 times, and `safe-push: command not found` beside it) | 5 incidents, about 21 min, 1 land check failed |
+| 10-31 to 11-05 | north | 30+ sessions (fb78ac2b, 0bb9203a, 22319a32, 045f70ad, 534a0712, …); lander logs | any `land-shell --dev` or offload `nix develop` | the shellHook works everywhere | `/tmp/nix-shell.XXXX: line 2187 or 2189: north: command not found`; depbox hides `~/.local`, so `target-seed` is skipped | not fatal; every such build starts cold (unmeasured) |
 | 11-05 03:00 +07 | north | n360-default-checks | `./bin/land-shell --dev -- target/debug/north land checks …` | the wrapper is harmless | every check exited 127: land-shell's depbox nested in the checks' own | one full portable run (727 s rerun) |
 | 11-05 03:38 to 03:48 +07 | north lander | candidates bd9741afc (5 lanes), bc1e523bc (3 lanes); nix-gate-127 | the offload's `nix develop "$slot"`, then `check-owners.sh`, `citation-check.sh`, `experiments-check.sh` each `exec nix develop -c cargo run …` | a nested `nix develop` is harmless | `nix: command not found behind the north capacity gate`, exit 127, on every candidate (the nesting is the trigger; the gate's loop guard, N2, the cause) | 6 checks refused 2 candidates (8 lanes); the lander landed nothing from 3:42 AM (bc1e523bc also had a real E0425) |
 
@@ -46,13 +55,13 @@ are UTC unless a time carries +07. Ref is an issue, a commit, a lander candidate
 
 | Date | Repo | Ref | Command | Assumed | What happened | Cost |
 | --- | --- | --- | --- | --- | --- | --- |
-| 10-27 to 10-29 | north | about 55 sessions (149a1782, 88d46073, …) | bare `cargo test`, `cargo clippy` | cargo is on the global PATH | `cargo: command not found`; cargo exists only in the dev shell | about 110 min, one rerun each |
-| 10-29 to 11-04 | north, wisp, smashcraft, makgora | about 79 sessions (d63af5ec 15 min, 5119499b, …) | bare `cargo`, `cargo fmt`, `run-bounded 20m -- cargo build` | the PATH cargo is real | it is the gate shim: `cargo: command not found behind the north capacity gate`, 127 | about 160 min; 4 relay tests false-red (ad5fb29b) |
-| 10-29 to 11-04 | north | 9 sessions (5fbb5c01, 95650e4a, …), north#465 | backgrounded gated `cargo test` | the background exit is the test result | not-found line, `RELEASED`, `exited with code 0`: a false green | wasted waits; risk of landing untested code; fixed by 5c707090e |
+| 10-24 to 10-29 | north, smashcraft, wisp | about 68 sessions (149a1782, 88d46073, f1dfa3c4, 4527a4f5, …) | bare `cargo test`, `cargo clippy` | cargo is on the global PATH | `cargo: command not found`; cargo exists only in the dev shell | about 130 min, one rerun each |
+| 10-27 to 11-04 | north, wisp, smashcraft, makgora | about 140 sessions (d63af5ec 15 min, 5119499b, 8017c75e, 56fe22bd, 12354466, …) | bare `cargo`, `cargo fmt`, `run-bounded 20m -- cargo build` | the PATH cargo is real | it is the gate shim: `cargo: command not found behind the north capacity gate`, 127 | about 250 min; 4 relay tests false-red (ad5fb29b) |
+| 10-29 to 11-04 | north | 10 sessions (5fbb5c01, 95650e4a, 87bfb858, …), north#465 | backgrounded gated `cargo test` | the background exit is the test result | not-found line, `RELEASED`, `exited with code 0`: a false green | wasted waits; risk of landing untested code; fixed by 5c707090e |
 | 10-30 | north | north#331, d85709144 | hourly `code-health-tick` | the bun shim finds a real bun | the unit PATH had no Nix profile; 127 | hourly failures |
 | 10-30 | north | north#245, 408f5e72e | `capacity_north_path` tests in `nix develop` | the first bun on PATH is real | it is the shim; the fake PATH lacked readlink and bun | 2 tests failed |
 | 10-30 | wisp | wisp#120, 100e77a0; 5119499b | `bun wisp net-accept --relay local` builds the relay | cargo is on PATH | only the gate shim: not found behind the gate, 12 times | every match failed in 0.04 s; a 73 min fix session |
-| 10-30 to 11-04 | wisp, smashcraft | 118fd457, 7628c94f, b8380717, … | gated cargo for the relay with the rustup toolchain | the toolchain can link | `error: linker cc not found`; gex45 has no cc outside the dev shell | 5 incidents, about 30 min (one after a 14 min lease wait) |
+| 10-26 to 11-04 | wisp, smashcraft, north | 118fd457, 7628c94f, b8380717, 5a3b5b24, a329536a, 8017c75e, … | gated cargo for the relay with the rustup toolchain | the toolchain can link | `error: linker cc not found`; gex45 has no cc outside the dev shell | 15 incidents, about 30 min measured (one after a 14 min lease wait); the 10 of the rescan unmeasured |
 | 10-28, 11-04 | north | 36e16e34, 5e4e3864, 719d38b1, … | `rustfmt`, `shellcheck`, `actionlint`, `pre-commit` | on PATH | not found; agents skipped the check | 8 incidents, about 10 min; checks skipped |
 | 11-05 00:42 to 02:48 +07 | north lander | candidates 09d33a422, 4923f605, 4652200d, bd0a52a7, eeb5c1f6; 63d9e7783 | inferred `bun test` in `safe-push.test.sh`'s train-deps fixture | the gate's lookup skips stubs | the stub says "capacity-gate", `is_shim` wants "capacity gate", so the gate exec'd the stub in a silent loop until the 2100 s deadline | 71 min confirmed (4923f605, bd0a52a7, eeb5c1f6), 133 min with the two probable; 3 candidates refused, one ticket withdrawn |
 | 11-05 03:42 +07 | north lander | nix-gate-127 | the N1 nested `nix develop` | the loop guard won't skip a real nix | 63d9e7783's per-process guard skipped the real nix | the N1 row's cost; counted there |
@@ -83,10 +92,10 @@ are UTC unless a time carries +07. Ref is an issue, a commit, a lander candidate
 
 | Date | Repo | Ref | Command | Assumed | What happened | Cost |
 | --- | --- | --- | --- | --- | --- | --- |
-| 10-28 05:03 | north | 4befdb3a | offline `nix develop` in depbox | the shell is cached | `unable to download …nixpkgs/archive/34ab9907….tar.gz: Could not resolve hostname` | about 3 min |
+| 10-26 to 10-28 | north | 4befdb3a (10-28 05:03), ae42fdb6 (10-26 20:20), 9bb7abdb (10-27 12:50) | offline `nix develop` in depbox | the shell is cached | `unable to download …nixpkgs/archive/34ab9907….tar.gz: Could not resolve hostname` | 3 sessions, about 5 min (ae42fdb6 fell back to the rustup toolchain) |
 | 10-29 11:47 | north | 1d5635a3 | `depbox run -- nix develop -c cargo metadata --offline` after a Cargo.lock change | the crates are fetched | `attempting to make an HTTP request, but --offline` | about 2 min |
 | 10-30 | nixos-config | firn#23, 6f902bcf | `firn check` (`flake check --no-build`) on a fresh store | `--no-build` realises nothing | stylix's base16 needs realisation | main red |
-| 11-05 night | north | every offload slot | `nix develop` in 6 slots at once | — | `error (ignored): SQLite database …eval-cache-v6… is busy` | no failure; misled error greps (12 lines in one log) |
+| 10-29 to 11-05 night | north | every offload slot; 53a87de2 (10-29 19:50), d32fedaa (10-31 09:50) | `nix develop` in 6 slots at once, or two shells at once | — | `error (ignored): SQLite database …eval-cache-v6… is busy` | no failure; misled error greps (12 lines in one log) |
 
 ### N6. `nix develop` against `nix shell`, `nix run`, `nix-shell -p` and direnv
 
@@ -95,7 +104,7 @@ are UTC unless a time carries +07. Ref is an issue, a commit, a lander candidate
 | 10-11 | north | ca45505e9 (north#208, #209) | capacity sizing of `nix develop -c X` | a Nix run is one job shape | the wrapper hid the inner command; 0.9- and 2-core jobs mixed | estimate replay at 65%; 537 of 2146 rows dropped |
 | 10-24 | wisp | 9af2a6f1 | `mutants.sh`: `nix shell nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc -c cargo test` | same as the project shell | an unpinned toolchain; no error | silent drift |
 | 10-28 03:54 | south | de1e7f97 | `depbox run -- nix develop -c true` in south | every repo has a dev shell | `does not provide attribute devShells.x86_64-linux.default` | a probe |
-| 10-30 | wisp | wisp#129, b0abf604 | wisp-window build in north's shell | it has pkg-config and libudev | it did not; workers used `nix shell nixpkgs#pkg-config` and a hand-set `PKG_CONFIG_PATH` | every native-window worker repeated it |
+| 10-30 | wisp | wisp#129, b0abf604; 5c256002, a329536a | wisp-window build in north's shell | it has pkg-config and libudev | it did not (`pkg-config: command not found` in the two rescan sessions); workers used `nix shell nixpkgs#pkg-config` and a hand-set `PKG_CONFIG_PATH` | every native-window worker repeated it |
 | 11-04 13:29 +07 | nixos-config | keyring-hibernate | a formatter call | the flake has a formatter | `does not provide attribute 'formatter.x86_64-linux'` | negligible |
 
 ### N7. Project flakes against the system closure
@@ -122,7 +131,7 @@ are UTC unless a time carries +07. Ref is an issue, a commit, a lander candidate
 | 10-16 | north | d2f972052 | deletion-guard fixture | `/nix/var` exists | Ubuntu CI has none | main red |
 | 10-24 | north | north#161, 54143fd25 | `depbox run -- nix develop -c cargo test` | the lane target is fresh | another checkout's binaries were reused; the fix keyed `RUSTFLAGS` on the checkout | 3+ failed land checks |
 | 10-28 | north | north#272, 747d84a50 | main Cargo run on Ubuntu | `/run/current-system` exists, and the stub runs under bash | NixOS-only path in a fixture; `exec --` under dash, 127 | main red on every run until the fix |
-| 10-28 | north | edea698a, f7025b9e | tests with `env -i PATH=<minimal>` | git and grep sit in a standard place | not found; NixOS keeps them in `/run/current-system/sw/bin` | 2 incidents, about 10 min |
+| 10-28, 11-03 | north | edea698a, f7025b9e, 6d98b770 | tests with `env -i PATH=<minimal>` | git, grep, readlink and dirname sit in a standard place | not found; NixOS keeps them in `/run/current-system/sw/bin` (6d98b770: `~/.local/bin/north: line 6: readlink: command not found`) | 3 incidents, about 11 min |
 | 11-04 | north | 472d13847 | runtime promotion in a `runtime-<sha8>` lane | the shell's env doesn't depend on path | the checkout path in `RUSTFLAGS` recompiled every registry crate | 10 to 25 min per promotion |
 | 11-04 | north | ad3b7ad28 (north#360) | land checks with `CARGO_TARGET_DIR=target` | sibling artifacts are reused | the key applied to the own target: 146 crates per landing | 47 to 333 s per landing |
 
@@ -133,7 +142,7 @@ are UTC unless a time carries +07. Ref is an issue, a commit, a lander candidate
 | 10-14 | wisp | wisp#7, 1d6de454b7 | `bun wisp lan fresh MAP --pair 0` | a binary linked to a store StormLib stays valid | GC collected it; map-pack exited 127, reported as a missing `war3map.w3i` | not stated |
 | 10-26 | north | north#227, #228, #229; 90618140a, 2d43dfc83 | `nix-store --gc` on gex45 | promoted runtimes are rooted | the glibc loader went; every `north` call exited 127 | an outage until `nix-store -r`; 15 runtimes rooted by hand; collections frozen |
 | 10-27 23:18 | north | 6430b666, ecd62e9e2 | `run-bounded 20m -- nix-collect-garbage`, then offline mutants in depbox | the dev shell survives GC | `Cannot build …nix-shell-env.drv` (an mpfr tarball needed) | 2 min, then a 40 min fix |
-| 10-27 21:23 | nixos-config | 36e16e34 | safe-push drift land check | eval works | `path '…base16-schemes-…drv' is not valid` | 1 landing refused |
+| 10-24 20:40, 10-27 21:23 | nixos-config, south | 36e16e34; 332222a5 | safe-push drift land check; a whiterabbit check from a south worktree | eval works | `path '…base16-schemes-…drv' is not valid` (9 times in 332222a5, retried with the eval cache off) | 1 landing refused; about 9 min in 332222a5 |
 | 10-28 to 11-04 | smashcraft, makgora, wisp | firn#47 (open); 58dd2a85, 763da75a, 83e2126f | relay or pad helper build with rustup 1.96 or 1.97 | the toolchain is self-contained | its `ld.lld` wrapper execs a collected `rustup-1.29.0/nix-support/ld-wrapper.sh` | 4 incidents, about 25 min; 4 relay tests red |
 | 10-30 | nixos-config | firn#23, ec1323d5 | CI statix | the transitive nixpkgs node is the flake's | a different node gave a different statix | main red |
 | 11-04 | nixos-config | 228d3a62 (wisp#230) | Bun 1.4.4 | bump the nixpkgs lock | a younger nixpkgs-master lock fails the dependency cooldown | a hand override |
@@ -142,33 +151,37 @@ are UTC unless a time carries +07. Ref is an issue, a commit, a lander candidate
 
 | Date | Repo | Ref | Command | Assumed | What happened | Cost |
 | --- | --- | --- | --- | --- | --- | --- |
-| 11-03 to 11-05 | north | the N1 shellHook row | `north target-seed \|\| true` in the shellHook | the hook is pure | it hides a missing `north` | counted in N1 |
+| 10-31 to 11-05 | north | the N1 shellHook row | `north target-seed \|\| true` in the shellHook | the hook is pure | it hides a missing `north` | counted in N1 |
+| 10-26 | smashcraft | 39918a18 (19:29), 16c3809f (21:04) | `nix develop` for the map-pack helper build on gex45 | the shellHook only sets up the shell | it ran `exit 1` with `Missing pinned mdl-exporter4 input`: the Blender add-on store is absent on gex45, so the whole shell failed | 2 sessions, unmeasured; both fell back to plain nixpkgs cargo |
 | 10-28, 11-04 | north | f1749039, 35c3c25c | scripts in `/tmp` or `~/.cache` through depbox | the same filesystem view | `No such file`, exit 127 | 2 incidents, about 10 min (N11) |
-| 10-24 to 11-04 | wisp, smashcraft, north, makgora | about 55 sessions (694b2a05, 9af2a6f1, …) | `machine-capacity run`, as skills and hook messages say | it is on PATH | `machine-capacity: command not found` on gex45 | about 110 min; a map build never ran (N12) |
-| 10-24 to 11-03 | smashcraft, wisp, makgora | about 8 sessions (b6d0cb51, …) | `node …/machine-capacity.mjs` | node is on PATH | not found; only bun is installed | about 15 min (N12) |
+| 10-29 | north | 59081361 | a mutant sweep and `~/.local/state` patches in `land-shell --dev` | the sandbox shows the same home and a writable `.git` | `~` resolved differently, `~/.local/state` was hidden, and `git checkout` failed on the read-only `.git`, so mutants stacked and the results were void | about 5 min (14:24 to 14:28); one sweep voided (N11) |
+| 10-24 to 11-04 | wisp, smashcraft, north, makgora | about 65 sessions (694b2a05, 9af2a6f1, f1dfa3c4, eb491a98, 3bdff76b, db3da684, …) | `machine-capacity run`, as skills and hook messages say | it is on PATH | `machine-capacity: command not found` on gex45 | about 130 min; a map build never ran (N12) |
+| 10-24 to 11-03 | smashcraft, wisp, makgora | about 10 sessions (b6d0cb51, f7cca1d8, …) | `node …/machine-capacity.mjs` | node is on PATH | not found; only bun is installed | about 19 min (N12) |
+| 10-24 to 11-02 | north, smashcraft, wisp | about 28 sessions (332222a5, a203f8fa, 442f9b9e, 03b0668b, c243fb93, …) | `file`, `strings`, `xxd`, `sudo`, `crontab`, `fuser`, `pstree`, `tailscale`, `vulkaninfo`, `aplay`, `grim`, `xdotool` | the usual Linux tools are on the host PATH | `<tool>: command not found` from `/run/current-system/sw/bin/bash`; file (11 sessions), strings (6) and tailscale (4) most often | about 28 min at 1 min each (N12) |
+| 10-31 to 11-01 | north, wisp, smashcraft | 5 sessions (5a3b5b24, 5ff5d895, aadc0a07, c70316bc, a203f8fa) | `convo`, as the todo skill says | the skill's program is on PATH | `bash: line 1: convo: command not found` on gex45 | about 5 min (N12) |
 | 10-24, 10-25 | north | north#178, b9c5ff48 | `safe-push.test.sh` land check | PATH is stable during a run | a profile switch replaced `~/.nix-profile` mid-run | 2 failed landings (N12) |
 
 ## Totals by class
 
 Rows are the distinct incidents above; sessions count every session that hit a row's pattern. Minutes add the stated
-or measured costs only, so an unmeasured cost (cold builds, hourly failures, days of a false green) adds nothing and
+or measured costs, and the rescan sessions at 1 to 2 minutes each, so an unmeasured cost (cold builds, hourly failures, days of a false green) adds nothing and
 is named instead.
 
 | Class | Rows | Sessions | Minutes | Landings and runs |
 | --- | --- | --- | --- | --- |
-| N1 nested shells and sandboxes | 6 | about 30 | about 80 (20 compgen, 12 rerun, 45+ of lander stall from 3:42 AM) | 2 candidates (8 lanes) refused, 1 check failed; every shellHook build cold |
-| N2 PATH and shims behind the gate | 10 | about 145 | about 520 | 3 candidates refused or withdrawn by the exec loop, 9 false greens, hourly unit failures |
+| N1 nested shells and sandboxes | 6 | about 37 | about 80 (21 compgen, 12 rerun, 45+ of lander stall from 3:42 AM) | 2 candidates (8 lanes) refused, 1 check failed; every shellHook build cold |
+| N2 PATH and shims behind the gate | 10 | about 230 | about 630 | 3 candidates refused or withdrawn by the exec loop, 10 false greens, hourly unit failures |
 | N3 leased or offloaded runs | 8 | about 15 | about 140 | 1 false green, a 14-lane train relaunched, 1 refused offload build |
 | N4 forms that skip the lease | 4 | 4 | about 45 | 0; gex45 load 105 once, uncappable |
-| N5 offline, eval-cache, substituter | 4 | 3 | about 5 | firn main red once |
-| N6 develop, shell, run, direnv | 5 | 5 | under 5 | sizing replay at 65%, silent unpinned toolchains |
+| N5 offline, eval-cache, substituter | 4 | 7 | about 7 | firn main red once |
+| N6 develop, shell, run, direnv | 5 | 7 | under 5 | sizing replay at 65%, silent unpinned toolchains |
 | N7 project flake against system closure | 11 | about 15 | about 125 (88 nexus chain, 27 orphaned slot, 10) | 2 landings blocked, 13 failed unit runs, a lander crash loop, 0 hooks linted for days |
-| N8 store paths and host impurity | 7 | 6 | about 10, plus 10 to 25 per runtime promotion and 47 to 333 s per landing until 11-04 | main red 3 times, 3+ failed land checks |
-| N9 GC roots, pins, lock drift | 7 | about 8 | about 70, plus a gex45 outage | 1 landing refused, main red once, collections frozen |
-| N10 shellHook side effects | counted in N1 and N8 | | | |
-| N11 sandbox visibility | 1 | 2 | about 10 | |
-| N12 PATH differs by context | 3 | about 64 | about 125 | 2 failed landings |
-| Total | 66 | about 300 | about 1,130 | 5 candidates and 2 landings refused, 1 train relaunched, 10 false greens, 3 red mains in north |
+| N8 store paths and host impurity | 7 | 7 | about 11, plus 10 to 25 per runtime promotion and 47 to 333 s per landing until 11-04 | main red 3 times, 3+ failed land checks |
+| N9 GC roots, pins, lock drift | 7 | about 9 | about 80, plus a gex45 outage | 1 landing refused, main red once, collections frozen |
+| N10 shellHook side effects | 1, plus the counts in N1 and N8 | 2 | unmeasured | 2 fallbacks to plain cargo |
+| N11 sandbox visibility | 2 | 3 | about 15 | 1 mutant sweep voided |
+| N12 PATH differs by context | 5 | about 108 | about 180 | 2 failed landings |
+| Total | 70 | about 440 | about 1,320 | 5 candidates and 2 landings refused, 1 train relaunched, 11 false greens, 3 red mains in north |
 
 By cost the order is N2, N3, N7 and N12 (most of them minutes lost one session at a time), then N1 and N2's lander
 cases, which stopped every landing at once. N2, N3 and N12 together are three quarters of the minutes and share one
@@ -328,7 +341,7 @@ and keys on the dev shell's derivation path (box D1).
 ### N10. shellHook side effects
 
 What agents assume: a dev shell's hook is a pure function of the flake. What happens: north's hook runs
-`north target-seed || true`, which fails silently wherever `north` is hidden (every depbox, 20+ sessions of cold
+`north target-seed || true`, which fails silently wherever `north` is hidden (every depbox, 30+ sessions of cold
 builds), and computes `RUSTFLAGS` from the checkout path (N8's cost).
 
 Guard: `target-seed` moves out of the hook into `north dev-shell run`, which runs outside the sandbox and fails loudly;
@@ -347,7 +360,7 @@ naming the path and the binds (box D3).
 
 What agents assume: the PATH of an ssh login, a fleet service, a systemd timer, a hook and a skill example are the
 same. What happens: `machine-capacity` and `node`, which skills and messages tell agents to run, are not installed on
-gex45 (about 60 sessions); the `code-health-tick` unit had no Nix profile on PATH and its bun shim exited 127 hourly; a
+gex45 (about 75 sessions); the `code-health-tick` unit had no Nix profile on PATH and its bun shim exited 127 hourly; a
 fleet service lacked `~/.local/bin`; a home-manager switch mid-run swapped `~/.nix-profile` under a land check
 (north#178, fixed by pinning PATH in `land-checks.sh`).
 
