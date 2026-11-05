@@ -14,7 +14,7 @@ use super::credential;
 use super::telemetry::Stages;
 use super::push_refusal::{self, Backoff, Refusal};
 use super::records::{self, Candidate, Decision};
-use super::{pause, queue, red, sheriff, speculate};
+use super::{pause, precheck, queue, red, sheriff, speculate};
 use super::repositories;
 
 const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
@@ -26,6 +26,7 @@ const DISCOVERY: Duration = Duration::from_secs(30);
 pub enum Round {
     Idle,
     Progress,
+    Checking,
     Waiting(String),
     PushRefused(String),
 }
@@ -86,7 +87,14 @@ impl Lander {
         Ok(now.split_whitespace().next() != Some(base))
     }
 
-    pub fn round(&self) -> Result<Round, String> {
+    pub fn round(&self, precheck: &mut precheck::State) -> Result<Round, String> {
+        if let Some(round) = precheck::round(self, precheck)? {
+            return Ok(round);
+        }
+        self.batch()
+    }
+
+    fn batch(&self) -> Result<Round, String> {
         let logs = self.queue.join("logs");
         let mut limit = usize::MAX;
         let mut red_only = false;
@@ -283,16 +291,21 @@ fn back_off(lander: &Lander, backoff: &mut Backoff, reason: &str, retire: &Atomi
 fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     let mut backoff = Backoff::default();
+    let mut precheck = precheck::State::default();
     loop {
         if retire.load(Ordering::Relaxed) {
             return 0;
         }
-        let round = lander.round();
-        if matches!(round, Ok(Round::Progress | Round::Idle)) {
+        let round = lander.round(&mut precheck);
+        if matches!(round, Ok(Round::Progress | Round::Idle | Round::Checking)) {
             backoff.clear();
         }
         match round {
             Ok(Round::Progress) => continue,
+            Ok(Round::Checking) => {
+                std::thread::sleep(precheck::TICK);
+                continue;
+            }
             Ok(Round::PushRefused(reason)) if once => {
                 println!("north land: waiting: {reason}");
                 return 75;

@@ -5,6 +5,7 @@
 	lander-host = whiterabbit
 	push-app = lander
 	remote-hosts = gex45
+	slots = 3
 [mutant]
 	class = heavy
 	run = nix develop --no-update-lock-file -c bash harness/scripts/mutant-tests.sh

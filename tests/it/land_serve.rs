@@ -7,6 +7,9 @@ use north_landing::land::queue::{self, RedFix, Ticket};
 #[path = "land_sheriff.rs"]
 mod sheriff;
 
+#[path = "land_serve/precheck.rs"]
+mod precheck;
+
 fn git(directory: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").arg("-C").arg(directory).args(arguments).output().unwrap();
     assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
