@@ -1,10 +1,14 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use north_base::build_inputs::{run_time_data, rust_build_input};
 use toml_edit::{DocumentMut, Item, Table, Value};
 
-use super::git;
+use crate::build_inputs::{run_time_data, rust_build_input};
+use crate::platform::git;
+
+fn git_text(directory: &Path, arguments: &[&str]) -> Option<String> {
+    git::run(directory, arguments).ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+}
 
 const USAGE: &str = "usage: north land scan run-time-data BASE..HEAD";
 
@@ -73,6 +77,8 @@ impl<'a> Node<'a> {
     }
 }
 
+type Pair<'a> = (String, Node<'a>, Node<'a>);
+
 fn compare(path: &str, at: &str, base: Node, head: Node, found: &mut Vec<Finding>) {
     let (Some(was), Some(now)) = (base.kind(), head.kind()) else {
         return;
@@ -91,29 +97,36 @@ fn compare(path: &str, at: &str, base: Node, head: Node, found: &mut Vec<Finding
             None => push(place(key), "removed".to_owned()),
         }
     }
-    let before = base.entries();
-    if !before.is_empty() && head.entries().is_empty() {
-        push(at.to_owned(), "emptied, but its readers had entries".to_owned());
-    }
-    if let Some(&first) = before.first() {
-        let common: BTreeSet<&str> = first.keys().into_iter().map(|(key, _)| key).filter(|key| before.iter().all(|entry| entry.child(key).is_some())).collect();
-        for (index, entry) in head.entries().into_iter().enumerate() {
-            let at = format!("{at}[{index}]");
-            if entry.kind() != first.kind() {
-                push(at, format!("entries were {:?}, this one is {:?}", first.kind(), entry.kind()));
-                continue;
-            }
-            for key in &common {
-                match (first.child(key), entry.child(key)) {
-                    (Some(witness), Some(next)) => nested.push((format!("{at}.{key}"), witness, next)),
-                    _ => push(format!("{at}.{key}"), "every earlier entry had it".to_owned()),
-                }
-            }
-        }
-    }
+    nested.extend(entry_pairs(at, base, head, &mut push));
     for (at, was, now) in nested {
         compare(path, &at, was, now, found);
     }
+}
+
+fn entry_pairs<'a>(at: &str, base: Node<'a>, head: Node<'a>, push: &mut impl FnMut(String, String)) -> Vec<Pair<'a>> {
+    let (before, after) = (base.entries(), head.entries());
+    let Some(&first) = before.first() else {
+        return Vec::new();
+    };
+    if after.is_empty() {
+        push(at.to_owned(), "emptied, but its readers had entries".to_owned());
+    }
+    let common: BTreeSet<&str> = first.keys().into_iter().map(|(key, _)| key).filter(|key| before.iter().all(|entry| entry.child(key).is_some())).collect();
+    let mut pairs = Vec::new();
+    for (index, entry) in after.into_iter().enumerate() {
+        let at = format!("{at}[{index}]");
+        if entry.kind() != first.kind() {
+            push(at, format!("entries were {:?}, this one is {:?}", first.kind(), entry.kind()));
+            continue;
+        }
+        for key in &common {
+            match (first.child(key), entry.child(key)) {
+                (Some(witness), Some(next)) => pairs.push((format!("{at}.{key}"), witness, next)),
+                _ => push(format!("{at}.{key}"), "every earlier entry had it".to_owned()),
+            }
+        }
+    }
+    pairs
 }
 
 pub fn check(path: &str, base: Option<&str>, head: Option<&str>) -> Vec<Finding> {
@@ -142,7 +155,7 @@ pub fn run(directory: &Path, range: &str) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     };
-    let Some(listing) = git::text(directory, &["diff", "--name-only", "--no-renames", base, head]) else {
+    let Some(listing) = git_text(directory, &["diff", "--name-only", "--no-renames", base, head]) else {
         eprintln!("run-time-data: cannot diff {range}");
         return 1;
     };
@@ -151,9 +164,9 @@ pub fn run(directory: &Path, range: &str) -> u8 {
         println!("run-time-data: {code} is a Rust build input, so the lane's Rust checks judge the data it reads");
         return 0;
     }
-    let show = |revision: &str, path: &str| git::bytes(directory, &["show", &format!("{revision}:{path}")]).map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+    let blob = |revision: &str, path: &str| git_text(directory, &["show", &format!("{revision}:{path}")]);
     let data: Vec<&str> = changed.into_iter().filter(|path| run_time_data(path)).collect();
-    let found: Vec<Finding> = data.iter().flat_map(|path| check(path, show(base, path).as_deref(), show(head, path).as_deref())).collect();
+    let found: Vec<Finding> = data.iter().flat_map(|path| check(path, blob(base, path).as_deref(), blob(head, path).as_deref())).collect();
     for finding in &found {
         eprintln!("run-time-data: {} {}: {}; a lane that changes no Rust code may only change values and add keys", finding.path, finding.key, finding.reason);
     }

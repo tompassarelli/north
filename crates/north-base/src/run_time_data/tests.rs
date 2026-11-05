@@ -26,7 +26,7 @@ fn every_entry_of_an_array_of_tables_keeps_the_keys_all_earlier_entries_had() {
 #[test]
 fn the_data_on_main_passes_against_itself() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    for path in north_base::build_inputs::RUN_TIME_DATA {
+    for path in crate::build_inputs::RUN_TIME_DATA {
         let text = std::fs::read_to_string(root.join(path)).unwrap();
         assert!(check(path, Some(&text), Some(&text)).is_empty(), "{path}");
     }

@@ -9,7 +9,6 @@ pub mod outgoing;
 pub mod policy;
 pub mod shell_hook;
 pub mod stale_revert;
-pub mod run_time_data;
 pub mod test_admission;
 pub mod test_integrity;
 pub mod tool_removal;
@@ -59,7 +58,7 @@ pub fn run(arguments: &[String]) -> u8 {
         [name, rest @ ..] if name == "stale-revert" => stale_revert::run(rest),
         [name] if name == "deps" => super::slots::deps::run(&directory),
         [name, rest @ ..] if name == "nix-entry" => nix_entry::run(&directory, rest),
-        [name, range] if name == "run-time-data" => run_time_data::run(&directory, range),
+        [name, range] if name == "run-time-data" => north_base::run_time_data::run(&directory, range),
         [name, range] if name == "dep-gate" => dep_gate(&directory, range),
         [name, range] if name == "boxes" => boxes::run(&directory, range),
         [name, range] if name == "tool-removal" => {

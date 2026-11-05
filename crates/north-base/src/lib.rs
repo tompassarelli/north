@@ -4,5 +4,6 @@ pub mod error;
 pub mod foundation;
 pub mod nix_command;
 pub mod platform;
+pub mod run_time_data;
 pub mod shell;
 pub mod test_inputs;
