@@ -30,7 +30,7 @@ pub(super) fn ensure(db: &mut Connection) -> NorthResult<()> {
     tx.commit().map_err(sql)
 }
 
-const DISPLAY_COLUMNS: [(&str, &str); 7] = [
+const DISPLAY_COLUMNS: [(&str, &str); 8] = [
     ("provider", "TEXT NOT NULL DEFAULT ''"),
     ("account", "TEXT NOT NULL DEFAULT ''"),
     ("cwd", "TEXT NOT NULL DEFAULT ''"),
@@ -38,6 +38,7 @@ const DISPLAY_COLUMNS: [(&str, &str); 7] = [
     ("placement", "TEXT"),
     ("machine", "TEXT"),
     ("tasks", "TEXT NOT NULL DEFAULT '[]'"),
+    ("conversation", "TEXT"),
 ];
 
 fn add_display_columns(tx: &Transaction) -> NorthResult<()> {

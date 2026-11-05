@@ -128,6 +128,7 @@ fn remote_json(row: &SessionRow, now: u64) -> Value {
         "tasks": row.tasks,
         "placement": row.placement,
         "machine": row.machine,
+        "conversation": row.conversation,
         "host": row.host,
         "remote": true,
         "seen_ms": updated_ms(row),
@@ -178,6 +179,7 @@ mod tests {
             cwd: "/home/tom/code/north/main".into(),
             machine: Some("gex45".into()),
             tasks: vec!["north#316".into(), "north#317".into()],
+            conversation: Some(format!("{name}-conversation")),
             ..SessionRow::default()
         }
     }
@@ -200,6 +202,7 @@ mod tests {
         let [session] = all.as_array().unwrap().as_slice() else { panic!("{all}") };
         assert_eq!((session["name"].as_str(), session["status"].as_str(), session["host"].as_str(), session["machine"].as_str()), (Some("north-316-d1325"), Some("idle"), Some("nexus"), Some("gex45")));
         assert_eq!((session["task_ref"].as_str(), session["tasks"].clone()), (Some("north#316"), json!(["north#316", "north#317"])));
+        assert_eq!(session["conversation"].as_str(), Some("north-316-d1325-conversation"), "the run ledger on the machine that holds the transcript joins it by this");
     }
 
     #[test]

@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
-const FLEET: &str = r#"[{"name":"sdonly-1127b","account":"d","conversation":"sdonly","parent":null,"task_ref":"makgora#1127","effort":"medium","created_ms":0},{"name":"flaky-shared-target","account":"d","conversation":"flaky","parent":null,"task_ref":"north#437","effort":"medium","created_ms":0},{"name":"settle-transient-bound","account":"d","conversation":"settle","parent":null,"task_ref":"north#308","effort":"medium","created_ms":0},{"name":"queued-600","account":"d","conversation":"queued","parent":null,"task_ref":"north#600","effort":"medium","created_ms":0},{"name":"offload-runtime-pin","account":"d","conversation":"offload","parent":null,"task_ref":"north#482","effort":"medium","created_ms":0},{"name":"north-88-d0020","account":"d","conversation":"silent","parent":null,"task_ref":"north#88","effort":"medium","created_ms":0},{"name":"b-side","account":"b","conversation":"bside","parent":null,"task_ref":"north#700","effort":"medium","created_ms":0}]"#;
+const FLEET: &str = r#"[{"name":"sdonly-1127b","account":"d","conversation":"sdonly","parent":null,"task_ref":"makgora#1127","effort":"medium","created_ms":0},{"name":"flaky-shared-target","account":"d","conversation":"flaky","parent":null,"task_ref":"north#437","effort":"medium","created_ms":0},{"name":"settle-transient-bound","account":"d","conversation":"settle","parent":null,"task_ref":"north#308","effort":"medium","created_ms":0},{"name":"queued-600","account":"d","conversation":"queued","parent":null,"task_ref":"north#600","effort":"medium","created_ms":0},{"name":"offload-runtime-pin","account":"d","conversation":"offload","parent":null,"task_ref":"north#482","effort":"medium","created_ms":0},{"name":"north-88-d0020","provider":"claude","account":"d","status":"idle","parent":null,"cwd":"/home/tom/code/north/main","task_ref":"north#88","tasks":["north#88"],"placement":null,"machine":"gex45","conversation":"dispatched","host":"nexus","remote":true,"seen_ms":0,"stale":false},{"name":"silent-89","account":"d","conversation":"silent","parent":null,"task_ref":"north#89","effort":"medium","created_ms":0},{"name":"b-side","account":"b","conversation":"bside","parent":null,"task_ref":"north#700","effort":"medium","created_ms":0}]"#;
 const PUSHED: &str = "1791425100";
 
 fn rig(root: &Path) {
@@ -100,6 +100,7 @@ fn a_lane_autoland_or_another_hosts_lander_took_to_main_lands_its_run_and_counts
     transcript(root, "queued", "north#600", "Not done: the change is queued.");
     transcript(root, "offload", "north#482", "Done: the runtime pin is queued for the lander.");
     transcript(root, "bside", "north#700", "Done: landed.");
+    transcript(root, "dispatched", "north#88", "Done: the dispatch box is queued for the lander.");
     fs::create_dir_all(root.join("state/safe-push")).unwrap();
     let rows = [
         format!("{PUSHED}\tmakgora\tclaude/land-sdonly-1127b-{}\t{fast_forwarded}\t\tsdonly-1127b", &fast_forwarded[..12]),
@@ -109,6 +110,7 @@ fn a_lane_autoland_or_another_hosts_lander_took_to_main_lands_its_run_and_counts
         format!("{PUSHED}\tnorth\toffload-runtime-pin\t{batched_tip}\t{batch_tip}\toffload-runtime-pin"),
         format!("{PUSHED}\tnorth\tnorth-88-d0020\t{queued}\t{queued}\tnorth-88-d0020"),
         format!("{PUSHED}\tnorth\tb-side\t{queued}\t{queued}\tb-side"),
+        format!("{PUSHED}\tnorth\tsilent-89\t{queued}\t{queued}\tsilent-89"),
     ];
     fs::write(root.join("state/safe-push/pushes.tsv"), rows.join("\n") + "\n").unwrap();
 
@@ -117,15 +119,17 @@ fn a_lane_autoland_or_another_hosts_lander_took_to_main_lands_its_run_and_counts
     assert_eq!(run_of(root, "sdonly"), format!("makgora#1127|done|1|{fast_forwarded}"), "an Autoland queue push lands with the tip that reached main");
     assert_eq!(run_of(root, "flaky"), format!("north#437|done|1|{rebased}"), "a lane another host's lander rebased lands with the rebased commit");
     assert_eq!(run_of(root, "offload"), format!("north#482|done|1|{batched}"), "a lane the lander cherry-picked before its checks lands with its own commit, dated before the logged push, not the batch tip");
+    assert_eq!(run_of(root, "dispatched"), format!("north#88|done|1|{queued}"), "a dispatch session another host placed on this machine records its run from the fleet row's conversation");
 
     let measured = north(root, &["worker-ledger", "--landed-issues", "d", "--day", "2026-10-08"]);
     assert!(measured.status.success(), "{}", String::from_utf8_lossy(&measured.stderr));
     let expected = format!(
-        "account d on 2026-10-08:\ndone makgora#1127 sdonly-1127b {}\ndone north#308 settle-transient-bound {}\ndone north#437 flaky-shared-target {}\ndone north#482 offload-runtime-pin {}\nmiss north#600 queued-600 {} (landed, Not done without its box ticked)\nmiss north#88 north-88-d0020 {} (no run row)\n4 of 6 landed issues have a done-and-landed run (66%)\n",
+        "account d on 2026-10-08:\ndone makgora#1127 sdonly-1127b {}\ndone north#308 settle-transient-bound {}\ndone north#437 flaky-shared-target {}\ndone north#482 offload-runtime-pin {}\nmiss north#600 queued-600 {} (landed, Not done without its box ticked)\ndone north#88 north-88-d0020 {}\nmiss north#89 silent-89 {} (no run row)\n5 of 7 landed issues have a done-and-landed run (71%)\n",
         &fast_forwarded[..9],
         &settled[..9],
         &rebased[..9],
         &batched[..9],
+        &queued[..9],
         &queued[..9],
         &queued[..9]
     );

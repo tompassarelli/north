@@ -310,6 +310,20 @@ fn a_launch_registers_its_fleet_row_before_it_starts_and_refuses_when_the_fleet_
 }
 
 #[test]
+fn a_dispatch_launch_placed_on_another_machine_registers_its_conversation_on_the_fleet_row() {
+    let home = tempfile::tempdir().unwrap();
+    let store = Arc::new(Unreachable::default());
+    let fleet = fleet(home.path(), "far = { path = \"/srv/far-a\" }\n").registering(store.clone());
+
+    let _ = fleet.launch(&LaunchRequest { name: "north-88-d0020".into(), task_ref: Some("north#88".into()), ..on_far() });
+
+    let calls = store.0.lock().unwrap();
+    let [(row, _)] = calls.as_slice() else { panic!("{calls:?}") };
+    assert_eq!((row.name.as_str(), row.machine.as_deref()), ("north-88-d0020", Some("far")));
+    assert!(row.conversation.as_deref().is_some_and(|conversation| conversation.len() == 36), "{row:?}");
+}
+
+#[test]
 fn a_take_over_claims_the_row_under_the_name_and_a_refused_one_leaves_the_holder_in_place() {
     let home = tempfile::tempdir().unwrap();
     let store = Arc::new(Unreachable::default());

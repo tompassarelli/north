@@ -251,6 +251,7 @@ fn a_published_session_keeps_the_columns_the_fleet_list_shows() {
         placement: Some("gex45".into()),
         machine: Some("gex45".into()),
         tasks: vec!["north#429".into(), "north#316".into()],
+        conversation: Some("7c1e0f6a-conversation".into()),
         ..session("sc-1", "nexus", "working")
     };
 

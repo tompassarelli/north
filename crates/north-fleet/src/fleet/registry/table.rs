@@ -56,6 +56,7 @@ impl Fleet {
             placement: record.placement.clone(),
             machine: record.machine.as_ref().map(|machine| machine.name.clone()),
             tasks: record.tasks().map(str::to_owned).collect(),
+            conversation: record.conversation.clone(),
         }
     }
 }

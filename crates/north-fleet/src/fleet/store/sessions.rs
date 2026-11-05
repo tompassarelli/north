@@ -27,19 +27,21 @@ pub struct SessionRow {
     pub machine: Option<String>,
     #[serde(default)]
     pub tasks: Vec<String>,
+    #[serde(default)]
+    pub conversation: Option<String>,
 }
 
-const COLUMNS: &str = "name, host, status, created, updated, provider, account, cwd, parent, placement, machine, tasks";
+const COLUMNS: &str = "name, host, status, created, updated, provider, account, cwd, parent, placement, machine, tasks, conversation";
 
-const UPSERT: &str = "INSERT INTO fleet_sessions(name, host, status, created, updated, provider, account, cwd, parent, placement, machine, tasks) \
-     VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?8, ?9, ?10, ?11, ?12, ?13) \
+const UPSERT: &str = "INSERT INTO fleet_sessions(name, host, status, created, updated, provider, account, cwd, parent, placement, machine, tasks, conversation) \
+     VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) \
      ON CONFLICT(name) DO UPDATE SET host = excluded.host, status = excluded.status, created = excluded.created, updated = excluded.updated, \
-     provider = excluded.provider, account = excluded.account, cwd = excluded.cwd, parent = excluded.parent, placement = excluded.placement, machine = excluded.machine, tasks = excluded.tasks";
+     provider = excluded.provider, account = excluded.account, cwd = excluded.cwd, parent = excluded.parent, placement = excluded.placement, machine = excluded.machine, tasks = excluded.tasks, conversation = excluded.conversation";
 
 fn upsert(tx: &Transaction, row: &SessionRow, guard: &str) -> NorthResult<usize> {
     tx.execute(
         &format!("{UPSERT} WHERE {guard}"),
-        params![row.name, row.host, row.status, row.created, row.updated, Status::Exited.label(), row.provider, row.account, row.cwd, row.parent, row.placement, row.machine, serde_json::to_string(&row.tasks)?],
+        params![row.name, row.host, row.status, row.created, row.updated, Status::Exited.label(), row.provider, row.account, row.cwd, row.parent, row.placement, row.machine, serde_json::to_string(&row.tasks)?, row.conversation],
     )
     .map_err(sql)
 }
@@ -106,5 +108,6 @@ fn held(row: &Row) -> rusqlite::Result<SessionRow> {
         placement: row.get(9)?,
         machine: row.get(10)?,
         tasks: serde_json::from_str(&tasks).map_err(|error| rusqlite::Error::FromSqlConversionFailure(11, rusqlite::types::Type::Text, Box::new(error)))?,
+        conversation: row.get(12)?,
     })
 }
