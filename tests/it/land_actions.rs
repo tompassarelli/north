@@ -191,7 +191,8 @@ fn a_test_that_also_fails_on_mains_own_tree_raises_the_red_main_event_and_retrie
     let events = landing.state("events");
     let targets: Vec<&str> = events.lines().filter_map(|line| line.split('\t').next()).collect();
     assert_eq!(targets, ["proxy", "lead-1"], "{events}");
-    assert!(events.contains("main is red at") && events.contains("shared_test fails on main's own tree") && events.contains("Main-red: #812"), "{events}");
+    assert!(events.contains("main is red at") && events.contains("shared_test fails on main's own tree") && events.contains("a fix lane carrying Main-red: lands first"), "the first red verdict sends the event with the bare marker and opens no issue, which the second in a row does: {events}");
+    assert!(!events.contains("Main-red: #812"), "{events}");
     assert!(git(&landing.origin, &["log", "--format=%s", "main"]).starts_with("Lane change\nFix shared_test"), "the lane landed after the fix");
     assert_ne!(landing.landed(), lane);
 }
