@@ -30,7 +30,7 @@ impl Fleet {
         self.relaunch_with(name, model, effort, |held| self.revive_held(held, None, None, None))
     }
 
-    pub(super) fn relaunch_with(&self, name: &str, model: Option<&str>, effort: Option<Effort>, restart: impl FnOnce(&str) -> NorthResult<SessionRecord>) -> NorthResult<SessionRecord> {
+    pub(crate) fn relaunch_with(&self, name: &str, model: Option<&str>, effort: Option<Effort>, restart: impl FnOnce(&str) -> NorthResult<SessionRecord>) -> NorthResult<SessionRecord> {
         let record = self.record(name)?;
         if model.is_none() && effort.is_none() {
             return Err(NorthError::Usage("relaunch takes a model, an effort or both".into()));

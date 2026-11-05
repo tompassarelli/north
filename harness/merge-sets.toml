@@ -64,7 +64,7 @@ path = "crates/north-core/src/capacity/mod.rs"
 kind = "lines"
 
 [[set]]
-path = "crates/north-core/src/fleet/mod.rs"
+path = "crates/north-fleet/src/fleet/mod.rs"
 kind = "lines"
 
 [[set]]

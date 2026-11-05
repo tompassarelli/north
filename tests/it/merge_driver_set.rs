@@ -133,11 +133,11 @@ fn a_lane_adding_a_feature_beside_one_main_added_rebases_through_continue_with_a
 
 #[test]
 fn two_lanes_that_each_add_a_module_to_the_fleet_mod_list_rebase_with_both_kept() {
-    const FLEET: &str = "crates/north-core/src/fleet/mod.rs";
-    let base = include_str!("../../crates/north-core/src/fleet/mod.rs");
+    const FLEET: &str = "crates/north-fleet/src/fleet/mod.rs";
+    let base = include_str!("../../crates/north-fleet/src/fleet/mod.rs");
     let dir = repo(&[]);
     let root = dir.path();
-    fs::create_dir_all(root.join("crates/north-core/src/fleet")).unwrap();
+    fs::create_dir_all(root.join("crates/north-fleet/src/fleet")).unwrap();
     fs::write(root.join(FLEET), base).unwrap();
     git_ok(root, &["add", "-A"]);
     git_ok(root, &["commit", "-qm", "fleet"]);

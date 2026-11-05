@@ -2,13 +2,19 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use super::*;
-use crate::error::NorthError;
+use crate::fleet::registry::*;
+use crate::error::{NorthError, NorthResult};
+use crate::fleet::claims::{self, Claims};
+use crate::fleet::model::{EntryKind, LaunchRequest, SessionRecord};
+use crate::fleet::runtime::{Opening, Runtime};
+use crate::fleet::runtimes::Runtimes;
+use crate::fleet::store::Registrar;
+use crate::fleet::test_support::{Internals, WINDOW_SIZE, alive, placed};
 use crate::fleet::model::{Effort, Machine};
 use crate::fleet::store::Claim;
 use crate::fleet::fakes::Paper;
 use crate::fleet::prompt::PromptMode;
-use crate::providers::claude::fleet::Claude;
+use super::Claude;
 
 fn fleet(home: &Path, profiles: &str) -> Fleet {
     fleet_claiming(home, profiles, Arc::new(claims::Held::default()))
@@ -54,7 +60,7 @@ fn remote_command(fleet: &Fleet) -> String {
     let request = on_far();
     let account = fleet.account(&request).unwrap();
     let record = SessionRecord { machine: request.machine.clone(), ..serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null})).unwrap() };
-    let spec = remote::placed(Claude.host(&account, &request, Opening::Fresh(None), "").unwrap(), &record).unwrap();
+    let spec = placed(Claude.host(&account, &request, Opening::Fresh(None), "").unwrap(), &record).unwrap();
     spec.argv.last().unwrap().clone()
 }
 
@@ -96,7 +102,7 @@ fn a_label_with_no_profile_for_the_named_machine_is_refused_naming_its_owners() 
 
 fn chain(fleet: &Fleet, links: &[(&str, Option<&str>)]) {
     for (name, parent) in links {
-        let session = fleet.root.join(name);
+        let session = fleet.root().join(name);
         fs::create_dir_all(&session).unwrap();
         let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "parent": parent});
         fs::write(session.join("session.json"), record.to_string()).unwrap();
@@ -156,12 +162,12 @@ fn a_parent_cycle_is_refused_instead_of_walked_forever() {
 fn a_revived_session_shows_the_turns_and_final_report_after_a_frame_larger_than_a_read_window() {
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path(), "");
-    let session = fleet.root.join("revived");
+    let session = fleet.root().join("revived");
     let record = serde_json::json!({"name": "revived", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "c", "host_dir": session, "stream_offset": 0, "machine": {"name": "far", "ssh": "tom@far"}});
     fs::create_dir_all(session.join("g1")).unwrap();
     fs::write(session.join("session.json"), record.to_string()).unwrap();
     let assistant = |text: &str| serde_json::json!({"type": "assistant", "session_id": "c", "message": {"content": [{"type": "text", "text": text}]}}).to_string();
-    let strip = serde_json::json!({"type": "user", "session_id": "c", "message": {"content": [{"type": "tool_result", "content": "A".repeat(3 * crate::fleet::transcript::WINDOW_SIZE as usize)}]}}).to_string();
+    let strip = serde_json::json!({"type": "user", "session_id": "c", "message": {"content": [{"type": "tool_result", "content": "A".repeat(3 * WINDOW_SIZE as usize)}]}}).to_string();
     let result = serde_json::json!({"type": "result", "subtype": "success", "session_id": "c"}).to_string();
     let lines = [assistant("before the revive"), result.clone(), strip, assistant("final report"), result];
     fs::write(session.join("g1/stream.jsonl"), lines.map(|line| line + "\n").concat()).unwrap();
@@ -177,7 +183,7 @@ fn the_live_owners_are_the_unexited_sessions_names_conversations_and_provider_co
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path(), "");
     for (name, stopped, conversation) in [("parked", false, "c1"), ("gone", true, "c2")] {
-        let session = fleet.root.join(name);
+        let session = fleet.root().join(name);
         fs::create_dir_all(&session).unwrap();
         let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": conversation, "stopped": stopped});
         fs::write(session.join("session.json"), record.to_string()).unwrap();
@@ -192,7 +198,7 @@ fn the_live_owners_are_the_unexited_sessions_names_conversations_and_provider_co
 fn an_unreadable_registry_is_not_an_empty_fleet() {
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path(), "");
-    fs::remove_dir_all(&fleet.root).unwrap();
+    fs::remove_dir_all(fleet.root()).unwrap();
 
     assert_eq!(fleet.live_owners(), None);
 }
@@ -202,7 +208,7 @@ fn parked(fleet: &Fleet, name: &str, stopped: bool, report: &str) {
 }
 
 fn parked_turn(fleet: &Fleet, name: &str, stopped: bool, report: &str, ended: bool) {
-    let session = fleet.root.join(name);
+    let session = fleet.root().join(name);
     fs::create_dir_all(session.join("g1")).unwrap();
     let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": name, "host_dir": session, "stream_offset": 0, "stopped": stopped});
     fs::write(session.join("session.json"), record.to_string()).unwrap();
@@ -223,9 +229,9 @@ fn a_reboot_strands_the_unstopped_sessions_that_had_not_reported_done_or_idled_o
     parked(&fleet, "stopped", true, "Not done: stopped by the lead.");
     parked(&fleet, "idle-parked", false, "Not done: waiting on the lead.");
     let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600);
-    fs::File::options().write(true).open(fleet.root.join("idle-parked/g1/stream.jsonl")).unwrap().set_modified(two_hours_ago).unwrap();
+    fs::File::options().write(true).open(fleet.root().join("idle-parked/g1/stream.jsonl")).unwrap().set_modified(two_hours_ago).unwrap();
     parked_turn(&fleet, "silent-tool", false, "Running the full test suite.", false);
-    fs::File::options().write(true).open(fleet.root.join("silent-tool/g1/stream.jsonl")).unwrap().set_modified(two_hours_ago).unwrap();
+    fs::File::options().write(true).open(fleet.root().join("silent-tool/g1/stream.jsonl")).unwrap().set_modified(two_hours_ago).unwrap();
     let after_writes = crate::fleet::runtime::now_ms() + 60_000;
     let before_writes = 1_000;
 
@@ -260,7 +266,7 @@ fn a_session_that_exited_holding_a_claim_leaves_the_issue_unowned_while_parked_a
     let fleet = fleet_claiming(home.path(), "", held.clone());
     let running = std::process::id();
     for (name, stopped, pid) in [("exited", true, None), ("parked", false, None), ("running", false, Some(running))] {
-        let session = fleet.root.join(name);
+        let session = fleet.root().join(name);
         fs::create_dir_all(&session).unwrap();
         let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": pid, "stopped": stopped});
         fs::write(session.join("session.json"), record.to_string()).unwrap();
@@ -350,7 +356,7 @@ fn a_second_live_proxy_is_refused_unless_it_takes_the_proxy_over() {
 fn hosted(fleet: &Fleet, name: &str, model: Option<&str>, effort: &str) -> std::process::Child {
     use std::os::unix::process::CommandExt;
     let child = std::process::Command::new("sleep").arg("30").process_group(0).stdin(std::process::Stdio::null()).spawn().unwrap();
-    let session = fleet.root.join(name);
+    let session = fleet.root().join(name);
     fs::create_dir_all(session.join("g1")).unwrap();
     fs::write(session.join("host.pid"), child.id().to_string()).unwrap();
     let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": model, "effort": effort, "created_ms": 1, "host_pid": child.id(), "conversation": "c1", "host_dir": session, "stream_offset": 0});

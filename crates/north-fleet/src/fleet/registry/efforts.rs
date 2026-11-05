@@ -9,7 +9,7 @@ fn pinned(model: Option<&str>) -> Option<Effort> {
 
 /// The effort a launch records: none unless asked, high for Sonnet whatever the account's default,
 /// and refused by a runtime that takes none or for Sonnet at any other effort.
-pub(super) fn taken(runtime: &dyn Runtime, model: Option<&str>, effort: Option<Effort>) -> NorthResult<Option<Effort>> {
+pub fn taken(runtime: &dyn Runtime, model: Option<&str>, effort: Option<Effort>) -> NorthResult<Option<Effort>> {
     match (effort, pinned(model)) {
         (Some(_), _) if !runtime.takes_effort() => Err(NorthError::Usage(format!("{} sessions take no --effort; launch a claude session to set reasoning effort", runtime.provider().label()))),
         (Some(asked), Some(only)) if asked != only => Err(NorthError::Usage(format!("{} runs only at {} effort, not {}; drop --effort or pass --effort {}", model.unwrap_or_default(), only.label(), asked.label(), only.label()))),
@@ -20,7 +20,7 @@ pub(super) fn taken(runtime: &dyn Runtime, model: Option<&str>, effort: Option<E
 
 /// The effort a revive records: the stored one unless a new one is given, which a running session refuses;
 /// a stored Sonnet effort other than high is restored to high.
-pub(super) fn revived(record: &SessionRecord, runtime: &dyn Runtime, running: bool, effort: Option<Effort>) -> NorthResult<Option<Effort>> {
+pub fn revived(record: &SessionRecord, runtime: &dyn Runtime, running: bool, effort: Option<Effort>) -> NorthResult<Option<Effort>> {
     match effort {
         None => Ok(pinned(record.model.as_deref()).filter(|_| runtime.takes_effort()).or(record.effort)),
         Some(_) if running => Err(NorthError::Usage(format!("{} is running; stop it before reviving it with --effort", record.name))),

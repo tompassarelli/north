@@ -1,4 +1,4 @@
-#![cfg(test)]
+#![cfg(any(test, feature = "test-support"))]
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;

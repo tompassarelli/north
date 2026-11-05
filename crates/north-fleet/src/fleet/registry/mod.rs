@@ -31,7 +31,7 @@ use super::transcript::{StreamTail, current_session_stream_index, ensure_session
 mod claiming;
 mod control;
 mod depth;
-mod efforts;
+pub mod efforts;
 mod first_turn;
 mod follower;
 mod gate_commands;
@@ -63,8 +63,6 @@ mod testing;
 #[doc(hidden)]
 pub mod fixtures;
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod lanes_tests;
 
 pub use follower::Follower;
@@ -89,7 +87,7 @@ const HOSTS: &str = ".hosts";
 
 #[derive(Clone)]
 pub struct Fleet {
-    root: PathBuf,
+    pub(crate) root: PathBuf,
     state: PathBuf,
     home: PathBuf,
     policy: PathBuf,
@@ -335,7 +333,7 @@ impl Fleet {
         }))
     }
 
-    fn account(&self, request: &LaunchRequest) -> NorthResult<Account> {
+    pub(crate) fn account(&self, request: &LaunchRequest) -> NorthResult<Account> {
         self.runtimes.account(&self.state, &self.home, &self.policy, request)
     }
 
@@ -343,11 +341,11 @@ impl Fleet {
         self.runtimes.get(&record.provider)
     }
 
-    fn record(&self, name: &str) -> NorthResult<SessionRecord> {
+    pub(crate) fn record(&self, name: &str) -> NorthResult<SessionRecord> {
         read_record(&self.session_dir(name)?).map_err(|_| NorthError::Usage(format!("no session named {name}")))
     }
 
-    fn session_dir(&self, name: &str) -> NorthResult<PathBuf> {
+    pub(crate) fn session_dir(&self, name: &str) -> NorthResult<PathBuf> {
         let valid = !name.is_empty() && !name.starts_with('.') && !name.contains('/') && name != SPOOL_DIR;
         if !valid {
             return Err(NorthError::Usage(format!("invalid session name {name:?}")));

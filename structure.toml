@@ -128,7 +128,7 @@ may_use = ["foundation", "crate-roots"]
 
 [[module]]
 name = "fleet"
-paths = ["crates/north-core/src/fleet/**", "crates/north-core/src/lead_journal.rs"]
+paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
 may_use = ["domain", "platform", "foundation", "crate-roots"]
 
@@ -230,7 +230,7 @@ may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "providers"
-paths = ["crates/north-core/src/providers/**", "crates/north-core/src/claude_stream.rs", "crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/codex.rs", "crates/north-core/src/rpc.rs"]
+paths = ["crates/north-core/src/providers/**", "crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/codex.rs", "crates/north-core/src/rpc.rs", "crates/*/src/claude_stream.rs"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection."
 may_use = ["fleet", "guard", "catalog", "threads", "domain", "platform", "foundation", "crate-roots"]
 
@@ -270,7 +270,7 @@ may_use = []
 name = "crate-roots"
 paths = ["crates/*/src/lib.rs"]
 responsibility = "Crate roots: module declarations and the re-exports that keep crate:: paths stable across the workspace split."
-may_use = ["foundation", "platform", "shell", "autoland_status", "domain", "usage", "threads"]
+may_use = ["foundation", "platform", "shell", "autoland_status", "domain", "usage", "threads", "fleet", "providers"]
 
 [[registered]]
 id = "guard.corpus_scan"
@@ -340,12 +340,12 @@ checks = ["shared-mutability", "single-impl-trait"]
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
-path = "crates/north-core/src/fleet/registry/fixtures.rs"
+path = "crates/north-fleet/src/fleet/registry/fixtures.rs"
 reason = "Test fixture, doc(hidden) and public since 895bb0e6f so north-tui's tests reach it; a fake session's frames are shared between its reader thread and the test."
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
-path = "crates/north-core/src/fleet/session_host.rs"
+path = "crates/north-fleet/src/fleet/session_host.rs"
 reason = "Activity, the prompt counter and the frame watcher are shared between the stdin writer and stdout reader threads of one session."
 
 [[rust_habits.allow]]
@@ -370,27 +370,33 @@ reason = "One driver stdin pipe written from the observer threads of verify-nort
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
-path = "crates/north-core/src/fleet/books.rs"
+path = "crates/north-fleet/src/fleet/books.rs"
 item = "WatchBooks"
 reason = "Trait alias bundling the RunSink, Books, ReceiptBook and GateBook ports through a blanket impl; each port has its own test double."
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
-path = "crates/north-core/src/fleet/books.rs"
+path = "crates/north-fleet/src/fleet/books.rs"
 item = "FleetBooks"
 reason = "Trait alias over WatchBooks and GateBook through a blanket impl; each port has its own test double."
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
-path = "crates/north-core/src/fleet/session_host.rs"
+path = "crates/north-fleet/src/fleet/session_host.rs"
 item = "SentLog"
 reason = "Keeps the process host free of the turn watcher's parsing; candidate to make concrete."
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
-path = "crates/north-core/src/fleet/session_host.rs"
+path = "crates/north-fleet/src/fleet/session_host.rs"
 item = "FrameWatch"
 reason = "Keeps the process host free of the turn watcher's parsing; candidate to make concrete."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-fleet/src/fleet/test_support.rs"
+item = "Internals"
+reason = "Test seam behind the test-support feature: north-core's Claude-runtime fleet tests reach Fleet's crate-private accessors through it, so they stay crate-private in production."
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"

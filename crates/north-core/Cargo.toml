@@ -10,6 +10,7 @@ publish = false
 north-base = { path = "../north-base" }
 north-pace = { path = "../north-pace" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
+north-fleet = { path = "../north-fleet" }
 crossterm.workspace = true
 ratatui.workspace = true
 fancy-regex.workspace = true
@@ -32,6 +33,7 @@ tui-textarea-2.workspace = true
 test-support = []
 
 [dev-dependencies]
+north-fleet = { path = "../north-fleet", features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 
 [lints]

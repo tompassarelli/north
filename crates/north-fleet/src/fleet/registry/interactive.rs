@@ -26,7 +26,7 @@ impl Fleet {
         launch(&spec)
     }
 
-    pub(super) fn refuse_beside_interactive(&self, record: &SessionRecord) -> NorthResult<()> {
+    pub(crate) fn refuse_beside_interactive(&self, record: &SessionRecord) -> NorthResult<()> {
         let Some(conversation) = &record.conversation else { return Ok(()) };
         match interactive_pid(&self.proc, conversation) {
             Some(pid) => Err(NorthError::Refused(format!("{} is open in its interactive UI (process {pid}); close that UI, then revive {} to bring it back into the fleet", record.name, record.name))),

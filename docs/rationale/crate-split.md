@@ -428,7 +428,10 @@ measured it after the move, on a 4-CPU cloud worker (Cranelift dev profile, medi
 to `pace/limits.rs`): `cargo test --workspace --no-run` 14.6 s, against 14.5 s for the same edit on the parent
 main; `cargo test -p north-pace --no-run` 2.7 s, against 9.9 s for `-p north-core` on the parent. So the
 hub edit costs the workspace what it did, as the model's −96 says, and the crate's own test loop is 3.7 times
-faster. Their edits
+faster. Box 4-15 measured `fleet` after its move the same way, a blank line appended to `fleet/lane_probe.rs`:
+`cargo test --workspace --no-run` 11.8 s, against 12.3 s on the parent main; `cargo test -p north-fleet
+--no-run` 1.7 s, against 5.8 s for `-p north-core` on the parent. `north code-health` counts north-fleet at
+8,942 non-test lines at the move. Their edits
 rebuild every lib chain up to `ops`. The gate times a single leaf file (`structure.toml` names
 `code_health/source.rs`, which lands in north-guard at 6.6 s), so they stay slow without failing the gate.
 `fleet` sits at 7.8k of its 10k hub cap while taking 91 commits a week. If it nears the cap, the relief is

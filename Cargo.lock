@@ -1001,6 +1001,7 @@ dependencies = [
  "crossterm 0.28.1",
  "fancy-regex",
  "north-base",
+ "north-fleet",
  "north-pace",
  "north-threads",
  "percent-encoding",
@@ -1036,6 +1037,22 @@ dependencies = [
  "tempfile",
  "time",
  "toml_edit",
+]
+
+[[package]]
+name = "north-fleet"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-pace",
+ "regex",
+ "rusqlite",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

@@ -7,7 +7,7 @@
   "tests/it/land_offload.rs": "a one-line wrapper over the shim that lanes in flight still call",
   "tests/it/lane_gc_journeys.rs": "a one-line wrapper over the shim that lanes in flight still call",
   "tests/it/land_actions.rs": "a one-line wrapper over the shim that lanes in flight still call",
-  "crates/north-core/src/fleet/install.rs": "production: installs a real runtime",
+  "crates/north-fleet/src/fleet/install.rs": "production: installs a real runtime",
   "crates/north-ops/src/ops/vendor_runtime/mod.rs": "production: installs a real vendor runtime",
   "crates/north-core/src/catalog/retired_hooks.rs": "production: writes real retired-hook stubs",
   "crates/north-threads/src/threads/client.rs": "production: spool directory mode",
@@ -15,5 +15,5 @@
   "crates/north-runtime/src/runtime/layout.rs": "production: stages the runtime binary",
   "crates/north-ops/src/ops/reclaim/tests.rs": "data files that are never executed",
   "crates/north-guard/src/lanes/hardcoded_paths_tests.rs": "a committed file that is never executed",
-  "crates/north-core/src/fleet/registry/gate_rows.rs": "a directory mode, not a script"
+  "crates/north-fleet/src/fleet/registry/gate_rows.rs": "a directory mode, not a script"
 }

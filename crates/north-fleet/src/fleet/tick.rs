@@ -350,6 +350,3 @@ fn far_hosts(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls) -> Vec<Far
     hosts
 }
 
-#[cfg(test)]
-#[path = "tick_tests.rs"]
-mod tests;

@@ -324,3 +324,9 @@ mod launch;
 #[cfg(test)]
 #[path = "image_tests.rs"]
 mod image;
+#[cfg(test)]
+#[path = "fleet_tick_tests.rs"]
+mod fleet_tick;
+#[cfg(test)]
+#[path = "fleet_registry_tests.rs"]
+mod fleet_registry;
