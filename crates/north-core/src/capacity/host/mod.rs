@@ -12,6 +12,8 @@ mod args;
 mod database;
 mod decision;
 mod estimate;
+#[cfg(test)]
+mod estimate_replay_tests;
 mod fleet_pull;
 mod gpu;
 #[cfg(test)]

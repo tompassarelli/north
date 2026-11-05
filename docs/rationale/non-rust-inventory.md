@@ -56,7 +56,7 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/automation-chrome | 9 | stay | 9-line flock wrapper that execs the Playwright CLI in lib/automation-chrome |
 | bin/automation-chrome.test.sh | 9 | stay | test of the Playwright wrapper |
 | bin/bun | 14 | stay | PATH shadow that routes bun through `north capacity gate` admission, then execs the real bun; must be an executable named bun (<=80-line glue) |
-| bin/capacity-watchdog | 549 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | Bun TS using bun:sqlite (rusqlite replaces it) and importing machine-capacity-logic.ts; no Bun-only API that Rust lacks |
+| bin/capacity-watchdog | 549 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | Bun TS using bun:sqlite (rusqlite replaces it) and reading handoff_ctx from harness/defaults.toml; no Bun-only API that Rust lacks |
 | bin/capacity-watchdog.test.sh | 175 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | test of capacity-watchdog |
 | bin/cargo | 14 | stay | same admission shadow for cargo |
 | bin/ci-diagnose | 8 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | shim to harness/scripts/ci-diagnose.ts |
@@ -163,13 +163,7 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | harness/scripts/mutant-tests.sh | 57 | stay | 57-line CI glue that runs the mutant cargo slots |
 | harness/scripts/read-isolation-probe.sh | 51 | stay | 51-line manual probe that drives Claude Code tools under a config; no Rust caller, delete if unused for a month |
 | harness/skills/machine-capacity/scripts/build-machine-capacity | 28 | stay | producer of the generated bundle (structure.toml); deleted with it |
-| harness/skills/machine-capacity/scripts/capacity-clamp.recorded.test.ts | 63 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | recorded and replay tests of the TS logic; cases move to cargo test with fixtures |
-| harness/skills/machine-capacity/scripts/capacity-estimate.replay.test.sh | 3 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | shell tests of the capacity commands |
-| harness/skills/machine-capacity/scripts/capacity-estimate.replay.test.ts | 75 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | recorded and replay tests of the TS logic; cases move to cargo test with fixtures |
-| harness/skills/machine-capacity/scripts/capacity-unseen-pressure.recorded.test.ts | 129 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | recorded and replay tests of the TS logic; cases move to cargo test with fixtures |
-| harness/skills/machine-capacity/scripts/charged-resources.property.ts | 39 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | property test of the TS logic |
 | harness/skills/machine-capacity/scripts/machine-capacity-host.mjs | 8 | stay | source of the generated bundle above; deleted with it |
-| harness/skills/machine-capacity/scripts/machine-capacity-logic.ts | 301 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | policy defaults imported by capacity-watchdog and the recorded tests; Rust capacity module is the owner |
 | harness/skills/machine-capacity/scripts/machine-capacity.mjs | 3 | stay | generated 3-line Bun bundle that spawns `north capacity host`; nixos-config dotfiles/bin/machine-update, firn-runtime-update and south hosts/gex45/configuration.nix:32 run it by path, so those callers switch to `north capacity host` first (nixos-config and south changes land first), then delete it and its producer |
 | harness/skills/machine-capacity/scripts/machine-capacity.test.sh | 578 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | shell tests of the capacity commands |
 | harness/skills/private-desktop-development/scripts/private-desktop.sh | 3 | stay | 3-line exec of `north private-desktop`; named by lib/automation-chrome/cli.mjs, bin/wc3-login-field and the desktop-action guard; delete when those name `north private-desktop` |

@@ -62,17 +62,17 @@ pub fn add_engine_time(pids: &[String], per_client: &mut BTreeMap<String, f64>) 
 
 #[derive(Clone, Debug)]
 pub struct GpuClient {
-    client: String,
-    pid: u64,
-    start: String,
-    command: String,
-    cgroup: String,
-    nanoseconds: f64,
+    pub(super) client: String,
+    pub(super) pid: u64,
+    pub(super) start: String,
+    pub(super) command: String,
+    pub(super) cgroup: String,
+    pub(super) nanoseconds: f64,
 }
 
 pub struct GpuProcessSample {
     pub at: f64,
-    clients: Vec<GpuClient>,
+    pub(super) clients: Vec<GpuClient>,
 }
 
 fn process_command(pid: &str) -> String {

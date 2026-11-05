@@ -208,21 +208,21 @@ value = 20
 unit = "newest matching runs machine-capacity sizes a command from"
 source = "measured: flat over {5,10,20,40,all}: capacity_runs exact signatures walk-forward, 0 under-charged, charged/peak memory 6.65-6.66, n=27"
 fallback = "under 3 matching runs the declared resource class applies"
-consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "crates/north-core/src/capacity/host/policy.rs"]
+consumers = ["crates/north-core/src/capacity/host/policy.rs"]
 
 [capacity_memory_margin]
 value = 1.2
 unit = "multiple of p90 peak memory machine-capacity charges"
 source = "measured: capacity_runs exact signatures walk-forward, peak memory / p90 of the prior 20, to 2026-10-12, n=27, p99 1.02, none over 1.2"
 fallback = "under 3 matching runs the declared resource class applies"
-consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "crates/north-core/src/capacity/host/policy.rs"]
+consumers = ["crates/north-core/src/capacity/host/policy.rs"]
 
 [capacity_high_confidence_runs]
 value = 10
 unit = "exact-signature runs before a capacity estimate is high confidence"
 source = "measured: flat: capacity_runs exact signatures walk-forward, 0 over-charges at 3-4 prior runs (n=10), 5-9 (n=5), 10-19 (n=10), 20+ (n=2); confidence bands do not differ, n=27"
 fallback = "fewer exact runs give medium confidence; no match gives low"
-consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts"]
+consumers = ["crates/north-core/src/capacity/host/policy.rs"]
 
 [pace_target_left_claude]
 value = 5
@@ -574,7 +574,7 @@ consumers = ["crates/north-core/src/capacity/admission.rs"]
 [land_offload_cpus]
 value = 6
 unit = "free cores (the admission limit less the CPUs committed to batch runs) a host needs to take an offloaded land check"
-source = "standard: machine-capacity's heavy class asks 6 cores on a host above 8 cores (machine-capacity-logic.ts resourceClass)"
+source = "standard: machine-capacity's heavy class asks 6 cores on a host above 8 cores (crates/north-core/src/capacity/host/policy.rs resource_class)"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
 consumers = ["crates/north-core/src/capacity/admission.rs"]
 

@@ -2,7 +2,7 @@ use super::policy::{charged_resources, memory_margin, resource_class, running_me
 use super::sizing::sizing_runs;
 
 mod properties {
-    use super::super::policy::{Resources, aggregate_cpus, clamp_to_grantable, reserved_cpus};
+    use super::super::policy::{Resources, aggregate_cpus, charged_resources, clamp_to_grantable, memory_margin, reserved_cpus, resource_class, running_cpu_commitment, scope_cpu_quota};
     use proptest::prelude::*;
     use super::super::json::num;
 
@@ -16,6 +16,14 @@ mod properties {
 
     fn resources() -> impl Strategy<Value = Resources> {
         (amount(512), amount(1_048_576)).prop_map(|(cpus, memory_mib)| Resources { cpus, memory_mib })
+    }
+
+    fn kind() -> impl Strategy<Value = &'static str> {
+        prop::sample::select(vec!["moderate", "heavy", "native", "gpu", "exclusive", "critical", "tom", "agent"])
+    }
+
+    fn measured_runs() -> impl Strategy<Value = Vec<(f64, f64)>> {
+        prop::collection::vec(((0u32..=1200).prop_map(|cents| f64::from(cents) / 100.0), (0u32..=20000).prop_map(f64::from)), 0..=20)
     }
 
     proptest! {
@@ -45,6 +53,32 @@ mod properties {
             prop_assert_eq!(cut("memoryMiB"), expected(request.memory_mib, granted.memory_mib));
             prop_assert_eq!(clamped.is_some(), granted != request);
             prop_assert_eq!(clamped.as_ref().and_then(|value| value.as_object()).map_or(0, serde_json::Map::len), usize::from(granted.cpus != request.cpus) + usize::from(granted.memory_mib != request.memory_mib));
+        }
+
+        #[test]
+        fn prop_a_class_is_charged_its_declared_size_until_three_runs_then_their_nearest_rank_p90_within_its_bounds(kind in kind(), cores in 1u32..=32, runs in measured_runs()) {
+            let cores = f64::from(cores);
+            let (run_cores, run_memory): (Vec<f64>, Vec<f64>) = runs.into_iter().unzip();
+            let declared = resource_class(kind, cores).expect("declared class");
+            let charged = charged_resources(kind, cores, &run_cores, &run_memory).expect("charged");
+            let nearest = |values: &[f64]| { let mut sorted = values.to_vec(); sorted.sort_by(f64::total_cmp); sorted[(sorted.len() as f64 * 0.9).ceil() as usize - 1] };
+            let measured = run_cores.len() >= 3;
+            let expected = match kind {
+                "tom" | "critical" if measured => Resources { cpus: declared.cpus, memory_mib: (nearest(&run_memory) * memory_margin()).min(declared.memory_mib) },
+                "moderate" | "heavy" | "native" | "gpu" if measured => {
+                    let cpus = nearest(&run_cores).max(1.0).min(declared.cpus * 1.5);
+                    Resources { cpus: if kind == "heavy" { cpus.max(declared.cpus) } else { cpus }, memory_mib: nearest(&run_memory) * memory_margin() }
+                }
+                _ => declared,
+            };
+            prop_assert_eq!(charged.cpus, expected.cpus);
+            prop_assert!((charged.memory_mib - expected.memory_mib).abs() < 1e-9, "{} charged {} MiB, expected {}", kind, charged.memory_mib, expected.memory_mib);
+            let measured_cores = run_cores.first().copied().unwrap_or(0.0);
+            prop_assert_eq!(running_cpu_commitment("native", Some(measured_cores), Some(declared.cpus), declared.cpus, None).0, measured_cores * 1.25);
+            prop_assert_eq!(running_cpu_commitment("heavy", Some(measured_cores), Some(1.0), declared.cpus, Some(declared.cpus)).0, declared.cpus);
+            if let Some(quota) = scope_cpu_quota(kind, charged.cpus, Some(declared.cpus)) {
+                prop_assert!(running_cpu_commitment(kind, Some(measured_cores), run_cores.last().copied(), charged.cpus, Some(quota)).0 <= quota);
+            }
         }
     }
 }
@@ -128,4 +162,11 @@ fn a_measured_gpu_request_sizes_its_cpus_and_memory_and_native_sizes_only_memory
     assert!(measured_request("gpu", 16.0, None, Some(17.0)).is_err());
     assert!(measured_request("gpu", 16.0, None, Some(1.5)).is_err());
     assert!(measured_request("gpu", 16.0, Some(0.0), None).is_err());
+}
+
+#[test]
+fn a_history_sized_request_past_a_four_core_hosts_cores_is_granted_all_four() {
+    use super::policy::{Resources, clamp_to_grantable, grantable_maximum};
+    let (granted, clamped) = clamp_to_grantable(Resources { cpus: 4.33_f64.ceil(), memory_mib: 2429.0 }, grantable_maximum("unattended", 4.0, 16384.0));
+    assert_eq!((granted, clamped), (Resources { cpus: 4.0, memory_mib: 2429.0 }, Some(serde_json::json!({ "cpus": [5, 4] }))));
 }
