@@ -94,6 +94,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("gh-session", crate::platform::gh_session::run),
     ("ssh-session", crate::platform::ssh_session::run),
     ("git-credential", crate::platform::git_credential::run),
+    ("gh-broker", crate::ops::gh_broker::run),
     ("ci-diagnose", crate::ops::ci_watch::diagnose::run),
     ("red-main-notify", crate::ops::ci_watch::notify::run),
     ("main-red", crate::ops::ci_watch::sheriff::run),

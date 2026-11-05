@@ -13,6 +13,8 @@ pub mod cleanup;
 pub mod disk_budget;
 pub mod entry_points;
 pub mod github;
+pub mod gh_broker_route;
+pub mod gh_shim;
 pub mod github_app;
 pub mod gh_session;
 pub mod ssh_session;

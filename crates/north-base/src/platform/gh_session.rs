@@ -48,7 +48,13 @@ pub fn run(arguments: &[String]) -> u8 {
         github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds())
     };
     match prepare(real, rest, &session, budget, &ledger, Timestamp::now().unix_seconds(), mint) {
-        Ok(command) => exec(command),
+        Ok(mut command) => match super::gh_broker_route::route(&mut command) {
+            Ok(()) => exec(command),
+            Err(message) => {
+                eprintln!("north gh-session: {message}");
+                1
+            }
+        },
         Err(Refusal::Budget(message)) => {
             eprintln!("north gh-session: {message}");
             REFUSED

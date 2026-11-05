@@ -278,7 +278,7 @@ impl State<'_> {
                 Ok(())
             }
             "curl" | "wget" => self.http(word, args),
-            "gh" => self.gh(args),
+            "gh" => self.gh(args).and_then(|()| self.gh_outside_broker(&self.tokens[index], args)),
             "nc" | "ncat" | "netcat" => self.exfil(word),
             "ssh" if !self.localhost => self.ssh(index),
             "scp" | "rsync" => self.copy(word, args),

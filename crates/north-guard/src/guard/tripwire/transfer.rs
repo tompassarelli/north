@@ -176,6 +176,7 @@ impl State<'_> {
         if let Some(path) = api_path(request.target) {
             self.git_write(verb, request.method(), path, request.mutation)?;
         }
+        self.github_http_outside_broker(verb, args)?;
         if request.upload && !self.localhost {
             return Err(format!(
                 "{verb} file upload to non-localhost — outbound exfil surface"

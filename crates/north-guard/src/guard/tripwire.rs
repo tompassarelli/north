@@ -1,3 +1,4 @@
+mod broker;
 mod delete;
 mod flow;
 mod heredoc;
@@ -95,6 +96,7 @@ struct State<'a> {
     data: String,
     tmp: String,
     cwd: String,
+    path: String,
     safe_push: bool,
     vars: BTreeMap<String, (String, usize)>,
     cwds: Vec<String>,
@@ -145,6 +147,7 @@ impl<'a> State<'a> {
                         .display()
                         .to_string()
                 }),
+            path: get("PATH"),
             safe_push: !get("SAFE_PUSH_ACTIVE").is_empty(),
             vars: BTreeMap::from([("HOME".into(), (home.clone(), 0))]),
             home,

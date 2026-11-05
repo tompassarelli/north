@@ -276,3 +276,32 @@ fn deleting_a_land_branch_with_an_autoland_run_in_flight_is_denied_but_other_del
     assert_eq!(push_verdict(&format!("git push origin --delete {queued}"), &[("SAFE_PUSH_ACTIVE", "1")], &hold), Verdict::Allow);
 }
 
+
+#[test]
+fn raw_gh_and_curl_calls_outside_the_github_broker_are_refused_with_a_named_reason() {
+    let root = tempfile::tempdir().unwrap();
+    let install = |directory: &str, text: &str| {
+        let directory = root.path().join(directory);
+        fs::create_dir_all(&directory).unwrap();
+        crate::foundation::shim::write_executable(&directory.join("gh"), text);
+        directory.display().to_string()
+    };
+    let shim = install("north-bin", "#!/bin/sh\nexec north gh-session \"$dir/$name\" \"$@\"\n");
+    let real = install("system", "#!/bin/sh\n");
+    let brokered = format!("{shim}:{real}");
+    let none = |_: std::time::Instant, _: &str, _: &str, _: &[String]| None;
+    let refused = |command: &str, path: &str, named: &str| match push_verdict(command, &[("PATH", path)], &none) {
+        Verdict::Deny(reason) => assert!(reason.contains(named) && reason.contains("outside the GitHub broker") && reason.contains("north#638"), "{command}: {reason}"),
+        other => panic!("{command} with PATH={path}: {other:?}"),
+    };
+    for (command, named) in [("gh api repos/o/r/issues", "raw 'gh api'"), ("gh run list --repo o/r", "raw 'gh run'"), ("gh issue list --repo o/r", "raw 'gh issue'")] {
+        refused(command, &real, named);
+        assert_eq!(push_verdict(command, &[("PATH", &brokered)], &none), Verdict::Allow, "{command} through the shim");
+    }
+    refused(&format!("{real}/gh api rate_limit"), &brokered, "raw 'gh api'");
+    refused("curl -sS https://api.github.com/repos/o/r/actions/runs", &brokered, "curl to api.github.com");
+    refused("curl -s api.github.com/rate_limit", &brokered, "curl to api.github.com");
+    for command in ["gh auth status", "curl -s https://example.com/api.github.com"] {
+        assert_eq!(push_verdict(command, &[("PATH", &real)], &none), Verdict::Allow, "{command}");
+    }
+}
