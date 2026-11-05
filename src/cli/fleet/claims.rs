@@ -178,6 +178,50 @@ mod tests {
         assert_eq!(reads(), 1, "a later send asked the ledger about sessions already swept");
     }
 
+    struct Bounded(Held, std::sync::atomic::AtomicUsize);
+
+    impl Claims for Bounded {
+        fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
+            self.0.hold(item, session)
+        }
+
+        fn release(&self, item: &str, session: &str) -> NorthResult<()> {
+            self.0.release(item, session)
+        }
+
+        fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
+            self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            match rows {
+                Rows::Owners(owners) if owners.len() > 64 => Err(NorthError::State(format!("the threads ledger did not answer about {} owners within 2 s", owners.len()))),
+                rows => self.0.holders(rows),
+            }
+        }
+    }
+
+    #[test]
+    fn six_hundred_exited_sessions_clear_in_reads_the_ledger_answers_and_a_drained_backlog_asks_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        let ledger = Arc::new(Ledger::open(&home.path().join("ledger.db")).unwrap());
+        let claims = Arc::new(Bounded(Held::default(), Default::default()));
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Claude)]), ledger, claims.clone()).unwrap();
+        let items: Vec<String> = (1..=600).map(|n| format!("north#{n}")).collect();
+        for (n, item) in items.iter().enumerate() {
+            let name = format!("gone-{n}");
+            let session = home.path().join(".local/state/north/fleet").join(&name);
+            std::fs::create_dir_all(&session).unwrap();
+            let record = json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "stopped": true});
+            std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+            claims.hold(item, &name).unwrap();
+        }
+
+        let released: usize = (0..5).map(|_| fleet.release_exited_claims().expect("a sweep read more owners than the ledger answers")).sum();
+        assert_eq!(released, 600);
+        assert!(claims.0.holders(Rows::Items(&items)).unwrap().is_empty());
+        let reads = claims.1.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(fleet.release_exited_claims().unwrap(), 0);
+        assert_eq!(claims.1.load(std::sync::atomic::Ordering::SeqCst), reads, "a drained backlog still asked the ledger");
+    }
+
     fn a_hung_courier(home: &std::path::Path) -> ThreadsCli {
         let script = home.join("hung-north");
         crate::foundation::shim::write_script(&script, "sleep 30\n");
