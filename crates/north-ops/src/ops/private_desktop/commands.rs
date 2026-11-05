@@ -56,6 +56,23 @@ pub(super) fn type_into(run_directory: &str, text: &str) -> io::Result<u8> {
     Ok(0)
 }
 
+pub(super) fn clipboard(arguments: &[String]) -> io::Result<u8> {
+    let [run, mime] = arguments else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "clipboard needs a run directory and a MIME type and reads its data from stdin",
+        ));
+    };
+    let (run, wayland) = validate_run_dir(run)?;
+    checked(
+        Command::new(find_tool("wl-copy")?)
+            .env_remove("WAYLAND_SOCKET")
+            .env("XDG_RUNTIME_DIR", run.join("runtime"))
+            .env("WAYLAND_DISPLAY", wayland)
+            .args(["--type", mime]),
+    )
+}
+
 pub(super) fn capture(arguments: &[String]) -> io::Result<u8> {
     let (run, wayland) = capture_run(arguments)?;
     let output = PathBuf::from(&arguments[1]);
@@ -186,7 +203,7 @@ fn unplaced_button(actions: &[String]) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::unplaced_button;
+    use super::{clipboard, unplaced_button};
 
     fn actions(text: &str) -> Vec<String> {
         text.split_whitespace().map(str::to_owned).collect()
@@ -206,5 +223,13 @@ mod tests {
         assert_eq!(unplaced_button(&actions("move 548 196 click 1")), None);
         assert_eq!(unplaced_button(&actions("key enter")), None);
         assert_eq!(unplaced_button(&actions("type click key move")), None);
+    }
+
+    #[test]
+    fn clipboard_reaches_only_an_active_private_run() {
+        let outside = tempfile::tempdir().unwrap();
+        let path = outside.path().to_string_lossy().into_owned();
+        assert!(clipboard(std::slice::from_ref(&path)).is_err());
+        assert!(clipboard(&[path, "image/png".into()]).unwrap_err().to_string().contains("not active"));
     }
 }

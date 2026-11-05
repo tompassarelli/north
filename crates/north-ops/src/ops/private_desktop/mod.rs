@@ -13,7 +13,7 @@ use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str = "Usage:\n  private-desktop.sh start [--port PORT] [--resolution WIDTHxHEIGHT] [--render-node PATH] [--seconds SECONDS] [-- COMMAND ARG...]\n  private-desktop.sh control RUN_DIRECTORY VNC_ACTION...\n  private-desktop.sh type RUN_DIRECTORY < TEXT\n  private-desktop.sh capture RUN_DIRECTORY ABSOLUTE_PNG_PATH\n  private-desktop.sh reap [--dry-run]\n";
+const USAGE: &str = "Usage:\n  private-desktop.sh start [--port PORT] [--resolution WIDTHxHEIGHT] [--render-node PATH] [--seconds SECONDS] [-- COMMAND ARG...]\n  private-desktop.sh control RUN_DIRECTORY VNC_ACTION...\n  private-desktop.sh type RUN_DIRECTORY < TEXT\n  private-desktop.sh capture RUN_DIRECTORY ABSOLUTE_PNG_PATH\n  private-desktop.sh clipboard RUN_DIRECTORY MIME_TYPE < DATA\n  private-desktop.sh reap [--dry-run]\n";
 
 struct StartOptions {
     port: u16,
@@ -44,6 +44,7 @@ fn dispatch(arguments: &[String]) -> io::Result<u8> {
         "control" => commands::control(&arguments[1..]),
         "type" => commands::type_text(&arguments[1..]),
         "capture" => commands::capture(&arguments[1..]),
+        "clipboard" => commands::clipboard(&arguments[1..]),
         "reap" => reap::run(&arguments[1..]),
         "record-display" => record_display(),
         action => Err(io::Error::new(
