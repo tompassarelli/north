@@ -191,3 +191,72 @@ fn a_job_whose_base_is_its_head_bundles_the_head_over_its_parent() {
     assert_eq!(String::from_utf8(listed.stdout).unwrap().trim(), format!("{} {reference}", head.as_str()));
 }
 
+
+fn host_with_a_shipped_bundle() -> (tempfile::TempDir, String, std::path::PathBuf) {
+    let home = tempfile::tempdir().unwrap();
+    let repo = home.path().join("code/p/main");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["config", "maintenance.autoDetach", "false"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    git(&repo, &["update-ref", "refs/land-offload/job", &head]);
+    let bundle = home.path().join("job.bundle");
+    git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), "refs/land-offload/job"]);
+    git(&repo, &["update-ref", "-d", "refs/land-offload/job"]);
+    (home, head, bundle)
+}
+
+#[test]
+fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let log = home.path().join("order.log");
+    let script = super::remote_script("0.2");
+    let jobs: Vec<std::process::Child> = ["a", "b", "c", "d"]
+        .iter()
+        .map(|label| {
+            let command = format!("echo start-{label} >>{log}; sleep 0.5; echo end-{label} >>{log}", log = log.display());
+            let child = Command::new("setsid")
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0"])
+                .env("HOME", home.path())
+                .env("PATH", &path)
+                .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+                .env_remove("NORTH_OFFLOAD_ROOT")
+                .stdin(fs::File::open(&bundle).unwrap())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(900));
+            child
+        })
+        .collect();
+    for mut job in jobs {
+        assert!(job.wait().unwrap().success());
+    }
+    let order: Vec<String> = fs::read_to_string(&log).unwrap().lines().map(str::to_owned).collect();
+    assert_eq!(order, ["start-a", "end-a", "start-b", "end-b", "start-c", "end-c", "start-d", "end-d"]);
+    assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "every job left the queue");
+}
+
+#[test]
+fn a_dead_job_leaves_no_ticket_that_blocks_the_queue() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let queue = home.path().join(".cache/land-offload/queue");
+    fs::create_dir_all(&queue).unwrap();
+    fs::write(queue.join("1000000000000000000-1"), "").unwrap();
+    let script = super::remote_script("0.2");
+    let output = Command::new("sh")
+        .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", "", "0"])
+        .env("HOME", home.path())
+        .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .stdin(fs::File::open(&bundle).unwrap())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read_dir(&queue).unwrap().count(), 0);
+}

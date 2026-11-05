@@ -11,6 +11,7 @@ const SLOTS_BUSY: u8 = 96;
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 const LOCK_WAIT_SECONDS: u32 = 600;
 const SLOTS: u32 = 6;
+const POLL_SECONDS: &str = "2";
 const TARGET_CAP_MIB: u32 = 24 * 1024;
 const TARGET_FLOOR_MIB: u32 = 100 * 1024;
 pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
@@ -29,7 +30,7 @@ echo "$free"
 "#;
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0}
 root=@ROOT@
 mkdir -p "$root"
 bundle=$(mktemp "$root/$name.bundle.XXXXXX")
@@ -54,18 +55,52 @@ nearest=$(
     i=$((i + 1))
   done | sort -n -s -k1,1 | cut -d ' ' -f2
 )
-waited=0
-while :; do
-  for s in $nearest; do
-    exec 9>"$root/$s.lock"
-    if flock -n 9; then break 2; fi
-    exec 9>&-
+queue=$root/queue
+mkdir -p "$queue"
+ticket=$queue/$(date +%s%N)-$$
+exec 8>"$ticket"
+flock -n 8
+trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
+cores=$(nproc 2>/dev/null || echo 1)
+cap=${NORTH_OFFLOAD_MAX_JOBS:-}
+if [ -z "$cap" ]; then
+  cap=@SLOTS@
+  [ "$per" -le 1 ] || { cap=$((cores / per)); [ "$cap" -ge 1 ] || cap=1; [ "$cap" -le @SLOTS@ ] || cap=@SLOTS@; }
+fi
+first_in_line() {
+  now=$(date +%s%N)
+  for t in $(ls "$queue" | sort); do
+    f=$queue/$t
+    [ "$f" != "$ticket" ] || return 0
+    if [ $((now - ${t%%-*})) -gt 5000000000 ] && (exec 7>>"$f"; flock -n 7) 2>/dev/null; then rm -f "$f"; else return 1; fi
   done
-  [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: all @SLOTS@ $name slots stayed busy for @LOCK_WAIT@ s" >&2; exit @SLOTS_BUSY@; }
-  [ $((waited % 60)) -ne 0 ] || echo "offload: all @SLOTS@ $name slots busy for ${waited}s, waiting up to @LOCK_WAIT@ s; held by: $(cat "$root/$name".holder "$root/$name"-*.holder 2>/dev/null | tr '\n' ';')" >&2
-  sleep 2
-  waited=$((waited + 2))
+  return 1
+}
+running_jobs() {
+  n=0
+  for l in "$root"/*.lock; do
+    [ -e "$l" ] || continue
+    (exec 7>>"$l"; flock -n 7) 2>/dev/null || n=$((n + 1))
+  done
+  echo "$n"
+}
+started=$(date +%s)
+noted=0
+while :; do
+  if first_in_line && [ "$(running_jobs)" -lt "$cap" ]; then
+    for s in $nearest; do
+      exec 9>"$root/$s.lock"
+      if flock -n 9; then break 2; fi
+      exec 9>&-
+    done
+  fi
+  waited=$(( $(date +%s) - started ))
+  [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: queued behind other $name jobs for @LOCK_WAIT@ s ($cap jobs run at once, @SLOTS@ slots)" >&2; exit @SLOTS_BUSY@; }
+  [ "$waited" -lt "$noted" ] || { noted=$((waited + 60)); echo "offload: waiting for a slot for ${waited}s, in order, $cap jobs run at once; $(ls "$queue" | grep -c .) queued; held by: $(cat "$root/$name".holder "$root/$name"-*.holder 2>/dev/null | tr '\n' ';')" >&2; }
+  sleep @POLL@
 done
+rm -f "$ticket"
+exec 8>&-
 slot=$root/$s
 printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
 printf '%s\n' "$owner" >"$root/$s.owner"
@@ -251,6 +286,19 @@ fn carried(land: &Land, value: impl Fn(&str) -> Option<String>) -> String {
     words.collect::<Vec<_>>().join(" ")
 }
 
+fn remote_script(poll: &str) -> String {
+    format!("{REMOTE}{VERIFY}{RUN}")
+        .replace("@ROOT@", OFFLOAD_ROOT)
+        .replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string())
+        .replace("@POLL@", poll)
+        .replace("@SLOTS@", &SLOTS.to_string())
+        .replace("@TARGET_CAP@", &TARGET_CAP_MIB.to_string())
+        .replace("@TARGET_FLOOR@", &TARGET_FLOOR_MIB.to_string())
+        .replace("@SLOTS_BUSY@", &SLOTS_BUSY.to_string())
+        .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
+        .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
+}
+
 pub(super) fn run(land: &Land) -> u8 {
     let (relative, name) = match checkout(land.checkout) {
         Ok(found) => found,
@@ -261,15 +309,7 @@ pub(super) fn run(land: &Land) -> u8 {
         Ok(file) => file,
         Err(why) => return fail(&why),
     };
-    let script = format!("{REMOTE}{VERIFY}{RUN}")
-        .replace("@ROOT@", OFFLOAD_ROOT)
-        .replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string())
-        .replace("@SLOTS@", &SLOTS.to_string())
-        .replace("@TARGET_CAP@", &TARGET_CAP_MIB.to_string())
-        .replace("@TARGET_FLOOR@", &TARGET_FLOOR_MIB.to_string())
-        .replace("@SLOTS_BUSY@", &SLOTS_BUSY.to_string())
-        .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
-        .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string());
+    let script = remote_script(POLL_SECONDS);
     let own = crate::runtime::own_runtime();
     if let Some((sha, directory)) = &own
         && let Err(why) = ensure_shipped(land.ssh, sha, || crate::runtime::staged_on(land.ssh, sha), || crate::runtime::stage_on(land.ssh, sha, directory))
@@ -279,7 +319,8 @@ pub(super) fn run(land: &Land) -> u8 {
     let runtime = own.map_or_else(String::new, |(sha, _)| sha);
     let base = land.base.as_ref().map_or("", CommitId::as_str);
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime].map(quote);
+    let cpus = (crate::capacity::host::land_check_cpus().ceil() as u32).to_string();
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus].map(quote);
     let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
     let sent = Command::new("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])
