@@ -53,17 +53,24 @@ impl MainIndex {
         Self { shas, subjects }
     }
 
-    /// The commit a push put on main when no lander logged one: the pushed tip itself, else the first commit
-    /// with its subject committed on main at or after the push, as a rebasing lander leaves it.
-    pub fn reached(&self, oid: &str, subject: Option<&str>, pushed_ms: u64) -> Option<String> {
+    /// The commit a push put on main: the pushed tip itself, else a commit with the tip's subject. A lander that
+    /// logged its trunk commit cherry-picked the lane before checking and pushing, so the lane's own commit is the
+    /// latest with that subject at or before that trunk commit; without one (Autoland, another host's lander) it is
+    /// the first committed at or after the push.
+    pub fn reached(&self, oid: &str, subject: Option<&str>, pushed_ms: u64, trunk: &str) -> Option<String> {
         if oid.len() >= 7 && let Some((sha, ..)) = self.shas.iter().find(|(sha, ..)| sha.starts_with(oid)) {
             return Some(sha.clone());
         }
-        let pushed = Timestamp::from_unix_millis(pushed_ms as i64).iso();
         let landings = self.subjects.get(subject?.trim())?;
-        let mut after: Vec<(String, &String)> = landings.iter().filter_map(|(sha, date)| utc(Some(date)).filter(|date| *date >= pushed).map(|date| (date, sha))).collect();
-        after.sort();
-        after.into_iter().next().map(|(_, sha)| sha.clone())
+        let dated = landings.iter().filter_map(|(sha, date)| utc(Some(date)).map(|date| (date, sha)));
+        let trunk_date = (trunk.len() >= 7).then(|| self.shas.iter().find(|(sha, ..)| sha.starts_with(trunk))).flatten().and_then(|(_, date, _)| utc(Some(date)));
+        match trunk_date {
+            Some(trunk) => dated.filter(|(date, _)| *date <= trunk).max().map(|(_, sha)| sha.clone()),
+            None => {
+                let pushed = Timestamp::from_unix_millis(pushed_ms as i64).iso();
+                dated.filter(|(date, _)| *date >= pushed).min().map(|(_, sha)| sha.clone())
+            }
+        }
     }
 }
 
@@ -76,8 +83,8 @@ pub fn settle(pushes: Vec<Push>, main: &MainIndex, subject: impl Fn(&Push) -> Op
         .into_iter()
         .map(|mut push| {
             if !push.oid.is_empty() {
-                let rebased = || indexed(&push).then(|| main.reached("", subject(&push).as_deref(), push.at_ms)).flatten();
-                if let Some(own) = main.reached(&push.oid, None, push.at_ms).or_else(rebased) {
+                let rebased = || indexed(&push).then(|| main.reached("", subject(&push).as_deref(), push.at_ms, &push.landed)).flatten();
+                if let Some(own) = main.reached(&push.oid, None, push.at_ms, "").or_else(rebased) {
                     push.landed = own;
                 }
             }

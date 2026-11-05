@@ -89,7 +89,8 @@ fn a_lane_autoland_or_another_hosts_lander_took_to_main_lands_its_run_and_counts
     commit(&north_repo, "2026-10-08T01:50:00Z", "Another lane (north#12)");
     let rebased = commit(&north_repo, "2026-10-08T02:10:00Z", "Share one target dir between flaky tests (north#437)");
     let settled = commit(&north_repo, "2026-10-08T02:20:00Z", "Settle the transient bound, box 2 (north#308)");
-    let batched = commit(&north_repo, "2026-10-08T02:25:00Z", "Pin the offload runtime (north#482)");
+    let batched = commit(&north_repo, "2026-10-08T02:00:00Z", "Pin the offload runtime (north#482)");
+    let batch_tip = commit(&north_repo, "2026-10-08T02:01:00Z", "Watch the runtime canary (north#482)");
     let queued = commit(&north_repo, "2026-10-08T02:30:00Z", "Queue the change (north#600)");
     git(&north_repo, "2026-10-08T02:30:00Z", &["update-ref", "refs/remotes/origin/main", "HEAD"]);
 
@@ -105,7 +106,7 @@ fn a_lane_autoland_or_another_hosts_lander_took_to_main_lands_its_run_and_counts
         format!("{PUSHED}\tnorth\tflaky-shared-target\t{lane_tip}\t\tflaky-shared-target"),
         format!("{PUSHED}\tnorth\tsettle-transient-bound\t{settled}\t{settled}\tsettle-transient-bound"),
         format!("{PUSHED}\tnorth\tqueued-600\t{queued}\t{queued}\tqueued-600"),
-        format!("{PUSHED}\tnorth\toffload-runtime-pin\t{batched_tip}\t{queued}\toffload-runtime-pin"),
+        format!("{PUSHED}\tnorth\toffload-runtime-pin\t{batched_tip}\t{batch_tip}\toffload-runtime-pin"),
         format!("{PUSHED}\tnorth\tnorth-88-d0020\t{queued}\t{queued}\tnorth-88-d0020"),
         format!("{PUSHED}\tnorth\tb-side\t{queued}\t{queued}\tb-side"),
     ];
@@ -115,7 +116,7 @@ fn a_lane_autoland_or_another_hosts_lander_took_to_main_lands_its_run_and_counts
     assert!(recorded.status.success(), "{}", String::from_utf8_lossy(&recorded.stderr));
     assert_eq!(run_of(root, "sdonly"), format!("makgora#1127|done|1|{fast_forwarded}"), "an Autoland queue push lands with the tip that reached main");
     assert_eq!(run_of(root, "flaky"), format!("north#437|done|1|{rebased}"), "a lane another host's lander rebased lands with the rebased commit");
-    assert_eq!(run_of(root, "offload"), format!("north#482|done|1|{batched}"), "a lane landed in a batch lands with its own commit, not the batch tip safe-push logged");
+    assert_eq!(run_of(root, "offload"), format!("north#482|done|1|{batched}"), "a lane the lander cherry-picked before its checks lands with its own commit, dated before the logged push, not the batch tip");
 
     let measured = north(root, &["worker-ledger", "--landed-issues", "d", "--day", "2026-10-08"]);
     assert!(measured.status.success(), "{}", String::from_utf8_lossy(&measured.stderr));

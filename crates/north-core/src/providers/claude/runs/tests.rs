@@ -266,3 +266,19 @@ fn a_lane_landed_in_a_batch_takes_its_own_commit_not_the_batch_tip_safe_push_log
 
     assert_eq!(landed, [own, other, batch.clone(), batch]);
 }
+
+#[test]
+fn a_lane_the_lander_cherry_picked_before_its_checks_lands_with_that_commit_though_it_predates_the_logged_push() {
+    let (earlier, own, batch, later) = ("4".repeat(40), "5".repeat(40), "6".repeat(40), "7".repeat(40));
+    let main = MainIndex::parse(&format!(
+        "{earlier} 2026-11-05T07:00:00Z Pin the offload runtime (north#482)\n{own} 2026-11-05T08:40:00Z Pin the offload runtime (north#482)\n{batch} 2026-11-05T08:41:00Z Add north digest (north#522)\n{later} 2026-11-05T12:00:00Z Pin the offload runtime (north#482)\n"
+    ));
+    let at = |at: &str| crate::foundation::clock::Timestamp::parse(at).unwrap().unix_millis() as u64;
+    let batched = Push { at_ms: at("2026-11-05T09:01:00Z"), repository: "north".into(), branch: "offload-runtime-pin".into(), oid: "a".repeat(40), landed: batch, session: "s".into() };
+    let elsewhere = Push { landed: String::new(), at_ms: at("2026-11-05T11:00:00Z"), ..batched.clone() };
+    let subject = |_: &Push| Some("Pin the offload runtime (north#482)".to_owned());
+
+    let landed: Vec<String> = settle(vec![batched, elsewhere], &main, subject).into_iter().map(|push| push.landed).collect();
+
+    assert_eq!(landed, [own, later], "a logged trunk commit bounds the lane's own commit from above; without one the first after the push is the lane's");
+}

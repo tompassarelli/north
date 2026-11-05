@@ -8,10 +8,10 @@ use crate::foundation::clock::Timestamp;
 use crate::providers::claude::runs::landing::{self, MainIndex};
 use crate::providers::claude::runs::north_program;
 use crate::threads::catalog::CATALOG;
-use crate::threads::runs::landed_issues::Landing;
+use crate::threads::runs::landed_issues::{self, Landing, Run};
 
 /// `--landed-issues ACCOUNT --day DATE`: the issues this host's fleet sessions on ACCOUNT landed that day and how
-/// many have a done-and-landed run, counted by `north threads landed-issues` on the ledger.
+/// many have a done-and-landed run, judged here from the runs `north threads landed-runs` reads on the ledger.
 pub(super) fn run(account: &str, day: &str) -> u8 {
     let dated = day.len() == 10 && day.bytes().enumerate().all(|(at, byte)| if matches!(at, 4 | 7) { byte == b'-' } else { byte.is_ascii_digit() });
     if account.is_empty() || !dated {
@@ -26,19 +26,30 @@ pub(super) fn run(account: &str, day: &str) -> u8 {
     let repositories = landing::repositories();
     let pushes = landing::settle(landings::pushes(&landings::push_log()), &main, |push| landing::subject_in(&repositories, push));
     let found = landings(&nodes, &pushes, account, day);
-    let spawned = super::threads(&["landed-issues"]).and_then(|mut command| command.stdin(Stdio::piped()).spawn());
-    let mut child = match spawned {
-        Ok(child) => child,
-        Err(error) => {
-            eprintln!("north worker-ledger: cannot run north threads landed-issues: {error}");
-            return 1;
-        }
-    };
-    println!("account {account} on {day}:");
+    let mut agents: Vec<&str> = found.iter().flat_map(|landing| landing.conversations.iter().map(String::as_str)).collect();
+    agents.sort_unstable();
+    agents.dedup();
+    let Some(runs) = recorded_runs(&agents) else { return 1 };
+    print!("account {account} on {day}:\n{}", landed_issues::report(&found, &runs));
+    0
+}
+
+/// The ledger's runs of these conversations, read through `north threads landed-runs`.
+fn recorded_runs(agents: &[&str]) -> Option<Vec<Run>> {
+    let spawned = super::threads(&["landed-runs"]).and_then(|mut command| command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn());
+    let mut child = spawned.map_err(|error| eprintln!("north worker-ledger: cannot run north threads landed-runs: {error}")).ok()?;
     if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(serde_json::to_string(&found).unwrap_or_default().as_bytes());
+        let _ = stdin.write_all(serde_json::to_string(agents).unwrap_or_default().as_bytes());
     }
-    child.wait().ok().and_then(|status| status.code()).map_or(1, |code| u8::try_from(code).unwrap_or(1))
+    let output = child.wait_with_output().map_err(|error| eprintln!("north worker-ledger: north threads landed-runs: {error}")).ok()?;
+    let refusal = String::from_utf8_lossy(&output.stderr);
+    match serde_json::from_slice(&output.stdout).ok().filter(|_| output.status.success()) {
+        Some(runs) => Some(runs),
+        None => {
+            eprintln!("north worker-ledger: the ledger host did not answer north threads landed-runs ({}): {}; if it names an unknown verb, that host's north predates this one, so run north runtime update there", output.status, refusal.trim());
+            None
+        }
+    }
 }
 
 fn fleet_nodes() -> Option<Vec<Value>> {
