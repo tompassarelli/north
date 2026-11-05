@@ -37,7 +37,11 @@ fn shell_start(at: &str, output: &Path) -> String {
 }
 
 fn shell_command(at: &str, output: &Path, command: &str) -> String {
-    let started = json!({"type":"assistant","timestamp":at,"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_sh","name":"Bash","input":{"command":command,"description":"Log watch","run_in_background":true}}]}});
+    shell_task(at, output, command, "Log watch")
+}
+
+fn shell_task(at: &str, output: &Path, command: &str, description: &str) -> String {
+    let started = json!({"type":"assistant","timestamp":at,"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_sh","name":"Bash","input":{"command":command,"description":description,"run_in_background":true}}]}});
     let body = format!(
         "Command running in background with ID: bshell001. Output is being written to: {}. You will be notified when it completes.",
         output.display()
@@ -293,4 +297,43 @@ fn real_started_tasks_still_refuse_when_text_elsewhere_mentions_other_ids() {
     assert!(monitor_live.contains("bmon0001") && !monitor_live.contains("bghost99"), "{monitor_live}");
     let shell_live = lane.stop(&lane.fixture("sh", &format!("{noise}\n{}", shell_command(&now, &lane.output(), "tail -f soak.log")))).unwrap();
     assert!(shell_live.contains("bshell001") && !shell_live.contains("bghost99"), "{shell_live}");
+}
+
+fn said(text: &str) -> String {
+    json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":text}]}}).to_string()
+}
+
+#[test]
+fn a_final_report_refuses_every_running_background_task_and_prose_keeps_bounded_work() {
+    let mut lane = Lane::new();
+    lane.hold_output();
+    let now = stamp(0);
+    let poll = shell_task(&now, &lane.output(), "for i in 1 2 3 4 5; do sleep 60; north lanes check && break; done", "Lane poll");
+    let build = shell_task(&now, &lane.output(), "cargo build --release", "Release build");
+    let refusal = "Your report is final but these background tasks still run: bshell001 (Lane poll). TaskStop each, then end your turn; if you still need one's result, do not report yet.";
+    for opening in ["Done: every lane queued", "Not done: lane 3 conflicts", "Split: two lanes left", "Blocked: `gh` refused", "\n  Done: queued"] {
+        let ended = lane.fixture("report", &format!("{poll}\n{}", said(opening)));
+        assert_eq!(lane.payload_in(&ended, false, false).as_deref(), Some(refusal), "{opening}");
+        let fleet = lane.payload_in(&ended, false, true).unwrap();
+        assert!(fleet.starts_with("Your report is final but these background tasks still run: bshell001 (Lane poll). TaskStop each") && fleet.contains("job-run --notify"), "{fleet}");
+    }
+    let built = lane.fixture("built", &format!("{build}\n{}", said("Done: pushed the branch")));
+    assert!(lane.stop(&built).unwrap().contains("bshell001 (Release build)"));
+    let watched = lane.fixture("watched", &format!("{}\n{}", monitor(&now, json!(600_000)), said("Done: landed")));
+    assert!(lane.stop(&watched).unwrap().starts_with("Your report is final but these background tasks still run: bmon0001 (CI watch)."));
+    for (name, lines) in [
+        ("prose", format!("{build}\n{}", said("Waiting on the release build before I report."))),
+        ("prosepoll", format!("{poll}\n{}", said("The poll resumes me when a lane lands."))),
+        ("silent", build.clone()),
+        ("revised", format!("{build}\n{}\n{}", said("Done: early"), said("Still building; I resume when it finishes."))),
+        ("acted", format!("{}\n{build}", said("Done: early"))),
+        ("inline", format!("{build}\n{}", said("Not quite Done: the build runs."))),
+        ("stopped", format!("{poll}\n{}\n{}", task_stop("task_id"), said("Done: every lane queued"))),
+        ("finished", format!("{poll}\n{}\n{}", completed(), said("Done: every lane queued"))),
+        ("expired", format!("{}\n{}", monitor("2020-01-01T00:00:00.000Z", json!(600_000)), said("Done: landed"))),
+    ] {
+        assert_eq!(lane.stop(&lane.fixture(name, &lines)), None, "{name}");
+    }
+    lane.release_output();
+    assert_eq!(lane.stop(&lane.fixture("exited", &format!("{poll}\n{}", said("Done: every lane queued")))), None);
 }

@@ -61,6 +61,7 @@ pub struct Task {
 pub struct Scan {
     pub tasks: Vec<Task>,
     pub ended: HashSet<String>,
+    pub final_text: Option<String>,
     uses: HashMap<String, Use>,
 }
 
@@ -177,7 +178,9 @@ impl Scan {
                 self.ended.insert(found[1].to_owned());
             }
         }
-        if truncated || (!has(raw, b"\"tool_use") && !has(raw, b"toolUseResult")) {
+        if truncated
+            || (!has(raw, b"\"tool_use") && !has(raw, b"toolUseResult") && !has(raw, b"\"assistant\""))
+        {
             return;
         }
         let Ok(entry) = pyjson::loads(raw) else {
@@ -190,12 +193,35 @@ impl Scan {
         else {
             return;
         };
+        if entry.get("type").and_then(Value::as_str) == Some("assistant") {
+            self.assistant(blocks);
+        }
         for block in blocks {
             match block.get("type").and_then(Value::as_str) {
                 Some("tool_use") => self.tool_use(block, &entry, now),
                 Some("tool_result") => self.tool_result(block, &entry),
                 _ => {}
             }
+        }
+    }
+
+    fn assistant(&mut self, blocks: &[Value]) {
+        let mut said = false;
+        let mut text = String::new();
+        for block in blocks {
+            match block.get("type").and_then(Value::as_str) {
+                Some("text") => {
+                    said = true;
+                    if let Some(part) = block.get("text").and_then(Value::as_string) {
+                        text.push_str(&part.lossy());
+                    }
+                }
+                Some("tool_use") => said = true,
+                _ => {}
+            }
+        }
+        if said {
+            self.final_text = (!text.is_empty()).then_some(text);
         }
     }
 

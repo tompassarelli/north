@@ -113,6 +113,9 @@ through `safe-push`. Codex bindings stay as they are unless the box says otherwi
    without a SubagentStop refusal. Follow-up done 2026-11-05: a background Bash refuses only as an endless watcher
    (`tail -f`, `journalctl -f`, `watch`, `cargo watch`, `inotifywait -m`, `while true` with no break) and Monitors
    keep their expiry rule (`guard::subagent_teardown_tests::builds_tests_and_landings_may_outlive_the_turn_and_only_endless_watchers_refuse`).
+   North#523: once the final assistant message opens `Done:`, `Not done:`, `Split:` or `Blocked:`, every still-running
+   background Bash or unexpired Monitor refuses the stop, bounded or not; a prose ending keeps the narrow rule
+   (`guard::subagent_teardown_tests::a_final_report_refuses_every_running_background_task_and_prose_keeps_bounded_work`).
 9. **Cap prompt grounding (#17).** Done when: the Grounding block is at most 1,500 chars on 20 sampled
    prompts, it no longer repeats the native skill listing, and no `prompt-grounding.sh` `hook_cancelled`
    record appears over a day.

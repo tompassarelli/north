@@ -19,6 +19,7 @@ static EXIT_CONDITION: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 const MONITOR_CEILING_MS: f64 = 3_600_000.0;
+const TERMINAL_REPORTS: [&str; 4] = ["Done:", "Not done:", "Split:", "Blocked:"];
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     if crate::guard::activation::authoring_guards_off("north-hook") {
@@ -53,11 +54,12 @@ pub fn refusal_in(input: &HookInput, fleet: bool) -> Option<String> {
     let path = transcript_path(input)?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs_f64();
     let scan = transcript::scan(path, now)?;
+    let reported = scan.final_text.as_deref().is_some_and(terminal);
     let mut pending: Vec<Task> = scan
         .tasks
         .into_iter()
         .filter(|task| !scan.ended.contains(&task.id))
-        .filter(|task| task.kind == Kind::Monitor || endless(&task.command))
+        .filter(|task| reported || task.kind == Kind::Monitor || endless(&task.command))
         .filter(|task| !(task.kind == Kind::Monitor && expired(task, now)))
         .collect();
     let outputs: HashSet<&str> = pending
@@ -80,12 +82,31 @@ pub fn refusal_in(input: &HookInput, fleet: bool) -> Option<String> {
             format!("{} ({label})", task.id)
         })
         .collect();
+    let names = names.join(", ");
+    Some(if reported { report_refusal(&names, fleet) } else { watcher_refusal(&names, fleet) })
+}
+
+fn terminal(text: &str) -> bool {
+    let text = text.trim_start();
+    TERMINAL_REPORTS.iter().any(|opening| text.starts_with(opening))
+}
+
+fn report_refusal(names: &str, fleet: bool) -> String {
+    let advice = if fleet {
+        "TaskStop each, then end your turn; if you still need one's result, do not report yet, and run work that must outlive you as `job-run --notify`."
+    } else {
+        "TaskStop each, then end your turn; if you still need one's result, do not report yet."
+    };
+    format!("Your report is final but these background tasks still run: {names}. {advice}")
+}
+
+fn watcher_refusal(names: &str, fleet: bool) -> String {
     let advice = if fleet {
         "TaskStop each watcher whose events you no longer need or give it an exit condition, and run work that must outlive you as `job-run --notify`. Builds, tests and landings may keep running: you resume when they complete."
     } else {
         "TaskStop each watcher whose events you no longer need or give it an exit condition. Builds, tests and landings may keep running: you resume when they complete."
     };
-    Some(format!("You still have watchers running with no exit condition: {}. {advice}", names.join(", ")))
+    format!("You still have watchers running with no exit condition: {names}. {advice}")
 }
 
 fn endless(command: &str) -> bool {
