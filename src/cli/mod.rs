@@ -25,6 +25,10 @@ mod tests;
 mod laptop_runner_tests;
 #[cfg(test)]
 mod fleet_peer_row_tests;
+#[cfg(test)]
+mod south_policy_tests;
+#[cfg(test)]
+mod south_test_repo;
 mod tools;
 mod verbs;
 mod worker_ledger;
