@@ -3,6 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{PoisonError, RwLock};
+use std::time::Duration;
+
+use north_base::platform::process;
 
 use super::queue::{self, Ticket};
 use super::lane_gates::{self, Lane};
@@ -13,9 +16,16 @@ use north_strategy_types::Kind;
 use north_strategy_types::land::{self, PickCase};
 
 static WORKTREES: RwLock<()> = RwLock::new(());
+pub const DEADLINE: Duration = Duration::from_secs(120);
 
 fn run(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
-    Command::new("git").arg("-C").arg(directory).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
+    let mut command = Command::new("git");
+    command.arg("-C").arg(directory).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true");
+    match process::try_run_group_traced_within(command, DEADLINE) {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(stalled)) => Err(format!("git {} gave no answer within {} s and was killed: {stalled}", arguments.join(" "), DEADLINE.as_secs())),
+        Err(error) => Err(format!("git {}: {error}", arguments.join(" "))),
+    }
 }
 
 fn stdout(arguments: &[&str], output: Output) -> Result<String, String> {
@@ -53,6 +63,9 @@ pub fn ensure(repo: &Path, worktree: &Path) -> Result<(), String> {
     if !worktree.join(".git").exists() {
         let path = worktree.to_str().ok_or_else(|| format!("{} is not UTF-8", worktree.display()))?;
         git(repo, &["worktree", "add", "-q", "-f", "--detach", path, "HEAD"])?;
+    }
+    if let Ok(lock) = git(worktree, &["rev-parse", "--path-format=absolute", "--git-path", "index.lock"]) {
+        let _ = fs::remove_file(lock);
     }
     if worktree.join(".git").is_file() && succeeds(worktree, &["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]) {
         git(worktree, &["cherry-pick", "--abort"])?;

@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::candidate::{self, git};
+use super::heartbeat::Heartbeat;
+use super::jobs::Chores;
 use super::queue::{self, Ticket};
 use super::setting;
 
@@ -18,6 +20,8 @@ pub struct Lander {
     pub app_token: Vec<String>,
     pub offload_owner: String,
     pub round: std::sync::atomic::AtomicU64,
+    pub chores: Chores,
+    pub heartbeat: Heartbeat,
 }
 
 pub(crate) fn state_home() -> PathBuf {
@@ -53,7 +57,24 @@ impl Lander {
             checker,
             app_token: super::credential::mint_program(),
             round: std::sync::atomic::AtomicU64::new(0),
+            chores: Chores::default(),
+            heartbeat: Heartbeat::default(),
         })
+    }
+
+    pub fn detached(&self) -> Self {
+        Self {
+            repo: self.repo.clone(),
+            worktree: self.worktree.clone(),
+            spares: self.spares.clone(),
+            queue: self.queue.clone(),
+            checker: self.checker.clone(),
+            app_token: self.app_token.clone(),
+            offload_owner: self.offload_owner.clone(),
+            round: std::sync::atomic::AtomicU64::new(self.round.load(std::sync::atomic::Ordering::Relaxed)),
+            chores: self.chores,
+            heartbeat: Heartbeat::default(),
+        }
     }
 
     fn remote_hosts(&self) -> Vec<String> {

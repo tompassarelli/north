@@ -43,7 +43,13 @@ pub fn mint_program() -> Vec<String> {
 
 pub fn mint(program: &[String], app: &str) -> Result<String, String> {
     let (command, leading) = program.split_first().ok_or("no token program is configured")?;
-    let output = Command::new(command).args(leading).args(["--app", app]).output().map_err(|error| format!("{command}: {error}"))?;
+    let mut mint = Command::new(command);
+    mint.args(leading).args(["--app", app]);
+    let output = match north_base::platform::process::try_run_group_traced_within(mint, candidate::DEADLINE) {
+        Ok(Ok(output)) => output,
+        Ok(Err(stalled)) => return Err(format!("{command} --app {app} gave no answer within {} s and was killed: {stalled}", candidate::DEADLINE.as_secs())),
+        Err(error) => return Err(format!("{command}: {error}")),
+    };
     if !output.status.success() {
         return Err(format!("{command} --app {app} failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }

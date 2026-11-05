@@ -74,6 +74,12 @@ pub fn run_group_within(mut command: Command, limit: Duration) -> Option<Output>
     run_prepared(command, None, limit, true, false).ok().and_then(Result::ok)
 }
 
+pub fn try_run_group_traced_within(mut command: Command, limit: Duration) -> std::io::Result<Result<Output, String>> {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+    run_prepared(command, None, limit, true, true)
+}
+
 fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool, traced: bool) -> std::io::Result<Result<Output, String>> {
     let stdin = match input {
         Some(input) => {

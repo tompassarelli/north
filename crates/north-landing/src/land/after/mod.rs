@@ -21,6 +21,13 @@ use super::watch::LandedLane;
 use super::trace;
 
 const SEND_WAIT: Duration = Duration::from_secs(60);
+const INTENT: &str = "intent.json";
+const RECOVERING: &str = "recovering.json";
+const LANDED_MAIN: &str = "refs/lander/landed-main";
+
+fn fetch_main(lander: &Lander) -> Result<String, String> {
+    git(&lander.worktree, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", &format!("+refs/heads/main:{LANDED_MAIN}")])
+}
 
 #[derive(Serialize, Deserialize)]
 struct Intent {
@@ -41,15 +48,28 @@ fn name_of(path: &Path) -> String {
 
 pub fn begin(lander: &Lander, head: &str, base: &str, tickets: &[(&PathBuf, &Ticket)], tips: &[String]) -> Result<(), String> {
     let intent = Intent { head: head.to_owned(), base: base.to_owned(), tickets: tickets.iter().map(|(path, _)| name_of(path)).collect(), tips: tips.to_vec() };
-    let path = area(lander).join("intent.json");
+    let path = intent_path(lander);
     fs::create_dir_all(area(lander)).map_err(|error| error.to_string())?;
     let temporary = path.with_extension("tmp");
     fs::write(&temporary, serde_json::to_string(&intent).map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
     fs::rename(&temporary, &path).map_err(|error| error.to_string())
 }
 
+pub fn intent_path(lander: &Lander) -> PathBuf {
+    area(lander).join(INTENT)
+}
+
 pub fn abandon(lander: &Lander) {
-    let _ = fs::remove_file(area(lander).join("intent.json"));
+    let _ = fs::remove_file(intent_path(lander));
+}
+
+pub fn claim(lander: &Lander) -> Option<PathBuf> {
+    let claim = area(lander).join(RECOVERING);
+    if claim.exists() || fs::rename(intent_path(lander), &claim).is_ok() { Some(claim) } else { None }
+}
+
+pub fn recovering(lander: &Lander) -> Vec<String> {
+    fs::read_to_string(area(lander).join(RECOVERING)).ok().and_then(|text| serde_json::from_str::<Intent>(&text).ok()).map(|intent| intent.tickets).unwrap_or_default()
 }
 
 pub fn send(session: &str, message: &str) -> bool {
@@ -76,7 +96,7 @@ fn notify(lander: &Lander, name: &str, ticket: &Ticket, head: &str) {
     if marker.exists() {
         return;
     }
-    let on_main = git(&lander.worktree, &["cherry", "FETCH_HEAD", &ticket.head]).is_ok_and(|cherry| !cherry.lines().any(|line| line.starts_with('+')));
+    let on_main = git(&lander.worktree, &["cherry", LANDED_MAIN, &ticket.head]).is_ok_and(|cherry| !cherry.lines().any(|line| line.starts_with('+')));
     if !on_main {
         println!("north land: {} ({}) is not on main yet; no landed message sent", ticket.branch, ticket.head);
         return;
@@ -109,8 +129,8 @@ fn follow_once(lander: &Lander, base: &str, head: &str) {
     }
 }
 
-pub fn finish(lander: &Lander, head: &str, base: &str, stages: &Stages, tickets: Vec<(PathBuf, Ticket)>) -> Result<(), String> {
-    let _ = git(&lander.worktree, &["fetch", "-q", "--no-tags", "origin", "refs/heads/main"]);
+pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &Stages, tickets: Vec<(PathBuf, Ticket)>) -> Result<(), String> {
+    let _ = fetch_main(lander);
     let state = state_home();
     let batch_size = tickets.len();
     let mut spans = trace::landing::shared(stages, head);
@@ -137,7 +157,7 @@ pub fn finish(lander: &Lander, head: &str, base: &str, stages: &Stages, tickets:
         println!("north land: could not record the spans of {head}: {error}");
     }
     follow_once(lander, base, head);
-    abandon(lander);
+    let _ = fs::remove_file(claim);
     Ok(())
 }
 
@@ -147,17 +167,16 @@ pub struct Recovered {
     pub lanes: Vec<LandedLane>,
 }
 
-pub fn recover(lander: &Lander) -> Result<Option<Recovered>, String> {
-    let path = area(lander).join("intent.json");
-    let Ok(text) = fs::read_to_string(&path) else { return Ok(None) };
+pub fn recover(lander: &Lander, claim: &Path) -> Result<Option<Recovered>, String> {
+    let Ok(text) = fs::read_to_string(claim) else { return Ok(None) };
     let Ok(intent) = serde_json::from_str::<Intent>(&text) else {
-        abandon(lander);
+        let _ = fs::remove_file(claim);
         return Ok(None);
     };
-    git(&lander.worktree, &["fetch", "-q", "--no-tags", "origin", "refs/heads/main"])?;
-    let landed = super::candidate::output(&lander.worktree, &["merge-base", "--is-ancestor", &intent.head, "FETCH_HEAD"]).is_ok_and(|output| output.status.success());
+    fetch_main(lander)?;
+    let landed = super::candidate::output(&lander.worktree, &["merge-base", "--is-ancestor", &intent.head, LANDED_MAIN]).is_ok_and(|output| output.status.success());
     if !landed {
-        abandon(lander);
+        let _ = fs::remove_file(claim);
         return Ok(None);
     }
     let read = |name: &String| {
@@ -168,6 +187,6 @@ pub fn recover(lander: &Lander) -> Result<Option<Recovered>, String> {
     let lanes = intent.tickets.iter().zip(&intent.tips).filter_map(|(name, tip)| Some(LandedLane { ticket: ticket_of(name)?, tip: tip.clone() })).collect();
     let tickets = intent.tickets.iter().filter_map(read);
     println!("north land: finishing the interrupted landing of candidate {}", intent.head);
-    finish(lander, &intent.head, &intent.base, &Stages::empty(), tickets.collect())?;
+    finish(lander, claim, &intent.head, &intent.base, &Stages::empty(), tickets.collect())?;
     Ok(Some(Recovered { base: intent.base, head: intent.head, lanes }))
 }

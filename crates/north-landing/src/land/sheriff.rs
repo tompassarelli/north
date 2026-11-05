@@ -238,14 +238,21 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
     }
 }
 
-pub fn patrol(lander: &Lander) -> Result<(), String> {
+pub fn requests(lander: &Lander) -> Result<Vec<(String, String)>, String> {
     let listing = git(&lander.repo, &["ls-remote", "origin", &format!("{REQUESTS}*")])?;
-    for (tip, name) in listing.lines().filter_map(|line| line.split_once('\t')) {
+    Ok(listing
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter(|(_, name)| name.strip_prefix(REQUESTS).is_some_and(|head| !records(lander).join(queue::slug(head)).exists()))
+        .map(|(tip, name)| (tip.to_owned(), name.to_owned()))
+        .collect())
+}
+
+pub fn patrol(lander: &Lander) -> Result<(), String> {
+    for (tip, name) in requests(lander)? {
+        let (tip, name) = (tip.as_str(), name.as_str());
         let Some(head) = name.strip_prefix(REQUESTS) else { continue };
         let record = records(lander).join(queue::slug(head));
-        if record.exists() {
-            continue;
-        }
         let worktree = candidate::lander_worktree(&lander.repo, WORKTREE)?;
         candidate::ensure(&lander.repo, &worktree)?;
         let verdict = answer(lander, &worktree, name, tip)?;

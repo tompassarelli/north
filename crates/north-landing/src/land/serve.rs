@@ -16,7 +16,8 @@ use super::push_refusal::{self, Backoff, Refusal};
 use super::records::{self, Candidate, Decision};
 use super::hold::{self, Hold};
 use super::watch::{LandedLane, Watch};
-use super::{incidents, pause, queue, red, sheriff, speculate, watchdog};
+use super::heartbeat::{self, Step};
+use super::{incidents, jobs, pause, queue, red, speculate, watchdog};
 use super::repositories;
 use super::steps;
 use crate::platform::decision_log;
@@ -110,13 +111,12 @@ impl Lander {
         let mut push = std::process::Command::new("git");
         push.arg("-C").arg(&self.worktree);
         credential::apply(&mut push, token);
-        let pushed = push
-            .args(["push", "-q", "--no-verify", "--no-follow-tags", &format!("--force-with-lease=refs/heads/main:{base}"), "origin", &format!("{candidate}:refs/heads/main")])
-            .env("SAFE_PUSH_ACTIVE", "1")
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .map_err(|error| format!("git push: {error}"))?;
+        push.args(["push", "-q", "--no-verify", "--no-follow-tags", &format!("--force-with-lease=refs/heads/main:{base}"), "origin", &format!("{candidate}:refs/heads/main")]).env("SAFE_PUSH_ACTIVE", "1");
+        let pushed = match north_base::platform::process::try_run_group_traced_within(push, candidate::DEADLINE) {
+            Ok(Ok(pushed)) => pushed,
+            Ok(Err(stalled)) => return Err(format!("git push of {candidate} gave no answer within {} s and was killed: {stalled}", candidate::DEADLINE.as_secs())),
+            Err(error) => return Err(format!("git push: {error}")),
+        };
         let stderr = String::from_utf8_lossy(&pushed.stderr);
         eprint!("{stderr}");
         if pushed.status.success() {
@@ -136,6 +136,7 @@ impl Lander {
     }
 
     pub fn round(&self, watch: &mut Watch) -> Result<Round, String> {
+        self.heartbeat.enter(Step::Settle);
         if watch.settle(self) {
             return Ok(Round::Progress);
         }
@@ -154,27 +155,14 @@ impl Lander {
         let mut searched = None;
         let mut paused: Option<String> = None;
         let mut progressed = false;
-        let mut warned = false;
         self.round.store(u64::try_from(micros()).unwrap_or(u64::MAX), std::sync::atomic::Ordering::Relaxed);
-        if let Some(recovered) = after::recover(self)?
-            && !recovered.lanes.is_empty()
-        {
-            watch.follow(self, &recovered.base, &recovered.head, recovered.lanes);
-        }
-        if let Err(error) = sheriff::patrol(self) {
-            println!("north land: waiting: sheriff: {error}");
-        }
+        self.heartbeat.enter(Step::Jobs);
+        watch.jobs.start(self);
+        let answering = watch.jobs.answering(self);
         loop {
-            if limit == usize::MAX {
-                let reasons = self.pull_remote();
-                if !warned {
-                    for reason in &reasons {
-                        println!("north land: waiting: {reason}");
-                    }
-                    warned = !reasons.is_empty();
-                }
-            }
-            let queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
+            let claimed = jobs::claimed(self);
+            let mut queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
+            queued.retain(|(path, _)| !claimed.contains(path));
             let fixes;
             let tickets = if red_only {
                 fixes = red::fixes(&queued);
@@ -185,6 +173,14 @@ impl Lander {
             if tickets.is_empty() {
                 return Ok(if progressed { Round::Progress } else { Round::Idle });
             }
+            if answering && !red_only {
+                if red::fixes(&queued).is_empty() {
+                    return Ok(if progressed { Round::Progress } else { Round::Checking });
+                }
+                println!("north land: main is red and the sheriff is answering its revert request; checking the queued red fixes alone");
+                red_only = true;
+                continue;
+            }
             if !red_only && let Some(reason) = pause::held(&self.queue) {
                 if red::fixes(&queued).is_empty() {
                     return Ok(Round::Waiting(reason));
@@ -194,10 +190,12 @@ impl Lander {
                 red_only = true;
                 continue;
             }
+            self.heartbeat.enter(Step::Prepare);
             let base = match candidate::prepare(&self.repo, &self.worktree) {
                 Ok(base) => base,
                 Err(error) => return Ok(Round::Waiting(format!("transient: {error}"))),
             };
+            self.heartbeat.enter(Step::Build);
             let built = candidate::build(&self.worktree, &base, tickets, &queued, limit, &logs)?;
             let mut included = Vec::new();
             let mut undecided = None;
@@ -246,6 +244,7 @@ impl Lander {
             let log = logs.join(format!("{}-candidate.log", micros()));
             let mut stages = Stages::start();
             let taken = (limit == usize::MAX && !red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(tickets, &included));
+            self.heartbeat.enter(Step::Check);
             let (verdict, mut stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref(), included.iter().any(|(_, ticket)| ticket.red_fix.is_some()));
             stages.checked(&built.head);
             if matches!(verdict, Verdict::Green | Verdict::Refused(_)) {
@@ -275,6 +274,7 @@ impl Lander {
                     stacked.clear();
                     searched = Some(base.clone());
                     let together = culprit::Checked { verdict: refusal, head: built.head.clone(), log: log.clone() };
+                    self.heartbeat.enter(Step::Culprit);
                     match culprit::search(self, &base, &included, together, &logs, &mut strikes, &stages)? {
                         Found::Decided => {
                             progressed = true;
@@ -296,6 +296,7 @@ impl Lander {
             };
             match judgement {
                 Judgement::Land => {
+                    self.heartbeat.enter(Step::Push);
                     let token = match self.push_token(&base) {
                         Ok(token) => token,
                         Err(error) => return Ok(Round::Waiting(format!("transient: no push credential: {error}"))),
@@ -330,7 +331,9 @@ impl Lander {
                     }
                     stages.mark("push");
                     watch.follow(self, &base, &head, included.iter().zip(&built.tips).map(|((_, ticket), tip)| LandedLane { ticket: (*ticket).clone(), tip: tip.clone() }).collect());
-                    after::finish(self, &head, &base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
+                    self.heartbeat.enter(Step::Finish);
+                    after::finish(self, &after::intent_path(self), &head, &base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
+                    self.heartbeat.enter(Step::Speculate);
                     speculate::land(self, watch, stacked, &head)?;
                     return Ok(Round::Progress);
                 }
@@ -385,18 +388,24 @@ fn back_off(lander: &Lander, backoff: &mut Backoff, reason: &str, retire: &Atomi
 }
 
 fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
+    heartbeat::watched(lander, || serve_loop(lander, once, retire))
+}
+
+fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     let mut backoff = Backoff::default();
     let mut watch = Watch::resume(lander);
     loop {
         if retire.load(Ordering::Relaxed) {
-            if watch.in_flight() > 0 {
-                println!("north land: the live runtime changed; exiting now, and the restarted lander reruns the {} journaled after-landing batch(es) as one run where they follow each other on main", watch.in_flight());
+            if watch.journaled() > 0 {
+                println!("north land: the live runtime changed; exiting now, and the restarted lander reruns the {} journaled after-landing batch(es) as one run where they follow each other on main", watch.journaled());
             }
             return 0;
         }
         let round = lander.round(&mut watch);
+        lander.heartbeat.enter(Step::Watchdog);
         watchdog::after_round(lander, watch.in_flight(), &round);
+        lander.heartbeat.enter(Step::Between);
         if matches!(round, Ok(Round::Progress | Round::Idle | Round::Checking)) {
             backoff.clear();
         }

@@ -5,6 +5,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use north_landing::land::candidate::{self, git};
+use north_landing::land::jobs::Chores;
 use north_landing::land::lander::Lander;
 use north_landing::land::watch::Watch;
 use north_landing::land::queue::{self, Ticket};
@@ -328,7 +329,7 @@ fn stopped_mid_after_run(world: &World) {
     fs::remove_file(world.root.join("stall")).unwrap();
     let restarted = world.lander();
     let mut watch = Watch::resume(&restarted);
-    assert_eq!(watch.in_flight(), 1);
+    assert_eq!(watch.journaled(), 1);
     wait_for("the restarted lander to settle the rerun and land the revert", || {
         let _ = restarted.round(&mut watch);
         watch.in_flight() == 0 && queue::pending(&restarted.queue).unwrap().is_empty() && world.landed_subjects().iter().any(|subject| subject.starts_with("Revert "))
@@ -374,3 +375,42 @@ fn chaos_remote_runner_lost_mid_check_holds_then_lands() {
     isolated("land_chaos::chaos_remote_runner_lost_mid_check_holds_then_lands", remote_runner_lost_mid_check);
 }
 
+
+const STALL: Duration = Duration::from_secs(300);
+
+fn stalled_patrol(_: &Lander) -> Result<(), String> {
+    std::thread::sleep(STALL);
+    Ok(())
+}
+
+fn stalled_recovery(_: &Lander, _: &Path) -> Result<Option<after::Recovered>, String> {
+    std::thread::sleep(STALL);
+    Ok(None)
+}
+
+fn stalled_pull(_: &Lander) -> Vec<String> {
+    std::thread::sleep(STALL);
+    Vec::new()
+}
+
+fn stalled_chores(world: &World) {
+    let lander = Lander { chores: Chores { patrol: stalled_patrol, recover: stalled_recovery, pull: stalled_pull }, ..world.lander() };
+    after::begin(&lander, "interrupted", "base", &[], &[]).unwrap();
+    let a = world.enqueue(&lander, &world.lane("a"));
+    let started = Instant::now();
+    let mut watch = Watch::default();
+    while !queue::pending(&lander.queue).unwrap().is_empty() {
+        assert!(started.elapsed() < Duration::from_secs(30), "the queued lane waited 30 s behind the sheriff, the recovery and the outbox pull");
+        let _ = lander.round(&mut watch);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    landed(&world.settled(&lander, &[&a]));
+    let mut running: Vec<&str> = watch.jobs.running().into_iter().map(|(kind, _)| kind.name()).collect();
+    running.sort_unstable();
+    assert_eq!(running, ["outbox pull", "recovery", "sheriff"], "the lane landed only because a stalled job never started");
+}
+
+#[test]
+fn chaos_a_queued_lane_lands_while_the_sheriff_a_recovery_and_an_outbox_pull_each_stall_five_minutes() {
+    isolated("land_chaos::chaos_a_queued_lane_lands_while_the_sheriff_a_recovery_and_an_outbox_pull_each_stall_five_minutes", stalled_chores);
+}

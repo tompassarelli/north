@@ -11,6 +11,7 @@ use super::checks::Verdict;
 use super::lander::Lander;
 use super::post_land::{self, Outcome};
 use super::queue::{self, Ticket};
+use super::jobs::Jobs;
 use super::sheriff;
 use super::telemetry::epoch;
 use super::trace::{self, AFTER, COVERED_BY, Category, PHASE, Span};
@@ -100,6 +101,7 @@ impl Pending {
 pub struct Watch {
     running: Option<Running>,
     pending: Pending,
+    pub jobs: Jobs,
 }
 
 fn journal(lander: &Lander) -> PathBuf {
@@ -142,8 +144,12 @@ impl Watch {
         watch
     }
 
-    pub fn in_flight(&self) -> usize {
+    pub fn journaled(&self) -> usize {
         usize::from(self.running.is_some()) + self.pending.batches.len()
+    }
+
+    pub fn in_flight(&self) -> usize {
+        self.journaled() + self.jobs.running().len()
     }
 
     pub fn follow(&mut self, lander: &Lander, base: &str, head: &str, lanes: Vec<LandedLane>) {
@@ -179,9 +185,14 @@ impl Watch {
     }
 
     pub fn settle(&mut self, lander: &Lander) -> bool {
+        let mut recovered = false;
+        for landing in self.jobs.settle() {
+            self.follow(lander, &landing.base, &landing.head, landing.lanes);
+            recovered = true;
+        }
         if !self.running.as_ref().is_some_and(|running| running.run.is_finished()) {
             self.start_next(lander);
-            return false;
+            return recovered;
         }
         let Some(Running { mut batch, run }) = self.running.take() else { return false };
         let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None });

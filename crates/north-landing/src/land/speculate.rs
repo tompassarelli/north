@@ -205,6 +205,6 @@ fn push(lander: &Lander, watch: &mut Watch, mut next: Next, landed: &str) -> Res
     next.stages.mark("push");
     let lanes = next.tickets.iter().zip(&next.tips).map(|((_, ticket), tip)| LandedLane { ticket: ticket.clone(), tip: tip.clone() }).collect();
     watch.follow(lander, &next.base, &next.head, lanes);
-    after::finish(lander, &next.head, &next.base, &next.stages, std::mem::take(&mut next.tickets))?;
+    after::finish(lander, &after::intent_path(lander), &next.head, &next.base, &next.stages, std::mem::take(&mut next.tickets))?;
     Ok(Some(next.head.clone()))
 }

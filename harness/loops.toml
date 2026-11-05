@@ -190,6 +190,10 @@ owner = "north#360"
 constants = [
   "crates/north-landing/src/land/bisect.rs::PERSISTENT_AFTER",
   "crates/north-landing/src/land/culprit.rs::MOST_AT_ONCE",
+  "crates/north-landing/src/land/heartbeat.rs::LOOK",
+  "crates/north-landing/src/land/heartbeat.rs::REPEAT",
+  "crates/north-landing/src/land/heartbeat.rs::STUCK",
+  "crates/north-landing/src/land/jobs.rs::REST",
   "crates/north-landing/src/land/lander.rs::DEPTH",
   "crates/north-landing/src/land/pause.rs::RETRY_SECONDS",
   "crates/north-landing/src/land/serve.rs::ATTEMPTS",
@@ -338,6 +342,7 @@ constants = [
   "crates/north-landing/src/land/after/ci_budget.rs::RUNS_MEASURED",
   "crates/north-landing/src/land/after/mod.rs::SEND_WAIT",
   "crates/north-landing/src/land/after/tick.rs::SHORT_SHA",
+  "crates/north-landing/src/land/candidate.rs::DEADLINE",
   "crates/north-landing/src/land/check_coverage.rs::SHOWN",
   "crates/north-landing/src/land/culprit.rs::POLL",
   "crates/north-landing/src/land/route.rs::PER_LANE",
