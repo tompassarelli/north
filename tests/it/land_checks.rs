@@ -956,7 +956,7 @@ fn scope_of(changed: &[&str]) -> String {
 fn affected_crates_only() {
     assert_eq!(scope_of(&["crates/north-landing/src/lib.rs"]), "4|-p north -p north-landing\n", "a north-landing lane checks north-landing and the north binary crate, not north-core");
     assert_eq!(scope_of(&["crates/north-core/src/lib.rs"]), "4|-p north -p north-core\n");
-    assert_eq!(scope_of(&["src/main.rs"]), "4|-p north\n");
+    assert_eq!(scope_of(&["src/main.rs"]), "|--workspace\n", "the north binary crate has no library, so cargo test --lib needs a scope that holds one");
     assert_eq!(scope_of(&["crates/north-base/src/lib.rs"]), "|--workspace\n", "every crate depends on north-base");
     assert_eq!(scope_of(&["crates/north-landing/src/lib.rs", "Cargo.toml"]), "|--workspace\n");
     assert_eq!(scope_of(&["crates/north-landing/src/lib.rs", "Cargo.lock"]), "|--workspace\n");

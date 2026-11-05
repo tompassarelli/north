@@ -38,6 +38,8 @@ struct Package {
 #[derive(Deserialize)]
 struct Target {
     name: String,
+    #[serde(default)]
+    kind: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -110,10 +112,14 @@ pub fn select(metadata: &str, files: &[String], dep_info: &[DepInfo]) -> Result<
         }
     }
     let affected = dependents(&members, changed);
-    if affected.is_empty() || affected.len() == members.len() {
+    if affected.is_empty() || affected.len() == members.len() || !library(&members, &affected) {
         return Ok(Scope::Workspace);
     }
     Ok(Scope::Packages(affected.into_iter().map(str::to_owned).collect()))
+}
+
+fn library(members: &[Member], affected: &BTreeSet<&str>) -> bool {
+    members.iter().filter(|member| affected.contains(member.package.name.as_str())).any(|member| member.package.targets.iter().any(|target| target.kind.iter().any(|kind| kind == "lib")))
 }
 
 fn owner<'a>(members: &[Member<'a>], embedders: &Embedders<'a>, file: &str) -> Owner<'a> {

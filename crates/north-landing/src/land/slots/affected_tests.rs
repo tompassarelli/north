@@ -4,7 +4,8 @@ fn metadata() -> String {
     let package = |name: &str, directory: &str, dependencies: &[&str]| {
         let manifest = if directory.is_empty() { "/w/Cargo.toml".to_owned() } else { format!("/w/{directory}/Cargo.toml") };
         let dependencies: Vec<_> = dependencies.iter().map(|dependency| serde_json::json!({ "name": dependency, "path": format!("/w/crates/{dependency}") })).chain([serde_json::json!({ "name": "serde", "path": null })]).collect();
-        serde_json::json!({ "name": name, "id": format!("{name}-id"), "manifest_path": manifest, "dependencies": dependencies, "targets": [{ "name": name }, { "name": format!("{name}-cli") }] })
+        let targets = if directory.is_empty() { serde_json::json!([{ "name": name, "kind": ["bin"] }]) } else { serde_json::json!([{ "name": name, "kind": ["lib"] }, { "name": format!("{name}-cli"), "kind": ["bin"] }]) };
+        serde_json::json!({ "name": name, "id": format!("{name}-id"), "manifest_path": manifest, "dependencies": dependencies, "targets": targets })
     };
     serde_json::json!({
         "packages": [package("base", "crates/base", &[]), package("core", "crates/core", &["base"]), package("landing", "crates/landing", &["base"]), package("app", "", &["core", "landing"])],
@@ -31,7 +32,11 @@ fn packages(names: &[&str]) -> Scope {
 fn a_leaf_crate_selects_itself_and_its_dependents_only() {
     assert_eq!(scope(&["crates/landing/src/lib.rs"]), packages(&["app", "landing"]));
     assert_eq!(scope(&["crates/core/Cargo.toml", "docs/x.md"]), packages(&["app", "core"]));
-    assert_eq!(scope(&["src/main.rs", "tests/it/x.rs"]), packages(&["app"]));
+}
+
+#[test]
+fn a_root_only_change_with_no_library_target_selects_the_workspace() {
+    assert_eq!(scope(&["src/main.rs", "tests/it/x.rs"]), Scope::Workspace);
 }
 
 #[test]
