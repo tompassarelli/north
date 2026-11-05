@@ -31,3 +31,7 @@ pub mod tune;
 pub mod tempo;
 pub mod watch;
 pub mod command;
+pub mod agent_capture;
+pub mod vendor_runtime;
+pub mod warcraft_close;
+pub mod wc3_login_field;

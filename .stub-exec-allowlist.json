@@ -8,6 +8,7 @@
   "tests/it/lane_gc_journeys.rs": "a one-line wrapper over the shim that lanes in flight still call",
   "tests/it/land_actions.rs": "a one-line wrapper over the shim that lanes in flight still call",
   "crates/north-core/src/fleet/install.rs": "production: installs a real runtime",
+  "crates/north-ops/src/ops/vendor_runtime/mod.rs": "production: installs a real vendor runtime",
   "crates/north-core/src/catalog/retired_hooks.rs": "production: writes real retired-hook stubs",
   "crates/north-core/src/threads/client.rs": "production: spool directory mode",
   "crates/north-ops/src/ops/private_desktop/start.rs": "production: private desktop startup script",

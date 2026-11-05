@@ -53,6 +53,10 @@ fn dispatch(arguments: &[String]) -> io::Result<u8> {
     }
 }
 
+pub fn type_into(run_directory: &str, text: &str) -> io::Result<u8> {
+    commands::type_into(run_directory, text)
+}
+
 fn record_display() -> io::Result<u8> {
     let run = env::var_os("PRIVATE_DESKTOP_RUN")
         .map(PathBuf::from)

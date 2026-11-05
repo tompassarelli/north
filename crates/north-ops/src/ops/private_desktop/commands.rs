@@ -35,12 +35,16 @@ pub(super) fn type_text(arguments: &[String]) -> io::Result<u8> {
             "type needs one run directory and reads its text from stdin",
         ));
     }
-    let (run, _) = validate_run_dir(&arguments[0])?;
+    let mut text = String::new();
+    io::stdin().read_to_string(&mut text)?;
+    type_into(&arguments[0], &text)
+}
+
+pub(super) fn type_into(run_directory: &str, text: &str) -> io::Result<u8> {
+    let (run, _) = validate_run_dir(run_directory)?;
     let port: u16 = read_run_value(&run, "port")?
         .parse()
         .map_err(|_| io::Error::other("run directory port is not a number"))?;
-    let mut text = String::new();
-    io::stdin().read_to_string(&mut text)?;
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let keys = typing::plan(&text).map_err(|reason| {
         io::Error::new(
