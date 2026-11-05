@@ -1,11 +1,10 @@
-use super::Loop;
+use super::{Loop, Role};
 use std::time::{Duration, SystemTime};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Reading {
     At(SystemTime),
     Never,
-    Unread(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -14,11 +13,11 @@ pub struct Checked {
     pub failing: Vec<String>,
 }
 
-pub fn check(loops: &[Loop], read: &dyn Fn(&Loop, &str) -> Reading, now: SystemTime) -> Checked {
+pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) -> Reading, now: SystemTime) -> Checked {
     let mut lines = Vec::new();
     let mut failing = Vec::new();
     for found in loops {
-        let (verdict, failed) = verdict(found, read, now);
+        let (verdict, failed) = verdict(found, held, read, now);
         if failed {
             failing.push(found.name.clone());
         }
@@ -28,17 +27,19 @@ pub fn check(loops: &[Loop], read: &dyn Fn(&Loop, &str) -> Reading, now: SystemT
     Checked { lines, failing }
 }
 
-fn verdict(found: &Loop, read: &dyn Fn(&Loop, &str) -> Reading, now: SystemTime) -> (String, bool) {
+fn verdict(found: &Loop, held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) -> Reading, now: SystemTime) -> (String, bool) {
     let (Some(signal), Some(record)) = (&found.signal, &found.record) else {
         return match &found.owner {
             Some(owner) => (format!("open; {} sets it; owner {owner}", found.updated_by), false),
             None => (format!("FAIL no outcome signal and no owner; {} sets it", found.updated_by), true),
         };
     };
+    if !held(found.host) {
+        return (format!("checked on {}", found.host.name()), false);
+    }
     let limit = Duration::from_secs(2 * found.cadence_hours * 3_600);
-    match read(found, record) {
+    match read(record) {
         Reading::Never => (format!("FAIL never updated: no {record}"), true),
-        Reading::Unread(why) => (format!("FAIL UNREAD: {why}"), true),
         Reading::At(at) => {
             let age = now.duration_since(at).unwrap_or_default();
             let hours = age.as_secs() / 3_600;

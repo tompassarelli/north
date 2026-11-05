@@ -8,7 +8,7 @@ A `[[loop]]` entry names the decision, the source files that make it (`sites`), 
 
 ## Closed and open
 
-- A **closed** loop has a `signal` and a `record`: an automatic program measures an outcome and rewrites the decision. `north loops check` fails it when its record is older than twice its cadence (STALE), when the record is missing (never updated), or when the machine holding the record cannot be read (UNREAD).
+- A **closed** loop has a `signal` and a `record`: an automatic program measures an outcome and rewrites the decision. `north loops check` fails it when its record is older than twice its cadence (STALE), or when the record is missing (never updated).
 - An **open** loop has no `signal`: its decision is a constant, a table or a live reading that nothing yet adjusts from outcomes. It must name an `owner`, the box that closes it. An open loop prints as `open` and does not fail the check, so the registry can list what is still hand-set without raising an alarm every day. An open loop with no owner does not parse.
 
 The rule is that nothing learns silently and nothing is hand-set without a box that will change that. Closing a loop means turning its `owner` into a `signal` and a `record`.
@@ -21,11 +21,13 @@ State lives on more than one machine: the ledger and the tune cells on the ledge
 - `lander`: the host `git config -f <harness>/.safe-push --get landing.lander-host` names.
 - `here` (the default): the host running the check.
 
-A role that resolves to this host is read from the local files. Any other host is asked once per check with `ssh HOST north loops ages --json`, built through the platform ssh argv helper with `BatchMode=yes` and `ConnectTimeout=5`. The reply is a JSON object of loop name to the record's newest write in epoch seconds, or `null` when it has none. A failed ssh, a reply that is not that object, or a loop the reply omits reads as UNREAD, and an unresolvable lander host does too, so a sleeping laptop shows as a failure rather than as freshness.
+No host reads another: the gex45 and nexus access decisions keep those hosts pull-only, with no keys to reach the laptop, so an ssh read of the lander host from nexus could never succeed (2026-11-05). `north loops check` reads from the local files only the closed loops whose role this host holds, and lists every other closed loop as `checked on ROLE`, which does not fail. An unresolvable lander host means this host does not hold the lander role. `north loops check --role ROLE` checks only the loops of that role, read locally, whatever this host is named.
+
+Each role is checked where its records live. The daily `north tune` on the ledger host checks the ledger and here loops. On the laptop, the lander host, the hourly north-tempo user timer in nixos-config (modules/north-tempo) runs `north loops check --role lander` after recording tempo, so a stale lander loop fails that unit.
 
 ## The tune tick fails on a stale loop
 
-`north tune` runs the check after its own work and appends the registry's lines to its output. Its exit code is 1 when any closed loop is stale, unread or never updated, or when the registry cannot be parsed, which fires the nexus unit's failure alert. The same code that fails `north tune` fails `north loops check`.
+`north tune` runs the check after its own work and appends the registry's lines to its output. Its exit code is 1 when any closed loop it holds is stale or never updated, or when the registry cannot be parsed, which fires the nexus unit's failure alert. The same code that fails `north tune` fails `north loops check`.
 
 ## Completeness
 

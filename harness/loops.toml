@@ -2,7 +2,7 @@
 # (`sites`), the outcome signal it learns from, what updates it and how often, and the record under
 # the state root (XDG_STATE_HOME, else ~/.local/state) whose newest write is its last update, on the
 # host `host` names (ledger, lander or here). `north loops check` and `north tune` fail a closed loop
-# whose record is older than twice its cadence or cannot be read; `owner` names the box that closes
+# held on this host whose record is older than twice its cadence or missing; `owner` names the box that closes
 # an open loop, which prints but does not fail. The tests in crates/north-dispatch/src/loops fail
 # when a decision site, numeric constant or defaults key behind dispatch, fleet launch, capacity
 # admission or the lander is named by no loop and no `[plumbing]` list. See

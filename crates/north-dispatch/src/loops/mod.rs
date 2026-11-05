@@ -2,13 +2,13 @@ mod check;
 mod hosts;
 
 pub use check::{Checked, Reading, check};
-pub use hosts::{Hosts, Reader, local_ages, ssh_ages, last_written};
+pub use hosts::{Hosts, last_written};
 use std::path::PathBuf;
 use std::time::SystemTime;
 use toml_edit::{DocumentMut, Item, Table};
 
 pub const REGISTRY: &str = include_str!("../../../../harness/loops.toml");
-const USAGE: &str = "usage: north loops check | north loops ages --json";
+const USAGE: &str = "usage: north loops check [--role ledger|lander|here]";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Role {
@@ -98,46 +98,45 @@ pub fn state_root() -> PathBuf {
     var("XDG_STATE_HOME").unwrap_or_else(|| var("HOME").unwrap_or_default().join(".local/state"))
 }
 
-pub fn here() -> Result<Checked, String> {
+pub fn here(role: Option<Role>) -> Result<Checked, String> {
     let loops = parse(REGISTRY)?;
-    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let hosts = Hosts::read(&home, crate::platform::harness::harness_root());
     let state = state_root();
-    let reader = Reader::new(&hosts, &state, &ssh_ages);
-    Ok(check(&loops, &|found, record| reader.read(found, record), SystemTime::now()))
-}
-
-fn ages() -> Result<String, String> {
-    let ages = local_ages(&parse(REGISTRY)?, &state_root());
-    serde_json::to_string(&ages).map_err(|error| error.to_string())
+    let read = |record: &str| last_written(&state, record).map_or(Reading::Never, Reading::At);
+    let held: Box<dyn Fn(Role) -> bool> = match role {
+        Some(role) => Box::new(move |found| found == role),
+        None => {
+            let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+            let hosts = Hosts::read(&home, crate::platform::harness::harness_root());
+            Box::new(move |found| hosts.holds(found))
+        }
+    };
+    Ok(check(&loops, &*held, &read, SystemTime::now()))
 }
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    match words[..] {
-        ["check"] => match here() {
-            Ok(checked) => {
-                checked.lines.iter().for_each(|line| println!("{line}"));
-                u8::from(!checked.failing.is_empty())
-            }
-            Err(error) => {
-                eprintln!("north loops: {error}");
-                1
-            }
-        },
-        ["ages", "--json"] => match ages() {
-            Ok(json) => {
-                println!("{json}");
-                0
-            }
-            Err(error) => {
-                eprintln!("north loops: {error}");
-                1
+    let role = match words[..] {
+        ["check"] => None,
+        ["check", "--role", name] => match Role::parse(name) {
+            Some(role) => Some(role),
+            None => {
+                eprintln!("north loops: role {name} is not ledger, lander or here");
+                return 2;
             }
         },
         _ => {
             eprintln!("{USAGE}");
-            2
+            return 2;
+        }
+    };
+    match here(role) {
+        Ok(checked) => {
+            checked.lines.iter().for_each(|line| println!("{line}"));
+            u8::from(!checked.failing.is_empty())
+        }
+        Err(error) => {
+            eprintln!("north loops: {error}");
+            1
         }
     }
 }

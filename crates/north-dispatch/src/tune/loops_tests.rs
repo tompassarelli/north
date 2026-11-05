@@ -13,7 +13,7 @@ fn first_tick() -> Tick {
 
 fn checked(record_age_hours: u64) -> Checked {
     let updated = SystemTime::now() - Duration::from_secs(record_age_hours * 3_600);
-    check(&parse(&format!("{CLOSED_LOOP}{OPEN_LOOP}")).unwrap(), &|_, _| Reading::At(updated), SystemTime::now())
+    check(&parse(&format!("{CLOSED_LOOP}{OPEN_LOOP}")).unwrap(), &|_| true, &|_| Reading::At(updated), SystemTime::now())
 }
 
 #[test]
