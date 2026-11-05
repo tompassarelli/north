@@ -10,7 +10,7 @@ mod run;
 #[cfg(test)]
 mod tests;
 
-const USAGE: &str = "usage: north land shadow tick [--repo DIR]";
+const USAGE: &str = "usage: north land shadow tick [--repo DIR] (without --repo, every repository the lander serves)";
 const WORKTREE: &str = "shadow";
 const LOCK: &str = "north/land-shadow.lock";
 pub const OWNER: &str = "north-land-shadow";
@@ -23,6 +23,7 @@ pub enum Round {
     Ran { branch: String, recorded: usize, unrecorded: usize },
 }
 
+#[derive(Clone)]
 pub struct Settings {
     pub repo: PathBuf,
     pub state: PathBuf,
@@ -85,24 +86,56 @@ pub fn tick(settings: &Settings) -> Result<Round, String> {
     Ok(Round::Ran { branch: work.ticket.branch, recorded, unrecorded })
 }
 
+pub fn sweep(settings: &[Settings]) -> Vec<Result<Round, String>> {
+    let mut rounds = Vec::new();
+    for settings in settings {
+        let round = tick(settings);
+        let finished = !matches!(round, Ok(Round::Idle) | Err(_));
+        rounds.push(round);
+        if finished {
+            break;
+        }
+    }
+    rounds
+}
+
+fn say(repo: &Path, round: &Result<Round, String>) -> bool {
+    let name = repo.display();
+    match round {
+        Ok(Round::Locked) => println!("north land shadow: {name}: another tick holds the lock"),
+        Ok(Round::Idle) => println!("north land shadow: {name}: every queued lane has its verdicts"),
+        Ok(Round::NoRoom(reason)) => println!("north land shadow: {name}: no host has room, skipped the round: {reason}"),
+        Ok(Round::Ran { branch, recorded, unrecorded }) => println!("north land shadow: {name}: {branch}: recorded {recorded} verdict(s), {unrecorded} without a verdict"),
+        Err(error) => {
+            eprintln!("north land shadow: {name}: {error}");
+            return false;
+        }
+    }
+    true
+}
+
 pub fn run(arguments: &[String]) -> u8 {
-    let repo = match arguments {
-        [tick] if tick == "tick" => Path::new("."),
-        [tick, flag, dir] if tick == "tick" && flag == "--repo" => Path::new(dir),
+    let repos = match arguments {
+        [tick] if tick == "tick" => repositories::discovered(&lander::state_home(), &repositories::local_host()).checkouts,
+        [tick, flag, dir] if tick == "tick" && flag == "--repo" => vec![PathBuf::from(dir)],
         _ => {
             eprintln!("{USAGE}");
             return 64;
         }
     };
-    match Settings::of(repo).and_then(|settings| tick(&settings)) {
-        Ok(Round::Locked) => println!("north land shadow: another tick holds the lock"),
-        Ok(Round::Idle) => println!("north land shadow: every queued lane has its verdicts"),
-        Ok(Round::NoRoom(reason)) => println!("north land shadow: no host has room, skipped the round: {reason}"),
-        Ok(Round::Ran { branch, recorded, unrecorded }) => println!("north land shadow: {branch}: recorded {recorded} verdict(s), {unrecorded} without a verdict"),
-        Err(error) => {
-            eprintln!("north land shadow: {error}");
-            return 1;
+    let mut settings = Vec::new();
+    let mut ok = true;
+    for repo in &repos {
+        match Settings::of(repo) {
+            Ok(found) => settings.push(found),
+            Err(error) => {
+                eprintln!("north land shadow: {}: {error}", repo.display());
+                ok = false;
+            }
         }
     }
-    0
+    for (found, round) in settings.iter().zip(sweep(&settings)) {
+        ok &= say(&found.repo, &round);
+    }
+    u8::from(!ok)
 }

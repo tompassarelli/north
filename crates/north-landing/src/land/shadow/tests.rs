@@ -170,3 +170,17 @@ fn a_second_tick_while_one_holds_the_lock_does_nothing() {
     assert!(matches!(tick(&fixture.settings).unwrap(), Round::Ran { .. }));
 }
 
+
+#[test]
+fn a_sweep_without_a_repository_moves_on_from_an_idle_one_and_stops_after_the_first_that_ran() {
+    let idle = Fixture::new(0, "true");
+    let mut first = Fixture::new(0, "true");
+    first.queue("first");
+    let mut second = Fixture::new(0, "true");
+    second.queue("second");
+    let rounds = super::sweep(&[idle.settings, first.settings.clone(), second.settings.clone()]);
+    assert_eq!(rounds.len(), 3 - 1);
+    assert_eq!(rounds[0], Ok(Round::Idle));
+    assert!(matches!(&rounds[1], Ok(Round::Ran { branch, .. }) if branch == "first"));
+    assert!(second.calls().is_empty());
+}
