@@ -48,15 +48,15 @@ fn a_green_batch_is_checked_once_after_landing_and_nothing_is_reverted() {
 }
 
 #[test]
-fn a_revert_that_is_itself_red_is_not_reverted_again() {
+fn a_revert_that_is_red_on_a_red_base_is_not_reverted_again() {
     let mut fixture = Fixture::new();
     fs::write(fixture.trace.join("post-land-fail"), "").unwrap();
     let lane = fixture.lane("only", "only.txt", "only\n");
     fixture.enqueue(&lane, None);
     assert!(fixture.serve().status.success());
     assert_eq!(fixture.subjects(), ["change from only", "Revert change from only"]);
-    assert_eq!(post_land_runs(&fixture), 2);
-    assert!(fixture.fleet().iter().any(|call| call.starts_with("fleet send --from service:north-land proxy ") && call.contains("a red fix")), "{:?}", fixture.fleet());
+    assert_eq!(post_land_runs(&fixture), 3, "the lane, the revert and the base the revert sits on");
+    assert!(fixture.fleet().iter().any(|call| call.starts_with("fleet send --from service:north-land proxy ") && call.contains("red main")), "{:?}", fixture.fleet());
 }
 
 #[test]
