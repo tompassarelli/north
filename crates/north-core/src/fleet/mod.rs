@@ -38,6 +38,7 @@ pub mod stranded;
 pub mod tick;
 mod transcript;
 pub mod turns;
+pub mod usage_sink;
 mod unaccepted;
 mod wait;
 pub mod waits;

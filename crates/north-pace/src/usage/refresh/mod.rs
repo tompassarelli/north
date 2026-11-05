@@ -17,8 +17,11 @@ mod claude;
 mod digitalocean;
 mod promos;
 mod record;
+mod sample;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod sample_tests;
 
 struct Ports<'a> {
     pub readers: &'a Readers<'a>,
@@ -75,4 +78,9 @@ pub(super) fn read_provider(db: &Connection, source: &store::Source, provider: &
     let readers = Readers::new(host);
     let rows: Vec<_> = readers.read_all(false).into_iter().filter(|row| row.get("provider").and_then(serde_json::Value::as_str) == Some(provider)).collect();
     record::publish(db, source.mirrored(), &rows, host.ingest)
+}
+
+pub(super) fn sample_readings(db: &Connection, source: &store::Source, places: &Places, host: &Host) -> Result<usize, String> {
+    let ports = sample::Ports { headers: (host.token_headers)(&places.policy), cli: &sample::cli_readings, ingest: host.ingest, at: super::clock().unix_seconds_f64() };
+    sample::run(db, source.mirrored(), &ports)
 }

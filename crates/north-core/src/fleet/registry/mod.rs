@@ -23,6 +23,7 @@ use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime
 use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
+use super::usage_sink::{NoUsage, UsageSink};
 use super::store::{OverSsh, Registrar, SPOOL_DIR, Spool};
 use super::waits::Waits;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
@@ -100,6 +101,7 @@ pub struct Fleet {
     registrar: Arc<dyn Registrar>,
     leases: Arc<dyn JobLeases>,
     proc: PathBuf,
+    usage: Arc<dyn UsageSink>,
 }
 
 impl Fleet {
@@ -111,11 +113,16 @@ impl Fleet {
         let state = state_dir(&home);
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into() })
+        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), usage: Arc::new(NoUsage) })
+    }
+
+    pub fn writing_usage(mut self, usage: Arc<dyn UsageSink>) -> Self {
+        self.usage = usage;
+        self
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
-        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).reading_jobs(Arc::new(SpooledLeases::new(self.leases.clone(), Spool::at(&self.root)).reading_far(Arc::new(OverSsh::default())))).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
+        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).writing_usage(self.usage.clone()).reading_jobs(Arc::new(SpooledLeases::new(self.leases.clone(), Spool::at(&self.root)).reading_far(Arc::new(OverSsh::default())))).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
     }
 
     pub fn waits(&self) -> Waits {

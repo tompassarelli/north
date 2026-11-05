@@ -25,6 +25,7 @@ use super::runtime::{Runtime, new_uuid, now_ms};
 use super::stranded::{Checkout, Lane, Lanes, Worktree};
 use super::turns::{RunRecord, Turn, TurnExit, TurnSignal, Turns};
 use super::unaccepted::Unaccepted;
+use super::usage_sink::{NoUsage, UsageSink};
 use super::wait;
 use super::waits::Waits;
 
@@ -50,6 +51,7 @@ pub struct TurnWatch {
     quiet: HashMap<String, Quiet>,
     jobs: Arc<dyn JobLeases>,
     closing: bool,
+    usage: Arc<dyn UsageSink>,
 }
 
 struct NoLanes;
@@ -184,6 +186,7 @@ impl TurnWatch {
             quiet: HashMap::new(),
             jobs: Arc::new(HeldLeases::default()),
             closing: false,
+            usage: Arc::new(NoUsage),
         }
     }
 
@@ -194,6 +197,11 @@ impl TurnWatch {
 
     pub fn reading_lanes(mut self, lanes: Arc<dyn Lanes + Send + Sync>) -> Self {
         self.lanes = lanes;
+        self
+    }
+
+    pub fn writing_usage(mut self, usage: Arc<dyn UsageSink>) -> Self {
+        self.usage = usage;
         self
     }
 
@@ -352,6 +360,14 @@ impl TurnWatch {
         self.courier.answer(&self.host_dir, question.reply);
     }
 
+    fn record_usage(&self, frame: &Value) {
+        if self.runtime.quota(frame).is_none() {
+            return;
+        }
+        let Some(session) = self.runtime.frame_conversation(frame).and_then(|conversation| find_session(&self.root, &self.host_dir, conversation)) else { return };
+        self.usage.observe(self.runtime.provider().label(), &session.account, frame);
+    }
+
     fn observe_landing(&self, record: &SessionRecord) {
         if let Err(error) = landings::observe_among(self.ledger.as_ref(), record, &landings::pushes_of(record, &push_log())) {
             eprintln!("north ledger: {}", error.user_message());
@@ -368,6 +384,7 @@ impl FrameWatch for TurnWatch {
         if let Some(id) = self.runtime.accepted_prompt(&frame) {
             self.unaccepted.journal().accepted(&id);
         }
+        self.record_usage(&frame);
         let signals = self.runtime.signals(&frame);
         for signal in &signals {
             self.views.entry(signal.conversation().to_owned()).or_insert_with(|| View::of(signal.conversation()));

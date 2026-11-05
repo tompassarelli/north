@@ -200,3 +200,26 @@ fn a_brief_states_the_family_the_workstream_and_the_expected_spend() {
         (Usd(3.37), Usd(6.74), 30.0)
     );
 }
+
+#[test]
+fn a_limit_row_in_the_usage_table_is_a_limit_event_in_the_world() {
+    let fixture = Fixture::new();
+    fixture
+        .db
+        .execute(
+            "INSERT INTO usage VALUES ('2026-11-05T11:58:00Z', 'claude', 'a', 'limit', 'weekly_all', 100.0, NULL, '2026-11-10T00:00:00Z', NULL, 'claude stream rate_limit_event; rejected')",
+            [],
+        )
+        .unwrap();
+    let parts = super::assemble::parts(&fixture.db, std::path::Path::new("/nonexistent/orchestration.toml"), "laptop", now(), Vec::new()).unwrap();
+    let at = |text: &str| Unix(Timestamp::parse_rfc3339(text).unwrap().unix_seconds());
+    assert_eq!(
+        parts.limits,
+        [super::super::decide::world::LimitEvent {
+            account: Label("a".to_owned()),
+            window: super::super::decide::world::Window::Week,
+            resets_at: Some(at("2026-11-10T00:00:00Z")),
+            at: at("2026-11-05T11:58:00Z"),
+        }]
+    );
+}

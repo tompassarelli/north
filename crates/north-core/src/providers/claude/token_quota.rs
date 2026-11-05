@@ -31,7 +31,7 @@ pub fn usage_rows(account: &Account, at: f64) -> Result<Vec<Value>, String> {
     rows_from(&account.label, &fetch_headers(file)?, at)
 }
 
-fn fetch_headers(token_file: &Path) -> Result<String, String> {
+pub fn fetch_headers(token_file: &Path) -> Result<String, String> {
     let token = std::fs::read_to_string(token_file).map_err(|error| format!("token file: {error}"))?;
     let token = token.trim();
     let config = curl_config(token)?;

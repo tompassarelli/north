@@ -10,6 +10,7 @@ use crate::foundation::clock::Timestamp;
 
 mod burn;
 mod costs;
+pub mod events;
 mod ctx;
 mod fast;
 mod gate;
@@ -26,7 +27,7 @@ mod table;
 mod tests;
 mod web;
 
-const USAGE: &str = "usage: north usage [--refresh [--local]] [--json] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | decide --dry-run BRIEF";
+const USAGE: &str = "usage: north usage [--refresh [--local]] [--json] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | decide --dry-run BRIEF | sample";
 const PACED: [&str; 2] = ["claude", "gemini"];
 
 pub struct Places {
@@ -48,6 +49,7 @@ impl Places {
 }
 
 enum Action {
+    Sample,
     Decide { brief: PathBuf },
     WritePaceGate,
     Fast { provider: String, cached: bool },
@@ -56,6 +58,11 @@ enum Action {
 
 impl Action {
     fn parse(arguments: &[String]) -> Option<Self> {
+        if let [verb] = arguments
+            && verb == "sample"
+        {
+            return Some(Self::Sample);
+        }
         if let [verb, flag, brief] = arguments
             && verb == "decide"
             && flag == "--dry-run"
@@ -88,11 +95,12 @@ impl Action {
     }
 
     fn writes(&self) -> bool {
-        matches!(self, Self::Fast { cached: false, .. } | Self::Show { refresh: true, .. })
+        matches!(self, Self::Sample | Self::Fast { cached: false, .. } | Self::Show { refresh: true, .. })
     }
 
     fn perform(&self, db: &Connection, source: &store::Source, places: &Places, host: &Host) -> Result<(String, u8), String> {
         match self {
+            Self::Sample => refresh::sample_readings(db, source, places, host).map(|rows| (format!("sampled {rows} readings"), 0)),
             Self::Decide { brief } => decide(db, places, host, brief),
             Self::WritePaceGate => gate::write(db, &PACED, places, clock()).map(|verdicts| (verdicts.to_string(), 0)),
             Self::Fast { provider, cached } => fast::decide(db, source, places, provider, *cached, host),
@@ -151,6 +159,8 @@ pub fn write_pace_gate(db: &Connection) -> Result<serde_json::Value, String> {
     gate::write(db, &PACED, &Places::from_env(), Timestamp::now())
 }
 
+pub type TokenHeaders = Vec<(String, Result<String, String>)>;
+
 pub struct Host<'a> {
     pub name: String,
     pub refresh_snapshot: &'a dyn Fn(),
@@ -158,6 +168,7 @@ pub struct Host<'a> {
     pub run: &'a (dyn Fn(std::process::Command, std::time::Duration) -> Option<std::process::Output> + Sync),
     pub ssh: &'a dyn Fn(&[&str]) -> Vec<std::ffi::OsString>,
     pub registry: &'a dyn Fn() -> Result<Box<dyn shell::Registry>, String>,
+    pub token_headers: &'a dyn Fn(&Path) -> TokenHeaders,
 }
 
 pub fn run(arguments: &[String], host: &Host) -> u8 {

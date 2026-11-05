@@ -18,6 +18,7 @@ use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
 use super::placement::{self, Overrides};
+use super::usage_ingest::IngestUsage;
 use super::admission;
 use super::digest;
 use super::duplicate;
@@ -79,7 +80,7 @@ pub(in crate::cli) fn roster() -> NorthResult<Roster> {
 }
 
 pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
-    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli::new()), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases))
+    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli::new()), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())))
 }
 
 fn far_machine(host: &str) -> bool {

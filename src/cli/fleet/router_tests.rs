@@ -465,3 +465,29 @@ mod detached;
 
 #[path = "silent_tests.rs"]
 mod silent;
+
+#[derive(Default)]
+struct Observed(Mutex<Vec<(String, String, Value)>>);
+
+impl crate::fleet::usage_sink::UsageSink for Observed {
+    fn observe(&self, provider: &str, account: &str, frame: &Value) {
+        self.0.lock().unwrap().push((provider.to_owned(), account.to_owned(), frame.clone()));
+    }
+}
+
+#[test]
+fn a_live_streams_rate_limit_event_reaches_the_usage_sink_under_its_sessions_account() {
+    let root = tempfile::tempdir().unwrap();
+    let session = root.path().join("worker");
+    std::fs::create_dir_all(&session).unwrap();
+    let record = json!({"name": "worker", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0, "host_pid": null, "conversation": "s", "host_dir": session});
+    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let sink = Arc::new(Recorded::default());
+    let seen = Arc::new(Observed::default());
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, Arc::new(Held::default()), root.path().to_path_buf(), session).writing_usage(seen.clone());
+    let event = json!({"type": "rate_limit_event", "session_id": "s", "rate_limit_info": {"status": "rejected", "resetsAt": 1792084800, "rateLimitType": "five_hour", "unifiedWindows": {"five_hour": {"utilization": 1.0, "resetsAt": 1792084800}}}});
+    watch.line(event.to_string().as_bytes());
+    watch.line(json!({"type": "assistant", "session_id": "s", "message": {"content": []}}).to_string().as_bytes());
+    let observed = seen.0.lock().unwrap();
+    assert_eq!(observed.iter().map(|(provider, account, frame)| (provider.as_str(), account.as_str(), frame.clone())).collect::<Vec<_>>(), [("claude", "c", event)]);
+}

@@ -61,7 +61,7 @@ pub fn parts(
         now,
         accounts: accounts(&claude, host),
         readings,
-        limits: Vec::new(),
+        limits: claude.iter().filter_map(|row| limit(row)).collect(),
         sessions,
         tripped: Vec::new(),
         credit: None,
@@ -107,6 +107,18 @@ fn reading(row: &Row, index: i64) -> Option<Reading> {
         resets_at: row.text("resets_at").and_then(unix),
         read_at: row.text("ts").and_then(unix)?,
         source: source(row.text("source").unwrap_or_default()),
+    })
+}
+
+fn limit(row: &Row) -> Option<LimitEvent> {
+    if row.text("kind") != Some("limit") {
+        return None;
+    }
+    Some(LimitEvent {
+        account: Label(row.text("account")?.to_owned()),
+        window: window(row.text("name")?)?,
+        resets_at: row.text("resets_at").and_then(unix),
+        at: row.text("ts").and_then(unix)?,
     })
 }
 

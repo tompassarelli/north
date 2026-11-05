@@ -24,6 +24,7 @@ mod tier;
 mod tree;
 mod usage;
 mod view;
+mod usage_ingest;
 mod waits;
 
 pub(super) use placement::fleet_load;

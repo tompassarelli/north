@@ -735,11 +735,18 @@ updates the integration tests (`tests/it/*`, 1.11) it breaks in the same change.
 4a. **Stream and limit rows.** The stream reader writes each `rate_limit_event` (every unified window, scoped
    included, plus `status`, `resetsAt`, `rateLimitType`) to the `usage` table as `source = stream`; a `rejected`
    status or a 429 with `resetsAt` writes a limit row.
+   Rows: `kind = window` per unified window (`session`, `weekly_all`, `weekly_scoped/Opus`), `kind = status` per
+   `rateLimitType` with `status=...` in `source`, `kind = limit` with `resets_at`; `source` begins `claude stream
+   rate_limit_event`. The fleet turn watch hands each event to a `UsageSink`, which skips an unchanged repeat and
+   ingests the rest under the session's account.
    Done when: on gex45 a running Claude worker produces `source = stream` rows within a minute
-   (`sqlite3 -readonly ~/.local/state/threads/threads.db "select max(ts) from usage where source='stream'"`).
+   (`sqlite3 -readonly ~/.local/state/threads/threads.db "select max(ts) from usage where source like '%stream%'"`).
 4b. **One-minute reader.** `north usage sample` (header reads for token accounts, `-status` and `extra_usage`
    `is_enabled` recorded, CLI reads for the rest); nixos-config gains its one-minute timer on every host that holds a
    Claude login, landing after this north change.
+   The sample writes the same `window`, `status` and `limit` rows from the response headers (`-status`, and a
+   `limit` row for a `rejected` window or a 429 with a `-reset`), and `claude -p /usage`'s `extra_usage` row carries
+   `is_enabled` as its `amount`.
    Done when: `systemctl --user list-timers` on the laptop and gex45 shows the timer, and `select max(ts) from usage
    where account='d'` stays under 2 minutes old for 10 minutes.
 4c. **Rates.** Points per dollar per account and window, measured from rises and priced turns into the calibration
@@ -756,7 +763,7 @@ updates the integration tests (`tests/it/*`, 1.11) it breaks in the same change.
    the registry through the `Registry` trait (`FleetRecords` reads the live fleet session records) and `launches.jsonl`;
    `Shell::decide` holds `decide.lock` across world, `place`, the caller's launch record and the `decisions.jsonl` line;
    `dry_run` takes the lock and records nothing. Until their boxes land, sign-in is this host, rates are the pooled
-   1.0 points per dollar, limit events are empty (4a) and `spent` is unread (6); `[usage.reserve]` is read from the
+   1.0 points per dollar, limit events are the `limit` rows 4a writes and `spent` is unread (6); `[usage.reserve]` is read from the
    operator file when present.
 6. **Expected spend.** The ledger gains p50 and p90 priced box cost and minutes per cell with the fallback chain;
    `worker-ledger --recommend` prints E with its source; dispatched briefs' Budget lines state E.
