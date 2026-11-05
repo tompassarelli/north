@@ -22,3 +22,9 @@ fn a_line_tom_quotes_from_the_reply_before_is_not_read_as_his_words() {
     assert_eq!(typed_text(&own_words(typed, Some(reply))), "is this ready yet?");
     assert_eq!(classify(&typed_text(&own_words(typed, Some(reply))), Some(reply)).0, None);
 }
+
+#[test]
+fn an_agent_sentence_tom_pastes_with_you_keep_is_not_a_correction() {
+    assert_ne!(classify("you keep every feature, but get no resume or failover", None).0, Some(Kind::Correction));
+    assert_eq!(classify("you keep asking me for decisions you could make", None).0, Some(Kind::Correction));
+}

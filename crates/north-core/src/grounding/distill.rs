@@ -151,7 +151,7 @@ pattern!(about_past, format!(
 ));
 pattern!(request, format!(r"(?i)^{W}*((can|could|would|will) (you|we|u){B}|let'?s{B}|please{B}|why don'?t (we|you|u){B})"));
 pattern!(correction, format!(
-    r"(?i){B}(we already (have|did|talked)|i (already )?told you|i'?ve already|i have already|didn'?t i (ask|say|tell)|you keep{B}|that'?s (wrong|not (it|right|what))|not what i (asked|said|meant|want)|why didn'?t you|we did this (recently|already|before)|do we not have|why do we keep|you'?re approaching|i said{B}|as i said|stop (doing|asking|saying)|you were wrong|no,? (that|it)'?s not)"
+    r"(?i){B}(we already (have|did|talked)|i (already )?told you|i'?ve already|i have already|didn'?t i (ask|say|tell)|you keep (doing|saying|asking|making|forgetting|missing|getting|ignoring|breaking|stopping|punting|handing){B}|that'?s (wrong|not (it|right|what))|not what i (asked|said|meant|want)|why didn'?t you|we did this (recently|already|before)|do we not have|why do we keep|you'?re approaching|i said{B}|as i said|stop (doing|asking|saying)|you were wrong|no,? (that|it)'?s not)"
 ));
 pattern!(decision, format!(
     r"(?i){B}(we('ll| will)? go with|let'?s go with|i'?ve decided|i decided|we decided|decision is|it'?s fine if|its fine if|from now on|durably|new rule|rule change|going forward|instead of|i'?m choosing|we'?re (switching|moving) to)"
