@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
@@ -24,6 +24,7 @@ const TIMED_OUT: i32 = 124;
 const SSH_TIMEOUT: Duration = Duration::from_secs(20);
 const RECORD_WAIT: Duration = Duration::from_secs(10);
 const INGEST_WAIT: Duration = Duration::from_secs(5);
+const INGEST_HOLD: Duration = Duration::from_secs(12);
 
 pub struct Client {
     home: PathBuf,
@@ -36,6 +37,7 @@ pub struct Client {
     fleet: Arc<dyn outside::FleetView>,
     record_wait: Duration,
     ingest_wait: Duration,
+    ingest_hold: Duration,
     clock: Arc<dyn Fn() -> Timestamp + Send + Sync>,
 }
 
@@ -136,6 +138,7 @@ impl Client {
             fleet,
             record_wait: RECORD_WAIT,
             ingest_wait: INGEST_WAIT,
+            ingest_hold: INGEST_HOLD,
             clock: Arc::new(Timestamp::now),
         }
     }
@@ -207,9 +210,21 @@ impl Client {
             return Ok(ingest_lock::RETRY);
         };
         let acquired = (self.clock)();
-        let code = self.local(argv, Some(&ledger), Some(&data));
-        record(Some(acquired), code.as_ref().map_or(1, |code| *code));
-        code
+        let mut command = self.threads_command(argv, Some(&ledger));
+        command.stdin(Stdio::piped()).process_group(0);
+        let code = match command.spawn().map_err(NorthError::from).and_then(|child| held(feed(child, Some(data)), self.ingest_hold)) {
+            Ok(Some(status)) => code_of(status),
+            Ok(None) => {
+                writeln!(err, "NorthThreads: ingest held the ledger past {} s; stopped it uncommitted, retry", self.ingest_hold.as_secs())?;
+                ingest_lock::RETRY
+            }
+            Err(error) => {
+                record(Some(acquired), 1);
+                return Err(error);
+            }
+        };
+        record(Some(acquired), code);
+        Ok(code)
     }
 
     fn local(&self, argv: &[String], database: Option<&Path>, replay: Option<&[u8]>) -> NorthResult<i32> {
@@ -247,6 +262,14 @@ impl Client {
             let mut stdin: Box<dyn Read> = replay.map_or_else(|| Box::new(io::stdin()) as Box<dyn Read>, |brief| Box::new(io::Cursor::new(brief.to_vec())));
             return Ok(run(argv, &context, &mut stdin, &mut io::stdout().lock(), &mut io::stderr()));
         }
+        let mut command = self.threads_command(argv, database);
+        let Some(input) = replay else { return Ok(code_of(command.status()?)) };
+        let mut child = command.stdin(Stdio::piped()).spawn()?;
+        child.stdin.take().ok_or_else(|| io::Error::other("no stdin pipe"))?.write_all(input)?;
+        Ok(code_of(child.wait()?))
+    }
+
+    fn threads_command(&self, argv: &[String], database: Option<&Path>) -> Command {
         let mut command = Command::new(&self.threads[0]);
         command.args(&self.threads[1..]).args(argv);
         if let Some(database) = database {
@@ -257,10 +280,7 @@ impl Client {
         } else if let Ok(own) = std::env::current_exe() {
             command.env("NORTH_BIN", own);
         }
-        let Some(input) = replay else { return Ok(code_of(command.status()?)) };
-        let mut child = command.stdin(Stdio::piped()).spawn()?;
-        child.stdin.take().ok_or_else(|| io::Error::other("no stdin pipe"))?.write_all(input)?;
-        Ok(code_of(child.wait()?))
+        command
     }
 
     fn proxy(&self, dest: &str, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<Option<i32>> {
@@ -607,6 +627,21 @@ fn execute(argv: &[OsString], input: Input, stdout: Stdio, wait: Duration) -> No
         std::thread::sleep(Duration::from_millis(10));
     };
     Ok(Some(status))
+}
+
+fn held(mut child: Child, cap: Duration) -> NorthResult<Option<ExitStatus>> {
+    let deadline = Instant::now() + cap;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if Instant::now() >= deadline {
+            let _ = rustix::process::kill_process_group(rustix::process::Pid::from_child(&child), rustix::process::Signal::Kill);
+            child.wait()?;
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn code_of(status: ExitStatus) -> i32 {
@@ -956,6 +991,30 @@ exit "$(cat "$ROOT/code")"
             assert_eq!(client.main(&["ingest".to_owned()], &mut &batch("one")[..], &mut Vec::new()).unwrap(), 0);
         }
         assert_eq!(recorded(directory.path()), ["one"]);
+    }
+
+    #[test]
+    fn an_ingest_stalled_past_its_hold_cap_is_stopped_uncommitted_with_the_retry_code_and_its_retry_records_each_row_once() {
+        let (directory, mut client) = ledger_host(Duration::from_secs(5));
+        client.ingest_hold = Duration::from_secs(3);
+        let writer = rusqlite::Connection::open(directory.path().join("threads.db")).unwrap();
+        writer.execute_batch("PRAGMA journal_mode = WAL; BEGIN IMMEDIATE").unwrap();
+        let mut err = Vec::new();
+        let begun = Instant::now();
+        let code = client.main(&["ingest".to_owned()], &mut &[batch("one"), batch("two")].concat()[..], &mut err).unwrap();
+        let took = begun.elapsed();
+        assert_eq!(code, ingest_lock::RETRY, "{}", String::from_utf8_lossy(&err));
+        assert!(took >= Duration::from_secs(3) && took < Duration::from_secs(30), "{took:?}");
+        assert_eq!(String::from_utf8(err).unwrap(), "NorthThreads: ingest held the ledger past 3 s; stopped it uncommitted, retry\n");
+        assert!(ingest_lock::acquire(&directory.path().join("ingest.lock"), Duration::ZERO).unwrap().is_some());
+        writer.execute_batch("ROLLBACK").unwrap();
+        drop(writer);
+        let lines = logged(directory.path());
+        assert_eq!((lines[0]["exit"].as_i64(), lines[0]["held_ms"].as_i64().is_some_and(|held| held < 30_000)), (Some(i64::from(ingest_lock::RETRY)), true), "{lines:?}");
+        for _ in 0..2 {
+            assert_eq!(client.main(&["ingest".to_owned()], &mut &[batch("one"), batch("two")].concat()[..], &mut Vec::new()).unwrap(), 0);
+        }
+        assert_eq!(recorded(directory.path()), ["one", "two"]);
     }
 
     fn logged(root: &Path) -> Vec<Value> {
