@@ -7,7 +7,7 @@ use crate::platform::rolling_issue::{self, Tracker};
 
 const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD --safe-push PATH
 
-Run safe-push's after-landing gates and each `after-landing.check = NAME :: COMMAND`
+Run the after-landing gates (code-health, instruction-limits, generated-rewrite, ci-budget) and each `after-landing.check = NAME :: COMMAND`
 in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then add a section for HEAD naming every gate that failed to the repository's one open After-landing gate debt issue; a gate already marked
 for HEAD is not added again.";
 const MARKER: &str = "<!-- after-landing-gate: ";
@@ -16,7 +16,6 @@ const BODY_LIMIT: usize = 60_000;
 const TITLE: &str = "After-landing gate debt";
 const HEADER: &str = "Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit.";
 const DROPPED: &str = "Older sections dropped: ";
-const RUNNER: &str = "after-landing-runner";
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Failure {
@@ -188,40 +187,20 @@ fn run_gates(main: &Path, args: &Args) -> Result<Vec<Failure>, String> {
         .ok_or_else(|| "neither XDG_CACHE_HOME nor HOME is set".to_owned())?;
     let name = format!("{}-{}", &args.head[..args.head.len().min(12)], std::process::id());
     let tree = cache.join("north/after-landing").join(&name);
-    let report = cache.join("north/after-landing").join(format!("{name}.report"));
     let tree_text = tree.to_string_lossy().into_owned();
     git(main, &["worktree", "add", "--quiet", "--detach", &tree_text, &args.head])?;
-    let outcome = gates_in(main, &tree, &report, args);
+    let outcome = gates_in(main, &tree, args);
     let removed = git(main, &["worktree", "remove", "--force", &tree_text]);
-    let _ = fs::remove_dir_all(&report);
     let failures = outcome?;
     removed?;
     Ok(failures)
 }
 
-fn gates_in(main: &Path, tree: &Path, report: &Path, args: &Args) -> Result<Vec<Failure>, String> {
+fn gates_in(main: &Path, tree: &Path, args: &Args) -> Result<Vec<Failure>, String> {
     let mut links = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "mutant.link"]).unwrap_or_default();
     links.push_str(&git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.link"]).unwrap_or_default());
     link_paths(main, tree, &links)?;
-    let status = Command::new(&args.safe_push)
-        .args(["--after-landing", &args.base, &args.head])
-        .arg(report)
-        .current_dir(tree)
-        .status()
-        .map_err(|error| format!("cannot run {}: {error}", args.safe_push.display()))?;
-    let mut failures = Vec::new();
-    if let Ok(entries) = fs::read_dir(report) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if let Some(gate) = path.file_name().and_then(|name| name.to_str()).and_then(|name| name.strip_suffix(".log")) {
-                failures.push(Failure { gate: gate.to_owned(), output: fs::read_to_string(&path).unwrap_or_default() });
-            }
-        }
-    }
-    failures.sort_by(|left, right| left.gate.cmp(&right.gate));
-    if !matches!(status.code(), Some(0 | 1)) || (status.code() == Some(1) && failures.is_empty()) {
-        failures.push(Failure { gate: RUNNER.to_owned(), output: format!("safe-push --after-landing exited {status}") });
-    }
+    let mut failures = crate::land::after::gates::run(&crate::land::after::gates::Landed { tree, base: &args.base, head: &args.head, safe_push: &args.safe_push });
     let checks = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.check"]).unwrap_or_default();
     failures.extend(repo_check_failures(tree, &repo_checks(&checks)));
     Ok(failures)

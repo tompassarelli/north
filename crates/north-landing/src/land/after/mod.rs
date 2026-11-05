@@ -1,5 +1,8 @@
 pub mod cleanup;
+mod ci_budget;
 pub mod follow;
+pub mod gates;
+mod workflow_paths;
 
 use std::fs;
 use std::path::{Path, PathBuf};

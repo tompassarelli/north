@@ -1,5 +1,5 @@
 pub mod generated;
-mod git;
+pub(crate) mod git;
 pub mod language;
 pub mod outgoing;
 pub mod policy;
@@ -8,7 +8,7 @@ pub mod tool_removal;
 
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]";
+const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan ci-budget|code-health|instruction-limits BASE..HEAD [--safe-push PATH]\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]";
 
 struct Range<'a> {
     base: &'a str,
@@ -45,6 +45,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let directory = PathBuf::from(".");
     match arguments {
         [name, rest @ ..] if name == "language" => language::run(rest),
+        [name, rest @ ..] if matches!(name.as_str(), "ci-budget" | "code-health" | "instruction-limits") => crate::land::after::gates::scan(name, rest),
         [name, range] if name == "dep-gate" => dep_gate(&directory, range),
         [name, range] if name == "tool-removal" => {
             let home = std::env::var_os("HOME")

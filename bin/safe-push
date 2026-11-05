@@ -102,7 +102,7 @@ safe_push_exit() {
 
 safe_push_internal=0
 safe_push_help=0
-if [ "${1:-}" = --after-landing ] || [ "${1:-}" = --publication-scan ]; then safe_push_internal=1; fi
+if [ "${1:-}" = --publication-scan ]; then safe_push_internal=1; fi
 if [ "$#" -eq 1 ] && [[ "$1" = -h || "$1" = --help ]]; then safe_push_help=1; fi
 trap safe_push_exit EXIT
 drop_land_branch() { SAFE_PUSH_ACTIVE=1 git push -q --no-verify --force-with-lease="refs/heads/$1:$2" origin ":refs/heads/$1"; }
@@ -148,7 +148,6 @@ plan_push() {
       tag_seen=0
       to=""
       to_seen=0
-      after_landing=()
       publication_scan_range=()
       check_base=""
       while [ "$#" -gt 0 ]; do
@@ -205,11 +204,6 @@ plan_push() {
             [ "$#" -eq 3 ] || argument_error '--publication-scan needs BASE HEAD and nothing else'
             publication_scan_range=("$2" "$3")
             shift 3
-            ;;
-          --after-landing)
-            [ "$#" -eq 4 ] || argument_error '--after-landing needs BASE HEAD REPORT_DIR and nothing else'
-            after_landing=("$2" "$3" "$4")
-            shift 4
             ;;
           -f|--force|--force-with-lease|--mirror|--delete|--prune)
             printf "safe-push: refuses '%s' — force/destructive pushes are deliberate + manual, not automatic\n" "$1" >&2
@@ -355,12 +349,6 @@ capture_repository_state() {
     || { echo "safe-push: cannot resolve $branch_ref to a commit"; exit 1; }
 }
 
-check_instruction_limits() {
-  local helper
-  helper="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/agent-instruction-check"
-  "$helper" --repo "$repo_root" --ref "$1"
-}
-
 # Public deny-list: private identity values never reach a public repository.
 # An absent deny-list refuses a public push where south exists and warns
 # elsewhere; an unknown visibility fails closed.
@@ -412,300 +400,14 @@ test_integrity_scan() {
   north land scan test-integrity "$1"
 }
 
-generated_rewrite_scan() {
-  north land scan generated-rewrite "$1"
-}
-
 policy_sweep_scan() {
   north land scan policy-sweep "$1"
-}
-
-ci_workflow_triggered() {
-  local workflow="$1" filters pattern path
-  shift
-  case "$workflow" in local:*) return 0 ;; esac
-  command -v yq >/dev/null 2>&1 || return 0
-  filters=$(git show "refs/remotes/origin/main:.github/workflows/$workflow" 2>/dev/null \
-    | yq -r '.on.push | select(type == "!!map") | .paths // [] | .[]' 2>/dev/null) || return 0
-  [ -n "$filters" ] || return 0
-  while IFS= read -r pattern; do
-    case "$pattern" in '!'*) return 0 ;; esac
-    for path in "$@"; do
-      # shellcheck disable=SC2053
-      [[ "$path" == $pattern ]] && return 0
-    done
-  done <<<"$filters"
-  return 1
-}
-
-budget_repo() { git remote get-url origin 2>/dev/null | sed -E 's/\.git$//; s|.*[/:]||' || true; }
-# Only throughput gates take this way through; correctness and safety refusals stay until the lane fixes them.
-ci_budget_hold() {
-  local workflow="$1" reason="$2" median="${3:--}" budget="${4:--}" dir file repo now first
-  dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-  repo=$(budget_repo)
-  file="$dir/ci-budget-hold-$(printf '%s-%s' "$repo" "$workflow" | tr -c 'A-Za-z0-9._-' '_')"
-  now=$(date +%s)
-  mkdir -p "$dir"
-  first=''
-  [ ! -r "$file" ] || read -r first <"$file" || true
-  if [[ ! "$first" =~ ^[0-9]+$ ]]; then
-    first=$now
-    printf '%s\n' "$now" >"$file"
-  fi
-  if (( now - first < 1800 )); then
-    printf 'safe-push: ✗ CI budget %s: %s (checked after the push; the landing stands).\n' "$workflow" "$reason"
-    printf 'safe-push: CI budget %s has been over since %s; from %s each landing records an override instead.\n' \
-      "$workflow" "$(date -d "@$first" +%H:%M)" "$(date -d "@$((first + 1800))" +%H:%M)"
-    return 1
-  fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$repo" "$workflow" "$median" "$budget" \
-    "$(git rev-parse --short HEAD)" "$(git branch --show-current)" "$reason" >>"$dir/ci-budget-overrides.tsv"
-  printf 'safe-push: CI budget %s override: %s for %sm; landing with a recorded override in %s.\n' \
-    "$workflow" "$reason" "$(( (now - first) / 60 ))" "$dir/ci-budget-overrides.tsv"
-}
-
-ci_budget_debt() {
-  local workflow="$1" median="$2" budget="$3" ceiling="$4" dir repo
-  dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-  repo=$(budget_repo)
-  mkdir -p "$dir"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$repo" "$workflow" "$median" "$budget" "$ceiling" \
-    "$(git rev-parse --short HEAD)" "$(git branch --show-current)" >>"$dir/ci-budget-debt.tsv"
-  printf 'safe-push: CI budget %s debt: median %ss over target %ss, under ceiling %ss; landing, recorded in %s.\n' \
-    "$workflow" "$median" "$budget" "$ceiling" "$dir/ci-budget-debt.tsv"
-}
-
-ci_budget_clear() {
-  rm -f -- "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/ci-budget-hold-$(printf '%s-%s' "$(budget_repo)" "$1" | tr -c 'A-Za-z0-9._-' '_')"
-}
-
-ci_budget_scan() {
-  local range="$1" budgets base="${1%%..*}" head="${1##*..}" github_only=1 markdown_only=1 path
-  local -a changed=()
-  budgets=$(git config --blob refs/remotes/origin/main:.safe-push --get-all ci.budget 2>/dev/null) || return 0
-  [ "$base" != "$range" ] && [ -n "$base" ] || return 0
-  base=$(git merge-base "$base" "$head")
-  range="$base..$head"
-  while IFS= read -r -d '' path; do
-    changed+=("$path")
-    case "$path" in .github/*) ;; *) github_only=0 ;; esac
-    case "$path" in *.md) ;; *) markdown_only=0 ;; esac
-  done < <(git diff --name-only -z --no-renames "$base" "$head")
-  if [ "${#changed[@]}" -gt 0 ] && [ "$github_only" = 1 ]; then
-    echo 'safe-push: CI budget exemption — every changed path is under .github/.'
-    return 0
-  fi
-  if [ "${#changed[@]}" -gt 0 ] && [ "$markdown_only" = 1 ]; then
-    echo 'safe-push: CI budget exemption — every changed path is Markdown.'
-    return 0
-  fi
-
-  local commits workflow budget ceiling extra commit trailers name before arrow after matched improved
-  local source rows sha wall result slowest runs ids id jobs measurement median since need head_sha
-  local newest_job newest_seconds job_seconds attempt measure_cache measure_dir
-  local -a walls
-  commits=$(git log --format=%H "$range")
-  [ -n "$commits" ] || return 0
-  local main_red='' red
-  while IFS= read -r commit; do
-    red=$(git show -s --format='%(trailers:key=Main-red,valueonly)' "$commit" | awk 'NF { print $1; exit }')
-    if [ -z "$red" ] || { [ -n "$main_red" ] && [ "$red" != "$main_red" ]; }; then main_red=''; break; fi
-    main_red=$red
-  done <<<"$commits"
-  while read -r workflow budget ceiling extra; do
-    if [ -z "$workflow" ] || [[ ! "$budget" =~ ^[0-9]+([.][0-9]+)?$ ]] || [ -n "$extra" ] \
-        || { [ -n "$ceiling" ] && { [[ ! "$ceiling" =~ ^[0-9]+([.][0-9]+)?$ ]] \
-          || ! awk -v c="$ceiling" -v b="$budget" 'BEGIN { exit !(c > b) }'; }; }; then
-      echo 'safe-push: ✗ invalid ci.budget in main’s .safe-push — expected <workflow-file> <seconds> [<ceiling seconds>]; NOT pushed.'
-      return 1
-    fi
-    if ! ci_workflow_triggered "$workflow" "${changed[@]}"; then
-      printf 'safe-push: CI budget %s exemption — no changed path matches its push paths filter.\n' "$workflow"
-      continue
-    fi
-    improved=0
-    if [ -n "$commits" ]; then
-      improved=1
-      while IFS= read -r commit; do
-        matched=0
-        trailers=$(git show -s --format='%(trailers:key=CI-budget,valueonly)' "$commit")
-        while read -r name before arrow after extra; do
-          if [ "$name" = "$workflow" ] && [ "$arrow" = '->' ] && [ -z "$extra" ] \
-              && [[ "$before" =~ ^[0-9]+([.][0-9]+)?s$ && "$after" =~ ^[0-9]+([.][0-9]+)?s$ ]] \
-              && awk -v before="${before%s}" -v after="${after%s}" 'BEGIN { exit !(before > after) }'; then
-            matched=1
-          fi
-        done <<<"$trailers"
-        [ "$matched" = 1 ] || { improved=0; break; }
-      done <<<"$commits"
-    fi
-    if [ "$improved" = 1 ]; then
-      printf 'safe-push: CI budget %s exemption — every commit records a measured speed-up.\n' "$workflow"
-      continue
-    fi
-
-    walls=()
-    newest_job=''
-    newest_seconds=''
-    since=$(git log refs/remotes/origin/main -n 500 -z --format='%H%n%B' \
-      | awk -v RS='\0' -v wf="$workflow" '{ n = split($0, l, "\n"); for (i = 2; i <= n; i++) {
-          split(l[i], f, " "); b = f[3]; a = f[5]; sub(/s$/, "", b); sub(/s$/, "", a)
-          if (f[1] == "CI-budget:" && f[2] == wf && f[4] == "->" && b + 0 > a + 0) { print l[1]; exit } } }')
-    need=3
-    [ -z "$since" ] || need=1
-    case "$workflow" in
-      local:*)
-        source=${workflow#local:}
-        case "$source" in /*) ;; *) source="$(git rev-parse --show-toplevel)/$source" ;; esac
-        rows=$(tail -n 3 -- "$source") || {
-          printf 'safe-push: ✗ CI budget %s: cannot read local timing source; NOT pushed.\n' "$workflow"
-          return 1
-        }
-        if [ -n "$main_red" ] && [ "$(tail -n 1 -- "$source" | cut -f1)" = "$main_red" ] \
-            && [[ ! "$(tail -n 1 -- "$source" | cut -f3)" =~ ^(pass|passed|success|ok)$ ]]; then
-          printf 'safe-push: CI budget %s exemption — main is red at %s and every commit names it in Main-red:.\n' "$workflow" "$main_red"
-          continue
-        fi
-        while IFS=$'\t' read -r sha wall result slowest; do
-          [ -n "$sha" ] || continue
-          case "$result" in cancelled|skipped) continue ;; esac
-          if [[ ! "$wall" =~ ^[0-9]+([.][0-9]+)?$ ]] || [ -z "$result" ] || [ -z "$slowest" ]; then
-            printf 'safe-push: ✗ CI budget %s: invalid local timing row; NOT pushed.\n' "$workflow"
-            return 1
-          fi
-          walls+=("$wall")
-          newest_job="$slowest"
-        done <<<"$rows"
-        ;;
-      *)
-        runs=$(gh run list --workflow "$workflow" --branch main --status completed --limit 10 \
-          --json databaseId,attempt,conclusion,createdAt,headSha) || {
-          ci_budget_hold "$workflow" 'gh failed to list completed main runs' || return 1
-          continue
-        }
-        ids=$(jq -r 'sort_by(.createdAt) | reverse | .[] | select(.conclusion != "cancelled" and .conclusion != "skipped") | "\(.databaseId) \(.attempt // 1) \(.headSha // "")"' <<<"$runs") || {
-          ci_budget_hold "$workflow" 'cannot parse main runs' || return 1
-          continue
-        }
-        if [ -n "$main_red" ] && [ "$(jq -r 'sort_by(.createdAt) | reverse | map(select(.conclusion != "cancelled" and .conclusion != "skipped")) | .[0] | "\(.databaseId) \(.conclusion)"' <<<"$runs")" = "$main_red failure" ]; then
-          printf 'safe-push: CI budget %s exemption — main is red at run %s and every commit names it in Main-red:.\n' "$workflow" "$main_red"
-          continue
-        fi
-        measure_dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/run-measurements/$(git remote get-url origin 2>/dev/null | tr -c 'A-Za-z0-9._-' _)"
-        while read -r id attempt head_sha; do
-          [ -n "$id" ] || continue
-          if [ -n "$since" ] && ! git merge-base --is-ancestor "$since" "${head_sha:-$since^}" 2>/dev/null; then
-            continue
-          fi
-          measurement=''
-          measure_cache="$measure_dir/$id-$attempt"
-          [ ! -r "$measure_cache" ] || IFS= read -r measurement <"$measure_cache" || measurement=''
-          if [ -z "$measurement" ]; then
-            jobs=$(gh api "repos/{owner}/{repo}/actions/runs/$id/jobs?per_page=100" --paginate --slurp) || {
-              ci_budget_hold "$workflow" "gh failed to read jobs for run $id" || return 1
-              continue 2
-            }
-            measurement=$(jq -r '
-              [.[].jobs[] | select(.started_at != null and .completed_at != null)
-                | {name, start: (.started_at | fromdateiso8601), end: (.completed_at | fromdateiso8601)}
-                | .seconds = (.end - .start)] as $jobs
-              | if ($jobs | length) == 0 then empty else
-                  ($jobs | max_by(.seconds)) as $slowest
-                  | [([$jobs[].end] | max) - ([$jobs[].start] | min), $slowest.name, $slowest.seconds] | @tsv
-                end' <<<"$jobs") || {
-              ci_budget_hold "$workflow" "cannot measure jobs for run $id" || return 1
-              continue 2
-            }
-            if [ -n "$measurement" ] && mkdir -p "$measure_dir"; then printf '%s\n' "$measurement" >"$measure_cache"; fi
-          fi
-          [ -n "$measurement" ] || continue
-          IFS=$'\t' read -r wall slowest job_seconds <<<"$measurement"
-          if [ "${#walls[@]}" = 0 ]; then newest_job="$slowest"; newest_seconds="$job_seconds"; fi
-          walls+=("$wall")
-          [ "${#walls[@]}" -lt 3 ] || break
-        done <<<"$ids"
-        ;;
-    esac
-    if [ "${#walls[@]}" -lt "$need" ]; then
-      printf 'safe-push: CI budget %s: %s usable completed main runs (need %s) — passing.\n' "$workflow" "${#walls[@]}" "$need"
-      continue
-    fi
-    [ -z "$since" ] || printf 'safe-push: CI budget %s: measuring %s main runs since CI-budget commit %s.\n' "$workflow" "${#walls[@]}" "${since:0:12}"
-    median=$(printf '%s\n' "${walls[@]}" | sort -n | sed -n "$(( (${#walls[@]} + 1) / 2 ))p")
-    if [ -n "$ceiling" ] && awk -v median="$median" -v budget="$budget" -v ceiling="$ceiling" \
-        'BEGIN { exit !(median > budget && median <= ceiling) }'; then
-      ci_budget_debt "$workflow" "$median" "$budget" "$ceiling"
-      ci_budget_clear "$workflow"
-      continue
-    fi
-    if awk -v median="$median" -v budget="$budget" 'BEGIN { exit !(median > budget) }'; then
-      [ -z "$newest_seconds" ] || newest_job="$newest_job (${newest_seconds}s)"
-      ci_budget_hold "$workflow" "median ${median}s > budget ${budget}s; slowest job in most recent run: $newest_job" \
-        "$median" "$budget" || return 1
-      continue
-    fi
-    ci_budget_clear "$workflow"
-  done <<<"$budgets"
-}
-
-code_health_gated=""
-code_health_gate() {
-  local base="$1" head="$2" code_health has_structure=0 status=0
-  [ "$code_health_gated" != "$base $head" ] || return 0
-  code_health="${SAFE_PUSH_CODE_HEALTH:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/code-health}"
-  git cat-file -e "$head:structure.toml" 2>/dev/null && has_structure=1
-  if [ -x "$code_health" ]; then
-    (cd "$(git rev-parse --show-toplevel)" && "$code_health" gate "$base" "$head") || status=$?
-    case "$status" in
-      0) ;;
-      1) echo "safe-push: ✗ code-health gate refused — NOT pushed."; exit 1 ;;
-      *)
-        if [ "$has_structure" -eq 1 ]; then
-          echo "safe-push: ✗ code-health gate failed (exit $status) — fix the tool; NOT pushed."; exit 1
-        fi
-        echo "safe-push: code-health gate failed (exit $status) in a repo with no structure.toml — continuing"
-        ;;
-    esac
-  elif [ "$has_structure" -eq 1 ]; then
-    echo "safe-push: code-health missing at $code_health — refusing to push a repo with structure.toml ungated; NOT pushed."; exit 1
-  fi
-  code_health_gated="$base $head"
-}
-
-# Gates that judge process rather than whether main works run after the push; each failure is one issue, never a refusal.
-after_landing_gates=(code-health:code_health_landed instruction-limits:instruction_limits_landed
-  generated-rewrite:generated_rewrite_scan ci-budget:ci_budget_scan)
-code_health_landed() { code_health_gate "${1%%..*}" "${1##*..}"; }
-instruction_limits_landed() { check_instruction_limits "${1##*..}"; }
-
-run_after_landing_gates() {
-  local base="$1" head="$2" report="$3" entry name failed=0
-  repo_root=$(git rev-parse --show-toplevel) && origin_url=$(git remote get-url --push origin) || return 2
-  mkdir -p "$report"
-  for entry in "${after_landing_gates[@]}"; do
-    name=${entry%%:*}
-    if ("${entry#*:}" "$base..$head") >"$report/$name.log" 2>&1; then
-      cat -- "$report/$name.log"
-      rm -f -- "$report/$name.log"
-      printf 'safe-push: after-landing gate %s passed\n' "$name"
-    else
-      failed=1
-      cat -- "$report/$name.log"
-      printf 'safe-push: after-landing gate %s failed\n' "$name"
-    fi
-  done
-  return "$failed"
 }
 
 publication_scan() {
   north land scan publication "$1" "$2"
 }
 
-if [ "${#after_landing[@]}" -eq 3 ]; then
-  run_after_landing_gates "${after_landing[@]}"
-  exit $?
-fi
 if [ "${#publication_scan_range[@]}" -eq 2 ]; then
   publication_scan "${publication_scan_range[@]}"
   exit $?
@@ -727,7 +429,7 @@ spawn_after_landing_gates() {
   (drop_lock_fd; [ -z "${output_lock_fd:-}" ] || exec {output_lock_fd}<&-
     setsid -f ${scope:+"$scope" --user --scope --quiet --collect --slice=agent.slice} north after-landing --git-dir "$safe_push_common_dir" --base "$base" --head "$head" \
       --safe-push "$(readlink -f "${BASH_SOURCE[0]}")" </dev/null >"$log" 2>&1) || return 0
-  echo "safe-push: after-landing gates (${after_landing_gates[*]%%:*}) run in the background on ${head:0:12}; each failure files one issue; log $log"
+  echo "safe-push: after-landing gates (code-health, instruction-limits, generated-rewrite, ci-budget) run in the background on ${head:0:12}; each failure files one issue; log $log"
 }
 
 lane_commits_missing() {

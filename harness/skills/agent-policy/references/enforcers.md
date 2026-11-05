@@ -56,7 +56,7 @@ These run for every provider, because every landing goes through `safe-push`.
 | --- | --- |
 | No force or destructive pushes | `safe-push` argument check |
 | Origin carries the default branch only; publish with `--to main` | `enforce_one_branch_main` |
-| Repository AGENTS.md and instruction files stay within their limits | `check_instruction_limits` (`agent-instruction-check`) |
+| Repository AGENTS.md and instruction files stay within their limits | `north after-landing` instruction-limits gate (`agent-instruction-check`) |
 | No secrets in pushed commits | gitleaks secret scan |
 | Private identity values never reach a public repository | `denylist_scan` |
 | Tom-specific facts in a public skill live behind a `south:` pointer | `denylist_scan` (south `privacy/public-denylist.toml` host, account, billing and ID rules; a missing deny-list refuses a public push where south exists) |
@@ -65,8 +65,8 @@ These run for every provider, because every landing goes through `safe-push`.
 | Core tools stay; other tool removals need `Removes-tool:` | `tool_removal_scan` |
 | No added test skip or focus without a `Test-change:` trailer, and no added `MUTANT:` marker | `test_integrity_scan` |
 | Generated records are not mass-rewritten without their declared inputs changing | `generated_rewrite_scan` |
-| Main's CI budget is respected | `ci_budget_scan` |
+| Main's CI budget is respected | `north after-landing` ci-budget gate (`north land scan ci-budget`) |
 | No new Python or script path, Python or script growth, or shell past 80 code lines without a Tom-approved allowlist entry | `run_language_gate` (`north language-gate`) |
 | A new dependency names its reason in a `Dependency:` trailer, and new versions wait out a 7-day cooldown unless `Dependency-Urgent:` cites an advisory (the root `nixpkgs` locked to a `NixOS/nixpkgs` `nixos-*` channel is exempt, so nightly security inputs land) | `north dep-gate` |
-| No new structural debt in a repo with structure.toml | `code-health gate` |
+| No new structural debt in a repo with structure.toml | `north after-landing` code-health gate (`code-health gate`) |
 | The repository's pre-push checks pass on the rebased lane | pre-push hook and landing train |
