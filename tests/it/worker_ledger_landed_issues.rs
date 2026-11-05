@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
-const FLEET: &str = r#"[{"name":"sdonly-1127b","account":"d","conversation":"sdonly","parent":null,"task_ref":"makgora#1127","effort":"medium","created_ms":0},{"name":"flaky-shared-target","account":"d","conversation":"flaky","parent":null,"task_ref":"north#437","effort":"medium","created_ms":0},{"name":"settle-transient-bound","account":"d","conversation":"settle","parent":null,"task_ref":"north#308","effort":"medium","created_ms":0},{"name":"queued-600","account":"d","conversation":"queued","parent":null,"task_ref":"north#600","effort":"medium","created_ms":0},{"name":"b-side","account":"b","conversation":"bside","parent":null,"task_ref":"north#700","effort":"medium","created_ms":0}]"#;
+const FLEET: &str = r#"[{"name":"sdonly-1127b","account":"d","conversation":"sdonly","parent":null,"task_ref":"makgora#1127","effort":"medium","created_ms":0},{"name":"flaky-shared-target","account":"d","conversation":"flaky","parent":null,"task_ref":"north#437","effort":"medium","created_ms":0},{"name":"settle-transient-bound","account":"d","conversation":"settle","parent":null,"task_ref":"north#308","effort":"medium","created_ms":0},{"name":"queued-600","account":"d","conversation":"queued","parent":null,"task_ref":"north#600","effort":"medium","created_ms":0},{"name":"offload-runtime-pin","account":"d","conversation":"offload","parent":null,"task_ref":"north#482","effort":"medium","created_ms":0},{"name":"north-88-d0020","account":"d","conversation":"silent","parent":null,"task_ref":"north#88","effort":"medium","created_ms":0},{"name":"b-side","account":"b","conversation":"bside","parent":null,"task_ref":"north#700","effort":"medium","created_ms":0}]"#;
 const PUSHED: &str = "1791425100";
 
 fn rig(root: &Path) {
@@ -84,10 +84,12 @@ fn a_lane_autoland_or_another_hosts_lander_took_to_main_lands_its_run_and_counts
     let north_repo = checkout(root, "north");
     git(&north_repo, "2026-10-08T01:30:00Z", &["checkout", "-q", "-b", "flaky-shared-target"]);
     let lane_tip = commit(&north_repo, "2026-10-08T01:30:00Z", "Share one target dir between flaky tests (north#437)");
+    let batched_tip = commit(&north_repo, "2026-10-08T01:35:00Z", "Pin the offload runtime (north#482)");
     git(&north_repo, "2026-10-08T01:30:00Z", &["checkout", "-q", "main"]);
     commit(&north_repo, "2026-10-08T01:50:00Z", "Another lane (north#12)");
     let rebased = commit(&north_repo, "2026-10-08T02:10:00Z", "Share one target dir between flaky tests (north#437)");
     let settled = commit(&north_repo, "2026-10-08T02:20:00Z", "Settle the transient bound, box 2 (north#308)");
+    let batched = commit(&north_repo, "2026-10-08T02:25:00Z", "Pin the offload runtime (north#482)");
     let queued = commit(&north_repo, "2026-10-08T02:30:00Z", "Queue the change (north#600)");
     git(&north_repo, "2026-10-08T02:30:00Z", &["update-ref", "refs/remotes/origin/main", "HEAD"]);
 
@@ -95,6 +97,7 @@ fn a_lane_autoland_or_another_hosts_lander_took_to_main_lands_its_run_and_counts
     transcript(root, "flaky", "north#437", "Done: the lane is queued for the Nexus lander.");
     transcript(root, "settle", "north#308", "Not done: box 2 landed and is ticked; boxes 3-4 keep north#308 open.");
     transcript(root, "queued", "north#600", "Not done: the change is queued.");
+    transcript(root, "offload", "north#482", "Done: the runtime pin is queued for the lander.");
     transcript(root, "bside", "north#700", "Done: landed.");
     fs::create_dir_all(root.join("state/safe-push")).unwrap();
     let rows = [
@@ -102,6 +105,8 @@ fn a_lane_autoland_or_another_hosts_lander_took_to_main_lands_its_run_and_counts
         format!("{PUSHED}\tnorth\tflaky-shared-target\t{lane_tip}\t\tflaky-shared-target"),
         format!("{PUSHED}\tnorth\tsettle-transient-bound\t{settled}\t{settled}\tsettle-transient-bound"),
         format!("{PUSHED}\tnorth\tqueued-600\t{queued}\t{queued}\tqueued-600"),
+        format!("{PUSHED}\tnorth\toffload-runtime-pin\t{batched_tip}\t{queued}\toffload-runtime-pin"),
+        format!("{PUSHED}\tnorth\tnorth-88-d0020\t{queued}\t{queued}\tnorth-88-d0020"),
         format!("{PUSHED}\tnorth\tb-side\t{queued}\t{queued}\tb-side"),
     ];
     fs::write(root.join("state/safe-push/pushes.tsv"), rows.join("\n") + "\n").unwrap();
@@ -110,14 +115,17 @@ fn a_lane_autoland_or_another_hosts_lander_took_to_main_lands_its_run_and_counts
     assert!(recorded.status.success(), "{}", String::from_utf8_lossy(&recorded.stderr));
     assert_eq!(run_of(root, "sdonly"), format!("makgora#1127|done|1|{fast_forwarded}"), "an Autoland queue push lands with the tip that reached main");
     assert_eq!(run_of(root, "flaky"), format!("north#437|done|1|{rebased}"), "a lane another host's lander rebased lands with the rebased commit");
+    assert_eq!(run_of(root, "offload"), format!("north#482|done|1|{batched}"), "a lane landed in a batch lands with its own commit, not the batch tip safe-push logged");
 
     let measured = north(root, &["worker-ledger", "--landed-issues", "d", "--day", "2026-10-08"]);
     assert!(measured.status.success(), "{}", String::from_utf8_lossy(&measured.stderr));
     let expected = format!(
-        "account d on 2026-10-08:\ndone makgora#1127 sdonly-1127b {}\ndone north#308 settle-transient-bound {}\ndone north#437 flaky-shared-target {}\nmiss north#600 queued-600 {}\n3 of 4 landed issues have a done-and-landed run (75%)\n",
+        "account d on 2026-10-08:\ndone makgora#1127 sdonly-1127b {}\ndone north#308 settle-transient-bound {}\ndone north#437 flaky-shared-target {}\ndone north#482 offload-runtime-pin {}\nmiss north#600 queued-600 {} (landed, Not done without its box ticked)\nmiss north#88 north-88-d0020 {} (no run row)\n4 of 6 landed issues have a done-and-landed run (66%)\n",
         &fast_forwarded[..9],
         &settled[..9],
         &rebased[..9],
+        &batched[..9],
+        &queued[..9],
         &queued[..9]
     );
     assert_eq!(String::from_utf8(measured.stdout).unwrap(), expected);

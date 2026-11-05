@@ -67,17 +67,19 @@ impl MainIndex {
     }
 }
 
-/// The pushes with the commit each put on main: the one safe-push logged, else, for a lane that Autoland or
-/// another host's lander took to main, the commit [`MainIndex::reached`] finds for its tip.
+/// The pushes with the commit each put on main: the commit [`MainIndex::reached`] finds for its tip, else the trunk
+/// commit safe-push logged, which for a batched landing is the batch's tip that every lane in it shares.
 pub fn settle(pushes: Vec<Push>, main: &MainIndex, subject: impl Fn(&Push) -> Option<String>) -> Vec<Push> {
     let newest = main.shas.iter().filter_map(|(_, date, _)| utc(Some(date))).max();
     let indexed = |push: &Push| newest.as_deref().is_some_and(|newest| Timestamp::from_unix_millis(push.at_ms as i64).iso().as_str() <= newest);
     pushes
         .into_iter()
         .map(|mut push| {
-            if push.landed.is_empty() && !push.oid.is_empty() {
+            if !push.oid.is_empty() {
                 let rebased = || indexed(&push).then(|| main.reached("", subject(&push).as_deref(), push.at_ms)).flatten();
-                push.landed = main.reached(&push.oid, None, push.at_ms).or_else(rebased).unwrap_or_default();
+                if let Some(own) = main.reached(&push.oid, None, push.at_ms).or_else(rebased) {
+                    push.landed = own;
+                }
             }
             push
         })

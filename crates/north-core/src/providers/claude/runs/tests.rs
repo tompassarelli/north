@@ -248,3 +248,21 @@ fn a_push_logged_without_a_trunk_commit_takes_the_commit_that_reached_main() {
     assert_eq!(landed, [tip, rebased, String::new(), pinned, String::new()]);
     assert_eq!(*asked.borrow(), ["546c8bee4", "fffffffff"], "only a tip off main pushed before main's newest commit is looked up");
 }
+
+#[test]
+fn a_lane_landed_in_a_batch_takes_its_own_commit_not_the_batch_tip_safe_push_logged() {
+    let (own, other, batch) = ("1".repeat(40), "2".repeat(40), "3".repeat(40));
+    let main = MainIndex::parse(&format!(
+        "{own} 2026-11-05T09:01:00Z Pin the offload runtime (north#482)\n{other} 2026-11-05T09:01:00Z Watch the canary (north#482)\n{batch} 2026-11-05T09:01:00Z Add north digest (north#522)\n"
+    ));
+    let push = |oid: &str| Push { at_ms: crate::foundation::clock::Timestamp::parse("2026-11-05T09:00:00Z").unwrap().unix_millis() as u64, repository: "north".into(), branch: "lane".into(), oid: oid.into(), landed: batch.clone(), session: "s".into() };
+    let subject = |push: &Push| match &push.oid[..1] {
+        "a" => Some("Pin the offload runtime (north#482)".to_owned()),
+        "b" => Some("Watch the canary (north#482)".to_owned()),
+        _ => None,
+    };
+
+    let landed: Vec<String> = settle(vec![push(&"a".repeat(40)), push(&"b".repeat(40)), push(&"c".repeat(40)), push(&batch)], &main, subject).into_iter().map(|push| push.landed).collect();
+
+    assert_eq!(landed, [own, other, batch.clone(), batch]);
+}

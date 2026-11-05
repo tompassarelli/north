@@ -36,29 +36,58 @@ pub(super) fn landed_issues(argv: &[String], context: &Context, stdin: &mut dyn 
     let landings: Vec<Landing> = serde_json::from_reader(stdin).map_err(|error| Failure::Usage(format!("threads landed-issues reads a JSON array of landings on stdin: {error}")))?;
     let db = open(context.database, false)?;
     let mut statement = db.prepare("SELECT outcome, coalesce(report, ''), (coalesce(landed, 0) = 1 OR landed_sha IS NOT NULL) FROM runs WHERE agent = ?1")?;
-    let mut issues: BTreeMap<&str, (Vec<&Landing>, bool)> = BTreeMap::new();
+    let mut issues: BTreeMap<&str, Vec<(&Landing, Option<String>)>> = BTreeMap::new();
     for landing in &landings {
-        let mut covered = false;
+        let mut runs = Vec::new();
         for conversation in &landing.conversations {
-            let runs = statement.query_map(params![conversation], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?)))?;
-            for run in runs {
-                let (outcome, report, landed) = run?;
-                covered |= done_and_landed(&outcome, &report, landed);
+            let rows = statement.query_map(params![conversation], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?)))?;
+            for row in rows {
+                runs.push(row?);
             }
         }
-        let entry = issues.entry(&landing.issue).or_default();
-        entry.0.push(landing);
-        entry.1 |= covered;
+        let sessions = issues.entry(&landing.issue).or_default();
+        if !sessions.iter().any(|(seen, _)| seen.session == landing.session && seen.sha == landing.sha) {
+            sessions.push((landing, missed(&runs)));
+        }
     }
     let mut shown = String::new();
-    for (issue, (landed, covered)) in &issues {
-        let sessions: Vec<String> = landed.iter().map(|landing| format!("{} {}", landing.session, short(&landing.sha))).collect();
-        shown += &format!("{} {issue} {}\n", if *covered { "done" } else { "miss" }, sessions.join(", "));
+    let mut covered = 0;
+    for (issue, sessions) in &issues {
+        let done = sessions.iter().any(|(_, why)| why.is_none());
+        covered += usize::from(done);
+        let listed: Vec<String> = sessions
+            .iter()
+            .map(|(landing, why)| match why.as_deref().filter(|_| !done) {
+                Some(why) => format!("{} {} ({why})", landing.session, short(&landing.sha)),
+                None => format!("{} {}", landing.session, short(&landing.sha)),
+            })
+            .collect();
+        shown += &format!("{} {issue} {}\n", if done { "done" } else { "miss" }, listed.join(", "));
     }
-    let covered = issues.values().filter(|(_, covered)| *covered).count();
     let share = if issues.is_empty() { 0 } else { covered * 100 / issues.len() };
     shown += &format!("{covered} of {} landed issues have a done-and-landed run ({share}%)\n", issues.len());
     Ok(shown)
+}
+
+/// Why a session's runs hold no done-and-landed run, or nothing when one of them is.
+pub fn missed(runs: &[(String, String, bool)]) -> Option<String> {
+    if runs.iter().any(|(outcome, report, landed)| done_and_landed(outcome, report, *landed)) {
+        return None;
+    }
+    let outcomes = |landed: bool| {
+        let mut named: Vec<&str> = runs.iter().filter(|run| run.2 == landed).map(|run| run.0.as_str()).collect();
+        named.dedup();
+        named.join(", ")
+    };
+    Some(if runs.is_empty() {
+        "no run row".to_owned()
+    } else if !runs.iter().any(|run| run.2) {
+        format!("run landed=0, outcome {}", outcomes(false))
+    } else if runs.iter().any(|(outcome, _, landed)| *landed && outcome == "not done") {
+        "landed, Not done without its box ticked".to_owned()
+    } else {
+        format!("landed, outcome {}", outcomes(true))
+    })
 }
 
 fn short(sha: &str) -> &str {
@@ -79,5 +108,15 @@ mod tests {
         assert!(!done_and_landed("not done", "Not done: the change is queued.", true));
         assert!(!done_and_landed("done", "Done: box ticked.", false));
         assert!(!done_and_landed("unclear", "Box ticked.", true));
+    }
+
+    #[test]
+    fn a_miss_names_why_its_session_has_no_done_and_landed_run() {
+        let run = |outcome: &str, report: &str, landed: bool| (outcome.to_owned(), report.to_owned(), landed);
+        assert_eq!(missed(&[]), Some("no run row".into()));
+        assert_eq!(missed(&[run("done", "Done: queued.", false)]), Some("run landed=0, outcome done".into()));
+        assert_eq!(missed(&[run("not done", "Not done: box 3 remains.", true)]), Some("landed, Not done without its box ticked".into()));
+        assert_eq!(missed(&[run("idle", "Noted.", true), run("idle", "Noted.", true)]), Some("landed, outcome idle".into()));
+        assert_eq!(missed(&[run("idle", "Noted.", true), run("done", "Done: landed.", true)]), None);
     }
 }
