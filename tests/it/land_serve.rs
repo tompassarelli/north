@@ -89,6 +89,7 @@ impl Fixture {
         for directory in [&state, &trace, &bin] {
             fs::create_dir_all(directory).unwrap();
         }
+        fs::write(root.join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
         git(&root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
         fs::create_dir_all(&repo).unwrap();
         git(&repo, &["init", "-q", "-b", "main"]);
@@ -176,6 +177,8 @@ impl Fixture {
             .env("FAKE_REMOTE_HOMES", self.root.join("remote-homes"))
             .env("GH_TOKEN", "push-token")
             .env("GITHUB_TOKEN", "push-token")
+            .env("AGENT_CAPACITY_LOADAVG", self.root.join("loadavg"))
+            .env("AGENT_CAPACITY_CORES", "4")
             .env("SOPS_AGE_KEY_FILE", self.root.join("age.key"));
         command
     }

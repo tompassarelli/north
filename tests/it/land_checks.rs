@@ -82,6 +82,7 @@ impl Fixture {
         script(&stubs.join("lease-probe.sh"), LEASE_PROBE);
         fs::create_dir_all(root.path().join("state")).unwrap();
         fs::create_dir_all(root.path().join("runtime")).unwrap();
+        fs::write(root.path().join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
         Self { root, repo, base, head }
     }
 
@@ -110,6 +111,8 @@ impl Fixture {
             .env("XDG_RUNTIME_DIR", self.path("runtime"))
             .env("LEASE_LOG", self.path("lease-log"))
             .env("LEASE_HELD", self.path("held"))
+            .env("AGENT_CAPACITY_LOADAVG", self.path("loadavg"))
+            .env("AGENT_CAPACITY_CORES", "4")
             .env_remove("AGENT_CAPACITY_LEASE")
             .env_remove("SAFE_PUSH_LAND_CAPACITY")
             .env_remove("SAFE_PUSH_LAND_OFFLOAD_HOST")
@@ -271,6 +274,29 @@ fn hung_check_judged_against_base() {
     let output = fixture.command_between(&lane, &next).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
     assert_eq!(output.status.code(), Some(75), "a base tree that also hung is no evidence against the lane: {}", text(&output));
     assert!(text(&output).contains(" also ran past it, so the hang is infrastructure, not this lane"), "{}", text(&output));
+}
+
+#[test]
+fn hung_check_on_a_loaded_host_is_infrastructure() {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: bash ../step.sh")]);
+    fs::write(fixture.path("step.sh"), "exit 0\n").unwrap();
+    let output = fixture.command().output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    fs::write(fixture.repo.join("file.txt"), "lane\n").unwrap();
+    git(&fixture.repo, &["commit", "-qam", "lane"]);
+    let lane = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    fs::write(fixture.path("step.sh"), "sleep 600\n").unwrap();
+
+    fs::write(fixture.path("loadavg"), "85.00 60.00 40.00 90/2000 1\n").unwrap();
+    let output = fixture.command_between(&fixture.head, &lane).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
+    assert_eq!(output.status.code(), Some(75), "a hang at load 85 on 4 cores, where the base tree passed, requeues the lane: {}", text(&output));
+    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
+    assert!(outcome.contains(" while this host ran at load 85.0 over its 4 cores, so the hang is infrastructure, not this lane"), "{outcome}");
+
+    fs::write(fixture.path("loadavg"), "3.00 2.00 1.00 3/2000 1\n").unwrap();
+    let output = fixture.command_between(&fixture.head, &lane).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
+    assert_eq!(output.status.code(), Some(124), "the same hang at load 3 on 4 cores refuses the lane: {}", text(&output));
+    assert!(text(&output).contains("safe-push: land check bash ../step.sh hung: it ran past its 2 s deadline on this lane, while base tree "), "{}", text(&output));
 }
 
 #[test]

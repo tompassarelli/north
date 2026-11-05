@@ -568,20 +568,48 @@ impl Shared {
     async fn judge_hang(&self, command: &str, timeout: u64, base: Base, log: &Path) -> i32 {
         let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
         let base = match base {
-            Base::Within(seconds) => {
-                warn(&format!("safe-push: land check {command} hung: it ran past its {timeout} s deadline on this lane, while base tree {tree} finished it in {seconds} s; log: {}; NOT pushed.", log.display()));
-                self.cache_record(TIMED_OUT, &[command.to_owned()]).await;
-                self.outcome.record(&["event", "land check", "failed", &format!("{command} hung past its {timeout} s deadline; log: {}", log.display())]);
-                return TIMED_OUT;
-            }
-            Base::Exceeded => "also ran past it",
-            Base::Untimed => "has never been timed",
+            Base::Within(seconds) => match self.overloaded_host(command) {
+                Some(host) => format!("finished it in {seconds} s while this host ran at load {:.1} over its {} cores", host.load, host.cores),
+                None => {
+                    warn(&format!("safe-push: land check {command} hung: it ran past its {timeout} s deadline on this lane, while base tree {tree} finished it in {seconds} s; log: {}; NOT pushed.", log.display()));
+                    self.cache_record(TIMED_OUT, &[command.to_owned()]).await;
+                    self.outcome.record(&["event", "land check", "failed", &format!("{command} hung past its {timeout} s deadline; log: {}", log.display())]);
+                    return TIMED_OUT;
+                }
+            },
+            Base::Exceeded => "also ran past it".to_owned(),
+            Base::Untimed => "has never been timed".to_owned(),
         };
         let detail = format!("land check {command} ran past its {timeout} s deadline and base tree {tree} {base}, so the hang is infrastructure, not this lane");
         warn(&format!("safe-push: {detail}; log: {}; NOT pushed.", log.display()));
         self.outcome.record(&["skip", &detail]);
         self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {}", log.display())]);
         INFRASTRUCTURE
+    }
+
+    fn overloaded_host(&self, command: &str) -> Option<HostLoad> {
+        if self.offload_host_for(command).is_some() {
+            return None;
+        }
+        HostLoad::read().filter(|host| host.load > host.cores as f64)
+    }
+}
+
+struct HostLoad {
+    load: f64,
+    cores: usize,
+}
+
+impl HostLoad {
+    fn read() -> Option<Self> {
+        let path = std::env::var_os("AGENT_CAPACITY_LOADAVG").unwrap_or_else(|| "/proc/loadavg".into());
+        let text = fs::read_to_string(path).ok()?;
+        let mut averages = text.split_whitespace().map(|field| field.parse::<f64>().ok());
+        let one = averages.next()??;
+        let load = averages.next().flatten().map_or(one, |five| one.max(five));
+        let configured = std::env::var("AGENT_CAPACITY_CORES").ok().and_then(|cores| cores.parse().ok()).filter(|cores| *cores > 0);
+        let cores = configured.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, usize::from));
+        Some(Self { load, cores })
     }
 }
 

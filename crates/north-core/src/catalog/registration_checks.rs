@@ -357,7 +357,7 @@ impl OwnerCheckRoots {
         })
     }
 
-    fn resolve(
+    pub(super) fn resolve(
         &self,
         repo: &str,
         current_root: &str,
@@ -381,8 +381,7 @@ impl OwnerCheckRoots {
         let reference = if canonical_root == current_root {
             current_head.to_owned()
         } else {
-            fetch_main(root)?;
-            "origin/main".into()
+            fetch_main(root)?
         };
         Ok((root.clone(), reference))
     }
@@ -411,11 +410,14 @@ fn canonical(root: &Path) -> NorthResult<String> {
         })
 }
 
-fn fetch_main(root: &Path) -> NorthResult<()> {
+fn fetch_main(root: &Path) -> NorthResult<String> {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
+    let private = format!("refs/north/check-owners/{}-{nanos}", std::process::id());
+    let refspec = format!("+refs/heads/main:{private}");
     let result = Command::new("git")
         .arg("-C")
         .arg(root)
-        .args(["fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"])
+        .args(["fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", &refspec])
         .status()
         .map_err(|error| {
             NorthError::Configuration(format!("cannot fetch {} origin/main: {error}", root.display()))
@@ -426,7 +428,9 @@ fn fetch_main(root: &Path) -> NorthResult<()> {
             root.display()
         ));
     }
-    Ok(())
+    let fetched = git_text(root, &["rev-parse", "--verify", &format!("{private}^{{commit}}")]);
+    let _ = git_output(root, &["update-ref", "-d", &private]);
+    fetched
 }
 
 fn git_text(root: &Path, arguments: &[&str]) -> NorthResult<String> {
