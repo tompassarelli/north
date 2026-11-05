@@ -15,6 +15,16 @@ fn nix_available() -> bool {
     std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|directory| directory.join("nix").is_file()))
 }
 
+const DEV_SHELL_SOURCES: [&str; 6] = ["flake.nix", "flake.lock", "rust-toolchain.toml", "bin/land-shell", "crates/north-core/src/capacity/dev_shell.rs", "tests/it/dev_shell_target.rs"];
+
+fn landing_leaves_the_dev_shell_unchanged() -> Option<String> {
+    let revision = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+    let (base, head) = (revision("SAFE_PUSH_LAND_BASE")?, revision("SAFE_PUSH_LAND_HEAD")?);
+    let diff = Command::new("git").args(["-C", env!("CARGO_MANIFEST_DIR"), "diff", "--name-only", &base, &head, "--"]).output().ok().filter(|output| output.status.success())?;
+    let changed = String::from_utf8(diff.stdout).ok()?;
+    (!changed.lines().any(|path| DEV_SHELL_SOURCES.contains(&path))).then(|| format!("{base}..{head}"))
+}
+
 fn dev_shell(directory: &Path, target: &Path, command: &[&str]) -> std::process::Output {
     let mut shell = Command::new("nix");
     shell.args(["develop", env!("CARGO_MANIFEST_DIR"), "-c"]).args(command).current_dir(directory).env("CARGO_TARGET_DIR", target);
@@ -28,6 +38,10 @@ fn dev_shell(directory: &Path, target: &Path, command: &[&str]) -> std::process:
 fn the_dev_shell_keys_a_shared_target_to_its_checkout_and_leaves_the_checkouts_own_target_unkeyed() {
     if !nix_available() {
         eprintln!("nix is not on PATH; the dev shell is built only on hosts that have it");
+        return;
+    }
+    if let Some(range) = landing_leaves_the_dev_shell_unchanged() {
+        eprintln!("the landing {range} changes none of {DEV_SHELL_SOURCES:?}; the dev shell end to end runs when one of them changes and on every run outside a landing");
         return;
     }
     let scratch = tempfile::tempdir().unwrap();

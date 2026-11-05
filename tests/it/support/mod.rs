@@ -41,3 +41,5 @@ pub fn fleet_ledger(home: &Path) {
         .execute_batch("CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('claim','release')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;")
         .unwrap();
 }
+
+pub mod template;
