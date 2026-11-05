@@ -38,6 +38,7 @@ capacity_queue_ticket north-capacity
 capacity_runtime_follow north-capacity-host north-runtime
 capacity_status north-capacity
 capacity_unseen_pressure north-capacity
+carry_matrix north-capacity north-runtime
 claim_readers north-threads
 code_health_edit_hook north-guard
 code_health_signal north-guard

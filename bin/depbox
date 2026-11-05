@@ -44,7 +44,7 @@ visible() {
   local b; for b in "${binds[@]}"; do case "$1/" in "$b"/*) return 0 ;; esac; done
   for b in /tmp "/run/user/$uid" "$home" "$HOME" /run/secrets.d; do case "$1/" in "$b"/*) return 1 ;; esac; done
 }
-cmd=$(command -v -- "$1") || cmd=
+cmd=$(command -v -- "$1") || { printf 'depbox: %s: command not found\n' "$1" >&2; exit 127; }
 if [[ $cmd == */* ]] && ! { visible "$(realpath -sm -- "$cmd")" && visible "$(realpath -m -- "$cmd")"; }; then
   printf 'depbox: %s is hidden inside the sandbox; under /tmp, /run/user and the home directory it sees only %s\n' "$cmd" "${binds[*]}" >&2
   exit 2

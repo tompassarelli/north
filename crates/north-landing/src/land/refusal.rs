@@ -89,8 +89,13 @@ fn first_errors(text: &str) -> Vec<&str> {
     wanted(text).into_iter().filter(|(line, block)| *block || seen.insert(*line)).map(|(line, _)| line).take(ERROR_LINES).collect()
 }
 
+/// A line Nix prints for an error it ignored itself, such as a busy eval cache, which never explains a failure.
+fn nix_ignored(line: &str) -> bool {
+    line.trim_start().split_once(" (ignored): ").is_some_and(|(level, _)| level == "error" || level == "warning")
+}
+
 fn last_lines(text: &str) -> Vec<&str> {
-    let kept: Vec<&str> = text.lines().map(str::trim_end).filter(|line| !line.is_empty() && !line.starts_with("safe-push: verdict ")).collect();
+    let kept: Vec<&str> = text.lines().map(str::trim_end).filter(|line| !line.is_empty() && !line.starts_with("safe-push: verdict ") && !nix_ignored(line)).collect();
     kept[kept.len().saturating_sub(TAIL_LINES)..].to_vec()
 }
 
@@ -156,6 +161,14 @@ mod tests {
         assert_eq!(head.lines().count(), ERROR_LINES);
         assert_eq!(tail.lines().count(), TAIL_LINES);
         assert!(tail.starts_with("tail 20\n") && tail.ends_with("tail 39"), "{tail}");
+    }
+
+    #[test]
+    fn drops_the_errors_nix_marks_ignored_from_the_summary() {
+        let busy = "error (ignored): SQLite database '/home/u/.cache/nix/eval-cache-v6/x.sqlite' is busy";
+        let log = format!("{busy}\nCompiling x\n  warning (ignored): cannot write\nland check: cargo test exited 101 after 3s\n{busy}\n");
+        assert_eq!(reason(&log), "land check: cargo test exited 101 after 3s\nlast lines of the log:\nCompiling x");
+        assert_eq!(errors(&format!("{busy}\nplain failure\n")), "plain failure");
     }
 
     #[test]

@@ -48,8 +48,8 @@ fn a_lander_runtime_missing_on_the_build_host_stops_the_run_as_a_transport_failu
 }
 
 #[test]
-fn the_remote_script_receives_the_landers_runtime_as_its_eleventh_word() {
-    assert!(super::REMOTE.contains("runtime=${11:-}"));
+fn the_remote_script_receives_the_landers_runtime_as_its_tenth_word() {
+    assert!(super::REMOTE.contains("runtime=${10:-}"));
 }
 
 #[test]

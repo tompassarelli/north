@@ -5,7 +5,7 @@ use serde_json::json;
 use super::admission::{self, Facts};
 use super::effects::Host;
 use super::enrich::admit_enriched;
-use super::{agent_load, deadline, dev_shell, game_reserve, gaming, gate, host, laptop_auto, mode, native_hold, seat_idle, unleased, warcraft, watchdog};
+use super::{agent_load, carry, deadline, dev_shell, game_reserve, gaming, gate, host, laptop_auto, mode, native_hold, seat_idle, unleased, warcraft, watchdog};
 
 fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
     let status = match arguments.first().map(String::as_str) {
@@ -22,6 +22,7 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("deadline") => deadline::run(&arguments[1..]),
         Some("dev-shell") => dev_shell::run(&arguments[1..]),
         Some("exec") => dev_shell::exec(&arguments[1..]),
+        Some("carry") => carry::run(&arguments[1..]),
         Some("warcraft-clients") if arguments.len() == 1 => warcraft::run(),
         Some("unleased") if arguments.len() == 1 => unleased::run(),
         Some("watchdog") => watchdog::run(&arguments[1..]),
@@ -29,7 +30,7 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("calibration") => host::calibration_command(&arguments[1..]),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | mode status|tick|hold [--minutes N] [PHRASE]|extend|release | gaming on|off|status | game-reserve on [--auto]|off|playing|status | offload choose|cost|free|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | exec [--dev-shell DIRECTORY] -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog sample|report|replay|rest-check|step | model [KEY] | calibration [--since 24h] | quiet < LEASES.json | host OPERATION ... | pull [--host NAME] | actions-pull | gate [--class] PROGRAM [ARG...]");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | mode status|tick|hold [--minutes N] [PHRASE]|extend|release | gaming on|off|status | game-reserve on [--auto]|off|playing|status | offload choose|cost|free|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | exec [--dev-shell DIRECTORY] -- COMMAND... | carry --list [--into sandbox|fetch|offload] | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog sample|report|replay|rest-check|step | model [KEY] | calibration [--since 24h] | quiet < LEASES.json | host OPERATION ... | pull [--host NAME] | actions-pull | gate [--class] PROGRAM [ARG...]");
             2
         }
     };

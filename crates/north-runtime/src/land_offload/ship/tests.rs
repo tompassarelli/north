@@ -1,4 +1,4 @@
-use super::{CommitId, Land, RUN, VERIFY, WRONG_TREE, bundle, job_ref, remote_checkout};
+use super::{CommitId, Land, RUN, VERIFY, WRONG_TREE, bundle, carried, job_ref, remote_checkout};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -8,11 +8,16 @@ fn remote_run(command: &str, flake: bool) -> String {
 }
 
 fn remote_run_landing(command: &str, flake: bool, landing: &str) -> String {
-    remote_run_with(command, flake, landing, "", None)
+    remote_run_with(command, flake, &[("SAFE_PUSH_LANDING", landing)], None)
 }
 
-fn remote_run_with(command: &str, flake: bool, landing: &str, landref: &str, home: Option<&Path>) -> String {
-    remote_run_flake(command, flake.then_some(FLAKE_WITH_DEV_SHELL), landing, landref, home)
+fn remote_run_with(command: &str, flake: bool, caller: &[(&str, &str)], home: Option<&Path>) -> String {
+    remote_run_flake(command, flake.then_some(FLAKE_WITH_DEV_SHELL), caller, home)
+}
+
+fn carried_from(caller: &[(&str, &str)]) -> String {
+    let land = Land { ssh: "", checkout: Path::new("."), base: Some(CommitId("b".to_owned())), head: CommitId("h".to_owned()), timeout_seconds: 10, command: "" };
+    carried(&land, |name| caller.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned()))
 }
 
 const FLAKE_WITH_DEV_SHELL: &str = "{ outputs = { devShells = 1; }; }";
@@ -31,7 +36,7 @@ esac
 exit 64
 "#;
 
-fn remote_run_flake(command: &str, flake: Option<&str>, landing: &str, landref: &str, home: Option<&Path>) -> String {
+fn remote_run_flake(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home: Option<&Path>) -> String {
     let slot = tempfile::tempdir().unwrap();
     let bin = tempfile::tempdir().unwrap();
     if let Some(text) = flake {
@@ -43,16 +48,15 @@ fn remote_run_flake(command: &str, flake: Option<&str>, landing: &str, landref: 
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let fresh_home = tempfile::tempdir().unwrap();
     let output = Command::new("sh")
-        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h landing={} landref={}\n{RUN}", shell(slot.path()), shell(Path::new(command)), landing, super::quote(landref))])
+        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h carried={}\n{RUN}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)))])
         .env("PATH", path)
         .env_remove("SAFE_PUSH_LAND_BASE")
         .env_remove("SAFE_PUSH_LAND_HEAD")
         .env_remove("SAFE_PUSH_LAND_REF")
         .env_remove("SAFE_PUSH_LANDING")
         .env_remove("SAFE_PUSH_LAND_CPUS")
-        .env_remove("cpus")
         .env_remove("SAFE_PUSH_LAND_PACKAGES")
-        .env_remove("packages")
+        .env_remove("SAFE_PUSH_LAND_IT")
         .env("HOME", home.unwrap_or(fresh_home.path()))
         .output()
         .unwrap();
@@ -132,7 +136,7 @@ fn reaping_forgets_a_run_whose_process_is_already_gone() {
 
 #[test]
 fn the_remote_script_records_its_owner_and_process_group_and_removes_them_on_exit() {
-    assert!(super::REMOTE.contains("owner=${10:-}"));
+    assert!(super::REMOTE.contains("owner=${9:-}"));
     assert!(super::REMOTE.contains(r#"printf '%s\n' "$owner" >"$root/$s.owner""#));
     assert!(super::REMOTE.contains(r#"printf '%s\n' "$$" >"$root/$s.pgid""#));
     assert!(super::REMOTE.contains(r#"rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid""#));
@@ -140,7 +144,7 @@ fn the_remote_script_records_its_owner_and_process_group_and_removes_them_on_exi
 
 #[test]
 fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
-    assert_eq!(remote_run_flake("echo plain", Some(FLAKE_WITHOUT_DEV_SHELL), "", "", None), "plain\n");
+    assert_eq!(remote_run_flake("echo plain", Some(FLAKE_WITHOUT_DEV_SHELL), &[], None), "plain\n");
 }
 
 #[test]
@@ -212,47 +216,39 @@ fn two_concurrent_jobs_at_the_same_head_bundle_under_distinct_refs() {
 
 #[test]
 fn a_landing_run_sees_the_offloads_base_head_and_published_ref_exactly_as_a_local_land_check_does() {
-    let seen = remote_run_with("echo \"$SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD [$SAFE_PUSH_LAND_REF] $SAFE_PUSH_LANDING\"", false, "1", "land-check/lane-1", None);
+    let seen = remote_run_with("echo \"$SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD [$SAFE_PUSH_LAND_REF] $SAFE_PUSH_LANDING\"", false, &[("SAFE_PUSH_LANDING", "1"), ("SAFE_PUSH_LAND_BASE", "stale"), ("SAFE_PUSH_LAND_REF", "land-check/lane-1")], None);
     assert_eq!(seen, "b h [land-check/lane-1] 1\n");
-    let unpublished = remote_run_with("echo \"[$SAFE_PUSH_LAND_REF]\"", false, "1", "", None);
+    let unpublished = remote_run_with("echo \"[$SAFE_PUSH_LAND_REF]\"", false, &[("SAFE_PUSH_LANDING", "1"), ("SAFE_PUSH_LAND_REF", "")], None);
     assert_eq!(unpublished, "[]\n");
 }
 
 #[test]
-fn a_landing_run_sees_the_packages_and_cpus_the_lander_scoped_its_check_to() {
-    let bin = tempfile::tempdir().unwrap();
-    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
-    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
-    let seen = Command::new("sh")
-        .args(["-c", &format!("set -eu\nslot=. command={} limit=10 base=b head=h landing=1 landref= cpus=4 packages='-p north -p north-landing'\n{RUN}", super::quote("echo \"[$SAFE_PUSH_LAND_CPUS] [$SAFE_PUSH_LAND_PACKAGES]\""))])
-        .env("PATH", path)
-        .env("HOME", bin.path())
-        .env_remove("SAFE_PUSH_LAND_CPUS")
-        .env_remove("SAFE_PUSH_LAND_PACKAGES")
-        .output()
-        .unwrap();
-    assert_eq!(String::from_utf8_lossy(&seen.stdout), "[4] [-p north -p north-landing]\n", "{}", String::from_utf8_lossy(&seen.stderr));
-    assert_eq!(remote_run_with("echo \"[${SAFE_PUSH_LAND_CPUS-}]\"", false, "1", "", None), "[]\n");
+fn a_landing_run_sees_every_scope_the_lander_set_for_its_check() {
+    let caller = [("SAFE_PUSH_LANDING", "1"), ("SAFE_PUSH_LAND_CPUS", "4"), ("SAFE_PUSH_LAND_PACKAGES", "-p north -p north-landing"), ("SAFE_PUSH_LAND_IT", "carry_matrix"), ("SAFE_PUSH_LAND_RUNTIME_HEAD", "r")];
+    let seen = remote_run_with("echo \"[$SAFE_PUSH_LAND_CPUS] [$SAFE_PUSH_LAND_PACKAGES] [$SAFE_PUSH_LAND_IT] [$SAFE_PUSH_LAND_RUNTIME_HEAD]\"", false, &caller, None);
+    assert_eq!(seen, "[4] [-p north -p north-landing] [carry_matrix] [r]\n");
+    assert_eq!(remote_run_with("echo \"[${SAFE_PUSH_LAND_CPUS-}]\"", false, &[("SAFE_PUSH_LANDING", "1")], None), "[]\n");
 }
 
 #[test]
 fn a_run_that_is_not_a_landing_check_carries_no_landing_context() {
-    let seen = remote_run_with("echo \"[${SAFE_PUSH_LAND_BASE-}][${SAFE_PUSH_LAND_HEAD-}][${SAFE_PUSH_LAND_REF-}][${SAFE_PUSH_LANDING-}]\"", false, "", "stale", None);
-    assert_eq!(seen, "[][][][]\n");
+    let caller = [("SAFE_PUSH_LANDING", ""), ("SAFE_PUSH_LAND_REF", "stale"), ("SAFE_PUSH_LAND_CPUS", "4")];
+    let seen = remote_run_with("echo \"[${SAFE_PUSH_LAND_BASE-}][${SAFE_PUSH_LAND_HEAD-}][${SAFE_PUSH_LAND_REF-}][${SAFE_PUSH_LANDING-}][${SAFE_PUSH_LAND_CPUS-}]\"", false, &caller, None);
+    assert_eq!(seen, "[][][][][]\n");
 }
 
 #[test]
 fn the_hosts_runtime_bin_directory_leads_the_path_before_the_command_runs() {
     let home = tempfile::tempdir().unwrap();
     fs::create_dir_all(home.path().join(".local/bin")).unwrap();
-    let path = remote_run_with("echo \"$PATH\"", false, "", "", Some(home.path()));
+    let path = remote_run_with("echo \"$PATH\"", false, &[], Some(home.path()));
     assert!(path.starts_with(&format!("{}/.local/bin:", home.path().display())), "{path}");
 }
 
 #[test]
 fn a_host_without_a_runtime_directory_keeps_its_path() {
     let home = tempfile::tempdir().unwrap();
-    let path = remote_run_with("echo \"$PATH\"", false, "", "", Some(home.path()));
+    let path = remote_run_with("echo \"$PATH\"", false, &[], Some(home.path()));
     assert!(!path.contains(&home.path().display().to_string()), "{path}");
 }
 

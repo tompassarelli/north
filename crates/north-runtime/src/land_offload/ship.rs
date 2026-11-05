@@ -1,3 +1,4 @@
+use crate::capacity::carry;
 use std::fs::File;
 use std::io::Seek;
 use std::path::{Path, PathBuf};
@@ -28,7 +29,7 @@ echo "$free"
 "#;
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 landing=${8:-} landref=${9:-} owner=${10:-} runtime=${11:-} cpus=${12:-} packages=${13:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-}
 root=@ROOT@
 mkdir -p "$root"
 waited=0
@@ -109,11 +110,7 @@ if [ -n "${runtime:-}" ]; then
   [ -x "$runtime_dir/north" ] || { echo "offload: the lander runtime $runtime is not on this host" >&2; exit @TRANSPORT_FAILED@; }
   PATH="$runtime_dir:$PATH"; export PATH
 fi
-if [ "$landing" = 1 ]; then
-  export SAFE_PUSH_LAND_BASE=$base SAFE_PUSH_LAND_HEAD=$head SAFE_PUSH_LAND_REF=$landref SAFE_PUSH_LANDING=1
-  if [ -n "${cpus:-}" ]; then export SAFE_PUSH_LAND_CPUS=$cpus; fi
-  if [ -n "${packages:-}" ]; then export SAFE_PUSH_LAND_PACKAGES=$packages; fi
-fi
+if [ -n "${carried:-}" ]; then eval "export $carried"; fi
 limited() {
   if command -v north >/dev/null 2>&1; then north capacity deadline - "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
@@ -227,6 +224,22 @@ fn bundle(land: &Land, reference: &str) -> Result<File, String> {
     Ok(file)
 }
 
+/// The landing context a land check carries to the offload host as `NAME='value'` words, naming the shipped base and head; empty for any other run.
+fn carried(land: &Land, value: impl Fn(&str) -> Option<String>) -> String {
+    if value(carry::LANDING).as_deref() != Some("1") {
+        return String::new();
+    }
+    let words = carry::names(carry::Boundary::Offload).filter_map(|name| {
+        let value = match name {
+            carry::LAND_BASE => Some(land.base.as_ref().map_or("", CommitId::as_str).to_owned()),
+            carry::LAND_HEAD => Some(land.head.as_str().to_owned()),
+            _ => value(name),
+        };
+        value.map(|value| format!("{name}={}", quote(&value)))
+    });
+    words.collect::<Vec<_>>().join(" ")
+}
+
 pub(super) fn run(land: &Land) -> u8 {
     let (relative, name) = match checkout(land.checkout) {
         Ok(found) => found,
@@ -254,12 +267,8 @@ pub(super) fn run(land: &Land) -> u8 {
     }
     let runtime = own.map_or_else(String::new, |(sha, _)| sha);
     let base = land.base.as_ref().map_or("", CommitId::as_str);
-    let landing = if std::env::var("SAFE_PUSH_LANDING").is_ok_and(|value| value == "1") { "1" } else { "" };
-    let landref = if landing == "1" { std::env::var("SAFE_PUSH_LAND_REF").unwrap_or_default() } else { String::new() };
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
-    let cpus = if landing == "1" { std::env::var("SAFE_PUSH_LAND_CPUS").unwrap_or_default() } else { String::new() };
-    let packages = if landing == "1" { std::env::var("SAFE_PUSH_LAND_PACKAGES").unwrap_or_default() } else { String::new() };
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, landing, &landref, &owner, &runtime, &cpus, &packages].map(quote);
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime].map(quote);
     let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
     let sent = Command::new("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])
