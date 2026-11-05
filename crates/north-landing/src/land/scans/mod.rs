@@ -1,14 +1,16 @@
+pub mod dropped_commits;
 pub mod generated;
 pub(crate) mod git;
 pub mod language;
 pub mod outgoing;
 pub mod policy;
+pub mod stale_revert;
 pub mod test_integrity;
 pub mod tool_removal;
 
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan ci-budget|code-health|instruction-limits BASE..HEAD [--safe-push PATH]\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]";
+const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan ci-budget|code-health|instruction-limits BASE..HEAD [--safe-push PATH]\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan deps";
 
 struct Range<'a> {
     base: &'a str,
@@ -46,6 +48,9 @@ pub fn run(arguments: &[String]) -> u8 {
     match arguments {
         [name, rest @ ..] if name == "language" => language::run(rest),
         [name, rest @ ..] if matches!(name.as_str(), "ci-budget" | "code-health" | "instruction-limits") => crate::land::after::gates::scan(name, rest),
+        [name, rest @ ..] if name == "dropped-commits" => dropped_commits::run(&directory, rest),
+        [name, rest @ ..] if name == "stale-revert" => stale_revert::run(rest),
+        [name] if name == "deps" => super::slots::deps::run(&directory),
         [name, range] if name == "dep-gate" => dep_gate(&directory, range),
         [name, range] if name == "tool-removal" => {
             let home = std::env::var_os("HOME")
