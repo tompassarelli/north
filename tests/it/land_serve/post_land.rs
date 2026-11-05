@@ -58,3 +58,17 @@ fn a_revert_that_is_itself_red_is_not_reverted_again() {
     assert_eq!(post_land_runs(&fixture), 2);
     assert!(fixture.fleet().iter().any(|call| call.starts_with("fleet send --from service:north-land proxy ") && call.contains("a red fix")), "{:?}", fixture.fleet());
 }
+
+#[test]
+fn a_main_that_was_already_red_before_the_batch_blames_and_reverts_no_lane() {
+    let mut fixture = Fixture::new();
+    fixture.commit(&fixture.repo, "broken.txt", "red before the lane\n", "main already carries the break");
+    git(&fixture.repo, &["push", "-q", "origin", "main"]);
+    fixture.base = fixture.main();
+    fs::write(fixture.trace.join("post-land-red-if"), "broken.txt").unwrap();
+    let lane = fixture.lane("innocent", "innocent.txt", "innocent\n");
+    fixture.enqueue(&lane, None);
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.subjects(), ["change from innocent"]);
+    assert_eq!(post_land_runs(&fixture), 2, "the batch and its base");
+}

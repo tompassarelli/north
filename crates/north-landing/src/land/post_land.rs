@@ -86,7 +86,21 @@ fn locate(landed: &Landed, run: &Run) -> Option<usize> {
     if culprit.is_none() {
         println!("north land: post-land checks of {} are red, but the batch search could not name a lane", landed.head);
     }
+    if culprit == Some(0) && base_already_red(landed, run) {
+        return None;
+    }
     culprit
+}
+
+fn base_already_red(landed: &Landed, run: &Run) -> bool {
+    let Ok(before) = git(&landed.repo, &["rev-parse", &format!("{}^", landed.base)]) else { return false };
+    let verdict = check(&Landed { base: before, head: landed.base.clone(), ..landed.clone() }, &run.at(&landed.base));
+    println!("north land: post-land checks of the base {} before the first landed lane ended {verdict:?}", landed.base);
+    let red = matches!(verdict, Verdict::RedMain(_));
+    if red {
+        println!("north land: main was already red at {}, so no lane of {} is blamed or reverted", landed.base, landed.head);
+    }
+    red
 }
 
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
