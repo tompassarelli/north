@@ -2,12 +2,15 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::removed_surface::{Kind, Removed, invocation, removed_commands_and_flags, removed_in};
+
 const USAGE: &str = "usage: north bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]";
 const PREFIXES: [&str; 2] = ["tree/bin/", "${northBin}/"];
 const SOURCE_REF: &str = "origin/main";
 
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Reference {
+    pub kind: Kind,
     pub entry: String,
     pub holder: String,
     pub location: String,
@@ -54,15 +57,16 @@ pub fn names_entry(line: &str, entry: &str) -> bool {
     })
 }
 
-fn matching(entries: &[String], holder: &str, location: &str, line: &str) -> Vec<Reference> {
-    entries
-        .iter()
-        .filter(|entry| names_entry(line, entry))
-        .map(|entry| Reference { entry: entry.clone(), holder: holder.to_owned(), location: location.to_owned() })
-        .collect()
+fn matching(removed: &Removed, holder: &str, location: &str, line: &str) -> Vec<Reference> {
+    let reference = |kind, entry: &str| Reference { kind, entry: entry.to_owned(), holder: holder.to_owned(), location: location.to_owned() };
+    let mut found: Vec<Reference> = removed.bins.iter().filter(|entry| names_entry(line, entry)).map(|entry| reference(Kind::Bin, entry)).collect();
+    if let Some(words) = invocation(line, &PREFIXES) {
+        found.extend(removed_in(&words, removed).into_iter().map(|(kind, name)| reference(kind, &name)));
+    }
+    found
 }
 
-fn source_references(source: &Source, entries: &[String]) -> Result<Vec<Reference>, String> {
+fn source_references(source: &Source, removed: &Removed) -> Result<Vec<Reference>, String> {
     let main = source.dir.join("main");
     git(&main, &["fetch", "-q", "origin", "main"]).ok();
     let mut arguments = vec!["grep", "-n", "-I", "-F", "-e", PREFIXES[0], "-e", PREFIXES[1], SOURCE_REF, "--"];
@@ -80,12 +84,12 @@ fn source_references(source: &Source, entries: &[String]) -> Result<Vec<Referenc
         let Some(hit) = hit.strip_prefix(SOURCE_REF).and_then(|rest| rest.strip_prefix(':')) else { continue };
         let mut fields = hit.splitn(3, ':');
         let (Some(path), Some(number), Some(line)) = (fields.next(), fields.next(), fields.next()) else { continue };
-        found.extend(matching(entries, &holder, &format!("{path}:{number}"), line));
+        found.extend(matching(removed, &holder, &format!("{path}:{number}"), line));
     }
     Ok(found)
 }
 
-pub fn host_references(units: &str, entries: &[String]) -> Vec<Reference> {
+pub fn host_references(units: &str, removed: &Removed) -> Vec<Reference> {
     let mut unit = String::new();
     let mut found = Vec::new();
     for line in units.lines() {
@@ -93,7 +97,7 @@ pub fn host_references(units: &str, entries: &[String]) -> Vec<Reference> {
             unit = path.trim().to_owned();
             continue;
         }
-        found.extend(matching(entries, "this host's systemctl --user cat", &unit, line));
+        found.extend(matching(removed, "this host's systemctl --user cat", &unit, line));
     }
     found
 }
@@ -130,15 +134,17 @@ fn host_units() -> Result<String, String> {
 pub fn refusal(found: &[Reference]) -> String {
     let mut lines: Vec<String> = found
         .iter()
-        .map(|reference| {
-            format!(
+        .map(|reference| match reference.kind {
+            Kind::Bin => format!(
                 "safe-push: ✗ bin/{} is deleted here, but {} still runs tree/bin/{} at {}",
                 reference.entry, reference.holder, reference.entry, reference.location
-            )
+            ),
+            Kind::Command => format!("safe-push: ✗ north {} is removed here, but {} still runs it at {}", reference.entry, reference.holder, reference.location),
+            Kind::Flag => format!("safe-push: ✗ the north flag {} is removed here, but {} still passes it at {}", reference.entry, reference.holder, reference.location),
         })
         .collect();
     lines.push(
-        "safe-push: switch that unit off the script first (every host runs the new unit before north-runtime-follow promotes the deletion), or keep bin/NAME as a shim until then; NOT pushed."
+        "safe-push: switch that unit off the script, subcommand or flag first (every host runs the new unit before north-runtime-follow promotes the removal), or keep bin/NAME, the subcommand or the flag as a shim until then; NOT pushed."
             .to_owned(),
     );
     lines.join("\n")
@@ -152,22 +158,23 @@ fn sources(nixos_config: PathBuf, south: PathBuf) -> [Source; 2] {
 }
 
 fn collect(repo: &Path, base: &str, head: &str, nixos_config: PathBuf, south: PathBuf) -> Result<(Vec<Reference>, Vec<String>), String> {
-    let entries = deleted_entries(repo, base, head)?;
-    if entries.is_empty() {
+    let (commands, flags) = removed_commands_and_flags(repo, base, head)?;
+    let removed = Removed { bins: deleted_entries(repo, base, head)?, commands, flags };
+    if removed.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
     let mut found = Vec::new();
     let mut warnings = Vec::new();
     for source in sources(nixos_config, south) {
         if !source.dir.join("main").is_dir() {
-            warnings.push(format!("safe-push: ⚠ no {} checkout at {}, so its units were not checked for bin/ entries this landing deletes.", source.label, source.dir.display()));
+            warnings.push(format!("safe-push: ⚠ no {} checkout at {}, so its units were not checked for bin/ entries, subcommands or flags this landing removes.", source.label, source.dir.display()));
             continue;
         }
-        found.extend(source_references(&source, &entries)?);
+        found.extend(source_references(&source, &removed)?);
     }
     match host_units() {
-        Ok(units) => found.extend(host_references(&units, &entries)),
-        Err(error) => warnings.push(format!("safe-push: ⚠ cannot read this host's user units ({error}), so they were not checked for bin/ entries this landing deletes.")),
+        Ok(units) => found.extend(host_references(&units, &removed)),
+        Err(error) => warnings.push(format!("safe-push: ⚠ cannot read this host's user units ({error}), so they were not checked for bin/ entries, subcommands or flags this landing removes.")),
     }
     let distinct: BTreeSet<Reference> = found.into_iter().collect();
     Ok((distinct.into_iter().collect(), warnings))
@@ -223,7 +230,7 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
         Err(error) => {
-            println!("safe-push: ✗ cannot check whether a deployed unit still runs a bin/ entry this landing deletes: {error}; NOT pushed.");
+            println!("safe-push: ✗ cannot check whether a deployed unit still runs a bin/ entry, subcommand or flag this landing removes: {error}; NOT pushed.");
             2
         }
     }

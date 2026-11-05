@@ -38,7 +38,7 @@ Commands:
   lane-squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main
   merge-driver set [--config FILE] BASE OURS THEIRS PATH  Git merge driver: merge the order-insensitive unique-entry lists named in harness/merge-sets.toml, refusing duplicates and remove-versus-edit; leave its regenerated files conflicted
   merge-driver continue [--config FILE]         Finish a rebase or cherry-pick stopped only on regenerated files: run each generator on the merged sources, stage and continue
-  bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]  Refuse a landing that deletes a bin/ entry a deployed nixos-config or south unit, or this host's user units, still run
+  bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]  Refuse a landing that deletes a bin/ entry or removes a north subcommand or flag a deployed nixos-config or south unit, or this host's user units, still run
   land-tests [--jobs N] [--cases json] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
   land-cache key|hit|record --repo DIR --head REV --command CMD [--status N]  Reuse a passing land check whose inputs (command, filtered path trees, south and nixos-config HEADs) are unchanged
   land-actions --workflow FILE --base B --head H --timeout S -- COMMAND...

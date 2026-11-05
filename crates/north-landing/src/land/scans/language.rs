@@ -89,13 +89,13 @@ fn bin_reference_gate(gates: &Gates, origin: &str) -> u8 {
     if !(origin.ends_with("tompassarelli/north") || origin.ends_with("tompassarelli/north.git")) {
         return 0;
     }
-    let deleted = git(Some(&gates.root), &["diff", "--no-renames", "--name-only", "--diff-filter=D", &gates.base, &gates.head, "--", "bin"]);
-    if deleted.is_none_or(|paths| paths.is_empty()) {
+    let touched = git(Some(&gates.root), &["diff", "--no-renames", "--name-only", &gates.base, &gates.head, "--", "bin", "src", "crates"]);
+    if touched.is_none_or(|paths| paths.is_empty()) {
         return 0;
     }
     let offered = Command::new(program()).args(["bin-references", "--help"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     if !offered.is_ok_and(|status| status.success()) {
-        eprintln!("safe-push: this host's north runtime lacks north bin-references, so a deleted bin/ entry cannot be checked against deployed units; run north runtime update; NOT pushed.");
+        eprintln!("safe-push: this host's north runtime lacks north bin-references, so a deleted bin/ entry, subcommand or flag cannot be checked against deployed units; run north runtime update; NOT pushed.");
         return 1;
     }
     gates.gate("bin-references")

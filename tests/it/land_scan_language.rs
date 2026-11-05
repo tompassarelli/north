@@ -227,7 +227,7 @@ fn bin_reference_gate() {
     let lacking = fixture.scan(&fixture.base, &fixture.head, &north, &[("STUB_BIN_HELP_STATUS", "2")]);
     assert_eq!(status(&lacking), 1);
     assert!(
-        stderr(&lacking).contains("safe-push: this host's north runtime lacks north bin-references, so a deleted bin/ entry cannot be checked against deployed units; run north runtime update; NOT pushed."),
+        stderr(&lacking).contains("safe-push: this host's north runtime lacks north bin-references, so a deleted bin/ entry, subcommand or flag cannot be checked against deployed units; run north runtime update; NOT pushed."),
         "{}",
         stderr(&lacking)
     );
