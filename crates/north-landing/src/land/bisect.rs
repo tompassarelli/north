@@ -138,9 +138,9 @@ pub fn notify(ticket: &Ticket, verdict: &str, log: Option<&Path>) {
     }
 }
 
-pub fn decide(path: &Path, ticket: &Ticket, verdict: String, log: Option<&Path>) -> Result<(), String> {
+pub fn decide(path: &Path, ticket: &Ticket, verdict: String, log: Option<&Path>, main: &str) -> Result<(), String> {
     println!("north land: {} ({}): {verdict}", ticket.branch, ticket.head);
-    queue::decide(path, ticket.clone(), verdict.clone()).map_err(|error| error.to_string())?;
+    queue::decide(path, Ticket { decided_on: Some(main.to_owned()), ..ticket.clone() }, verdict.clone()).map_err(|error| error.to_string())?;
     if rejected(&verdict) || verdict.starts_with("landed ") {
         notify(ticket, &verdict, log);
     }

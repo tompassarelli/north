@@ -50,6 +50,8 @@ pub struct Ticket {
     pub keep_lane: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub urgent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided_on: Option<String>,
 }
 
 impl Ticket {

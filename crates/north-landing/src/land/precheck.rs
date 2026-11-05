@@ -197,7 +197,7 @@ impl Tick<'_> {
 
     fn refuse(&mut self, lane: &Lane, batch_size: usize, verdict: String, log: Option<&Path>) -> Result<(), String> {
         records::write(self.lander, &lane.path, &lane.ticket, &Candidate { head: &lane.head, batch_size, stages: &lane.stages }, &Decision::Refused { verdict: &verdict });
-        bisect::decide(&lane.path, &lane.ticket, verdict, log)?;
+        bisect::decide(&lane.path, &lane.ticket, verdict, log, &lane.base)?;
         self.progressed = true;
         Ok(())
     }

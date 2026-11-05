@@ -91,3 +91,19 @@ fn promote_refuses_a_candidate_whose_replayed_verdict_differs_and_keeps_the_land
     assert_eq!(lander_link(&fixture), Some(good));
     assert_eq!(fixture.read("systemctl"), "");
 }
+
+#[test]
+fn promote_replays_a_refused_round_only_on_the_main_its_decision_recorded() {
+    let fixture = served();
+    let done = fixture.queue().join("done");
+    let refused = fs::read_dir(&done).unwrap().filter_map(Result::ok).map(|entry| entry.path()).find(|path| path.to_string_lossy().ends_with("lane-d.json")).expect("lane d was decided");
+    let ticket = north_landing::land::queue::read(&refused).unwrap();
+    assert!(ticket.decided_on.as_deref().is_some_and(|main| main.len() == 40), "the lander records the main it decided lane d on: {:?}", ticket.decided_on);
+    north_landing::land::queue::write(&refused, &north_landing::land::queue::Ticket { decided_on: None, ..ticket }).unwrap();
+    let good = runtime(&fixture, "good", None);
+    point(&fixture, "current", &good);
+    let (output, stdout) = promote(&fixture, &["--dry-run"]);
+    assert!(output.status.success(), "{stdout}");
+    assert!(stdout.contains("round lane-d recorded conflict: not replayable, the lander did not record the main it was decided on"), "a refusal with no recorded main is not replayed on a guessed one: {stdout}");
+    assert!(stdout.lines().any(|line| line.contains("round lane-a,lane-b,lane-c on ") && line.ends_with("recorded landed replayed landed: matches")), "{stdout}");
+}

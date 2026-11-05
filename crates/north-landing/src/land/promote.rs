@@ -95,6 +95,7 @@ struct Round {
     lanes: Vec<Lane>,
     verdict: String,
     decided: SystemTime,
+    decided_on: Option<String>,
 }
 
 impl Round {
@@ -115,7 +116,7 @@ fn recorded(done: &Path) -> Vec<Round> {
         let Some(verdict) = ticket.verdict.filter(|verdict| replay::recorded_class(verdict).is_some()) else { continue };
         let decided = fs::metadata(&path).and_then(|metadata| metadata.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
         let key = if verdict.starts_with("landed ") { verdict.clone() } else { path.display().to_string() };
-        let round = rounds.entry(key).or_insert_with(|| Round { lanes: Vec::new(), verdict, decided });
+        let round = rounds.entry(key).or_insert_with(|| Round { lanes: Vec::new(), verdict, decided, decided_on: ticket.decided_on.clone() });
         round.decided = round.decided.max(decided);
         round.lanes.push(Lane { path, branch: ticket.branch, head: ticket.head });
     }
@@ -140,8 +141,7 @@ fn base_of(checkout: &Path, round: &Round) -> Option<String> {
             (picked == depth).then_some(base)
         });
     }
-    let seconds = round.decided.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_secs() + 1;
-    git(checkout, &["rev-list", "-1", "--first-parent", &format!("--before={seconds}"), "FETCH_HEAD"]).ok().filter(|base| !base.is_empty())
+    round.decided_on.clone()
 }
 
 fn readable(checkout: &Path, round: &Round) -> bool {
@@ -174,7 +174,7 @@ fn replay_recorded(binary: &Path, repository: &Repository, checker: &str) -> Res
             continue;
         }
         let Some(base) = base_of(&repository.checkout, &round) else {
-            println!("north land promote: round {lanes} recorded {class}: not replayable, its base is unknown");
+            println!("north land promote: round {lanes} recorded {class}: not replayable, the lander did not record the main it was decided on");
             continue;
         };
         let verdict = run_replay(binary, &repository.checkout, &base, checker, &round.tickets()).unwrap_or_else(|error| format!("error {error}"));

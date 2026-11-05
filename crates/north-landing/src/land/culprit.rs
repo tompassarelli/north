@@ -270,10 +270,10 @@ fn find<'a>(bench: &impl Bench, included: &[Entry<'a>], together: Checked, strik
     interaction(bench, included, first, together, strikes)
 }
 
-fn refuse(lander: &Lander, refused: Refused, refusal: String, batch_size: usize, stages: &Stages) -> Result<(), String> {
+fn refuse(lander: &Lander, refused: Refused, refusal: String, batch_size: usize, stages: &Stages, main: &str) -> Result<(), String> {
     let ((path, ticket), checked, _) = refused;
     records::write(lander, path, ticket, &Candidate { head: &checked.head, batch_size, stages }, &Decision::Refused { verdict: &refusal });
-    bisect::decide(path, ticket, refusal, Some(&checked.log))
+    bisect::decide(path, ticket, refusal, Some(&checked.log), main)
 }
 
 pub fn search(lander: &Lander, base: &str, included: &[Entry], together: Checked, logs: &Path, strikes: &mut Strikes, stages: &Stages) -> Result<Found, String> {
@@ -290,7 +290,7 @@ pub fn search(lander: &Lander, base: &str, included: &[Entry], together: Checked
             for culprit in refused {
                 let refusal = format!("failed {}", culprit.2);
                 println!("north land: {} is the culprit: refused alone", culprit.0.1.branch);
-                refuse(lander, culprit, refusal, 1, stages)?;
+                refuse(lander, culprit, refusal, 1, stages, base)?;
             }
             Ok(Found::Decided)
         }
@@ -298,7 +298,7 @@ pub fn search(lander: &Lander, base: &str, included: &[Entry], together: Checked
             let with = included[..lanes].iter().map(|(_, ticket)| ticket.branch.as_str()).collect::<Vec<_>>().join(", ");
             let refusal = format!("failed interaction with {with}: {}", partner.2);
             println!("north land: the first {lanes} lanes pass together and {} breaks them; landing them as {head} and refusing it", partner.0.1.branch);
-            refuse(lander, partner, refusal, lanes + 1, stages)?;
+            refuse(lander, partner, refusal, lanes + 1, stages, &head)?;
             Ok(Found::Interaction { lanes, head })
         }
     }
