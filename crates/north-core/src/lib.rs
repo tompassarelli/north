@@ -18,6 +18,7 @@ pub mod pace;
 pub mod providers;
 pub mod proxy;
 pub mod router;
+pub mod split;
 pub mod threads;
 pub mod usage;
 pub mod work_items;

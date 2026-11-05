@@ -62,6 +62,34 @@ tests reach into `#[doc(hidden)]`, always compiled: a `test-support` feature onl
 false under the new crate's tests; the caller in the new crate picks its own (`ops::defaults_measure`
 passes `Sources::default()` to the `_with` calibration readers). To rebase a move, reset
 to the new main and run it again rather than merging by hand.
+`harness/split/move-module.sh MODULE CRATE` moves `crates/north-core/src/MODULE` into a new sibling crate
+`crates/CRATE`. It `git mv`s the module to `crates/CRATE/src/MODULE`, so every relative path stays valid
+and the files stay byte-identical; writes the crate's `Cargo.toml` with `north-core` and only the
+workspace dependencies the module names (those named only in tests become dev-dependencies) and its
+`lib.rs` with `pub mod MODULE;` and `pub use north_core::{...}` for each `crate::` root the module
+reaches; adds the crate to the workspace and the root package; rewrites the root `main.rs` import and
+the repo's path mentions; lets the `crate-roots` module of `structure.toml` use what the re-exports
+point at; and widens to `pub` only the items `cargo check` reports as private. To rebase a move, reset
+to the new main and run it again rather than merging by hand.
+`north split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... MODULE...`
+moves each `MODULE` (a path such as `tui` or `ops/tempo`) out of `crates/FROM/src` (default
+`north-core`) into the sibling crate `crates/CRATE/src/NAME`, all in one run. It refuses when any file
+outside the root package still reaches a module being moved, since that edge must be cut first. It
+`git mv`s each module, so the files stay byte-identical renames; reads `cargo metadata` before touching
+anything, so registry crates are fetched and each crate's library name is known; writes the crate's
+`Cargo.toml` with exactly the in-repo crates (`north-base` included) and workspace dependencies the moved
+files name, test-only ones as dev-dependencies and `doctest = false` unless a moved doc comment holds a
+code block; and writes `lib.rs` as `pub use FROM::{...}` for the source crate's modules the moved files
+reach plus a `pub mod` list. It adds the crate to the workspace and the root package, rewrites the root
+callers and the repo's path mentions except in `*_tests.rs` and `fixtures/`, which replay history, and
+adds the new paths and the crate's `lib.rs` to the moved module's `structure.toml` entry; no `may_use`
+list changes, and it refuses a result with a `may_use` cycle. It then widens to `pub` only what `cargo
+check` names as private. A `#[cfg(test)]` item the compiler names stops the run, naming it, unless
+`--allow-test-item NAME` lets that `#[cfg(test)] mod` become a `#[doc(hidden)] pub mod`, which the report
+lists for review. It ends with `cargo test --workspace --no-run` and the new crate's tests and prints a
+`Dependency: NAME — REASON` trailer for each dependency it added, which the lander's dependency gate
+requires. A second run on a moved tree changes nothing. To rebase a move, reset to the new main and run
+it again rather than merging by hand.
 
 ## north-guard
 
@@ -83,6 +111,15 @@ the edges from `north-core` into `guard`:
 moved by hand first and added to `lib.rs` after the run, and `north-base` was added because `guard` names
 `north_base::` directly. Since `ops` left `north-core`, `north-guard` lists `north-ops` as a dev-dependency
 for those tests; nothing in `ops` points into `guard`.
+`move-module.sh` moves one module per run and writes the crate's `Cargo.toml` and `lib.rs`, so `hook` was
+moved by hand first and added to `lib.rs` after the run, and `north-base` was added because `guard` names
+`north_base::` directly. When `ops` leaves `north-core`, `north-guard` depends on that crate; nothing in
+`ops` points into `guard`.
+The shell recipe this move used moved one module per run and rewrote the crate's `Cargo.toml` and `lib.rs`,
+so `hook` was moved by hand first and added to `lib.rs` after the run, and `north-base` was added because
+`guard` names `north_base::` directly; `north split move-module` moves both in one run and names
+`north-base` itself. When `ops` leaves `north-core`, `north-guard` depends on that crate; nothing in
+`ops` points into `guard`.
 
 ## Measurement
 
@@ -406,7 +443,7 @@ back-edges into `ops`.
 
 ### Paths that break on a move
 
-`move-module.sh` keeps each module's path inside `src/`. So the 48 `include_str!` paths with three or more
+`north split move-module` keeps a top-level module's path inside `src/`. So the 48 `include_str!` paths with three or more
 `../` and the same-crate `CARGO_MANIFEST_DIR` joins (`src/ops/check/fixtures` and the like) stay valid. Four
 kinds of path cross a crate and break, and they surface only in main's `cargo.yml`, since `cargo test`
 left the land gate at 2b5675065:
