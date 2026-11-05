@@ -21,7 +21,8 @@ pub(super) fn ensure(db: &mut Connection) -> NorthResult<()> {
     renew_id_index(&tx)?;
     tx.execute_batch(&format!(
         "CREATE TABLE IF NOT EXISTS fleet_sessions(name TEXT PRIMARY KEY, host TEXT NOT NULL, status TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL) STRICT;
-         CREATE UNIQUE INDEX IF NOT EXISTS events_fleet_id ON events(json_extract(data,'$.id')) WHERE kind IN ({});",
+         CREATE UNIQUE INDEX IF NOT EXISTS events_fleet_id ON events(json_extract(data,'$.id')) WHERE kind IN ({});
+         CREATE INDEX IF NOT EXISTS events_fleet_to ON events(json_extract(data,'$.to_node'));",
         kind_list()
     ))
     .map_err(sql)?;

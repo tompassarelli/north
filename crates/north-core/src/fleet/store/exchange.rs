@@ -71,7 +71,7 @@ impl Store {
 
 const JOB_EXIT_KEPT_MS: u64 = 24 * 60 * 60 * 1000;
 
-const ADDRESSED: &str = "SELECT events.data FROM events JOIN json_each(?1) AS addressee \
+pub(super) const ADDRESSED: &str = "SELECT events.data FROM events JOIN json_each(?1) AS addressee \
      ON json_extract(events.data, '$.to_node') = json_extract(addressee.value, '$.name') \
      WHERE events.kind IN (SELECT value FROM json_each(?2)) AND (events.kind = ?3 OR NOT COALESCE(json_extract(addressee.value, '$.stopped'), 0)) AND json_extract(events.data, '$.sent_at') >= CASE WHEN events.kind = ?3 THEN COALESCE(json_extract(addressee.value, '$.control_since_ms'), json_extract(addressee.value, '$.since_ms')) ELSE json_extract(addressee.value, '$.since_ms') END \
      AND (events.kind != ?4 OR events.ts >= ?5) \

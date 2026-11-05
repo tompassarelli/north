@@ -494,3 +494,12 @@ fn a_spooled_row_that_does_not_parse_is_set_aside_and_the_rest_flush() {
     assert!(root.path().join("spool/rejected/m-0.json").is_file());
     assert!(!root.path().join("spool/m-0.json").exists());
 }
+
+#[test]
+fn rows_addressed_to_sessions_are_found_through_the_to_node_index_rather_than_a_scan_of_every_event() {
+    let (_directory, path) = ledger();
+    let store = Store::open(&path).unwrap();
+    let plan: Vec<String> = store.db.prepare(&format!("EXPLAIN QUERY PLAN {}", exchange::ADDRESSED)).unwrap().query_map([], |row| row.get(3)).unwrap().collect::<Result<_, _>>().unwrap();
+
+    assert!(plan.iter().any(|step| step.contains("USING INDEX events_fleet_to")), "{plan:?}");
+}
