@@ -1,0 +1,25 @@
+use super::*;
+
+fn words(list: &[&str]) -> Vec<String> {
+    list.iter().map(|word| (*word).to_owned()).collect()
+}
+
+// KEEP(contract): options with attached or separate values stay ahead of the destination, and only the remote command is wrapped
+#[test]
+fn the_remote_command_after_ssh_options_and_the_destination_is_wrapped_in_the_session_scope() {
+    let wrapped = scoped(&words(&["-p", "2222", "-oBatchMode=yes", "-tt", "gex45", "nproc;", "echo", "it's"]), "n-626", "0a1b2c3d");
+    assert_eq!(wrapped[..4], words(&["-p", "2222", "-oBatchMode=yes", "-tt"]));
+    assert_eq!(wrapped[4], "gex45");
+    assert_eq!(wrapped.len(), 6);
+    assert!(wrapped[5].contains("--unit=north-ssh-n-626-0a1b2c3d.scope") && wrapped[5].contains(r"-c 'nproc; echo it'\''s'"), "{}", wrapped[5]);
+    assert_eq!(scope_session("north-ssh-n-626-0a1b2c3d.scope"), Some("n-626"));
+}
+
+// KEEP(contract): logins, control and forwarding calls, git transport and the north protocol a peer's forced-command key parses reach ssh untouched
+#[test]
+fn logins_control_calls_git_transport_and_north_protocol_pass_through_unchanged() {
+    for call in [&["gex45"][..], &["-N", "-L", "8080:localhost:80", "gex45"], &["-O", "check", "gex45"], &["git@github.com", "git-upload-pack 'tompassarelli/north'"], &["-l", "tom", "gex45"], &["nexus", "threads queue take --host nexus"], &["gex45", "/opt/north/bin/north", "remote-serve"]] {
+        let call = words(call);
+        assert_eq!(scoped(&call, "n-626", "0a1b2c3d"), call);
+    }
+}

@@ -38,3 +38,4 @@ threads_ingest_lock north-threads
 threads_ledger north-threads
 threads_resume north-threads
 threads_snapshot north-threads
+ssh_attribution north-capacity-host north-base north

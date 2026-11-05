@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use north_base::platform::ssh_session::scope_session;
 use toml_edit::DocumentMut;
 
 pub(super) const COORDINATOR: &str = "proxy";
@@ -146,6 +147,7 @@ pub(super) struct Incident {
     pub(super) trees: Vec<Tree>,
     pub(super) unattributed_cores: f64,
     pub(super) capped: Option<Cap>,
+    pub(super) uncappable: Option<String>,
 }
 
 #[derive(Debug)]
@@ -168,7 +170,7 @@ fn service_session(unit: &str) -> Option<String> {
 
 fn owner_of(owners: &mut dyn Owners, unit: &str) -> Option<Owner> {
     owners.owner(unit).or_else(|| {
-        let session = service_session(unit)?;
+        let session = service_session(unit).or_else(|| scope_session(unit).map(str::to_owned))?;
         let parent = owners.parent(&session);
         Some(Owner { session, parent })
     })
@@ -179,7 +181,7 @@ fn fleet_scope(cgroup: &str) -> bool {
 }
 
 fn cappable(cgroup: &str) -> bool {
-    fleet_scope(cgroup) || service_session(unit_of(cgroup)).is_some()
+    fleet_scope(cgroup) || service_session(unit_of(cgroup)).is_some() || scope_session(unit_of(cgroup)).is_some()
 }
 
 fn ssh_scope(cgroup: &str) -> bool {
@@ -193,6 +195,8 @@ fn kind(cgroup: &str) -> &'static str {
         "session"
     } else if service_session(unit).is_some() {
         "service"
+    } else if scope_session(unit).is_some() {
+        "remote"
     } else if ssh_scope(cgroup) {
         "ssh"
     } else if unit.starts_with(LEASE_PREFIX) && unit.len() >= LEASE_PREFIX.len() + LEASE_SCOPE_ID_LENGTH {
@@ -252,7 +256,9 @@ fn report(settings: &Settings, owners: &mut dyn Owners, state: &mut State, sampl
         })
         .partition(|tree| tree.session.is_some());
     let trees: Vec<Tree> = owned.into_iter().take(TREES_NAMED).chain(unowned.into_iter().take(UNOWNED_NAMED)).collect();
-    let capped = ranked.iter().find(|(cgroup, cores)| cappable(cgroup) && *cores >= settings.offender_cores).map(|(cgroup, cores)| {
+    let leader = ranked.iter().filter(|(_, cores)| *cores >= settings.offender_cores).find(|(cgroup, _)| cappable(cgroup) || (kind(cgroup) != "lease" && owner_of(owners, unit_of(cgroup)).is_some()));
+    let uncappable = leader.filter(|(cgroup, _)| !cappable(cgroup)).map(|(cgroup, _)| unit_of(cgroup).to_owned());
+    let capped = leader.filter(|(cgroup, _)| cappable(cgroup)).map(|(cgroup, cores)| {
         let owner = owner_of(owners, unit_of(cgroup));
         Cap {
             unit: unit_of(cgroup).to_owned(),
@@ -264,7 +270,7 @@ fn report(settings: &Settings, owners: &mut dyn Owners, state: &mut State, sampl
     let unattributed_cores = unattributed(sample);
     let offender = ranked.iter().any(|(cgroup, cores)| kind(cgroup) != "lease" && *cores >= settings.offender_cores && !sample.inside_quota(cgroup, &state.cores));
     let actionable = capped.is_some() || offender || unattributed_cores >= settings.offender_cores;
-    let incident = Incident { at: sample.at.clone(), load1: sample.load1, load_per_core: round(load_per_core), psi60: sample.psi60, trees, unattributed_cores, capped: capped.clone() };
+    let incident = Incident { at: sample.at.clone(), load1: sample.load1, load_per_core: round(load_per_core), psi60: sample.psi60, trees, unattributed_cores, capped: capped.clone(), uncappable };
     let text = message(&incident);
     let mut recipients: Vec<String> = Vec::new();
     let named = incident.trees.iter().find(|tree| tree.session.is_some());
@@ -319,7 +325,10 @@ pub(super) fn message(incident: &Incident) -> String {
             "\nCapped {} to {}% of one core and cpu weight {} (runtime, reversible); it lifts by itself once load stays calm. Stop the fan-out (parallel test runs, forked CLIs) and use the machine-capacity lease.",
             cap.unit, cap.cpu_quota_percent, cap.cpu_weight
         )),
-        None => text.push_str("\nNo unleased fleet session scope or service unit is over the offender floor, so nothing was capped."),
+        None => match incident.uncappable.as_deref() {
+            Some(unit) => text.push_str(&format!("\nNothing was capped: the largest offender, {unit}, belongs to the session named above but is no unit this watchdog may cap, and capping a smaller fleet unit would slow a bystander. Stop that work.")),
+            None => text.push_str("\nNo unleased fleet session scope or service unit is over the offender floor, so nothing was capped."),
+        },
     }
     if incident.unattributed_cores > 0.0 {
         text.push_str(&format!("\n{} busy cores belong to no process tree listed above.", incident.unattributed_cores));

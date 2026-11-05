@@ -1,0 +1,15 @@
+#!/bin/sh
+# north ssh shim: a fleet session's remote command runs in a far-host scope named for the session; everyone else gets the real ssh
+name=${0##*/}
+self=$(readlink -f "$0")
+IFS=:
+for dir in $PATH; do
+  if [ -x "$dir/$name" ] && [ "$(readlink -f "$dir/$name")" != "$self" ]; then
+    if [ -n "${NORTH_FLEET_SESSION:-}" ] && north ssh-session --help >/dev/null 2>&1; then
+      exec north ssh-session "$dir/$name" "$@"
+    fi
+    exec "$dir/$name" "$@"
+  fi
+done
+printf '%s: command not found outside the ssh shim on this host\n' "$name" >&2
+exit 127

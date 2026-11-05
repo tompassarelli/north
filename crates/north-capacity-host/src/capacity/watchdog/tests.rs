@@ -83,3 +83,39 @@ fn an_overload_with_the_farm_inside_its_quota_and_leased_work_beside_it_is_recor
     assert!(actions.iter().any(|action| matches!(action, Action::Incident(_))), "{actions:#?}");
     assert!(sends(&actions).is_empty() && !actions.iter().any(|action| matches!(action, Action::Cap(_))), "{actions:#?}");
 }
+
+const BYSTANDER: &str = "agent.slice/north-fleet-wisp-230-d1945-0f1e2d3c.service";
+
+fn gex45_ssh_overload(offender: &str) -> String {
+    (0..3)
+        .map(|at| {
+            serde_json::json!({
+                "at": format!("2026-11-06T02:45:{at:02}Z"), "load": [42.26, 40.0, 30.0], "cpuPsi": 80.0, "cpuPsi60": 60.0, "cpus": GEX45_CPUS, "busyCores": 18.08,
+                "cgroups": [{ "cgroup": offender, "cores": 17.0 }, { "cgroup": BYSTANDER, "cores": 1.08 }],
+            })
+            .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn caps(actions: &[Action]) -> Vec<&str> {
+    actions.iter().filter_map(|action| if let Action::Cap(cap) = action { Some(cap.unit.as_str()) } else { None }).collect()
+}
+
+// KEEP(bug): on 2026-11-06 gex45 capped the bystander wisp-230 while a laptop session's ssh work ran 17 cores; the session's ssh scope is capped instead
+#[test]
+fn a_fleet_sessions_ssh_scope_is_capped_ahead_of_a_smaller_fleet_unit() {
+    let actions = replayed(&gex45_ssh_overload("app.slice/north-ssh-n-626-repro-0a1b2c3d.scope"), &mut BTreeMap::new(), Settings::bundled(GEX45_CPUS));
+    assert_eq!(caps(&actions), ["north-ssh-n-626-repro-0a1b2c3d.scope"], "{actions:#?}");
+    assert!(sends(&actions).contains(&"n-626-repro"), "{actions:#?}");
+}
+
+// KEEP(bug): work attributed to a session in a scope the watchdog cannot cap must not divert the cap onto a smaller bystander
+#[test]
+fn a_larger_attributed_offender_the_watchdog_cannot_cap_leaves_the_smaller_fleet_unit_uncapped() {
+    let mut owners = BTreeMap::from([("session-61845.scope".to_owned(), Owner { session: "n-626-repro".to_owned(), parent: None })]);
+    let actions = replayed(&gex45_ssh_overload("user.slice/user-1000.slice/session-61845.scope"), &mut owners, Settings::bundled(GEX45_CPUS));
+    assert!(caps(&actions).is_empty(), "{actions:#?}");
+    assert!(sends(&actions).contains(&"n-626-repro"), "{actions:#?}");
+}

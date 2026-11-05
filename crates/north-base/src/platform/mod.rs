@@ -14,6 +14,7 @@ pub mod entry_points;
 pub mod github;
 pub mod github_app;
 pub mod gh_session;
+pub mod ssh_session;
 pub mod git_credential;
 pub mod hook_commands;
 pub mod host;
