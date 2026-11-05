@@ -79,7 +79,7 @@ fn forwarded(name: &str) -> bool {
 }
 
 fn serve_arguments(request: &Request, unit: &str, names: &BTreeSet<String>) -> Vec<String> {
-    let mut words = strings(&["--user", "--pipe", "--quiet", "--wait", "--collect", "--same-dir"]);
+    let mut words = strings(&["--user", "--pipe", "--quiet", "--wait", "--collect", "--same-dir", "--expand-environment=no"]);
     for name in names.iter().filter(|name| forwarded(name)) {
         words.extend(["-E".to_owned(), name.clone()]);
     }
