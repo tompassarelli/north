@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{INFRASTRUCTURE, infrastructure, unfit, unfit_host};
+use super::{INFRASTRUCTURE, Launch, Verdict, failing_check, infrastructure, start, unfit, unfit_host};
 
 #[test]
 fn a_crate_the_host_lacks_offline_is_an_unfit_host() {
@@ -40,4 +40,30 @@ fn an_unfit_host_is_a_transient_infrastructure_verdict_that_names_its_log() {
     let super::Verdict::Transient(detail) = verdict else { unreachable!() };
     assert!(infrastructure(&detail));
     assert!(!infrastructure("build slot moved"));
+}
+
+#[test]
+fn a_refusal_names_the_land_check_or_gate_that_failed() {
+    assert_eq!(failing_check("safe-push: land check: cargo test (deadline 300 s)\ntest a ... FAILED\nsafe-push: land check cargo test exited 101; log: /tmp/a; NOT pushed.\nsafe-push: land check cargo test exited 101 on the base tree too; log: /tmp/b\n").as_deref(), Some("land check cargo test exited 101"));
+    assert_eq!(failing_check("safe-push: land check bun test hung: it ran past its 600 s deadline on this lane, while base tree abc finished it in 60 s; log: /tmp/a; NOT pushed.\n").as_deref(), Some("land check bun test hung past its deadline"));
+    assert_eq!(failing_check("language-gate: bin/new.py: Python is refused\n").as_deref(), Some("language-gate"));
+    assert_eq!(failing_check("safe-push: land check failed; rerunning it on base tree abc: cargo test\nsafe-push: verdict refused\n"), None);
+}
+
+fn refused_by(script: &str) -> Verdict {
+    let directory = tempfile::tempdir().unwrap();
+    let checker = ["bash".to_owned(), "-c".to_owned(), script.to_owned()];
+    let launch = Launch { checker: &checker, offload_owner: "test", round: "1".to_owned(), recheck: false };
+    let log = directory.path().join("candidate.log");
+    match start(&launch, directory.path(), &"a".repeat(40), &log, false, None) {
+        Ok(started) => started.wait(),
+        Err(verdict) => verdict,
+    }
+}
+
+#[test]
+fn a_refused_candidate_verdict_names_its_failing_check_before_its_log() {
+    let verdict = refused_by("echo 'safe-push: land check cargo clippy exited 101; log: /tmp/l; NOT pushed.'; echo 'safe-push: verdict refused /tmp/tmp.abc'; exit 1");
+    assert_eq!(verdict, Verdict::Refused("land check cargo clippy exited 101; log: /tmp/tmp.abc".to_owned()));
+    assert_eq!(refused_by("echo 'safe-push: verdict refused E0063'; exit 1"), Verdict::Refused("E0063".to_owned()), "a refusal with no named check keeps its detail");
 }

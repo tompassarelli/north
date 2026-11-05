@@ -68,3 +68,24 @@ fn check_timings_deadline_reads_the_passes_of_its_command_and_host_class() {
     assert_eq!(timings.deadline("check", "buildbox").basis, Basis::Unmeasured { passes: 0 });
     assert_eq!(timings.deadline("other", "local").basis, Basis::Unmeasured { passes: 0 });
 }
+
+#[test]
+fn a_deadline_lane_and_base_both_ran_past_doubles_until_twenty_later_runs_age_it_out() {
+    let root = tempfile::tempdir().unwrap();
+    let timings = Timings::at(root.path().to_owned());
+    for _ in 0..20 {
+        timings.passed("check", "local", 60).unwrap();
+    }
+    assert_eq!(timings.deadline("check", "local").seconds, 300);
+    timings.exceeded_on_base_too("check", "local", 300).unwrap();
+    let raised = timings.deadline("check", "local");
+    assert_eq!(raised, Deadline { seconds: 600, basis: Basis::Raised { exceeded: 300 } });
+    assert_eq!(raised.to_string(), "deadline 600 s, raised from a 300 s deadline that lane and base both ran past");
+    assert_eq!(timings.deadline("check", "buildbox").basis, Basis::Unmeasured { passes: 0 }, "a raise is kept per command and host class");
+    timings.exceeded_on_base_too("check", "local", 1500).unwrap();
+    assert_eq!(timings.deadline("check", "local").seconds, CEILING, "a raise stops at the ceiling");
+    for _ in 0..20 {
+        timings.passed("check", "local", 60).unwrap();
+    }
+    assert_eq!(timings.deadline("check", "local").to_string(), "deadline 300 s from p90 60 s over 20 passes", "twenty later passes age the raise out");
+}

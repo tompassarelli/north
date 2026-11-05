@@ -22,6 +22,7 @@ use fail_fast::Plan;
 
 mod fail_fast;
 mod queue_clippy;
+mod timeout_row;
 pub use queue_clippy::refuse_clippy;
 use crate::land::after::follow::program;
 use crate::land::checks::{BROKEN_BASE, RECHECK, ROUND};
@@ -552,7 +553,12 @@ impl Shared {
         self.remember(&command, started, ran.status, CheckOutcome::of(ran.status), ran.seconds, cpu);
         let _ = timings.record(&self.trees.head, &command, &class, ran.timing());
         if ran.exceeded {
-            return self.judge_hang(&command, timeout, timings.base(&self.trees.base, &command, &class, timeout), &ran.log).await;
+            let base = timings.base(&self.trees.base, &command, &class, timeout);
+            if base == Base::Exceeded {
+                let _ = timings.exceeded_on_base_too(&command, &class, timeout);
+            }
+            self.record_timeout(&command, timeout, started);
+            return self.judge_hang(&command, timeout, base, &ran.log).await;
         }
         let commands = [command.clone()];
         if ran.status != 0 {
@@ -562,6 +568,12 @@ impl Shared {
         self.cache_record(0, &commands).await;
         let _ = fs::remove_file(&ran.log);
         0
+    }
+
+    fn record_timeout(&self, command: &str, deadline: u64, started: u64) {
+        let finished = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(started, |since| since.as_secs());
+        let (base, candidate, tree) = (&self.arguments.base, &self.arguments.head, &self.trees.head);
+        timeout_row::record(&self.root, &timeout_row::Timeout { base, candidate, tree, command, deadline, started, finished });
     }
 
     async fn judge_failure(&self, command: &str, leased: bool, timeout: u64, ran: &Ran) -> i32 {

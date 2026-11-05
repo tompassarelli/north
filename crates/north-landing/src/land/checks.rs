@@ -5,6 +5,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::Ordering;
 
 use super::lander::Lander;
+use super::refusal;
 
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE", "NORTH_RUNTIME_LINK"];
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
@@ -15,6 +16,7 @@ const NORTH_MISSING: [&str; 4] = ["north: command not found", "north: not found"
 const OFFLOAD: &str = "north capacity offload: ";
 const OFFLOAD_EXIT: &str = "exited 255";
 const OFFLOADED: &str = "safe-push: offloading to ";
+const LAND_CHECK: &str = "safe-push: land check ";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -49,6 +51,26 @@ pub fn unfit_host(log: &str) -> Option<String> {
     let exit = || lines().find(|line| line.contains(OFFLOAD_EXIT));
     let transport = || exit().and_then(|exit| lines().rfind(|line| line.starts_with(OFFLOAD)).or_else(|| lines().any(|line| line.starts_with(OFFLOADED)).then_some(exit)));
     crate_missing().or_else(north_missing).or_else(transport).map(str::to_owned)
+}
+
+fn failing_check(log: &str) -> Option<String> {
+    let lines = || log.lines().map(str::trim);
+    let check = lines().find_map(|line| {
+        let rest = line.strip_prefix(LAND_CHECK)?;
+        if let Some((command, _)) = rest.split_once(" hung: ") {
+            return Some(format!("land check {command} hung past its deadline"));
+        }
+        let (command, status) = rest.split_once(" exited ")?;
+        Some(format!("land check {command} exited {}", status.split([';', ' ']).next()?))
+    });
+    check.or_else(|| lines().find(|line| refusal::gate(line)).and_then(|line| line.split_once(": ")).map(|(gate, _)| gate.to_owned()))
+}
+
+fn named(log: &str, detail: String) -> String {
+    match failing_check(log) {
+        Some(check) if !detail.starts_with(&check) => format!("{check}; log: {detail}"),
+        _ => detail,
+    }
 }
 
 pub fn infrastructure(detail: &str) -> bool {
@@ -150,7 +172,7 @@ impl Started {
         match parse(&text) {
             Some(Verdict::Refused(_)) if let Some(verdict) = unfit(log, &text) => verdict,
             Some(Verdict::Refused(_) | Verdict::Green) if status.code() == Some(75) => Verdict::Transient(format!("{program} exited 75; log: {}", log.display())),
-            Some(Verdict::Refused(detail)) if detail.is_empty() => Verdict::Refused(log.display().to_string()),
+            Some(Verdict::Refused(detail)) => Verdict::Refused(named(&text, if detail.is_empty() { log.display().to_string() } else { detail })),
             Some(verdict) => verdict,
             None => Verdict::Transient(format!("{program} gave no verdict line ({status}); log: {}", log.display())),
         }

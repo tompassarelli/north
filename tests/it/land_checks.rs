@@ -345,17 +345,7 @@ fn hung_check_on_a_loaded_host_is_infrastructure() {
     assert!(text(&output).contains("safe-push: land check bash ../step.sh hung: it ran past its 2 s deadline on this lane, while base tree "), "{}", text(&output));
 }
 
-#[test]
-fn measured_deadline_ends_a_hang() {
-    let check = "bash ../step.sh";
-    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {check}"))]);
-    fs::write(fixture.path("step.sh"), "touch ../started\nsleep 600\n").unwrap();
-    let timings = Timings::at(fixture.path("state/safe-push/check-timings"));
-    for _ in 0..20 {
-        timings.passed(check, "local", 60).unwrap();
-    }
-    let base_tree = git(&fixture.repo, &["rev-parse", &format!("{}^{{tree}}", fixture.base)]);
-    timings.record(&base_tree, check, "local", Timing::Finished(60)).unwrap();
+fn hang_past(fixture: &Fixture, mut command: Command, deadline: u64) -> (Option<i32>, String, String) {
     let clock = fixture.path("clock");
     fs::create_dir_all(&clock).unwrap();
     let now = |millis: u64| fs::write(clock.join("now"), millis.to_string()).unwrap();
@@ -373,16 +363,29 @@ fn measured_deadline_ends_a_hang() {
     now(0);
     let stdout = fs::File::create(fixture.path("stdout")).unwrap();
     let stderr = fs::File::create(fixture.path("stderr")).unwrap();
-    let child = fixture.command().env("NORTH_CAPACITY_DEADLINE_CLOCK", &clock).stdout(stdout).stderr(stderr).spawn().unwrap();
+    let mut child = command.env("NORTH_CAPACITY_DEADLINE_CLOCK", &clock).stdout(stdout).stderr(stderr).spawn().unwrap();
     wait_for(&fixture.path("started"));
-    now(299_000);
-    seen(299_000);
-    let mut child = child;
-    assert!(child.try_wait().unwrap().is_none(), "a check measured at a 60 s p90 ended before its 300 s floor");
-    now(300_000);
+    let before = (deadline - 1) * 1000;
+    now(before);
+    seen(before);
+    assert!(child.try_wait().unwrap().is_none(), "a check ended before its {deadline} s deadline");
+    now(deadline * 1000);
     let (code, _) = finishes_within(child, 20);
-    let out = fs::read_to_string(fixture.path("stdout")).unwrap();
-    let err = fs::read_to_string(fixture.path("stderr")).unwrap();
+    (code, fs::read_to_string(fixture.path("stdout")).unwrap(), fs::read_to_string(fixture.path("stderr")).unwrap())
+}
+
+#[test]
+fn measured_deadline_ends_a_hang() {
+    let check = "bash ../step.sh";
+    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {check}"))]);
+    fs::write(fixture.path("step.sh"), "touch ../started\nsleep 600\n").unwrap();
+    let timings = Timings::at(fixture.path("state/safe-push/check-timings"));
+    for _ in 0..20 {
+        timings.passed(check, "local", 60).unwrap();
+    }
+    let base_tree = git(&fixture.repo, &["rev-parse", &format!("{}^{{tree}}", fixture.base)]);
+    timings.record(&base_tree, check, "local", Timing::Finished(60)).unwrap();
+    let (code, out, err) = hang_past(&fixture, fixture.command(), 300);
     assert_eq!(code, Some(124), "a hang past the measured deadline, where the base tree passed in 60 s, refuses the lane: {out}{err}");
     assert!(out.contains(&format!("safe-push: land check: {check} (deadline 300 s from p90 60 s over 20 passes)")), "{out}");
     assert!(err.contains(&format!("safe-push: land check {check} hung: it ran past its 300 s deadline on this lane, while base tree ")), "{err}");
@@ -971,4 +974,36 @@ fn every_offloaded_land_check_starts_together_with_no_records() {
     let fixture = Fixture::new(&[("land.runner", "build-host"), ("land.check", &format!("file.txt :: {}", meet("one", "two"))), ("land.check", &format!("file.txt :: {}", meet("two", "one")))]);
     let output = fixture.command().env("STUB_OFFLOAD_EXEC", "1").output().unwrap();
     assert_eq!(output.status.code(), Some(0), "two offloaded checks waited for each other: {}", text(&output));
+}
+
+#[test]
+fn a_hang_past_its_deadline_on_lane_and_base_records_a_timeout_row_and_raises_the_next_deadline() {
+    let check = "bash ../step.sh";
+    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {check}"))]);
+    fs::write(fixture.path("step.sh"), "touch ../started\nsleep 600\n").unwrap();
+    let timings = Timings::at(fixture.path("state/safe-push/check-timings"));
+    for _ in 0..20 {
+        timings.passed(check, "local", 60).unwrap();
+    }
+    let base_tree = git(&fixture.repo, &["rev-parse", &format!("{}^{{tree}}", fixture.base)]);
+    timings.record(&base_tree, check, "local", Timing::Exceeded(300)).unwrap();
+    let ledger = fixture.path("threads.db");
+    let mut command = fixture.command();
+    command.env("THREADS_DB", &ledger);
+    let (code, out, err) = hang_past(&fixture, command, 300);
+    assert_eq!(code, Some(75), "a hang the base tree also ran past is infrastructure: {out}{err}");
+    assert!(out.contains(&format!("safe-push: land check: {check} (deadline 300 s from p90 60 s over 20 passes)")), "{out}");
+    let start = Instant::now();
+    let row = loop {
+        let row = rusqlite::Connection::open(&ledger).ok().and_then(|db| {
+            db.query_row("SELECT repo, candidate, base, command, deadline_s, outcome FROM land_checks", [], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, i64>(4)?, row.get::<_, String>(5)?))).ok()
+        });
+        if let Some(row) = row {
+            break row;
+        }
+        assert!(start.elapsed() < Duration::from_secs(30), "no land_checks row was written: {}", fixture.trace());
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(row, ("origin".to_owned(), fixture.head.clone(), fixture.base, check.to_owned(), 300, "timeout".to_owned()));
+    assert_eq!(timings.deadline(check, "local").to_string(), "deadline 600 s, raised from a 300 s deadline that lane and base both ran past");
 }

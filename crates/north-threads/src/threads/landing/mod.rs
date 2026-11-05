@@ -15,7 +15,32 @@ use crate::foundation::clock::Timestamp;
 
 pub const VERBS: [&str; 1] = ["land-train"];
 
-pub const SCHEMA: &str = "
+macro_rules! land_checks {
+    () => {
+        "
+CREATE TABLE IF NOT EXISTS land_checks(
+  id INTEGER PRIMARY KEY,
+  repo TEXT NOT NULL,
+  candidate TEXT NOT NULL,
+  tree TEXT NOT NULL DEFAULT '',
+  base TEXT NOT NULL DEFAULT '',
+  batch_size INTEGER NOT NULL CHECK(batch_size >= 0),
+  bisect_depth INTEGER NOT NULL CHECK(bisect_depth >= 0),
+  started_at TEXT NOT NULL,
+  finished_at TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK(outcome IN ('pass','fail','moved','timeout')),
+  command TEXT NOT NULL DEFAULT '',
+  deadline_s INTEGER CHECK(deadline_s > 0),
+  UNIQUE(repo, candidate, command, started_at)
+) STRICT;
+CREATE INDEX IF NOT EXISTS land_checks_repo_started ON land_checks(repo, started_at);
+"
+    };
+}
+
+const LAND_CHECKS: &str = land_checks!();
+
+pub const SCHEMA: &str = concat!("
 CREATE TABLE IF NOT EXISTS landings(
   id INTEGER PRIMARY KEY,
   repo TEXT NOT NULL,
@@ -39,21 +64,7 @@ CREATE TABLE IF NOT EXISTS landings(
   UNIQUE(repo, lane, tip, queued_at)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS landings_repo_queued ON landings(repo, queued_at);
-CREATE TABLE IF NOT EXISTS land_checks(
-  id INTEGER PRIMARY KEY,
-  repo TEXT NOT NULL,
-  candidate TEXT NOT NULL,
-  tree TEXT NOT NULL DEFAULT '',
-  base TEXT NOT NULL DEFAULT '',
-  batch_size INTEGER NOT NULL CHECK(batch_size >= 0),
-  bisect_depth INTEGER NOT NULL CHECK(bisect_depth >= 0),
-  started_at TEXT NOT NULL,
-  finished_at TEXT NOT NULL,
-  outcome TEXT NOT NULL CHECK(outcome IN ('pass','fail','moved')),
-  UNIQUE(repo, candidate, started_at)
-) STRICT;
-CREATE INDEX IF NOT EXISTS land_checks_repo_started ON land_checks(repo, started_at);
-CREATE TABLE IF NOT EXISTS main_red(
+", land_checks!(), "CREATE TABLE IF NOT EXISTS main_red(
   repo TEXT NOT NULL,
   sha TEXT NOT NULL,
   red_at TEXT NOT NULL,
@@ -77,7 +88,7 @@ CREATE TABLE IF NOT EXISTS land_tempo(
   conflicts INTEGER NOT NULL CHECK(conflicts >= 0),
   queued_now INTEGER NOT NULL CHECK(queued_now >= 0),
   PRIMARY KEY(repo, at, window_minutes)
-) STRICT;";
+) STRICT;");
 
 const ADDED_TO_LANDINGS: [&str; 3] = ["first_commit_at", "check_started_at", "check_finished_at"];
 
@@ -122,11 +133,26 @@ fn add_missing_columns(db: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn rebuild_land_checks(db: &Connection) -> rusqlite::Result<()> {
+    let current: bool = db.query_row("SELECT count(*) > 0 FROM pragma_table_info('land_checks') WHERE name = 'deadline_s'", [], |row| row.get(0))?;
+    if current {
+        return Ok(());
+    }
+    db.execute_batch("ALTER TABLE land_checks RENAME TO land_checks_before_timeouts; DROP INDEX land_checks_repo_started;")?;
+    db.execute_batch(LAND_CHECKS)?;
+    db.execute_batch(
+        "INSERT INTO land_checks(id, repo, candidate, tree, base, batch_size, bisect_depth, started_at, finished_at, outcome) \
+         SELECT id, repo, candidate, tree, base, batch_size, bisect_depth, started_at, finished_at, outcome FROM land_checks_before_timeouts; \
+         DROP TABLE land_checks_before_timeouts;",
+    )
+}
+
 fn write(context: &Context, statement: impl FnOnce(&Connection) -> rusqlite::Result<usize>) -> Outcome {
     let mut db = open(context.database, true)?;
     let tx = immediate(&mut db)?;
     tx.execute_batch(SCHEMA)?;
     add_missing_columns(&tx)?;
+    rebuild_land_checks(&tx)?;
     statement(&tx)?;
     tx.commit()?;
     Ok(String::new())
@@ -160,10 +186,17 @@ fn record(argv: &[String], context: &Context) -> Outcome {
 }
 
 fn check(argv: &[String], context: &Context) -> Outcome {
-    let args = Args::parse(argv, &["--repo", "--candidate", "--tree", "--base", "--batch-size", "--bisect-depth", "--started-at", "--finished-at", "--outcome"], &[])?;
+    let args = Args::parse(argv, &["--repo", "--candidate", "--tree", "--base", "--batch-size", "--bisect-depth", "--started-at", "--finished-at", "--outcome", "--command", "--deadline"], &[])?;
     let (repo, candidate, outcome) = (repo_name(&args)?, required(&args, "--candidate")?, required(&args, "--outcome")?);
-    if !["pass", "fail", "moved"].contains(&outcome.as_str()) {
-        return Err(Failure::Usage(format!("--outcome {outcome} is not pass, fail or moved")));
+    if !["pass", "fail", "moved", "timeout"].contains(&outcome.as_str()) {
+        return Err(Failure::Usage(format!("--outcome {outcome} is not pass, fail, moved or timeout")));
+    }
+    let deadline = match args.get("--deadline") {
+        None => None,
+        Some(text) => Some(text.parse::<i64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| Failure::Usage(format!("--deadline {text} is not a number of seconds")))?),
+    };
+    if outcome == "timeout" && (deadline.is_none() || args.get("--command").is_none_or(str::is_empty)) {
+        return Err(Failure::Usage("a timeout names its --command and --deadline".into()));
     }
     let started = time(&args, "--started-at")?.ok_or_else(|| Failure::Usage("--started-at is required".into()))?;
     let finished = time(&args, "--finished-at")?.ok_or_else(|| Failure::Usage("--finished-at is required".into()))?;
@@ -171,9 +204,9 @@ fn check(argv: &[String], context: &Context) -> Outcome {
     let text = |flag| args.get(flag).unwrap_or_default().to_owned();
     write(context, |db| {
         db.execute(
-            "INSERT INTO land_checks(repo, candidate, tree, base, batch_size, bisect_depth, started_at, finished_at, outcome) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
-             ON CONFLICT(repo, candidate, started_at) DO UPDATE SET finished_at = excluded.finished_at, outcome = excluded.outcome",
-            params![repo, candidate, text("--tree"), text("--base"), batch, depth, started, finished, outcome],
+            "INSERT INTO land_checks(repo, candidate, tree, base, batch_size, bisect_depth, started_at, finished_at, outcome, command, deadline_s) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) \
+             ON CONFLICT(repo, candidate, command, started_at) DO UPDATE SET finished_at = excluded.finished_at, outcome = excluded.outcome, deadline_s = excluded.deadline_s",
+            params![repo, candidate, text("--tree"), text("--base"), batch, depth, started, finished, outcome, text("--command"), deadline],
         )
     })
 }

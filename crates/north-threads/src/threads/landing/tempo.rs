@@ -91,7 +91,7 @@ fn mean_batch(rows: &[&Landing]) -> Option<f64> {
 }
 
 fn checks(db: &Connection, repo: &str, since: &str) -> rusqlite::Result<(i64, i64)> {
-    db.query_row("SELECT count(*), coalesce(sum(outcome = 'moved'), 0) FROM land_checks WHERE repo = ?1 AND started_at >= ?2", [repo, since], |row| Ok((row.get(0)?, row.get(1)?)))
+    db.query_row("SELECT count(*), coalesce(sum(outcome = 'moved'), 0) FROM land_checks WHERE repo = ?1 AND started_at >= ?2 AND outcome != 'timeout'", [repo, since], |row| Ok((row.get(0)?, row.get(1)?)))
 }
 
 fn red_minutes(db: &Connection, repo: &str, now: f64) -> rusqlite::Result<f64> {

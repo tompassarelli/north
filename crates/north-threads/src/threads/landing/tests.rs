@@ -205,3 +205,48 @@ fn a_tempo_reading_is_one_row_per_repo_time_and_window() {
     assert_eq!(ledger.count("land_tempo"), 2);
     assert_eq!(ledger.call(&["tempo", "--repo", "north", "--at", "1"].map(str::to_owned)).0, 2);
 }
+
+#[test]
+fn a_check_that_ran_past_its_deadline_is_a_timeout_row_naming_its_command_and_deadline_and_no_tempo_check_run() {
+    let ledger = ledger();
+    ledger.check("c1", 20.0, "pass");
+    let words = ["check", "--repo", "north", "--candidate", "c2", "--tree", "t2", "--base", "b1", "--command", "cargo test", "--deadline", "300", "--started-at", &(NOW - 10.0 * MINUTE).to_string(), "--finished-at", &(NOW - 5.0 * MINUTE).to_string(), "--outcome", "timeout"];
+    ledger.ok(&words.map(str::to_owned));
+    let db = Connection::open(&ledger.path).unwrap();
+    let row: (String, String, i64) = db.query_row("SELECT outcome, command, deadline_s FROM land_checks WHERE candidate = 'c2'", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
+    assert_eq!(row, ("timeout".to_owned(), "cargo test".to_owned(), 300));
+    let refused = |words: &[&str]| ledger.call(&words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>()).0;
+    assert_eq!(refused(&["check", "--repo", "north", "--candidate", "c3", "--started-at", "1", "--finished-at", "2", "--outcome", "timeout", "--command", "cargo test"]), 2, "a timeout without its deadline");
+    assert_eq!(refused(&["check", "--repo", "north", "--candidate", "c3", "--started-at", "1", "--finished-at", "2", "--outcome", "timeout", "--deadline", "300"]), 2, "a timeout without its command");
+    assert_eq!(refused(&["check", "--repo", "north", "--candidate", "c3", "--started-at", "1", "--finished-at", "2", "--outcome", "pass", "--deadline", "0"]), 2);
+    ledger.land("a", 30.0, Some(20.0), "c1", (1, 0), "landed");
+    assert_eq!(tempo::tempo(&ledger.path, "north", NOW).unwrap()["check_runs"], 1, "a timeout row is one command of a candidate check, not a check run");
+}
+
+#[test]
+fn a_ledger_written_before_timeouts_keeps_its_check_rows_and_takes_a_timeout_on_the_next_check() {
+    let ledger = ledger();
+    Connection::open(&ledger.path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE land_checks(id INTEGER PRIMARY KEY, repo TEXT NOT NULL, candidate TEXT NOT NULL, tree TEXT NOT NULL DEFAULT '', base TEXT NOT NULL DEFAULT '', \
+             batch_size INTEGER NOT NULL CHECK(batch_size >= 0), bisect_depth INTEGER NOT NULL CHECK(bisect_depth >= 0), started_at TEXT NOT NULL, finished_at TEXT NOT NULL, \
+             outcome TEXT NOT NULL CHECK(outcome IN ('pass','fail','moved')), UNIQUE(repo, candidate, started_at)) STRICT; \
+             CREATE INDEX land_checks_repo_started ON land_checks(repo, started_at); \
+             INSERT INTO land_checks(id, repo, candidate, batch_size, bisect_depth, started_at, finished_at, outcome) VALUES (7, 'north', 'old', 2, 0, '2026-11-01T00:00:00Z', '2026-11-01T00:05:00Z', 'moved');",
+        )
+        .unwrap();
+    let words = ["check", "--repo", "north", "--candidate", "new", "--command", "cargo test", "--deadline", "300", "--started-at", "1", "--finished-at", "2", "--outcome", "timeout"];
+    ledger.ok(&words.map(str::to_owned));
+    let db = Connection::open(&ledger.path).unwrap();
+    let rows: Vec<(i64, String, String, Option<i64>)> = db
+        .prepare("SELECT id, candidate, outcome, deadline_s FROM land_checks ORDER BY candidate DESC")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(rows, vec![(7, "old".to_owned(), "moved".to_owned(), None), (8, "new".to_owned(), "timeout".to_owned(), Some(300))]);
+    let indexed: i64 = db.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'land_checks_repo_started'", [], |row| row.get(0)).unwrap();
+    assert_eq!((indexed, ledger.count("sqlite_master WHERE name = 'land_checks_before_timeouts'")), (1, 0));
+}

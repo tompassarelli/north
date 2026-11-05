@@ -171,6 +171,12 @@ and run as a service.
     Built 2026-11-04: the tables are created by the first `north land-train` write (not bin/threads), carry a `repo`
     column, and a third table `land_checks` records each check run so the share thrown away because main moved is
     measured; `main_red` is written by `north land-train red`, which the Main-red marker work calls.
+    Added 2026-11-05 (north#255, estimation audit): a land check that runs past its deadline writes a
+    `land_checks` row with outcome `timeout`, its `command` and `deadline_s` (the runner, through
+    `north land-train check`); candidate rows keep an empty command and `north flow` counts only them. A
+    timeout on a lane whose base tree also ran past the deadline doubles that command's next deadline (up
+    to the 2100 s ceiling) until twenty later runs age it out, and a refused candidate's `landings.detail`
+    names the land check or gate that failed before its log path.
 16. **Speed.** (a) Actions results are reused by tree: land-check.yml is dispatched at main's ref with
     the tree's SHA as input, so no lane judges itself with an edited workflow, and such a run counts
     whoever dispatched it; a lane alone on an unmoved main lands on its queue-time run. (b) Machine-bound

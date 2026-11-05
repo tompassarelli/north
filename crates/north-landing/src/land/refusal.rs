@@ -8,7 +8,7 @@ const TAIL_BOUND: usize = BOUND / 2;
 const LINE_BOUND: usize = 300;
 const TAIL_HEADER: &str = "last lines of the log:";
 
-fn gate(line: &str) -> bool {
+pub(super) fn gate(line: &str) -> bool {
     line.split_once(": ").is_some_and(|(name, _)| !name.contains(' ') && (name.ends_with("-gate") || name.ends_with("-guard")))
 }
 
