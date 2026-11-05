@@ -24,9 +24,9 @@ Each run reads what is new since its watermark and appends one JSON row per reco
 
   - Tom's own typed messages in top-level sessions he started (a session whose first prompt is
     an agent brief, or that has a single prompt, is an agent's; brief-shaped prompts and
-    questions about what already happened inside Tom's sessions are skipped; requests count as
-    directions), kept when deterministic rules read them as a
-    decision, direction, preference, correction or approval;
+    questions about what already happened inside Tom's sessions are skipped, and so are fleet
+    messages relayed into a session as `[from NAME]`; requests count as directions), kept when
+    deterministic rules read them as a decision, direction, preference, correction or approval;
   - DECIDED and APPROVED lines the proxy wrote in Tom's sessions;
   - DECIDED and APPROVED lines in handoff status files.
 
@@ -36,17 +36,24 @@ with an override marker supersedes the latest older Tom decision, direction or p
 the three days before it that names at least three of the same specific subjects; both rows
 are kept.
 
-Each row is {id, at, kind, topic, quote, source, superseded_by}; source starts with who said it
-(`tom`, `proxy` or the status file's lead) and names the convo message and session or the file
-and line.
+Each row is {id, at, kind, topic, quote, source, superseded_by}, and a correction also carries
+its class, the failure it names (pace, status-not-action, unproven-cause, ..., else
+unclassified); source starts with who said it (`tom`, `proxy` or the status file's lead) and
+names the convo message and session or the file and line. A message seen in two copies of one
+session's transcript counts once, and so does a burst of Tom's corrections in one session
+within two minutes (a retyped or split message). Each run also writes corrections-week.txt beside the ledger:
+the last seven days' corrections counted per class, which `north loops check` prints as the
+corrections loop's score.
 
   north grounding distill run [--since 14d] [--no-refresh] [--if-idle]
   north grounding distill status
 "#;
 
+pub const SCORE_FILE: &str = "corrections-week.txt";
 const MINUTE: f64 = 60_000.0;
 const DAY: f64 = 24.0 * 60.0 * MINUTE;
 const OVERLAP: f64 = 30.0 * MINUTE;
+const BURST: f64 = 2.0 * MINUTE;
 const SUPERSEDE_WINDOW: f64 = 3.0 * DAY;
 const QUOTE_MAX: usize = 500;
 const GENERIC: &[&str] = &[
@@ -84,6 +91,8 @@ pub struct Row {
     pub quote: String,
     pub source: String,
     pub superseded_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
 }
 
 struct Paths {
@@ -92,6 +101,7 @@ struct Paths {
     handoffs: PathBuf,
     ledger: PathBuf,
     watermark: PathBuf,
+    score: PathBuf,
 }
 
 fn paths() -> Paths {
@@ -102,6 +112,7 @@ fn paths() -> Paths {
         handoffs: env::var_os("NORTH_GROUNDING_HANDOFFS").map(PathBuf::from).unwrap_or_else(|| home.join(".local/state/agents/handoffs")),
         ledger: env::var_os("NORTH_GROUNDING_LEDGER").map(PathBuf::from).unwrap_or_else(|| state.join("ledger.jsonl")),
         watermark: state.join("distill-state.json"),
+        score: state.join(SCORE_FILE),
         state,
     }
 }
@@ -128,7 +139,7 @@ pattern!(brief_session, format!(
 ));
 pattern!(brief_read, format!(r"(?i)^{S}*Read [^\s]*handoffs/([^\s]+) and (follow|take over)"));
 pattern!(skip_message, format!(
-    r"(?i)^{S}*(/[a-z-]+{S}*$|/compact|Delegation:|Category:|Parent:|Caveat:|\[Request interrupted|This session is being continued|Base directory for this skill|Read [^\s]*handoffs/[^\s]*brief)"
+    r"(?i)^{S}*(/[a-z-]+{S}*$|/compact|\[from [^\]\n]+\]|\[Your previous response|Delegation:|Category:|Parent:|Caveat:|\[Request interrupted|This session is being continued|Base directory for this skill|Read [^\s]*handoffs/[^\s]*brief)"
 ));
 pattern!(pasted, r"(?s)<pasted_content[^>]*>.*?(</pasted_content>|\z)");
 pattern!(line_record, format!(r"^{S}*(?:[-*]{S}+)?(DECIDED|APPROVED){B}[:{}]*([^\n\r\u{{2028}}\u{{2029}}]*)$", &S[1..S.len() - 1]));
@@ -161,6 +172,31 @@ pattern!(override_marker, format!(
 pattern!(word_re, "[a-z0-9][a-z0-9'-]*[a-z0-9]|[a-z0-9]");
 pattern!(session_re, format!(r"{B}session:([^\s]+)"));
 pattern!(since_re, "^([0-9]+)([hdw])$");
+
+pub const UNCLASSIFIED: &str = "unclassified";
+
+const CLASSES: &[(&str, &str)] = &[
+    ("unanswered", r"did (you|u) (answer|reply|respond)|you didn'?t answer|didn'?t answer (my|the) question"),
+    ("recommendation-dropped", r"whenever you have a rec|(plan|rec\w*) (just )?automatically (becomes|gets)|so it doesn'?t (just )?get lost"),
+    ("harmful-brief", r"(ran|running|run|ordered) (a )?load (test|generator) on (my|the|this) laptop|busy loops on (my|the|this) laptop|(my|the|this) laptop.{0,40}(melting|on fire|frozen|unusable)"),
+    ("unproven-cause", r"(isn'?t|is not) (a|an) (compute|cpu|capacity|load|git|hardware) (issue|problem)|this is a (you|u) (issue|problem)|didn'?t (you|u) just|you were wrong|that'?s (wrong|not (it|right|true))"),
+    ("manual-not-guarded", r"do we not have (a|any) (mechanical|determ\w*)|(is )?(that|this|it)'?s? determ\w* enforced|never (ever,? )?(let|allow) this (to )?happen again"),
+    ("overbuilt", r"isn'?t the (easiest|simplest) (pattern|way|answer|fix)|doesn'?t (require|need) spinning up|research project on"),
+    ("ungrounded-design", r"under-?specified|not (really )?grounded (on|in)|heavier doesn'?t mean"),
+    ("stale-or-scaffolding", r"still in the (readme|docs?)|barnacles|stale (doc|line|readme)"),
+    ("shallow-fix", r"\d+x smarter|re-?worked to be|band-?aid"),
+    ("status-not-action", r"nothing (is )?(happening|moving|landing)|all i (ever )?(hear|here) (from you|is)|that'?s (actually |actuall )?your response|anything (happening|ahppening)"),
+    ("pace", r"(working|moving|going) (so |too )?slow(ly)?|too slow|(go|be) \d+(-\d+)?x faster|not keeping up|not seeing (enough|any) (urgency|speed|progress)|enough urgency|i need to see (some )?(speed|progress)|time is money|minutes left"),
+];
+
+fn class_patterns() -> &'static [(&'static str, Regex)] {
+    static SET: OnceLock<Vec<(&'static str, Regex)>> = OnceLock::new();
+    SET.get_or_init(|| CLASSES.iter().map(|(class, text)| (*class, re(&format!("(?i){B}({text})")))).collect())
+}
+
+pub fn correction_class(text: &str) -> Option<(&'static str, &'static Regex)> {
+    class_patterns().iter().find(|(_, pattern)| pattern.is_match(text)).map(|(class, pattern)| (*class, pattern))
+}
 
 fn rules() -> [(Kind, &'static Regex); 4] {
     [(Kind::Correction, correction()), (Kind::Decision, decision()), (Kind::Preference, preference()), (Kind::Direction, direction())]
@@ -409,6 +445,9 @@ pub fn classify(text: &str, previous_assistant: Option<&str>) -> (Option<Kind>, 
     if approved_start().is_match(text) {
         return (Some(Kind::Approval), None);
     }
+    if let Some((_, pattern)) = correction_class(text) {
+        return (Some(Kind::Correction), Some(pattern));
+    }
     let statements: Vec<&str> = sentences(text).into_iter().filter(|s| counts(s)).collect();
     for (kind, pattern) in rules() {
         if statements.iter().any(|s| pattern.is_match(s)) {
@@ -540,7 +579,7 @@ fn read_convo(db: &Path, since: f64) -> NorthResult<Vec<Message>> {
 }
 
 fn row(id: String, at: String, kind: Kind, text_for_topic: &str, quote: String, source: String) -> Row {
-    Row { id, at, kind: kind.name().into(), topic: topic(text_for_topic), quote, source, superseded_by: None }
+    Row { id, at, kind: kind.name().into(), topic: topic(text_for_topic), quote, source, superseded_by: None, class: None }
 }
 
 pub fn speaker(r: &Row) -> &str {
@@ -580,7 +619,11 @@ fn convo_records(messages: &[Message]) -> Vec<Row> {
             (Some(p), Kind::Approval) if !p.is_empty() => utf16_tail(p, 600),
             _ => "",
         };
-        out.push(row(rid(&key), at.clone(), kind, &format!("{text} {asked}"), trim_quote(&text, pattern), format!("tom {place}")));
+        let mut found = row(rid(&key), at.clone(), kind, &format!("{text} {asked}"), trim_quote(&text, pattern), format!("tom {place}"));
+        if kind == Kind::Correction {
+            found.class = Some(correction_class(&text).map_or(UNCLASSIFIED, |(class, _)| class).to_owned());
+        }
+        out.push(found);
     }
     out
 }
@@ -680,6 +723,22 @@ fn write_ledger(ledger: &Path, rows: &[Row]) -> NorthResult<()> {
     Ok(())
 }
 
+pub fn weekly_score(rows: &[Row], now: f64) -> String {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    let recent = rows.iter().filter(|r| r.kind == Kind::Correction.name()).filter(|r| Timestamp::parse_loose(&r.at).is_some_and(|t| now - t.unix_millis() as f64 <= 7.0 * DAY));
+    for r in recent {
+        let class = r.class.as_deref().unwrap_or(UNCLASSIFIED);
+        match counts.iter_mut().find(|(c, _)| c == class) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((class.to_owned(), 1)),
+        }
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let total: usize = counts.iter().map(|(_, n)| n).sum();
+    let classes = counts.iter().map(|(c, n)| format!("{c} {n}")).collect::<Vec<_>>().join(", ");
+    format!("{total} corrections in 7 days{}{classes}", if total == 0 { "" } else { ": " })
+}
+
 fn lock_age_ms(lock: &Path) -> Option<f64> {
     let meta = fs::metadata(lock).ok()?;
     Some(Timestamp::now().unix_millis() as f64 - mtime_ms(&meta).ok()?)
@@ -736,14 +795,27 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool) -> N
         let mut rows = load_ledger(&p.ledger)?;
         let known: HashSet<String> = rows.iter().map(|r| r.id.clone()).collect();
         let mut said: HashSet<(Option<String>, String)> =
-            rows.iter().filter(|r| speaker(r) == "tom").map(|r| (session_of(r), r.quote.clone())).collect();
+            rows.iter().filter(|r| speaker(r) == "tom").flat_map(|r| [(session_of(r), r.quote.clone()), (session_of(r), r.at.clone())]).collect();
+        let millis = |r: &Row| Timestamp::parse_loose(&r.at).map_or(f64::NAN, |t| t.unix_millis() as f64);
+        let tom_correction = |r: &Row| speaker(r) == "tom" && r.kind == Kind::Correction.name();
+        let mut bursts: Vec<(Option<String>, f64)> = rows.iter().filter(|r| tom_correction(r)).map(|r| (session_of(r), millis(r))).collect();
         let mut unique: Vec<Row> = Vec::new();
         let mut unique_ids: HashSet<String> = HashSet::new();
         let found = convo_records(&read_convo(&p.db, since)?).into_iter().chain(status_records(&p.handoffs, since));
         for r in found {
-            let repeat = (session_of(&r), r.quote.clone());
-            if known.contains(&r.id) || unique_ids.contains(&r.id) || (speaker(&r) == "tom" && said.contains(&repeat)) {
+            let (repeat, moment) = ((session_of(&r), r.quote.clone()), (session_of(&r), r.at.clone()));
+            if known.contains(&r.id) || unique_ids.contains(&r.id) || (speaker(&r) == "tom" && (said.contains(&repeat) || said.contains(&moment))) {
                 continue;
+            }
+            if tom_correction(&r) {
+                let (session, at) = (session_of(&r), millis(&r));
+                if bursts.iter().any(|(s, t)| *s == session && (at - t).abs() <= BURST) {
+                    continue;
+                }
+                bursts.push((session, at));
+            }
+            if speaker(&r) == "tom" {
+                said.insert(moment);
             }
             said.insert(repeat);
             unique_ids.insert(r.id.clone());
@@ -760,6 +832,7 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool) -> N
         rows.extend(unique);
         let links = link_supersession(&mut rows, &unique_ids);
         write_ledger(&p.ledger, &rows)?;
+        fs::write(&p.score, format!("{}\n", weekly_score(&rows, now)))?;
         fs::write(&p.watermark, format!("{{\"through\":{},\"rows\":{}}}\n", json_str(&Timestamp::from_unix_millis_f64(started).iso()), rows.len()))?;
         let kinds = kinds.iter().map(|(k, n)| format!("{}:{n}", json_str(k))).collect::<Vec<_>>().join(",");
         Ok(Ok(format!(

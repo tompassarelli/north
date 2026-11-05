@@ -3,7 +3,8 @@
 # the state root (XDG_STATE_HOME, else ~/.local/state) whose newest write is its last update, on the
 # host `host` names (ledger, lander or here). `north loops check` and `north tune` fail a closed loop
 # held on this host whose record is older than twice its cadence or missing; `owner` names the box that closes
-# an open loop, which prints but does not fail. The tests in crates/north-dispatch/src/loops fail
+# an open loop, which prints but does not fail; `score` names a one-line record under the state root that
+# `north loops check` prints beside the loop's verdict. The tests in crates/north-dispatch/src/loops fail
 # when a decision site, numeric constant or defaults key behind dispatch, fleet launch, capacity
 # admission or the lander is named by no loop and no `[plumbing]` list. See
 # docs/rationale/learning-loops.md.
@@ -204,6 +205,16 @@ sites = ["harness/hooks/north-hook.sh"]
 updated_by = "skill frontmatter by hand"
 cadence_hours = 168
 owner = "north#112 Skill effect"
+
+[[loop]]
+name = "corrections"
+decision = "which class of Tom's corrections gets a guard proposed, and whether a guarded class recurs"
+sites = ["crates/north-core/src/grounding/distill.rs"]
+signal = "Tom's corrections in the grounding ledger, counted per class per week; the weekly count is the harness's learning score"
+updated_by = "north grounding distill"
+cadence_hours = 24
+record = "north/grounding/ledger.jsonl"
+score = "north/grounding/corrections-week.txt"
 
 [plumbing]
 constants = [

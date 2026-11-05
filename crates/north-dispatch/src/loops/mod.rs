@@ -44,6 +44,7 @@ pub struct Loop {
     pub record: Option<String>,
     pub host: Role,
     pub owner: Option<String>,
+    pub score: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -89,7 +90,7 @@ pub fn parse(text: &str) -> Result<Vec<Loop>, String> {
             None => Role::Here,
             Some(role) => Role::parse(&role).ok_or_else(|| format!("loop {name} has host {role}, not ledger, lander or here"))?,
         };
-        Ok(Loop { decision: needs("decision")?, updated_by: needs("updated_by")?, constants: strings(table, "constants"), defaults: strings(table, "defaults"), name, sites, signal, cadence_hours: cadence_hours.unsigned_abs(), record, host, owner })
+        Ok(Loop { decision: needs("decision")?, updated_by: needs("updated_by")?, constants: strings(table, "constants"), defaults: strings(table, "defaults"), name, sites, signal, cadence_hours: cadence_hours.unsigned_abs(), record, host, owner, score: text("score") })
     }).collect()
 }
 
@@ -102,6 +103,7 @@ pub fn here(role: Option<Role>) -> Result<Checked, String> {
     let loops = parse(&REGISTRY)?;
     let state = state_root();
     let read = |record: &str| last_written(&state, record).map_or(Reading::Never, Reading::At);
+    let score = |record: &str| std::fs::read_to_string(state.join(record)).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty());
     let held: Box<dyn Fn(Role) -> bool> = match role {
         Some(role) => Box::new(move |found| found == role),
         None => {
@@ -110,7 +112,7 @@ pub fn here(role: Option<Role>) -> Result<Checked, String> {
             Box::new(move |found| hosts.holds(found))
         }
     };
-    Ok(check(&loops, &*held, &read, SystemTime::now()))
+    Ok(check(&loops, &*held, &read, &score, SystemTime::now()))
 }
 
 pub fn run(arguments: &[String]) -> u8 {

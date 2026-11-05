@@ -13,7 +13,7 @@ pub struct Checked {
     pub failing: Vec<String>,
 }
 
-pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) -> Reading, now: SystemTime) -> Checked {
+pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) -> Reading, score: &dyn Fn(&str) -> Option<String>, now: SystemTime) -> Checked {
     let mut lines = Vec::new();
     let mut failing = Vec::new();
     for found in loops {
@@ -21,7 +21,8 @@ pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) ->
         if failed {
             failing.push(found.name.clone());
         }
-        lines.push(format!("{}: {verdict}", found.name));
+        let scored = found.score.as_deref().filter(|_| held(found.host)).and_then(score).map(|text| format!("; score: {text}")).unwrap_or_default();
+        lines.push(format!("{}: {verdict}{scored}", found.name));
     }
     lines.push(format!("loops: {} of {} failing", failing.len(), loops.len()));
     Checked { lines, failing }
