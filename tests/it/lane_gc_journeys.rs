@@ -170,7 +170,7 @@ fn landing_facts(rig: &Rig, main: &Path) -> Vec<(String, String)> {
 }
 
 #[test]
-fn an_orphan_landing_ref_is_pinged_held_through_grace_and_archived_to_the_mirror_before_deletion() {
+fn unlanded_landing_refs_are_kept_unpinged_and_landed_ones_are_deleted() {
     let scratch = tempfile::tempdir().unwrap();
     let rig = Rig::new(scratch.path(), &scratch.path().join("home"));
     rig.fleet(&[("fixture-parent", None, "north")]);
@@ -195,6 +195,8 @@ fn an_orphan_landing_ref_is_pinged_held_through_grace_and_archived_to_the_mirror
         rig.git(&main, &["branch", &format!("claude/land-{lane}-{}", &tip[..12]), &tip]);
     }
     rig.git(&main, &["checkout", "-q", "main"]);
+    let main_tip = rig.git(&main, &["rev-parse", "HEAD"]);
+    rig.git(&main, &["branch", &format!("claude/land-landed-{}", &main_tip[..12]), &main_tip]);
     rig.git(&main, &["worktree", "add", "-q", rig.home.join("code/north/worktrees/author").to_str().unwrap(), "author"]);
     rig.stub("git", PUSH_WRAPPER);
     rig.stub("gh", GH_REPLAY);
@@ -202,51 +204,30 @@ fn an_orphan_landing_ref_is_pinged_held_through_grace_and_archived_to_the_mirror
     let pushed = || rig.root.join("pushes").exists();
 
     let dry = rig.lane_gc("2026-10-14T11:00:00Z", &[], &["--repo", "north", "--dry-run"]);
-    assert!(!pushed() && !rig.root.join("alerts").exists(), "{dry}");
-    assert!(dry.contains("would notify fixture-parent"), "{dry}");
+    assert!(!pushed() && !rig.root.join("alerts").exists() && !dry.contains("would notify"), "{dry}");
     for lane in ["land-fresh-", "land-force-fresh-"] {
         assert!(dry.lines().any(|line| line.contains(lane) && line.contains("LIVE")), "{lane}: {dry}");
     }
-    write(&rig.root.join("ping-fault"), "");
-    let refused = rig.lane_gc("2026-10-14T11:00:00Z", &[], &["--repo", "north"]);
-    assert!(!pushed() && !rig.root.join("alerts").exists() && refused.contains("Fleet parent notification failed"), "{refused}");
-    fs::remove_file(rig.root.join("ping-fault")).unwrap();
-    let pinged = rig.lane_gc("2026-10-14T11:00:00Z", &[], &["--repo", "north"]);
-    assert!(!pushed(), "{pinged}");
-    assert!(rig.read("fleet-sends").lines().any(|line| line.starts_with("fleet send --from service:north-lane-gc fixture-parent ") && line.contains("orphan landing")));
-    let grace = rig.lane_gc("2026-10-14T11:30:00Z", &[], &["--repo", "north"]);
-    assert!(!pushed() && grace.contains("owner ping grace"), "{grace}");
+    assert!(dry.lines().any(|line| line.contains("land-landed-") && line.contains("STALE landed")), "{dry}");
     for fault in ["error", "malformed", "refs-incomplete", "runs-capped"] {
         write(&rig.root.join("api-fault"), fault);
-        let out = rig.lane_gc("2026-10-14T12:01:00Z", &[], &["--repo", "north"]);
+        let out = rig.lane_gc("2026-10-14T14:00:00Z", &[], &["--repo", "north"]);
         assert!(!pushed(), "{fault}: {out}");
     }
     fs::remove_file(rig.root.join("api-fault")).unwrap();
-    let recovered = rig.lane_gc("2026-10-14T12:01:00Z", &[], &["--repo", "north"]);
-    assert!(!pushed() && recovered.contains("notified fixture-parent"), "{recovered}");
-    let regrace = rig.lane_gc("2026-10-14T13:00:00Z", &[], &["--repo", "north"]);
-    assert!(!pushed() && regrace.contains("owner ping grace"), "{regrace}");
-    assert!(regrace.lines().any(|line| line.contains("land-fresh-") && line.contains("notified fixture-parent")), "{regrace}");
-    let archived = rig.lane_gc("2026-10-14T13:01:00Z", &[], &["--repo", "north"]);
-    assert!(!rig.read("pushes").contains(":refs/heads/claude/land-fresh-"), "{archived}");
-    let created = rig.lane_gc("2026-10-14T14:00:00Z", &[], &["--repo", "north"]);
+    let out = rig.lane_gc("2026-10-14T14:00:00Z", &[], &["--repo", "north"]);
 
     let pushes: Vec<String> = rig.read("pushes").lines().map(str::to_string).collect();
-    for (name, tip) in &branches {
-        let deletion = pushes.iter().position(|line| line.contains(&format!(":refs/heads/{name}")));
-        let eligible = ["orphan", "pending", "fresh"].iter().any(|lane| name.contains(&format!("/land-{lane}-")));
-        assert_eq!(deletion.is_some(), eligible, "{name}: {pushes:?}\n{created}");
-        let Some(deletion) = deletion else { continue };
-        let reference = format!("refs/archive/2026-10-14/{name}");
-        let copied = pushes.iter().position(|line| line.contains(&format!("{tip}:{reference}")));
-        assert!(copied.is_some_and(|copied| copied < deletion), "{name}: {pushes:?}");
-        assert_eq!(rig.git(&rig.root.join("mirrors/north.git"), &["rev-parse", &format!("{reference}^{{commit}}")]), *tip);
-        assert!(!rig.git_ok(&origin, &["rev-parse", "-q", "--verify", &format!("refs/tags/archive/north/{name}/{}", &tip[..12])]), "archive tags stay off origin");
-        assert!(pushes[deletion].contains(&format!("--force-with-lease=refs/heads/{name}:{tip}")), "{}", pushes[deletion]);
+    let (landed, landed_tip) = branches.iter().find(|(name, _)| name.contains("/land-landed-")).unwrap();
+    assert_eq!(pushes.len(), 1, "{pushes:?}\n{out}");
+    assert!(pushes[0].contains(&format!("--force-with-lease=refs/heads/{landed}:{landed_tip}")) && pushes[0].contains(&format!(":refs/heads/{landed}")), "{}", pushes[0]);
+    assert!(!rig.root.join("fleet-sends").exists(), "unlanded landing refs are not pinged");
+    for lane in ["orphan", "pending", "queued", "running"] {
+        assert!(out.lines().any(|line| line.contains(&format!("/land-{lane}-")) && (line.contains("KEEP unlanded") || line.contains("LIVE"))), "{lane}: {out}");
     }
+    assert!(out.lines().any(|line| line.contains("/land-orphan-") && line.contains("fault: names no issue")), "{out}");
+    assert!(!rig.read("notices.md").contains("archive"), "no archive notice");
 }
-
-const MIRROR_FAULT_WRAPPER: &str = "if [ -f \"$LANE_GC_FIXTURE/mirror-fault\" ]; then\n  case \"$*\" in *mirrors/*)\n    case \" $* \" in *\" push \"*|*\" fetch \"*) exit 1 ;; esac ;;\n  esac\nfi\nexec \"$LANE_GC_REAL_GIT\" \"$@\"\n";
 
 static CLASSIFIED: LazyLock<Template> = LazyLock::new(|| Template::build(Classified::build));
 
@@ -254,7 +235,6 @@ struct Classified {
     rig: Rig,
     main: PathBuf,
     origin: PathBuf,
-    tips: [String; 3],
     legacy: String,
     now: String,
     _holder: Holder,
@@ -325,7 +305,6 @@ impl Classified {
         let legacy_tag = format!("archive/north/equiv/{}", &legacy[..12]);
         rig.git(&main, &["tag", &legacy_tag, &legacy]);
         rig.git(&main, &["push", "-q", "origin", &format!("refs/tags/{legacy_tag}")]);
-        rig.stub("git", MIRROR_FAULT_WRAPPER);
     }
 
     fn new(root: &Path) -> Self {
@@ -336,11 +315,10 @@ impl Classified {
         let main = rig.home.join("code/north/main");
         let holder = Holder(Command::new("sleep").arg("300").current_dir(rig.home.join("code/north/worktrees/held")).spawn().unwrap());
         let legacy = rig.git(&main, &["rev-parse", "equiv"]);
-        let tips = ["equiv", "sup", "wip"].map(|b| rig.git(&main, &["rev-parse", b]));
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 30 * 3600;
         let now = String::from_utf8(Command::new("date").args(["-u", "-d", &format!("@{at}"), "+%FT%TZ"]).output().unwrap().stdout).unwrap().trim().to_string();
         let origin = rig.root.join("origin/north.git");
-        Self { rig, main, origin, tips, legacy, now, _holder: holder }
+        Self { rig, main, origin, legacy, now, _holder: holder }
     }
 
     fn relocate(rig: &Rig, template: &Path) {
@@ -364,27 +342,11 @@ impl Classified {
         self.rig.lane_gc(&self.now, &[("GIT_AUTHOR_DATE", stamp), ("GIT_COMMITTER_DATE", stamp)], args)
     }
 
-    fn lanes_intact(&self) -> bool {
-        ["equiv", "sup", "wip", "own", "held"]
+    fn kept_intact(&self) -> bool {
+        ["wip", "own", "held"]
             .iter()
             .all(|b| self.rig.home.join("code/north/worktrees").join(b).is_dir() && self.rig.git_ok(&self.main, &["rev-parse", "-q", "--verify", &format!("refs/heads/{b}")]))
-    }
-
-    fn mirror(&self) -> PathBuf {
-        self.rig.root.join("mirrors/north.git")
-    }
-
-    fn mirrored(&self, lane: &str) -> String {
-        let mirror = self.mirror();
-        if !mirror.exists() {
-            return String::new();
-        }
-        let listed = self.rig.git(&mirror, &["for-each-ref", "--format=%(objectname) %(refname)", "refs/archive/"]);
-        listed.lines().filter_map(|line| line.split_once(' ')).find(|(_, name)| name.ends_with(&format!("/{lane}"))).map(|(oid, _)| oid.to_string()).unwrap_or_default()
-    }
-
-    fn origin_has_sup(&self) -> bool {
-        !self.rig.git(&self.main, &["ls-remote", "origin", "refs/heads/sup"]).is_empty()
+            && self.rig.git_ok(&self.main, &["rev-parse", "-q", "--verify", "refs/heads/loose"])
     }
 
     fn origin_extra_refs(&self) -> Vec<String> {
@@ -392,15 +354,13 @@ impl Classified {
         listed.lines().map(|line| line.split('\t').next().unwrap().to_string()).collect()
     }
 
-    fn archived_gone(&self, lane: &str, tip: &str) -> bool {
-        !self.rig.home.join("code/north/worktrees").join(lane).exists()
-            && !self.rig.git_ok(&self.main, &["rev-parse", "-q", "--verify", &format!("refs/heads/{lane}")])
-            && self.mirrored(lane) == tip
+    fn gone(&self, lane: &str) -> bool {
+        !self.rig.home.join("code/north/worktrees").join(lane).exists() && !self.rig.git_ok(&self.main, &["rev-parse", "-q", "--verify", &format!("refs/heads/{lane}")])
     }
 }
 
 #[test]
-fn retiring_each_class_archives_to_the_mirror_and_pushes_no_ref_to_origin() {
+fn a_landed_or_superseded_lane_is_deleted_with_no_backup_and_no_ref_pushed_to_origin() {
     let scratch = tempfile::tempdir().unwrap();
     let fixture = Classified::new(scratch.path());
     let (rig, main) = (&fixture.rig, &fixture.main);
@@ -408,29 +368,24 @@ fn retiring_each_class_archives_to_the_mirror_and_pushes_no_ref_to_origin() {
     let before = fixture.origin_extra_refs();
     assert_eq!(before, [fixture.legacy.as_str()]);
     let out = fixture.run(&[]);
-    let [equiv, sup, wip] = &fixture.tips;
-    assert!(fixture.archived_gone("equiv", equiv) && fixture.archived_gone("sup", sup), "{out}");
-    assert!(!fixture.origin_has_sup(), "{out}");
-    let snapshot = fixture.mirrored("wip");
-    assert!(!snapshot.is_empty() && !rig.home.join("code/north/worktrees/wip").exists(), "{out}");
-    assert_eq!(rig.git(&fixture.mirror(), &["rev-parse", &format!("{snapshot}^")]), *wip);
+    assert!(fixture.gone("equiv") && fixture.gone("sup"), "{out}");
+    assert!(fixture.kept_intact(), "{out}");
     assert_eq!(fixture.origin_extra_refs(), before, "{out}");
+    assert!(!rig.root.join("mirrors").exists() && !rig.read("notices.md").contains("restore="), "{out}");
     assert!(rig.git(main, &["tag", "-l", "archive/*"]).lines().all(|tag| tag.ends_with(&fixture.legacy[..12])), "{out}");
-    let notices = rig.read("notices.md");
-    assert!(notices.contains("restore=git -C ") && notices.contains("mirrors/north.git"), "{notices}");
 }
 
 #[test]
-fn each_lane_class_retires_behind_a_verified_mirror_archive_and_owned_work_stays_reported() {
+fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_state() {
     let scratch = tempfile::tempdir().unwrap();
     let fixture = Classified::new(scratch.path());
-    let (rig, main) = (&fixture.rig, &fixture.main);
+    let rig = &fixture.rig;
 
     let dry = fixture.run(&["--dry-run"]);
     for expected in [
-        "north: landed-elsewhere ~/code/north/worktrees/equiv: archive equiv (",
-        "north: superseded ~/code/north/worktrees/sup: archive sup (",
-        "north: stale-dirty ~/code/north/worktrees/wip: archive wip (<snapshot>) to the north mirror, then retire",
+        "north: retire ~/code/north/worktrees/equiv (equiv, ",
+        "north: retire ~/code/north/worktrees/sup (sup, issues closed)",
+        "north: stale-dirty ~/code/north/worktrees/wip: surface to north-parent",
         "north: owned ~/code/north/worktrees/own: surface to north-parent (north#5 north#6)",
         "north: owned ~/code/north/worktrees/held: surface to north-parent",
         "would alert scratch-parent: 26 owned unlanded lanes",
@@ -438,43 +393,30 @@ fn each_lane_class_retires_behind_a_verified_mirror_archive_and_owned_work_stays
         assert!(dry.contains(expected), "{expected}\n{dry}");
     }
     assert!(dry.lines().any(|line| line == "north: owned branch loose: surface to north-parent"), "{dry}");
-    assert!(fixture.lanes_intact() && !rig.root.join("alerts").exists() && !fixture.mirror().exists());
-
-    write(&rig.root.join("mirror-fault"), "1");
-    let out = fixture.run(&[]);
-    assert!(fixture.lanes_intact() && fixture.origin_has_sup(), "{out}");
-    assert!(out.contains("kept (archive mirror copy failed)"), "{out}");
-    assert!(rig.read("notices.md").contains("kept (archive mirror copy failed)"));
-    fs::remove_file(rig.root.join("mirror-fault")).unwrap();
+    assert!(fixture.kept_intact() && !fixture.gone("equiv") && !rig.root.join("alerts").exists());
 
     let out = fixture.run(&[]);
-    let [equiv, sup, wip] = &fixture.tips;
-    assert!(fixture.archived_gone("equiv", equiv) && fixture.archived_gone("sup", sup), "{out}");
-    assert!(!fixture.origin_has_sup());
+    assert!(fixture.gone("equiv") && fixture.gone("sup") && fixture.kept_intact(), "{out}");
+    let wip = rig.home.join("code/north/worktrees/wip");
+    assert!(wip.join("new.txt").is_file() && fs::read_to_string(wip.join("README")).unwrap().contains("edited"));
 
-    let snapshot = fixture.mirrored("wip");
-    let mirror = fixture.mirror();
-    assert!(!snapshot.is_empty() && !rig.home.join("code/north/worktrees/wip").exists(), "{out}");
-    assert_eq!(rig.git(&mirror, &["rev-parse", &format!("{snapshot}^")]), *wip);
-    assert_eq!(rig.git(&mirror, &["show", &format!("{snapshot}:new.txt")]), "new");
-    assert!(rig.git(&mirror, &["show", &format!("{snapshot}:README")]).contains("edited"));
-    assert!(!rig.git_ok(&mirror, &["cat-file", "-e", &format!("{snapshot}:build.log")]));
-
-    assert!(rig.home.join("code/north/worktrees/own").is_dir() && rig.home.join("code/north/worktrees/held").is_dir());
-    assert!(rig.git_ok(main, &["rev-parse", "-q", "--verify", "refs/heads/loose"]));
     let mut unlanded: Vec<String> = rig.read("unlanded.txt").lines().filter(|line| !line.starts_with('#')).map(|line| line.split('\t').collect::<Vec<_>>()).filter(|fields| fields[1] == "north").map(|fields| fields[3].to_string()).collect();
     unlanded.sort();
-    assert_eq!(unlanded, ["held", "loose", "own"]);
+    assert_eq!(unlanded, ["held", "loose", "own", "wip"]);
     let stale: Value = serde_json::from_str(&rig.read("stale.json")).unwrap();
     let mut owned: Vec<(String, Vec<String>, String)> = stale["repos"]["north"]["owned"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|row| (row["branch"].as_str().unwrap().into(), row["refs"].as_array().unwrap().iter().map(|r| r.as_str().unwrap().into()).collect(), row["owner"].as_str().unwrap().into()))
+        .map(|row| (row["branch"].as_str().unwrap().into(), row["issues"].as_array().unwrap().iter().map(|r| r.as_str().unwrap().into()).collect(), row["owner"].as_str().unwrap().into()))
         .collect();
     owned.sort();
     let parent = "north-parent".to_string();
-    assert_eq!(owned, [("held".into(), vec![], parent.clone()), ("loose".into(), vec![], parent.clone()), ("own".into(), vec!["north#5".into(), "north#6".into()], parent)]);
+    let fault = || vec!["fault: names no issue".to_string()];
+    assert_eq!(
+        owned,
+        [("held".into(), fault(), parent.clone()), ("loose".into(), fault(), parent.clone()), ("own".into(), vec!["north#5=closed".into(), "north#6=open".into()], parent.clone()), ("wip".into(), fault(), parent)]
+    );
     let alerts = rig.read("alerts");
     assert_eq!(alerts.lines().count(), 1, "{alerts}");
     assert!(alerts.starts_with("normal|scratch-parent: 26 owned unlanded lanes"), "{alerts}");

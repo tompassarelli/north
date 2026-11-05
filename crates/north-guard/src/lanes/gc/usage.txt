@@ -2,32 +2,27 @@ usage: north lane-gc [--remote] [--dry-run] [--repo NAME]... [--root DIR] [--idl
        north lane-gc --unlanded
 
 For every ~/code/<project> container with main/ and worktrees/ (clients,
-resources and archive are skipped), retire what is already on origin/main:
-  - a worktree under worktrees/ whose tip is contained in origin/main, patch-equivalent
-    there (git cherry shows no +) or adds nothing when merged, that has no uncommitted or
-    untracked files, no process with its cwd or an open file inside, is not locked and
-    was not touched within --idle-hours (default 3): git worktree remove, then its branch;
-  - a local branch with no worktree passing the same check;
-  - origin branches already on origin/main that pass the remote liveness checks;
---remote checks every origin branch for landed patches or 24h inactivity, protecting
-open PRs, active Actions, Autoland, claims and recent pushes; orphaned
-claude/land-* refs idle 4h notify their Fleet parent, then archive after a 1h grace; origin branches whose changes are already on main (north landed-tree) are deleted outright and every other stale one is archived into the lane-gc mirror (~/.local/state/agents/lane-gc/mirrors/NAME.git, refs/archive/DATE/BRANCH, never origin) before deletion; stale branches
-are archived before deletion. Local unlanded lanes are flagged at 24h and clean,
-unlocked, unused lanes are archived and retired at 72h.
-Every other lane and branch gets a class: landed-elsewhere (patch-equivalent to main or its
-tree already there), superseded (every issue it names is closed), stale-dirty (uncommitted
-work idle 24h with no live holder) or owned. The first three are archived into the
-lane-gc mirror (~/.local/state/agents/lane-gc/mirrors/<container>.git, refs/archive/DATE/<branch-or-worktree>; a
-stale-dirty lane's tip is a commit of its full working state), the tip is verified there
-and nothing is pushed to origin, and only then are the worktree, branch and origin branch
-deleted. Restore with git -C <mirror> push <origin url> refs/archive/DATE/NAME:refs/heads/NAME
-(printed in notices.md). An existing refs/archive/lanes/<name> at the same state is copied
-to the mirror as the archive. Owned lanes are grouped by their active Fleet parent in stale.json;
-parents with more than 25 or any over 72h get supply-alert. --dry-run prints each lane's class and action.
-then git worktree prune and git fetch --prune. Everything with unique commits or dirty
-state is kept and written to the unlanded report (default
-~/.local/state/agents/lane-gc/unlanded.txt): age, container, path, branch, ahead count,
-dirty, first commit subject, Refs, class. The report class is landed-by-tree (landed-elsewhere),
-superseded or lost (owned and stale-dirty); a local branch with no worktree in the superseded
-class is archived and deleted only once idle 14 days, a lost one never. --unlanded prints that
-report and the count of each class per container.
+resources and archive are skipped), lane-gc deletes a lane, branch or origin branch only
+when it is finished, and never backs it up or pushes a tag:
+  - landed: its tip is contained in origin/main, patch-equivalent there (git cherry shows no +),
+    its tree already on main (north landed-tree) or it adds nothing when merged;
+  - superseded: it is not landed but every issue it names (Refs/Fixes/Closes/Part of in its
+    commits) is closed.
+A worktree under worktrees/ must also have no uncommitted or untracked files, no process with
+its cwd or an open file inside, no live Fleet session, no lock, and no touch within
+--idle-hours (default 3); it is removed with git worktree remove, then its branch. A local
+branch with no worktree passes the same idle check and, when superseded, the liveness checks
+(live claim, pushed under 24h, open PR, active Actions, autoland). Origin branches are
+deleted when landed or superseded and not protected by an open PR, active Actions, Autoland,
+a land ticket, a claim, a live worktree or a push under 24h (4h for claude/land-*); --remote
+sweeps only origin branches.
+Everything else is kept whatever its age or uncommitted state: a lane whose issue is still
+open, a dirty worktree, and a branch that names no issue. Each is written to the unlanded report
+(default ~/.local/state/agents/lane-gc/unlanded.txt: age, container, path, branch, ahead count,
+dirty, first commit subject, Refs, class) and to stale.json under its Fleet parent, with the
+state of each issue it names (issue=open|closed|unknown) or "fault: names no issue", so the
+decision is made on the issue. Parents with more than 25 or any over 72h get supply-alert.
+--dry-run prints each lane's class and action. Lanes unlanded for 24h are flagged in stale.json.
+The report class is landed-by-tree, superseded or lost (everything else). --unlanded prints that
+report and the count of each class per container. A run ends with git worktree prune and
+git fetch --prune.

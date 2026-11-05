@@ -1,4 +1,4 @@
-use super::evidence::{IssueState, LaneClass, LaneFacts, SUPERSEDED_BRANCH_HOURS, branch_hold, lane_class};
+use super::evidence::{IssueState, LaneClass, LaneFacts, lane_class};
 use super::report::class_summary;
 
 fn facts(equivalent: bool, issues: &[IssueState]) -> LaneFacts<'_> {
@@ -21,28 +21,6 @@ fn report_labels_name_the_three_classes() {
     assert_eq!(LaneClass::Superseded.report_label(), "superseded");
     assert_eq!(LaneClass::Owned.report_label(), "lost");
     assert_eq!(LaneClass::StaleDirty.report_label(), "lost");
-}
-
-#[test]
-fn a_lost_branch_is_never_archived_or_deleted_at_any_age() {
-    for hours in [0.0, 24.0, SUPERSEDED_BRANCH_HOURS, 100_000.0] {
-        assert_eq!(branch_hold(LaneClass::Owned, false, hours), "lost work");
-        assert_eq!(branch_hold(LaneClass::StaleDirty, false, hours), "lost work");
-    }
-}
-
-#[test]
-fn a_branch_with_a_worktree_is_never_deleted_in_any_class() {
-    for class in [LaneClass::LandedElsewhere, LaneClass::Superseded, LaneClass::Owned, LaneClass::StaleDirty] {
-        assert_eq!(branch_hold(class, true, 100_000.0), "has a worktree");
-    }
-}
-
-#[test]
-fn a_superseded_branch_waits_fourteen_days_and_a_landed_one_does_not() {
-    assert_eq!(branch_hold(LaneClass::Superseded, false, SUPERSEDED_BRANCH_HOURS - 0.5), "superseded under 14 days");
-    assert_eq!(branch_hold(LaneClass::Superseded, false, SUPERSEDED_BRANCH_HOURS), "");
-    assert_eq!(branch_hold(LaneClass::LandedElsewhere, false, 0.0), "");
 }
 
 #[test]

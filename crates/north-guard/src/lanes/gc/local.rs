@@ -3,8 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use super::Gc;
-use super::archive::{Lane, Retired};
-use super::evidence::{LaneClass, branch_hold, LaneFacts, Landed, committed, committed_each, lane_class, landed, landed_each, named_issues, origin_repo, protected_branch};
+use super::evidence::{LaneClass, LaneFacts, Landed, committed, committed_each, lane_class, landed, landed_each, named_issues, origin_repo, protected_branch};
 use super::exec::{command, git, git_slow, real, verified};
 use super::super::live_process::any_inside;
 use super::super::repo::is_lander_tree;
@@ -25,7 +24,6 @@ struct Container {
     common: PathBuf,
     lanes: PathBuf,
     cutoff_ms: f64,
-    github: bool,
     own: String,
     previous: HashMap<String, String>,
     local_stale: Vec<LocalStale>,
@@ -45,15 +43,6 @@ impl Container {
     }
 }
 
-struct Classified {
-    class: LaneClass,
-    label: &'static str,
-    expired: bool,
-    dirty: bool,
-    unlanded: bool,
-    issues: Vec<String>,
-}
-
 struct Worktree {
     path: PathBuf,
     place: String,
@@ -64,12 +53,6 @@ struct Worktree {
     landed: Landed,
     activity_ms: f64,
     age_h: f64,
-}
-
-impl Worktree {
-    fn label(&self) -> String {
-        if self.branch.is_empty() { self.path.file_name().unwrap_or_default().to_string_lossy().into_owned() } else { self.branch.clone() }
-    }
 }
 
 pub(super) fn parse_worktrees(porcelain: &str) -> Vec<BTreeMap<String, String>> {
@@ -107,10 +90,6 @@ pub(super) fn lane_activity_ms(path: &Path, admin: &Path, common: &Path, branch:
     stamps.into_iter().fold(committed_ms, f64::max)
 }
 
-fn short(tip: &str) -> &str {
-    &tip[..tip.len().min(12)]
-}
-
 fn cited(issues: &[String]) -> String {
     if issues.is_empty() { String::new() } else { format!(" ({})", issues.join(" ")) }
 }
@@ -143,7 +122,6 @@ impl Gc {
         let origin = origin_repo(&main);
         let previous = self.stale.repo(&name).local_stale.iter().map(|row| (row.path.clone(), row.flagged_at.clone())).collect();
         let mut sweep = Container {
-            github: origin.is_some(),
             own: origin.unwrap_or_else(|| name.clone()),
             cutoff_ms: self.now_ms as f64 - self.options.idle_hours * HOUR_MS,
             checked_out: worktrees.iter().map(branch_of).filter(|branch| !branch.is_empty()).collect(),
@@ -235,11 +213,11 @@ impl Gc {
         if flagged {
             self.flag(sweep, &lane)?;
         }
-        if lane.landed.how != "ancestor" || !dirty.is_empty() {
-            return self.classify_worktree(sweep, &lane, flagged, live);
+        if lane.landed.landed && dirty.is_empty() {
+            self.retire_worktree(sweep, &lane, live, &lane.landed.how.clone());
+            return Ok(());
         }
-        self.retire_merged_worktree(sweep, &lane, live);
-        Ok(())
+        self.decide_worktree(sweep, &lane, live)
     }
 
     fn flag(&mut self, sweep: &mut Container, lane: &Worktree) -> Result<(), String> {
@@ -247,7 +225,6 @@ impl Gc {
         let now = Timestamp::from_unix_millis(self.now_ms).iso_millis();
         sweep.local_stale.push(LocalStale {
             flagged_at: sweep.previous.get(&path).filter(|at| !at.is_empty()).cloned().unwrap_or(now),
-            retire_at: Timestamp::from_unix_millis_f64(lane.activity_ms + 72.0 * HOUR_MS).iso_millis(),
             owner: self.owner(&sweep.name)?,
             branch: lane.branch.clone(),
             age_h: lane.age_h.floor() as i64,
@@ -278,120 +255,61 @@ impl Gc {
 
     fn surface(&mut self, sweep: &mut Container, place: &str, branch: &str, age_h: i64, refs: &[String]) -> Result<String, String> {
         let owner = self.owner(&sweep.name)?;
-        sweep.owned.push(Owned { place: place.into(), branch: branch.into(), age_h, refs: refs.to_vec(), owner: owner.clone() });
+        let issues = if refs.is_empty() { vec!["fault: names no issue".to_string()] } else { refs.iter().zip(self.issue_states(refs)).map(|(item, state)| format!("{item}={}", state.label())).collect() };
+        sweep.owned.push(Owned { place: place.into(), branch: branch.into(), age_h, refs: refs.to_vec(), issues, owner: owner.clone() });
         Ok(owner)
     }
 
-    fn classify_worktree(&mut self, sweep: &mut Container, lane: &Worktree, flagged: bool, live: &[PathBuf]) -> Result<(), String> {
+    fn decide_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf]) -> Result<(), String> {
         let dirty = !lane.dirty.is_empty();
         let issues = named_issues(&sweep.main, &sweep.own, &sweep.base, &lane.tip).unwrap_or_default();
-        let held = self.held(lane, live);
         let states = if dirty || lane.landed.landed { Vec::new() } else { self.issue_states(&issues) };
+        let held = self.held(lane, live);
         let idle_hours = if dirty && self.idle_for(lane, 24.0) { lane.age_h } else { 0.0 };
         let class = lane_class(&LaneFacts { dirty, equivalent: lane.landed.landed, issues: &states, idle_hours, held: !held.is_empty() });
-        let expired = class == LaneClass::Owned && !dirty && flagged && !lane.branch.is_empty() && self.idle_for(lane, 72.0);
-        let verdict = Classified { class, label: class.label(), expired, dirty, unlanded: !lane.landed.landed || dirty, issues };
-        if class == LaneClass::Owned && !expired {
-            return self.surface_worktree(sweep, lane, &verdict.issues);
-        }
-        let why = self.worktree_hold(sweep, lane, class, held);
-        if !why.is_empty() {
-            return self.hold_worktree(sweep, lane, &verdict, &why);
-        }
-        self.retire_classified(sweep, lane, &verdict)
-    }
-
-    fn row<'a>(lane: &'a Worktree, class: LaneClass) -> Row<'a> {
-        Row { place: &lane.place, branch: &lane.branch, ahead: lane.landed.ahead, dirty: lane.dirty, class }
-    }
-
-    fn surface_worktree(&mut self, sweep: &mut Container, lane: &Worktree, issues: &[String]) -> Result<(), String> {
-        self.unlanded_row(&sweep.name, &sweep.main, &sweep.base, &lane.tip, sweep.committed(&lane.tip), &Self::row(lane, LaneClass::Owned));
-        let shown = if lane.branch.is_empty() { "(detached)" } else { &lane.branch };
-        let owner = self.surface(sweep, &lane.place, shown, lane.age_h.floor() as i64, issues)?;
-        self.counts.kept += 1;
-        if self.options.dry_run {
-            println!("{}: owned {}: surface to {owner}{}", sweep.name, lane.place, cited(issues));
-        }
-        Ok(())
-    }
-
-    fn hold_worktree(&mut self, sweep: &mut Container, lane: &Worktree, verdict: &Classified, why: &str) -> Result<(), String> {
-        self.counts.kept += 1;
-        if verdict.unlanded {
-            self.unlanded_row(&sweep.name, &sweep.main, &sweep.base, &lane.tip, sweep.committed(&lane.tip), &Self::row(lane, verdict.class));
-        }
-        if verdict.expired {
-            self.surface(sweep, &lane.place, &lane.branch, lane.age_h.floor() as i64, &verdict.issues)?;
-        }
-        if self.options.dry_run {
-            println!("{}: {} {}: keep ({why})", sweep.name, verdict.label, lane.place);
-        }
-        Ok(())
-    }
-
-    fn retire_classified(&mut self, sweep: &mut Container, lane: &Worktree, verdict: &Classified) -> Result<(), String> {
-        let (name, label) = (sweep.name.clone(), verdict.label);
-        if self.options.dry_run {
-            let target = if verdict.dirty { "<snapshot>" } else { short(&lane.tip) };
-            let action = if verdict.expired { "archive and retire (idle 72h)".into() } else { format!("archive {} ({target}) to the {name} mirror, then retire", lane.label()) };
-            println!("{name}: {label} {}: {action}", lane.place);
-            self.counts.retired_worktrees += 1;
-            self.counts.deleted_branches += usize::from(!lane.branch.is_empty());
-            return Ok(());
-        }
-        let retiring = Lane { path: Some(&lane.path), branch: &lane.branch, tip: &lane.tip, dirty: verdict.dirty, label: &lane.label() };
-        let retired = self.retire_lane(&sweep.main, &name, &retiring)?;
-        if !retired.retired {
-            self.counts.kept += 1;
-            if verdict.unlanded {
-                self.unlanded_row(&name, &sweep.main, &sweep.base, &lane.tip, sweep.committed(&lane.tip), &Self::row(lane, verdict.class));
+        if class == LaneClass::Superseded {
+            let why = if !held.is_empty() { held } else { self.superseded_hold(sweep, lane) };
+            if why.is_empty() {
+                self.retire_worktree(sweep, lane, live, "issues closed");
+                return Ok(());
             }
-            println!("{name}: {label} {}: kept ({})", lane.place, retired.why);
-            return Ok(());
+            if self.options.dry_run {
+                println!("{}: superseded {}: keep ({why})", sweep.name, lane.place);
+            }
         }
-        self.counts.retired_worktrees += 1;
-        sweep.checked_out.remove(&lane.branch);
-        self.counts.deleted_branches += usize::from(!lane.branch.is_empty() && !retired.why.starts_with("branch"));
-        let path = lane.path.display().to_string();
-        sweep.local_stale.retain(|row| row.path != path);
-        self.announce(sweep, if verdict.expired { "owned" } else { label }, &lane.place, &lane.label(), &lane.tip, &retired)
+        self.unlanded_row(&sweep.name, &sweep.main, &sweep.base, &lane.tip, sweep.committed(&lane.tip), &Row { place: &lane.place, branch: &lane.branch, ahead: lane.landed.ahead, dirty: lane.dirty, class });
+        let shown = if lane.branch.is_empty() { "(detached)" } else { &lane.branch };
+        let owner = self.surface(sweep, &lane.place, shown, lane.age_h.floor() as i64, &issues)?;
+        self.counts.kept += 1;
+        if self.options.dry_run {
+            println!("{}: {} {}: surface to {owner}{}", sweep.name, class.label(), lane.place, cited(&issues));
+        }
+        Ok(())
     }
 
-    fn worktree_hold(&mut self, sweep: &Container, lane: &Worktree, class: LaneClass, held: String) -> String {
-        if !held.is_empty() {
-            return held;
-        }
+    fn superseded_hold(&mut self, sweep: &Container, lane: &Worktree) -> String {
         let idle = self.options.idle_hours;
-        if matches!(class, LaneClass::LandedElsewhere | LaneClass::Superseded) && !self.idle_for(lane, idle) {
+        if !self.idle_for(lane, idle) {
             return format!("touched within {idle}h");
         }
         self.local_archive_guard(&sweep.main, &sweep.name, &sweep.base, &lane.branch, &lane.tip, Some(&lane.path))
     }
 
-    fn announce(&mut self, sweep: &Container, class: &str, place: &str, label: &str, tip: &str, retired: &Retired) -> Result<(), String> {
-        let note = if retired.why.is_empty() { String::new() } else { format!("; {}", retired.why) };
-        println!("{}: {class} {place}: archived to {} and retired{note}", sweep.name, retired.tag);
-        self.notice(&sweep.name, label, &format!("retired ({class})"), &retired.tag)?;
-        if sweep.github {
-            self.archive_notes(&sweep.main, &sweep.name, &sweep.base, label, tip, &retired.tag)?;
-        }
-        Ok(())
-    }
-
-    fn retire_merged_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf]) {
-        let reason = if lane.locked {
-            "locked"
+    fn retire_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf], basis: &str) {
+        let reason = if lane.landed.how != "ancestor" {
+            self.held(lane, live)
+        } else if lane.locked {
+            "locked".into()
         } else if protected_branch(&lane.branch) {
-            "protected branch"
+            "protected branch".into()
         } else if any_inside(live, &real(&lane.path)) {
-            "process inside"
+            "process inside".into()
         } else {
-            ""
+            String::new()
         };
         let facts = Facts { age: (sweep.cutoff_ms - lane.activity_ms).floor() as i64, minimum_age: 0, merged: true, equivalent: false, evil_merge: false, archive_age: None, protections: u32::from(!reason.is_empty()) };
         if retirement_verdict(&facts) == Verdict::Keep {
-            let why = if reason.is_empty() { format!("touched within {}h", self.options.idle_hours) } else { reason.to_string() };
+            let why = if reason.is_empty() { format!("touched within {}h", self.options.idle_hours) } else { reason };
             return self.keep(sweep, &lane.path, &why);
         }
         let read_only = command(&["find", &lane.path.to_string_lossy(), "-type", "d", "!", "-perm", "-u+w", "-print", "-quit"]).out;
@@ -400,7 +318,7 @@ impl Gc {
             return self.keep(sweep, &lane.path, &why);
         }
         if self.options.dry_run {
-            println!("{}: retire {} ({}, {})", sweep.name, lane.place, if lane.branch.is_empty() { "detached" } else { &lane.branch }, lane.landed.how);
+            println!("{}: retire {} ({}, {basis})", sweep.name, lane.place, if lane.branch.is_empty() { "detached" } else { &lane.branch });
             self.counts.retired_worktrees += 1;
             self.counts.deleted_branches += usize::from(!lane.branch.is_empty());
             return;
@@ -424,69 +342,47 @@ impl Gc {
         }
         let verdict = sweep.landed(tip);
         let branch_age = sweep.cutoff_ms - reflog_ms(&sweep.common.join("logs/refs/heads").join(branch));
-        if verdict.how != "ancestor" {
-            return self.classify_branch(sweep, branch, tip, &verdict, branch_age);
+        if !verdict.landed {
+            return self.decide_branch(sweep, branch, tip, &verdict, branch_age);
         }
-        let facts = Facts { age: branch_age.floor() as i64, minimum_age: 0, merged: verdict.landed, equivalent: false, evil_merge: false, archive_age: None, protections: 0 };
+        self.delete_branch_after_idle(sweep, branch, tip, branch_age, &verdict.how);
+        Ok(())
+    }
+
+    fn delete_branch_after_idle(&mut self, sweep: &Container, branch: &str, tip: &str, branch_age: f64, basis: &str) {
+        let facts = Facts { age: branch_age.floor() as i64, minimum_age: 0, merged: true, equivalent: false, evil_merge: false, archive_age: None, protections: 0 };
         if retirement_verdict(&facts) == Verdict::Keep {
             self.counts.kept += 1;
         } else if self.options.dry_run {
-            println!("{}: delete branch {branch} ({})", sweep.name, verdict.how);
+            println!("{}: delete branch {branch} ({basis})", sweep.name);
             self.counts.deleted_branches += 1;
         } else if self.delete_branch(&sweep.main, branch, tip) {
             self.counts.deleted_branches += 1;
         }
-        Ok(())
     }
 
-    fn classify_branch(&mut self, sweep: &mut Container, branch: &str, tip: &str, verdict: &Landed, branch_age: f64) -> Result<(), String> {
+    fn decide_branch(&mut self, sweep: &mut Container, branch: &str, tip: &str, verdict: &Landed, branch_age: f64) -> Result<(), String> {
         let name = sweep.name.clone();
         let issues = named_issues(&sweep.main, &sweep.own, &sweep.base, tip).unwrap_or_default();
-        let states = if verdict.landed { Vec::new() } else { self.issue_states(&issues) };
-        let class = lane_class(&LaneFacts { dirty: false, equivalent: verdict.landed, issues: &states, idle_hours: 0.0, held: false });
+        let states = self.issue_states(&issues);
+        let class = lane_class(&LaneFacts { dirty: false, equivalent: false, issues: &states, idle_hours: 0.0, held: false });
+        if class == LaneClass::Superseded {
+            let why = if branch_age < 0.0 { format!("touched within {}h", self.options.idle_hours) } else { self.local_archive_guard(&sweep.main, &name, &sweep.base, branch, tip, None) };
+            if why.is_empty() {
+                self.delete_branch_after_idle(sweep, branch, tip, branch_age, "issues closed");
+                return Ok(());
+            }
+            if self.options.dry_run {
+                println!("{name}: superseded branch {branch}: keep ({why})");
+            }
+        }
         let row = Row { place: "(branch)", branch, ahead: verdict.ahead, dirty: "", class };
-        if class == LaneClass::Owned {
-            let hours = self.unlanded_row(&name, &sweep.main, &sweep.base, tip, sweep.committed(tip), &row);
-            let owner = self.surface(sweep, "(branch)", branch, hours, &issues)?;
-            self.counts.kept += 1;
-            if self.options.dry_run {
-                println!("{name}: owned branch {branch}: surface to {owner}{}", cited(&issues));
-            }
-            return Ok(());
-        }
-        let label = class.label();
-        let committed = sweep.committed(tip) as f64 * 1000.0;
-        let activity_ms = committed.max(reflog_ms(&sweep.common.join("logs/refs/heads").join(branch)));
-        let idle_hours = (self.now_ms as f64 - activity_ms) / HOUR_MS;
-        let held = branch_hold(class, sweep.checked_out.contains(branch), idle_hours);
-        let why = if !held.is_empty() {
-            held.to_string()
-        } else if branch_age < 0.0 { format!("touched within {}h", self.options.idle_hours) } else { self.local_archive_guard(&sweep.main, &name, &sweep.base, branch, tip, None) };
-        if !why.is_empty() {
-            if !verdict.landed {
-                self.unlanded_row(&name, &sweep.main, &sweep.base, tip, sweep.committed(tip), &row);
-            }
-            self.counts.kept += 1;
-            if self.options.dry_run {
-                println!("{name}: {label} branch {branch}: keep ({why})");
-            }
-            return Ok(());
-        }
+        let hours = self.unlanded_row(&name, &sweep.main, &sweep.base, tip, sweep.committed(tip), &row);
+        let owner = self.surface(sweep, "(branch)", branch, hours, &issues)?;
+        self.counts.kept += 1;
         if self.options.dry_run {
-            println!("{name}: {label} branch {branch}: archive {branch} ({}) to the {name} mirror, then delete", short(tip));
-            self.counts.deleted_branches += 1;
-            return Ok(());
+            println!("{name}: {} branch {branch}: surface to {owner}{}", class.label(), cited(&issues));
         }
-        let retired = self.retire_lane(&sweep.main, &name, &Lane { path: None, branch, tip, dirty: false, label: branch })?;
-        if !retired.retired || retired.why.starts_with("branch") {
-            if !verdict.landed {
-                self.unlanded_row(&name, &sweep.main, &sweep.base, tip, sweep.committed(tip), &row);
-            }
-            self.counts.kept += 1;
-            println!("{name}: {label} branch {branch}: kept ({})", retired.why);
-            return Ok(());
-        }
-        self.counts.deleted_branches += 1;
-        self.announce(sweep, label, &format!("branch {branch}"), branch, tip, &retired)
+        Ok(())
     }
 }

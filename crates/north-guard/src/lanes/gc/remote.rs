@@ -5,10 +5,9 @@ use serde_json::Value;
 
 use super::Gc;
 use super::evidence::{LaneClass, LaneFacts, lane_class, landed, named_issues, origin_repo, own_repo, protected_branch, refs_on};
-use super::exec::{api, command, git, git_slow, truthy, verified};
+use super::exec::{api, command, git_slow, truthy, verified};
 use super::liveness::{open_pull_heads, pending_autoland, tree_is_live};
-use super::state::{LandingPing, RemoteStale};
-use super::super::verdict::{Facts, Verdict, retirement_verdict};
+use super::state::RemoteStale;
 use north_core::foundation::clock::Timestamp;
 
 const BASE: &str = "refs/remotes/origin/main";
@@ -29,9 +28,7 @@ struct Branch<'a> {
     tip: &'a str,
     target: &'a Value,
     landing: bool,
-    pushed_at: i64,
     age_h: f64,
-    ancestor: bool,
     on_main: bool,
     key: String,
 }
@@ -40,7 +37,7 @@ struct Branch<'a> {
 struct Split {
     skipped: usize,
     deletable: usize,
-    archivable: usize,
+    kept: usize,
 }
 
 fn branch_query(repo: &str) -> String {
@@ -144,7 +141,7 @@ fn age_hold(evidence: &Evidence, branch: &Branch) -> Option<&'static str> {
 }
 
 impl Gc {
-    pub(super) fn remote_sweep(&mut self, container: &Path, remote: bool) -> Result<(), String> {
+    pub(super) fn remote_sweep(&mut self, container: &Path) -> Result<(), String> {
         let name = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
         let main = container.join("main");
         let Some(repo) = origin_repo(&main) else {
@@ -166,14 +163,13 @@ impl Gc {
         report.remote_stale.clear();
         let mut split = Split::default();
         for target in &evidence.branches {
-            self.remote_branch(&name, &main, &evidence, target, remote, &mut split)?;
+            self.remote_branch(&name, &main, &evidence, target, &mut split)?;
         }
         println!(
-            "{name}: remote split: {} LIVE, {} STALE ({} landed, {} archive-and-delete)",
+            "{name}: remote split: {} LIVE, {} deleted, {} unlanded kept",
             split.skipped,
-            split.deletable + split.archivable,
             split.deletable,
-            split.archivable
+            split.kept
         );
         Ok(())
     }
@@ -199,9 +195,7 @@ impl Gc {
             tip,
             target,
             landing,
-            pushed_at,
             age_h: (self.now_ms - since) as f64 / HOUR_MS as f64,
-            ancestor: git(main, &["merge-base", "--is-ancestor", tip, BASE]).ok,
             on_main: landed(main, BASE, tip).landed,
             key: format!("{name}:{branch}"),
         })
@@ -240,100 +234,38 @@ impl Gc {
         })
     }
 
-    fn remote_branch(&mut self, name: &str, main: &Path, evidence: &Evidence, node: &Value, remote: bool, split: &mut Split) -> Result<(), String> {
+    fn remote_branch(&mut self, name: &str, main: &Path, evidence: &Evidence, node: &Value, split: &mut Split) -> Result<(), String> {
         let branch = self.branch_facts(name, main, evidence, node)?;
         let reason = self.live_reason(name, main, evidence, &branch);
-        let facts = Facts {
-            age: (branch.age_h * HOUR_MS as f64).floor() as i64,
-            minimum_age: if branch.on_main { i64::MIN } else if branch.landing { 4 * HOUR_MS } else { 24 * HOUR_MS },
-            merged: branch.ancestor,
-            equivalent: branch.on_main && !branch.ancestor,
-            evil_merge: false,
-            archive_age: Some(if branch.landing { 4 } else { 24 } * HOUR_MS),
-            protections: u32::from(!reason.is_empty()),
-        };
-        if retirement_verdict(&facts) == Verdict::Keep {
-            if branch.landing && !self.options.dry_run {
-                self.stale.forget_ping(&branch.key);
-            }
+        if !reason.is_empty() {
             split.skipped += 1;
             println!("{name}: origin {}: LIVE({reason})", branch.name);
             return Ok(());
         }
-        if branch.landing && !branch.on_main && !self.landing_grace_over(name, &branch)? {
-            split.skipped += 1;
-            return Ok(());
-        }
-        let is_landed = branch.on_main && matches!(retirement_verdict(&facts), Verdict::Retire | Verdict::RetireEquivalent);
-        self.retire_remote(name, main, &branch, is_landed, remote, split)
-    }
-
-    fn landing_grace_over(&mut self, name: &str, branch: &Branch) -> Result<bool, String> {
-        let parent = self.owner(name)?;
-        let ping = self.stale.landing_pings.get_or_insert_default().get(&branch.key).cloned();
-        let current = ping.as_ref().is_some_and(|ping| ping.tip == branch.tip && ping.pushed_at == branch.pushed_at && ping.owner == parent);
-        let Some(ping) = ping.filter(|_| current) else {
-            if self.options.dry_run {
-                println!("{name}: origin {}: would notify {parent}; keep for 1h grace", branch.name);
-                return Ok(false);
-            }
-            let text = format!(
-                "{parent}: orphan landing {}:{} idle {}h; lane-gc will archive and retire after 1h unless live Fleet ownership resumes",
-                name,
-                branch.name,
-                branch.age_h.floor() as i64
-            );
-            if !command(&["north", "fleet", "send", "--from", "service:north-lane-gc", &parent, &text]).ok {
-                println!("{name}: origin {}: keep (Fleet parent notification failed)", branch.name);
-                return Ok(false);
-            }
-            let pinged_at = Timestamp::from_unix_millis(self.now_ms).iso_millis();
-            let ping = LandingPing { tip: branch.tip.into(), pushed_at: branch.pushed_at, pinged_at, owner: parent.clone() };
-            self.stale.landing_pings.get_or_insert_default().insert(branch.key.clone(), ping);
-            self.notice(name, branch.name, "Fleet parent notified; 1h grace", "")?;
-            println!("{name}: origin {}: notified {parent}; keep for 1h grace", branch.name);
-            return Ok(false);
-        };
-        let pinged = Timestamp::parse_rfc3339(&ping.pinged_at).map(Timestamp::unix_millis);
-        if pinged.is_none_or(|at| self.now_ms - at < HOUR_MS) {
-            println!("{name}: origin {}: keep (owner ping grace)", branch.name);
-            return Ok(false);
-        }
-        Ok(true)
-    }
-
-    fn retire_remote(&mut self, name: &str, main: &Path, branch: &Branch, is_landed: bool, remote: bool, split: &mut Split) -> Result<(), String> {
-        let class = if is_landed {
-            "landed"
-        } else {
-            let issues = named_issues(main, &own_repo(main, name), BASE, branch.tip)?;
-            let states = self.issue_states(&issues);
-            let class = lane_class(&LaneFacts { dirty: false, equivalent: false, issues: &states, idle_hours: 0.0, held: false });
-            if class == LaneClass::Superseded { "superseded" } else { "owned" }
-        };
         let age = branch.age_h.floor() as i64;
-        if is_landed {
+        if branch.on_main {
             self.stale.repo(name).remote_landed.push(branch.name.into());
-            split.deletable += 1;
-        } else {
-            let owner = self.owner(name)?;
-            self.stale.repo(name).remote_stale.push(RemoteStale { branch: branch.name.into(), age_h: age, owner });
-            split.archivable += 1;
+            return self.delete_remote(name, main, &branch, "landed", age, split);
         }
-        let action = if is_landed { "delete (landed)".into() } else { format!("archive to the {name} mirror under refs/archive/, then delete") };
-        println!("{name}: origin {}: STALE {class} ({age}h; {action})", branch.name);
-        if self.options.dry_run || (!remote && !branch.landing && !is_landed) {
+        let issues = named_issues(main, &own_repo(main, name), BASE, branch.tip)?;
+        let states = self.issue_states(&issues);
+        if lane_class(&LaneFacts { dirty: false, equivalent: false, issues: &states, idle_hours: 0.0, held: false }) == LaneClass::Superseded {
+            return self.delete_remote(name, main, &branch, "superseded", age, split);
+        }
+        let owner = self.owner(name)?;
+        let described = if issues.is_empty() { vec!["fault: names no issue".to_string()] } else { issues.iter().zip(&states).map(|(item, state)| format!("{item}={}", state.label())).collect() };
+        self.stale.repo(name).remote_stale.push(RemoteStale { branch: branch.name.into(), age_h: age, issues: described.clone(), owner });
+        split.kept += 1;
+        println!("{name}: origin {}: KEEP unlanded ({age}h; {})", branch.name, described.join(" "));
+        Ok(())
+    }
+
+    fn delete_remote(&mut self, name: &str, main: &Path, branch: &Branch, class: &str, age: i64, split: &mut Split) -> Result<(), String> {
+        split.deletable += 1;
+        println!("{name}: origin {}: STALE {class} ({age}h; delete)", branch.name);
+        if self.options.dry_run {
             return Ok(());
         }
-        let tag = if is_landed { String::new() } else {
-            match self.archive_to_mirror(main, name, branch.name, branch.tip) {
-                Ok(tag) => tag,
-                Err(why) => {
-                    println!("{name}: keep origin {}: {why}", branch.name);
-                    return Ok(());
-                }
-            }
-        };
         let lease = format!("--force-with-lease=refs/heads/{}:{}", branch.name, branch.tip);
         let deletion = git_slow(main, &["push", "-q", &lease, "origin", &format!(":refs/heads/{}", branch.name)]);
         if !deletion.ok {
@@ -341,14 +273,8 @@ impl Gc {
             return Ok(());
         }
         self.counts.deleted_remote += 1;
-        self.stale.forget_ping(&branch.key);
         let report = self.stale.repo(name);
         report.remote_landed.retain(|kept| kept != branch.name);
-        report.remote_stale.retain(|row| row.branch != branch.name);
-        self.notice(name, branch.name, &if is_landed { "deleted (landed)".into() } else { format!("archived ({class})") }, &tag)?;
-        if !is_landed {
-            self.archive_notes(main, name, BASE, branch.name, branch.tip, &tag)?;
-        }
-        Ok(())
+        self.notice(name, branch.name, &format!("deleted ({class})"))
     }
 }

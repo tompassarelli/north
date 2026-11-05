@@ -1,4 +1,3 @@
-mod archive;
 mod audit;
 mod audit_rows;
 mod evidence;
@@ -19,6 +18,8 @@ mod classes_tests;
 mod strays_tests;
 
 use std::collections::{HashMap, HashSet};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -197,16 +198,11 @@ impl Gc {
         for container in containers {
             let name = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
             let swept = if self.options.remote {
-                self.remote_sweep(container, true)
+                self.remote_sweep(container)
             } else {
-                self.sweep(container, &live).and_then(|()| if origin_repo(&container.join("main")).is_some() { self.remote_sweep(container, false) } else { Ok(()) })
+                self.sweep(container, &live).and_then(|()| if origin_repo(&container.join("main")).is_some() { self.remote_sweep(container) } else { Ok(()) })
             };
             if let Err(error) = swept {
-                if !self.options.dry_run
-                    && let Some(pings) = self.stale.landing_pings.as_mut()
-                {
-                    pings.retain(|key, _| !key.starts_with(&format!("{name}:")));
-                }
                 println!("{name}: stopped: {error}");
             }
         }
@@ -250,6 +246,17 @@ impl Gc {
             c.unlanded
         );
         0
+    }
+
+    fn notice(&mut self, repo: &str, branch: &str, action: &str) -> Result<(), String> {
+        let owner = self.owner(repo)?;
+        let line = format!("{} {repo} {branch} {action} owner={owner}", Timestamp::from_unix_millis(self.now_ms).iso_millis());
+        self.stale.notices.push(line.clone());
+        let path = self.stale_path.with_file_name("notices.md");
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        OpenOptions::new().create(true).append(true).open(&path).and_then(|mut file| writeln!(file, "{line}")).map_err(|error| error.to_string())
     }
 
     fn tilde(&self, path: &Path) -> String {

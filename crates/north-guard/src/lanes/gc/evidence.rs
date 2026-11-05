@@ -116,6 +116,16 @@ pub(super) enum IssueState {
     Unknown,
 }
 
+impl IssueState {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Closed => "closed",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 pub(super) fn issue_state(item: &str) -> IssueState {
     let Some((repo, number)) = item.split_once('#') else {
         return IssueState::Unknown;
@@ -168,8 +178,6 @@ pub(super) fn lane_class(facts: &LaneFacts) -> LaneClass {
     }
 }
 
-pub(super) const SUPERSEDED_BRANCH_HOURS: f64 = 14.0 * 24.0;
-
 impl LaneClass {
     pub(super) fn report_label(self) -> &'static str {
         match self {
@@ -177,18 +185,6 @@ impl LaneClass {
             Self::Superseded => "superseded",
             Self::StaleDirty | Self::Owned => "lost",
         }
-    }
-}
-
-pub(super) fn branch_hold(class: LaneClass, checked_out: bool, idle_hours: f64) -> &'static str {
-    if checked_out {
-        "has a worktree"
-    } else if matches!(class, LaneClass::Owned | LaneClass::StaleDirty) {
-        "lost work"
-    } else if class == LaneClass::Superseded && idle_hours < SUPERSEDED_BRANCH_HOURS {
-        "superseded under 14 days"
-    } else {
-        ""
     }
 }
 
