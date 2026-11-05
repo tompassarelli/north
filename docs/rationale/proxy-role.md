@@ -159,8 +159,9 @@ Rejected, two ways to keep the interactive Claude Code window as the proxy:
 - Pushing north's messages through Claude Code's own cross-session inbox
   (`/run/user/1000/cc-socks/<pid>.sock`, which `SendMessage` uses). It does reach an idle
   interactive session: at 3:58 AM on 2026-11-05 (laptop time) a peer's message woke the idle proxy
-  terminal. It is rejected because north would still not own the runtime (no resume after a usage
-  limit, no account failover, no parking, no sender on messages); because the socket protocol is
+  terminal. It is rejected because north would still not own the runtime: no failover to another
+  account when one runs out, no parking and no sender on messages (Claude Code already resumes on
+  its own after a usage limit, as Tom noted on 2026-11-05); because the socket protocol is
   internal to Claude Code and may change under any update; because
   [read-isolation.md](read-isolation.md) already denies workers those sockets as a boundary, and a
   north writer into them would cross it from the other side; and because it is the vendor-UI
