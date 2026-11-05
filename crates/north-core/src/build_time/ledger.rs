@@ -1,9 +1,10 @@
 use std::io::Write;
 use std::path::Path;
 
+use super::config::Build;
 use super::measure::Times;
 
-pub(super) const HEADER: &str = "recorded_at\thost\trepo\tworkspace\tsha\trustc\tsamples\tcold_build_s\tleaf_build_s\tleaf_test_no_run_s\thub_build_s\thub_test_no_run_s\tthreshold_s\tverdict\tcritical_path\tcontention";
+pub(super) const HEADER: &str = "recorded_at\thost\trepo\tworkspace\tsha\trustc\tsamples\tcold_build_s\tleaf_build_s\tleaf_test_no_run_s\thub_build_s\thub_test_no_run_s\tthreshold_s\tverdict\tcritical_path\tcontention\tincremental\tdebuginfo";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Verdict {
@@ -54,13 +55,14 @@ pub(super) struct Row<'a> {
     pub(super) threshold: f64,
     pub(super) verdict: Verdict,
     pub(super) contention: Option<f64>,
+    pub(super) build: &'a Build,
 }
 
 impl Row<'_> {
     pub(super) fn line(&self) -> String {
         let t = self.times;
         let threshold = self.threshold.to_string();
-        let fields = [self.recorded_at.to_owned(), self.host.to_owned(), self.repo.to_owned(), self.workspace.to_owned(), self.sha.to_owned(), self.rustc.to_owned(), self.samples.to_string(), secs(t.cold_build), secs(t.leaf_build), secs(t.leaf_test), secs(t.hub_build), secs(t.hub_test), threshold, self.verdict.word().to_owned(), t.critical_path.clone(), self.contention.map_or_else(|| "-".to_owned(), |load| format!("{load:.2}"))];
+        let fields = [self.recorded_at.to_owned(), self.host.to_owned(), self.repo.to_owned(), self.workspace.to_owned(), self.sha.to_owned(), self.rustc.to_owned(), self.samples.to_string(), secs(t.cold_build), secs(t.leaf_build), secs(t.leaf_test), secs(t.hub_build), secs(t.hub_test), threshold, self.verdict.word().to_owned(), t.critical_path.clone(), self.contention.map_or_else(|| "-".to_owned(), |load| format!("{load:.2}")), self.build.incremental.shown(), self.build.debuginfo.shown()];
         fields.map(|field| field.replace(['\t', '\n'], " ")).join("\t")
     }
 }

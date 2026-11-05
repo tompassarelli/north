@@ -8,6 +8,7 @@ mod timings;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use config::Workspace;
@@ -28,6 +29,7 @@ struct Options {
     ledger: Option<PathBuf>,
     rev: Option<String>,
     file: bool,
+    env: BTreeMap<String, String>,
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -35,6 +37,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Ok(options) => options,
         Err(error) => return fail(&error),
     };
+    options.env = std::env::vars().collect();
     let ledger = options.ledger.clone().unwrap_or_else(default_ledger);
     let host = crate::platform::host::name();
     let mut tracker = match options.file.then(|| issue::github_repo(&options.repo)).transpose() {
@@ -116,8 +119,9 @@ fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &
         if let Some(warning) = warning {
             eprintln!("north code-health build-time: {warning}");
         }
+        let build = config::build(&root, &options.env);
         let verdict = Verdict::judge(times.leaf_test, limit, contention, entry.contention_ceiling);
-        let row = Row { recorded_at: &recorded_at, host, repo: &repo_name, workspace: &entry.workspace, sha: &sha, rustc: &rustc, samples: options.samples, times: &times, threshold: limit, verdict, contention };
+        let row = Row { recorded_at: &recorded_at, host, repo: &repo_name, workspace: &entry.workspace, sha: &sha, rustc: &rustc, samples: options.samples, times: &times, threshold: limit, verdict, contention, build: &build };
         ledger::append(ledger, &row)?;
         println!("{}", report(&row));
         over |= verdict == Verdict::Over;
@@ -135,8 +139,8 @@ fn report(row: &Row<'_>) -> String {
     let load = row.contention.map_or_else(String::new, |load| format!(", host load {load:.2} per thread"));
     let limit = format!("threshold {}s", row.threshold);
     format!(
-        "{} {} at {} on {}: cold build {:.1}s; leaf edit build {:.1}s, test --no-run {:.1}s; hub edit build {:.1}s, test --no-run {:.1}s; {limit}: {}{load}\n  critical path {}",
-        row.repo, row.workspace, row.sha, row.host, t.cold_build, t.leaf_build, t.leaf_test, t.hub_build, t.hub_test, row.verdict.word(), t.critical_path
+        "{} {} at {} on {}: cold build {:.1}s; leaf edit build {:.1}s, test --no-run {:.1}s; hub edit build {:.1}s, test --no-run {:.1}s; {limit}: {}{load}\n  incremental {}, debuginfo {}\n  critical path {}",
+        row.repo, row.workspace, row.sha, row.host, t.cold_build, t.leaf_build, t.leaf_test, t.hub_build, t.hub_test, row.verdict.word(), row.build.incremental.shown(), row.build.debuginfo.shown(), t.critical_path
     )
 }
 

@@ -23,8 +23,12 @@ command line):
    module.
 4. One TSV row per workspace is appended to the ledger (default `~/.local/state/north/build-times.tsv`):
    time, host, repo, workspace, SHA, rustc, samples, the five wall times, threshold, verdict, critical
-   path and the host contention (the larger of the 1- and 5-minute load averages per hardware thread,
-   read before the first build).
+   path, the host contention (the larger of the 1- and 5-minute load averages per hardware thread,
+   read before the first build), and the effective `incremental` and `debuginfo` of the test profile,
+   each with the setting that decided it (`CARGO_INCREMENTAL`, `CARGO_BUILD_INCREMENTAL` or a
+   `build.incremental` in a `.cargo/config.toml` from the workspace up to `$CARGO_HOME`, then the
+   `test` and `dev` profiles from env, config and `Cargo.toml`, then cargo's dev default), so a
+   non-incremental host shows as such in the row and the printed report.
    A run with contention above the workspace's `contention_ceiling` takes the verdict `contended`, exits 0
    and ticks, edits and files nothing, because a loaded host times its neighbours, not the crate layout:
    202 s at load 25 on 20 threads against 43.8 s quiet.

@@ -1,10 +1,12 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
+use super::config::{Build, Setting};
 use super::ledger::{HEADER, Row, Verdict};
 use super::measure::{Cargo, Times, median};
 use super::threshold::{LEAF_TEST_NO_RUN_SECONDS_MAX, limit};
-use super::{Options, config, issue, measure_repo, timings};
+use super::{Options, config, issue, measure_repo, report, timings};
 use crate::platform::rolling_issue;
 
 const TIMINGS: &str = r#"<script>
@@ -261,8 +263,9 @@ fn build_time_within_the_cap_adds_no_box_and_a_missing_section_is_created() {
 fn build_time_files_one_box_per_workspace() {
     let slow = Times { leaf_test: 43.8, ..Times::default() };
     let slower = Times { leaf_test: 11.0, ..Times::default() };
+    let build = config::build(Path::new("/nonexistent"), &BTreeMap::new());
     let split = |workspace: &str, times: &Times| {
-        let row = Row { recorded_at: "2026-11-05T04:00:00Z", host: "gex45", repo: "north", workspace, sha: "abc", rustc: "1.96.1", samples: 1, times, threshold: 10.0, verdict: Verdict::of(times.leaf_test, 10.0), contention: None };
+        let row = Row { recorded_at: "2026-11-05T04:00:00Z", host: "gex45", repo: "north", workspace, sha: "abc", rustc: "1.96.1", samples: 1, times, threshold: 10.0, verdict: Verdict::of(times.leaf_test, 10.0), contention: None, build: &build };
         issue::split_box(&row, "crates/x/src/leaf.rs").expect("box")
     };
     let boxes = [split(".", &slow), split("tools/firn", &slower)];
@@ -317,4 +320,59 @@ fn contention_ceiling_is_read_from_structure_toml_and_judges_only_above_it() {
     assert_eq!(Verdict::judge(202.1, 10.0, Some(0.5), Some(0.5)), Verdict::Over);
     assert_eq!(Verdict::judge(202.1, 10.0, None, Some(0.5)), Verdict::Over);
     assert_eq!(Verdict::judge(202.1, 10.0, Some(9.0), None), Verdict::Over);
+}
+
+fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect()
+}
+
+fn setting(value: &str, source: &str) -> Setting {
+    Setting { value: value.to_owned(), source: source.to_owned() }
+}
+
+#[test]
+fn build_time_records_cargo_build_incremental_false_in_the_ledger_row_and_the_report() {
+    let repo = fixture();
+    let ledger = repo.path().join("state/build-times.tsv");
+    let options = Options { repo: repo.path().to_path_buf(), samples: 1, env: env(&[("CARGO_BUILD_INCREMENTAL", "false")]), ..Options::default() };
+    measure_repo(&options, &mut FakeCargo { test_seconds: 6, calls: Vec::new() }, &ledger, "gex45", None, None).expect("measured");
+    let text = std::fs::read_to_string(&ledger).expect("ledger");
+    let header: Vec<&str> = text.lines().next().expect("header").split('\t').collect();
+    let fields: Vec<&str> = text.lines().nth(1).expect("row").split('\t').collect();
+    assert_eq!((header.len(), header[16], header[17]), (18, "incremental", "debuginfo"));
+    assert_eq!((fields.len(), fields[16], fields[17]), (18, "false (CARGO_BUILD_INCREMENTAL)", "full (dev default)"), "{text}");
+
+    let build = config::build(repo.path(), &options.env);
+    let times = Times { leaf_test: 6.0, critical_path: "1.0s: app 1.0s".to_owned(), ..Times::default() };
+    let row = Row { recorded_at: "2026-11-05T04:00:00Z", host: "gex45", repo: "north", workspace: ".", sha: "abc", rustc: "1.96.1", samples: 1, times: &times, threshold: 10.0, verdict: Verdict::Within, contention: None, build: &build };
+    let shown = report(&row);
+    assert!(shown.contains("\n  incremental false (CARGO_BUILD_INCREMENTAL), debuginfo full (dev default)\n"), "{shown}");
+}
+
+#[test]
+fn build_time_resolves_incremental_and_debuginfo_the_way_cargo_does() {
+    let home = tempfile::tempdir().expect("home");
+    std::fs::create_dir_all(home.path().join(".cargo")).expect("cargo home");
+    std::fs::write(home.path().join(".cargo/config.toml"), "[build]\nincremental = false\n").expect("user config");
+    let repo = fixture();
+    let user = env(&[("HOME", home.path().to_str().expect("utf8"))]);
+    let user_config = home.path().join(".cargo/config.toml").display().to_string();
+    assert_eq!(config::build(repo.path(), &user), Build { incremental: setting("false", &user_config), debuginfo: setting("full", "dev default") });
+
+    std::fs::write(repo.path().join("Cargo.toml"), "[profile.dev]\ndebug = \"line-tables-only\"\nincremental = true\n").expect("manifest");
+    let built = config::build(repo.path(), &user);
+    assert_eq!((built.incremental.source.as_str(), built.debuginfo), (user_config.as_str(), setting("line-tables-only", "Cargo.toml")), "build.incremental outranks every profile");
+
+    std::fs::create_dir_all(repo.path().join(".cargo")).expect("repo config dir");
+    let repo_config = repo.path().join(".cargo/config.toml");
+    std::fs::write(&repo_config, "[build]\nincremental = true\n\n[profile.test]\ndebug = 0\n").expect("repo config");
+    let built = config::build(repo.path(), &user);
+    assert_eq!(built, Build { incremental: setting("true", &repo_config.display().to_string()), debuginfo: setting("none", &repo_config.display().to_string()) }, "the repo config outranks the user config and the test profile outranks dev");
+
+    let forced = env(&[("HOME", home.path().to_str().expect("utf8")), ("CARGO_INCREMENTAL", "0"), ("CARGO_PROFILE_TEST_DEBUG", "true")]);
+    assert_eq!(config::build(repo.path(), &forced), Build { incremental: setting("false", "CARGO_INCREMENTAL"), debuginfo: setting("full", "CARGO_PROFILE_TEST_DEBUG") });
+
+    let cargo_home = env(&[("HOME", "/nonexistent"), ("CARGO_HOME", home.path().join(".cargo").to_str().expect("utf8"))]);
+    let bare = fixture();
+    assert_eq!(config::build(bare.path(), &cargo_home).incremental, setting("false", &user_config));
 }
