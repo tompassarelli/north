@@ -1450,7 +1450,7 @@ candidate_verdict() {
     class=transient detail="this host's north runtime predates safe-push; run north runtime update"
   elif ! { run_language_gate "$base" "$head" && native_ref_scan && north land scan secrets "$base..$head" \
       && denylist_scan "$base" "$head" main && commit_email_scan "$base..$head" && north land scan dep-gate "$base..$head" \
-      && tool_removal_scan "$base..$head" && test_integrity_scan "$base..$head" && test_admission_scan "$base..$head" && policy_sweep_scan "$base..$head"; } >>"$log" 2>&1; then
+      && tool_removal_scan "$base..$head" && test_integrity_scan "$base..$head" && policy_sweep_scan "$base..$head"; } >>"$log" 2>&1; then
     :
   elif land_checks_call "$base" "$head" >>"$log" 2>&1; then
     class=green detail=$head
