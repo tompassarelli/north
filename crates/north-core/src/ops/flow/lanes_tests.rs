@@ -80,7 +80,7 @@ fn test_a_lane_stranded_over_fifteen_minutes_is_listed_with_its_stop_and_alerts(
     assert_eq!((lane["session"].as_str(), lane["lane"].as_str(), lane["stop"].as_str()), (Some("sc-b1"), Some("sc-1-lane"), Some("Stop: capacity")), "a five-minute stop and a lane with nothing unlanded are not listed");
     assert!(format_row(&row, None).contains("stranded 1 lanes: sc-b1 sc-1-lane (Stop: capacity, 190m)"), "{}", format_row(&row, None));
     let nodes = [super::alerts::Node { id: "makgora-parent".into(), parent: None, active: true, cwd: "/home/tom/code/makgora/main".into() }];
-    let (state, actions) = super::alerts::alert_plan(std::slice::from_ref(&row), &Default::default(), NOW, &nodes);
+    let (state, actions) = super::tests::second_run(std::slice::from_ref(&row), NOW, &nodes);
     assert!(state.contains_key("makgora"));
     let texts: Vec<&str> = actions.iter().map(|action| action.text.as_str()).collect();
     assert_eq!(texts, ["Lanes stranded in makgora, unlanded with no live session: sc-b1 sc-1-lane (Stop: capacity, 190m)"; 2], "the parent and the proxy");

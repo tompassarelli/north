@@ -48,14 +48,18 @@ fn episode(rows: impl Fn(f64) -> Value, kind: &str) {
     let directory = tempfile::tempdir().unwrap();
     let sends = RefCell::new(Vec::<String>::new());
     let count = || sends.borrow().iter().filter(|message| message.contains(kind)).count();
+    run(&sends, &[rows(1.0)], NOW - 300.0, directory.path());
+    assert_eq!(count(), 0, "{kind} seen by a single run is not sent");
     run(&sends, &[rows(1.0)], NOW, directory.path());
-    assert_eq!(count(), 2, "{kind} reaches the parent and the proxy once");
+    assert_eq!(count(), 2, "{kind} seen by two consecutive runs reaches the parent and the proxy once");
     run(&sends, &[rows(16.0)], NOW + QUARTER, directory.path());
     run(&sends, &[rows(31.0)], NOW + 2.0 * QUARTER, directory.path());
     assert_eq!(count(), 2, "{kind} unchanged 15 minutes later is not sent again");
     run(&sends, &[row(healthy(), json!([]), json!([]))], NOW + 3.0 * QUARTER, directory.path());
     run(&sends, &[rows(1.0)], NOW + 4.0 * QUARTER, directory.path());
-    assert_eq!(count(), 4, "{kind} that cleared and returned is sent again");
+    assert_eq!(count(), 2, "{kind} that returned for a single run is not sent");
+    run(&sends, &[rows(6.0)], NOW + 5.0 * QUARTER, directory.path());
+    assert_eq!(count(), 4, "{kind} that cleared and returned for two runs is sent again");
 }
 
 #[test]
@@ -77,10 +81,16 @@ fn test_refused_alert_is_sent_once_per_episode() {
 fn test_a_new_job_or_lane_in_the_same_stall_opens_a_new_episode() {
     let directory = tempfile::tempdir().unwrap();
     let sends = RefCell::new(Vec::<String>::new());
-    run(&sends, &[row(stalled(7, 10.0), json!([]), json!([]))], NOW, directory.path());
-    run(&sends, &[row(stalled(8, 10.0), json!([]), json!([]))], NOW + 300.0, directory.path());
+    let tick = |stall: Value, stranded: Value, at: f64| run(&sends, &[row(stall, stranded, json!([]))], at, directory.path());
+    tick(stalled(7, 10.0), json!([]), NOW);
+    tick(stalled(7, 15.0), json!([]), NOW + 300.0);
+    assert_eq!(sends.borrow().len(), 2);
+    tick(stalled(8, 10.0), json!([]), NOW + 600.0);
+    assert_eq!(sends.borrow().len(), 2, "a new job seen by a single run is not sent");
+    tick(stalled(8, 15.0), json!([]), NOW + 900.0);
     assert_eq!(sends.borrow().len(), 4);
-    run(&sends, &[row(stalled(8, 40.0), json!([lane(20.0)]), json!([]))], NOW + 600.0, directory.path());
+    tick(stalled(8, 40.0), json!([lane(20.0)]), NOW + 1200.0);
+    tick(stalled(8, 45.0), json!([lane(25.0)]), NOW + 1500.0);
     assert_eq!(sends.borrow().len(), 6, "the stranded lane is new, the unchanged stall is not repeated");
 }
 
@@ -90,7 +100,7 @@ fn a_lander_stall_alerts_once_per_episode_under_its_own_identity() {
     let reasons = vec!["lander tickets queued: 12 waiting, oldest 116m, and main has not moved through the lander for 116m > 20m".to_owned()];
     let verdict = serde_json::to_value(super::stall::with_lander(healthy, &reasons)).expect("json");
     let rows = [row(verdict, json!([]), json!([]))];
-    let (mut state, first) = super::alerts::alert_plan(&rows, &Default::default(), NOW, &[]);
+    let (mut state, first) = super::tests::second_run(&rows, NOW, &[]);
     assert_eq!(first.len(), 2);
     for action in &first {
         state.get_mut("makgora").expect("record").sent.insert(action.key.clone(), NOW);

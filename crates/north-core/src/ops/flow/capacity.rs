@@ -1,6 +1,5 @@
 //! Host saturation: a machine whose capacity-admission queue or root disk has stayed over its limit
 //! long enough that launching more work onto it only deepens the pile.
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::Value;
@@ -63,7 +62,7 @@ pub fn read_hosts(host: &dyn Host, policy: &Path) -> Vec<Reading> {
     readings
 }
 
-/// Alerts the proxy once a host has stayed saturated for ten minutes; the record is dropped when it
+/// Alerts the proxy once per episode when a host has stayed saturated for ten minutes; the record is dropped when it
 /// has room again, and a host that did not answer keeps its record.
 pub fn saturation_plan(readings: &[Reading], previous: &State, now: f64, disk_floor_gib: f64) -> (State, Vec<Action>) {
     let mut state = previous.clone();
@@ -73,10 +72,10 @@ pub fn saturation_plan(readings: &[Reading], previous: &State, now: f64, disk_fl
             state.remove(&reading.host);
             continue;
         };
-        let record = state.entry(reading.host.clone()).or_insert_with(|| Record { since: now, sent: BTreeMap::new() });
+        let record = state.entry(reading.host.clone()).or_insert_with(|| Record { since: now, ..Record::default() });
         let held = now - record.since;
         let key = "saturation:fleet:proxy";
-        if held >= HOLD_SECONDS && record.due(key, now) {
+        if held >= HOLD_SECONDS && !record.sent.contains_key(key) {
             let text = format!("Host {} saturated for {:.0}m: {why}. Stop launching onto it, move work to a free host, clear the blocker", reading.host, held / 60.0);
             actions.push(Action { repo: reading.host.clone(), key: key.into(), node: "proxy".into(), channel: "fleet", text });
         }

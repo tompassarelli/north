@@ -46,7 +46,7 @@ pub fn routing_plan(stalled: &[(String, String)], previous: &State, now: f64) ->
     let mut state: State = previous.iter().filter(|(category, _)| stalled.iter().any(|(stalled, _)| stalled == *category)).map(|(category, record)| (category.clone(), record.clone())).collect();
     let mut actions = Vec::new();
     for (category, why) in stalled {
-        let record = state.entry(category.clone()).or_insert_with(|| Record { since: now, sent: BTreeMap::new() });
+        let record = state.entry(category.clone()).or_insert_with(|| Record { since: now, ..Record::default() });
         let key = "routing:supply";
         if record.due_after(key, now, REPEAT_SECONDS) {
             let text = format!("Tier routing of {category} still alternates its arms with {} arm runs on each: {why}", crate::router::policy::ARM_RUNS);

@@ -1,7 +1,6 @@
 //! Telling the Fleet parent and the proxy of a stall, a stranded or refused lane, a broken guard or a
-//! saturated host. A stall, stranded or refused alert goes out once per episode, keyed on its kind
-//! and the facts that make it actionable, and again only after a run stops seeing it; the others
-//! repeat every fifteen minutes while they last.
+//! saturated host. Each alert goes out once per episode, keyed on its kind and the facts that make
+//! it actionable, after two consecutive runs see it, and again only after a run stops seeing it.
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
 use std::path::Path;
@@ -13,10 +12,10 @@ use sha2::{Digest, Sha256};
 
 use super::host::{Host, Places, valid_name, write_atomic};
 use super::stall::Verdict;
+use crate::platform::rolling_issue::Breaches;
 
 const GUARDS: [&str; 4] = ["actions", "wisp", "reuse", "pins"];
-const EPISODES: [&str; 3] = ["notice", "stranded", "refused"];
-const REPEAT_SECONDS: f64 = 900.0;
+const EPISODES: [&str; 4] = ["guard", "notice", "stranded", "refused"];
 pub const SUPPLY: &str = "supply";
 const TIMER_SLACK_SECONDS: f64 = 60.0;
 
@@ -24,6 +23,8 @@ const TIMER_SLACK_SECONDS: f64 = 60.0;
 pub struct Record {
     pub since: f64,
     pub sent: BTreeMap<String, f64>,
+    #[serde(default)]
+    pub breaches: Breaches,
 }
 
 pub type State = BTreeMap<String, Record>;
@@ -61,10 +62,6 @@ fn parent_of(nodes: &[Node], repo: &str) -> String {
 }
 
 impl Record {
-    pub fn due(&self, key: &str, now: f64) -> bool {
-        self.due_after(key, now, REPEAT_SECONDS)
-    }
-
     pub fn due_after(&self, key: &str, now: f64, repeat: f64) -> bool {
         self.sent.get(key).is_none_or(|at| now - at >= repeat - TIMER_SLACK_SECONDS)
     }
@@ -75,10 +72,6 @@ fn candidates(repo: &str, parent: &str, key: &str, text: &str) -> Vec<Action> {
         .iter()
         .map(|node| Action { repo: repo.into(), key: key.replace("{node}", node), node: (*node).into(), channel: "fleet", text: text.into() })
         .collect()
-}
-
-fn pending_actions(record: &Record, now: f64, repo: &str, parent: &str, key: &str, text: &str) -> Vec<Action> {
-    candidates(repo, parent, key, text).into_iter().filter(|action| record.due(&action.key, now)).collect()
 }
 
 fn digest(parts: &[String]) -> String {
@@ -130,26 +123,29 @@ pub fn alert_plan(rows: &[Value], previous: &State, now: f64, nodes: &[Node]) ->
             continue;
         }
         let parent = parent_of(nodes, repo);
-        let record = state.entry(repo.to_owned()).or_insert_with(|| Record { since: now, sent: BTreeMap::new() });
+        let record = state.entry(repo.to_owned()).or_insert_with(|| Record { since: now, ..Record::default() });
         let mut seen = BTreeSet::new();
+        let mut planned = Vec::new();
         for (kind, reason) in &guards {
             let what = if *kind == "pins" { "Broken pin" } else { "Underused capacity" };
-            actions.extend(pending_actions(record, now, repo, &parent, &format!("guard:{kind}:fleet:{{node}}"), &format!("{what} in {repo}: {reason}")));
+            planned.extend(episode_actions(record, &mut seen, repo, &parent, &format!("guard:{kind}"), &[(*kind).to_owned()], &format!("{what} in {repo}: {reason}")));
         }
         if let Some(verdict) = stalled {
             let runner = verdict.runner.as_deref().map_or(String::new(), |runner| format!("; oldest landing job runner {runner}"));
             let text = format!("Landing stalled in {repo}: {}{runner}", verdict.reason);
-            actions.extend(episode_actions(record, &mut seen, repo, &parent, "notice", &stall_identity(verdict), &text));
+            planned.extend(episode_actions(record, &mut seen, repo, &parent, "notice", &stall_identity(verdict), &text));
         }
         if !stranded.is_empty() {
             let text = format!("Lanes stranded in {repo}, unlanded with no live session: {}", stranded.join("; "));
-            actions.extend(episode_actions(record, &mut seen, repo, &parent, "stranded", &super::stranded::identities(row), &text));
+            planned.extend(episode_actions(record, &mut seen, repo, &parent, "stranded", &super::stranded::identities(row), &text));
         }
         if !refused.is_empty() {
             let text = format!("Land branches Autoland refused in {repo}, with no live session to fix them: {}", refused.join("; "));
-            actions.extend(episode_actions(record, &mut seen, repo, &parent, "refused", &super::refused::identities(row, nodes), &text));
+            planned.extend(episode_actions(record, &mut seen, repo, &parent, "refused", &super::refused::identities(row, nodes), &text));
         }
         record.sent.retain(|key, _| !episode_key(key) || seen.contains(key));
+        let confirmed = record.breaches.tick(&seen);
+        actions.extend(planned.into_iter().filter(|action| confirmed.contains(&action.key)));
     }
     (state, actions)
 }

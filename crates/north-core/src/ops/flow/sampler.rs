@@ -1,6 +1,5 @@
 //! A usage sampler that has not read a provider for ten minutes: every pace reader is on stale numbers,
 //! so the proxy hears once per episode, naming the provider and its last good reading.
-use std::collections::BTreeMap;
 
 use serde_json::Value;
 
@@ -41,7 +40,7 @@ pub fn sampler_plan(failing: &[Failing], previous: &State, now: f64) -> (State, 
     let mut state: State = previous.iter().filter(|(provider, _)| failing.iter().any(|f| &f.provider == *provider)).map(|(k, v)| (k.clone(), v.clone())).collect();
     let mut actions = Vec::new();
     for failure in failing {
-        let record = state.entry(failure.provider.clone()).or_insert_with(|| Record { since: failure.since.unwrap_or(now), sent: BTreeMap::new() });
+        let record = state.entry(failure.provider.clone()).or_insert_with(|| Record { since: failure.since.unwrap_or(now), ..Record::default() });
         let stale = now - record.since;
         let key = format!("sampler:{}:fleet:proxy", failure.provider);
         if stale >= STALE_SECONDS && !record.sent.contains_key(&key) {

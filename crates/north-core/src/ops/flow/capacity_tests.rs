@@ -37,7 +37,7 @@ fn test_ssh_hosts_come_from_orchestration() {
 }
 
 #[test]
-fn test_saturation_waits_ten_minutes_then_repeats_every_fifteen_and_clears() {
+fn test_saturation_waits_ten_minutes_then_alerts_once_per_episode_and_clears() {
     let (mut state, mut sent) = (State::new(), Vec::new());
     for minute in 0..=40 {
         let now = NOW + f64::from(minute) * 60.0;
@@ -49,7 +49,7 @@ fn test_saturation_waits_ten_minutes_then_repeats_every_fifteen_and_clears() {
             sent.push(minute);
         }
     }
-    assert_eq!(sent, [10, 24, 38]);
+    assert_eq!(sent, [10]);
     let (cleared, actions) = saturation_plan(&[reading(1, 90.0)], &state, NOW + 3000.0, FLOOR);
     assert!(cleared.is_empty() && actions.is_empty());
     let (silent, _) = saturation_plan(&[], &state, NOW + 3000.0, FLOOR);

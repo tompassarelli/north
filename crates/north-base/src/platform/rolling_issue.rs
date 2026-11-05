@@ -1,7 +1,33 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use serde::{Deserialize, Serialize};
+
 use super::github;
 
 const NORTH: &str = "tompassarelli/north";
 
+pub const CONFIRMING_TICKS: u32 = 2;
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct Breaches(BTreeMap<String, u32>);
+
+impl Breaches {
+    pub fn record(&mut self, key: &str, breached: bool) -> bool {
+        if !breached {
+            self.0.remove(key);
+            return false;
+        }
+        let streak = self.0.entry(key.to_owned()).or_default();
+        *streak = streak.saturating_add(1);
+        *streak >= CONFIRMING_TICKS
+    }
+
+    pub fn tick(&mut self, breaching: &BTreeSet<String>) -> BTreeSet<String> {
+        self.0.retain(|key, _| breaching.contains(key));
+        breaching.iter().filter(|key| self.record(key, true)).cloned().collect()
+    }
+}
 pub struct Issue {
     pub number: u64,
     pub body: String,
@@ -13,6 +39,10 @@ pub trait Tracker {
     fn create(&mut self, title: &str, body: &str) -> Result<(), String>;
     fn edit(&mut self, number: u64, body: &str) -> Result<(), String>;
     fn close(&mut self, number: u64, comment: &str) -> Result<(), String>;
+}
+
+pub fn alarm(tracker: &mut dyn Tracker, breaches: &mut Breaches, title: &str, body: Option<&str>, closing: &str) -> Result<(), String> {
+    if breaches.record(title, body.is_some()) || body.is_none() { settle(tracker, title, body, closing) } else { Ok(()) }
 }
 
 pub fn settle(tracker: &mut dyn Tracker, title: &str, body: Option<&str>, closing: &str) -> Result<(), String> {

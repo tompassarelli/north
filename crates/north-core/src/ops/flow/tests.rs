@@ -109,7 +109,7 @@ fn replay_alerts(recorded: &Recorded) {
     }
     assert!(events["healthy"].is_empty());
     let first = events["stall"].iter().map(|(at, _)| *at).fold(f64::MAX, f64::min);
-    assert!((at("2026-10-11T13:36:00Z")..=at("2026-10-11T14:10:00Z")).contains(&first), "{first}");
+    assert!((at("2026-10-11T13:36:00Z")..=at("2026-10-11T14:15:00Z")).contains(&first), "{first}");
     let mut recipients: Vec<(&str, &str)> = events["stall"].iter().filter(|(at, _)| *at == first).map(|(_, action)| (action.channel, action.node.as_str())).collect();
     recipients.sort_unstable();
     assert_eq!(recipients, [("fleet", "makgora-parent"), ("fleet", "proxy")]);
@@ -160,6 +160,8 @@ fn deliver_alerts(recorded: &Recorded) {
     stall_alert(&places, &host, std::slice::from_ref(&healthy), prolonged).unwrap();
     assert_eq!(std::fs::read_to_string(&state_path).unwrap().trim(), "{}");
     stall_alert(&places, &host, std::slice::from_ref(&stalled), prolonged + 300.0).unwrap();
+    assert_eq!(sends.borrow().len(), 4, "a stall back for a single run is not sent");
+    stall_alert(&places, &host, std::slice::from_ref(&stalled), prolonged + 600.0).unwrap();
     assert_eq!(sends.borrow().len(), 6);
 }
 
@@ -306,11 +308,17 @@ fn test_refused_lane_reaches_proxy_only_when_its_pusher_is_gone() {
     let now = at("2026-10-30T18:40:00Z");
     let row = json!({"repo": "wisp", "refused": super::refused::rows(&tips, &states, &dead, &pushers, now)});
     let node = |active| vec![Node { id: "wisp-114".into(), parent: Some("wisp-lead".into()), active, cwd: "/home/tom/code/wisp/main".into() }];
-    let (_, live) = alert_plan(std::slice::from_ref(&row), &State::new(), now, &node(true));
+    let (_, live) = second_run(std::slice::from_ref(&row), now, &node(true));
     assert!(live.is_empty());
-    let (_, gone) = alert_plan(std::slice::from_ref(&row), &State::new(), now, &node(false));
+    let (_, gone) = second_run(std::slice::from_ref(&row), now, &node(false));
     let mut recipients: Vec<&str> = gone.iter().map(|action| action.node.as_str()).collect();
     recipients.sort_unstable();
     assert_eq!(recipients, ["proxy", "wisp-parent"]);
     assert_eq!(gone[0].text, "Land branches Autoland refused in wisp, with no live session to fix them: claude/land-x-aaaa (pushed by wisp-114, rebasing onto main conflicts in a.rs, https://example.test/run, 40m)");
+}
+
+pub fn second_run(rows: &[Value], now: f64, nodes: &[Node]) -> (State, Vec<super::alerts::Action>) {
+    let (seen, first) = alert_plan(rows, &State::new(), now, nodes);
+    assert!(first.is_empty(), "a single breaching run alerts no one");
+    alert_plan(rows, &seen, now, nodes)
 }

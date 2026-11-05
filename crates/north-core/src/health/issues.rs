@@ -1,13 +1,13 @@
 use super::units;
 use super::{Verdict, main_red};
-use crate::platform::rolling_issue::Gh;
+use crate::platform::rolling_issue::{Breaches, Gh};
 
-pub(super) fn file(results: &[(String, Verdict)], north_runs: Option<&str>) {
+pub(super) fn file(results: &[(String, Verdict)], north_runs: Option<&str>, breaches: &mut Breaches) {
     let failing: Vec<(String, String)> = results
         .iter()
         .filter_map(|(check, result)| Some((check.strip_prefix("unit ")?.to_owned(), result.as_ref().err()?.clone())))
         .collect();
-    if let Err(error) = units::reconcile(&mut Gh::north(), &crate::platform::host::name(), &failing) {
+    if let Err(error) = units::reconcile(&mut Gh::north(), breaches, &crate::platform::host::name(), &failing) {
         eprintln!("health: issue: {error}");
     }
     if results.iter().any(|(check, result)| check == "ci" && result.is_ok())

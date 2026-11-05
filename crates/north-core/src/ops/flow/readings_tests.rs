@@ -107,7 +107,7 @@ fn test_recorded_11_oct_idle_capacity() {
     let nodes = vec![Node { id: "makgora-parent".into(), parent: None, active: true, cwd: "/home/tom/code/makgora/main".into() }];
     let red = [build("failure")];
     let flagged = capacity_row(now, &Capacity { pending: 17, samples: &quiet, pairs: &lines, flags: &reuse, builds: &red });
-    let (_, actions) = alert_plan(std::slice::from_ref(&flagged), &State::new(), now, &nodes);
+    let (_, actions) = super::tests::second_run(std::slice::from_ref(&flagged), now, &nodes);
     let kinds: BTreeSet<&str> = actions.iter().map(|action| action.key.split(':').nth(1).unwrap()).collect();
     assert_eq!(kinds, BTreeSet::from(["actions", "wisp", "reuse", "pins"]));
     assert_eq!(actions.len(), 8);

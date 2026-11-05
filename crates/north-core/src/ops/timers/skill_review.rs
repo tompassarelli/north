@@ -2,7 +2,8 @@ use std::process::Command;
 
 use serde_json::Value;
 
-use super::{date, text};
+use super::date;
+use crate::platform::rolling_issue::{Gh, settle};
 
 const TITLE: &str = "Skill review queue";
 
@@ -17,14 +18,6 @@ pub fn run(_arguments: &[String]) -> u8 {
             1
         }
     }
-}
-
-fn gh(args: &[&str]) -> Result<String, String> {
-    let output = crate::platform::github::run(args).map_err(|error| format!("cannot run gh: {error}"))?;
-    if !output.status.success() {
-        return Err(format!("gh {} failed: {}", args.first().unwrap_or(&""), String::from_utf8_lossy(&output.stderr).trim()));
-    }
-    Ok(text(&output))
 }
 
 pub(super) fn items(stale: &Value) -> String {
@@ -62,25 +55,9 @@ fn queue() -> Result<String, String> {
         return Err("agents stale --json failed".to_owned());
     }
     let stale: Value = serde_json::from_slice(&stale.stdout).map_err(|error| format!("agents stale: {error}"))?;
-    let search = format!("\"{TITLE}\" in:title");
-    let pick = format!("map(select(.title == \"{TITLE}\")) | .[0].number // empty");
-    let listed = gh(&["issue", "list", "-R", &repo, "--state", "open", "--search", &search, "--json", "number,title", "--jq", &pick])?;
-    let existing = listed.trim_end_matches('\n');
     let count = due_count(&stale);
     let today = date("-I");
-    if count == 0 {
-        if existing.is_empty() {
-            return Ok("none due".to_owned());
-        }
-        gh(&["issue", "close", "-R", &repo, existing, "--comment", &format!("No skill review is due ({today}).")])?;
-        return Ok(format!("none due; closed {repo}#{existing}"));
-    }
-    let body = issue_body(&today, &items(&stale));
-    if existing.is_empty() {
-        let url = gh(&["issue", "create", "-R", &repo, "--title", TITLE, "--body", &body])?;
-        Ok(format!("{count} due; opened {}", url.trim_end_matches('\n')))
-    } else {
-        gh(&["issue", "edit", "-R", &repo, existing, "--body", &body])?;
-        Ok(format!("{count} due; updated {repo}#{existing}"))
-    }
+    let body = (count > 0).then(|| issue_body(&today, &items(&stale)));
+    settle(&mut Gh::of(&repo, &[]), TITLE, body.as_deref(), &format!("No skill review is due ({today})."))?;
+    Ok(if count == 0 { "none due".to_owned() } else { format!("{count} due; {repo} \"{TITLE}\" is current") })
 }

@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use crate::foundation::clock::Timestamp;
 use crate::ops::citation_check;
+use crate::platform::rolling_issue::Breaches;
 use crate::platform::sqlite::{self, Access};
 use units::{Reading, Run};
 
@@ -34,6 +35,10 @@ struct State {
     land: Option<LandCache>,
     #[serde(default)]
     units: BTreeMap<String, Run>,
+    #[serde(default)]
+    breaches: Breaches,
+    #[serde(default)]
+    issues: Breaches,
 }
 
 struct RuntimeInput {
@@ -212,7 +217,10 @@ fn land(input: LandInput, state: &mut State) -> Verdict {
     }
 }
 
-fn transition(state: &mut State, check: &str, result: &Verdict, now: u64) -> Option<String> {
+fn transition(state: &mut State, check: &str, result: &Verdict, confirmed: bool, now: u64) -> Option<String> {
+    if result.is_err() && !confirmed {
+        return None;
+    }
     let episode = state.checks.entry(check.into()).or_default();
     let failing = result.is_err();
     if episode.failing == failing {
@@ -435,17 +443,19 @@ fn live(dry_run: bool, defined: fn(&str) -> bool) -> Result<bool, String> {
     let started = failed_starts::check(dry_run, now, &state_file, &failed_starts::journal, &mut failed_starts::tell_proxy);
     println!("health: unit-failures: {}", started.as_ref().err().map_or("ok", String::as_str));
     let mut alerts = Vec::new();
+    let breaching = results.iter().filter(|(_, result)| result.is_err()).map(|(check, _)| check.clone()).collect();
+    let confirmed = state.breaches.tick(&breaching);
     for (check, result) in &results {
         println!(
             "health: {check}: {}",
             result.as_ref().err().map_or("ok", String::as_str)
         );
-        if let Some(line) = transition(&mut state, check, result, now) {
+        if let Some(line) = transition(&mut state, check, result, confirmed.contains(check), now) {
             alerts.push((check.clone(), line));
         }
     }
     if !dry_run {
-        issues::file(&results, north_runs.as_deref());
+        issues::file(&results, north_runs.as_deref(), &mut state.issues);
         save(&state_path, &state)?;
         for (_, line) in alerts {
             if line.ends_with(": recovered") {

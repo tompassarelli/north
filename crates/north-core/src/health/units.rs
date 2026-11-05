@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::platform::rolling_issue::{Tracker, settle};
+use crate::platform::rolling_issue::{Breaches, Tracker, alarm};
 
 type Verdict = Result<(), String>;
 
@@ -72,9 +72,9 @@ pub(super) fn title(host: &str) -> String {
     format!("Harness services failing on {host}")
 }
 
-pub(super) fn reconcile(tracker: &mut dyn Tracker, host: &str, failing: &[(String, String)]) -> Result<(), String> {
+pub(super) fn reconcile(tracker: &mut dyn Tracker, breaches: &mut Breaches, host: &str, failing: &[(String, String)]) -> Result<(), String> {
     let body = (!failing.is_empty()).then(|| body(host, failing));
-    settle(tracker, &title(host), body.as_deref(), &format!("Every harness service on {host} finished its latest run; `north health` closed this issue."))?;
+    alarm(tracker, breaches, &title(host), body.as_deref(), &format!("Every harness service on {host} finished its latest run; `north health` closed this issue."))?;
     for (number, legacy) in tracker.listed("Harness unit in:title")? {
         if let Some(unit) = legacy_unit(&legacy, host).filter(|unit| !failing.iter().any(|(name, _)| name == unit)) {
             tracker.close(number, &format!("{unit} does not fail on {host} now; `north health` keeps failing services in one rolling issue per host and closed this per-unit issue."))?;

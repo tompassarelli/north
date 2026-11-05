@@ -188,29 +188,28 @@ fn health_land_caches_success_and_failure_for_thirty_minutes() {
 }
 
 #[test]
-fn health_alerts_once_per_episode() {
+fn health_alerts_once_per_episode_after_two_consecutive_failing_ticks() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("health.json");
     let mut state = State::default();
-    let fail = Err("stale".into());
-    assert_eq!(
-        transition(&mut state, "pace", &fail, 100),
-        Some("health: pace: stale".into())
-    );
+    let fail: Verdict = Err("stale".into());
+    let tick = |state: &mut State, result: &Verdict, now| {
+        let breaching = if result.is_err() { ["pace".to_owned()].into() } else { Default::default() };
+        let confirmed = state.breaches.tick(&breaching).contains("pace");
+        transition(state, "pace", result, confirmed, now)
+    };
+    assert_eq!(tick(&mut state, &fail, 99), None, "a single failing tick alerts no one");
+    assert_eq!(tick(&mut state, &Ok(()), 100), None, "a lone breach that clears says nothing");
+    assert_eq!(tick(&mut state, &fail, 100), None);
     save(&path, &state).unwrap();
     let mut state: State = serde_json::from_str(&read(&path).unwrap()).unwrap();
-    assert_eq!(transition(&mut state, "pace", &fail, 101), None);
-    assert_eq!(state.checks["pace"].since, Some(100));
-    assert_eq!(
-        transition(&mut state, "pace", &Ok(()), 102),
-        Some("health: pace: recovered".into())
-    );
-    assert_eq!(transition(&mut state, "pace", &Ok(()), 103), None);
-    assert_eq!(
-        transition(&mut state, "pace", &fail, 104),
-        Some("health: pace: stale".into())
-    );
-    assert_eq!(state.checks["pace"].since, Some(104));
+    assert_eq!(tick(&mut state, &fail, 101), Some("health: pace: stale".into()), "the second consecutive failing tick alerts once");
+    assert_eq!(tick(&mut state, &fail, 102), None, "an unchanged failing tick posts nothing");
+    assert_eq!(state.checks["pace"].since, Some(101));
+    assert_eq!(tick(&mut state, &Ok(()), 103), Some("health: pace: recovered".into()));
+    assert_eq!(tick(&mut state, &Ok(()), 104), None);
+    assert_eq!(tick(&mut state, &fail, 105), None);
+    assert_eq!(tick(&mut state, &fail, 106), Some("health: pace: stale".into()));
 }
 
 fn shown(active: &str, result: &str, invocation: &str) -> Reading {
@@ -268,28 +267,32 @@ fn health_unit_failing_twice_in_a_row_is_judged_failing_until_a_run_succeeds() {
 #[test]
 fn health_failing_units_share_one_rolling_issue_per_host_that_it_edits_and_closes() {
     let two = [("a.service".to_owned(), "a.service failed 2 runs in a row".to_owned()), ("b.service".to_owned(), "b.service failed 3 runs in a row".to_owned())];
+    let mut breaches = rolling_issue::Breaches::default();
     let mut tracker = recorder(None);
-    units::reconcile(&mut tracker, "whiterabbit", &two).unwrap();
-    assert_eq!(tracker.created.len(), 1, "two failing units open one issue, not two");
+    units::reconcile(&mut tracker, &mut breaches, "whiterabbit", &two).unwrap();
+    assert!(tracker.created.is_empty() && tracker.edited.is_empty(), "a single breaching tick posts nothing");
+    units::reconcile(&mut tracker, &mut breaches, "whiterabbit", &two).unwrap();
+    assert_eq!(tracker.created.len(), 1, "the second consecutive breach opens one issue for two units, not two");
     assert_eq!(tracker.created[0].0, "Harness services failing on whiterabbit");
     let body = tracker.created[0].1.clone();
     assert!(body.contains("`a.service`") && body.contains("`b.service`") && body.contains("\nNeeds: laptop\n"));
 
     let mut tracker = recorder(Some(rolling_issue::Issue { number: 7, body }));
-    units::reconcile(&mut tracker, "whiterabbit", &two).unwrap();
+    units::reconcile(&mut tracker, &mut breaches, "whiterabbit", &two).unwrap();
     assert!(tracker.created.is_empty() && tracker.edited.is_empty() && tracker.closed.is_empty(), "an unchanged set touches nothing");
 
-    units::reconcile(&mut tracker, "whiterabbit", &two[..1]).unwrap();
+    units::reconcile(&mut tracker, &mut breaches, "whiterabbit", &two[..1]).unwrap();
     assert_eq!(tracker.edited.len(), 1);
     assert_eq!(tracker.edited[0].0, 7);
     assert!(!tracker.edited[0].1.contains("b.service"));
 
-    units::reconcile(&mut tracker, "whiterabbit", &[]).unwrap();
+    units::reconcile(&mut tracker, &mut breaches, "whiterabbit", &[]).unwrap();
     assert_eq!(tracker.closed.len(), 1);
     assert_eq!(tracker.closed[0].0, 7);
 
+    let mut breaches = rolling_issue::Breaches::default();
     let mut none = recorder(None);
-    units::reconcile(&mut none, "whiterabbit", &[]).unwrap();
+    units::reconcile(&mut none, &mut breaches, "whiterabbit", &[]).unwrap();
     assert!(none.created.is_empty() && none.closed.is_empty());
 }
 
@@ -324,7 +327,8 @@ fn health_closes_per_unit_issues_of_units_that_no_longer_fail_and_keeps_those_st
         (3, "Harness unit c.service keeps failing on gex45".into()),
         (4, "Harness unit lane-gc.service ran slowly".into()),
     ];
-    units::reconcile(&mut tracker, "whiterabbit", &failing).unwrap();
+    let mut breaches = rolling_issue::Breaches::default();
+    units::reconcile(&mut tracker, &mut breaches, "whiterabbit", &failing).unwrap();
     assert_eq!(tracker.closed.iter().map(|(number, _)| *number).collect::<Vec<_>>(), [2]);
 }
 
