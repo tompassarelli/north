@@ -7,6 +7,7 @@ use super::candidate::{self, Pick, git};
 use super::checks::{self, Started, Verdict};
 use super::lander::Lander;
 use super::queue::{self, Ticket};
+use super::serve::Pushed;
 use super::telemetry::Stages;
 
 const POLL: Duration = Duration::from_millis(100);
@@ -198,9 +199,9 @@ fn push(lander: &Lander, mut next: Next, landed: &str) -> Result<Option<String>,
         }
     };
     after::begin(lander, &next.head, &next.base, &included)?;
-    if !lander.push(&next.head, &next.base, token.as_deref())? {
+    if !matches!(lander.push(&next.head, &next.base, token.as_deref())?, Pushed::Landed) {
         after::abandon(lander);
-        println!("north land: main moved from {} before the speculative push; rebuilding", next.base);
+        println!("north land: the speculative push of {} onto {} did not land; its lanes are rebuilt on main", next.head, next.base);
         return Ok(None);
     }
     next.stages.mark("push");

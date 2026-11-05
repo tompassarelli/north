@@ -332,6 +332,42 @@ fn serve_gate_refusal() {
     assert_eq!(fixture.read("pushes"), "", "a refused candidate is not pushed");
 }
 
+fn refuse_pushes(fixture: &Fixture, message: &str) {
+    executable(&fixture.origin.join("hooks/pre-receive"), &format!("#!/usr/bin/env bash\necho '{message}' >&2\nexit 1\n"));
+}
+
+#[test]
+fn serve_archived_origin_refusal_is_terminal() {
+    let mut fixture = Fixture::new();
+    let a = fixture.lane("a", "a.txt", "a");
+    let ticket = fixture.enqueue(&a, None);
+    refuse_pushes(&fixture, "This repository was archived so it is read-only.");
+    let output = fixture.serve();
+    assert!(output.status.success(), "a terminal refusal decides the ticket");
+    assert_eq!(fixture.main(), fixture.base);
+    assert_eq!(fixture.read("pushes").lines().count(), 1, "the push is attempted once");
+    let verdict = fixture.verdict(&ticket).unwrap();
+    assert!(verdict.starts_with("failed origin refused the push of ") && verdict.ends_with(": remote: This repository was archived so it is read-only."), "{verdict}");
+    let fleet = fixture.fleet();
+    assert!(fleet.len() == 1 && fleet[0].starts_with("fleet send session-lane-a north land: lane-a ") && fleet[0].contains("This repository was archived so it is read-only."), "{fleet:?}");
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.checks().len(), 1, "no further candidate is checked for the refused ticket");
+    assert_eq!(fixture.read("pushes").lines().count(), 1);
+}
+
+#[test]
+fn serve_other_origin_refusal_waits_and_keeps_the_ticket() {
+    let mut fixture = Fixture::new();
+    let a = fixture.lane("a", "a.txt", "a");
+    let ticket = fixture.enqueue(&a, None);
+    refuse_pushes(&fixture, "the server is having a moment");
+    let output = fixture.serve();
+    assert_eq!(output.status.code(), Some(75));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("waiting: origin refused the push of "), "{}", String::from_utf8_lossy(&output.stdout));
+    assert!(ticket.exists(), "a refusal of unknown cause keeps the lane queued");
+    assert_eq!(fixture.read("pushes").lines().count(), 1);
+    assert!(fixture.fleet().is_empty(), "{:?}", fixture.fleet());
+}
 #[test]
 fn serve_infrastructure_verdicts_keep_tickets() {
     for class in ["red-main abc", "transient fetch", "deferred DEFER_QUEUED"] {

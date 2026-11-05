@@ -17,6 +17,7 @@ use super::scans::outgoing;
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
 use crate::landing::safe_push_guards::Denylist;
+use crate::watch::facts::slug_of;
 
 const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE]";
 
@@ -151,6 +152,15 @@ fn replace_older(directory: &Path, kept: &Path, root: &Path, branch: &str) -> io
     Ok(())
 }
 
+fn refuse_archived(origin: &str) -> Result<(), String> {
+    let Some(slug) = origin.contains("github.com").then(|| slug_of(origin)).flatten() else { return Ok(()) };
+    let answer = Command::new("timeout").args(["10", "gh", "api", &format!("repos/{slug}"), "--jq", ".archived"]).stdin(Stdio::null()).stderr(Stdio::null()).output();
+    match answer {
+        Ok(output) if output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true" => Err(format!("GitHub reports {slug} as archived, so origin refuses every push; unarchive it or land elsewhere")),
+        _ => Ok(()),
+    }
+}
+
 fn refuse_static_gates(root: &Path, base: &str, head: &str) -> Result<(), String> {
     if !crate::language_gate::check(root, base, head) {
         return Err("language gate refused the landing".to_owned());
@@ -170,6 +180,7 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
         .map_err(|_| "HEAD is detached; switch to the lane's own branch".to_owned())?;
     let origin = git(&root, &["remote", "get-url", "--push", "origin"]).map_err(|_| "origin has no push URL".to_owned())?;
     repositories::servable(&root).map_err(|error| format!("the lander cannot serve this repository: {error}; set landing.queue = direct in .safe-push to land it per lane"))?;
+    refuse_archived(&origin)?;
     let destination = default_branch(&root);
     let remote_ref = format!("refs/remotes/origin/{destination}");
     git(&root, &["fetch", "-q", "origin", &format!("+refs/heads/{destination}:{remote_ref}")])

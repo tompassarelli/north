@@ -12,6 +12,7 @@ use super::culprit::{self, Found};
 use super::checks::Verdict;
 use super::credential;
 use super::telemetry::Stages;
+use super::push_refusal::{self, Backoff, Refusal};
 use super::records::{self, Candidate, Decision};
 use super::{queue, red, sheriff, speculate};
 use super::repositories;
@@ -26,6 +27,13 @@ pub enum Round {
     Idle,
     Progress,
     Waiting(String),
+    PushRefused(String),
+}
+
+pub(super) enum Pushed {
+    Landed,
+    Moved,
+    Refused(Refusal),
 }
 
 fn runtime_link() -> PathBuf {
@@ -49,23 +57,28 @@ impl Lander {
         credential::for_push(&self.worktree, base, &self.app_token)
     }
 
-    pub(super) fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<bool, String> {
+    pub(super) fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<Pushed, String> {
         let mut push = std::process::Command::new("git");
         push.arg("-C").arg(&self.worktree);
         credential::apply(&mut push, token);
         let pushed = push
             .args(["push", "-q", "--no-verify", "--no-follow-tags", &format!("--force-with-lease=refs/heads/main:{base}"), "origin", &format!("{candidate}:refs/heads/main")])
             .env("SAFE_PUSH_ACTIVE", "1")
-            .status()
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .output()
             .map_err(|error| format!("git push: {error}"))?;
-        if pushed.success() {
-            return Ok(true);
+        let stderr = String::from_utf8_lossy(&pushed.stderr);
+        eprint!("{stderr}");
+        if pushed.status.success() {
+            return Ok(Pushed::Landed);
         }
         let now = git(&self.worktree, &["ls-remote", "origin", "refs/heads/main"])?;
         if now.split_whitespace().next() == Some(base) {
-            return Err(format!("origin refused the push of {candidate} although main is still {base}"));
+            println!("north land: origin refused the push of {candidate} although main is still {base}");
+            return Ok(Pushed::Refused(push_refusal::classify(&stderr)));
         }
-        Ok(false)
+        Ok(Pushed::Moved)
     }
 
     pub(super) fn base_moved(&self, base: &str) -> Result<bool, String> {
@@ -181,14 +194,31 @@ impl Lander {
                         Err(error) => return Ok(Round::Waiting(format!("transient: no push credential: {error}"))),
                     };
                     after::begin(self, &built.head, &base, &included)?;
-                    if !self.push(&built.head, &base, token.as_deref())? {
-                        after::abandon(self);
-                        println!("north land: main moved from {base} before the push; rebuilding the candidate");
-                        rebuilds += 1;
-                        if rebuilds >= ATTEMPTS {
-                            break;
+                    match self.push(&built.head, &base, token.as_deref())? {
+                        Pushed::Landed => {}
+                        Pushed::Moved => {
+                            after::abandon(self);
+                            println!("north land: main moved from {base} before the push; rebuilding the candidate");
+                            rebuilds += 1;
+                            if rebuilds >= ATTEMPTS {
+                                break;
+                            }
+                            continue;
                         }
-                        continue;
+                        Pushed::Refused(Refusal::Terminal(line)) => {
+                            after::abandon(self);
+                            let refusal = format!("failed origin refused the push of {}: {line}", built.head);
+                            let batch_size = included.len();
+                            for (path, ticket) in included {
+                                records::write(self, path, ticket, &Candidate { head: &built.head, batch_size, stages: &stages }, &Decision::Refused { verdict: &refusal });
+                                bisect::decide(path, ticket, refusal.clone(), None)?;
+                            }
+                            return Ok(Round::Progress);
+                        }
+                        Pushed::Refused(Refusal::Retry(line)) => {
+                            after::abandon(self);
+                            return Ok(Round::PushRefused(format!("origin refused the push of {} although main is still {base}: {line}", built.head)));
+                        }
                     }
                     stages.mark("push");
                     after::finish(self, &built.head, &base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
@@ -228,14 +258,39 @@ impl Lander {
     }
 }
 
+fn back_off(lander: &Lander, backoff: &mut Backoff, reason: &str, retire: &AtomicBool) {
+    let pause = backoff.refused();
+    println!("north land: waiting {}s: {reason}", pause.wait.as_secs());
+    if pause.alarm && !after::send("proxy", &format!("north land: {}: {reason}; the lander keeps retrying every {} minutes", lander.repo.display(), pause.wait.as_secs() / 60)) {
+        eprintln!("north land: could not alarm the proxy about {}", lander.repo.display());
+    }
+    let until = Instant::now() + pause.wait;
+    while Instant::now() < until && !retire.load(Ordering::Relaxed) {
+        std::thread::sleep(POLL);
+    }
+}
+
 fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
+    let mut backoff = Backoff::default();
     loop {
         if retire.load(Ordering::Relaxed) {
             return 0;
         }
-        match lander.round() {
+        let round = lander.round();
+        if matches!(round, Ok(Round::Progress | Round::Idle)) {
+            backoff.clear();
+        }
+        match round {
             Ok(Round::Progress) => continue,
+            Ok(Round::PushRefused(reason)) if once => {
+                println!("north land: waiting: {reason}");
+                return 75;
+            }
+            Ok(Round::PushRefused(reason)) => {
+                back_off(lander, &mut backoff, &reason, retire);
+                continue;
+            }
             Ok(Round::Idle) if once => return 0,
             Ok(Round::Waiting(reason)) if once => {
                 println!("north land: waiting: {reason}");
