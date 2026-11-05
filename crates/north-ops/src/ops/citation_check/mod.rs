@@ -3,9 +3,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod config_keys;
+mod metric_sources;
 mod reach;
 
 pub use config_keys::MissingKey;
+pub use metric_sources::{CitedMetric, cited_metrics};
 
 const ROOTS: &[&str] = &["docs/", "harness/", "bin/", ".claude/", "agent-machinery/", "README.md", "AGENTS.md"];
 const SKIPPED: &[&str] = &["docs/rationale/", "/fixtures/", ".test.", "node_modules/"];

@@ -141,3 +141,40 @@ fn the_command_needs_a_plan_and_a_known_author_tier() {
     let arguments = ["docs/plan.md".to_owned(), "--root".into(), root.path().display().to_string(), "--author".into(), "sonnet-high".into()];
     assert_eq!(run(&arguments, |_| true), 0);
 }
+
+const SCHEMA: &str = "pub const SCHEMA: &str = \"CREATE TABLE IF NOT EXISTS runs(agent TEXT NOT NULL, task_ref TEXT) STRICT;\";\n";
+
+#[test]
+fn a_cited_metric_source_holds_only_when_a_tracked_schema_creates_its_table_and_names_its_column() {
+    let plan = "\
+The landed share reads `runs.task_ref` from the threads `runs` table.
+Each finding lands in the `review_findings` table and `runs.reviewer` names who read it.
+`flake.nix`, `runs.rs` and `land.check` are files, not metrics.
+```
+the `ghost` table inside a fence is not cited
+```
+";
+    let root = repository(&[("docs/plan.md", plan), ("crates/ledger/src/schema.rs", SCHEMA)]);
+    let facts: Vec<(Handler, String)> = metric_facts(root.path(), plan).unwrap().into_iter().map(|item| (item.handler, item.subject)).collect();
+    assert_eq!(
+        facts,
+        [
+            (Handler::Holds, "metric source table runs: created in crates/ledger/src/schema.rs".to_owned()),
+            (Handler::Holds, "metric source runs.task_ref: column named in crates/ledger/src/schema.rs".to_owned()),
+            (Handler::Fails, "metric source table review_findings: no tracked schema creates it".to_owned()),
+            (Handler::Fails, "metric source runs.reviewer: no schema of runs names this column".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn a_plan_citing_a_missing_metric_source_fails_that_fact_item_in_the_dispatch_and_an_existing_one_passes() {
+    let missing = "## Measure\n\nThe gain is read from the `review_findings` table.\n";
+    let present = "## Measure\n\nThe gain is read from the `runs` table.\n";
+    for (plan, verdict, handler) in [(missing, "fact FAILS L3: metric source table review_findings: no tracked schema creates it", Handler::Fails), (present, "fact holds L3: metric source table runs: created in src/schema.rs", Handler::Holds)] {
+        let root = repository(&[("docs/plan.md", plan), ("src/schema.rs", SCHEMA)]);
+        let items = dispatch(root.path(), "docs/plan.md", Tier::OpusMedium, |_| true).unwrap();
+        assert_eq!(items.iter().map(|item| item.handler).collect::<Vec<_>>(), [handler]);
+        assert_eq!(render("docs/plan.md", Tier::OpusMedium, &items)[1], verdict);
+    }
+}

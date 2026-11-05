@@ -14,6 +14,8 @@ use crate::router::brief::CATEGORIES;
 use crate::threads::runs::brief::Fields;
 use crate::threads::verb::{Args, Context, Failure, Outcome, immediate, open, report};
 
+const REVIEW: &str = "review";
+
 pub const VERBS: [&str; 9] = ["recommend", "eta-calibration", "calibrate", "summary", "routing-compare", "box-eta", "annotate-runs", "recommend-runs", "calibration-runs"];
 
 /// Runs one verb, printing its result to `out` and a refusal to `err`; returns the exit code.
@@ -80,6 +82,9 @@ fn recommend_verb(argv: &[String], context: &Context) -> Outcome {
     let args = Args::parse(argv, &["--since"], &[])?;
     let [facets] = args.positional.as_slice() else { return Err(Failure::Usage("usage: threads recommend [--since DATE] FACETS".into())) };
     let fields = Fields::read(facets);
+    if fields.category.as_deref() == Some(REVIEW) {
+        return crate::threads::review_findings::recommend(context, args.get("--since").unwrap_or(""));
+    }
     if fields.known_category().is_none() {
         return Err(Failure::Refused(format!("recommend needs `Category: <one of {}>` in {}", CATEGORIES.join(", "), quoted(facets))));
     }

@@ -619,7 +619,7 @@ def proxy(dest, argv) -> int:
     return code
 
 
-RUST_VERBS = ("claim", "list", "job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block", "ingest", "label-runs", "run-ids", "recommend", "calibrate", "summary", "eta-calibration", "routing-compare", "land-train")
+RUST_VERBS = ("claim", "list", "job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block", "ingest", "label-runs", "run-ids", "recommend", "calibrate", "summary", "eta-calibration", "routing-compare", "land-train", "review-finding")
 
 
 def delegate(argv) -> int:

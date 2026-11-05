@@ -305,10 +305,32 @@ pub fn path_facts(root: &Path, plan: &str, text: &str) -> Result<Vec<Item>, Stri
     Ok(found)
 }
 
+pub fn metric_facts(root: &Path, text: &str) -> Result<Vec<Item>, String> {
+    let mut seen = BTreeSet::new();
+    Ok(citation_check::cited_metrics(root, text)?
+        .into_iter()
+        .filter(|cited| seen.insert((cited.table.clone(), cited.column.clone())))
+        .map(|cited| {
+            let named = match &cited.column {
+                Some(column) => format!("metric source {}.{column}", cited.table),
+                None => format!("metric source table {}", cited.table),
+            };
+            let verdict = match (&cited.defined_in, &cited.column) {
+                (Some(file), Some(_)) => format!("column named in {file}"),
+                (Some(file), None) => format!("created in {file}"),
+                (None, Some(_)) => format!("no schema of {} names this column", cited.table),
+                (None, None) => "no tracked schema creates it".to_owned(),
+            };
+            Item::fact(cited.line, cited.defined_in.is_some(), format!("{named}: {verdict}"))
+        })
+        .collect())
+}
+
 pub fn dispatch(root: &Path, plan: &str, author: Tier, defined: fn(&str) -> bool) -> Result<Vec<Item>, String> {
     let text = std::fs::read_to_string(root.join(plan)).map_err(|error| format!("{plan}: {error}"))?;
     let mut items = path_facts(root, plan, &text)?;
     items.extend(verb_facts(plan, &text, defined));
+    items.extend(metric_facts(root, &text)?);
     items.extend(overlap_facts(&text));
     items.extend(design_items(&text, author));
     items.sort_by_key(|item| (item.kind, item.line));

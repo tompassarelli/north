@@ -11,6 +11,7 @@ pub mod incidents;
 pub mod jobs;
 pub mod landing;
 pub mod outside;
+pub mod review_findings;
 pub mod runs;
 pub mod snapshot;
 pub mod staffing;
