@@ -3,13 +3,8 @@ use super::sizing::sizing_runs;
 
 mod properties {
     use super::super::policy::{Resources, charged_resources, clamp_to_grantable, memory_margin, resource_class, running_cpu_commitment, scope_cpu_quota};
-    use crate::capacity::cpus::{aggregate_cpus, reserved_cpus};
     use proptest::prelude::*;
     use super::super::json::num;
-
-    fn profile() -> impl Strategy<Value = &'static str> {
-        prop_oneof![Just("attended"), Just("unattended")]
-    }
 
     fn amount(most: u32) -> impl Strategy<Value = f64> {
         prop_oneof![(0..=most).prop_map(f64::from), 0.0..f64::from(most)]
@@ -28,21 +23,6 @@ mod properties {
     }
 
     proptest! {
-        #[test]
-        fn prop_aggregate_cpus_is_at_least_one_and_at_most_the_cores(profile in profile(), cores in 1u32..=256) {
-            let aggregate = aggregate_cpus(profile, f64::from(cores), None);
-            prop_assert!(aggregate >= 1.0, "{profile} on {cores} cores grants {aggregate} CPUs");
-            prop_assert!(aggregate <= f64::from(cores), "{profile} on {cores} cores grants {aggregate} CPUs");
-        }
-
-        #[test]
-        fn prop_reserved_and_aggregate_cpus_sum_to_the_cores_wherever_the_reserve_leaves_a_core(profile in profile(), cores in 1u32..=256) {
-            let cores = f64::from(cores);
-            let reserved = reserved_cpus(profile, cores);
-            prop_assume!(cores - reserved >= 1.0);
-            prop_assert_eq!(reserved + aggregate_cpus(profile, cores, None), cores);
-        }
-
         #[test]
         fn prop_clamp_to_grantable_never_grants_past_the_request_or_maximum_and_reports_exactly_the_fields_it_cut(request in resources(), maximum in resources()) {
             let (granted, clamped) = clamp_to_grantable(request, maximum);

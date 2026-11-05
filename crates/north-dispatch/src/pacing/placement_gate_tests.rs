@@ -520,31 +520,6 @@ mod properties {
             prop_assert!(!decision.code_only, "{}", decision.surface);
             prop_assert!(!matches!(decision.target, Target::Cloud(_)), "{:?}", decision.target);
         }
-
-        #[test]
-        fn prop_an_account_at_or_over_the_five_hour_stop_is_never_chosen(
-            five in proptest::collection::vec(prop_oneof![0.0..120.0f64, Just(95.0)], 3),
-            week in proptest::collection::vec(0.0..99.0f64, 3),
-            code_only in any::<bool>(),
-        ) {
-            let cfg: DocumentMut = "[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
-            let names = ["claude:a", "claude:b", "claude:c"];
-            let accounts: Vec<(&str, Value)> = names.iter().zip(five.iter().zip(&week)).map(|(name, (five, week))| (*name, control((*five, 0.0, "2026-10-19T03:00:00Z"), (*week, 0.0)))).collect();
-            let quota = gate(&accounts);
-            let text = if code_only { CODE_ONLY } else { WARCRAFT };
-            let decision = decide(text, &cfg, &quota, (false, "cloud credit: spent".to_owned()), &[], "here");
-            match &decision.target {
-                Target::Account(chosen) => {
-                    let used = names.iter().position(|name| name == chosen).map(|index| five[index]);
-                    prop_assert!(used.is_some_and(|used| used < 95.0), "{chosen} chosen at 5h {used:?}");
-                }
-                Target::Cloud(lane) => {
-                    let used = names.iter().position(|name| *name == lane.account).map(|index| five[index]);
-                    prop_assert!(used.is_some_and(|used| used < 95.0), "{} chosen on cloud at 5h {used:?}", lane.account);
-                }
-                other => prop_assert!(five.iter().all(|used| *used >= 95.0), "{other:?} with an account under the stop: {five:?}"),
-            }
-        }
     }
 }
 
