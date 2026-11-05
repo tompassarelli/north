@@ -306,7 +306,7 @@ impl Client {
         if first == Some("ingest") {
             let mut data = Vec::new();
             stdin.read_to_end(&mut data)?;
-            let mut state = "unreachable";
+            let mut state = if reachable { "busy" } else { "unreachable" };
             if clear {
                 let code = self.ssh(dest, &argv, Input::Bytes(data.clone()), false, err)?;
                 if code == ingest_lock::RETRY {
@@ -390,12 +390,21 @@ impl Client {
         Ok(fs::rename(&tmp, &path)?)
     }
 
+    /// The spool's lock, or none while another call flushes it: that call sends every spooled write in order, so this one neither waits behind it nor sends any itself.
+    fn spool_lock(&self) -> NorthResult<Option<File>> {
+        let lock = File::create(self.spool.join(".lock"))?;
+        match lock.try_lock() {
+            Ok(()) => Ok(Some(lock)),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+            Err(std::fs::TryLockError::Error(error)) => Err(error.into()),
+        }
+    }
+
     fn flush_spool(&self, dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
         if !self.spool.is_dir() {
             return Ok(Flush::Clear);
         }
-        let lock = File::create(self.spool.join(".lock"))?;
-        lock.lock()?;
+        let Some(_lock) = self.spool_lock()? else { return Ok(Flush::Busy) };
         let mut paths: Vec<PathBuf> = fs::read_dir(&self.spool)?
             .filter_map(|entry| entry.ok().map(|entry| entry.path()))
             .filter(|path| path.extension().is_some_and(|extension| extension == "jsonl" || extension == "argv"))
