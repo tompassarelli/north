@@ -95,6 +95,16 @@ impl FromStr for Sender {
     }
 }
 
+impl Sender {
+    pub fn unknown() -> Self {
+        Self::Session("unknown".into())
+    }
+}
+
+fn stored_before_w1(text: &str) -> Option<Sender> {
+    (!text.is_empty() && !text.contains(':') && !text.chars().any(char::is_whitespace)).then(|| Sender::Session(text.to_owned()))
+}
+
 impl Serialize for Sender {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_str(self)
@@ -104,7 +114,7 @@ impl Serialize for Sender {
 impl<'de> Deserialize<'de> for Sender {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let text = String::deserialize(deserializer)?;
-        text.parse().map_err(|error: NorthError| serde::de::Error::custom(error.user_message()))
+        text.parse().or_else(|error: NorthError| stored_before_w1(&text).ok_or_else(|| serde::de::Error::custom(error.user_message())))
     }
 }
 

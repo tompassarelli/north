@@ -83,5 +83,9 @@ fn addressed(db: &Connection, addressees: &[Addressee]) -> NorthResult<Vec<Fleet
         .map_err(sql)?
         .collect::<Result<_, _>>()
         .map_err(sql)?;
-    data.iter().map(|data| Ok(serde_json::from_str(data)?)).collect()
+    Ok(data.iter().filter_map(|data| readable(data)).collect())
+}
+
+fn readable(data: &str) -> Option<FleetRow> {
+    serde_json::from_str(data).map_err(|error| eprintln!("north fleet: skipped a stored row that does not parse ({error}): {data}")).ok()
 }

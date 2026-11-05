@@ -223,10 +223,9 @@ fn a_row_file_removed_between_listing_and_reading_is_skipped_and_a_file_this_bui
     let ids: Vec<String> = spool.listing().unwrap().into_iter().map(|spooled| spooled.id).collect();
 
     assert_eq!(ids, ["m-1", "m-3", "m-4", "m-5"]);
-    assert!(spool.pending().is_err(), "a local spool this build cannot read still fails loudly");
-    std::fs::remove_file(root.path().join("spool/m-4.json")).unwrap();
-    std::fs::remove_file(root.path().join("spool/m-5.json")).unwrap();
-    assert_eq!(spool.pending().unwrap(), [message("m-1", "sc-1"), message("m-3", "sc-1")]);
+    assert_eq!(spool.pending().unwrap(), [message("m-1", "sc-1"), message("m-3", "sc-1")], "rows this build cannot read are set aside, not flushed");
+    assert!(root.path().join("spool/rejected/m-4.json").is_file() && root.path().join("spool/rejected/m-5.json").is_file());
+    assert_eq!(spool.listing().unwrap().into_iter().map(|spooled| spooled.id).collect::<Vec<_>>(), ["m-1", "m-3"]);
 }
 
 #[test]
@@ -458,4 +457,40 @@ fn the_cached_fleet_table_round_trips_its_gates_and_a_host_without_one_knows_non
 
     assert_eq!(cached_gates(root.path()).unwrap(), table.gates);
     assert_eq!(cached_sessions(root.path()).unwrap(), Some(table.sessions));
+}
+
+#[test]
+fn a_stored_row_that_no_longer_parses_is_skipped_and_the_rest_are_delivered() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    store.put(&[message("m-bad", "sc-1"), message("m-good", "sc-1")]).unwrap();
+    Connection::open(&path).unwrap().execute("UPDATE events SET data = json_set(data, '$.sender', 'two words') WHERE json_extract(data, '$.id') = 'm-bad'", []).unwrap();
+
+    let exchanged = store.exchange(&Exchange { addressees: vec![Addressee { name: "sc-1".into(), ..Addressee::default() }], ..Exchange::default() }).unwrap();
+
+    assert_eq!(exchanged.rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m-good"]);
+}
+
+#[test]
+fn a_row_stored_before_w1_reads_a_bare_name_as_that_session_and_a_missing_sender_as_unknown() {
+    let mut bare = serde_json::to_value(message("m-1", "sc-1")).unwrap();
+    bare["sender"] = "895929a7-6218-4168-b513-3dced3440bf6".into();
+    let mut absent = serde_json::to_value(message("m-2", "sc-1")).unwrap();
+    absent.as_object_mut().unwrap().remove("sender");
+
+    assert_eq!(serde_json::from_value::<FleetRow>(bare).unwrap().sender, crate::fleet::sender::Sender::Session("895929a7-6218-4168-b513-3dced3440bf6".into()));
+    assert_eq!(serde_json::from_value::<FleetRow>(absent).unwrap().sender, crate::fleet::sender::Sender::unknown());
+    assert!("lead".parse::<crate::fleet::sender::Sender>().is_err(), "the CLI still refuses a bare name");
+}
+
+#[test]
+fn a_spooled_row_that_does_not_parse_is_set_aside_and_the_rest_flush() {
+    let root = tempfile::tempdir().unwrap();
+    let spool = Spool::at(root.path());
+    spool.put(&message("m-1", "sc-1")).unwrap();
+    std::fs::write(root.path().join("spool/m-0.json"), r#"{"id":"m-0","kind":"MESSAGE","to_node":"sc-1","sender":"two words"}"#).unwrap();
+
+    assert_eq!(spool.pending().unwrap(), [message("m-1", "sc-1")]);
+    assert!(root.path().join("spool/rejected/m-0.json").is_file());
+    assert!(!root.path().join("spool/m-0.json").exists());
 }

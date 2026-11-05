@@ -61,7 +61,20 @@ impl Spool {
     }
 
     pub fn pending(&self) -> NorthResult<Vec<FleetRow>> {
-        self.files()?.iter().filter_map(|path| read(path).transpose()).map(|bytes| Ok(serde_json::from_slice(&bytes?)?)).collect()
+        let mut rows = Vec::new();
+        let mut unreadable = Vec::new();
+        for path in self.files()? {
+            let Some(bytes) = read(&path)? else { continue };
+            match serde_json::from_slice(&bytes) {
+                Ok(row) => rows.push(row),
+                Err(error) => {
+                    eprintln!("north fleet: set aside spooled row {} that does not parse ({error})", path.display());
+                    unreadable.extend(path.file_stem().and_then(|stem| stem.to_str()).map(str::to_owned));
+                }
+            }
+        }
+        self.set_aside(&unreadable)?;
+        Ok(rows)
     }
 
     pub fn listing(&self) -> NorthResult<Vec<Spooled>> {

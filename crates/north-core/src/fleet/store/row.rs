@@ -101,6 +101,7 @@ pub struct FleetRow {
     pub sent_at: u64,
     #[serde(default)]
     pub text: String,
+    #[serde(default = "Sender::unknown")]
     pub sender: Sender,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate: Option<Box<GateRequest>>,
