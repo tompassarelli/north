@@ -19,13 +19,14 @@ mod py;
 mod refresh;
 mod render;
 mod settings;
+pub mod shell;
 mod store;
 mod table;
 #[cfg(test)]
 mod tests;
 mod web;
 
-const USAGE: &str = "usage: north usage [--refresh [--local]] [--json] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate";
+const USAGE: &str = "usage: north usage [--refresh [--local]] [--json] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | decide --dry-run BRIEF";
 const PACED: [&str; 2] = ["claude", "gemini"];
 
 pub struct Places {
@@ -47,6 +48,7 @@ impl Places {
 }
 
 enum Action {
+    Decide { brief: PathBuf },
     WritePaceGate,
     Fast { provider: String, cached: bool },
     Show { refresh: bool, json: bool, remote: bool },
@@ -54,6 +56,12 @@ enum Action {
 
 impl Action {
     fn parse(arguments: &[String]) -> Option<Self> {
+        if let [verb, flag, brief] = arguments
+            && verb == "decide"
+            && flag == "--dry-run"
+        {
+            return Some(Self::Decide { brief: brief.into() });
+        }
         let (mut json, mut local, mut refresh, mut write_gate, mut cached, mut fast) = (false, false, false, false, false, None);
         let mut rest = arguments.iter();
         while let Some(argument) = rest.next() {
@@ -85,6 +93,7 @@ impl Action {
 
     fn perform(&self, db: &Connection, source: &store::Source, places: &Places, host: &Host) -> Result<(String, u8), String> {
         match self {
+            Self::Decide { brief } => decide(db, places, host, brief),
             Self::WritePaceGate => gate::write(db, &PACED, places, clock()).map(|verdicts| (verdicts.to_string(), 0)),
             Self::Fast { provider, cached } => fast::decide(db, source, places, provider, *cached, host),
             Self::Show { refresh, json, remote } => {
@@ -100,6 +109,13 @@ impl Action {
 
 pub fn handles(arguments: &[String]) -> bool {
     rows_request(arguments).is_some() || Action::parse(arguments).is_some()
+}
+
+fn decide(db: &Connection, places: &Places, host: &Host, brief: &Path) -> Result<(String, u8), String> {
+    let text = std::fs::read_to_string(brief).map_err(|error| format!("{}: {error}", brief.display()))?;
+    let registry = shell::FleetRecords { root: crate::fleet::registry::root_here().map_err(|error| error.user_message())? };
+    let shell = shell::Shell { db, policy: &places.policy, host: &host.name, registry: &registry, directory: places.state.join("agents/usage") };
+    shell::dry_run(&shell, &text).map(|text| (text, 0))
 }
 
 fn rows_request(arguments: &[String]) -> Option<(&str, bool)> {

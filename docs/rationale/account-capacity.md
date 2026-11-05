@@ -752,6 +752,12 @@ updates the integration tests (`tests/it/*`, 1.11) it breaks in the same change.
    file for Agent-tool spawns), `usage/decisions.jsonl`, and `north usage decide --dry-run BRIEF`.
    Done when: a test runs two real decisions against a fixture registry under the lock and the second lists the
    first in flight; `--dry-run` prints `explain`'s line.
+   The shell is `usage/shell/`: `Shell::world` reads the usage table (header, CLI, stream and web rows by their source text),
+   the registry through the `Registry` trait (`FleetRecords` reads the live fleet session records) and `launches.jsonl`;
+   `Shell::decide` holds `decide.lock` across world, `place`, the caller's launch record and the `decisions.jsonl` line;
+   `dry_run` takes the lock and records nothing. Until their boxes land, sign-in is this host, rates are the pooled
+   1.0 points per dollar, limit events are empty (4a) and `spent` is unread (6); `[usage.reserve]` is read from the
+   operator file when present.
 6. **Expected spend.** The ledger gains p50 and p90 priced box cost and minutes per cell with the fallback chain;
    `worker-ledger --recommend` prints E with its source; dispatched briefs' Budget lines state E.
    Done when: `north worker-ledger --recommend 'Category: feature ...'` prints `E p50 $X p90 $Y, N min (cell ...,
