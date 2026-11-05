@@ -27,6 +27,7 @@ jobs:
   test:
     name: test ${{ matrix.shard }}/3
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       SHARD: ${{ matrix.shard }}
       SHARDS: 3
