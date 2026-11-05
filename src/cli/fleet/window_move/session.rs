@@ -54,6 +54,14 @@ fn on_terminal(pid: u32) -> bool {
 }
 
 pub(super) fn find_window() -> NorthResult<Window> {
+    let [window] = <[_; 1]>::try_from(live_windows()?).map_err(|found| match found.len() {
+        0 => NorthError::State("no interactive claude window is running on a terminal".into()),
+        count => NorthError::State(format!("{count} interactive claude windows are running; this move handles exactly one")),
+    })?;
+    window
+}
+
+pub(super) fn live_windows() -> NorthResult<Vec<NorthResult<Window>>> {
     let mut found = Vec::new();
     for profile in fs::read_dir(profiles_root()?)?.flatten().map(|entry| entry.path()) {
         let Some(account) = profile.file_name().and_then(|name| name.to_str()).and_then(|name| name.strip_prefix("claude-")).map(str::to_owned) else { continue };
@@ -65,11 +73,11 @@ pub(super) fn find_window() -> NorthResult<Window> {
             }
         }
     }
-    let [(client, profile, account, record)] = <[_; 1]>::try_from(found).map_err(|found| match found.len() {
-        0 => NorthError::State("no interactive claude window is running on a terminal".into()),
-        count => NorthError::State(format!("{count} interactive claude windows are running; this move handles exactly one")),
-    })?;
-    let session = backing_session(&profile, client, &record)?;
+    Ok(found.into_iter().map(|(client, profile, account, record)| window(client, profile, account, &record)).collect())
+}
+
+fn window(client: u32, profile: PathBuf, account: String, record: &Value) -> NorthResult<Window> {
+    let session = backing_session(&profile, client, record)?;
     let cwd = record["cwd"].as_str().map(PathBuf::from).unwrap_or_default();
     let arguments = arguments_of(client).into_iter().skip(1).collect();
     Ok(Window { client, profile, account, arguments, cwd, session })

@@ -42,8 +42,9 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
 }
 
 pub(super) fn tom_window() -> Option<super::one_proxy::Window> {
-    let window = session::find_window().ok()?;
-    let active = std::fs::metadata(session::activity_path(&window)).and_then(|meta| meta.modified()).ok()?;
+    let windows = session::live_windows().ok()?.into_iter().flatten();
+    let active = windows.filter_map(|window| std::fs::metadata(session::activity_path(&window)).and_then(|meta| meta.modified()).ok().map(|active| (window, active)));
+    let (window, active) = active.max_by_key(|(_, active)| *active)?;
     Some(super::one_proxy::Window { conversation: window.session.id, account: window.account, active })
 }
 

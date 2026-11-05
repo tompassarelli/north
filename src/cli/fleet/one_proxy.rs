@@ -1,4 +1,4 @@
-//! One proxy at a time: while Tom types into his own Claude window, that window directs the fleet, and a fleet session in the proxy
+//! One proxy at a time: while Tom works in his own Claude window, that window directs the fleet, and a fleet session in the proxy
 //! role on another conversation keeps reading its reports but neither messages nor launches sessions until the window is idle.
 use std::time::{Duration, SystemTime};
 
@@ -29,7 +29,7 @@ fn admit_beside(fleet: &Fleet, caller: Option<&str>, act: &str, window: impl FnO
         return Ok(());
     }
     Err(NorthError::Refused(format!(
-        "{caller} may not {act}: Tom is typing into his own Claude window (conversation {} on account {}, active {}m ago), and one proxy directs the fleet at a time. Keep reading reports and put what you would send in your final message; you direct again once that window has been idle for {}m",
+        "{caller} may not {act}: Tom is working in his own Claude window (conversation {} on account {}, last written {}m ago), and one proxy directs the fleet at a time. Keep reading reports and put what you would send in your final message; you direct again once that window has been idle for {}m",
         window.conversation,
         window.account,
         idle.as_secs() / 60,

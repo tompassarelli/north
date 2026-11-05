@@ -159,9 +159,10 @@ as box F1v on north#112. Box F1 waits on Tom's answer and on that box.
 Until F1 lands, Tom also types into his own interactive Claude window, and on 2026-11-06 that window
 and the fleet session `proxy` both ordered the same workers. One proxy directs at a time
 (`src/cli/fleet/one_proxy.rs`): while Tom's window has written in the last 30 minutes, a fleet
-session in the proxy role on another conversation is refused `north fleet send`, `ask` and `launch`;
-it keeps its reports and its name, so nothing it has not read is lost, and a take-over launch still
-hands the name on. The window wins because it is the one Tom is reading.
+session in the proxy role on another conversation is refused `north fleet send`, `ask` and `launch`,
+whatever `--from` it declares; it keeps its reports and its name, so nothing it has not read is lost,
+and only a take-over launch of the proxy still runs, to hand the name on. With several windows open
+the most recently written one counts. The window wins because it is the one Tom is reading.
 
 Rejected, two ways to keep the interactive Claude Code window as the proxy:
 

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
 use super::claims::{ThreadsCli, release_exited_claims};
-use crate::fleet::model::ProviderName;
+use crate::fleet::model::{ProviderName, Role};
 use crate::fleet::registry::{self, Controlled, Fleet};
 use crate::fleet::store::ControlVerb;
 use crate::fleet::roster::Roster;
@@ -181,7 +181,7 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
     let LaunchParts { mut request, mut overrides, wait, take_over, overlap_ok, staffing_ok } = launch_parts(&fleet.providers(), words, caller.clone(), proxy)?;
-    if !take_over {
+    if !(take_over && request.role() == Role::Proxy) {
         one_proxy::admit(fleet, caller.as_deref(), &format!("launch {}", request.name))?;
     }
     lineage::reader(fleet, &mut request, caller.as_deref())?;
