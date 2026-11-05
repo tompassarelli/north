@@ -1,5 +1,5 @@
 [landing]
-	capacity = bun \"$PWD/harness/skills/machine-capacity/scripts/machine-capacity.mjs\" run --class moderate --owner land-check --timeout-seconds 3600 --
+	capacity = bun \"$PWD/harness/skills/machine-capacity/scripts/machine-capacity.mjs\" run --class heavy --owner land-check --timeout-seconds 3600 --
 	exact = true
 	queue = lander
 	lander-host = whiterabbit
