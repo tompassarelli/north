@@ -50,6 +50,8 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
                 return TOOLCHAIN_MISSING;
             };
             let Some(class) = lease_class(&words(program, rest), host) else {
+                let sized = std::env::var("CARGO_BUILD_JOBS").ok().filter(|_| in_lease()).and_then(|jobs| nix_command::sized(&words(program, rest), &jobs));
+                let rest = sized.as_deref().map_or(rest, |words| &words[1..]);
                 let error = std::process::Command::new(&real).arg0(&name).args(rest).env(EXECUTED, executed_value(&process, &executed, &real, rest)).exec();
                 eprintln!("north capacity gate: {}: {error}", real.display());
                 return 126;
@@ -73,8 +75,11 @@ fn words(program: &str, rest: &[String]) -> Vec<String> {
 
 pub fn lease_class(words: &[String], host: &Host) -> Option<Class> {
     let class = class_of(words, 0)?;
-    let cgroup = std::fs::read_to_string(std::env::var_os("AGENT_CAPACITY_SELF_CGROUP").unwrap_or_else(|| "/proc/self/cgroup".into())).unwrap_or_default();
-    (!inside_lease(&cgroup) && (host.lease_builds)()).then_some(class)
+    (!in_lease() && (host.lease_builds)()).then_some(class)
+}
+
+fn in_lease() -> bool {
+    inside_lease(&std::fs::read_to_string(std::env::var_os("AGENT_CAPACITY_SELF_CGROUP").unwrap_or_else(|| "/proc/self/cgroup".into())).unwrap_or_default())
 }
 
 pub fn inside_lease(cgroup: &str) -> bool {

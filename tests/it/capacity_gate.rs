@@ -189,3 +189,59 @@ fn a_stub_that_names_the_dev_shell_shim_ahead_of_the_real_bun_is_skipped_as_a_sh
     assert_eq!(executed.len(), 1, "the gate executed the stub before the real bun, so only the loop guard stopped it: {chain}");
     assert!(executed[0].ends_with(&format!(" {}", fs::canonicalize(host.path("toolchain/bun")).unwrap().display())), "{chain}");
 }
+
+fn without_cargo(host: &Host, dev_shell_tools: &str) -> Command {
+    fs::remove_file(host.path("toolchain/cargo")).unwrap();
+    let tools = host.path(dev_shell_tools);
+    fs::create_dir_all(&tools).unwrap();
+    shim::write_script(&host.path("toolchain/nix"), &format!(
+        "case $1 in eval) echo fixture-shell.drv; exit 0;; print-dev-env) while [ \"$1\" != --profile ]; do shift; done; mkdir -p \"$2\"; exit 0;; esac\nwhile [ \"$1\" != -c ]; do shift; done\nshift\nPATH={}:{}:$PATH exec \"$@\"\n",
+        host.path("shims").display(),
+        tools.display()
+    ));
+    let project = host.path("project");
+    fs::create_dir_all(project.join(".git")).unwrap();
+    fs::write(project.join("flake.nix"), "{ outputs = _: { devShells.x86_64-linux.default = null; }; }\n").unwrap();
+    let _ = std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), host.path("bin/north"));
+    let mut command = host.command(host.path("shims/cargo"));
+    let system = crate::support::test_env::minimal_path(&host.path("system"), &["sh", "env", "cut", "kill", "sed", "mkdir", "cat"]);
+    let path = format!("{}:{}:{}:{}", host.path("shims").display(), host.path("toolchain").display(), host.path("bin").display(), system.display());
+    command.arg("--version").env("PATH", path).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self"));
+    for name in ["NORTH_DEV_SHELL", "NORTH_CAPACITY_GATE_DEV_SHELL", "NORTH_CAPACITY_GATE_EXECUTED", "IN_NIX_SHELL", "CARGO_BUILD_JOBS"] {
+        command.env_remove(name);
+    }
+    command
+}
+
+#[test]
+fn with_no_real_cargo_the_gate_runs_it_through_north_dev_shell_run_in_a_project_with_a_dev_shell_and_names_it_elsewhere() {
+    let host = host("capacity-gate-dev-shell-", LEASED_HOST);
+    let mut command = without_cargo(&host, "dev-shell-tools");
+    shim::write_script(&host.path("dev-shell-tools/cargo"), "echo \"cargo 1.99.0 (fixture) $NORTH_DEV_SHELL\"\n");
+    let entered = command.current_dir(host.path("project")).output_exclusive().unwrap();
+    assert!(entered.status.success(), "{}", String::from_utf8_lossy(&entered.stderr));
+    assert_eq!(String::from_utf8_lossy(&entered.stdout), "cargo 1.99.0 (fixture) fixture-shell.drv\n");
+    let bare = command.current_dir(host.path("")).output_exclusive().unwrap();
+    assert_eq!(bare.status.code(), Some(75), "{}", String::from_utf8_lossy(&bare.stderr));
+    assert!(String::from_utf8_lossy(&bare.stderr).starts_with("cargo: command not found behind the north capacity gate"), "{}", String::from_utf8_lossy(&bare.stderr));
+}
+
+#[test]
+fn a_project_dev_shell_without_cargo_makes_the_gate_name_it_once_instead_of_entering_again() {
+    let host = host("capacity-gate-dev-shell-empty-", LEASED_HOST);
+    let mut command = without_cargo(&host, "empty-dev-shell-tools");
+    let child = command.current_dir(host.path("project")).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn_exclusive().unwrap();
+    let status = within_20_seconds(child);
+    assert_eq!(status.and_then(|status| status.code()), Some(75), "the gate kept entering a dev shell that has no cargo");
+}
+
+#[test]
+fn a_nix_build_outside_a_lease_on_a_lease_builds_host_builds_with_the_lease_cpus_as_cores_and_one_job() {
+    let host = host("capacity-gate-nix-build-", LEASED_HOST);
+    shim::write_script(&host.path("toolchain/nix"), &format!("echo \"$*\" >{}\n", host.path("built").display()));
+    assert!(gated(&host, "nix", &["build", ".#shellcheck", "--rebuild"]).stdout(Stdio::null()).stderr(Stdio::null()).status_exclusive().unwrap().success());
+    assert_eq!(fs::read_to_string(host.path("built")).unwrap(), "--cores 6 --max-jobs 1 build .#shellcheck --rebuild\n");
+    fs::write(host.path("cgroup-self"), "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/agent-capacity-0123456789abcdef0123456789abcdef.scope\n").unwrap();
+    assert!(gated(&host, "nix", &["build", ".#shellcheck"]).env("CARGO_BUILD_JOBS", "4").stdout(Stdio::null()).stderr(Stdio::null()).status_exclusive().unwrap().success());
+    assert_eq!(fs::read_to_string(host.path("built")).unwrap(), "--cores 4 --max-jobs 1 build .#shellcheck\n", "a nix build already inside a lease ran without the lease's cores");
+}

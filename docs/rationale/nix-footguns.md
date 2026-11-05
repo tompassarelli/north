@@ -637,12 +637,13 @@ Done when:
 Category: tooling. Scope: single-module. Surface: rust. Verify: local-test. Files: `crates/north-core/src/capacity/gate.rs`,
 `gate_tests.rs`.
 When `real_program` finds nothing and the working directory's flake has a dev shell the process is not in, the gate
-runs the command through D1's entry instead of exiting 127; with no dev shell it still exits 127 with the name.
+runs the command through D1's entry instead of failing;
+with no dev shell it still exits 75 (infrastructure, as 52bb6f1b set for the shims and gate) with the name.
 
 Done when:
 - Replay d63af5ec (bare `cargo` on gex45): `cargo --version` from a plain ssh shell in `~/code/north/main` prints a
   `cargo 1.` line (at f1745de2e: `cargo: command not found behind the north capacity gate`).
-- The same in `~/code/wisp/main` prints wisp's pinned version; in `/tmp` it still exits 127.
+- The same in `~/code/wisp/main` prints wisp's pinned version; in `/tmp` it still exits 75 naming `cargo`.
 
 ### D9. One shim identity (N2)
 

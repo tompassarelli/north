@@ -82,3 +82,16 @@ fn heavy_command_fixture_rows_take_their_gate_class_through_nix_and_shell_wrappe
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
+
+#[test]
+fn a_leased_nix_build_takes_the_lease_cores_and_one_job_unless_it_sets_its_own() {
+    let sized = |line: &str| north_base::nix_command::sized(&crate::shell::words(line).unwrap(), "6").map(|words| words.join(" "));
+    assert_eq!(sized("nix build .#shellcheck --rebuild").as_deref(), Some("nix --cores 6 --max-jobs 1 build .#shellcheck --rebuild"));
+    assert_eq!(sized("/nix/store/x-nix/bin/nix-build default.nix").as_deref(), Some("/nix/store/x-nix/bin/nix-build --cores 6 --max-jobs 1 default.nix"));
+    assert_eq!(sized("nix flake check").as_deref(), Some("nix --cores 6 --max-jobs 1 flake check"));
+    assert_eq!(sized("nix build -j4 .#x"), None);
+    assert_eq!(sized("nix --cores 2 build .#x"), None);
+    assert_eq!(sized("nix develop -c cargo build"), None);
+    assert_eq!(sized("nix eval .#x"), None);
+    assert_eq!(sized("cargo build"), None);
+}

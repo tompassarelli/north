@@ -19,7 +19,7 @@
               (rustToolchain: {
                 packages.${system}.shellcheck = pkgs.shellcheck;
                 formatter.${system} = pkgs.nixfmt-tree;
-                devShells.${system}.default = pkgs.mkShell {
+                devShells.${system}.default = pkgs.mkShell rec {
                   packages = [
                     (pkgs.runCommandLocal "capacity-gate-shims" { }
                       "install -Dm755 ${./bin/cargo} $out/bin/cargo; install -Dm755 ${./bin/cargo} $out/bin/bun"
@@ -37,6 +37,7 @@
                     checkout=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
                     if [ -n "$CARGO_TARGET_DIR" ] && [ "$(realpath -m "$CARGO_TARGET_DIR")" != "$(realpath -m "$checkout/target")" ]; then export RUSTFLAGS="-Cmetadata=checkout:$checkout"; fi
                     north target-seed || true
+                    export PATH=${builtins.head packages}/bin:$PATH
                   '';
                 };
               })

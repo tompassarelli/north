@@ -85,3 +85,11 @@ fn subcommand(args: &[String]) -> Option<(&str, &[String])> {
     }
     None
 }
+
+/// `words` with `--cores CORES --max-jobs 1` after the program when it is a Nix build that sets neither, since the daemon builds outside the caller's lease scope and takes its parallelism only from these flags.
+pub fn sized(words: &[String], cores: &str) -> Option<Vec<String>> {
+    let (program, args) = words.split_first()?;
+    let builds = matches!(shell::basename(program), "nix" | "nix-build" | "nix-shell") && unwrap(words) == Some(Inner::NixBuild);
+    let set = args.iter().any(|word| matches!(word.as_str(), "--cores" | "--max-jobs" | "-j") || word.starts_with("-j") && word[2..].parse::<u32>().is_ok());
+    (builds && !set).then(|| [program.clone(), "--cores".to_owned(), cores.to_owned(), "--max-jobs".to_owned(), "1".to_owned()].into_iter().chain(args.iter().cloned()).collect())
+}
