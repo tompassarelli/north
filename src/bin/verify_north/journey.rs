@@ -42,7 +42,7 @@ const STEPS: [(&str, &str, Step); 6] = [
 
 pub struct Plan {
     pub stamp: u64,
-    pub claude_account: String,
+    pub claude_account: Option<String>,
     pub codex_account: String,
 }
 
@@ -104,7 +104,10 @@ fn open_fleet(journey: &mut Journey) -> Result<String, String> {
 }
 
 fn launch_claude(journey: &mut Journey) -> Result<String, String> {
-    let account = journey.plan.claude_account.clone();
+    let account = match journey.plan.claude_account.clone() {
+        Some(account) => account,
+        None => journey.north.placed_claude_account()?,
+    };
     let presses = form_presses(&journey.north.accounts()?, "claude", &account)?;
     let name = journey.plan.session("claude");
     journey.notes.note(&Note::Session(name.clone()));

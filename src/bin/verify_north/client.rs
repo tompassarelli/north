@@ -9,6 +9,16 @@ use super::notes::Notes;
 use super::transcript::Transcript;
 
 const QUERY_WAIT: Duration = Duration::from_secs(30);
+const PLACEMENT_WAIT: Duration = Duration::from_secs(90);
+const PLACEMENT_BRIEF: &str = "Surface: shell\nNeeds: laptop\n";
+
+fn placed_account(listing: &str) -> Result<String, String> {
+    let target = listing.lines().find_map(|line| line.split_once(": target ").map(|(_, rest)| rest)).ok_or_else(|| format!("`north agents plan --place` printed no target: {}", listing.trim()))?;
+    let mut words = target.split_whitespace();
+    let host = words.next().unwrap_or_default();
+    let account = words.next().and_then(|word| word.strip_prefix("claude:")).filter(|_| !host.ends_with(':'));
+    account.map(str::to_owned).ok_or_else(|| format!("placement launches no Claude session here: {target}"))
+}
 
 pub struct Account {
     pub provider: String,
@@ -50,6 +60,14 @@ impl North {
                 Some(Account { provider: fields.next()?.to_owned(), label: fields.next()?.to_owned() })
             })
             .collect())
+    }
+
+    pub fn placed_claude_account(&self) -> Result<String, String> {
+        let brief = tempfile::Builder::new().prefix("verify-north-brief").suffix(".md").tempfile().map_err(|error| format!("brief file: {error}"))?;
+        std::fs::write(brief.path(), PLACEMENT_BRIEF).map_err(|error| format!("brief file: {error}"))?;
+        let path = brief.path().to_string_lossy().into_owned();
+        let listing = self.run(&["agents", "plan", "--place", &path], PLACEMENT_WAIT)?;
+        placed_account(&listing)
     }
 
     pub fn host_pid(&self, name: &str) -> Result<Option<u32>, String> {
