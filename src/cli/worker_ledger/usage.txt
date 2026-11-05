@@ -3,6 +3,7 @@ usage: north worker-ledger [--session ID] [--since DATE] [--backfill]   record f
        north worker-ledger --summary [--since DATE] [--by LIST]         per cell x tier: runs against ETA, issues closed, flaws per Lens
        north worker-ledger --eta-calibration [--since 7d]               per category x tier: stated ETA against measured active minutes of Done runs, n, median abs ln error, share within 0.5 to 2x
        north worker-ledger --recommend 'FACETS' [--since DATE]          tier for a brief's facets, with the cell used and n
+       north worker-ledger --landed-issues ACCOUNT --day DATE           distinct issues this host's fleet sessions on ACCOUNT landed that UTC day, and how many have a done-and-landed run
   --session ID  only that session's workers (default: every provider, active in the last day)
   --since DATE  only workers active on or after DATE (e.g. 2026-10-08)
   --backfill    also reread recorded runs and fill facets and context telemetry
@@ -38,6 +39,11 @@ a commit (a git commit or push in its transcript), where a commit counts as land
 its subject (from -m or a -F - heredoc), is on origin/main of a repo in
 ${LEDGER_REPOS:-~/code/*/main}, whoever pushed it, and the earliest such commit is its landed_sha; an origin/main.. listing
 in its commands counts only when none of its own commits landed, since that output can name other lanes. no_landing counts committed runs that did not land.
+A push safe-push logged without a trunk commit (an Autoland queue branch, or a lane another host's lander took to main)
+lands its session's run with the commit that reached origin/main: the pushed tip itself, else the first commit with
+the tip's subject committed on origin/main after the push.
+--landed-issues joins each such landing on DATE to its fleet session's task_ref; an issue counts when a run of that
+session landed and reported Done, or reported Not done with its box ticked, because a box worker's report judges the issue.
 A `[routine:<name>]` brief records role routine and a session run from a /tmp cwd role probe, outside worker cells.
 --recommend uses an 80% measured success threshold over every provider's tiers (orchestration.toml keys); in the finest cell with >= 5 runs,
 backing off Surface, Verify, Scope, then Spec, it picks the passing tier with the lowest measured $ per success, or the cheapest by

@@ -1,3 +1,4 @@
+mod landed_issues;
 mod pull;
 mod recalibrate;
 mod tripped;
@@ -5,10 +6,9 @@ mod tripped;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use crate::providers::claude::runs::landing::MainIndex;
+use crate::providers::claude::runs::landing::{MainIndex, repositories};
 use crate::providers::claude::runs::telemetry::Prices;
 use crate::providers::claude::runs::{CATALOG, DEFAULTS};
 use crate::providers::ledger_rows::Shared;
@@ -36,11 +36,13 @@ enum Mode {
     Summary { by: String },
     EtaCalibration,
     Recommend { facets: String },
+    LandedIssues { account: String, day: String },
 }
 
 fn parse(arguments: &[String]) -> Option<(Options, Mode)> {
     let (mut session, mut since, mut by) = (String::new(), String::new(), "category".to_owned());
     let (mut summary, mut backfill, mut facets, mut emit, mut eta) = (false, false, String::new(), false, false);
+    let (mut landed, mut day) = (None, String::new());
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
@@ -52,10 +54,14 @@ fn parse(arguments: &[String]) -> Option<(Options, Mode)> {
             "--backfill" => backfill = true,
             "--emit" => emit = true,
             "--eta-calibration" => eta = true,
+            "--landed-issues" => landed = Some(words.next()?.clone()),
+            "--day" => day = words.next()?.clone(),
             _ => return None,
         }
     }
-    let mode = if emit {
+    let mode = if let Some(account) = landed {
+        Mode::LandedIssues { account, day }
+    } else if emit {
         Mode::Emit
     } else if eta {
         Mode::EtaCalibration
@@ -91,6 +97,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Mode::Recommend { facets } => threads(&[&["recommend", facets][..], &since].concat()),
         Mode::Record => return record(&options),
         Mode::Emit => return emit(&options),
+        Mode::LandedIssues { account, day } => return landed_issues::run(account, day),
     };
     let mut command = match built {
         Ok(command) => command,
@@ -127,16 +134,6 @@ fn run_ids(arguments: &[&str]) -> Option<String> {
         Some(REMOTE_UNREACHABLE) => Some(String::new()),
         _ => None,
     }
-}
-
-fn repositories() -> Vec<PathBuf> {
-    if let Some(listed) = std::env::var("LEDGER_REPOS").ok().filter(|listed| !listed.is_empty()) {
-        return listed.split_whitespace().map(PathBuf::from).collect();
-    }
-    let code = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code");
-    let mut found: Vec<PathBuf> = std::fs::read_dir(code).into_iter().flatten().flatten().map(|entry| entry.path().join("main")).collect();
-    found.sort();
-    found
 }
 
 fn merged(since: &str) -> String {

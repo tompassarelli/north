@@ -6,6 +6,7 @@ pub mod hook_events;
 pub mod hook_rules;
 pub mod hooks;
 mod labels;
+pub mod landed_issues;
 mod record;
 mod row;
 #[cfg(test)]
@@ -22,7 +23,7 @@ use super::verb::{Args, Context, Failure, Outcome, immediate, open, report};
 use crate::foundation::clock::Timestamp;
 use crate::platform::pyjson;
 
-pub const VERBS: [&str; 3] = ["ingest", "label-runs", "run-ids"];
+pub const VERBS: [&str; 4] = ["ingest", "label-runs", "run-ids", "landed-issues"];
 const LANDING_DAYS: i64 = 3;
 /// Issue labels that name a category, first match wins, for runs whose brief is unreadable (Codex encrypts it).
 pub const LABEL_CATEGORY: [(&str, &str); 8] = [
@@ -41,6 +42,7 @@ pub fn run(argv: &[String], context: &Context, stdin: &mut dyn Read, out: &mut d
     let result = match argv[0].as_str() {
         "ingest" => ingest(&argv[1..], context, stdin, err),
         "label-runs" => labels::label_runs(&argv[1..], context, err),
+        "landed-issues" => landed_issues::landed_issues(&argv[1..], context, stdin),
         _ => run_ids(&argv[1..], context),
     };
     report(&argv[0], result, out, err)

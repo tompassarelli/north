@@ -117,6 +117,8 @@ usage_snapshot north-pace
 worker_handoff_hook north-guard
 worker_ledger_argv north-threads
 worker_ledger_ingest_lock north-threads
+worker_ledger_landed_issues north-providers north-threads
 worker_ledger_record north-threads north-ops
 worker_ledger_resumed_session north-threads
+worker_ledger_review_findings north-threads
 worker_ledger_review_findings north-threads north-ops

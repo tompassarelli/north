@@ -4,7 +4,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::telemetry::{Prices, run_usage};
-use super::landing::{MainIndex, checks};
+use super::landing::{MainIndex, checks, settle};
+use crate::fleet::landings::Push;
 use super::{CATALOG, DEFAULTS, roots};
 
 const PRICED: &str = r#"
@@ -207,4 +208,43 @@ fn eta_min_records_the_eta_the_brief_head_states_not_the_first_eta_its_text_name
     assert_eq!(super::row::eta("Item: north#9 x\nETA: 1.5 h\n"), json!(90));
     assert_eq!(super::row::eta("Fix it. ETA 20 min."), json!(20));
     assert_eq!(super::row::eta("Fix it."), Value::Null);
+}
+
+#[test]
+fn a_run_whose_safe_push_waited_on_autoland_lands_the_commit_autoland_put_on_main() {
+    let landed = "c".repeat(40);
+    let records = [
+        json!({"type": "assistant", "timestamp": "2026-11-05T09:00:00Z", "message": {"content": [{"type": "tool_use", "id": "c", "name": "Bash", "input": {"command": "git commit -q -m \"Shrink the arcade tick (makgora#1132)\""}}, {"type": "tool_use", "id": "p", "name": "Bash", "input": {"command": "safe-push --to main"}}]}}),
+        json!({"type": "user", "timestamp": "2026-11-05T09:20:00Z", "message": {"content": [{"type": "tool_result", "tool_use_id": "c", "content": ""}, {"type": "tool_result", "tool_use_id": "p", "content": format!("safe-push: ✓ Autoland landed this lane: origin main is at {landed} (https://github.com/tompassarelli/makgora/actions/runs/1)")}]}}),
+    ];
+    let main = MainIndex::parse(&format!("{landed} 2026-11-05T09:19:00Z Shrink the arcade tick, train of two (makgora#1132)\n"));
+
+    assert_eq!(checks(&records, &main)["landed_sha"].as_str(), Some(landed.as_str()));
+}
+
+#[test]
+fn a_push_logged_without_a_trunk_commit_takes_the_commit_that_reached_main() {
+    let (tip, rebased, pinned) = ("4dc485807".to_owned() + &"0".repeat(31), "2d959956d".to_owned() + &"0".repeat(31), "e".repeat(40));
+    let main = MainIndex::parse(&format!(
+        "{tip} 2026-11-05T09:10:00Z Shrink the arcade tick (makgora#1132)\n{} 2026-11-05T07:00:00Z Share one target dir (north#437)\n{rebased} 2026-11-05T10:05:00Z Share one target dir (north#437)\n{pinned} 2026-11-05T11:00:00Z Later change (north#9)\n",
+        "9".repeat(40)
+    ));
+    let push = |oid: &str, landed: &str, at: &str| Push { at_ms: crate::foundation::clock::Timestamp::parse(at).unwrap().unix_millis() as u64, repository: "north".into(), branch: "lane".into(), oid: oid.into(), landed: landed.into(), session: "s".into() };
+    let pushes = vec![
+        push(&tip, "", "2026-11-05T09:00:00Z"),
+        push(&("546c8bee4".to_owned() + &"1".repeat(31)), "", "2026-11-05T10:00:00Z"),
+        push(&("f".repeat(40)), "", "2026-11-05T10:00:00Z"),
+        push(&pinned, &pinned, "2026-11-05T11:00:00Z"),
+        push(&("a".repeat(40)), "", "2026-11-05T12:00:00Z"),
+    ];
+    let asked = std::cell::RefCell::new(Vec::new());
+    let subject = |push: &Push| {
+        asked.borrow_mut().push(push.oid[..9].to_owned());
+        push.oid.starts_with("546c8bee4").then(|| "Share one target dir (north#437)".to_owned())
+    };
+
+    let landed: Vec<String> = settle(pushes, &main, subject).into_iter().map(|push| push.landed).collect();
+
+    assert_eq!(landed, [tip, rebased, String::new(), pinned, String::new()]);
+    assert_eq!(*asked.borrow(), ["546c8bee4", "fffffffff"], "only a tip off main pushed before main's newest commit is looked up");
 }

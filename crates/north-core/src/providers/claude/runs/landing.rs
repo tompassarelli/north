@@ -1,10 +1,13 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 
 use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::truthy;
+use crate::fleet::landings::Push;
 use crate::foundation::clock::Timestamp;
 
 static LAND: LazyLock<Regex> = LazyLock::new(|| {
@@ -18,7 +21,7 @@ static SUBJECT: LazyLock<Regex> = LazyLock::new(|| {
 static HEREDOC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s-[a-zA-Z]*F\s*-\s*<<-?['"]?\w+['"]?[^\n]*\n([^\n]+)"#).unwrap());
 static LANE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^([0-9a-f]{7,40}) (.+)$").unwrap());
 static MADE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\[[^\]\s]+(?: \([^)]*\))? ([0-9a-f]{7,40})\] (.+)$").unwrap());
-static PUSHED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^safe-push: landed ([0-9a-f]{40})\b").unwrap());
+static PUSHED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^safe-push: (?:landed|✓ Autoland landed this lane: origin \S+ is at) ([0-9a-f]{40})\b").unwrap());
 static ISSUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:tompassarelli/)?([a-z][\w.-]*#\d+)\b").unwrap());
 static GH_ISSUE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\bgh issue (?:view|close|comment|edit|reopen) (\d+)\b.*?(?:-R|--repo)[ =](?:[\w-]+/)?([\w.-]+)").unwrap()
@@ -49,6 +52,62 @@ impl MainIndex {
         }
         Self { shas, subjects }
     }
+
+    /// The commit a push put on main when no lander logged one: the pushed tip itself, else the first commit
+    /// with its subject committed on main at or after the push, as a rebasing lander leaves it.
+    pub fn reached(&self, oid: &str, subject: Option<&str>, pushed_ms: u64) -> Option<String> {
+        if oid.len() >= 7 && let Some((sha, ..)) = self.shas.iter().find(|(sha, ..)| sha.starts_with(oid)) {
+            return Some(sha.clone());
+        }
+        let pushed = Timestamp::from_unix_millis(pushed_ms as i64).iso();
+        let landings = self.subjects.get(subject?.trim())?;
+        let mut after: Vec<(String, &String)> = landings.iter().filter_map(|(sha, date)| utc(Some(date)).filter(|date| *date >= pushed).map(|date| (date, sha))).collect();
+        after.sort();
+        after.into_iter().next().map(|(_, sha)| sha.clone())
+    }
+}
+
+/// The pushes with the commit each put on main: the one safe-push logged, else, for a lane that Autoland or
+/// another host's lander took to main, the commit [`MainIndex::reached`] finds for its tip.
+pub fn settle(pushes: Vec<Push>, main: &MainIndex, subject: impl Fn(&Push) -> Option<String>) -> Vec<Push> {
+    let newest = main.shas.iter().filter_map(|(_, date, _)| utc(Some(date))).max();
+    let indexed = |push: &Push| newest.as_deref().is_some_and(|newest| Timestamp::from_unix_millis(push.at_ms as i64).iso().as_str() <= newest);
+    pushes
+        .into_iter()
+        .map(|mut push| {
+            if push.landed.is_empty() && !push.oid.is_empty() {
+                let rebased = || indexed(&push).then(|| main.reached("", subject(&push).as_deref(), push.at_ms)).flatten();
+                push.landed = main.reached(&push.oid, None, push.at_ms).or_else(rebased).unwrap_or_default();
+            }
+            push
+        })
+        .collect()
+}
+
+/// The main checkouts whose origin/main the ledger reads: `LEDGER_REPOS`, else `~/code/*/main`.
+pub fn repositories() -> Vec<PathBuf> {
+    if let Some(listed) = std::env::var("LEDGER_REPOS").ok().filter(|listed| !listed.is_empty()) {
+        return listed.split_whitespace().map(PathBuf::from).collect();
+    }
+    let code = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code");
+    let mut found: Vec<PathBuf> = std::fs::read_dir(code).into_iter().flatten().flatten().map(|entry| entry.path().join("main")).collect();
+    found.sort();
+    found
+}
+
+/// The subject of a pushed tip, read from the checkout of the repository it was pushed to.
+pub fn subject_in(repositories: &[PathBuf], push: &Push) -> Option<String> {
+    let named = |repo: &&PathBuf| checkout_name(repo) == Some(push.repository.as_str());
+    repositories.iter().filter(named).find_map(|repo| {
+        let output = Command::new("git").arg("-C").arg(repo).args(["log", "-1", "--format=%s", &push.oid, "--"]).stderr(Stdio::null()).output().ok()?;
+        let subject = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        (output.status.success() && !subject.is_empty()).then_some(subject)
+    })
+}
+
+fn checkout_name(repo: &Path) -> Option<&str> {
+    let named = if repo.file_name().is_some_and(|name| name == "main") { repo.parent()? } else { repo };
+    named.file_name()?.to_str()
 }
 
 pub struct Step {

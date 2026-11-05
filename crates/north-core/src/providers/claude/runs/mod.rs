@@ -98,7 +98,10 @@ pub fn rows(session: Option<&str>, since: &str, settled: HashMap<String, Option<
 fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<()> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or_else(|| NorthError::Usage("no home directory".into()))?);
     let policy = fs::read_to_string(crate::pace::target::policy_path()).ok().and_then(|text| text.parse().ok());
-    let ledger = Ledger { policy, prices: Prices::parse(CATALOG, DEFAULTS), main: MainIndex::parse(main), sessions: fleet_sessions(), pushes: landings::pushes(&landings::push_log()), now: Timestamp::now() };
+    let main = MainIndex::parse(main);
+    let repositories = landing::repositories();
+    let pushes = landing::settle(landings::pushes(&landings::push_log()), &main, |push| landing::subject_in(&repositories, push));
+    let ledger = Ledger { policy, prices: Prices::parse(CATALOG, DEFAULTS), main, sessions: fleet_sessions(), pushes, now: Timestamp::now() };
     let explicit = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
     for root in roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name()) {
         for path in transcripts(&root.projects, options).into_iter().filter(|path| ledger.rereads(options, path)) {
