@@ -480,28 +480,7 @@ value = 1800
 unit = "seconds of continuous idle before reopening background laptop capacity"
 source = "tom: adaptive-harness Revision 1 C1c, 2026-10-15: preserve laptop observe's existing 1800-second idle reopening threshold"
 fallback = "without continuous idle evidence background capacity remains closed"
-consumers = ["crates/north-dispatch/src/laptop/observe.rs", "crates/north-ops/src/ops/agents/presence/mod.rs"]
-
-[presence_slot_min]
-value = 15
-unit = "minutes per presence forecast slot"
-source = "tom: adaptive-harness plan C1a, 2026-10-15: fit and predict in 15-minute slots"
-fallback = "without historical turns, only live and stated signals establish presence"
-consumers = ["crates/north-ops/src/ops/agents/presence/mod.rs"]
-
-[presence_window_days]
-value = 28
-unit = "days of human turns used for presence forecasting"
-source = "tom: adaptive-harness plan C1a, 2026-10-15: use 28 days, shrinking toward hour-of-day before three weeks"
-fallback = "available days contribute when the history is shorter than the window"
-consumers = ["crates/north-ops/src/ops/agents/presence/mod.rs"]
-
-[predeparture_lead_min]
-value = 45
-unit = "minutes before predicted departure to prepare the question round"
-source = "tom: adaptive-harness plan C1a, 2026-10-15: initial 45-minute lead, uncalibrated"
-fallback = "the departure round requires its own consecutive-pass and open-question checks"
-consumers = ["crates/north-ops/src/ops/agents/presence/mod.rs"]
+consumers = ["crates/north-dispatch/src/laptop/observe.rs"]
 
 [spawn_reservation_ttl_s]
 value = 5

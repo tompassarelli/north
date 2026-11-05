@@ -2,7 +2,6 @@ mod busy;
 mod goal;
 mod lines;
 pub mod plan;
-pub mod presence;
 mod replay;
 pub mod routines;
 mod status;
@@ -10,7 +9,7 @@ mod tiers;
 #[cfg(test)]
 mod tests;
 
-pub const USAGE: &str = "usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|busy|presence [--json] [--at ISO]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|usage [--refresh [--local]] [--write-pace-gate] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]}";
+pub const USAGE: &str = "usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|busy|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|usage [--refresh [--local]] [--write-pace-gate] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]}";
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Verb {
@@ -18,7 +17,6 @@ pub enum Verb {
     Sync,
     Plan,
     Busy,
-    Presence,
     Routines,
     Usage,
 }
@@ -31,7 +29,6 @@ impl Verb {
             "plan" => Self::Plan,
             "busy" => Self::Busy,
             "usage" => Self::Usage,
-            "presence" => Self::Presence,
             "routines" => Self::Routines,
             _ => return None,
         })

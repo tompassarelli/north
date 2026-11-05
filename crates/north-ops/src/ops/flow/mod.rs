@@ -41,6 +41,7 @@ mod routing;
 mod stall;
 mod stranded;
 mod throughput;
+mod typed;
 #[cfg(test)]
 mod routing_tests;
 #[cfg(test)]
@@ -238,8 +239,7 @@ pub fn run(arguments: &[String]) -> u8 {
             println!("{}", landing::line(row["repo"].as_str().unwrap_or_default(), &row["landing"]));
         }
         let sources = outcome::Places::live(&places.ledger, &places.state);
-        let at = |seconds: i64| time::OffsetDateTime::from_unix_timestamp(seconds).unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
-        let tom = crate::ops::agents::presence::typed_messages(&sources.convo, &places.home, at(now as i64 - outcome::LOOKBACK_S), at(now as i64));
+        let tom = typed::typed_messages(&sources.convo, &places.home, now as i64 - outcome::LOOKBACK_S, now as i64);
         match outcome::report(&sources, &tom, now as i64) {
             Ok(lines) => println!("{}", lines.join("\n")),
             Err(why) => println!("outcome: unread: {why}"),

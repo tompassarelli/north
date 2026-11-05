@@ -26,7 +26,6 @@ pub(super) fn run(arguments: &[String]) -> u8 {
         Verb::Catalog => exit(agent_catalog::run(arguments).map(|()| 0)),
         Verb::Sync => exit(sync_gate::run(arguments)),
         Verb::Busy => agents::busy(rest),
-        Verb::Presence => agents::presence::run(rest),
         Verb::Routines => agents::routines::run(rest),
         Verb::Plan => with_harness(|root| {
             plan::run(
