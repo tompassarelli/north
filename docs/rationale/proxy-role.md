@@ -504,6 +504,8 @@ push access to South and the Firn timers are host configuration.
     the fleet TUI fails Tom: `north proxy --interactive` (built in R3) stops the fleet proxy and resumes
     the same conversation in Claude Code's own UI with `claude --resume <session-id>`, never with both
     running; the box drives it once and sees the fleet record stopped and the resumed window answer.
+    Voice in that window comes from the nixos-config `dictation` module (box F1v): hold the Menu key,
+    release to type the transcript into the focused window.
 16. **M1 the daily readout.** feature, module, rust, local-test; 45 min. Files:
     `crates/north-ops/src/ops/proxy/`, the threads database schema. Needs: P2, L2. Done when:
     `cargo test -p north-core ops::proxy` on a synthetic transcript fixture (no Tom text) gives calls by
