@@ -12,6 +12,7 @@ mod capacity_dev_shell;
 mod capacity_disk;
 mod capacity_exclusive_native;
 mod capacity_game_reserve;
+mod capacity_game_reserve_verbs;
 mod capacity_gaming;
 mod capacity_gate;
 mod capacity_gpu_size;

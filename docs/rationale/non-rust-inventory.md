@@ -62,7 +62,6 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | bin/follows-release.lib.sh | 58 | port: landing-train B18 (north#76) | drive bin/safe-push against the Rust `north follows-release`; the tool itself is ported and its old script is gone; delete with safe-push.test.sh |
 | bin/follows-release-staffed.test.sh | 40 | port: landing-train B18 (north#76) | drive bin/safe-push against the Rust `north follows-release`; the tool itself is ported and its old script is gone; delete with safe-push.test.sh |
 | bin/follows-release.test.sh | 33 | port: landing-train B18 (north#76) | drive bin/safe-push against the Rust `north follows-release`; the tool itself is ported and its old script is gone; delete with safe-push.test.sh |
-| bin/game-reserve.test.sh | 81 | port: north#88 box "shell tests of Rust commands to cargo test" (family: tests) | tests `north capacity game-reserve`, already Rust; tests/capacity_gaming.rs overlaps |
 | bin/gh-app-token | 90 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | Bun TS signing an RS256 JWT with node:crypto; Rust has rsa/jsonwebtoken |
 | bin/gh-app-token.test.sh | 93 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | test of gh-app-token |
 | bin/gh-as-app | 4 | stay | 4-line glue: runs gh with the token printed by gh-app-token |
