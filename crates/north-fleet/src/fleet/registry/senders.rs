@@ -124,6 +124,21 @@ mod tests {
     }
 
     #[test]
+    fn a_session_known_only_by_its_raw_conversation_id_sends_a_row_whose_wire_sender_is_session_prefixed() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        lead(&fleet, "lead-88", "c0ffee");
+        let raw = "895929a7-6218-4168-b513-3dced3440bf6";
+        let from = Sender::declared(None, caller_name(None, Some(raw.into()), Vec::new)).unwrap();
+
+        let row = fleet.spool_message(&from, "lead-88", "go", Delivery::Now).unwrap();
+
+        let wire = serde_json::to_value(&row).unwrap();
+        assert_eq!(wire["sender"], format!("session:{raw}"));
+        assert_eq!(serde_json::from_value::<crate::fleet::store::FleetRow>(wire).unwrap().sender, from);
+    }
+
+    #[test]
     fn a_send_to_a_lead_another_sender_messaged_within_thirty_minutes_names_that_sender() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
