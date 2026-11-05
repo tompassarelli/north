@@ -872,6 +872,10 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   (4) a check starts from a clean slot, so an inferred bun check runs `bun install --frozen-lockfile`
   first and then the package's own `test` script when it declares one (wisp's is its test runner;
   raw `bun test` failed 5 of its 484 tests on gex45), and an explicit bun check line installs too.
+  (5) a queue is keyed by the repository's GitHub identity, not the spelling of its origin URL: a host
+  cloning over ssh and one cloning over https keyed one repository twice, and gex45's wisp and
+  makgora tickets (ssh, `git@github.com:OWNER/REPO.git`) waited untaken in its outbox for 30 minutes; every ssh
+  spelling now hashes as `https://github.com/OWNER/REPO.git`, which leaves every https key unchanged.
 - **S19a Publication path in Rust.** Follows S13. Files land/push.rs (non-default branches, scratch
   refs, the race revalidation and the lease push, on safe_push_plan.rs and safe_push_state.rs), with
   `north land push` taking every non-default-branch push. Done when: the publication cases
