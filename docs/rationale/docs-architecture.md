@@ -194,9 +194,9 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
    touching the generated file never conflict, so the landing candidate also reruns the generator after
    each such pick and folds the result into that lane (`merge_continue::refresh`); a batch of lanes that
    each add a rationale note then lands with a fresh index whatever their order.
-   The rationale-index land check lands one step later: the lander runs the landed runtime, so the
-   batch that brings refresh still picks with a lander that lacks it, and four batch-mates adding notes
-   went stale against the check on 2026-11-05.
+   The rationale-index land check landed one step later, once the lander ran a runtime with refresh:
+   the batch that brought refresh was still picked by a lander without it, and four batch-mates adding
+   notes went stale against the check on 2026-11-05.
 7. **Concept docs carry no dates or versions (35 min).** Cut `docs/harness.md` to the flow with links
    to owners, replacing restated flags, timeouts and thresholds with the `harness/defaults.toml` key,
    the command's `--help` or a link to its feature entry; move the dated "Learned routing backtest"

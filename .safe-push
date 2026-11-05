@@ -23,6 +23,7 @@
 	check = harness/,agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo run --locked --offline --bin north -- agent-config-check tree-policy
 	check = bin/,lib/,harness/,src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh machine-bound
 	check = docs/features.md,docs/features/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo run --offline --bin north -- docs features-index --check
+	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo run --offline --bin north -- docs rationale-index --check
 	check = harness/defaults.toml,harness/skills/machine-capacity/scripts/ :: harness/skills/machine-capacity/scripts/build-machine-capacity --check
 	check = flake.nix,flake.lock,rust-toolchain.toml,tests/dev-shell.test.sh :: ./bin/depbox run -- bash tests/dev-shell.test.sh
 	check = "agent-machinery/ :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test; ../bin/land-shell -- bun run check'"
