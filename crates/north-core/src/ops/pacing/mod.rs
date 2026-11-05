@@ -26,8 +26,7 @@ mod reservation;
 mod sampling;
 #[cfg(test)]
 mod sampling_tests;
-#[cfg(test)]
-mod spawn_capacity_tests;
+pub mod spawn_gate;
 mod storage;
 
 pub use sampling::TokenUsage;

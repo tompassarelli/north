@@ -12,7 +12,7 @@ The harness outcome number is north's first commit->main p50 over the last 24 ho
 
 ## Brief line
 
-`crates/north-core/src/guard/worker_tier.rs` refuses a `Category: tooling|infra|ci|harness` brief without one of these lines, so the price reaches the worker:
+`crates/north-guard/src/guard/worker_tier.rs` refuses a `Category: tooling|infra|ci|harness` brief without one of these lines, so the price reaches the worker:
 
 - `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days`
 - `Payback: enables <what>; cost <M> min` for enabling work with no direct saving.

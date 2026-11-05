@@ -53,12 +53,13 @@ pub mod agent_cwd;
 mod agent_cwd_tests;
 pub mod worker_tier;
 pub mod spawn_capacity;
+#[cfg(test)]
+mod spawn_capacity_tests;
 mod spawn_state;
 #[cfg(test)]
 mod worker_tier_tests;
 pub mod code_health_edit;
-pub mod hook_events;
-pub mod hook_rules;
+pub use crate::threads::runs::{hook_events, hook_rules};
 pub mod hook_stats;
 #[cfg(test)]
 mod hook_stats_tests;

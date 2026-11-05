@@ -201,7 +201,7 @@ unit = "share of the CPU limit a lower-priority project's spawns leave free"
 source = "prior: proxy decision 2026-10-12, thin data"
 settles_when = { need = 50, count = "count_capacity_denials", what = "spawn-gate-denials.jsonl capacity-gate denials with an at timestamp, joinable to CPU pressure samples" }
 fallback = "a project with no priority rank uses the whole limit"
-consumers = ["crates/north-core/src/guard/spawn_capacity.rs"]
+consumers = ["crates/north-guard/src/guard/spawn_capacity.rs"]
 
 [capacity_sizing_runs]
 value = 20
@@ -948,14 +948,14 @@ value = ["40:online,multiplayer,with people,ladder,lan", "20:perf,performance,ca
 unit = "minutes:words; a quiet-on prompt naming one of the words gets that lease length, the first row matching wins, a number of minutes in the prompt wins over the table, and a prompt matching no row gets capacity_mode_lease_default_min"
 source = "tom: an online, multiplayer or with-people test runs 40 min, a perf or capture run 20 min, a feature check 10 min (2026-11-05)"
 fallback = "a prompt matching no row gets capacity_mode_lease_default_min"
-consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [capacity_phrase_extend_words]
 value = ["more", "extend"]
 unit = "words that, in a prompt of at most three words while a playtest lease is on, extend it by its own length"
 source = "tom: reply more to the check-in to add time (2026-11-05)"
 fallback = "with no lease on the words do nothing"
-consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [capacity_mode_play_cpus]
 value = 8
@@ -1010,35 +1010,35 @@ value = ["test", "testing", "playtest", "playtesting", "playing"]
 unit = "words in Tom's prompt that, followed within capacity_phrase_window_words by a game word, turn quiet mode on"
 source = "tom: phrases are checked deterministically by a UserPromptSubmit hook rather than by a skill (2026-11-04)"
 fallback = "none"
-consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [capacity_phrase_on_objects]
 value = ["game", "map", "wisp", "makgora", "warcraft", "wc3"]
 unit = "game words that complete a quiet-on phrase"
 source = "tom: the games he plays and tests on the laptop (2026-11-04)"
 fallback = "none"
-consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [capacity_phrase_off_verbs]
 value = ["done", "finished", "stopped"]
 unit = "words in Tom's prompt that, followed within capacity_phrase_window_words by an activity word, turn quiet mode off and close the test environment"
 source = "tom: saying he is done testing releases the machine and closes what the test started (2026-11-04)"
 fallback = "none"
-consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [capacity_phrase_off_objects]
 value = ["testing", "playing", "playtesting", "gaming"]
 unit = "activity words that complete a quiet-off phrase"
 source = "tom: saying he is done testing releases the machine and closes what the test started (2026-11-04)"
 fallback = "none"
-consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [capacity_phrase_off_phrases]
 value = ["release the machine"]
 unit = "whole phrases in Tom's prompt that turn quiet mode off"
 source = "tom: saying he is done testing releases the machine and closes what the test started (2026-11-04)"
 fallback = "none"
-consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [capacity_phrase_window_words]
 value = 2
@@ -1046,7 +1046,7 @@ unit = "words after a phrase verb within which its object must appear"
 source = "prior: covers 'test the wisp map' and 'done testing' while 'a test for the map loader' stays out"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available until phrase hook fires are counted; each fire is the measure" }
 fallback = "none"
-consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [capacity_phrase_max_words]
 value = 40
@@ -1054,7 +1054,7 @@ unit = "most words (after quoted text is dropped) a prompt may have for the phra
 source = "prior: Tom's status remarks are a sentence or two, while task briefs that mention testing a map run to hundreds of words"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available until phrase hook fires are counted; each fire is the measure" }
 fallback = "a longer prompt is never read as a phrase"
-consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [capacity_teardown_game_names]
 value = ["Warcraft III.exe"]
@@ -1082,7 +1082,7 @@ value = 10
 unit = "seconds the quiet-off teardown waits after SIGTERM before SIGKILL of what remains"
 source = "tom: close gracefully first, wait about ten seconds, then force only what remains (2026-11-04)"
 fallback = "none"
-consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [detector_plan_stall_hours]
 value = 2

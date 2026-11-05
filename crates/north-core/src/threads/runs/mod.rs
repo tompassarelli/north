@@ -2,6 +2,8 @@
 //! claims and usage tables, and the run ids already recorded.
 pub mod brief;
 mod costs;
+pub mod hook_events;
+pub mod hook_rules;
 pub mod hooks;
 mod labels;
 mod record;

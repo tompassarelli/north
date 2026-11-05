@@ -153,7 +153,7 @@ pub(in crate::ops::pacing) fn here_cpu_refusal(brief: &str) -> Option<String> {
     if std::env::var_os("PLACEMENT_HOSTS").is_some() && std::env::var_os("SPAWN_CAPACITY_STATUS").is_none() {
         return None;
     }
-    crate::guard::spawn_capacity::launch_refusal(&crate::guard::spawn_capacity::Live { pace: crate::ops::pacing::answer }, brief)
+    crate::ops::pacing::spawn_gate::launch_refusal(brief)
 }
 
 impl super::gate::Decision {

@@ -19,12 +19,15 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
   `north-landing` would make `guard` rebuild on every landing-gate edit.
 - `north-landing`: `landing`, `dep_gate`, `language_gate`, `provenance`, `issue_box_lint`,
   `follows_release`, `land_abandon`. Depends on `north-base` only.
-- `north-core`: everything else (`fleet`, `ledger`, `guard`, `threads`, `ops`, `providers`, ...).
+- `north-core`: everything else (`fleet`, `ledger`, `threads`, `ops`, `providers`, ...).
   Depends on `north-base`; nothing in it uses `north-landing`.
 - `north-tui`: `tui`, the fleet terminal screen. Depends on `north-core`; nothing in `north-core` uses it,
   so a screen edit rebuilds `north-tui` and the root package while `north-core` stays cached.
+- `north-guard`: `guard` and `hook`, the tool-call policy behind `north hook`. Depends on `north-core` and
+  `north-base`; nothing in `north-core` uses it, so a guard edit rebuilds `north-guard` and the root package.
 - `north` (the root package): `src/main.rs`, `src/cli/` and the `verify-north` and `fake_claude`
-  binaries, plus the integration tests. Depends on `north-core`, `north-landing` and `north-tui`.
+  binaries, plus the integration tests. Depends on `north-core`, `north-guard`, `north-landing` and
+  `north-tui`.
 
 A leaf edit in `north-landing` rebuilds `north-landing` and the small root package; `north-core` stays
 cached. An edit in `north-core` still rebuilds `north-core` and the root package, which is the next split's
@@ -49,6 +52,27 @@ reaches; adds the crate to the workspace and the root package; rewrites the root
 the repo's path mentions; lets the `crate-roots` module of `structure.toml` use what the re-exports
 point at; and widens to `pub` only the items `cargo check` reports as private. To rebase a move, reset
 to the new main and run it again rather than merging by hand.
+
+## north-guard
+
+`guard` and `hook` reference each other, so they left together, and `north-guard` sits above `north-core`
+because `guard` uses `threads`, `fleet`, `ledger`, `usage`, `capacity`, `lanes` and `router` while only a
+few edges ran the other way. `guard::host::Host` already carried `guard`'s calls into `ops`; the move cut
+the edges from `north-core` into `guard`:
+
+- `providers/claude/runs` read transcripts through `guard::hook_events`. `hook_events` and `hook_rules`
+  classify hook output and touch nothing else in `guard`, so they moved to `threads::runs`, the owner of the
+  `hook_events` table; `guard` re-exports them.
+- `ops::agents::goal::plan::gate_width` and `ops::pacing::placement::here_cpu_refusal` asked
+  `guard::spawn_capacity` for the spawn gate's verdict. `ops::pacing::spawn_gate` holds the two functions,
+  and `main` installs them from `guard::spawn_capacity` before any command runs.
+- The `spawn_capacity` tests moved from `ops::pacing` back beside `spawn_capacity`, calling
+  `ops::pacing::answer` through the re-export.
+
+`move-module.sh` moves one module per run and writes the crate's `Cargo.toml` and `lib.rs`, so `hook` was
+moved by hand first and added to `lib.rs` after the run, and `north-base` was added because `guard` names
+`north_base::` directly. When `ops` leaves `north-core`, `north-guard` depends on that crate; nothing in
+`ops` points into `guard`.
 
 ## Measurement
 

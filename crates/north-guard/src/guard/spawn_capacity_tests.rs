@@ -52,7 +52,7 @@ impl World for Rig {
     }
 
     fn pace(&self, request: &Value) -> Result<Value, String> {
-        super::answer(request)
+        crate::ops::pacing::answer(request)
     }
 
     fn billed(&self, provider: &str) -> Option<String> {
@@ -312,7 +312,7 @@ fn meter(rig: &Rig, five: f64, burn: f64, week: f64, reset: f64) {
     let resets_at = Timestamp::from_unix_seconds_f64(reset).iso();
     let window = |name: &str, used: f64, burn: f64| json!({"window": name, "used_pct": used, "burn_pct_h": burn, "reset_h": 1.0, "as_of": as_of, "age_s": 0.0, "resets_at": resets_at});
     let windows = json!([window("5h", five, burn), window("week", week, 0.0)]);
-    let control = super::answer(&json!({"op": "advance", "previous": {}, "windows": windows, "workers": 5, "at": rig.now, "initial": 64, "margin": 10, "target": null})).unwrap();
+    let control = crate::ops::pacing::answer(&json!({"op": "advance", "previous": {}, "windows": windows, "workers": 5, "at": rig.now, "initial": 64, "margin": 10, "target": null})).unwrap();
     let verdict = json!({"epoch": rig.now, "stale_min": 30, "pace_control": true, "refusal": null, "refusals": {"claude:a": null}, "controls": {"claude:a": control}});
     rig.write(&rig.agents().join("usage-gate.json"), &json!({"claude": verdict}).to_string());
 }

@@ -249,7 +249,7 @@ run` all read (box D1 for `--dev-shell`, box D6 for the list). A test matrix run
 ### N4. Nix forms that skip the capacity lease (north#387)
 
 What agents assume: the gate leases every Nix build. What happens: the heavy-command hook
-(`crates/north-core/src/guard/heavy_command.rs:134`) and the gate (`gate.rs:126`) each parse only `nix develop … -c X`
+(`crates/north-guard/src/guard/heavy_command.rs:134`) and the gate (`gate.rs:126`) each parse only `nix develop … -c X`
 with `develop` as the first word. `nix -L develop`, `nix --offline develop`, `nix --extra-experimental-features …
 develop`, `nix shell P -c`, `nix run`, `nix build`, `nix flake check`, `nix-build` and `nix-shell --run` run unleased;
 inside an interactive dev shell the shell's own cargo comes before the shim, so an ssh `cargo build` took 10 cores in
@@ -467,7 +467,7 @@ Marked risky or outdated, each with its box:
   `sudo -E nixos-rebuild` and `nix run nixpkgs#nixos-rebuild -- switch` pass; nothing covers `switch-to-configuration`,
   `nix-env -i`, `nix profile install` or `nix-channel`. It fails open on a missing binary or oversized payload. Its
   matcher would move onto the shared Nix parser in D8.
-- heavy-command guard (`crates/north-core/src/guard/heavy_command.rs:16`, retired as a script, now in `north hook`):
+- heavy-command guard (`crates/north-guard/src/guard/heavy_command.rs:16`, retired as a script, now in `north hook`):
   routes or refuses heavy cargo, tsc and bun runs; for Nix it unwraps only `nix develop … -c X` with `develop` as the
   first word (`:134`). Gaps: every other Nix form in N4, any global flag before `develop`, and no fixture row for Nix
   at all (`fixtures/heavy_command.json`).
@@ -564,7 +564,7 @@ Done when:
 ### D3. Nix activity cards in `north hook` (all classes)
 
 Category: tooling. Scope: cross-module. Surface: rust. Verify: local-test. Files: `harness/nix/cards.toml`, a
-`guard/nix_activity.rs` step in `crates/north-core/src/guard/`, `hook_rules.rs`, a fixture of recorded commands.
+`guard/nix_activity.rs` step in `crates/north-guard/src/guard/`, `hook_rules.rs`, a fixture of recorded commands.
 The cards, matchers and deny forms of "Context by activity class" above, one card per class, at most 10 lines each.
 Deny forms in this box: a land-check runner wrapped in `land-shell` or depbox (`land-shell --dev -- … north land
 checks`, `depbox run -- … safe-push`), and `nix-collect-garbage`, `nix-store --gc`, `nix store gc` on gex45 and the

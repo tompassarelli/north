@@ -4,12 +4,17 @@ mod remote_serve_tests;
 
 use north_core::{
     agent_catalog, agent_config_check, agent_policy_contract, autoland_status, build_time, capacity, code_health, contract_probe, error, fleet,
-    foundation, grounding, guard, health, hook, lanes, ledger, ops, platform, providers, proxy, router, threads, usage, work_items,
+    foundation, grounding, health, lanes, ledger, ops, platform, providers, proxy, router, threads, usage, work_items,
 };
+use north_guard::{guard, hook};
 use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint, land, land_abandon, landing, language_gate, provenance, runtime_floor_gate, watch};
 use north_tui::tui;
 
 fn main() -> std::process::ExitCode {
+    ops::pacing::spawn_gate::install(ops::pacing::spawn_gate::SpawnGate {
+        summary: || guard::spawn_capacity::gate_summary(&guard::spawn_capacity::Live { pace: ops::pacing::answer }),
+        launch_refusal: |brief| guard::spawn_capacity::launch_refusal(&guard::spawn_capacity::Live { pace: ops::pacing::answer }, brief),
+    });
     platform::stdio::with_blocking_outputs(|| {
         let arguments = std::env::args().skip(1).collect::<Vec<_>>();
         arguments

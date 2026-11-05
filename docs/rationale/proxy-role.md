@@ -129,7 +129,7 @@ Enforced by: types. A new timer cannot send without naming itself, so it cannot 
   idle it parks like any session and the next message revives it.
 - Every place that infers the proxy from an absence reads the field:
   `crates/north-core/src/providers/claude/runs/mod.rs:147` and `crates/north-core/src/providers/ledger_rows.rs:89`
-  (no parent and no children means proxy), `crates/north-core/src/guard/lead_timer.rs:36` (a name
+  (no parent and no children means proxy), `crates/north-guard/src/guard/lead_timer.rs:36` (a name
   containing `lead`), `harness/hooks/prompt-grounding.sh:29` (absent from fleet records).
 
 Enforced by: code. Membership is set by the launcher, never remembered; the single-proxy rule is a
@@ -214,13 +214,13 @@ verb without one, so a new delegating verb cannot fall through to diagnosis. The
 rule list only for foreign commands (`git`, `rg`, `gh`, `cargo`, `safe-push`, `ssh`). It is pure, and
 the guard, the readout and P2's replay of section 1 share it.
 
-**The guard**, `crates/north-core/src/guard/proxy_delegation.rs`, runs only for role `Proxy`:
+**The guard**, `crates/north-guard/src/guard/proxy_delegation.rs`, runs only for role `Proxy`:
 
 - Events: `hook.rs` maps PreToolUse only for Bash, edits, `Agent` and timers
   (`crates/north-core/src/hook.rs:126`); G1 adds a `PreOther` kind so `Monitor`, `TaskStop`, `Read`,
   `ToolSearch` and `SendMessage` reach the guard too, with a test per tool.
 - State is keyed by session and `agent_id`, as `codex_conduct` keys it
-  (`crates/north-core/src/guard/codex_conduct/state.rs:42`), in
+  (`crates/north-guard/src/guard/codex_conduct/state.rs:42`), in
   `$XDG_RUNTIME_DIR/north/proxy-calls/`, under a file lock. Calls with an `agent_id` are the read-only
   subagents of 2.4; they never count toward the proxy's streak and are counted as their own metric.
 - Counted: diagnosis, landing logs, status checks, monitoring scripts and bookkeeping. Reset: only a
@@ -401,7 +401,7 @@ push access to South and the Firn timers are host configuration.
    `crates/north-core/src/fleet/model.rs`, `src/cli/fleet/launch.rs`, `src/cli/fleet/lineage.rs`,
    `crates/north-core/src/fleet/registry/launching.rs`, `crates/north-core/src/providers/claude/session_env.rs`,
    `crates/north-core/src/providers/claude/runs/mod.rs`, `crates/north-core/src/providers/ledger_rows.rs`,
-   `crates/north-core/src/guard/lead_timer.rs`. Needs: the staffing-overlap lane, which edits the same
+   `crates/north-guard/src/guard/lead_timer.rs`. Needs: the staffing-overlap lane, which edits the same
    launch files. Done when: `cargo test -p north-core fleet::` passes cases where `--role proxy`
    records `Proxy` and exports `NORTH_FLEET_ROLE=proxy`, a task launch records `Worker`, a second live
    proxy is refused without `--take-over`, and the ledger and lead timer read the field.
@@ -442,7 +442,7 @@ push access to South and the Firn timers are host configuration.
    or `Session` one and a worker gets none, and `cargo test -p north-core fleet::prompt` shows the
    proxy preamble.
 10. **G1 the delegation guard.** feature, module, rust, local-test; 45 min. Files:
-    `crates/north-core/src/guard/proxy_delegation.rs`, `crates/north-core/src/hook.rs` (`PreOther`),
+    `crates/north-guard/src/guard/proxy_delegation.rs`, `crates/north-core/src/hook.rs` (`PreOther`),
     `harness/defaults.toml` (`proxy.warn_streak`, `proxy.deny_streak`). Needs: R1, P2, W1. Done when:
     `cargo test -p north-core guard::proxy_delegation` passes the 5th counted call warning, the 15th
     denied, each exemption passing while denied, a `ListAgents` neither counting nor resetting, a

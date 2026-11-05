@@ -15,12 +15,12 @@ const USAGE: &str = "usage: north capacity mode status | tick | hold [--minutes 
 
 static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
 
-pub(crate) fn number(name: &str) -> f64 {
+pub fn number(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
-pub(crate) fn strings(name: &str) -> Vec<String> {
+pub fn strings(name: &str) -> Vec<String> {
     let list = DEFAULTS[name]["value"].as_array().unwrap_or_else(|| panic!("harness/defaults.toml has no list for {name}"));
     list.iter().map(|item| item.as_str().unwrap_or_else(|| panic!("harness/defaults.toml {name} holds a non-string")).to_owned()).collect()
 }

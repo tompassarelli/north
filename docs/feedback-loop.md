@@ -56,8 +56,8 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | job_runs | bin/threads:1748 | crates/north-core/src/threads/jobs/mod.rs job_runs; crates/north-core/src/ops/job_watch/mod.rs | read | |
 | model_events | crates/north-core/src/ops/model_watch | crates/north-core/src/usage/ctx.rs successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | crates/north-core/src/capacity/host/database.rs record_usage | crates/north-core/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
-| usage-gate.json | crates/north-core/src/usage/gate.rs | crates/north-core/src/guard/spawn_capacity/usage.rs | read | |
-| spawn-gate-denials.jsonl | crates/north-core/src/guard/spawn_capacity/logs.rs | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
+| usage-gate.json | crates/north-core/src/usage/gate.rs | crates/north-guard/src/guard/spawn_capacity/usage.rs | read | |
+| spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | none (harness/lib/spawn.py and spawn_queue.py no longer exist on main) | none | dropped | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
 | goal-scores.jsonl | crates/north-core/src/ops/agents/goal/score.rs | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
@@ -92,7 +92,7 @@ State files the loops above write, relative to `~/.local/state`. `north health` 
 | signal file | reader stamp | writer | cadence | owner |
 |---|---|---|---|---|
 | `agents/usage-gate.json` | `north/reader-stamps/agents/usage-gate.json` | crates/north-core/src/usage/gate.rs | 5m | north#35 |
-| `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` | crates/north-core/src/guard/spawn_capacity/logs.rs | event | north#35 |
+| `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` | crates/north-guard/src/guard/spawn_capacity/logs.rs | event | north#35 |
 | `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` | crates/north-core/src/ops/agents/goal/score.rs | event | north#35 |
 | `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-core/src/capacity/host/database.rs | event | north#35 |
 | `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-core/src/ops/usage_web_read | 6h | north#35 |

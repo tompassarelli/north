@@ -80,9 +80,9 @@ default"), and `docs/method.md` itself was deleted in `e74ad5b1f` (2026-10-08). 
 cut, which is a finding: an adopted rule left with no trace of its removal.
 
 - Done-bars: live, and stronger than the prose, in code. `north brief new` prints ``Done when: `<command that proves
-  it>` `` (`crates/north-core/src/guard/brief_skeleton.rs:21`); `harness/skills/workers/references/brief.md:8` makes
+  it>` `` (`crates/north-guard/src/guard/brief_skeleton.rs:21`); `harness/skills/workers/references/brief.md:8` makes
   the first Done when line an oracle whose observed result the worker attaches; the issue-filing guard reads Done
-  when (`crates/north-core/src/guard/issue_filing.rs:19`). The refusal "Done when has no command"
+  when (`crates/north-guard/src/guard/issue_filing.rs:19`). The refusal "Done when has no command"
   (`crates/north-core/src/router/brief.rs:157`) sits on the Codex qualification path only.
 - Information hierarchy: live as practice, without the name. `harness/skills/agent-policy/SKILL.md` § SKILL.md and
   references keeps `SKILL.md` complete for ordinary work and links each reference with when to read it;

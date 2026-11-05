@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/north-base", "crates/north-core", "crates/north-landing", "crates/north-tui"]
-default-members = [".", "crates/north-base", "crates/north-core", "crates/north-landing", "crates/north-tui"]
+members = ["crates/north-base", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard"]
+default-members = [".", "crates/north-base", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard"]
 
 [workspace.dependencies]
 crossterm = "0.28.1"
@@ -46,6 +46,7 @@ autobins = false
 
 [dependencies]
 north-core = { path = "crates/north-core" }
+north-guard = { path = "crates/north-guard" }
 north-tui = { path = "crates/north-tui" }
 north-landing = { path = "crates/north-landing" }
 crossterm.workspace = true

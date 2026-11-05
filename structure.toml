@@ -21,7 +21,7 @@ paths = ["target/**", "src/fixtures/**", "crates/*/src/fixtures/**", "crates/nor
 [[module]]
 name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
-paths = ["tests/**", "crates/*/tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-core/src/guard/launch_critical_fixtures.rs"]
+paths = ["tests/**", "crates/*/tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
 may_use = ["cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy"]
 
@@ -67,9 +67,9 @@ may_use = ["fleet", "domain", "platform", "foundation", "crate-roots", "threads"
 
 [[module]]
 name = "guard"
-paths = ["crates/north-core/src/guard/**", "crates/north-core/src/hook.rs"]
+paths = ["crates/north-guard/src/lib.rs", "crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["ledger", "fleet", "autoland_status", "ops", "usage", "capacity", "shell", "domain", "platform", "foundation", "crate-roots", "code_health"]
+may_use = ["ledger", "fleet", "threads", "lanes", "autoland_status", "ops", "usage", "capacity", "shell", "domain", "platform", "foundation", "crate-roots", "code_health"]
 
 [[module]]
 name = "threads"
@@ -195,55 +195,55 @@ may_use = ["foundation", "platform", "shell", "autoland_status", "fleet", "ledge
 
 [[registered]]
 id = "guard.corpus_scan"
-path = "crates/north-core/src/guard/corpus_scan.rs"
+path = "crates/north-guard/src/guard/corpus_scan.rs"
 
 [[registered]]
 id = "guard.native_item"
-path = "crates/north-core/src/guard/native_item.rs"
+path = "crates/north-guard/src/guard/native_item.rs"
 
 [[registered]]
 id = "guard.modern_search"
-path = "crates/north-core/src/guard/modern_search.rs"
+path = "crates/north-guard/src/guard/modern_search.rs"
 
 [[registered]]
 id = "guard.resource_safe_search"
-path = "crates/north-core/src/guard/resource_safe_search.rs"
+path = "crates/north-guard/src/guard/resource_safe_search.rs"
 
 [[registered]]
 id = "guard.session_kill"
-path = "crates/north-core/src/guard/session_kill.rs"
+path = "crates/north-guard/src/guard/session_kill.rs"
 
 [[registered]]
 id = "guard.codex_conduct"
-path = "crates/north-core/src/guard/codex_conduct.rs"
+path = "crates/north-guard/src/guard/codex_conduct.rs"
 
 [[registered]]
 id = "guard.worker_wait"
-path = "crates/north-core/src/guard/worker_wait.rs"
+path = "crates/north-guard/src/guard/worker_wait.rs"
 
 [[registered]]
 id = "guard.worker_tier"
-path = "crates/north-core/src/guard/worker_tier.rs"
+path = "crates/north-guard/src/guard/worker_tier.rs"
 
 [[registered]]
 id = "guard.spawn_capacity"
-path = "crates/north-core/src/guard/spawn_capacity.rs"
+path = "crates/north-guard/src/guard/spawn_capacity.rs"
 
 [[registered]]
 id = "guard.native_launch"
-path = "crates/north-core/src/guard/native_launch.rs"
+path = "crates/north-guard/src/guard/native_launch.rs"
 
 [[registered]]
 id = "guard.heavy_command"
-path = "crates/north-core/src/guard/heavy_command.rs"
+path = "crates/north-guard/src/guard/heavy_command.rs"
 
 [[registered]]
 id = "guard.poll_loop"
-path = "crates/north-core/src/guard/poll_loop.rs"
+path = "crates/north-guard/src/guard/poll_loop.rs"
 
 [[registered]]
 id = "guard.clipboard"
-path = "crates/north-core/src/guard/clipboard.rs"
+path = "crates/north-guard/src/guard/clipboard.rs"
 
 [[build_time]]
 workspace = "."

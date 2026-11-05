@@ -96,7 +96,7 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
   box is lower and its Done rate is no more than 10 points below no-handoff; otherwise that tier runs no-handoff,
   and when no tier keeps handoff-150k the nudge is deleted. Date: 2026-11-18. Box 5 wires the Done-rate term;
   box 6 is the conditional deletion.
-- Kept: the 350k worker-handoff hook (`crates/north-core/src/guard/worker_handoff.rs`, 97, at
+- Kept: the 350k worker-handoff hook (`crates/north-guard/src/guard/worker_handoff.rs`, 97, at
   `crates/north-core/src/hook.rs:199`, and `bin/capacity-watchdog:190`). It is not an arm; it fired 22 times
   over 2,675 runs in 14 days (15 ignored) and 104 runs passed 350k.
 
