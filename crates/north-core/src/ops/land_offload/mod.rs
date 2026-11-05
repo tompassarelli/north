@@ -7,7 +7,7 @@ mod destinations;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose [--any] | cost | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
+const USAGE: &str = "usage: north capacity offload choose [--any] (prints the host to run on, nothing when this host has the most room) | cost | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -130,7 +130,8 @@ fn reap(owner: &str) -> u8 {
 }
 
 fn choose(any: bool) -> u8 {
-    if !any && !in_game_reserve() {
+    let in_reserve = in_game_reserve();
+    if !any && !in_reserve {
         eprintln!("north capacity offload: this host is not in game-reserve, so the land check runs here");
         return 1;
     }
@@ -138,13 +139,24 @@ fn choose(any: bool) -> u8 {
         eprintln!("north capacity offload: this host keeps its game CPUs to game-reserve.slice and confines agent slices to the rest, so the land check runs here");
         return 1;
     }
-    match host_with_room() {
-        Ok(machine) => {
-            println!("{}", machine.name);
+    let reserved = in_reserve || checks_confined_here();
+    let here = crate::platform::host::name();
+    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here).collect();
+    let remotes = std::thread::scope(|scope| {
+        let reads: Vec<_> = others.iter().map(|machine| scope.spawn(|| (machine.name.clone(), room::read(&machine.ssh)))).collect();
+        reads.into_iter().filter_map(|read| read.join().ok()).collect::<Vec<_>>()
+    });
+    match room::check_host(reserved, &here, room::read_local, remotes) {
+        Ok(name) if name == here => {
+            eprintln!("north capacity offload: {here} has the most room, so the land check runs here");
             0
         }
-        Err(why) => {
-            eprintln!("north capacity offload: {why}");
+        Ok(name) => {
+            println!("{name}");
+            0
+        }
+        Err(refused) => {
+            eprintln!("north capacity offload: no host has room: {}", if refused.is_empty() { "none has an ssh destination".to_owned() } else { refused.join("; ") });
             1
         }
     }

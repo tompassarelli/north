@@ -29,10 +29,18 @@ pub(super) fn read(ssh: &str) -> Option<Room> {
     read_within(ssh, LIMIT)
 }
 
-pub fn read_within(ssh: &str, limit: Duration) -> Option<Room> {
+pub(super) fn read_local() -> Option<Room> {
+    let output = run_within("sh", &["-c", &script()], LIMIT)?;
+    output.status.success().then(|| parse(&String::from_utf8_lossy(&output.stdout))).flatten()
+}
+
+fn script() -> String {
     let disk = format!("d=\"{OFFLOAD_ROOT}\"; while [ ! -d \"$d\" ]; do d=$(dirname \"$d\"); done; df -Pk \"$d\"");
-    let probe = quote(&format!("{}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}", measure::PROBE));
-    let command = format!("sh -c {probe}");
+    format!("{}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}", measure::PROBE)
+}
+
+pub fn read_within(ssh: &str, limit: Duration) -> Option<Room> {
+    let command = format!("sh -c {}", quote(&script()));
     let output = run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &command], limit)?;
     output.status.success().then(|| parse(&String::from_utf8_lossy(&output.stdout))).flatten()
 }
@@ -64,6 +72,22 @@ pub(super) fn first_with_room(hosts: impl IntoIterator<Item = (String, Option<Ro
         }
     }
     Err(refused)
+}
+
+/// The host a land check runs on: among `remotes` and, unless `reserved`, this host as `here`, the one with the most free cores; a tie goes to the earlier remote.
+pub(super) fn check_host(reserved: bool, here: &str, local: impl FnOnce() -> Option<Room>, remotes: Vec<(String, Option<Room>)>) -> Result<String, Vec<String>> {
+    let hosts: Vec<(String, Option<Room>)> = remotes.into_iter().chain((!reserved).then(|| (here.to_owned(), local()))).collect();
+    let mut refused = Vec::new();
+    let mut best: Option<(String, f64)> = None;
+    for (name, room) in hosts {
+        match room.as_ref().map(|room| (shortfall(room), room.admission.limit_cpus - room.admission.committed_cpus)) {
+            Some((None, free)) if best.as_ref().is_none_or(|(_, most)| free > *most) => best = Some((name, free)),
+            Some((None, _)) => {}
+            Some((Some(why), _)) => refused.push(format!("{name}: {why}")),
+            None => refused.push(format!("{name}: unreachable or unreadable")),
+        }
+    }
+    best.map(|(name, _)| name).ok_or(refused)
 }
 
 #[cfg(test)]
@@ -108,5 +132,27 @@ mod tests {
         let refused = first_with_room(hosts[..2].to_vec()).unwrap_err();
         assert_eq!(refused.len(), 2, "{refused:?}");
         assert!(refused[1].starts_with("dark: unreachable"), "{refused:?}");
+    }
+
+    #[test]
+    fn the_laptop_is_a_check_host_when_it_has_room_and_the_remote_has_none_and_never_while_reserved() {
+        let gib = 1024 * 1024;
+        let busy_remote = vec![("gex45".to_owned(), Some(room(80 * gib, "19.00")))];
+        let open_laptop = || Some(room(80 * gib, "1.00"));
+        assert_eq!(check_host(false, "laptop", open_laptop, busy_remote.clone()), Ok("laptop".to_owned()));
+        let refused = check_host(true, "laptop", || panic!("a reserved laptop is not read"), busy_remote).unwrap_err();
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        assert!(refused[0].starts_with("gex45: "), "{refused:?}");
+    }
+
+    #[test]
+    fn the_host_with_the_most_free_cores_wins_and_a_tie_keeps_the_remote() {
+        let gib = 1024 * 1024;
+        let remote = |committed| vec![("gex45".to_owned(), Some(room(80 * gib, committed)))];
+        assert_eq!(check_host(false, "laptop", || Some(room(80 * gib, "1.00")), remote("7.60")), Ok("laptop".to_owned()));
+        assert_eq!(check_host(false, "laptop", || Some(room(80 * gib, "7.60")), remote("1.00")), Ok("gex45".to_owned()));
+        assert_eq!(check_host(false, "laptop", || Some(room(80 * gib, "1.00")), remote("1.00")), Ok("gex45".to_owned()));
+        assert_eq!(check_host(true, "laptop", || None, remote("7.60")), Ok("gex45".to_owned()));
+        assert_eq!(check_host(false, "laptop", || None, remote("7.60")), Ok("gex45".to_owned()));
     }
 }
