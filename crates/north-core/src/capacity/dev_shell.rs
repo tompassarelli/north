@@ -12,6 +12,7 @@ const RUN_USAGE: &str = "usage: north dev-shell run [--dir DIRECTORY] (--prepare
 const TRACE: &str = "NORTH_DEV_SHELL_TRACE";
 const NOT_FOUND: u8 = 127;
 const NOT_EXECUTABLE: u8 = 126;
+const SEED_FAILED: u8 = 125;
 const SYSTEM_NIX: [&str; 2] = ["/run/current-system/sw/bin/nix", "/nix/var/nix/profiles/default/bin/nix"];
 const PREPARE_TIMEOUT_SECONDS: &str = "1800";
 const WORKTREES: &str = ".worktrees";
@@ -130,6 +131,12 @@ pub fn exec(arguments: &[String]) -> u8 {
         return 2;
     };
     run_directly("north capacity exec", command)
+}
+
+fn seed_target(flake: &Path) -> Result<(), String> {
+    let north = north_base::platform::north_binary::north_binary();
+    let status = std::process::Command::new(&north).arg("target-seed").arg(flake).status().map_err(|error| format!("{}: {error}", north.display()))?;
+    if status.success() { Ok(()) } else { Err(format!("north target-seed {} failed ({status}), so this shell would compile cold", flake.display())) }
 }
 
 fn trace(line: &str) {
@@ -313,6 +320,10 @@ pub fn command(arguments: &[String]) -> u8 {
     }
     if invocation.prepare_only {
         return 0;
+    }
+    if let Err(reason) = seed_target(&flake) {
+        eprintln!("north dev-shell: {reason}");
+        return SEED_FAILED;
     }
     trace(&format!("enter {identity}"));
     let north = north_base::platform::north_binary::north_binary().to_string_lossy().into_owned();

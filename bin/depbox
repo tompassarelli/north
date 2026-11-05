@@ -3,7 +3,7 @@ set -euo pipefail
 if [ -n "${DEPBOX:-}" ] && [ "${1:-}" = "${DEPBOX%%:*}" ] && [ "${2:-}" = -- ]; then shift 2; exec "$@"; fi
 [ -z "${DEPBOX:-}" ] || { printf 'depbox: already inside the depbox %s sandbox of %s; run the command directly\n' "${DEPBOX%%:*}" "${DEPBOX#*:}" >&2; exit 2; }
 class=
-if [ -z "${DEPBOX_ADMITTED:-}" ] && command -v north >/dev/null; then north target-seed; class=$(north capacity gate --class depbox "$@" 2>/dev/null) || class=; fi
+if [ -z "${DEPBOX_ADMITTED:-}" ] && command -v north >/dev/null; then env -u CARGO_TARGET_DIR north target-seed; class=$(north capacity gate --class depbox "$@" 2>/dev/null) || class=; fi
 if [ -n "$class" ]; then
   DEPBOX_ADMITTED=1 exec north capacity host run --class "$class" --owner "gate:${NORTH_FLEET_SESSION:-${PWD##*/}}" --timeout-seconds 3600 -- "$0" "$@"
 fi

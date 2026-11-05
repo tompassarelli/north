@@ -142,7 +142,7 @@ path_suffixes = [".nix"]
 text = """
 A dev shell's shellHook must be a pure function of the flake. `north target-seed || true` fails silently
 wherever `north` is hidden (every depbox), and a RUSTFLAGS computed from the checkout path costs a full
-recompile per checkout. Add no `|| true` and no program the shell's own packages do not provide.
+recompile per checkout. Add no `|| true`, no `exit` and no program the shell's own packages do not provide; `north land scan shell-hook` refuses all three in a changed flake.nix, and `north dev-shell run` and depbox run `north target-seed` before the shell opens.
 """
 
 [[card]]

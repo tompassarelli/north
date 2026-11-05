@@ -23,7 +23,10 @@ pub fn run(arguments: &[String]) -> u8 {
     match seed(&here) {
         Ok(Some(from)) => eprintln!("target-seed: copied {} into this checkout's target", from.display()),
         Ok(None) => {}
-        Err(error) => eprintln!("target-seed: {error}"),
+        Err(error) => {
+            eprintln!("target-seed: {error}");
+            return 1;
+        }
     }
     0
 }

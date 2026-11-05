@@ -32,11 +32,12 @@
                     pkgs.ast-grep
                     (pkgs.python3.withPackages (python: [ python.websockets ]))
                   ];
-                  # Cargo hashes workspace members by relative path, so a target outside this checkout is keyed to it lest another checkout's build read as fresh; the checkout's own target stays unkeyed so registry artifacts match its siblings', and `north target-seed` drops the seeded packages' fingerprints instead.
+                  # Cargo hashes workspace members by relative path, so a target outside this checkout is keyed to it lest another checkout's build read as fresh; the checkout's own target stays unkeyed so registry artifacts match its siblings', and `north dev-shell run` and depbox seed that target before the shell opens.
                   shellHook = ''
-                    checkout=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+                    checkout=$PWD
+                    while [ ! -e "$checkout/.git" ] && [ "$checkout" != / ]; do checkout=$(dirname "$checkout"); done
+                    [ -e "$checkout/.git" ] || checkout=$PWD
                     if [ -n "$CARGO_TARGET_DIR" ] && [ "$(realpath -m "$CARGO_TARGET_DIR")" != "$(realpath -m "$checkout/target")" ]; then export RUSTFLAGS="-Cmetadata=checkout:$checkout"; fi
-                    north target-seed || true
                     export PATH=${builtins.head packages}/bin:$PATH
                   '';
                 };
