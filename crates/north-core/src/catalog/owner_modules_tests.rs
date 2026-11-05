@@ -1,6 +1,9 @@
 use std::fs;
+use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::Barrier;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::{Value, json};
 
@@ -91,6 +94,8 @@ fn moving_a_registered_guard_keeps_the_land_check_passing_without_a_catalog_chan
     check().expect("the same catalog resolves after the move");
 }
 
+const CHURNERS: usize = 4;
+
 #[test]
 fn concurrent_owner_checks_fetch_one_checkout_without_racing_its_refs() {
     let scratch = tempfile::tempdir().expect("scratch");
@@ -102,20 +107,40 @@ fn concurrent_owner_checks_fetch_one_checkout_without_racing_its_refs() {
     git(&publisher, &["commit", "-q", "--allow-empty", "-m", "first"]);
     git(&publisher, &["push", "-q", "origin", "HEAD:main"]);
     git(scratch.path(), &["clone", "-q", origin.to_str().expect("utf-8 path"), nixos.to_str().expect("utf-8 path")]);
+    let lanes: String = (0..300).map(|lane| format!("create refs/heads/lane-{lane} HEAD\n")).collect();
+    let mut seed = Command::new("git").arg("-C").arg(&nixos).args(["update-ref", "--stdin"]).stdin(Stdio::piped()).spawn().expect("update-ref runs");
+    seed.stdin.take().expect("update-ref stdin").write_all(lanes.as_bytes()).expect("lanes written");
+    assert!(seed.wait().expect("update-ref exits").success(), "lanes seeded");
     let roots = OwnerCheckRoots { north: scratch.path().join("north"), south: scratch.path().join("south"), nixos };
     for round in 0..12 {
         git(&publisher, &["commit", "-q", "--allow-empty", "-m", &format!("round {round}")]);
         git(&publisher, &["push", "-q", "origin", "HEAD:main"]);
         let tip = git(&publisher, &["rev-parse", "HEAD"]);
-        let start = std::sync::Barrier::new(2);
+        let start = Barrier::new(2 + CHURNERS);
+        let checking = AtomicBool::new(true);
         let resolved: Vec<_> = std::thread::scope(|scope| {
+            for churner in 0..CHURNERS {
+                let (start, checking, checkout) = (&start, &checking, &roots.nixos);
+                scope.spawn(move || {
+                    start.wait();
+                    let mut lane = 0;
+                    while checking.load(Ordering::Relaxed) {
+                        let branch = format!("refs/heads/churn-{churner}-{lane}");
+                        let _ = Command::new("git").arg("-C").arg(checkout).args(["update-ref", &branch, "HEAD"]).status();
+                        let _ = Command::new("git").arg("-C").arg(checkout).args(["update-ref", "-d", &branch]).status();
+                        lane += 1;
+                    }
+                });
+            }
             let runs: Vec<_> = (0..2)
                 .map(|_| scope.spawn(|| {
                     start.wait();
                     roots.resolve("nixos-config", "/elsewhere", "unused").map(|(_, reference)| reference).map_err(|error| error.to_string())
                 }))
                 .collect();
-            runs.into_iter().map(|run| run.join().expect("owner check thread")).collect()
+            let resolved = runs.into_iter().map(|run| run.join().expect("owner check thread")).collect();
+            checking.store(false, Ordering::Relaxed);
+            resolved
         });
         assert_eq!(resolved, vec![Ok(tip.clone()), Ok(tip)], "round {round}");
     }

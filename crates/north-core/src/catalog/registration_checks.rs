@@ -416,10 +416,11 @@ pub(super) fn fetch_main(root: &Path) -> NorthResult<String> {
     let fetch = FETCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let private = format!("refs/north/check-owners/{}-{nanos}-{fetch}", std::process::id());
     let refspec = format!("+refs/heads/main:{private}");
-    let _serial = fetch_lock(root)?;
     let result = Command::new("git")
         .arg("-C")
         .arg(root)
+        // git fetch's connectivity walk dies on any ref another process deletes mid-walk, so it reads only origin/main.
+        .args(["-c", "fetch.hideRefs=refs/", "-c", "fetch.hideRefs=!refs/remotes/origin/main"])
         .args(["fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", &refspec])
         .status()
         .map_err(|error| {
@@ -434,14 +435,6 @@ pub(super) fn fetch_main(root: &Path) -> NorthResult<String> {
     let fetched = git_text(root, &["rev-parse", "--verify", &format!("{private}^{{commit}}")]);
     let _ = git_output(root, &["update-ref", "-d", &private]);
     fetched
-}
-
-fn fetch_lock(root: &Path) -> NorthResult<fs::File> {
-    let common = root.join(git_text(root, &["rev-parse", "--git-common-dir"])?);
-    let lock = fs::OpenOptions::new().create(true).truncate(false).write(true).open(common.join("north-check-owners.lock"))?;
-    rustix::fs::flock(&lock, rustix::fs::FlockOperation::LockExclusive)
-        .map_err(|error| NorthError::Configuration(format!("cannot lock {} for its origin/main fetch: {error}", root.display())))?;
-    Ok(lock)
 }
 
 pub(super) fn git_text(root: &Path, arguments: &[&str]) -> NorthResult<String> {
