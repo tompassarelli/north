@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use serde::Serialize;
 
 use crate::error::NorthResult;
+use crate::router::pricing::TokenUse;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct Tokens {
@@ -10,6 +11,13 @@ pub struct Tokens {
     pub output: u64,
     pub cache_read: u64,
     pub cache_write: u64,
+}
+
+impl From<Tokens> for TokenUse {
+    fn from(tokens: Tokens) -> Self {
+        let count = |count: u64| i64::try_from(count).unwrap_or(i64::MAX);
+        Self { input: count(tokens.input), output: count(tokens.output), cache_read: count(tokens.cache_read), cache_write: count(tokens.cache_write) }
+    }
 }
 
 impl Tokens {
