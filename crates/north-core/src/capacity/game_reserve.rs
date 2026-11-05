@@ -333,6 +333,15 @@ pub fn on(settings: &Settings, auto: bool) -> Result<String, String> {
     ))
 }
 
+pub struct Confinement {
+    pub cpus: String,
+    pub jobs: u32,
+}
+
+pub fn confinement() -> Option<Confinement> {
+    enforced_split(&Settings::from_env()).map(|split| Confinement { jobs: cpu_count(&split.agent_cpus), cpus: split.agent_cpus })
+}
+
 pub fn playing(settings: &Settings) -> bool {
     table(&settings.proc).values().any(Entry::toms_game)
 }

@@ -13,6 +13,7 @@ pub mod mode;
 pub mod teardown;
 pub mod seat_idle;
 mod game_reserve;
+pub use game_reserve::{Confinement, confinement};
 mod gate;
 mod host;
 mod unleased;

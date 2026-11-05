@@ -7,6 +7,7 @@ use super::remote;
 use super::reuse;
 use super::store;
 use super::supersede::{self, SUPERSEDED};
+use crate::capacity::Confinement;
 use crate::ops::land_offload;
 use crate::ops::pacing::placement::gate;
 use crate::platform::process;
@@ -254,15 +255,16 @@ impl Drop for Lane<'_> {
 enum Placement {
     Elsewhere(gate::Machine),
     Here { refused: Option<String> },
+    Confined(Confinement),
     Held,
 }
 
-fn placement(reserved: bool, builds_only_here: bool, other_host: impl FnOnce() -> Result<gate::Machine, String>) -> Placement {
+fn placement(reserved: bool, builds_only_here: bool, confinement: impl FnOnce() -> Option<Confinement>, other_host: impl FnOnce() -> Result<gate::Machine, String>) -> Placement {
     if !reserved {
         return Placement::Here { refused: None };
     }
     if builds_only_here {
-        return Placement::Held;
+        return confinement().map_or(Placement::Held, Placement::Confined);
     }
     match other_host() {
         Ok(machine) => Placement::Elsewhere(machine),
@@ -278,9 +280,14 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
         true => land_offload::host_with_room(),
         false => Err("it never takes a runtime built on another host".to_owned()),
     };
-    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), other_host) {
+    let mut confined = None;
+    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), crate::capacity::confinement, other_host) {
         Placement::Elsewhere(machine) => return remote::build(&machine, target, runtime),
-        Placement::Held => return Err(failed(DEFERRED, format!("this host builds its own runtime and is in game-reserve; {} waits for the reserve to end and the live runtime stays", layout::short(target)))),
+        Placement::Confined(confinement) => {
+            println!("north runtime: this host is in game-reserve; building {} on the agent CPUs {} at idle priority", layout::short(target), confinement.cpus);
+            confined = Some(confinement);
+        }
+        Placement::Held => return Err(failed(DEFERRED, format!("this host builds its own runtime and is in game-reserve with the agent CPUs not enforced; {} waits for the reserve to end and the live runtime stays", layout::short(target)))),
         Placement::Here { refused: Some(why) } => println!("north runtime: this host is in game-reserve and {why}; building {} here under the runtime class admission", layout::short(target)),
         Placement::Here { refused: None } => {}
     }
@@ -293,7 +300,7 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     build
         .arg(capacity_helper()?)
         .args(["run", "--class", "runtime", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
-        .args(["nix", "develop", "-c", "cargo", "build", "--release", "--locked", "--timings"])
+        .args(cargo_words(confined.as_ref()))
         .current_dir(&lane.path)
         .env("CARGO_TARGET_DIR", &built)
         .env("CARGO_PROFILE_RELEASE_INCREMENTAL", "true");
@@ -319,6 +326,14 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     fs::write(runtime.join(BUILT_HERE), layout::short(target))?;
     fs::write(layout.build_seconds(), started.elapsed().as_secs().to_string())?;
     Ok(())
+}
+
+fn cargo_words(confined: Option<&Confinement>) -> Vec<String> {
+    let cargo = ["nix", "develop", "-c", "cargo", "build", "--release", "--locked", "--timings"].map(str::to_owned);
+    match confined {
+        Some(confinement) => ["nice", "-n", "19", "ionice", "-c", "3"].map(str::to_owned).into_iter().chain(cargo).chain(["-j".to_owned(), confinement.jobs.to_string()]).collect(),
+        None => cargo.to_vec(),
+    }
 }
 
 fn cargo_ran(built: &Path, since: std::time::SystemTime) -> bool {
@@ -491,24 +506,41 @@ mod tests {
     #[test]
     fn a_game_reserve_host_with_no_other_host_with_room_builds_here_under_local_admission() {
         let refused = "no other host has room: gex45: CPU pressure 63% at the 40% admission mark".to_owned();
-        match placement(true, false, || Err(refused.clone())) {
+        match placement(true, false, || panic!("not asked"), || Err(refused.clone())) {
             Placement::Here { refused: Some(why) } => assert_eq!(why, refused),
             _ => panic!("a reserved host with no room elsewhere must build locally, not defer"),
         }
     }
 
+    fn agent_cpus() -> Confinement {
+        Confinement { cpus: "4-7".to_owned(), jobs: 4 }
+    }
+
     #[test]
-    fn a_game_reserve_host_that_builds_only_its_own_runtime_holds_the_build_without_asking_another_host() {
-        match placement(true, true, || panic!("no other host is asked")) {
-            Placement::Held => {}
-            _ => panic!("a reserved settler must hold its build until reserve ends"),
+    fn a_game_reserve_host_that_builds_only_its_own_runtime_builds_confined_without_asking_another_host() {
+        match placement(true, true, || Some(agent_cpus()), || panic!("no other host is asked")) {
+            Placement::Confined(confinement) => assert_eq!((confinement.cpus.as_str(), confinement.jobs), ("4-7", 4)),
+            _ => panic!("a reserved settler must build here on the agent CPUs, not defer and not go elsewhere"),
         }
-        assert!(matches!(placement(false, true, || panic!("not asked")), Placement::Here { refused: None }));
+        assert!(matches!(placement(false, true, || panic!("not asked"), || panic!("not asked")), Placement::Here { refused: None }));
+    }
+
+    #[test]
+    fn a_game_reserve_settler_whose_agent_cpus_are_not_enforced_still_holds_the_build() {
+        assert!(matches!(placement(true, true, || None, || panic!("no other host is asked")), Placement::Held));
+    }
+
+    #[test]
+    fn a_confined_build_runs_cargo_at_idle_priority_with_jobs_capped_at_the_agent_cpus() {
+        let words = cargo_words(Some(&agent_cpus()));
+        assert_eq!(words[..6], ["nice", "-n", "19", "ionice", "-c", "3"]);
+        assert_eq!(words[words.len() - 2..], ["-j", "4"]);
+        assert!(!cargo_words(None).iter().any(|word| word == "nice" || word == "-j"));
     }
 
     #[test]
     fn a_game_reserve_host_builds_on_another_host_that_has_room() {
-        match placement(true, false, || Ok(machine("gex45"))) {
+        match placement(true, false, || panic!("not asked"), || Ok(machine("gex45"))) {
             Placement::Elsewhere(chosen) => assert_eq!(chosen.name, "gex45"),
             _ => panic!("a reserved host with room elsewhere must build there"),
         }

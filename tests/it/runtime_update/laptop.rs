@@ -18,7 +18,7 @@ fn builder_offers(host: &Host) {
     script(&host.path("bin/agents"), &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()));
     script(
         &host.path("bin/bun"),
-        "release=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\nfor program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\nprintf 'local build\\n' >>\"$TEST_ALERTS\"\n",
+        "release=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\nfor program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\nprintf 'local build %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n",
     );
 }
 
@@ -33,6 +33,9 @@ fn environment(host: &Host, name: &str, hosts: &str, reserved: bool) -> Vec<(&'s
     if reserved {
         fs::write(host.path("game-reserve.json"), "{\"on\":true,\"since\":99999999999}").unwrap();
         environment.push(("GAME_RESERVE_STATE", host.path("game-reserve.json").display().to_string()));
+        fs::create_dir_all(host.path("cgroup")).unwrap();
+        environment.push(("GAME_RESERVE_CGROUP", host.path("cgroup").display().to_string()));
+        environment.push(("GAME_RESERVE_AGENT_CPUS", "4-7".to_owned()));
     }
     environment
 }
@@ -63,27 +66,34 @@ fn a_host_that_does_not_settle_the_fleet_still_pulls_what_the_settler_built() {
 }
 
 #[test]
-fn a_host_that_settles_the_fleet_defers_its_build_in_game_reserve_and_keeps_the_live_runtime() {
+fn a_host_that_settles_the_fleet_builds_confined_in_game_reserve_without_pulling_and_promotes_its_own_build() {
     let host = Host::new();
     builder_offers(&host);
     let environment = environment(&host, "laptop", FLEET, true);
     let output = tick(&host, &environment, 0);
     let calls = fs::read_to_string(host.path("alerts")).unwrap_or_default();
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!pulled_from_builder(&host), "{calls}");
-    assert!(!calls.contains("local build"), "{calls}");
-    assert!(String::from_utf8_lossy(&output.stderr).contains("waits for the reserve to end"), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(calls.matches("local build").count(), 1, "{calls}");
+    assert!(calls.contains("nice -n 19 ionice -c 3 nix develop -c cargo build") && calls.contains("-j 4"), "{calls}");
+    assert!(stdout.contains("on the agent CPUs 4-7 at idle priority"), "{stdout}");
     assert!(!host.path("state/north/runtime-failed").exists());
-    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+    assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
+    assert!(host.runtime(&host.target).join("built-here").is_file());
 }
 
 #[test]
-fn a_host_that_settles_the_fleet_builds_the_deferred_runtime_once_game_reserve_ends() {
+fn a_host_that_settles_the_fleet_holds_its_build_while_game_reserve_leaves_the_game_cpus_open_and_builds_once_it_ends() {
     let host = Host::new();
     builder_offers(&host);
     let reserved = environment(&host, "laptop", FLEET, true);
+    let open = host.path("cgroup/agent.slice");
+    fs::create_dir_all(&open).unwrap();
+    fs::write(open.join("cpuset.cpus.effective"), "0-3\n").unwrap();
     let held = tick(&host, &reserved, 0);
     assert!(String::from_utf8_lossy(&held.stderr).contains("waits for the reserve to end"), "{}", String::from_utf8_lossy(&held.stderr));
     assert!(!fs::read_to_string(host.path("alerts")).unwrap_or_default().contains("local build"));
+    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
     fs::write(host.path("game-reserve.json"), "{\"on\":false,\"since\":0}").unwrap();
     tick(&host, &reserved, 0);
     let calls = fs::read_to_string(host.path("alerts")).unwrap_or_default();
