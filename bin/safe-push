@@ -1526,7 +1526,7 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   if [ "$to" = "$(default_branch)" ]; then
     autoland_base=$(fetch_destination) || exit 1
     route_status=3
-    if [ "$(landing_queue "refs/remotes/origin/$to")" = lander ]; then
+    if [ "$(landing_queue "refs/remotes/origin/$to")" = lander ] && command -v north >/dev/null 2>&1; then
       north land route --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land route, which decides whether the lander takes this lane; run north runtime update; NOT pushed." >&2; exit 1; }
       route_status=0; north land route "${original_arguments[@]}" || route_status=$?
     fi
