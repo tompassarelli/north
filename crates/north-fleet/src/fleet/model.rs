@@ -122,6 +122,11 @@ impl LaunchRequest {
         super::silent::eta_minutes(&self.prompt).or_else(|| self.named_brief().and_then(|brief| super::silent::eta_minutes(&brief)))
     }
 
+    /// The `Budget:` line's E, in the prompt or else in the brief it points at.
+    pub fn budget(&self) -> Option<super::budget::Stated> {
+        super::budget::stated(&self.prompt).or_else(|| self.named_brief().and_then(|brief| super::budget::stated(&brief)))
+    }
+
     pub fn named_brief(&self) -> Option<String> {
         let brief = self
             .prompt
@@ -225,6 +230,8 @@ pub struct SessionRecord {
     pub role: Option<Role>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_sender: Option<Sender>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<super::budget::Stated>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -280,6 +287,7 @@ impl SessionRecord {
             addressed_since_ms: None,
             role: Some(request.role()),
             prompt_sender: None,
+            budget: request.budget(),
         }
     }
 

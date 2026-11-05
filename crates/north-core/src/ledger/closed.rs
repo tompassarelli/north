@@ -104,12 +104,13 @@ impl Cell {
     }
 }
 
-/// What a closed-box cell says about its next box: the median cost of a closed box and the p75 wall
+/// What a closed-box cell says about its next box: the median and p90 cost of a closed box and the p75 wall
 /// of a run on one, each with the sample it comes from and its 95% order-statistic interval.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Figures {
     pub closed: usize,
     pub median_usd: f64,
+    pub p90_usd: f64,
     pub usd_interval: (f64, f64),
     pub runs: usize,
     pub p75_minutes: f64,
@@ -259,6 +260,7 @@ impl ClosedReport {
         (!spends.is_empty() && !walls.is_empty()).then(|| Figures {
             closed: spends.len(),
             median_usd: percentile(&mut spends, 50),
+            p90_usd: percentile(&mut spends, 90),
             usd_interval: interval(&mut spends, 50),
             runs: walls.len(),
             p75_minutes: percentile(&mut walls, 75),

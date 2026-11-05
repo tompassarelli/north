@@ -12,7 +12,7 @@ use crate::foundation::clock::Timestamp;
 const CREATE: &str = "CREATE TABLE usage(ts TEXT, provider TEXT, account TEXT, kind TEXT, name TEXT, used_pct REAL, window_min INTEGER, resets_at TEXT, amount REAL, source TEXT) STRICT";
 const HEADERS: &str =
     "Messages response anthropic-ratelimit-unified headers on the account's setup token";
-const BRIEF: &str = "Item: north#259 (box: Usage box 5)\nTier: sonnet-high\nETA: 30 min\nBudget: at $6.74 API-equivalent spend (twice the cell's median cost per closed box, median $3.37 of n=82 boxes)\n";
+const BRIEF: &str = "Item: north#259 (box: Usage box 5)\nTier: sonnet-high\nETA: 30 min\nBudget: E p50 $3.37, p90 $6.74 (p50 and p90 of n=82 closed boxes); `north fleet spend --self` prints your API-equivalent spend so far; at $6.74 API-equivalent spend, commit and land\n";
 
 struct Fixture {
     directory: tempfile::TempDir,

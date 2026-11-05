@@ -94,22 +94,20 @@ impl Grounds {
     }
 
     pub fn budget(&self, route: &Route) -> Option<String> {
-        let (usd, basis, source) = match (&self.budget_cell, &self.figures) {
-            (Some(tuned), _) => (tuned.value, "the tune cell's budget", format!("tune cell, {}", tuned.date)),
-            (None, Some(figures)) => (
-                figures.median_usd * BUDGET_TIMES,
-                "twice the cell's median cost per closed box",
-                format!("median ${:.2} of n={} boxes, {}", figures.median_usd, figures.closed, cell(route)),
-            ),
+        let (p50, p90, source) = match (&self.budget_cell, &self.figures) {
+            (Some(tuned), figures) => (figures.as_ref().map(|figures| figures.median_usd), tuned.value, format!("tune cell, {}", tuned.date)),
+            (None, Some(figures)) => (Some(figures.median_usd), figures.p90_usd, format!("p50 and p90 of n={} closed boxes, {}", figures.closed, cell(route))),
             (None, None) => return None,
         };
-        Some(match self.floor.filter(|(floor, _)| usd < *floor) {
-            Some((floor, boxes)) => format!(
-                "Budget: {READ_SPEND}; at ${floor:.2} API-equivalent spend (the median cost of a closed box across every cell (n={boxes} boxes, ledger {WINDOW}), since {basis} (${usd:.2}; {source}) is below what one real box needs), {AT_THE_LINE}"
-            ),
-            None if self.budget_cell.is_some() => format!("Budget: {READ_SPEND}; at ${usd:.2} API-equivalent spend ({source}), {AT_THE_LINE}"),
-            None => format!("Budget: {READ_SPEND}; at ${usd:.2} API-equivalent spend ({basis}, {source}), {AT_THE_LINE}"),
-        })
+        let (p90, source) = match self.floor.filter(|(floor, _)| p90 < *floor) {
+            Some((floor, boxes)) => (floor, format!("{source}; the p90 ${p90:.2} is below the median cost of a closed box across every cell (n={boxes} boxes, ledger {WINDOW}), which one real box needs")),
+            None => (p90, source),
+        };
+        let stated = match p50.map(|p50| p50.min(p90)) {
+            Some(p50) => format!("E p50 ${p50:.2}, p90 ${p90:.2}"),
+            None => format!("E p90 ${p90:.2}"),
+        };
+        Some(format!("Budget: {stated} ({source}); {READ_SPEND}; at ${p90:.2} API-equivalent spend, {AT_THE_LINE}"))
     }
 
     /// The issue's Not required lines and the prior reports on it.

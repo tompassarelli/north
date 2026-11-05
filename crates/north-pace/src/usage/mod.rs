@@ -14,6 +14,7 @@ pub mod events;
 mod ctx;
 mod fast;
 mod gate;
+pub mod breaker;
 pub mod decide;
 pub mod profiles;
 mod py;

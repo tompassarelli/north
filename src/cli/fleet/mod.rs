@@ -1,4 +1,5 @@
 mod admission;
+mod breaker;
 mod claims;
 mod digest;
 mod duplicate;

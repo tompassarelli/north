@@ -73,12 +73,12 @@ fn a_cell_whose_few_closed_boxes_were_trivial_budgets_the_median_closed_box_acro
     let haiku = Route { tier: Tier::Haiku, category: "mechanical".into(), arm: false, effort: None, effort_arm: false, follows: None, why: String::new() };
     let grounds = ledger.grounds("wisp#81", 0.0, WISP_81, &haiku);
     let (cell, (floor, boxes)) = (grounds.figures.clone().unwrap(), grounds.floor.unwrap());
-    assert!(cell.median_usd * 2.0 < floor && boxes == 11, "the haiku cell's ${:.2} sits below the ${floor:.2} floor of {boxes} boxes", cell.median_usd);
+    assert!(cell.p90_usd < floor && boxes == 11, "the haiku cell's ${:.2} sits below the ${floor:.2} floor of {boxes} boxes", cell.median_usd);
     let budget = grounds.budget(&haiku).unwrap();
     assert_eq!(spend(&budget), (floor * 100.0).round() / 100.0, "{budget}");
-    assert!(budget.contains("the median cost of a closed box across every cell (n=11 boxes, ledger 7d)") && budget.contains("n=5 boxes, cell mechanical on haiku"), "{budget}");
+    assert!(budget.contains("the median cost of a closed box across every cell (n=11 boxes, ledger 7d)") && budget.contains("n=5 closed boxes, cell mechanical on haiku"), "{budget}");
     let opus = Route { tier: Tier::Opus, category: "feature".into(), ..haiku };
     let real = ledger.grounds("north#12", 0.0, "", &opus);
     let budget = real.budget(&opus).unwrap();
-    assert_eq!(spend(&budget), (real.figures.unwrap().median_usd * 200.0).round() / 100.0, "a cell above the floor keeps twice its median: {budget}");
+    assert_eq!(spend(&budget), (real.figures.unwrap().p90_usd * 100.0).round() / 100.0, "a cell above the floor keeps its own p90: {budget}");
 }

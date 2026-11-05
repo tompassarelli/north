@@ -86,6 +86,7 @@ impl WaitProbes for Probes {
     fn settle(&self, fleet: &Fleet) -> Probed {
         let parked = park_limited(fleet, &UsageTable, now_ms());
         let handed = hand_over(fleet, &UsageTable, &|record| holds_unlanded_lane(&record.cwd), &|request| fleet.take_over(request), &tell_tom, now_ms());
+        let budget = super::breaker::watch(fleet, &tell_tom, now_ms());
         let usage_parked = |name: &str| fleet.waits().of(name).iter().any(|wait| matches!(wait.run, Run::Usage { .. }));
         let tell = |name: &str, text: &str| -> NorthResult<()> {
             let Ok(record) = fleet.session(name) else { return Ok(()) };
@@ -97,7 +98,7 @@ impl WaitProbes for Probes {
         };
         let exists = |name: &str| fleet.session(name).is_ok();
         let told = fleet.waits().settle(&Runs::default(), &exists, &tell);
-        let lines = parked.iter().map(Parked::line).chain(handed.lines).chain(handed.alert).chain(told.iter().map(Settled::line)).collect();
+        let lines = parked.iter().map(Parked::line).chain(handed.lines).chain(handed.alert).chain(budget).chain(told.iter().map(Settled::line)).collect();
         Probed { lines, settled: told.iter().filter_map(|settled| settled.run.request(&settled.session)).map(|request| request.key()).collect() }
     }
 }
