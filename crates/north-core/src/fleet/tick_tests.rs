@@ -1091,6 +1091,79 @@ fn an_all_out_line_that_fails_to_send_is_reported_retried_and_leaves_the_fleet_t
     assert!(again.lines.is_empty() && host.fleet.all_out_announced());
 }
 
+struct Lifting<'a>(&'a Table);
+
+impl crate::fleet::waits::Probe for Lifting<'_> {
+    fn result(&self, wait: &crate::fleet::waits::Registered) -> Option<String> {
+        crate::fleet::limit::UsageWait::of(wait)?.lifted(&self.0.0.readings, NOW_MS)
+    }
+}
+
+struct Reviving<'a>(&'a Table, &'a std::sync::Mutex<Vec<String>>);
+
+impl WaitProbes for Reviving<'_> {
+    fn settle(&self, fleet: &Fleet) -> Probed {
+        let tell = |name: &str, _: &str| {
+            self.1.lock().unwrap().push(name.to_owned());
+            Ok(())
+        };
+        let told = fleet.waits().settle(&Lifting(self.0), &|name| fleet.session(name).is_ok(), &tell);
+        Probed { lines: told.iter().map(crate::fleet::waits::Settled::line).collect(), settled: Vec::new() }
+    }
+}
+
+fn revived_by_a_tick(host: &Host, table: &Table) -> (Vec<String>, Vec<String>) {
+    let revived = std::sync::Mutex::new(Vec::new());
+    let ticked = tick(&host.fleet, &mut host.store(), &host.pulls(), &Reviving(table, &revived), NOW_MS, BUDGET).unwrap();
+    (revived.into_inner().unwrap(), ticked.lines())
+}
+
+const WEEK_MS: u64 = 7 * 86_400_000;
+
+#[test]
+fn a_session_parked_a_week_on_a_is_revived_by_the_next_tick_once_a_reading_of_as_week_newer_than_the_park_shows_room() {
+    let host = host("nexus");
+    for (name, account) in [("proxy", "a"), ("worker", "b")] {
+        let cwd = lane(&host, name);
+        working_on(&host, name, account, None, &cwd);
+        parked_on(&host, name, account, NOW_MS + WEEK_MS, NOW_MS - 30 * 60_000, &cwd);
+    }
+
+    let (revived, lines) = revived_by_a_tick(&host, &north_576());
+
+    assert_eq!(revived, ["proxy"], "b's week reads full after its park, so worker holds");
+    assert!(lines.iter().any(|line| line.starts_with("proxy: usage:a@") && line.ends_with("reads 24% used")), "{lines:?}");
+    assert!(host.fleet.waits().of("proxy").is_empty());
+    assert_eq!(host.fleet.waits().of("worker").len(), 1);
+}
+
+#[test]
+fn a_usage_wait_whose_reset_has_passed_is_released_whatever_the_readings_say() {
+    let host = host("nexus");
+    let cwd = lane(&host, "worker");
+    working_on(&host, "worker", "b", None, &cwd);
+    parked_on(&host, "worker", "b", NOW_MS - 1_000, NOW_MS - 2 * WEEK_MS, &cwd);
+
+    let (revived, lines) = revived_by_a_tick(&host, &north_576());
+
+    assert_eq!(revived, ["worker"]);
+    assert!(lines.iter().any(|line| line.starts_with("worker: usage:b@") && line.ends_with(" reset")), "{lines:?}");
+    assert!(host.fleet.waits().of("worker").is_empty());
+}
+
+#[test]
+fn a_usage_wait_parked_after_every_reading_of_its_window_holds_until_its_reset() {
+    let host = host("nexus");
+    let cwd = lane(&host, "proxy");
+    working_on(&host, "proxy", "a", None, &cwd);
+    parked_on(&host, "proxy", "a", NOW_MS + WEEK_MS, NOW_MS, &cwd);
+
+    let (revived, lines) = revived_by_a_tick(&host, &north_576());
+
+    assert!(revived.is_empty(), "a's 24% week was read before the park, so the park is the newest word: {lines:?}");
+    assert_eq!(host.fleet.waits().of("proxy").len(), 1);
+}
+
 fn fixture(week_out: &[(&str, i64)], open: &[&str]) -> Table {
     use crate::usage::decide::world::Window;
     let mut readings = Vec::new();

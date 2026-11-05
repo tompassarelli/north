@@ -7,7 +7,7 @@ use rusqlite::{Connection, params};
 
 use crate::fleet::lane_probe::Git;
 use crate::fleet::handover::{AccountReadings, Observed};
-use crate::fleet::limit::AccountResets;
+use crate::fleet::limit::{AccountResets, FULL_PCT};
 use crate::fleet::stranded::{Lanes, Worktree};
 use crate::foundation::clock::Timestamp;
 use crate::land::queue;
@@ -16,7 +16,6 @@ use crate::usage::decide::world::{Label, LimitEvent, ModelFamily, Percent, Readi
 use crate::usage::{open_ledger, profiles};
 use crate::watch;
 
-const FULL_PCT: f64 = 99.5;
 const QUERY: Duration = Duration::from_secs(10);
 
 /// The reset of the window the account is out of, else of the soonest window, from the latest `usage` rows.

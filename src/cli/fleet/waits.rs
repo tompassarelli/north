@@ -9,8 +9,8 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::detached;
-use crate::fleet::handover::hand_over;
-use crate::fleet::limit::park_limited;
+use crate::fleet::handover::{AccountReadings, Observed, hand_over};
+use crate::fleet::limit::{UsageWait, park_limited};
 use crate::fleet::model::{Delivery, Ending};
 use crate::fleet::registry::{Fleet, Waiting};
 use crate::fleet::runtime::{SESSION_ENV, now_ms};
@@ -113,6 +113,7 @@ fn tell_tom(line: &str) -> Result<(), String> {
 #[derive(Default)]
 struct Runs {
     job_rows: OnceCell<Option<Value>>,
+    observed: OnceCell<Observed>,
 }
 
 impl Runs {
@@ -133,7 +134,7 @@ impl Probe for Runs {
             Run::Farm(id) => farm(id, &wait.cwd),
             Run::Branch(branch) => branch_state(branch, &wait.cwd),
             Run::Capture(path) => wait.cwd.join(path).exists().then(|| "written".to_owned()),
-            Run::Usage { at_ms, .. } => (now_ms() >= *at_ms).then(|| "reset".to_owned()),
+            Run::Usage { .. } => UsageWait::of(wait)?.lifted(&self.observed.get_or_init(|| UsageTable.observed(now_ms())).readings, now_ms()),
             Run::Process { pid, started } => (!detached::alive(Path::new("/proc"), *pid, *started)).then(|| "ended".to_owned()),
         }
     }

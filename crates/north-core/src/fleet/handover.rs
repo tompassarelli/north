@@ -3,18 +3,16 @@
 //! the old one's lane, and a lead goes first.
 use std::collections::BTreeSet;
 
-use super::limit::recent;
+use super::limit::{UsageWait, recent};
 use super::model::{Ending, LaunchRequest, Role, SessionRecord};
 use super::registry::Fleet;
 use super::waits::Run;
 use crate::error::NorthResult;
 use crate::foundation::clock::Timestamp;
 use crate::usage::decide::world::{
-    Account, EstimateSource, Expected, Host, Label, LimitEvent, ModelFamily, Name, Owner, Provider, Rate, Rates, Reading, Session, Settings, Standing, Unix, Usd, Window, World,
+    Account, EstimateSource, Expected, Host, Label, LimitEvent, ModelFamily, Name, Owner, Provider, Rate, Rates, Reading, Session, Settings, Standing, Unix, Usd, World,
 };
 use crate::usage::decide::{Action, Assessments, assess};
-
-const FIVE_HOURS_MS: u64 = 5 * 3_600_000;
 
 /// What the usage table says about every account, read outside the fleet registry.
 #[derive(Default)]
@@ -57,18 +55,12 @@ pub fn hand_over(
     let sessions: Vec<Session> = records
         .iter()
         .map(|record| {
-            let parked = waits.of(&record.name).into_iter().find_map(|wait| match wait.run {
-                Run::Usage { account, at_ms } => Some((account, at_ms, wait.since_ms)),
-                _ => None,
-            });
-            if let Some((account, at_ms, since_ms)) = &parked {
-                let (account, window, at) = (Label(account.clone()), if at_ms.saturating_sub(now_ms) > FIVE_HOURS_MS { Window::Week } else { Window::FiveHour }, Unix((since_ms / 1000) as i64));
-                if !observed.readings.iter().any(|reading| reading.account == account && reading.window == window && reading.read_at > at) {
-                    limits.push(LimitEvent { account, window, resets_at: Some(Unix((at_ms / 1000) as i64)), at });
-                }
+            let parked = waits.of(&record.name).iter().find_map(UsageWait::of);
+            if let Some(wait) = parked.as_ref().filter(|wait| wait.newer_reading(&observed.readings).is_none()) {
+                limits.push(LimitEvent { account: wait.account.clone(), window: wait.window, resets_at: Some(wait.until), at: wait.parked_at });
             }
             let standing = if record.role() == Role::Proxy { Standing::Proxy } else if leads.contains(record.name.as_str()) { Standing::Lead } else { Standing::Worker };
-            session_of(record, standing, parked.map(|(_, _, since_ms)| Unix((since_ms / 1000) as i64)))
+            session_of(record, standing, parked.map(|wait| wait.parked_at))
         })
         .collect();
     let settings = Settings::default();

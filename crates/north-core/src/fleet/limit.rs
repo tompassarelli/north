@@ -1,5 +1,6 @@
 //! A session whose last turn ended on its account's usage limit parks on `usage:ACCOUNT@TIME`;
-//! `north fleet waits` revives it once the reset has passed.
+//! `north fleet waits` revives it once the reset has passed or a reading of that window newer than
+//! the park shows room.
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
@@ -8,12 +9,15 @@ use regex::Regex;
 use super::model::{Ending, EntryKind, SessionRecord, Status, UsageLimit};
 use super::registry::Fleet;
 use super::transcript::stream_path;
-use super::waits::Run;
+use super::waits::{Registered, Run};
+use crate::usage::decide::world::{Label, Reading, Unix, Window};
 
 const RECENT: Duration = Duration::from_secs(48 * 3600);
 const UNREADABLE_RETRY_MS: u64 = 3_600_000;
 const DAY_MS: u64 = 86_400_000;
 const LABEL: &str = "usage limit";
+const FIVE_HOURS_MS: u64 = 5 * 3_600_000;
+pub const FULL_PCT: f64 = 99.5;
 
 static CLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bresets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(utc\)").expect("limit clock pattern"));
 
@@ -77,6 +81,33 @@ pub fn park_limited(fleet: &Fleet, resets: &dyn AccountResets, now_ms: u64) -> V
         }
     }
     parked
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UsageWait {
+    pub account: Label,
+    pub window: Window,
+    pub until: Unix,
+    pub parked_at: Unix,
+}
+
+impl UsageWait {
+    pub fn of(wait: &Registered) -> Option<Self> {
+        let Run::Usage { account, at_ms } = &wait.run else { return None };
+        let window = if at_ms.saturating_sub(wait.since_ms) > FIVE_HOURS_MS { Window::Week } else { Window::FiveHour };
+        Some(Self { account: Label(account.clone()), window, until: Unix((at_ms / 1000) as i64), parked_at: Unix((wait.since_ms / 1000) as i64) })
+    }
+
+    pub fn newer_reading<'a>(&self, readings: &'a [Reading]) -> Option<&'a Reading> {
+        readings.iter().filter(|reading| reading.account == self.account && reading.window == self.window && reading.read_at > self.parked_at).max_by_key(|reading| reading.read_at)
+    }
+
+    pub fn lifted(&self, readings: &[Reading], now_ms: u64) -> Option<String> {
+        if now_ms >= self.until.0 as u64 * 1000 {
+            return Some("reset".to_owned());
+        }
+        self.newer_reading(readings).filter(|reading| reading.used.0 < FULL_PCT).map(|reading| format!("reads {:.0}% used", reading.used.0))
+    }
 }
 
 pub(super) fn recent(record: &SessionRecord) -> bool {
