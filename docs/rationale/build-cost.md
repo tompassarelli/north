@@ -333,3 +333,72 @@ Result: whiterabbit (24 threads), a fresh north worktree with one blank line app
 
 Order: B1, B2, B4 and B5 run in parallel; B3 follows B2, B6 follows B5, B8 follows the pull closure, B10 follows B9,
 B11 follows the offload fix.
+
+### Shared compiler cache across hosts (north#259, 2026-11-05)
+
+Cause: the laptop, gex45 and ccx33 each kept their own sccache disk cache, so a crate compiled on one host was
+compiled again on the others. Now the firn module `sccache` adds a shared level behind the local disk: nexus serves
+it (`sccache.server`), and the other hosts read and write it (`sccache.remote`).
+
+Shape, and why each piece is there:
+
+- Store: `rclone serve webdav` on nexus at 10.77.0.1:8379, on disk under `/var/lib/sccache-cache`, capped at 20 GiB.
+  An hourly sweep deletes the entries read longest ago. nexus is the wg-nexus hub, and the hub is the one address
+  every client reaches: it forwards nothing between clients (`net.ipv4.ip_forward = 0`), so the laptop cannot reach
+  gex45 or ccx33 over wg-nexus. The nftables rule accepts port 8379 only from 10.77.0.2, .4 and .5. WireGuard ties each
+  source address to one peer key, held in sops, so no new credential exists, and the phone (.3) is shut out.
+- Client relay: a local nginx on 127.0.0.1:16380 proxies to the store with a 1 s connect timeout and a 3 s read
+  timeout, and answers every upstream error as 404. That 404 is what makes an outage harmless. sccache's storage
+  layer (opendal) retries a "temporary" error for tens of seconds per read, but treats a 404 as a final miss.
+- Sandbox bridge: depbox runs builds with no network. The firn module bridges `/run/sccache-remote/http.sock` to the
+  relay, and when the rustc wrapper finds no relay on 127.0.0.1:16380 it starts a loopback-to-socket bridge inside
+  the sandbox. depbox needs no change for this.
+- The wrapper adds the WebDAV level (`SCCACHE_MULTILEVEL_CHAIN=disk,webdav`) only when it is about to start an sccache
+  server and the relay accepts a connection. A level that cannot be built stops sccache's server from starting, and
+  the build then fails.
+- The wrapper also roots `SCCACHE_BASEDIRS` at the checkout named by rustc's `--out-dir` (formerly only the CMake
+  launcher rooted it, by working directory), with one sccache server per checkout. Without that, a lane's in-checkout
+  `target/` paths enter the key, and no two worktrees share an entry. depbox builds already share one path
+  (`~/code/<project>/sandbox`).
+
+Outage measurements: ccx33, a 5-crate project (serde_json, itoa, memchr), a fresh target and an empty disk level,
+one run each, all exit 0. The outages were simulated in a user network namespace.
+
+| Backend, state | Wall s | Rust hits |
+| --- | --- | --- |
+| WebDAV via relay, populate | 3.85 | 0 of 5 |
+| WebDAV via relay, disk level wiped | 1.84 | 5 of 5 |
+| WebDAV via relay, packets to the store dropped by nftables mid-session | 14.8 | 0 |
+| WebDAV via relay, server started while dropped | 5.6 | 0 |
+| WebDAV via relay, store stopped | 3.6 | 0 |
+| Redis direct, endpoint unreachable at server start | 20.5, exit 101 | |
+| Redis via socat relay, Redis frozen (SIGSTOP) | 182.5 | 0 |
+| Redis via socat relay with TCP_USER_TIMEOUT 3 s, packets dropped | 182.7 | 0 |
+
+- Redis was the first choice, rejected on the last three rows: opendal retries the unreachable level past the
+  client's 10 s server-start limit, and sccache 0.15 has no setting for either. `redis+unix://` endpoints are refused
+  as `invalid format`.
+- bazel-remote (an LRU HTTP cache) refuses sccache's paths with 400 `resource name must be a SHA256 hash`, and nginx's
+  stock DAV module answers sccache's PROPFIND with 405, so writes fail. rclone accepts both.
+
+What the cache can and cannot save, from `cargo build --locked --offline -p north` on ccx33 at north
+11f5152f7, under a 3-CPU heavy lease, with the target at one fixed path so keys match:
+
+| Build | Wall s | Rust hits |
+| --- | --- | --- |
+| incremental (default), empty cache | 72.6 | 0 of 142 |
+| incremental, every cacheable crate cached | 53.9 | 142 of 142 |
+| `CARGO_INCREMENTAL=0`, empty cache | 66.1 | 0 of 145 |
+| `CARGO_INCREMENTAL=0`, all cached | 12.6 | 145 of 145 |
+| incremental, one-line north-core edit after a build | 13.6, 12.3 | |
+| `CARGO_INCREMENTAL=0`, the same edit | 44.6, 42.9 | |
+
+- sccache passes incremental crates through, and north's four workspace crates are incremental by default. A full
+  cache hit therefore cuts a fresh lane's build only to 74% of cold. The rest is north-core, where `target-seed`
+  (warm worktree builds, above) is the lever on one host.
+- Turning incremental off makes north-core cacheable (12.6 s, 19% of cold) but adds about 30 s to every north-core
+  edit build. Lanes keep incremental for that reason.
+- Land checks stay incremental too. Lander lanes are the newest seeds for new worker lanes, and a seed without
+  north-core's incremental session sends the worker's first build back to about 72 s.
+- A first build with a different `CARGO_TARGET_DIR` hit 0 of 142 on the same host and cache, because target paths
+  outside the basedir enter the key.
