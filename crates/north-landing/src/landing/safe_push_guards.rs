@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::denylist;
+use crate::watch::facts::slug_of;
 use super::safe_push_state::{Refused, Step, cancelled, exit_code, git_quiet, git_read, refuse};
 
 const NATIVE_REFS: [&str; 4] = ["life#", "accounts#", "travel#", "ops#"];
@@ -172,12 +173,22 @@ impl Denylist {
     }
 
     pub fn scan(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step {
-        let verdict = self.verdict(|| visibility(origin_url), || self.findings(root, base, head, tag));
+        let verdict = self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag));
         if verdict.refused {
             cancelled()?;
         }
         verdict.lines.iter().for_each(|line| println!("{line}"));
         if verdict.refused { Err(Refused(1)) } else { Ok(()) }
+    }
+
+    pub fn visibility_of(&self, origin_url: &str) -> String {
+        if self.is_south(origin_url) { "PRIVATE".to_owned() } else { visibility(origin_url) }
+    }
+
+    fn is_south(&self, origin_url: &str) -> bool {
+        let south = Command::new("git").arg("-C").arg(&self.south).args(["remote", "get-url", "origin"]).stderr(Stdio::null()).output();
+        let south = south.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
+        south.as_deref().and_then(slug_of).zip(slug_of(origin_url)).is_some_and(|(south, pushed)| south.eq_ignore_ascii_case(&pushed))
     }
 
     pub fn verdict(
