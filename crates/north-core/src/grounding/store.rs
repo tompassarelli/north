@@ -2,6 +2,8 @@ use super::*;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Stdio};
+use std::sync::Mutex;
+use std::time::Instant;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Doc {
@@ -27,7 +29,18 @@ impl std::ops::Deref for Hit {
         &self.doc
     }
 }
+#[derive(Clone, Copy, Default)]
+pub struct Bound {
+    pub terms: Option<usize>,
+    pub until: Option<Instant>,
+}
+impl Bound {
+    pub fn expired(&self) -> bool {
+        self.until.is_some_and(|at| Instant::now() >= at)
+    }
+}
 pub struct Sqlite {
+    bound: Bound,
     child: Child,
     input: ChildStdin,
     output: BufReader<ChildStdout>,
@@ -48,9 +61,13 @@ impl Sqlite {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
+        if let Ok(mut live) = LIVE.lock() {
+            live.push(child.id());
+        }
         let input = child.stdin.take().unwrap();
         let output = BufReader::new(child.stdout.take().unwrap());
         let mut db = Self {
+            bound: Bound::default(),
             child,
             input,
             output,
@@ -61,6 +78,12 @@ impl Sqlite {
             ".bail on\n.timeout 30000"
         })?;
         Ok(db)
+    }
+    pub fn bound(&mut self, bound: Bound) {
+        self.bound = bound;
+    }
+    pub fn expired(&self) -> bool {
+        self.bound.expired()
     }
     fn request(&mut self, sql: &str) -> Result<String> {
         writeln!(self.input, "{}\n.print __north_grounding_end__", sql)?;
@@ -96,9 +119,20 @@ impl Sqlite {
 }
 impl Drop for Sqlite {
     fn drop(&mut self) {
+        if let Ok(mut live) = LIVE.lock() {
+            live.retain(|pid| *pid != self.child.id());
+        }
         let _ = writeln!(self.input, ".quit");
         let _ = self.input.flush();
         let _ = self.child.wait();
+    }
+}
+static LIVE: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+pub fn kill_live() {
+    for pid in LIVE.lock().map(|live| live.clone()).unwrap_or_default() {
+        if let Some(pid) = i32::try_from(pid).ok().and_then(rustix::process::Pid::from_raw) {
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::Kill);
+        }
     }
 }
 pub fn quote(s: &str) -> String {
@@ -210,6 +244,20 @@ const FAMILIES: [&str; 8] = [
     "issues",
 ];
 const FAMILY: &str = "case when source='policy' and title like 'handoff %' then 'handoffs' when source='settings' or (source='policy' and ref like '%.toml' and title not like 'rule %' and title not like 'hook %') then 'config' when source='policy' then 'catalog' when source in ('commits','builds') then 'commits/builds' when source in ('threads','github') then 'issues' else source end";
+const QUERIES: usize = 3;
+const REPAIRS: usize = 2;
+const SHARP_DOCS: f64 = 500.0;
+const MIN_TERMS: usize = 4;
+
+fn rarest(candidates: Vec<(String, bool)>, stems: &HashMap<String, String>, df: &HashMap<String, f64>, total: f64, keep: usize) -> Vec<(String, bool)> {
+    let count = |word: &str| stems.get(word).and_then(|stem| df.get(stem)).copied();
+    let mut known: Vec<_> = candidates.iter().filter_map(|(word, _)| count(word).filter(|n| *n > 0.0 && !(total > 1000.0 && *n > total * 0.2)).map(|n| (word.clone(), n))).collect();
+    known.sort_by(|a, b| a.1.total_cmp(&b.1));
+    let sharp = known.iter().take_while(|(_, n)| *n <= SHARP_DOCS).count();
+    let mut kept: HashSet<String> = known.into_iter().take(sharp.max(MIN_TERMS).min(keep)).map(|(word, _)| word).collect();
+    kept.extend(candidates.iter().filter(|(word, _)| word.len() >= 6 && count(word).is_none()).take(REPAIRS).map(|(word, _)| word.clone()));
+    candidates.into_iter().filter(|(word, _)| kept.contains(word)).collect()
+}
 pub fn as_of_filter(as_of: f64) -> String {
     if as_of == 0.0 {
         String::new()
@@ -234,7 +282,7 @@ pub fn search(
     if candidates.is_empty() {
         return Ok((vec![], vec![]));
     }
-    let total = db.query("select count(*) n from docs;")?[0]["n"]
+    let total = db.query("select count(*) n from docs_docsize;")?[0]["n"]
         .as_f64()
         .unwrap_or(1.0)
         .max(1.0);
@@ -261,12 +309,17 @@ pub fn search(
                 .collect())
         };
     let mut df = stats(db, &stems)?;
+    let candidates = match db.bound.terms {
+        Some(keep) => rarest(candidates, &stems, &df, total, keep),
+        None => candidates,
+    };
+    stems.retain(|word, _| candidates.iter().any(|(kept, _)| kept == word));
     let mut repaired = HashMap::new();
     for (word, _) in &candidates {
         let Some(stem) = stems.get(word) else {
             continue;
         };
-        if df.contains_key(stem) || word.len() < 6 {
+        if df.contains_key(stem) || word.len() < 6 || db.bound.expired() {
             continue;
         }
         let rows=db.query(&format!("select term, doc from temp.grounding_vocab where length(term) between {} and {} and (substr(term,1,2)={} or substr(term,-2)={}) order by doc desc limit 2000;",stem.len().saturating_sub(2),stem.len()+2,quote(&stem[..stem.len().min(2)]),quote(&stem[stem.len().saturating_sub(2)..])))?;
@@ -283,7 +336,9 @@ pub fn search(
     for (word, term) in &repaired {
         stems.insert(word.clone(), term.clone());
     }
-    df = stats(db, &stems)?;
+    if !repaired.is_empty() {
+        df = stats(db, &stems)?;
+    }
     let domain: HashMap<_,_>=db.query(&format!("select v.term, count(distinct case when d.source!='projects' then v.doc end) catalog, count(distinct case when d.source='projects' then v.doc end) projects from temp.grounding_instances v join docs d on d.rowid=v.doc where v.term in ({}) and (d.source in ('settings','projects') or (d.source='policy' and d.title not like 'handoff %')) group by v.term;",stems.values().map(|s|quote(s)).collect::<Vec<_>>().join(",")))?.into_iter().map(|r|(s(&r,"term"),(num(&r,"catalog"),num(&r,"projects")))).collect();
     let long = query.split_whitespace().count() > 40;
     let mut weights: Vec<(String, f64)> = vec![];
@@ -333,9 +388,13 @@ pub fn search(
             queries.push(words);
         }
     }
+    queries.truncate(db.bound.terms.map_or(usize::MAX, |_| QUERIES));
     let mut fused: Vec<(i64, f64)> = vec![];
     let mut families = HashMap::new();
-    for words in &queries {
+    for (n, words) in queries.iter().enumerate() {
+        if n > 0 && db.bound.expired() {
+            break;
+        }
         let mut top = words.clone();
         top.sort_by(|a, b| weight(b).total_cmp(&weight(a)));
         top.truncate(16);
@@ -374,7 +433,8 @@ pub fn search(
         "brief",
         "status",
     ];
-    for row in db.query(&format!("select rowid, ref, {FAMILY} family from docs where docs match {} and source in ('policy','projects'){seen} limit 400;",quote(&q)))? {
+    let titled = if db.bound.expired() { vec![] } else { db.query(&format!("select rowid, ref, {FAMILY} family from docs where docs match {} and source in ('policy','projects'){seen} limit 400;",quote(&q)))? };
+    for row in titled {
         let reference=s(&row,"ref");let base=reference.split('#').next().unwrap_or("").rsplit('/').next().unwrap_or("").to_lowercase();let base=re(r"\.[a-z]+$").replace(&base,"");
         let parts:Vec<_>=base.split(|c:char|!c.is_ascii_alphanumeric()).filter(|p|p.len()>2 && !generic.contains(p)).map(str::to_owned).collect();
         let names=if parts.is_empty(){reference.split('/').rev().nth(1).unwrap_or("").to_lowercase().split(|c:char|!c.is_ascii_alphanumeric()).map(str::to_owned).collect()}else{parts};
@@ -498,6 +558,40 @@ pub fn search(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn index_with(rows: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.db");
+        let mut writer = Sqlite::open(&path, false).unwrap();
+        writer.exec(SCHEMA).unwrap();
+        for (n, (title, text)) in rows.iter().enumerate() {
+            writer
+                .exec(&format!("insert into docs(source,id,ref,title,text,at,decays) values('policy','{n}','harness/{n}.md',{},{},0,0);", quote(title), quote(text)))
+                .unwrap();
+        }
+        drop(writer);
+        (dir, path)
+    }
+
+    #[test]
+    fn expired_budget_still_returns_the_first_query_hits() {
+        let (_dir, path) = index_with(&[("deadline hook", "the prompt hook must answer within one second"), ("unrelated", "nothing to see")]);
+        let mut db = Sqlite::open(&path, true).unwrap();
+        db.bound(Bound { terms: Some(12), until: Some(Instant::now()) });
+        let (hits, _) = search("prompt hook answer within second. deadline hook must answer", &mut db, 0.0, 80, 0.0).unwrap();
+        assert!(hits.iter().any(|hit| hit.title == "deadline hook"), "{hits:?}");
+    }
+
+    #[test]
+    fn bounded_search_keeps_only_the_rarest_terms() {
+        let rows: Vec<(String, String)> = (0..40).map(|n| (format!("common {n}"), "alpha beta gamma delta".to_owned())).chain([("rare".to_owned(), "zyxwv".to_owned())]).collect();
+        let rows: Vec<(&str, &str)> = rows.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        let (_dir, path) = index_with(&rows);
+        let mut db = Sqlite::open(&path, true).unwrap();
+        db.bound(Bound { terms: Some(1), until: None });
+        let (_, words) = search("alpha beta gamma delta zyxwv", &mut db, 0.0, 80, 0.0).unwrap();
+        assert_eq!(words, ["zyxwv"]);
+    }
 
     #[test]
     fn locked_readonly_index_fails_open_before_the_prompt_budget() {

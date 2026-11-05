@@ -155,7 +155,7 @@ fn run(args: &[String], grounded: &dyn Fn(&str) -> bool) -> Result<i32> {
     if args.first().is_some_and(|a| a == "hook") {
         let mut raw = String::new();
         std::io::stdin().take(1048577).read_to_string(&mut raw)?;
-        return Ok(match hook_reply(&raw, grounded)? {
+        return Ok(match hook_reply(&raw, grounded, None)? {
             HookReply::Silent => 0,
             HookReply::Unparsable => 65,
             HookReply::Context(text) => {
@@ -170,7 +170,7 @@ fn run(args: &[String], grounded: &dyn Fn(&str) -> bool) -> Result<i32> {
     let now = Timestamp::now().unix_seconds_f64();
     let prior = env::var("NORTH_GROUNDING_PRIOR").unwrap_or_default();
     let text = if has(args, "--hook") {
-        hook::render(query, now, &prior, &mut hook::Session::default())?
+        hook::render(query, now, &prior, &mut hook::Session::default(), None)?
     } else {
         render::block(query, flag(args, "--tier").unwrap_or("A"), now, &prior)?
     };
@@ -187,7 +187,7 @@ pub(crate) enum HookReply {
 fn hook_json(text: &str) -> Value {
     json!({"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":text}})
 }
-fn hook_reply(raw: &str, grounded: &dyn Fn(&str) -> bool) -> Result<HookReply> {
+fn hook_reply(raw: &str, grounded: &dyn Fn(&str) -> bool, until: Option<std::time::Instant>) -> Result<HookReply> {
     if ulen(raw) > 1048576 {
         return Ok(HookReply::Silent);
     }
@@ -218,6 +218,7 @@ fn hook_reply(raw: &str, grounded: &dyn Fn(&str) -> bool) -> Result<HookReply> {
         Timestamp::now().unix_seconds_f64(),
         &prior_reply(&s(&payload, "transcript_path")),
         &mut session,
+        until,
     )?;
     hook::save(&id, &session);
     Ok(if text.is_empty() { HookReply::Silent } else { HookReply::Context(text) })

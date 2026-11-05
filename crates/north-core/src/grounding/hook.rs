@@ -1,6 +1,7 @@
 use super::*;
 use compose::{Rendered, Shape};
 use std::collections::HashSet;
+use std::time::Instant;
 
 const SYSTEM_TAGS: [&str; 12] = [
     "task-notification",
@@ -17,6 +18,7 @@ const SYSTEM_TAGS: [&str; 12] = [
     "user-prompt-submit-hook",
 ];
 const KEEP_DAYS: f64 = 14.0;
+const TYPED_LIMIT: usize = 2000;
 
 pub fn typed_text(prompt: &str) -> String {
     let mut text = prompt.to_owned();
@@ -69,13 +71,13 @@ pub fn save(id: &str, session: &Session) {
     }
 }
 
-pub fn render(prompt: &str, now: f64, prior: &str, session: &mut Session) -> Result<String> {
-    let typed = typed_text(prompt);
+pub fn render(prompt: &str, now: f64, prior: &str, session: &mut Session, until: Option<Instant>) -> Result<String> {
+    let typed = cut(&typed_text(prompt), TYPED_LIMIT);
     if typed.is_empty() {
         return Ok(String::new());
     }
     let seen: HashSet<String> = session.refs.iter().cloned().collect();
-    let Rendered { text, refs, live } = compose::shaped(&typed, "A", now, prior, &Shape::hook(seen, session.live.clone()))?;
+    let Rendered { text, refs, live } = compose::shaped(&typed, "A", now, prior, &Shape::hook(seen, session.live.clone(), until))?;
     if live.is_some() {
         session.live = live;
     }

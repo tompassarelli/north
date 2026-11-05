@@ -2,7 +2,7 @@ use std::env;
 use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
-use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, hook, language_gate, nix_explain, runtime_floor_gate, work_items};
+use crate::{agent_catalog, foundation, build_cache_gate, contract_probe, grounding, guard, health, hook, language_gate, nix_explain, runtime_floor_gate, work_items};
 
 mod abandon_witness;
 mod mutant_issues;
@@ -152,6 +152,8 @@ pub fn main() -> ExitCode {
     }
 }
 
+const GUARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(8);
+
 fn hook_command(arguments: Vec<String>) -> ExitCode {
     let reported = |outcome: Result<(), String>| match outcome {
         Ok(()) => ExitCode::SUCCESS,
@@ -167,13 +169,20 @@ fn hook_command(arguments: Vec<String>) -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("prompt-grounding") => {
-            grounding::prompt_hook(&|| guard::activation::authoring_guards_off("prompt-grounding"), &grounded_session);
+            grounding::prompt_hook(|| guard::activation::authoring_guards_off("prompt-grounding"), grounded_session);
             ExitCode::SUCCESS
         }
         _ => {
             guard::worker_handoff::install_confirm(crate::pacing::confirm_spawn);
             guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home });
-            reported(hook::run(&arguments))
+            let started = std::time::Instant::now();
+            match foundation::hook_deadline::within(started + GUARD_DEADLINE, move || hook::run(&arguments)) {
+                Some(outcome) => reported(outcome),
+                None => {
+                    foundation::hook_deadline::record_error(&foundation::hook_deadline::errors_file(), "north-hook", "deadline");
+                    ExitCode::SUCCESS
+                }
+            }
         }
     }
 }

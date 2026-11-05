@@ -1,10 +1,12 @@
 use super::*;
 use crate::foundation::redact::redact;
 use std::collections::HashSet;
-use store::{Hit, Sqlite};
+use std::time::Instant;
+use store::{Bound, Hit, Sqlite};
 pub const LIMIT_CHARS: usize = 6000;
 pub const HOOK_LIMIT_CHARS: usize = 1500;
 pub const HOOK_FLOOR: f64 = 0.5;
+pub const HOOK_TERMS: usize = 12;
 pub struct Shape {
     pub limit: usize,
     pub floor: f64,
@@ -15,13 +17,14 @@ pub struct Shape {
     pub brief: bool,
     pub seen: HashSet<String>,
     pub last_live: Option<String>,
+    pub bound: Bound,
 }
 impl Shape {
     pub fn query() -> Self {
-        Shape { limit: LIMIT_CHARS, floor: 0.2, keep: 0.2, mentions: 1600, terms: 12, width: 80, brief: false, seen: HashSet::new(), last_live: None }
+        Shape { limit: LIMIT_CHARS, floor: 0.2, keep: 0.2, mentions: 1600, terms: 12, width: 80, brief: false, seen: HashSet::new(), last_live: None, bound: Bound::default() }
     }
-    pub fn hook(seen: HashSet<String>, last_live: Option<String>) -> Self {
-        Shape { limit: HOOK_LIMIT_CHARS, floor: HOOK_FLOOR, keep: 0.2, mentions: 1600, terms: 6, width: 0, brief: true, seen, last_live }
+    pub fn hook(seen: HashSet<String>, last_live: Option<String>, until: Option<Instant>) -> Self {
+        Shape { limit: HOOK_LIMIT_CHARS, floor: HOOK_FLOOR, keep: 0.2, mentions: 1600, terms: 6, width: 0, brief: true, seen, last_live, bound: Bound { terms: Some(HOOK_TERMS), until } }
     }
 }
 #[derive(Default)]
@@ -81,8 +84,8 @@ fn pick(hits: &[Hit], message: &str, shape: &Shape, floor: f64) -> (Vec<(String,
     let mut handoffs: Vec<HashSet<String>> = Vec::new();
     let mut ordered: Vec<_> = hits.iter().collect();
     ordered.sort_by(|a, b| (shape.brief && code(a)).cmp(&(shape.brief && code(b))).then(weight(b).total_cmp(&weight(a))));
+    let norm = cut(&flat(message), 160);
     for hit in ordered {
-        let norm = cut(&flat(message), 160);
         let same = (hit.source == "transcripts" || hit.source == "ledger")
             && !norm.is_empty()
             && cut(&flat(&hit.text), 160) == norm;
@@ -341,7 +344,7 @@ pub(super) fn retrieve_db(
     prior: &str,
 ) -> Result<(Vec<Hit>, Vec<String>)> {
     let (mut hits, words) = store::search(message, db, now, limit, as_of)?;
-    if !prior.is_empty() {
+    if !prior.is_empty() && !db.expired() {
         let current: HashSet<_> = store::terms(message).into_iter().collect();
         let context = store::terms(prior)
             .into_iter()
@@ -386,6 +389,9 @@ pub fn shaped(message: &str, tier: &str, now: f64, prior: &str, shape: &Shape) -
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.0);
+    if let Some(db) = db.as_mut() {
+        db.bound(shape.bound);
+    }
     if let Some(db) = db.as_mut()
         && let Ok((h, w)) = retrieve_db(message, db, now, 80, as_of, prior) {
             hits = h;
