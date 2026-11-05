@@ -24,7 +24,7 @@ pub fn duration_seconds(text: &str) -> Option<f64> {
     Some(value.parse::<f64>().ok()? * scale)
 }
 
-fn every_queue() -> Vec<PathBuf> {
+pub fn every_queue() -> Vec<PathBuf> {
     let root = state_home().join("north/land-queue");
     let mut files: Vec<PathBuf> = fs::read_dir(root).into_iter().flatten().filter_map(Result::ok).map(|entry| Spans::beside(&entry.path().join("logs")).path().to_owned()).filter(|path| path.is_file()).collect();
     files.sort();

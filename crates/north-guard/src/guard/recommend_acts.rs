@@ -47,7 +47,7 @@ impl Issue {
         self.number == cited.number && (self.repo.is_none() || cited.repo.is_none() || self.repo == cited.repo)
     }
 
-    fn label(&self) -> String {
+    pub fn label(&self) -> String {
         format!("{}#{}", self.repo.as_deref().unwrap_or(""), self.number)
     }
 }
@@ -86,7 +86,15 @@ pub fn decide(input: &HookInput, state: &Path) -> Verdict {
     Verdict::Deny(missing)
 }
 
-pub fn missing_step(reply: &str, turn: &Turn) -> Option<String> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Recommendation {
+    pub phrase: String,
+    pub cited: Vec<Issue>,
+    pub acted: bool,
+}
+
+/// The reply's recommendation or question and whether its turn created or edited an issue it cites, or None when it makes none or names an ask-once decision.
+pub fn recommendation(reply: &str, turn: &Turn) -> Option<Recommendation> {
     let reply = reply.replace(['\u{2019}', '\u{2018}'], "'");
     let triggered = triggering_sentences(&reply);
     let phrase = triggered.first()?.0.clone();
@@ -94,7 +102,13 @@ pub fn missing_step(reply: &str, turn: &Turn) -> Option<String> {
         return None;
     }
     let cited = cited_issues(&reply);
-    if cited.iter().any(|cited| turn.moved.iter().any(|moved| moved.names(cited))) {
+    let acted = cited.iter().any(|cited| turn.moved.iter().any(|moved| moved.names(cited)));
+    Some(Recommendation { phrase, cited, acted })
+}
+
+pub fn missing_step(reply: &str, turn: &Turn) -> Option<String> {
+    let Recommendation { phrase, cited, acted } = recommendation(reply, turn)?;
+    if acted {
         return None;
     }
     let step = match (turn.moved.first(), cited.first()) {

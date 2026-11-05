@@ -55,7 +55,7 @@ fn indexed_texts(index: &Path, home: &Path, start: &str, end: &str) -> rusqlite:
     Ok(grouped)
 }
 
-pub(super) fn typed_messages(index: &Path, home: &Path, start: i64, end: i64) -> Vec<Typed> {
+pub fn typed_messages(index: &Path, home: &Path, start: i64, end: i64) -> Vec<Typed> {
     if !index.is_file() {
         return Vec::new();
     }

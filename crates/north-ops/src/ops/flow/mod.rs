@@ -41,7 +41,7 @@ mod routing;
 mod stall;
 mod stranded;
 mod throughput;
-mod typed;
+pub mod typed;
 
 const USAGE: &str = "usage: north flow [--json] [--repo NAME]... [--stall-alarm] | north flow row REPO [FIELD]... | north flow detect [--dry-run]";
 const FIELDS: [&str; 2] = ["reuse", "closed_per_hour"];

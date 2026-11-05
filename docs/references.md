@@ -88,6 +88,43 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   sampled retro was tested and kept (8 recurring failure modes with no enforcer in a one-in-five sample), and the
   Spec axis and the no-op test by replay are under test.
 
+### Delivery and harness benchmarks
+
+- <a id="google-tap"></a>**Software Engineering at Google, chapter 23: Continuous Integration** (Winters, Manshreck and Wright, O'Reilly 2020),
+  https://abseil.io/resources/swe-book/html/ch23.html, accessed 2026-11-06.
+  Informed: [rationale/scoreboard.md](rationale/scoreboard.md) (north#657): TAP's average submit wait of about 11 minutes and a 95%+ pass rate after presubmit.
+  Outcome: prior only.
+
+- <a id="uber-submitqueue"></a>**Slashing CI costs at Uber** (Uber Engineering, 2025-06-23),
+  https://www.uber.com/blog/slashing-ci-costs-at-uber/, accessed 2026-11-06.
+  Informed: [rationale/scoreboard.md](rationale/scoreboard.md) (north#657): SubmitQueue P95 waits of 18.64 (Go), 9.91 (iOS) and 17.33 (Android) minutes.
+  Outcome: prior only.
+
+- <a id="github-merge-queue"></a>**How GitHub uses merge queue to ship hundreds of changes every day** (GitHub Blog, 2024-03-06),
+  https://github.blog/engineering/engineering-principles/how-github-uses-merge-queue-to-ship-hundreds-of-changes-every-day/, accessed 2026-11-06.
+  Informed: [rationale/scoreboard.md](rationale/scoreboard.md) (north#657): a 33% cut in average wait and 2,500 pull requests a month.
+  Outcome: prior only.
+
+- <a id="google-code-review"></a>**Modern Code Review: A Case Study at Google** (Sadowski et al., ICSE-SEIP 2018),
+  https://sback.it/publications/icse2018seip.pdf, accessed 2026-11-06.
+  Informed: [rationale/scoreboard.md](rationale/scoreboard.md) (north#657): median review latency under 4 hours over about 9 million changes.
+  Outcome: prior only.
+
+- <a id="dora-2024"></a>**2024 DORA performance clusters** (Octopus Deploy's summary of the 2024 Accelerate State of DevOps report),
+  https://octopus.com/blog/2024-devops-performance-clusters, accessed 2026-11-06; the report itself is at https://dora.dev/research/2024/dora-report/.
+  Informed: [rationale/scoreboard.md](rationale/scoreboard.md) (north#657): elite lead time under 24 hours and change failure rate 5%, high 20%.
+  Outcome: prior only.
+
+- <a id="anthropic-work"></a>**How AI is transforming work at Anthropic** (Anthropic, 2025-12-02),
+  https://www.anthropic.com/research/how-ai-is-transforming-work-at-anthropic, accessed 2026-11-06.
+  Informed: [rationale/scoreboard.md](rationale/scoreboard.md) (north#657): human turns per Claude Code transcript, 6.2 to 4.1 from February to August 2025.
+  Outcome: prior only.
+
+- <a id="metr-horizon"></a>**Measuring AI Ability to Complete Long Tasks** (Kwa et al., METR, arXiv 2503.14499),
+  https://arxiv.org/abs/2503.14499, accessed 2026-11-06.
+  Informed: [rationale/scoreboard.md](rationale/scoreboard.md) (north#657): a 50% time horizon of about 50 minutes for Claude 3.7 Sonnet, doubling about every seven months.
+  Outcome: prior only.
+
 ### Statistics
 
 - <a id="wilson-interval"></a>**Wilson score interval** (E. B. Wilson, "Probable Inference, the Law of Succession, and Statistical
