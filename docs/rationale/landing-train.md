@@ -549,8 +549,8 @@ Rust modules live in crates/north-landing/src/land/ (new, beside landing/).
 
 ### Guarantees and the tests that keep them
 
-"Lander test" means a named test in tests/land_serve.rs; "per-lane" means the case stays in the bash
-suite until S20 ports it to `cargo test --test land`, under the same name.
+"Lander test" means a named test in tests/it/land_serve.rs; "per-lane" means the case stays in the bash
+suite until S20 ports it to `cargo test --test it land_`, under the same name.
 
 | Guarantee | Today's cases | After the port |
 |---|---|---|
@@ -611,22 +611,22 @@ then S2b and S2c in parallel; then S3 and S4.
 - **S2a Lander loop, green path.** Files crates/north-landing/src/land/{mod,queue,serve,candidate,
   checks}.rs, src/cli/tools.rs (`land` with `serve` and `enqueue` arms; `enqueue` starts as a stub
   S1 fills), bin/safe-push (`--check-candidate --base SHA` as described above, and `usage()` deleted),
-  tests/land_serve.rs. `north land serve [--once]` reads the queue and builds one candidate for an
+  tests/it/land_serve.rs. `north land serve [--once]` reads the queue and builds one candidate for an
   origin: red-fix tickets first, then oldest, re-enqueued tickets replacing older ones. The candidate
   is a detached HEAD in the stable worktree `~/code/<repo>/worktrees/lander`. At each pick it
   runs `git cherry`, so a lane already on main counts as landed, and `north stale-revert` against the
   lane's head. A conflict ejects that lane and records its files. The candidate is checked with
   `safe-push --check-candidate`, in an environment with `GH_TOKEN` and the App key removed. On green
-  it pushes by lease. If the lease fails it rebuilds. Done when: (1) `cargo test --test land_serve
+  it pushes by lease. If the lease fails it rebuilds. Done when: (1) `cargo test --test it land_serve
   serve` passes `serve-train`, `serve-red-fix-first`, `serve-reenqueue-replaces`, `serve-cas-lost`,
   `serve-pushes-checked-tree`, `serve-candidate-head-unchanged`, `serve-gate-refusal`,
   `serve-stale-revert`, `serve-already-on-main`, `serve-token-scoped` and `serve-github-writes`;
   (2) `bash bin/safe-push.test.sh` prints PASS, with a new case `check-candidate` showing a red-main
   failure ending `verdict red-main` without calling `land-red-wait`; (3) `git diff --numstat
   origin/main -- bin/safe-push` shows more lines deleted than added.
-- **S1 Enqueue.** Beside S2a; owns land/enqueue.rs and tests/land_enqueue.rs only, and writes the
+- **S1 Enqueue.** Beside S2a; owns land/enqueue.rs and tests/it/land_enqueue.rs only, and writes the
   ticket format above. bin/safe-push gets an `--enqueue` arm of at most 3 lines that probes and execs
-  `north land enqueue`. Done when: (1) `cargo test --test land_enqueue` passes `enqueue-returns`,
+  `north land enqueue`. Done when: (1) `cargo test --test it land_enqueue` passes `enqueue-returns`,
   `enqueue-squash` (a 3-commit lane becomes one commit before its ticket is written),
   `enqueue-red-fix-marker` (a `Main-red:` trailer sets `red_fix`) and `enqueue-replaces`;
   (2) `safe-push --enqueue` with a runtime lacking `land` exits 1 naming `north runtime update`;
@@ -809,7 +809,7 @@ then S2b and S2c in parallel; then S3 and S4.
   with its `host` field kept, and moves the remote ticket to `outbox/taken/`. Landed messages and
   verdicts are unchanged. An unreachable host is skipped for the round with a waiting line. The
   outbox key is the hash of the origin URL, so a remote host's origin must be spelled as the
-  lander's. No host gains an inbound verb or key. Done when: `cargo test --test land_serve remote`
+  lander's. No host gains an inbound verb or key. Done when: `cargo test --test it land_serve remote`
   passes remote-outbox-lands, remote-outbox-unreachable and remote-enqueue-off-lander-host. The live
   switch (`landing.remote-hosts = gex45` and gex45's safe-push enqueueing off the lander host)
   follows it.
@@ -826,7 +826,7 @@ then S2b and S2c in parallel; then S3 and S4.
 **Wave L2: stages ported in place.** Parallel, after S2a. Each box ports one group of bash functions
 to Rust, available as `north land scan <name>`. It replaces each function body in bin/safe-push with
 that call, so `--check-candidate` and per-lane landings both use it, and ports the named cases to
-`cargo test --test land` under the same names. Each Done when also requires the bash suite to print
+`cargo test --test it land_` under the same names. Each Done when also requires the bash suite to print
 PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than added.
 
 - **S12 Language, build-cache and bin-reference gates** (`run_language_gate`,
@@ -893,7 +893,7 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   (argument-boundary, normal, planning-outcomes, lease-boundary, race-branch, race-commit,
   race-destination, race-worktree, no-upstream, inherited-upstream, dry-run-destination,
   new-destination, non-fast-forward, symbolic-destination, farm-scratch) pass against `north land
-  push` under their names in `cargo test --test land`.
+  push` under their names in `cargo test --test it land_`.
 - **S19b bin/safe-push becomes an exec.** Follows S12-S18, S19a. The lander calls every stage
   in-process, and the change deletes `--check-candidate`, the lock, ticket queue, train, rebase and
   verdict loop, Autoland and the driver. bin/safe-push becomes `exec -a safe-push "$runtime" land "$@"`
@@ -903,8 +903,8 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   (3) one real landing in north and one in south go through the exec'd path, each sha an ancestor of
   its origin/main.
 - **S20 Shell suite retired.** Follows S19b. Done when: `git ls-files bin/safe-push.test.sh` prints
-  nothing; .language-allowlist.json has no safe-push entry; `cargo test --test land -- --list` and
-  `cargo test --test land_serve -- --list` name every test in the guarantee table; both pass.
+  nothing; .language-allowlist.json has no safe-push entry; `cargo test --test it -- --list land_` and
+  `cargo test --test it -- --list land_serve` name every test in the guarantee table; both pass.
 
 Rejected, one line each:
 - A faster per-lane `north land` with today's lock ported byte for byte: keeps 25 lanes dispatching
