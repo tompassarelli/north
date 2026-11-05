@@ -49,7 +49,7 @@ pub fn abandon(lander: &Lander) {
 }
 
 pub fn send(session: &str, message: &str) -> bool {
-    let Ok(mut child) = Command::new(follow::program()).args(["fleet", "send", "--from", "service:north-land", session, message]).stdin(Stdio::null()).spawn() else {
+    let Ok(mut child) = Command::new(follow::program()).args(["fleet", "send", "--from", "service:north-land", session, message]).stdin(Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn() else {
         return false;
     };
     let deadline = Instant::now() + SEND_WAIT;

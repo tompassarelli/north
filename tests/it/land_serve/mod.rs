@@ -194,6 +194,7 @@ impl Fixture {
         command
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env_remove("NORTH_RUNTIME_LINK")
             .env("XDG_STATE_HOME", &self.state)
             .env("PATH", path)
             .env("LAND_TRACE", &self.trace)

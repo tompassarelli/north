@@ -79,7 +79,6 @@ impl Invariant {
 pub enum Repair {
     RecreatedWorktree(PathBuf),
     RemovedWorktree(PathBuf),
-    QuarantinedLane(PathBuf),
     QuarantinedRepository(usize),
     RestartedLoop(String),
     AlreadyRestarted(String),
@@ -92,7 +91,6 @@ impl fmt::Display for Repair {
         match self {
             Repair::RecreatedWorktree(path) => write!(formatter, "recreated the lander worktree {}", path.display()),
             Repair::RemovedWorktree(path) => write!(formatter, "removed the stray lander worktree {}", path.display()),
-            Repair::QuarantinedLane(path) => write!(formatter, "quarantined the lane to {}", path.display()),
             Repair::QuarantinedRepository(lanes) => write!(formatter, "quarantined the repository: moved its {lanes} waiting lanes to {QUARANTINE}/"),
             Repair::RestartedLoop(unit) => write!(formatter, "restarted {unit}"),
             Repair::AlreadyRestarted(unit) => write!(formatter, "{unit} was already restarted this round"),
@@ -252,11 +250,7 @@ fn inspect(queue: &Path, now: u64, hands: &dyn Hands) -> Result<Vec<Violation>, 
             continue;
         }
         let detail = format!("lane {} ({}) waited {} minutes", ticket.branch, path.file_name().unwrap_or_default().to_string_lossy(), age / 60_000_000);
-        let reason = format!("quarantined by the lander watchdog: {}: {detail}", Invariant::StaleLane.statement());
-        let repair = match queue::settle(&path, ticket, reason, QUARANTINE) {
-            Ok(moved) => Repair::QuarantinedLane(moved),
-            Err(error) => Repair::Failed(format!("cannot quarantine {}: {error}", path.display())),
-        };
+        let repair = Repair::Nothing("the lane stays queued; a lane that waits behind a backlog is not broken".to_owned());
         found.push(Violation { invariant: Invariant::StaleLane, queue: queue.to_owned(), detail, repairs: vec![repair] });
     }
     Ok(found)

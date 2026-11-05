@@ -228,19 +228,18 @@ fn two_errors_or_differing_errors_hold_the_invariant() {
 }
 
 #[test]
-fn a_lane_older_than_twenty_minutes_is_quarantined_with_the_reason() {
+fn a_lane_older_than_twenty_minutes_pages_its_wait_and_stays_queued() {
     let fixture = Fixture::new();
     let hands = Fake::default();
     let stale = fixture.lane(NOW - 21 * MINUTE, "lane/stale");
     let fresh = fixture.lane(NOW - 19 * MINUTE, "lane/fresh");
     let report = fixture.patrol(NOW, &hands);
     assert_eq!(invariants(&report), vec![Invariant::StaleLane]);
-    let moved = fixture.queue.join(watchdog::QUARANTINE).join(stale.file_name().unwrap());
-    assert_eq!(report.violations[0].repairs, vec![Repair::QuarantinedLane(moved.clone())]);
-    assert!(!stale.exists());
+    assert!(matches!(&report.violations[0].repairs[..], [Repair::Nothing(_)]), "{:?}", report.violations[0].repairs);
+    assert!(stale.exists() && queue::read(&stale).unwrap().verdict.is_none());
     assert!(fresh.exists());
-    let verdict = queue::read(&moved).unwrap().verdict.unwrap();
-    assert!(verdict.contains("(c)") && verdict.contains("lane lane/stale (") && verdict.contains("waited 21 minutes"), "{verdict}");
+    assert!(fixture.quarantined().is_empty());
+    assert!(report.violations[0].detail.contains("lane lane/stale (") && report.violations[0].detail.contains("waited 21 minutes"), "{}", report.violations[0].detail);
     assert!(matches!(&report.pages[..], [(Invariant::StaleLane, Page::Sent(text))] if text.contains("lane/stale")));
 }
 
