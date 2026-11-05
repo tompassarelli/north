@@ -11,6 +11,10 @@ use crate::platform::{github, process};
 
 pub const HELP: &str = "Work items\n\n  north work list\n  north work search TEXT\n  north work show REPO#N\n  north work claim REPO#N [--by NAME] [--eta MINUTES]\n  north work release REPO#N [--to NAME]\n  north work need REPO#N BLOCKER#N\n  north work unneed REPO#N BLOCKER#N\n  north work close REPO#N --comment RESULT\n\n\nGitHub owns issues; NorthThreads records holders, handoffs and runs.";
 
+fn north() -> String {
+    std::env::var("NORTH_BIN").ok().filter(|path| !path.is_empty()).unwrap_or_else(|| "north".into())
+}
+
 async fn command(program: &str, arguments: &[String]) -> NorthResult<String> {
     let result = if program == "gh" {
         github::run_async(arguments).await?
@@ -126,9 +130,9 @@ fn live_holders(listing: &str) -> NorthResult<BTreeMap<String, Holder>> {
 
 async fn rows(query: Option<&str>) -> NorthResult<Vec<WorkRow>> {
     // Refresh through NorthThreads so its repository map and cache remain the only source.
-    command("threads", &["ready".into()]).await?;
+    command(&north(), &["threads".into(), "ready".into()]).await?;
     let caches: Vec<Cache> = serde_json::from_value(ledger_rows("SELECT repo, issues FROM gh_cache ORDER BY repo").await?)?;
-    let holders = live_holders(&command("threads", &["list".into(), "--json".into()]).await?)?;
+    let holders = live_holders(&command(&north(), &["threads".into(), "list".into(), "--json".into()]).await?)?;
     let mut issues = BTreeMap::new();
     for cache in &caches {
         let entries: BTreeMap<String, Issue> = serde_json::from_str(&cache.issues)?;
@@ -171,7 +175,7 @@ async fn issue_ref(reference: &str) -> NorthResult<(String, String)> {
 async fn show(reference: &str) -> NorthResult<ResultView> {
     let (repo, number) = issue_ref(reference).await?;
     let issue: serde_json::Value = serde_json::from_str(&command("gh", &["issue".into(), "view".into(), number, "--repo".into(), repo, "--json".into(), "title,body,url,state".into()]).await?)?;
-    let history = command("threads", &["show".into(), reference.into()]).await?;
+    let history = command(&north(), &["threads".into(), "show".into(), reference.into()]).await?;
     let body = issue["body"].as_str().unwrap_or("");
     Ok(ResultView::Document { title: format!("{reference} — {}", issue["title"].as_str().unwrap_or("")), text: format!("{history}\n{}\n\n{body}", issue["url"].as_str().unwrap_or("")) })
 }
@@ -187,7 +191,8 @@ pub async fn execute(action: &str, payload: &str) -> NorthResult<ResultView> {
             let (repo, number) = issue_ref(&reference).await?;
             let verb = action.strip_prefix("work-").unwrap();
             args.insert(0, verb.into());
-            let result = command("threads", &args).await?;
+            args.insert(0, "threads".into());
+            let result = command(&north(), &args).await?;
             command("gh", &["issue".into(), "comment".into(), number, "--repo".into(), repo, "--body".into(), format!("North work {verb}: {}", result.trim())]).await?;
             show(&reference).await
         }

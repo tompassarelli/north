@@ -135,8 +135,8 @@ fn ingest_remote(directory: &std::path::Path, fresh: &[Value], at: f64) -> Resul
         })
         .collect::<String>();
     let result = process::run(
-        &root().join("bin/threads").to_string_lossy(),
-        &["ingest"],
+        &super::process::binary(),
+        &["threads", "ingest"],
         Some(&input),
         10.0,
     );

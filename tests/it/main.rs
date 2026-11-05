@@ -99,6 +99,8 @@ mod support;
 mod threads_idle_outcome;
 mod threads_ingest_busy;
 mod threads_ingest_lock;
+mod threads_ledger;
+mod threads_resume;
 mod threads_snapshot;
 mod usage_gate;
 mod usage_snapshot;

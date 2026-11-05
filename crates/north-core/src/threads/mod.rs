@@ -11,6 +11,7 @@ pub mod jobs;
 pub mod landing;
 pub mod outside;
 pub mod runs;
+pub mod schema;
 pub mod snapshot;
 pub mod staffing;
 pub mod verb;

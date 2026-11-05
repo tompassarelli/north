@@ -86,7 +86,7 @@ rows=[row('silent'),row('effective',fires=1),row('marker-only',fires=1,ignored=N
       row('parent',role='parent'),row('unknown',fires=None),
       row('older-window',ended=now-timedelta(minutes=10)),
       row('pre-fix',ended=datetime(2026,10,10,10,24,8,tzinfo=timezone.utc))]
-subprocess.run([str(target.with_name('threads')),'ingest'],input=''.join(json.dumps(r)+'\n' for r in rows),text=True,check=True,capture_output=True)
+subprocess.run([os.environ['NORTH_BIN'],'threads','ingest'],input=''.join(json.dumps(r)+'\n' for r in rows),text=True,check=True,capture_output=True)
 def flags(*args):
     result=subprocess.run([str(target),'report','--minutes','5',*args],text=True,check=True,capture_output=True)
     return [f for f in json.loads(result.stdout)['flags'] if f.startswith(('handoff hook silent:','handoff ignored:'))]
@@ -98,7 +98,7 @@ assert set(observed)=={'handoff hook silent: silent peak 365k, 0 fires','handoff
                        'handoff hook silent: pre-fix peak 365k, 0 fires'},observed
 PY
 
-claude_home="$scratch/claude" subagents="$scratch/claude/projects/-srv-repo/lead/subagents"; mkdir -p "$subagents" "$scratch/handoffs" "$scratch/bin" && ln -s "$(dirname "$target")/threads" "$scratch/bin/threads"
+claude_home="$scratch/claude" subagents="$scratch/claude/projects/-srv-repo/lead/subagents"; mkdir -p "$subagents" "$scratch/handoffs" "$scratch/bin"
 printf '#!/usr/bin/env bash\n[ "$1" = ledger ] || [ "$1 $2" = "threads ingest" ] || [ "$1 $2" = "threads run-ids" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"\n[ "$1 $2" = "fleet list" ] && printf "%%s\\n" '\''[{"name":"fleet-parent","conversation":"parent","parent":null,"provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"done","conversation":"done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"not-done","conversation":"not-done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"ignored","conversation":"ignored","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"}]'\''\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
 python3 - "$subagents" <<'PY'
 import json, sys

@@ -60,8 +60,8 @@ impl Lab {
             .find(|path| path.is_file())
             .expect("cat on PATH");
         std::os::unix::fs::symlink(cat, bin.join("cat")).unwrap();
-        let script = bin.join("threads");
-        shim::write_script(&script, "cat > \"$STUB_OUT\"\nexit \"${STUB_EXIT:-0}\"\n");
+        let script = bin.join("north");
+        shim::write_script(&script, "[ \"$1 $2\" = \"threads ingest\" ] || exit 9\ncat > \"$STUB_OUT\"\nexit \"${STUB_EXIT:-0}\"\n");
     }
 }
 
@@ -148,7 +148,7 @@ fn worker_handoff_records_async_worker_spawns() {
     assert_eq!(lab.run(plain.to_string().as_bytes(), &active, &env(&plain_sink)), None);
     assert_eq!(wait_for_row(&plain_sink)["tier"], "medium");
 
-    std::fs::remove_file(lab.path("bin/threads")).unwrap();
+    std::fs::remove_file(lab.path("bin/north")).unwrap();
     let silent = |payload: &Value, extra: &[(&str, String)]| {
         let (response, stderr) = lab.run_captured(payload.to_string().as_bytes(), &active, extra);
         assert_eq!((response, stderr.as_str()), (None, ""));

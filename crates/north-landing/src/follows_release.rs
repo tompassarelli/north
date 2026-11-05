@@ -66,9 +66,9 @@ fn item_closed(repo: &Path, item: &str) -> Result<bool, String> {
 fn field<'a>(b: &'a Value, key: &str) -> &'a str {
     b[key].as_str().unwrap_or("")
 }
-fn threads(root: &Path, args: &[&str]) -> std::io::Result<Output> {
-    Command::new(root.join("bin/threads"))
-        .arg("queue")
+fn threads(args: &[&str]) -> std::io::Result<Output> {
+    Command::new(std::env::current_exe()?)
+        .args(["threads", "queue"])
         .args(args)
         .output()
 }
@@ -149,7 +149,7 @@ fn start(b: &Value) -> Result<bool, String> {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
-fn alert(root: &Path, b: &Value, why: &str, now: f64) -> Result<(), String> {
+fn alert(b: &Value, why: &str, now: f64) -> Result<(), String> {
     if !now.is_finite() {
         return Err("invalid timestamp".into());
     }
@@ -162,7 +162,6 @@ fn alert(root: &Path, b: &Value, why: &str, now: f64) -> Result<(), String> {
         field(b, "tier")
     );
     if !success(threads(
-        root,
         &["follow-alert", &b["id"].to_string(), &line],
     ))? {
         return Ok(());
@@ -186,8 +185,7 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
         .open(state.join("agents/follows-release.lock"))
         .map_err(|e| e.to_string())?;
     lock.lock().map_err(|e| e.to_string())?;
-    let root = crate::platform::harness::harness_root()?;
-    let listing = threads(&root, &["follow-list"]).map_err(|e| e.to_string())?;
+    let listing = threads(&["follow-list"]).map_err(|e| e.to_string())?;
     if !listing.status.success() {
         eprintln!("{}", String::from_utf8_lossy(&listing.stderr).trim());
         return Ok(1);
@@ -256,7 +254,7 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
             continue;
         }
         if field(b, "state") == "taken" && item_closed(&repo, field(b, "item"))? {
-            if success(threads(&root, &["follow-started", &b["id"].to_string()]))? {
+            if success(threads(&["follow-started", &b["id"].to_string()]))? {
                 println!(
                     "FOLLOWS box {} {}: its issue is closed, so the box is done",
                     b["id"],
@@ -267,7 +265,7 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
         }
         if field(b, "state") == "queued" {
             if !landed(&repo, field(b, "follows"))?
-                || !success(threads(&root, &["follow-release", &b["id"].to_string()]))?
+                || !success(threads(&["follow-release", &b["id"].to_string()]))?
             {
                 continue;
             }
@@ -289,7 +287,6 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
             .unwrap_or_else(|| Timestamp::now().unix_seconds_f64());
         if let Some(denied) = gate(b, &repo)?.filter(|s| !s.is_empty()) {
             alert(
-                &root,
                 b,
                 &format!(
                     "denied by the spawn gate: {}",
@@ -304,7 +301,7 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
                 now,
             )?;
         } else if start(b)? {
-            let _ = threads(&root, &["follow-started", &b["id"].to_string()]);
+            let _ = threads(&["follow-started", &b["id"].to_string()]);
             println!(
                 "FOLLOWS box {} {}: started on {}",
                 b["id"],
@@ -318,7 +315,6 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
                 / 1_000_000_000.;
             if now - taken >= 300. {
                 alert(
-                    &root,
                     b,
                     &format!(
                         "released at {} but not started within 5 minutes",
