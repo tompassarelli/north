@@ -25,6 +25,7 @@ use super::duplicate;
 use super::governor;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
+use super::one_proxy;
 use super::overlap;
 use super::launch::{LaunchParts, launch_parts};
 #[cfg(test)]

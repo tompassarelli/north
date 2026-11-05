@@ -62,7 +62,7 @@ mod tests {
         session(home.path(), "proxy", "proxy");
         session(home.path(), "lead-a", "lead");
         let now = SystemTime::now();
-        let window = |conversation: &str, idle_minutes: u64| move || Some(Window { conversation: conversation.to_owned(), account: "c".into(), active: now - Duration::from_secs(idle_minutes * 60) });
+        let window = |conversation: &'static str, idle_minutes: u64| move || Some(Window { conversation: conversation.to_owned(), account: "c".into(), active: now - Duration::from_secs(idle_minutes * 60) });
         let refused = admit_beside(&fleet, Some("proxy"), "message worker-1", window("tom-window", 2), now).unwrap_err().user_message();
         assert!(refused.contains("proxy may not message worker-1") && refused.contains("tom-window on account c"), "{refused}");
         assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", window("tom-window", 31), now).is_ok(), "an idle window hands direction back");
