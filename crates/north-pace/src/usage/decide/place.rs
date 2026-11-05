@@ -1,7 +1,7 @@
 use super::free::{Gate, Shortfall};
 use super::rank::{Block, Entry, Ranked, Tier, Verdict, Warning, rank};
 use super::state::State;
-use super::world::{Host, Label, ModelFamily, Request, Unix, Usd, Workstream, World};
+use super::world::{EstimateSource, Host, Label, ModelFamily, Request, Trip, Unix, Usd, Workstream, World};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Note {
@@ -56,9 +56,13 @@ pub fn place(world: &World, request: &Request) -> Decision {
     }
 }
 
-fn tripped<'a>(world: &'a World, request: &Request) -> Option<&'a super::world::Trip> {
+fn tripped<'a>(world: &'a World, request: &Request) -> Option<&'a Trip> {
     let workstream = request.workstream.as_ref()?;
-    world.tripped.iter().find(|trip| &trip.workstream == workstream)
+    world.tripped.iter().find(|trip| &trip.workstream == workstream && !cleared_by_brief(request, trip))
+}
+
+fn cleared_by_brief(request: &Request, trip: &Trip) -> bool {
+    matches!(request.expected.source, EstimateSource::Budget(_)) && request.expected.p90 > trip.p90
 }
 
 fn signed_in_on(world: &World, account: &Label, host: Option<&Host>) -> bool {

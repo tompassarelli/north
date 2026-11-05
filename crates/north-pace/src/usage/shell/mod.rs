@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
+use super::breaker;
 use super::decide::world::{Label, Request, Session, Unix};
 use super::decide::{Decision, explain, place};
 use crate::foundation::clock::Timestamp;
@@ -47,7 +48,8 @@ impl Shell<'_> {
     pub fn world(&self, now: Unix) -> Result<Parts, String> {
         let mut sessions = self.registry.sessions()?;
         sessions.extend(self.launch_log().read().iter().filter_map(Launch::session));
-        assemble::parts(self.db, self.policy, self.host, now, sessions)
+        let tripped = breaker::read_trips(&self.directory.join(breaker::LEDGER_FILE))?;
+        assemble::parts(self.db, self.policy, self.host, now, sessions, tripped)
     }
 
     pub fn decide(

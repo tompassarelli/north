@@ -47,6 +47,7 @@ pub fn parts(
     host: &str,
     now: Unix,
     sessions: Vec<Session>,
+    tripped: Vec<Trip>,
 ) -> Result<Parts, String> {
     let rows = super::super::readings(db, policy)?;
     let claude: Vec<&Row> = rows
@@ -63,7 +64,7 @@ pub fn parts(
         readings,
         limits: claude.iter().filter_map(|row| limit(row)).collect(),
         sessions,
-        tripped: Vec::new(),
+        tripped,
         credit: None,
         settings: settings(policy),
     })

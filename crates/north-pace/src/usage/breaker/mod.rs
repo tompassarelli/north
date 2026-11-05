@@ -1,6 +1,7 @@
 //! The spend breaker's tick (north#259 box 10b): `decide::assess` judges each box's and workstream's spend against the E its
 //! brief stated, this module turns the judgement into what the tick does: record warnings, trips, clears and outcomes,
 //! tell a tripped workstream's sessions once, and take clears from newer briefs and Tom's gate answers.
+mod ledger;
 mod state;
 #[cfg(test)]
 mod tests;
@@ -9,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
+pub use ledger::{FILE as LEDGER_FILE, read as read_trips, trips as trips_in};
 pub use state::{Cleared, State};
 
 use super::decide::world::{BoxId, Clear, EstimateSource, Expected, Label, ModelFamily, Name, Owner, Session, Settings, Standing, Unix, Usd, Workstream, World};

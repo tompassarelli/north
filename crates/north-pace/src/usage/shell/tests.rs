@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use rusqlite::Connection;
 
-use super::super::decide::Decision;
+use super::super::decide::{Decision, Refusal};
 use super::super::decide::world::{
     EstimateSource, Expected, Label, ModelFamily, Name, Owner, Session, Standing, Unix, Usd, Workstream,
 };
@@ -211,7 +211,7 @@ fn a_limit_row_in_the_usage_table_is_a_limit_event_in_the_world() {
             [],
         )
         .unwrap();
-    let parts = super::assemble::parts(&fixture.db, std::path::Path::new("/nonexistent/orchestration.toml"), "laptop", now(), Vec::new()).unwrap();
+    let parts = super::assemble::parts(&fixture.db, std::path::Path::new("/nonexistent/orchestration.toml"), "laptop", now(), Vec::new(), Vec::new()).unwrap();
     let at = |text: &str| Unix(Timestamp::parse_rfc3339(text).unwrap().unix_seconds());
     assert_eq!(
         parts.limits,
@@ -222,4 +222,45 @@ fn a_limit_row_in_the_usage_table_is_a_limit_event_in_the_world() {
             at: at("2026-11-05T11:58:00Z"),
         }]
     );
+}
+
+const TRIP: &str = r#"{"at_ms":1,"kind":"trip","scope":"workstream:north#259","spent":50.0,"p50":5.0,"p90":10.0,"by":null}"#;
+const CLEAR: &str = r#"{"at_ms":2,"kind":"clear","scope":"workstream:north#259","spent":50.0,"p50":5.0,"p90":20.0,"by":"tom's answer to a gate"}"#;
+
+fn breaker_ledger(fixture: &Fixture, lines: &[&str]) {
+    let usage = fixture.directory.path().join("usage");
+    std::fs::create_dir_all(&usage).unwrap();
+    std::fs::write(usage.join("breaker.jsonl"), format!("{}\n", lines.join("\n"))).unwrap();
+}
+
+#[test]
+fn a_workstream_the_breaker_ledger_holds_tripped_refuses_a_new_launch_naming_spent_and_p90() {
+    let fixture = Fixture::new();
+    breaker_ledger(&fixture, &[TRIP]);
+    let shell = fixture.shell();
+    let request = brief::request(BRIEF, "laptop");
+
+    let outcome = shell.dry_run(now(), &request).unwrap();
+    let Decision::Refuse(Refusal::Tripped { workstream, spent, p90 }) = &outcome.decision else { panic!("{}", outcome.line) };
+    assert_eq!((workstream.0.as_str(), *spent, *p90), ("north#259", Usd(50.0), Usd(10.0)));
+    assert!(outcome.line.starts_with("refuse: ") && outcome.line.contains("$50.00") && outcome.line.contains("p90 $10.00"), "{}", outcome.line);
+    assert!(dry_run(&shell, BRIEF).unwrap().starts_with("refuse: "));
+}
+
+#[test]
+fn a_newer_brief_stating_a_higher_p90_launches_into_a_tripped_workstream() {
+    let fixture = Fixture::new();
+    breaker_ledger(&fixture, &[TRIP]);
+    let shell = fixture.shell();
+    let higher = BRIEF.replace("p90 $6.74", "p90 $12.00");
+    let outcome = shell.dry_run(now(), &brief::request(&higher, "laptop")).unwrap();
+    assert!(matches!(outcome.decision, Decision::Place { .. }), "{}", outcome.line);
+}
+
+#[test]
+fn a_gate_answer_naming_a_p90_recorded_as_a_clear_ends_the_refusal() {
+    let fixture = Fixture::new();
+    breaker_ledger(&fixture, &[TRIP, CLEAR]);
+    let outcome = fixture.shell().dry_run(now(), &brief::request(BRIEF, "laptop")).unwrap();
+    assert!(matches!(outcome.decision, Decision::Place { .. }), "{}", outcome.line);
 }
