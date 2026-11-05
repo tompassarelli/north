@@ -284,7 +284,7 @@ fn health_failing_units_share_one_rolling_issue_per_host_that_it_edits_and_close
     assert_eq!(tracker.created.len(), 1, "the second consecutive breach opens one issue for two units, not two");
     assert_eq!(tracker.created[0].0, "Harness services failing on whiterabbit");
     let body = tracker.created[0].1.clone();
-    assert!(body.contains("`a.service`") && body.contains("`b.service`") && body.contains("\nNeeds: laptop\n"));
+    assert!(body.contains("`a.service`") && body.contains("`b.service`") && body.contains("\nNeeds: laptop\n") && !rolling_issue::declares_category(&body), "{body}");
 
     let mut tracker = recorder(Some(rolling_issue::Issue { number: 7, body }));
     units::reconcile(&mut tracker, &mut breaches, "whiterabbit", &two).unwrap();

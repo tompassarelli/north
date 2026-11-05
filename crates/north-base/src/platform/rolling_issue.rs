@@ -8,6 +8,8 @@ const NORTH: &str = "tompassarelli/north";
 
 pub const CONFIRMING_TICKS: u32 = 2;
 
+pub const STAFFED_ALARM: &str = "an alarm's body declares a `Category:` line, so dispatch would staff a worker on an issue that closes itself when its signal clears";
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct Breaches(BTreeMap<String, u32>);
@@ -43,7 +45,14 @@ pub trait Tracker {
 }
 
 pub fn alarm(tracker: &mut dyn Tracker, breaches: &mut Breaches, title: &str, body: Option<&str>, closing: &str) -> Result<(), String> {
+    if body.is_some_and(declares_category) {
+        return Err(STAFFED_ALARM.to_owned());
+    }
     if breaches.record(title, body.is_some()) || body.is_none() { settle(tracker, title, body, closing) } else { Ok(()) }
+}
+
+pub fn declares_category(body: &str) -> bool {
+    body.lines().any(|line| line.trim().trim_start_matches(['-', '*', ' ']).split_once(':').is_some_and(|(name, _)| name.trim().trim_matches('*').eq_ignore_ascii_case("category")))
 }
 
 pub fn settle(tracker: &mut dyn Tracker, title: &str, body: Option<&str>, closing: &str) -> Result<(), String> {
@@ -153,3 +162,7 @@ fn succeeded(out: std::io::Result<std::process::Output>, what: &str) -> Result<(
         Err(format!("gh {what}: {}", String::from_utf8_lossy(&out.stderr).trim()))
     }
 }
+
+#[cfg(test)]
+#[path = "rolling_issue_tests.rs"]
+mod tests;

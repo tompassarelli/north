@@ -44,7 +44,7 @@ pub fn issue_body(rises: &[Rise]) -> Option<String> {
     }
     let sections: String = rises.iter().map(Rise::section).collect();
     Some(format!(
-        "Category: tooling\nSpec: measured\nScope: cross-module\nSurface: rust\nVerify: local-test\n\n\
+        "Spec: measured\nScope: cross-module\nSurface: rust\nVerify: local-test\n\n\
          `north tune` keeps this issue while any staffed cell's median cost of a closed box sits more than {:.0}% above the week before (each week holding at least {RISE_MIN_BOXES} closed boxes), and closes it on the first tick no cell has.\n\n\
          ## Done when\n- [ ] (headless run) Each rise below is traced to its runs in `north ledger summary --since 7d`, and either a fix lands or `north tune` shows the cell back within 25% of the week before.\n\n{sections}",
         RISE * 100.0,

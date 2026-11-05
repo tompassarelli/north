@@ -37,7 +37,7 @@ mod coverage;
 mod dividends;
 mod estimates;
 mod projections;
-mod rises;
+pub(crate) mod rises;
 mod skills;
 #[cfg(test)]
 mod loops_tests;

@@ -237,7 +237,7 @@ fn one_risen_tick_posts_nothing_two_in_a_row_open_one_rolling_issue_an_unchanged
     assert_eq!(issues.created.len(), 1, "only sonnet tooling rose (100%, 3 boxes a week); opus feature doubled on one box a week, too few to count: {:#?}", second.lines);
     let (title, body) = &issues.created[0];
     assert_eq!(title, TITLE);
-    assert!(body.starts_with("Category: tooling\n") && body.contains("## sonnet tooling\n\nMedian cost of a closed box rose from $5.20 over 3 closed boxes the week before to $10.40 over 3 this week (+100%)"), "{body}");
+    assert!(body.starts_with("Spec: measured\n") && !rolling_issue::declares_category(body) && body.contains("## sonnet tooling\n\nMedian cost of a closed box rose from $5.20 over 3 closed boxes the week before to $10.40 over 3 this week (+100%)"), "{body}");
     assert_eq!(body.matches("\n## ").count(), 2, "the Done when and the one risen cell: {body}");
     assert_eq!(second.lines.last().unwrap(), "open north issues: 1", "{:#?}", second.lines);
 
