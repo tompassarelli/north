@@ -432,47 +432,22 @@ spawn_after_landing_gates() {
   echo "safe-push: after-landing gates (code-health, instruction-limits, generated-rewrite, ci-budget) run in the background on ${head:0:12}; each failure files one issue; log $log"
 }
 
-lane_commits_missing() {
-  local fork present id commit missing="" destination tree
-  [ -n "$lane_tip" ] && fork=$(git merge-base "$lane_tip" "$head_oid") || return 0
-  present=$(git log -p -U0 --no-merges "$fork..$head_oid" | git patch-id --stable | cut -d' ' -f1)
-  while read -r id commit; do
-    grep -qxF "$id" <<<"$present" || missing+="$commit"$'\n'
-  done < <(git log -p -U0 --no-merges "$fork..$lane_tip" | git patch-id --stable)
-  [ -n "$missing" ] || return 0
-  destination=${destination_oid:-$(git rev-parse -q --verify "refs/remotes/origin/${destination_branch:-$to}^{commit}" || true)}
-  if [ -n "$destination" ]; then
-    [ -n "$(git cherry "$destination" "$lane_tip" | sed -n '/^+/p')" ] || return 0
-    tree=$(git merge-tree --write-tree "$destination" "$lane_tip" 2>/dev/null | head -n1) || tree=""
-    [ "$tree" = "$(git rev-parse "$head_oid^{tree}")" ] \
-      && [ "$(git rev-list --count --no-merges "$destination..$head_oid")" = "$(git rev-list --count --no-merges "$fork..$lane_tip")" ] && return 0
-  fi
-  printf '%s' "$missing"
+lane_scan() {
+  local north; north=$(command -v north) && [ -x "$north" ] || north="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
+  "$north" land scan "$@"
 }
 
 refuse_dropped_lane_commits() {
-  local missing
-  missing=$(lane_commits_missing)
-  [ -n "$missing" ] || return 0
-  printf 'safe-push: ✗ lane commits missing from %s after the rebase onto origin %s: %s; NOT pushed.\n' \
-    "$head_oid" "${destination_branch:-$to}" "${missing//$'\n'/ }" >&2
-  exit 1
+  lane_scan dropped-commits --lane "$lane_tip" --head "$head_oid" --onto "${destination_branch:-$to}" --destination "${destination_oid:-}" || exit 1
 }
 
 refuse_stale_revert() {
-  [ "$destination_branch" = "$(default_branch)" ] && [ -n "$destination_oid" ] || return 0
-  north stale-revert --help >/dev/null 2>&1 \
-    || { echo "safe-push: this host's north runtime lacks north stale-revert, so a revert of newer main cannot be ruled out; run north runtime update; NOT pushed." >&2; exit 1; }
-  north stale-revert --repo "$repo_root" --lane "${lane_tip:-$head_oid}" "$destination_oid" "$head_oid" || exit 1
+  lane_scan stale-revert --repo "$repo_root" --destination "$destination_branch" --base "${destination_oid:-}" --lane "${lane_tip:-$head_oid}" "$head_oid" || exit 1
 }
 
 has_land_checks() {
   git config --blob HEAD:.safe-push --get-all land.check >/dev/null 2>&1 \
     || { command -v north >/dev/null 2>&1 && north land checks --any --head HEAD >/dev/null 2>&1; }
-}
-
-has_inferred_land_checks() {
-  ! git config --blob HEAD:.safe-push --get-all land.check >/dev/null 2>&1 && has_land_checks
 }
 
 north_offers() {
@@ -1019,36 +994,8 @@ collect_train() {
   done
 }
 
-# A candidate or rebase can move a Bun lockfile (a vendored pin bump) under a
-# worktree whose node_modules were installed for another commit; the checks
-# would then judge the new code against old dependencies. Reinstall each
-# installed Bun project whose package.json or bun.lock no longer matches. In
-# makgora, wisp and north a fresh worktree's top-level projects get their first
-# install too, since their pre-push and land checks import from node_modules.
 sync_dependencies() {
-  local lock dir want stamp top first_install=0
-  top=$(git rev-parse --show-toplevel)
-  case "$(basename "$(git remote get-url origin 2>/dev/null)" .git)" in
-    makgora|wisp|north) first_install=1 ;;
-    *) ! has_inferred_land_checks || first_install=1 ;;
-  esac
-  while IFS= read -r lock; do
-    dir="$top/$(dirname "$lock")"
-    if [ ! -d "$dir/node_modules" ]; then
-      [ "$first_install" = 1 ] && [[ "$lock" != */*/* ]] || continue
-      echo "safe-push: no node_modules — bun install --frozen-lockfile in $dir"
-    fi
-    want=$(cat "$dir/bun.lock" "$dir/package.json" 2>/dev/null | sha256sum | cut -c1-16)
-    stamp="$dir/node_modules/.safe-push-deps"
-    [ "$(cat "$stamp" 2>/dev/null)" != "$want" ] || continue
-    if [ -L "$dir/node_modules" ]; then
-      echo "safe-push: $dir/node_modules is a symlink to $(readlink "$dir/node_modules") and $lock no longer matches it — bun install would rewrite that checkout; replace the symlink with its own install; NOT pushed." >&2
-      return 1
-    fi
-    echo "safe-push: $lock changed — bun install --frozen-lockfile in $dir"
-    (drop_lock_fd; cd "$dir" && bun install --frozen-lockfile) || return 1
-    printf '%s\n' "$want" >"$stamp"
-  done < <(git -C "$top" ls-files -- 'bun.lock' '*/bun.lock')
+  (drop_lock_fd; lane_scan deps)
 }
 
 candidate_checks() {
@@ -1819,9 +1766,9 @@ if [ "$hook_verified" -eq 0 ] && ! sync_dependencies; then
 fi
 pushed_at=$EPOCHSECONDS
 push_errors=$(mktemp) push_status=0
-(drop_lock_fd; SAFE_PUSH_ACTIVE=1 git push --no-follow-tags "${push_flags[@]}" \
+{ (drop_lock_fd; SAFE_PUSH_ACTIVE=1 git push --no-follow-tags "${push_flags[@]}" \
   "${publication_flags[@]}" \
-  "$origin_url" "$publication") 2> >(drop_lock_fd; tee "$push_errors" >&2) || push_status=$?
+  "$origin_url" "$publication"); } 2> >(drop_lock_fd; tee "$push_errors" >&2) || push_status=$?
 wait "$!" 2>/dev/null || true
 if [ "$push_status" -ne 0 ]; then
   safe_push_event push failed "git push exited $push_status: $(tail -c 400 "$push_errors")"

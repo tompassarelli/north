@@ -427,49 +427,6 @@ expect_output 'safe-push: could not fetch origin/main; NOT pushed.'
 [ "$(real_remote_state)" = "$fetch_remote_before" ] || fail 'a failed fetch published'
 printf 'PASS: a failed fetch of the destination is refused before any check runs\n'
 
-eval "$(sed -n '/^sync_dependencies() {/,/^}$/p' "$TARGET")"
-drop_lock_fd() { :; }
-deps_root="$scratch/sync-deps"
-deps_bin="$deps_root/bin"
-mkdir -p "$deps_bin"
-printf '#!/usr/bin/env bash\n[ "$*" = "install --frozen-lockfile" ] || exit 2\nprintf "%%s\\n" "$PWD" >>%q\nmkdir -p node_modules\n' "$deps_root/bun-runs" >"$deps_bin/bun"
-chmod +x "$deps_bin/bun"
-make_deps_repo() {
-  local name="$1" origin="$2"
-  deps_repo="$deps_root/$name"
-  "$real_git" init -q -b main "$deps_repo"
-  "$real_git" -C "$deps_repo" remote add origin "$deps_root/$origin.git"
-  mkdir -p "$deps_repo/ts"
-  printf '{}\n' >"$deps_repo/ts/package.json"
-  printf 'pin 1\n' >"$deps_repo/ts/bun.lock"
-  "$real_git" -C "$deps_repo" add ts
-  "$real_git" -C "$deps_repo" -c user.name=t -c user.email=t@example.invalid commit -qm 'ts project'
-}
-: >"$deps_root/bun-runs"
-make_deps_repo from-subdirectory makgora
-deps_output="$(cd "$deps_repo/ts" && PATH="$deps_bin:$PATH" sync_dependencies 2>&1)" || fail "sync_dependencies from a subdirectory failed: $deps_output"
-[ "$(cat "$deps_root/bun-runs")" = "$deps_repo/ts" ] || fail "sync_dependencies from ts/ did not install in ts/: $deps_output"
-[ ! -e "$deps_repo/node_modules" ] || fail 'sync_dependencies from ts/ installed at the repository root'
-printf 'PASS: sync_dependencies run from a subdirectory installs in the lockfile directory\n'
-
-: >"$deps_root/bun-runs"
-make_deps_repo symlinked-node-modules north
-deps_checkout="$deps_root/checkout"
-mkdir -p "$deps_checkout/node_modules"
-printf 'dependency\n' >"$deps_checkout/node_modules/installed.txt"
-printf 'stale stamp\n' >"$deps_checkout/node_modules/.safe-push-deps"
-ln -s "$deps_checkout/node_modules" "$deps_repo/ts/node_modules"
-deps_checkout_before="$(cd "$deps_checkout" && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)"
-deps_status=0
-deps_output="$(cd "$deps_repo" && PATH="$deps_bin:$PATH" sync_dependencies 2>&1)" || deps_status=$?
-[ "$deps_status" -ne 0 ] || fail "sync_dependencies accepted a symlinked node_modules whose lockfile differs: $deps_output"
-grep -Fq "ts/node_modules is a symlink to $deps_checkout/node_modules" <<<"$deps_output" || fail "the refusal did not name the symlink: $deps_output"
-[ ! -s "$deps_root/bun-runs" ] || fail 'bun install ran through the symlink'
-[ "$(cd "$deps_checkout" && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)" = "$deps_checkout_before" ] \
-  || fail 'sync_dependencies changed the checkout behind the symlink'
-printf 'PASS: sync_dependencies never installs through a symlinked node_modules\n'
-unset -f sync_dependencies drop_lock_fd
-
 make_real_fixture fresh-north-worktree
 land_home="$real_fixture/home"
 mkdir -p "$land_home"
@@ -482,7 +439,8 @@ printf '{\n  "lockfileVersion": 1,\n  "workspaces": {"": {"name": "agent-machine
 "$real_git" -C "$real_repo" config --file .safe-push --add land.check 'agent-machinery/ :: test -d agent-machinery/node_modules'
 "$real_git" -C "$real_repo" add .safe-push agent-machinery
 "$real_git" -C "$real_repo" commit -qm 'agent-machinery project'
-cp "$deps_bin/bun" "$real_bin/bun"
+printf '%s\n' "#!/usr/bin/env bash" "[ \"\$*\" = \"install --frozen-lockfile\" ] || exit 2" "mkdir -p node_modules" >"$real_bin/bun"
+chmod +x "$real_bin/bun"
 HOME="$land_home" run_real_case '' --dry-run --to main
 rm -f "$real_bin/bun"
 expect_status zero
