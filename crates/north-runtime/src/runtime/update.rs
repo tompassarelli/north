@@ -1,4 +1,5 @@
 use super::bounded;
+use super::host_facts;
 use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
 use super::peers;
@@ -146,6 +147,7 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
         fs::write(layout.previous(), was)?;
     }
     println!("{synced}north runtime promoted: {short} (was {was})");
+    host_facts::record_after_promotion(layout, target);
     collect(layout, target, previous).map_err(|error| failed(1, format!("collecting old runtimes: {error}")))?;
     Ok(Pass::Promoted)
 }

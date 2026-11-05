@@ -43,7 +43,20 @@ pub fn reference(host: &str) -> String {
     format!("{REF_PREFIX}{host}")
 }
 
+const PRIVATE_REPO: &str = "south";
+
+fn require_private(repo: &Path, remote: &str) -> NorthResult<()> {
+    let url = text(git(repo, &["remote", "get-url", remote], None)?);
+    let url = url.trim_end_matches('/');
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    if url.rsplit(['/', ':']).next() == Some(PRIVATE_REPO) {
+        return Ok(());
+    }
+    configuration(format!("host facts name private host configuration, so remote {remote} of {} ({url}) must be the private {PRIVATE_REPO} repository", repo.display()))
+}
+
 pub fn publish(repo: &Path, remote: &str, facts: &Facts) -> NorthResult<String> {
+    require_private(repo, remote)?;
     let reference = reference(&facts.host);
     let fetch = format!("+{reference}:{reference}");
     let known = git(repo, &["fetch", "-q", "--no-tags", remote, &fetch], None).is_ok();
@@ -60,6 +73,7 @@ pub fn publish(repo: &Path, remote: &str, facts: &Facts) -> NorthResult<String> 
 }
 
 pub fn fetch_all(repo: &Path, remote: &str) -> NorthResult<Vec<Facts>> {
+    require_private(repo, remote)?;
     let fetch = format!("+{REF_PREFIX}*:{REF_PREFIX}*");
     git(repo, &["fetch", "-q", "--no-tags", remote, &fetch], None)?;
     let listing = text(git(repo, &["for-each-ref", "--format=%(refname)", REF_PREFIX], None)?);

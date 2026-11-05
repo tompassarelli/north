@@ -4,6 +4,7 @@ mod deploy;
 mod failure;
 mod follow;
 mod health;
+mod host_facts;
 pub mod layout;
 mod peers;
 mod pull;

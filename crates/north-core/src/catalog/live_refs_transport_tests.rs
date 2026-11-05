@@ -27,7 +27,7 @@ fn clone_of(remote: &Path, directory: &Path) {
 #[test]
 fn hosts_publish_facts_by_fast_forward_and_a_third_clone_reads_every_hosts_latest() {
     let fixture = tempfile::tempdir().expect("fixture");
-    let remote = fixture.path().join("origin.git");
+    let remote = fixture.path().join("south.git");
     git_in(fixture.path(), &["init", "-q", "--bare", remote.to_str().expect("path")]);
     let (first, second, reader) = (fixture.path().join("a"), fixture.path().join("b"), fixture.path().join("c"));
     for clone in [&first, &second, &reader] {
@@ -50,9 +50,25 @@ fn hosts_publish_facts_by_fast_forward_and_a_third_clone_reads_every_hosts_lates
 #[test]
 fn reading_a_remote_with_no_published_facts_yields_nothing() {
     let fixture = tempfile::tempdir().expect("fixture");
-    let remote = fixture.path().join("origin.git");
+    let remote = fixture.path().join("south.git");
     git_in(fixture.path(), &["init", "-q", "--bare", remote.to_str().expect("path")]);
     let reader = fixture.path().join("c");
     clone_of(&remote, &reader);
     assert!(fetch_all(&reader, "origin").expect("fetch").is_empty());
+}
+
+#[test]
+fn facts_are_never_published_to_or_read_from_a_remote_that_is_not_the_private_south_repository() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    for name in ["north.git", "north", "wisp.git"] {
+        let remote = fixture.path().join(name);
+        git_in(fixture.path(), &["init", "-q", "--bare", remote.to_str().expect("path")]);
+        let clone = fixture.path().join(format!("clone-{name}"));
+        clone_of(&remote, &clone);
+        let error = publish(&clone, "origin", &facts("gex45", 1_000, "kept.sh")).expect_err("must refuse").to_string();
+        assert!(error.contains("must be the private south repository"), "{error}");
+        assert!(fetch_all(&clone, "origin").is_err());
+        git_in(&remote, &["for-each-ref", "--count=1", "refs/north/host-facts"]);
+        assert!(Command::new("git").arg("-C").arg(&remote).args(["for-each-ref", "refs/north/host-facts"]).output().expect("refs").stdout.is_empty());
+    }
 }

@@ -210,8 +210,36 @@ fn parse_duration_ms(text: &str) -> NorthResult<u64> {
     number.parse::<u64>().map(|number| number * scale).map_err(|_| NorthError::Usage(format!("bad duration {text}")))
 }
 
+pub struct Recorded {
+    pub facts: Facts,
+    pub path: PathBuf,
+    pub published: Option<String>,
+}
+
+pub fn default_facts_dir() -> NorthResult<PathBuf> {
+    let (_, state) = home_and_state()?;
+    Ok(state.join("north/host-facts"))
+}
+
+fn home_and_state() -> NorthResult<(PathBuf, PathBuf)> {
+    let home = home()?;
+    let state = std::env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from);
+    Ok((home, state))
+}
+
+pub fn record(directory: &Path, publish: Option<(&Path, &str)>) -> NorthResult<Recorded> {
+    let (home, state) = home_and_state()?;
+    let facts = collect(&host_name()?, now_ms(), &home, &state, &user_units()?);
+    let path = write(directory, &facts)?;
+    let published = match publish {
+        Some((repo, remote)) => Some(transport::publish(repo, remote, &facts)?),
+        None => None,
+    };
+    Ok(Recorded { facts, path, published })
+}
+
 pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
-    let mut record = false;
+    let mut recording = false;
     let mut name = None;
     let mut directory = None;
     let mut repo = None;
@@ -226,7 +254,7 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
                 println!("{USAGE}");
                 return Ok(());
             }
-            "--record" => record = true,
+            "--record" => recording = true,
             "--path" => name = Some(value()?),
             "--facts-dir" => directory = Some(PathBuf::from(value()?)),
             "--repo" => repo = Some(PathBuf::from(value()?)),
@@ -236,17 +264,16 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
             _ => return Err(NorthError::Usage(format!("unknown option {flag}\n{USAGE}"))),
         }
     }
-    let home = home()?;
-    let state = std::env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from);
-    let directory = directory.unwrap_or_else(|| state.join("north/host-facts"));
-    match (record, name) {
+    let directory = match directory {
+        Some(directory) => directory,
+        None => default_facts_dir()?,
+    };
+    match (recording, name) {
         (true, None) => {
-            let facts = collect(&host_name()?, now_ms(), &home, &state, &user_units()?);
-            let path = write(&directory, &facts)?;
-            println!("recorded {} hook paths and {} unit paths in {}", facts.hooks.len(), facts.unit_exec_starts.len(), path.display());
-            if let Some(repo) = &repo {
-                let commit = transport::publish(repo, &remote, &facts)?;
-                println!("published {commit} to {remote} {}", transport::reference(&facts.host));
+            let recorded = record(&directory, repo.as_deref().map(|repo| (repo, remote.as_str())))?;
+            println!("recorded {} hook paths and {} unit paths in {}", recorded.facts.hooks.len(), recorded.facts.unit_exec_starts.len(), recorded.path.display());
+            if let Some(commit) = recorded.published {
+                println!("published {commit} to {remote} {}", transport::reference(&recorded.facts.host));
             }
             Ok(())
         }
