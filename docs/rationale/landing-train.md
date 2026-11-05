@@ -987,3 +987,8 @@ Rules adopted, each in its owner:
   Landing).
 - A landing-machinery fix counts as working only once the installed `safe-push` and the promoted
   runtime contain it (`harness/skills/workers/SKILL.md`, Reports).
+- Tom chose land-first: fast checks gate landing, the full suite runs on main afterwards; auto-revert
+  follows (2026-11-05). Main's CI runs the full suite; `.safe-push` `after =` lines run the checks CI
+  lacks on the landed sha after the push
+  (`crates/north-landing/src/land/post_land.rs`); a failure is recorded in
+  `safe-push/post-land.tsv` and alarms the proxy.

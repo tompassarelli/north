@@ -16,6 +16,14 @@ fn the_local_reason_is_the_text_before_the_first_separator_of_the_entry_ending_i
 }
 
 #[test]
+fn after_lines_stay_out_of_the_pre_land_set_and_make_up_the_after_set() {
+    let config = Config { after: vec!["src/ :: cargo test".into()], ..config(&["src/ :: cargo clippy"], &[]) };
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert_eq!(config.commands(repo, "", "HEAD").unwrap(), vec!["cargo clippy".to_owned()]);
+    assert_eq!(config.after_set().commands(repo, "", "HEAD").unwrap(), vec!["cargo test".to_owned()]);
+}
+
+#[test]
 fn the_publish_ref_is_the_prefix_and_the_first_twelve_characters_of_the_head() {
     let config = Config { publish: Some("farm/".into()), ..Config::default() };
     assert_eq!(config.publish_ref("0123456789abcdef").as_deref(), Some("farm/0123456789ab"));

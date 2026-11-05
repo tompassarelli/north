@@ -13,6 +13,7 @@ pub struct Config {
     pub runner: Option<String>,
     pub capacity: Option<String>,
     checks: Vec<String>,
+    after: Vec<String>,
     local_only: Vec<String>,
     machine_bound: Vec<String>,
     inferred: Vec<String>,
@@ -45,6 +46,7 @@ impl Config {
             runner: first("land.runner"),
             capacity: first("landing.capacity").filter(|command| !command.is_empty()),
             checks,
+            after: blob_values(repo, head, "land.after"),
             local_only: blob_values(repo, head, "land.local-only"),
             machine_bound: blob_values(repo, head, "land.machine-bound"),
             inferred,
@@ -53,6 +55,10 @@ impl Config {
 
     pub fn added_since(&self, earlier: &Self) -> Self {
         Self { checks: self.checks.iter().filter(|entry| !earlier.checks.contains(entry)).cloned().collect(), inferred: Vec::new(), ..self.clone() }
+    }
+
+    pub fn after_set(&self) -> Self {
+        Self { checks: self.after.clone(), after: Vec::new(), inferred: Vec::new(), ..self.clone() }
     }
 
     pub fn has_checks(&self) -> bool {
