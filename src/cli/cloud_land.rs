@@ -3,6 +3,8 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
+use north_landing::land::scans::boxes;
+
 use super::cloud_handback;
 
 pub(super) type Run<'a> = dyn FnMut(&Path, &str, &[&str]) -> Result<String, String> + 'a;
@@ -51,7 +53,7 @@ pub(super) fn lane_name(session: &str) -> String {
 }
 
 pub(super) fn folded_message(log: &str) -> String {
-    let messages = log
+    let kept = log
         .split('\0')
         .map(|message| {
             message
@@ -59,12 +61,14 @@ pub(super) fn folded_message(log: &str) -> String {
                 .filter(|line| !DROPPED_TRAILERS.iter().any(|trailer| line.trim_start().to_ascii_lowercase().starts_with(trailer)))
                 .collect::<Vec<_>>()
                 .join("\n")
-                .trim()
-                .to_owned()
         })
-        .filter(|message| !message.is_empty())
         .collect::<Vec<_>>();
-    format!("{}\n", messages.join("\n\n"))
+    let (bodies, trailers) = boxes::gather_trailers(&kept.iter().map(String::as_str).collect::<Vec<_>>());
+    let mut paragraphs = bodies.into_iter().filter(|message| !message.is_empty()).collect::<Vec<_>>();
+    if !trailers.is_empty() {
+        paragraphs.push(trailers.join("\n"));
+    }
+    format!("{}\n", paragraphs.join("\n\n"))
 }
 
 pub(super) fn container_of(common_dir: &str) -> Option<PathBuf> {
@@ -128,6 +132,9 @@ pub(super) fn land(events: &[Value], transcript: &Path, repo: &Path, state: &Pat
         .and_then(|_| run(&lane, "git", &["commit", "-q", "-F", &message_path.to_string_lossy()]));
     if let Err(error) = folded {
         return stop(format!("cannot fold the handback into one commit: {error}"), Some(&lane));
+    }
+    if let Err(error) = run(&lane, "north", &["land", "scan", "boxes", &range]) {
+        return stop(format!("the box scan refused a Box: trailer: {error}"), Some(&lane));
     }
     if let Err(error) = run(&lane, "north", &["land", "checks", "--base", &base, "--head", "HEAD", "--dry", "1"]) {
         return stop(format!("the lane's land checks failed: {error}"), Some(&lane));

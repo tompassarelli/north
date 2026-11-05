@@ -7,6 +7,7 @@ pub fn skeleton(category: &str) -> Option<String> {
     CATEGORIES.contains(&category).then(|| {
         let mut lines = vec![
             "Item: <repo#number and title>".to_owned(),
+            "Box: <the text of the Done when box this lane closes, copied from the issue>".to_owned(),
             format!("Category: {category}"),
         ];
         if BUG.contains(&category) {
@@ -66,6 +67,16 @@ mod tests {
             let kind = if category == "mechanical" { "worker-haiku" } else { "worker" };
             assert_eq!(super::super::worker_tier::brief_refusal(kind, false, false, &filled), None, "{category}:\n{filled}");
             assert!(crate::router::brief::class_refusal(&filled).is_none(), "{category}");
+        }
+    }
+
+    #[test]
+    fn every_skeleton_prints_the_item_and_box_lines_a_lane_copies_as_trailers() {
+        for category in CATEGORIES {
+            let text = skeleton(category).unwrap();
+            let mut lines = text.lines();
+            assert!(lines.next().unwrap().starts_with("Item: "), "{category}");
+            assert!(lines.next().unwrap().starts_with("Box: "), "{category}");
         }
     }
 

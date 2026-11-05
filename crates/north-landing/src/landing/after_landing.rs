@@ -144,6 +144,9 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     };
+    for line in tick_boxes(&args) {
+        println!("after-landing: {line}");
+    }
     match gate_and_file(&args) {
         Ok(line) => {
             println!("after-landing: {line}");
@@ -153,6 +156,37 @@ pub fn run(arguments: &[String]) -> u8 {
             eprintln!("after-landing: {error}");
             1
         }
+    }
+}
+
+fn tick_boxes(args: &Args) -> Vec<String> {
+    let main = match main_checkout(&args.git_dir) {
+        Ok(main) => main,
+        Err(error) => return vec![format!("no box ticked: {error}")],
+    };
+    let origin = match git(&main, &["remote", "get-url", "--push", "origin"]) {
+        Ok(origin) => origin.trim().to_owned(),
+        Err(error) => return vec![format!("no box ticked: {error}")],
+    };
+    let queue = crate::land::queue::directory(&crate::land::lander::state_home(), &origin);
+    let mut lines = crate::land::after::tick::queue(&queue, &main, &args.base, &args.head);
+    lines.push(drained(&crate::issue_body::directory(&queue)));
+    lines
+}
+
+fn drained(outbox: &Path) -> String {
+    let github = crate::issue_body::Gh::new(crate::issue_body::CALL_LIMIT);
+    match crate::issue_body::drain(outbox, &github, crate::issue_body::DRAIN_LIMIT) {
+        Ok(drained) => format!(
+            "issue bodies: {} written, {} already, {} refused, {} closed, {} waiting{}",
+            drained.written,
+            drained.already,
+            drained.refused,
+            drained.closed,
+            drained.waiting,
+            drained.failure.map_or_else(String::new, |why| format!(" ({why})"))
+        ),
+        Err(error) => format!("issue bodies: cannot drain {}: {error}", outbox.display()),
     }
 }
 

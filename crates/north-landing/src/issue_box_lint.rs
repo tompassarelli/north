@@ -18,6 +18,9 @@ static JUDGMENT: LazyLock<Regex> = LazyLock::new(|| {
 static SOURCED: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\borigin (?:tom|experiment|prior-art|incident)\b|\bsoft\b").unwrap()
 });
+pub(crate) fn hands_tom_a_check(text: &str) -> bool {
+    VERIFIER.is_match(text)
+}
 fn flagged(body: &str) -> Vec<&str> {
     BOX.captures_iter(body)
         .map(|m| m.get(1).unwrap().as_str())

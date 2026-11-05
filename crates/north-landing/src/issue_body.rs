@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::issue_box_lint;
+use crate::land::after::tick as landing;
 use crate::land::queue;
 use crate::platform::process;
 
@@ -43,6 +44,7 @@ impl fmt::Display for Issue {
 pub enum Edit {
     Append { text: String },
     Tick { box_text: String },
+    Land { box_text: String, sha: String },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -77,6 +79,11 @@ impl Edit {
         match self {
             Edit::Append { text } => append(body, text),
             Edit::Tick { box_text } => tick(body, box_text),
+            Edit::Land { box_text, sha } => match landing::tick(body, box_text, Some(sha)) {
+                landing::Tick::Ticked(edited) => Change::Applied(edited),
+                landing::Tick::AlreadyTicked => Change::Already,
+                refused => Change::Refused(refused.to_string()),
+            },
         }
     }
 }
@@ -123,6 +130,7 @@ fn tick(body: &str, box_text: &str) -> Change {
 pub trait Github {
     fn body(&self, issue: &Issue) -> Result<String, String>;
     fn set_body(&self, issue: &Issue, body: &str) -> Result<(), String>;
+    fn close(&self, issue: &Issue, comment: &str) -> Result<(), String>;
 }
 
 pub struct Gh {
@@ -162,6 +170,11 @@ impl Github for Gh {
         let number = issue.number.to_string();
         self.run(&["issue", "edit", &number, "--repo", &issue.repo, "--body-file", "-"], Some(body.as_bytes())).map(|_| ())
     }
+
+    fn close(&self, issue: &Issue, comment: &str) -> Result<(), String> {
+        let number = issue.number.to_string();
+        self.run(&["issue", "close", &number, "--repo", &issue.repo, "--comment", comment], None).map(|_| ())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -187,6 +200,15 @@ pub fn write(github: &dyn Github, issue: &Issue, edit: &Edit, deadline: Instant)
         }
     }
     Err(format!("{issue}: the edit did not stay after {ATTEMPTS} attempts (a concurrent writer replaced the body, or a write was dropped)"))
+}
+
+pub fn close_when_done(github: &dyn Github, issue: &Issue, edit: &Edit) -> Result<bool, String> {
+    let Edit::Land { sha, .. } = edit else { return Ok(false) };
+    if !landing::closable(&github.body(issue)?) {
+        return Ok(false);
+    }
+    github.close(issue, &format!("Closed by the landing of {sha}: every box on this issue is ticked."))?;
+    Ok(true)
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -246,6 +268,7 @@ pub struct Drained {
     pub written: usize,
     pub already: usize,
     pub refused: usize,
+    pub closed: usize,
     pub waiting: usize,
     pub failure: Option<String>,
 }
@@ -260,14 +283,22 @@ pub fn drain(directory: &Path, github: &dyn Github, limit: Duration) -> io::Resu
             break;
         }
         match write(github, &entry.issue, &entry.edit, deadline) {
-            Ok(Outcome::Written) => {
-                drained.written += 1;
-                fs::remove_file(path)?;
-            }
-            Ok(Outcome::Already) => {
-                drained.already += 1;
-                fs::remove_file(path)?;
-            }
+            Ok(outcome @ (Outcome::Written | Outcome::Already)) => match close_when_done(github, &entry.issue, &entry.edit) {
+                Ok(closed) => {
+                    if outcome == Outcome::Written {
+                        drained.written += 1;
+                    } else {
+                        drained.already += 1;
+                    }
+                    drained.closed += usize::from(closed);
+                    fs::remove_file(path)?;
+                }
+                Err(why) => {
+                    drained.waiting = entries.len() - position;
+                    drained.failure = Some(format!("{}: {why}", entry.issue));
+                    break;
+                }
+            },
             Ok(Outcome::Refused(why)) => {
                 drained.refused += 1;
                 refuse(path, &format!("{}: {why}", entry.issue))?;

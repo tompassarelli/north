@@ -43,6 +43,10 @@ impl Github for Fake {
         *self.body.borrow_mut() = racing.unwrap_or_else(|| body.to_owned());
         Ok(())
     }
+
+    fn close(&self, _: &Issue, _: &str) -> Result<(), String> {
+        Err("this fake never closes".to_owned())
+    }
 }
 
 fn script(directory: &Path, name: &str, text: &str) -> PathBuf {

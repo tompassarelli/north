@@ -73,18 +73,20 @@ fn project(session_edit: &str, main_edit: Option<&str>) -> Project {
 
 struct Fake {
     calls: Vec<String>,
+    boxes: Result<String, String>,
     checks: Result<String, String>,
 }
 
 impl Fake {
     fn passing() -> Self {
-        Fake { calls: Vec::new(), checks: Ok("land checks passed\n".into()) }
+        Fake { calls: Vec::new(), boxes: Ok(String::new()), checks: Ok("land checks passed\n".into()) }
     }
 
     fn run(&mut self, directory: &Path, program: &str, args: &[&str]) -> Result<String, String> {
         self.calls.push(format!("{program} {}", args.join(" ")));
         match program {
             "git" => run_program(directory, program, args),
+            "north" if args.starts_with(&["land", "scan", "boxes"]) => self.boxes.clone(),
             "north" => self.checks.clone(),
             "safe-push" => Ok(format!("Done: queued {} {} {}\n", directory.display(), git(directory, &["branch", "--show-current"]).trim(), git(directory, &["rev-parse", "HEAD"]).trim())),
             _ => Err(format!("unexpected {program}")),
@@ -116,7 +118,7 @@ fn land_applies_the_recorded_handback_in_a_fresh_lane_checks_it_and_enqueues_it_
     assert_eq!(git(&lane, &["rev-parse", "HEAD^"]), base);
     assert_eq!(git(&lane, &["log", "-1", "--format=%B"]).trim_end(), "Change two to deux\n\nThe body stays.\n\nRefs north#1");
     assert_eq!(git(&lane, &["log", "-1", "--format=%ae"]).trim(), "handback-test@example.invalid");
-    assert_eq!(fake.ran("north"), [&format!("north land checks --base {} --head HEAD --dry 1", base.trim())]);
+    assert_eq!(fake.ran("north"), [&format!("north land scan boxes {}..HEAD", base.trim()), &format!("north land checks --base {} --head HEAD --dry 1", base.trim())]);
     assert_eq!(fake.ran("safe-push"), [&"safe-push --to main".to_owned()]);
 
     let mut again = Fake::passing();
@@ -143,7 +145,7 @@ fn land_stops_with_the_lane_path_and_enqueues_nothing_when_the_patch_does_not_ap
 #[test]
 fn land_stops_with_the_lane_path_and_enqueues_nothing_when_a_check_fails() {
     let project = project("one\ndeux\nthree\n", None);
-    let mut fake = Fake { calls: Vec::new(), checks: Err("north exited 1: cargo test failed".into()) };
+    let mut fake = Fake { calls: Vec::new(), boxes: Ok(String::new()), checks: Err("north exited 1: cargo test failed".into()) };
     let outcome = land_once(&project, &mut fake);
     let lane = project.worktrees.join("cloud-01HandbackTest");
     assert!(matches!(&outcome, Outcome::Stopped { reason, lane: Some(at) } if reason.contains("land checks failed") && reason.contains("cargo test failed") && *at == lane), "{outcome:?}");
@@ -153,6 +155,22 @@ fn land_stops_with_the_lane_path_and_enqueues_nothing_when_a_check_fails() {
     let second = land_once(&project, &mut again);
     assert!(matches!(&second, Outcome::Stopped { lane: Some(at), .. } if *at == lane), "{second:?}");
     assert!(again.ran("safe-push").is_empty());
+}
+
+#[test]
+fn land_stops_before_the_checks_when_a_box_trailer_matches_no_unticked_box() {
+    let project = project("one\ndeux\nthree\n", None);
+    let mut fake = Fake { calls: Vec::new(), boxes: Err("north exited 1: box scan: Box: R9 matches no unticked box on tompassarelli/north#112".into()), checks: Ok(String::new()) };
+    let outcome = land_once(&project, &mut fake);
+    assert!(matches!(&outcome, Outcome::Stopped { reason, lane: Some(_) } if reason.starts_with("the box scan refused") && reason.contains("matches no unticked box") && reason.contains("R9")), "{outcome:?}");
+    assert_eq!(fake.ran("north").len(), 1);
+    assert!(fake.ran("safe-push").is_empty());
+}
+
+#[test]
+fn folded_message_keeps_item_and_box_trailers_as_one_closing_block() {
+    let log = "First\n\nBody.\n\nItem: north#112\nBox: L1 trailers\nClaude-Session: https://x\n\0\nSecond\n\nItem: north#112\nBox: L2 the tick function\nBox: L1 trailers\nCo-Authored-By: Claude <a@b>\n\0\n";
+    assert_eq!(folded_message(log), "First\n\nBody.\n\nSecond\n\nItem: north#112\nBox: L1 trailers\nBox: L2 the tick function\n");
 }
 
 #[test]
