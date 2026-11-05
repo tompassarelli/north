@@ -131,6 +131,13 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
         }
         None => println!("agents flow: red-main-notify error"),
     }
+    match host.output(&["north", "experiments", "judge", "--file"], None, None, Duration::from_secs(300)) {
+        Some(output) => {
+            print!("{}", String::from_utf8_lossy(&output.stdout));
+            eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        }
+        None => println!("agents flow: north experiments judge error"),
+    }
 }
 
 /// The minutes a push takes to land in this repository, measured; zero when unmeasured.

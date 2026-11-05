@@ -1,0 +1,155 @@
+# One entry per live policy or routing change. `north experiments judge --file` (run by the
+# agents-flow-stall timer through `north flow --stall-alarm`) judges each entry on its review day
+# and files the verdict once on its owner issue; `north experiments check` refuses a landing whose
+# rationale review rule (an `Overturned by:` paragraph or a `## Review` section) no entry quotes.
+#
+# metric: a north flow outcome metric over finished worker runs (rework_rate, first_commit_p50_minutes,
+# landed, runs), or none with a measure naming how the rule is judged instead (always re-measure).
+# bar: the move toward `direction`, in the metric's units, that keeps the change; a move as large
+# the other way reverts it, and anything between goes to Tom. Without `before` the baseline is 0.
+# Days are UTC, windows [start, end), and review falls at least 2 days after `after` ends.
+
+[[experiment]]
+id = "failing-first"
+change = "A bug fix lands with a test seen failing on the code before the fix; a refactor declares Behavior: unchanged"
+landed = "1885127c6"
+note = "docs/rationale/failing-first.md"
+rule = "Two weeks after adoption (north#524), compare from the ledger the rework (reverts, follow-up fixes, red-main culprits) of fix lanes with and without a failing-first test over 2026-11-04 to 2026-11-18, and keep, change or drop the rule on that result."
+metric = "rework_rate"
+direction = "down"
+bar = 0.02
+min_n = 15
+before = ["2026-10-21", "2026-11-04"]
+after = ["2026-11-04", "2026-11-16"]
+review = "2026-11-18"
+owner = "tompassarelli/north#524"
+
+[[experiment]]
+id = "tier-rework-separation"
+change = "Route each box to the cheapest tier whose landed work does not raise rework, judged by the 48 h rework signal"
+landed = "d25deea57"
+note = "docs/rationale/tier-routing.md"
+rule = "Overturned by: rework terms that do not separate the tiers on any category after a month of data, or a tier whose rework is high on a category while its cost per closed box still wins."
+metric = "rework_rate"
+tier = "sonnet"
+direction = "down"
+bar = 0.0
+min_n = 15
+before = ["2026-10-21", "2026-11-04"]
+after = ["2026-11-04", "2026-12-02"]
+review = "2026-12-04"
+owner = "tompassarelli/north#242"
+
+[[experiment]]
+id = "planner-band-unrouted"
+change = "Nothing routes on the planner effort band; planner effort stays high and rises only from an issue's own Not dones"
+landed = "32b7b28cb"
+note = "docs/rationale/tier-routing.md"
+rule = "Overturned by: a planning-time input (box count, files named, issue text) that lifts the held-out check above chance at alpha 0.05 on a later ledger."
+metric = "none"
+measure = "north ledger planner-band: a planning-time input lifting the held-out top-decile check above chance at alpha 0.05"
+direction = "up"
+bar = 0.0
+min_n = 0
+after = ["2026-11-01", "2026-11-29"]
+review = "2026-12-01"
+owner = "tompassarelli/north#242"
+
+[[experiment]]
+id = "tier-arm-sonnet"
+change = "Tier arms alternate until each holds 15 runs stamped Arm: <tier>; this entry counts the Sonnet arm"
+landed = "3b79afa24"
+note = "docs/rationale/tier-routing.md"
+rule = "Overturned by: a category whose live arms cannot reach 15 stamped runs each in a month, where a replay is the only way to compare tiers."
+metric = "runs"
+arm = "sonnet-high"
+direction = "up"
+bar = 15.0
+min_n = 1
+after = ["2026-11-01", "2026-12-01"]
+review = "2026-12-03"
+owner = "tompassarelli/north#242"
+
+[[experiment]]
+id = "tier-arm-opus"
+change = "Tier arms alternate until each holds 15 runs stamped Arm: <tier>; this entry counts the Opus arm"
+landed = "3b79afa24"
+note = "docs/rationale/tier-routing.md"
+rule = "Overturned by: a category whose live arms cannot reach 15 stamped runs each in a month, where a replay is the only way to compare tiers."
+metric = "runs"
+arm = "worker"
+direction = "up"
+bar = 15.0
+min_n = 1
+after = ["2026-11-01", "2026-12-01"]
+review = "2026-12-03"
+owner = "tompassarelli/north#242"
+
+[[experiment]]
+id = "target-debt"
+change = "A soft target miss lands with a Target-debt trailer instead of blocking delivery"
+landed = "4a3ecaec9"
+note = "docs/rationale/targets.md"
+rule = "Overturned by: debt entries piling up unpaid past their triggers, or a soft-target miss reaching users."
+metric = "none"
+measure = "north provenance debt --due: debt entries unpaid past their triggers, and soft-target misses that reached users"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-04", "2026-12-02"]
+review = "2026-12-04"
+owner = "tompassarelli/north#40"
+
+[[experiment]]
+id = "pstack-fleet-prompt"
+change = "North keeps its own fleet prompt, routing and ledger instead of adopting pstack wholesale"
+landed = "9fd40c119"
+note = "docs/rationale/pstack.md"
+rule = "Overturned by: the blinded A/B in item 5 showing the vanilla harness matching the fleet prompt on the frozen task set, or the ceremony in the replaced prompts and watchdogs surviving the rebuild."
+metric = "none"
+measure = "the blinded A/B of the fleet prompt against the vanilla harness on the frozen task set (pstack item 5)"
+direction = "up"
+bar = 0.0
+min_n = 0
+after = ["2026-11-04", "2026-12-02"]
+review = "2026-12-04"
+owner = "tompassarelli/north#264"
+
+[[experiment]]
+id = "flake-gate"
+change = "land-fails-first runs each added or changed test 8 times concurrently under load and refuses a lane whose test fails any run as flaky"
+landed = "c7060fa6f"
+metric = "rework_rate"
+direction = "down"
+bar = 0.0
+min_n = 15
+before = ["2026-10-21", "2026-11-04"]
+after = ["2026-11-05", "2026-11-19"]
+review = "2026-11-21"
+owner = "tompassarelli/north#360"
+
+[[experiment]]
+id = "enqueue-gates"
+change = "north land enqueue runs the language, build-cache and dependency-reason gates before any ticket is written"
+landed = "5484a925d"
+metric = "landed"
+direction = "up"
+bar = 0.0
+min_n = 1
+before = ["2026-10-21", "2026-11-04"]
+after = ["2026-11-05", "2026-11-19"]
+review = "2026-11-21"
+owner = "tompassarelli/north#360"
+
+[[experiment]]
+id = "lander-default"
+change = "safe-push --to main queues a ticket on the lander by default (north; S18 moves south, nixos-config, wisp and makgora)"
+landed = "9b2e84a15"
+metric = "landed"
+direction = "up"
+bar = 0.0
+min_n = 1
+before = ["2026-10-21", "2026-11-04"]
+after = ["2026-11-05", "2026-11-19"]
+review = "2026-11-21"
+owner = "tompassarelli/north#360"

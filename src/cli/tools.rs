@@ -51,6 +51,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("mutant", mutant_cli::run),
     ("land-fails-first", fails_first::run),
     ("flow", crate::ops::flow::run),
+    ("experiments", crate::ops::experiments::run),
     ("report", crate::ops::report::run),
     ("agents", super::agents::run),
     ("resident-cap", crate::ops::resident_cap::run),

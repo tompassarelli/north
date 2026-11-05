@@ -6,7 +6,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 
 use super::attention::{Bug, Correction, Typed, detector, messages};
-use super::{Landed, Staffed, WEEK_S, join, lines, weeks};
+use super::{Landed, Outcome, Staffed, WEEK_S, join, lines, weeks};
 use crate::foundation::clock::Timestamp;
 use crate::platform::run_roles::worker_where;
 use crate::router::pricing::PriceTable;
@@ -40,6 +40,13 @@ fn seconds(text: Option<String>) -> Option<i64> {
 
 fn table_has(db: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
     db.query_row("SELECT count(*) > 0 FROM pragma_table_info(?1) WHERE name = ?2", [table, column], |row| row.get(0))
+}
+
+/// Every staffed run joined to its landing, its lander row and its 48 h rework verdict, priced.
+pub fn outcomes(db: &Connection, rework: &Sources) -> Result<Vec<Outcome>, String> {
+    let prices = PriceTable::load().map_err(|why| format!("prices: {why}"))?;
+    let judged = Rework::read(db, rework).map_err(|why| why.to_string())?.judged;
+    Ok(join(&staffed(db, &prices).map_err(|why| why.to_string())?, &landed(db).map_err(|why| why.to_string())?, &judged))
 }
 
 pub fn staffed(db: &Connection, prices: &PriceTable) -> rusqlite::Result<Vec<Staffed>> {
@@ -116,10 +123,8 @@ pub fn corrections(path: &Path, tom: &[Typed]) -> Vec<Correction> {
 
 pub fn report(places: &Places, tom: &[Typed], now: i64) -> Result<Vec<String>, String> {
     let db = Connection::open_with_flags(&places.ledger, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(|why| format!("ledger {}: {why}", places.ledger.display()))?;
-    let prices = PriceTable::load().map_err(|why| format!("prices: {why}"))?;
+    let outcomes = outcomes(&db, &places.rework).map_err(|why| format!("ledger {}: {why}", places.ledger.display()))?;
     let failed = |why: rusqlite::Error| format!("ledger {}: {why}", places.ledger.display());
-    let rework = Rework::read(&db, &places.rework).map_err(failed)?;
-    let outcomes = join(&staffed(&db, &prices).map_err(failed)?, &landed(&db).map_err(failed)?, &rework.judged);
     let delivered = alerts(&places.convo, now - LOOKBACK_S).map_err(|why| format!("convo store {}: {why}", places.convo.display()))?;
     let messages = messages(tom, &delivered);
     let sources = format!(

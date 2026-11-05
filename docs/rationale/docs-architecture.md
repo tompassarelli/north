@@ -213,7 +213,7 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
 Not required: a docs website, a prose style linter, rewriting rationale notes, moving
 `docs/python-port-order.md` (it is a living plan until the port ends), or moving south's docs.
 
-## Review
+## Draft review, 2026-11-04
 
 A fresh reviewer on a different tier tried to break the first draft on 2026-11-04. Accepted and
 folded in above: the merge driver had no kind that can regenerate a file (box 6 now adds one and

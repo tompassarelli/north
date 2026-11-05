@@ -9,6 +9,7 @@ pub mod detectors;
 pub mod dispatch;
 pub mod dividend;
 pub mod docs;
+pub mod experiments;
 pub mod features_index;
 pub mod flow;
 pub mod incident_mine;
