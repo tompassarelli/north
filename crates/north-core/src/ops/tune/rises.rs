@@ -1,6 +1,6 @@
 //! Cells on a tier still staffed this week whose median cost of a closed box rose more than 25% week
 //! on week, each as the north issue a tick files for it.
-use crate::ledger::ClosedReport;
+use crate::ledger::{ClosedBox, ClosedReport};
 
 /// The rise over the week before past which a cell gets an issue.
 pub const RISE: f64 = 0.25;
@@ -15,7 +15,7 @@ pub struct Rise {
     pub category: String,
     pub before: (f64, usize),
     pub after: (f64, usize),
-    pub boxes: Vec<(String, f64)>,
+    pub boxes: Vec<ClosedBox>,
 }
 
 pub fn rises(week: &ClosedReport, before: &ClosedReport) -> Vec<Rise> {
@@ -80,7 +80,12 @@ impl Rise {
         if self.boxes.is_empty() {
             return String::new();
         }
-        let spent: Vec<String> = self.boxes.iter().map(|(item, usd)| format!("{item} ${usd:.2}")).collect();
-        format!("Closed boxes behind this week's figure, dearest first: {}.\n\n", spent.join(", "))
+        let lines: Vec<String> = self.boxes.iter().map(box_line).collect();
+        format!("Closed boxes behind this week's figure, dearest first, each with its worker runs in the order they started (the first run's tier and the first labeled category name the cell):\n{}\n\n", lines.join("\n"))
     }
+}
+
+fn box_line(closed: &ClosedBox) -> String {
+    let runs: Vec<String> = closed.runs.iter().map(|run| format!("{} {} {} from {} ${:.2}", run.agent, run.tier, run.category, run.started, run.usd)).collect();
+    format!("- {} ${:.2}: {}", closed.item, closed.usd, runs.join("; "))
 }

@@ -17,6 +17,7 @@ const BEFORE: f64 = 1_791_460_800.0;
 
 fn run(item: &str, minutes: u32) -> SpendRun {
     SpendRun {
+        agent: String::new(),
         item: Some(item.into()),
         role: "worker".into(),
         tier: "sonnet".into(),

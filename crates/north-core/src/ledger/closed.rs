@@ -11,6 +11,7 @@ const WORKER: &str = "worker";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpendRun {
+    pub agent: String,
     pub item: Option<String>,
     pub role: String,
     pub tier: String,
@@ -44,6 +45,23 @@ fn closed_by_default() -> bool {
     true
 }
 
+/// A closed box with what it cost and the worker runs that cost it, in the order they started.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClosedBox {
+    pub item: String,
+    pub usd: f64,
+    pub runs: Vec<BoxRun>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoxRun {
+    pub agent: String,
+    pub tier: String,
+    pub category: String,
+    pub started: String,
+    pub usd: f64,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Cell {
     pub tier: String,
@@ -54,7 +72,7 @@ pub struct Cell {
     pub unclosed_usd: f64,
     pub reworked: usize,
     pub runs: usize,
-    boxes: Vec<(String, f64)>,
+    boxes: Vec<ClosedBox>,
     run_minutes: Vec<f64>,
 }
 
@@ -74,14 +92,14 @@ impl Cell {
 
     /// The median cost of one closed box of the cell, which one umbrella issue with hundreds of runs does not move; None when no box is recorded.
     pub fn median_box_usd(&self) -> Option<f64> {
-        let mut spends: Vec<f64> = self.boxes.iter().map(|(_, usd)| *usd).collect();
+        let mut spends: Vec<f64> = self.boxes.iter().map(|closed| closed.usd).collect();
         (!spends.is_empty()).then(|| percentile(&mut spends, 50))
     }
 
     /// The closed boxes of the cell with what each cost, dearest first.
-    pub fn boxes_dearest_first(&self) -> Vec<(String, f64)> {
+    pub fn boxes_dearest_first(&self) -> Vec<ClosedBox> {
         let mut boxes = self.boxes.clone();
-        boxes.sort_by(|a, b| b.1.total_cmp(&a.1));
+        boxes.sort_by(|a, b| b.usd.total_cmp(&a.usd));
         boxes
     }
 }
@@ -158,13 +176,14 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let key = (tier_label(&runs[0].tier), category.to_owned());
         let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, unclosed_usd: 0.0, reworked: 0, runs: 0, boxes: Vec::new(), run_minutes: Vec::new() });
-        let spent = runs.iter().map(|run| run.usd(prices)).sum::<f64>();
+        let priced: Vec<BoxRun> = runs.iter().map(|run| BoxRun { agent: run.agent.clone(), tier: tier_label(&run.tier), category: run.category.clone(), started: run.started.clone(), usd: run.usd(prices) }).collect();
+        let spent = priced.iter().map(|run| run.usd).sum::<f64>();
         cell.closed += 1;
         cell.runs += runs.len();
         let reworked = runs.iter().any(|run| run.landed && run.reworked);
         cell.reworked += usize::from(reworked);
         cell.usd += spent;
-        cell.boxes.push(((*item).to_owned(), spent));
+        cell.boxes.push(ClosedBox { item: (*item).to_owned(), usd: spent, runs: priced });
         cell.run_minutes.extend(runs.iter().filter_map(|run| run.minutes()));
         if !runs[0].arm.is_empty() {
             arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: true, reworked });
@@ -227,7 +246,7 @@ impl ClosedReport {
     /// The median cost of one closed box across every cell, and how many boxes closed; None when
     /// none did.
     pub fn median_box_usd(&self) -> Option<(f64, usize)> {
-        let mut spends: Vec<f64> = self.cells.iter().flat_map(|cell| cell.boxes.iter().map(|(_, usd)| *usd)).collect();
+        let mut spends: Vec<f64> = self.cells.iter().flat_map(|cell| cell.boxes.iter().map(|closed| closed.usd)).collect();
         (!spends.is_empty()).then(|| (percentile(&mut spends, 50), spends.len()))
     }
 
@@ -235,7 +254,7 @@ impl ClosedReport {
     /// `opus`), pooled; None when no box closed there or no run of it has a wall time.
     pub fn figures(&self, family: &str, category: &str) -> Option<Figures> {
         let cells: Vec<&Cell> = self.cells.iter().filter(|cell| cell.category == category && cell.tier.contains(family)).collect();
-        let mut spends: Vec<f64> = cells.iter().flat_map(|cell| cell.boxes.iter().map(|(_, usd)| *usd)).collect();
+        let mut spends: Vec<f64> = cells.iter().flat_map(|cell| cell.boxes.iter().map(|closed| closed.usd)).collect();
         let mut walls: Vec<f64> = cells.iter().flat_map(|cell| cell.run_minutes.iter().copied()).collect();
         (!spends.is_empty() && !walls.is_empty()).then(|| Figures {
             closed: spends.len(),
@@ -279,7 +298,7 @@ impl ClosedReport {
             "leads_usd_per_closed": self.per_closed(self.leads_usd),
             "cells": self.cells.iter().map(|cell| json!({
                 "tier": cell.tier, "category": cell.category, "closed": cell.closed, "usd": cell.usd, "unclosed_usd": cell.unclosed_usd, "reworked": cell.reworked, "usd_per_closed": cell.usd_per_closed(),
-                "boxes": cell.boxes.iter().map(|(item, usd)| json!({"item": item, "usd": usd})).collect::<Vec<_>>(),
+                "boxes": cell.boxes.iter().map(|closed| json!({"item": closed.item, "usd": closed.usd, "runs": closed.runs.iter().map(|run| json!({"agent": run.agent, "tier": run.tier, "category": run.category, "started": run.started, "usd": run.usd})).collect::<Vec<_>>()})).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
             "runs_per_closed": self.runs_per_closed().iter().map(|(category, runs, closed)| json!({"category": category, "runs": runs, "closed": closed, "runs_per_closed": *runs as f64 / *closed as f64})).collect::<Vec<_>>(),
             "arms": self.arms,

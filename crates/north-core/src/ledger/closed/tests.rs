@@ -4,6 +4,7 @@ use super::*;
 
 fn run(item: Option<&str>, role: &str, tier: &str, category: &str, model: &str, ended: &str, landed: bool) -> SpendRun {
     SpendRun {
+        agent: String::new(),
         item: item.map(str::to_owned),
         role: role.into(),
         tier: tier.into(),

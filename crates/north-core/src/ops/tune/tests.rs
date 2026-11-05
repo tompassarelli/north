@@ -14,6 +14,7 @@ const OPUS: (&str, &str) = ("medium", "claude-opus-5-5");
 
 fn run(item: &str, (tier, model): (&str, &str), category: &str, started: &str, ended: &str) -> SpendRun {
     SpendRun {
+        agent: format!("agent-{item}"),
         item: Some(item.into()),
         role: "worker".into(),
         tier: tier.into(),
@@ -273,7 +274,20 @@ fn a_cell_30_percent_dearer_than_the_week_before_files_exactly_one_issue_and_one
     assert_eq!(issues.filed.len(), 1, "{:#?}", tick.lines);
     assert_eq!(issues.filed[0].0, "Cost per closed box rose more than 25% week on week in sonnet tooling");
     assert!(issues.filed[0].1.contains("from $10.00 over 3 closed boxes the week before to $13.00 over 3 this week (+30%)"), "{}", issues.filed[0].1);
-    assert!(issues.filed[0].1.contains("Closed boxes behind this week's figure, dearest first: north#10 $"), "{}", issues.filed[0].1);
+    assert!(issues.filed[0].1.contains("\n- north#10 $13.00: agent-north#10 sonnet tooling from 2026-10-24T10:00:00Z $13.00\n"), "{}", issues.filed[0].1);
+}
+
+#[test]
+fn a_rise_names_every_run_of_a_box_escalated_off_its_first_tier_so_the_issue_traces_it_without_the_ledger() {
+    const HAIKU: (&str, &str) = ("haiku", "claude-haiku-5-5");
+    let escalations = (0..2).map(|index| SpendRun { input: 0, cache_read: 0, output: 1_000_000, ..run(&format!("north#1{index}"), SONNET, "tooling", "2026-10-24T11:00:00Z", "2026-10-24T11:30:00Z") });
+    let week: Vec<SpendRun> = boxes("1", 3, HAIKU, "mechanical", "2026-10-24", 10_000).into_iter().chain(escalations).collect();
+    let before = boxes("3", 3, HAIKU, "mechanical", "2026-10-17", 10_000);
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()) };
+    let mut issues = Issues::default();
+    tick(&ledger, &Prior::default(), &[], &mut issues, AT, false);
+    let body = &issues.filed.first().expect("haiku mechanical rose").1;
+    assert!(body.contains("\n- north#10 $10.01: agent-north#10 haiku mechanical from 2026-10-24T10:00:00Z $0.01; agent-north#10 sonnet tooling from 2026-10-24T11:00:00Z $10.00\n"), "{body}");
 }
 
 #[test]

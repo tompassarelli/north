@@ -54,6 +54,7 @@ pub fn spend_runs(db: &Connection, judged: &BTreeMap<String, Judged>) -> Vec<Spe
         .query_map([], |row| {
             let agent: String = row.get(0)?;
             Ok(SpendRun {
+                agent: agent.clone(),
                 item: row.get(1)?,
                 role: "worker".into(),
                 tier: row.get(2)?,

@@ -16,6 +16,7 @@ fn mechanical(body: &str) -> Issue {
 
 fn run(item: &str, tier: &str, model: &str, category: &str, input: i64) -> SpendRun {
     SpendRun {
+        agent: String::new(),
         item: Some(item.into()),
         role: "worker".into(),
         tier: tier.into(),

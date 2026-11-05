@@ -67,6 +67,7 @@ fn spend_runs(database: &std::path::Path) -> NorthResult<Vec<SpendRun>> {
     Ok(rows
         .iter()
         .map(|row| SpendRun {
+            agent: text(row, "agent"),
             item: row["item"].as_str().map(str::to_owned),
             role: text(row, "role"),
             tier: text(row, "tier"),
@@ -253,6 +254,7 @@ mod tests {
 
     fn run(item: &str, tier: &str, model: &str, category: &str) -> SpendRun {
         SpendRun {
+            agent: String::new(),
             item: Some(item.into()),
             role: "worker".into(),
             tier: tier.into(),
