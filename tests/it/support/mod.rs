@@ -2,6 +2,8 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
 
+pub mod tree;
+
 pub fn fake_claude() -> String {
     static BUILT: OnceLock<String> = OnceLock::new();
     BUILT

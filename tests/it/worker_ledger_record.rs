@@ -2,9 +2,14 @@ use north_core::foundation::shim;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::LazyLock;
 
 use regex::Regex;
+use rusqlite::fallible_iterator::FallibleIterator;
+use rusqlite::types::ValueRef;
 use serde_json::{Value, json};
+
+use crate::support::tree::Tree;
 
 const REPO: &str = env!("CARGO_MANIFEST_DIR");
 const AGY: &str = "0a0a0a0a-0000-4000-8000-000000000001";
@@ -24,10 +29,37 @@ fn script(path: &Path, body: &str) {
     shim::write_script(path, body);
 }
 
+fn real(value: f64) -> String {
+    if value.fract() == 0.0 && value.abs() < 1e15 {
+        return format!("{value:.1}");
+    }
+    let digits = usize::try_from(14 - value.abs().log10().floor() as i64).unwrap_or(0);
+    let fixed = format!("{value:.digits$}");
+    let trimmed = fixed.trim_end_matches('0');
+    if trimmed.ends_with('.') { format!("{trimmed}0") } else { trimmed.to_owned() }
+}
+
+fn cell(value: ValueRef) -> String {
+    match value {
+        ValueRef::Null => String::new(),
+        ValueRef::Integer(number) => number.to_string(),
+        ValueRef::Real(number) => real(number),
+        ValueRef::Text(bytes) | ValueRef::Blob(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+    }
+}
+
 fn sqlite(db: &Path, sql: &str) -> String {
-    let output = Command::new("sqlite3").arg(db).arg(sql).output().unwrap();
-    assert!(output.status.success(), "{sql}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    let connection = rusqlite::Connection::open(db).unwrap();
+    let mut batch = rusqlite::Batch::new(&connection, sql);
+    let mut lines = Vec::new();
+    while let Some(mut statement) = batch.next().unwrap_or_else(|error| panic!("{sql}: {error}")) {
+        let width = statement.column_count();
+        let mut rows = statement.raw_query();
+        while let Some(row) = rows.next().unwrap_or_else(|error| panic!("{sql}: {error}")) {
+            lines.push((0..width).map(|n| cell(row.get_ref(n).unwrap())).collect::<Vec<_>>().join("|"));
+        }
+    }
+    lines.join("\n").trim().to_owned()
 }
 
 fn fixture_rows(name: &str) -> Vec<Value> {
@@ -41,9 +73,12 @@ struct Rig {
 }
 
 impl Rig {
+    fn bare() -> Self {
+        Self { orchestration: Path::new(REPO).join("harness/lib/fixtures/orchestration.toml"), dir: tempfile::tempdir().unwrap() }
+    }
+
     fn new() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let rig = Self { orchestration: Path::new(REPO).join("harness/lib/fixtures/orchestration.toml"), dir };
+        let rig = Self::bare();
         script(
             &rig.path("bin/north"),
             &format!("[ \"$1 $2 $3\" = \"fleet list --json\" ] || exec {} \"$@\"\ncat \"$FLEET_TEST_SESSIONS\"\n", env!("CARGO_BIN_EXE_north")),
@@ -350,7 +385,7 @@ fn every_provider_is_recorded_with_its_brief_stages_landing_and_roles_and_the_su
     matches(&out, r"balance-tuning\s+gpt-6.1-sol\s+high\s.*\s0k\s+0/0");
 }
 
-fn context_rig() -> Rig {
+fn context_transcripts() -> Rig {
     let rig = Rig::new();
     let (project, workers) = (rig.path("claude/projects/recorded"), rig.path("claude/projects/recorded/recorded-context/subagents"));
     let rows = fixture_rows("worker-ledger-context.jsonl");
@@ -378,6 +413,17 @@ fn context_rig() -> Rig {
     rig
 }
 
+fn context_rig() -> Rig {
+    static RECORDED: LazyLock<Tree> = LazyLock::new(|| {
+        let rig = context_transcripts();
+        backfill(&rig);
+        Tree::read(rig.dir.path())
+    });
+    let rig = Rig::bare();
+    RECORDED.write(rig.dir.path());
+    rig
+}
+
 fn context_file(rig: &Rig) -> PathBuf {
     rig.path("claude/projects/recorded/recorded-context/subagents/agent-context.jsonl")
 }
@@ -393,7 +439,6 @@ fn backfill(rig: &Rig) {
 #[test]
 fn recorded_context_telemetry_counts_compactions_hook_fires_and_ignored_reminders_once_per_request() {
     let rig = context_rig();
-    backfill(&rig);
     assert_eq!(rig.sql("select compactions,handoff_fires,idle_gap_misses,peak_ctx from runs where agent='context'"), "1|1|1|664423", "recorded usage and compaction with the seeded hook yield 1/1/1, streamed duplicates count once");
     assert_eq!(rig.sql("select input_tokens,cache_read_tokens,peak_ctx from runs where agent='recorded-codex'"), "18495|12160|18495", "recorded Codex token_count includes cached input and duplicate events count once");
     assert_eq!(rig.sql("select role || '=' || count(*) from runs group by role order by role"), "parent=2\nproxy=1\nworker=2");
@@ -536,7 +581,6 @@ fn prior_names() -> Vec<String> {
 #[test]
 fn a_recording_run_recalibrates_a_stale_ledger_once_and_records_priors_once_a_week_where_codex_rollouts_exist() {
     let rig = context_rig();
-    backfill(&rig);
     let stale = "update calibration set at='2000-01-01T00:00:00Z' where kind!='prior'";
     rig.sql(stale);
     let before = calibration_batches(&rig, "!=");
