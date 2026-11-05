@@ -40,9 +40,9 @@ incident = "nix-lease-shell"
 title = "Leased or offloaded runs that lose or never enter the dev shell"
 commands = ["north capacity", "north dev-shell"]
 text = """
-A leased or offloaded run (`north capacity host run`, `capacity exec --dev-shell`, an offload slot) does not
-inherit your dev shell. `--dev-shell` sets a marker only (north#546), so cargo can still resolve to the gate shim.
-Put the entry inside the run: `north capacity exec -- nix develop DIR -c CMD`.
+A leased or offloaded run (`north capacity host run`, `capacity exec --dev-shell DIR`, an offload slot) does not
+inherit your dev shell; each enters it through `north dev-shell run`, which counts as inside only the derivation it
+entered (`NORTH_DEV_SHELL`), never a stray `IN_NIX_SHELL`. Run `north dev-shell run -- CMD` rather than `nix develop`.
 """
 
 [[card]]

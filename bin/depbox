@@ -26,20 +26,6 @@ if [ "$top" = / ] || [ "$top" = "$home" ]; then printf 'depbox: refusing to expo
 common=$(realpath "$(git rev-parse --git-common-dir)")
 uid=$(id -u)
 
-root_shell() {
-  local roots=$home/.local/state/depbox/shell-roots key
-  [ -f "$top/flake.nix" ] && [ -f "$top/flake.lock" ] && command -v nix >/dev/null || return 0
-  key=$(git -C "$top" ls-files -z -- '*.nix' flake.lock 'rust-toolchain*' | (cd "$top" && xargs -0 cat 2>/dev/null) | sha256sum | cut -c1-16)
-  mkdir -p "$roots"
-  find "$roots" -maxdepth 1 \( -type l -o -name '*.lock' \) -mtime +7 -delete
-  find "$roots" -maxdepth 1 -type l -lname /dev/null -mtime +0 -delete
-  if [ ! -e "$roots/$key" ]; then
-    rm -f "$roots/$key" "$roots/$key"-*-link
-    nix print-dev-env "$top" --no-update-lock-file --profile "$roots/$key" >/dev/null || { printf 'depbox: no dev shell to root\n' >&2; ln -sn /dev/null "$roots/$key"; }
-  fi
-  [ "$(readlink "$roots/$key")" = /dev/null ] || touch -h "$roots/$key"*
-}
-root_shell || true
 box=${common%/*/.git}; box=$home/code/${box##*/}/sandbox
 binds=("$top" "$box" "$common")
 args=(--ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --tmpfs "/run/user/$uid" --tmpfs "$home")
@@ -50,7 +36,7 @@ for dir in .bun/install/cache .cargo/registry .cargo/git .cache/nix "${cache_dir
   mkdir -p "$home/$dir"
   args+=(--bind "$home/$dir" "$home/$dir"); binds+=("$home/$dir")
 done
-for path in .cargo/bin .rustup .gitconfig .config/git .nix-profile .local/bin .local/share/north .local/state/north/current .local/state/north/runtimes .local/state/nix/profile .local/state/nix/profiles .local/lib/firn/cli code/nixos-config/pins code/north/pins; do
+for path in .cargo/bin .rustup .gitconfig .config/git .nix-profile .local/bin .local/share/north .local/state/north/current .local/state/north/runtimes .local/state/north/dev-shells .local/state/nix/profile .local/state/nix/profiles .local/lib/firn/cli code/nixos-config/pins code/north/pins; do
   if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); binds+=("$home/$path" "$(realpath -m -- "$home/$path")"); fi
 done
 
