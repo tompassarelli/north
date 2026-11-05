@@ -12,13 +12,30 @@ fn remote_run_landing(command: &str, flake: bool, landing: &str) -> String {
 }
 
 fn remote_run_with(command: &str, flake: bool, landing: &str, landref: &str, home: Option<&Path>) -> String {
+    remote_run_flake(command, flake.then_some(FLAKE_WITH_DEV_SHELL), landing, landref, home)
+}
+
+const FLAKE_WITH_DEV_SHELL: &str = "{ outputs = { devShells = 1; }; }";
+const FLAKE_WITHOUT_DEV_SHELL: &str = "{ outputs = { checks = 1; }; }";
+
+const NIX_SHIM: &str = r#"case "$1" in
+  eval)
+    case "$*" in *currentSystem*) echo x86_64-linux; exit 0 ;; esac
+    for last; do :; done
+    grep -q devShells "${last%%#*}/flake.nix"
+    exit $? ;;
+esac
+echo "nix $*"
+"#;
+
+fn remote_run_flake(command: &str, flake: Option<&str>, landing: &str, landref: &str, home: Option<&Path>) -> String {
     let slot = tempfile::tempdir().unwrap();
     let bin = tempfile::tempdir().unwrap();
-    if flake {
-        fs::write(slot.path().join("flake.nix"), "{}").unwrap();
+    if let Some(text) = flake {
+        fs::write(slot.path().join("flake.nix"), text).unwrap();
     }
     let nix = bin.path().join("nix");
-    crate::foundation::shim::write_script(&nix, "echo \"nix $*\"\n");
+    crate::foundation::shim::write_script(&nix, NIX_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let output = Command::new("sh")
         .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h landing={} landref={}\n{RUN}", shell(slot.path()), shell(Path::new(command)), landing, super::quote(landref))])
@@ -110,6 +127,11 @@ fn the_remote_script_records_its_owner_and_process_group_and_removes_them_on_exi
     assert!(super::REMOTE.contains(r#"printf '%s\n' "$owner" >"$root/$s.owner""#));
     assert!(super::REMOTE.contains(r#"printf '%s\n' "$$" >"$root/$s.pgid""#));
     assert!(super::REMOTE.contains(r#"rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid""#));
+}
+
+#[test]
+fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
+    assert_eq!(remote_run_flake("echo plain", Some(FLAKE_WITHOUT_DEV_SHELL), "", "", None), "plain\n");
 }
 
 #[test]
