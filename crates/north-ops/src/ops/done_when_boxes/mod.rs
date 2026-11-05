@@ -9,6 +9,10 @@ use crate::foundation::clock::Timestamp;
 use crate::platform::rolling_issue::{Gh, Tracker};
 use crate::platform::{git, github, process};
 
+pub use expectation::{Expectation, Expected, Outcome};
+
+mod expectation;
+
 const MARKER: &str = "Done when: `";
 const OPEN: &str = "- [ ] ";
 const LIMIT: Duration = Duration::from_secs(600);
@@ -18,23 +22,34 @@ const KEPT_LINES: usize = 20;
 pub struct Check {
     pub text: String,
     pub command: String,
+    pub expected: Expected,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Run {
+    pub exit: i32,
+    pub stdout: String,
+    pub output: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Verdict {
     pub check: Check,
-    pub exit: i32,
-    pub output: String,
+    pub run: Run,
+    pub outcome: Outcome,
 }
 
 impl Verdict {
     pub fn passed(&self) -> bool {
-        self.exit == 0
+        self.outcome == Outcome::Pass
     }
 
     pub fn line(&self, label: &str) -> String {
-        let verdict = if self.passed() { "pass" } else { "fail" };
-        format!("{label}: {verdict} (exit {}) `{}`: {}", self.exit, self.check.command, self.check.text)
+        let reason = match &self.check.expected {
+            Expected::Judge(reason) => format!(" [{reason}]"),
+            Expected::All(_) => String::new(),
+        };
+        format!("{label}: {} (exit {}) `{}`: {}{reason}", self.outcome.label(), self.run.exit, self.check.command, self.check.text)
     }
 }
 
@@ -48,31 +63,33 @@ pub fn checks(body: &str) -> Vec<Check> {
         .filter_map(|line| {
             let rest = line.trim_start().strip_prefix(OPEN)?;
             let after = &rest[rest.find(MARKER)? + MARKER.len()..];
-            let command = after[..after.find('`')?].trim();
-            (!command.is_empty()).then(|| Check { text: rest.trim().to_owned(), command: command.to_owned() })
+            let close = after.find('`')?;
+            let command = after[..close].trim();
+            (!command.is_empty()).then(|| Check { text: rest.trim().to_owned(), command: command.to_owned(), expected: expectation::expected(&after[close + 1..]) })
         })
         .collect()
 }
 
-pub fn judge(command: &str, main: &Path) -> (i32, String) {
+pub fn judge(command: &str, main: &Path) -> Run {
     let mut shell = Command::new("sh");
     shell.args(["-c", command]).current_dir(main);
     match process::run_group_within(shell, LIMIT) {
         Some(output) => {
-            let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-            text.push_str(&String::from_utf8_lossy(&output.stderr));
-            (output.status.code().unwrap_or(1), text)
+            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+            let output_text = format!("{stdout}{}", String::from_utf8_lossy(&output.stderr));
+            Run { exit: output.status.code().unwrap_or(1), stdout, output: output_text }
         }
-        None => (124, format!("no exit within {}s", LIMIT.as_secs())),
+        None => Run { exit: 124, stdout: String::new(), output: format!("no exit within {}s", LIMIT.as_secs()) },
     }
 }
 
-pub fn verdicts(body: &str, run: &dyn Fn(&str) -> (i32, String)) -> Vec<Verdict> {
+pub fn verdicts(body: &str, run: &dyn Fn(&str) -> Run) -> Vec<Verdict> {
     checks(body)
         .into_iter()
         .map(|check| {
-            let (exit, output) = run(&check.command);
-            Verdict { check, exit, output }
+            let run = run(&check.command);
+            let outcome = expectation::outcome(&check.expected, run.exit, &run.stdout, &run.output);
+            Verdict { check, run, outcome }
         })
         .collect()
 }
@@ -98,8 +115,8 @@ pub fn ticked(body: &str, verdicts: &[Verdict], stamp: &Stamp) -> String {
         let indent: String = lines[index].chars().take_while(|character| character.is_whitespace()).collect();
         let ticked = lines[index].trim_end().replacen("- [ ]", "- [x]", 1);
         let short = &stamp.sha[..stamp.sha.len().min(12)];
-        lines[index] = format!("{ticked} Evidence: `{}` exited 0 on main {short} on {}.", verdict.check.command, stamp.date);
-        let block: Vec<String> = attachment(&verdict.output).into_iter().map(|line| format!("{indent}{line}")).collect();
+        lines[index] = format!("{ticked} Evidence: `{}` exited {} on main {short} on {}.", verdict.check.command, verdict.run.exit, stamp.date);
+        let block: Vec<String> = attachment(&verdict.run.output).into_iter().map(|line| format!("{indent}{line}")).collect();
         lines.splice(index + 1..index + 1, block);
     }
     let mut text = lines.join("\n");
@@ -109,7 +126,7 @@ pub fn ticked(body: &str, verdicts: &[Verdict], stamp: &Stamp) -> String {
     text
 }
 
-pub fn settle(tracker: &mut dyn Tracker, number: u64, body: &str, run: &dyn Fn(&str) -> (i32, String), stamp: &Stamp, dry_run: bool) -> Result<Vec<Verdict>, String> {
+pub fn settle(tracker: &mut dyn Tracker, number: u64, body: &str, run: &dyn Fn(&str) -> Run, stamp: &Stamp, dry_run: bool) -> Result<Vec<Verdict>, String> {
     let verdicts = verdicts(body, run);
     if dry_run || !verdicts.iter().any(Verdict::passed) {
         return Ok(verdicts);
