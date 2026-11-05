@@ -264,3 +264,18 @@ fn generated_rewrite() {
         }
     }
 }
+
+#[test]
+fn generated_rewrite_refuses_a_bare_generated_input() {
+    let mut repo = Repo::new();
+    write(&repo.path.join("x"), "primary\n");
+    repo.mark_base("primary input");
+    repo.config(&["generated.input", "x"]);
+    repo.commit("bare generated input");
+    let scan = repo.scan("generated-rewrite");
+    assert_eq!(scan.status, 1, "{}", scan.output);
+    assert_eq!(
+        scan.output,
+        "safe-push: ✗ : missing or invalid generated input authority; declare repeated input = <tracked primary file> in [generated \"\"]; NOT pushed.\n"
+    );
+}
