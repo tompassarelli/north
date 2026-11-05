@@ -231,3 +231,33 @@ fn the_drivers_run_the_quoted_program_with_their_merge_driver_arguments() {
     assert_eq!(shell_quoted(Path::new("/tmp/it's/north")), "'/tmp/it'\\''s/north'");
     assert!(DRIVERS.iter().all(|driver| driver.arguments.starts_with("merge-driver ") && driver.arguments.ends_with(" %O %A %B %P")));
 }
+
+#[test]
+fn a_block_with_two_added_lines_merges_sorted_and_keeps_the_text_around_it() {
+    let base = "use x;\nconst T: &[u8] = &[\n    (\"a\", A),\n    (\"c\", C),\n];\nfn f() {}\n";
+    let ours = base.replace("    (\"c\"", "    (\"b\", B),\n    (\"c\"");
+    let theirs = base.replace("];\n", "    (\"d\", D),\n];\n").replace("fn f() {}", "fn g() {}");
+    let (start, end) = ("const T: &[u8] = &[", "];");
+    let merged = block::merge_block(base, &ours, &theirs, start, end).unwrap();
+    assert_eq!(merged, "use x;\nconst T: &[u8] = &[\n    (\"a\", A),\n    (\"b\", B),\n    (\"c\", C),\n    (\"d\", D),\n];\nfn g() {}\n");
+    assert!(block::merge_block(base, &ours, &ours, start, end).unwrap_err().contains("both sides add"));
+    assert!(block::merge_block(base, "const T: &[u8] = &[\n", base, start, end).unwrap_err().contains("closes"));
+    assert!(block::merge_block(base, base, "use x;\n", start, end).unwrap_err().contains("opens"));
+}
+
+#[test]
+fn two_keys_of_one_path_merge_as_one_rule_and_both_arrays_merge_as_sets() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("sets.toml");
+    fs::write(&config, "[[set]]\npath = \"structure.toml\"\nkind = \"toml-array\"\nkey = \"may_use\"\n\n[[set]]\npath = \"structure.toml\"\nkind = \"toml-array\"\nkey = \"paths\"\n\n[[set]]\npath = \"verbs.rs\"\nkind = \"block\"\nstart = \"[\"\nend = \"]\"\n").unwrap();
+    let rules = read_rules(&config).unwrap();
+    assert_eq!(rules[0].kind, Kind::TomlArray(vec!["may_use".to_owned(), "paths".to_owned()]));
+    assert_eq!(rules[1].kind, Kind::Block { start: "[".to_owned(), end: "]".to_owned() });
+    assert_eq!(rules.len(), 2);
+    let base = "[[module]]\nname = \"a\"\npaths = [\"a/**\"]\nmay_use = [\"x\"]\n";
+    let ours = "[[module]]\nname = \"a\"\npaths = [\"a/**\", \"b.rs\"]\nmay_use = [\"x\", \"y\"]\n";
+    let theirs = "[[module]]\nname = \"a\"\npaths = [\"a/**\", \"c.rs\"]\nmay_use = [\"x\", \"z\"]\n";
+    let [b, o, t] = scratch_files(dir.path(), base, ours, theirs);
+    drive(&config, &b, &o, &t, "structure.toml").unwrap();
+    assert_eq!(fs::read_to_string(&o).unwrap(), "[[module]]\nname = \"a\"\npaths = [\"a/**\", \"b.rs\", \"c.rs\"]\nmay_use = [\"x\", \"y\", \"z\"]\n");
+}

@@ -1,13 +1,25 @@
 # Files and keys `north merge-driver set` may merge as sets (docs/rationale/landing-train.md, step 9b), and generated files it regenerates.
 # Only order-insensitive lists of unique entries belong here; ordered lists such as hook.rs guard arrays never do.
 # kind = "lines": every non-comment line is one entry, identified by the text before a trailing " #".
-# kind = "toml-array": the one-line string array under `key` in each table, identified by the table header and its name.
+# kind = "block": every line strictly between the first line that trims to `start` and the next that trims to `end` is one entry, identified as in "lines"; git merges the text around the block.
+# kind = "toml-array": the one-line string array under `key` in each table, identified by the table header, its name and the key; entries for one path with different keys merge together.
 # kind = "regenerate": a generated file; the driver leaves it conflicted and `north merge-driver continue` runs `command` on the merged sources, stages it and continues the rebase or cherry-pick. Before its checks the landing candidate also reruns `command` after a lane that changes a path under `sources` without the generated file, and folds the result into that lane. `generator` lists the paths of the code that writes it: the lander regenerates with its own running binary, so a lane behind one that changes a generator in the same candidate and touches that rule's sources or file waits for the next candidate. A kind this north does not know is skipped, and git merges its file as text.
 
 [[set]]
 path = "structure.toml"
 kind = "toml-array"
 key = "may_use"
+
+[[set]]
+path = "structure.toml"
+kind = "toml-array"
+key = "paths"
+
+[[set]]
+path = "src/cli/verbs.rs"
+kind = "block"
+start = "pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&["
+end = "]);"
 
 [[set]]
 path = "harness/machine-bound-tests"

@@ -13,7 +13,7 @@ pub struct Driver {
 
 pub const DRIVERS: &[Driver] = &[Driver { name: "set", description: "order-insensitive unique-entry lists and regenerated files (harness/merge-sets.toml)", arguments: "merge-driver set %O %A %B %P" }];
 const GIT_DRIVERS: [&str; 3] = ["text", "binary", "union"];
-const KINDS: [&str; 3] = ["lines", "toml-array", "regenerate"];
+const KINDS: [&str; 4] = ["lines", "block", "toml-array", "regenerate"];
 static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
 static REPORTED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 pub const DEFAULT_CONFIG: &str = "harness/merge-sets.toml";
@@ -35,7 +35,8 @@ enum Change {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Kind {
     Lines,
-    TomlArray(String),
+    Block { start: String, end: String },
+    TomlArray(Vec<String>),
     Regenerate { command: String, sources: Vec<String>, generator: Vec<String> },
 }
 
@@ -193,6 +194,7 @@ fn merge_lines(base: &str, ours: &str, theirs: &str) -> Result<String, String> {
 }
 
 struct ArraySet {
+    key: String,
     line: String,
     entries: Vec<Entry>,
 }
@@ -226,7 +228,7 @@ fn parse_array(line: &str, key: &str) -> Option<Vec<Entry>> {
     Some(entries)
 }
 
-fn parse_array_file(text: &str, key: &str) -> Result<ArrayFile, String> {
+fn parse_array_file(text: &str, keys: &[String]) -> Result<ArrayFile, String> {
     let mut skeleton = String::new();
     let mut sets = BTreeMap::new();
     let lines = text.lines().collect::<Vec<_>>();
@@ -237,18 +239,19 @@ fn parse_array_file(text: &str, key: &str) -> Result<ArrayFile, String> {
             end += 1;
         }
         let section = &lines[start..end];
-        let id = format!("{}{}", section[0], table_name(section));
+        let table = format!("{}{}", section[0], table_name(section));
         for line in section {
-            let is_key = line.trim_start().strip_prefix(key).is_some_and(|rest| rest.trim_start().starts_with('='));
-            if !is_key {
-                skeleton.push_str(line);
-            } else {
+            let key = keys.iter().find(|key| line.trim_start().strip_prefix(key.as_str()).is_some_and(|rest| rest.trim_start().starts_with('=')));
+            if let Some(key) = key {
+                let id = format!("{table} {key}");
                 let entries = parse_array(line, key).ok_or_else(|| format!("{key} in {} is not a one-line array of plain strings", section[0]))?;
-                if sets.insert(id.clone(), ArraySet { line: (*line).to_owned(), entries }).is_some() {
+                if sets.insert(id.clone(), ArraySet { key: key.clone(), line: (*line).to_owned(), entries }).is_some() {
                     return Err(format!("{key} appears twice in {}", section[0]));
                 }
                 skeleton.push(PLACEHOLDER);
                 skeleton.push_str(&id);
+            } else {
+                skeleton.push_str(line);
             }
             skeleton.push('\n');
         }
@@ -281,8 +284,13 @@ fn text_merge(base: &str, ours: &str, theirs: &str) -> Result<(String, bool), St
     Ok((fs::read_to_string(&paths[0]).map_err(|error| error.to_string())?, code > 0))
 }
 
+#[cfg(test)]
 fn merge_arrays(base: &str, ours: &str, theirs: &str, key: &str) -> Result<String, String> {
-    let (base, ours, theirs) = (parse_array_file(base, key)?, parse_array_file(ours, key)?, parse_array_file(theirs, key)?);
+    merge_array_keys(base, ours, theirs, &[key.to_owned()])
+}
+
+fn merge_array_keys(base: &str, ours: &str, theirs: &str, keys: &[String]) -> Result<String, String> {
+    let (base, ours, theirs) = (parse_array_file(base, keys)?, parse_array_file(ours, keys)?, parse_array_file(theirs, keys)?);
     let (merged, conflicts) = text_merge(&base.skeleton, &ours.skeleton, &theirs.skeleton)?;
     if conflicts {
         return Err("the text around the arrays conflicts".to_owned());
@@ -292,11 +300,11 @@ fn merge_arrays(base: &str, ours: &str, theirs: &str, key: &str) -> Result<Strin
         for (id, set) in &side.sets {
             let changed = base.sets.get(id).is_none_or(|old| old.entries != set.entries);
             if changed && !present.contains(id.as_str()) {
-                return Err(format!("one side drops {id:?} while the other changes its {key}"));
+                return Err(format!("one side drops {id:?} while the other changes it"));
             }
         }
     }
-    let empty = ArraySet { line: String::new(), entries: Vec::new() };
+    let empty = ArraySet { key: String::new(), line: String::new(), entries: Vec::new() };
     let mut out = String::new();
     for line in merged.lines() {
         let Some(id) = line.strip_prefix(PLACEHOLDER) else {
@@ -306,11 +314,11 @@ fn merge_arrays(base: &str, ours: &str, theirs: &str, key: &str) -> Result<Strin
         };
         let (b, o, t) = (base.sets.get(id).unwrap_or(&empty), ours.sets.get(id).unwrap_or(&empty), theirs.sets.get(id).unwrap_or(&empty));
         let entries = merge_entries(&b.entries, &o.entries, &t.entries).map_err(|error| format!("{id}: {error}"))?;
-        let template = [o, t, b].into_iter().find(|set| !set.line.is_empty()).map_or("", |set| set.line.as_str());
+        let template = [o, t, b].into_iter().find(|set| !set.line.is_empty()).unwrap_or(&empty);
         let line = [o, t, b]
             .into_iter()
             .find(|set| set.entries == entries && !set.line.is_empty())
-            .map_or_else(|| render_array(key, &entries, template), |set| set.line.clone());
+            .map_or_else(|| render_array(&template.key, &entries, &template.line), |set| set.line.clone());
         out.push_str(&line);
         out.push('\n');
     }
@@ -351,7 +359,17 @@ pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
         let path = field("path").ok_or("a [[set]] entry has no path")?.to_owned();
         let kind = match (field("kind"), field("key"), field("command")) {
             (Some("lines"), None, None) => Kind::Lines,
-            (Some("toml-array"), Some(key), None) => Kind::TomlArray(key.to_owned()),
+            (Some("block"), None, None) => match (field("start"), field("end")) {
+                (Some(start), Some(end)) if !start.trim().is_empty() && !end.trim().is_empty() => Kind::Block { start: start.trim().to_owned(), end: end.trim().to_owned() },
+                _ => return Err(format!("{path}: a block entry needs a start and an end line")),
+            },
+            (Some("toml-array"), Some(key), None) => {
+                if let Some(Rule { kind: Kind::TomlArray(keys), .. }) = rules.iter_mut().find(|rule: &&mut Rule| rule.path == path && matches!(rule.kind, Kind::TomlArray(_))) {
+                    keys.push(key.to_owned());
+                    continue;
+                }
+                Kind::TomlArray(vec![key.to_owned()])
+            }
             (Some("regenerate"), None, Some(command)) if !command.trim().is_empty() => Kind::Regenerate {
                 command: command.to_owned(),
                 sources: string_array(table, "sources").ok_or_else(|| format!("{path}: a regenerate entry needs a sources array of path prefixes"))?,
@@ -361,7 +379,7 @@ pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
                 report_unknown(kind, config);
                 continue;
             }
-            _ => return Err(format!("{path}: kind must be lines, toml-array with a key, or regenerate with a command and sources")),
+            _ => return Err(format!("{path}: kind must be lines, block with a start and an end, toml-array with a key, or regenerate with a command and sources")),
         };
         rules.push(Rule { path, kind });
     }
@@ -371,7 +389,8 @@ pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
 fn merge_text(kind: &Kind, base: &str, ours: &str, theirs: &str) -> Result<String, String> {
     match kind {
         Kind::Lines => merge_lines(base, ours, theirs),
-        Kind::TomlArray(key) => merge_arrays(base, ours, theirs, key),
+        Kind::Block { start, end } => block::merge_block(base, ours, theirs, start, end),
+        Kind::TomlArray(keys) => merge_array_keys(base, ours, theirs, keys),
         Kind::Regenerate { command, .. } => Err(format!("a generated file: `north merge-driver continue` runs `{command}` on the merged sources")),
     }
 }
@@ -437,6 +456,9 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
+
+#[path = "merge_set_block.rs"]
+mod block;
 
 #[cfg(test)]
 #[path = "merge_set_tests.rs"]

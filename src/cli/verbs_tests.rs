@@ -24,3 +24,11 @@ fn subcommands_override_their_verb() {
     assert_eq!(VERB_KINDS.kind(&["proxy", "calls"]), Some(Kind::Status));
     assert_eq!(VERB_KINDS.kind(&[]), Some(Kind::Status));
 }
+
+#[test]
+fn the_verb_table_lines_stay_sorted_so_the_merge_driver_keeps_them_sorted() {
+    let source = include_str!("verbs.rs");
+    let table = source.split_once("VerbKinds::new(&[\n").and_then(|(_, rest)| rest.split_once("\n]);")).map(|(table, _)| table).unwrap();
+    let lines = table.lines().collect::<Vec<_>>();
+    assert!(lines.windows(2).all(|pair| pair[0] < pair[1]), "{table}");
+}

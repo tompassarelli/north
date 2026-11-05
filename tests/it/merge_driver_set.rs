@@ -162,3 +162,35 @@ fn two_lanes_that_each_add_a_land_subcommand_line_rebase_without_conflict_and_st
     assert!(rebase.status.success(), "{}{}", String::from_utf8_lossy(&rebase.stdout), String::from_utf8_lossy(&rebase.stderr));
     assert_eq!(fs::read_to_string(root.join(path)).unwrap(), add(&format!("{yank}\n{zap}")));
 }
+
+#[test]
+fn two_lanes_that_each_add_a_verb_to_the_cli_verb_table_rebase_with_both_kept() {
+    let verbs = include_str!("../../src/cli/verbs.rs");
+    let anchor = "    (\"wisp\", Diagnosis),\n";
+    assert!(verbs.contains(anchor));
+    let added = |verb: &str| verbs.replace(anchor, &format!("{anchor}    (\"{verb}\", Status),\n"));
+    let dir = repo(&[]);
+    let root = dir.path();
+    fs::create_dir_all(root.join("src/cli")).unwrap();
+    fs::write(root.join("src/cli/verbs.rs"), verbs).unwrap();
+    git_ok(root, &["add", "-A"]);
+    git_ok(root, &["commit", "-qm", "verbs"]);
+    lane(root, "first", "src/cli/verbs.rs", &added("wisp-a"));
+    lane(root, "second", "src/cli/verbs.rs", &added("wisp-b"));
+    let rebase = rebase_second_onto_first(root);
+    assert!(rebase.status.success(), "{}{}", String::from_utf8_lossy(&rebase.stdout), String::from_utf8_lossy(&rebase.stderr));
+    let both = verbs.replace(anchor, &format!("{anchor}    (\"wisp-a\", Status),\n    (\"wisp-b\", Status),\n"));
+    assert_eq!(fs::read_to_string(root.join("src/cli/verbs.rs")).unwrap(), both);
+}
+
+#[test]
+fn two_lanes_that_each_add_a_path_to_one_structure_toml_module_rebase_with_both_kept() {
+    let base = "[[module]]\nname = \"guard\"\npaths = [\"crates/guard/**\"]\nmay_use = [\"ledger\"]\n";
+    let dir = repo(&[("structure.toml", base)]);
+    let root = dir.path();
+    lane(root, "first", "structure.toml", &base.replace("\"crates/guard/**\"", "\"crates/guard/**\", \"src/a.rs\""));
+    lane(root, "second", "structure.toml", &base.replace("\"crates/guard/**\"", "\"crates/guard/**\", \"src/b.rs\""));
+    let rebase = rebase_second_onto_first(root);
+    assert!(rebase.status.success(), "{}{}", String::from_utf8_lossy(&rebase.stdout), String::from_utf8_lossy(&rebase.stderr));
+    assert_eq!(fs::read_to_string(root.join("structure.toml")).unwrap(), base.replace("\"crates/guard/**\"", "\"crates/guard/**\", \"src/a.rs\", \"src/b.rs\""));
+}

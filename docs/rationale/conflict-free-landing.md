@@ -173,7 +173,7 @@ Terms:
   `git diff --name-only --no-renames $(git merge-base main head) head`. This covers files a rebase
   newly touches. A head the lander cannot read contributes no files.
 - A path is **driver-resolved** when its `merge` attribute names a harness/merge-sets.toml rule
-  (`lines`, `toml-array` or `regenerate`). Two lanes on such a path never count as overlapping.
+  (`lines`, `block`, `toml-array` or `regenerate`). Two lanes on such a path never count as overlapping.
 - A lane is (host, root, branch), as `queue::collect` and `speculate::lane` already key it.
 - A lane's **run** is its decided tickets in queue/done/, newest first, taken while their verdict is a
   `conflict` or "replaced by a newer ticket for this lane". The run stops at the first other verdict,
