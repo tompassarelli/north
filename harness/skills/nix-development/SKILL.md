@@ -5,7 +5,7 @@ description: >-
 grounded: 2026-11-05
 cadence: 14
 nix-version: 2.34
-nixpkgs-lock: 2026-08-31
+nixpkgs-lock: 2026-11-02
 written: 2026-10-15
 metadata:
   kind: playbook

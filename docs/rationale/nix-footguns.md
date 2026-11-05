@@ -807,7 +807,7 @@ stamps is a box on north#112.
 
 Done when:
 - `rg -n '^nix-version: 2\.34$' harness/skills/nix-development/SKILL.md harness/nix/cards.toml` and the firn skill
-  each print one line, and each file has `nixpkgs-lock: 2026-08-31`.
+  each print one line, and each file has `nixpkgs-lock: 2026-11-02`.
 - `rg -n 'id = "nix-release-notes"|id = "nixos-release-notes"' agents/watch.toml` on south's origin/main prints two
   lines.
 

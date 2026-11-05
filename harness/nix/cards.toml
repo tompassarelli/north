@@ -1,6 +1,6 @@
 stamps = """
 nix-version: 2.34
-nixpkgs-lock: 2026-08-31
+nixpkgs-lock: 2026-11-02
 """
 
 [[card]]
