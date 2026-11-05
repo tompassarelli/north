@@ -1,7 +1,7 @@
 //! The dividends' live inputs: dispatch's launch record, the safe-push log, each host's capacity
 //! usage log, the cloud credit and GitHub.
 use super::checks::{Cpu, DAY_S, Facts, WINDOW_DAYS};
-use super::{Bet, Board};
+use super::Bet;
 use crate::fleet::landings;
 use crate::foundation::clock::Timestamp;
 use crate::dispatch;
@@ -144,10 +144,11 @@ fn release_closed() -> Result<Vec<f64>, String> {
         .collect())
 }
 
-pub(super) struct Gh;
+/// The issue tracker a run reads the bets from and comments on, and the proxy it alerts.
+pub struct Gh;
 
-impl Board for Gh {
-    fn bets(&self) -> Result<Vec<Bet>, String> {
+impl Gh {
+    pub(super) fn bets(&self) -> Result<Vec<Bet>, String> {
         let issues = github::json(&[
             "issue",
             "list",
@@ -183,7 +184,7 @@ impl Board for Gh {
             .collect())
     }
 
-    fn comment(&mut self, number: u64, text: &str) -> Result<(), String> {
+    pub(super) fn comment(&mut self, number: u64, text: &str) -> Result<(), String> {
         let out = github::run(&[
             "issue",
             "comment",
@@ -204,7 +205,7 @@ impl Board for Gh {
         }
     }
 
-    fn alert(&mut self, text: &str) -> Result<(), String> {
+    pub(super) fn alert(&mut self, text: &str) -> Result<(), String> {
         let north = std::env::current_exe()
             .map(|path| path.to_string_lossy().into_owned())
             .unwrap_or_else(|_| "north".into());

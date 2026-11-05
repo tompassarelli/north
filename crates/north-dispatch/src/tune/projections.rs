@@ -18,14 +18,9 @@ pub struct Scored {
     pub actual: f64,
 }
 
-/// What the window read at `at`: `account` is `provider:label` and `window` one of `WINDOWS`.
-pub trait Readings {
-    fn at(&self, account: &str, window: &str, at: f64) -> Option<f64>;
-}
-
 /// Each window of a started launch since `since` whose ETA came by `now` before the window reset,
 /// with the reading at the ETA.
-pub fn scored(launches: &[Record], since: f64, now: f64, readings: &dyn Readings) -> Vec<Scored> {
+pub fn scored(launches: &[Record], since: f64, now: f64, readings: &Ledger) -> Vec<Scored> {
     launches
         .iter()
         .filter(|launch| launch.launched && launch.at >= since)
@@ -89,8 +84,8 @@ fn stamp(at: f64) -> String {
     Timestamp::from_unix_seconds_f64(at).iso_micros_utc_offset()
 }
 
-impl Readings for Ledger {
-    fn at(&self, account: &str, window: &str, at: f64) -> Option<f64> {
+impl Ledger {
+    pub fn at(&self, account: &str, window: &str, at: f64) -> Option<f64> {
         let (provider, label) = account.split_once(':')?;
         let shape = if window == "5h" { "window_min = 300" } else { "name IN ('week', 'weekly_all')" };
         let sql = format!(

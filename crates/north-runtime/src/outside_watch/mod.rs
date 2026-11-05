@@ -18,28 +18,20 @@ const MINIMIZE: &str = "mutation($id: ID!) { minimizeComment(input: {subjectId: 
 
 pub(super) type Failure = String;
 
-pub(super) trait Gh {
-    fn api(&self, args: &[String], ok_missing: bool) -> Result<Option<Value>, Failure>;
-}
-
-struct Cli;
-
-impl Gh for Cli {
-    fn api(&self, args: &[String], ok_missing: bool) -> Result<Option<Value>, Failure> {
-        let output = Command::new("gh").arg("api").args(args).output().map_err(|error| format!("outside-watch: gh: {error}"))?;
-        if !output.status.success() {
-            if ok_missing {
-                return Ok(None);
-            }
-            let reason: String = String::from_utf8_lossy(&output.stderr).trim().chars().take(300).collect();
-            return Err(format!("outside-watch: gh api {} failed: {reason}", args.iter().take(2).cloned().collect::<Vec<_>>().join(" ")));
-        }
-        let text = String::from_utf8_lossy(&output.stdout);
-        if text.trim().is_empty() {
+pub(super) fn api(args: &[String], ok_missing: bool) -> Result<Option<Value>, Failure> {
+    let output = Command::new("gh").arg("api").args(args).output().map_err(|error| format!("outside-watch: gh: {error}"))?;
+    if !output.status.success() {
+        if ok_missing {
             return Ok(None);
         }
-        serde_json::from_str(&text).map(Some).map_err(|error| format!("outside-watch: gh api returned invalid JSON: {error}"))
+        let reason: String = String::from_utf8_lossy(&output.stderr).trim().chars().take(300).collect();
+        return Err(format!("outside-watch: gh api {} failed: {reason}", args.iter().take(2).cloned().collect::<Vec<_>>().join(" ")));
     }
+    let text = String::from_utf8_lossy(&output.stdout);
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    serde_json::from_str(&text).map(Some).map_err(|error| format!("outside-watch: gh api returned invalid JSON: {error}"))
 }
 
 pub(super) struct Config {
@@ -76,7 +68,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let outcome = match arguments {
         [command] if command == "status" => Config::from_env().and_then(|config| status(&config, &mut std::io::stdout().lock())),
         [command, rest @ ..] if command == "run" => match options(rest) {
-            Some((dry_run, days)) => Config::from_env().and_then(|config| check(&config, &Cli, dry_run, days, &mut std::io::stdout().lock())),
+            Some((dry_run, days)) => Config::from_env().and_then(|config| check(&config, dry_run, days, &mut std::io::stdout().lock())),
             None => return usage(),
         },
         _ => return usage(),
@@ -127,7 +119,6 @@ struct Tally {
 
 struct Run<'a> {
     config: &'a Config,
-    gh: &'a dyn Gh,
     dry_run: bool,
 }
 
@@ -160,10 +151,10 @@ impl Run<'_> {
         }
         let minimizable = ["comment", "review comment", "discussion comment", "discussion reply"].contains(&post.kind);
         if minimizable {
-            self.gh.api(&["graphql".into(), "-f".into(), format!("query={MINIMIZE}"), "-f".into(), format!("id={}", post.id)], false)?;
+            api(&["graphql".into(), "-f".into(), format!("query={MINIMIZE}"), "-f".into(), format!("id={}", post.id)], false)?;
         }
-        if self.gh.api(&[format!("user/blocks/{}", post.actor)], true)?.is_none() {
-            self.gh.api(&["-X".into(), "PUT".into(), format!("user/blocks/{}", post.actor)], false)?;
+        if api(&[format!("user/blocks/{}", post.actor)], true)?.is_none() {
+            api(&["-X".into(), "PUT".into(), format!("user/blocks/{}", post.actor)], false)?;
         }
         let done = if minimizable { "minimized and blocked" } else { "blocked, post left up" };
         tally.lines.push(format!("OPS SPAM {place}: {done}: {} \"{}\" {}", post.kind, scan::summary(post), post.url));
@@ -183,13 +174,13 @@ impl Run<'_> {
     fn posts(&self, since: &str, seen: &mut BTreeMap<String, String>, out: &mut dyn Write) -> Result<Tally, Failure> {
         let mut profiles = BTreeMap::new();
         let mut tally = Tally { spam: 0, external: 0, lines: Vec::new() };
-        for post in scan::scan(self.config, self.gh, since)? {
+        for post in scan::scan(self.config, since)? {
             if seen.contains_key(&post.id) && !self.dry_run {
                 continue;
             }
             seen.insert(post.id.clone(), post.created.clone());
             let place = format!("{}#{} {}", post.repo, post.number, post.actor);
-            if scan::classify(self.config, self.gh, &post, self.config.now, &mut profiles)? == scan::Class::Spam {
+            if scan::classify(self.config, &post, self.config.now, &mut profiles)? == scan::Class::Spam {
                 tally.spam += 1;
                 self.spam(&post, &place, out, &mut tally)?;
             } else {
@@ -202,13 +193,13 @@ impl Run<'_> {
 
     fn notifications(&self) -> Result<usize, Failure> {
         let mut marked = 0;
-        for page in self.gh.api(&["--paginate".into(), "--slurp".into(), "notifications?per_page=50".into()], false)?.as_ref().and_then(Value::as_array).into_iter().flatten() {
+        for page in api(&["--paginate".into(), "--slurp".into(), "notifications?per_page=50".into()], false)?.as_ref().and_then(Value::as_array).into_iter().flatten() {
             for thread in page.as_array().into_iter().flatten() {
-                if scan::ours(self.config, self.gh, thread)? {
+                if scan::ours(self.config, thread)? {
                     marked += 1;
                     if !self.dry_run {
                         let id = thread["id"].as_str().unwrap_or_default();
-                        self.gh.api(&["-X".into(), "PATCH".into(), format!("notifications/threads/{id}")], false)?;
+                        api(&["-X".into(), "PATCH".into(), format!("notifications/threads/{id}")], false)?;
                     }
                 }
             }
@@ -236,8 +227,8 @@ impl Run<'_> {
     }
 }
 
-pub(super) fn check(config: &Config, gh: &dyn Gh, dry_run: bool, days: Option<f64>, out: &mut dyn Write) -> Result<(), Failure> {
-    let run = Run { config, gh, dry_run };
+pub(super) fn check(config: &Config, dry_run: bool, days: Option<f64>, out: &mut dyn Write) -> Result<(), Failure> {
+    let run = Run { config, dry_run };
     let state = load_state(config);
     let since = since_of(config, &state, days);
     let mut seen = seen_of(&state);

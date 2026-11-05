@@ -1,5 +1,4 @@
 use super::expectations::Expectation;
-use super::{Facts, Notify};
 use crate::ledger;
 use crate::dispatch::launch_records;
 use crate::platform::process::run_within;
@@ -47,12 +46,12 @@ impl Machine {
     }
 }
 
-impl Facts for Machine {
-    fn now(&self) -> f64 {
+impl Machine {
+    pub fn now(&self) -> f64 {
         self.at
     }
 
-    fn measure(&self, expectation: &Expectation) -> Result<f64, String> {
+    pub fn measure(&self, expectation: &Expectation) -> Result<f64, String> {
         match expectation.measure.as_str() {
             "cloud_launches" => Ok(self.launches(expectation, |record| record.launched && record.cloud)),
             "launch_failures" => Ok(self.launches(expectation, |record| !record.launched && !record.staffing_held())),
@@ -79,13 +78,13 @@ pub fn write_json(path: &Path, value: &Value) -> Result<(), String> {
 
 pub struct Phone;
 
-impl Notify for Phone {
-    fn phone(&mut self, title: &str, text: &str) -> Result<(), String> {
+impl Phone {
+    pub fn phone(&mut self, title: &str, text: &str) -> Result<(), String> {
         let output = run_within("nexus-alert", &["normal", text, title], REMOTE_WAIT).ok_or("nexus-alert did not return in time")?;
         output.status.success().then_some(()).ok_or_else(|| format!("nexus-alert: {}", String::from_utf8_lossy(&output.stderr).trim()))
     }
 
-    fn proxy(&mut self, session: &str, text: &str) -> Result<(), String> {
+    pub fn proxy(&mut self, session: &str, text: &str) -> Result<(), String> {
         let north = std::env::current_exe().map_err(|error| error.to_string())?;
         let output = run_within(&north.to_string_lossy(), &["fleet", "send", "--from", "service:north-ops-check", session, text], REMOTE_WAIT).ok_or("north fleet send did not return in time")?;
         output.status.success().then_some(()).ok_or_else(|| format!("north fleet send {session}: {}", String::from_utf8_lossy(&output.stderr).trim()))

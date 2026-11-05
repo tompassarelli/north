@@ -22,14 +22,6 @@ pub(super) enum Reason {
     Source { source: String },
 }
 
-pub(super) trait VersionProbe {
-    fn version(&self, tool: &str) -> Option<String>;
-}
-
-pub(super) trait SourceChanges {
-    fn changed_since(&self, source: &str, grounded: &str) -> bool;
-}
-
 pub(super) fn parse(id: &str, text: &str) -> Skill {
     let mut skill = Skill { id: id.to_owned(), ..Skill::default() };
     let Some(front) = text.strip_prefix("---\n").and_then(|rest| rest.split_once("\n---").map(|(front, _)| front)) else {
@@ -57,7 +49,7 @@ pub(super) fn parse(id: &str, text: &str) -> Skill {
     skill
 }
 
-pub(super) fn reasons(skill: &Skill, today_day: i64, probe: &dyn VersionProbe, sources: &dyn SourceChanges) -> Vec<Reason> {
+pub(super) fn reasons(skill: &Skill, today_day: i64, sources: &RepositorySources) -> Vec<Reason> {
     let mut found = Vec::new();
     if let Some(grounded) = skill.grounded_day {
         let days = today_day - grounded;
@@ -67,7 +59,7 @@ pub(super) fn reasons(skill: &Skill, today_day: i64, probe: &dyn VersionProbe, s
         }
     }
     for (tool, stamped) in &skill.versions {
-        if let Some(installed) = probe.version(tool).filter(|installed| !matches_stamp(installed, stamped)) {
+        if let Some(installed) = host_version(tool).filter(|installed| !matches_stamp(installed, stamped)) {
             found.push(Reason::Version { tool: tool.clone(), stamped: stamped.clone(), installed });
         }
     }
@@ -92,8 +84,8 @@ pub(super) fn line(skill: &Skill, reason: &Reason) -> String {
     format!("- [ ] `{}` {what}", skill.id)
 }
 
-pub(super) fn lines(skills: &[Skill], today_day: i64, probe: &dyn VersionProbe, sources: &dyn SourceChanges) -> Vec<String> {
-    skills.iter().flat_map(|skill| reasons(skill, today_day, probe, sources).into_iter().map(move |reason| line(skill, &reason))).collect()
+pub(super) fn lines(skills: &[Skill], today_day: i64, sources: &RepositorySources) -> Vec<String> {
+    skills.iter().flat_map(|skill| reasons(skill, today_day, sources).into_iter().map(move |reason| line(skill, &reason))).collect()
 }
 
 pub(super) fn load(directory: &Path) -> Vec<Skill> {
@@ -118,13 +110,9 @@ pub(super) fn version_token(output: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-pub(super) struct HostProbe;
-
-impl VersionProbe for HostProbe {
-    fn version(&self, tool: &str) -> Option<String> {
-        let output = Command::new(tool).arg("--version").output().ok().filter(|output| output.status.success())?;
-        version_token(&String::from_utf8_lossy(&output.stdout))
-    }
+fn host_version(tool: &str) -> Option<String> {
+    let output = Command::new(tool).arg("--version").output().ok().filter(|output| output.status.success())?;
+    version_token(&String::from_utf8_lossy(&output.stdout))
 }
 
 pub(super) struct RepositorySources<'a> {
@@ -132,13 +120,11 @@ pub(super) struct RepositorySources<'a> {
     pub watch_toml: &'a Path,
 }
 
-impl SourceChanges for RepositorySources<'_> {
-    fn changed_since(&self, source: &str, grounded: &str) -> bool {
+impl RepositorySources<'_> {
+    pub(super) fn changed_since(&self, source: &str, grounded: &str) -> bool {
         self.watch_reviewed_after(source, grounded) || self.reference_changed_after(source, grounded)
     }
-}
 
-impl RepositorySources<'_> {
     fn watch_reviewed_after(&self, source: &str, grounded: &str) -> bool {
         let Ok(text) = std::fs::read_to_string(self.watch_toml) else { return false };
         let Ok(document) = text.parse::<toml_edit::DocumentMut>() else { return false };

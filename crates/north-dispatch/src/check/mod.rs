@@ -1,7 +1,7 @@
 use crate::foundation::clock::Timestamp;
 use crate::pacing::placement;
 use crate::platform::host;
-use expectations::{Expectation, Roster};
+use expectations::Roster;
 use facts::{Machine, Phone};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -13,16 +13,6 @@ const SOURCE: &str = include_str!("../../../../north-data/expectations.toml");
 const USAGE: &str = "usage: north ops check [--dry-run | --synthetic]";
 const STATE: &str = "ops/state.json";
 
-pub trait Facts {
-    fn now(&self) -> f64;
-    fn measure(&self, expectation: &Expectation) -> Result<f64, String>;
-}
-
-pub trait Notify {
-    fn phone(&mut self, title: &str, text: &str) -> Result<(), String>;
-    fn proxy(&mut self, session: &str, text: &str) -> Result<(), String>;
-}
-
 pub type Breaches = BTreeMap<String, f64>;
 
 #[derive(Debug, PartialEq)]
@@ -32,7 +22,7 @@ pub struct Tick {
 }
 
 struct Alert<'a> {
-    notify: &'a mut dyn Notify,
+    notify: &'a mut Phone,
     proxy: &'a str,
     dry_run: bool,
 }
@@ -60,7 +50,7 @@ struct Delivery {
     trouble: bool,
 }
 
-pub fn tick(roster: &Roster, role: &str, facts: &dyn Facts, notify: &mut dyn Notify, breaches: &mut Breaches, dry_run: bool) -> Tick {
+pub fn tick(roster: &Roster, role: &str, facts: &Machine, notify: &mut Phone, breaches: &mut Breaches, dry_run: bool) -> Tick {
     let mut lines = Vec::new();
     let mut failed = false;
     let mut alert = Alert { notify, proxy: &roster.proxy, dry_run };
@@ -110,7 +100,7 @@ pub fn tick(roster: &Roster, role: &str, facts: &dyn Facts, notify: &mut dyn Not
     Tick { lines, failed }
 }
 
-pub fn synthetic(roster: &Roster, notify: &mut dyn Notify) -> Tick {
+pub fn synthetic(roster: &Roster, notify: &mut Phone) -> Tick {
     let mut lines = vec!["synthetic: BREACH drill; owner ops-observability; proves the phone and the proxy hear a breach".to_owned()];
     let mut alert = Alert { notify, proxy: &roster.proxy, dry_run: false };
     let breach = alert.send("north ops BREACH synthetic", "weekly drill: the alert path carries a breach; nothing to fix", &mut lines);

@@ -465,3 +465,9 @@ rule = "single-impl-trait"
 path = "crates/north-landing/src/land_abandon/scratch.rs"
 item = "Witness"
 reason = "north-landing cannot depend on the root crate's fleet reader that implements it."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-fleet/src/fleet/limit.rs"
+item = "AccountResets"
+reason = "a north-fleet seam the north binary implements; the crate cannot depend on the binary."

@@ -3,6 +3,7 @@
 //! day, and sends the proxy a fleet message for each bet that comments DECAYED.
 use crate::foundation::clock::Timestamp;
 use checks::{Check, Facts, Standing, Verdict, evaluate};
+use live::Gh;
 
 mod bets;
 mod checks;
@@ -17,13 +18,6 @@ pub struct Bet {
     pub title: String,
     pub body: String,
     pub comments: Vec<String>,
-}
-
-/// The issue tracker a run reads the bets from and comments on, and the proxy it alerts.
-pub trait Board {
-    fn bets(&self) -> Result<Vec<Bet>, String>;
-    fn comment(&mut self, number: u64, text: &str) -> Result<(), String>;
-    fn alert(&mut self, text: &str) -> Result<(), String>;
 }
 
 pub struct Report {
@@ -60,7 +54,7 @@ fn detail(verdicts: &[(Check, Verdict)]) -> String {
         .join("\n")
 }
 
-pub fn tick(board: &mut dyn Board, facts: &Facts, date: &str, dry_run: bool) -> Report {
+pub fn tick(board: &mut Gh, facts: &Facts, date: &str, dry_run: bool) -> Report {
     let bets = match board.bets() {
         Ok(bets) => bets,
         Err(error) => {
@@ -102,7 +96,7 @@ pub fn tick(board: &mut dyn Board, facts: &Facts, date: &str, dry_run: bool) -> 
 }
 
 fn post_standing(
-    board: &mut dyn Board,
+    board: &mut Gh,
     bet: &Bet,
     (standing, verdicts): (Standing, &[(Check, Verdict)]),
     (date, dry_run): (&str, bool),
@@ -175,7 +169,7 @@ pub fn run(arguments: &[String]) -> u8 {
 fn all(dry_run: bool) -> u8 {
     let facts = live::facts();
     let date = Timestamp::from_unix_seconds_f64(facts.at).iso_date();
-    let report = tick(&mut live::Gh, &facts, &date, dry_run);
+    let report = tick(&mut Gh, &facts, &date, dry_run);
     report.lines.iter().for_each(|line| println!("{line}"));
     u8::from(report.failed)
 }

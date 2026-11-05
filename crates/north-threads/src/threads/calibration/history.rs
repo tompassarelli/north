@@ -16,19 +16,10 @@ use crate::foundation::clock::Timestamp;
 
 const FORMAT: &str = "--format=%x1e%H%x1f%ct%x1f%s%x1f%b%x1f";
 
-/// Runs git in a checkout and returns its stdout when it exits 0.
-pub trait Git {
-    fn run(&self, checkout: &Path, args: &[&str]) -> Option<String>;
-}
-
-/// The `git` on PATH.
-pub struct SystemGit;
-
-impl Git for SystemGit {
-    fn run(&self, checkout: &Path, args: &[&str]) -> Option<String> {
-        let output = Command::new("git").arg("-C").arg(checkout).args(args).output().ok().filter(|output| output.status.success())?;
-        Some(String::from_utf8_lossy(&output.stdout).into_owned())
-    }
+/// Runs the `git` on PATH in a checkout and returns its stdout when it exits 0.
+fn git(checkout: &Path, args: &[&str]) -> Option<String> {
+    let output = Command::new("git").arg("-C").arg(checkout).args(args).output().ok().filter(|output| output.status.success())?;
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// The commits read so far: every first-parent commit up to `head` that a `git log --since=<since>` returns.
@@ -52,24 +43,20 @@ impl Cache {
 
 /// First-parent history of a checkout's origin/main from `since`, oldest first, as `git log --since` gives it.
 pub fn history(checkout: &Path, since: Option<i64>) -> Option<Vec<Commit>> {
-    history_with(&SystemGit, checkout, since)
-}
-
-pub fn history_with(git: &impl Git, checkout: &Path, since: Option<i64>) -> Option<Vec<Commit>> {
-    let head = git.run(checkout, &["rev-parse", "--verify", "--quiet", "origin/main^{commit}"])?.trim().to_owned();
+    let head = git(checkout, &["rev-parse", "--verify", "--quiet", "origin/main^{commit}"])?.trim().to_owned();
     let Some((path, _lock)) = git_dir(checkout).and_then(|directory| lock(&directory)) else {
-        return log(git, checkout, &head, since).map(|commits| from(commits, since));
+        return log(checkout, &head, since).map(|commits| from(commits, since));
     };
     let cached = read(&path).filter(|cache| cache.covers(since));
     let cache = match cached {
         Some(cache) if cache.head == head => cache,
-        Some(mut cache) if git.run(checkout, &["merge-base", "--is-ancestor", &cache.head, &head]).is_some() => {
-            cache.commits.extend(log(git, checkout, &format!("{}..{head}", cache.head), None)?);
+        Some(mut cache) if git(checkout, &["merge-base", "--is-ancestor", &cache.head, &head]).is_some() => {
+            cache.commits.extend(log(checkout, &format!("{}..{head}", cache.head), None)?);
             let commits = from(cache.commits, cache.since);
             store(&path, Cache { head, since: cache.since, commits })
         }
         _ => {
-            let commits = log(git, checkout, &head, since)?;
+            let commits = log(checkout, &head, since)?;
             store(&path, Cache { head, since, commits })
         }
     };
@@ -87,12 +74,12 @@ fn from(mut commits: Vec<Commit>, since: Option<i64>) -> Vec<Commit> {
     commits
 }
 
-fn log(git: &impl Git, checkout: &Path, range: &str, since: Option<i64>) -> Option<Vec<Commit>> {
+fn log(checkout: &Path, range: &str, since: Option<i64>) -> Option<Vec<Commit>> {
     let since = since.map(|since| format!("--since={}", Timestamp::from_unix_seconds(since).iso()));
     let mut args = vec!["log", "--first-parent", "--reverse", FORMAT, "--name-only"];
     args.extend(since.as_deref());
     args.extend([range, "--"]);
-    Some(parse(&git.run(checkout, &args)?))
+    Some(parse(&git(checkout, &args)?))
 }
 
 fn parse(text: &str) -> Vec<Commit> {
@@ -127,7 +114,7 @@ pub(super) fn head(checkout: &Path) -> Option<String> {
     let sha = |text: &str| Some(text.trim()).filter(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit())).map(str::to_owned);
     let loose = fs::read_to_string(common.join("refs/remotes/origin/main")).ok().and_then(|text| sha(&text));
     let packed = || fs::read_to_string(common.join("packed-refs")).ok()?.lines().find_map(|line| line.strip_suffix(" refs/remotes/origin/main").and_then(sha));
-    loose.or_else(packed).or_else(|| SystemGit.run(checkout, &["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]).and_then(|text| sha(&text)))
+    loose.or_else(packed).or_else(|| git(checkout, &["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]).and_then(|text| sha(&text)))
 }
 
 /// The cache path once this process holds the history lock, which it keeps until the returned file drops.

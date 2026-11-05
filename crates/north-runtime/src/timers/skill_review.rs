@@ -5,7 +5,7 @@ use std::process::Command;
 use serde_json::Value;
 
 use super::date;
-use super::skill_triggers::{self, HostProbe, RepositorySources, Skill};
+use super::skill_triggers::{self, RepositorySources, Skill};
 use crate::foundation::clock::Timestamp;
 use crate::platform::rolling_issue::{Gh, settle};
 
@@ -77,7 +77,7 @@ fn queue() -> Result<String, String> {
     let watch_toml = env::var("WATCH_TOML").ok().filter(|value| !value.is_empty()).map_or_else(|| home.join("code/south/main/agents/watch.toml"), PathBuf::from);
     let skills = skill_triggers::load(&north.join("harness/skills"));
     let today_day = Timestamp::parse_loose(&today).map_or(0, Timestamp::unix_days);
-    let triggered = skill_triggers::lines(&skills, today_day, &HostProbe, &RepositorySources { north: &north, watch_toml: &watch_toml });
+    let triggered = skill_triggers::lines(&skills, today_day, &RepositorySources { north: &north, watch_toml: &watch_toml });
     let stale = without_grounded(&stale, &skills);
     let count = due_count(&stale) + triggered.len();
     let listed = [items(&stale)].into_iter().chain(triggered).filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n");

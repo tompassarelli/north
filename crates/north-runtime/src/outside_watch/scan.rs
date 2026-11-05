@@ -5,7 +5,7 @@ use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use regex::Regex;
 use serde_json::Value;
 
-use super::{Config, Failure, Gh};
+use super::{api, Config, Failure};
 use crate::foundation::clock::Timestamp;
 
 const YOUNG: i64 = 30 * 86_400;
@@ -97,8 +97,8 @@ pub(super) fn summary(post: &Post) -> String {
     text.replace('"', "'")
 }
 
-fn pages(gh: &dyn Gh, endpoint: &str, key: Option<&str>) -> Result<Vec<Value>, Failure> {
-    let reply = gh.api(&["--paginate".into(), "--slurp".into(), endpoint.to_owned()], false)?;
+fn pages(endpoint: &str, key: Option<&str>) -> Result<Vec<Value>, Failure> {
+    let reply = api(&["--paginate".into(), "--slurp".into(), endpoint.to_owned()], false)?;
     let mut rows = Vec::new();
     for page in reply.as_ref().and_then(Value::as_array).into_iter().flatten() {
         let inner = match key {
@@ -149,11 +149,11 @@ struct Issues {
     prs: BTreeSet<(String, i64)>,
 }
 
-fn issue_posts(config: &Config, gh: &dyn Gh, since: &str) -> Result<Issues, Failure> {
+fn issue_posts(config: &Config, since: &str) -> Result<Issues, Failure> {
     let mut found = Issues { posts: Vec::new(), repos: BTreeSet::new(), prs: BTreeSet::new() };
     let search = format!("user:{} updated:>={since}", config.owner);
     let query = utf8_percent_encode(&search, QUOTE);
-    for hit in pages(gh, &format!("search/issues?q={query}&per_page=100"), Some("items"))? {
+    for hit in pages(&format!("search/issues?q={query}&per_page=100"), Some("items"))? {
         let repo = text(&hit, "repository_url").rsplit('/').next().unwrap_or("").to_owned();
         let number = hit["number"].as_i64().unwrap_or(0);
         let is_pr = hit.get("pull_request").is_some();
@@ -169,11 +169,11 @@ fn issue_posts(config: &Config, gh: &dyn Gh, since: &str) -> Result<Issues, Fail
     Ok(found)
 }
 
-fn comment_posts(config: &Config, gh: &dyn Gh, since: &str, repos: &BTreeSet<String>) -> Result<Vec<Post>, Failure> {
+fn comment_posts(config: &Config, since: &str, repos: &BTreeSet<String>) -> Result<Vec<Post>, Failure> {
     let mut found = Vec::new();
     for repo in repos {
         for (endpoint, number_key, kind) in [("issues/comments", "issue_url", "comment"), ("pulls/comments", "pull_request_url", "review comment")] {
-            for item in pages(gh, &format!("repos/{}/{repo}/{endpoint}?since={since}&per_page=100", config.owner), None)? {
+            for item in pages(&format!("repos/{}/{repo}/{endpoint}?since={since}&per_page=100", config.owner), None)? {
                 if text(&item, "created_at").as_str() >= since {
                     found.extend(post_of(kind, repo, last_number(&item[number_key]), &item, Fields { actor: &item["user"], body: &text(&item, "body"), association: &item["author_association"], created: &text(&item, "created_at"), url: &item["html_url"] }));
                 }
@@ -183,10 +183,10 @@ fn comment_posts(config: &Config, gh: &dyn Gh, since: &str, repos: &BTreeSet<Str
     Ok(found)
 }
 
-fn review_posts(config: &Config, gh: &dyn Gh, since: &str, prs: &BTreeSet<(String, i64)>) -> Result<Vec<Post>, Failure> {
+fn review_posts(config: &Config, since: &str, prs: &BTreeSet<(String, i64)>) -> Result<Vec<Post>, Failure> {
     let mut found = Vec::new();
     for (repo, number) in prs {
-        for review in pages(gh, &format!("repos/{}/{repo}/pulls/{number}/reviews?per_page=100", config.owner), None)? {
+        for review in pages(&format!("repos/{}/{repo}/pulls/{number}/reviews?per_page=100", config.owner), None)? {
             if text(&review, "submitted_at").as_str() >= since && review.get("user").is_some_and(|user| !user.is_null()) {
                 found.extend(post_of("review", repo, *number, &review, Fields { actor: &review["user"], body: &text(&review, "body"), association: &review["author_association"], created: &text(&review, "submitted_at"), url: &review["html_url"] }));
             }
@@ -219,44 +219,44 @@ fn discussion_thread(discussion: &Value, since: &str) -> Vec<Post> {
     found
 }
 
-fn discussion_posts(config: &Config, gh: &dyn Gh, since: &str) -> Result<Vec<Post>, Failure> {
+fn discussion_posts(config: &Config, since: &str) -> Result<Vec<Post>, Failure> {
     let owner = &config.owner;
-    let data = gh.api(&["graphql".into(), "-f".into(), format!("query={DISCUSSIONS}"), "-f".into(), format!("q=user:{owner} updated:>={since}")], false)?;
+    let data = api(&["graphql".into(), "-f".into(), format!("query={DISCUSSIONS}"), "-f".into(), format!("q=user:{owner} updated:>={since}")], false)?;
     let nodes = data.as_ref().and_then(|data| data.pointer("/data/search/nodes")).and_then(Value::as_array).cloned().unwrap_or_default();
     Ok(nodes.iter().filter(|node| !node.is_null()).flat_map(|discussion| discussion_thread(discussion, since)).collect())
 }
 
-pub(super) fn scan(config: &Config, gh: &dyn Gh, since: &str) -> Result<Vec<Post>, Failure> {
-    let issues = issue_posts(config, gh, since)?;
+pub(super) fn scan(config: &Config, since: &str) -> Result<Vec<Post>, Failure> {
+    let issues = issue_posts(config, since)?;
     let mut found = issues.posts;
-    found.extend(comment_posts(config, gh, since, &issues.repos)?);
-    found.extend(review_posts(config, gh, since, &issues.prs)?);
-    found.extend(discussion_posts(config, gh, since)?);
+    found.extend(comment_posts(config, since, &issues.repos)?);
+    found.extend(review_posts(config, since, &issues.prs)?);
+    found.extend(discussion_posts(config, since)?);
     found.retain(|found| !config.own.contains(&found.actor));
     Ok(found)
 }
 
-fn thread_context(config: &Config, gh: &dyn Gh, post: &Post) -> Result<String, Failure> {
+fn thread_context(config: &Config, post: &Post) -> Result<String, Failure> {
     if post.kind == "issue" || post.kind == "pr" || post.kind.starts_with("discussion") {
         return Ok(String::new());
     }
     let base = format!("repos/{}/{}/issues/{}", config.owner, post.repo, post.number);
-    let issue = gh.api(std::slice::from_ref(&base), false)?.unwrap_or(Value::Null);
-    let comments = pages(gh, &format!("{base}/comments?per_page=100"), None)?;
+    let issue = api(std::slice::from_ref(&base), false)?.unwrap_or(Value::Null);
+    let comments = pages(&format!("{base}/comments?per_page=100"), None)?;
     let mut texts = vec![text(&issue, "title"), text(&issue, "body")];
     texts.extend(comments.iter().filter(|comment| comment.pointer("/user/login").and_then(Value::as_str) != Some(post.actor.as_str())).map(|comment| text(comment, "body")));
     Ok(texts.join("\n"))
 }
 
-pub(super) fn classify(config: &Config, gh: &dyn Gh, post: &Post, at: Timestamp, profiles: &mut BTreeMap<String, Value>) -> Result<Class, Failure> {
+pub(super) fn classify(config: &Config, post: &Post, at: Timestamp, profiles: &mut BTreeMap<String, Value>) -> Result<Class, Failure> {
     if post.kind == "pr" || !NO_STANDING.contains(&post.association.as_str()) || domains(&post.body).is_empty() {
         return Ok(Class::Real);
     }
     if !profiles.contains_key(&post.actor) {
-        let profile = gh.api(&[format!("users/{}", post.actor)], false)?.unwrap_or_else(|| Value::Object(Default::default()));
+        let profile = api(&[format!("users/{}", post.actor)], false)?.unwrap_or_else(|| Value::Object(Default::default()));
         profiles.insert(post.actor.clone(), profile);
     }
-    let context = thread_context(config, gh, post)?;
+    let context = thread_context(config, post)?;
     Ok(if is_spam(post, &profiles[&post.actor], &context, at) { Class::Spam } else { Class::Real })
 }
 
@@ -268,14 +268,14 @@ fn logins(items: &[Value], when: &str, since: &str, user: &str) -> BTreeSet<Stri
         .collect()
 }
 
-pub(super) fn ours(config: &Config, gh: &dyn Gh, thread: &Value) -> Result<bool, Failure> {
+pub(super) fn ours(config: &Config, thread: &Value) -> Result<bool, Failure> {
     let kind = thread.pointer("/subject/type").and_then(Value::as_str).unwrap_or("");
     let url = thread.pointer("/subject/url").and_then(Value::as_str).unwrap_or("");
     if kind == "CheckSuite" || kind == "WorkflowRun" {
         return Ok(true);
     }
     if kind == "Release" && !url.is_empty() {
-        let release = gh.api(&[url.to_owned()], true)?.unwrap_or(Value::Null);
+        let release = api(&[url.to_owned()], true)?.unwrap_or(Value::Null);
         return Ok(release.pointer("/author/login").and_then(Value::as_str).is_some_and(|login| config.own.contains(login)));
     }
     if (kind != "Issue" && kind != "PullRequest") || url.is_empty() {
@@ -283,7 +283,7 @@ pub(super) fn ours(config: &Config, gh: &dyn Gh, thread: &Value) -> Result<bool,
     }
     let since = thread.get("last_read_at").and_then(Value::as_str).unwrap_or("");
     let issue_url = url.replace("/pulls/", "/issues/");
-    let Some(issue) = gh.api(std::slice::from_ref(&issue_url), true)? else { return Ok(false) };
+    let Some(issue) = api(std::slice::from_ref(&issue_url), true)? else { return Ok(false) };
     let mut actors = BTreeSet::new();
     if text(&issue, "created_at").as_str() > since {
         actors.extend(issue.pointer("/user/login").and_then(Value::as_str).map(str::to_owned));
@@ -292,10 +292,10 @@ pub(super) fn ours(config: &Config, gh: &dyn Gh, thread: &Value) -> Result<bool,
         actors.extend(issue.pointer("/closed_by/login").and_then(Value::as_str).map(str::to_owned));
     }
     let query = if since.is_empty() { "?per_page=100".to_owned() } else { format!("?since={since}&per_page=100") };
-    actors.extend(logins(&pages(gh, &format!("{issue_url}/comments{query}"), None)?, "created_at", since, "/user/login"));
+    actors.extend(logins(&pages(&format!("{issue_url}/comments{query}"), None)?, "created_at", since, "/user/login"));
     if kind == "PullRequest" {
-        actors.extend(logins(&pages(gh, &format!("{url}/reviews?per_page=100"), None)?, "submitted_at", since, "/user/login"));
-        actors.extend(logins(&pages(gh, &format!("{url}/comments{query}"), None)?, "created_at", since, "/user/login"));
+        actors.extend(logins(&pages(&format!("{url}/reviews?per_page=100"), None)?, "submitted_at", since, "/user/login"));
+        actors.extend(logins(&pages(&format!("{url}/comments{query}"), None)?, "created_at", since, "/user/login"));
     }
     Ok(actors.is_subset(&config.own))
 }
