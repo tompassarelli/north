@@ -1208,4 +1208,7 @@ fast-verify-4 and fast-verify-5 twice over innocently. The fix, landed as 8f51ed
 once before blaming the first landed lane and blames nobody when the base is red too; the lander
 runs it from 4:25 AM.
 
-Batch of three or more lanes: recorded in the paragraph below once measured.
+Batch of three lanes: one candidate carried three documentation lanes queued within seconds of each
+other, picked at 4:25:54 and landed at 4:26:03 (9 s), against the 30 s target. A one-lane landing
+with a speculative second candidate stacked behind it took 7 s (4:26:12 to 4:26:19), and the
+stacked one landed at 4:26:22.
