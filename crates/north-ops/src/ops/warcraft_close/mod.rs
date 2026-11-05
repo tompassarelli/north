@@ -123,6 +123,10 @@ pub fn run(arguments: &[String]) -> u8 {
     let launch = Launch::from_env();
     match arguments {
         [] => close(&launch, &Timing { poll: Duration::from_millis(500), polls: 20, settle: Duration::from_secs(1) }, &mut |line| println!("{line}"), &mut |line| eprintln!("{line}")),
+        [flag] if flag == "-h" || flag == "--help" => {
+            println!("usage: north warcraft-close [--list]");
+            0
+        }
         [flag] if flag == "--list" => {
             println!("{}", launch.members().iter().map(u32::to_string).collect::<Vec<_>>().join(" "));
             0

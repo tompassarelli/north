@@ -7,10 +7,9 @@ use super::{date, env_or, home, north_program};
 
 pub(super) fn steps(version: &str, exec: &mut dyn FnMut(&str, &[&str]) -> i32) -> Vec<String> {
     let plan: Vec<(String, Vec<&str>)> = vec![
-        ("codex-runtime-update".to_owned(), vec![version]),
         (north_program().to_string_lossy().into_owned(), vec!["runtime", "update"]),
-        ("claude-runtime-update".to_owned(), vec![version]),
-        ("agy-runtime-update".to_owned(), vec![version]),
+        (north_program().to_string_lossy().into_owned(), vec!["claude-runtime-update", version]),
+        (north_program().to_string_lossy().into_owned(), vec!["agy-runtime-update", version]),
     ];
     plan.iter()
         .filter_map(|(program, args)| {

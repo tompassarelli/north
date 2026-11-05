@@ -104,7 +104,7 @@ mod tests {
             "ls codex-notes",
             "codex login",
             "codex exec implement the issue",
-            "agy-runtime-update latest",
+            "north agy-runtime-update latest",
             "agy --version",
             "agy models",
             "gemini --help",

@@ -120,22 +120,22 @@ fn north_updates_before_claude_on_every_pass() {
         0
     });
     assert!(failed.is_empty());
-    assert_eq!(order, ["codex-runtime-update latest", "north runtime update", "claude-runtime-update latest", "agy-runtime-update latest"]);
+    assert_eq!(order, ["north runtime update", "north claude-runtime-update latest", "north agy-runtime-update latest"]);
 }
 
 #[test]
 fn a_failed_runtime_update_is_named_and_does_not_stop_the_others() {
     let mut ran = 0;
-    let failed = steps("latest", &mut |program, _| {
+    let failed = steps("latest", &mut |_, args| {
         ran += 1;
-        match program {
-            "codex-runtime-update" => 7,
+        match args[0] {
+            "claude-runtime-update" => 7,
             "agy-runtime-update" => 9,
             _ => 0,
         }
     });
-    assert_eq!(ran, 4);
-    assert_eq!(failed, ["codex-runtime-update latest (exit 7)", "agy-runtime-update latest (exit 9)"]);
+    assert_eq!(ran, 3);
+    assert_eq!(failed, ["north claude-runtime-update latest (exit 7)", "north agy-runtime-update latest (exit 9)"]);
 }
 
 #[test]

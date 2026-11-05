@@ -76,3 +76,8 @@ fn closing_fails_and_names_a_process_that_survives_kill() {
     assert!(out.is_empty());
     assert_eq!(err[1], format!("  {pid} C:\\Program Files (x86)\\Battle.net\\Battle.net.exe "));
 }
+
+#[test]
+fn help_exits_zero_so_a_host_can_probe_the_verb() {
+    assert_eq!(super::run(&["--help".to_owned()]), 0);
+}

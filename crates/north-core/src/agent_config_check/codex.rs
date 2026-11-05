@@ -110,7 +110,7 @@ fn live_runtimes(context: &Context, report: &mut Report) -> bool {
         report.ok("Codex user runtime is installed and executable outside the NixOS system closure");
     } else {
         exact = false;
-        report.bad("Codex user runtime is missing or non-executable; run codex-runtime-update");
+        report.bad("Codex user runtime is missing or non-executable; install the runtime by hand");
     }
     match interactive {
         Some(path) if Some(&path) == fs::canonicalize(&user_codex).ok().as_ref() => {

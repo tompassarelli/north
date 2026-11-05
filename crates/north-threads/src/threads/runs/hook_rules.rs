@@ -68,7 +68,7 @@ pub const RULES: &[Rule] = &[
     rule("spawn-capacity.confirm", Advice, &["spawn recording boundary miss"], ""),
     rule("spawn-capacity", TrueBlock, &["Hold: ", "CPU pressure", "warning only, nothing blocked"], "workers: staff within the pace line `north hook spawn-gate` prints."),
     rule("desktop-action", TrueBlock, &["Tom is using the desktop", "desktop action guard:"], "private-desktop-development: drive GUI work on the private desktop."),
-    rule("clipboard", TrueBlock, &["Never read, write or clear Tom's clipboard"], "private-desktop-development: capture only with agent-capture."),
+    rule("clipboard", TrueBlock, &["Never read, write or clear Tom's clipboard"], "private-desktop-development: capture only with north agent-capture."),
     rule("sops-decrypt", TrueBlock, &["`sops` decrypt output"], "Keep secrets out of output: pull one value with sops --extract."),
     rule("public-text", NeedsInput, &["public deny-list rule"], "github: public issue text names no private project facts."),
     rule("frozen-topics", TrueBlock, &["is frozen"], ""),

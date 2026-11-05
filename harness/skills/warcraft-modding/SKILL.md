@@ -18,7 +18,7 @@ metadata:
 - `game-ip` decides where game and engine facts may come from and what may run on a client; load it before measuring native behaviour or when a task seems to need the game's internals.
 - Use `makgora` for fighter animation, characters and stage art, and `effect-development` for Bun host tools that start processes, wait, retry, hold resources or parse outside data. Keep map code in plain TypeScript with no Effect imports.
 - Never touch Tom's game install, except to bring it to the playtest lobby or to put builds he will test, each under a distinct in-map name, in his `Maps/00-Makgora` ([playtest-for-tom.md](references/playtest-for-tom.md)); south:agents/skills/battlenet-accounts/ says which clone shares his account, when it may run and when to sign it out.
-- Close Tom's Battle.net or Warcraft III, once he approves, only with `~/code/north/main/bin/tom-warcraft-close` and never by killing single processes, because a partial kill leaves Steam's launch half-alive and his next Play does nothing.
+- Close Tom's Battle.net or Warcraft III, once he approves, only with `north warcraft-close` and never by killing single processes, because a partial kill leaves Steam's launch half-alive and his next Play does nothing.
 
 ## Read when
 

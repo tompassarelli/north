@@ -115,6 +115,12 @@ fn secret_file() -> PathBuf {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
+    if let [flag] = arguments
+        && (flag == "-h" || flag == "--help")
+    {
+        println!("{USAGE}");
+        return 0;
+    }
     let result = parse(arguments).and_then(|request| deliver(&request, &PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw())), &Real));
     match result {
         Ok(message) => {

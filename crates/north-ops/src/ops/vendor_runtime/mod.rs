@@ -135,6 +135,12 @@ fn probe(binary: &Path) -> bool {
 }
 
 fn run_vendor(vendor: &dyn Vendor, arguments: &[String]) -> u8 {
+    if let [flag] = arguments
+        && (flag == "-h" || flag == "--help")
+    {
+        println!("usage: north {}-runtime-update [version|latest]", vendor.name());
+        return 0;
+    }
     if arguments.len() > 1 {
         eprintln!("usage: north {}-runtime-update [version|latest]", vendor.name());
         return 64;

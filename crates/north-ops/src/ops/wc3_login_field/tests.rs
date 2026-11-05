@@ -106,3 +106,8 @@ fn usage_names_the_four_accounts_and_two_fields() {
         assert_eq!(parse(&bad).err().map(|Failure(_, code)| code), Some(2));
     }
 }
+
+#[test]
+fn help_exits_zero_so_a_host_can_probe_the_verb() {
+    assert_eq!(super::run(&["--help".to_owned()]), 0);
+}

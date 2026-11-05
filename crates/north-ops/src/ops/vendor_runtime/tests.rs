@@ -116,3 +116,9 @@ fn a_reinstall_with_a_different_binary_is_refused() {
     let refused = run(&Claude, &claude_fake(false), root.path(), &|_| true, "9.9.9").err().unwrap();
     assert_eq!(refused.0, "claude-runtime-update: existing runtime identity differs");
 }
+
+#[test]
+fn help_exits_zero_for_both_installers_so_a_host_can_probe_the_verbs() {
+    assert_eq!(super::run_claude(&["--help".to_owned()]), 0);
+    assert_eq!(super::run_agy(&["-h".to_owned()]), 0);
+}
