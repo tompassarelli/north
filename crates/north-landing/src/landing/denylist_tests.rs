@@ -91,18 +91,3 @@ fn denylist_findings_inside_a_zipped_document_name_the_nested_member() {
     let findings = scan_bundle(&[(&b"notes.docx"[..], &document("owner zebra-quokka-7731"))]);
     assert_eq!(findings, BTreeSet::from(["fake-private-term in bundle.zip/notes.docx/word/document.xml".to_owned()]));
 }
-
-#[test]
-fn denylist_a_fifo_in_a_tar_is_an_empty_member_and_the_files_beside_it_are_still_scanned() {
-    let scratch = tempfile::tempdir().unwrap();
-    let tree = scratch.path().join("tree");
-    std::fs::create_dir_all(&tree).unwrap();
-    std::fs::write(tree.join("notes.txt"), "owner zebra-quokka-7731\n").unwrap();
-    assert!(std::process::Command::new("mkfifo").arg(tree.join("fifo")).status().unwrap().success());
-    let tar = std::process::Command::new("tar").arg("-C").arg(scratch.path()).args(["-cf", "-", "tree"]).output().unwrap();
-    assert!(tar.status.success());
-    let mut members = Vec::new();
-    Unpacker::new(archive::DEPTH_CAP, archive::BYTE_CAP).members(b"fixture.tar", &tar.stdout, 0, &mut members).unwrap();
-    let found: Vec<(String, Vec<u8>)> = members.into_iter().map(|member| (String::from_utf8(member.path).unwrap(), member.content)).collect();
-    assert_eq!(found, [("fixture.tar/tree/fifo".to_owned(), Vec::new()), ("fixture.tar/tree/notes.txt".to_owned(), b"owner zebra-quokka-7731\n".to_vec())]);
-}

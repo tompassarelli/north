@@ -156,8 +156,7 @@ impl Unpacker {
             } else if kind.is_symlink() {
                 std::fs::read_link(&file).map(|target| target.as_os_str().as_bytes().to_vec())
             } else {
-                // A tar FIFO or device member carries no bytes, only the name its path already scans.
-                Ok(Vec::new())
+                return Err(format!("{} is neither a file, a directory nor a link", lossy(&member)));
             };
             let content = content.map_err(|e| format!("cannot read {}: {e}", lossy(&member)))?;
             if kind.is_file() {
