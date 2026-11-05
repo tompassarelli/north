@@ -1,6 +1,7 @@
 # The plan in crate-split.md "Next cuts": 12 crates replace north-core (c13 with ops/pacing in north-dispatch)
 north-base - core:error core:foundation core:platform core:shell core:autoland_status core:test_inputs core:build_inputs
 north-landing north-base core:landing core:dep_gate core:language_gate core:provenance core:issue_box_lint core:follows_release core:land_abandon
+north-safe-push north-landing,north-base core:landing/safe_push
 north-pace north-base core:pace core:router core:usage
 north-threads north-pace core:threads core:work_items
 north-fleet north-pace core:fleet core:claude_stream

@@ -170,7 +170,7 @@ fn structure_toml_names_the_c12_plan_crates_and_their_dependencies() {
             (name, uses.split(',').filter(|dependency| *dependency != "-").map(str::to_owned).collect())
         })
         .collect();
-    assert_eq!(plan.len(), 14);
+    assert_eq!(plan.len(), 15);
     assert_eq!(rules.crate_plan(), plan);
 }
 
