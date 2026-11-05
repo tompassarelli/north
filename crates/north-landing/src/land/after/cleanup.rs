@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -40,11 +41,34 @@ fn lane_layout(lander: &Lander, root: &Path) -> bool {
     container.file_name().is_some_and(|name| name == "worktrees") && container.parent() == lander.repo.parent() && root != lander.repo
 }
 
+fn identity(path: &Path) -> Option<(u64, u64)> {
+    fs::metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()))
+}
+
+/// Whether the directory at `cwd` is `lane` or below it, compared by device and inode while
+/// climbing `..`. A process sandboxed in its own mount and PID namespaces sees the lane under its
+/// sandbox path, so the text of its `/proc/<pid>/cwd` link need not name the lane at all.
+fn inside(cwd: &Path, lane: (u64, u64)) -> bool {
+    let mut directory = cwd.to_path_buf();
+    let mut below = None;
+    while let Some(here) = identity(&directory) {
+        if here == lane {
+            return true;
+        }
+        if below == Some(here) {
+            return false;
+        }
+        below = Some(here);
+        directory.push("..");
+    }
+    false
+}
+
 fn occupant(root: &Path) -> Option<u32> {
+    let lane = identity(root)?;
     fs::read_dir("/proc").ok()?.flatten().find_map(|entry| {
         let pid: u32 = entry.file_name().to_str()?.parse().ok()?;
-        let cwd = fs::read_link(entry.path().join("cwd")).ok()?;
-        cwd.starts_with(root).then_some(pid)
+        inside(&entry.path().join("cwd"), lane).then_some(pid)
     })
 }
 

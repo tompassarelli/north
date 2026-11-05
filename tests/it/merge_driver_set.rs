@@ -7,17 +7,7 @@ const SETS: &str = include_str!("../../harness/merge-sets.toml");
 const ATTRIBUTES: &str = include_str!("../../.gitattributes");
 
 fn git(root: &Path, args: &[&str]) -> Output {
-    Command::new("git")
-        .current_dir(root)
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@example.com")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@example.com")
-        .env("GIT_EDITOR", "true")
-        .args(["-c", "commit.gpgsign=false"])
-        .args(args)
-        .output()
-        .unwrap()
+    Command::new("git").current_dir(root).env("GIT_EDITOR", "true").args(args).output().unwrap()
 }
 
 fn git_ok(root: &Path, args: &[&str]) {
@@ -29,6 +19,9 @@ fn repo(files: &[(&str, &str)]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     git_ok(root, &["init", "-q", "-b", "main"]);
+    for (key, value) in [("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
+        git_ok(root, &["config", key, value]);
+    }
     git_ok(root, &["config", "merge.set.driver", &format!("{NORTH} merge-driver set %O %A %B %P")]);
     fs::create_dir_all(root.join("harness")).unwrap();
     fs::write(root.join("harness/merge-sets.toml"), SETS).unwrap();

@@ -34,8 +34,15 @@ fn pid_namespace() {
     let mut fixture = Fixture::new();
     let lane = landed_lane(&mut fixture);
     fixture.enqueue(&lane, None);
-    let mut occupant = Command::new("unshare").args(["--user", "--map-current-user", "--pid", "--fork", "--kill-child=KILL", "--", "sleep", "120"]).current_dir(&lane).spawn().unwrap();
+    let mut occupant = Command::new("bwrap")
+        .args(["--unshare-user", "--unshare-pid", "--die-with-parent", "--dev-bind", "/", "/", "--tmpfs", "/mnt", "--bind"])
+        .arg(&lane)
+        .args(["/mnt/lane", "--chdir", "/mnt/lane", "--", "sleep", "120"])
+        .current_dir("/")
+        .spawn()
+        .unwrap();
     std::thread::sleep(std::time::Duration::from_millis(500));
+    assert!(occupant.try_wait().unwrap().is_none(), "the sandboxed occupant exited before the lander ran");
     assert!(fixture.serve().status.success());
     let _ = occupant.kill();
     let _ = occupant.wait();
