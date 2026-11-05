@@ -40,7 +40,6 @@ struct Run {
     landed_at: Option<String>,
     repeats: Option<i64>,
     report: String,
-    arm: Option<String>,
     account: Option<String>,
 }
 
@@ -61,7 +60,6 @@ impl Run {
             landed_at: row.get("landed_at")?,
             repeats: row.get("repeats")?,
             report: row.get("report")?,
-            arm: row.get("arm")?,
             account: row.get("account")?,
         })
     }
@@ -92,7 +90,7 @@ fn quality(runs: &[&Run]) -> (Option<bool>, Option<bool>) {
     let by_agent: BTreeMap<&str, &Run> = runs.iter().map(|run| (run.agent.as_str(), *run)).collect();
     let followed = |run: &Run| run.follows.as_deref().and_then(|follows| by_agent.get(follows));
     let rework = runs.iter().any(|run| run.repeats.unwrap_or(0) > 0 || followed(run).is_some() || REWORK.is_match(&run.report));
-    let escalated = runs.iter().any(|run| run.outcome == "escalated" || run.arm.as_deref() == Some("escalate") || followed(run).is_some_and(|earlier| tier_rank(&run.tier) > tier_rank(&earlier.tier)));
+    let escalated = runs.iter().any(|run| run.outcome == "escalated" || followed(run).is_some_and(|earlier| tier_rank(&run.tier) > tier_rank(&earlier.tier)));
     let not_done = runs.iter().any(|run| run.outcome == "not done");
     let unknown = runs.iter().any(|run| run.outcome != "done");
     let first_try = if rework || escalated || not_done { Some(false) } else if unknown { None } else { Some(true) };

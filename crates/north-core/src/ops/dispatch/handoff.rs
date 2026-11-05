@@ -8,12 +8,14 @@ use toml_edit::DocumentMut;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const ARM_RUNS: usize = 30;
+const DONE_RATE_SLACK: f64 = 0.10;
 const FAMILIES: [Tier; 3] = [Tier::Haiku, Tier::Sonnet, Tier::Opus];
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Arms {
     runs: BTreeMap<(String, String), usize>,
     usd_per_closed: BTreeMap<(Tier, String), f64>,
+    closed: BTreeMap<(Tier, String), usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -23,6 +25,8 @@ pub struct Winner {
     pub usd: f64,
     pub other: String,
     pub other_usd: f64,
+    pub done: f64,
+    pub other_done: f64,
 }
 
 impl Winner {
@@ -33,12 +37,14 @@ impl Winner {
             "keep the worker handoff point for this tier"
         };
         format!(
-            "north#57 handoff arms, {}: {} wins at ${:.2} per closed box against {} at ${:.2} over {ARM_RUNS} runs each; recommend: {advice}",
+            "north#57 handoff arms, {}: {} wins at ${:.2} per closed box and {:.0}% Done against {} at ${:.2} and {:.0}% over {ARM_RUNS} runs each; recommend: {advice}",
             self.tier.name(),
             self.arm,
             self.usd,
+            self.done * 100.0,
             self.other,
-            self.other_usd
+            self.other_usd,
+            self.other_done * 100.0
         )
     }
 }
@@ -63,7 +69,12 @@ impl Arms {
                 *sum = (sum.0 + closed.usd, sum.1 + 1);
             }
         }
-        Self { usd_per_closed: sums.into_iter().map(|(key, (usd, closed))| (key, usd / closed as f64)).collect(), ..self }
+        let closed = sums.iter().map(|(key, (_, closed))| (key.clone(), *closed)).collect();
+        Self { usd_per_closed: sums.into_iter().map(|(key, (usd, closed))| (key, usd / closed as f64)).collect(), closed, ..self }
+    }
+
+    fn done_rate(&self, tier: Tier, label: &str) -> f64 {
+        self.closed.get(&(tier, label.to_owned())).copied().unwrap_or(0) as f64 / self.runs(tier, label).max(1) as f64
     }
 
     fn runs(&self, tier: Tier, label: &str) -> usize {
@@ -81,8 +92,10 @@ impl Arms {
         }
         let cost = |label: &str| self.usd_per_closed.get(&(tier, label.to_owned())).copied();
         let (with, without) = (cost(&handoff)?, cost(&none)?);
-        let (arm, usd, other, other_usd) = if without < with { (none, without, handoff, with) } else { (handoff, with, none, without) };
-        Some(Winner { tier, arm, usd, other, other_usd })
+        let (done_with, done_without) = (self.done_rate(tier, &handoff), self.done_rate(tier, &none));
+        let keeps_handoff = with <= without && done_with + DONE_RATE_SLACK >= done_without;
+        let (arm, usd, done, other, other_usd, other_done) = if keeps_handoff { (handoff, with, done_with, none, without, done_without) } else { (none, without, done_without, handoff, with, done_with) };
+        Some(Winner { tier, arm, usd, other, other_usd, done, other_done })
     }
 
     pub fn recommendations(&self) -> Vec<String> {

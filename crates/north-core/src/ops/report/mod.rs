@@ -1,5 +1,5 @@
 //! `north report`: what the feedback loop has learned, read from the worker ledger and the
-//! operator's state: calibration, escalation arms, spawn-gate denials and goal scores.
+//! operator's state: calibration, spawn-gate denials and goal scores.
 use std::path::Path;
 use std::time::Duration;
 
@@ -8,8 +8,7 @@ use serde_json::Value;
 use crate::foundation::clock::Timestamp;
 use crate::platform::sqlite::{self, Access};
 
-mod arms;
-pub use arms::wilson;
+pub use crate::platform::pystats::wilson;
 mod calibration;
 #[cfg(test)]
 mod tests;
@@ -78,12 +77,10 @@ pub struct State<'a> {
     pub calibration: &'a [calibration::Row],
     pub denials: &'a [Value],
     pub scores: &'a [Value],
-    pub runs: &'a [arms::Run],
 }
 
 pub fn render(state: &State, now: f64) -> Vec<String> {
     let mut lines = calibration::lines(state.calibration, now);
-    lines.extend(arms::lines(state.runs));
     lines.extend(denial_lines(state.denials, now));
     lines.extend(goal_lines(state.scores));
     lines.extend(calibration::goal_eta_lines(state.calibration));
@@ -115,12 +112,11 @@ pub fn run(arguments: &[String]) -> u8 {
     let state = root.join("agents");
     let database = ledger(&home, &root);
     let rows = calibration::read(&select(&database, calibration::QUERY));
-    let runs = arms::read(&select(&database, arms::QUERY));
     let (denials, scores) = (jsonl(&state.join("spawn-gate-denials.jsonl")), jsonl(&state.join("goal-scores.jsonl")));
     for signal in ["agents/spawn-gate-denials.jsonl", "agents/goal-scores.jsonl"] {
         crate::platform::reader_stamp::touch(&root, signal);
     }
     let now = Timestamp::now().unix_seconds_f64();
-    println!("{}", render(&State { calibration: &rows, denials: &denials, scores: &scores, runs: &runs }, now).join("\n"));
+    println!("{}", render(&State { calibration: &rows, denials: &denials, scores: &scores }, now).join("\n"));
     0
 }

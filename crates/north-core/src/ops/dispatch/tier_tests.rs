@@ -218,6 +218,25 @@ fn both_handoff_arms_at_thirty_runs_go_to_the_lower_cost_per_closed_box_and_the_
 }
 
 #[test]
+fn a_cheaper_handoff_arm_that_closes_more_than_ten_points_fewer_boxes_loses_to_the_costlier_arm_that_closes_more() {
+    let (on, off) = ("handoff-150k", "no-handoff");
+    let record = |handoff: &str| Record { tier: Some("worker".into()), handoff: Some(handoff.into()), ..haiku_try("makgora#9", 1.0) };
+    let held = || super::handoff::Arms::new(&[vec![record(on); 30], vec![record(off); 30]].concat());
+    let closed = |arm: &'static str, count: usize, usd: f64| (0..count).map(move |number| ArmBox { item: format!("north#{arm}-{number}"), tier: "opus-medium".into(), arm: arm.into(), usd, category: "feature".into(), closed: true, reworked: false });
+    let priced = |on_closed: usize, off_closed: usize, on_usd: f64, off_usd: f64| held().priced(&closed(on, on_closed, on_usd).chain(closed(off, off_closed, off_usd)).collect::<Vec<_>>());
+
+    let mut cheap_but_failing = priced(6, 18, 4.0, 6.0);
+    assert!(cheap_but_failing.recommendations()[0].contains("no-handoff wins at $6.00 per closed box and 60% Done against handoff-150k at $4.00 and 20%"));
+    assert_eq!(cheap_but_failing.pick(Tier::Opus).as_deref(), Some(off), "20% Done at $4.00 loses to 60% Done at $6.00");
+
+    let mut cheap_and_close = priced(15, 18, 4.0, 6.0);
+    assert!(cheap_and_close.recommendations()[0].contains("handoff-150k wins at $4.00 per closed box and 50% Done against no-handoff at $6.00 and 60%"));
+    assert_eq!(cheap_and_close.pick(Tier::Opus).as_deref(), Some(on), "50% Done at $4.00 is within ten points of 60% Done at $6.00");
+
+    assert_eq!(priced(18, 6, 8.0, 6.0).pick(Tier::Opus).as_deref(), Some(off), "a costlier handoff arm loses whatever its Done rate");
+}
+
+#[test]
 fn a_box_without_a_category_line_takes_one_from_its_labels_and_one_nothing_categorises_is_refused_with_the_reason() {
     let boxes = vec![
         uncategorised("north", 1, "- [ ] a", &["enhancement", "priority:now"]),
