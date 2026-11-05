@@ -121,7 +121,7 @@ for idea-level inspiration alone.
 
 ## Harness authoring guides
 
-`scripts/refresh-guides.mjs` vendors openly licensed guides for writing agent
+The host repository's guide refresher vendors openly licensed guides for writing agent
 instructions and skills into the host repository's
 `harness/skills/agent-policy/references/guides/`, outside this package. It
 fetches each source at its upstream `HEAD`, records the exact commit URL,

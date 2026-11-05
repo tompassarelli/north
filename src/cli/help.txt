@@ -23,6 +23,8 @@ Commands:
   work [list|search|show|claim|release|need|unneed|close]  Work items
   agents [status|stale|inspect|path|on|off|sync|busy|plan|usage|presence|routines]  Run the agent catalog, plan, usage and routines commands
   config agents [sync|status|on|off|path|inspect|check-hook-paths|check-owners|live-refs]  Manage skills and hooks
+  config check [--package DIR]                 Check the agent-machinery package: catalog shape, units, assets, schemas, contracts and its portable source boundary
+  config check guides [--refresh] [--guides DIR]  List the vendored agent-policy guides and fail when one is over 90 days old; --refresh re-fetches them at their upstream head
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
   denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]  Scan an outgoing range, its messages, ref name and arriving files for deny-listed terms

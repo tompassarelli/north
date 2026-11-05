@@ -73,5 +73,5 @@ facts count.
 - [watching.md](references/watching.md): a followed outside source is due
   for its monthly review, or a source joins the follow list.
 - [guides.md](references/guides.md): harness redesign or audit. Run
-  `bun run check:guides` in `agent-machinery/` first, because guides older than
+  `north config check guides` first, because guides older than
   90 days are stale.

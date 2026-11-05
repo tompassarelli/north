@@ -16,7 +16,7 @@ Build output stays in the worktree's `target/`.
   measuring them per [compile-times](agent-machinery/skills/rust-development/references/compile-times.md).
 - Follow [verification](agent-machinery/skills/verification/SKILL.md) for test retention, mutation evidence and execution.
 - Check with `depbox run -- nix develop -c cargo test --locked --offline` and `depbox run -- nix develop -c cargo clippy --all-targets --locked --offline -- -D warnings` (the land check refuses any warning) for the host, and
-  `depbox run -- bun test` plus `depbox run -- bun run check` inside `agent-machinery/` for its procedures.
+  `depbox run -- bun test` inside `agent-machinery/` plus `north config check` for its procedures.
 - Run `verify-north` in your worktree before claiming a north change works; it builds north, drives the fleet TUI and CLI end to end, and cleans up.
 - Edit in `worktrees/<slug>`, never `main/`, and land through `safe-push --to main`.
 - Run the affected `*.test.sh` or `*.test.py` under `bin/`, `lib/` or `harness/` for a harness change; the `harness.yml` workflow runs them all except its listed machine-bound ones.

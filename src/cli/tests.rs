@@ -6,6 +6,7 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
     let alphabet = [
         "config",
         "agents",
+        "check",
         "work",
         "session-host",
         "dep-gate",
@@ -30,6 +31,9 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
                 [help] if ["help", "-h", "--help"].contains(&help.as_str()) => Some(Command::Help),
                 [config, agents, rest @ ..] if config == "config" && agents == "agents" => {
                     Some(Command::Agents(rest.to_vec()))
+                }
+                [config, check, rest @ ..] if config == "config" && check == "check" => {
+                    Some(Command::ConfigCheck(rest.to_vec()))
                 }
                 [agents, rest @ ..] if agents == "agents" => {
                     Some(Command::Tool(Tool::Uniform("agents"), rest.to_vec()))

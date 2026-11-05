@@ -40,8 +40,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | agent-machinery/scripts/contracts.mjs | 29 | stay | exported contract schemas of the published package |
 | agent-machinery/scripts/effect-kit.mjs | 336 | stay | drives the target project's own TypeScript compiler and Effect language service (createRequire into the project's node_modules); only JS can load them |
 | agent-machinery/scripts/project-exposure-profile.mjs | 128 | stay | exported profile API of the published package (project-exposure-v1) |
-| agent-machinery/scripts/refresh-guides.mjs | 63 | port: north#88 box "agent-machinery checks to Rust" (family: tooling, audit 4.3) | repo-internal guide refresher; no JS consumer needs it |
-| agent-machinery/scripts/validate.mjs | 126 | port: north#88 box "agent-machinery checks to Rust" (family: tooling, audit 4.3) | repo-internal ajv validation of catalog and contracts; no JS consumer needs it, so `north config check` can own it |
 | agent-machinery/tests/capability-contract.test.mjs | 19 | stay | bun tests of the published package modules above |
 | agent-machinery/tests/contracts.test.mjs | 37 | stay | bun tests of the published package modules above |
 | agent-machinery/tests/package-boundary.test.mjs | 24 | stay | bun tests of the published package modules above |

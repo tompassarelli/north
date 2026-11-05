@@ -19,6 +19,7 @@
 	check = @rust-input,src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets ${SAFE_PUSH_LAND_PACKAGES:---workspace} --locked --offline -- -D warnings
 	check = structure.toml,src/,crates/,tests/,examples/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-guard/src/code_health/ code-health layers ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}
 	check = harness/,agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/agent_config_check/ agent-config-check tree-policy
+	check = agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/catalog/package_check.rs config check
 	check = docs/features.md,docs/features/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/features_index/ docs features-index --check
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/rationale_index/ docs rationale-index --check
 	check = flake.lock,harness/nix/lock-allow.toml :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/doctor_nix/,src/cli/ doctor nix --lock flake.lock --allow harness/nix/lock-allow.toml
@@ -30,9 +31,9 @@
 	recheck = ** :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo check --tests ${SAFE_PUSH_LAND_PACKAGES:---workspace} --locked --offline
 	after = src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only portable
 	after = bin/,lib/,harness/,src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only machine-bound
-	after = "agent-machinery/ :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test; ../bin/land-shell -- bun run check'"
+	after = "agent-machinery/ :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test'"
 	machine-bound = reads the south and nixos-config checkouts beside north :: CARGO_TARGET_DIR=target bash harness/scripts/check-owners.sh
 	machine-bound = "needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests) :: CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only machine-bound"
-	machine-bound = "main's CI does not run the agent-machinery bun tests :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test; ../bin/land-shell -- bun run check'"
+	machine-bound = "main's CI does not run the agent-machinery bun tests :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test'"
 	machine-bound = runs the live runtime's north when the citation checker is unchanged since it :: CARGO_TARGET_DIR=target bash harness/scripts/citation-check.sh
 	runner = build-host

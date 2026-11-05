@@ -6,9 +6,9 @@ Read them when designing or auditing the harness, not for routine skill edits.
 ## Refresh every 90 days
 
 A guide older than 90 days is stale. Before any harness redesign or audit, run
-`bun run check:guides` from `agent-machinery/`, because the refresh script lives in that package. If it reports stale guides:
+`north config check guides`. If it reports stale guides:
 
-1. Run `bun run refresh:guides` from `agent-machinery/`.
+1. Run `north config check guides --refresh`.
 2. Re-check each link-only source below.
 3. Read the diff, then update the numbers on this page and any bootstrap
    rule, skill or hook the new guidance contradicts.

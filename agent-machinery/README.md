@@ -44,7 +44,7 @@ Stop at the first that answers:
 
 - Which skills, modules, assets and contracts the package exports: [catalog.json](catalog.json).
 - The catalog's shape: [catalog.schema.json](catalog.schema.json), and the extra rules
-  `bun run check` enforces in [scripts/validate.mjs](scripts/validate.mjs).
+  the host repository's package check enforces.
 - Package subpaths, commands and dependencies: [package.json](package.json).
 - A procedure, and which agents receive it (an optional `agents` field in its frontmatter; a skill
   without it keeps its catalog targets): that skill's own file under [skills/](skills/).
@@ -118,9 +118,6 @@ Which of them each module groups is the `members` list of that module in [catalo
 
 Run each with `bun run NAME` inside this directory, or `bun test` for the tests:
 
-- `check`: validates the catalog, the schemas, the contracts and the package boundary.
-- `check:guides`: lists the vendored agent-policy guides in the host skills that are due a refresh.
-- `refresh:guides`: re-fetches those guides at their upstream head.
 - `test`: runs the package tests.
 
 ## Scripts
@@ -130,8 +127,6 @@ Run each with `bun run NAME` inside this directory, or `bun test` for the tests:
   project against it.
 - [project-exposure-profile.mjs](scripts/project-exposure-profile.mjs): the project exposure
   profile's semantic rules.
-- [refresh-guides.mjs](scripts/refresh-guides.mjs): the guide refresher behind the guide commands.
-- [validate.mjs](scripts/validate.mjs): the package check behind `bun run check`.
 
 ## License
 

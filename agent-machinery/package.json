@@ -13,9 +13,6 @@
     "./skills/*": "./skills/*"
   },
   "scripts": {
-    "refresh:guides": "bun scripts/refresh-guides.mjs",
-    "check:guides": "bun scripts/refresh-guides.mjs --check",
-    "check": "bun scripts/validate.mjs",
     "test": "bun test tests/*.test.mjs"
   },
   "files": [

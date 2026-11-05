@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 #[path = "catalog/activation.rs"]
 mod activation;
@@ -6,6 +7,8 @@ mod activation;
 mod digest;
 #[path = "catalog/files.rs"]
 mod files;
+#[path = "catalog/guides.rs"]
+mod guides;
 #[path = "catalog/generation.rs"]
 mod generation;
 #[path = "catalog/live_refs.rs"]
@@ -15,6 +18,11 @@ pub mod owner_modules;
 #[cfg(test)]
 #[path = "catalog/owner_modules_tests.rs"]
 mod owner_modules_tests;
+#[path = "catalog/package_check.rs"]
+mod package_check;
+#[cfg(test)]
+#[path = "catalog/package_check_tests.rs"]
+mod package_check_tests;
 #[path = "catalog/paths.rs"]
 mod paths;
 #[path = "catalog/registration_checks.rs"]
@@ -402,3 +410,45 @@ fn usage() -> String {
 #[cfg(test)]
 #[path = "catalog/agent_catalog_tests.rs"]
 mod tests;
+
+const CONFIG_CHECK_USAGE: &str = "usage: north config check [--package DIR]
+       north config check guides [--refresh] [--guides DIR]";
+
+pub fn config_check(arguments: &[String]) -> NorthResult<u8> {
+    let usage = || NorthError::Usage(CONFIG_CHECK_USAGE.to_owned());
+    let (guides, rest) = match arguments.split_first() {
+        Some((verb, rest)) if verb == "guides" => (true, rest),
+        _ => (false, arguments),
+    };
+    let mut refresh = false;
+    let mut directory = None;
+    let mut options = rest.iter();
+    while let Some(option) = options.next() {
+        match option.as_str() {
+            "-h" | "--help" => {
+                println!("{CONFIG_CHECK_USAGE}");
+                return Ok(0);
+            }
+            "--refresh" if guides => refresh = true,
+            "--guides" if guides => directory = Some(options.next().ok_or_else(usage)?.clone()),
+            "--package" if !guides => directory = Some(options.next().ok_or_else(usage)?.clone()),
+            _ => return Err(usage()),
+        }
+    }
+    let directory = PathBuf::from(directory.unwrap_or_else(|| (if guides { guides::GUIDES_DIR } else { "agent-machinery" }).to_owned()));
+    let outcome = match (guides, refresh) {
+        (false, _) => package_check::check_package(&directory).map(|units| {
+            println!("config check: {units} units");
+            true
+        }),
+        (true, false) => guides::check(&directory),
+        (true, true) => guides::refresh(&directory).map(|()| true),
+    };
+    match outcome {
+        Ok(passed) => Ok(u8::from(!passed)),
+        Err(message) => {
+            eprintln!("{message}");
+            Ok(1)
+        }
+    }
+}

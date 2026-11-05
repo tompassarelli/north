@@ -29,7 +29,7 @@ That file's frontmatter declares "license: MIT" and names its authors as
 notice; the upstream statement is preserved as provided and no copyright
 holder is invented. This revision rewrites the guide for Astro 7 conventions.
 
-The harness-authoring guides that scripts/refresh-guides.mjs vendors live
-outside this package, at harness/skills/agent-policy/references/guides/ in
-its host repository; their attribution, license texts and NOTICE are kept in
+The harness-authoring guides that the host repository's guide refresher
+vendors live outside this package, at harness/skills/agent-policy/references/guides/
+in its host repository; their attribution, license texts and NOTICE are kept in
 that directory.

@@ -1,4 +1,4 @@
-<!-- Vendored from https://github.com/openai/openai-cookbook/blob/0eac1447d4e24d06e47c459ca5e98f248b9413cf/examples/gpt-5/codex_prompting_guide.ipynb (MIT), retrieved 2026-10-07. Refresh with `bun run refresh:guides`; do not edit. -->
+<!-- Vendored from https://github.com/openai/openai-cookbook/blob/0eac1447d4e24d06e47c459ca5e98f248b9413cf/examples/gpt-5/codex_prompting_guide.ipynb (MIT), retrieved 2026-10-07. Refresh with `north config check guides --refresh`; do not edit. -->
 
 # **Codex** Prompting Guide
 

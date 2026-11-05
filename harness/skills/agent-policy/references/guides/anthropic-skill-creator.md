@@ -1,4 +1,4 @@
-<!-- Vendored from https://github.com/anthropics/skills/blob/683bc88e56f3e09ba94f7055977f3d3aa499f202/skills/skill-creator/SKILL.md (Apache-2.0), retrieved 2026-10-07. Refresh with `bun run refresh:guides`; do not edit. -->
+<!-- Vendored from https://github.com/anthropics/skills/blob/683bc88e56f3e09ba94f7055977f3d3aa499f202/skills/skill-creator/SKILL.md (Apache-2.0), retrieved 2026-10-07. Refresh with `north config check guides --refresh`; do not edit. -->
 
 ---
 name: skill-creator

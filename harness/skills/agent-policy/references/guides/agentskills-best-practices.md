@@ -1,4 +1,4 @@
-<!-- Vendored from https://github.com/agentskills/agentskills/blob/69ef37e9424c0a7ea9dd2293b559e43ec8176379/docs/skill-creation/best-practices.mdx (Apache-2.0), retrieved 2026-10-07. Refresh with `bun run refresh:guides`; do not edit. -->
+<!-- Vendored from https://github.com/agentskills/agentskills/blob/69ef37e9424c0a7ea9dd2293b559e43ec8176379/docs/skill-creation/best-practices.mdx (Apache-2.0), retrieved 2026-10-07. Refresh with `north config check guides --refresh`; do not edit. -->
 
 ---
 title: "Best practices for skill creators"

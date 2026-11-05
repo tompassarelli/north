@@ -3,7 +3,7 @@
 Measure first, change one input, measure again. Every item below says where
 it came from, what the Nix devShell must provide, what it is expected to buy and
 when it does not help. Nothing here is a default for our repositories until
-`north code-health build-time` shows it winning on Tom's machine.
+`code-health build-time` shows it winning on Tom's machine.
 
 All sources were accessed 2026-10-12. The canonical pages were blocked by this
 container's egress policy, so each was read from its upstream source file on
@@ -35,7 +35,7 @@ Claims marked **(unverified)** were not found in any source opened.
   builds it with rust-overlay (rustup's distribution); devShell = toolchain
   plus bun. `.cargo/config.toml` sets `codegen-backend = "cranelift"` and
   `-Zthreads=8` as profile `rustflags` (which `RUSTFLAGS` does not displace)
-  for dev and test; release stays on LLVM. Measured in north `docs/rationale/rust-build-times.md`
+  for dev and test; release stays on LLVM. Measured in the project's `docs/rationale/rust-build-times.md`
   "Toolchain levers": 1.62x on the leaf-edit test build, 22% less CPU.
 - galileo: no `rust-toolchain.toml`; `flake.nix` takes `pkgs.rustc`/`pkgs.cargo`
   from a nixpkgs pin whose `rust` is 1.89, plus `pkgs.gcc`. Rust 1.90 is the
@@ -240,13 +240,13 @@ covers `cargo test`. `dev` defaults: `opt-level = 0`, `debug = true`,
   `threads=0` (one per core) [bevy]. Under Nix: a nightly toolchain in the
   flake (rust-overlay `rust-bin.nightly`) and the flag in a profile
   `rustflags` (`[unstable] profile-rustflags = true`). Adopted in this host
-  repository on 2026-11-05: 1.45x alone on north-core's leaf-edit test build.
+  repository on 2026-11-05: 1.45x alone on the core crate's leaf-edit test build.
 - **Cranelift backend.** Faster codegen, slower code, dev only; enable with
   `[unstable] codegen-backend = true` and `[profile.dev] codegen-backend =
   "cranelift"`, and Bevy keeps dependencies on LLVM with
   `[profile.dev.package."*"] codegen-backend = "llvm"` [perf] [bevy]. Under Nix:
   nightly plus the `rustc-codegen-cranelift-preview` component through
-  rust-overlay (it does, under that name). Alone it was 0.88x on north-core's
+  rust-overlay (it does, under that name). Alone it was 0.88x on the core crate's
   front-end-bound leaf rebuild, with 18% less CPU; beside `-Zthreads=8` it
   takes the pair to 1.62x.
   When it doesn't help: front-end-bound units such as lsp-types here (9.4 of
@@ -259,7 +259,7 @@ covers `cargo test`. `dev` defaults: `opt-level = 0`, `debug = true`,
 - What: [rustd](https://github.com/DioxusLabs/rustd) (DioxusLabs, MIT/Apache-2.0, branch `rustd-spike`, read 2026-10-16 from `RUSTD.md`) keeps a workspace loaded in rust-analyzer's database and compiles changed functions from RA's MIR with Cranelift, linking them in front of rustc's rlibs. Its launch chart claims a saved edit becomes a linked debug binary in about 200 ms, 4.3x-11.6x faster than incremental `cargo build` on the regex workspace (8 cores).
 - Status: a prototype. Its own document says latency is "only comparable to cargo once a crate is at 100%" of functions compiled; there is no drop glue or unwinding yet (RA's MIR "has no cleanup edges"), async is planned as "the largest single item", unit tests inside `src/` are not relinked, there is no debug info, and no cargo subcommand exists (it scrapes `cargo rustc -- --print link-args`). The toolchain must be the exact rustc that rust-analyzer's `ra-ap-rustc_abi` was cut from; a mismatch miscompiled `?`. RA can take 0.5-8 GB per workspace.
 - Fit here: none today. This host repository has 89 `async fn` on tokio and relies on `Drop`, so rustd cannot build it, and our toolchain pin would have to follow rustd's.
-- Adopt when all hold: async, drop glue and unwinding supported; a cargo-integrated entry point; unit tests in `src/` relinked; its scoreboard shows 0 mismatches on a crate shaped like ours. Then measure it with `north code-health build-time` like any other lever.
+- Adopt when all hold: async, drop glue and unwinding supported; a cargo-integrated entry point; unit tests in `src/` relinked; its scoreboard shows 0 mismatches on a crate shaped like ours. Then measure it with `code-health build-time` like any other lever.
 
 ## galileo
 
@@ -343,7 +343,7 @@ Split candidates, each a hypothesis for `--timings` on Tom's machine:
 
 ## Measuring
 
-`north code-health build-time --repo PATH [--workspace REL --leaf REL --hub REL]`,
+`code-health build-time --repo PATH [--workspace REL --leaf REL --hub REL]`,
 run inside `nix develop PATH -c`, does a cold build in a fresh target directory,
 `cargo test --no-run`, then edits the leaf and hub files (restored afterwards)
 and times each rebuild and test build over `--samples` runs, appending one row
@@ -404,7 +404,7 @@ during the runs), so each row is indicative only. Times are Cargo's own
   `Cargo.lock` and a `CACHEDIR.TAG`, then deletes the fingerprints of every
   `Cargo.lock` package without a registry or git source, in each profile and
   `--target` directory, so none reads as fresh from another checkout's sources.
-  `incremental/` is seeded too: rustc keeps a copied session only when the build runs at the same path, so `depbox` builds every lane at `~/code/<project>/sandbox` (2026-11-05, docs/rationale/build-cost.md "Warm worktree builds").
+  `incremental/` is seeded too: rustc keeps a copied session only when the build runs at the same path, so `depbox` builds every lane at `code/<project>/sandbox` under the home directory (2026-11-05, docs/rationale/build-cost.md "Warm worktree builds").
   The copy is private to the lane, so parallel lanes never wait on one Cargo
   lock. An equal `Cargo.lock` does not guarantee reuse: the unrelated seed above
   was copied and rebuilt in full, most likely because that lane was built under the old per-checkout key **(not isolated)**.
