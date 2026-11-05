@@ -112,7 +112,7 @@ pub(super) struct LayerViolation {
 pub(super) fn layer_violation(config: &Config, from: &str, to: &str) -> Option<LayerViolation> {
     let a = config.module_of(from)?;
     let b = config.module_of(to)?;
-    if a.name == b.name || a.may_use.contains(&b.name) {
+    if a.name == b.name || a.facade || a.may_use.contains(&b.name) {
         return None;
     }
     Some(LayerViolation { from: from.to_owned(), to: to.to_owned(), from_module: a.name.clone(), to_module: b.name.clone() })

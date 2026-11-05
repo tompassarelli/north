@@ -183,3 +183,14 @@ fn the_repository_rules_refuse_crate_fleet_in_usage() {
     assert!(rules.breaches("crates/north-core/src/usage/mod.rs", "crates/north-core/src/lib.rs").is_empty());
     assert!(rules.breaches("crates/north-dispatch/src/pacing/placement/hosts.rs", "crates/north-guard/src/guard/spawn_capacity.rs").iter().any(|breach| breach.from == "north-dispatch" && breach.to == "north-guard"));
 }
+
+#[test]
+fn a_facade_module_may_re_export_what_depends_on_it() {
+    let facade = STRUCTURE.replacen("[crate_dag]", "[[module]]\nname = \"roots\"\npaths = [\"crates/*/src/lib.rs\"]\nfacade = true\nmay_use = [\"usage\"]\n\n[crate_dag]", 1).replacen("may_use = []", "may_use = [\"roots\"]", 1);
+    let rules = Rules::parse(&facade).unwrap();
+    assert!(rules.breaches("crates/north-core/src/lib.rs", "crates/north-core/src/fleet/mod.rs").is_empty());
+    assert!(rules.breaches("crates/north-core/src/usage/mod.rs", "crates/north-core/src/lib.rs").is_empty());
+    let plain = facade.replace("facade = true\n", "");
+    let rules = Rules::parse(&plain).unwrap();
+    assert_eq!(rules.breaches("crates/north-core/src/lib.rs", "crates/north-core/src/fleet/mod.rs").len(), 1);
+}

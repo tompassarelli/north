@@ -115,3 +115,20 @@ fn the_resolver_answers_in_file_order_for_a_tree_and_a_root() {
     let resolver = Resolver::new(Source::root(dir.path().to_path_buf()), &[]);
     assert_eq!(resolver.imports("a.ts", "import './b';"), ["b.ts"]);
 }
+
+const FACADE: &str = "[[module]]\nname = \"domain\"\npaths = [\"src/domain/**\"]\nmay_use = [\"roots\"]\n\n[[module]]\nname = \"roots\"\npaths = [\"src/lib.rs\"]\nfacade = true\nmay_use = [\"domain\"]\n";
+
+#[test]
+fn a_facade_module_closes_no_may_use_cycle_but_a_plain_one_does() {
+    let config = super::config::parse(Some(FACADE), Default::default()).unwrap();
+    assert!(super::graph::layer_violation(&config, "src/lib.rs", "src/domain/mod.rs").is_none());
+    let plain = FACADE.replace("facade = true\n", "");
+    let error = super::config::parse(Some(&plain), Default::default()).err().unwrap();
+    assert_eq!(error, "structure.toml: may_use cycle domain -> roots -> domain");
+}
+
+#[test]
+fn the_repository_structure_toml_loads() {
+    let text = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../structure.toml")).unwrap();
+    super::config::parse(Some(&text), Default::default()).unwrap();
+}

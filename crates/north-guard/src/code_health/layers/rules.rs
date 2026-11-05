@@ -34,6 +34,7 @@ struct Group {
     name: String,
     globs: Vec<Glob>,
     may_use: Vec<String>,
+    facade: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -101,6 +102,7 @@ impl Rules {
         let mut out = Vec::new();
         if let (Some(a), Some(b)) = (first(&self.modules, from), first(&self.modules, to))
             && a.name != b.name
+            && !a.facade
             && !a.may_use.contains(&b.name)
         {
             out.push(Breach { rule: Rule::Layer, from: a.name.clone(), to: b.name.clone(), allowed: a.may_use.clone() });
@@ -152,7 +154,8 @@ fn group(table: &Table, at: &str, key: &str) -> Result<Group, String> {
     let name = table.get("name").and_then(Item::as_str).ok_or_else(|| format!("structure.toml: {at} has no name"))?.to_owned();
     let globs = table.get(key).map_or(Ok(Vec::new()), |item| globs(item, &format!("{at} {name}.{key}")))?;
     let may_use = table.get("may_use").map_or(Ok(Vec::new()), |item| strings(item, &format!("{at} {name}.may_use")))?;
-    Ok(Group { name, globs, may_use })
+    let facade = table.get("facade").and_then(Item::as_bool).unwrap_or(false);
+    Ok(Group { name, globs, may_use, facade })
 }
 
 fn closure(crates: &[Group]) -> Result<BTreeMap<String, BTreeSet<String>>, String> {

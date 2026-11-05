@@ -9,16 +9,20 @@ use super::{Module, Plan};
 pub struct Modules {
     pub paths: BTreeMap<String, Vec<String>>,
     pub may_use: BTreeMap<String, Vec<String>>,
+    pub facades: BTreeSet<String>,
 }
 
 pub fn parse(text: &str) -> Result<Modules, String> {
     let document = text.parse::<DocumentMut>().map_err(|error| format!("structure.toml: {error}"))?;
-    let mut modules = Modules { paths: BTreeMap::new(), may_use: BTreeMap::new() };
+    let mut modules = Modules { paths: BTreeMap::new(), may_use: BTreeMap::new(), facades: BTreeSet::new() };
     let Some(tables) = document.get("module").and_then(|item| item.as_array_of_tables()) else { return Ok(modules) };
     let strings = |item: Option<&toml_edit::Item>| item.and_then(|item| item.as_array()).map(|array| array.iter().filter_map(|value| value.as_str().map(str::to_string)).collect::<Vec<_>>()).unwrap_or_default();
     for table in tables {
         let name = table.get("name").and_then(|item| item.as_str()).ok_or("structure.toml: a [[module]] has no name")?.to_string();
         modules.paths.insert(name.clone(), strings(table.get("paths")));
+        if table.get("facade").and_then(|item| item.as_bool()).unwrap_or(false) {
+            modules.facades.insert(name.clone());
+        }
         modules.may_use.insert(name, strings(table.get("may_use")));
     }
     Ok(modules)
@@ -45,7 +49,8 @@ fn visit(modules: &Modules, node: &str, stack: &mut Vec<String>, done: &mut BTre
         return None;
     }
     stack.push(node.to_string());
-    for next in modules.may_use.get(node).into_iter().flatten().filter(|next| *next != node) {
+    let uses = if modules.facades.contains(node) { None } else { modules.may_use.get(node) };
+    for next in uses.into_iter().flatten().filter(|next| *next != node) {
         if let Some(found) = visit(modules, next, stack, done) {
             return Some(found);
         }

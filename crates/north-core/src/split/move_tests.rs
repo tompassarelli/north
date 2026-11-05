@@ -98,3 +98,11 @@ fn moves_a_nested_module_out_of_a_crate_that_is_not_north_core() {
     assert_eq!(structure.paths["ops"], ["crates/north-tempo/src/lib.rs", "crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-tempo/src/tempo/**"]);
     assert!(fixture.read("Cargo.toml").contains("north-ops = { path = \"crates/north-ops\" }\nnorth-tempo = { path = \"crates/north-tempo\" }\n"));
 }
+
+#[test]
+fn a_facade_module_is_not_followed_when_looking_for_a_may_use_cycle() {
+    let text = "[[module]]\nname = \"domain\"\npaths = []\nmay_use = [\"roots\"]\n\n[[module]]\nname = \"roots\"\npaths = []\nfacade = true\nmay_use = [\"domain\"]\n";
+    assert_eq!(cycle(&parse(text).unwrap()), None);
+    let plain = text.replace("facade = true\n", "");
+    assert_eq!(cycle(&parse(&plain).unwrap()), Some(vec!["domain".into(), "roots".into(), "domain".into()]));
+}

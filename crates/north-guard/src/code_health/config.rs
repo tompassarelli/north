@@ -24,6 +24,7 @@ pub(super) struct Review {
 pub(super) struct Module {
     pub(super) name: String,
     pub(super) may_use: Vec<String>,
+    pub(super) facade: bool,
     globs: Vec<Regex>,
     pub(super) thresholds: Thresholds,
 }
@@ -135,6 +136,7 @@ pub(super) fn parse(text: Option<&str>, safe_push_generated: HashSet<String>) ->
         modules.push(Module {
             thresholds: thresholds(defaults, table.get("thresholds"), &format!("module {name}.thresholds"))?,
             may_use: strings(table.get("may_use"), &format!("module {name}.may_use"))?,
+            facade: table.get("facade").and_then(toml_edit::Item::as_bool).unwrap_or(false),
             globs: paths.iter().map(|path| glob(path)).collect(),
             name,
         });
@@ -170,8 +172,10 @@ fn check_modules(modules: &[Module]) -> Result<(), String> {
         state.insert(name, 1);
         path.push(name);
         let module = modules.iter().find(|module| module.name == name).expect("checked name");
-        for used in &module.may_use {
-            visit(modules, used, path, state)?;
+        if !module.facade {
+            for used in &module.may_use {
+                visit(modules, used, path, state)?;
+            }
         }
         path.pop();
         state.insert(name, 2);
