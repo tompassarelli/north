@@ -22,6 +22,7 @@ const STEP_LIMIT: Duration = Duration::from_secs(300);
 const FETCH_LIMIT: Duration = Duration::from_secs(120);
 const RETRY_AFTER: Duration = Duration::from_secs(60 * 60);
 const PINNED_LOCK_WAIT: Duration = Duration::from_secs(10 * 60);
+const ROLLBACK_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 
 const PASSES: usize = 5;
 
@@ -61,6 +62,22 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
         return Err(failed(1, format!("{} was not shipped to this host; runtime unchanged", layout::short(target))));
     }
     advance(layout, &checkout, target, previous.as_deref()).map(|_| ())
+}
+
+pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Failure> {
+    let _lock = lock_waiting(layout, remote::limit(ROLLBACK_LOCK_WAIT), "north runtime rollback")?;
+    let current = fs::read_link(layout.current()).ok();
+    if current.as_deref() != Some(layout::link(failed_sha).as_path()) {
+        return Err(failed(1, format!("current is not {}; nothing to roll back", layout::short(failed_sha))));
+    }
+    let previous = fs::read_to_string(layout.previous()).map(|sha| sha.trim().to_owned()).ok().filter(|sha| layout::is_sha(sha) && sha != failed_sha);
+    let Some(previous) = previous.filter(|sha| layout::has_programs(&layout.runtime(sha))) else {
+        return Err(failed(1, format!("no previous runtime to roll {} back to", layout::short(failed_sha))));
+    };
+    swap(layout, &layout::link(&previous))?;
+    fs::write(layout.failed(), failed_sha)?;
+    println!("north runtime rolled back to {}", layout::short(&previous));
+    Ok(layout::short(&previous).to_owned())
 }
 
 pub(super) fn lock_waiting(layout: &Layout, limit: Duration, waiter: &str) -> Result<File, Failure> {
@@ -110,6 +127,9 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
         fs::write(layout.failed(), target)?;
     }
     let synced = promoted?;
+    if let Some(was) = previous.and_then(layout::linked_sha) {
+        fs::write(layout.previous(), was)?;
+    }
     println!("{synced}north runtime promoted: {short} (was {was})");
     collect(layout, target, previous).map_err(|error| failed(1, format!("collecting old runtimes: {error}")))?;
     Ok(Pass::Promoted)
@@ -144,7 +164,7 @@ fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     sync(layout, previous, target)
 }
 
-fn held_back(layout: &Layout, target: &str) -> bool {
+pub(super) fn held_back(layout: &Layout, target: &str) -> bool {
     let failed = layout.failed();
     let recent = fs::metadata(&failed)
         .and_then(|metadata| metadata.modified())
@@ -412,8 +432,12 @@ fn agents_sync() -> Command {
 }
 
 fn alert(message: &str) {
+    alert_proxy(&format!("north runtime update: {message}"));
+}
+
+pub(super) fn alert_proxy(text: &str) {
     let sent = Command::new("north")
-        .args(["fleet", "send", "proxy", &format!("north runtime update: {message}")])
+        .args(["fleet", "send", "proxy", text])
         .status();
     if !sent.is_ok_and(|status| status.success()) {
         eprintln!("north runtime update: rollback alert delivery failed");

@@ -1,3 +1,4 @@
+use super::canary::{self, Verdict};
 use super::deploy;
 use super::failure::{Failure, failed};
 use super::layout::{self, Layout};
@@ -53,7 +54,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let mut broken = Vec::new();
     let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
     for host in &hosts {
-        let facts = probe::facts(host);
+        let facts = probed(layout, &checkout, host);
         let problems = probe::problems(&facts, live);
         println!("north runtime settle: {}: {}", facts.host, if problems.is_empty() { "live and healthy".to_owned() } else { problems.join("; ") });
         if !problems.is_empty() {
@@ -73,6 +74,18 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     match failing.is_empty() {
         true => Ok(()),
         false => Err(failed(1, format!("not live and healthy everywhere: {}", failing.join(" | ")))),
+    }
+}
+
+fn probed(layout: &Layout, checkout: &Path, host: &Shell) -> probe::Facts {
+    let facts = probe::facts(host);
+    let judged = match &facts.runtime {
+        Some(runtime) if facts.unreachable.is_none() => canary::check(layout, &facts.host, runtime, &canary::Live { layout, checkout, host }),
+        _ => Verdict::Skipped,
+    };
+    match judged {
+        Verdict::RolledBack => probe::facts(host),
+        _ => facts,
     }
 }
 

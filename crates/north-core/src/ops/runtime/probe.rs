@@ -125,7 +125,7 @@ impl Shell {
         command
     }
 
-    fn run(&self, script: &str) -> Result<String, String> {
+    pub(super) fn run(&self, script: &str) -> Result<String, String> {
         let output = process::try_run_command_within(self.bash(), Some(script.as_bytes()), limit(ASK))
             .map_err(|error| format!("could not start: {error}"))?
             .ok_or_else(|| format!("no answer within {}s", limit(ASK).as_secs()))?;

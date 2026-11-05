@@ -31,6 +31,14 @@ impl Layout {
         self.state.join("runtime-failed")
     }
 
+    pub fn previous(&self) -> PathBuf {
+        self.state.join("runtime-previous")
+    }
+
+    pub fn canaried(&self) -> PathBuf {
+        self.state.join("runtime-canary")
+    }
+
     pub fn build_seconds(&self) -> PathBuf {
         self.state.join("runtime-build-seconds")
     }
