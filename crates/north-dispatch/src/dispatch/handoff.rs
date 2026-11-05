@@ -112,9 +112,13 @@ impl Arms {
     }
 }
 
-pub fn boxes(local: Option<&ClosedReport>, cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<ArmBox> {
+/// The arm boxes in every other host's ledger summary.
+pub fn remote(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<ArmBox> {
     let remote = fleets::reached(cfg, here, &["ledger", "summary", "--since", super::tier::ARM_WINDOW, "--json"], PROBE, notes);
-    let remote = remote.into_iter().flat_map(|(_, listing)| serde_json::from_value::<Vec<ArmBox>>(listing["arms"].clone()).unwrap_or_default());
+    remote.into_iter().flat_map(|(_, listing)| serde_json::from_value::<Vec<ArmBox>>(listing["arms"].clone()).unwrap_or_default()).collect()
+}
+
+pub fn boxes(local: Option<&ClosedReport>, remote: Vec<ArmBox>) -> Vec<ArmBox> {
     local.into_iter().flat_map(|report| report.arms.iter().cloned()).chain(remote).collect()
 }
 

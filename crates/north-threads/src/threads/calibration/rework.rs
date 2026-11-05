@@ -151,26 +151,39 @@ fn names_item(text: &str, item: &str) -> bool {
     })
 }
 
-fn names(commit: &Commit, landing: &Landing) -> bool {
-    let text = format!("{}\n{}", commit.subject, commit.body);
-    SHA_TOKEN.find_iter(&text).any(|token| landing.sha.starts_with(token.as_str())) || landing.item.as_deref().filter(|item| !item.is_empty()).is_some_and(|item| names_item(&text, item))
+struct Read<'a> {
+    commit: &'a Commit,
+    text: String,
+    fix: bool,
+    tokens: Vec<String>,
+    reverts: Vec<&'a str>,
 }
 
-fn fix_intent(commit: &Commit) -> bool {
-    let text = format!("{}\n{}", commit.subject, commit.body);
-    let lower = text.to_lowercase();
-    text.contains("Follows:") || lower.contains("fixes") || lower.contains("fix forward")
+impl<'a> Read<'a> {
+    fn new(commit: &'a Commit) -> Self {
+        let text = format!("{}\n{}", commit.subject, commit.body);
+        let lower = text.to_lowercase();
+        let fix = text.contains("Follows:") || lower.contains("fixes") || lower.contains("fix forward");
+        let tokens = if fix { SHA_TOKEN.find_iter(&text).map(|token| token.as_str().to_owned()).collect() } else { Vec::new() };
+        let reverts = commit.body.match_indices(REVERTS).map(|(start, _)| &commit.body[start + REVERTS.len()..]).collect();
+        Self { commit, text, fix, tokens, reverts }
+    }
+
+    fn names(&self, landing: &Landing) -> bool {
+        self.tokens.iter().any(|token| landing.sha.starts_with(token.as_str())) || landing.item.as_deref().filter(|item| !item.is_empty()).is_some_and(|item| names_item(&self.text, item))
+    }
 }
 
-fn cause(landed: &Commit, later: &[Commit], landing: &Landing, culprits: &BTreeSet<String>) -> Option<Cause> {
-    let window: Vec<&Commit> = later.iter().filter(|commit| commit.at <= landed.at + REWORK_WINDOW_S).collect();
+const REVERTS: &str = "This reverts commit ";
+
+fn cause(landed: &Commit, later: &[Read], landing: &Landing, culprits: &BTreeSet<String>) -> Option<Cause> {
+    let window: Vec<&Read> = later.iter().filter(|read| read.commit.at <= landed.at + REWORK_WINDOW_S).collect();
     let revert_subject = format!("Revert \"{}\"", landed.subject);
-    let revert_body = format!("This reverts commit {}", landed.sha);
-    if window.iter().any(|commit| commit.subject == revert_subject || commit.body.contains(&revert_body)) {
+    if window.iter().any(|read| read.commit.subject == revert_subject || read.reverts.iter().any(|rest| rest.starts_with(landed.sha.as_str()))) {
         return Some(Cause::Reverted);
     }
     let overlaps = |commit: &Commit| !landed.files.is_empty() && 2 * commit.files.iter().filter(|file| landed.files.contains(file)).count() >= landed.files.len();
-    if window.iter().any(|commit| (names(commit, landing) && fix_intent(commit)) || (commit.subject.starts_with("Fix") && overlaps(commit))) {
+    if window.iter().any(|read| (read.fix && read.names(landing)) || (read.commit.subject.starts_with("Fix") && overlaps(read.commit))) {
         return Some(Cause::FixedForward);
     }
     culprits.contains(&landed.sha).then_some(Cause::Culprit)
@@ -178,17 +191,18 @@ fn cause(landed: &Commit, later: &[Commit], landing: &Landing, culprits: &BTreeS
 
 /// Each landing found in `histories` (oldest first per repository) with its rework cause, if any.
 pub fn judge(landings: &[Landing], histories: &[(String, Vec<Commit>)], culprits: &BTreeSet<String>) -> BTreeMap<String, Judged> {
-    let mut index: BTreeMap<&str, (&str, &[Commit], usize)> = BTreeMap::new();
-    for (repo, commits) in histories {
-        for (position, commit) in commits.iter().enumerate() {
-            index.insert(commit.sha.as_str(), (repo.as_str(), commits.as_slice(), position));
+    let reads: Vec<(&str, Vec<Read>)> = histories.iter().map(|(repo, commits)| (repo.as_str(), commits.iter().map(Read::new).collect())).collect();
+    let mut index: BTreeMap<&str, (&str, &[Read], usize)> = BTreeMap::new();
+    for (repo, commits) in &reads {
+        for (position, read) in commits.iter().enumerate() {
+            index.insert(read.commit.sha.as_str(), (repo, commits.as_slice(), position));
         }
     }
     landings
         .iter()
         .filter_map(|landing| {
             let (repo, commits, position) = *index.get(landing.sha.as_str())?;
-            let landed = &commits[position];
+            let landed = commits[position].commit;
             let judged = Judged { repo: repo.to_owned(), at: landed.at, cause: cause(landed, &commits[position + 1..], landing, culprits) };
             Some((landing.agent.clone(), judged))
         })

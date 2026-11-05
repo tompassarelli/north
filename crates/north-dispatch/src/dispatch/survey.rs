@@ -183,14 +183,14 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
         .collect()
 }
 
-/// NorthThreads claims from this host's ledger and every ssh host's, since a host whose ledger is
-/// local records its workers' claims there.
-fn claims(cfg: &DocumentMut, here: &str, stopped: &BTreeSet<String>, notes: &mut Vec<String>) -> Vec<(IssueRef, String)> {
+/// NorthThreads claim listings from this host's ledger and every ssh host's, since a host whose
+/// ledger is local records its workers' claims there.
+fn claim_listings(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<(String, Value)> {
     let remote = gate::machines(cfg).into_iter().filter(|machine| machine.name != here).map(|machine| (machine.name, Some(machine.ssh)));
     let mut found = Vec::new();
     for (host, ssh) in std::iter::once((here.to_owned(), None)).chain(remote) {
         match remote_json(ssh.as_deref(), &["threads", "list", "--json"]) {
-            Ok(listing) => found.extend(claim_rows(&listing, &host, stopped)),
+            Ok(listing) => found.push((host, listing)),
             Err(why) => notes.push(format!("{host} threads list unread, so its claims are unknown: {why}")),
         }
     }
@@ -310,6 +310,19 @@ fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut
     found
 }
 
+fn read<'scope, T: Send + 'scope>(scope: &'scope std::thread::Scope<'scope, '_>, reader: impl FnOnce(&mut Vec<String>) -> T + Send + 'scope) -> std::thread::ScopedJoinHandle<'scope, (T, Vec<String>)> {
+    scope.spawn(move || {
+        let mut notes = Vec::new();
+        (reader(&mut notes), notes)
+    })
+}
+
+fn joined<T>(handle: std::thread::ScopedJoinHandle<'_, (T, Vec<String>)>, notes: &mut Vec<String>) -> T {
+    let (value, read) = handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    notes.extend(read);
+    value
+}
+
 pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let cfg = placement::config()?;
     let projects = Projects::read(&cfg)?;
@@ -317,13 +330,38 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let at = placement::now();
     let mut notes = Vec::new();
     let laptop = fleets::laptop(&cfg, &here);
-    let fleet_lists = fleets::everywhere(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, &mut notes);
-    let gates = fleets::everywhere(&cfg, &here, &["gate", "list", "--json"], "gates", at, PROBE, &mut notes);
+    let (cfg_ref, here_ref, repos) = (&cfg, here.as_str(), projects.repos());
+    let (fleet_lists, gates, (mut issues, open), claim_lists, (report, ledger), remote_arms, grounds, cloud, strands) = std::thread::scope(|scope| {
+        let fleet_lists = read(scope, |notes| fleets::everywhere(cfg_ref, here_ref, &["fleet", "list", "--json"], "fleet", at, PROBE, notes));
+        let gates = read(scope, |notes| fleets::everywhere(cfg_ref, here_ref, &["gate", "list", "--json"], "gates", at, PROBE, notes));
+        let issues = read(scope, |notes| github::open_issues(repos, notes));
+        let claim_lists = read(scope, |notes| claim_listings(cfg_ref, here_ref, notes));
+        let evidence = read(scope, |notes| {
+            let report = closed(notes);
+            let ledger = evidence_from(&tier::evidenced(), report.as_ref(), notes);
+            (report, ledger)
+        });
+        let remote_arms = read(scope, |notes| handoff::remote(cfg_ref, here_ref, notes));
+        let grounds = read(scope, Ledger::read);
+        let cloud = read(scope, |_| cloud(cfg_ref, here_ref, at));
+        let strands = read(scope, |notes| super::strands::read(cfg_ref, here_ref, at, notes));
+        (
+            joined(fleet_lists, &mut notes),
+            joined(gates, &mut notes),
+            joined(issues, &mut notes),
+            joined(claim_lists, &mut notes),
+            joined(evidence, &mut notes),
+            joined(remote_arms, &mut notes),
+            joined(grounds, &mut notes),
+            joined(cloud, &mut notes),
+            joined(strands, &mut notes),
+        )
+    });
     let sessions: Vec<(Session, String)> = fleet_lists.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
     let (elsewhere, mut holds) = fleets::tally(&sessions);
-    let (mut issues, open) = github::open_issues(projects.repos(), &mut notes);
     let records = record::read(&record::directory());
-    holds.extend(claims(&cfg, &here, &fleets::exited_names(&fleet_lists), &mut notes));
+    let stopped_sessions = fleets::exited_names(&fleet_lists);
+    holds.extend(claim_lists.iter().flat_map(|(host, listing)| claim_rows(listing, host, &stopped_sessions)));
     holds.extend(record::holds(&records, at, &unspent(laptop.as_deref(), &records, at, &mut notes), &fleets::gone(&fleet_lists, &fleets::copy_times(&record::directory(), "fleet", laptop.as_deref()), &records, at)));
     let mut held: Vec<(IssueRef, String)> = gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)).collect();
     held.sort();
@@ -338,14 +376,10 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     }
     stopped(laptop.as_deref(), &records, &mut issues, &mut notes);
     let history = History::new(&records);
-    let report = closed(&mut notes);
-    let ledger = evidence_from(&tier::evidenced(), report.as_ref(), &mut notes);
-    let handoffs = Arms::new(&records).priced(&handoff::boxes(report.as_ref(), &cfg, &here, &mut notes));
+    let handoffs = Arms::new(&records).priced(&handoff::boxes(report.as_ref(), remote_arms));
     notes.extend(handoffs.recommendations());
-    let grounds = Ledger::read(&mut notes);
-    let cloud = cloud(&cfg, &here, at);
     let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
-    let super::strands::Read { strands, saturated, revived } = super::strands::read(&cfg, &here, at, &mut notes);
+    let super::strands::Read { strands, saturated, revived } = strands;
     let frozen = crate::platform::frozen_topics::load().map(crate::threads::catalog::canonical_topics).unwrap_or_else(|why| {
         notes.push(why);
         Vec::new()

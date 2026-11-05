@@ -771,3 +771,23 @@ fn the_brief_eta_scale_is_the_newest_thick_fresh_eta_pred_row_of_the_tiers_provi
     assert_eq!(super::eta_pred_scale(&path, stale, "claude:opus-medium").unwrap().0, None);
     assert!(super::eta_pred_scale(&directory.path().join("missing.db"), now, "claude:haiku").is_err());
 }
+
+#[test]
+fn judge_names_a_landing_fixed_forward_by_its_short_sha_only_within_the_window_and_reverted_by_its_full_sha() {
+    use super::rework::{Cause, Commit, Landing, judge};
+    let commit = |sha: &str, at: i64, subject: &str, body: &str| Commit { sha: sha.into(), at, subject: subject.into(), body: body.into(), files: vec![format!("{sha}.rs")] };
+    let (one, two, three) = ("1".repeat(40), "2".repeat(40), "3".repeat(40));
+    let window = super::rework::REWORK_WINDOW_S;
+    let history = vec![
+        commit(&one, 0, "Add one", ""),
+        commit(&two, 1, "Add two", ""),
+        commit(&three, 2, "Add three", ""),
+        commit(&"4".repeat(40), 3, "Tidy", &format!("Fixes the edge {} left", &one[..9])),
+        commit(&"5".repeat(40), 4, "Note", &format!("This reverts commit {two}.")),
+        commit(&"6".repeat(40), window + 3, "Late", &format!("Fixes {}", &three[..9])),
+    ];
+    let landing = |agent: &str, sha: &str| Landing { agent: agent.into(), item: None, sha: sha.into() };
+    let judged = judge(&[landing("a", &one), landing("b", &two), landing("c", &three)], &[("proj".into(), history)], &std::collections::BTreeSet::new());
+    let causes: Vec<(&str, Option<Cause>)> = judged.iter().map(|(agent, judged)| (agent.as_str(), judged.cause)).collect();
+    assert_eq!(causes, [("a", Some(Cause::FixedForward)), ("b", Some(Cause::Reverted)), ("c", None)]);
+}
