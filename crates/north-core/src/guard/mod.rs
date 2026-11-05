@@ -6,6 +6,8 @@ pub mod paths;
 pub mod desktop_action;
 pub mod tripwire;
 pub mod git_stash;
+pub mod masked_pipeline;
+pub mod node_modules_write;
 pub mod handoff_record;
 pub mod file_skill;
 #[cfg(test)]

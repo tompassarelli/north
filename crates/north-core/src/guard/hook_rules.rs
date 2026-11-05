@@ -53,6 +53,8 @@ pub const RULES: &[Rule] = &[
     rule("tripwire.delete", TrueBlock, &["tripwire: whole-tree recursive delete", "recursive-delete target"], "repo-safety: never recursively delete a home, system, checkout or state tree."),
     rule("tripwire", TrueBlock, &["tripwire:"], "repo-safety: history, secrets and shared state stay behind safe-push and the lane tools."),
     rule("git-stash", TrueBlock, &["The stash is shared by every worktree"], "repo-safety: park work as a WIP commit in the lane, never git stash."),
+    rule("masked-pipeline", Mechanical, &["masked-pipeline:"], "repo-safety: a check piped into a filter and chained into a publish runs under set -o pipefail."),
+    rule("node-modules-write", TrueBlock, &["node-modules-write:"], "repo-safety: node_modules is hard-linked into Bun's cache; change the vendored source and re-pin."),
     rule("heavy-command.farm", TrueBlock, &["belongs on the farm"], "verification: full suites run on the farm."),
     rule("heavy-command", Mechanical, &["requires capacity admission", "Heavy command routed through machine-capacity", "is heavy and would run in your terminal scope"], CAPACITY),
     rule("native-item", NeedsInput, &["native NorthThread item", "native threads item"], "todo: native items live in threads, never gh."),

@@ -125,3 +125,17 @@ fn command_guards_follow_their_hook_activation() {
     each_command_guard_denies_only_while_its_hook_is_active();
     malformed_payloads_pass_silently();
 }
+
+#[test]
+fn command_guards_hook_denies_a_filtered_check_chained_into_safe_push() {
+    let scratch = tempfile::tempdir().unwrap();
+    let active = scratch.path().join("north-hook.active");
+    std::fs::write(&active, "hook north-hook\n").unwrap();
+    for (command, expected) in [
+        ("cargo test 2>&1 | tail -5 && safe-push --to main", Some("deny")),
+        ("set -o pipefail; cargo test 2>&1 | tail -5 && safe-push --to main", None),
+    ] {
+        let guard = Guard { unit: "north-hook", agent_type: None, command };
+        assert_eq!(decision(&guard, &active, "").as_deref(), expected, "{command}");
+    }
+}
