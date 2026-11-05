@@ -168,73 +168,62 @@ fn test_integrity() {
 
 const RUST_TEST: &str = concat!("#[te", "st]\nfn retries() {}\n");
 
-fn admission_scan(fixture: &Fixture, session: &str) -> Scan {
-    let output = Command::new(env!("CARGO_BIN_EXE_north"))
-        .current_dir(&fixture.repo)
-        .args(["land", "scan", "test-admission", &format!("{}..{}", fixture.base, fixture.head())])
-        .env("HOME", fixture.home())
-        .env("NORTH_FLEET_SESSION", session)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+fn admission_scan(fixture: &Fixture) -> Scan {
+    let output = fixture.north(&fixture.repo, &["land", "scan", "test-admission", &format!("{}..{}", fixture.base, fixture.head())]);
     Scan { status: output.status.code().unwrap_or(-1), stdout: String::from_utf8_lossy(&output.stdout).into_owned() }
 }
 
-fn admission_id(fixture: &Fixture) -> String {
-    let range = format!("{}..{}", fixture.base, fixture.head());
-    let output = fixture.north(&fixture.repo, &["land", "scan", "test-admission", "id", &range]);
-    String::from_utf8_lossy(&output.stdout).lines().next().unwrap().strip_prefix("patch-id ").unwrap().to_owned()
+fn trail(fixture: &Fixture, trailer: &str) {
+    git(&fixture.repo, &["commit", "-q", "--amend", "-m", "add a test", "-m", trailer]);
 }
 
-fn amend(fixture: &Fixture, id: &str, reviewer: &str) {
-    git(&fixture.repo, &["add", "-A", "."]);
-    let trailer = format!("Test-review: keep 1 of 1; reviewer: {reviewer}; patch-id {id}");
-    git(
-        &fixture.repo,
-        &["commit", "-q", "--amend", "-m", "add the retry test", "-m", "retries: kept, it reproduces a named bug", "-m", &trailer],
-    );
+fn verification_takes(fixture: &Fixture, seconds: u64) {
+    let green = format!("1\tremote\tabc\tgreen\t\tlane\t{seconds}\n").repeat(3);
+    let red = "1\tremote\tdef\tred-main\tcheck\tlane\t900\n".repeat(4);
+    write(&fixture.root.path().join("state/safe-push/post-land.tsv"), &(green + &red));
 }
 
 #[test]
-fn tests_are_admitted_only_with_an_independent_review_of_their_final_hunks() {
+fn added_tests_are_refused_under_an_unlisted_contract_or_over_the_verification_budget_without_a_deletion() {
     let mut fixture = Fixture::new("remote.git");
+    write(&fixture.repo.join(".safe-push"), "[test-admission]\n\tcontract = lua-determinism :: Lua evaluation order\n");
     write(&fixture.repo.join("src/lib.rs"), "pub fn retry() {}\n");
+    write(&fixture.repo.join("tests/old.test.ts"), "{}\n");
     fixture.commit(&["library"]);
     fixture.mark_base();
     write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
     fixture.commit(&["add the retry test"]);
-    let unreviewed = admission_scan(&fixture, "author-1");
-    assert_eq!(unreviewed.status, 1);
-    let id = admission_id(&fixture);
-    amend(&fixture, &id, "reviewer-1");
-    assert_eq!(admission_scan(&fixture, "author-1").status, 0);
-    let own = admission_scan(&fixture, "reviewer-1");
-    assert_eq!(own.status, 1);
-    assert!(own.stdout.contains("reviewer reviewer-1 is the session that landed it"), "{}", own.stdout);
-    write(&fixture.repo.join("src/retry_tests.rs"), &format!("{RUST_TEST}fn extra() {{}}\n"));
-    amend(&fixture, &id, "reviewer-1");
-    let edited = admission_scan(&fixture, "author-1");
-    assert_eq!(edited.status, 1);
-    assert!(edited.stdout.contains("the review never saw the final test hunks"), "{}", edited.stdout);
+    assert_eq!(admission_scan(&fixture).status, 0, "no claim and no measured budget");
+    for (claim, status) in [("retries; category: lua-determinism", 0), ("retries; category: netcode-replay", 1), ("other; category: lua-determinism", 1)] {
+        trail(&fixture, &format!("Test-contract: {claim}"));
+        let scan = admission_scan(&fixture);
+        assert_eq!(scan.status, status, "{claim}: {}", scan.stdout);
+    }
+    for (seconds, status) in [(20, 0), (21, 1)] {
+        verification_takes(&fixture, seconds);
+        let scan = admission_scan(&fixture);
+        assert_eq!(scan.status, status, "{seconds} s: {}", scan.stdout);
+    }
+    trail(&fixture, "Test-contract: retries; category: lua-determinism");
+    let contracted = admission_scan(&fixture);
+    assert_eq!(contracted.status, 0, "{}", contracted.stdout);
     for path in ["tests/fixtures/case.json", "tests/with space/case.json", "web/retry.test.ts", "scripts/retry_test.lua", "src/testdata/snapshots/retry.txt"] {
         fixture.reset();
         write(&fixture.repo.join(path), "{}\n");
         fixture.commit(&["add a test file"]);
-        let scan = admission_scan(&fixture, "author-1");
+        let scan = admission_scan(&fixture);
         assert_eq!(scan.status, 1, "{path}: {}", scan.stdout);
     }
     fixture.reset();
     write(&fixture.repo.join("src/lib.rs"), &format!("pub fn retry() {{}}\n{RUST_TEST}"));
     fixture.commit(&["add a test to an existing source file"]);
-    assert_eq!(admission_scan(&fixture, "author-1").status, 1);
+    assert_eq!(admission_scan(&fixture).status, 1);
     fixture.reset();
-    write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
-    fixture.commit(&["add the retry test"]);
-    let id = admission_id(&fixture);
-    for counts in ["keep 0 of 1", "keep 1 of 2"] {
-        git(&fixture.repo, &["commit", "-q", "--amend", "-m", "add the retry test", "-m", &format!("Test-review: {counts}; reviewer: reviewer-1; patch-id {id}")]);
-        assert_eq!(admission_scan(&fixture, "author-1").status, 1, "{counts}");
-    }
+    fs::remove_file(fixture.repo.join("tests/old.test.ts")).unwrap();
+    write(&fixture.repo.join("tests/new.test.ts"), "test(\"retries\");\n");
+    fixture.commit(&["replace a test"]);
+    let replaced = admission_scan(&fixture);
+    assert_eq!(replaced.status, 0, "{}", replaced.stdout);
     fixture.reset();
     write(&fixture.repo.join("src/lib.rs"), &format!("pub fn retry() {{}}\n{RUST_TEST}"));
     fixture.commit(&["a source file with an inline test"]);
@@ -242,7 +231,7 @@ fn tests_are_admitted_only_with_an_independent_review_of_their_final_hunks() {
     write(&fixture.repo.join("src/lib.rs"), "pub fn retry() {}\n");
     write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
     fixture.commit(&["move the test out of the source file"]);
-    assert_eq!(admission_scan(&fixture, "author-1").status, 0);
+    assert_eq!(admission_scan(&fixture).status, 0);
 }
 
 const STUB_RUNNER: &str = "printf '%s\\n' \"$MUTANT_TREES\" | while read -r tree; do\n  for name in $MUTANT_TESTS; do\n    if [ \"$name\" = guards ] && ! grep -q fixed \"$tree/src/lib.rs\"; then v=fail; else v=pass; fi\n    printf '%s\\t%s\\n' \"$v\" \"$name\" >>\"$tree/.mutant-results\"\n  done\ndone\n";

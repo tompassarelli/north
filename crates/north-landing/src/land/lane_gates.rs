@@ -8,7 +8,6 @@ pub struct Lane<'a> {
     pub worktree: &'a Path,
     pub base: &'a str,
     pub head: &'a str,
-    pub author: Option<&'a str>,
 }
 
 pub struct Refused {
@@ -44,7 +43,7 @@ fn runtime_floor(lane: &Lane, out: &mut Vec<u8>) -> bool {
 }
 
 fn admission(lane: &Lane, out: &mut Vec<u8>) -> bool {
-    test_admission::scan(lane.worktree, &lane.range(), lane.author, out) != 0
+    test_admission::scan(lane.worktree, &lane.range(), out) != 0
 }
 
 fn integrity(lane: &Lane, out: &mut Vec<u8>) -> bool {

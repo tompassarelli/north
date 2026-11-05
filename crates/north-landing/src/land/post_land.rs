@@ -105,8 +105,9 @@ fn base_already_red(landed: &Landed, run: &Run) -> bool {
 }
 
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
+    let started = std::time::Instant::now();
     let verdict = check(landed, &landed.head, run);
-    record(run, landed, &verdict);
+    record(run, landed, &verdict, started.elapsed().as_secs());
     if let Verdict::RedMain(detail) = &verdict {
         let message = format!("north land: red main {} in {}: post-land check failed: {detail}; landed lanes: {}\n{}", landed.head, landed.repository, landed.lanes.join(", "), tail(&run.log));
         if !alarm(ALARMED, &message) {
@@ -170,7 +171,7 @@ fn tail(log: &Path) -> String {
     lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n")
 }
 
-fn record(run: &Run, landed: &Landed, verdict: &Verdict) {
+fn record(run: &Run, landed: &Landed, verdict: &Verdict, seconds: u64) {
     let (class, detail) = match verdict {
         Verdict::Green => ("green", String::new()),
         Verdict::RedMain(detail) => ("red-main", detail.clone()),
@@ -182,7 +183,7 @@ fn record(run: &Run, landed: &Landed, verdict: &Verdict) {
     if let Some(parent) = run.ledger.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let line = format!("{}\t{}\t{}\t{class}\t{}\t{}\n", telemetry::seconds(), landed.repository, landed.head, detail.replace(['\t', '\n'], " "), landed.lanes.join(","));
+    let line = format!("{}\t{}\t{}\t{class}\t{}\t{}\t{seconds}\n", telemetry::seconds(), landed.repository, landed.head, detail.replace(['\t', '\n'], " "), landed.lanes.join(","));
     if let Err(error) = OpenOptions::new().create(true).append(true).open(&run.ledger).and_then(|mut file| file.write_all(line.as_bytes())) {
         eprintln!("north land: could not record the post-land verdict of {}: {error}", landed.head);
     }

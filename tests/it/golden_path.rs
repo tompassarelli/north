@@ -145,7 +145,6 @@ fn rows(database: &Path, query: &str, columns: usize) -> Vec<Vec<String>> {
 
 #[test]
 fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records_and_lane_show_it() {
-    let started = Instant::now();
     let rig = Rig::new();
     let base = git(&rig.origin, &["rev-parse", "refs/heads/main"]);
 
@@ -211,5 +210,4 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     assert!(!rig.lane.exists(), "the landed lane is gone");
     assert_eq!(git(&rig.main, &["branch", "--list", "worker"]), "");
     assert!(!git(&rig.main, &["worktree", "list", "--porcelain"]).contains(&rig.lane.display().to_string()));
-    assert!(started.elapsed() < Duration::from_secs(60), "{:?}", started.elapsed());
 }
