@@ -938,12 +938,24 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(call(&rig, &["snapshot-pages"], b""), (1, "NorthThreads: the snapshot holds native items: THREADS_NO_NATIVE is set (agy)\n".to_owned()));
     }
 
+    const STAND_IN: &str = "NORTH_THREADS_STAND_IN";
+
+    #[test]
+    fn north_threads_stand_in() {
+        let Ok(arguments) = std::env::var(STAND_IN) else { return };
+        let arguments: Vec<String> = arguments.lines().map(str::to_owned).collect();
+        std::process::exit(i32::from(run(&arguments, unread_fleet())));
+    }
+
     fn ledger_host(wait: Duration) -> (tempfile::TempDir, Client) {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
         let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/threads");
         let script = format!("echo start >> '{0}/order.log'; sleep 1; '{1}' \"$@\"; code=$?; echo end >> '{0}/order.log'; exit $code", root.display(), real.display());
-        let north = std::env::current_exe().unwrap().parent().and_then(Path::parent).unwrap().join("north");
+        let north = root.join("north");
+        let stand_in = format!("#!/bin/sh\nshift\n{STAND_IN}=\"$(printf '%s\\n' \"$@\")\" exec '{}' --exact threads::client::tests::north_threads_stand_in --nocapture --quiet\n", std::env::current_exe().unwrap().display());
+        fs::write(&north, stand_in).unwrap();
+        fs::set_permissions(&north, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         let variables = BTreeMap::from([
             ("HOME".to_owned(), root.display().to_string()),
             ("THREADS_DB".to_owned(), root.join("threads.db").display().to_string()),
