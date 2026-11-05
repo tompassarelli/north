@@ -24,11 +24,9 @@
 	check = ** :: CARGO_TARGET_DIR=target bash harness/scripts/citation-check.sh
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-core/src/ops/experiments/ experiments check --root .
 	after = bin/,lib/,harness/,src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh machine-bound
-	after = flake.nix,flake.lock,rust-toolchain.toml,tests/dev-shell.test.sh :: ./bin/depbox run -- bash tests/dev-shell.test.sh
 	after = "agent-machinery/ :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test; ../bin/land-shell -- bun run check'"
 	machine-bound = reads the south and nixos-config checkouts beside north :: CARGO_TARGET_DIR=target bash harness/scripts/check-owners.sh
 	machine-bound = "needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests) :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh machine-bound"
-	machine-bound = "tests the Nix dev shell, which the Actions runner does not build :: ./bin/depbox run -- bash tests/dev-shell.test.sh"
 	machine-bound = "main's CI does not run the agent-machinery bun tests :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test; ../bin/land-shell -- bun run check'"
 	machine-bound = runs the live runtime's north when the citation checker is unchanged since it :: CARGO_TARGET_DIR=target bash harness/scripts/citation-check.sh
 	runner = build-host

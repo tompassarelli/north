@@ -304,7 +304,7 @@ every registry crate (472d13847: 10 to 25 minutes per promotion; ad3b7ad28: 47 t
 
 Guard: a lint over `tests/`, `crates/*/tests` and `*.test.sh` refuses a literal `/nix/store/<hash>`,
 `/run/current-system`, `/nix/var` or `~/.nix-profile` outside recorded-log fixtures on an allowlist, and tests get one
-helper that builds a minimal PATH from `command -v` at start (box D12). `tests/dev-shell.test.sh` already pins the
+helper that builds a minimal PATH from `command -v` at start (box D12). `tests/it/dev_shell_target.rs` already pins the
 target keying; it gains the case that two checkouts at different paths share `RUSTFLAGS` for their own `target` (box
 D12).
 
@@ -485,7 +485,7 @@ Marked risky or outdated, each with its box:
   worktrees and rustup toolchains are unrooted; the unit check knows `bin/` names, not `north` subcommands or flags.
 - dep-gate (`crates/north-landing/src/dep_gate.rs:744`): age-gates changed flake.lock nodes. Gap: nothing flags a
   second nixpkgs node.
-- `tests/dev-shell.test.sh`: pins target keying only.
+- `tests/it/dev_shell_target.rs`: pins target keying only.
 - There is no `north doctor`, and no Nix health probe anywhere.
 
 ## Text that stays in skills
@@ -745,7 +745,7 @@ Done when:
 ### D18. Tests name no host paths (N8)
 
 Category: tooling. Scope: single-module. Surface: rust. Verify: local-test. Files: a lint in `north land scan`, a
-`test_env` helper for tests, `tests/dev-shell.test.sh`.
+`test_env` helper for tests, `tests/it/dev_shell_target.rs`.
 The lint refuses `/nix/store/<hash>`, `/run/current-system`, `/nix/var` and `~/.nix-profile` in test code outside an
 allowlist of recorded-log fixtures. Tests that need a minimal PATH build it from `command -v` through the helper. The
 dev-shell test gains the case of two checkouts at different paths sharing `RUSTFLAGS` for their own `target`.
