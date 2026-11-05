@@ -6,6 +6,7 @@ use super::*;
 use crate::error::NorthError;
 use crate::fleet::model::{Effort, Machine};
 use crate::fleet::store::Claim;
+use crate::fleet::fakes::Paper;
 use crate::fleet::prompt::PromptMode;
 use crate::providers::claude::fleet::Claude;
 
@@ -22,8 +23,7 @@ fn fleet_claiming(home: &Path, profiles: &str, held: Arc<claims::Held>) -> Fleet
     fs::create_dir_all(policy.parent().unwrap()).unwrap();
     let here = crate::platform::host::name();
     fs::write(&policy, format!("[accounts.claude.profiles.a]\n\"{here}\" = {{ path = \"~/.local/state/north/profiles/claude-a\" }}\n{profiles}")).unwrap();
-    let ledger = Arc::new(crate::ledger::Ledger::open(&home.join("ledger.db")).unwrap());
-    Fleet::at_claiming(home.into(), Runtimes::new(vec![Arc::new(Claude)]), ledger, held).unwrap()
+    Fleet::at_claiming(home.into(), Runtimes::new(vec![Arc::new(Claude)]), Arc::new(Paper::default()), held).unwrap()
 }
 
 fn on_far() -> LaunchRequest {

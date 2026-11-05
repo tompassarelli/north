@@ -5,6 +5,8 @@ pub mod claims;
 pub mod detached;
 pub mod digest_report;
 pub mod effort;
+#[cfg(test)]
+pub(crate) mod fakes;
 pub mod gates;
 pub mod handoff;
 pub mod idle;

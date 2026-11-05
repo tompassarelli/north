@@ -1,8 +1,5 @@
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 use std::sync::{Arc, Mutex};
-
-use crate::fleet::runtimes::Runtimes;
 
 use super::Fleet;
 
@@ -10,9 +7,11 @@ pub struct Session {
     pub frames: Arc<Mutex<Vec<String>>>,
 }
 
-pub fn fleet(home: &Path) -> Fleet {
-    let ledger = Arc::new(crate::ledger::Ledger::open(&home.join("ledger.db")).unwrap());
-    Fleet::at(home.into(), Runtimes::new(vec![Arc::new(crate::providers::claude::fleet::Claude)]), ledger).unwrap().arming(|_| Ok(()))
+#[cfg(test)]
+pub(crate) fn fleet(home: &std::path::Path) -> Fleet {
+    use crate::fleet::fakes::{Paper, Stream};
+    use crate::fleet::runtimes::Runtimes;
+    Fleet::at(home.into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()))
 }
 
 pub fn live(fleet: &Fleet, name: &str) -> Session {

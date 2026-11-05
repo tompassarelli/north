@@ -90,11 +90,11 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::fleet::fakes::{Paper, Stream};
     use crate::fleet::runtimes::Runtimes;
 
     fn fleet(home: &std::path::Path) -> Fleet {
-        let ledger = Arc::new(crate::ledger::Ledger::open(&home.join("ledger.db")).unwrap());
-        Fleet::at(home.into(), Runtimes::new(vec![Arc::new(crate::providers::claude::fleet::Claude)]), ledger).unwrap()
+        Fleet::at(home.into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default())).unwrap()
     }
 
     fn lead(fleet: &Fleet, name: &str, conversation: &str) -> SessionRecord {

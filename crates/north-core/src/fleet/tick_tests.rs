@@ -15,6 +15,7 @@ use crate::fleet::runtimes::Runtimes;
 use crate::fleet::sender::Sender;
 use crate::fleet::registry::Controlled;
 use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, HandedRow, JobPayload, Pull, RowKind, SessionRow, Store, Undecodable, UnknownKind, WaitKey};
+use crate::fleet::fakes::Paper;
 use crate::providers::claude::fleet::Claude;
 
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
@@ -30,7 +31,7 @@ struct Host {
 
 fn host(name: &str) -> Host {
     let home = tempfile::tempdir().unwrap();
-    let books = Arc::new(crate::ledger::Ledger::open(&home.path().join("ledger.db")).unwrap());
+    let books = Arc::new(Paper::default());
     let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Claude)]), books).unwrap().hosted_as(name).arming(|_| Ok(()));
     let ledger = home.path().join("threads.db");
     rusqlite::Connection::open(&ledger).unwrap().execute_batch(EVENTS).unwrap();

@@ -232,7 +232,7 @@ fn upkeep(fleet: &Fleet) -> NorthResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fleet::registry::fixtures::{fleet, live};
+    use crate::providers::fixtures::{fleet, live};
     use crate::fleet::sender::Sender;
 
     #[test]
