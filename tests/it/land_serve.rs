@@ -1292,7 +1292,7 @@ fn pushed_trees_were_checked(fixture: &Fixture) {
 const AWAIT: &str = "await() { for ((i = 0; i < 400; i++)); do [ -e \"$LAND_TRACE/$1\" ] && return 0; sleep 0.05; done; return 1; }\n";
 const LANDED: &str = "main() { command git -C \"$LAND_ORIGIN\" rev-parse main; }\nlanded() { for ((i = 0; i < 400; i++)); do [ \"$(main)\" != \"$1\" ] && return 0; sleep 0.05; done; return 1; }\n";
 
-fn speculate_serve(fixture: &mut Fixture, later: &[PathBuf]) -> (Output, std::time::Duration) {
+fn speculate_serve(fixture: &mut Fixture, later: &[PathBuf]) -> Output {
     let tickets: Vec<(PathBuf, Ticket)> = later.iter().map(|lane| fixture.ticket(lane, None)).collect();
     let started = std::time::Instant::now();
     let child = fixture.command().stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
@@ -1304,9 +1304,8 @@ fn speculate_serve(fixture: &mut Fixture, later: &[PathBuf]) -> (Output, std::ti
         queue::write(path, ticket).unwrap();
     }
     let output = child.wait_with_output().unwrap();
-    let elapsed = started.elapsed();
     eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    (output, elapsed)
+    output
 }
 
 #[test]
@@ -1317,11 +1316,11 @@ fn speculate_two_batches() {
     for lane in &first {
         fixture.enqueue(lane, None);
     }
-    executable(&fixture.trace.join("hook"), &format!("#!/usr/bin/env bash\n{AWAIT}{LANDED}case $1 in\n1) await check-2 && touch \"$LAND_TRACE/overlapped\" ;;\n2) start=$(main); touch \"$LAND_TRACE/check-2\"; landed \"$start\" ;;\nesac\n"));
-    let (output, elapsed) = speculate_serve(&mut fixture, &second);
+    executable(&fixture.trace.join("hook"), &format!("#!/usr/bin/env bash\n{AWAIT}{LANDED}case $1 in\n1) await check-2 && touch \"$LAND_TRACE/overlapped\" ;;\n2) start=$(main); touch \"$LAND_TRACE/check-2\"; landed \"$start\" && touch \"$LAND_TRACE/landed-during-check-2\" ;;\nesac\n"));
+    let output = speculate_serve(&mut fixture, &second);
     assert!(output.status.success());
     assert!(fixture.trace.join("overlapped").exists(), "the second batch's check starts while the first batch's check runs");
-    assert!(elapsed < std::time::Duration::from_secs(12), "two overlapping batches took {elapsed:?}");
+    assert!(fixture.trace.join("landed-during-check-2").exists(), "the first batch lands while the second batch's check runs");
     assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from c", "change from d"]);
     let checks = fixture.checks();
     assert_eq!(checks.len(), 2, "each batch is checked once");
@@ -1340,12 +1339,13 @@ fn speculate_discard_on_red() {
     let culprit = fixture.enqueue(&bad, None);
     executable(
         &fixture.trace.join("hook"),
-        &format!("#!/usr/bin/env bash\n{AWAIT}case $1 in 1) await check-2 ;; 2) touch \"$LAND_TRACE/check-2\"; sleep 30 ;; esac\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >\"$LAND_TRACE/verdict-$1\"\n"),
+        &format!("#!/usr/bin/env bash\n{AWAIT}case $1 in 1) await check-2 ;; 2) touch \"$LAND_TRACE/check-2\"; sleep 30; touch \"$LAND_TRACE/check-2-finished\" ;; esac\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >\"$LAND_TRACE/verdict-$1\"\n"),
     );
-    let (output, elapsed) = speculate_serve(&mut fixture, std::slice::from_ref(&good));
+    let output = speculate_serve(&mut fixture, std::slice::from_ref(&good));
     assert!(output.status.success());
-    assert!(elapsed < std::time::Duration::from_secs(20), "the speculative check of a red candidate is stopped, not waited for: {elapsed:?}");
+    assert!(!fixture.trace.join("check-2-finished").exists(), "the speculative check of a red candidate is stopped, not waited for");
     let checks = fixture.checks();
+    assert!(String::from_utf8_lossy(&output.stdout).lines().any(|line| line == format!("north land: speculative candidate {} on {} discarded; its lanes stay queued", checks[1].0, checks[0].0)), "the lander logs the stopped speculative check");
     assert_eq!(checks.len(), 3, "the red candidate, its discarded successor, then the successor rebuilt: {checks:?}");
     assert_eq!(checks[1].1, checks[0].0, "the successor was speculated on the red candidate");
     assert_eq!(checks[2].1, fixture.base, "the successor is rebuilt on main without the culprit");
@@ -1353,6 +1353,34 @@ fn speculate_discard_on_red() {
     assert_eq!(fixture.subjects(), ["change from b"]);
     assert_eq!(fixture.main(), checks[2].0);
     assert!(git(&fixture.origin, &["ls-tree", "--name-only", "main"]).lines().all(|file| file != "fail.txt"));
+    pushed_trees_were_checked(&fixture);
+}
+
+#[test]
+fn speculate_red_after_green() {
+    let mut fixture = Fixture::new();
+    let good = fixture.lane("a", "a.txt", "a");
+    let bad = fixture.lane("b", "fail.txt", "b");
+    fixture.enqueue(&good, None);
+    executable(
+        &fixture.trace.join("hook"),
+        &format!("#!/usr/bin/env bash\n{AWAIT}case $1 in 1) await check-2 ;; 2) touch \"$LAND_TRACE/check-2\" ;; esac\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >\"$LAND_TRACE/verdict-$1\"\n"),
+    );
+    let output = speculate_serve(&mut fixture, std::slice::from_ref(&bad));
+    assert!(output.status.success());
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 3, "the green candidate, the red one speculated on it, then the red lane rebuilt on main: {checks:?}");
+    assert_eq!(checks[0].1, fixture.base);
+    assert_eq!(checks[1].1, checks[0].0, "the red candidate was speculated on the green one");
+    assert_eq!(checks[2].1, checks[0].0, "the red lane is rebuilt on the main the green candidate landed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.lines().any(|line| line.starts_with(&format!("north land: speculative candidate {} was not green (", checks[1].0))), "the red speculative candidate is discarded: {stdout}");
+    let culprit = json_names(&fixture.queue().join("done")).into_iter().find(|name| name.ends_with("-lane-b.json")).unwrap();
+    assert!(fixture.verdict(&fixture.queue().join(culprit)).unwrap().starts_with("failed "));
+    assert_eq!(fixture.subjects(), ["change from a"]);
+    assert_eq!(fixture.main(), checks[0].0, "main stays at the green candidate");
+    assert!(git(&fixture.origin, &["ls-tree", "--name-only", "main"]).lines().all(|file| file != "fail.txt"));
+    assert_eq!(fixture.read("pushes").lines().count(), 1, "only the green candidate is pushed");
     pushed_trees_were_checked(&fixture);
 }
 
@@ -1366,7 +1394,7 @@ fn speculate_real_gates() {
         &fixture.trace.join("hook"),
         &format!("#!/usr/bin/env bash\n{AWAIT}{LANDED}case $1 in\n1) await main-at-start ;;\n2) start=$(main); printf '%s\\n' \"$start\" >\"$LAND_TRACE/main-at-start.tmp\"; mv \"$LAND_TRACE/main-at-start.tmp\" \"$LAND_TRACE/main-at-start\"; landed \"$start\"; main >\"$LAND_TRACE/main-at-end\" ;;\nesac\n"),
     );
-    let (output, _) = speculate_serve(&mut fixture, std::slice::from_ref(&b));
+    let output = speculate_serve(&mut fixture, std::slice::from_ref(&b));
     assert!(output.status.success());
     let checks = fixture.checks();
     assert_eq!(checks.len(), 2, "the speculative candidate lands without re-running");
