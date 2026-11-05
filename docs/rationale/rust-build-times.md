@@ -22,8 +22,12 @@ command line):
    restored, both commands run once unmeasured, and the same is done for the most-depended-on (hub)
    module.
 4. One TSV row per workspace is appended to the ledger (default `~/.local/state/north/build-times.tsv`):
-   time, host, repo, workspace, SHA, rustc, samples, the five wall times, threshold, verdict and critical
-   path.
+   time, host, repo, workspace, SHA, rustc, samples, the five wall times, threshold, verdict, critical
+   path and the host contention (the larger of the 1- and 5-minute load averages per hardware thread,
+   read before the first build).
+   A run with contention above the workspace's `contention_ceiling` takes the verdict `contended`, exits 0
+   and ticks, edits and files nothing, because a loaded host times its neighbours, not the crate layout:
+   202 s at load 25 on 20 threads against 43.8 s quiet.
 5. The verdict compares the leaf-edit `cargo test --no-run` median with the workspace's limit: `over`
    when above it (exit 1), `near` from 75% of it, `within` below. The limit is the 10 s cap
    (`LEAF_TEST_NO_RUN_SECONDS_MAX` in `crates/north-core/src/build_time/threshold.rs`) unless
@@ -31,7 +35,7 @@ command line):
    10 s is used, so the number can only be lowered; a workspace without one gets 10 s.
 
 `[[build_time]]` keys: `workspace` (relative to the repo), `leaf` and `hub` (relative to the workspace)
-and the optional `test_no_run_seconds`.
+the optional `test_no_run_seconds` and the optional `contention_ceiling` (load per thread; north sets 0.5).
 
 ### Why the cap is absolute
 

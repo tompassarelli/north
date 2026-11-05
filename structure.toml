@@ -69,7 +69,7 @@ may_use = ["fleet", "domain", "platform", "foundation", "crate-roots", "threads"
 name = "guard"
 paths = ["crates/north-guard/src/lib.rs", "crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["ledger", "fleet", "threads", "lanes", "autoland_status", "ops", "usage", "capacity", "shell", "domain", "platform", "foundation", "crate-roots", "code_health"]
+may_use = ["ledger", "fleet", "autoland_status", "ops", "usage", "capacity", "shell", "domain", "platform", "foundation", "crate-roots", "code_health", "lanes", "threads"]
 
 [[module]]
 name = "threads"
@@ -250,6 +250,7 @@ workspace = "."
 leaf = "crates/north-core/src/code_health/source.rs"
 hub = "crates/north-base/src/foundation/mod.rs"
 test_no_run_seconds = 10
+contention_ceiling = 0.5
 
 [rust_habits]
 checks = ["shared-mutability", "single-impl-trait"]

@@ -6,6 +6,7 @@ pub(super) struct Workspace {
     pub(super) leaf: String,
     pub(super) hub: String,
     pub(super) threshold_seconds: Option<f64>,
+    pub(super) contention_ceiling: Option<f64>,
 }
 
 pub(super) fn read(repo: &Path) -> Result<Vec<Workspace>, String> {
@@ -23,14 +24,11 @@ pub(super) fn parse(text: &str) -> Result<Vec<Workspace>, String> {
 
 fn entry(index: usize, table: &toml_edit::Table) -> Result<Workspace, String> {
     for (key, _) in table {
-        if !["workspace", "leaf", "hub", "test_no_run_seconds"].contains(&key) {
+        if !["workspace", "leaf", "hub", "test_no_run_seconds", "contention_ceiling"].contains(&key) {
             return Err(format!("build_time {}: unknown key {key}", index + 1));
         }
     }
     let text = |key: &str| table.get(key).and_then(|item| item.as_str()).map(str::to_owned).ok_or(format!("build_time {}: {key} must be a string", index + 1));
-    let threshold_seconds = match table.get("test_no_run_seconds") {
-        None => None,
-        Some(item) => Some(item.as_float().or_else(|| item.as_integer().map(|n| n as f64)).ok_or(format!("build_time {}: test_no_run_seconds must be a number", index + 1))?),
-    };
-    Ok(Workspace { workspace: text("workspace")?, leaf: text("leaf")?, hub: text("hub")?, threshold_seconds })
+    let number = |key: &str| table.get(key).map(|item| item.as_float().or_else(|| item.as_integer().map(|n| n as f64)).ok_or(format!("build_time {}: {key} must be a number", index + 1))).transpose();
+    Ok(Workspace { workspace: text("workspace")?, leaf: text("leaf")?, hub: text("hub")?, threshold_seconds: number("test_no_run_seconds")?, contention_ceiling: number("contention_ceiling")? })
 }

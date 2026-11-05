@@ -49,7 +49,7 @@ pub fn run(arguments: &[String]) -> u8 {
     if let Some(checkout) = &checkout {
         options.repo = checkout.path().to_path_buf();
     }
-    match measure_repo(&options, &mut RealCargo, &ledger, &host, tracker.as_mut().map(|gh| gh as &mut dyn Tracker)) {
+    match measure_repo(&options, &mut RealCargo, &ledger, &host, crate::platform::host::contention(), tracker.as_mut().map(|gh| gh as &mut dyn Tracker)) {
         Ok(code) => code,
         Err(error) => fail(&error),
     }
@@ -99,10 +99,10 @@ fn workspaces(options: &Options) -> Result<Vec<Workspace>, String> {
     let leaf = options.leaf.clone().or_else(|| found.as_ref().map(|entry| entry.leaf.clone()));
     let hub = options.hub.clone().or_else(|| found.as_ref().map(|entry| entry.hub.clone()));
     let (Some(leaf), Some(hub)) = (leaf, hub) else { return Err(format!("workspace {name} is not in structure.toml [[build_time]]; pass --leaf and --hub")) };
-    Ok(vec![Workspace { workspace: name.clone(), leaf, hub, threshold_seconds: found.and_then(|entry| entry.threshold_seconds) }])
+    Ok(vec![Workspace { workspace: name.clone(), leaf, hub, threshold_seconds: found.as_ref().and_then(|entry| entry.threshold_seconds), contention_ceiling: found.and_then(|entry| entry.contention_ceiling) }])
 }
 
-fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &str, tracker: Option<&mut dyn Tracker>) -> Result<u8, String> {
+fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &str, contention: Option<f64>, tracker: Option<&mut dyn Tracker>) -> Result<u8, String> {
     let sha = git(&options.repo, &["rev-parse", "--short=10", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
     let repo_name = options.repo.canonicalize().ok().and_then(|path| repo_label(&path)).unwrap_or_else(|| "unknown".to_owned());
     let rustc = tool_version("rustc");
@@ -116,12 +116,12 @@ fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &
         if let Some(warning) = warning {
             eprintln!("north code-health build-time: {warning}");
         }
-        let verdict = Verdict::of(times.leaf_test, limit);
-        let row = Row { recorded_at: &recorded_at, host, repo: &repo_name, workspace: &entry.workspace, sha: &sha, rustc: &rustc, samples: options.samples, times: &times, threshold: limit, verdict };
+        let verdict = Verdict::judge(times.leaf_test, limit, contention, entry.contention_ceiling);
+        let row = Row { recorded_at: &recorded_at, host, repo: &repo_name, workspace: &entry.workspace, sha: &sha, rustc: &rustc, samples: options.samples, times: &times, threshold: limit, verdict, contention };
         ledger::append(ledger, &row)?;
         println!("{}", report(&row));
         over |= verdict == Verdict::Over;
-        boxes.push(issue::split_box(&row, &entry.leaf));
+        boxes.extend(issue::split_box(&row, &entry.leaf));
     }
     println!("recorded in {}", ledger.display());
     if let Some(tracker) = tracker {
@@ -132,9 +132,10 @@ fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &
 
 fn report(row: &Row<'_>) -> String {
     let t = row.times;
+    let load = row.contention.map_or_else(String::new, |load| format!(", host load {load:.2} per thread"));
     let limit = format!("threshold {}s", row.threshold);
     format!(
-        "{} {} at {} on {}: cold build {:.1}s; leaf edit build {:.1}s, test --no-run {:.1}s; hub edit build {:.1}s, test --no-run {:.1}s; {limit}: {}\n  critical path {}",
+        "{} {} at {} on {}: cold build {:.1}s; leaf edit build {:.1}s, test --no-run {:.1}s; hub edit build {:.1}s, test --no-run {:.1}s; {limit}: {}{load}\n  critical path {}",
         row.repo, row.workspace, row.sha, row.host, t.cold_build, t.leaf_build, t.leaf_test, t.hub_build, t.hub_test, row.verdict.word(), t.critical_path
     )
 }

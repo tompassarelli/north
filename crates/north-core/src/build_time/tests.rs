@@ -58,7 +58,7 @@ fn measured_in(structure: &str, test_seconds: u64) -> (u8, String, FakeCargo, te
     let ledger = repo.path().join("state/build-times.tsv");
     let options = Options { repo: repo.path().to_path_buf(), samples: 3, ..Options::default() };
     let mut cargo = FakeCargo { test_seconds, calls: Vec::new() };
-    let code = measure_repo(&options, &mut cargo, &ledger, "gex45", None).expect("measured");
+    let code = measure_repo(&options, &mut cargo, &ledger, "gex45", None, None).expect("measured");
     let text = std::fs::read_to_string(&ledger).expect("ledger");
     (code, text, cargo, repo)
 }
@@ -85,7 +85,7 @@ fn leaf_test_no_run_over_threshold_exits_non_zero_and_appends() {
     assert!(ledger.lines().nth(1).expect("row").contains("\t10\tover\t"));
     let ledger_path = repo.path().join("state/build-times.tsv");
     let options = Options { repo: repo.path().to_path_buf(), samples: 1, ..Options::default() };
-    measure_repo(&options, &mut FakeCargo { test_seconds: 8, calls: Vec::new() }, &ledger_path, "gex45", None).expect("measured");
+    measure_repo(&options, &mut FakeCargo { test_seconds: 8, calls: Vec::new() }, &ledger_path, "gex45", None, None).expect("measured");
     let again = std::fs::read_to_string(&ledger_path).expect("ledger");
     assert_eq!(again.lines().count(), 3);
     assert!(again.lines().nth(2).expect("row").contains("\t10\tnear\t"));
@@ -124,7 +124,7 @@ fn build_time_structure_toml_may_only_lower_the_cap() {
 fn unconfigured_workspace_needs_leaf_and_hub() {
     let repo = fixture();
     let options = Options { repo: repo.path().to_path_buf(), workspace: Some("relay".into()), samples: 1, ..Options::default() };
-    let error = measure_repo(&options, &mut FakeCargo { test_seconds: 1, calls: Vec::new() }, &repo.path().join("l.tsv"), "h", None).expect_err("unconfigured");
+    let error = measure_repo(&options, &mut FakeCargo { test_seconds: 1, calls: Vec::new() }, &repo.path().join("l.tsv"), "h", None, None).expect_err("unconfigured");
     assert!(error.contains("pass --leaf and --hub"), "{error}");
 }
 
@@ -210,7 +210,7 @@ fn build_time_over_the_cap_ticks_one_box_per_workspace_on_split_north_core_and_o
     let ledger = repo.path().join("state/build-times.tsv");
     let options = Options { repo: repo.path().to_path_buf(), samples: 1, file: true, ..Options::default() };
     let mut issues = Issues { body: ISSUE_259.to_owned(), ..Issues::default() };
-    let run = |test_seconds: u64, issues: &mut Issues| measure_repo(&options, &mut FakeCargo { test_seconds, calls: Vec::new() }, &ledger, "gex45", Some(issues)).expect("measured");
+    let run = |test_seconds: u64, issues: &mut Issues| measure_repo(&options, &mut FakeCargo { test_seconds, calls: Vec::new() }, &ledger, "gex45", None, Some(issues)).expect("measured");
     let key = "Leaf-edit cargo test --no-run in ";
 
     assert_eq!(run(44, &mut issues), 1);
@@ -248,7 +248,7 @@ fn build_time_within_the_cap_adds_no_box_and_a_missing_section_is_created() {
     let ledger = repo.path().join("state/build-times.tsv");
     let options = Options { repo: repo.path().to_path_buf(), samples: 1, file: true, ..Options::default() };
     let mut issues = Issues { body: "Category: feature\n".to_owned(), ..Issues::default() };
-    let run = |test_seconds: u64, issues: &mut Issues| measure_repo(&options, &mut FakeCargo { test_seconds, calls: Vec::new() }, &ledger, "gex45", Some(issues)).expect("measured");
+    let run = |test_seconds: u64, issues: &mut Issues| measure_repo(&options, &mut FakeCargo { test_seconds, calls: Vec::new() }, &ledger, "gex45", None, Some(issues)).expect("measured");
 
     assert_eq!(run(6, &mut issues), 0);
     assert!(issues.edited.is_empty());
@@ -262,8 +262,8 @@ fn build_time_files_one_box_per_workspace() {
     let slow = Times { leaf_test: 43.8, ..Times::default() };
     let slower = Times { leaf_test: 11.0, ..Times::default() };
     let split = |workspace: &str, times: &Times| {
-        let row = Row { recorded_at: "2026-11-05T04:00:00Z", host: "gex45", repo: "north", workspace, sha: "abc", rustc: "1.96.1", samples: 1, times, threshold: 10.0, verdict: Verdict::of(times.leaf_test, 10.0) };
-        issue::split_box(&row, "crates/x/src/leaf.rs")
+        let row = Row { recorded_at: "2026-11-05T04:00:00Z", host: "gex45", repo: "north", workspace, sha: "abc", rustc: "1.96.1", samples: 1, times, threshold: 10.0, verdict: Verdict::of(times.leaf_test, 10.0), contention: None };
+        issue::split_box(&row, "crates/x/src/leaf.rs").expect("box")
     };
     let boxes = [split(".", &slow), split("tools/firn", &slower)];
     let body = issue::edited("## Split north-core\n", &boxes);
@@ -281,4 +281,40 @@ fn filing_needs_every_configured_workspace() {
     let rev: Vec<String> = ["--repo", ".", "--rev", "origin/main", "--file"].map(str::to_owned).to_vec();
     let parsed = super::parse(&rev).expect("parsed");
     assert_eq!((parsed.rev.as_deref(), parsed.file), (Some("origin/main"), true));
+}
+
+#[test]
+fn a_contended_run_over_the_cap_files_nothing_and_leaves_an_open_box_alone() {
+    let structure = format!("{STRUCTURE}contention_ceiling = 0.5\n");
+    let repo = fixture_with(&structure);
+    let ledger = repo.path().join("state/build-times.tsv");
+    let options = Options { repo: repo.path().to_path_buf(), samples: 1, file: true, ..Options::default() };
+    let mut issues = Issues { body: ISSUE_259.to_owned(), ..Issues::default() };
+    let run = |test_seconds: u64, contention: f64, issues: &mut Issues| measure_repo(&options, &mut FakeCargo { test_seconds, calls: Vec::new() }, &ledger, "gex45", Some(contention), Some(issues)).expect("measured");
+
+    assert_eq!(run(202, 1.25, &mut issues), 0);
+    assert!(issues.edited.is_empty(), "{}", issues.body);
+    let text = std::fs::read_to_string(&ledger).expect("ledger");
+    let fields: Vec<&str> = text.lines().nth(1).expect("row").split('\t').collect();
+    assert_eq!((fields[13], fields[15]), ("contended", "1.25"));
+
+    assert_eq!(run(202, 0.25, &mut issues), 1);
+    assert_eq!(issues.edited.len(), 1);
+
+    assert_eq!(run(6, 1.25, &mut issues), 0);
+    assert_eq!(issues.edited.len(), 1, "a contended run does not tick the open box either");
+
+    assert_eq!(run(6, 0.25, &mut issues), 0);
+    assert_eq!(issues.edited.len(), 2);
+}
+
+#[test]
+fn contention_ceiling_is_read_from_structure_toml_and_judges_only_above_it() {
+    let with = format!("{STRUCTURE}contention_ceiling = 0.5\n");
+    assert_eq!(config::parse(&with).expect("parsed")[0].contention_ceiling, Some(0.5));
+    assert_eq!(config::parse(STRUCTURE).expect("parsed")[0].contention_ceiling, None);
+    assert_eq!(Verdict::judge(202.1, 10.0, Some(1.25), Some(0.5)), Verdict::Contended);
+    assert_eq!(Verdict::judge(202.1, 10.0, Some(0.5), Some(0.5)), Verdict::Over);
+    assert_eq!(Verdict::judge(202.1, 10.0, None, Some(0.5)), Verdict::Over);
+    assert_eq!(Verdict::judge(202.1, 10.0, Some(9.0), None), Verdict::Over);
 }

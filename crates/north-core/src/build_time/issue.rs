@@ -13,7 +13,7 @@ pub(super) struct SplitBox {
     open: bool,
 }
 
-pub(super) fn split_box(row: &Row<'_>, leaf: &str) -> SplitBox {
+pub(super) fn split_box(row: &Row<'_>, leaf: &str) -> Option<SplitBox> {
     let name = if row.workspace == "." { row.repo.to_owned() } else { format!("{}/{}", row.repo, row.workspace) };
     let key = format!("Leaf-edit cargo test --no-run in {name} is ");
     let seconds = row.times.leaf_test;
@@ -24,8 +24,9 @@ pub(super) fn split_box(row: &Row<'_>, leaf: &str) -> SplitBox {
         Verdict::Over => (true, format!("- [ ] {key}{seconds:.1} s, over the {cap} s cap: split the crate holding {leaf} ({at})")),
         Verdict::Near => (true, format!("- [ ] {key}{seconds:.1} s, near the {cap} s cap: split the crate holding {leaf} ({at})")),
         Verdict::Within => (false, format!("- [x] {key}{seconds:.1} s, within the {cap} s cap ({at})")),
+        Verdict::Contended => return None,
     };
-    SplitBox { key, line, open }
+    Some(SplitBox { key, line, open })
 }
 
 pub(super) fn edited(body: &str, boxes: &[SplitBox]) -> String {
