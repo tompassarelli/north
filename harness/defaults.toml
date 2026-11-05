@@ -1153,3 +1153,25 @@ unit = "idle-slot wait breaches a repository's lander may spend in one UTC day b
 source = "tom: the lander SLO error budget is 3 breaches a day (north#360, 2026-11-05)"
 fallback = "none"
 consumers = ["crates/north-core/src/ops/flow/slo.rs"]
+
+[staffing_drain_minutes]
+value = 30
+unit = "minutes within which a repository's land queue must drain at its measured landing rate before north fleet launch starts another lane there"
+source = "prior: half an hour of queue keeps a lane's wait to land under one review cycle; the 2026-11-05 burst of 30+ launches into one queue is the failure it bounds (north#112)"
+settles_when = { need = 40, count = "count_worker_runs", what = "worker runs launched under the staffing governor, whose queued-to-main minutes north tempo reads against this bound" }
+fallback = "the placement config's [staffing] drain-minutes overrides it per host"
+consumers = ["src/cli/fleet/governor.rs"]
+
+[staffing_lanes_per_session]
+value = 1.18
+unit = "lanes queued to land per working session, which the staffing governor charges each working session and the launch itself"
+source = "measured: loops-lead's north#112 governor plan, 2026-11-05: land-queue tickets per fleet worker session on north, 1.18"
+fallback = "every working session counts as 1.18 lanes"
+consumers = ["src/cli/fleet/governor.rs"]
+
+[staffing_launch_to_queued_minutes]
+value = 66
+unit = "median minutes from a fleet launch to its lane's first land-queue ticket, the work time a launched lane spends before it reaches the queue"
+source = "measured: loops-lead's north#112 governor plan, 2026-11-05: launch-to-queued p50 on north, 66 min"
+fallback = "the in-flight ceiling counts 66 minutes of work ahead of the drain bound"
+consumers = ["src/cli/fleet/governor.rs"]

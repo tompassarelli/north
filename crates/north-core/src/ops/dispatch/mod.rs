@@ -18,7 +18,7 @@ pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub use manual::{Ask, Start, begin as start_hand, picked_tier, tier_reason, untasked};
 pub use survey::evidence as arm_evidence;
 pub use tuned::current as tuned_routes;
-pub use record::{Record as LaunchRecord, read as launch_records};
+pub use record::{Record as LaunchRecord, STAFFING_REFUSAL, read as launch_records};
 pub use tier::{ARM_WINDOW, ARMED, Evidence, Tier};
 
 mod brief;
@@ -266,6 +266,7 @@ fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
         }
         match effects::launch(survey, launch) {
             Ok(name) => println!("{line}: {name}"),
+            Err(why) if why.starts_with(STAFFING_REFUSAL) => println!("{line} held: {why}"),
             Err(why) => {
                 println!("{line} failed: {why}");
                 failures.push(format!("{} on {}: {why}", launch.item, launch.host));
