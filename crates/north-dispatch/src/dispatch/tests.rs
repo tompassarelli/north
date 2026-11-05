@@ -3,7 +3,7 @@ use super::plan::Cloud;
 use super::slots::{Account, Host, PlanSize, Room};
 use super::survey::Survey;
 use super::decide;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) const CONFIG: &str = r#"
 [hosts.nexus]
@@ -77,6 +77,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         issues,
         open,
         holds: BTreeMap::new(),
+        live: BTreeSet::new(),
         cloud,
         laptop: Some("whiterabbit".into()),
         cloud_running: 0,
@@ -135,4 +136,17 @@ fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_na
     let (item, why) = outcome.skipped.last().unwrap();
     assert_eq!(item.to_string(), "makgora#51");
     assert!(why.contains(&format!("gex45 takes nothing: {queued}")), "{why}");
+}
+
+#[test]
+fn an_issue_whose_every_open_box_names_a_live_owner_is_skipped_and_one_with_an_unowned_box_is_staffed() {
+    let open = BTreeSet::new();
+    let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
+    let live: BTreeSet<String> = ["n-land-first", "n-cull-it", "n-cull-landing", "lead-88"].map(str::to_owned).into();
+    let world = super::issues::World { open: &open, holds: &holds, live: &live, planned: &planned, at: 0.0 };
+    let ready = |body: &str| super::issues::readiness(&issue("north", 633, body, &[]), &world);
+    assert_eq!(ready("- [x] done (owner: n-fast-land)\n- [ ] cores first (owner: n-land-first)"), Err("every open box has a live owner: n-land-first".into()));
+    assert_eq!(ready("- [ ] cull north (owners: n-cull-it, -landing)\n  - [ ] code: delete it. Owner: lead-88."), Err("every open box has a live owner: lead-88, n-cull-it, n-cull-landing".into()));
+    assert_eq!(ready("- [ ] cores first (owner: n-land-first)\n- [ ] makgora culled the same way"), Ok(()), "a box with no owner is open to staff");
+    assert_eq!(ready("- [ ] spans by category (owner: n-land-profile)"), Ok(()), "an owner the fleet does not list as live holds nothing");
 }

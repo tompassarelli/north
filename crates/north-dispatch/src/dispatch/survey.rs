@@ -35,6 +35,8 @@ pub struct Survey {
     pub issues: Vec<Issue>,
     pub open: BTreeSet<IssueRef>,
     pub holds: BTreeMap<IssueRef, String>,
+    /// The fleet sessions every reached registry lists as running or parked on a wait, which own the boxes their names are on.
+    pub live: BTreeSet<String>,
     pub cloud: Cloud,
     /// The host reached through the laptop job queue, when one serves `laptop`.
     pub laptop: Option<String>,
@@ -357,6 +359,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     });
     let sessions: Vec<(Session, String)> = fleet_lists.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
     let (elsewhere, mut holds) = fleets::tally(&sessions);
+    let live: BTreeSet<String> = sessions.iter().map(|(session, _)| session.name.clone()).collect();
     let records = record::read(&record::directory());
     let stopped_sessions = fleets::exited_names(&fleet_lists);
     holds.extend(claim_lists.iter().flat_map(|(host, listing)| claim_rows(listing, host, &stopped_sessions)));
@@ -382,7 +385,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push(why);
         Vec::new()
     });
-    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, strands, saturated, revived, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, live, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, strands, saturated, revived, at })
 }
 
 mod github {

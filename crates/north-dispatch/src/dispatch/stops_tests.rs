@@ -21,7 +21,7 @@ fn a_box_whose_last_session_stopped_for_a_decision_is_skipped_until_the_issue_ch
 
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
-    let world = World { open: &open, holds: &holds, planned: &planned, at: 0.0 };
+    let world = World { open: &open, holds: &holds, live: &BTreeSet::new(), planned: &planned, at: 0.0 };
     let box_at = |touched: f64| Issue { stopped, touched, ..issue("makgora", 587, "- [ ] a", &[]) };
     assert_eq!(issues::readiness(&box_at(900.0), &world), Err("last worker stopped for a decision".into()));
     assert_eq!(issues::readiness(&box_at(1000.0), &world), Err("last worker stopped for a decision".into()), "the worker's own comment lands at or before its report");

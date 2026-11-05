@@ -121,7 +121,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut holds = survey.holds.clone();
     holds.extend(revival.holds.clone());
     outcome.revival = revival;
-    let world = issues::World { open: &survey.open, holds: &holds, planned: &planned, at: survey.at };
+    let world = issues::World { open: &survey.open, holds: &holds, live: &survey.live, planned: &planned, at: survey.at };
     let mut history = survey.history.clone();
     let mut handoffs = survey.handoffs.clone();
     let mut claims = hotspots::Claims::default();

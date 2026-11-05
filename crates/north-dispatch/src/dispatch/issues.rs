@@ -20,6 +20,7 @@ static WAITS: LazyLock<Regex> = LazyLock::new(|| {
 });
 static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));
 static ANY_BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[[ xX]\]").expect("any box pattern"));
+static OWNERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\(owners?:\s*([^)]*)\)|\bowner:\s*([A-Za-z0-9][\w.:-]*)").expect("owner pattern"));
 static NOT_BEFORE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\(not before ((\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})Z)\)").expect("not-before pattern"));
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
@@ -82,6 +83,19 @@ impl Issue {
     /// An issue with no box, ticked or not, that no label hands to Tom, its children or a running native job.
     pub fn needs_box(&self) -> bool {
         !ANY_BOX.is_match(&self.body) && [&TOM_LABELS[..], &ROOT_LABELS, &RUNNING_LABELS].iter().all(|names| self.labelled(names).is_none())
+    }
+
+    /// The live sessions that own every unticked box, or none when some unticked box names no live owner.
+    pub fn owned_by(&self, live: &BTreeSet<String>) -> Option<BTreeSet<String>> {
+        let mut owners = BTreeSet::new();
+        for line in self.body.lines().filter(|line| UNTICKED.is_match(line)) {
+            let named: Vec<String> = box_owners(line).into_iter().filter(|owner| live.contains(owner)).collect();
+            if named.is_empty() {
+                return None;
+            }
+            owners.extend(named);
+        }
+        (!owners.is_empty()).then_some(owners)
     }
 
     pub fn gated_until(&self, at: f64) -> Option<&str> {
@@ -213,6 +227,8 @@ pub fn predecessors(issue: &Issue) -> Result<Vec<IssueRef>, String> {
 pub struct World<'a> {
     pub open: &'a BTreeSet<IssueRef>,
     pub holds: &'a BTreeMap<IssueRef, String>,
+    /// The fleet sessions every reached registry lists as running or parked on a wait.
+    pub live: &'a BTreeSet<String>,
     pub planned: &'a BTreeMap<IssueRef, BTreeSet<IssueRef>>,
     pub at: f64,
 }
@@ -222,6 +238,10 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     let reference = issue.reference();
     if issue.unticked() == 0 {
         return Err(if issue.needs_box() { NEEDS_BOX } else { "no unticked Done-when box" }.into());
+    }
+    if let Some(owners) = issue.owned_by(world.live) {
+        let owners: Vec<&str> = owners.iter().map(String::as_str).collect();
+        return Err(format!("every open box has a live owner: {}", owners.join(", ")));
     }
     if let Some(until) = issue.gated_until(world.at) {
         let boxes = if issue.unticked() == 1 { "only open box waits" } else { "every open box waits, the first" };
@@ -256,4 +276,23 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
         return Err("last worker stopped for a decision".into());
     }
     Ok(())
+}
+
+/// The sessions a box line names as its owners: `(owner: NAME)`, `(owners: n-cull-it, -landing)`, where a leading
+/// `-` keeps the previous name's stem, or `Owner: NAME`.
+fn box_owners(line: &str) -> Vec<String> {
+    let mut owners: Vec<String> = Vec::new();
+    for found in OWNERS.captures_iter(line) {
+        let listed = found.get(1).or_else(|| found.get(2)).map_or("", |named| named.as_str());
+        for word in listed.split([',', ';']).filter_map(|part| part.split_whitespace().next()).map(|word| word.trim_end_matches('.')) {
+            let name = match (word.strip_prefix('-'), owners.last()) {
+                (Some(rest), Some(before)) => format!("{}-{rest}", before.rsplit_once('-').map_or(before.as_str(), |(stem, _)| stem)),
+                _ => word.to_owned(),
+            };
+            if !name.is_empty() {
+                owners.push(name);
+            }
+        }
+    }
+    owners
 }
