@@ -213,3 +213,53 @@ fn compensated_sum(values: impl Iterator<Item = f64>) -> f64 {
     }
     if carry != 0.0 && carry.is_finite() { total + carry } else { total }
 }
+
+/// What a tier's priced runs say a next box costs and takes: p50 and p90 API-equivalent $ per run, the wall p75 in minutes, the sample
+/// size and the cell it came from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Expected {
+    pub p50: f64,
+    pub p90: f64,
+    pub minutes: Option<f64>,
+    pub n: usize,
+    pub cell: String,
+    pub backed_off_from: Option<String>,
+}
+
+/// The tier's priced runs in the finest cell of `asked` with `min_runs` of them, backing off along BACKOFF to the category, then to the
+/// tier across every category; None when the tier has fewer than `min_runs` priced runs anywhere.
+pub fn recommend_expected(knobs: &Knobs, runs: &[&Run], asked: &[Option<String>; 5], tier: &str) -> Option<Expected> {
+    let wanted = tier_key(tier);
+    let full = cell_name(&keys_of(asked), |index| asked[index].clone().unwrap_or_default());
+    let expected = |members: &[&&Run], name: String| {
+        let costs: Vec<f64> = members.iter().filter_map(|run| run.api_usd).collect();
+        let walls: Vec<f64> = members.iter().filter_map(|run| run.minutes).collect();
+        Some(Expected { p50: median(&costs)?, p90: quantile(&costs, 0.9)?, minutes: quantile(&walls, 0.75).map(f64::ceil), n: costs.len(), backed_off_from: (name != full).then(|| full.clone()), cell: name })
+    };
+    let enough = |members: &[&&Run]| members.iter().filter(|run| run.api_usd.is_some()).count() >= knobs.min_runs;
+    let mut keys = keys_of(asked);
+    loop {
+        let members: Vec<&&Run> = runs.iter().filter(|run| tier_key(&run.tier) == wanted && keys.iter().all(|index| Some(&run.cells[*index]) == asked[*index].as_ref())).collect();
+        if enough(&members) {
+            return expected(&members, cell_name(&keys, |index| asked[index].clone().unwrap_or_default()));
+        }
+        if keys.len() == 1 {
+            break;
+        }
+        keys.pop();
+    }
+    let members: Vec<&&Run> = runs.iter().filter(|run| tier_key(&run.tier) == wanted).collect();
+    if enough(&members) { expected(&members, "every category".to_owned()) } else { None }
+}
+
+/// The recommend verb's expected-spend line: E with its cell and sample, or the fallback it took when no cell holds enough priced runs.
+pub fn expected_line(found: Option<&Expected>, tier: &str, min_runs: usize) -> String {
+    match found {
+        Some(expected) => {
+            let minutes = expected.minutes.map_or_else(|| "n/a min".to_owned(), |minutes| format!("{minutes:.0} min"));
+            let fell = expected.backed_off_from.as_ref().map_or_else(String::new, |from| format!("; fell back from {from}"));
+            format!("E p50 ${:.2} p90 ${:.2}, {minutes} (cell {}, tier {tier}, n={}{fell})", expected.p50, expected.p90, expected.cell, expected.n)
+        }
+        None => format!("E n/a (fewer than {min_runs} priced runs of tier {tier} in any cell; fallback: no dollar figure, the workers-skill default tier stands)"),
+    }
+}

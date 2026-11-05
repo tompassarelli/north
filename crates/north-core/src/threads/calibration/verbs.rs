@@ -7,7 +7,7 @@ use rusqlite::{Connection, params};
 
 use super::mode::{self, Mode};
 use super::read::{escalated, raw_runs};
-use super::recommend::{Eta, asked_of, recommend, recommend_eta, recommend_usd};
+use super::recommend::{Eta, asked_of, expected_line, recommend, recommend_eta, recommend_expected, recommend_usd};
 use super::{Knobs, Pick, median, provider, scaled, tier_rank};
 use crate::foundation::clock::Timestamp;
 use crate::router::brief::CATEGORIES;
@@ -113,10 +113,20 @@ pub(super) fn recommend_with(args: &Args, context: &Context, fields: &Fields, co
         tx.commit()?;
     }
     let db = open(context.database, false)?;
-    report_pick(&db, &knobs, context, &mode, &runs, &pick, fields.known_category().unwrap_or_default())
+    report_pick(&db, &knobs, context, &mode, &runs, &pick, fields)
 }
 
-fn report_pick(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, runs: &[super::Run], pick: &Pick, category: &str) -> Outcome {
+fn report_pick(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, runs: &[super::Run], pick: &Pick, fields: &Fields) -> Outcome {
+    let mut text = pick_report(db, knobs, context, mode, runs, pick, fields.known_category().unwrap_or_default())?;
+    if let Some(tier) = pick.tier.as_deref() {
+        let by_ref: Vec<&super::Run> = runs.iter().collect();
+        text += &expected_line(recommend_expected(knobs, &by_ref, &asked_of(fields), tier).as_ref(), tier, knobs.min_runs);
+        text.push('\n');
+    }
+    Ok(text)
+}
+
+fn pick_report(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, runs: &[super::Run], pick: &Pick, category: &str) -> Outcome {
     let mut text = String::new();
     match &pick.tier {
         Some(tier) => text += &format!("tier {tier}  cell [{}]  n {}\n", pick.cell, pick.n),

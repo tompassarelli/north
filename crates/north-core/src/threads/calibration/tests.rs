@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use super::boxes::{BoxRun, box_chains, box_duration};
 use super::forward::{Figure, calibrate_box, calibrate_eta_pred, walk_forward_eta};
 use crate::usage::decide::world::Rate;
-use super::recommend::{asked_of, recommend, recommend_eta, recommend_usd};
+use super::recommend::{asked_of, expected_line, recommend, recommend_eta, recommend_expected, recommend_usd};
 use super::verbs::{eta_line, since_start};
 use super::{Knobs, Run, median, quantile, scaled, tier_key, tier_rank};
 use crate::foundation::clock::Timestamp;
@@ -246,7 +246,8 @@ fn recommend_verb_prints_the_pick_the_stats_and_the_eta_and_remembers_the_choice
          success threshold 80%  rule rank (one tier passes)\n\
          success claude:haiku 100% shrunk (n=5, 5 ok, toward the category's pooled 100% with a prior of 15 runs)\n\
          \x20 claude:haiku       100% of 5  shrunk 100%  $ n/a (priced n=0)\n\
-         eta wall 40m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration; too few runs with active minutes)  $0.50 (median of n=5, uncalibrated: no usd calibration)\n"
+         eta wall 40m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration; too few runs with active minutes)  $0.50 (median of n=5, uncalibrated: no usd calibration)\n\
+         E n/a (fewer than 5 priced runs of tier claude:haiku in any cell; fallback: no dollar figure, the workers-skill default tier stands)\n"
     );
     let held: String = db.query_row("SELECT tier FROM tier_choice WHERE cell = 'Category: research, Spec: measured'", [], |row| row.get(0)).unwrap();
     assert_eq!(held, "claude:haiku");
@@ -665,4 +666,54 @@ fn ten_concurrent_history_reads_of_one_checkout_run_one_git_log_between_them() {
     });
     assert_eq!(lengths, [1; 10]);
     assert_eq!(recording.0.lock().unwrap().iter().filter(|command| command.starts_with("log ")).count(), 1);
+}
+
+fn priced(tier: &str, scope: &str, cost: f64, minutes: f64) -> Run {
+    let mut run = run(tier, true, Some(cost));
+    run.cells[2] = scope.to_owned();
+    run.minutes = Some(minutes);
+    run
+}
+
+fn expected_for(runs: &[Run], brief: &str, tier: &str) -> String {
+    let by_ref: Vec<&Run> = runs.iter().collect();
+    let knobs = Knobs::registry();
+    expected_line(recommend_expected(&knobs, &by_ref, &asked(brief), tier).as_ref(), tier, knobs.min_runs)
+}
+
+#[test]
+fn expected_spend_prints_p50_p90_minutes_and_the_cell_it_was_measured_in() {
+    let runs: Vec<Run> = (1..=10).map(|index| priced("claude:sonnet-high", "one-file", index as f64, 10.0 * index as f64)).collect();
+    assert_eq!(
+        expected_for(&runs, "Category: research, Spec: measured, Scope: one-file", "claude:sonnet-high"),
+        "E p50 $5.00 p90 $9.00, 80 min (cell Category: research, Spec: measured, Scope: one-file, tier claude:sonnet-high, n=10)"
+    );
+}
+
+#[test]
+fn expected_spend_backs_off_to_the_category_then_the_tier_and_names_the_fallback_it_used() {
+    let mut runs: Vec<Run> = (1..=5).map(|index| priced("claude:sonnet-high", "one-file", index as f64, 10.0)).collect();
+    assert_eq!(
+        expected_for(&runs, "Category: research, Spec: measured, Scope: module", "claude:sonnet-high"),
+        "E p50 $3.00 p90 $5.00, 10 min (cell Category: research, Spec: measured, tier claude:sonnet-high, n=5; fell back from Category: research, Spec: measured, Scope: module)"
+    );
+    for other in runs.iter_mut() {
+        other.cells[0] = "tooling".to_owned();
+    }
+    assert_eq!(
+        expected_for(&runs, "Category: research, Spec: measured", "claude:sonnet-high"),
+        "E p50 $3.00 p90 $5.00, 10 min (cell every category, tier claude:sonnet-high, n=5; fell back from Category: research, Spec: measured)"
+    );
+}
+
+#[test]
+fn expected_spend_without_enough_priced_runs_says_no_dollar_figure_and_why() {
+    let mut runs: Vec<Run> = (1..=4).map(|index| priced("claude:sonnet-high", "one-file", index as f64, 10.0)).collect();
+    runs.extend((0..9).map(|_| priced("claude:haiku", "one-file", 1.0, 5.0)));
+    runs.iter_mut().for_each(|run| run.api_usd = if run.tier == "claude:haiku" { None } else { run.api_usd });
+    assert_eq!(
+        expected_for(&runs, "Category: research, Spec: measured", "claude:sonnet-high"),
+        "E n/a (fewer than 5 priced runs of tier claude:sonnet-high in any cell; fallback: no dollar figure, the workers-skill default tier stands)"
+    );
+    assert!(expected_for(&runs, "Category: research", "claude:haiku").starts_with("E n/a"));
 }
