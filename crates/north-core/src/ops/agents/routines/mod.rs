@@ -14,12 +14,12 @@ use crate::foundation::clock::{local_today, parse_python_date};
 pub use live::{live_timers, placement_findings, this_host};
 
 const KINDS: [&str; 3] = ["session-cron", "systemd-timer", "cloud-routine"];
-const PLACEMENTS: [&str; 3] = ["nexus", "laptop", "any"];
-const HOSTS: [&str; 2] = ["nexus", "laptop"];
+const PLACEMENTS: [&str; 4] = ["nexus", "gex45", "laptop", "any"];
+const HOSTS: [&str; 3] = ["nexus", "gex45", "laptop"];
 const FIELDS: [&str; 8] = ["name", "kind", "schedule", "owner", "purpose", "relates-to", "expires", "placement"];
 static DURATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\A(\d+)(min|h|d)\z").expect("duration pattern"));
 static POINTER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[routine:([a-z0-9][a-z0-9-]*)\]").expect("pointer pattern"));
-pub const USAGE: &str = "usage: agents routines [list] [--no-live] [--crons FILE|-]\n       agents routines show NAME\n       agents routines pointer NAME\nLists the operator routines/*.md (south:agents/routines by default), compares them with live user timers and, given\nCronList output (--crons), with session crons; exits 1 on an unregistered live job,\na live timer on the wrong host, an expired or invalid entry.\nEach entry's `placement` (nexus, laptop or any) names the host it belongs on. A job that\nruns on both hosts has one entry per host, `name@nexus` and `name@laptop`, whose placement\nequals the suffix; the timer it matches is `name`. `deadline` (optional) is a duration such\nas 30min, 2d or 1h.";
+pub const USAGE: &str = "usage: agents routines [list] [--no-live] [--crons FILE|-]\n       agents routines show NAME\n       agents routines pointer NAME\nLists the operator routines/*.md (south:agents/routines by default), compares them with live user timers and, given\nCronList output (--crons), with session crons; exits 1 on an unregistered live job,\na live timer on the wrong host, an expired or invalid entry.\nEach entry's `placement` (nexus, gex45, laptop or any) names the host it belongs on. A job that\nruns on both hosts has one entry per host, `name@nexus` and `name@laptop`, whose placement\nequals the suffix; the timer it matches is `name`. `deadline` (optional) is a duration such\nas 30min, 2d or 1h.";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Entry {

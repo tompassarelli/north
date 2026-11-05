@@ -4,6 +4,7 @@ use std::time::Duration;
 use super::ledger::{HEADER, Verdict, suggested_threshold};
 use super::measure::{Cargo, median};
 use super::{Options, config, measure_repo, timings};
+use crate::platform::rolling_issue;
 
 const TIMINGS: &str = r#"<script>
 const UNIT_DATA = [
@@ -48,7 +49,7 @@ fn measured(test_seconds: u64) -> (u8, String, FakeCargo, tempfile::TempDir) {
     let ledger = repo.path().join("state/build-times.tsv");
     let options = Options { repo: repo.path().to_path_buf(), samples: 3, ..Options::default() };
     let mut cargo = FakeCargo { test_seconds, calls: Vec::new() };
-    let code = measure_repo(&options, &mut cargo, &ledger, "gex45").expect("measured");
+    let code = measure_repo(&options, &mut cargo, &ledger, "gex45", None).expect("measured");
     let text = std::fs::read_to_string(&ledger).expect("ledger");
     (code, text, cargo, repo)
 }
@@ -75,7 +76,7 @@ fn leaf_test_no_run_over_threshold_exits_non_zero_and_appends() {
     assert!(ledger.lines().nth(1).expect("row").contains("\t30\tover\t"));
     let ledger_path = repo.path().join("state/build-times.tsv");
     let options = Options { repo: repo.path().to_path_buf(), samples: 1, ..Options::default() };
-    measure_repo(&options, &mut FakeCargo { test_seconds: 23, calls: Vec::new() }, &ledger_path, "gex45").expect("measured");
+    measure_repo(&options, &mut FakeCargo { test_seconds: 23, calls: Vec::new() }, &ledger_path, "gex45", None).expect("measured");
     let again = std::fs::read_to_string(&ledger_path).expect("ledger");
     assert_eq!(again.lines().count(), 3);
     assert!(again.lines().nth(2).expect("row").contains("\t30\tnear\t"));
@@ -85,7 +86,7 @@ fn leaf_test_no_run_over_threshold_exits_non_zero_and_appends() {
 fn unconfigured_workspace_needs_leaf_and_hub() {
     let repo = fixture();
     let options = Options { repo: repo.path().to_path_buf(), workspace: Some("relay".into()), samples: 1, ..Options::default() };
-    let error = measure_repo(&options, &mut FakeCargo { test_seconds: 1, calls: Vec::new() }, &repo.path().join("l.tsv"), "h").expect_err("unconfigured");
+    let error = measure_repo(&options, &mut FakeCargo { test_seconds: 1, calls: Vec::new() }, &repo.path().join("l.tsv"), "h", None).expect_err("unconfigured");
     assert!(error.contains("pass --leaf and --hub"), "{error}");
 }
 
@@ -111,4 +112,80 @@ fn verdicts_and_suggested_thresholds() {
     assert_eq!(suggested_threshold(21.2), 43.0);
     assert_eq!(median(vec![5.0, 1.0, 3.0]), 3.0);
     assert_eq!(median(vec![4.0, 1.0]), 2.5);
+}
+
+#[derive(Default)]
+struct Issues {
+    open: Option<rolling_issue::Issue>,
+    created: Vec<String>,
+    edited: Vec<String>,
+    closed: Vec<u64>,
+}
+
+impl rolling_issue::Tracker for Issues {
+    fn open(&self, title: &str) -> Result<Option<rolling_issue::Issue>, String> {
+        assert!(title.starts_with("Split a slow Rust workspace in "), "{title}");
+        Ok(self.open.as_ref().map(|issue| rolling_issue::Issue { number: issue.number, body: issue.body.clone() }))
+    }
+
+    fn listed(&self, _: &str) -> Result<Vec<(u64, String)>, String> {
+        Ok(Vec::new())
+    }
+
+    fn create(&mut self, _: &str, body: &str) -> Result<(), String> {
+        self.created.push(body.to_owned());
+        self.open = Some(rolling_issue::Issue { number: 41, body: body.to_owned() });
+        Ok(())
+    }
+
+    fn edit(&mut self, number: u64, body: &str) -> Result<(), String> {
+        assert_eq!(number, 41);
+        self.edited.push(body.to_owned());
+        self.open = Some(rolling_issue::Issue { number, body: body.to_owned() });
+        Ok(())
+    }
+
+    fn close(&mut self, number: u64, _: &str) -> Result<(), String> {
+        self.closed.push(number);
+        self.open = None;
+        Ok(())
+    }
+}
+
+#[test]
+fn a_workspace_over_its_threshold_files_one_rolling_split_box_that_later_runs_edit_and_close() {
+    let repo = fixture();
+    let ledger = repo.path().join("state/build-times.tsv");
+    let options = Options { repo: repo.path().to_path_buf(), samples: 1, file: true, ..Options::default() };
+    let mut issues = Issues::default();
+    let run = |test_seconds: u64, issues: &mut Issues| measure_repo(&options, &mut FakeCargo { test_seconds, calls: Vec::new() }, &ledger, "gex45", Some(issues)).expect("measured");
+
+    assert_eq!(run(31, &mut issues), 1);
+    assert_eq!(issues.created.len(), 1);
+    let filed = &issues.created[0];
+    assert_eq!(filed.matches("- [ ] Split `.`").count(), 1, "{filed}");
+    assert!(filed.contains("took 31.0s against a threshold of 30s (over)"), "{filed}");
+    assert!(filed.contains("docs/rationale/rust-build-times.md"), "{filed}");
+
+    assert_eq!(run(33, &mut issues), 1);
+    assert_eq!((issues.created.len(), issues.edited.len()), (1, 1));
+    assert!(issues.edited[0].contains("took 33.0s against a threshold of 30s (over)"));
+
+    assert_eq!(run(33, &mut issues), 1);
+    assert_eq!((issues.created.len(), issues.edited.len()), (1, 1), "an unchanged measurement leaves the issue alone");
+
+    assert_eq!(run(23, &mut issues), 0);
+    assert!(issues.edited[1].contains("(near)"));
+
+    assert_eq!(run(12, &mut issues), 0);
+    assert_eq!((issues.created.len(), issues.closed.as_slice()), (1, [41].as_slice()));
+}
+
+#[test]
+fn filing_needs_every_configured_workspace() {
+    let arguments: Vec<String> = ["--repo", ".", "--workspace", ".", "--leaf", "a", "--hub", "b", "--file"].map(str::to_owned).to_vec();
+    assert!(super::parse(&arguments).is_err());
+    let rev: Vec<String> = ["--repo", ".", "--rev", "origin/main", "--file"].map(str::to_owned).to_vec();
+    let parsed = super::parse(&rev).expect("parsed");
+    assert_eq!((parsed.rev.as_deref(), parsed.file), (Some("origin/main"), true));
 }

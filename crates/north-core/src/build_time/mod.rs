@@ -1,4 +1,6 @@
+mod checkout;
 mod config;
+mod issue;
 mod ledger;
 mod measure;
 mod timings;
@@ -11,7 +13,9 @@ use config::Workspace;
 use ledger::{Row, Verdict};
 use measure::{Cargo, RealCargo};
 
-const USAGE: &str = "usage: north code-health build-time --repo PATH [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE]";
+use crate::platform::rolling_issue::{Gh, Tracker};
+
+const USAGE: &str = "usage: north code-health build-time --repo PATH [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE] [--rev REF] [--file]";
 
 #[derive(Debug, Default)]
 struct Options {
@@ -21,16 +25,29 @@ struct Options {
     hub: Option<String>,
     samples: usize,
     ledger: Option<PathBuf>,
+    rev: Option<String>,
+    file: bool,
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    let options = match parse(arguments) {
+    let mut options = match parse(arguments) {
         Ok(options) => options,
         Err(error) => return fail(&error),
     };
     let ledger = options.ledger.clone().unwrap_or_else(default_ledger);
     let host = crate::platform::host::name();
-    match measure_repo(&options, &mut RealCargo, &ledger, &host) {
+    let mut tracker = match options.file.then(|| issue::github_repo(&options.repo)).transpose() {
+        Ok(repo) => repo.map(|repo| Gh::of(&repo, &["tooling", "priority:later"])),
+        Err(error) => return fail(&error),
+    };
+    let checkout = match options.rev.as_deref().map(|rev| checkout::Checkout::detached(&options.repo, rev)).transpose() {
+        Ok(checkout) => checkout,
+        Err(error) => return fail(&error),
+    };
+    if let Some(checkout) = &checkout {
+        options.repo = checkout.path().to_path_buf();
+    }
+    match measure_repo(&options, &mut RealCargo, &ledger, &host, tracker.as_mut().map(|gh| gh as &mut dyn Tracker)) {
         Ok(code) => code,
         Err(error) => fail(&error),
     }
@@ -59,11 +76,13 @@ fn parse(arguments: &[String]) -> Result<Options, String> {
             "--hub" => options.hub = Some(value()?),
             "--samples" => options.samples = value()?.parse().map_err(|_| format!("--samples needs a positive count\n{USAGE}"))?,
             "--ledger" => options.ledger = Some(PathBuf::from(value()?)),
+            "--rev" => options.rev = Some(value()?),
+            "--file" => options.file = true,
             other => return Err(format!("unknown argument {other}\n{USAGE}")),
         }
     }
     options.repo = repo.ok_or(USAGE)?;
-    if options.samples == 0 || ((options.leaf.is_some() || options.hub.is_some()) && options.workspace.is_none()) {
+    if options.samples == 0 || ((options.leaf.is_some() || options.hub.is_some()) && options.workspace.is_none()) || (options.file && options.workspace.is_some()) {
         return Err(USAGE.to_owned());
     }
     Ok(options)
@@ -81,12 +100,13 @@ fn workspaces(options: &Options) -> Result<Vec<Workspace>, String> {
     Ok(vec![Workspace { workspace: name.clone(), leaf, hub, threshold_seconds: found.and_then(|entry| entry.threshold_seconds) }])
 }
 
-fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &str) -> Result<u8, String> {
+fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &str, tracker: Option<&mut dyn Tracker>) -> Result<u8, String> {
     let sha = git(&options.repo, &["rev-parse", "--short=10", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
     let repo_name = options.repo.canonicalize().ok().and_then(|path| repo_label(&path)).unwrap_or_else(|| "unknown".to_owned());
     let rustc = tool_version("rustc");
     let recorded_at = utc_now();
     let mut over = false;
+    let mut boxes = Vec::new();
     for entry in workspaces(options)? {
         let root = options.repo.join(&entry.workspace);
         let times = measure::measure(cargo, &root, &root.join(&entry.leaf), &root.join(&entry.hub), options.samples)?;
@@ -95,8 +115,12 @@ fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &
         ledger::append(ledger, &row)?;
         println!("{}", report(&row));
         over |= verdict == Verdict::Over;
+        boxes.extend(issue::split_box(&row));
     }
     println!("recorded in {}", ledger.display());
+    if let Some(tracker) = tracker {
+        issue::file(tracker, &repo_name, &boxes)?;
+    }
     Ok(u8::from(over))
 }
 

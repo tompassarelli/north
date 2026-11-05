@@ -8,7 +8,8 @@ use super::{Entry, base};
 use crate::platform::process::run_command_within;
 
 pub fn this_host() -> String {
-    if crate::platform::host::name() == "nexus" { "nexus" } else { "laptop" }.to_owned()
+    let name = crate::platform::host::name();
+    if ["nexus", "gex45"].contains(&name.as_str()) { name } else { "laptop".to_owned() }
 }
 
 fn systemctl(arguments: &[&str]) -> Option<std::process::Output> {

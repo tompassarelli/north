@@ -95,3 +95,32 @@ nixos-config, which has none yet, by their owners.
   and `audio`/`mixer` crates, with the `wisp-window` bin on top.
 - makgora controller: the same `sdl3-sys` cost (95 s cold, under 1.1 s warm); no split.
 - wisp relay, makgora-tools, firn: under 2.2 s on every edit; no split.
+
+## Daily measurement and the rolling split issue
+
+gex45 runs `build-time.timer` daily at 4:00 AM (+07) (nixos-config `modules/build-time`, enabled in
+south's gex45 host and registered as south `agents/routines/build-time.md`, placement `gex45`):
+`north code-health build-time --repo ~/code/north/main --rev origin/main --file` under
+`north capacity host run --class heavy`. `--rev` fetches origin and measures a fresh detached checkout
+of origin/main that it removes afterwards, so the main checkout is never edited and every run is cold.
+`--file` keeps one rolling issue per repo, titled "Split a slow Rust workspace in REPO: build time near
+or over its threshold", with one split box per workspace whose leaf-edit `cargo test --no-run` is near
+(75%) or over its threshold. Each run edits the issue's numbers, and the issue closes itself when every
+workspace is back under 75%. Filing starts at near rather than over because the split above is due at
+66 s, 75% of north's 88 s, and a split takes days to land while the loop keeps slowing.
+
+## The north_core unit-test harness, 2026-11-05
+
+One timing on gex45 at origin/main cc77daa347, heavy class, `RUSTC_WRAPPER` unset, with gex45 at a load
+of 20 on 20 threads: after a one-line edit in `code_health/source.rs`,
+`cargo test --no-run -p north-core --lib --timings` took 100 s, all of it the single unit
+`north_core "lib" (test)` (100.1 s, nothing else rebuilt). It is the whole critical path of every
+north-core edit's test build, and the 43.8 s leaf median above is the same unit on a quiet host, so
+contention roughly doubles it.
+
+Kept as one crate for now. The gated number, the quiet-host median, sits at 50% of the threshold. The
+split that would shrink this unit, moving `ops` (41.8k lines) out of north-core, first needs `capacity`,
+`threads`, `health` and `guard` to stop depending on `ops`. That costs more than the time it saves until
+the loop nears 66 s, and the daily run now files that box on its own when it does. If agents keep
+building on a host this loaded, raise the measured class or lower `test_no_run_seconds` rather than
+split earlier.
