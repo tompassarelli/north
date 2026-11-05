@@ -277,3 +277,12 @@ fn a_first_word_line_file_refuses_two_lines_for_one_key_instead_of_keeping_both(
     assert_eq!(merge_lines(base, "a north north-ops\n", base, Identity::FirstWord).unwrap(), "a north north-ops\n");
     assert_eq!(merge_lines(base, "a north\nb north-threads\n", "a north\nb north-threads north-ops\n", Identity::Line).unwrap(), "a north\nb north-threads\nb north-threads north-ops\n");
 }
+
+#[test]
+fn a_first_word_line_file_merges_a_lane_that_inherited_a_duplicate_main_has_since_removed() {
+    let base = "a north\nb north-threads\nb north-threads north-ops\n";
+    let ours = "a north\nb north-threads north-ops\n";
+    let theirs = "a north\nb north-threads\nb north-threads north-ops\nc north\n";
+    assert_eq!(merge_lines(base, ours, theirs, Identity::FirstWord).unwrap(), "a north\nb north-threads north-ops\nc north\n");
+    assert_eq!(merge_lines(base, base, "a north\nb north-threads\nb north-threads north-ops\nc north\n", Identity::FirstWord).unwrap(), "a north\nb north-threads\nb north-threads north-ops\nc north\n");
+}

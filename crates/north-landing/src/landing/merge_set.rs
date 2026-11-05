@@ -38,13 +38,13 @@ pub(crate) enum Identity {
     FirstWord,
 }
 
-impl Identity {
-    fn entry(self, line: &str) -> Entry {
-        match self {
-            Self::Line => line_entry(line),
-            Self::FirstWord => Entry { key: line.split_whitespace().next().unwrap_or_default().to_owned(), text: line.to_owned() },
-        }
-    }
+fn first_word(entry: &Entry) -> &str {
+    entry.text.split_whitespace().next().unwrap_or_default()
+}
+
+fn doubled_first_words(entries: &[Entry]) -> BTreeSet<&str> {
+    let mut seen = BTreeSet::new();
+    entries.iter().map(first_word).filter(|word| !seen.insert(*word)).collect()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -174,7 +174,7 @@ struct LinesFile {
     entries: Vec<Entry>,
 }
 
-fn parse_lines(text: &str, identity: Identity) -> Result<LinesFile, String> {
+fn parse_lines(text: &str) -> Result<LinesFile, String> {
     let mut header = Vec::new();
     let mut entries = Vec::new();
     for line in text.lines() {
@@ -184,14 +184,14 @@ fn parse_lines(text: &str, identity: Identity) -> Result<LinesFile, String> {
         } else if plain {
             return Err("a comment or blank line follows the first entry".to_owned());
         } else {
-            entries.push(identity.entry(line));
+            entries.push(line_entry(line));
         }
     }
     Ok(LinesFile { header, entries })
 }
 
 fn merge_lines(base: &str, ours: &str, theirs: &str, identity: Identity) -> Result<String, String> {
-    let (base, ours, theirs) = (parse_lines(base, identity)?, parse_lines(ours, identity)?, parse_lines(theirs, identity)?);
+    let (base, ours, theirs) = (parse_lines(base)?, parse_lines(ours)?, parse_lines(theirs)?);
     let header = if ours.header == base.header {
         theirs.header
     } else if theirs.header == base.header || theirs.header == ours.header {
@@ -200,6 +200,12 @@ fn merge_lines(base: &str, ours: &str, theirs: &str, identity: Identity) -> Resu
         return Err("both sides edit the leading comments".to_owned());
     };
     let entries = merge_entries(&base.entries, &ours.entries, &theirs.entries)?;
+    if identity == Identity::FirstWord {
+        let inherited = doubled_first_words(&ours.entries);
+        if let Some(word) = doubled_first_words(&entries).into_iter().find(|word| !inherited.contains(word)) {
+            return Err(format!("two lines for {word:?}: both sides map it differently"));
+        }
+    }
     let mut out = String::new();
     for line in header.iter().chain(entries.iter().map(|entry| &entry.text)) {
         out.push_str(line);
