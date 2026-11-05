@@ -3,7 +3,11 @@ use std::io::Read;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::sync::LazyLock;
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use crate::support::template::Template;
 
 const PRIVATE_TERM: &str = "zebra-quokka-7731";
 const DENYLIST: &str = "title = \"safe-push tag test deny-list\"\n[[rules]]\nid = \"fake-private-term\"\ndescription = \"fake private identity term\"\nregex = '''zebra-quokka-7731'''\n";
@@ -12,6 +16,12 @@ fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git").current_dir(dir).args(args).output().unwrap();
     assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
     String::from_utf8(output.stdout).unwrap().trim_end().to_owned()
+}
+
+fn feed(dir: &Path, args: &[&str], input: &str) {
+    let mut child = Command::new("git").current_dir(dir).args(args).stdin(Stdio::piped()).spawn().unwrap();
+    std::io::Write::write_all(&mut child.stdin.take().unwrap(), input.as_bytes()).unwrap();
+    assert!(child.wait().unwrap().success(), "git {args:?}");
 }
 
 fn commit(repo: &Path, path: &str, content: &str, message: &str) {
@@ -30,14 +40,14 @@ struct Fixture {
     template: PathBuf,
 }
 
-impl Fixture {
-    fn new() -> Self {
-        let scratch = tempfile::tempdir().unwrap();
-        let template = scratch.path().join("template");
+static TEMPLATE: LazyLock<Template> = LazyLock::new(|| {
+    Template::build(|template| {
         let (remote, repo) = (template.join("remote.git"), template.join("repo"));
-        std::fs::create_dir_all(&template).unwrap();
-        git(&template, &["init", "-q", "--bare", "remote.git"]);
-        git(&template, &["init", "-q", "-b", "main", "repo"]);
+        git(template, &["init", "-q", "--bare", "remote.git"]);
+        git(template, &["init", "-q", "-b", "main", "repo"]);
+        for (dir, key, value) in [(&remote, "gc.auto", "0"), (&remote, "receive.autogc", "false"), (&repo, "gc.auto", "0"), (&repo, "maintenance.auto", "false")] {
+            git(dir, &["config", key, value]);
+        }
         git(&repo, &["config", "user.name", "safe-push-test"]);
         git(&repo, &["config", "user.email", "safe-push-test@example.invalid"]);
         commit(&repo, "content.txt", "initial\n", "initial");
@@ -46,6 +56,15 @@ impl Fixture {
         git(&repo, &["fetch", "-q", "origin"]);
         git(&repo, &["branch", "-q", "--set-upstream-to=origin/main"]);
         git(&repo, &["commit", "--allow-empty", "-qm", "outgoing"]);
+    })
+});
+
+impl Fixture {
+    fn new() -> Self {
+        let scratch = tempfile::tempdir().unwrap();
+        let template = scratch.path().join("template");
+        TEMPLATE.copy_into(&template);
+        git(&template.join("repo"), &["remote", "set-url", "origin", &template.join("remote.git").to_string_lossy()]);
         Self { _scratch: scratch, template }
     }
 
@@ -103,6 +122,7 @@ fn shims(copy: &Path, case: &Case) -> PathBuf {
 }
 
 const STALL_LIMIT: Duration = Duration::from_secs(60);
+const STALL_SAMPLE: Duration = Duration::from_secs(1);
 
 fn process_tree(root: u32) -> Vec<(u32, u64)> {
     let table: Vec<(u32, u32, u64)> = std::fs::read_dir("/proc")
@@ -137,12 +157,19 @@ fn output_unless_stalled(command: &mut Command, stall_limit: Duration) -> std::p
     };
     let stdout = drain(Box::new(child.stdout.take().unwrap()));
     let stderr = drain(Box::new(child.stderr.take().unwrap()));
+    let root = child.id();
+    let (exited, exit) = std::sync::mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+        let status = child.wait().unwrap();
+        let _ = exited.send(());
+        status
+    });
     let (mut spent, mut idle_since) = (0, Instant::now());
     let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            break status;
+        if exit.recv_timeout(STALL_SAMPLE) != Err(RecvTimeoutError::Timeout) {
+            break waiter.join().unwrap();
         }
-        let tree = process_tree(child.id());
+        let tree = process_tree(root);
         let ticks = tree.iter().map(|row| row.1).sum::<u64>();
         if ticks > spent {
             (spent, idle_since) = (ticks, Instant::now());
@@ -152,7 +179,6 @@ fn output_unless_stalled(command: &mut Command, stall_limit: Duration) -> std::p
             }
             panic!("the process tree used no CPU for {stall_limit:?}: it is deadlocked");
         }
-        std::thread::sleep(Duration::from_millis(200));
     };
     std::process::Output { status, stdout: stdout.join().unwrap(), stderr: stderr.join().unwrap() }
 }
@@ -382,16 +408,22 @@ fn safe_push_tag_scans_an_outgoing_tag_against_an_origin_with_thousands_of_refs(
     let fixture = Fixture::new();
     let repo = fixture.repo();
     let main = git(&repo, &["rev-parse", "origin/main"]);
-    let refs: String = (0..6000).map(|n| format!("create refs/pull/{n}/head {main}\n")).collect();
-    let mut update = Command::new("git").current_dir(fixture.template.join("remote.git")).args(["update-ref", "--stdin"]).stdin(std::process::Stdio::piped()).spawn().unwrap();
-    std::io::Write::write_all(&mut update.stdin.take().unwrap(), refs.as_bytes()).unwrap();
-    assert!(update.wait().unwrap().success());
-    std::fs::create_dir_all(repo.join("bulk")).unwrap();
+    let mut pulls: Vec<String> = (0..6000).map(|n| format!("{main} refs/pull/{n}/head\n")).collect();
+    pulls.sort();
+    let packed_refs = fixture.template.join("remote.git/packed-refs");
+    assert!(!packed_refs.exists());
+    std::fs::write(&packed_refs, format!("# pack-refs with: peeled fully-peeled sorted \n{}", pulls.concat())).unwrap();
+    assert_eq!(git(&fixture.template.join("remote.git"), &["for-each-ref", "--format=%(refname)", "refs/pull/"]).lines().count(), 6000);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    let when = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let message = "outgoing objects\n";
+    let mut stream = format!("commit refs/heads/main\ncommitter safe-push-test <safe-push-test@example.invalid> {when} +0000\ndata {}\n{message}from {head}\n", message.len());
     for n in 0..2000 {
-        std::fs::write(repo.join(format!("bulk/{n}.txt")), format!("{n}\n")).unwrap();
+        let blob = format!("{n}\n");
+        stream.push_str(&format!("M 100644 inline bulk/{n}.txt\ndata {}\n{blob}\n", blob.len()));
     }
-    git(&repo, &["add", "bulk"]);
-    git(&repo, &["commit", "-qm", "outgoing objects"]);
+    feed(&repo, &["fast-import", "--quiet"], &stream);
+    assert_eq!(git(&repo, &["ls-tree", "-r", "--name-only", "HEAD", "bulk/"]).lines().count(), 2000);
     tag(&repo, "release-bulk", "bulk release");
     let observed = run(&fixture.copy("bulk"), &[env!("CARGO_BIN_EXE_north"), "safe-push"], &Case::new(&["--tag", "release-bulk"]));
     assert_eq!(observed.status, 0, "a stalled scan panics before this: {observed:#?}");

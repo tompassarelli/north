@@ -1,9 +1,13 @@
 use north_core::foundation::shim;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::io::Write;
+use std::process::{Child, Command, Stdio};
+use std::sync::LazyLock;
 
 use serde_json::{Value, json};
+
+use crate::support::template::Template;
 
 struct Rig {
     root: PathBuf,
@@ -31,7 +35,7 @@ impl Rig {
         fs::create_dir_all(&stubs).unwrap();
         fs::create_dir_all(home.join("code")).unwrap();
         let config = root.join("gitconfig");
-        fs::write(&config, "[user]\n\tname = fixture\n\temail = fixture@example.invalid\n[init]\n\tdefaultBranch = main\n[advice]\n\tdetachedHead = false\n").unwrap();
+        fs::write(&config, "[user]\n\tname = fixture\n\temail = fixture@example.invalid\n[init]\n\tdefaultBranch = main\n[advice]\n\tdetachedHead = false\n[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n[receive]\n\tautogc = false\n").unwrap();
         let path = format!("{}:{}", stubs.display(), std::env::var("PATH").unwrap());
         let env = [
             ("HOME", home.display().to_string()),
@@ -65,6 +69,12 @@ impl Rig {
         let output = Command::new(real_git()).args(args).current_dir(dir).envs(self.env.iter().filter(|(k, _)| k != "PATH").cloned()).output().unwrap();
         assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
         String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    fn git_stdin(&self, dir: &Path, args: &[&str], input: &str) {
+        let mut child = Command::new(real_git()).args(args).current_dir(dir).envs(self.env.iter().filter(|(k, _)| k != "PATH").cloned()).stdin(Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        assert!(child.wait().unwrap().success(), "git {args:?}");
     }
 
     fn git_ok(&self, dir: &Path, args: &[&str]) -> bool {
@@ -101,9 +111,13 @@ impl Rig {
     }
 }
 
-fn real_git() -> String {
+static REAL_GIT: LazyLock<String> = LazyLock::new(|| {
     let output = Command::new("sh").args(["-c", "command -v git"]).output().unwrap();
     String::from_utf8_lossy(&output.stdout).trim().to_string()
+});
+
+fn real_git() -> String {
+    REAL_GIT.clone()
 }
 
 fn write(path: &Path, text: &str) {
@@ -235,6 +249,8 @@ fn an_orphan_landing_ref_is_pinged_held_through_grace_and_archived_to_the_mirror
 
 const ARCHIVE_FAULT_WRAPPER: &str = "for last; do :; done\ncase \" $* \" in *\" ls-remote origin refs/tags/archive/\"*)\n  if [ -f \"$LANE_GC_FIXTURE/remote-fault\" ]; then\n    case $(cat \"$LANE_GC_FIXTURE/remote-fault\") in\n      missing) exit 0 ;;\n      unavailable) exit 1 ;;\n      mismatch) printf '%s\\t%s\\n' 0000000000000000000000000000000000000000 \"$last\"; exit 0 ;;\n    esac\n  fi ;;\nesac\nexec \"$LANE_GC_REAL_GIT\" \"$@\"\n";
 
+static CLASSIFIED: LazyLock<Template> = LazyLock::new(|| Template::build(Classified::build));
+
 struct Classified {
     rig: Rig,
     main: PathBuf,
@@ -272,9 +288,8 @@ impl Classified {
         path
     }
 
-    fn new(root: &Path) -> Self {
+    fn build(root: &Path) {
         let rig = Rig::new(root, &root.join("home"));
-        rig.fleet(&[("north-parent", None, "north"), ("north-worker", Some("north-parent"), "north"), ("scratch-parent", None, "galileo"), ("scratch-worker", Some("scratch-parent"), "galileo")]);
         rig.stub("gh", "case \"$*\" in\n\"issue view 5 -R tompassarelli/north --json state -q .state\") echo CLOSED ;;\n\"issue view 6 -R tompassarelli/north --json state -q .state\") echo OPEN ;;\n*) exit 1 ;;\nesac\n");
         let main = Self::project(&rig, "north");
         Self::lane(&rig, &main, "equiv", Some("equiv change"));
@@ -292,7 +307,6 @@ impl Classified {
         write(&wip.join("build.log"), "noise\n");
         let held = Self::lane(&rig, &main, "held", None);
         fs::write(held.join("README"), "readme\nedited\n").unwrap();
-        let holder = Holder(Command::new("sleep").arg("300").current_dir(&held).spawn().unwrap());
         rig.git(&main, &["checkout", "-q", "-b", "loose"]);
         write(&main.join("loose.txt"), "loose\n");
         rig.git(&main, &["add", "loose.txt"]);
@@ -304,20 +318,45 @@ impl Classified {
         rig.git(&galileo, &["add", "u.txt"]);
         rig.git(&galileo, &["commit", "-qm", "unique"]);
         rig.git(&galileo, &["checkout", "-q", "main"]);
-        for i in 1..=26 {
-            rig.git(&galileo, &["branch", &format!("lane-{i}"), "unique"]);
-        }
+        let unique = rig.git(&galileo, &["rev-parse", "unique"]);
+        let lanes: String = (1..=26).map(|i| format!("create refs/heads/lane-{i} {unique}\n")).collect();
+        rig.git_stdin(&galileo, &["update-ref", "--stdin"], &lanes);
         rig.git(&galileo, &["branch", "-q", "-D", "unique"]);
         let legacy = rig.git(&main, &["rev-parse", "equiv"]);
         let legacy_tag = format!("archive/north/equiv/{}", &legacy[..12]);
         rig.git(&main, &["tag", &legacy_tag, &legacy]);
         rig.git(&main, &["push", "-q", "origin", &format!("refs/tags/{legacy_tag}")]);
         rig.stub("git", ARCHIVE_FAULT_WRAPPER);
+    }
+
+    fn new(root: &Path) -> Self {
+        CLASSIFIED.copy_into(root);
+        let rig = Rig::new(root, &root.join("home"));
+        Self::relocate(&rig, CLASSIFIED.built_at());
+        rig.fleet(&[("north-parent", None, "north"), ("north-worker", Some("north-parent"), "north"), ("scratch-parent", None, "galileo"), ("scratch-worker", Some("scratch-parent"), "galileo")]);
+        let main = rig.home.join("code/north/main");
+        let holder = Holder(Command::new("sleep").arg("300").current_dir(rig.home.join("code/north/worktrees/held")).spawn().unwrap());
+        let legacy = rig.git(&main, &["rev-parse", "equiv"]);
         let tips = ["equiv", "sup", "wip"].map(|b| rig.git(&main, &["rev-parse", b]));
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 30 * 3600;
         let now = String::from_utf8(Command::new("date").args(["-u", "-d", &format!("@{at}"), "+%FT%TZ"]).output().unwrap().stdout).unwrap().trim().to_string();
         let origin = rig.root.join("origin/north.git");
         Self { rig, main, origin, tips, legacy, now, _holder: holder }
+    }
+
+    fn relocate(rig: &Rig, template: &Path) {
+        let code = rig.home.join("code");
+        let worktrees: Vec<PathBuf> = fs::read_dir(code.join("north/worktrees")).unwrap().map(|entry| entry.unwrap().path()).collect();
+        let admin: Vec<PathBuf> = fs::read_dir(code.join("north/main/.git/worktrees")).unwrap().map(|entry| entry.unwrap().path().join("gitdir")).collect();
+        let configs = ["north", "galileo"].map(|name| code.join(format!("{name}/main/.git/config")));
+        let (from, to) = (template.to_str().unwrap(), rig.root.to_str().unwrap());
+        for file in worktrees.iter().map(|tree| tree.join(".git")).chain(admin).chain(configs) {
+            let text = fs::read_to_string(&file).unwrap();
+            assert!(text.contains(from), "{} names no template path", file.display());
+            write(&file, &text.replace(from, to));
+        }
+        let stale = Command::new("grep").args(["-rlF", from]).arg(&rig.root).output().unwrap();
+        assert!(stale.stdout.is_empty(), "template paths left in the copy: {}", String::from_utf8_lossy(&stale.stdout));
     }
 
     fn run(&self, args: &[&str]) -> String {
