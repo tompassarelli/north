@@ -58,6 +58,8 @@ Commands:
   mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease
   archives REPO NUMBER                           Print the archive tags whose commits reference REPO#NUMBER, with restore commands
   threads ARGV                                  Run a NorthThreads command on the ledger host
+  remote-serve --peer HOST [--repos REPO,...] [--log FILE]  The ssh forced command for a peer key: run SSH_ORIGINAL_COMMAND only if the allowlist and the peer's guards admit it, exit 126 on a refusal, and log one row per call
+  remote-serve audit --peer HOST [--log FILE] [--keys FILE]  Count a peer's logged calls and refusals and print its key's days to expiry-time from authorized_keys
   cloud [list|events|sweep|send|wait|collect|land|reap|launch]  Launch, read, message, wait on, land, reap and sweep Anthropic cloud sessions
   dispatch [--dry-run]                          Launch ready makgora and wisp boxes on every free worker slot
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises

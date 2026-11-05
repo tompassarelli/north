@@ -56,7 +56,11 @@ enum Input {
 }
 
 pub fn run(arguments: &[String], fleet: Arc<dyn outside::FleetView>) -> u8 {
-    let Some(client) = ambient_client(fleet) else {
+    run_in(arguments, ambient_env(), fleet)
+}
+
+pub fn run_in(arguments: &[String], env: BTreeMap<String, String>, fleet: Arc<dyn outside::FleetView>) -> u8 {
+    let Some(client) = client_in(env, fleet) else {
         eprintln!("NorthThreads: no home directory");
         return 1;
     };
@@ -113,10 +117,15 @@ fn unread_fleet() -> Arc<dyn outside::FleetView> {
     Arc::new(outside::Unread)
 }
 
+pub fn ambient_env() -> BTreeMap<String, String> {
+    std::env::vars_os().filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?))).collect()
+}
+
 fn ambient_client(fleet: Arc<dyn outside::FleetView>) -> Option<Client> {
-    let env: BTreeMap<String, String> = std::env::vars_os()
-        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
-        .collect();
+    client_in(ambient_env(), fleet)
+}
+
+fn client_in(env: BTreeMap<String, String>, fleet: Arc<dyn outside::FleetView>) -> Option<Client> {
     let home = env.get("HOME").cloned()?;
     Some(Client::new(Path::new(&home), env, vec!["ssh".into()], vec![local_threads()], fleet))
 }

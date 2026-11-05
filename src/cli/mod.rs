@@ -17,6 +17,9 @@ mod hook_stats;
 mod ledger;
 mod orders;
 mod probe_account;
+mod remote_serve;
+#[cfg(test)]
+mod remote_serve_tests;
 mod send;
 mod safe_push_result;
 mod session;
@@ -59,6 +62,7 @@ enum Command {
     GuardLanguage,
     ContractProbe(Vec<String>),
     Grounding(Vec<String>),
+    RemoteServe(Vec<String>),
 }
 
 const CLI_HELP: &str = include_str!("help.txt");
@@ -113,6 +117,7 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("health", |_, rest| Command::Health(rest)),
     ("contract-probe", |_, rest| Command::ContractProbe(rest)),
     ("grounding", |_, rest| Command::Grounding(rest)),
+    ("remote-serve", |_, rest| Command::RemoteServe(rest)),
 ];
 
 fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
@@ -204,6 +209,10 @@ fn dispatch(command: Command) -> ExitCode {
         Command::ContractProbe(arguments) => in_runtime(async move {
             contract_probe::run(&arguments, probe_account::invocation).await.map(ExitCode::from)
         }),
+        Command::RemoteServe(arguments) => match remote_serve::run(&arguments) {
+            Ok(code) => ExitCode::from(code),
+            Err(error) => failure(error),
+        },
         Command::Grounding(arguments) => in_runtime(async move {
             grounding::main(&arguments, &grounded_session).map(|code| ExitCode::from(code as u8))
         }),
