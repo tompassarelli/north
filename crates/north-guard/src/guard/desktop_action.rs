@@ -80,7 +80,7 @@ fn active() -> bool {
         .is_some_and(|unit| unit["permission"] == "on" && unit["active"] == true)
         && matches.next().is_none()
 }
-// run-bounded gives a PID namespace over the host /proc, so getppid() cannot be looked up in /proc.
+// north run-bounded gives a PID namespace over the host /proc, so getppid() cannot be looked up in /proc.
 fn parent_of_self() -> Option<u32> {
     Some(stat_fields("/proc/self/stat")?.0)
 }

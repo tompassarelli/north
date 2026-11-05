@@ -28,7 +28,7 @@ fn a_refusal_names_job_run_notify_and_monitor_and_a_background_loop_passes() {
         Verdict::Deny(reason) => reason,
         other => panic!("{other:?}"),
     };
-    assert!(refused.contains("job-run --notify") && refused.contains("Monitor"), "{refused}");
+    assert!(refused.contains("north job-run --notify") && refused.contains("Monitor"), "{refused}");
     assert!(matches!(verdict(&input("sleep 300", Some(120000), false)), Verdict::Deny(_)));
     assert!(matches!(verdict(&input("until test -f x; do sleep 5; done", None, true)), Verdict::Allow));
     assert!(matches!(verdict(&input("sleep 300", Some(30000), false)), Verdict::Allow));
@@ -83,7 +83,7 @@ fn a_refusal_quotes_the_measured_p75_and_advises_by_it() {
     let slow = refuse("until ! pgrep -f 'x'; do sleep 30; done; cargo build");
     assert!(slow.contains("`cargo build` has a measured p75 of 300 s over 3 runs") && slow.contains("end your turn"), "{slow}");
     let thin = refuse("cargo clippy; sleep 300");
-    assert!(!thin.contains("p75") && thin.contains("job-run --notify"), "{thin}");
+    assert!(!thin.contains("p75") && thin.contains("north job-run --notify"), "{thin}");
     assert!(!refuse("sleep 300").contains("p75"));
     assert!(decide_with("cargo test && sleep 20", f64::INFINITY, &capacity).is_none());
 }

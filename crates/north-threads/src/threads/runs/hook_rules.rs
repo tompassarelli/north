@@ -34,7 +34,7 @@ use Class::{Advice, Mechanical, NeedsInput, Outside, TrueBlock};
 
 const WAIT: &str = "workers: Run anything that may take over about 45 seconds in the background, because a foreground wait delays every message to you.";
 const LANE: &str = "repo-safety: edit, build and commit only in a lane worktree (git worktree add ~/code/<project>/worktrees/NAME); main is never touched.";
-const BOUNDED: &str = "repo-safety: start a detached or background child only as `run-bounded <duration> -- <command>`.";
+const BOUNDED: &str = "repo-safety: start a detached or background child only as `north run-bounded <duration> -- <command>`.";
 const FACETS: &str = "workers: a brief declares Category, Spec, Scope, Surface and Verify with the ledger's exact values.";
 const CAPACITY: &str = "machine-capacity: run builds, full suites and renders through `machine-capacity run`.";
 

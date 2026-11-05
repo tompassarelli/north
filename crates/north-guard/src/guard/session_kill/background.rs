@@ -92,7 +92,7 @@ fn wrap(chars: &[char], segment: &[Piece], background: bool) -> Option<Option<(u
         .count();
     let command = values.get(assigned)?;
     let env = if assigned > 0 { "env" } else { "" };
-    let prefix = format!("run-bounded {BOUND} --");
+    let prefix = format!("north run-bounded {BOUND} --");
     let start = segment[0].start;
     if shape == "nohup" && command == "nohup" {
         let assignments = sources[..assigned].join(" ");
@@ -127,5 +127,5 @@ fn group_edit(chars: &[char], open: usize, close: usize) -> Option<(usize, usize
         }
     }
     let quoted = body.trim().replace('\'', "'\"'\"'");
-    Some((open, close, format!("run-bounded {BOUND} -- bash -c '{quoted}'")))
+    Some((open, close, format!("north run-bounded {BOUND} -- bash -c '{quoted}'")))
 }

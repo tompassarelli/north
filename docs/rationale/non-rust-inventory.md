@@ -30,7 +30,7 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 - Already gone from `origin/main` before this change: dep-gate, provenance, convo, flow, report (Rust: `north dep-gate`, `provenance`, `convo`, `flow`, `report`), and the old `bin/follows-release` script itself.
 - Still in the tree, with the live caller named:
   - `bin/follows-release.lib.sh` and its three `.test.sh` files drive `bin/safe-push`, which calls the Rust `north follows-release`; they leave with the safe-push port (landing-train B18).
-  - `bin/run-bounded` and `bin/job-run` were never ported, despite the north#83 tick. Deployed units name `job-run`, and the session-kill guard rewrites agent commands to `run-bounded`.
+  - `bin/job-run` is ported as `north job-run` but stays until the nixos-config units that name it switch to the verb on every host; `bin/run-bounded` is ported as `north run-bounded` and deleted.
 
 ## Inventory
 
@@ -70,7 +70,7 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/gh-app-token | 90 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | Bun TS signing an RS256 JWT with node:crypto; Rust has rsa/jsonwebtoken |
 | bin/gh-app-token.test.sh | 93 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | test of gh-app-token |
 | bin/gh-as-app | 4 | stay | 4-line glue: runs gh with the token printed by gh-app-token |
-| bin/job-run | 86 | port: north#88 box "run-bounded and job-run" (family: landing path, north#83) | never ported; deployed systemd units name bin/job-run (nixos-config modules/job-run, delivery-liveness, code-health-review, worker-ledger), so the nixos-config unit change lands first; tests/job_run.rs drives it |
+| bin/job-run | 86 | port: north#88 box "run-bounded and job-run" (family: landing path, north#83) | ported as `north job-run`; the script stays until the nixos-config units switch to the verb on every host (north#88 box "run-bounded and job-run"); deployed systemd units name bin/job-run (nixos-config modules/job-run, delivery-liveness, code-health-review, worker-ledger), so the nixos-config unit change lands first; tests/job_run.rs drives it |
 | bin/land-shell | 11 | stay | workflow-free 10-line wrapper that runs a land-check command inside depbox (and nix develop with --dev); used by .safe-push, bin/head-north and red_check.rs; glue |
 | bin/mutant | 3 | stay | 3-line exec of `north mutant`; three skills document the bare `mutant record` command; delete when nixos-config provides the wrapper |
 | bin/nix | 14 | stay | same admission shadow for nix |
@@ -78,8 +78,6 @@ Searched with `rg -l NAME` across north, south and nixos-config, decision record
 | bin/pace-control | 3 | stay | 3-line exec of `north pace sample`; nixos-config modules/pace-enforcement/default.nix:39 names ${northBin}/pace-control, so the nixos-config change lands before deletion |
 | bin/red-main-notify | 40 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | called by `north flow`; state read by calibration/rework.rs |
 | bin/red-main-notify.check.sh | 27 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | wrapped by tests/red_main_notify.rs; becomes a cargo test |
-| bin/run-bounded | 79 | port: north#88 box "run-bounded and job-run" (family: landing path, north#83) | never ported despite the north#83 tick; PATH name rewritten into agent commands by session-kill guard and named by deployed units; port as `north run-bounded` with the PATH name provided by nixos-config |
-| bin/run-bounded.test.sh | 75 | port: north#88 box "run-bounded and job-run" (family: landing path, north#83) | machine-bound test (harness/machine-bound-tests) |
 | bin/safe-push | 2452 | port: landing-train B18 (north#76, north#88 land-check loop box) | a planner is decomposing it; do not edit |
 | bin/safe-push.test.sh | 2844 | port: landing-train B18 (north#76) | shell tests of the shell landing path; they move to cargo test with the train loop |
 | bin/supply-alert | 7 | stay | 7-line glue: one ssh exec to the nexus alert host; callers in Rust (supply_chain.rs, lane-gc) and the nixos-config supply-chain-scan unit |

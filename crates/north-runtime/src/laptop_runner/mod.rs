@@ -67,7 +67,6 @@ pub struct Inputs {
     pub logs: PathBuf,
     pub power_supply: PathBuf,
     pub ledgers: Vec<Ledger>,
-    pub job_run: String,
     pub north: String,
     pub bun: String,
     pub agents: String,
@@ -85,7 +84,6 @@ impl Inputs {
             logs: set("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from).join("laptop-runner"),
             power_supply: set("AGENT_LOAD_POWER_SUPPLY").map_or_else(|| "/sys/class/power_supply".into(), PathBuf::from),
             ledgers: ledgers(shlex_split(&set("LAPTOP_THREADS").unwrap_or_else(|| "threads".into())).unwrap_or_default(), config().ok().as_ref(), &crate::platform::host::name(), "ssh", &std::env::vars().collect()),
-            job_run: "job-run".into(),
             north,
             bun: "bun".into(),
             agents: "agents".into(),
@@ -208,7 +206,8 @@ fn run_job(inputs: &Inputs, ledger: &Ledger, job: &Value) {
             return;
         }
     };
-    let child = Command::new(&inputs.job_run)
+    let child = Command::new(&inputs.north)
+        .arg("job-run")
         .arg(&name)
         .arg("--")
         .args(&command)

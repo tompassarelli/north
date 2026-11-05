@@ -52,7 +52,7 @@ fleet_spool north-fleet
 fleet_wait_rows north-fleet
 golden_path north-fleet north-landing
 heavy_command_hook north-guard
-job_run north-threads north-fleet
+job_run north-ops north-threads north-fleet
 land_actions north-landing
 land_candidate_indexes north-landing
 land_checks north-landing
@@ -92,6 +92,7 @@ readme_links north
 red_main_notify north
 registry north
 resident_cap north-dispatch
+run_bounded north-ops north-capacity-host
 runtime_update north-runtime
 safe_push_land_branch north-landing
 safe_push_tag north-landing

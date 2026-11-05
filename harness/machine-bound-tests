@@ -1,3 +1,2 @@
 # Tests that need ~/code checkouts, a systemd user manager, /etc/codex/hooks/runtime, live agent state or shellcheck 0.11, so GitHub Actions cannot run them.
-bin/run-bounded.test.sh
 harness/skills/machine-capacity/scripts/machine-capacity.test.sh

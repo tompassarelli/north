@@ -31,7 +31,6 @@ fn scratch() -> tempfile::TempDir {
     fs::create_dir_all(root.join("bin")).unwrap();
     fs::create_dir_all(root.join(".config/threads")).unwrap();
     fs::write(root.join(".config/threads/remote"), "ledger-host\n").unwrap();
-    shim::copy_executable(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/job-run"), root.join("bin/job-run"));
     symlink(env!("CARGO_BIN_EXE_north"), root.join("bin/north")).unwrap();
     shim::write_script(&root.join("bin/ssh"), FAKE_SSH);
     scratch
@@ -62,10 +61,10 @@ fn job_run_keeps_the_exit_code_and_spools_the_finish_while_the_ledger_host_is_do
     let scratch = scratch();
     let root = scratch.path();
     fs::write(root.join("down"), "").unwrap();
-    assert_eq!(run(root, "job-run", &["nightly", "--", "sh", "-c", "exit 3"]), 3);
+    assert_eq!(run(root, "north", &["job-run", "nightly", "--", "sh", "-c", "exit 3"]), 3);
     fs::remove_file(root.join("down")).unwrap();
     fs::remove_file(root.join("ssh.log")).unwrap();
-    assert_eq!(run(root, "job-run", &["nightly", "--", "true"]), 0);
+    assert_eq!(run(root, "north", &["job-run", "nightly", "--", "true"]), 0);
     assert_eq!(run(root, "north", &["threads", "list"]), 0);
     let delivered: Vec<String> = ssh_log(root).into_iter().filter(|line| line.contains("--finished")).collect();
     assert_eq!(delivered.len(), 2, "{delivered:?}");
@@ -79,7 +78,7 @@ fn job_run_starts_its_job_and_returns_with_it_while_the_start_record_stalls() {
     let root = scratch.path();
     fs::write(root.join("stall-start"), "").unwrap();
     let begun = Instant::now();
-    assert_eq!(run(root, "job-run", &["fleet-tick", "--", "sh", "-c", "sleep 1; exit 4"]), 4);
+    assert_eq!(run(root, "north", &["job-run", "fleet-tick", "--", "sh", "-c", "sleep 1; exit 4"]), 4);
     assert!(begun.elapsed() < Duration::from_secs(6), "{:?}", begun.elapsed());
     assert!(ssh_log(root).iter().any(|line| line.contains("job-run fleet-tick") && line.ends_with("--rc 4")), "{:?}", ssh_log(root));
 }
@@ -91,51 +90,61 @@ fn tool(name: &str) -> std::path::PathBuf {
         .unwrap_or_else(|| panic!("{name} not on PATH"))
 }
 
+fn tools_without_bash(root: &Path, names: &[&str]) -> std::path::PathBuf {
+    let tools = root.join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    for name in names {
+        symlink(tool(name), tools.join(name)).unwrap();
+    }
+    symlink(root.join("bin/ssh"), tools.join("ssh")).unwrap();
+    tools
+}
+
+fn north_job_run(root: &Path, tools: &Path, arguments: &[&str]) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+    command.arg("job-run").args(arguments).current_dir(root).env("HOME", root).env_remove("XDG_STATE_HOME").env_remove("THREADS_DB").env_remove("XDG_RUNTIME_DIR").env("PATH", tools);
+    command
+}
+
+fn spooled(root: &Path) -> Vec<north_core::fleet::store::FleetRow> {
+    Spool::at(&root.join(".local/state/north/fleet")).pending().unwrap()
+}
+
+fn await_exit(root: &Path) -> Vec<north_core::fleet::store::FleetRow> {
+    let begun = Instant::now();
+    loop {
+        let rows = spooled(root);
+        if rows.iter().any(|row| row.kind == RowKind::JobExit) {
+            return rows;
+        }
+        assert!(begun.elapsed() < Duration::from_secs(20), "the job never sent its exit: {rows:?}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 #[test]
 fn job_run_records_the_finish_when_the_callers_path_has_no_bash() {
     let scratch = scratch();
     let root = scratch.path();
-    let tools = root.join("tools");
-    fs::create_dir_all(&tools).unwrap();
-    for name in ["env", "timeout", "dirname", "readlink", "hostname", "id", "cat", "true"] {
-        symlink(tool(name), tools.join(name)).unwrap();
-    }
-    fs::remove_file(root.join("bin/north")).unwrap();
-    shim::write_executable(&root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n");
-    let mut command = Command::new(tool("bash"));
-    command.arg(root.join("bin/job-run")).args(["checks", "--", "true"]).env("HOME", root).env("PATH", &tools);
-    let mut child = {
+    let tools = tools_without_bash(root, &["timeout", "true"]);
+    let status = {
+        let mut command = north_job_run(root, &tools, &["checks", "--", "true"]);
         let _gate = fork_gate();
-        command.spawn().unwrap()
+        command.spawn().unwrap().wait().unwrap()
     };
-    let status = child.wait().unwrap();
     assert_eq!(status.code(), Some(0));
-    let log = fs::read_to_string(root.join("north.log")).unwrap_or_default();
-    assert!(log.lines().any(|line| line.contains("job-run checks") && line.contains("--finished") && line.ends_with("--rc 0")), "{log:?}");
+    assert!(ssh_log(root).iter().any(|line| line.contains("job-run checks") && line.contains("--finished") && line.ends_with("--rc 0")), "{:?}", ssh_log(root));
 }
 
 #[test]
 fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_to_the_starting_session_without_bash_on_path() {
     let scratch = scratch();
     let root = scratch.path();
-    let tools = root.join("tools");
-    fs::create_dir_all(&tools).unwrap();
-    for name in ["env", "timeout", "dirname", "readlink", "hostname", "id", "cat", "mkdir", "setsid", "sh", "sleep", "rm"] {
-        symlink(tool(name), tools.join(name)).unwrap();
-    }
-    fs::remove_file(root.join("bin/north")).unwrap();
-    shim::write_executable(&root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n");
+    let tools = tools_without_bash(root, &["timeout", "setsid", "sh", "sleep"]);
     let release = root.join("release");
     let job = format!("until [ -f {} ]; do sleep 0.1; done; echo \"finished with ${{JOB_RUN_LOG:-no log}} set\"; exit 3", release.display());
-    let mut command = Command::new(tool("bash"));
-    command
-        .arg(root.join("bin/job-run"))
-        .args(["--notify", "soak", "--", "sh", "-c", &job])
-        .env("HOME", root)
-        .env_remove("XDG_STATE_HOME")
-        .env("NORTH_FLEET_SESSION", "c-test")
-        .env("PATH", &tools)
-        .stdout(std::process::Stdio::piped());
+    let mut command = north_job_run(root, &tools, &["--notify", "soak", "--", "sh", "-c", &job]);
+    command.env("NORTH_FLEET_SESSION", "c-test").stdout(std::process::Stdio::piped());
     let mut child = {
         let _gate = fork_gate();
         command.spawn().unwrap()
@@ -156,61 +165,43 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
     assert_eq!(status.code(), Some(0), "{said}");
     assert!(said.contains("fleet message to c-test"), "{said}");
     fs::write(&release, "").unwrap();
-    let log = root.join("north.log");
-    let begun = Instant::now();
-    let sent = loop {
-        let text = fs::read_to_string(&log).unwrap_or_default();
-        if let Some(line) = text.lines().find(|line| line.starts_with("fleet spool job exit")) {
-            break line.to_owned();
-        }
-        assert!(begun.elapsed() < Duration::from_secs(20), "{text:?}");
-        std::thread::sleep(Duration::from_millis(100));
-    };
-    assert!(sent.starts_with("fleet spool job exit c-test soak@") && sent.contains(" 3 job-run: soak exited 3; output in "), "{sent}");
-    let job_log = sent.rsplit(' ').next().unwrap();
+    let rows = await_exit(root);
+    let exit = rows.last().unwrap();
+    assert!(exit.to == "c-test" && exit.job.as_ref().is_some_and(|job| job.key.starts_with("soak@") && job.exit == Some(3)), "{exit:?}");
+    assert!(exit.text.starts_with("job-run: soak exited 3; output in "), "{}", exit.text);
+    let job_log = exit.text.rsplit(' ').next().unwrap();
     assert!(fs::read_to_string(job_log).unwrap().contains("finished with no log set"), "{job_log}");
-    let text = fs::read_to_string(&log).unwrap();
-    assert!(text.lines().any(|line| line.starts_with("fleet spool job start c-test soak@") && line.contains(" job-run: soak started; output in ")), "{text:?}");
-    assert!(text.lines().any(|line| line.starts_with("fleet spool job beats c-test soak@") && line.contains(" 60 ")), "{text:?}");
-    assert!(text.lines().any(|line| line.contains("job-run soak") && line.ends_with("--rc 3")), "{text:?}");
+    assert!(rows.iter().any(|row| row.kind == RowKind::JobStart && row.text.starts_with("job-run: soak started; output in ")), "{rows:?}");
+    assert!(ssh_log(root).iter().any(|line| line.contains("job-run soak") && line.ends_with("--rc 3")), "{:?}", ssh_log(root));
 }
 
 #[test]
 fn job_run_notify_runs_its_job_in_its_own_systemd_scope_so_the_callers_unit_stopping_does_not_kill_it() {
     let scratch = scratch();
     let root = scratch.path();
-    let tools = root.join("tools");
-    fs::create_dir_all(&tools).unwrap();
-    for name in ["env", "timeout", "dirname", "readlink", "hostname", "id", "cat", "mkdir", "setsid", "sh", "sleep", "rm", "true"] {
-        symlink(tool(name), tools.join(name)).unwrap();
-    }
+    let tools = tools_without_bash(root, &["timeout", "setsid", "sh", "sleep", "true"]);
     shim::write_script(&tools.join("systemd-run"), "printf '%s\\n' \"$*\" >> \"$HOME/systemd-run.log\"\nwhile [ \"${1#--}\" != \"$1\" ]; do shift; done\nexec \"$@\"\n");
-    fs::remove_file(root.join("bin/north")).unwrap();
-    shim::write_executable(&root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n");
-    let mut command = Command::new(tool("bash"));
-    command.arg(root.join("bin/job-run")).args(["--notify", "scoped", "--", "true"]).env("HOME", root).env_remove("XDG_STATE_HOME").env("NORTH_FLEET_SESSION", "c-test").env("PATH", &tools);
-    let mut child = {
+    let status = {
+        let mut command = north_job_run(root, &tools, &["--notify", "scoped", "--", "true"]);
+        command.env("NORTH_FLEET_SESSION", "c-test");
         let _gate = fork_gate();
-        command.spawn().unwrap()
+        command.spawn().unwrap().wait().unwrap()
     };
-    assert_eq!(child.wait().unwrap().code(), Some(0));
-    let begun = Instant::now();
-    while !fs::read_to_string(root.join("north.log")).unwrap_or_default().contains("job-run: scoped exited 0") {
-        assert!(begun.elapsed() < Duration::from_secs(20), "the scoped job never sent its exit");
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    assert_eq!(status.code(), Some(0));
+    let rows = await_exit(root);
+    assert!(rows.last().unwrap().text.starts_with("job-run: scoped exited 0"), "{rows:?}");
     let scopes = fs::read_to_string(root.join("systemd-run.log")).unwrap();
-    assert!(scopes.lines().any(|line| line.starts_with("--user --scope --quiet --collect ") && line.contains("bin/job-run --notify scoped -- true")), "{scopes}");
+    assert!(scopes.lines().any(|line| line.starts_with("--user --scope --quiet --collect ") && line.contains(" job-run --notify scoped -- true") && line.contains("--slice=agent.slice")), "{scopes}");
 }
 
 #[test]
 fn job_run_notify_spools_a_start_with_a_three_minute_lease_a_beat_each_interval_and_the_exit_with_its_code_each_addressed_to_the_session() {
     let scratch = scratch();
     let root = scratch.path();
-    let mut command = Command::new(root.join("bin/job-run"));
+    let mut command = Command::new(root.join("bin/north"));
     command
-        .args(["--notify", "soak", "--", "sh", "-c", "sleep 3.5; exit 3"])
         .current_dir(root)
+        .args(["job-run", "--notify", "soak", "--", "sh", "-c", "sleep 3.5; exit 3"])
         .env("HOME", root)
         .env_remove("XDG_STATE_HOME")
         .env_remove("THREADS_DB")

@@ -50,28 +50,28 @@ const REWRITES: &[(&str, &str)] = &[
     ("find src -name '*.rs'", "fd -e rs . src"),
     ("git push origin HEAD:main", "safe-push --to main"),
     ("cd x && git push -u origin HEAD:land-1 2>&1", "cd x && safe-push --to land-1 2>&1"),
-    ("bun /tmp/task.mjs", "run-bounded 24h -- bun /tmp/task.mjs"),
-    ("nohup bun run a > /tmp/a.log 2>&1 &", "run-bounded 24h -- bun run a > /tmp/a.log 2>&1 &"),
-    ("A=1 nohup bun run a &", "run-bounded 24h -- env A=1 bun run a &"),
-    ("(cd ts && nohup bun install > /tmp/i.log 2>&1 &)", "(cd ts && run-bounded 24h -- bun install > /tmp/i.log 2>&1 &)"),
+    ("bun /tmp/task.mjs", "north run-bounded 24h -- bun /tmp/task.mjs"),
+    ("nohup bun run a > /tmp/a.log 2>&1 &", "north run-bounded 24h -- bun run a > /tmp/a.log 2>&1 &"),
+    ("A=1 nohup bun run a &", "north run-bounded 24h -- env A=1 bun run a &"),
+    ("(cd ts && nohup bun install > /tmp/i.log 2>&1 &)", "(cd ts && north run-bounded 24h -- bun install > /tmp/i.log 2>&1 &)"),
     (
         "(cd /tmp && echo hi > log; echo \"exit $?\" >> log) & sleep 1",
-        "run-bounded 24h -- bash -c 'cd /tmp && echo hi > log; echo \"exit $?\" >> log' & sleep 1",
+        "north run-bounded 24h -- bash -c 'cd /tmp && echo hi > log; echo \"exit $?\" >> log' & sleep 1",
     ),
     (
         "cat > /tmp/x.ts <<'EOF'\nconsole.log(1)\nEOF\nbun /tmp/x.ts",
-        "cat > /tmp/x.ts <<'EOF'\nconsole.log(1)\nEOF\nrun-bounded 24h -- bun /tmp/x.ts",
+        "cat > /tmp/x.ts <<'EOF'\nconsole.log(1)\nEOF\nnorth run-bounded 24h -- bun /tmp/x.ts",
     ),
-    ("cd x && (bun a; bun b) &", "cd x && run-bounded 24h -- bash -c 'bun a; bun b' &"),
+    ("cd x && (bun a; bun b) &", "cd x && north run-bounded 24h -- bash -c 'bun a; bun b' &"),
     ("grep -rn foo --include=*.rs src", "rg -n -g '*.rs' foo src"),
-    ("cd /tmp && sleep 600 &", "cd /tmp && run-bounded 24h -- sleep 600 &"),
+    ("cd /tmp && sleep 600 &", "cd /tmp && north run-bounded 24h -- sleep 600 &"),
     (
         "FOO=1 bun run dev > /tmp/dev.log 2>&1 &",
-        "run-bounded 24h -- env FOO=1 bun run dev > /tmp/dev.log 2>&1 &",
+        "north run-bounded 24h -- env FOO=1 bun run dev > /tmp/dev.log 2>&1 &",
     ),
     (
         "bun run a & bun run b &",
-        "run-bounded 24h -- bun run a & run-bounded 24h -- bun run b &",
+        "north run-bounded 24h -- bun run a & north run-bounded 24h -- bun run b &",
     ),
 ];
 const REFUSALS: &[&str] = &[

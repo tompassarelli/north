@@ -17,7 +17,7 @@ const TEARDOWN_PREFIXES: &[&str] = &[
 const LAUNCH_PREFIXES: &[&str] = &["env", "exec", "do", "then", "else", "!", "{"];
 const HOST_RESTART: &str = "firn host restart-user-manager";
 const UNMANAGED: &str = "unmanaged background job";
-const REWRITE_NOTE: &str = "session-kill-guard: wrapped the background `&` job in `run-bounded 24h --` so the owner reaps it. Write `run-bounded <duration> -- <command> &` yourself next time.";
+const REWRITE_NOTE: &str = "session-kill-guard: wrapped the background `&` job in `north run-bounded 24h --` so the owner reaps it. Write `north run-bounded <duration> -- <command> &` yourself next time.";
 
 static REDIRECTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\d*(?:<>|>>|<<|>|<|&>)").unwrap());
@@ -121,7 +121,7 @@ fn hit_reason(hit: &Hit) -> String {
             "BLOCKED: cross-session `{tool} {operands}` — a pattern or process name matches every session's processes on this machine, not just yours (bracket form only stops a pattern matching itself), and such a kill already ended the proxy's landing waiter and every session's cargo test. Signal only what you started: `pkill --cgroup CGROUP PATTERN` scoped to your own cgroup from /proc/self/cgroup, `kill PID` with a recorded pid you saved when you started the process, or `pkill -F pidfile` with a pid file you wrote."
         ),
         Hit::Detached(shape) => format!(
-            "BLOCKED: {shape} would detach an agent child from its owner. Use `run-bounded <duration> -- <command>`; the wrapper has a 24h maximum, owns a transient cgroup plus PID namespace, reaps every descendant when the owner ends, and gives all background jobs a shared 48G hard ceiling."
+            "BLOCKED: {shape} would detach an agent child from its owner. Use `north run-bounded <duration> -- <command>`; the wrapper has a 24h maximum, owns a transient cgroup plus PID namespace, reaps every descendant when the owner ends, and gives all background jobs a shared 48G hard ceiling."
         ),
     }
 }
@@ -408,7 +408,7 @@ fn launch(words: &[String], background: bool) -> Option<String> {
         Some(name @ ("bun" | "node")) if args.iter().any(|arg| temporary_script(arg)) => {
             Some(format!("direct {name} /tmp script"))
         }
-        Some("run-bounded") => None,
+        Some("north") if args.first().map(String::as_str) == Some("run-bounded") => None,
         _ if background => Some(UNMANAGED.into()),
         _ => None,
     }

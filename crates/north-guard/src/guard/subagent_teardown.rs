@@ -86,6 +86,8 @@ pub fn refusal_in(input: &HookInput, fleet: bool) -> Option<String> {
     Some(if reported { report_refusal(&names, fleet) } else { watcher_refusal(&names, fleet) })
 }
 
+pub(super) const NOTIFY: &str = "north job-run --notify";
+
 fn terminal(text: &str) -> bool {
     let text = text.trim_start();
     TERMINAL_REPORTS.iter().any(|opening| text.starts_with(opening))
@@ -93,18 +95,18 @@ fn terminal(text: &str) -> bool {
 
 fn report_refusal(names: &str, fleet: bool) -> String {
     let advice = if fleet {
-        "TaskStop each, then end your turn; if you still need one's result, do not report yet, and run work that must outlive you as `job-run --notify`."
+        format!("TaskStop each, then end your turn; if you still need one's result, do not report yet, and run work that must outlive you as `{NOTIFY}`.")
     } else {
-        "TaskStop each, then end your turn; if you still need one's result, do not report yet."
+        "TaskStop each, then end your turn; if you still need one's result, do not report yet.".to_owned()
     };
     format!("Your report is final but these background tasks still run: {names}. {advice}")
 }
 
 fn watcher_refusal(names: &str, fleet: bool) -> String {
     let advice = if fleet {
-        "TaskStop each watcher whose events you no longer need or give it an exit condition, and run work that must outlive you as `job-run --notify`. Builds, tests and landings may keep running: you resume when they complete."
+        format!("TaskStop each watcher whose events you no longer need or give it an exit condition, and run work that must outlive you as `{NOTIFY}`. Builds, tests and landings may keep running: you resume when they complete.")
     } else {
-        "TaskStop each watcher whose events you no longer need or give it an exit condition. Builds, tests and landings may keep running: you resume when they complete."
+        "TaskStop each watcher whose events you no longer need or give it an exit condition. Builds, tests and landings may keep running: you resume when they complete.".to_owned()
     };
     format!("You still have watchers running with no exit condition: {names}. {advice}")
 }

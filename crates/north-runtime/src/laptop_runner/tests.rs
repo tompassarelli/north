@@ -32,8 +32,7 @@ impl Rig {
         let base = root.path();
         fs::write(base.join("queue.txt"), jobs.iter().map(|job| format!("{job}\n")).collect::<String>()).unwrap();
         script(&base.join("threads.sh"), THREADS.strip_prefix("#!/bin/sh\n").unwrap());
-        script(&base.join("north.sh"), &format!("cat {}/state.json 2>/dev/null\n", base.display()));
-        script(&base.join("job-run.sh"), "shift 2\nexec \"$@\"\n");
+        script(&base.join("north.sh"), &format!("[ \"$1\" = job-run ] && {{ shift 3; exec \"$@\"; }}\ncat {}/state.json 2>/dev/null\n", base.display()));
         let inputs = Inputs {
             placement: "laptop".into(),
             poll: Duration::from_millis(200),
@@ -41,7 +40,6 @@ impl Rig {
             logs: base.join("logs"),
             power_supply: base.join("power"),
             ledgers: vec![Ledger { host: None, command: vec![base.join("threads.sh").display().to_string()] }],
-            job_run: base.join("job-run.sh").display().to_string(),
             north: base.join("north.sh").display().to_string(),
             bun: "false".into(),
             agents: "false".into(),
@@ -85,7 +83,7 @@ fn with_the_ledger_host_unreachable_the_cached_available_state_keeps_the_runner_
     let rig = Rig::new(&[job("7", &["echo", "u"])]);
     fs::create_dir_all(&rig.inputs.logs).unwrap();
     fs::write(rig.inputs.logs.join("laptop-state.json"), "{\"state\":\"available\"}\n").unwrap();
-    script(&rig.root.path().join("north.sh"), "exit 1\n");
+    script(&rig.root.path().join("north.sh"), "[ \"$1\" = job-run ] && { shift 3; exec \"$@\"; }\nexit 1\n");
     drain(&rig.inputs);
     assert_eq!(rig.file("msgs.log"), rig.done("7"));
 }

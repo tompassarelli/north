@@ -41,6 +41,8 @@ const UNIFORM: &[(&str, Run)] = &[
     ("issue-box-lint", issue_box_lint::run),
     ("follows-release", follows_release::run),
     ("citation-check", citation_check),
+    ("job-run", crate::ops::job_run::run),
+    ("run-bounded", crate::ops::run_bounded::run),
     ("review-items", review_items),
     ("cloud", super::cloud::run),
     ("worktree-layout-check", crate::lanes::layout_check),
