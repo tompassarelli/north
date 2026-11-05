@@ -1,4 +1,6 @@
 mod cli;
+#[cfg(test)]
+mod remote_serve_tests;
 
 use north_core::{
     agent_catalog, agent_config_check, agent_policy_contract, autoland_status, build_time, capacity, code_health, contract_probe, error, fleet,

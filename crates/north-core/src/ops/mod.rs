@@ -28,6 +28,7 @@ pub mod private_check;
 pub mod pacing;
 pub mod private_desktop;
 pub mod reclaim;
+pub mod remote_serve;
 pub mod retention;
 pub mod provider_capacity;
 pub mod rationale_index;
