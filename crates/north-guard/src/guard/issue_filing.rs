@@ -113,7 +113,7 @@ pub fn link(input: &HookInput) -> Verdict {
     if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
-    link_with(input, |new, blocked| {
+    link_with(input, super::issue_cleanup::append, |new, blocked| {
         let id = gh(None, &["api", &format!("repos/{}/issues/{}", new.0, new.1), "--jq", ".id"])?;
         gh(
             None,
@@ -130,9 +130,9 @@ pub fn link(input: &HookInput) -> Verdict {
     })
 }
 
-type Ref = (String, u64);
+pub(super) type Ref = (String, u64);
 
-pub(super) fn link_with(input: &HookInput, mut connect: impl FnMut(&Ref, &Ref) -> Option<()>) -> Verdict {
+pub(super) fn link_with(input: &HookInput, mut tidy: impl FnMut(&Ref) -> Result<bool, String>, mut connect: impl FnMut(&Ref, &Ref) -> Option<()>) -> Verdict {
     if !input.is_shell() || input.data["hook_event_name"] != "PostToolUse" {
         return Verdict::Allow;
     }
@@ -165,6 +165,11 @@ pub(super) fn link_with(input: &HookInput, mut connect: impl FnMut(&Ref, &Ref) -
                 ),
             });
         }
+    }
+    match tidy(&new) {
+        Ok(true) => notes.push(format!("Appended the Clean-up group to {}#{}; tick its three boxes before closing.", new.0, new.1)),
+        Ok(false) => {}
+        Err(why) => notes.push(format!("Could not append the Clean-up group to {}#{}: {why}", new.0, new.1)),
     }
     if notes.is_empty() { Verdict::Allow } else { Verdict::Advise(notes.join(" ")) }
 }

@@ -1,5 +1,6 @@
 //! Which open issues are ready: unticked Done-when boxes, nobody holding them, no label or newest
 //! report handing them to Tom or the laptop, and every predecessor closed.
+use crate::platform::cleanup;
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -80,15 +81,19 @@ impl Issue {
         UNTICKED.find_iter(&self.body).count()
     }
 
+    pub fn product_unticked(&self) -> usize {
+        self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line)).count()
+    }
+
     /// An issue with no box, ticked or not, that no label hands to Tom, its children or a running native job.
     pub fn needs_box(&self) -> bool {
-        !ANY_BOX.is_match(&self.body) && [&TOM_LABELS[..], &ROOT_LABELS, &RUNNING_LABELS].iter().all(|names| self.labelled(names).is_none())
+        !self.body.lines().any(|line| ANY_BOX.is_match(line) && !cleanup::is_box(line)) && [&TOM_LABELS[..], &ROOT_LABELS, &RUNNING_LABELS].iter().all(|names| self.labelled(names).is_none())
     }
 
     /// The live sessions that own every unticked box, or none when some unticked box names no live owner.
     pub fn owned_by(&self, live: &BTreeSet<String>) -> Option<BTreeSet<String>> {
         let mut owners = BTreeSet::new();
-        for line in self.body.lines().filter(|line| UNTICKED.is_match(line)) {
+        for line in self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line)) {
             let named: Vec<String> = box_owners(line).into_iter().filter(|owner| live.contains(owner)).collect();
             if named.is_empty() {
                 return None;
@@ -100,7 +105,7 @@ impl Issue {
 
     pub fn gated_until(&self, at: f64) -> Option<&str> {
         let mut earliest: Option<(i64, &str)> = None;
-        for line in self.body.lines().filter(|line| UNTICKED.is_match(line)) {
+        for line in self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line)) {
             let (when, text) = NOT_BEFORE.captures_iter(line).filter_map(|found| Some((not_before(&found)?, found.get(1)?.as_str()))).max()?;
             if when as f64 <= at {
                 return None;
@@ -244,7 +249,7 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
         return Err(format!("every open box has a live owner: {}", owners.join(", ")));
     }
     if let Some(until) = issue.gated_until(world.at) {
-        let boxes = if issue.unticked() == 1 { "only open box waits" } else { "every open box waits, the first" };
+        let boxes = if issue.product_unticked() == 1 { "only open box waits" } else { "every open box waits, the first" };
         return Err(format!("{boxes} until {until}"));
     }
     if let Some(label) = issue.labelled(&TOM_LABELS) {

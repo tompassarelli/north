@@ -1058,6 +1058,7 @@ dependencies = [
  "north-capacity-host",
  "north-core",
  "north-dispatch",
+ "north-github-mirror",
  "percent-encoding",
  "proptest",
  "regex",

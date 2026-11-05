@@ -14,6 +14,7 @@ pub mod file_skill;
 pub mod nix_activity;
 pub mod native_evidence;
 pub mod frozen_topics;
+pub mod issue_cleanup;
 pub mod issue_filing;
 pub mod issue_labels;
 pub mod blind_stage;

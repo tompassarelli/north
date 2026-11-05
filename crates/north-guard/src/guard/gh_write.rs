@@ -27,6 +27,7 @@ pub struct GhWrite {
     pub bodies: Vec<String>,
     pub title: Option<String>,
     pub creates_issue: bool,
+    pub closes_issue: Option<String>,
     pub opaque: bool,
 }
 
@@ -172,6 +173,7 @@ fn complete(write: &mut GhWrite, group: &str, positionals: &[&str], cwd: Option<
         write.repo = positionals.get(1).filter(|word| word.matches('/').count() == 1).map(|word| (*word).to_owned());
     }
     write.creates_issue = group == "issue" && verb == Some("create");
+    write.closes_issue = (group == "issue" && verb == Some("close")).then(|| positionals.get(1).map(|word| (*word).to_owned()).unwrap_or_default());
     write.public = match group {
         "gist" => true,
         "repo" => verb == Some("create"),

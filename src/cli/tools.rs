@@ -45,6 +45,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("job-run", crate::ops::job_run::run),
     ("run-bounded", crate::ops::run_bounded::run),
     ("review-items", review_items),
+    ("cleanup-sweep", crate::ops::cleanup_sweep::run),
     ("cloud", super::cloud::run),
     ("worktree-layout-check", crate::lanes::layout_check),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),

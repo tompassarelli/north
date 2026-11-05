@@ -23,6 +23,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("ci-diagnose", Diagnosis),
     ("citation-check", Diagnosis),
     ("claude-runtime-update", Bookkeeping),
+    ("cleanup-sweep", Bookkeeping),
     ("cloud land", Landing),
     ("cloud launch", Delegate),
     ("cloud reap", Landing),
