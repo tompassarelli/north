@@ -20,6 +20,7 @@ mod capacity_gate;
 mod capacity_gpu_size;
 mod capacity_host;
 mod capacity_land_queue;
+mod capacity_live;
 mod capacity_leases;
 mod capacity_native_alone;
 mod capacity_native_clients;

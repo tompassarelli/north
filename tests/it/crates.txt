@@ -28,6 +28,7 @@ capacity_host north-capacity-host
 capacity_host_state north-capacity-host
 capacity_land_queue north-capacity-host
 capacity_leases north-capacity
+capacity_live north-capacity-host
 capacity_native_alone north-capacity
 capacity_native_clients north-capacity
 capacity_native_pair north-capacity
