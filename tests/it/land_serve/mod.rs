@@ -21,6 +21,7 @@ mod remote;
 mod restart;
 mod speculate;
 mod spread;
+mod unfit_host;
 
 #[path = "../support/land_serve_template.rs"]
 mod template;

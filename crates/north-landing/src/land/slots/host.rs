@@ -34,12 +34,15 @@ pub fn placed(repo: &Path) -> bool {
     setting::landing(repo, "refs/remotes/origin/main", "land.runner") == BUILD_HOST
 }
 
-/// The host with the most free cores once `taken` (one name per precheck already running) is counted, or why none has room.
-pub fn choose(taken: &[String]) -> Result<CheckHost, String> {
+/// The host with the most free cores once `taken` (one name per precheck already running) is counted and every host in `avoid` is left out, or why none has room.
+pub fn choose(taken: &[String], avoid: &[String]) -> Result<CheckHost, String> {
     let mut command = Command::new(follow::program());
     command.args(["capacity", "offload", "choose", "--any"]);
     for host in taken {
         command.args(["--taken", host]);
+    }
+    for host in avoid {
+        command.args(["--avoid", host]);
     }
     let output = command.stdin(Stdio::null()).output().map_err(|error| format!("{} capacity offload choose: {error}", follow::program()))?;
     let chosen = String::from_utf8_lossy(&output.stdout).trim().to_owned();

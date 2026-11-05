@@ -10,6 +10,10 @@ pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
 pub const ROUND: &str = "NORTH_LAND_ROUND";
 pub const RECHECK: &str = "NORTH_LAND_RECHECK";
+pub const INFRASTRUCTURE: &str = "infrastructure: the check host is unfit: ";
+const NORTH_MISSING: [&str; 4] = ["north: command not found", "north: not found", "north not on PATH", "north missing on PATH"];
+const OFFLOAD: &str = "north capacity offload: ";
+const OFFLOAD_EXIT: &str = "exited 255";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -34,6 +38,23 @@ pub fn parse(text: &str) -> Option<Verdict> {
         "deferred" => Verdict::Deferred(detail),
         other => Verdict::Transient(format!("unknown verdict class {other}")),
     })
+}
+
+pub fn unfit_host(log: &str) -> Option<String> {
+    let lines = || log.lines().map(str::trim);
+    let offline = log.contains("--offline was specified");
+    let crate_missing = || lines().find(|line| offline && line.contains("failed to download"));
+    let north_missing = || lines().find(|line| NORTH_MISSING.iter().any(|signature| line.contains(signature)));
+    let transport = || lines().any(|line| line.contains(OFFLOAD_EXIT)).then(|| lines().rfind(|line| line.starts_with(OFFLOAD))).flatten();
+    crate_missing().or_else(north_missing).or_else(transport).map(str::to_owned)
+}
+
+pub fn infrastructure(detail: &str) -> bool {
+    detail.starts_with(INFRASTRUCTURE)
+}
+
+fn unfit(log: &Path, text: &str) -> Option<Verdict> {
+    unfit_host(text).map(|signature| Verdict::Transient(format!("{INFRASTRUCTURE}{signature}; log: {}", log.display())))
 }
 
 pub struct Started {
@@ -117,11 +138,15 @@ impl Started {
 
     fn verdict(&self, status: ExitStatus) -> Verdict {
         let (program, log) = (&self.program, &self.log);
-        if self.by_exit {
-            return if status.success() { Verdict::Green } else { Verdict::Refused(format!("{program} {status}; log: {}", log.display())) };
+        if self.by_exit && status.success() {
+            return Verdict::Green;
         }
         let text = fs::read_to_string(log).unwrap_or_default();
+        if self.by_exit {
+            return unfit(log, &text).unwrap_or_else(|| Verdict::Refused(format!("{program} {status}; log: {}", log.display())));
+        }
         match parse(&text) {
+            Some(Verdict::Refused(_)) if let Some(verdict) = unfit(log, &text) => verdict,
             Some(Verdict::Refused(_) | Verdict::Green) if status.code() == Some(75) => Verdict::Transient(format!("{program} exited 75; log: {}", log.display())),
             Some(Verdict::Refused(detail)) if detail.is_empty() => Verdict::Refused(log.display().to_string()),
             Some(verdict) => verdict,
@@ -160,3 +185,7 @@ pub fn start_judged_by_exit(argv: &[String], worktree: &Path, log: &Path) -> Res
         Err(error) => Err(Verdict::Transient(format!("{program}: {error}"))),
     }
 }
+
+#[cfg(test)]
+#[path = "checks_tests.rs"]
+mod tests;

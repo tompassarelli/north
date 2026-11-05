@@ -169,6 +169,10 @@ fn replay_recorded(binary: &Path, repository: &Repository, checker: &str) -> Res
     for round in recorded(&repository.queue.join("done")) {
         let lanes = round.names();
         let class = replay::recorded_class(&round.verdict).unwrap_or_default();
+        if let Some(signature) = replay::unfit_host(&round.verdict) {
+            println!("north land promote: round {lanes} recorded {class} on an unfit check host ({signature}): not a verdict the candidate must reproduce");
+            continue;
+        }
         if !readable(&repository.checkout, &round) {
             println!("north land promote: round {lanes} recorded {class}: not replayable, a lane commit is gone");
             continue;

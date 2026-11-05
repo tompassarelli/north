@@ -7,14 +7,14 @@ mod destinations;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST) | cost | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out) | cost | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["choose"] => choose(false, &[]),
-        ["choose", "--any", rest @ ..] => match taken(rest) {
-            Some(taken) => choose(true, &taken),
+        ["choose"] => choose(false, &Placement::default()),
+        ["choose", "--any", rest @ ..] => match Placement::parse(rest) {
+            Some(placement) => choose(true, &placement),
             None => usage(),
         },
         ["cost"] => cost(),
@@ -133,14 +133,32 @@ fn reap(owner: &str) -> u8 {
     code
 }
 
-fn taken(words: &[&str]) -> Option<Vec<String>> {
-    words.chunks(2).map(|pair| match pair {
-        ["--taken", host] if !host.is_empty() => Some((*host).to_owned()),
-        _ => None,
-    }).collect()
+/// What `choose --any` weighs besides each host's room: the land checks already on their way to a host, and the hosts a lane found unfit.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Placement {
+    taken: Vec<String>,
+    avoid: Vec<String>,
 }
 
-fn choose(any: bool, taken: &[String]) -> u8 {
+impl Placement {
+    fn parse(words: &[&str]) -> Option<Self> {
+        let mut placement = Self::default();
+        for pair in words.chunks(2) {
+            match pair {
+                ["--taken", host] if !host.is_empty() => placement.taken.push((*host).to_owned()),
+                ["--avoid", host] if !host.is_empty() => placement.avoid.push((*host).to_owned()),
+                _ => return None,
+            }
+        }
+        Some(placement)
+    }
+
+    fn admits(&self, host: &str) -> bool {
+        !self.avoid.iter().any(|avoided| avoided == host)
+    }
+}
+
+fn choose(any: bool, placement: &Placement) -> u8 {
     let in_reserve = in_game_reserve();
     if !any && !in_reserve {
         eprintln!("north capacity offload: this host is not in game-reserve, so the land check runs here");
@@ -150,14 +168,14 @@ fn choose(any: bool, taken: &[String]) -> u8 {
         eprintln!("north capacity offload: this host keeps its game CPUs to game-reserve.slice and confines agent slices to the rest, so the land check runs here");
         return 1;
     }
-    let reserved = in_reserve || checks_confined_here();
     let here = crate::platform::host::name();
-    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here).collect();
+    let reserved = in_reserve || checks_confined_here() || !placement.admits(&here);
+    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && placement.admits(&machine.name)).collect();
     let remotes = std::thread::scope(|scope| {
         let reads: Vec<_> = others.iter().map(|machine| scope.spawn(|| (machine.name.clone(), room::read(&machine.ssh)))).collect();
         reads.into_iter().filter_map(|read| read.join().ok()).collect::<Vec<_>>()
     });
-    match room::check_host(reserved, &here, room::read_local, remotes, taken, crate::capacity::host::land_check_cpus()) {
+    match room::check_host(reserved, &here, room::read_local, remotes, &placement.taken, crate::capacity::host::land_check_cpus()) {
         Ok(name) if name == here => {
             eprintln!("north capacity offload: {here} has the most room, so the land check runs here");
             0
@@ -201,6 +219,18 @@ fn offload(host: &str, land: ship::Land) -> u8 {
 #[cfg(test)]
 mod tests {
     use std::process::Command;
+
+    #[test]
+    fn a_placement_counts_each_taken_host_and_leaves_out_each_avoided_one() {
+        let placement = super::Placement::parse(&["--taken", "gex45", "--avoid", "cx53", "--taken", "gex45"]).unwrap();
+        assert_eq!(placement.taken, ["gex45", "gex45"]);
+        assert!(!placement.admits("cx53"));
+        assert!(placement.admits("gex45"));
+        assert_eq!(super::Placement::parse(&[]), Some(super::Placement::default()));
+        assert_eq!(super::Placement::parse(&["--avoid"]), None);
+        assert_eq!(super::Placement::parse(&["--avoid", ""]), None);
+        assert_eq!(super::Placement::parse(&["--skip", "cx53"]), None);
+    }
 
     #[test]
     fn a_symbolic_head_ships_as_the_commit_it_names_an_empty_base_ships_everything_and_an_unknown_name_is_refused() {

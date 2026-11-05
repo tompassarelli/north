@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use super::candidate::{self, Pick, git};
 use super::checks::{self, Verdict};
@@ -91,6 +92,12 @@ pub fn verdict_of(output: &str) -> Option<&str> {
 pub fn recorded_class(verdict: &str) -> Option<&str> {
     let class = verdict.split_whitespace().next()?;
     matches!(class, "landed" | "failed" | "conflict").then_some(class)
+}
+
+pub fn unfit_host(recorded: &str) -> Option<String> {
+    let detail = recorded.strip_prefix("failed ")?;
+    let logs = detail.split_whitespace().map(|word| word.trim_end_matches([';', ',', ')'])).map(Path::new).filter(|path| path.is_absolute() && path.is_file());
+    logs.filter_map(|log| fs::read_to_string(log).ok()).find_map(|text| checks::unfit_host(&text))
 }
 
 pub fn same(recorded: &str, replayed: &str) -> bool {

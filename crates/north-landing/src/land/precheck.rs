@@ -92,6 +92,7 @@ pub struct State {
     rank: HashMap<PathBuf, usize>,
     following: Vec<Following>,
     attempts: HashMap<PathBuf, usize>,
+    unfit: HashMap<PathBuf, Vec<String>>,
     strikes: Strikes,
     surveyed: Option<Instant>,
     warned: bool,
@@ -151,6 +152,7 @@ impl State {
         self.recheck.retain(|recheck| recheck.path.exists());
         self.held.retain(|path, _| path.exists());
         self.attempts.retain(|path, _| path.exists());
+        self.unfit.retain(|path, _| path.exists());
     }
 
     fn free_slot(&self, count: usize) -> Option<usize> {
@@ -161,14 +163,23 @@ impl State {
         self.checking.iter().filter_map(|checking| checking.host.as_ref()).map(|host| host.name().to_owned()).collect()
     }
 
-    fn place(&mut self) -> Result<Option<CheckHost>, ()> {
+    fn place(&mut self, path: &Path) -> Result<Option<CheckHost>, ()> {
         if !self.placed {
             return Ok(None);
         }
         if self.no_room.is_some_and(|at| at.elapsed() < ROOM_RETRY) {
             return Err(());
         }
-        match host::choose(&self.taken()) {
+        let taken = self.taken();
+        let avoid = self.unfit.get(path).map_or(&[][..], Vec::as_slice);
+        let chosen = match host::choose(&taken, avoid) {
+            Err(why) if !avoid.is_empty() => {
+                println!("north land: no check host but {} has room ({why}); placing the lane among every host", avoid.join(", "));
+                host::choose(&taken, &[])
+            }
+            chosen => chosen,
+        };
+        match chosen {
             Ok(host) => {
                 self.no_room = None;
                 Ok(Some(host))
@@ -251,9 +262,9 @@ fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<Che
             }
             Ok(None) => {
                 println!("north land: {} takes the fast lane: it changes no crate, so it lands on main@{main} without a check", ticket.branch);
-                settle(tick, state, lane, &worktree, Verdict::Green)
+                settle(tick, state, lane, &worktree, None, Verdict::Green)
             }
-            Err(verdict) => settle(tick, state, lane, &worktree, verdict),
+            Err(verdict) => settle(tick, state, lane, &worktree, None, verdict),
         };
     }
     match checks::start(&checks::Launch { recheck: light, ..checks::Launch::of(tick.lander) }, &worktree, &main, &lane.log, true, check_host.as_ref().map(CheckHost::runner)) {
@@ -264,7 +275,7 @@ fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<Che
             state.checking.push(Checking { running: Running { check: Some(started), branch: ticket.branch.clone() }, lane, slot, host: check_host });
             Ok(())
         }
-        Err(verdict) => settle(tick, state, lane, &worktree, verdict),
+        Err(verdict) => settle(tick, state, lane, &worktree, None, verdict),
     }
 }
 
@@ -284,7 +295,7 @@ fn route(tick: &Tick, worktree: &Path, main: &str, lane: &Lane, queued: &[(PathB
     Ok(route)
 }
 
-fn settle(tick: &mut Tick, state: &mut State, mut lane: Lane, worktree: &Path, verdict: Verdict) -> Result<(), String> {
+fn settle(tick: &mut Tick, state: &mut State, mut lane: Lane, worktree: &Path, host: Option<&CheckHost>, verdict: Verdict) -> Result<(), String> {
     lane.stages.mark("check");
     let verdict = match verdict {
         Verdict::Green if git(worktree, &["rev-parse", "HEAD"]).ok().as_deref() != Some(lane.head.as_str()) => Verdict::Transient(format!("build slot {} moved while {} was checked", worktree.display(), lane.head)),
@@ -310,6 +321,12 @@ fn settle(tick: &mut Tick, state: &mut State, mut lane: Lane, worktree: &Path, v
         }
         Verdict::RedMain(detail) => format!("{branch}: main is red ({detail})"),
         Verdict::BrokenBase(detail) => format!("{branch}: {}", pause::raise(&tick.lander.queue, &detail)?),
+        Verdict::Transient(detail) if checks::infrastructure(&detail) && let Some(host) = host => {
+            println!("north land: {branch}'s check host {} is unfit, so the lane is not refused and is checked again on another host: {detail}", host.name());
+            state.unfit.entry(lane.path.clone()).or_default().push(host.name().to_owned());
+            state.recheck.push(Recheck { path: lane.path, ticket: lane.ticket, attempts: lane.stages.attempts, light: false });
+            return Ok(());
+        }
         Verdict::Transient(detail) => format!("{branch}: transient {detail}"),
         Verdict::Deferred(detail) => format!("{branch}: deferred {detail}"),
     };
@@ -326,7 +343,7 @@ fn poll(tick: &mut Tick, state: &mut State) -> Result<(), String> {
         };
         let checking = state.checking.swap_remove(index);
         let worktree = state.worktrees[checking.slot].clone();
-        settle(tick, state, checking.lane, &worktree, verdict)?;
+        settle(tick, state, checking.lane, &worktree, checking.host.as_ref(), verdict)?;
     }
     Ok(())
 }
@@ -432,16 +449,15 @@ fn fill(tick: &mut Tick, state: &mut State, count: usize) -> Result<(), String> 
     let queued = tick.queued;
     state.recheck.sort_by_key(|recheck| order(&state.rank, &recheck.path));
     while let Some(slot) = state.free_slot(count) {
-        if state.recheck.is_empty() && !queued.iter().any(|(path, _)| path.exists() && !state.tracked(path)) {
-            break;
-        }
-        let Ok(check_host) = state.place() else { break };
+        let fresh = || queued.iter().find(|(path, _)| path.exists() && !state.tracked(path));
+        let Some(next) = state.recheck.first().map(|recheck| recheck.path.clone()).or_else(|| fresh().map(|(path, _)| path.clone())) else { break };
+        let Ok(check_host) = state.place(&next) else { break };
         if let Some(recheck) = (!state.recheck.is_empty()).then(|| state.recheck.remove(0)) {
             state.attempts.insert(recheck.path.clone(), recheck.attempts);
             start(tick, state, slot, check_host, (&recheck.path, &recheck.ticket), recheck.light, queued)?;
             continue;
         }
-        let Some((path, ticket)) = queued.iter().find(|(path, _)| path.exists() && !state.tracked(path)) else { break };
+        let Some((path, ticket)) = queued.iter().find(|(path, _)| *path == next) else { break };
         state.held.remove(path);
         start(tick, state, slot, check_host, (path, ticket), false, queued)?;
     }

@@ -779,6 +779,16 @@ then S2b and S2c in parallel; then S3 and S4.
   `landing.slots` is only the ceiling on the laptop's candidate worktrees. Machine-bound checks still
   run on the laptop under its own lease. `remote-hosts` adds ccx33. tests/it/land_serve.rs
   `prechecks_spread_over_hosts`.
+- **S6d Unfit check hosts are infrastructure (2026-11-05, north#360).** Lane B (816e9fb68) was refused
+  at 2:21 PM after its clippy ran on cx53, whose cargo registry lacked ahash v0.8.12 offline, and
+  n360-s19a was refused when shipping the lander runtime to cx53 failed with exit 255; promotion then
+  refused a candidate because it could not reproduce that failure. The lander now reads the check log
+  for three signatures (a crate missing offline, `north` missing on PATH, an offload transport
+  failure), records them as the existing transient verdict marked `infrastructure: the check host is
+  unfit:`, and rechecks the lane at once with `north capacity offload choose --any --avoid HOST`;
+  promote skips a recorded failure whose log carries one. The persistent-transient escalation still
+  bounds a lane that is unfit on every host. tests/it/land_serve/unfit_host.rs,
+  crates/north-landing/tests/it/promote.rs.
 - **S7 Removed.** The scans bridge is not needed: S6a ports the land checks in place, and each Wave
   L2 box ports its scan in place, so `--check-candidate` keeps working throughout.
 - **S8 Lander App token.** Follows B16. Done when: a landing by the lander shows the App as its push
