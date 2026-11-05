@@ -204,7 +204,7 @@ pub fn window_start_ms(window: &str) -> NorthResult<i64> {
 }
 
 /// A finished worker run that was launched with an estimate: its minutes and cost against the ETA
-/// and the expected spend it carried, the spend absent while no run records one.
+/// and the Budget (expected spend) it carried, the ETA 0 and the Budget absent when its brief set none.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EstimatedRun {
     pub tier: String,
@@ -215,7 +215,7 @@ pub struct EstimatedRun {
     pub estimated_usd: Option<f64>,
 }
 
-/// The worker runs that ended in the last `window` with an ETA and a wall time.
+/// The worker runs that ended in the last `window` with a wall time and an ETA or a Budget.
 pub fn estimated_runs(window: &str) -> NorthResult<Vec<EstimatedRun>> {
     let since = window_start(window)?;
     let rows = sqlite::rows(
@@ -223,8 +223,8 @@ pub fn estimated_runs(window: &str) -> NorthResult<Vec<EstimatedRun>> {
         Access::ReadOnly,
         Duration::from_secs(5),
         &format!(
-            "SELECT {ROLE_SQL} AS role, tier, category, model, minutes, eta_min, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
-             FROM runs WHERE outcome != 'running' AND ended >= '{}' AND eta_min > 0 AND minutes > 0",
+            "SELECT {ROLE_SQL} AS role, tier, category, model, minutes, COALESCE(eta_min, 0) AS eta_min, budget_usd, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
+             FROM runs WHERE outcome != 'running' AND ended >= '{}' AND (eta_min > 0 OR budget_usd > 0) AND minutes > 0",
             since.replace('\'', "")
         ),
     )?;
@@ -235,7 +235,7 @@ pub fn estimated_runs(window: &str) -> NorthResult<Vec<EstimatedRun>> {
         .filter_map(|row| {
             let tier = text(row, "tier");
             let usd = prices.run_usd(row["model"].as_str(), &tier, row["input"].as_i64().unwrap_or(0), row["cache_read"].as_i64().unwrap_or(0), row["output"].as_i64().unwrap_or(0));
-            Some(EstimatedRun { tier: super::closed::tier_label(&tier), category: text(row, "category"), minutes: row["minutes"].as_f64()?, eta_min: row["eta_min"].as_f64()?, usd, estimated_usd: None })
+            Some(EstimatedRun { tier: super::closed::tier_label(&tier), category: text(row, "category"), minutes: row["minutes"].as_f64()?, eta_min: row["eta_min"].as_f64()?, usd, estimated_usd: row["budget_usd"].as_f64().filter(|budget| *budget > 0.0) })
         })
         .collect())
 }

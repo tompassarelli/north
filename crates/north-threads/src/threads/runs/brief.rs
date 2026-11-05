@@ -22,6 +22,7 @@ static FOLLOWS: LazyLock<Regex> = LazyLock::new(|| field("Follows"));
 static ARM: LazyLock<Regex> = LazyLock::new(|| field("Arm"));
 static CATEGORY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bCategory:[ \t]*([A-Za-z-]+)").expect("category pattern"));
 static LENS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bLens:[ \t]*([^.;,\n`<>]+)").expect("lens pattern"));
+static BUDGET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bBudget:[^\n]*?\bat \$([0-9]+(?:\.[0-9]+)?) API-equivalent spend").expect("budget pattern"));
 static FACET: LazyLock<Vec<Regex>> = LazyLock::new(|| FACETS.iter().map(|(name, _)| Regex::new(&format!(r"\b{name}:[ \t]*([A-Za-z-]+)")).expect("facet pattern")).collect());
 
 /// What a brief names: None for a field it leaves out, empty for one it names as nothing.
@@ -33,6 +34,9 @@ pub struct Fields {
     pub category: Option<String>,
     pub facets: [Option<String>; 4],
     pub lens: Option<String>,
+    /// The Budget the brief sets: the API-equivalent spend in dollars at which the worker lands
+    /// what passes and splits the rest.
+    pub budget_usd: Option<f64>,
 }
 
 impl Fields {
@@ -47,6 +51,7 @@ impl Fields {
             category: first(&CATEGORY).map(|text| text.trim().to_lowercase()),
             facets,
             lens: first(&LENS).map(|text| text.trim().to_lowercase()),
+            budget_usd: first(&BUDGET).and_then(|text| text.parse().ok()),
         }
     }
 

@@ -8,12 +8,14 @@
 //! week, keeps the reading once a day in the readings file, and tells the proxy once when one turns
 //! DECAYED. It prints each tier and category's estimates against what the week's runs came to and
 //! files one north issue for each whose median ratio drifted out of the calibrated band, under the
-//! same rule as a rise. It prints the share of the last day's finished runs that recorded each
-//! essential field and fails when one is under 98%. It prints each skill's closed-box rate and cost
-//! against matched boxes that did not load it, and flags the installed skills no run loaded and
-//! those whose boxes did worse. It prints placement's five-hour and week projections at each
-//! launch's ETA against what those windows read then, as the p50 and p90 error in points. A failed read of the arms' evidence keeps the prior routing cells
-//! and fails the tick.
+//! same rule as a rise. It scores each category's runs against the Budget stored at their launch
+//! (share over it, actual/E p50 and p90) and reads the budget cells' multiplier from that p90 once
+//! a category holds enough runs carrying one. It prints the share of the last day's finished runs
+//! that recorded each essential field and fails when one is under 98%. It prints each skill's
+//! closed-box rate and cost against matched boxes that did not load it, and flags the installed
+//! skills no run loaded and those whose boxes did worse. It prints placement's five-hour and week
+//! projections at each launch's ETA against what those windows read then, as the p50 and p90 error
+//! in points. A failed read of the arms' evidence keeps the prior routing cells and fails the tick.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, EstimatedRun};
 use crate::dispatch::{Evidence, LEDGER_WINDOW, arm_evidence, evidenced};
@@ -27,6 +29,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 
+mod budgets;
 mod cells;
 mod costs;
 mod coverage;
@@ -94,7 +97,8 @@ pub struct Tick {
 pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mut dyn Tracker, at: &str, dry_run: bool) -> Tick {
     let mut lines = vec![ledger.week.dashboard(LEDGER_WINDOW)];
     lines.extend(ledger.notes.iter().map(|note| format!("unread: {note}; prior routing cells are kept")));
-    let mut decided = cells::decide(&ledger.week, &ledger.evidence);
+    let scores = ledger.estimates.as_deref().map(budgets::scores).unwrap_or_default();
+    let mut decided = cells::decide(&ledger.week, &ledger.evidence, &budgets::multipliers(&scores));
     if !ledger.notes.is_empty() {
         cells::carry_routes(&prior.cells, &mut decided);
     }
@@ -120,6 +124,10 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
     match &ledger.projections {
         Ok(scored) => lines.extend(projections::lines(scored)),
         Err(error) => lines.push(format!("projections: unread ({error})")),
+    }
+    if ledger.estimates.is_ok() {
+        lines.push(budgets::summary(LEDGER_WINDOW, &scores));
+        lines.extend(scores.iter().map(budgets::Score::line));
     }
     let (covered, uncovered) = coverage::check(&ledger.runs);
     lines.extend(covered);

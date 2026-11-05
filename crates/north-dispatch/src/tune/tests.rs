@@ -690,3 +690,33 @@ fn the_skill_table_compares_each_skill_with_matched_boxes_and_flags_the_unused_o
         "verification closes as often at no more cost and is not flagged"
     );
 }
+
+/// Thirty Sonnet tooling runs launched with a $20.80 Budget, twice the cell's median $10.40 box:
+/// twenty-five spend $10.40 and five $31.20; two Sonnet feature runs carry a $10.40 Budget.
+fn budgeted_ledger() -> Ledger {
+    let tooling = |usd: f64| estimated("sonnet", "tooling", (10.0, 10.0), (usd, Some(20.8)));
+    let mut estimates: Vec<EstimatedRun> = (0..25).map(|_| tooling(10.4)).chain((0..5).map(|_| tooling(31.2))).collect();
+    estimates.extend([estimated("sonnet", "feature", (10.0, 10.0), (12.0, Some(10.4))), estimated("sonnet", "feature", (10.0, 10.0), (8.0, Some(10.4)))]);
+    estimates.push(estimated("sonnet", "feature", (10.0, 10.0), (50.0, None)));
+    Ledger { estimates: Ok(estimates), ..ledger() }
+}
+
+#[test]
+fn tune_scores_each_category_against_its_stored_budgets_and_reads_the_multiplier_from_the_p90_once_n_reaches_30() {
+    let ticked = tick(&budgeted_ledger(), &Prior::default(), &[], &mut Issues::default(), AT, false);
+    for line in [
+        "budgets 7d: n 32 runs carrying a stored Budget; 1 of 2 categories at n >= 30",
+        "budget feature: n 2, over Budget 50%, actual/E p50 0.77x p90 1.15x, multiplier 2x (constant: n under 30)",
+        "budget tooling: n 30, over Budget 17%, actual/E p50 0.50x p90 1.50x, multiplier 3x (from p90)",
+    ] {
+        assert!(ticked.lines.contains(&line.to_owned()), "{line}: {:#?}", ticked.lines);
+    }
+    assert_eq!(ticked.cells.get("budget_usd sonnet tooling"), Some(&json!(31.2)), "3x the $10.40 median box: the p90 1.5x of Budgets set at 2x");
+    assert_eq!(ticked.cells.get("budget_usd sonnet feature"), Some(&json!(10.4)), "under 30 runs the constant 2x holds");
+    let record = ticked.records.iter().find(|record| record["cell"] == "budget_usd sonnet tooling").unwrap();
+    assert!(record["claim"].as_str().unwrap().starts_with("3x (p90 1.50x of actual/E over n=30 runs carrying a Budget, set at 2.00x) the median $10.40"), "{record}");
+
+    let unbudgeted = tick(&ledger(), &Prior::default(), &[], &mut Issues::default(), AT, false);
+    assert!(unbudgeted.lines.contains(&"budgets 7d: n 0 runs carrying a stored Budget; 0 of 0 categories at n >= 30".to_owned()), "{:#?}", unbudgeted.lines);
+    assert_eq!(unbudgeted.cells.get("budget_usd sonnet tooling"), Some(&json!(20.8)));
+}

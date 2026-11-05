@@ -132,7 +132,9 @@ impl Ingest<'_> {
             Some(prior) if run.r.truthy("backfill") || !run.worker() => self.backfill(&run, &prior),
             Some(_) => Ok(()),
             None => self.record(&run),
-        }
+        }?;
+        self.db.execute("UPDATE runs SET budget_usd = coalesce(budget_usd, ?) WHERE agent = ?", params![run.f.budget_usd, run.agent()?])?;
+        Ok(())
     }
 
     fn telemetry(&mut self, r: &Row) -> Result<(), Failure> {

@@ -27,7 +27,9 @@ pub struct Decided {
 
 const FAMILIES: [Tier; 3] = [Tier::Haiku, Tier::Sonnet, Tier::Opus];
 
-pub fn decide(week: &ClosedReport, evidence: &BTreeMap<String, Evidence>) -> Vec<Decided> {
+/// Decides the cells; `times` holds each category's budget multiplier and its basis where the
+/// stored Budgets' p90 set one, every other category taking `BUDGET_TIMES`.
+pub fn decide(week: &ClosedReport, evidence: &BTreeMap<String, Evidence>, times: &BTreeMap<String, (f64, String)>) -> Vec<Decided> {
     let mut decided: Vec<Decided> = ARMED.iter().filter_map(|category| route(week, category, evidence.get(*category)?)).collect();
     decided.extend(evidence.iter().filter_map(|(category, evidence)| effort(category, evidence)));
     let families: BTreeSet<(Tier, &str)> = week
@@ -45,14 +47,15 @@ pub fn decide(week: &ClosedReport, evidence: &BTreeMap<String, Evidence>) -> Vec
             basis: Basis { rows, n: figures.closed, interval: Some((low, high)), why: format!("p75 run wall {:.1} min of n={rows} runs", figures.p75_minutes) },
         });
         let (low, high) = figures.usd_interval;
+        let (multiplier, source) = times.get(category).map_or_else(|| (BUDGET_TIMES, "the constant".to_owned()), |(times, source)| (*times, source.clone()));
         decided.push(Decided {
             cell: format!("budget_usd {} {category}", tier.family()),
-            value: json!(round_cents(figures.median_usd * BUDGET_TIMES)),
+            value: json!(round_cents(figures.median_usd * multiplier)),
             basis: Basis {
                 rows,
                 n: figures.closed,
-                interval: Some((round_cents(low * BUDGET_TIMES), round_cents(high * BUDGET_TIMES))),
-                why: format!("{BUDGET_TIMES}x the median ${:.2} per closed box of n={} boxes", figures.median_usd, figures.closed),
+                interval: Some((round_cents(low * multiplier), round_cents(high * multiplier))),
+                why: format!("{multiplier}x ({source}) the median ${:.2} per closed box of n={} boxes", figures.median_usd, figures.closed),
             },
         });
     }

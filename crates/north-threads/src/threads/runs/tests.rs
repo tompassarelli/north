@@ -574,3 +574,20 @@ fn a_finished_run_records_the_skills_it_loaded_and_a_backfill_fills_them_on_a_ru
     ledger.ingest(&[run("bare", json!({"backfill": true, "skills": ["verification"]}))]);
     assert_eq!(ledger.row("SELECT skills FROM runs WHERE agent = 'bare'"), r#"["verification"]"#);
 }
+
+#[test]
+fn a_launched_brief_stores_its_budget_on_the_running_row_and_completion_keeps_it_while_a_brief_without_one_stores_none() {
+    let ledger = ledger();
+    let brief = "Item: north#255\nCategory: tooling\nETA: 40 min\nBudget: E p50 $5.20, p90 $10.40 (p50 and p90 of n=4 closed boxes, cell tooling on sonnet, ledger 7d); `north fleet spend --self` prints your API-equivalent spend so far; at $10.40 API-equivalent spend, commit and land";
+    let mut launched = creation();
+    launched["brief"] = json!(brief);
+    launched["brief_text"] = json!(brief);
+    ledger.ingest(&[launched]);
+    assert_eq!(ledger.row("SELECT outcome, budget_usd FROM runs WHERE agent = 'a333'"), "running|10.4");
+    let mut done = collected(None, "2026-10-08T03:20:00Z", 20, "done");
+    done["brief"] = json!("Item: north#255\nBudget: at $99 API-equivalent spend");
+    ledger.ingest(&[done]);
+    assert_eq!(ledger.row("SELECT outcome, budget_usd FROM runs WHERE agent = 'a333'"), "done|10.4", "the finished run keeps the Budget its launch brief set");
+    ledger.ingest(&[json!({"id": "unbudgeted", "ended": "2026-10-08T06:40:00Z", "tier": "medium", "actual_min": 25, "outcome": "done", "brief": "Item: wisp#7\nBudget: none"})]);
+    assert_eq!(ledger.row("SELECT budget_usd IS NULL FROM runs WHERE agent = 'unbudgeted'"), "1");
+}
