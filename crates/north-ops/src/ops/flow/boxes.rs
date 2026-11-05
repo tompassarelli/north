@@ -6,6 +6,8 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use crate::platform::cleanup;
+
 const DAY: i64 = 86_400;
 
 static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(?:[-*+]|\d+[.)]) \[ \]").unwrap());
@@ -62,7 +64,7 @@ pub fn standing(line: &str, now: f64) -> Standing {
 
 /// Every unticked box line of this issue body.
 pub fn unticked(body: &str) -> impl Iterator<Item = &str> {
-    body.lines().filter(|line| UNTICKED.is_match(line))
+    body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line))
 }
 
 /// The open boxes across these open issue bodies, by standing at `now`.
