@@ -12,7 +12,7 @@ mod target_seed;
 mod test_git;
 mod verdict;
 
-pub use gc::run as lane_gc;
+pub use gc::{repo as repo_verb, run as lane_gc};
 pub use hardcoded_paths::run as hardcoded_paths;
 pub use layout_check::{exempt as layout_exempt, run as layout_check};
 pub use pin_retire::run as pin_retire;

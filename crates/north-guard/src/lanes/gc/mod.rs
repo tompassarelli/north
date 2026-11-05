@@ -1,4 +1,6 @@
 mod archive;
+mod audit;
+mod audit_rows;
 mod evidence;
 mod exec;
 mod liveness;
@@ -9,6 +11,8 @@ mod state;
 mod strays;
 mod trees;
 
+#[cfg(test)]
+mod audit_tests;
 #[cfg(test)]
 mod classes_tests;
 #[cfg(test)]
@@ -25,6 +29,8 @@ use north_core::platform::host;
 use evidence::{IssueState, origin_repo};
 use liveness::{GithubFacts, Hosts};
 use state::{StaleReport, write_atomically};
+
+pub use audit::run as repo;
 
 const SKIP: [&str; 3] = ["clients", "resources", "archive"];
 const USAGE: &str = include_str!("usage.txt").trim_ascii_end();

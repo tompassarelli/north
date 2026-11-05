@@ -123,6 +123,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("remote-land", Landing),
     ("remote-serve audit", Status),
     ("remote-serve", Bookkeeping),
+    ("repo", Diagnosis),
     ("report", Status),
     ("resident-cap", Status),
     ("retain", Bookkeeping),

@@ -50,7 +50,7 @@ fn branch_query(repo: &str) -> String {
     )
 }
 
-fn remote_branches(repo: &str) -> Result<Vec<Value>, String> {
+pub(super) fn remote_branches(repo: &str) -> Result<Vec<Value>, String> {
     let listed = command(&["gh", "api", "graphql", "--paginate", "--slurp", "-f", &format!("query={}", branch_query(repo))]);
     if !listed.ok {
         return Err("remote status evidence unavailable".into());
@@ -80,7 +80,7 @@ fn run_pages_complete(pages: &[Value]) -> bool {
     pages.iter().all(|page| runs(page).is_some() && total(page) == Some(first)) && pages.iter().filter_map(runs).sum::<usize>() as i64 == first
 }
 
-fn active_runs(repo: &str) -> Result<(HashSet<String>, HashSet<String>), String> {
+pub(super) fn active_runs(repo: &str) -> Result<(HashSet<String>, HashSet<String>), String> {
     let (mut branches, mut tips) = (HashSet::new(), HashSet::new());
     for status in RUN_STATUSES {
         let listed = api(&format!("repos/tompassarelli/{repo}/actions/runs?status={status}&per_page=100"))?;
