@@ -236,7 +236,7 @@ fn start(tick: &mut Tick, state: &mut State, slot: usize, check_host: Option<Che
         }
     }
     state.attempts.insert(lane.path.clone(), attempt);
-    match checks::start(tick.lander, &worktree, &main, &lane.log, true, check_host.as_ref().map(CheckHost::runner)) {
+    match checks::start(&checks::Launch::of(tick.lander), &worktree, &main, &lane.log, true, check_host.as_ref().map(CheckHost::runner)) {
         Ok(started) => {
             let on = check_host.as_ref().map(|host| format!(" on {}", host.name())).unwrap_or_default();
             println!("north land: {} checks alone on main@{main} in build slot {slot}{on}", ticket.branch);

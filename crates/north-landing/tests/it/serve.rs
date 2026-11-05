@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use north_landing::land::queue::{self, Ticket};
 
-const INCIDENT: &str = "#!/bin/sh\n[ \"$(git symbolic-ref -q --short HEAD)\" = land-candidate ] || exit 0\necho \"fatal: 'land-candidate' is already used by worktree at $PWD/../worktrees/worktrees/lander\" >&2\nexit 1\n";
+const INCIDENT: &str = "#!/bin/sh\n[ \"$1\" = 0000000000000000000000000000000000000000 ] && exit 0\necho \"fatal: 'land-candidate' is already used by worktree at $PWD/../worktrees/worktrees/lander\" >&2\nexit 1\n";
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
 const GREEN: &str = "#!/bin/sh\n[ -z \"$HOLD\" ] || { : > \"$HOLD.started\"; while [ ! -e \"$HOLD.release\" ]; do sleep 0.05; done; }\necho 'safe-push: verdict green'\n";
 
@@ -105,6 +105,7 @@ impl Repository {
             first_commit_secs: None,
             several_commits: None,
             red_fix: None,
+            urgent: None,
             verdict: None,
             keep_lane: false,
         };

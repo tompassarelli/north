@@ -115,7 +115,7 @@ fn start_set(lander: &Lander, base: &str, offset: usize, set: &[Entry], logs: &P
     if let Some(reason) = reason {
         return Ok(Start::Ended(Checked { verdict: Verdict::Transient(format!("{} lanes cannot be built together: {reason}", set.len())), head, log }));
     }
-    Ok(match checks::start(lander, &worktree, base, &log, true, None) {
+    Ok(match checks::start(&checks::Launch::of(lander), &worktree, base, &log, true, None) {
         Ok(started) => Start::Running(started, Checked { verdict: Verdict::Green, head, log }),
         Err(verdict) => Start::Ended(Checked { verdict, head, log }),
     })

@@ -41,8 +41,20 @@ pub struct Started {
     log: PathBuf,
 }
 
-pub fn start(lander: &Lander, worktree: &Path, base: &str, log: &Path, own_group: bool, runner: Option<&str>) -> Result<Started, Verdict> {
-    let Some((program, prefix)) = lander.checker.split_first() else {
+pub struct Launch<'a> {
+    pub checker: &'a [String],
+    pub offload_owner: &'a str,
+    pub round: String,
+}
+
+impl<'a> Launch<'a> {
+    pub fn of(lander: &'a Lander) -> Self {
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string() }
+    }
+}
+
+pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_group: bool, runner: Option<&str>) -> Result<Started, Verdict> {
+    let Some((program, prefix)) = launch.checker.split_first() else {
         return Err(Verdict::Transient("no checker configured".to_owned()));
     };
     if let Some(parent) = log.parent()
@@ -55,7 +67,7 @@ pub fn start(lander: &Lander, worktree: &Path, base: &str, log: &Path, own_group
         Err(error) => return Err(Verdict::Transient(format!("{}: {error}", log.display()))),
     };
     let mut command = Command::new(program);
-    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", &lander.offload_owner).env(ROUND, lander.round.load(Ordering::Relaxed).to_string());
+    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", launch.offload_owner).env(ROUND, &launch.round);
     if own_group {
         command.process_group(0);
     }
@@ -108,7 +120,7 @@ impl Started {
 }
 
 pub fn run(lander: &Lander, worktree: &Path, base: &str, log: &Path) -> Verdict {
-    match start(lander, worktree, base, log, false, None) {
+    match start(&Launch::of(lander), worktree, base, log, false, None) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     }

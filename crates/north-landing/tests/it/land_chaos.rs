@@ -190,7 +190,7 @@ fn kill_mid_check(world: &World) {
     let base = candidate::prepare(&killed.repo, &killed.worktree).unwrap();
     let tickets = queue::collect(&killed.queue).unwrap();
     candidate::build(&killed.worktree, &base, &tickets, usize::MAX, &killed.queue.join("logs")).unwrap();
-    let check = checks::start(&killed.checker, &killed.worktree, &base, &killed.queue.join("logs/killed.log"), true, "1", None).unwrap();
+    let check = checks::start(&checks::Launch::of(&killed), &killed.worktree, &base, &killed.queue.join("logs/killed.log"), true, None).unwrap();
     fs::write(killed.worktree.join("a.txt"), "half written\n").unwrap();
     fs::write(killed.worktree.join("stray"), "untracked\n").unwrap();
     drop(killed);
