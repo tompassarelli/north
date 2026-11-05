@@ -228,52 +228,58 @@ fn print_survey(survey: &Survey) {
     }
 }
 
-fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool) {
-    for (name, why) in &revival.waiting {
-        println!("stranded {name} waits: {why}");
-    }
+/// The lines reviving `revival` prints, in its order.
+fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool) -> Vec<String> {
+    let mut lines: Vec<String> = revival.waiting.iter().map(|(name, why)| format!("stranded {name} waits: {why}")).collect();
     for step in &revival.steps {
         let line = match step {
             revive::Step::Revive(revive) => format!("revive {} on {} {} ({}; {})", revive.name, revive.host, revive.account, revive.stop.label(), revive.lanes.join(", ")),
             revive::Step::Forget { name, registry } => format!("forget {name} on {registry}: its lanes' work is on origin/main"),
         };
         if dry_run {
-            println!("would {line}");
+            lines.push(format!("would {line}"));
             continue;
         }
         let done = match step {
             revive::Step::Revive(revive) => effects::revive(survey, revive),
             revive::Step::Forget { name, registry } => effects::forget(survey, name, registry),
         };
-        match done {
-            Ok(()) => println!("{line}"),
-            Err(why) => println!("{line} failed: {why}"),
-        }
+        lines.push(match done {
+            Ok(()) => line,
+            Err(why) => format!("{line} failed: {why}"),
+        });
+    }
+    lines
+}
+
+/// The line one launch prints, and its failure for Tom's alert.
+fn start(survey: &Survey, launch: &Launch, dry_run: bool) -> (String, Option<String>) {
+    let verb = if launch.cloud { "cloud-launch" } else { "launch" };
+    let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, launch.route.tier.name());
+    let line = launch.burn.as_ref().map_or(line.clone(), |burn| format!("{line} ({burn})"));
+    if dry_run {
+        let why = std::iter::once(launch.route.why.as_str()).chain(launch.local.as_deref()).collect::<Vec<_>>().join("; ");
+        return (format!("would {line} ({why})"), None);
+    }
+    match effects::launch(survey, launch) {
+        Ok(name) => (format!("{line}: {name}"), None),
+        Err(why) if why.starts_with(STAFFING_REFUSAL) => (format!("{line} held: {why}"), None),
+        Err(why) => (format!("{line} failed: {why}"), Some(format!("{} on {}: {why}", launch.item, launch.host))),
     }
 }
 
+/// Runs the revivals and every launch side by side, since each `north fleet launch` takes most of a minute and the plan already placed them, then prints their lines in plan order.
 fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
-    revive(survey, &outcome.revival, dry_run);
-    let mut failures = Vec::new();
-    for launch in &outcome.launches {
-        let verb = if launch.cloud { "cloud-launch" } else { "launch" };
-        let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, launch.route.tier.name());
-        let line = launch.burn.as_ref().map_or(line.clone(), |burn| format!("{line} ({burn})"));
-        if dry_run {
-            let why = std::iter::once(launch.route.why.as_str()).chain(launch.local.as_deref()).collect::<Vec<_>>().join("; ");
-            println!("would {line} ({why})");
-            continue;
-        }
-        match effects::launch(survey, launch) {
-            Ok(name) => println!("{line}: {name}"),
-            Err(why) if why.starts_with(STAFFING_REFUSAL) => println!("{line} held: {why}"),
-            Err(why) => {
-                println!("{line} failed: {why}");
-                failures.push(format!("{} on {}: {why}", launch.item, launch.host));
-            }
-        }
+    let (revived, started) = std::thread::scope(|scope| {
+        let revived = scope.spawn(|| revive(survey, &outcome.revival, dry_run));
+        let started: Vec<_> = outcome.launches.iter().map(|launch| scope.spawn(move || start(survey, launch, dry_run))).collect();
+        let started: Vec<(String, Option<String>)> = started.into_iter().map(|handle| handle.join().unwrap_or_else(|_| ("a launch thread panicked".to_owned(), Some("a launch thread panicked".to_owned())))).collect();
+        (revived.join().unwrap_or_else(|_| vec!["the revival thread panicked".to_owned()]), started)
+    });
+    for line in revived.iter().chain(started.iter().map(|(line, _)| line)) {
+        println!("{line}");
     }
-    failures
+    started.into_iter().filter_map(|(_, failure)| failure).collect()
 }
 
 pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {

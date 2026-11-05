@@ -69,10 +69,12 @@ pub fn read(directory: &Path) -> Vec<Record> {
         .collect()
 }
 
+/// Appends `record` in one write, so launches recording side by side never interleave their lines.
 pub fn append(directory: &Path, record: &Record) -> Result<(), String> {
     std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let mut file = std::fs::OpenOptions::new().create(true).append(true).open(directory.join("launches.jsonl")).map_err(|error| error.to_string())?;
-    writeln!(file, "{}", serde_json::to_string(record).map_err(|error| error.to_string())?).map_err(|error| error.to_string())
+    let line = format!("{}\n", serde_json::to_string(record).map_err(|error| error.to_string())?);
+    file.write_all(line.as_bytes()).map_err(|error| error.to_string())
 }
 
 /// The started local launches of each item launched twice or more in the last day, whose sessions
