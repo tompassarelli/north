@@ -134,9 +134,18 @@ fn checkout(directory: &Path) -> Result<(String, String), String> {
     let common = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
     let main = common.parent().ok_or("the repository has no main checkout")?;
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is unset")?;
-    let relative = main.strip_prefix(&home).map_err(|_| format!("{} is not under {}, so the remote host cannot be assumed to keep it", main.display(), home.display()))?;
-    let relative = relative.to_string_lossy().into_owned();
+    let relative = remote_checkout(main, &home)?;
     Ok((relative.clone(), relative.replace('/', "-")))
+}
+
+/// The checkout a build host keeps for the repository whose git directory sits in `main`: `code/PROJECT/main` for a project under `~/code`, whatever layout this host gave it, since the remote host keeps each project's main checkout there; else the same path relative to home.
+fn remote_checkout(main: &Path, home: &Path) -> Result<String, String> {
+    let relative = main.strip_prefix(home).map_err(|_| format!("{} is not under {}, so the remote host cannot be assumed to keep it", main.display(), home.display()))?;
+    let mut parts = relative.components();
+    match (parts.next(), parts.next()) {
+        (Some(code), Some(project)) if code.as_os_str() == "code" => Ok(format!("code/{}/main", project.as_os_str().to_string_lossy())),
+        _ => Ok(relative.to_string_lossy().into_owned()),
+    }
 }
 
 pub(super) struct Land<'a> {

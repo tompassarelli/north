@@ -51,20 +51,19 @@ fn nix() -> Option<PathBuf> {
 
 /// `command` as a lease runs it from the current directory: through `north capacity exec`, inside its project's flake dev shell when it has one this process is not already in, unless the command is itself a `nix` invocation.
 pub fn enter(north: &str, command: &[String]) -> Vec<String> {
+    project(north, command).unwrap_or_else(|| bare(north, command))
+}
+
+/// `command` inside the flake dev shell of the current directory's project, when it has one this process is not already in and the command is not itself a `nix` invocation.
+pub fn project(north: &str, command: &[String]) -> Option<Vec<String>> {
     let directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     let runs_nix = command.first().is_none_or(|program| Path::new(program).file_name().is_some_and(|name| name == "nix"));
-    let entered = (!runs_nix).then(|| project_shell(&directory)).flatten().filter(|shell| !inside(shell)).and_then(|shell| nix().zip(Some(shell)));
-    let mut words = Vec::new();
-    match entered {
-        Some((nix, shell)) => {
-            let shell = shell.to_string_lossy().into_owned();
-            words.extend([nix.to_string_lossy().into_owned(), "develop".to_owned(), shell.clone(), "-c".to_owned()]);
-            words.extend(exec_words(north, Some(&shell)));
-        }
-        None => words.extend(exec_words(north, None)),
-    }
+    let (nix, shell) = (!runs_nix).then(|| project_shell(&directory)).flatten().filter(|shell| !inside(shell)).and_then(|shell| nix().zip(Some(shell)))?;
+    let shell = shell.to_string_lossy().into_owned();
+    let mut words = vec![nix.to_string_lossy().into_owned(), "develop".to_owned(), shell.clone(), "-c".to_owned()];
+    words.extend(exec_words(north, Some(&shell)));
     words.extend_from_slice(command);
-    words
+    Some(words)
 }
 
 /// `command` run through `north capacity exec` outside any dev shell, as a native client runs.

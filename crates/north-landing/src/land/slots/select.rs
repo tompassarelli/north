@@ -111,7 +111,8 @@ impl Config {
 fn inferred_checks(repo: &Path, head: &str) -> Vec<String> {
     let files = git_lines(repo, &["ls-tree", "--name-only", head]);
     let flake = files.iter().any(|file| file == "flake.nix").then(|| git_lines(repo, &["show", &format!("{head}:flake.nix")]).join("\n"));
-    infer(&files, flake.as_deref())
+    let package = files.iter().any(|file| file == "package.json").then(|| git_lines(repo, &["show", &format!("{head}:package.json")]).join("\n"));
+    infer(&files, flake.as_deref(), package.as_deref())
 }
 
 fn reason<'a>(entries: &'a [String], command: &str) -> Option<&'a str> {

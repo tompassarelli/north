@@ -839,6 +839,25 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   off Autoland and `lock` to the lander. Done when: one real landing per repository (south,
   nixos-config, wisp, makgora and one with no `.safe-push`) through the lander, each sha an ancestor
   of its origin/main.
+  Check environment (2026-11-05): the first proof lanes were refused by the environment, not by
+  their trees, one cause per class. The rule for every served repository:
+  (1) the build host runs a repository's checks in its main checkout's slot, `code/PROJECT/main`,
+  whatever directory the lander's host keeps that repository's git directory in (wisp and makgora
+  sent `code/wisp/worktrees/extract-20261005` and `code/makgora/worktrees/test-loop`, absent on
+  gex45, and the bundle check exited 97);
+  (2) a check runs inside the repository's flake dev shell when its flake provides one (evaluated, 6a48fa74d), else on
+  the host's PATH (south's flake has no dev shell, and wrapping its checks in `nix develop` failed);
+  a repository whose checks need a toolchain the build hosts keep only in dev shells, such as cargo,
+  declares a dev shell (padbridge);
+  (3) a shimmed toolchain the host lacks is infrastructure: the cargo, bun and nix shims and
+  `north capacity gate` exit 75, not 127, when no real program stands behind them, so the inferred
+  `command -v cargo || exit 75` guard, which a shim satisfies, no longer turns a missing toolchain
+  into a refusal, and a gate that finds no real program from inside a project whose flake declares a
+  dev shell it is not in runs the command in that dev shell (safe-push's pre-queue clippy ran bare
+  `cargo` on gex45 and got 127);
+  (4) a check starts from a clean slot, so an inferred bun check runs `bun install --frozen-lockfile`
+  first and then the package's own `test` script when it declares one (wisp's is its test runner;
+  raw `bun test` failed 5 of its 484 tests on gex45), and an explicit bun check line installs too.
 - **S19a Publication path in Rust.** Follows S13. Files land/push.rs (non-default branches, scratch
   refs, the race revalidation and the lease push, on safe_push_plan.rs and safe_push_state.rs), with
   `north land push` taking every non-default-branch push. Done when: the publication cases

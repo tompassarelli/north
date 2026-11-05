@@ -71,3 +71,28 @@ fn a_leased_command_whose_program_is_not_found_exits_127_saying_not_found() {
         assert!(stderr.contains("no-such-program-465: command not found"), "{class} in {}: {stderr}", directory.display());
     }
 }
+
+#[test]
+fn a_shimmed_toolchain_this_host_lacks_exits_with_the_infrastructure_status_through_the_shim_and_the_gate() {
+    let bin = tempfile::tempdir().unwrap();
+    fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/cargo"), bin.path().join("cargo")).unwrap();
+    for tool in ["sh", "readlink"] {
+        if let Some(found) = host_tool(tool) {
+            symlink(found, bin.path().join(tool)).unwrap();
+        }
+    }
+    let shimmed = std::process::Command::new(bin.path().join("cargo")).arg("--version").env("PATH", bin.path()).output().unwrap();
+    assert_eq!(shimmed.status.code(), Some(75), "{}", String::from_utf8_lossy(&shimmed.stderr));
+    let gated = std::process::Command::new(env!("CARGO_BIN_EXE_north")).args(["capacity", "gate", "cargo", "--version"]).env("PATH", bin.path()).output().unwrap();
+    assert_eq!(gated.status.code(), Some(75), "{}", String::from_utf8_lossy(&gated.stderr));
+}
+
+#[test]
+fn the_gate_runs_a_toolchain_the_host_lacks_inside_the_project_dev_shell_that_provides_it() {
+    let host = flake_host();
+    let project = host.path("project");
+    let output = host.command(env!("CARGO_BIN_EXE_north")).args(["capacity", "gate", "cargo", "--version"]).current_dir(project.join("crates/game")).env("PATH", host.path("bin")).env_remove("IN_NIX_SHELL").env_remove("NORTH_DEV_SHELL").output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), format!("cargo 1.0.0 from {}", project.display()), "{stderr}");
+}

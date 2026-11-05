@@ -9,6 +9,7 @@ use crate::shell;
 const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time", "env"];
 const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
 const EXECUTED: &str = "NORTH_CAPACITY_GATE_EXECUTED";
+const TOOLCHAIN_MISSING: u8 = 75;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Class {
@@ -36,8 +37,14 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             let process = process();
             let executed = executed(&process, std::env::var(EXECUTED).ok().as_deref());
             let Some(real) = real_program(program, &name, rest, &executed) else {
-                eprintln!("{name}: command not found behind the north capacity gate");
-                return 127;
+                let command: Vec<String> = std::iter::once(name.clone()).chain(rest.iter().cloned()).collect();
+                if let Some(words) = super::dev_shell::project(&std::env::current_exe().map_or_else(|_| "north".to_owned(), |path| path.to_string_lossy().into_owned()), &command) {
+                    let error = std::process::Command::new(&words[0]).args(&words[1..]).exec();
+                    eprintln!("north capacity gate: {}: {error}", words[0]);
+                    return 126;
+                }
+                eprintln!("{name}: command not found behind the north capacity gate: this host has no {name} on PATH outside the shims, so a check that needs it waits for a host that has it (infrastructure, exit 75)");
+                return TOOLCHAIN_MISSING;
             };
             let Some(class) = lease_class(&words(program, rest), host) else {
                 let error = std::process::Command::new(&real).arg0(&name).args(rest).env(EXECUTED, executed_value(&process, &executed, &real, rest)).exec();

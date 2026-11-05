@@ -2,7 +2,7 @@ const TOOLCHAIN_MISSING: u8 = 75;
 
 const CARGO_TEST: &str = "cargo test --locked --offline";
 const CARGO_CLIPPY: &str = "cargo clippy --all-targets --locked --offline -- -D warnings";
-const BUN_TEST: &str = "bun test";
+const BUN_INSTALL: &str = "bun install --frozen-lockfile";
 const FLAKE_CHECK: &str = "nix flake check --offline --no-update-lock-file";
 
 fn has_file(files: &[String], name: &str) -> bool {
@@ -37,7 +37,12 @@ pub fn dev_shell(flake: &str) -> bool {
     names_attribute(flake, "devShells") || names_attribute(flake, "devShell")
 }
 
-pub fn infer(files: &[String], flake: Option<&str>) -> Vec<String> {
+fn declares_test_script(package: Option<&str>) -> bool {
+    package.and_then(|source| serde_json::from_str::<serde_json::Value>(source).ok()).is_some_and(|package| package["scripts"]["test"].is_string())
+}
+
+/// A land check runs in a clean checkout, so a bun check installs the locked dependencies first, then runs the package's own `test` script when it declares one, as its maintainers run it, else `bun test`.
+pub fn infer(files: &[String], flake: Option<&str>, package: Option<&str>) -> Vec<String> {
     let flake = if has_file(files, "flake.nix") { flake } else { None };
     let dev_shell = flake.is_some_and(dev_shell);
     let mut checks = Vec::new();
@@ -46,7 +51,8 @@ pub fn infer(files: &[String], flake: Option<&str>) -> Vec<String> {
         checks.push(guarded("cargo", CARGO_CLIPPY, dev_shell));
     }
     if has_file(files, "package.json") && has_file(files, "bun.lock") {
-        checks.push(guarded("bun", BUN_TEST, dev_shell));
+        let test = if declares_test_script(package) { "bun run test" } else { "bun test" };
+        checks.push(guarded("bun", &format!("{BUN_INSTALL} && {test}"), dev_shell));
     }
     if flake.is_some_and(|source| names_attribute(source, "checks")) {
         checks.push(guarded("nix", FLAKE_CHECK, false));

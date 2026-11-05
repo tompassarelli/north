@@ -1,4 +1,4 @@
-use super::{CommitId, Land, RUN, VERIFY, WRONG_TREE, bundle, job_ref};
+use super::{CommitId, Land, RUN, VERIFY, WRONG_TREE, bundle, job_ref, remote_checkout};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -256,4 +256,13 @@ fn shipping_a_job_runs_no_git_maintenance_that_could_prune_a_worktree_while_git_
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(git(&home.path().join(".cache/land-offload/code-p-main"), &["rev-parse", "HEAD"]), head);
     assert!(half_made.is_dir(), "a fetch's auto maintenance pruned a worktree entry that has no gitdir yet, as it would one git worktree add is still creating");
+}
+
+#[test]
+fn a_project_under_code_ships_to_its_main_checkout_whatever_this_host_keeps_its_git_directory_in() {
+    let home = Path::new("/home/u");
+    assert_eq!(remote_checkout(Path::new("/home/u/code/wisp/main"), home).unwrap(), "code/wisp/main");
+    assert_eq!(remote_checkout(Path::new("/home/u/code/wisp/worktrees/extract-20261005"), home).unwrap(), "code/wisp/main");
+    assert_eq!(remote_checkout(Path::new("/home/u/src/tool"), home).unwrap(), "src/tool");
+    assert!(remote_checkout(Path::new("/srv/repo"), home).is_err());
 }

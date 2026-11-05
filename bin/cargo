@@ -10,5 +10,5 @@ for dir in $PATH; do
     exec "$dir/$name" "$@"
   fi
 done
-printf '%s: command not found\n' "$name" >&2
-exit 127
+printf '%s: command not found outside the capacity shims on this host (infrastructure, exit 75)\n' "$name" >&2
+exit 75
