@@ -40,8 +40,9 @@ pub struct Run {
 }
 
 impl Run {
-    fn at(&self, head: &str) -> Self {
-        let name = format!("post-land-{}", &head[..head.len().min(12)]);
+    fn at(&self, head: &str, tree: &str) -> Self {
+        let short = |sha: &str| sha[..sha.len().min(12)].to_owned();
+        let name = if tree == head { format!("post-land-{}", short(head)) } else { format!("post-land-{}-on-{}", short(head), short(tree)) };
         let beside = |path: &Path, file: String| path.with_file_name(file);
         Self {
             runner: self.runner.clone(),
@@ -67,7 +68,7 @@ pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>, tips: 
         offload_owner: lander.offload_owner.clone(),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
     }
-    .at(head);
+    .at(head, head);
     std::thread::spawn(move || {
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
@@ -79,7 +80,7 @@ pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>, tips: 
 fn locate(landed: &Landed, run: &Run) -> Option<usize> {
     let culprit = blame::culprit(landed.tips.len(), |count| {
         let tip = &landed.tips[count - 1];
-        let verdict = check(&Landed { head: tip.clone(), ..landed.clone() }, &run.at(tip));
+        let verdict = check(landed, tip, &run.at(&landed.head, tip));
         println!("north land: post-land checks with the first {count} of {} landed lanes ended {verdict:?}", landed.tips.len());
         verdict
     });
@@ -93,8 +94,7 @@ fn locate(landed: &Landed, run: &Run) -> Option<usize> {
 }
 
 fn base_already_red(landed: &Landed, run: &Run) -> bool {
-    let Ok(before) = git(&landed.repo, &["rev-parse", &format!("{}^", landed.base)]) else { return false };
-    let verdict = check(&Landed { base: before, head: landed.base.clone(), ..landed.clone() }, &run.at(&landed.base));
+    let verdict = check(landed, &landed.base, &run.at(&landed.head, &landed.base));
     println!("north land: post-land checks of the base {} before the first landed lane ended {verdict:?}", landed.base);
     let red = matches!(verdict, Verdict::RedMain(_));
     if red {
@@ -104,7 +104,7 @@ fn base_already_red(landed: &Landed, run: &Run) -> bool {
 }
 
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
-    let verdict = check(landed, run);
+    let verdict = check(landed, &landed.head, run);
     record(run, landed, &verdict);
     if let Verdict::RedMain(detail) = &verdict {
         let message = format!("north land: red main {} in {}: post-land check failed: {detail}; landed lanes: {}\n{}", landed.head, landed.repository, landed.lanes.join(", "), tail(&run.log));
@@ -115,18 +115,18 @@ pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) ->
     verdict
 }
 
-fn check(landed: &Landed, run: &Run) -> Verdict {
+fn check(landed: &Landed, tree: &str, run: &Run) -> Verdict {
     let Some((program, prefix)) = run.runner.split_first() else { return Verdict::Transient("no post-land runner".to_owned()) };
     let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
-    if let Err(error) = change_worktrees_alone(&landed.repo, &["worktree", "add", "--detach", &run.worktree.to_string_lossy(), &landed.head]) {
+    if let Err(error) = change_worktrees_alone(&landed.repo, &["worktree", "add", "--detach", &run.worktree.to_string_lossy(), tree]) {
         return Verdict::Transient(format!("post-land worktree: {error}"));
     }
-    let verdict = execute(program, prefix, landed, run);
+    let verdict = execute(program, prefix, landed, tree, run);
     let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
     verdict
 }
 
-fn execute(program: &str, prefix: &[String], landed: &Landed, run: &Run) -> Verdict {
+fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &str, run: &Run) -> Verdict {
     if let Some(parent) = run.log.parent()
         && let Err(error) = fs::create_dir_all(parent)
     {
@@ -138,7 +138,7 @@ fn execute(program: &str, prefix: &[String], landed: &Landed, run: &Run) -> Verd
         Err(error) => return Verdict::Transient(format!("{}: {error}", run.log.display())),
     };
     let mut command = Command::new(program);
-    command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity).env_remove("SAFE_PUSH_LAND_RUNNER");
+    command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--tree", tree, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity).env_remove("SAFE_PUSH_LAND_RUNNER");
     if let Some(logs) = run.log.parent() {
         command.env(super::trace::SPANS_ENV, super::trace::Spans::beside(logs).path());
     }

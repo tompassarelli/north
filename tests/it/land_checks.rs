@@ -124,6 +124,7 @@ impl Fixture {
             .env_remove("SAFE_PUSH_LAND_PACKAGES")
             .env_remove("SAFE_PUSH_LAND_CPUS")
             .env_remove("SAFE_PUSH_LAND_IT")
+            .env_remove("SAFE_PUSH_LAND_SELECT_PATHS")
             .stdin(Stdio::null());
         command
     }

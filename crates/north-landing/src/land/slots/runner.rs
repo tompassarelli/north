@@ -17,7 +17,7 @@ use super::it_modules::{self, IT_ENV};
 use super::clippy_first;
 use super::deps;
 use super::shared_build;
-use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement, path_class};
+use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement, changed, path_class};
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use fail_fast::Plan;
 
@@ -31,8 +31,9 @@ use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
 use crate::land::trace::check_log::{self, Line, Mark};
 use crate::landing::check_timings::{self, Base, BaseResult, Deadline, Timing, Timings};
+use crate::landing::land_test_selection::SELECT_PATHS_ENV;
 
-const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
+const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--tree TREE] [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
 const OFFLOAD_GRACE: u64 = 900;
 const REAP: Duration = Duration::from_secs(5);
 const LOG_KEEP: Duration = Duration::from_secs(14 * 24 * 3600);
@@ -48,6 +49,7 @@ const ACTIONS_CLASS: &str = "actions";
 struct Arguments {
     base: String,
     head: String,
+    tree: String,
     dry: bool,
     safe_push: String,
     red_fix: String,
@@ -79,11 +81,12 @@ fn parse(arguments: &[String]) -> Option<Arguments> {
             "--after" => parsed.after = true,
             "--leased" => parsed.leased = true,
             "--replay" => parsed.replay = true,
-            "--base" | "--head" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--destination" | "--event-log" | "--wait-event" | "--published" | "--runner-host" | "--command" | "--records" | "--since" | "--until" => {
+            "--base" | "--head" | "--tree" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--destination" | "--event-log" | "--wait-event" | "--published" | "--runner-host" | "--command" | "--records" | "--since" | "--until" => {
                 let value = rest.next()?.clone();
                 match flag.as_str() {
                     "--base" => parsed.base = value,
                     "--head" => parsed.head = value,
+                    "--tree" => parsed.tree = value,
                     "--dry" => parsed.dry = value == "1",
                     "--safe-push" => parsed.safe_push = value,
                     "--red-fix" => parsed.red_fix = value,
@@ -103,6 +106,16 @@ fn parse(arguments: &[String]) -> Option<Arguments> {
         }
     }
     (parsed.replay || !parsed.head.is_empty()).then_some(parsed)
+}
+
+impl Arguments {
+    fn tree(&self) -> &str {
+        if self.tree.is_empty() { &self.head } else { &self.tree }
+    }
+
+    fn pinned(&self) -> bool {
+        self.tree() != self.head
+    }
 }
 
 #[derive(Clone)]
@@ -158,6 +171,7 @@ struct Shared {
     fail_fast: bool,
     scope: Option<Scope>,
     it: Option<String>,
+    selected_paths: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -394,6 +408,7 @@ impl Shared {
             environment.extend(scope.cpus().map(|cpus| (CPUS_ENV, cpus.to_string())));
         }
         environment.extend(self.it.clone().map(|filters| (IT_ENV, filters)));
+        environment.extend(self.selected_paths.clone().map(|paths| (SELECT_PATHS_ENV, paths)));
         environment
     }
 
@@ -439,6 +454,9 @@ impl Shared {
     }
 
     async fn cache_reused(&self, command: &str) -> bool {
+        if self.arguments.pinned() {
+            return false;
+        }
         let head = &self.arguments.head;
         let root = self.root.to_string_lossy().into_owned();
         let class = self.cache_class(command);
@@ -456,6 +474,9 @@ impl Shared {
     }
 
     async fn cache_record_as(&self, status: i32, commands: &[String], class: Option<&str>) {
+        if self.arguments.pinned() {
+            return;
+        }
         let root = self.root.to_string_lossy().into_owned();
         let status = status.to_string();
         for command in commands {
@@ -493,7 +514,7 @@ impl Shared {
             .envs(self.scope_environment())
             .env("SAFE_PUSH_LAND_BASE", &self.arguments.base)
             .env("SAFE_PUSH_LAND_HEAD", tree)
-            .env("SAFE_PUSH_LAND_RUNTIME_HEAD", &self.arguments.head)
+            .env("SAFE_PUSH_LAND_RUNTIME_HEAD", self.arguments.tree())
             .env("SAFE_PUSH_LAND_REF", &self.arguments.published)
             .env("SAFE_PUSH_LANDING", "1")
             .stdin(Stdio::null())
@@ -580,7 +601,7 @@ impl Shared {
         say(&format!("safe-push: land check{label}: {command} ({deadline})"));
         let measured = self.offload_host_for(&command).is_none();
         let before = children_cpu_seconds();
-        let ran = match self.spawn_check(&command, leased, &self.arguments.head, timeout).await {
+        let ran = match self.spawn_check(&command, leased, self.arguments.tree(), timeout).await {
             Ok(ran) => ran,
             Err(status) => return status,
         };
@@ -787,6 +808,9 @@ impl Shared {
         }
         let Ok(executable) = std::env::current_exe() else { return 1 };
         let mut argv = vec![executable.to_string_lossy().into_owned(), "land".into(), "checks".into(), "--leased".into(), "--base".into(), self.arguments.base.clone(), "--head".into(), self.arguments.head.clone(), "--published".into(), self.arguments.published.clone(), "--runner-host".into(), self.arguments.runner_host.clone()];
+        if self.arguments.pinned() {
+            argv.extend(["--tree".to_owned(), self.arguments.tree.clone()]);
+        }
         if let Some(outcome) = &self.outcome.0 {
             argv.extend(["--outcome".to_owned(), outcome.to_string_lossy().into_owned()]);
         }
@@ -1098,6 +1122,15 @@ fn scope_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<
     Some(scope)
 }
 
+fn defined_on_tree(root: &Path, arguments: &Arguments, commands: Vec<String>) -> Vec<String> {
+    if !arguments.pinned() {
+        return commands;
+    }
+    let tree = Config::load(root, arguments.tree());
+    let tree = if arguments.after { tree.after_set() } else { tree };
+    commands.into_iter().filter(|command| tree.runs(command)).collect()
+}
+
 fn it_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<String> {
     if !commands.iter().any(|command| command.contains(IT_ENV)) {
         return None;
@@ -1179,7 +1212,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         arguments.commands.clone()
     } else {
         match config.commands(&root, &arguments.base, &arguments.head) {
-            Ok(commands) => commands,
+            Ok(commands) => defined_on_tree(&root, &arguments, commands),
             Err(message) => {
                 warn(&format!("safe-push: {message}; NOT pushed."));
                 return 1;
@@ -1195,9 +1228,11 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     }
     let scope = scope_for(&root, &arguments, &commands);
     let it = it_for(&root, &arguments, &commands);
-    let trees = Trees::of(&root, &arguments.base, &arguments.head);
+    let trees = Trees::of(&root, &arguments.base, arguments.tree());
     let paths = path_class(&root, &arguments.base, &arguments.head);
+    let selected_paths = arguments.pinned().then(|| changed(&root, &arguments.base, &arguments.head, &[]).join("\n"));
     let mut shared = Shared {
+        selected_paths,
         trees,
         paths,
         fail_fast: false,
@@ -1301,7 +1336,7 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     let it = it_for(&root, &arguments, &commands);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let paths = path_class(&root, &arguments.base, &arguments.head);
-    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it });
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None });
     let mut pending = Vec::new();
     for command in commands {
         if !shared.cache_reused(&command).await {

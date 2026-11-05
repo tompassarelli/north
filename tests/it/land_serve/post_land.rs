@@ -1,6 +1,12 @@
 use std::fs;
 
-use super::{Fixture, git};
+use super::{Fixture, executable, git};
+
+const RED_WHEN_WIDE_SELECTED: &str = r#"#!/usr/bin/env bash
+[ "$1 $2" = "land checks" ] || exit 0
+while [ $# -gt 0 ]; do case $1 in --base) base=$2; shift ;; --head) head=$2; shift ;; esac; shift; done
+if [ -e broken.txt ] && git diff --name-only "$base" "$head" | grep -qx wide.txt; then echo "test wide_selection ... FAILED"; exit 1; fi
+"#;
 
 fn post_land_runs(fixture: &Fixture) -> usize {
     fixture.calls("land checks --after ").len()
@@ -47,4 +53,37 @@ fn a_main_that_was_already_red_before_the_batch_blames_and_reverts_no_lane() {
     assert!(fixture.serve().status.success());
     assert_eq!(fixture.subjects(), ["change from innocent"]);
     assert_eq!(post_land_runs(&fixture), 2, "the batch and its base");
+}
+
+#[test]
+fn a_base_that_fails_only_the_wide_selection_of_the_red_run_blames_and_reverts_no_lane() {
+    let mut fixture = Fixture::new();
+    fixture.commit(&fixture.repo, "broken.txt", "red before the lane\n", "main already carries a break only a wide selection runs");
+    fixture.commit(&fixture.repo, "narrow.txt", "narrow\n", "main's last change selects only a narrow set");
+    git(&fixture.repo, &["push", "-q", "origin", "main"]);
+    fixture.base = fixture.main();
+    executable(&fixture.trace.join("north-hook"), RED_WHEN_WIDE_SELECTED);
+    let lane = fixture.lane("wide", "wide.txt", "wide\n");
+    fixture.enqueue(&lane, None);
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.subjects(), ["change from wide"]);
+    let runs = fixture.calls("land checks --after ");
+    let head = git(&fixture.origin, &["rev-parse", "main"]);
+    assert_eq!(runs.len(), 2, "the batch and its base: {runs:?}");
+    assert!(runs[1].contains(&format!("--base {} --head {head} --tree {} ", fixture.base, fixture.base)), "the base runs with the red run's selection: {runs:?}");
+}
+
+#[test]
+fn a_bisection_prefix_runs_with_the_red_run_selection_so_the_lane_that_carries_the_break_is_reverted() {
+    let mut fixture = Fixture::new();
+    executable(&fixture.trace.join("north-hook"), RED_WHEN_WIDE_SELECTED);
+    let breaker = fixture.lane("breaker", "broken.txt", "breaks a test only a wide selection runs\n");
+    let wide = fixture.lane("wide", "wide.txt", "wide\n");
+    for lane in [breaker, wide] {
+        fixture.enqueue(&lane, None);
+    }
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.subjects(), ["change from breaker", "change from wide", "Revert change from breaker"]);
+    let tree = files(&fixture);
+    assert!(tree.iter().any(|file| file == "wide.txt") && !tree.iter().any(|file| file == "broken.txt"), "{tree:?}");
 }

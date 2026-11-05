@@ -44,6 +44,7 @@ fn remote_run_flake(command: &str, flake: Option<&str>, caller: &[(&str, &str)],
         .env_remove("SAFE_PUSH_LAND_CPUS")
         .env_remove("SAFE_PUSH_LAND_PACKAGES")
         .env_remove("SAFE_PUSH_LAND_IT")
+        .env_remove("SAFE_PUSH_LAND_SELECT_PATHS")
         .env("HOME", home.unwrap_or(fresh_home.path()))
         .output()
         .unwrap();

@@ -6,6 +6,7 @@ use std::process::Command;
 
 const ROOTS: [&str; 5] = ["bin", "lib", "harness/hooks", "harness/lib", "harness/scripts"];
 const MACHINE_BOUND: &str = "harness/machine-bound-tests";
+pub const SELECT_PATHS_ENV: &str = "SAFE_PUSH_LAND_SELECT_PATHS";
 const NORTH_BINARY: [&str; 3] = ["NORTH_PACE_BIN", "NORTH_BIN", "debug/north"];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -200,6 +201,9 @@ fn machine_bound(root: &Path) -> Result<HashSet<String>, Failure> {
 }
 
 fn changes(root: &Path, env: &ChildEnv) -> Result<Vec<String>, Failure> {
+    if let Ok(paths) = std::env::var(SELECT_PATHS_ENV) {
+        return Ok(paths.lines().filter(|path| !path.is_empty()).map(str::to_owned).collect());
+    }
     let revision = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
     let (Some(base), Some(head)) = (revision("SAFE_PUSH_LAND_BASE"), revision("SAFE_PUSH_LAND_HEAD")) else {
         return Err(Failure::new("land check: --select changed needs SAFE_PUSH_LAND_BASE and SAFE_PUSH_LAND_HEAD".to_owned()));
