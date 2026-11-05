@@ -11,6 +11,7 @@ const PENDING_SETTLE_MS: i64 = 24 * 3_600_000;
 const UNKNOWN_SETTLE_MS: i64 = 4 * 3_600_000;
 const DISPATCHED: [&str; 10] = ["run", "list", "--workflow", "autoland.yml", "--event", "workflow_dispatch", "--limit", "100", "--json", "databaseId,displayTitle,event,status,conclusion,url,createdAt"];
 const OWN: [&str; 10] = ["run", "list", "--workflow", "autoland.yml", "--branch", "", "--limit", "20", "--json", "status,createdAt,headBranch,url"];
+const WORKFLOWS: [&str; 5] = ["api", "repos/{owner}/{repo}/actions/workflows", "--paginate", "--jq", ".workflows[].path"];
 
 fn unreadable(branch: &str) -> Option<String> {
     held(branch, "its Autoland runs could not be read")
@@ -37,6 +38,12 @@ pub fn deletion_hold(branch: &str, tip: &str, now_ms: i64, mut gh: impl FnMut(&[
     };
     let state = outcome.split('\t').next().unwrap_or("").trim();
     if matches!(state, "success" | "failure" | "error") {
+        return None;
+    }
+    let Some(workflows) = gh(&WORKFLOWS) else {
+        return unreadable(branch);
+    };
+    if !workflows.lines().any(|path| path.trim().ends_with("/autoland.yml")) {
         return None;
     }
     let Some(dispatched) = gh(&DISPATCHED).and_then(|payload| serde_json::from_str::<Value>(&payload).ok()) else {
@@ -121,15 +128,17 @@ mod tests {
         commit_status: &'static str,
         dispatched: Value,
         branch_runs: Option<Value>,
+        workflows: Option<&'static str>,
     }
 
     impl Github {
         fn new(commit_status: &'static str) -> Self {
-            Github { commit_status, dispatched: json!([]), branch_runs: Some(json!([])) }
+            Github { commit_status, dispatched: json!([]), branch_runs: Some(json!([])), workflows: Some(".github/workflows/autoland.yml\n") }
         }
 
         fn hold(&self, branch: &str) -> Option<String> {
             deletion_hold(branch, "tipsha", NOW, |arguments| match arguments[0] {
+                "api" if arguments[1].ends_with("/actions/workflows") => self.workflows.map(str::to_owned),
                 "api" => Some(self.commit_status.to_owned()),
                 _ if arguments.contains(&"--branch") => self.branch_runs.as_ref().map(ToString::to_string),
                 _ => Some(self.dispatched.to_string()),
@@ -186,6 +195,14 @@ mod tests {
         assert_eq!(Github::new(PENDING).hold(BRANCH), None);
         let other = json!([{"status": "queued", "createdAt": at(NOW), "headBranch": "claude/land-other-aaaaaaaaaaaa", "url": "u"}]);
         assert_eq!(Github { branch_runs: Some(other), ..Github::new(PENDING) }.hold(BRANCH), None);
+    }
+
+    #[test]
+    fn a_repository_without_an_autoland_workflow_never_holds_its_queue_branches() {
+        let lander_only = Github { branch_runs: None, workflows: Some(".github/workflows/cargo.yml\n.github/workflows/land-check.yml\n"), ..Github::new(PENDING) };
+        assert_eq!(lander_only.hold(BRANCH), None);
+        let unlisted = Github { workflows: None, ..Github::new(PENDING) };
+        assert!(unlisted.hold(BRANCH).unwrap().contains("could not be read"));
     }
 
     #[test]
