@@ -157,7 +157,7 @@ may_use = ["fleet", "guard", "catalog", "threads", "domain", "platform", "founda
 
 [[module]]
 name = "tui"
-paths = ["crates/north-tui/src/tui/**"]
+paths = ["crates/north-tui/src/lib.rs", "crates/north-tui/src/tui/**"]
 responsibility = "Fleet terminal screen, input, transcript and digest views."
 may_use = ["fleet", "catalog", "domain", "platform", "foundation", "crate-roots"]
 
@@ -191,7 +191,7 @@ may_use = []
 name = "crate-roots"
 paths = ["crates/*/src/lib.rs"]
 responsibility = "Crate roots: module declarations and the re-exports that keep crate:: paths stable across the workspace split."
-may_use = ["foundation", "platform", "shell", "autoland_status", "fleet", "ledger", "providers"]
+may_use = ["foundation", "platform", "shell", "autoland_status"]
 
 [[registered]]
 id = "guard.corpus_scan"
