@@ -199,6 +199,15 @@ struct Context {
     priority_open: bool,
 }
 
+fn scope(request: &Request, granted: &super::request::Granted) -> Value {
+    let Some(declared) = granted.declared else { return granted.charged.json() };
+    let mut scope = declared.json();
+    if request.memory_from_model {
+        scope["memoryMiB"] = num(declared.memory_mib.max(granted.charged.memory_mib));
+    }
+    scope
+}
+
 fn result(request: &Request, create: Option<&Create>, code: &str, observed: &Observed, context: &Context, granted: &super::request::Granted) -> Obj {
     let decision = match code {
         "RUN" if create.is_some() => "RESERVED",
@@ -206,11 +215,7 @@ fn result(request: &Request, create: Option<&Create>, code: &str, observed: &Obs
         "PAIR_HELD" => "REFUSED",
         _ => "DEFER",
     };
-    let declared = granted.declared.map(|declared| declared.json());
-    let mut scope = declared.unwrap_or_else(|| granted.charged.json());
-    if request.memory_from_model {
-        scope["memoryMiB"] = num(granted.charged.memory_mib);
-    }
+    let scope = scope(request, granted);
     let signals = &context.signals;
     Obj::new()
         .put("decision", decision)
@@ -357,7 +362,9 @@ fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<
 
 #[cfg(test)]
 mod tests {
-    use super::native_waiting_mark;
+    use super::super::policy::Resources;
+    use super::super::request::{Granted, Request};
+    use super::{native_waiting_mark, scope};
 
     #[test]
     fn only_a_native_start_deferred_on_the_gpu_or_its_aperture_sets_the_marker_that_holds_gpu_leases() {
@@ -370,5 +377,14 @@ mod tests {
         for code in ["DEFER_QUEUED", "DEFER_NATIVE_CPUS", "DEFER_GPU_CLIENTS", "DEFER_NATIVE_ALONE", "DEFER_EXCLUSIVE"] {
             assert_eq!(native_waiting_mark(code), None, "{code}");
         }
+    }
+
+    #[test]
+    fn a_model_sized_lease_throttles_memory_at_its_declared_class_or_the_model_whichever_is_larger() {
+        let granted = |model: f64| Granted { charged: Resources { cpus: 1.0, memory_mib: model }, clamped: None, declared: Some(Resources { cpus: 2.0, memory_mib: 2048.0 }), declared_clamped: None };
+        let request = Request { name: "moderate".to_owned(), memory_from_model: true, ..Request::default() };
+        assert_eq!(scope(&request, &granted(2.0))["memoryMiB"], 2048.0);
+        assert_eq!(scope(&request, &granted(3000.0))["memoryMiB"], 3000.0);
+        assert_eq!(scope(&Request { memory_from_model: false, ..request }, &granted(3000.0))["memoryMiB"], 2048.0);
     }
 }
