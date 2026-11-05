@@ -353,3 +353,14 @@ fn a_stale_usage_reading_holds_and_the_width_summary_reads_the_same_gate() {
     rig.status(20.0, 5.0, 1.0);
     assert_eq!(gate_summary(&rig)["cpu"], json!(false));
 }
+
+#[test]
+fn a_spawn_over_its_money_ceiling_and_the_cpu_limit_names_both_refusals() {
+    let rig = Rig::new();
+    rig.status(20.0, 5.0, 1.0);
+    let money = "No: a new claude worker could spend money: claude is at 93% of a plan window (ceiling 92%) and extra_usage would bill money past it.";
+    rig.gate(json!(money), json!({}));
+    let said = denies(&rig, &worker(), "a money refusal over the CPU limit denies");
+    assert!(said.starts_with(money), "the usage refusal comes first: {said}");
+    assert!(said.contains("commit 20 of the 20 CPUs the machine can hand out"), "the capacity refusal is named too: {said}");
+}

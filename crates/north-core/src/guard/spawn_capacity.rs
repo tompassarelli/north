@@ -64,18 +64,18 @@ pub fn gate_summary(world: &impl World) -> Value {
 }
 
 pub fn decide(world: &impl World, event: &Event) -> Option<String> {
-    let result = spawn(world, event).ok()?;
-    if let Some(reason) = result.as_deref().filter(|reason| reason.starts_with("Hold:")) {
+    let reasons = spawn(world, event).ok()?;
+    if let Some(hold) = reasons.iter().find(|reason| reason.starts_with("Hold:")) {
         let account = world.billed(event.provider()).unwrap_or_else(|| event.provider().to_owned());
         let _ = world.pace(&json!({
             "op": "expired_grant_hold", "directory": state_dir(world).join("agents"), "account": account,
-            "session": event.session(), "reason": reason, "task": event.task(),
+            "session": event.session(), "reason": hold, "task": event.task(),
         }));
     }
-    result
+    (!reasons.is_empty()).then(|| reasons.join("\n"))
 }
 
-fn spawn(world: &impl World, event: &Event) -> Result<Option<String>, String> {
+fn spawn(world: &impl World, event: &Event) -> Result<Vec<String>, String> {
     let provider = event.provider();
     let agents = state_dir(world).join("agents");
     let billed = world.billed(provider);
@@ -83,49 +83,58 @@ fn spawn(world: &impl World, event: &Event) -> Result<Option<String>, String> {
     let grant = world.pace(&json!({"op": "grant_for", "directory": agents, "account": first, "session": event.session(), "task": event.task()}))?;
     let granted = truthy(&grant);
     let verdict = usage::verdict(world, provider, granted)?;
+    let mut reasons = Vec::new();
     if truthy(&verdict["refusal"]) {
-        return Ok(Some(briefs::text(&verdict["refusal"])));
+        reasons.push(briefs::text(&verdict["refusal"]));
     }
     let name = match billed {
-        Some(account) => account,
-        None => usage::pace_account(&verdict, provider)?,
+        Some(account) => Ok(account),
+        None => usage::pace_account(&verdict, provider),
     };
     let paced = truthy(&verdict["pace_control"]);
-    if paced && !granted {
-        let Some(control) = usage::control(&verdict, &name, provider)? else {
-            return Ok(Some(format!("Hold: {name} pace controller has no fresh account reading; refresh before spawning.")));
-        };
-        let hold = world.pace(&json!({"op": "refusal", "account": name, "control": control, "now": world.now()}))?;
-        if truthy(&hold) {
-            let hold = briefs::text(&hold);
-            logs::denial(world, event, "projection", Some(&hold));
-            return Ok(Some(hold));
-        }
+    match name.clone().and_then(|name| pace_hold(world, event, &verdict, &name, paced && !granted)) {
+        Ok(hold) => reasons.extend(hold),
+        Err(error) if reasons.is_empty() => return Err(error),
+        Err(_) => {}
     }
-    let admitted = || -> Result<Option<String>, String> {
-        if !(paced || granted) {
-            return Ok(None);
-        }
-        let reserved = world.pace(&json!({
-            "op": "reserve", "path": agents.join("usage-gate.json"), "provider": provider, "account": name,
-            "session": event.session(), "task": event.task(), "tool_use_id": event.raw["tool_use_id"],
-        }))?;
-        Ok(truthy(&reserved).then(|| briefs::text(&reserved)))
+    if !event.texts.iter().any(|text| text.contains(EXEMPT_MARKER)) {
+        reasons.extend(flow_refusal(world, event));
+        reasons.extend(capacity_refusal(world, event));
+    }
+    if !reasons.is_empty() || !(paced || granted) {
+        return Ok(reasons);
+    }
+    let reserved = world.pace(&json!({
+        "op": "reserve", "path": agents.join("usage-gate.json"), "provider": provider, "account": name?,
+        "session": event.session(), "task": event.task(), "tool_use_id": event.raw["tool_use_id"],
+    }))?;
+    Ok(truthy(&reserved).then(|| briefs::text(&reserved)).into_iter().collect())
+}
+
+fn pace_hold(world: &impl World, event: &Event, verdict: &Value, name: &str, holds: bool) -> Result<Option<String>, String> {
+    if !holds {
+        return Ok(None);
+    }
+    let provider = event.provider();
+    let Some(control) = usage::control(verdict, name, provider)? else {
+        return Ok(Some(format!("Hold: {name} pace controller has no fresh account reading; refresh before spawning.")));
     };
-    if event.texts.iter().any(|text| text.contains(EXEMPT_MARKER)) {
-        return admitted();
+    let hold = world.pace(&json!({"op": "refusal", "account": name, "control": control, "now": world.now()}))?;
+    if !truthy(&hold) {
+        return Ok(None);
     }
-    if let Some(reason) = capacity_refusal(world, event) {
-        return Ok(Some(reason));
-    }
-    admitted()
+    let hold = briefs::text(&hold);
+    logs::denial(world, event, "projection", Some(&hold));
+    Ok(Some(hold))
+}
+
+fn flow_refusal(world: &impl World, event: &Event) -> Option<String> {
+    let reason = briefs::flow_gate(world, event)?;
+    logs::denial(world, event, "flow", Some(&reason));
+    Some(reason)
 }
 
 fn capacity_refusal(world: &impl World, event: &Event) -> Option<String> {
-    if let Some(reason) = briefs::flow_gate(world, event) {
-        logs::denial(world, event, "flow", Some(&reason));
-        return Some(reason);
-    }
     if !event.is_local() || event.texts.iter().any(|text| briefs::LANDING_PATH.is_match(text)) || event.named_lander() {
         return None;
     }

@@ -20,12 +20,12 @@ fn workspace() -> Workspace {
 }
 
 impl Workspace {
-    fn denial(&self, directory: &Path, payload: Value) -> Option<&'static str> {
+    fn denial(&self, directory: &Path, payload: Value) -> Option<String> {
         let input = HookInput::parse(payload.to_string().as_bytes()).unwrap();
         Policy::new(self.home.to_str().unwrap(), directory.to_str().unwrap()).decide(&input)
     }
 
-    fn tool(&self, tool: &str, tool_input: Value) -> Option<&'static str> {
+    fn tool(&self, tool: &str, tool_input: Value) -> Option<String> {
         let src = self.cwd.join("src");
         self.denial(&src, json!({"tool_name": tool, "cwd": src, "tool_input": tool_input}))
     }
@@ -92,7 +92,7 @@ fn tool_fixtures_deny_and_pass_with_the_named_remedy() {
     let mut failures = Vec::new();
     for (want, remedy, tool, tool_input) in &cases {
         let reason = workspace.tool(tool, tool_input.clone());
-        if reason.is_some() != *want || !reason.unwrap_or("").contains(remedy) {
+        if reason.is_some() != *want || !reason.as_deref().unwrap_or("").contains(remedy) {
             failures.push(format!("want={want} got={reason:?} {tool} {tool_input}"));
         }
     }
@@ -208,4 +208,13 @@ fn quoted_heredoc_and_prose_mentions_stay_inert() {
         let command = fill(&workspace, template);
         assert!(!workspace.denied_from_cwd(&command), "near miss {command}");
     }
+}
+
+#[test]
+fn one_command_writing_agent_policy_and_a_generated_nix_names_both_remedies() {
+    let workspace = workspace();
+    let reason = workspace
+        .tool("Bash", json!({"command": "sed -i s/a/b/ host.nix ~/.claude/CLAUDE.md"}))
+        .expect("both writes are refused");
+    assert_eq!(reason, format!("{NIX}\n{POLICY}"));
 }

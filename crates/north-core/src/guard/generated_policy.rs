@@ -319,8 +319,14 @@ impl Policy {
         Vec::new()
     }
 
-    pub fn decide(&self, input: &HookInput) -> Option<&'static str> {
-        self.file_targets(input).iter().find_map(|target| self.reason(target))
+    pub fn decide(&self, input: &HookInput) -> Option<String> {
+        let mut reasons = Vec::new();
+        for reason in self.file_targets(input).iter().filter_map(|target| self.reason(target)) {
+            if !reasons.contains(&reason) {
+                reasons.push(reason);
+            }
+        }
+        (!reasons.is_empty()).then(|| reasons.join("\n"))
     }
 }
 
@@ -423,7 +429,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         .or_else(|| std::env::current_dir().ok().map(|p| p.to_string_lossy().into_owned()))
         .unwrap_or_default();
     match Policy::new(&home, &cwd).decide(input) {
-        Some(reason) => Verdict::Deny(reason.into()),
+        Some(reason) => Verdict::Deny(reason),
         None => Verdict::Allow,
     }
 }

@@ -255,19 +255,23 @@ impl<'a> State<'a> {
         }
         Ok(())
     }
-    fn segment(&mut self, i: usize) -> Result<usize, String> {
+    fn segment(&mut self, i: usize, refusals: &mut Vec<String>) -> usize {
         let end = (i..self.tokens.len())
             .find(|&j| sep(&self.tokens[j]))
             .unwrap_or(self.tokens.len());
         let next = self.tokens.get(end).cloned().unwrap_or_default();
         let pops = self.open_scopes(i, end);
-        if !self.assignments(i, end, &next) {
-            self.command(i, end, &next)?;
+        if !self.assignments(i, end, &next)
+            && let Err(reason) = self.command(i, end, &next)
+            && !refusals.contains(&reason)
+        {
+            refusals.push(reason);
         }
         self.close_scopes(pops);
-        Ok(end)
+        end
     }
-    fn walk(&mut self) -> Result<(), String> {
+    fn walk(&mut self) -> Result<(), Vec<String>> {
+        let mut refusals = Vec::new();
         let mut i = 0;
         while i < self.tokens.len() {
             if sep(&self.tokens[i]) {
@@ -275,18 +279,18 @@ impl<'a> State<'a> {
                 i += 1;
                 continue;
             }
-            i = self.segment(i)?;
+            i = self.segment(i, &mut refusals);
         }
         if self.input.data["hook_event_name"] == "PermissionRequest"
             && self.delete_seen
             && !self.unread.is_empty()
         {
-            return Err(format!(
+            refusals.push(format!(
                 "recursive delete target '{}' cannot be read before it runs. Delete the literal path instead: run the expansion on its own first, then rm -rf the path it printed",
                 self.unread
             ));
         }
-        Ok(())
+        if refusals.is_empty() { Ok(()) } else { Err(refusals) }
     }
 }
 
@@ -323,12 +327,14 @@ fn decide(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Verd
     }
     let mut state = State::new(input, get, hold);
     match state.walk() {
-        Err(reason) if reason.starts_with("raw 'git push'") && let Some(updated) = pushed(input, get, hold) => {
+        Err(reasons) if reasons.iter().all(|reason| reason.starts_with("raw 'git push'")) && let Some(updated) = pushed(input, get, hold) => {
             Verdict::Rewrite(updated, PUSH_NOTE.into())
         }
-        Err(reason) => {
-            state.log(&reason, get);
-            Verdict::Deny(format!("tripwire: {reason}"))
+        Err(reasons) => {
+            for reason in &reasons {
+                state.log(reason, get);
+            }
+            Verdict::Deny(reasons.iter().map(|reason| format!("tripwire: {reason}")).collect::<Vec<_>>().join("\n"))
         }
         Ok(()) if state.delete_seen && input.data["hook_event_name"] == "PermissionRequest" => {
             Verdict::Approve
