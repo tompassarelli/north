@@ -5,3 +5,6 @@ profile-rustflags = true
 [profile.dev]
 codegen-backend = "cranelift"
 rustflags = ["-Zthreads=8"]
+
+[build]
+incremental = true

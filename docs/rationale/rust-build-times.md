@@ -189,6 +189,43 @@ it passed 10 of 10 runs alone under each toolchain. `cargo fmt --check` reports 
 with stable and nightly rustfmt, and no check runs it. `RUSTFLAGS`, which the dev shell exports for a
 foreign `CARGO_TARGET_DIR`, does not displace profile `rustflags`, so the levers hold in every lane.
 
+### Incremental on the adopted toolchain
+
+Measured on gex45 at origin/main 8a8f2296b with Cranelift and `-Zthreads=8`, 10:58-11:41 AM (+07) on
+2026-11-05, in one worktree target under `north capacity host run --class heavy` (6 CPUs), `RUSTC_WRAPPER`
+as the dev shell sets it (sccache). Each sample appends `const _: u64 = K;` to
+`crates/north-core/src/agent_catalog.rs` after an unmeasured warm build in the same mode, then times a
+workspace `cargo test --locked --offline --no-run` with bash `time`; the two modes alternate order each
+round. "Off" is `CARGO_BUILD_INCREMENTAL=false`, "on" is the repository's `[build] incremental = true`.
+Host load was 6.5 to 21 on 20 threads. Seconds; CPU is user plus system:
+
+| Mode | Wall samples | Wall median | CPU samples | CPU median |
+|---|---|---|---|---|
+| off (`CARGO_BUILD_INCREMENTAL=false`) | 18.55, 18.58, 16.83 | 18.6 | 115.2, 107.3, 108.8 | 108.8 |
+| on (`[build] incremental = true`) | 18.52, 17.07, 9.05 | 17.1 | 35.9, 34.7, 32.5 | 34.7 |
+
+Incremental cuts the leaf edit's CPU 3.1x but its wall time only 1.09x, where box 8b measured 4.0x on
+stable LLVM. The parallel front end and Cranelift already brought the off build from 87.4 s to 18.6 s on
+6 CPUs, so what remains is serial. A `--timings` run of the on build (15.2 s wall, 32.9 CPU-s) shows the
+chain: north-core rebuilds in about 5 s, then north-ops, north-runtime and north-tui each re-check
+against its new metadata (to about 12 s), then the north binaries and test harnesses link (to 13 s).
+Incremental reuses each crate's codegen, but every crate downstream of north-core still runs its front
+end in turn. The wall-time lever left is that chain, which the north-core split shortens; the CPU cut
+matters now on a host whose builds queue for CPU. Cranelift and incremental combine without error.
+
+The repository's `.cargo/config.toml` sets `[build] incremental = true`, which outranks
+`$CARGO_HOME/config.toml`; gex45's user config with `incremental = false` was moved to
+`~/.cargo/config.toml.2026-11-05.bak`. Disk: the worktree's `target/debug/incremental` held 4.5 GiB after
+the samples (north-core 0.5 GiB per metadata hash). Land checks are unchanged: `depbox run` mounts a
+tmpfs over the home directory, so they never read the user config and already built incrementally
+(rustc ran with `-C incremental=~/code/north/sandbox/target/debug/incremental`; the land-offload main
+slot held 39 GiB of `incremental/`). The new cost falls on interactive worktree targets: 32 of them held
+203 GiB; 23 of the 31 listed before this run already carried `incremental/` state that the off setting left unused, and the other 8
+grow by about 4.5 GiB each when next built, at most 36 GiB. The root disk had 122 GiB (13%) free before
+the change, so no lander override was added (it would forfeit the CPU cut where builds queue most), and
+lane-gc found one retirable worktree. The disk budget in south's `orchestration.toml` covers the shared
+cargo target, not worktree targets, so it does not move.
+
 ## Codegen cost of north-core, 2026-11-05
 
 Measured on gex45 at origin/main fad7445bd, rustc 1.96.1, in a detached scratch worktree under
@@ -304,7 +341,6 @@ pairs incremental with sccache, which passes incremental crates through (`build_
 
 These rows ran on stable 1.96.1 with LLVM, before the Toolchain levers above were adopted. The
 Toolchain levers rows ran on gex45 under the same `incremental = false`, because the repo's
-`.cargo/config.toml` does not set `build.incremental` and so the user config's value stands. Incremental
-is independent of the codegen backend and stacks with Cranelift and `-Zthreads=8`. A
-`[build] incremental = true` line in the repo's `.cargo/config.toml` outranks the user config, so it
-turns incremental back on for every checkout on every host.
+`.cargo/config.toml` did not set `build.incremental` then and so the user config's value stood. The repo
+config now sets `[build] incremental = true`, which outranks the user config; on the adopted toolchain it
+cuts CPU 3.1x and wall time 1.09x (Incremental on the adopted toolchain, above).
