@@ -28,7 +28,7 @@ settle                 on the host that settles the fleet: update here, deploy w
 deploy [HOST...]       build here, then ship and promote that runtime on each HOST (default: every other declared host with an ssh destination)
 health                 check the live runtime
 rollback --from SHA    relink current to the previous runtime and hold SHA back for an hour, when current is SHA; settle runs it on a host whose canary land check failed
-promote                update here, then deploy to every declared host
+promote                update here, then deploy to every declared host; when this host runs the lander, also run north land promote against the new current so the lander link follows it, or log the named reason it is held
 follow --repo-dir DIR  after a landing: start promote in the background when DIR's origin is north
 covers [--head REV] [--code PATH,...]
                        print the live runtime's north when REV (default HEAD) in this checkout changes no Rust build input since it, or with --code none of those path prefixes nor Cargo.lock or rust-toolchain.toml, so a land check runs it instead of building north from the tree";

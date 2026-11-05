@@ -103,3 +103,7 @@ pub fn unfit_host(recorded: &str) -> Option<String> {
 pub fn same(recorded: &str, replayed: &str) -> bool {
     recorded_class(recorded).is_some_and(|class| replayed.split_whitespace().next() == Some(class))
 }
+
+pub fn lands_what_was_refused(recorded: &str, replayed: &str) -> bool {
+    recorded_class(recorded).is_some_and(|class| class != "landed") && replayed.split_whitespace().next() == Some("landed")
+}

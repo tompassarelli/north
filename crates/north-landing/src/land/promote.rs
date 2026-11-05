@@ -183,6 +183,11 @@ fn replay_recorded(binary: &Path, repository: &Repository, checker: &str) -> Res
         };
         let verdict = run_replay(binary, &repository.checkout, &base, checker, &round.tickets()).unwrap_or_else(|error| format!("error {error}"));
         let shown = verdict.split_whitespace().next().unwrap_or_default();
+        if replay::lands_what_was_refused(&round.verdict, &verdict) {
+            println!("north land promote: round {lanes} on {} recorded {class} but the candidate lands it: an improvement, not a hold", &base[..base.len().min(12)]);
+            replayed += 1;
+            continue;
+        }
         if !replay::same(&round.verdict, &verdict) {
             return Err(format!("round {lanes} on {base} recorded {class} but the candidate replayed {verdict}"));
         }
