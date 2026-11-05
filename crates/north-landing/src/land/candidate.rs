@@ -12,7 +12,7 @@ pub fn speculative_branch(level: usize) -> String {
 }
 
 pub fn output(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
-    Command::new("git").arg("-C").arg(directory).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
+    Command::new("git").arg("-C").arg(directory).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
 }
 
 pub fn git(directory: &Path, arguments: &[&str]) -> Result<String, String> {
@@ -41,8 +41,6 @@ pub fn ensure(repo: &Path, worktree: &Path) -> Result<(), String> {
     if worktree.join(".git").is_file() && succeeds(worktree, &["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]) {
         git(worktree, &["cherry-pick", "--abort"])?;
     }
-    git(worktree, &["config", "merge.set.name", merge_set::DRIVER_NAME])?;
-    git(worktree, &["config", "merge.set.driver", merge_set::DRIVER_COMMAND])?;
     Ok(())
 }
 
@@ -119,6 +117,17 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -
     if git(worktree, &["rev-list", "--count", &range])? != git(worktree, &["rev-list", "--count", &format!("{picked_onto}..HEAD")])? {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
         return refuse(logs, name, "dropped", &dropped_refusal(base, &git(worktree, &["rev-list", "--reverse", &range])?.replace('\n', " ")));
+    }
+    match merge_continue::generator_moved(worktree, &worktree.join(merge_set::DEFAULT_CONFIG), base, &picked_onto) {
+        Ok(None) => {}
+        Ok(Some(reason)) => {
+            git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
+            return Ok(Pick::Deferred(format!("{}: {reason}; it stays queued for the next candidate", ticket.branch)));
+        }
+        Err(error) => {
+            git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
+            return refuse(logs, name, "regenerate", &format!("could not read the regenerate rules: {error}; NOT landed."));
+        }
     }
     if let Err(error) = merge_continue::refresh(worktree, &worktree.join(merge_set::DEFAULT_CONFIG), &picked_onto) {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;

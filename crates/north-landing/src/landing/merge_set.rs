@@ -2,10 +2,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 const USAGE: &str = "usage: north merge-driver set [--config FILE] BASE OURS THEIRS PATH | continue [--config FILE]";
-pub const DRIVER_NAME: &str = "order-insensitive unique-entry lists and regenerated files (harness/merge-sets.toml)";
-pub const DRIVER_COMMAND: &str = "north merge-driver set %O %A %B %P";
+pub struct Driver {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub arguments: &'static str,
+}
+
+pub const DRIVERS: &[Driver] = &[Driver { name: "set", description: "order-insensitive unique-entry lists and regenerated files (harness/merge-sets.toml)", arguments: "merge-driver set %O %A %B %P" }];
+const GIT_DRIVERS: [&str; 3] = ["text", "binary", "union"];
+const KINDS: [&str; 3] = ["lines", "toml-array", "regenerate"];
+static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
+static REPORTED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 pub const DEFAULT_CONFIG: &str = "harness/merge-sets.toml";
 const PLACEHOLDER: char = '\u{1}';
 
@@ -26,13 +36,45 @@ enum Change {
 pub(crate) enum Kind {
     Lines,
     TomlArray(String),
-    Regenerate { command: String, sources: Vec<String> },
+    Regenerate { command: String, sources: Vec<String>, generator: Vec<String> },
 }
 
 #[derive(Debug)]
 pub(crate) struct Rule {
     pub(crate) path: String,
     pub(crate) kind: Kind,
+}
+
+pub fn run_drivers_with(program: &Path) {
+    let _ = PROGRAM.set(program.to_owned());
+}
+
+fn driver_program() -> Option<PathBuf> {
+    PROGRAM.get().cloned().or_else(|| std::env::current_exe().ok().filter(|exe| exe.file_name().is_some_and(|name| name == "north")))
+}
+
+fn shell_quoted(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
+}
+
+pub fn driver_arguments() -> Vec<String> {
+    let Some(program) = driver_program() else { return Vec::new() };
+    let program = shell_quoted(&program);
+    DRIVERS
+        .iter()
+        .flat_map(|driver| ["-c".to_owned(), format!("merge.{}.name={}", driver.name, driver.description), "-c".to_owned(), format!("merge.{}.driver={program} {}", driver.name, driver.arguments)])
+        .collect()
+}
+
+pub fn undriven_attributes(attributes: &str) -> Vec<String> {
+    attributes
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .flat_map(|line| line.split_whitespace().skip(1))
+        .filter_map(|attribute| attribute.strip_prefix("merge="))
+        .filter(|name| !GIT_DRIVERS.contains(name) && !DRIVERS.iter().any(|driver| driver.name == *name))
+        .map(str::to_owned)
+        .collect()
 }
 
 pub fn line_entry(line: &str) -> Entry {
@@ -281,6 +323,25 @@ fn string_array(table: &toml_edit::Table, name: &str) -> Option<Vec<String>> {
     Some(sources).filter(|sources| !sources.is_empty())
 }
 
+fn report_unknown(kind: &str, config: &Path) {
+    let first = REPORTED.lock().map_or(true, |mut reported| reported.insert(kind.to_owned()));
+    if first {
+        eprintln!("north merge-driver: {}: skipping the entries of kind {kind:?}, which this north does not know; git merges their files as text", config.display());
+    }
+}
+
+fn touches(paths: &[String], prefixes: &[String]) -> bool {
+    paths.iter().any(|path| prefixes.iter().any(|prefix| path.starts_with(prefix.as_str())))
+}
+
+pub(crate) fn generator_moved(rules: &[Rule], ahead: &[String], pick: &[String]) -> Option<String> {
+    rules.iter().find_map(|rule| {
+        let Kind::Regenerate { sources, generator, .. } = &rule.kind else { return None };
+        let regenerated = pick.contains(&rule.path) || touches(pick, sources);
+        (touches(ahead, generator) && regenerated).then(|| format!("a lane ahead of it in this candidate changes the generator of {}, which this running lander cannot regenerate with", rule.path))
+    })
+}
+
 pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
     let text = fs::read_to_string(config).map_err(|error| format!("{}: {error}", config.display()))?;
     let document = text.parse::<toml_edit::DocumentMut>().map_err(|error| format!("{}: {error}", config.display()))?;
@@ -291,7 +352,15 @@ pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
         let kind = match (field("kind"), field("key"), field("command")) {
             (Some("lines"), None, None) => Kind::Lines,
             (Some("toml-array"), Some(key), None) => Kind::TomlArray(key.to_owned()),
-            (Some("regenerate"), None, Some(command)) if !command.trim().is_empty() => Kind::Regenerate { command: command.to_owned(), sources: string_array(table, "sources").ok_or_else(|| format!("{path}: a regenerate entry needs a sources array of path prefixes"))? },
+            (Some("regenerate"), None, Some(command)) if !command.trim().is_empty() => Kind::Regenerate {
+                command: command.to_owned(),
+                sources: string_array(table, "sources").ok_or_else(|| format!("{path}: a regenerate entry needs a sources array of path prefixes"))?,
+                generator: string_array(table, "generator").unwrap_or_default(),
+            },
+            (Some(kind), _, _) if !KINDS.contains(&kind) => {
+                report_unknown(kind, config);
+                continue;
+            }
             _ => return Err(format!("{path}: kind must be lines, toml-array with a key, or regenerate with a command and sources")),
         };
         rules.push(Rule { path, kind });
@@ -317,9 +386,12 @@ fn conflict_text(base: &str, ours: &str, theirs: &str) -> String {
 pub fn drive(config: &Path, base: &Path, ours: &Path, theirs: &Path, path: &str) -> Result<(), String> {
     let read = |file: &Path| fs::read_to_string(file).map_err(|error| format!("{}: {error}", file.display()));
     let (base_text, ours_text, theirs_text) = (read(base)?, read(ours)?, read(theirs)?);
-    let outcome = read_rules(config).and_then(|rules| {
-        let rule = rules.iter().find(|rule| rule.path == path).ok_or_else(|| format!("{path} is not on the merge-set allowlist"))?;
-        merge_text(&rule.kind, &base_text, &ours_text, &theirs_text)
+    let outcome = read_rules(config).and_then(|rules| match rules.iter().find(|rule| rule.path == path) {
+        Some(rule) => merge_text(&rule.kind, &base_text, &ours_text, &theirs_text),
+        None => match text_merge(&base_text, &ours_text, &theirs_text)? {
+            (merged, false) => Ok(merged),
+            (_, true) => Err(format!("{path} is not on the merge-set allowlist and git's text merge conflicts")),
+        },
     });
     match outcome {
         Ok(merged) => fs::write(ours, merged).map_err(|error| error.to_string()),

@@ -232,15 +232,19 @@ fn undone(repo: &Path, window: &Window, sha: &str, change: &FileChange, blamed: 
     Ok(changes(&earlier).first().is_some_and(|earlier| change.undoes(earlier, blamed)))
 }
 
-fn generated(repo: &Path, head: &str, paths: &[&str]) -> Result<BTreeSet<String>, String> {
+fn exempt(repo: &Path, head: &str, paths: &[&str]) -> Result<BTreeSet<String>, String> {
     if paths.is_empty() {
         return Ok(BTreeSet::new());
     }
-    let mut args = vec!["check-attr", "-z", "--source", head, "linguist-generated", "--"];
+    let mut args = vec!["check-attr", "-z", "--source", head, "linguist-generated", "merge", "--"];
     args.extend(paths);
     let listing = git(repo, &args)?;
     let fields: Vec<&str> = listing.split('\0').collect();
-    Ok(fields.chunks_exact(3).filter(|entry| matches!(entry[2], "set" | "true")).map(|entry| entry[0].to_owned()).collect())
+    let skipped = |entry: &&[&str]| match entry[1] {
+        "merge" => super::merge_set::DRIVERS.iter().any(|driver| driver.name == entry[2]),
+        _ => matches!(entry[2], "set" | "true"),
+    };
+    Ok(fields.chunks_exact(3).filter(skipped).map(|entry| entry[0].to_owned()).collect())
 }
 
 pub fn reverted(repo: &Path, base: &str, head: &str, lane: &str) -> Result<Vec<Reverted>, String> {
@@ -257,7 +261,7 @@ pub fn reverted(repo: &Path, base: &str, head: &str, lane: &str) -> Result<Vec<R
     let all = changes(&patch);
     let kept: BTreeSet<&str> = all.iter().flat_map(|change| change.added.iter().map(String::as_str)).collect();
     let touched: Vec<&FileChange> = all.iter().filter(|change| !change.path.is_empty() && change.removes_lines() && !change.submodule).collect();
-    let skipped = generated(repo, head, &touched.iter().map(|change| change.path.as_str()).collect::<Vec<_>>())?;
+    let skipped = exempt(repo, head, &touched.iter().map(|change| change.path.as_str()).collect::<Vec<_>>())?;
     let checked: Vec<&FileChange> = touched.into_iter().filter(|change| !skipped.contains(&change.path)).collect();
     let mut found: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
     for (change, blamed) in checked.iter().zip(blame_all(repo, &window, &checked, &kept)?) {

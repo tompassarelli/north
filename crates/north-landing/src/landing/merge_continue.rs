@@ -19,7 +19,7 @@ impl Operation {
 }
 
 fn git(worktree: &Path, arguments: &[&str]) -> Result<Output, String> {
-    Command::new("git").arg("-C").arg(worktree).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
+    Command::new("git").arg("-C").arg(worktree).args(merge_set::driver_arguments()).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
 }
 
 fn stdout(worktree: &Path, arguments: &[&str]) -> Result<String, String> {
@@ -99,6 +99,19 @@ pub fn finish(worktree: &Path, config: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn names(worktree: &Path, range: &str) -> Result<Vec<String>, String> {
+    Ok(stdout(worktree, &["diff", "--name-only", "-z", range])?.split('\0').filter(|path| !path.is_empty()).map(str::to_owned).collect())
+}
+
+pub fn generator_moved(worktree: &Path, config: &Path, base: &str, picked_onto: &str) -> Result<Option<String>, String> {
+    if !config.exists() || base == picked_onto {
+        return Ok(None);
+    }
+    let rules = merge_set::read_rules(config)?;
+    let (ahead, pick) = (names(worktree, &format!("{base}..{picked_onto}"))?, names(worktree, &format!("{picked_onto}..HEAD"))?);
+    Ok(merge_set::generator_moved(&rules, &ahead, &pick))
+}
+
 pub fn refresh(worktree: &Path, config: &Path, picked_onto: &str) -> Result<Vec<String>, String> {
     if !config.exists() {
         return Ok(Vec::new());
@@ -108,7 +121,7 @@ pub fn refresh(worktree: &Path, config: &Path, picked_onto: &str) -> Result<Vec<
     let changed = changed.split('\0').filter(|path| !path.is_empty()).collect::<Vec<_>>();
     let mut refreshed = Vec::new();
     for rule in &rules {
-        let Kind::Regenerate { command, sources } = &rule.kind else { continue };
+        let Kind::Regenerate { command, sources, .. } = &rule.kind else { continue };
         let stale = !changed.contains(&rule.path.as_str()) && changed.iter().any(|path| sources.iter().any(|source| path.starts_with(source.as_str())));
         if !stale {
             continue;

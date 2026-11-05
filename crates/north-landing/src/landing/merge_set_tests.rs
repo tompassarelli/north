@@ -184,3 +184,50 @@ fn a_refused_duplicate_still_leaves_conflict_markers_though_git_alone_merges_it_
     assert!(drive(&config, &base, &ours, &theirs, "listed.txt").is_err());
     assert!(fs::read_to_string(&ours).unwrap().contains("<<<<<<< ours"));
 }
+
+#[test]
+fn every_merge_attribute_has_a_driver() {
+    let attributes = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.gitattributes")).unwrap();
+    assert!(attributes.contains("merge=set"), "{attributes}");
+    assert_eq!(undriven_attributes(&attributes), Vec::<String>::new());
+    let planted = format!("{attributes}docs/new.md merge=nosuch\n");
+    assert_eq!(undriven_attributes(&planted), vec!["nosuch".to_owned()]);
+    assert_eq!(undriven_attributes("# a.txt merge=nosuch\nb.bin merge=binary\nc.log merge=union\n"), Vec::<String>::new());
+}
+
+#[test]
+fn an_unknown_kind_is_skipped_and_structure_toml_still_merges_as_a_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("sets.toml");
+    fs::write(&config, "[[set]]\npath = \"later.rs\"\nkind = \"rust-items\"\n\n[[set]]\npath = \"structure.toml\"\nkind = \"toml-array\"\nkey = \"may_use\"\n").unwrap();
+    let rules = read_rules(&config).unwrap();
+    assert_eq!(rules.iter().map(|rule| rule.path.as_str()).collect::<Vec<_>>(), ["structure.toml"]);
+    let base = "[[module]]\nname = \"a\"\nmay_use = [\"x\"]\n";
+    let [b, ours, theirs] = scratch_files(dir.path(), base, "[[module]]\nname = \"a\"\nmay_use = [\"x\", \"y\"]\n", "[[module]]\nname = \"a\"\nmay_use = [\"x\", \"z\"]\n");
+    drive(&config, &b, &ours, &theirs, "structure.toml").unwrap();
+    assert_eq!(fs::read_to_string(&ours).unwrap(), "[[module]]\nname = \"a\"\nmay_use = [\"x\", \"y\", \"z\"]\n");
+    let [b, ours, theirs] = scratch_files(dir.path(), "a\nb\nc\n", "A\nb\nc\n", "a\nb\nC\n");
+    drive(&config, &b, &ours, &theirs, "later.rs").unwrap();
+    assert_eq!(fs::read_to_string(&ours).unwrap(), "A\nb\nC\n");
+}
+
+#[test]
+fn a_regenerate_generator_change_ahead_defers_a_pick_on_its_sources_or_file_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("sets.toml");
+    fs::write(&config, "[[set]]\npath = \"docs/index.md\"\nkind = \"regenerate\"\ncommand = \"north docs index\"\nsources = [\"docs/notes/\"]\ngenerator = [\"src/index/\"]\n").unwrap();
+    let rules = read_rules(&config).unwrap();
+    let paths = |paths: &[&str]| paths.iter().map(|path| (*path).to_owned()).collect::<Vec<_>>();
+    let generator = paths(&["src/index/mod.rs"]);
+    let deferred = generator_moved(&rules, &generator, &paths(&["docs/notes/new.md"])).unwrap();
+    assert!(deferred.contains("docs/index.md"), "{deferred}");
+    assert!(generator_moved(&rules, &generator, &paths(&["docs/index.md"])).is_some());
+    assert!(generator_moved(&rules, &generator, &paths(&["src/other.rs"])).is_none());
+    assert!(generator_moved(&rules, &paths(&["src/other.rs"]), &paths(&["docs/notes/new.md"])).is_none());
+}
+
+#[test]
+fn the_drivers_run_the_quoted_program_with_their_merge_driver_arguments() {
+    assert_eq!(shell_quoted(Path::new("/tmp/it's/north")), "'/tmp/it'\\''s/north'");
+    assert!(DRIVERS.iter().all(|driver| driver.arguments.starts_with("merge-driver ") && driver.arguments.ends_with(" %O %A %B %P")));
+}
