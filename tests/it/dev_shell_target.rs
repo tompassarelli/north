@@ -15,7 +15,7 @@ fn nix_available() -> bool {
     std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|directory| directory.join("nix").is_file()))
 }
 
-const DEV_SHELL_SOURCES: [&str; 6] = ["flake.nix", "flake.lock", "rust-toolchain.toml", "bin/land-shell", "crates/north-core/src/capacity/dev_shell.rs", "tests/it/dev_shell_target.rs"];
+const DEV_SHELL_SOURCES: [&str; 6] = ["flake.nix", "flake.lock", "rust-toolchain.toml", "bin/land-shell", "crates/north-capacity/src/capacity/dev_shell.rs", "tests/it/dev_shell_target.rs"];
 
 fn landing_leaves_the_dev_shell_unchanged() -> Option<String> {
     let revision = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());

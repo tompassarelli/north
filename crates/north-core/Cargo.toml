@@ -29,9 +29,6 @@ tokio.workspace = true
 tui-markdown.workspace = true
 tui-textarea-2.workspace = true
 
-[features]
-test-support = []
-
 [dev-dependencies]
 north-fleet = { path = "../north-fleet", features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }

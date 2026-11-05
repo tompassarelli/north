@@ -1,0 +1,31 @@
+[package]
+name = "north-capacity"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+rusqlite.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+time.workspace = true
+toml_edit.workspace = true
+tokio.workspace = true
+
+[features]
+test-support = []
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

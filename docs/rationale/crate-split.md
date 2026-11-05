@@ -19,18 +19,21 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
   `north-landing` would make `guard` rebuild on every landing-gate edit.
 - `north-landing`: `landing`, `dep_gate`, `language_gate`, `provenance`, `issue_box_lint`,
   `follows_release`, `land_abandon`. Depends on `north-base` only.
-- `north-core`: everything else (`fleet`, `ledger`, `threads`, `capacity`, `health`, `providers`, ...).
+- `north-core`: everything else (`fleet`, `ledger`, `threads`, `health`, `providers`, ...).
   Depends on `north-base`; nothing in it uses `north-landing`, `north-tui`, `north-guard` or `north-ops`.
 - `north-tui`: `tui`, the fleet terminal screen. Depends on `north-core`; nothing in `north-core` uses it,
   so a screen edit rebuilds `north-tui` and the root package while `north-core` stays cached.
-- `north-guard`: `guard` and `hook`, the tool-call policy behind `north hook`. Depends on `north-core` and
-  `north-base`; nothing in `north-core` uses it, so a guard edit rebuilds `north-guard` and the root package.
+- `north-guard`: `guard` and `hook`, the tool-call policy behind `north hook`. Depends on `north-core`,
+  `north-capacity` and `north-base`; nothing in `north-core` uses it, so a guard edit rebuilds `north-guard` and the root package.
 - `north-ops`: `ops`, the operational commands. Depends on `north-base` and `north-core`; nothing in
   `north-core` uses it, and `north-guard` names it only for its tests.
+- `north-capacity`: the rest of `capacity` (admission, leases, aperture, deadlines and the game reserve),
+  moved out of `north-core` (box 4-17). Depends on `north-base` only. `capacity::fixtures` is compiled under
+  its `test-support` feature, which `north-capacity-host` enables as a dev-dependency.
 - `north-capacity-host`: `capacity/host`, `capacity/gate`, `capacity/watchdog` and the `north capacity`
-  subcommand dispatch (`capacity/command.rs`). Its `capacity` module re-exports `north_core::capacity` and adds
+  subcommand dispatch (`capacity/command.rs`). Its `capacity` module re-exports `north_capacity::capacity` and adds
   those modules, so `crate::capacity::...` and `super::` paths inside them are unchanged. Depends on
-  `north-base` and `north-core`; `north-ops` (for `land_offload`) and the root package import `capacity` from it.
+  `north-base`, `north-capacity` and `north-core`; `north-ops` (for `land_offload`) and the root package import `capacity` from it.
 - `north-runtime`: `runtime`, `land_offload`, `build_offload`, `laptop_runner`, `agent_contain`,
   `laptop_ntfy`, `timers`, `model_watch`, `job_watch`, `outside_watch`, `usage_web_read` and
   `runtime_access`, moved out of `ops` (box 4-9). Depends on `north-ops` for `ops::pacing`, `ops::dispatch`

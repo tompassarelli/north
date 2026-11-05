@@ -7,7 +7,6 @@ pub mod agent_catalog;
 pub mod agent_config_check;
 pub mod agent_policy_contract;
 pub mod build_time;
-pub mod capacity;
 pub mod codex;
 pub mod contract_probe;
 pub mod doctor_nix;

@@ -524,14 +524,14 @@ value = 1
 unit = "MiB of NVIDIA BAR1 aperture one private desktop's labwc compositor and Xwayland hold"
 source = "measured: 2026-10-27 on the GPU host, one throwaway desktop with glxinfo's Xwayland moved BAR1 Used 158, 159, 158 MiB as it started and stopped (north#254)"
 fallback = "none; admission adds this per declared desktop"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [bar1_client_mib]
 value = 113
 unit = "MiB of NVIDIA BAR1 aperture one Warcraft client holds with its BlizzardBrowser GPU processes, and one gpu-class run"
 source = "measured: 2026-10-27 on the GPU host at a 256 MiB aperture, the costliest of three pairs: a capture-classic pair's 2 clients with their BlizzardBrowser and CEF GPU processes moved BAR1 Used 5 to 230 MiB, against 48 and 108 MiB freed by two visual pairs; gpu runs are unmeasured and charged as one client (north#254)"
 fallback = "none; admission adds this per declared client and per gpu run"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [bar1_margin_mib]
 value = 16
@@ -539,14 +539,14 @@ unit = "MiB of NVIDIA BAR1 aperture admission keeps free beyond a request's meas
 source = "prior: covers sampling noise and a second start admitted before the first one's compositor maps its buffers"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted starts can be checked against BAR1 Used afterwards" }
 fallback = "bar1_margin_mib in [hosts.NAME] of agents/orchestration.toml replaces it"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [vram_client_mib]
 value = 1310
 unit = "MiB of NVIDIA VRAM one Warcraft client holds with its BlizzardBrowser and error-reporter processes"
 source = "measured: 2026-10-27 on the GPU host with 6 clients, nvidia-smi --query-compute-apps showed Warcraft III.exe at 544 to 864 MiB, BlizzardBrowser.exe at 363 to 405 MiB and the error reporter at 41 MiB; FB Used was 7837 MiB, 1306 MiB per client (north#259)"
 fallback = "none; the measured client cap counts free VRAM in these steps"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [vram_margin_mib]
 value = 1024
@@ -554,7 +554,7 @@ unit = "MiB of NVIDIA VRAM the measured client cap keeps free for compositors an
 source = "prior: about one private desktop's compositor and a sampling margin beside 24 GiB of VRAM"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted client starts can be checked against FB Used afterwards" }
 fallback = "none"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [game_reserve_headroom_mib]
 value = 24576
@@ -562,63 +562,63 @@ unit = "MiB of measured available memory batch admission leaves the game and des
 source = "prior: on the 94 GiB laptop the game slice reserves 6 GiB (MemoryLow) and Warcraft III under Proton, the compositor, browser and terminals hold about 12 GiB more; 24 GiB keeps that with a margin above the attended 19 GiB floor (Tom asked for batch beside his game, 2026-10-28)"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes admitted during game reserve whose game frame time or memory pressure can be checked afterwards" }
 fallback = "none; a batch request that leaves less defers with DEFER_GAME_MEMORY"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [dispatch_heavy_memory_mib]
 value = 8192
 unit = "MiB a dispatched box verified by a local or native test run asks of its host's memory"
 source = "standard: machine-capacity requests 8192 MiB for its heavy class (cargo test, bun test, wisp render); makgora suites measured 5957 MiB on 2026-10-27 (north#259)"
 fallback = "a host whose total memory cannot admit this class takes no test-verified box"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [dispatch_agent_memory_mib]
 value = 768
 unit = "MiB a dispatched box that runs no test suite asks of its host's memory"
 source = "standard: machine-capacity requests 768 MiB for its agent class"
 fallback = "a host whose total memory cannot admit this class takes no box"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [land_offload_cpus]
 value = 6
 unit = "free cores (the admission limit less the CPUs committed to batch runs) a host needs to take an offloaded land check"
 source = "standard: machine-capacity's heavy class asks 6 cores on a host above 8 cores (crates/north-capacity-host/src/capacity/host/policy.rs resource_class)"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [land_offload_disk_free_gib]
 value = 20
 unit = "GiB free on the filesystem of a host's offload slot (~/.cache/land-offload) it needs to take an offloaded land check"
 source = "measured: the GPU host's root disk hit 100% three times on 2026-10-27 (north#259); Tom set the floor at 20 GB"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [build_disk_free_gib]
 value = 15
 unit = "GiB free on the root filesystem below which admission defers a heavy build (cargo build/test/clippy, nix build)"
 source = "measured: the GPU host's root disk hit 100% four times on 2026-10-27/28 with about 17 sessions building at once while admission counted only CPU and memory (north#259)"
 fallback = "an unreadable disk admits, as before"
-consumers = ["crates/north-core/src/capacity/admission.rs", "crates/north-core/src/capacity/saturation.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs", "crates/north-capacity/src/capacity/saturation.rs"]
 
 [build_disk_reserve_gib]
 value = 5
 unit = "GiB of root disk admission sets aside for each heavy build already running and for the one asking, before comparing what is left with build_disk_free_gib"
 source = "measured: one north lane's target/ held 4.9 GiB when the GPU host's root disk filled at 6:12 PM on 2026-10-29 and stranded six lanes, after heavy builds admitted above the floor wrote their targets at once (north#336)"
 fallback = "none: a heavy build that would leave less than the floor after the reserves waits as DEFER_DISK_FREE"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [run_queue_psi_attended]
 value = 40
 unit = "percent of the 10 s CPU pressure average (PSI some avg10) at or above which an attended host defers a heavy or exclusive request as DEFER_RUN_QUEUE"
 source = "measured: the laptop (24 cores) at 2:10 AM on 2026-10-31 read load average 11.5 with one runnable task and PSI some avg10 6.9%, yet the load rule deferred six builds for up to 20 minutes; the watchdog samples of 2026-10-28 to 2026-10-29 (n=3406) put PSI some p95 at 28 and p99 at 76; heavy work is held from 30 by the batch CPU-pressure gate whatever this says, so 40 decides exclusive work and the reason heavy work shows"
 fallback = "facts stated without a CPU pressure reading defer on the run-queue load average plus the request's cores against the thread count; a live host that cannot read system pressure fails admission"
-consumers = ["crates/north-core/src/capacity/run_queue.rs"]
+consumers = ["crates/north-capacity/src/capacity/run_queue.rs"]
 
 [run_queue_psi_unattended]
 value = 60
 unit = "percent of the 10 s CPU pressure average (PSI some avg10) at or above which an unattended host defers a heavy or exclusive request as DEFER_RUN_QUEUE"
 source = "measured: same samples as run_queue_psi_attended, 2026-10-28 to 2026-10-29, n=3406: PSI some p99 76; an unattended host has no interactive session to protect, so exclusive work runs to 60 where an attended host stops at 40"
 fallback = "facts stated without a CPU pressure reading defer on the run-queue load average plus the request's cores against the thread count; a live host that cannot read system pressure fails admission"
-consumers = ["crates/north-core/src/capacity/run_queue.rs"]
+consumers = ["crates/north-capacity/src/capacity/run_queue.rs"]
 
 [quiet_idle_cores]
 value = 0.25
@@ -633,7 +633,7 @@ unit = "seconds a quiet native lease's clients must stay idle before it stops de
 source = "prior: five minutes outlasts a screenshot read or a between-capture pause yet is far under the 17-minute hold that queued 19 jobs on the GPU host, 2026-10-26 (north#237)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against quiet native leases' measured idle seconds; worker runs are the nearest existing count until quiet leases are counted" }
 fallback = "a lease whose scope is not measured keeps deferring until it ends or passes its declared run length"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [backfill_seconds]
 value = 300
@@ -641,7 +641,7 @@ unit = "seconds a queued batch ticket the free CPU share cannot fit lets smaller
 source = "prior: on the laptop at 6:30 AM +07 on 2026-10-31 a heavy build that did not fit held four 2-CPU requests that did for 21 to 550 s under strict arrival order while the watchdog read it saturated for 45 minutes (north#385); five minutes lets that work through and still reserves the share for the build well before its 737 s wait ran out"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against queued batch tickets' measured wait before admission; worker runs are the nearest existing count until queue waits are counted" }
 fallback = "a ticket that states no CPUs holds its place in arrival order"
-consumers = ["crates/north-core/src/capacity/queued_ahead.rs"]
+consumers = ["crates/north-capacity/src/capacity/queued_ahead.rs"]
 
 [evidence_retention_hours]
 value = 72
@@ -767,12 +767,12 @@ unit = "seconds an admitted native lease holds its declared Warcraft client slot
 source = "prior: covers a pair's 10-minute wait for both clients after its admission plus its desktops' start; on the GPU host on 2026-10-29 pair 0's client lost its slot to a start admitted 30 s after the pair (north#358)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against native pair admissions' seconds from admission to both clients running; worker runs are the nearest existing count until native admissions are counted" }
 fallback = "none; a lease older than this holds only the clients that run in it"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [slice_weight_app_attended]
 value = 1000
 unit = "CPUWeight and IOWeight of Tom's desktop slice (app.slice, his browser and game) while the profile is attended"
-source = "prior: game-reserve.slice's weight of 1000 (crates/north-core/src/capacity/game_reserve.rs); the reason is that on 2026-10-31 unleased agent bursts (gitleaks at 400%, pre-push bun at 200%, rustc at 300%) held CPU pressure at 17 to 18% for 5 minutes and slowed Tom's browser while app.slice and agent.slice both stood at weight 100 by a stale runtime drop-in from 2026-10-29"
+source = "prior: game-reserve.slice's weight of 1000 (crates/north-capacity/src/capacity/game_reserve.rs); the reason is that on 2026-10-31 unleased agent bursts (gitleaks at 400%, pre-push bun at 200%, rustc at 300%) held CPU pressure at 17 to 18% for 5 minutes and slowed Tom's browser while app.slice and agent.slice both stood at weight 100 by a stale runtime drop-in from 2026-10-29"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose desktop CPU pressure can be compared at weight 1000 against the same agent bursts at the old even share" }
 fallback = "an unattended profile applies slice_weight_app_unattended"
 consumers = ["crates/north-capacity-host/src/capacity/host/systemd.rs"]
@@ -805,30 +805,30 @@ value = 20
 unit = "percent of CPU pressure (PSI some avg10), the low mark of the unattended band; heavy admission reads only the high mark since the batch slice became idle-weighted"
 source = "measured: the laptop (24 threads) held 7 to 12 queued heavy builds for up to 35 minutes at PSI some avg10 1 to 4% and 55 GB available on 2026-10-31; the watchdog samples of 2026-10-28 to 2026-10-29 (n=3406) put PSI some at p95 28 and p99 76; the controller aims for a stall below the 30% batch gate this replaces and the 50% psi-notify default (references.md#psi-notify)"
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
+consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 
 [admit_psi_unattended_high]
 value = 40
 unit = "percent of CPU pressure (PSI some avg10) at or above which an unattended host starts no heavy build"
-source = "prior: a simulated 24-thread host with 30 queued builds of 4 to 12 threads peaks at 35% under the unattended rails (crates/north-core/src/capacity/pressure_target_tests.rs, 2026-10-31), so this mark sits above it; the pressure-against-threads model is assumed, not measured"
+source = "prior: a simulated 24-thread host with 30 queued builds of 4 to 12 threads peaks at 35% under the unattended rails (crates/north-capacity/src/capacity/pressure_target_tests.rs, 2026-10-31), so this mark sits above it; the pressure-against-threads model is assumed, not measured"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
+consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 
 [admit_psi_attended_low]
 value = 10
 unit = "percent of protected-slice CPU pressure (PSI some avg10) below which the laptop tick thaws the batch slice it froze at the attended high mark"
-source = "prior: the protected-slice gate (INTERACTIVE_PRESSURE_BASIS_POINTS in crates/north-core/src/capacity/admission.rs) already defers batch work from 10% while Tom is at the desktop, and the attended low mark takes the same figure"
+source = "prior: the protected-slice gate (INTERACTIVE_PRESSURE_BASIS_POINTS in crates/north-capacity/src/capacity/admission.rs) already defers batch work from 10% while Tom is at the desktop, and the attended low mark takes the same figure"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
+consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 
 [admit_psi_attended_high]
 value = 25
 unit = "percent of CPU pressure (PSI some avg10) at or above which an attended host starts no heavy build, and of protected-slice (app, session, game, game-reserve) CPU pressure at or above which the laptop tick freezes the batch slice"
 source = "measured: the watchdog's PSI some p95 of 28% (n=3406, 2026-10-28 to 2026-10-29) is the stall Tom's desktop already tolerates; the attended high mark sits under it"
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
+consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 
 [admit_psi_game_low]
 value = 5
@@ -836,29 +836,29 @@ unit = "percent of protected-slice CPU pressure (PSI some avg10) below which the
 source = "prior: the reserve already confines agents to their own cores, so the band drops to half the attended one; a design choice, not a measurement"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
+consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 
 [admit_psi_game_high]
 value = 20
 unit = "percent of CPU pressure (PSI some avg10) at or above which a host running Tom's game under game reserve starts no heavy build, and of protected-slice CPU pressure at or above which the laptop tick freezes the batch slice"
-source = "prior: a simulated agent-core host peaks at 18% on the reserve's 16 agent cores (crates/north-core/src/capacity/pressure_target_tests.rs, 2026-10-31), so the high mark sits above that; the game cores carry none of it"
+source = "prior: a simulated agent-core host peaks at 18% on the reserve's 16 agent cores (crates/north-capacity/src/capacity/pressure_target_tests.rs, 2026-10-31), so the high mark sits above that; the game cores carry none of it"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
+consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 
 [admit_batch_jobs_per_core]
 value = 0.5
 unit = "running heavy and moderate leases per host core (floored, at least one) past which another of those classes waits as DEFER_BATCH_JOBS; the batch slice is idle-weighted, so declared CPUs no longer ration it"
 source = "measured: 6:14 to 7:05 AM +07 on 2026-11-04 the laptop (24 threads) queued 8 to 11 heavy tickets for up to 20 minutes while admission summed declared CPUs to its 20-core attended limit and real CPU PSI ranged 19 to 36%; 0.5 per core admits 12 jobs on it, enough to drain that queue, while memory headroom still bounds the resident sets"
 fallback = "none: memory headroom and the pressure high mark gate the job under the cap"
-consumers = ["crates/north-core/src/capacity/admission.rs"]
+consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
 [admit_settle_seconds]
 value = 30
 unit = "seconds after a heavy build starts before another starts, three time constants of PSI some avg10, so the next reading includes the last build"
 source = "measured: after 10 s the average has reached 63% of its final value, and four or five heavy builds started within 40 s of each other while the laptop sat at 51 to 77% (north-admit-v2 samples, 2026-10-31); three time constants reach 95% (Linux kernel documentation, references.md#kernel-psi)"
 fallback = "none: with no heavy lease younger than this the next ticket is free to start"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
+consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 
 [admit_memory_ramp_seconds]
 value = 60
@@ -866,7 +866,7 @@ unit = "seconds a heavy lease's declared memory still counts against available m
 source = "prior: rustc and the linker grow a build's resident set over its first minute, so its declared memory counts for that minute; no figure recorded"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose lowest MemAvailable after a heavy start can be checked against the memory floor" }
 fallback = "none: a lease older than this counts only through MemAvailable"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs", "crates/north-capacity-host/src/capacity/host/policy.rs"]
+consumers = ["crates/north-capacity/src/capacity/pressure_target.rs", "crates/north-capacity-host/src/capacity/host/policy.rs"]
 
 [tom_class_owners]
 value = ["makgora:tom-build-window", "makgora:play-helper", "tom-preview"]
@@ -920,28 +920,28 @@ value = ["away:", "desktop:", "play:reserve,hold"]
 unit = "what each laptop capacity mode applies: reserve pins the game CPUs (game reserve) and runs heavy and batch work confined to the agent CPUs, pausing heavy batch while the CPU split is not enforced, hold defers native, exclusive and gpu batch (gpu goes to the offload host) and stops native leases, pause-heavy defers and freezes heavy batch; away and desktop reserve nothing because elastic CPU already runs agent batch in an idle-weighted slice"
 source = "tom: the machine must be quiet while he plays or tests a game so lag is never the computer's load, light use needs only a core or two, and agents take the whole laptop while he is away (2026-11-04); the idle laptop beside a saturated build host while he played showed pausing heavy work wasted the agent CPUs the split already keeps off the game (2026-11-05)"
 fallback = "a mode missing from the table applies nothing"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_mode_hold_sec]
 value = 7200
 unit = "seconds a playtest lease may run past the moment it was started or last extended, the hard cap on any one lease"
 source = "tom: nothing noticed when he finished and the reserve sat on for three days, so every phrase hold expires; two hours covers a test session (2026-11-04); a playtest is a lease of a stated length, so this caps a lease rather than setting it (2026-11-05)"
 fallback = "none: every lease has this cap"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_mode_lease_default_min]
 value = 10
 unit = "minutes a playtest lease lasts when the prompt names neither a length nor a test kind in capacity_lease_kinds, and what more or extend adds to such a lease"
 source = "tom: a playtest is a lease of a stated length, 10 min by default, returned automatically when it ends (2026-11-05)"
 fallback = "none: a lease always has a length"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_mode_lease_warn_sec]
 value = 120
 unit = "seconds before a playtest lease ends that laptop-auto sends its one check-in notification"
 source = "tom: two minutes before the end, check in once so he can reply more (2026-11-05)"
 fallback = "none: every lease checks in once"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_lease_kinds]
 value = ["40:online,multiplayer,with people,ladder,lan", "20:perf,performance,capture,profile,profiling,fps"]
@@ -963,7 +963,7 @@ unit = "game CPUs (SMT threads, half on each sibling set) the play reserve start
 source = "measured: the game reserve pinned 0-3,12-15 (8 of 24 threads) through 2026-11-04"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play with protectedCpuSomeAvg10 readings that size the reserve" }
 fallback = "the last sized value kept in the mode state"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_mode_play_cpus_min]
 value = 4
@@ -971,7 +971,7 @@ unit = "fewest game CPUs the play reserve narrows to"
 source = "prior: two cores with their siblings keep a Warcraft III client and the compositor"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play with protectedCpuSomeAvg10 readings" }
 fallback = "none: the clamp always applies"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_mode_play_cpus_max]
 value = 12
@@ -979,7 +979,7 @@ unit = "most game CPUs the play reserve widens to"
 source = "prior: half the laptop's 24 threads, leaving agents the other half"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play with protectedCpuSomeAvg10 readings" }
 fallback = "none: the clamp always applies"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_mode_play_cpus_step]
 value = 2
@@ -987,7 +987,7 @@ unit = "game CPUs (one core and its sibling) one sizing adjustment adds or remov
 source = "prior: one physical core per step keeps the reserve on whole cores"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "recorded play reserve adjustments" }
 fallback = "none"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_mode_play_psi_target]
 value = 5.0
@@ -995,7 +995,7 @@ unit = "percent protectedCpuSomeAvg10 (session and native slice CPU pressure) ab
 source = "prior: admit_psi_game_low, the band floor batch admission already keeps beside Tom's game"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play with protectedCpuSomeAvg10 readings" }
 fallback = "without a pressure reading the reserve keeps its size"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_mode_play_calm_sec]
 value = 600
@@ -1003,7 +1003,7 @@ unit = "seconds of protectedCpuSomeAvg10 at or under the target before the play 
 source = "prior: twenty laptop-auto ticks, so one quiet minute never shrinks the reserve"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "recorded play reserve adjustments" }
 fallback = "none"
-consumers = ["crates/north-core/src/capacity/mode.rs"]
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_phrase_on_verbs]
 value = ["test", "testing", "playtest", "playtesting", "playing"]
@@ -1061,21 +1061,21 @@ value = ["Warcraft III.exe"]
 unit = "executables whose process trees the quiet-off teardown closes as the game (matched as an executable path or the kernel's 15-byte comm)"
 source = "standard: game_reserve.rs GAME_ROOT, the Warcraft III client under Proton"
 fallback = "none"
-consumers = ["crates/north-core/src/capacity/teardown.rs"]
+consumers = ["crates/north-capacity/src/capacity/teardown.rs"]
 
 [capacity_teardown_launcher_names]
 value = ["Battle.net.exe", "Battle.net Launcher.exe"]
 unit = "launcher executables the quiet-off teardown closes when they share the game's Wine or Proton prefix"
 source = "standard: the Battle.net launcher that starts Warcraft III under Proton (Tom asked that done testing close it, 2026-11-04)"
 fallback = "none"
-consumers = ["crates/north-core/src/capacity/teardown.rs"]
+consumers = ["crates/north-capacity/src/capacity/teardown.rs"]
 
 [capacity_teardown_native_names]
 value = ["wisp-window", "smashcraft"]
 unit = "native test client comms the quiet-off teardown closes, beside every process in a native.slice scope and a wisp play --window native tree"
 source = "standard: the binaries of wisp/window/wisp-window and makgora-client/src-tauri (Cargo package names)"
 fallback = "none"
-consumers = ["crates/north-core/src/capacity/teardown.rs"]
+consumers = ["crates/north-capacity/src/capacity/teardown.rs"]
 
 [capacity_teardown_grace_sec]
 value = 10

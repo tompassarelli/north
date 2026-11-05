@@ -11,6 +11,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-capacity = { path = "../north-capacity" }
 north-core = { path = "../north-core" }
 fancy-regex.workspace = true
 regex.workspace = true

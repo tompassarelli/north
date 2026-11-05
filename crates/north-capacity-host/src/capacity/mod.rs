@@ -1,4 +1,4 @@
-pub use north_core::capacity::*;
+pub use north_capacity::capacity::*;
 
 pub mod command;
 pub mod gate;

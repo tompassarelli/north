@@ -11,6 +11,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-capacity = { path = "../north-capacity" }
 north-core = { path = "../north-core" }
 regex.workspace = true
 rusqlite.workspace = true
@@ -21,7 +22,7 @@ toml_edit.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-north-core = { path = "../north-core", features = ["test-support"] }
+north-capacity = { path = "../north-capacity", features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 tempfile.workspace = true
 

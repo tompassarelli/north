@@ -182,7 +182,7 @@ may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "capacity"
-paths = ["crates/north-core/src/capacity/**", "crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs"]
+paths = ["crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs", "crates/north-capacity/src/capacity/**", "crates/north-capacity/src/lib.rs"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
 may_use = ["shell", "platform", "foundation", "crate-roots", "fleet", "threads"]
 

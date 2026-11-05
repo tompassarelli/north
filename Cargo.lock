@@ -978,10 +978,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-capacity"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "proptest",
+ "rusqlite",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "tokio",
+ "toml_edit",
+]
+
+[[package]]
 name = "north-capacity-host"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-capacity",
  "north-core",
  "proptest",
  "regex",
@@ -1061,6 +1079,7 @@ version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "north-base",
+ "north-capacity",
  "north-core",
  "north-dispatch",
  "regex",

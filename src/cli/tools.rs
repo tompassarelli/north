@@ -150,7 +150,7 @@ impl Tool {
                 crate::platform::wisp_payoff::run(arguments).map(|()| ExitCode::SUCCESS)
             }),
             Self::Dispatch => ExitCode::from(crate::dispatch::run(arguments, super::fleet::roster)),
-            Self::DevShell => ExitCode::from(north_core::capacity::dev_shell::command(arguments)),
+            Self::DevShell => ExitCode::from(crate::capacity::dev_shell::command(arguments)),
             Self::Pace => ExitCode::from(crate::pacing::run(arguments, crate::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load }, super::token_usage::read)),
             Self::Capacity => ExitCode::from(capacity::command::run(arguments, capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, offload: crate::land_offload::run, build_offload: crate::build_offload::offload, lease_builds: crate::pacing::placement::local_lease_builds, reclaim_disk: crate::ops::reclaim::before_disk_defer_here })),
             Self::SessionUnit => super::failure(crate::platform::session_scope::run(arguments).into()),
