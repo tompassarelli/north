@@ -5,6 +5,9 @@ mod imports;
 mod rust_modules;
 mod rust_text;
 mod source;
+mod tick;
+#[cfg(test)]
+mod tick_tests;
 #[cfg(test)]
 mod tests;
 
@@ -49,7 +52,8 @@ pub fn run(arguments: &[String]) -> u8 {
             Err(error) => fail(&error),
         },
         Some("habits") => habits_command(&arguments[1..]),
-        _ => fail("usage: north code-health imports (JSON request on stdin, JSON response on stdout) | habits [--repo DIR]"),
+        Some("tick") => tick::run_tick(&arguments[1..]),
+        _ => fail("usage: north code-health imports (JSON request on stdin, JSON response on stdout) | habits [--repo DIR] | tick [--dry-run] [--repos=a,b]"),
     }
 }
 
