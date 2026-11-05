@@ -1,4 +1,4 @@
-use super::{World, home};
+use super::World;
 use crate::platform::process::run_command_within;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -9,17 +9,6 @@ pub struct Live;
 
 fn north() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"))
-}
-
-fn which(name: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?).map(|directory| directory.join(name)).find(|path| {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-    })
-}
-
-fn agents(world: &Live) -> PathBuf {
-    which("agents").unwrap_or_else(|| home(world).join(".local/share/north/bin/agents"))
 }
 
 fn stdout_of(program: PathBuf, arguments: &[&str], limit: Duration) -> Option<String> {
@@ -54,12 +43,12 @@ impl World for Live {
     }
 
     fn flow(&self, repo: &str) -> Option<String> {
-        stdout_of(agents(self), &["flow", "row", repo, "pending", "landed_per_hour"], Duration::from_secs(120))
+        stdout_of(north(), &["agents", "flow", "row", repo, "pending", "landed_per_hour"], Duration::from_secs(120))
     }
 
     fn refresh(&self, provider: &str) -> Option<(i32, String)> {
-        let mut command = Command::new(agents(self));
-        command.args(["usage", "--gate", provider]);
+        let mut command = Command::new(north());
+        command.args(["agents", "usage", "--gate", provider]);
         let output = run_command_within(command, None, Duration::from_secs(45))?;
         Some((output.status.code().unwrap_or(-1), String::from_utf8_lossy(&output.stdout).into_owned()))
     }

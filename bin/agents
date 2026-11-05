@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-# Firn keeps this stable command name; North owns every verb.
-exec "${NORTH_PACE_BIN:-north}" agents "$@"

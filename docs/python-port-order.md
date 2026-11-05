@@ -6,7 +6,7 @@ to regenerate the edges the cycle is built from; every edge it prints is in the 
 The issues that own the ports are [#78](https://github.com/tompassarelli/north/issues/78) (usage family),
 [#80](https://github.com/tompassarelli/north/issues/80) (placement, routing, calibration) and
 [#81](https://github.com/tompassarelli/north/issues/81) (flow, report, routines, ledger context);
-[#82](https://github.com/tompassarelli/north/issues/82) follows them and ports the `bin/agents` dispatcher.
+[#82](https://github.com/tompassarelli/north/issues/82) follows them and ports the agents dispatcher (now `north agents`).
 
 ## Imports between `harness/lib` modules
 
@@ -85,7 +85,7 @@ another removes all five edges and leaves a graph with no cycle. In dependency o
 ## Python callers outside `harness/lib`
 
 These import the cycle's modules directly and change in the same commit as the module they import:
-`bin/agents`, `bin/threads`.
+`north agents`, `bin/threads`.
 
 ## First port slice
 
