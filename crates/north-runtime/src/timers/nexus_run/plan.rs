@@ -137,8 +137,7 @@ pub(super) fn ssh_argv(env: &dyn Fn(&str) -> Option<String>, home: &Path, argume
 
 const LAUNCH: &str = r#"pid=$1; timeout=$2; shift 2
 printf %s "$$" > "$pid"
-skill=$(agents path machine-capacity) || exit $?
-exec bun "$(dirname "$skill")/scripts/machine-capacity.mjs" run --class moderate --owner nexus-run --timeout-seconds "$timeout" -- sh -c "$JOB" nexus-job "$@""#;
+exec "${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}" capacity host run --class moderate --owner nexus-run --timeout-seconds "$timeout" -- sh -c "$JOB" nexus-job "$@""#;
 
 pub(super) fn job_script() -> String {
     format!(

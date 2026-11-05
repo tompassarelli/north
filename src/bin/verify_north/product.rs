@@ -41,12 +41,18 @@ pub fn installed(program: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("{program} is not on PATH"))
 }
 
+fn admitting_north() -> PathBuf {
+    let explicit = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    explicit("AGENT_CAPACITY_NORTH").or_else(|| explicit("NORTH_BIN")).unwrap_or_else(|| {
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+        home.join(".local/state/north/current/north")
+    })
+}
+
 pub fn build(root: &Path, notes: &Notes) -> Result<PathBuf, String> {
-    let helper = capacity_helper()?;
-    let mut command = Command::new("bun");
+    let mut command = Command::new(admitting_north());
     command
-        .arg(helper)
-        .args(["run", "--owner", "verify-north", "--timeout-seconds", &BUILD_WAIT.as_secs().to_string(), "--"])
+        .args(["capacity", "host", "run", "--owner", "verify-north", "--timeout-seconds", &BUILD_WAIT.as_secs().to_string(), "--"])
         .args(["nix", "develop", "-c", "cargo", "build", "--offline", "--bin", "north"])
         .current_dir(root);
     let output = exec::output(command, BUILD_WAIT + QUERY_WAIT, Some(notes))?;
@@ -58,14 +64,6 @@ pub fn build(root: &Path, notes: &Notes) -> Result<PathBuf, String> {
         return Err(format!("cargo build exited {} without a fresh {}; output ends:\n{tail}", output.status.code().unwrap_or(-1), binary.display()));
     }
     Ok(binary)
-}
-
-fn capacity_helper() -> Result<PathBuf, String> {
-    let mut command = Command::new("agents");
-    command.args(["path", "machine-capacity"]);
-    let skill = PathBuf::from(exec::stdout(command, QUERY_WAIT, None)?.trim());
-    let helper = skill.parent().map(|directory| directory.join("scripts/machine-capacity.mjs"));
-    helper.filter(|helper| helper.is_file()).ok_or_else(|| format!("no machine-capacity helper beside {}", skill.display()))
 }
 
 fn target_directory(root: &Path) -> PathBuf {

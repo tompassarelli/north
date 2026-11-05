@@ -126,15 +126,11 @@ pub(super) fn link(shared: &Path, tree: &Path, links: &[String]) -> Result<(), S
 pub(super) fn invoke(config: &Config, env: &Env, repo: &str, trees: &[PathBuf], tests: &BTreeSet<String>, log: &Path) -> Result<f64, Stop> {
     let mut command = match &env.lease {
         Lease::Inherited => Command::new("sh"),
-        Lease::Helper(helper) => {
-            let mut command = Command::new("bun");
-            command.arg(helper).args(["run", "--class", &config.class, "--owner", &format!("mutant:{repo}")]);
+        Lease::Host(north) => {
+            let mut command = Command::new(north);
+            command.args(["capacity", "host", "run", "--class", &config.class, "--owner", &format!("mutant:{repo}")]);
             command.args(["--timeout-seconds", "1800", "--", "sh"]);
             command
-        }
-        Lease::Missing(candidates) => {
-            let shown: Vec<String> = candidates.iter().map(|path| path.display().to_string()).collect();
-            return Err(Stop::Fail(format!("mutant: no machine-capacity helper at {}; NOT pushed.", shown.join(" or "))));
         }
     };
     let file = File::create(log)?;

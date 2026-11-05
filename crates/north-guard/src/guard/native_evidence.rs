@@ -70,7 +70,8 @@ pub(super) fn decide_with(
 fn refusal(args: &[String]) -> Option<&'static str> {
     let first = args.first()?;
     let name = basename(first);
-    if matches!(name, "machine-capacity" | "machine-capacity.mjs") && quiet_capture(args) {
+    let host = name == "north" && args[1..].starts_with(&["capacity".to_owned(), "host".to_owned()]);
+    if (host || matches!(name, "machine-capacity" | "machine-capacity.mjs")) && quiet_capture(args) {
         return Some(QUIET_DENIAL);
     }
     if matches!(name, "bun" | "bunx") {

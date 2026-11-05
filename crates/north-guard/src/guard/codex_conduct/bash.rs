@@ -16,7 +16,7 @@ pattern!(ASSIGNMENT, r"^[A-Za-z_][A-Za-z0-9_]*=");
 pattern!(CAPACITY_WORD, r"machine-capacity(\.mjs)?$");
 pattern!(CHECK_WORDS, r"\b(test|tests|check|lint|typecheck|tsc|clippy|validate|verify|soak|parity|bench|perf|smoke|build|farm|sweep)\b");
 pattern!(LEADING_CD, r"^\s*cd\s+\S+\s*&&\s*");
-pattern!(CAPACITY_RUN, r"\bmachine-capacity\S*\s+run\b.*?\s--\s+");
+pattern!(CAPACITY_RUN, r"\b(?:machine-capacity\S*|north\s+capacity\s+host)\s+run\b.*?\s--\s+");
 pattern!(WAIT_FLAGS, r"\s--(wait|exit-status)\b|\s--out(=|\s+)\S+");
 pattern!(BOXES, r"(?m)^\s*[-*] \[[ xX]\] (.+)$");
 pattern!(DONE_WHEN, r"(?i)done when");
@@ -50,7 +50,8 @@ pub(super) fn segments(command: &str) -> Vec<Vec<&str>> {
 
 fn capacity_query(words: &[&str]) -> bool {
     words.iter().take(3).enumerate().any(|(i, word)| {
-        CAPACITY_WORD.is_match(word) && words.get(i + 1).is_some_and(|next| ["estimate", "status", "probe", "mode"].contains(next))
+        let named = CAPACITY_WORD.is_match(word) || (i == 2 && *word == "host" && words[1] == "capacity" && basename(words[0]) == "north");
+        named && words.get(i + 1).is_some_and(|next| ["estimate", "status", "probe", "mode"].contains(next))
     })
 }
 
@@ -60,7 +61,8 @@ pub(super) fn is_check(command: &str) -> bool {
             return false;
         }
         let runner = basename(words[0]);
-        if RUNNERS.contains(&runner) && CHECK_WORDS.is_match(&words[1..].join(" ")) {
+        let capacity_host = runner == "north" && words.get(1..3) == Some(&["capacity", "host"]);
+        if (RUNNERS.contains(&runner) || capacity_host) && CHECK_WORDS.is_match(&words[1..].join(" ")) {
             return true;
         }
         (runner.ends_with(".sh") || runner.starts_with("./")) && CHECK_WORDS.is_match(&words.join(" "))

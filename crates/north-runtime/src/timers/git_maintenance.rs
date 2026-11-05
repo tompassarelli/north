@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{home, text};
+use super::home;
 
 pub(super) fn repositories(code: &Path) -> Vec<(String, PathBuf)> {
     let mut found: Vec<(String, PathBuf)> = fs::read_dir(code)
@@ -19,28 +19,21 @@ pub(super) fn repositories(code: &Path) -> Vec<(String, PathBuf)> {
     found
 }
 
-pub(super) fn maintenance_argv(helper: &Path, name: &str, repo: &Path) -> Vec<String> {
+pub(super) fn maintenance_argv(name: &str, repo: &Path) -> Vec<String> {
     let repo = repo.to_string_lossy();
     [
-        helper.to_string_lossy().as_ref(), "run", "--class", "moderate", "--owner", &format!("git-maintenance:{name}"), "--timeout-seconds", "3600",
+        "capacity", "host", "run", "--class", "moderate", "--owner", &format!("git-maintenance:{name}"), "--timeout-seconds", "3600",
         "--", "git", "-C", repo.as_ref(), "-c", "pack.threads=2", "maintenance", "run",
     ]
     .map(str::to_owned)
     .to_vec()
 }
 
-fn helper() -> PathBuf {
-    let skill = Command::new("agents").args(["path", "machine-capacity"]).output().map(|output| text(&output).trim_end_matches('\n').to_owned()).unwrap_or_default();
-    let parent = Path::new(&skill).parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    parent.join("scripts/machine-capacity.mjs")
-}
-
 pub fn run(_arguments: &[String]) -> u8 {
-    let helper = helper();
     let mut status = 0;
     for (name, repo) in repositories(&home().join("code")) {
         println!("git-maintenance-nightly: {}", repo.display());
-        match Command::new("bun").args(maintenance_argv(&helper, &name, &repo)).status() {
+        match Command::new(north_base::platform::north_binary::north_binary()).args(maintenance_argv(&name, &repo)).status() {
             Ok(code) if code.success() => {}
             Ok(code) => {
                 eprintln!("git-maintenance-nightly: {} failed: {code}", repo.display());

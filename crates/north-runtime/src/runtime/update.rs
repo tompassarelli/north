@@ -330,10 +330,9 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     }
     let lane = Lane::add(checkout, target)?;
     let built = layout::home().join(".cache/cargo-target/north");
-    let mut build = Command::new("bun");
+    let mut build = Command::new(north_base::platform::north_binary::north_binary());
     build
-        .arg(capacity_helper()?)
-        .args(["run", "--class", "runtime", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
+        .args(["capacity", "host", "run", "--class", "runtime", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
         .args(cargo_words(confined.as_ref()))
         .current_dir(&lane.path)
         .env("CARGO_TARGET_DIR", &built)
@@ -378,15 +377,6 @@ fn build_failure(target: &str, status: std::process::ExitStatus, cargo_ran: bool
     match cargo_ran {
         true => failed(code(status), format!("build of {target} failed: {status}")),
         false => failed(DEFERRED, format!("capacity admission or its scope stopped the build of {} before cargo ran ({status}); retrying on the next tick", layout::short(target))),
-    }
-}
-
-fn capacity_helper() -> Result<PathBuf, Failure> {
-    let output = process::run("agents", None, &["path", "machine-capacity"])?;
-    let skill = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-    match skill.parent() {
-        Some(skill_dir) if output.status.success() => Ok(skill_dir.join("scripts/machine-capacity.mjs")),
-        _ => Err(failed(1, "agents path machine-capacity named no skill")),
     }
 }
 

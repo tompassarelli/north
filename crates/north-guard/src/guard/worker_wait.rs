@@ -38,7 +38,7 @@ static WAITS: LazyLock<Vec<Wait>> = LazyLock::new(|| {
         ),
         wait(
             "a leased run",
-            r"(?:bun\s+(?:\S*/)?|\S*/)?machine-capacity\.mjs\s+(?:run|session)\b",
+            r"(?:(?:bun\s+(?:\S*/)?|\S*/)?machine-capacity\.mjs|(?:\S*/)?north\s+capacity\s+host)\s+(?:run|session)\b",
             true,
         ),
         wait("a farm run", r"bun\s+wisp\s+farm\b", true),

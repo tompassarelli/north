@@ -190,20 +190,9 @@ fn inside_capacity() -> io::Result<bool> {
 }
 
 fn run_capacity(arguments: &[String], seconds: Option<u64>) -> io::Result<u8> {
-    let output = Command::new("agents")
-        .args(["path", "machine-capacity"])
-        .output()?;
-    if !output.status.success() {
-        return Err(io::Error::other("could not resolve machine-capacity skill"));
-    }
-    let skill = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-    let helper = skill
-        .parent()
-        .unwrap_or(&skill)
-        .join("scripts/machine-capacity.mjs");
     let current = env::current_exe()?;
-    let mut command = Command::new("bun");
-    command.arg(helper);
+    let mut command = Command::new(north_base::platform::north_binary::north_binary());
+    command.args(["capacity", "host"]);
     if let Some(seconds) = seconds {
         command
             .args(["run", "--timeout-seconds"])

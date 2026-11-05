@@ -68,8 +68,6 @@ pub struct Inputs {
     pub power_supply: PathBuf,
     pub ledgers: Vec<Ledger>,
     pub north: String,
-    pub bun: String,
-    pub agents: String,
 }
 
 impl Inputs {
@@ -85,8 +83,6 @@ impl Inputs {
             power_supply: set("AGENT_LOAD_POWER_SUPPLY").map_or_else(|| "/sys/class/power_supply".into(), PathBuf::from),
             ledgers: ledgers(shlex_split(&set("LAPTOP_THREADS").unwrap_or_else(|| "threads".into())).unwrap_or_default(), config().ok().as_ref(), &crate::platform::host::name(), "ssh", &std::env::vars().collect()),
             north,
-            bun: "bun".into(),
-            agents: "agents".into(),
         }
     }
 
@@ -119,11 +115,7 @@ impl Inputs {
     }
 
     fn heavy_lease_grantable(&self) -> bool {
-        let located = run_within(&self.agents, &["path", "machine-capacity"], PROBE_WAIT).filter(|output| output.status.success());
-        let located = located.map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
-        let base = Path::new(&located).parent().map_or_else(|| ".".into(), Path::to_path_buf);
-        let script = base.join("scripts/machine-capacity.mjs");
-        run_within(&self.bun, &[&script.display().to_string(), "probe", "--class", "heavy"], PROBE_WAIT).is_some_and(|output| output.status.success())
+        run_within(&self.north, &["capacity", "host", "probe", "--class", "heavy"], PROBE_WAIT).is_some_and(|output| output.status.success())
     }
 
     fn places(&self) -> Option<String> {

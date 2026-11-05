@@ -105,10 +105,10 @@ fn nightly_maintenance_covers_each_main_git_checkout_but_not_archive() {
     }
     let names: Vec<String> = repositories(code.path()).into_iter().map(|(name, _)| name).collect();
     assert_eq!(names, ["alpha", "gamma"]);
-    let argv = maintenance_argv(std::path::Path::new("/s/scripts/machine-capacity.mjs"), "alpha", std::path::Path::new("/c/alpha/main"));
+    let argv = maintenance_argv("alpha", std::path::Path::new("/c/alpha/main"));
     assert_eq!(
         argv.join(" "),
-        "/s/scripts/machine-capacity.mjs run --class moderate --owner git-maintenance:alpha --timeout-seconds 3600 -- git -C /c/alpha/main -c pack.threads=2 maintenance run"
+        "capacity host run --class moderate --owner git-maintenance:alpha --timeout-seconds 3600 -- git -C /c/alpha/main -c pack.threads=2 maintenance run"
     );
 }
 

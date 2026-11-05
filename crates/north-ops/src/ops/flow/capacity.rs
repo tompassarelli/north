@@ -12,7 +12,7 @@ use crate::capacity::saturation;
 const QUEUED_LIMIT: u64 = saturation::QUEUED_LIMIT as u64;
 const HOLD_SECONDS: f64 = 600.0;
 const STATE_FILE: &str = "saturation.json";
-const PROBE: &str = r#"bun "$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs" status; echo ---; df -BG --output=avail / | tail -1"#;
+const PROBE: &str = r#""${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}" capacity host status; echo ---; df -BG --output=avail / | tail -1"#;
 const SSH: [&str; 5] = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8"];
 
 #[derive(Clone, Debug, PartialEq)]

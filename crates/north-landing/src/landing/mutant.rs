@@ -16,8 +16,7 @@ impl From<io::Error> for Stop {
 
 pub(super) enum Lease {
     Inherited,
-    Helper(PathBuf),
-    Missing(Vec<PathBuf>),
+    Host(PathBuf),
 }
 
 pub(super) struct Config {

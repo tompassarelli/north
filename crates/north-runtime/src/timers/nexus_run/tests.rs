@@ -79,7 +79,7 @@ fn the_remote_launch_carries_the_pid_file_timeout_tree_working_directory_install
     let parsed = options(&["--install", "ts", "--install", "tools", "--timeout-seconds", "60", "--", "bun", "run", "it's"]);
     let launch = launch_words("/r/job", "ts", &parsed);
     assert_eq!(launch[..2], ["sh", "-c"]);
-    assert!(launch[2].contains("--owner nexus-run") && launch[2].contains("machine-capacity.mjs"));
+    assert!(launch[2].contains("--owner nexus-run") && launch[2].contains("capacity host run"));
     assert_eq!(launch[4..], ["/r/job/run.pid", "60", "/r/job/source", "ts", "2", "ts", "tools", "bun", "run", "it's"]);
     let joined = shell_join(&launch);
     assert!(joined.contains("'it'\"'\"'s'"));

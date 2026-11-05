@@ -19,7 +19,7 @@ const PREFIXES: &[&str] = &[
 ];
 const LAUNCHERS: &[&str] = &["wine", "wine64", "proton", "steam-run", "umu-run"];
 const HINTS: &[&str] = &["wine", "proton", "steam-run", "umu-run", ".exe"];
-const REASON: &str = "No. A Wine/Proton/Warcraft client started here runs in your terminal scope, outside capacity admission, and can saturate the GPU. Wrap it: bun \"$(dirname \"$(agents path machine-capacity)\")/scripts/machine-capacity.mjs\" session --class native --new-clients 1 --owner OWNER -- COMMAND ARG... (one session per client; retry DEFER after 30 s). Self-wrapping routes: `wisp lan pool`, ~/.local/share/wisp/online/launch.sh.";
+const REASON: &str = "No. A Wine/Proton/Warcraft client started here runs in your terminal scope, outside capacity admission, and can saturate the GPU. Wrap it: north capacity host session --class native --new-clients 1 --owner OWNER -- COMMAND ARG... (one session per client; retry DEFER after 30 s). Self-wrapping routes: `wisp lan pool`, ~/.local/share/wisp/online/launch.sh.";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     match input.command().and_then(|s| s.as_str()) {
@@ -51,11 +51,15 @@ fn in_native_session(words: &[String]) -> bool {
     words.iter().enumerate().any(|(index, word)| {
         let name = word.strip_suffix(".mjs").unwrap_or(word);
         let rest = &words[index + 1..];
-        name.ends_with("machine-capacity")
+        (name.ends_with("machine-capacity") || names_capacity_host(words, index))
             && rest.iter().any(|w| w == "session")
             && (rest.iter().any(|w| w == "--class=native")
                 || rest.windows(2).any(|pair| pair[0] == "--class" && pair[1] == "native"))
     })
+}
+
+fn names_capacity_host(words: &[String], index: usize) -> bool {
+    index >= 2 && words[index] == "host" && words[index - 1] == "capacity" && shell::basename(&words[index - 2]) == "north"
 }
 
 fn launches(words: &[String]) -> bool {
@@ -66,7 +70,8 @@ fn launches(words: &[String]) -> bool {
     let wraps_helper = words[index..]
         .iter()
         .take(2)
-        .any(|word| word.ends_with("machine-capacity.mjs"));
+        .any(|word| word.ends_with("machine-capacity.mjs"))
+        || (words.len() > index + 2 && names_capacity_host(words, index + 2));
     if wraps_helper && let Some(split) = words[index..].iter().position(|word| word == "--") {
         return launches(&words[index + split + 1..]);
     }

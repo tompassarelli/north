@@ -47,7 +47,7 @@ fn planted(root: &Path, job_source: bool) -> (String, bool) {
     fs::write(root.join("gex45-queue.txt"), format!("{job}\n")).unwrap();
     script(&root.join("ssh"), &format!("echo \"$*\" >> {0}/ssh.log\ncase \"$*\" in *\"take\"*) head -n1 {0}/gex45-queue.txt; sed -i 1d {0}/gex45-queue.txt ;; esac\n", root.display()));
     script(&root.join("threads"), "exit 0\n");
-    script(&root.join("north"), "[ \"$1\" = job-run ] && { shift 3; exec \"$@\"; }\necho '{\"state\":\"available\"}'\n");
+    script(&root.join("north"), "[ \"$1\" = capacity ] && exit 1\n[ \"$1\" = job-run ] && { shift 3; exec \"$@\"; }\necho '{\"state\":\"available\"}'\n");
     let mut text = ORCHESTRATION_HOSTS.to_owned();
     if job_source {
         text = text.replace("ssh = \"tom@gex45\"", "ssh = \"tom@gex45\"\njob_source = true");
@@ -62,8 +62,6 @@ fn planted(root: &Path, job_source: bool) -> (String, bool) {
         power_supply: root.join("power"),
         ledgers: ledgers(vec![root.join("threads").display().to_string()], Some(&cfg), "whiterabbit", &root.join("ssh").display().to_string(), &env),
         north: root.join("north").display().to_string(),
-        bun: "false".into(),
-        agents: "false".into(),
     };
     assert_eq!(drain(&inputs), 0);
     (fs::read_to_string(root.join("ssh.log")).unwrap_or_default(), marker.exists())

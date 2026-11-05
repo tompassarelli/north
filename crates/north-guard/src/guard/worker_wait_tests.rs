@@ -43,6 +43,8 @@ fn foreground_waits_that_can_pass_a_minute_are_refused_for_workers() {
         "bun wisp farm run",
         &format!("{CAPACITY} run --owner o --timeout-seconds 600 -- bun wisp view s o"),
         &format!("{CAPACITY} session --class native -- wine game.exe"),
+        "north capacity host run --owner o --timeout-seconds 600 -- bun wisp view s o",
+        "/home/tom/.local/state/north/current/north capacity host session --class native -- wine game.exe",
     ] {
         assert!(worker(command), "{command}");
     }

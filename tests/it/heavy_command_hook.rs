@@ -74,7 +74,7 @@ fn heavy_command_policy_routes_both_provider_payloads_only_when_active() {
                 } else {
                     &updated[field]
                 };
-                assert!(command.as_str().unwrap().contains("machine-capacity.mjs"));
+                assert!(command.as_str().unwrap().contains("north capacity host run"));
                 for key in ["opaque", "timeout", "workdir"] {
                     assert_eq!(updated[key], original[key]);
                 }

@@ -215,6 +215,11 @@
     "none"
   ],
   [
+    "north capacity host run --owner x --timeout-seconds 60 -- cargo build",
+    "allow",
+    "none"
+  ],
+  [
     "machine-capacity run --owner x --timeout-seconds 60 -- bash -c 'bun test a.ts b.ts'",
     "allow",
     "none"

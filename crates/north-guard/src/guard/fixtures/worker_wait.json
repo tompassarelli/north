@@ -45,6 +45,8 @@
   ["git commit -m 'until the sleep'","deny"],
   ["bun x/machine-capacity.mjs session --class native -- wine g.exe","deny"],
   ["machine-capacity.mjs run -- x","deny"],
+  ["north capacity host run --owner o -- bun wisp view s o","deny"],
+  ["/home/tom/.local/state/north/current/north capacity host session --class native -- wine g.exe","deny"],
   ["cat machine-capacity.mjs","allow"],
   ["timeout 5 sleep 100","allow"],
   ["gh run watch","deny"],

@@ -111,8 +111,8 @@ fn a_config_with_an_unknown_class_an_escaping_dir_or_a_repeated_name_is_refused(
 
 #[test]
 fn each_step_runs_under_machine_capacity_with_its_class_owner_and_timeout() {
-    let argv = capacity_argv(Path::new("/s/scripts/machine-capacity.mjs"), &shell("echo hi", "gpu"), "private-check:look");
-    assert_eq!(argv.join(" "), "/s/scripts/machine-capacity.mjs run --class gpu --owner private-check:look --timeout-seconds 60 -- sh -c echo hi");
+    let argv = capacity_argv(&shell("echo hi", "gpu"), "private-check:look");
+    assert_eq!(argv.join(" "), "capacity host run --class gpu --owner private-check:look --timeout-seconds 60 -- sh -c echo hi");
 }
 
 #[test]

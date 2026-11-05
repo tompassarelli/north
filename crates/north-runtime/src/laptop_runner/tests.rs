@@ -32,7 +32,7 @@ impl Rig {
         let base = root.path();
         fs::write(base.join("queue.txt"), jobs.iter().map(|job| format!("{job}\n")).collect::<String>()).unwrap();
         script(&base.join("threads.sh"), THREADS.strip_prefix("#!/bin/sh\n").unwrap());
-        script(&base.join("north.sh"), &format!("[ \"$1\" = job-run ] && {{ shift 3; exec \"$@\"; }}\ncat {}/state.json 2>/dev/null\n", base.display()));
+        script(&base.join("north.sh"), &format!("[ \"$1\" = capacity ] && exit 1\n[ \"$1\" = job-run ] && {{ shift 3; exec \"$@\"; }}\ncat {}/state.json 2>/dev/null\n", base.display()));
         let inputs = Inputs {
             placement: "laptop".into(),
             poll: Duration::from_millis(200),
@@ -41,8 +41,6 @@ impl Rig {
             power_supply: base.join("power"),
             ledgers: vec![Ledger { host: None, command: vec![base.join("threads.sh").display().to_string()] }],
             north: base.join("north.sh").display().to_string(),
-            bun: "false".into(),
-            agents: "false".into(),
         };
         Self { root, inputs }
     }

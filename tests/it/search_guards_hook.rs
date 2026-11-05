@@ -196,6 +196,6 @@ fn a_search_rewrite_and_a_later_capacity_rewrite_both_reach_the_updated_input() 
     let command = "grep -qFf <(jq -r '.value' 'f.json') 'f.json'; cargo test";
     let output = call(&setup, &json!({"command": command}));
     let updated = output["updatedInput"]["command"].as_str().unwrap();
-    assert!(updated.contains("machine-capacity.mjs"), "{updated}");
+    assert!(updated.contains("north capacity host run"), "{updated}");
     assert!(updated.contains("rg -qF -f"), "{updated}");
 }

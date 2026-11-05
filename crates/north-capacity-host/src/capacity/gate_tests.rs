@@ -27,6 +27,7 @@ fn bun_builds_suites_and_map_builds_take_a_moderate_lease_and_one_test_file_or_a
     assert_eq!(class("bun scripts/wisp.ts map build"), Some(Class::Moderate));
     assert_eq!(class("bun scripts/wisp.ts lan pool --pair 6 --queue"), None);
     assert_eq!(class("bun harness/skills/machine-capacity/scripts/machine-capacity.mjs run --class heavy -- bun wisp map build"), None);
+    assert_eq!(class("north capacity host run --class heavy -- bun wisp map build"), None);
 }
 
 #[test]

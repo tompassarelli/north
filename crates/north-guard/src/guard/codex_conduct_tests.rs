@@ -134,6 +134,8 @@ fn an_orchestrator_hands_checks_and_log_digging_to_workers_but_heredoc_text_is_i
     assert!(denied(&bash(&w, "PreToolUse", "cat worker.log", &game, "orchestrator")));
     assert!(!denied(&bash(&w, "PreToolUse", "bun scripts/machine-capacity.mjs estimate --json -- cargo build --release", &game, "orchestrator")));
     assert!(denied(&bash(&w, "PreToolUse", "bun scripts/machine-capacity.mjs run --owner x --timeout-seconds 60 -- cargo build --release", &game, "orchestrator")));
+    assert!(!denied(&bash(&w, "PreToolUse", "north capacity host estimate --json -- cargo build --release", &game, "orchestrator")));
+    assert!(denied(&bash(&w, "PreToolUse", "north capacity host run --owner x --timeout-seconds 60 -- cargo build --release", &game, "orchestrator")));
 }
 
 fn tooling_box(surface: &str) -> String {

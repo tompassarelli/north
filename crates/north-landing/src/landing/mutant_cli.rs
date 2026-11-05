@@ -13,20 +13,15 @@ pub(super) fn process_env() -> Env {
         Some(value) if !value.is_empty() => PathBuf::from(value),
         _ => home.join(fallback),
     };
-    Env { state_home: base("XDG_STATE_HOME", ".local/state"), cache_home: base("XDG_CACHE_HOME", ".cache"), lease: lease(&home) }
+    Env { state_home: base("XDG_STATE_HOME", ".local/state"), cache_home: base("XDG_CACHE_HOME", ".cache"), lease: lease() }
 }
 
-fn lease(home: &Path) -> Lease {
+fn lease() -> Lease {
     let cgroup = fs::read_to_string("/proc/self/cgroup").unwrap_or_default();
     if cgroup.split('/').any(|part| part.starts_with("agent-capacity-") && part.trim_end().ends_with(".scope")) {
         return Lease::Inherited;
     }
-    let script = Path::new("skills/machine-capacity/scripts/machine-capacity.mjs");
-    let candidates = vec![home.join(".claude").join(script), home.join("code").join("north").join("main").join("harness").join(script)];
-    match candidates.iter().find(|candidate| candidate.is_file()) {
-        Some(helper) => Lease::Helper(helper.clone()),
-        None => Lease::Missing(candidates),
-    }
+    Lease::Host(north_base::platform::north_binary::north_binary())
 }
 
 pub fn run(arguments: &[String]) -> u8 {

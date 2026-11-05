@@ -51,13 +51,8 @@ fn parse(arguments: &[String]) -> Result<Request, String> {
     Ok(request)
 }
 
-fn helper() -> PathBuf {
-    let skill = Command::new("agents").args(["path", "machine-capacity"]).output().map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
-    Path::new(&skill).parent().unwrap_or(Path::new(".")).join("scripts/machine-capacity.mjs")
-}
-
-pub fn capacity_argv(helper: &Path, step: &Step, owner: &str) -> Vec<String> {
-    let mut argv = vec![helper.to_string_lossy().into_owned()];
+pub fn capacity_argv(step: &Step, owner: &str) -> Vec<String> {
+    let mut argv = ["capacity", "host"].map(str::to_owned).to_vec();
     let timeout = step.timeout_seconds.to_string();
     argv.extend(["run", "--class", &step.class, "--owner", owner, "--timeout-seconds", &timeout, "--"].map(str::to_owned));
     argv.extend(step.command.iter().cloned());
@@ -65,14 +60,14 @@ pub fn capacity_argv(helper: &Path, step: &Step, owner: &str) -> Vec<String> {
 }
 
 struct Admitted {
-    helper: PathBuf,
+    north: PathBuf,
 }
 
 impl Steps for Admitted {
     fn run(&mut self, dir: &Path, step: &Step, owner: &str) -> Result<Finished, String> {
-        let argv = capacity_argv(&self.helper, step, owner);
-        println!("private-check: in {}: bun {}", dir.display(), argv.join(" "));
-        let mut child = Command::new("bun").args(&argv).current_dir(dir).stdout(Stdio::piped()).spawn().map_err(|error| format!("cannot start bun: {error}"))?;
+        let argv = capacity_argv(step, owner);
+        println!("private-check: in {}: north {}", dir.display(), argv.join(" "));
+        let mut child = Command::new(&self.north).args(&argv).current_dir(dir).stdout(Stdio::piped()).spawn().map_err(|error| format!("cannot start north: {error}"))?;
         let mut last_line = String::new();
         for line in BufReader::new(child.stdout.take().ok_or("no stdout")?).lines() {
             let line = line.map_err(|error| format!("reading output: {error}"))?;
@@ -81,7 +76,7 @@ impl Steps for Admitted {
                 last_line = line.trim().to_owned();
             }
         }
-        let status = child.wait().map_err(|error| format!("waiting on bun: {error}"))?;
+        let status = child.wait().map_err(|error| format!("waiting on north: {error}"))?;
         Ok(Finished { code: status.code().unwrap_or(-1), last_line })
     }
 }
@@ -148,7 +143,7 @@ fn judge_one(places: &Places, check: &Check, request: &Request) -> u8 {
         }
         Err(why) => return report(check, Err(why)),
     };
-    let mut runner = Admitted { helper: helper() };
+    let mut runner = Admitted { north: north_base::platform::north_binary::north_binary() };
     let statuses: &mut dyn Statuses = if request.overrides.dry_run { &mut Printed } else { &mut Posted };
     report(check, judge::judge(places, check, &request.overrides, &mut runner, statuses))
 }

@@ -26,7 +26,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         Decision::Refuse(reason) => Verdict::Deny(reason),
         Decision::Route => {
             let wrapped = format!(
-                "bun \"$(dirname \"$(agents path machine-capacity)\")/scripts/machine-capacity.mjs\" run --owner heavy-command-guard --timeout-seconds 1200 -- bash -c {}",
+                "north capacity host run --owner heavy-command-guard --timeout-seconds 1200 -- bash -c {}",
                 quote(command)
             );
             let mut updated = input.tool_input.clone();
@@ -56,6 +56,13 @@ fn join(words: &[String]) -> String {
 }
 
 fn capacity(words: &[String]) -> Option<usize> {
+    if let [north, capacity, host, ..] = words
+        && shell::basename(north) == "north"
+        && capacity == "capacity"
+        && host == "host"
+    {
+        return Some(2);
+    }
     words.iter().take(3).enumerate().find_map(|(i, word)| {
         (matches!(
             shell::basename(word),

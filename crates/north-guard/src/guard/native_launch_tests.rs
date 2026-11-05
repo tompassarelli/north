@@ -28,6 +28,7 @@ fn a_native_machine_capacity_session_wraps_a_client() {
         format!("{SESSION} wine game.exe"),
         "machine-capacity session --class=native --new-clients 1 -- umu-run game".to_owned(),
         "bun x/machine-capacity.mjs session --class native -- ./War3.exe".to_owned(),
+        "north capacity host session --class native --new-clients 1 -- ./War3.exe".to_owned(),
     ] {
         assert!(!launches_unwrapped_client(&command), "{command}");
     }
