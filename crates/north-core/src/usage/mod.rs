@@ -113,8 +113,8 @@ pub fn handles(arguments: &[String]) -> bool {
 
 fn decide(db: &Connection, places: &Places, host: &Host, brief: &Path) -> Result<(String, u8), String> {
     let text = std::fs::read_to_string(brief).map_err(|error| format!("{}: {error}", brief.display()))?;
-    let registry = shell::FleetRecords { root: crate::fleet::registry::root_here().map_err(|error| error.user_message())? };
-    let shell = shell::Shell { db, policy: &places.policy, host: &host.name, registry: &registry, directory: places.state.join("agents/usage") };
+    let registry = (host.registry)()?;
+    let shell = shell::Shell { db, policy: &places.policy, host: &host.name, registry: registry.as_ref(), directory: places.state.join("agents/usage") };
     shell::dry_run(&shell, &text).map(|text| (text, 0))
 }
 
@@ -157,6 +157,7 @@ pub struct Host<'a> {
     pub ingest: &'a dyn Fn(&[u8]) -> Result<(), String>,
     pub run: &'a (dyn Fn(std::process::Command, std::time::Duration) -> Option<std::process::Output> + Sync),
     pub ssh: &'a dyn Fn(&[&str]) -> Vec<std::ffi::OsString>,
+    pub registry: &'a dyn Fn() -> Result<Box<dyn shell::Registry>, String>,
 }
 
 pub fn run(arguments: &[String], host: &Host) -> u8 {

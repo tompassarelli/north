@@ -67,6 +67,7 @@ fn with_usage_host(work: impl FnOnce(&crate::usage::Host) -> u8) -> u8 {
         ingest: &crate::threads::client::ingest,
         run: &|command, limit| crate::platform::process::run_command_within(command, None, limit),
         ssh: &ssh,
+        registry: &|| Ok(Box::new(crate::fleet::usage_registry::FleetRecords { root: crate::fleet::registry::root_here().map_err(|error| error.user_message())? })),
     })
 }
 

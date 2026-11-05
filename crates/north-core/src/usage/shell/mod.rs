@@ -2,7 +2,6 @@
 //! launch log, takes the decision lock, runs the pure `place`, writes the launch record and logs the decision.
 mod assemble;
 mod brief;
-mod fleet_records;
 mod launches;
 mod lock;
 mod log;
@@ -18,8 +17,7 @@ use super::decide::{Decision, explain, place};
 use crate::foundation::clock::Timestamp;
 
 pub use assemble::Parts;
-pub use fleet_records::FleetRecords;
-pub use launches::{Launch, LaunchLog};
+pub use launches::{Launch, LaunchLog, family};
 
 pub type Record<'a> = dyn Fn(&Label) -> Result<(), String> + 'a;
 
