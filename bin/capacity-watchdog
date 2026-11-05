@@ -4,7 +4,7 @@ import { join } from "path";
 import { Database } from "bun:sqlite";
 import registry from "../harness/defaults.toml";
 
-const handoffCtx = (registry as Record<string, { value: number }>)["handoff_ctx"].value;
+const DEFAULTS = Object.fromEntries(Object.entries(registry as Record<string, { value: number }>).map(([name, entry]) => [name, entry.value]));
 
 const USAGE = `usage: capacity-watchdog sample [--once] [--interval SECONDS]
        capacity-watchdog report [--minutes N]... [--since DATE]
@@ -189,7 +189,7 @@ export function report(samples: any[], incidents: string[], minutes: number, now
   for (const run of runs) {
     const ended = Date.parse(run.ended);
     if (run.role !== "worker" || !CLAUDE_TIERS.has(run.tier) || ended < (ledgerSince ?? Math.max(since, HANDOFF_FIX)) || ended > now) continue;
-    if ((run.peak_ctx ?? 0) > handoffCtx && run.handoff_fires === 0) {
+    if ((run.peak_ctx ?? 0) > DEFAULTS["handoff_ctx"] && run.handoff_fires === 0) {
       flags.push(`handoff hook silent: ${run.agent} peak ${Math.round(run.peak_ctx! / 1000)}k, 0 fires`);
     }
     if ((run.handoff_fires ?? 0) > 0 && (run.handoff_ignored ?? 0) > 0) flags.push(`handoff ignored: ${run.agent}`);
