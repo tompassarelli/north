@@ -61,7 +61,7 @@ CREATE TABLE runs(
   fast INTEGER CHECK(fast IN (0, 1)),
   brief_text TEXT,
   brief_origin TEXT
-, brief_path TEXT, brief_sha256 TEXT, tool_calls INTEGER, active_min REAL, wait_min REAL) STRICT;
+, brief_path TEXT, brief_sha256 TEXT, tool_calls INTEGER, active_min REAL, wait_min REAL, skills TEXT) STRICT;
 CREATE INDEX runs_item ON runs(item, ended);
 CREATE TABLE run_usage(
   agent TEXT NOT NULL,

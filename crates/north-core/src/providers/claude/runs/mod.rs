@@ -305,6 +305,7 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
         row.insert("landed_at".into(), json!(Timestamp::from_unix_millis(push.at_ms as i64).iso()));
     }
     row.extend(telemetry::context_metrics(&lines));
+    row.insert("skills".into(), json!(telemetry::skills(&lines)));
     row.extend(usage);
     row.insert("role".into(), json!(role));
     if !matches!(row["status"].as_str(), Some("running" | "stale")) {

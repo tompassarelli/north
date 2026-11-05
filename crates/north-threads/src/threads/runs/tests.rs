@@ -558,3 +558,19 @@ fn a_transcript_brief_is_recorded_and_a_reread_keeps_the_category_a_label_gave_i
     ledger.ingest(&[reread]);
     assert_eq!(ledger.row("SELECT brief_text, category FROM runs WHERE agent = 'fleet-t1'"), "Item: wisp#3 ETA 20 minutes|bug-known-cause");
 }
+
+#[test]
+fn a_finished_run_records_the_skills_it_loaded_and_a_backfill_fills_them_on_a_run_recorded_without() {
+    let ledger = ledger();
+    let run = |id: &str, extra: Json| {
+        let mut row = json!({"id": id, "ended": "2026-10-20T00:00:00Z", "tier": "medium", "actual_min": 5, "outcome": "done", "brief": "Item: north#5"});
+        row.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        row
+    };
+    ledger.ingest(&[run("skilled", json!({"skills": ["rust-development", "verification"]})), run("bare", json!({})), run("none", json!({"skills": []}))]);
+    assert_eq!(ledger.row("SELECT skills FROM runs WHERE agent = 'skilled'"), r#"["rust-development", "verification"]"#);
+    assert_eq!(ledger.row("SELECT coalesce(skills, 'null') FROM runs WHERE agent = 'bare'"), "null");
+    assert_eq!(ledger.row("SELECT skills FROM runs WHERE agent = 'none'"), "[]");
+    ledger.ingest(&[run("bare", json!({"backfill": true, "skills": ["verification"]}))]);
+    assert_eq!(ledger.row("SELECT skills FROM runs WHERE agent = 'bare'"), r#"["verification"]"#);
+}

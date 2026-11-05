@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde_json::{Value, json};
 
@@ -25,6 +25,7 @@ pub struct SpendRun {
     pub input: i64,
     pub cache_read: i64,
     pub output: i64,
+    pub skills: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -60,6 +61,22 @@ pub struct BoxRun {
     pub category: String,
     pub started: String,
     pub usd: f64,
+}
+
+/// One box the window's worker runs spent on, closed or not, with the skills any of its runs loaded.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SkillBox {
+    pub item: String,
+    pub category: String,
+    pub usd: f64,
+    pub closed: bool,
+    pub skills: BTreeSet<String>,
+}
+
+impl SkillBox {
+    fn of(item: &str, category: &str, usd: f64, closed: bool, runs: &[&SpendRun]) -> Self {
+        Self { item: item.to_owned(), category: category.to_owned(), usd, closed, skills: runs.iter().flat_map(|run| run.skills.iter().cloned()).collect() }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -133,12 +150,15 @@ fn interval(values: &mut [f64], percent: usize) -> (f64, f64) {
     (values[rank((n * q - spread).floor())], values[rank((n * q + spread).ceil())])
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct ClosedReport {
     pub cells: Vec<Cell>,
     /// Repositories outside the catalog whose landed runs could not be matched to a closed issue, with the count of those runs.
     pub skipped: Vec<(String, usize)>,
     pub arms: Vec<ArmBox>,
+    pub boxes: Vec<SkillBox>,
+    /// The runs of every role that ended in the window and loaded each skill, by skill.
+    pub loaded: BTreeMap<String, usize>,
     pub closed: usize,
     pub spend_usd: f64,
     pub leads_usd: f64,
@@ -172,6 +192,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
     let staffed: HashSet<String> = runs.iter().filter(|run| run.role == WORKER && run.started.as_str() >= since).map(|run| tier_label(&run.tier)).collect();
     let mut cells: HashMap<(String, String), Cell> = HashMap::new();
     let mut arms = Vec::new();
+    let mut spent_boxes = Vec::new();
     for (item, runs) in boxes.iter_mut().filter(|(_, runs)| runs.iter().any(|run| run.landed)) {
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
@@ -185,6 +206,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         cell.reworked += usize::from(reworked);
         cell.usd += spent;
         cell.boxes.push(ClosedBox { item: (*item).to_owned(), usd: spent, runs: priced });
+        spent_boxes.push(SkillBox::of(item, category, spent, true, runs));
         cell.run_minutes.extend(runs.iter().filter_map(|run| run.minutes()));
         if !runs[0].arm.is_empty() {
             arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: true, reworked });
@@ -203,6 +225,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         }
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let spent = runs.iter().map(|run| run.usd(prices)).sum::<f64>();
+        spent_boxes.push(SkillBox::of(item, category, spent, false, runs));
         if let Some(cell) = cells.get_mut(&(tier_label(&runs[0].tier), category.to_owned())) {
             cell.unclosed_usd += spent;
         }
@@ -213,11 +236,17 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
     let mut cells: Vec<Cell> = cells.into_values().collect();
     cells.sort_by(|a, b| (&a.tier, &a.category).cmp(&(&b.tier, &b.category)));
     let window = || runs.iter().filter(|run| run.ended.as_str() >= since);
+    let mut loaded = BTreeMap::new();
+    for skill in window().flat_map(|run| &run.skills) {
+        *loaded.entry(skill.clone()).or_default() += 1;
+    }
     ClosedReport {
         skipped: Vec::new(),
         closed: cells.iter().map(|cell| cell.closed).sum(),
         cells,
         arms,
+        boxes: spent_boxes,
+        loaded,
         spend_usd: window().map(|run| run.usd(prices)).sum(),
         leads_usd: window().filter(|run| LEADS.contains(&run.role.as_str())).map(|run| run.usd(prices)).sum(),
     }

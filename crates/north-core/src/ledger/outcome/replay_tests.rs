@@ -68,6 +68,7 @@ pub fn spend_runs(db: &Connection, judged: &BTreeMap<String, Judged>) -> Vec<Spe
                 input: row.get(9)?,
                 cache_read: row.get(10)?,
                 output: row.get(11)?,
+                skills: Vec::new(),
             })
         })
         .unwrap()

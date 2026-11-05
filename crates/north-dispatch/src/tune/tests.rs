@@ -30,6 +30,7 @@ fn run(item: &str, (tier, model): (&str, &str), category: &str, started: &str, e
         input: 3_000_000,
         cache_read: 2_000_000,
         output: 100_000,
+        skills: Vec::new(),
     }
 }
 
@@ -72,7 +73,7 @@ fn ledger() -> Ledger {
         ("feature".to_owned(), Evidence { tiers: arms((60.0, 15), (70.0, 15)), arm_runs: stamped(15, 15), ..Evidence::default() }.priced(&arm_boxes("feature", (15, 5.2), (15, 20.8)), "feature")),
         ("tooling".to_owned(), Evidence { tiers: arms((80.0, 4), (0.0, 0)), arm_runs: stamped(4, 0), ..Evidence::default() }.priced(&arm_boxes("tooling", (4, 10.4), (0, 0.0)), "tooling")),
     ]);
-    Ledger { week, before, evidence, notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()) }
+    Ledger { week, before, evidence, notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() }
 }
 
 #[derive(Default)]
@@ -318,7 +319,7 @@ fn boxes(prefix: &str, count: usize, arm: (&str, &str), category: &str, day: &st
 /// Closed arm boxes of one category at one spend each: (count, usd) on the Sonnet arm and the Opus arm.
 fn arm_boxes(category: &str, sonnet: (usize, f64), opus: (usize, f64)) -> ClosedReport {
     let armed = |arm: &str, (count, usd): (usize, f64)| (0..count).map(|number| ArmBox { item: format!("north#{arm}-{number}"), tier: String::new(), arm: arm.into(), usd, category: category.into(), closed: true, reworked: false }).collect::<Vec<_>>();
-    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: [armed("sonnet-high", sonnet), armed("worker", opus)].concat(), spend_usd: 0.0, leads_usd: 0.0 }
+    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: [armed("sonnet-high", sonnet), armed("worker", opus)].concat(), spend_usd: 0.0, leads_usd: 0.0, ..ClosedReport::default() }
 }
 
 fn stamped(sonnet: usize, opus: usize) -> BTreeMap<Tier, usize> {
@@ -334,7 +335,7 @@ fn sonnet_closing_60_percent_at_3_dollars_a_box_beats_opus_closing_70_percent_at
     let runs = [boxes("1", 6, SONNET, "tooling", "2026-10-22", 300_000), boxes("2", 7, OPUS, "tooling", "2026-10-23", 450_000)].concat();
     let week = report(&runs, "2026-10-20T06:00:00Z");
     let evidence = BTreeMap::from([("tooling".to_owned(), Evidence { tiers: arms((60.0, 15), (70.0, 15)), arm_runs: stamped(15, 15), ..Evidence::default() }.priced(&arm_boxes("tooling", (15, 3.0), (15, 9.0)), "tooling"))]);
-    let ledger = Ledger { week, before: report(&[], "2026-10-13T06:00:00Z"), evidence, notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()) };
+    let ledger = Ledger { week, before: report(&[], "2026-10-13T06:00:00Z"), evidence, notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let tick = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false);
     assert_eq!(tick.cells.get("route tooling"), Some(&json!("sonnet-high")), "{:#?}", tick.lines);
     let record = tick.records.iter().find(|record| record["cell"] == "route tooling").unwrap();
@@ -346,7 +347,7 @@ fn sonnet_closing_60_percent_at_3_dollars_a_box_beats_opus_closing_70_percent_at
 fn a_cell_30_percent_dearer_than_the_week_before_files_exactly_one_issue_and_one_20_percent_dearer_files_none() {
     let week = [boxes("1", 3, SONNET, "tooling", "2026-10-24", 1_300_000), boxes("2", 3, SONNET, "feature", "2026-10-24", 1_200_000)].concat();
     let before = [boxes("3", 3, SONNET, "tooling", "2026-10-17", 1_000_000), boxes("4", 3, SONNET, "feature", "2026-10-17", 1_000_000)].concat();
-    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()) };
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let body = rolled(&ledger);
     assert_eq!(body.matches("\n## sonnet ").count(), 1, "{body}");
     assert!(body.contains("## sonnet tooling\n\nMedian cost of a closed box rose from $10.00 over 3 closed boxes the week before to $13.00 over 3 this week (+30%)"), "{body}");
@@ -359,7 +360,7 @@ fn a_rise_names_every_run_of_a_box_escalated_off_its_first_tier_so_the_issue_tra
     let escalations = (0..2).map(|index| SpendRun { input: 0, cache_read: 0, output: 1_000_000, ..run(&format!("north#1{index}"), SONNET, "tooling", "2026-10-24T11:00:00Z", "2026-10-24T11:30:00Z") });
     let week: Vec<SpendRun> = boxes("1", 3, HAIKU, "mechanical", "2026-10-24", 10_000).into_iter().chain(escalations).collect();
     let before = boxes("3", 3, HAIKU, "mechanical", "2026-10-17", 10_000);
-    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()) };
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let body = rolled(&ledger);
     assert!(body.contains("\n- north#10 $10.01: agent-north#10 haiku mechanical from 2026-10-24T10:00:00Z $0.01; agent-north#10 sonnet tooling from 2026-10-24T11:00:00Z $10.00\n"), "{body}");
 }
@@ -368,7 +369,7 @@ fn a_rise_names_every_run_of_a_box_escalated_off_its_first_tier_so_the_issue_tra
 fn a_cell_of_boxes_no_label_has_named_yet_files_no_rise_however_dear_this_week_is() {
     let week = boxes("1", 3, OPUS, "unknown", "2026-10-24", 9_000_000);
     let before = boxes("3", 3, OPUS, "unknown", "2026-10-17", 1_000_000);
-    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()) };
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let mut issues = Issues::default();
     let (_, quiet) = two_ticks(&ledger, &mut issues);
     assert!(issues.created.is_empty(), "{:#?}", quiet.lines);
@@ -402,7 +403,7 @@ fn a_tier_that_staffed_no_run_this_week_files_no_rise_for_the_boxes_it_started_e
     assert!((was_n, now_n, was_staffed, now_staffed) == (3, 3, true, false) && now > was * 1.25, "{was} -> {now}");
 
     let mut issues = Issues::default();
-    let (_, quiet) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()) }, &mut issues);
+    let (_, quiet) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() }, &mut issues);
     assert!(issues.created.is_empty(), "{:#?}", quiet.lines);
     assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
 }
@@ -503,7 +504,7 @@ fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise
     assert!((was_n, now_n) == (3, 4) && now > was * 1.25, "{was} -> {now}");
 
     let mut issues = Issues::default();
-    let (_, ticked) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()) }, &mut issues);
+    let (_, ticked) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() }, &mut issues);
     assert!(issues.created.is_empty(), "{:#?}", ticked.lines);
 }
 
@@ -559,14 +560,14 @@ fn tune_prints_each_cells_estimate_ratios_and_files_one_box_per_cell_whose_media
 
 fn effort_boxes(category: &str, medium: (usize, usize, f64), high: (usize, usize, f64)) -> ClosedReport {
     let armed = |arm: &str, (count, reworked, usd): (usize, usize, f64)| (0..count).map(|number| ArmBox { item: format!("north#{arm}-{number}"), tier: "opus-medium".into(), arm: arm.into(), usd, category: category.into(), closed: true, reworked: number < reworked }).collect::<Vec<_>>();
-    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: [armed("effort-medium", medium), armed("effort-high", high)].concat(), spend_usd: 0.0, leads_usd: 0.0 }
+    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: [armed("effort-medium", medium), armed("effort-high", high)].concat(), spend_usd: 0.0, leads_usd: 0.0, boxes: Vec::new(), loaded: BTreeMap::new() }
 }
 
 #[test]
 fn a_fixture_ledger_with_both_efforts_writes_the_cheaper_kept_box_effort_cell_and_keeps_it_when_unread() {
     let stamped = BTreeMap::from([("effort-medium".to_owned(), 15), ("effort-high".to_owned(), 15)]);
     let evidence = |medium, high| Evidence::default().counted(&stamped).priced(&effort_boxes("research", medium, high), "research");
-    let ledger = Ledger { week: report(&[], "2026-10-20T06:00:00Z"), before: report(&[], "2026-10-13T06:00:00Z"), evidence: BTreeMap::from([("research".to_owned(), evidence((15, 10, 5.0), (15, 0, 8.0)))]), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()) };
+    let ledger = Ledger { week: report(&[], "2026-10-20T06:00:00Z"), before: report(&[], "2026-10-13T06:00:00Z"), evidence: BTreeMap::from([("research".to_owned(), evidence((15, 10, 5.0), (15, 0, 8.0)))]), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let first = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false);
     assert_eq!(first.cells.get("effort research"), Some(&json!("high")), "{:#?}", first.lines);
     let record = first.records.iter().find(|record| record["cell"] == "effort research").unwrap();
@@ -634,4 +635,33 @@ fn unread_runs_fail_the_tick_and_a_day_without_finished_runs_does_not() {
 fn covered_from(runs: Result<Vec<Value>, String>) -> Tick {
     let ledger = Ledger { runs, ..ledger() };
     tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false)
+}
+
+fn skilled(item: &str, skills: &[&str], landed: bool) -> SpendRun {
+    SpendRun { landed, skills: skills.iter().map(|skill| (*skill).to_owned()).collect(), ..spent(item, SONNET, "tooling", "2026-10-22", 100_000) }
+}
+
+#[test]
+fn the_skill_table_compares_each_skill_with_matched_boxes_and_flags_the_unused_one_and_the_one_that_closes_less() {
+    let mut runs: Vec<SpendRun> = (0..6).map(|number| skilled(&format!("north#{}", 20 + number), &[], true)).collect();
+    runs.extend((0..4).map(|number| skilled(&format!("north#{}", 30 + number), &["slow-skill"], number < 2)));
+    runs.extend((0..3).map(|number| skilled(&format!("north#{}", 40 + number), &["verification"], true)));
+    runs.push(SpendRun { role: "proxy".into(), item: None, ..skilled("north#0", &["verification"], false) });
+    let closed: HashSet<String> = runs.iter().filter(|run| run.landed).filter_map(|run| run.item.clone()).collect();
+    let week = summarize(&runs, &closed, "2026-10-20T06:00:00Z", &PriceTable::load().unwrap());
+    let installed = ["slow-skill", "unused-skill", "verification"].map(String::from).to_vec();
+    let ledger = Ledger { week, before: report(&[], "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), runs: Ok(Vec::new()), skills: installed };
+    let tick = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, true);
+    let table: Vec<&str> = tick.lines.iter().map(String::as_str).filter(|line| line.contains("skill")).collect();
+    assert_eq!(
+        table,
+        [
+            "skills over 14 days: 2 loaded, 3 installed",
+            "skill slow-skill: 4 runs, 4 boxes, closed 50% at $2.00/closed vs closed 100% at $1.00/closed on 9 matched boxes",
+            "skill verification: 4 runs, 3 boxes, closed 100% at $1.00/closed vs closed 80% at $1.25/closed on 10 matched boxes",
+            "unused skill unused-skill: no run loaded it in 14 days",
+            "harmful skill slow-skill: closed 50% at $2.00/closed vs closed 100% at $1.00/closed on matched boxes",
+        ],
+        "verification closes as often at no more cost and is not flagged"
+    );
 }

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -54,6 +54,7 @@ fn text(row: &Value, key: &str) -> String {
 
 fn spend_runs(database: &std::path::Path) -> NorthResult<Vec<SpendRun>> {
     let reworked = reworked_agents(database)?;
+    let mut skills = run_skills(database)?;
     let rows = sqlite::rows(
         database,
         Access::ReadOnly,
@@ -81,8 +82,19 @@ fn spend_runs(database: &std::path::Path) -> NorthResult<Vec<SpendRun>> {
             input: row["input"].as_i64().unwrap_or(0),
             cache_read: row["cache_read"].as_i64().unwrap_or(0),
             output: row["output"].as_i64().unwrap_or(0),
+            skills: skills.remove(row["agent"].as_str().unwrap_or_default()).unwrap_or_default(),
         })
         .collect())
+}
+
+/// Each run's loaded skills by agent, empty on a ledger the threads migration has not given the column yet.
+fn run_skills(database: &std::path::Path) -> NorthResult<HashMap<String, Vec<String>>> {
+    let column = sqlite::rows(database, Access::ReadOnly, Duration::from_secs(5), "SELECT name FROM pragma_table_info('runs') WHERE name = 'skills'")?;
+    if column.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlite::rows(database, Access::ReadOnly, Duration::from_secs(5), "SELECT agent, skills FROM runs WHERE skills IS NOT NULL AND skills != '[]'")?;
+    Ok(rows.iter().map(|row| (text(row, "agent"), serde_json::from_str(row["skills"].as_str().unwrap_or_default()).unwrap_or_default())).collect())
 }
 
 fn reworked_agents(database: &std::path::Path) -> NorthResult<HashSet<String>> {
@@ -307,6 +319,7 @@ mod tests {
             input: 3_000_000,
             cache_read: 2_000_000,
             output: 100_000,
+            skills: Vec::new(),
         }
     }
 

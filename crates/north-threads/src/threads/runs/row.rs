@@ -62,6 +62,14 @@ impl Row {
         bind(Some(&self.get_or("fast", integer(0))))
     }
 
+    /// The skills the run loaded as the JSON list the ledger keeps, or NULL when the row names none.
+    pub fn skills(&self) -> Sql {
+        match self.get("skills") {
+            Some(skills @ Value::Array(_)) => Sql::Text(pyjson::dumps(skills)),
+            _ => Sql::Null,
+        }
+    }
+
     /// `r.get(key) and round(r[key])`.
     pub fn rounded(&self, key: &str) -> Result<Sql, Failure> {
         match self.get(key) {

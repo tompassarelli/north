@@ -30,6 +30,7 @@ fn run(item: &str, tier: &str, model: &str, category: &str, input: i64) -> Spend
         input,
         cache_read: 0,
         output: 1_000,
+        skills: Vec::new(),
     }
 }
 

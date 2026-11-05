@@ -208,8 +208,8 @@ impl Ingest<'_> {
     fn backfill(&mut self, run: &Run, prior: &Recorded) -> Result<(), Failure> {
         let (r, agent) = (&run.r, run.agent()?);
         self.db.execute(
-            "UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort), provider=coalesce(?, provider), tier=coalesce(?, tier), outcome=CASE WHEN outcome='unclear' THEN coalesce(?, outcome) ELSE outcome END WHERE agent=?",
-            params![r.sql("model")?, r.sql("effort")?, run.provider()?, r.sql("tier")?, r.sql("outcome")?, agent],
+            "UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort), provider=coalesce(?, provider), tier=coalesce(?, tier), skills=coalesce(?, skills), outcome=CASE WHEN outcome='unclear' THEN coalesce(?, outcome) ELSE outcome END WHERE agent=?",
+            params![r.sql("model")?, r.sql("effort")?, run.provider()?, r.sql("tier")?, r.skills(), r.sql("outcome")?, agent],
         )?;
         if run.worker() && run.status == "finished" && matches!((&prior.ended, r.get("ended").and_then(Value::as_str)), (Sql::Text(recorded), Some(ended)) if ended > recorded.as_str()) {
             self.db.execute(
@@ -330,7 +330,7 @@ impl Ingest<'_> {
         }
         self.db.execute(FINISHED, params_from_iter(finished_values(run, item, &follows, category)?))?;
         let r = &run.r;
-        self.db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=?, landed_sha=?, provider=? WHERE agent=?", params![r.sql("account")?, r.sql("model")?, r.sql("effort")?, r.fast()?, r.sql("landed_sha")?, run.provider()?, run.agent()?])?;
+        self.db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=?, landed_sha=?, provider=?, skills=? WHERE agent=?", params![r.sql("account")?, r.sql("model")?, r.sql("effort")?, r.fast()?, r.sql("landed_sha")?, run.provider()?, r.skills(), run.agent()?])?;
         self.db.execute(
             "UPDATE runs SET brief_text=?, brief_origin=?, brief_path=?, brief_sha256=? WHERE agent=?",
             params![r.sql("brief_text")?, r.sql("brief_origin")?, r.sql("brief_path")?, r.sql("brief_sha256")?, run.agent()?],

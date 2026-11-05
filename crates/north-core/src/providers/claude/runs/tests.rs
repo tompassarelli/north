@@ -187,3 +187,15 @@ fn a_finished_transcript_records_its_brief_text_with_the_transcript_as_its_origi
     assert_eq!(row["brief_origin"], super::row::TRANSCRIPT_ORIGIN);
     assert_eq!(row["eta_min"], 20);
 }
+
+#[test]
+fn a_transcript_records_each_skill_its_skill_calls_and_the_file_skill_hook_loaded_once_and_none_from_tool_results() {
+    let records = [
+        json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "verification"}}, {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}]}}),
+        json!({"type": "attachment", "attachment": {"type": "hook_additional_context", "content": ["file-skill: editing /w/src/main.rs loads the rust-development skill (directory /s/rust-development); its rules apply"]}}),
+        json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "verification"}}]}}),
+        json!({"type": "user", "message": {"content": [{"type": "tool_result", "content": "file-skill: editing a.ts loads the effect-development skill"}]}}),
+    ];
+    assert_eq!(super::telemetry::skills(&records), ["rust-development", "verification"]);
+    assert!(super::telemetry::skills(&[]).is_empty());
+}

@@ -13,6 +13,7 @@ static HANDOFF: LazyLock<Regex> = LazyLock::new(|| {
 });
 static REPLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(?:HANDOFF\s+\S+|(?:Not done|Done):)").unwrap());
 static REMINDER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^<system-reminder>\s*").unwrap());
+static FILE_SKILL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"file-skill: editing .+? loads the (\S+) skill").unwrap());
 
 const SYNTHETIC: &str = "<synthetic>";
 
@@ -85,19 +86,33 @@ pub fn record_text(record: &Value) -> String {
     }
 }
 
-pub fn hook_fire(record: &Value) -> bool {
+/// The text a hook put into the record, or None when the record is a tool result.
+fn hook_text(record: &Value) -> Option<String> {
     let text = record_text(record);
     let text = text.trim();
-    let text = match serde_json::from_str::<Value>(text) {
-        Ok(result) => result["hookSpecificOutput"]["additionalContext"].as_str().unwrap_or("").to_owned(),
-        Err(_) => {
-            if record["message"]["content"].as_array().is_some_and(|parts| parts.iter().any(|part| part["type"] == "tool_result")) {
-                return false;
-            }
-            text.to_owned()
+    match serde_json::from_str::<Value>(text) {
+        Ok(result) => Some(result["hookSpecificOutput"]["additionalContext"].as_str().unwrap_or("").to_owned()),
+        Err(_) if record["message"]["content"].as_array().is_some_and(|parts| parts.iter().any(|part| part["type"] == "tool_result")) => None,
+        Err(_) => Some(text.to_owned()),
+    }
+}
+
+pub fn hook_fire(record: &Value) -> bool {
+    hook_text(record).is_some_and(|text| HANDOFF.is_match(&REMINDER.replace(&text, "")))
+}
+
+/// The skills a transcript loaded, by the Skill tool or by the file-skill hook, each named once.
+pub(super) fn skills(records: &[Value]) -> Vec<String> {
+    let mut found = BTreeSet::new();
+    for record in records {
+        if record["type"] == "assistant" {
+            let calls = record["message"]["content"].as_array().into_iter().flatten().filter(|part| part["type"] == "tool_use" && part["name"] == "Skill");
+            found.extend(calls.filter_map(|call| call["input"]["skill"].as_str()).map(|skill| skill.trim_start_matches('/').to_owned()).filter(|skill| !skill.is_empty()));
+        } else if let Some(text) = hook_text(record) {
+            found.extend(FILE_SKILL.captures_iter(&text).map(|found| found[1].to_owned()));
         }
-    };
-    HANDOFF.is_match(&REMINDER.replace(&text, ""))
+    }
+    found.into_iter().collect()
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]

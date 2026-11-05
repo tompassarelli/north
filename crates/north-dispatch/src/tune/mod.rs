@@ -9,8 +9,10 @@
 //! DECAYED. It prints each tier and category's estimates against what the week's runs came to and
 //! files one north issue for each whose median ratio drifted out of the calibrated band, under the
 //! same rule as a rise. It prints the share of the last day's finished runs that recorded each
-//! essential field and fails when one is under 98%. A failed read of the arms' evidence keeps the
-//! prior routing cells and fails the tick.
+//! essential field and fails when one is under 98%. It prints each skill's closed-box rate and cost
+//! against matched boxes that did not load it, and flags the installed skills no run loaded and
+//! those whose boxes did worse. A failed read of the arms' evidence keeps the prior routing cells
+//! and fails the tick.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, EstimatedRun};
 use crate::dispatch::{Evidence, LEDGER_WINDOW, arm_evidence, evidenced};
@@ -30,6 +32,7 @@ mod coverage;
 mod dividends;
 mod estimates;
 mod rises;
+mod skills;
 #[cfg(test)]
 mod tests;
 
@@ -49,8 +52,8 @@ pub trait Tracker {
     fn rolling(&mut self) -> &mut dyn rolling_issue::Tracker;
 }
 
-/// The ledger as one tick reads it; `notes` are the reads that failed and `runs` the last day's
-/// finished runs.
+/// The ledger as one tick reads it, with the skills agents can load; `notes` are the reads that
+/// failed and `runs` the last day's finished runs.
 pub struct Ledger {
     pub week: ClosedReport,
     pub before: ClosedReport,
@@ -58,6 +61,7 @@ pub struct Ledger {
     pub notes: Vec<String>,
     pub estimates: Result<Vec<EstimatedRun>, String>,
     pub runs: Result<Vec<Value>, String>,
+    pub skills: Vec<String>,
 }
 
 /// What earlier ticks left: the cells they wrote, the costs and dividend readings they kept, and the
@@ -95,6 +99,7 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
     }
     let today = costs::today(&ledger.week, &prior.costs, at);
     lines.extend(today.lines);
+    lines.extend(skills::lines(&ledger.week, &ledger.before, &ledger.skills));
     let checked = dividends::check(&ledger.week, dividends, &prior.readings, at);
     lines.extend(checked.lines);
     let (readings, told_failed) = tell_decays(tracker, checked.rows, checked.alerts, dry_run, &mut lines);
@@ -209,7 +214,12 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     let mut notes = Vec::new();
     let evidence = arm_evidence(&evidenced(), &mut notes);
     let estimates = ledger::estimated_runs(LEDGER_WINDOW).map_err(|error| error.user_message());
-    let ledger = Ledger { week, before, evidence, notes, estimates, runs: coverage::read() };
+    let root = crate::foundation::activation::activation_paths(&|name: &str| std::env::var(name).ok().filter(|value| !value.is_empty())).0.with_file_name("skills/shared");
+    let skills = skills::installed(&root).unwrap_or_else(|error| {
+        eprintln!("north tune: installed skills unread, so none is flagged unused: {error}");
+        Vec::new()
+    });
+    let ledger = Ledger { week, before, evidence, notes, estimates, runs: coverage::read(), skills };
     let files = Files::here()?;
     let at = Timestamp::now().iso();
     let prior = Prior { cells: files.cells()?, costs: files.costs()?, readings: files.readings()?, breaches: files.breaches()? };

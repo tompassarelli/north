@@ -41,7 +41,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 fn roots() -> Option<Roots> {
     let get = |name: &str| std::env::var(name).ok().filter(|s| !s.is_empty());
     let home = get("HOME").unwrap_or_default();
-    let current = crate::guard::activation::activation_paths(&get).0.parent()?.to_owned();
+    let current = crate::foundation::activation::activation_paths(&get).0.parent()?.to_owned();
     let state = get("XDG_STATE_HOME").unwrap_or_else(|| format!("{home}/.local/state"));
     Some(Roots { skills: current.join("skills/shared"), seen: Path::new(&state).join("north/file-skills") })
 }

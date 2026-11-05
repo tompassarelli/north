@@ -18,6 +18,7 @@ fn run(item: Option<&str>, role: &str, tier: &str, category: &str, model: &str, 
         input: 3_000_000,
         cache_read: 2_000_000,
         output: 100_000,
+        skills: Vec::new(),
     }
 }
 

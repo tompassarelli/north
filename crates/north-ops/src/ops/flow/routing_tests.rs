@@ -22,7 +22,7 @@ fn ledger(path: &Path, sonnet: usize, opus: usize) {
 
 fn report(arms: &[&str]) -> ClosedReport {
     let boxes = arms.iter().flat_map(|arm| (0..4).map(move |number| ArmBox { item: format!("north#{arm}-{number}"), tier: String::new(), arm: (*arm).into(), usd: 8.0, category: "feature".into(), closed: true, reworked: false }));
-    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: boxes.collect(), spend_usd: 0.0, leads_usd: 0.0 }
+    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: boxes.collect(), spend_usd: 0.0, leads_usd: 0.0, ..ClosedReport::default() }
 }
 
 fn run(sonnet: usize, opus: usize, closed: impl Fn() -> Result<ClosedReport, String>) -> Vec<String> {

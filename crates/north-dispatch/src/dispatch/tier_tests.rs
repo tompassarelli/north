@@ -95,7 +95,7 @@ fn tooling_and_features_alternate_recorded_arms_until_each_has_fifteen_runs_then
 fn closed(arms: &[(&str, usize, f64)]) -> ClosedReport {
     let arm_box = |arm: &str, category: &str, number: usize, usd: f64| ArmBox { item: format!("wisp#{arm}-{number}"), tier: String::new(), arm: arm.into(), usd, category: category.into(), closed: true, reworked: false };
     let boxes = arms.iter().flat_map(|(arm, closed, usd)| (0..*closed).map(move |number| arm_box(arm, "tooling", number, *usd)));
-    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: boxes.chain([arm_box("worker", "feature", 0, 0.01)]).collect(), spend_usd: 0.0, leads_usd: 0.0 }
+    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: boxes.chain([arm_box("worker", "feature", 0, 0.01)]).collect(), spend_usd: 0.0, leads_usd: 0.0, ..ClosedReport::default() }
 }
 
 fn armed(sonnet: (f64, usize), opus: (f64, usize), report: &ClosedReport) -> BTreeMap<String, Evidence> {
@@ -334,7 +334,7 @@ fn the_feature_arms_of_5_november_with_14_closed_boxes_each_keep_alternating_wha
     let opus = (0..17).map(|number| arm_box("worker", number, 116.64 / 17.0, number < 14, false));
     let mut cells = vec![Cell::priced("sonnet", "feature", 82, 575.85), Cell::priced("opus-medium", "feature", 25, 578.93)];
     cells.iter_mut().for_each(|cell| cell.reworked = if cell.tier == "sonnet" { 9 } else { 2 });
-    let report = ClosedReport { skipped: Vec::new(), closed: 107, cells, arms: sonnet.chain(opus).collect(), spend_usd: 0.0, leads_usd: 0.0 };
+    let report = ClosedReport { skipped: Vec::new(), closed: 107, cells, arms: sonnet.chain(opus).collect(), spend_usd: 0.0, leads_usd: 0.0, ..ClosedReport::default() };
     let evidence = Evidence::default().counted(&stamped(65, 67)).priced(&report, "feature");
     assert_eq!((evidence.figures(Tier::Sonnet).ends_with("14 of 15 closed arm boxes, $10.31 per closed box"), evidence.figures(Tier::Opus).ends_with("14 of 15 closed arm boxes, $8.33 per closed box")), (true, true), "{} / {}", evidence.figures(Tier::Sonnet), evidence.figures(Tier::Opus));
     assert_eq!(evidence.settled(), None, "14 closed boxes on each arm: the arms keep alternating");
@@ -346,7 +346,7 @@ fn the_feature_arms_of_5_november_with_14_closed_boxes_each_keep_alternating_wha
 fn effort_boxes(category: &str, arms: &[(&str, usize, usize, f64)]) -> ClosedReport {
     let arm_box = |arm: &str, number: usize, reworked: bool, usd: f64| ArmBox { item: format!("makgora#{arm}-{number}"), tier: "opus-medium".into(), arm: arm.into(), usd, category: category.into(), closed: true, reworked };
     let boxes = arms.iter().flat_map(|(arm, closed, reworked, usd)| (0..*closed).map(move |number| arm_box(arm, number, number < *reworked, *usd)));
-    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: boxes.collect(), spend_usd: 0.0, leads_usd: 0.0 }
+    ClosedReport { skipped: Vec::new(), closed: 0, cells: Vec::new(), arms: boxes.collect(), spend_usd: 0.0, leads_usd: 0.0, boxes: Vec::new(), loaded: BTreeMap::new() }
 }
 
 fn opus_evidence(category: &str, opus_runs: usize, stamped: &[(&str, usize)], report: &ClosedReport) -> BTreeMap<String, Evidence> {
