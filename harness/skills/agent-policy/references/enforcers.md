@@ -63,6 +63,7 @@ These run for every provider, because every landing goes through `safe-push`.
 | Author and committer emails match the configured identity | `commit_email_scan` |
 | Branch names and commit messages never name a native threads item | `native_ref_scan` |
 | Core tools stay; other tool removals need `Removes-tool:` | `tool_removal_scan` |
+| A lane keeps every file its `.safe-push` land checks covered, or carries `Removes-check: NAME because REASON` | `north land enqueue` check-coverage gate (`check_coverage::refuse_lost_coverage`) |
 | No added test skip or focus without a `Test-change:` trailer, and no added `MUTANT:` marker | `test_integrity_scan` |
 | Generated records are not mass-rewritten without their declared inputs changing | `generated_rewrite_scan` |
 | Main's CI budget is respected | `north after-landing` ci-budget gate (`north land scan ci-budget`) |

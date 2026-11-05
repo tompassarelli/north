@@ -1,6 +1,7 @@
 pub mod after;
 pub mod bisect;
 pub mod candidate;
+pub mod check_coverage;
 pub mod checks;
 pub mod credential;
 pub mod culprit;
