@@ -163,6 +163,7 @@ impl HookKind {
         match self {
             Self::PreBash => &[
                 crate::guard::tripwire::check,
+                crate::guard::proxy_role::evaluate,
                 crate::guard::corpus_scan::evaluate,
                 crate::guard::resource_safe_search::evaluate,
                 crate::guard::modern_search::evaluate,
@@ -192,6 +193,7 @@ impl HookKind {
                 crate::guard::nix_activity::evaluate,
             ],
             Self::PreEdit => &[
+                crate::guard::proxy_role::evaluate,
                 crate::guard::launch_critical::evaluate,
                 crate::guard::handoff_record::evaluate,
                 crate::guard::generated_policy::evaluate,
@@ -200,14 +202,14 @@ impl HookKind {
                 crate::guard::node_modules_write::evaluate,
                 crate::guard::nix_activity::evaluate,
             ],
-            Self::PreAgent => &[crate::guard::agent_cwd::evaluate, crate::guard::worker_tier::evaluate, crate::guard::spawn_capacity::evaluate],
+            Self::PreAgent => &[crate::guard::proxy_role::evaluate, crate::guard::agent_cwd::evaluate, crate::guard::worker_tier::evaluate, crate::guard::spawn_capacity::evaluate],
             Self::PreTimer => &[crate::guard::lead_timer::evaluate],
             Self::PreMessage => &[crate::guard::subagent_message::evaluate],
             Self::SpawnCapacity => &[crate::guard::spawn_capacity::admission],
-            Self::NativeSpawn => &[crate::guard::spawn_capacity::evaluate],
+            Self::NativeSpawn => &[crate::guard::proxy_role::evaluate, crate::guard::spawn_capacity::evaluate],
             Self::PostTool => &[crate::guard::worker_handoff::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate, crate::guard::spawn_capacity::confirm_native],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
-            Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::recommendation_grounding::evaluate],
+            Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::recommendation_grounding::evaluate, crate::guard::proxy_role::evaluate],
             Self::SubagentStop => &[crate::guard::subagent_teardown::evaluate],
             Self::SessionStart => &[crate::guard::unlanded_work::evaluate],
             Self::UserPromptSubmit => &[crate::guard::quiet_phrase::evaluate],
