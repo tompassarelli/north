@@ -327,7 +327,7 @@ language_empty_tree=$("$real_git" -C "$real_repo" hash-object -t tree /dev/null)
 language_trace="$real_fixture/language-trace"
 SAFE_PUSH_TEST_PATH="$missing_north_path" run_real_case --to main
 expect_status nonzero
-expect_output 'lacks north land route'
+expect_output 'north not on PATH; refusing to land without the language gate'
 ! grep -Fq 'agent-instruction-check:' <<<"$case_output" || fail 'initial missing north reached later checks'
 [ -z "$(real_remote_state)" ] || fail 'initial push without north published'
 SAFE_PUSH_TEST_LANGUAGE_TRACE="$language_trace" SAFE_PUSH_TEST_LANGUAGE_DENY='initial push denied by language gate' run_real_case --to main
@@ -2001,7 +2001,7 @@ missing_north_path="$missing_north_bin:/run/current-system/sw/bin:/usr/bin:/bin"
 ! PATH="$missing_north_path" command -v north >/dev/null || fail 'train missing north fixture contains north'
 for language_failure in denied missing; do
   new_landing_origin "train-language-$language_failure"
-  printf '[landing]\n\texact = true\n\tqueue = lock\n' >"$landing_root/seed/.safe-push"
+  printf '[landing]\n\texact = true\n' >"$landing_root/seed/.safe-push"
   "$real_git" -C "$landing_root/seed" add .safe-push
   "$real_git" -C "$landing_root/seed" commit -qm 'exact landings'
   "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
