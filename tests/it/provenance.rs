@@ -402,7 +402,7 @@ fn test_steering_records_refuse_missing_grounding_and_rank_revisit_evidence() {
     git(repo, &["commit", "--amend", "-qm", "soft bar", "-m", soft]);
     code(repo, &["check", "HEAD^", "HEAD"], 0);
     let source = std::env::current_dir().unwrap()
-        .join("harness/lib/routing-scenarios/measured.json");
+        .join("crates/north-core/src/router/fixtures/scenarios/measured.json");
     let now = serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(source).unwrap())
         .unwrap()["now"]
         .as_str()

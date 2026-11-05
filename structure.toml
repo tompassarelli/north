@@ -11,7 +11,7 @@ days = 3
 hotspot_score = 0
 
 [ignore]
-paths = ["target/**", "src/fixtures/**", "crates/*/src/fixtures/**", "crates/north-core/src/router/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**", "harness/lib/routing-scenarios/**"]
+paths = ["target/**", "src/fixtures/**", "crates/*/src/fixtures/**", "crates/north-core/src/router/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**"]
 
 [[module]]
 name = "tests"

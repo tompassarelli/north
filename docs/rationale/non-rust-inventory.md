@@ -134,7 +134,6 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | harness/lib/project_score.test.py | 74 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/provider_capacity.py | 103 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/routines.py | 238 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
-| harness/lib/routing.test.sh | 83 | port: north#80 (placement, routing, calibration) | allowlisted; test of a routing bug fix pending port |
 | harness/lib/ssh_transport.py | 19 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch; calibration.py and goal_eta.test.py are allowlisted under north#88 |
 | harness/lib/tree-north.sh | 18 | port: north#88 box "hook and harness shell to Rust" (family: tests) | sourced library that builds a tree's north binary for shell tests; goes when the shell tests that source it go |
 | harness/lib/tree-north.test.sh | 45 | port: north#88 box "hook and harness shell to Rust" (family: tests) | test of tree-north.sh |

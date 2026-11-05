@@ -1,4 +1,6 @@
-use super::ctx::{Ctx, Metrics, Tier, provider};
+use super::brief::codex_qualifies;
+use super::choose::brief;
+use super::ctx::{Ctx, Metrics, Tier, WorkBox, provider};
 use super::moment::{Moment, python_str};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -31,6 +33,15 @@ pub struct Placed {
     pub wait: Option<String>,
     pub fast: bool,
     pub fallback: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub only: Option<ProviderOnly>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ProviderOnly {
+    pub provider: String,
+    pub refused: String,
+    pub criterion: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -212,6 +223,7 @@ impl Ctx {
                     explore: choice.explore,
                     wait: choice.wait,
                     fallback: tier.is_some_and(|t| t.fallback),
+                    only: ctx.provider_only(item, tier),
                 },
             );
             push_new(&mut needs, choice.needs);
@@ -239,6 +251,23 @@ impl Ctx {
                 .collect(),
             warnings,
             capacity: cap,
+        })
+    }
+
+    fn provider_only(&self, item: &WorkBox, chosen: Option<&Tier>) -> Option<ProviderOnly> {
+        let chosen = provider(&chosen?.key);
+        if chosen == "codex" {
+            return None;
+        }
+        if brief(item).is_empty() {
+            return None;
+        }
+        self.tiers.iter().find(|t| provider(&t.key) == "codex")?;
+        let (qualifies, why) = codex_qualifies(brief(item), false, &self.knobs.codex);
+        (!qualifies).then(|| ProviderOnly {
+            provider: chosen.to_owned(),
+            refused: "codex".into(),
+            criterion: why.unwrap_or_default(),
         })
     }
 
@@ -293,6 +322,13 @@ impl Ctx {
             if b["fallback"].as_bool() == Some(true) {
                 tag.push_str(&format!(
                     " on {ASTRA_MODEL} {ASTRA_EFFORT} (capacity fallback)"
+                ));
+            }
+            if let Some(provider) = b["only"]["provider"].as_str() {
+                tag.push_str(&format!(
+                    " ({provider} only: {} refused, {})",
+                    b["only"]["refused"].as_str().unwrap_or(""),
+                    b["only"]["criterion"].as_str().unwrap_or("")
                 ));
             }
             let fast = if b["fast"].as_bool() == Some(true) {

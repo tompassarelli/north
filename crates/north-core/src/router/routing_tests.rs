@@ -9,63 +9,63 @@ use serde_json::{Value, json};
 const SCENARIOS: [(&str, &str); 15] = [
     (
         "burn",
-        include_str!("../../../../harness/lib/routing-scenarios/burn.json"),
+        include_str!("fixtures/scenarios/burn.json"),
     ),
     (
         "capacity-astra",
-        include_str!("../../../../harness/lib/routing-scenarios/capacity-astra.json"),
+        include_str!("fixtures/scenarios/capacity-astra.json"),
     ),
     (
         "capacity-floor",
-        include_str!("../../../../harness/lib/routing-scenarios/capacity-floor.json"),
+        include_str!("fixtures/scenarios/capacity-floor.json"),
     ),
     (
         "codex-explore",
-        include_str!("../../../../harness/lib/routing-scenarios/codex-explore.json"),
+        include_str!("fixtures/scenarios/codex-explore.json"),
     ),
     (
         "codex-gate",
-        include_str!("../../../../harness/lib/routing-scenarios/codex-gate.json"),
+        include_str!("fixtures/scenarios/codex-gate.json"),
     ),
     (
         "conserve",
-        include_str!("../../../../harness/lib/routing-scenarios/conserve.json"),
+        include_str!("fixtures/scenarios/conserve.json"),
     ),
     (
         "deadline-drain",
-        include_str!("../../../../harness/lib/routing-scenarios/deadline-drain.json"),
+        include_str!("fixtures/scenarios/deadline-drain.json"),
     ),
     (
         "deadline",
-        include_str!("../../../../harness/lib/routing-scenarios/deadline.json"),
+        include_str!("fixtures/scenarios/deadline.json"),
     ),
     (
         "measured",
-        include_str!("../../../../harness/lib/routing-scenarios/measured.json"),
+        include_str!("fixtures/scenarios/measured.json"),
     ),
     (
         "new-model",
-        include_str!("../../../../harness/lib/routing-scenarios/new-model.json"),
+        include_str!("fixtures/scenarios/new-model.json"),
     ),
     (
         "pace-report-only",
-        include_str!("../../../../harness/lib/routing-scenarios/pace-report-only.json"),
+        include_str!("fixtures/scenarios/pace-report-only.json"),
     ),
     (
         "report-only-floor",
-        include_str!("../../../../harness/lib/routing-scenarios/report-only-floor.json"),
+        include_str!("fixtures/scenarios/report-only-floor.json"),
     ),
     (
         "reserve",
-        include_str!("../../../../harness/lib/routing-scenarios/reserve.json"),
+        include_str!("fixtures/scenarios/reserve.json"),
     ),
     (
         "thursday-behind",
-        include_str!("../../../../harness/lib/routing-scenarios/thursday-behind.json"),
+        include_str!("fixtures/scenarios/thursday-behind.json"),
     ),
     (
         "two-claude",
-        include_str!("../../../../harness/lib/routing-scenarios/two-claude.json"),
+        include_str!("fixtures/scenarios/two-claude.json"),
     ),
 ];
 
@@ -433,4 +433,22 @@ fn a_codex_tier_admits_by_the_brief_category_and_explores_within_the_shape_it_ma
     }
     let lua = item("bug-known-cause", bug.brief.unwrap().replace("shell", "lua"));
     assert!(!under.explorable(&sol_medium, &lua));
+}
+
+#[test]
+fn a_box_codex_refuses_for_surface_ts_prints_claude_and_the_criterion_and_ranks_no_codex_tier() {
+    let ctx = ctx(scenario("codex-gate"));
+    let plan = ctx.plan().unwrap();
+    let ts = &plan.boxes["q2"];
+    assert_eq!(ts.tier.as_deref(), Some("claude:opus-medium"));
+    let only = ts.only.as_ref().unwrap();
+    assert_eq!(
+        (only.provider.as_str(), only.refused.as_str(), only.criterion.as_str()),
+        ("claude", "codex", "Surface ts")
+    );
+    assert_eq!(plan.boxes["q1"].only, None);
+    let lines = ctx.box_lines(&serde_json::to_value(&plan).unwrap());
+    let line = |id: &str| lines.iter().find(|l| l.starts_with(&format!("box {id} "))).unwrap();
+    assert!(line("q2").contains("(claude only: codex refused, Surface ts)"), "{lines:?}");
+    assert!(!line("q1").contains("only:"), "{lines:?}");
 }

@@ -465,7 +465,7 @@ fn cash_per_account_includes_the_binding_gemini_weekly_quota() {
 
 #[test]
 fn the_ctx_built_from_a_fixture_ledger_reaches_the_measured_scenarios_plan() {
-    let scenario: Value = serde_json::from_str(include_str!("../../../../harness/lib/routing-scenarios/measured.json")).unwrap();
+    let scenario: Value = serde_json::from_str(include_str!("../router/fixtures/scenarios/measured.json")).unwrap();
     let now = Timestamp::parse_loose(scenario["now"].as_str().unwrap()).unwrap();
     let tiers: Vec<super::ctx::Tier> = scenario["tiers"].as_array().unwrap().iter().map(|tier| super::ctx::Tier {
         key: tier["key"].as_str().unwrap().to_owned(), model: tier["model"].as_str().unwrap().to_owned(), effort: tier["effort"].as_str().unwrap().to_owned(), start: tier["start"].clone(),

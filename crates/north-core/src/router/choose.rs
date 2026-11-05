@@ -23,7 +23,7 @@ fn eligible(tier: &Tier, item: &WorkBox) -> bool {
     provider(&tier.key) != "gemini" || item.sensitivity == "public"
 }
 
-fn brief(item: &WorkBox) -> &str {
+pub(super) fn brief(item: &WorkBox) -> &str {
     item.brief.as_deref().unwrap_or("")
 }
 
