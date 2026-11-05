@@ -9,6 +9,78 @@
   ],
   [
     "cargo check --offline",
+    "route"
+  ],
+  [
+    "cargo check",
+    "route"
+  ],
+  [
+    "cargo clippy --all-targets -- -D warnings",
+    "route"
+  ],
+  [
+    "cargo clippy --all-targets --locked --offline -- -D warnings",
+    "route"
+  ],
+  [
+    "cargo nextest run",
+    "route"
+  ],
+  [
+    "cargo bench",
+    "route"
+  ],
+  [
+    "cargo doc --no-deps",
+    "route"
+  ],
+  [
+    "cargo run --bin north -- capacity status",
+    "route"
+  ],
+  [
+    "cargo rustc -- -C opt-level=3",
+    "route"
+  ],
+  [
+    "cargo llvm-cov --workspace",
+    "route"
+  ],
+  [
+    "cargo mutants -p north-core",
+    "route"
+  ],
+  [
+    "cargo +nightly clippy",
+    "route"
+  ],
+  [
+    "cargo -C crates/north-core check",
+    "route"
+  ],
+  [
+    "cargo --manifest-path crates/north-core/Cargo.toml clippy",
+    "route"
+  ],
+  [
+    "cargo fmt --check",
+    "allow"
+  ],
+  [
+    "cargo metadata --format-version 1",
+    "allow"
+  ],
+  [
+    "cargo --version",
+    "allow"
+  ],
+  [
+    "cargo tree -p north-core",
+    "allow"
+  ],
+  [
+    "cargo --manifest-path crates/north-core/Cargo.toml fmt",
     "allow"
   ],
   [

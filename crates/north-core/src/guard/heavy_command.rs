@@ -177,11 +177,7 @@ fn classify(words: &[String]) -> Decision {
         .map(String::as_str)
         .collect();
     if name == "cargo" {
-        return match plain.first().copied() {
-            Some("build") => Decision::Route,
-            Some("test") => Decision::Route,
-            _ => Decision::Allow,
-        };
+        return cargo_command(args);
     }
     if name == "tsc" && args.iter().any(|s| matches!(s.as_str(), "--build" | "-b")) {
         return Decision::Route;
@@ -196,6 +192,34 @@ fn classify(words: &[String]) -> Decision {
         return bun_command(args, &plain);
     }
     Decision::Allow
+}
+
+/// Cargo subcommands that invoke rustc, with their built-in aliases.
+const CARGO_COMPILING: &[&str] = &[
+    "build", "b", "check", "c", "clippy", "test", "t", "nextest", "bench", "doc", "d", "run", "r",
+    "rustc", "rustdoc", "fix", "install", "llvm-cov", "mutants", "miri",
+];
+
+/// Cargo global options whose value is the next word.
+const CARGO_VALUED: &[&str] = &["-C", "--manifest-path", "--config", "-Z", "--color"];
+
+fn cargo_command(args: &[String]) -> Decision {
+    let mut words = args.iter().map(String::as_str);
+    let subcommand = loop {
+        match words.next() {
+            None => return Decision::Allow,
+            Some(word) if CARGO_VALUED.contains(&word) => {
+                words.next();
+            }
+            Some(word) if word.starts_with('-') || word.starts_with('+') => {}
+            Some(word) => break word,
+        }
+    };
+    if CARGO_COMPILING.contains(&subcommand) {
+        Decision::Route
+    } else {
+        Decision::Allow
+    }
 }
 
 fn bun_command(args: &[String], plain: &[&str]) -> Decision {
