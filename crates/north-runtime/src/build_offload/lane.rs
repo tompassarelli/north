@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::capacity::build_offload::{Declined, names_a_path_here, ships};
+use crate::land_offload::ship::remote_checkout;
 
 /// A worktree as the remote host rebuilds it: the commit, the commits it holds beyond origin/main, and the uncommitted diff.
 pub(super) struct Lane {
@@ -39,12 +40,13 @@ fn change(top: &Path) -> Result<(Vec<u8>, Vec<String>), String> {
     Ok((patch, changed))
 }
 
-/// The project's main checkout under HOME, which every host keeps at the same path: the lane's own container holds it as `main` whether the lane is that checkout or a worktree beside it.
+/// The repository's main checkout as every host keeps it, read from the lane's git common directory since a worktree may sit outside the project's container (the land queue's post-land worktrees do), and the container the lane itself sits in.
 fn repository(top: &Path, home: &Path) -> Result<(String, String, PathBuf), String> {
+    let common = PathBuf::from(text(top, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?);
+    let main = common.parent().ok_or("the repository has no main checkout")?;
+    let relative = remote_checkout(main, home)?;
     let beside = top.parent().ok_or("the lane has no parent directory")?;
     let container = if beside.file_name().is_some_and(|name| name == "worktrees") { beside.parent().unwrap_or(beside) } else { beside };
-    let main = container.join("main");
-    let relative = main.strip_prefix(home).map_err(|_| format!("{} is not under {}", main.display(), home.display()))?.to_string_lossy().into_owned();
     Ok((relative.clone(), relative.replace('/', "-"), container.to_path_buf()))
 }
 

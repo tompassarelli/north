@@ -207,7 +207,7 @@ fn checkout(directory: &Path) -> Result<(String, String), String> {
 }
 
 /// The checkout a build host keeps for the repository whose git directory sits in `main`: `code/PROJECT/main` for a project under `~/code`, whatever layout this host gave it, since the remote host keeps each project's main checkout there; else the same path relative to home.
-fn remote_checkout(main: &Path, home: &Path) -> Result<String, String> {
+pub(crate) fn remote_checkout(main: &Path, home: &Path) -> Result<String, String> {
     let relative = main.strip_prefix(home).map_err(|_| format!("{} is not under {}, so the remote host cannot be assumed to keep it", main.display(), home.display()))?;
     let mut parts = relative.components();
     match (parts.next(), parts.next()) {

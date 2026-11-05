@@ -101,3 +101,18 @@ fn capacity_an_offloaded_lane_with_unpushed_commits_and_uncommitted_changes_runs
     assert_ne!(git(&main, &["rev-parse", "HEAD"]), head);
 }
 
+
+#[test]
+fn capacity_an_offloaded_post_land_worktree_outside_the_project_container_rebuilds_from_the_repositorys_main_checkout() {
+    let hosts = hosts();
+    let lane_dir = hosts.laptop.join("code/proj-data/land-queue/key/post-land-abc");
+    git(&hosts.main(), &["worktree", "add", "-q", "--detach", lane_dir.to_str().unwrap(), "origin/main"]);
+    write(&lane_dir.join("a.txt"), "landed\n");
+    git(&lane_dir, &["commit", "-q", "-am", "landed"]);
+    let head = git(&lane_dir, &["rev-parse", "HEAD"]);
+    let lane = gather(&lane_dir, &hosts.laptop).unwrap().ship(&[]).unwrap();
+    assert_eq!(lane.repo, "code/proj/main");
+    let report = ran_remotely(&hosts, &lane);
+    assert_eq!(line(&report, "head"), [head.as_str()]);
+    assert_eq!(line(&report, "file"), ["a.txt landed"]);
+}
