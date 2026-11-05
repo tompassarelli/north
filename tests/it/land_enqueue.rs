@@ -441,7 +441,6 @@ fn enqueue_says_so_and_queues_when_no_deny_list_is_reachable() {
 }
 
 const COLLAPSIBLE: &str = "pub fn pick(a: bool, b: bool) -> u8 {\n    if a {\n        if b {\n            return 1;\n        }\n    }\n    0\n}\n";
-const TIDY: &str = "pub fn pick(a: bool, b: bool) -> u8 {\n    u8::from(a && b)\n}\n";
 
 impl Fixture {
     fn rust_lane(&self, source: &str) {
@@ -456,34 +455,13 @@ impl Fixture {
 }
 
 #[test]
-fn enqueue_refuses_a_rust_lane_that_fails_clippy_with_its_error_blocks_and_writes_no_ticket() {
+fn enqueue_queues_a_rust_lane_without_running_clippy_because_the_landers_precheck_runs_it() {
     let fixture = Fixture::new();
     fixture.rust_lane(COLLAPSIBLE);
     let (output, _) = north_enqueue(&fixture);
     let text = Fixture::output_of(&output);
-    assert!(!output.status.success(), "{text}");
-    assert!(text.contains("clippy refused the lane") && text.contains("error: this `if` statement can be collapsed") && text.contains("src/lib.rs:2:5"), "{text}");
-    assert!(text.contains("NOT queued"), "{text}");
-    assert!(!fixture.state.exists(), "a refused lane writes no ticket to the queue or the outbox");
-}
-
-#[test]
-fn enqueue_queues_a_rust_lane_that_passes_clippy() {
-    let fixture = Fixture::new();
-    fixture.rust_lane(TIDY);
-    let (output, _) = north_enqueue(&fixture);
-    assert!(output.status.success(), "{}", Fixture::output_of(&output));
-    assert_eq!(fixture.pending().len(), 1);
-}
-
-#[test]
-fn enqueue_runs_no_clippy_for_a_lane_that_changes_no_rust_file() {
-    let fixture = Fixture::new();
-    fixture.rust_lane(COLLAPSIBLE);
-    git(&fixture.repo, &["push", "-q", "origin", "HEAD:main"]);
-    fixture.commit(&fixture.repo, "notes.txt", "Add notes");
-    let (output, _) = north_enqueue(&fixture);
-    assert!(output.status.success(), "{}", Fixture::output_of(&output));
+    assert!(output.status.success(), "{text}");
+    assert!(!text.contains("cargo clippy"), "{text}");
     assert_eq!(fixture.pending().len(), 1);
 }
 
