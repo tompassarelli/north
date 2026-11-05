@@ -9,8 +9,8 @@ use super::models::clean;
 use super::{Options, digest};
 use crate::foundation::clock::Timestamp;
 
-const CATALOG: &str = include_str!("../../../../harness/model-catalog.toml");
-const DEFAULTS: &str = include_str!("../../../../harness/defaults.toml");
+static CATALOG: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::MODEL_CATALOG));
+static DEFAULTS: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS));
 const THRESHOLD: f64 = 0.65;
 const EVENTS: &str = "CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT,
   kind TEXT NOT NULL CHECK(kind IN ('claim','release','handoff','need','unneed','run','note')),

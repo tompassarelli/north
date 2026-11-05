@@ -10,7 +10,7 @@ const WINDOW: usize = 10;
 const TIMED: usize = 3;
 
 static DEFAULTS: LazyLock<DocumentMut> =
-    LazyLock::new(|| include_str!("../../../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
+    LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
 
 pub(super) struct Claim {
     pub test: String,

@@ -4,8 +4,8 @@ use std::path::Path;
 
 use toml_edit::DocumentMut;
 
-const CATALOG: &str = include_str!("../../../../harness/model-catalog.toml");
-const DEFAULTS: &str = include_str!("../../../../harness/defaults.toml");
+static CATALOG: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::MODEL_CATALOG));
+static DEFAULTS: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS));
 
 pub(super) fn known_providers() -> BTreeSet<String> {
     let catalog: DocumentMut = CATALOG.parse().expect("harness/model-catalog.toml parses");

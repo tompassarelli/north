@@ -34,7 +34,7 @@ pub use rates::{ACCOUNT_RATE_HOURS, rates_of};
 pub use read::{Raw, box_rows, calibration_runs, calibration_runs_with, escalated, escalated_with, raw_runs};
 pub use recommend::{recommend, recommend_usd};
 
-static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
+static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
 
 const TIER_ORDER: [&str; 10] = [
     "claude:haiku", "codex:luna-low", "claude:sonnet-high", "codex:sol-medium", "codex:sol-high", "codex:sol-xhigh",

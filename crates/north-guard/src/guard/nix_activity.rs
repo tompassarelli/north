@@ -5,7 +5,7 @@ use crate::shell;
 use std::path::{Path, PathBuf};
 use toml_edit::DocumentMut;
 
-const TABLE: &str = include_str!("../../../../harness/nix/cards.toml");
+static TABLE: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table("harness/nix/cards.toml"));
 const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time"];
 const LAUNCH_MARKERS: &[&str] = &["-c", "--command", "--run", "--", "exec", "env", "run"];
 const VALUE_FLAGS: &[&str] = &["--extra-experimental-features", "--option", "--extra-substituters", "--store", "--eval-store", "-I", "--include", "--max-jobs", "-j", "--cores"];

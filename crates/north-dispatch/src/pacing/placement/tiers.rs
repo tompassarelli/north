@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use toml_edit::DocumentMut;
 
 pub(in crate::pacing) fn routing_defaults() -> crate::router::policy::Defaults {
-    let doc: DocumentMut = include_str!("../../../../../harness/defaults.toml")
+    let doc: DocumentMut = crate::platform::harness::table(crate::platform::harness::DEFAULTS)
         .parse()
         .unwrap();
     let mut routes = BTreeMap::new();

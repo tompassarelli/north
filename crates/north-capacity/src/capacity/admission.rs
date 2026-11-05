@@ -13,7 +13,7 @@ const ATTENDED_GPU_CLIENTS: u32 = 4;
 const GPU_SLOTS: u32 = 2;
 
 static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| {
-    include_str!("../../../../harness/defaults.toml")
+    north_base::platform::harness::table(north_base::platform::harness::DEFAULTS)
         .parse()
         .expect("harness/defaults.toml parses")
 });

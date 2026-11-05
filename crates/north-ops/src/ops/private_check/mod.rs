@@ -13,7 +13,7 @@ use crate::platform::github::{CommitStatuses, Gh};
 use config::{Check, Step};
 use judge::{Finished, Outcome, Overrides, Places, StatusRequest, Statuses, Steps};
 
-const SOURCE: &str = include_str!("../../../../../north-data/private-checks.toml");
+static SOURCE: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table("north-data/private-checks.toml"));
 const USAGE: &str = "usage: north private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]
 
 Runs each [[check]] of north-data/private-checks.toml (built in; --config reads another file): repo, checkout under ~/code, status context, git pathspec paths and [[check.step]] tables (command, dir, machine-capacity class, timeout_seconds).

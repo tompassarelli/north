@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use toml_edit::DocumentMut;
 
 static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| {
-    include_str!("../../../../harness/defaults.toml")
+    north_base::platform::harness::table(north_base::platform::harness::DEFAULTS)
         .parse()
         .expect("harness/defaults.toml parses")
 });

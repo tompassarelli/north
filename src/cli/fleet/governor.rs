@@ -24,7 +24,7 @@ use crate::platform::process::run_within;
 use super::admission;
 use super::placement;
 
-static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
+static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| crate::platform::harness::table(crate::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
 
 const HOUR_SECS: f64 = 3600.0;
 const DAY_SECS: f64 = 24.0 * HOUR_SECS;

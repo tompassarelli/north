@@ -10,7 +10,7 @@ pub mod ledger;
 pub mod verbs;
 
 pub static OVERDUE_RATIO: LazyLock<f64> = LazyLock::new(|| {
-    let defaults: DocumentMut = include_str!("../../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses");
+    let defaults: DocumentMut = north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses");
     defaults["overdue_ratio"]["value"].as_integer().map(|ratio| ratio as f64).or_else(|| defaults["overdue_ratio"]["value"].as_float()).expect("overdue_ratio is a number")
 });
 

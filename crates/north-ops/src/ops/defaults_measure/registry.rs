@@ -1,7 +1,7 @@
 use serde_json::Value;
 use toml_edit::{DocumentMut, Item};
 
-const BUNDLED: &str = include_str!("../../../../../harness/defaults.toml");
+static BUNDLED: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS));
 
 pub(super) struct Entry {
     pub(super) name: String,
@@ -20,7 +20,7 @@ pub(super) struct Registry(Vec<Entry>);
 
 impl Registry {
     pub(super) fn bundled() -> Self {
-        Self::parse(BUNDLED).expect("harness/defaults.toml parses")
+        Self::parse(&BUNDLED).expect("harness/defaults.toml parses")
     }
 
     pub(super) fn parse(text: &str) -> Result<Self, String> {

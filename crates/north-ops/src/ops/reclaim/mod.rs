@@ -24,7 +24,7 @@ use toml_edit::DocumentMut;
 use crate::platform::disk_budget::DiskBudget;
 use crate::platform::shared_target;
 
-const DEFAULTS: &str = include_str!("../../../../../harness/defaults.toml");
+static DEFAULTS: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS));
 
 pub(super) fn setting(name: &str) -> f64 {
     let defaults: DocumentMut = DEFAULTS.parse().expect("harness/defaults.toml parses");

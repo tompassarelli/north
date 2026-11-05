@@ -1,4 +1,4 @@
-use north_base::build_inputs::rust_build_input;
+use north_base::build_inputs::{run_time_data, rust_build_input};
 use regex::Regex;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -50,6 +50,31 @@ fn every_file_a_source_embeds_at_compile_time_counts_as_a_rust_input() {
             embedded += 1;
         }
     }
-    assert!(embedded > 50, "found only {embedded} embedded files; the scan stopped finding include macros");
+    assert!(embedded > 12, "found only {embedded} embedded files; the scan stopped finding include macros");
 }
 
+
+#[test]
+fn no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree() {
+    let root = normal(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."));
+    let include = Regex::new(r#"include(?:_str|_bytes)?!\(\s*"([^"]+)""#).unwrap();
+    let mut files = Vec::new();
+    sources(&root.join("crates"), &mut files);
+    sources(&root.join("src"), &mut files);
+    sources(&root.join("tests"), &mut files);
+    for file in files {
+        let text = fs::read_to_string(&file).unwrap();
+        for found in include.captures_iter(&text) {
+            let resolved = normal(&file.parent().unwrap().join(&found[1]));
+            let relative = resolved.strip_prefix(&root).map(|relative| relative.to_string_lossy().into_owned()).unwrap_or_default();
+            assert!(!run_time_data(&relative), "{} embeds {relative}, which north reads at run time from its pinned tree", file.display());
+        }
+    }
+}
+
+#[test]
+fn a_run_time_data_is_no_rust_build_input_so_a_table_only_change_reuses_the_binary() {
+    for table in north_base::build_inputs::RUN_TIME_DATA {
+        assert!(!rust_build_input(table), "{table}");
+    }
+}

@@ -6,7 +6,7 @@ fn catalog_tiers() -> Vec<Value> {
     let bands: DocumentMut = include_str!("fixtures/policy/orchestration.toml")
         .parse()
         .unwrap();
-    let catalog: DocumentMut = include_str!("../../../../harness/model-catalog.toml")
+    let catalog: DocumentMut = north_base::platform::harness::table(north_base::platform::harness::MODEL_CATALOG)
         .parse()
         .unwrap();
     catalog["models"]

@@ -20,7 +20,7 @@ use crate::fleet::model::ProviderName;
 use crate::pacing::placement::gate;
 use crate::runtime_access::RuntimeAccess;
 
-const SOURCES: &str = include_str!("../../../../harness/model-watch-sources.toml");
+static SOURCES: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table("harness/model-watch-sources.toml"));
 const USAGE: &str = "usage: north model-watch [--interests PATH] [--feedback PATH] [--topic TOPIC] [--alerts-only] [--location PATH] [--sources PATH] [--timeout SECONDS] [--proposals DIR]
        north model-watch news [--days N] [--noise ID | --more ID] [--feedback PATH]";
 

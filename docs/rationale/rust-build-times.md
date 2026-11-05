@@ -347,3 +347,35 @@ Toolchain levers rows ran on gex45 under the same `incremental = false`, because
 `.cargo/config.toml` did not set `build.incremental` then and so the user config's value stood. The repo
 config now sets `[build] incremental = true`, which outranks the user config; on the adopted toolchain it
 cuts CPU 3.1x and wall time 1.09x (Incremental on the adopted toolchain, above).
+
+## Strategy as data, 2026-11-06
+
+Tom asked whether north's fast-moving strategy belongs in a second language, the way game engines split
+engine from script (2026-11-06, paraphrased), and raised Rhai the same morning. The measure came first:
+of the 1,053 non-merge commits on origin/main in the 7 days to 2026-11-06 6:20 AM, 82 touched a harness
+table (`harness/defaults.toml`, `model-catalog.toml`, `loops.toml`, `model-watch-sources.toml`,
+`nix/cards.toml`, `merge-sets.toml`, `policy-owners.toml`). One changed nothing else (dfa2fee27, one line
+of `policy-owners.toml`); 6 changed one other file; the rest moved a table together with its Rust
+consumer. By a key-set diff, 32 of the 82 changed only values of existing keys, and 31 of those 32 still
+carried Rust changes. Another 10 commits changed only Rust literals, and all 10 were test expectation
+strings, not strategy. So a strategy change is almost always value and logic together: an embedded
+script layer would move the logic out of Rust, the type checker and the test tiers without removing a
+build, and the evidence does not support adding Rhai.
+
+What a table-only change paid: before this change every harness table was embedded with `include_str!`,
+so `rust_build_input` counted it, and a one-line table edit ran the full Rust after-landing set (clippy,
+nextest over every dependent crate) and a runtime rebuild. The land spans and logs keep about a day, so
+only c1fe1d405 (a one-literal test fix, 5:42 AM) still has its record: 1,855 s of verification after the
+push, of which host wait 1,346 s, compile 50 s, tests 122 s, lint 110 s and docs checks 160 s. The older
+records, dfa2fee27's among them, had aged out.
+
+The change: the tables and prompts in `north_base::build_inputs::RUN_TIME_DATA` are read at run time by
+`north_base::platform::harness::table`, once per process, from `NORTH_HOME` when set, else the pinned runtime tree beside the
+binary (`runtimes/SHA/tree`), else the source tree the binary was built from. They are no
+longer Rust build inputs, so `north runtime update` reuses the live binary for a data-only commit and
+installs that commit's tree beside it, and the landing selects no cargo check for it. The binary and its
+tables still move together; a stale binary never reads a newer schema, because a lane that changes no
+Rust input must pass `north land scan run-time-data BASE..HEAD` before the push: every TOML file still
+parses, keeps every key the base had with the same type, and every array-of-tables entry keeps the keys
+all earlier entries shared; a file may not be deleted. Adding keys and changing values pass. A lane that
+also changes Rust is judged by its Rust checks, which read the lane's own tables.

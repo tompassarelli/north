@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 
 pub(super) const ENROLLED: [&str; 5] = ["north", "makgora", "wisp", "padbridge", "makgora-client"];
 const LAUNCH_GRACE_SECONDS: i64 = 60 * 60;
-const BRIEF: &str = include_str!("../../../../harness/code-health/review-brief.md");
+static BRIEF: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table("harness/code-health/review-brief.md"));
 
 pub(super) struct TickEnv {
     pub code_root: PathBuf,
@@ -206,7 +206,7 @@ fn reviewed(repo: &str, checkout: &Path, name: &str, lock: &Path, env: &TickEnv,
         ("list", env.handoffs.join(format!("{name}-list.md")).display().to_string()),
         ("date", date),
     ];
-    fs::write(&brief, fill(BRIEF, &values)).map_err(|error| format!("{}: {error}", brief.display()))?;
+    fs::write(&brief, fill(&BRIEF, &values)).map_err(|error| format!("{}: {error}", brief.display()))?;
     let prompt = format!("Review the code-health report for {repo} and land the bounded maintenance changes it identifies.");
     let brief_arg = brief.display().to_string();
     let command = words(&[&env.north, "fleet", "launch", "--provider", "claude", "--name", name, "--system-prompt", &brief_arg, "--cwd", &checkout_arg, &prompt]);

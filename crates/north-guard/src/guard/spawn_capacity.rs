@@ -222,7 +222,7 @@ fn capacity(world: &impl World) -> Option<(f64, f64, f64)> {
 }
 
 fn priority_headroom() -> f64 {
-    let defaults: toml_edit::DocumentMut = include_str!("../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses");
+    let defaults: toml_edit::DocumentMut = north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses");
     let value = &defaults["priority_headroom"]["value"];
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).expect("harness/defaults.toml has priority_headroom")
 }

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use toml_edit::DocumentMut;
 
-const TABLE: &str = include_str!("../../../../agent-machinery/file-skills.toml");
+static TABLE: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table("agent-machinery/file-skills.toml"));
 const PROFILE_SECTION: &str = "## Profiles for dev and test";
 const PROFILE_BULLETS: usize = 3;
 const PROFILE_FILE: &str = "references/compile-times.md";

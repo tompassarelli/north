@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 mod expectations;
 mod facts;
 
-const SOURCE: &str = include_str!("../../../../north-data/expectations.toml");
+static SOURCE: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table("north-data/expectations.toml"));
 const USAGE: &str = "usage: north ops check [--dry-run | --synthetic]";
 const STATE: &str = "ops/state.json";
 
@@ -124,7 +124,7 @@ pub fn run(arguments: &[String]) -> u8 {
             return 2;
         }
     };
-    let roster = match expectations::parse(SOURCE) {
+    let roster = match expectations::parse(&SOURCE) {
         Ok(roster) => roster,
         Err(why) => {
             eprintln!("north ops check: {why}");

@@ -115,7 +115,7 @@ mod tests {
         let object = format!(">>>               north_landing-1cfb62536a5ed5ab.6hnt4f4qhrymsyxuwoxd6qlwb.1t9o6yk.rcgu.o:(north_landing::land::records::spawn) in archive {}", stale.display());
         fs::write(&log.path, format!("rust-lld: error: undefined hidden symbol: anon.824073b4e2e8169359a0bb42a485d033.7.llvm.14376451497138093412\n{object}\n{object}\n")).unwrap();
         let archives = log.stale_archives().unwrap();
-        assert_eq!(archives, [stale.clone()]);
+        assert_eq!(archives, std::slice::from_ref(&stale));
         recompile_from_scratch(built.path(), &archives).unwrap();
         assert!(!stale.exists() && sound.exists());
         assert!(!built.path().join("release/incremental").exists());

@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use time::{Duration, Time};
 use toml_edit::DocumentMut;
 
-const DEFAULTS_TEXT: &str = include_str!("../../../../harness/defaults.toml");
+static DEFAULTS_TEXT: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS));
 
 #[derive(Debug, Clone)]
 pub struct Knobs {
@@ -55,7 +55,7 @@ fn knobs() -> Knobs {
         pace_target_left_claude: number("pace_target_left_claude"),
         codex_explore_min_n: number("codex_explore_min_n"),
         explore_every: number("explore_every") as usize,
-        codex: parse_defaults(DEFAULTS_TEXT).expect("harness/defaults.toml codex classes"),
+        codex: parse_defaults(&DEFAULTS_TEXT).expect("harness/defaults.toml codex classes"),
     }
 }
 

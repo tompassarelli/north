@@ -42,7 +42,7 @@ impl Host {
         let source = dir.path().join("source");
         fs::create_dir_all(source.join("harness")).unwrap();
         fs::create_dir_all(&home).unwrap();
-        fs::write(source.join("harness/defaults.toml"), "").unwrap();
+        fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/defaults.toml"), source.join("harness/defaults.toml")).unwrap();
         git(&home, &source, &["init", "-q", "-b", "main"]);
         git(&home, &source, &["add", "."]);
         match date {

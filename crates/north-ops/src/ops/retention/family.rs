@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use toml_edit::DocumentMut;
 
-const DEFAULTS: &str = include_str!("../../../../../harness/defaults.toml");
+static DEFAULTS: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS));
 
 pub(super) struct Family {
     pub(super) name: String,

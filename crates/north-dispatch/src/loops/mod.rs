@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use toml_edit::{DocumentMut, Item, Table};
 
-pub const REGISTRY: &str = include_str!("../../../../harness/loops.toml");
+pub static REGISTRY: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table("harness/loops.toml"));
 const USAGE: &str = "usage: north loops check [--role ledger|lander|here]";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,7 +99,7 @@ pub fn state_root() -> PathBuf {
 }
 
 pub fn here(role: Option<Role>) -> Result<Checked, String> {
-    let loops = parse(REGISTRY)?;
+    let loops = parse(&REGISTRY)?;
     let state = state_root();
     let read = |record: &str| last_written(&state, record).map_or(Reading::Never, Reading::At);
     let held: Box<dyn Fn(Role) -> bool> = match role {

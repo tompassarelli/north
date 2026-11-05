@@ -8,7 +8,7 @@ use toml_edit::DocumentMut;
 use crate::foundation::clock::Timestamp;
 use crate::ops::defaults_measure;
 
-const DEFAULTS: &str = include_str!("../../../harness/defaults.toml");
+static DEFAULTS: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table(crate::platform::harness::DEFAULTS));
 const GOAL_KINDS: [&str; 2] = ["goal_eta", "goal_actual"];
 const DAY: i64 = 86_400;
 const MONDAY: i64 = 4;

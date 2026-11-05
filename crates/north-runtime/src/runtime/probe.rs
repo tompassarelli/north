@@ -94,7 +94,7 @@ impl NorthProcesses {
     }
 }
 
-static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
+static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
 
 pub(super) fn default_number(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];

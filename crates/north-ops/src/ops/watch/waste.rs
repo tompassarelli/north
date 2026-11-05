@@ -1,7 +1,7 @@
 use super::{Alert, HostView, Severity, WasteView, WatchContext};
 use toml_edit::DocumentMut;
 
-static DEFAULTS: std::sync::LazyLock<DocumentMut> = std::sync::LazyLock::new(|| include_str!("../../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
+static DEFAULTS: std::sync::LazyLock<DocumentMut> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
 
 fn threshold(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];

@@ -26,8 +26,8 @@ use landing::MainIndex;
 use telemetry::Prices;
 
 const USAGE: &str = "Usage: north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE]";
-pub const CATALOG: &str = include_str!("../../../../../../harness/model-catalog.toml");
-pub const DEFAULTS: &str = include_str!("../../../../../../harness/defaults.toml");
+pub static CATALOG: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::MODEL_CATALOG));
+pub static DEFAULTS: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS));
 const DAY: Duration = Duration::from_secs(86_400);
 
 pub fn truthy(value: &Value) -> bool {
@@ -102,7 +102,7 @@ fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<()> 
     let main = MainIndex::parse(main);
     let repositories = landing::repositories();
     let pushes = landing::settle(landings::pushes(&landings::push_log()), &main, |push| landing::subject_in(&repositories, push));
-    let ledger = Ledger { policy, prices: Prices::parse(CATALOG, DEFAULTS), main, sessions: fleet_sessions(), pushes, now: Timestamp::now() };
+    let ledger = Ledger { policy, prices: Prices::parse(&CATALOG, &DEFAULTS), main, sessions: fleet_sessions(), pushes, now: Timestamp::now() };
     let explicit = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
     for root in roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name()) {
         for path in transcripts(&root.projects, options).into_iter().filter(|path| ledger.rereads(options, path)) {
@@ -347,14 +347,14 @@ fn tiers(policy: Option<&DocumentMut>) -> impl Iterator<Item = &dyn toml_edit::T
         .flat_map(|table| table.iter().filter_map(|(_, tier)| tier.as_table_like()))
 }
 
-const AGENTS: [(&str, &str); 6] = [
-    ("planner", include_str!("../../../../../../harness/claude/agents/planner.md")),
-    ("worker", include_str!("../../../../../../harness/claude/agents/worker.md")),
-    ("worker-haiku", include_str!("../../../../../../harness/claude/agents/worker-haiku.md")),
-    ("worker-high", include_str!("../../../../../../harness/claude/agents/worker-high.md")),
-    ("worker-sonnet", include_str!("../../../../../../harness/claude/agents/worker-sonnet.md")),
-    ("worker-xhigh", include_str!("../../../../../../harness/claude/agents/worker-xhigh.md")),
-];
+static AGENTS: std::sync::LazyLock<[(&str, &str); 6]> = std::sync::LazyLock::new(|| [
+    ("planner", north_base::platform::harness::table("harness/claude/agents/planner.md")),
+    ("worker", north_base::platform::harness::table("harness/claude/agents/worker.md")),
+    ("worker-haiku", north_base::platform::harness::table("harness/claude/agents/worker-haiku.md")),
+    ("worker-high", north_base::platform::harness::table("harness/claude/agents/worker-high.md")),
+    ("worker-sonnet", north_base::platform::harness::table("harness/claude/agents/worker-sonnet.md")),
+    ("worker-xhigh", north_base::platform::harness::table("harness/claude/agents/worker-xhigh.md")),
+]);
 
 fn definition_effort(agent: &str) -> Option<&'static str> {
     let (_, text) = AGENTS.iter().find(|(name, _)| *name == agent)?;

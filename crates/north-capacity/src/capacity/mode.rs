@@ -13,7 +13,7 @@ use super::game_reserve;
 
 const USAGE: &str = "usage: north capacity mode status | tick | hold [--minutes N] [PHRASE] | extend | release";
 
-static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
+static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
 
 pub fn number(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];

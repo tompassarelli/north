@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::cmp::Ordering;
 use toml_edit::{DocumentMut, Item};
 
-pub const CATALOG: &str = include_str!("../../../../../harness/model-catalog.toml");
+pub static CATALOG: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table(crate::platform::harness::MODEL_CATALOG));
 pub const WEEK_H: f64 = 7.0 * 24.0;
 
 /// What a plan holds of each window, in Max 5x units: Max 20x holds four times the five-hour room of Max 5x but only twice its week.

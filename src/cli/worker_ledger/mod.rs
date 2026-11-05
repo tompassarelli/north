@@ -216,7 +216,7 @@ fn rows(options: &Options, ids: &Ids) -> Option<(Vec<u8>, bool)> {
     }
     let known: HashSet<String> = known.into_keys().collect();
     let main = MainIndex::parse(&text);
-    let prices = Prices::parse(CATALOG, DEFAULTS);
+    let prices = Prices::parse(&CATALOG, &DEFAULTS);
     let shared = Shared { session: &options.session, since: &options.since, known: &known, recorded: &recorded, main: &main, prices: &prices };
     let mut unread = false;
     for (name, outcome) in [("codex", codex::runs::rows(&shared, &mut rows)), ("agy", agy::rows(&shared, &mut rows))] {
