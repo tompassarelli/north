@@ -26,3 +26,19 @@ Overturned by: debt entries piling up unpaid past their triggers, or a soft-targ
 
 Evidence: north#40; RAIL, https://web.dev/articles/rail; Nielsen, response time limits,
 https://www.nngroup.com/articles/response-times-3-important-limits/.
+
+## Goals as checks
+
+Reasoning: a project's goals sat in prose in its README and AGENTS.md, so nothing said whether one was met, and "how much debt may this goal carry" was decided afresh by whoever noticed a miss. Tom (6 Nov 2026) suggested treating a goal as an essential test that may be red for a period, with the amount of debt it may carry left to stewardship judgment. Each project now keeps `goals.toml`: every goal names the README or AGENTS.md line it comes from, an oracle command that prints one number, a bound and a class. A contract is never red, and a landing that turns it red is reverted, like the game answering input inside its frame budget. A debt-allowed goal is a soft target above: red up to a ceiling, with an owner and a revisit trigger standing for the `Target-debt:` record. `north goals check` measures them all and the fleet tick tells the proxy about every red one.
+
+The classes are drafted by agents from the goals themselves; the per-project contract list goes to Tom as a recommendation he can overrule, and the file changes when he does.
+
+Alternatives that lost:
+- Goals as ordinary tests in each repository: a goal's oracle reads a measurement the test suite does not run (landing percentiles, the machine's load, a recorded frame run), and a failing test blocks delivery where a debt-allowed goal must not.
+- One central registry in north: makgora and wisp own their goals and change them in their own landings, so the file sits beside the README and AGENTS.md it is drawn from.
+
+Trade-off accepted: an oracle that needs more than a few seconds (makgora's frame budget) reads the latest recorded run, so its value ages until something refreshes the record.
+
+Overturned by: goals that stay red past their revisit triggers with no landing aimed at them, or oracles whose values disagree with the project's own CI.
+
+Evidence: north#641; docs/rationale/targets.md above.

@@ -21,6 +21,7 @@ Build output stays in the worktree's `target/`.
 - Edit in `worktrees/<slug>`, never `main/`, and land through `safe-push --to main`.
 - Run the affected `*.test.sh` or `*.test.py` under `bin/`, `lib/` or `harness/` for a harness change; the `harness.yml` workflow runs them all except its listed machine-bound ones.
 - Public and reusable goes to north or firn; Tom-specific or secret goes to south.
+- Keep the goals in `goals.toml` true: a new goal is one `[[goal]]` with its source line, oracle and class, and `north goals check` runs them all; a red goal reaches the proxy through the fleet tick.
 
 ## Routers
 

@@ -58,6 +58,11 @@ paths = ["crates/north-github-mirror/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
+name = "north-goals"
+paths = ["crates/north-goals/src/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
 name = "north-dispatch"
 paths = ["crates/north-dispatch/src/**"]
 may_use = ["north-capacity", "north-fleet", "north-providers", "north-threads", "north-github-mirror"]
@@ -280,6 +285,12 @@ name = "github_mirror"
 paths = ["crates/north-github-mirror/src/**"]
 responsibility = "The local copy of GitHub issues, CI runs and check results, kept by conditional reads, that pollers read instead of GitHub."
 may_use = ["crate-roots", "foundation", "platform"]
+
+[[module]]
+name = "goals"
+paths = ["crates/north-goals/src/**"]
+responsibility = "Each project's goals as named checks: the oracle commands, the bound and class judged on each measured value, and the red-goal line the fleet tick tells the proxy."
+may_use = ["crate-roots", "platform"]
 
 [[module]]
 name = "ops"

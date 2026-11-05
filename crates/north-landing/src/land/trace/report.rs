@@ -8,7 +8,7 @@ use crate::foundation::clock::Timestamp;
 use crate::land::lander::state_home;
 use crate::land::telemetry::epoch;
 
-const USAGE: &str = "usage: north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH]";
+const USAGE: &str = "usage: north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--metric landing-p50|landing-p90|verification-p50|verification-p90]";
 const TOP: usize = 10;
 
 pub fn duration_seconds(text: &str) -> Option<f64> {
@@ -29,6 +29,11 @@ fn every_queue() -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = fs::read_dir(root).into_iter().flatten().filter_map(Result::ok).map(|entry| Spans::beside(&entry.path().join("logs")).path().to_owned()).filter(|path| path.is_file()).collect();
     files.sort();
     files
+}
+
+fn serves(spans: &std::path::Path, repo: &str) -> bool {
+    let Some(queue) = spans.parent().and_then(std::path::Path::parent) else { return false };
+    matches!(crate::land::repositories::map(queue, &crate::land::repositories::local_host()), crate::land::repositories::Mapping::Checkout(checkout) if checkout.parent().and_then(std::path::Path::file_name).is_some_and(|name| name == repo))
 }
 
 fn seconds(value: f64) -> String {
@@ -133,12 +138,16 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut since = 3600.0;
     let mut files = Vec::new();
     let mut only = None;
+    let mut metric = None;
+    let mut repo = None;
     let mut rest = arguments.iter();
     while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next()) {
             ("--since", Some(value)) if let Some(parsed) = duration_seconds(value) => since = parsed,
             ("--spans", Some(value)) => files.push(PathBuf::from(value)),
             ("--landing", Some(value)) => only = Some(value.clone()),
+            ("--repo", Some(value)) => repo = Some(value.clone()),
+            ("--metric", Some(value)) if Metric::parse(value).is_some() => metric = Metric::parse(value),
             _ => {
                 eprintln!("{USAGE}");
                 return 64;
@@ -147,11 +156,45 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     if files.is_empty() {
         files = every_queue();
+        if let Some(repo) = &repo {
+            files.retain(|file| serves(file, repo));
+        }
     }
     let spans: Vec<Span> = files.iter().flat_map(|file| Spans::at(file).read()).collect();
     let trace = Trace::of(&spans);
     let from = epoch() - since;
     let profiles: Vec<Profile<'_>> = trace.landings(from).into_iter().filter(|landing| only.as_deref().is_none_or(|only| landing.name == only)).map(|landing| trace.profile(landing)).collect();
+    if let Some(metric) = metric {
+        metric.print(&profiles);
+        return 0;
+    }
     print!("{}", render(&profiles, from));
     0
+}
+
+#[derive(Clone, Copy)]
+enum Metric {
+    Landing(f64),
+    Verification(f64),
+}
+
+impl Metric {
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "landing-p50" => Some(Self::Landing(0.5)),
+            "landing-p90" => Some(Self::Landing(0.9)),
+            "verification-p50" => Some(Self::Verification(0.5)),
+            "verification-p90" => Some(Self::Verification(0.9)),
+            _ => None,
+        }
+    }
+
+    fn print(self, profiles: &[Profile<'_>]) {
+        let values: Vec<f64> = match self {
+            Self::Landing(_) => profiles.iter().map(Profile::wall).collect(),
+            Self::Verification(_) => profiles.iter().map(|profile| profile.after_wall).filter(|wall| *wall > 0.0).collect(),
+        };
+        let (Self::Landing(fraction) | Self::Verification(fraction)) = self;
+        println!("{:.0}", percentile(&values, fraction));
+    }
 }
