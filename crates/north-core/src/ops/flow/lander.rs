@@ -17,7 +17,7 @@ const HISTORY_S: f64 = 7.0 * 86_400.0;
 const MIN_CHECKS: usize = 5;
 const VERDICT_LINE: &str = "safe-push: verdict ";
 
-fn default_number(name: &str) -> f64 {
+pub(super) fn default_number(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }

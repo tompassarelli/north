@@ -1,6 +1,6 @@
 //! One repository's flow row: what is queued, how fast lanes land, whether landing has stalled.
 //! A source that cannot be read leaves its fields at `"error"` and later fields unread.
-use super::lander;
+use super::{lander, slo};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -148,8 +148,14 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
         row.insert("wisp".into(), json!(wisp_row(env.host, &env.places.home, &slug, now)));
     }
     let origin = env.host.run(&["git", "remote", "get-url", "--push", "origin"], Some(&path), None);
-    let lander = origin.map_or_else(lander::Reading::default, |origin| lander::judge(&lander::read(&crate::platform::land_queue::directory(&env.places.state, origin.trim()), now)));
+    let queue = origin.map(|origin| crate::platform::land_queue::directory(&env.places.state, origin.trim()));
+    let lander = queue.as_deref().map_or_else(lander::Reading::default, |queue| lander::judge(&lander::read(queue, now)));
     row.insert("lander".into(), json!(lander));
+    if let Some(queue) = &queue {
+        let (breaches, budget) = slo::reading(queue, now);
+        row.insert("idle_slot_wait_breaches".into(), json!(breaches));
+        row.insert("idle_slot_budget".into(), json!(budget));
+    }
     let mut source = Source { env, repo, path, slug, now, autoland: false };
     source.git(&["fetch", "--quiet", "--prune", "--no-write-fetch-head", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/claude/land-*:refs/remotes/origin/claude/land-*"])?;
     let queue = source.git(&["config", "--blob", "origin/main:.safe-push", "--get", "landing.queue"]);

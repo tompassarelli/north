@@ -1,6 +1,7 @@
 //! `north flow`: how fast each repository's lanes land, whether landing has stalled, and which
 //! capacity is idle. With `--stall-alarm` it also tells the Fleet parent and the proxy of a stall or a
-//! saturated host every fifteen minutes while it lasts, runs `ci-diagnose`, and runs `red-main-notify`.
+//! saturated host every fifteen minutes while it lasts, tells lander-lead once on the day the lander's idle-slot
+//! budget is spent, runs `ci-diagnose`, and runs `red-main-notify`.
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -34,6 +35,7 @@ mod notes;
 mod refused;
 mod render;
 mod sampler;
+mod slo;
 mod routing;
 mod stall;
 mod stranded;
@@ -52,6 +54,8 @@ mod lanes_tests;
 mod readings_tests;
 #[cfg(test)]
 mod sampler_tests;
+#[cfg(test)]
+mod slo_tests;
 #[cfg(test)]
 mod tests;
 
@@ -108,6 +112,9 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
     }
     if saturation_alert(places, host, &crate::pace::target::policy_path(), now).is_err() {
         println!("agents flow: saturation alert state error");
+    }
+    if slo::budget_alert(places, host, rows, now).is_err() {
+        println!("agents flow: lander SLO alert state error");
     }
     if sampler_alert(places, host, now).is_err() {
         println!("agents flow: sampler alert state error");

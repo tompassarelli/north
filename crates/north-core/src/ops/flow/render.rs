@@ -55,6 +55,21 @@ fn lander(row: &Value) -> String {
     format!(", lander {} queued oldest {} last landing {} ago check {}", reading["depth"].as_u64().unwrap_or(0), minutes(&reading["oldest_minutes"]), minutes(&reading["last_landing_minutes"]), minutes(&reading["check_minutes"]))
 }
 
+fn idle_slot_waits(row: &Value) -> String {
+    let budget = &row["idle_slot_budget"];
+    let Some(count) = budget["breaches"].as_u64().filter(|count| *count != 0) else {
+        return String::new();
+    };
+    let listed: Vec<String> = row["idle_slot_wait_breaches"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|breach| format!("{} {} with {} idle", plain(&breach["lane"]), shown(&breach["idle_minutes"], 0, "m"), plain(&breach["idle_slots"])))
+        .collect();
+    let spent = if budget["spent"] == true { " SPENT" } else { "" };
+    format!(", idle-slot waits over {} today {count}/{}{spent} [{}]", shown(&budget["limit_minutes"], 0, "m"), plain(&budget["budget"]), listed.join("; "))
+}
+
 fn stall(row: &Value) -> String {
     let age = row["main_age_minutes"].as_f64().map_or_else(|| plain(&row["main_age_minutes"]), |age| format!("{age:.1}m"));
     let job = &row["oldest_job"];
@@ -111,6 +126,7 @@ pub fn format_row(row: &Value, services: Option<&[Value]>) -> String {
         text += &stall(row);
     }
     text += &lander(row);
+    text += &idle_slot_waits(row);
     if row.get("closed_per_hour").is_some() {
         text += &throughput(row);
     }
