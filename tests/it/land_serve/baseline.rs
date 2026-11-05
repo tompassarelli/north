@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
 
+use north_landing::land::queue::RedFix;
+
 use super::{Fixture, executable, git};
 
 const REAL_CHECKER: &str = r#"#!/usr/bin/env bash
@@ -173,4 +175,23 @@ fn serve_judges_a_failure_off_the_runtime_path_against_the_base_on_the_same_path
     assert_eq!(fixture.base_runs(), 1, "the base tree did not rerun the check");
     assert!(fixture.pause().exists());
     assert_eq!(fixture.alerts().len(), 1, "{:?}", fixture.alerts());
+}
+
+#[test]
+fn serve_lands_a_red_fix_while_main_fails_its_own_check() {
+    let mut fixture = Fixture::new();
+    fixture.with_runner_check(PLANTED_CHECK);
+    fs::write(fixture.trace.join("plant"), "[ -e fix.txt ] || { echo 'error: main is red' >&2; exit 1; }\n").unwrap();
+    let a = fixture.lane("a", "a.txt", "a");
+    let waiting = fixture.enqueue(&a, None);
+    assert_eq!(fixture.serve().status.code(), Some(75));
+    assert!(fixture.pause().exists(), "a check main fails did not pause the lander");
+
+    let fix = fixture.lane("fix", "fix.txt", "fix");
+    let fixed = fixture.enqueue(&fix, Some(RedFix::Marker));
+    fixture.serve();
+    assert!(fixture.verdict(&fixed).is_some_and(|verdict| verdict.starts_with("landed ")), "a paused lander held the red fix that clears its pause: {:?}", fixture.verdict(&fixed));
+    assert!(!fixture.pause().exists(), "the lander stayed paused after the red fix passed main's check");
+    assert!(fixture.serve().status.success());
+    assert!(fixture.verdict(&waiting).is_some_and(|verdict| verdict.starts_with("landed ")), "{:?}", fixture.verdict(&waiting));
 }

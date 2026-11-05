@@ -173,8 +173,13 @@ impl Lander {
             if tickets.is_empty() {
                 return Ok(if progressed { Round::Progress } else { Round::Idle });
             }
-            if let Some(reason) = pause::held(&self.queue) {
-                return Ok(Round::Waiting(reason));
+            if !red_only && let Some(reason) = pause::held(&self.queue) {
+                if red::fixes(&queued).is_empty() {
+                    return Ok(Round::Waiting(reason));
+                }
+                println!("north land: {reason}; checking the queued red fixes alone");
+                red_only = true;
+                continue;
             }
             let base = match candidate::prepare(&self.repo, &self.worktree) {
                 Ok(base) => base,

@@ -445,14 +445,16 @@ fn survey(lander: &Lander, state: &mut State) {
     }
 }
 
-fn fill(tick: &mut Tick, state: &mut State, count: usize) -> Result<(), String> {
+fn fill(tick: &mut Tick, state: &mut State, count: usize, fixes_only: bool) -> Result<(), String> {
     let queued = tick.queued;
     state.recheck.sort_by_key(|recheck| order(&state.rank, &recheck.path));
     while let Some(slot) = state.free_slot(count) {
-        let fresh = || queued.iter().find(|(path, _)| path.exists() && !state.tracked(path));
-        let Some(next) = state.recheck.first().map(|recheck| recheck.path.clone()).or_else(|| fresh().map(|(path, _)| path.clone())) else { break };
+        let admits = |ticket: &Ticket| !fixes_only || ticket.red_fix.is_some();
+        let fresh = || queued.iter().find(|(path, ticket)| admits(ticket) && path.exists() && !state.tracked(path));
+        let recheck = state.recheck.iter().position(|recheck| admits(&recheck.ticket));
+        let Some(next) = recheck.map(|at| state.recheck[at].path.clone()).or_else(|| fresh().map(|(path, _)| path.clone())) else { break };
         let Ok(check_host) = state.place(&next) else { break };
-        if let Some(recheck) = (!state.recheck.is_empty()).then(|| state.recheck.remove(0)) {
+        if let Some(recheck) = recheck.map(|at| state.recheck.remove(at)) {
             state.attempts.insert(recheck.path.clone(), recheck.attempts);
             start(tick, state, slot, check_host, (&recheck.path, &recheck.ticket), recheck.light, queued)?;
             continue;
@@ -491,11 +493,12 @@ pub fn round(lander: &Lander, state: &mut State) -> Result<Option<Round>, String
     }
     let wanted = !state.recheck.is_empty() || queued.iter().any(|(path, _)| !state.tracked(path));
     let paused = if wanted { pause::held(&lander.queue) } else { None };
+    let admitted = paused.is_none() || queued.iter().any(|(_, ticket)| ticket.red_fix.is_some());
     if wanted
         && !state.draining
-        && paused.is_none()
+        && admitted
         && state.free_slot(count).is_some()
-        && let Err(error) = fill(&mut tick, state, count)
+        && let Err(error) = fill(&mut tick, state, count, paused.is_some())
     {
         if !state.busy() {
             return Ok(Some(Round::Waiting(format!("transient: {error}"))));
