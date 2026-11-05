@@ -182,7 +182,7 @@ fn fixture(argv: &[String], host: &Host) -> u8 {
         fail("--profile must be attended or unattended", 2);
     }
     let memory_total = args::positive_integer(options.required("--memory-total-mib"), "--memory-total-mib", None) as f64;
-    let granted = request::grant(profile, cores, memory_total, &request);
+    let granted = request::grant(profile, cores, None, memory_total, &request);
     let mut facts = Obj::new()
         .put("profile", profile)
         .put("class", request.name.as_str())
@@ -208,7 +208,7 @@ fn fixture(argv: &[String], host: &Host) -> u8 {
         .put_some("clamped", granted.clamped)
         .put("memoryFullAvg10", num(memory_full))
         .put("leasedCpuCeilings", num(leased_cpus))
-        .put("aggregateCpuLimit", num(policy::aggregate_cpus(profile, cores)));
+        .put("aggregateCpuLimit", num(policy::aggregate_cpus(profile, cores, None)));
     print_to(&result, false);
     if code == "RUN" { 0 } else { 75 }
 }
@@ -229,8 +229,8 @@ fn mode(root: &Path, argv: &[String]) -> u8 {
     if !state::ensure_profile(root, true) {
         fail("cannot apply capacity profile", 75);
     }
-    let cores = machine::read_signals().cores;
-    print_to(&Obj::new().put("mode", mode).put("profile", profile).put("aggregateCpuLimit", num(policy::aggregate_cpus(profile, cores))), false);
+    let signals = machine::read_signals();
+    print_to(&Obj::new().put("mode", mode).put("profile", profile).put("aggregateCpuLimit", num(policy::aggregate_cpus(profile, signals.cores, signals.slice_cpus))), false);
     0
 }
 

@@ -81,7 +81,8 @@ pub fn ensure_profile(root: &Path, force: bool) -> bool {
         return true;
     }
     ensure_state(root);
-    if !apply_profile(profile, read_signals().cores) {
+    let signals = read_signals();
+    if !apply_profile(profile, signals.cores, signals.slice_cpus) {
         return false;
     }
     or_fail(write_private(&marker, profile, false), &marker);

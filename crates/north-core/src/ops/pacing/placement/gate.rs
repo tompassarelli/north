@@ -9,7 +9,7 @@ pub use super::repository::{anchored, repository};
 use super::needs::{LOCAL_NEEDS, words};
 use super::reach::Reach;
 use super::room::{Basis, Rank};
-use super::{credit, facets, here_saturation, local, strings};
+use super::{credit, facets, here_cpu_refusal, here_saturation, local, strings};
 use crate::capacity::{agent_load, laptop_auto};
 use crate::capacity::saturation::Saturation;
 use crate::fleet::model::ProviderName;
@@ -82,6 +82,8 @@ pub struct Decision {
     pub machine_lines: Vec<String>,
     pub saturated: Option<String>,
     pub here_saturated: Option<String>,
+    /// The spawn gate's CPU refusal for a box that would run here, which `--local` does not pass.
+    pub here_cpu_held: Option<String>,
     pub here_on_battery: Option<String>,
     /// Machines that serve the box and were skipped as saturated, each with why.
     pub crowded: Vec<String>,
@@ -455,6 +457,7 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
         machine_lines,
         saturated: None,
         here_saturated: None,
+        here_cpu_held: None,
         here_on_battery: None,
         crowded,
         here_closed: None,
@@ -510,6 +513,7 @@ pub fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster, nam
         decision.run_on(machine);
     }
     decision.here_saturated = here_saturation();
+    decision.here_cpu_held = here_cpu_refusal(text);
     decision.hold_here();
     Ok(decision)
 }

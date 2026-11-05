@@ -43,12 +43,22 @@ pub fn reserved_cpus(profile: &str, cores: f64) -> f64 {
     }
 }
 
-pub fn aggregate_cpus(profile: &str, cores: f64) -> f64 {
-    (cores - reserved_cpus(profile, cores)).max(1.0)
+/// The CPUs leases may hold: the cores, cut to the agent.slice ceiling the kernel enforces when one is set, less the profile's reserve.
+pub fn aggregate_cpus(profile: &str, cores: f64, slice_cpus: Option<f64>) -> f64 {
+    let usable = slice_cpus.filter(|ceiling| ceiling.is_finite() && *ceiling > 0.0).map_or(cores, |ceiling| cores.min(ceiling));
+    (usable - reserved_cpus(profile, cores)).max(1.0)
 }
 
-pub fn grantable_maximum(profile: &str, cores: f64, memory_total_mib: f64) -> Resources {
-    Resources { cpus: aggregate_cpus(profile, cores), memory_mib: (memory_total_mib * 3.0 / 4.0).floor() }
+/// The CPUs a cgroup v2 `cpu.max` line ("QUOTA PERIOD") allows, or None for "max" or an unreadable line.
+pub fn cpu_max_cpus(cpu_max: &str) -> Option<f64> {
+    let mut fields = cpu_max.split_whitespace();
+    let quota = fields.next()?.parse::<f64>().ok()?;
+    let period = fields.next().map_or(Some(100_000.0), |period| period.parse::<f64>().ok())?;
+    (quota > 0.0 && period > 0.0).then(|| quota / period)
+}
+
+pub fn grantable_maximum(profile: &str, cores: f64, slice_cpus: Option<f64>, memory_total_mib: f64) -> Resources {
+    Resources { cpus: aggregate_cpus(profile, cores, slice_cpus), memory_mib: (memory_total_mib * 3.0 / 4.0).floor() }
 }
 
 /// The request cut to what may be granted, with each cut field as `[requested, granted]`.

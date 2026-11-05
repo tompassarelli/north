@@ -29,7 +29,7 @@ mod properties {
     proptest! {
         #[test]
         fn prop_aggregate_cpus_is_at_least_one_and_at_most_the_cores(profile in profile(), cores in 1u32..=256) {
-            let aggregate = aggregate_cpus(profile, f64::from(cores));
+            let aggregate = aggregate_cpus(profile, f64::from(cores), None);
             prop_assert!(aggregate >= 1.0, "{profile} on {cores} cores grants {aggregate} CPUs");
             prop_assert!(aggregate <= f64::from(cores), "{profile} on {cores} cores grants {aggregate} CPUs");
         }
@@ -39,7 +39,7 @@ mod properties {
             let cores = f64::from(cores);
             let reserved = reserved_cpus(profile, cores);
             prop_assume!(cores - reserved >= 1.0);
-            prop_assert_eq!(reserved + aggregate_cpus(profile, cores), cores);
+            prop_assert_eq!(reserved + aggregate_cpus(profile, cores, None), cores);
         }
 
         #[test]
@@ -128,10 +128,27 @@ fn a_tom_request_with_too_few_runs_of_its_shape_is_sized_from_its_whole_class() 
 #[test]
 fn a_tiny_host_still_grants_one_core_so_the_aggregate_slice_never_gets_a_zero_quota() {
     use super::policy::aggregate_cpus;
-    assert_eq!(aggregate_cpus("attended", 1.0), 1.0);
-    assert_eq!(aggregate_cpus("attended", 2.0), 1.0);
-    assert_eq!(aggregate_cpus("attended", 20.0), 16.0);
-    assert_eq!(aggregate_cpus("unattended", 1.0), 1.0);
+    assert_eq!(aggregate_cpus("attended", 1.0, None), 1.0);
+    assert_eq!(aggregate_cpus("attended", 2.0, None), 1.0);
+    assert_eq!(aggregate_cpus("attended", 20.0, None), 16.0);
+    assert_eq!(aggregate_cpus("unattended", 1.0, None), 1.0);
+}
+
+#[test]
+fn the_agent_slice_cpu_max_caps_what_leases_may_hold() {
+    use super::policy::{aggregate_cpus, cpu_max_cpus, grantable_maximum};
+    let ceiling = cpu_max_cpus("1600000 100000\n");
+    assert_eq!(ceiling, Some(16.0));
+    assert_eq!(aggregate_cpus("attended", 24.0, ceiling), 12.0, "16 CPUs of agent.slice less the attended reserve of 4");
+    assert_eq!(aggregate_cpus("unattended", 24.0, ceiling), 16.0);
+    assert_eq!(aggregate_cpus("attended", 24.0, None), 20.0, "no quota keeps the raw cores");
+    assert_eq!(aggregate_cpus("attended", 8.0, ceiling), 6.0, "a ceiling above the cores changes nothing");
+    assert_eq!(grantable_maximum("attended", 24.0, ceiling, 65536.0).cpus, 12.0);
+    for line in ["max 100000", "", "0 100000", "junk"] {
+        assert_eq!(cpu_max_cpus(line), None, "{line:?}");
+    }
+    assert_eq!(cpu_max_cpus("50000 100000"), Some(0.5));
+    assert_eq!(aggregate_cpus("attended", 24.0, Some(0.5)), 1.0, "the aggregate slice never gets a zero quota");
 }
 
 #[test]
@@ -167,7 +184,7 @@ fn a_measured_gpu_request_sizes_its_cpus_and_memory_and_native_sizes_only_memory
 #[test]
 fn a_history_sized_request_past_a_four_core_hosts_cores_is_granted_all_four() {
     use super::policy::{Resources, clamp_to_grantable, grantable_maximum};
-    let (granted, clamped) = clamp_to_grantable(Resources { cpus: 4.33_f64.ceil(), memory_mib: 2429.0 }, grantable_maximum("unattended", 4.0, 16384.0));
+    let (granted, clamped) = clamp_to_grantable(Resources { cpus: 4.33_f64.ceil(), memory_mib: 2429.0 }, grantable_maximum("unattended", 4.0, None, 16384.0));
     assert_eq!((granted, clamped), (Resources { cpus: 4.0, memory_mib: 2429.0 }, Some(serde_json::json!({ "cpus": [5, 4] }))));
 }
 

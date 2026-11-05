@@ -6,6 +6,7 @@ pub(super) fn facts(class: Class) -> Facts {
         profile: Profile::Attended,
         class,
         cores: 24,
+        slice_cpus: None,
         memory_total_mib: 96343.0,
         memory_available_mib: 70000.0,
         cpu_some_avg10_basis_points: 0,
@@ -568,8 +569,9 @@ fn a_heavy_ticket_that_does_not_fit_lets_a_fitting_one_behind_it_pass_until_it_h
 
 #[test]
 fn a_one_core_host_admits_against_one_cpu_not_zero() {
-    assert_eq!(super::admission::aggregate_cpus(Profile::Attended, 1), 1.0);
-    assert_eq!(super::admission::aggregate_cpus(Profile::Attended, 24), 20.0);
+    assert_eq!(super::admission::aggregate_cpus(Profile::Attended, 1, None), 1.0);
+    assert_eq!(super::admission::aggregate_cpus(Profile::Attended, 24, None), 20.0);
+    assert_eq!(super::admission::aggregate_cpus(Profile::Attended, 24, Some(16.0)), 12.0);
 }
 
 #[test]

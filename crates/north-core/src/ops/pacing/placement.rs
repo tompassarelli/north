@@ -16,7 +16,7 @@ mod repository;
 pub mod room;
 mod survey;
 mod tiers;
-use hosts::{credit, here_saturation, laptop, resident, saturation};
+use hosts::{credit, here_cpu_refusal, here_saturation, laptop, resident, saturation};
 pub(super) use launch::{Probes, Routing, spawn};
 pub(super) use tiers::routing_defaults;
 pub use inputs::{cloud_credit, config, laptop_state, now, pace_directory, pace_state, resident_clis};

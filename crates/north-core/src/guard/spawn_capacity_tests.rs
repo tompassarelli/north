@@ -1,4 +1,4 @@
-use super::spawn_capacity::{World, decide, gate_summary};
+use super::spawn_capacity::{World, decide, gate_summary, launch_refusal};
 use crate::foundation::clock::Timestamp;
 use crate::hook::HookInput;
 use serde_json::{Value, json};
@@ -363,4 +363,24 @@ fn a_spawn_over_its_money_ceiling_and_the_cpu_limit_names_both_refusals() {
     let said = denies(&rig, &worker(), "a money refusal over the CPU limit denies");
     assert!(said.starts_with(money), "the usage refusal comes first: {said}");
     assert!(said.contains("commit 20 of the 20 CPUs the machine can hand out"), "the capacity refusal is named too: {said}");
+}
+
+#[test]
+fn a_local_fleet_launch_meets_the_spawn_gate_cpu_line_and_its_remedy() {
+    let rig = Rig::new();
+    rig.status(19.0, 5.0, 1.0);
+    assert_eq!(launch_refusal(&rig, "go"), None, "19 of 20 committed CPUs admits a launch");
+    rig.status(4.0, 20.0, 1.0);
+    assert_eq!(launch_refusal(&rig, "go"), None, "protected pressure exactly 20 admits");
+    rig.status(20.0, 5.0, 1.0);
+    let refused = launch_refusal(&rig, "go").expect("committed CPUs at the limit refuse");
+    assert_eq!(refused, denies(&rig, &worker(), "the spawn gate refuses the same host"), "the launch carries the spawn gate's remedy text");
+    rig.status(4.0, 20.5, 1.0);
+    let refused = launch_refusal(&rig, "go").expect("protected pressure over 20 refuses");
+    assert!(refused.contains("commit 4 of the 20 CPUs") && refused.contains("pressure is 20.5%") && refused.contains("cloud worker"), "{refused}");
+    rig.status(24.0, 5.0, 1.0);
+    assert_eq!(launch_refusal(&rig, "CASE=URGENT FACT=\"prod login is down for every user\"\ngo"), None, "an urgent fact passes as it does for a spawn");
+    assert!(launch_refusal(&rig, "CASE=URGENT FACT=\"short\"").is_some(), "a fact under 15 characters does not");
+    rig.raw_probe("not json");
+    assert_eq!(launch_refusal(&rig, "go"), None, "an unreadable probe admits");
 }

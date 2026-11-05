@@ -51,12 +51,12 @@ fn a_scope_never_gets_a_zero_cpu_quota_and_batch_scopes_get_none() {
 #[test]
 fn a_host_whose_reserve_covers_its_cores_still_grants_one_cpu() {
     for profile in ["attended", "unattended"] {
-        assert_eq!(super::policy::aggregate_cpus(profile, 1.0), 1.0, "{profile}");
+        assert_eq!(super::policy::aggregate_cpus(profile, 1.0, None), 1.0, "{profile}");
         let request = Request { name: "runtime".to_owned(), resources: Some(super::policy::Resources { cpus: 2.0, memory_mib: 8192.0 }), ..Request::default() };
-        let granted = super::request::grant(profile, 1.0, 65536.0, &request);
+        let granted = super::request::grant(profile, 1.0, None, 65536.0, &request);
         assert_eq!(granted.charged.cpus, 1.0, "{profile}: a clamp to the 1-CPU host is 1, never 0");
     }
-    assert_eq!(super::policy::aggregate_cpus("attended", 24.0), 20.0);
+    assert_eq!(super::policy::aggregate_cpus("attended", 24.0, None), 20.0);
 }
 
 #[test]

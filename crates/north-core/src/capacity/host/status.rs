@@ -97,7 +97,7 @@ pub fn status(root: &Path) -> Obj {
             .merge(gpu_view(gpu))
             .put("warcraftClients", crate::capacity::warcraft::view())
             .merge(gpu_busy)
-            .put("aggregateCpuLimit", num(aggregate_cpus(profile, signals.cores)))
+            .put("aggregateCpuLimit", num(aggregate_cpus(profile, signals.cores, signals.slice_cpus)))
             .put("protectedCpuSomeAvg10", num(signals.protected_cpu_some / 100.0))
             .put("cpuSomeAvg10", num(signals.cpu_some / 100.0))
             .put("committedBatchCpus", num(accounting.committed_batch_cpus))

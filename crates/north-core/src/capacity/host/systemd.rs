@@ -43,8 +43,8 @@ pub(super) fn desktop_weights(profile: &str) -> [(&'static str, u32); 3] {
 }
 
 /// Caps the aggregate slice for the profile, makes the batch slice idle-weighted with no quota, weights the native slice above both and sets the desktop, session and agent slice weights for the profile.
-pub fn apply_profile(profile: &str, cores: f64) -> bool {
-    let quota = format!("CPUQuota={}%", super::json::show(aggregate_cpus(profile, cores) * 100.0));
+pub fn apply_profile(profile: &str, cores: f64, slice_cpus: Option<f64>) -> bool {
+    let quota = format!("CPUQuota={}%", super::json::show(aggregate_cpus(profile, cores, slice_cpus) * 100.0));
     let weight = format!("CPUWeight={NATIVE_CPU_WEIGHT}");
     let io = format!("IOWeight={NATIVE_CPU_WEIGHT}");
     let isolated = env("AGENT_CAPACITY_SUBSLICE").is_some_and(|name| !name.is_empty());

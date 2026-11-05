@@ -303,3 +303,56 @@ fn a_saturated_launching_host_holds_the_box_with_the_reason_and_a_local_keep_lau
     assert!(said.contains("here skipped: 4.9 GiB of memory available"), "the reason is printed under an override: {said}");
     north(root, &["fleet", "stop", "hot-kept"]);
 }
+
+#[test]
+fn a_local_launch_past_the_spawn_gate_cpu_line_is_refused_with_its_remedy_until_pinned() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+    let status = root.join("capacity-status.json");
+    fs::write(&status, r#"{"profile": "attended", "aggregateCpuLimit": 12, "committedBatchCpus": 12, "protectedCpuSomeAvg10": 3}"#).unwrap();
+    let brief = root.join("box.md");
+    fs::write(&brief, WARCRAFT).unwrap();
+    let brief = brief.display().to_string();
+    let run = |name: &str, flags: &[&str]| {
+        let mut args = vec!["fleet", "launch", "--provider", "claude", "--name", name, "--parent", "none", "--system-prompt", &brief, "--account", "a"];
+        args.extend_from_slice(flags);
+        args.push("start the box");
+        Command::new(env!("CARGO_BIN_EXE_north"))
+            .args(&args)
+            .current_dir(root)
+            .env("HOME", root)
+            .env("XDG_STATE_HOME", root.join(".local/state"))
+            .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
+            .env("AGENTS_OPERATOR_DIR", root.join("op"))
+            .env("PLACEMENT_NOW", NOW)
+            .env("RESIDENT_CAP_HOST", "here")
+            .env("PLACEMENT_HOSTS", root.join("hosts.json"))
+            .env("SPAWN_CAPACITY_STATUS", &status)
+            .env("CLAUDE_RUNTIME", root.join("bin/claude"))
+            .env("PLACEMENT_FIXTURE", root)
+            .env("NORTH_FLEET_SESSION", "")
+            .env_remove("NORTH_FLEET_TEST")
+            .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
+            .output()
+            .unwrap()
+    };
+    let remedy = "Capacity leases and unleased heavy load commit 12 of the 12 CPUs the machine can hand out, protected desktop pressure is 3% (limit 20%)";
+    for (name, flags) in [("cpu-box", &[][..]), ("cpu-local", &["--local", "needs this checkout"][..])] {
+        let refused = run(name, flags);
+        let said = String::from_utf8_lossy(&refused.stderr).into_owned();
+        assert!(!refused.status.success(), "{name} launched past the CPU line: {said}");
+        assert!(said.contains(remedy) && said.contains("Queue this worker until a lease ends") && said.contains("--pin"), "{name}: {said}");
+    }
+    let pinned = run("cpu-pinned", &["--local", "needs this checkout", "--pin", "Tom asked for it here"]);
+    assert!(pinned.status.success(), "{}", String::from_utf8_lossy(&pinned.stderr));
+    let show = north(root, &["fleet", "show", "cpu-pinned", "--json"]);
+    let shown = String::from_utf8_lossy(&show.stdout).into_owned();
+    north(root, &["fleet", "stop", "cpu-pinned"]);
+    assert!(shown.contains("pin: Tom asked for it here"), "the pin is recorded on the session: {shown}");
+
+    fs::write(&status, r#"{"profile": "attended", "aggregateCpuLimit": 12, "committedBatchCpus": 4, "protectedCpuSomeAvg10": 3}"#).unwrap();
+    let admitted = run("cpu-room", &[]);
+    assert!(admitted.status.success(), "{}", String::from_utf8_lossy(&admitted.stderr));
+    north(root, &["fleet", "stop", "cpu-room"]);
+}

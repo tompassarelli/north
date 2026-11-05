@@ -45,6 +45,9 @@ pub struct Facts {
     pub profile: Profile,
     pub class: Class,
     pub cores: u32,
+    /// The agent.slice CPU ceiling, when its cpu.max sets one.
+    #[serde(default)]
+    pub slice_cpus: Option<f64>,
     #[serde(rename = "memoryTotalMiB")]
     pub memory_total_mib: f64,
     #[serde(rename = "memoryAvailableMiB")]
@@ -383,16 +386,16 @@ pub fn memory_short(total: f64, available: f64, requested: f64) -> bool {
 }
 
 pub(super) fn batch_cpus(facts: &Facts) -> f64 {
-    let all = aggregate_cpus(facts.profile, facts.cores);
+    let all = aggregate_cpus(facts.profile, facts.cores, facts.slice_cpus);
     facts.game_reserve_agent_cpus.map_or(all, |agent| all.min(f64::from(agent)))
 }
 
-pub(super) fn aggregate_cpus(profile: Profile, cores: u32) -> f64 {
+pub(super) fn aggregate_cpus(profile: Profile, cores: u32, slice_cpus: Option<f64>) -> f64 {
     let name = match profile {
         Profile::Attended => "attended",
         Profile::Unattended => "unattended",
     };
-    super::host::policy::aggregate_cpus(name, f64::from(cores))
+    super::host::policy::aggregate_cpus(name, f64::from(cores), slice_cpus)
 }
 
 /// The Warcraft clients the host takes: its static count as a ceiling, lowered to the clients it
@@ -441,7 +444,7 @@ fn native(facts: &Facts) -> Reason {
     if facts.quiet && facts.peer_exclusive_runs > u32::from(facts.within_exclusive) {
         return Reason::DeferExclusive;
     }
-    if facts.leased_native_cpus + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
+    if facts.leased_native_cpus + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores, facts.slice_cpus) {
         return Reason::DeferNativeCpus;
     }
     if over_client_cap(facts, facts.new_clients, facts.client_hold.held - facts.client_hold.drawn) {

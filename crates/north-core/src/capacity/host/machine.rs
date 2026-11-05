@@ -86,6 +86,11 @@ pub fn host_cores() -> f64 {
     }
 }
 
+/// The CPUs agent.slice's cpu.max allows, None when it sets no quota or is absent.
+pub fn agent_slice_cpus() -> Option<f64> {
+    super::policy::cpu_max_cpus(&read_text(user_manager_cgroup().join("agent.slice/cpu.max"))?)
+}
+
 pub fn online_cpus(online: Option<&str>) -> f64 {
     let counted = online.and_then(count_cpu_list).filter(|count| *count > 0);
     counted.or_else(|| std::thread::available_parallelism().ok().map(|count| count.get())).map_or(1.0, |count| count as f64)
@@ -176,6 +181,8 @@ fn latency_native_pressure() -> f64 {
 #[derive(Clone, Copy, Debug)]
 pub struct Signals {
     pub cores: f64,
+    /// The CPU ceiling agent.slice's cpu.max sets, which every lease and agent session shares.
+    pub slice_cpus: Option<f64>,
     pub memory_total_mib: f64,
     pub memory_available_mib: f64,
     pub cpu_some: f64,
@@ -216,6 +223,7 @@ pub fn read_signals() -> Signals {
     };
     Signals {
         cores: host_cores(),
+        slice_cpus: agent_slice_cpus(),
         memory_total_mib,
         memory_available_mib,
         cpu_some,

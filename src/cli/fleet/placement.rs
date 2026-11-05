@@ -177,8 +177,9 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
     }
     let saturated = decision.saturated.as_ref().filter(|_| machine.is_some()).map(|why| format!("{why}; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\""));
     let hot = decision.here_saturated.as_ref().filter(|_| machine.is_none() && overrides.local.is_none()).map(|why| format!("{why}; launch from another host, or keep it here with --local \"<reason>\" or --pin \"<reason>\""));
+    let cpu = decision.here_cpu_held.as_ref().filter(|_| machine.is_none()).map(|why| format!("{why} To start it here anyway, launch with --pin \"<reason>\"."));
     let on_battery = decision.here_on_battery.clone().filter(|_| overrides.local.is_some()).map(Refusal::Final);
-    let held = saturated.or(hot).map(Refusal::Saturated).or(on_battery).or_else(|| account_refusal(decision, launch.account).map(Refusal::Final));
+    let held = saturated.or(hot).or(cpu).map(Refusal::Saturated).or(on_battery).or_else(|| account_refusal(decision, launch.account).map(Refusal::Final));
     if let Some(refusal) = held {
         let Some(reason) = &overrides.pin else {
             return Err(refusal);

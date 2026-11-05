@@ -149,26 +149,46 @@ fn capacity_refusal(world: &impl World, event: &Event) -> Option<String> {
         logs::urgent(world, event, &fact);
         return None;
     }
-    if let Some(fact) = event.texts.iter().find_map(|text| briefs::URGENT.captures(text)).map(|found| found.get(1).or(found.get(2)).map_or("", |m| m.as_str()).trim().to_owned())
-        && fact.chars().count() >= 15
-    {
+    if let Some(fact) = urgent_fact(event.texts.iter().map(String::as_str)) {
         logs::urgent(world, event, &fact);
         return None;
     }
     logs::denial(world, event, "capacity", None);
-    let g = briefs::py_g;
     if provisioned < limit && protected <= PROTECTED_PRESSURE_LIMIT
         && let Some((domain, _, first)) = rank
     {
+        let g = briefs::py_g;
         return Some(format!(
             "Domain {domain} ranks below {first} in Tom's priority order, so its local spawns stop at {} of the {} CPUs; {} are committed. Move code-only work to a cloud worker (workers skill) or queue it until a lease ends. Take a real conflict to the proxy, not Tom.",
             g(ceiling), g(limit), g(provisioned)
         ));
     }
-    Some(format!(
+    Some(cpu_refusal(world, provisioned, limit, protected))
+}
+
+/// The capacity refusal a local `north fleet launch` meets: the same CPU line, pressure limit and
+/// remedy as an Agent-tool spawn, passed by an urgent fact in the brief or the launch's `--pin`.
+pub fn launch_refusal(world: &impl World, brief: &str) -> Option<String> {
+    let (provisioned, limit, protected) = capacity(world)?;
+    if provisioned < limit && protected <= PROTECTED_PRESSURE_LIMIT {
+        return None;
+    }
+    urgent_fact([brief]).is_none().then(|| cpu_refusal(world, provisioned, limit, protected))
+}
+
+/// The first `CASE=URGENT FACT="..."` fact in the texts, when it is long enough to say why the work can't wait.
+fn urgent_fact<'a>(texts: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let found = texts.into_iter().find_map(|text| briefs::URGENT.captures(text))?;
+    let fact = found.get(1).or(found.get(2)).map_or("", |m| m.as_str()).trim().to_owned();
+    (fact.chars().count() >= 15).then_some(fact)
+}
+
+fn cpu_refusal(world: &impl World, provisioned: f64, limit: f64, protected: f64) -> String {
+    let g = briefs::py_g;
+    format!(
         "Capacity leases and unleased heavy load commit {} of the {} CPUs the machine can hand out, protected desktop pressure is {}% (limit {}%), and {} local workers are running. Queue this worker until a lease ends, send heavy checks to the farm, or use a cloud worker for code-only work (workers skill). Workers already running are unaffected. For an urgent fix, start the brief with CASE=URGENT FACT=\"<why it can't wait>\". Codex, whose briefs are encrypted, appends \"<epoch>\\t<agent name>\\t<fact>\" to ~/.local/state/agents/spawn-urgent.tsv first.",
         g(provisioned), g(limit), g(protected), g(PROTECTED_PRESSURE_LIMIT), logs::local_workers(world)
-    ))
+    )
 }
 
 fn capacity(world: &impl World) -> Option<(f64, f64, f64)> {

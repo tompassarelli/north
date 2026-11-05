@@ -57,8 +57,8 @@ pub struct Granted {
     pub declared_clamped: Option<Value>,
 }
 
-pub fn grant(profile: &str, cores: f64, memory_total_mib: f64, request: &Request) -> Granted {
-    let maximum = grantable_maximum(profile, cores, memory_total_mib);
+pub fn grant(profile: &str, cores: f64, slice_cpus: Option<f64>, memory_total_mib: f64, request: &Request) -> Granted {
+    let maximum = grantable_maximum(profile, cores, slice_cpus, memory_total_mib);
     let (charged, clamped) = clamp_to_grantable(request.resources(), maximum);
     let declared = request.declared.map(|declared| clamp_to_grantable(declared, maximum));
     Granted { charged, clamped, declared: declared.as_ref().map(|(resources, _)| *resources), declared_clamped: declared.and_then(|(_, clamped)| clamped) }

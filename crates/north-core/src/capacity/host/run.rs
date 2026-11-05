@@ -499,7 +499,8 @@ pub fn run_scoped(root: &Path, request: &Request, owner: &str, timeout_seconds: 
         return crate::capacity::deadline::run(&arguments);
     }
     // The parent limit and weights must exist before any admitted command executes.
-    if !apply_profile(active_profile(root).1, read_signals().cores) {
+    let signals = read_signals();
+    if !apply_profile(active_profile(root).1, signals.cores, signals.slice_cpus) {
         fail("cannot establish aggregate CPU limit and native weight", 75);
     }
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap_or_else(|error| fail(&error.to_string(), 1));

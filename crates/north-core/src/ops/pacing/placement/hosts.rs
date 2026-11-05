@@ -147,6 +147,15 @@ pub(in crate::ops::pacing) fn here_saturation() -> Option<String> {
     saturation(&name, "")?.refusal(&name)
 }
 
+/// The spawn gate's CPU refusal for a launch kept here; a PLACEMENT_HOSTS fixture run reads only the
+/// SPAWN_CAPACITY_STATUS fixture, never this host's live capacity.
+pub(in crate::ops::pacing) fn here_cpu_refusal(brief: &str) -> Option<String> {
+    if std::env::var_os("PLACEMENT_HOSTS").is_some() && std::env::var_os("SPAWN_CAPACITY_STATUS").is_none() {
+        return None;
+    }
+    crate::guard::spawn_capacity::launch_refusal(&crate::guard::spawn_capacity::Live, brief)
+}
+
 impl super::gate::Decision {
     /// Holds a box the launching host would keep when that host is saturated, or is closed to work that crowded machines turned away.
     pub fn hold_here(&mut self) {

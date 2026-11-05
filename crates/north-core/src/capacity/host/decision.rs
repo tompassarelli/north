@@ -26,6 +26,7 @@ fn native_waiting_mark(code: &str) -> Option<bool> {
 pub fn signals_view(signals: &Signals) -> Obj {
     Obj::new()
         .put("cores", num(signals.cores))
+        .put_some("sliceCpus", signals.slice_cpus.map(num))
         .put("memoryTotalMiB", num(signals.memory_total_mib))
         .put("memoryAvailableMiB", num(signals.memory_available_mib))
         .put("cpuSomeAvg10BasisPoints", num(signals.cpu_some))
@@ -226,7 +227,7 @@ fn result(request: &Request, create: Option<&Create>, code: &str, observed: &Obs
         .put_some("declaredCpus", granted.declared.map(|declared| num(declared.cpus)))
         .put_some("declaredMemoryMiB", granted.declared.map(|declared| num(declared.memory_mib)))
         .put_some("evidence", granted.declared.map(|_| request.evidence.clone().unwrap_or(Value::Null)))
-        .put("aggregateCpuLimit", num(aggregate_cpus(context.profile, signals.cores)))
+        .put("aggregateCpuLimit", num(aggregate_cpus(context.profile, signals.cores, signals.slice_cpus)))
         .put("queuedAhead", context.queued.ahead.len())
         .put("exclusiveWaiting", context.queued.exclusive_waiting)
         .put("leasedNativeCpus", num(context.leased.native_cpus))
@@ -263,7 +264,7 @@ fn context(root: &Path, request: &Request, create: Option<&Create>, ticket: Opti
     let accounting = cpu_accounting(root, &observed.active, now);
     let signals = read_signals();
     let (mode, profile) = active_profile(root);
-    let granted = grant(profile, signals.cores, signals.memory_total_mib, request);
+    let granted = grant(profile, signals.cores, signals.slice_cpus, signals.memory_total_mib, request);
     let context = Context {
         signals,
         profile,

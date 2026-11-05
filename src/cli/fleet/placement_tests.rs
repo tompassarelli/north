@@ -26,6 +26,7 @@ fn decision(target: Target) -> Decision {
         machine_lines: Vec::new(),
         saturated: None,
         here_saturated: None,
+        here_cpu_held: None,
         here_on_battery: None,
         crowded: Vec::new(),
         here_closed: None,
@@ -250,4 +251,30 @@ fn a_launch_naming_no_account_runs_on_the_account_placement_prints_and_a_held_pl
     assert!(settle(&cloud, &unnamed, "", &Overrides::default()).unwrap_err().to_string().contains("north cloud launch"));
     let local = Overrides { local: Some("x".into()), ..Overrides::default() };
     assert_eq!(settle(&cloud, &unnamed, "", &local).unwrap().account.as_deref(), Some("a"));
+}
+
+#[test]
+fn a_local_launch_on_a_host_past_the_spawn_gate_cpu_line_needs_a_pin_and_local_does_not_pass_it() {
+    let why = "Capacity leases and unleased heavy load commit 20 of the 16 CPUs the machine can hand out, protected desktop pressure is 5% (limit 20%), and 30 local workers are running.";
+    let launch = Launch { name: "worker", account: "a", brief: None, cwd: None, machine: None };
+    let mut here = decision(Target::Account("claude:a".into()));
+    here.here_cpu_held = Some(why.into());
+    let refused = admit(&here, &launch, "", &Overrides::default()).unwrap_err();
+    assert!(matches!(&refused, Refusal::Saturated(text) if text.starts_with(why) && text.contains("--pin")), "{refused:?}");
+    let local = Overrides { local: Some("needs this checkout".into()), ..Overrides::default() };
+    let refused = admit(&here, &launch, "", &local).unwrap_err().to_string();
+    assert!(refused.starts_with(why), "--local keeps the box here but never past the CPU line: {refused}");
+    let pinned = Overrides { pin: Some("Tom asked for it here".into()), ..local.clone() };
+    assert_eq!(admit(&here, &launch, "", &pinned).unwrap().note.as_deref(), Some("pin: Tom asked for it here"), "the pin is the recorded override");
+
+    let mut cloud = decision(cloud("a", "here"));
+    cloud.here_cpu_held = Some(why.into());
+    assert!(admit(&cloud, &launch, "", &local).unwrap_err().to_string().starts_with(why), "--local off a cloud placement meets the same line");
+    assert_eq!(admit(&cloud, &launch, "", &pinned).unwrap().note.as_deref(), Some("local: needs this checkout; pin: Tom asked for it here"));
+    assert!(admit(&cloud, &launch, "", &Overrides::default()).unwrap_err().to_string().contains("north cloud launch"), "a cloud box is sent to the cloud, not held");
+
+    let mut elsewhere = decision(Target::Account("claude:a".into()));
+    elsewhere.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
+    elsewhere.here_cpu_held = Some(why.into());
+    assert_eq!(admit(&elsewhere, &launch, "", &Overrides::default()).unwrap().machine.map(|machine| machine.name), Some("far".to_owned()), "a box placed on another machine is not this host's load");
 }
