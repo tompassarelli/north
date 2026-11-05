@@ -30,6 +30,10 @@ of the NorthThreads ledger and prints n and the score per value as JSON lines; -
 data; --propose emits read-only proposals trained only on runs that ended before --train-until; --picks prints each
 walk-forward recommend decision as {agent, pick, ok, cost_usd}.";
 
+pub fn prior_needs() -> Vec<(String, i64)> {
+    Registry::bundled().priors().filter_map(|entry| Some((entry.name.clone(), entry.settles.as_ref()?.need))).collect()
+}
+
 pub(super) const KINDS: [&str; 12] = [
     "box_calibration_n",
     "box_chain_gap_min",

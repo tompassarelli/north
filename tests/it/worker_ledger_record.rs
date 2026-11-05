@@ -530,8 +530,7 @@ fn monday() -> String {
 }
 
 fn prior_names() -> Vec<String> {
-    let document: toml_edit::DocumentMut = fs::read_to_string(Path::new(REPO).join("harness/defaults.toml")).unwrap().parse().unwrap();
-    document.iter().filter(|(_, entry)| entry.get("source").and_then(|source| source.as_str()).is_some_and(|source| source.starts_with("prior: "))).map(|(name, _)| name.to_owned()).collect()
+    north_core::ops::defaults_measure::prior_needs().into_iter().map(|(name, _)| name).collect()
 }
 
 #[test]

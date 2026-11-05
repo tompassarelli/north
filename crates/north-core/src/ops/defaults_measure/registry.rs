@@ -47,6 +47,10 @@ impl Registry {
         &self.0
     }
 
+    pub(super) fn priors(&self) -> impl Iterator<Item = &Entry> {
+        self.0.iter().filter(|entry| entry.settles.is_some() || entry.source.starts_with("prior: "))
+    }
+
     pub(super) fn value(&self, name: &str) -> &Value {
         self.0.iter().find(|entry| entry.name == name).map_or(&Value::Null, |entry| &entry.value)
     }

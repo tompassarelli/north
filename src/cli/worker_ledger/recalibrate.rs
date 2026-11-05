@@ -6,6 +6,7 @@ use std::time::Duration;
 use toml_edit::DocumentMut;
 
 use crate::foundation::clock::Timestamp;
+use crate::ops::defaults_measure;
 
 const DEFAULTS: &str = include_str!("../../../harness/defaults.toml");
 const GOAL_KINDS: [&str; 2] = ["goal_eta", "goal_actual"];
@@ -61,15 +62,6 @@ fn codex_root() -> PathBuf {
     std::env::var_os("CODEX_CONFIG_DIR").map_or_else(|| home().join("code/north-data/codex-pooled"), PathBuf::from)
 }
 
-fn prior_needs() -> Vec<(String, i64)> {
-    let defaults: DocumentMut = DEFAULTS.parse().expect("harness/defaults.toml parses");
-    defaults
-        .iter()
-        .filter(|(_, entry)| entry.get("source").and_then(|source| source.as_str()).is_some_and(|source| source.starts_with("prior: ")))
-        .filter_map(|(name, entry)| Some((name.to_owned(), entry.get("settles_when")?.get("need")?.as_integer()?)))
-        .collect()
-}
-
 fn prior_specs(printed: &str, needs: &[(String, i64)]) -> Vec<String> {
     let mut specs = Vec::new();
     for line in printed.lines() {
@@ -119,7 +111,7 @@ fn priors() {
             let stderr = String::from_utf8_lossy(&done.stderr).trim().to_owned();
             note = stderr.chars().rev().take(300).collect::<Vec<_>>().into_iter().rev().collect();
             if done.status.success() {
-                specs = prior_specs(&String::from_utf8_lossy(&done.stdout), &prior_needs());
+                specs = prior_specs(&String::from_utf8_lossy(&done.stdout), &defaults_measure::prior_needs());
             }
         }
         Err(why) => note.clone_from(why),
