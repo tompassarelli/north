@@ -45,7 +45,7 @@ impl World for Live {
     }
 
     fn flow(&self, repo: &str) -> Option<String> {
-        stdout_of(north(), &["agents", "flow", "row", repo, "pending", "landed_per_hour"], Duration::from_secs(120))
+        stdout_of(north(), &["flow", "row", repo, "pending", "landed_per_hour"], Duration::from_secs(120))
     }
 
     fn refresh(&self, provider: &str) -> Option<(i32, String)> {

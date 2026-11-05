@@ -11,7 +11,7 @@ use north_guard::{code_health, guard, hook, lanes, nix_explain};
 use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint, land, land_abandon, landing, language_gate, provenance, runtime_floor_gate, watch};
 use north_tui::tui;
 use north_ops::ops;
-use north_runtime::{agent_contain, build_offload, land_offload, laptop_ntfy, laptop_runner, model_watch, runtime, runtime_access, timers};
+use north_runtime::{agent_contain, build_offload, land_offload, laptop_ntfy, laptop_runner, runtime, runtime_access, timers};
 use north_dispatch::{dispatch, laptop, pacing, resident_cap, tune};
 
 fn main() -> std::process::ExitCode {

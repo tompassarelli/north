@@ -7,7 +7,7 @@ written: 2026-11-04
 ---
 # Workers
 
-Throughput is lost to serialized long waits, not thinking: each tick cut the longest wait on the critical path, and while a repository's landing queue grows (`agents flow`) widen its landing path before adding workers. Rules hold on any provider unless marked Claude-only; Tom staffs Claude alone since 2026-10-16, and `agents plan` picks provider, account and fast mode from live headroom, never by hand.
+Throughput is lost to serialized long waits, not thinking: each tick cut the longest wait on the critical path, and while a repository's landing queue grows (`north flow`) widen its landing path before adding workers. Rules hold on any provider unless marked Claude-only; Tom staffs Claude alone since 2026-10-16, and `agents plan` picks provider, account and fast mode from live headroom, never by hand.
 
 ## Staff
 

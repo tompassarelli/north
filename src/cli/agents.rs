@@ -3,10 +3,9 @@ use std::sync::Arc;
 
 use crate::agent_catalog::{self, sync_gate};
 use crate::error::{NorthError, NorthResult};
-use crate::ops::agents::{self, Verb, plan, script};
+use crate::ops::agents::{self, Verb, plan};
 use crate::fleet::runtimes::Runtimes;
 use crate::runtime_access::RuntimeAccess;
-use crate::ops::{flow, report};
 use crate::pacing;
 use crate::platform::harness;
 use crate::providers::claude::{self, fleet::Claude};
@@ -26,7 +25,6 @@ pub(super) fn run(arguments: &[String]) -> u8 {
     match verb {
         Verb::Catalog => exit(agent_catalog::run(arguments).map(|()| 0)),
         Verb::Sync => exit(sync_gate::run(arguments)),
-        Verb::Pace => pace(&[vec!["sample".to_owned()], rest.to_vec()].concat()),
         Verb::Busy => agents::busy(rest),
         Verb::Presence => agents::presence::run(rest),
         Verb::Routines => agents::routines::run(rest),
@@ -40,11 +38,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
                 },
             )
         }),
-        Verb::Command("flow") => flow::run(rest),
-        Verb::Command("news") => crate::model_watch::run(&[vec!["news".to_owned()], rest.to_vec()].concat(), &claude_access()),
-        Verb::Command(_) => report::run(rest),
         Verb::Usage => usage(rest),
-        Verb::Script(file) => with_harness(|root| script::run(root, file, rest)),
     }
 }
 
