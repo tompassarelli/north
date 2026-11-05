@@ -59,8 +59,8 @@ mod status;
 mod rebooting;
 mod stranding;
 mod testing;
-#[cfg(test)]
-pub(crate) mod fixtures;
+#[doc(hidden)]
+pub mod fixtures;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

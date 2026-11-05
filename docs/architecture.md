@@ -18,7 +18,7 @@ terminal input
 ```
 
 `crates/north-core/src/fleet/` owns sessions, delivery, decisions and the runtime boundary.
-`crates/north-core/src/tui/fleet/` owns the terminal loop, transcript, launch form and fleet
+`crates/north-tui/src/tui/fleet/` owns the terminal loop, transcript, launch form and fleet
 digest. `crates/north-core/src/providers/` adapts provider protocols behind the fleet runtime.
 `src/cli/` wires commands and provider implementations. The run ledger records
 session outcomes and task verdicts; it is not a second session authority.

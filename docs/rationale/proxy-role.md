@@ -97,7 +97,7 @@ outside a session is unsigned (`src/cli/send.rs:24`), and so are fleet receipts 
 ten timers (`crates/north-core/src/ops/check/facts.rs:90`, `ops/dividend/live.rs:213`,
 `ops/runtime/update.rs:416`, `ops/tune/mod.rs:257`, `ops/timers/fleet_session.rs:95`,
 `ops/timers/cross_project.rs:175`, `health/failed_starts.rs:115`, `ops/flow/alerts.rs:188`) and the
-TUI composer Tom types into (`crates/north-core/src/tui/fleet/desk.rs:54`). Nothing can tell Tom's
+TUI composer Tom types into (`crates/north-tui/src/tui/fleet/desk.rs:54`). Nothing can tell Tom's
 message from an alarm. The design fixes both absences with values the compiler checks.
 
 ## 2. Design
@@ -140,7 +140,7 @@ registry refusal with a test.
 `north proxy` launches or revives the fleet session `proxy` with `--role proxy --parent none`, in
 `~/code/north/main` so the project memory and instructions the proxy has today keep loading, on the
 account `agents plan` routes it to. It then opens north's fleet TUI focused on it; the TUI already
-sends from a composer and renders the transcript (`crates/north-core/src/tui/fleet/screen.rs:70`,
+sends from a composer and renders the transcript (`crates/north-tui/src/tui/fleet/screen.rs:70`,
 `:378`). The launcher passes `--agent proxy` (Claude Code 2.1.318 has the flag), so the role file is
 the agent definition from the first turn. Firn's entry for Tom's proxy window runs `north proxy`.
 
@@ -386,7 +386,7 @@ push access to South and the Firn timers are host configuration.
 
 1. **W1 the sender is a required value.** feature, cross-module, rust, local-test; 45 min. Files:
    `crates/north-core/src/fleet/registry/senders.rs`, `src/cli/send.rs`, `crates/north-core/src/fleet/registry/parents.rs`,
-   `crates/north-core/src/tui/fleet/desk.rs`, the timer call sites of section 1,
+   `crates/north-tui/src/tui/fleet/desk.rs`, the timer call sites of section 1,
    `crates/north-landing/src/land/after/mod.rs`. Needs: nothing. Done when: `cargo test -p north-core fleet::`
    passes cases where the composer's message carries `Tom`, `north fleet send` from outside a session
    without `--from service:UNIT` is refused, and a source test finds no `north fleet send` shell-out
@@ -460,7 +460,7 @@ push access to South and the Firn timers are host configuration.
     `north agent-config-check policy-gate session` exits 0 on the South lane with the placements of
     section 3 and the typo fixed.
 13. **R3 `north proxy`.** feature, cross-module, rust, local-test; 45 min. Files: `src/cli/` (a
-    `proxy` verb), `crates/north-core/src/tui/fleet/` (model and effort slash commands),
+    `proxy` verb), `crates/north-tui/src/tui/fleet/` (model and effort slash commands),
     `crates/north-core/src/providers/claude/fleet.rs` (`--agent`), `crates/north-core/src/fleet/registry/takeover.rs`.
     Needs: R1, R2, A1, W1. Done when: an integration test under `tests/it/` shows `north proxy` with no
     proxy launching one with role proxy, `--parent none`, cwd `~/code/north/main` and `--agent proxy`

@@ -130,7 +130,7 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
   written 2026-11-04 (south `agents/replay/`), and `agents sync` and safe-push read the operating point it
   promotes. The 2026-11-04 E3 arms that found no gain were reverted by that gate, which is the gate working.
 - `north wisp payoff`: it prints no retirement candidate yet (`0 retire`), but it is the measurement that would
-  name one; it feeds the fleet Ctrl+T digest (`crates/north-core/src/tui/fleet/desk.rs:206`).
+  name one; it feeds the fleet Ctrl+T digest (`crates/north-tui/src/tui/fleet/desk.rs:206`).
 - `north tune`: its dividend lines on 2026-11-03 and 2026-11-04 are all PAYING (cost per closed box $38.49
   against a $42 bar).
 - Planned measurements not yet due: capacity-scheduler W2-0, pstack E1 to E3 (north#524), one-landing-per-change

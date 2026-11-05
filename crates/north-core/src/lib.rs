@@ -22,6 +22,5 @@ pub mod providers;
 pub mod proxy;
 pub mod router;
 pub mod threads;
-pub mod tui;
 pub mod usage;
 pub mod work_items;

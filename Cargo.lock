@@ -934,6 +934,7 @@ dependencies = [
  "fancy-regex",
  "north-core",
  "north-landing",
+ "north-tui",
  "percent-encoding",
  "ratatui",
  "regex",
@@ -1013,6 +1014,20 @@ dependencies = [
  "time",
  "tokio",
  "toml_edit",
+]
+
+[[package]]
+name = "north-tui"
+version = "0.1.0"
+dependencies = [
+ "crossterm 0.28.1",
+ "north-core",
+ "ratatui",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tui-markdown",
+ "tui-textarea-2",
 ]
 
 [[package]]

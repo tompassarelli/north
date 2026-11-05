@@ -1,0 +1,22 @@
+[package]
+name = "north-tui"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[dependencies]
+north-core = { path = "../north-core" }
+crossterm.workspace = true
+ratatui.workspace = true
+sha2.workspace = true
+tui-markdown.workspace = true
+tui-textarea-2.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

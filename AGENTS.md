@@ -10,7 +10,7 @@ Build output stays in the worktree's `target/`.
 ## Rules
 
 - Use the four layer terms of `docs/terms.md`, one per layer: model, harness, agent, workforce. North is the harness and Socrates the workforce (South holds its private policy); never call a model an agent.
-- Keep fleet screen state and rendering in `crates/north-core/src/tui/fleet`; the Rust host performs authorized effects and renders projections.
+- Keep fleet screen state and rendering in `crates/north-tui/src/tui/fleet`; the Rust host performs authorized effects and renders projections.
 
 - Change Rust build settings (profiles, linker, caches, crate splits) only after
   measuring them per [compile-times](agent-machinery/skills/rust-development/references/compile-times.md).
@@ -25,7 +25,7 @@ Build output stays in the worktree's `target/`.
 ## Routers
 
 - Before changing `bin/safe-push`, `.safe-push` or `crates/north-landing/src/landing/mod.rs`, read [docs/harness.md](docs/harness.md#landing-a-change) for how a lane reaches main.
-- Before changing `crates/north-core/src/fleet/mod.rs` or `crates/north-core/src/tui/fleet/mod.rs`, read [docs/architecture.md](docs/architecture.md#owning-boundary) and the [fleet sessions](docs/features.md#fleet-sessions) features.
+- Before changing `crates/north-core/src/fleet/mod.rs` or `crates/north-tui/src/tui/fleet/mod.rs`, read [docs/architecture.md](docs/architecture.md#owning-boundary) and the [fleet sessions](docs/features.md#fleet-sessions) features.
 - Before changing `crates/north-core/src/threads/staffing/mod.rs` or `crates/north-core/src/router.rs`, read [docs/harness.md](docs/harness.md#staffing-a-worker) and the [staffing and routing](docs/features.md#staffing-and-routing) features.
 - Before changing `crates/north-core/src/capacity/admission.rs` or a tuned number in `harness/defaults.toml`, read the [machine-capacity skill](harness/skills/machine-capacity/SKILL.md) and the [capacity](docs/features.md#machines-capacity-and-scheduled-jobs) features.
 - Before changing `harness/policy-owners.toml`, the hook `harness/hooks/north-hook.sh` or a skill per `harness/SKILL-ARCHITECTURE.md`, read [docs/harness.md](docs/harness.md#where-policy-lives) and the [agent-policy skill](harness/skills/agent-policy/SKILL.md).

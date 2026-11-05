@@ -6,16 +6,16 @@ use crate::fleet::runtimes::Runtimes;
 
 use super::Fleet;
 
-pub(crate) struct Session {
-    pub(crate) frames: Arc<Mutex<Vec<String>>>,
+pub struct Session {
+    pub frames: Arc<Mutex<Vec<String>>>,
 }
 
-pub(crate) fn fleet(home: &Path) -> Fleet {
+pub fn fleet(home: &Path) -> Fleet {
     let ledger = Arc::new(crate::ledger::Ledger::open(&home.join("ledger.db")).unwrap());
     Fleet::at(home.into(), Runtimes::new(vec![Arc::new(crate::providers::claude::fleet::Claude)]), ledger).unwrap().arming(|_| Ok(()))
 }
 
-pub(crate) fn live(fleet: &Fleet, name: &str) -> Session {
+pub fn live(fleet: &Fleet, name: &str) -> Session {
     live_under(fleet, name, None)
 }
 
