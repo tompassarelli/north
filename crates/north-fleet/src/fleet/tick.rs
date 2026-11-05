@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::error::NorthResult;
@@ -57,17 +58,22 @@ pub struct Probed {
     pub settled: Vec<WaitKey>,
 }
 
+pub struct ProbeJob {
+    pub name: &'static str,
+    pub run: Box<dyn FnOnce(Fleet) -> Probed + Send>,
+}
+
 pub trait WaitProbes: Sync {
     fn prepare(&self, _: &Fleet) {}
 
-    fn settle(&self, fleet: &Fleet) -> Probed;
+    fn jobs(&self) -> Vec<ProbeJob>;
 }
 
 pub struct NoProbes;
 
 impl WaitProbes for NoProbes {
-    fn settle(&self, _: &Fleet) -> Probed {
-        Probed { lines: Vec::new(), settled: Vec::new() }
+    fn jobs(&self) -> Vec<ProbeJob> {
+        Vec::new()
     }
 }
 
@@ -148,7 +154,7 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &
         let exchanged = exchange_and_hand_in(fleet, ledger, pulls, &clock, &mut ticked, (now_ms, budget));
         joined(placing);
         exchanged?;
-        settle(fleet, ledger, probes, &clock, &mut ticked)
+        settle(fleet, ledger, probes, &clock, &mut ticked, budget)
     })?;
     ticked.pruned = clock.time("prune", || fleet.prune_delivered(SystemTime::now() - JOURNAL_KEPT))?;
     clock.stop(&mut ticked);
@@ -190,8 +196,8 @@ fn exchange_and_hand_in(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pull
     Ok(())
 }
 
-fn settle(fleet: &Fleet, ledger: &mut dyn LedgerHost, probes: &dyn WaitProbes, clock: &Clock, ticked: &mut Ticked) -> NorthResult<()> {
-    let probed = clock.time("probes.settle", || probes.settle(fleet));
+fn settle(fleet: &Fleet, ledger: &mut dyn LedgerHost, probes: &dyn WaitProbes, clock: &Clock, ticked: &mut Ticked, budget: Duration) -> NorthResult<()> {
+    let probed = probe(fleet, probes.jobs(), clock, budget);
     ticked.probed = probed.lines;
     let settled: Vec<WaitKey> = fleet.unsettled_waits().into_iter().chain(probed.settled).collect();
     if settled.is_empty() {
@@ -205,6 +211,34 @@ fn settle(fleet: &Fleet, ledger: &mut dyn LedgerHost, probes: &dyn WaitProbes, c
         }
     };
     fleet.set_unsettled_waits(&left)
+}
+
+fn probe(fleet: &Fleet, jobs: Vec<ProbeJob>, clock: &Clock, budget: Duration) -> Probed {
+    let deadline = Instant::now() + budget;
+    let mut probed = Probed { lines: Vec::new(), settled: Vec::new() };
+    for ProbeJob { name, run } in jobs {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            probed.lines.push(format!("deferred {name} to the next tick: probes spent their {}ms budget before it began", budget.as_millis()));
+            continue;
+        }
+        let (answer, answered) = mpsc::channel();
+        let fleet = fleet.clone();
+        let spawned = std::thread::Builder::new().name(name.into()).spawn(move || answer.send(run(fleet)));
+        if let Err(error) = spawned {
+            probed.lines.push(format!("deferred {name} to the next tick: its thread did not start: {error}"));
+            continue;
+        }
+        match clock.time(name, || answered.recv_timeout(left)) {
+            Ok(Probed { lines, settled }) => {
+                probed.lines.extend(lines);
+                probed.settled.extend(settled);
+            }
+            Err(RecvTimeoutError::Timeout) => probed.lines.push(format!("deferred {name} to the next tick: still running when probes spent their {}ms budget", budget.as_millis())),
+            Err(RecvTimeoutError::Disconnected) => probed.lines.push(format!("{name} failed: it panicked")),
+        }
+    }
+    probed
 }
 
 fn joined<R>(handle: std::thread::ScopedJoinHandle<'_, R>) -> R {

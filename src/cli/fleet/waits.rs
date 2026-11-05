@@ -16,7 +16,7 @@ use crate::fleet::registry::{Fleet, Waiting};
 use crate::fleet::runtime::{SESSION_ENV, now_ms};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::LedgerHost;
-use crate::fleet::tick::{Probed, WaitProbes};
+use crate::fleet::tick::{ProbeJob, Probed, WaitProbes};
 use crate::fleet::limit::Parked;
 use crate::fleet::waits::{Probe, Registered, Run, Settled};
 use crate::foundation::clock::Timestamp;
@@ -61,7 +61,11 @@ fn register(fleet: &Fleet, run: &str, name: Option<&str>) -> NorthResult<()> {
 }
 
 fn settle(fleet: &Fleet) -> NorthResult<()> {
-    let probed = Probes.settle(fleet);
+    let probed = Probes.jobs().into_iter().map(|job| (job.run)(fleet.clone())).fold(said([]), |mut probed, more| {
+        probed.lines.extend(more.lines);
+        probed.settled.extend(more.settled);
+        probed
+    });
     probed.lines.iter().for_each(|line| println!("{line}"));
     if probed.settled.is_empty() {
         return Ok(());
@@ -83,24 +87,39 @@ impl WaitProbes for Probes {
         }
     }
 
-    fn settle(&self, fleet: &Fleet) -> Probed {
-        let parked = park_limited(fleet, &UsageTable, now_ms());
-        let handed = hand_over(fleet, &UsageTable, &|record| holds_unlanded_lane(&record.cwd), &|request| fleet.take_over(request), &tell_tom, now_ms());
-        let budget = super::breaker::watch(fleet, &tell_tom, now_ms());
-        let usage_parked = |name: &str| fleet.waits().of(name).iter().any(|wait| matches!(wait.run, Run::Usage { .. }));
-        let tell = |name: &str, text: &str| -> NorthResult<()> {
-            let Ok(record) = fleet.session(name) else { return Ok(()) };
-            if record.ended == Some(Ending::Stopped) || (record.stopped && !usage_parked(name)) {
-                return Ok(());
-            }
-            revive::revive(fleet, name, None, None, Overrides::default())?;
-            fleet.send_signed(&Sender::fleet(), name, text, Delivery::Queued)
-        };
-        let exists = |name: &str| fleet.session(name).is_ok();
-        let told = fleet.waits().settle(&Runs::default(), &exists, &tell);
-        let lines = parked.iter().map(Parked::line).chain(handed.lines).chain(handed.alert).chain(budget).chain(told.iter().map(Settled::line)).collect();
-        Probed { lines, settled: told.iter().filter_map(|settled| settled.run.request(&settled.session)).map(|request| request.key()).collect() }
+    fn jobs(&self) -> Vec<ProbeJob> {
+        vec![
+            ProbeJob { name: "probes.settle.waits", run: Box::new(|fleet| settle_waits(&fleet)) },
+            ProbeJob { name: "probes.settle.park_limited", run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
+            ProbeJob { name: "probes.settle.breaker", run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
+            ProbeJob {
+                name: "probes.settle.hand_over",
+                run: Box::new(|fleet| {
+                    let handed = hand_over(&fleet, &UsageTable, &|record| holds_unlanded_lane(&record.cwd), &|request| fleet.take_over(request), &tell_tom, now_ms());
+                    said(handed.lines.into_iter().chain(handed.alert))
+                }),
+            },
+        ]
     }
+}
+
+fn said(lines: impl IntoIterator<Item = String>) -> Probed {
+    Probed { lines: lines.into_iter().collect(), settled: Vec::new() }
+}
+
+fn settle_waits(fleet: &Fleet) -> Probed {
+    let usage_parked = |name: &str| fleet.waits().of(name).iter().any(|wait| matches!(wait.run, Run::Usage { .. }));
+    let tell = |name: &str, text: &str| -> NorthResult<()> {
+        let Ok(record) = fleet.session(name) else { return Ok(()) };
+        if record.ended == Some(Ending::Stopped) || (record.stopped && !usage_parked(name)) {
+            return Ok(());
+        }
+        revive::revive(fleet, name, None, None, Overrides::default())?;
+        fleet.send_signed(&Sender::fleet(), name, text, Delivery::Queued)
+    };
+    let exists = |name: &str| fleet.session(name).is_ok();
+    let told = fleet.waits().settle(&Runs::default(), &exists, &tell);
+    Probed { lines: told.iter().map(Settled::line).collect(), settled: told.iter().filter_map(|settled| settled.run.request(&settled.session)).map(|request| request.key()).collect() }
 }
 
 fn tell_tom(line: &str) -> Result<(), String> {
@@ -201,4 +220,5 @@ mod tests {
         assert!(failed.job_rows(load).is_none() && failed.job_rows(load).is_none());
         assert_eq!(tries.get(), 1, "a failed fetch is not retried within the pass");
     }
+
 }

@@ -371,3 +371,38 @@ fn north_576_with_a_and_d_reading_headroom_after_their_parks_the_lead_on_c_goes_
     assert!(matches!(view(&world, &Label("a".into()), Window::FiveHour), View::Stale { .. }), "a's 5-hour reading whose reset passed is unknown, not out");
 }
 
+
+struct Sleepy;
+
+impl WaitProbes for Sleepy {
+    fn jobs(&self) -> Vec<ProbeJob> {
+        let said = |line: &str| Probed { lines: vec![line.to_owned()], settled: Vec::new() };
+        vec![
+            ProbeJob { name: "probes.quick", run: Box::new(move |_| said("quick ran")) },
+            ProbeJob {
+                name: "probes.slow",
+                run: Box::new(move |_| {
+                    std::thread::sleep(Duration::from_secs(30));
+                    said("slow ran")
+                }),
+            },
+            ProbeJob { name: "probes.after", run: Box::new(move |_| said("after ran")) },
+        ]
+    }
+}
+
+#[test]
+fn a_probe_job_still_running_at_the_budget_is_deferred_to_the_next_tick_by_name_and_the_tick_times_each_job() {
+    let host = host("nexus");
+    let budget = Duration::from_millis(300);
+
+    let ticked = tick(&host.fleet, &mut host.store(), &host.pulls(), &Sleepy, NOW_MS, budget).unwrap();
+
+    assert!(ticked.wall < Duration::from_secs(5), "the sleeping job held the tick for {:?}", ticked.wall);
+    let lines = ticked.lines();
+    assert!(lines.iter().any(|line| line == "quick ran"), "{lines:?}");
+    assert!(lines.iter().any(|line| line == "deferred probes.slow to the next tick: still running when probes spent their 300ms budget"), "{lines:?}");
+    assert!(lines.iter().any(|line| line == "deferred probes.after to the next tick: probes spent their 300ms budget before it began"), "{lines:?}");
+    let timing = ticked.timing();
+    assert!(timing.contains(", probes.quick ") && timing.contains(", probes.slow "), "{timing}");
+}
