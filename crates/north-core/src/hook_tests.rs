@@ -40,6 +40,7 @@ fn provider_events_select_matching_guard_list() {
             "pre-timer",
             HookKind::PreTimer,
         ),
+        ("PreToolUse", vec!["SendMessage"], "pre-message", HookKind::PreMessage),
         (
             "PostToolUse",
             vec!["Bash", "functions.exec_command"],

@@ -93,6 +93,7 @@ enum HookKind {
     PreEdit,
     PreAgent,
     PreTimer,
+    PreMessage,
     SpawnCapacity,
     NativeSpawn,
     PostTool,
@@ -111,6 +112,7 @@ impl HookKind {
             "pre-edit" => Self::PreEdit,
             "pre-agent" => Self::PreAgent,
             "pre-timer" => Self::PreTimer,
+            "pre-message" => Self::PreMessage,
             "spawn-capacity" => Self::SpawnCapacity,
             "post-tool" => Self::PostTool,
             "permission-request" => Self::PermissionRequest,
@@ -130,6 +132,7 @@ impl HookKind {
                 "Edit" | "Write" | "MultiEdit" | "NotebookEdit" | "apply_patch" => Self::PreEdit,
                 "Agent" | "spawn_agent" => Self::PreAgent,
                 "ScheduleWakeup" | "CronCreate" => Self::PreTimer,
+                crate::guard::subagent_message::MESSAGE_TOOL => Self::PreMessage,
                 name if name.ends_with("spawn_agent") => Self::NativeSpawn,
                 _ => return None,
             },
@@ -145,7 +148,7 @@ impl HookKind {
 
     fn event(self) -> &'static str {
         match self {
-            Self::PreBash | Self::PreEdit | Self::PreAgent | Self::PreTimer | Self::SpawnCapacity | Self::NativeSpawn => "PreToolUse",
+            Self::PreBash | Self::PreEdit | Self::PreAgent | Self::PreTimer | Self::PreMessage | Self::SpawnCapacity | Self::NativeSpawn => "PreToolUse",
             Self::PostTool => "PostToolUse",
             Self::PermissionRequest => "PermissionRequest",
             Self::Stop => "Stop",
@@ -197,6 +200,7 @@ impl HookKind {
             ],
             Self::PreAgent => &[crate::guard::agent_cwd::evaluate, crate::guard::worker_tier::evaluate, crate::guard::spawn_capacity::evaluate],
             Self::PreTimer => &[crate::guard::lead_timer::evaluate],
+            Self::PreMessage => &[crate::guard::subagent_message::evaluate],
             Self::SpawnCapacity => &[crate::guard::spawn_capacity::admission],
             Self::NativeSpawn => &[crate::guard::spawn_capacity::evaluate],
             Self::PostTool => &[crate::guard::worker_handoff::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate, crate::guard::spawn_capacity::confirm_native],
@@ -317,7 +321,7 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
             return Ok(());
         }
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),
-        _ => return Err("Usage: north hook [stats [--since 7d]|pre-bash|pre-edit|post-tool|session-start|stop|pre-agent|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|permission-request|codex-conduct]".into()),
+        _ => return Err("Usage: north hook [stats [--since 7d]|pre-bash|pre-edit|post-tool|session-start|stop|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|permission-request|codex-conduct]".into()),
     };
     let _ = process(
         io::stdin().lock(),

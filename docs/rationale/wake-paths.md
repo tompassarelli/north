@@ -95,3 +95,11 @@ before, so the drop rests on 2 long runs and does not by itself separate the fix
   Guard half done 2026-11-04: `crates/north-core/src/guard/lead_timer.rs` refuses both calls in a Fleet session that
   has child records or a `lead` name segment; `/loop` reaches the hook only as those two calls. The skill sentence
   and the rescan remain.
+
+## Messages to an in-process subagent
+
+An Agent subagent reads a `SendMessage` only at its next tool round, so a message to one inside a long build, test or
+wait sits until that call returns, while a fleet session takes native delivery within seconds (north#523, raised
+2026-11-03). The runtime gives no way to interrupt a subagent's tool call, so the sender is told instead:
+`crates/north-core/src/guard/subagent_message.rs` adds that delay to the sender's context on every `SendMessage` whose
+target is not a live fleet session record, and stays silent for fleet sessions.

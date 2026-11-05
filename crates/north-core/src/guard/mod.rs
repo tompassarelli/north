@@ -44,6 +44,9 @@ pub mod worker_repair;
 pub mod lead_timer;
 #[cfg(test)]
 mod lead_timer_tests;
+pub mod subagent_message;
+#[cfg(test)]
+mod subagent_message_tests;
 pub mod agent_cwd;
 #[cfg(test)]
 mod agent_cwd_tests;
