@@ -45,13 +45,12 @@ Dispatch refuses to place a `bug` issue that has no `Class:` line (crates/north-
 28. north#522 Fleet and runtime follow-ups: the gex45 access plan boxes B16 to B23, two of which are Tom's.
 29. north#608 Cost rise alarm: a rolling alarm that `north tune` keeps.
 
-`priority:later`, ranks 30 to 34:
+`priority:later`, ranks 30 to 33:
 
-30. north#625 A spool timeout kept as `.failed`: only the record of a lost batch is wrong, since the committed rows are in the ledger.
-31. north#585 wayvnc dies on a clipboard event: affects only private-desktop runs.
-32. north#523 Guards and skills follow-ups: one box, which waits on the 2026-11-19 review.
-33. north#525 Experiments: their boxes wait on 2026-11-08 and 2026-11-18.
-34. north#564 Tooling arm window: its box is gated until 2026-11-20.
+30. north#585 wayvnc dies on a clipboard event: affects only private-desktop runs.
+31. north#523 Guards and skills follow-ups: one box, which waits on the 2026-11-19 review.
+32. north#525 Experiments: their boxes wait on 2026-11-08 and 2026-11-18.
+33. north#564 Tooling arm window: its box is gated until 2026-11-20.
 
 ## Closed or merged on 2026-11-06
 
@@ -61,6 +60,7 @@ Dispatch refuses to place a `bug` issue that has no `Class:` line (crates/north-
 - north#610: settled by 9acedb2be and 6909cadd2. No landed orphan land-* branch remains on origin.
 - north#632: merged into north#573.
 - north#579: db9698881 closed it. Its per-run tier cost cause moved to north#255.
+- north#625: its own worker closed it during the straightening.
 
 ## DAG
 
