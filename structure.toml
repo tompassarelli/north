@@ -37,7 +37,7 @@ may_use = ["north-dispatch", "north-providers"]
 
 [[crate_dag.crate]]
 name = "north-capacity-host"
-paths = ["crates/north-capacity-host/src/**", "crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**"]
+paths = ["crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**", "crates/north-capacity-host/src/**"]
 may_use = ["north-capacity", "north-fleet", "north-threads"]
 
 [[crate_dag.crate]]
@@ -92,7 +92,7 @@ days = 3
 hotspot_score = 0
 
 [ignore]
-paths = ["target/**", "src/fixtures/**", "crates/*/src/fixtures/**", "crates/north-core/src/router/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**"]
+paths = ["target/**", "src/fixtures/**", "crates/*/src/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**", "crates/north-pace/src/router/fixtures/**"]
 
 [[module]]
 name = "tests"
@@ -125,7 +125,7 @@ may_use = ["foundation"]
 
 [[module]]
 name = "domain"
-paths = ["crates/north-core/src/domain/**", "crates/north-core/src/router.rs", "crates/north-core/src/router/**", "crates/north-core/src/pace/**"]
+paths = ["crates/north-core/src/domain/**", "crates/*/src/pace/**", "crates/*/src/router.rs", "crates/*/src/router/**"]
 responsibility = "Workforce members, messages, briefs, work-item refs, routing, pace and placement policy."
 may_use = ["foundation", "crate-roots"]
 
@@ -185,7 +185,7 @@ may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "capacity"
-paths = ["crates/north-capacity-host/src/lib.rs", "crates/north-core/src/capacity/**", "crates/north-capacity-host/src/capacity/**"]
+paths = ["crates/north-core/src/capacity/**", "crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
 may_use = ["shell", "platform", "foundation", "crate-roots", "fleet", "threads"]
 
@@ -203,7 +203,7 @@ may_use = ["ledger", "fleet", "threads", "capacity", "usage", "domain", "shell",
 
 [[module]]
 name = "usage"
-paths = ["crates/north-core/src/usage/**"]
+paths = ["crates/*/src/usage/**"]
 responsibility = "Account usage readings: the latest reading of each account window from the threads ledger."
 may_use = ["domain", "platform", "foundation", "crate-roots"]
 
@@ -273,7 +273,7 @@ may_use = []
 name = "crate-roots"
 paths = ["crates/*/src/lib.rs"]
 responsibility = "Crate roots: module declarations and the re-exports that keep crate:: paths stable across the workspace split."
-may_use = ["foundation", "platform", "shell", "autoland_status"]
+may_use = ["foundation", "platform", "shell", "autoland_status", "domain", "usage"]
 
 [[registered]]
 id = "guard.corpus_scan"

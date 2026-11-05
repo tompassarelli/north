@@ -411,7 +411,12 @@ The leaf moves (ranks 1 to 5) can land first, each depending on north-core the w
 (ranks 6 to 11) save little themselves. They leave north-core so the residual becomes a leaf, so north-core's
 ratcheted size shrinks, and so the hubs sit low in the DAG.
 
-`pace` (10.7 s) is the one predicted miss of the 10 s gate, with `fleet` (9.8 s) close behind. Their edits
+`pace` (10.7 s) is the one predicted miss of the 10 s gate, with `fleet` (9.8 s) close behind. Box 4-13
+measured it after the move, on a 4-CPU cloud worker (Cranelift dev profile, median of 3, a blank line appended
+to `pace/limits.rs`): `cargo test --workspace --no-run` 14.6 s, against 14.5 s for the same edit on the parent
+main; `cargo test -p north-pace --no-run` 2.7 s, against 9.9 s for `-p north-core` on the parent. So the
+hub edit costs the workspace what it did, as the model's −96 says, and the crate's own test loop is 3.7 times
+faster. Their edits
 rebuild every lib chain up to `ops`. The gate times a single leaf file (`structure.toml` names
 `code_health/source.rs`, which lands in north-guard at 6.6 s), so they stay slow without failing the gate.
 `fleet` sits at 7.8k of its 10k hub cap while taking 91 commits a week. If it nears the cap, the relief is

@@ -1,4 +1,5 @@
 pub use north_base::{autoland_status, error, foundation, platform, shell, test_inputs};
+pub use north_pace::{pace, router, usage};
 
 pub mod agent_catalog;
 pub mod agent_config_check;
@@ -12,11 +13,8 @@ pub mod fleet;
 pub mod grounding;
 pub mod health;
 pub mod ledger;
-pub mod pace;
 pub mod providers;
 pub mod proxy;
-pub mod router;
 pub mod split;
 pub mod threads;
-pub mod usage;
 pub mod work_items;

@@ -111,7 +111,7 @@ fn stderr(output: &Output) -> String {
 }
 
 fn scenario(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/north-core/src/router/fixtures/scenarios").join(format!("{name}.json"))
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/north-pace/src/router/fixtures/scenarios").join(format!("{name}.json"))
 }
 
 fn bands(plan: &Value) -> Value {

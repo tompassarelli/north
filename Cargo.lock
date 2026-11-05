@@ -1000,6 +1000,7 @@ dependencies = [
  "crossterm 0.28.1",
  "fancy-regex",
  "north-base",
+ "north-pace",
  "percent-encoding",
  "proptest",
  "ratatui",
@@ -1075,6 +1076,23 @@ dependencies = [
  "tempfile",
  "time",
  "tokio",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-pace"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "proptest",
+ "regex",
+ "rusqlite",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
  "toml_edit",
 ]
 

@@ -5,10 +5,10 @@ use std::process::{Command, Output};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-const STATE: &str = include_str!("../../crates/north-core/src/usage/fixtures/gate_state.json");
-const POLICY: &str = include_str!("../../crates/north-core/src/router/fixtures/policy/orchestration.toml");
+const STATE: &str = include_str!("../../crates/north-pace/src/usage/fixtures/gate_state.json");
+const POLICY: &str = include_str!("../../crates/north-pace/src/router/fixtures/policy/orchestration.toml");
 const FROZEN: &str = "2026-10-28T12:00:00Z";
-const OLD: &str = include_str!("../../crates/north-core/src/usage/fixtures/gate_python.json");
+const OLD: &str = include_str!("../../crates/north-pace/src/usage/fixtures/gate_python.json");
 
 struct Rig {
     _scratch: tempfile::TempDir,
