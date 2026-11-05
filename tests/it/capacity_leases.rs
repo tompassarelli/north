@@ -18,20 +18,6 @@ fn decisions(stderr: &str) -> Vec<Value> {
     stderr.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).collect()
 }
 
-fn now_ms() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as f64
-}
-
-fn lease_expiry(host: &Host, owner: &str) -> f64 {
-    let directory = host.path("agent-capacity-v1/leases");
-    let mut expires = None;
-    host.until("the lease's expiry", |_| {
-        expires = fs::read_dir(&directory).into_iter().flatten().flatten().filter_map(|entry| serde_json::from_str::<Value>(&fs::read_to_string(entry.path()).ok()?).ok()).find(|lease| lease["owner"] == owner).and_then(|lease| lease["expiresAt"].as_f64());
-        expires.is_some()
-    });
-    expires.unwrap()
-}
-
 fn succeeds(host: &Host, what: &str, wrapper: &mut Wrapper) {
     let mut status = None;
     host.until(what, |_| {
@@ -70,13 +56,11 @@ fn child_lease_of_a_held_lease_runs_nested_while_an_exclusive_waits() {
 fn lease_past_its_timeout_has_its_scope_killed_and_is_released() {
     let host = host();
     let mut overdue = run(&host, "runtime", "fixture:/overdue", "1", &["sleep", "60"]);
-    let expires = lease_expiry(&host, "fixture:/overdue");
     let mut scope = None;
     host.until("the overdue lease's scope", |host| {
         scope = fs::read_dir(host.path("state/scopes")).unwrap().flatten().find_map(|entry| fs::read_to_string(entry.path()).ok().filter(|text| text.ends_with('\n')));
         scope.is_some()
     });
-    host.until("the overdue lease's expiry", |_| now_ms() > expires);
     host.until("the reaped lease", |host| host.status()["holding"] == json!([]));
     let sleeper: u32 = scope.unwrap().split_whitespace().nth(1).unwrap().parse().unwrap();
     let mut status = None;

@@ -114,10 +114,26 @@ fn test_due_lists_a_passed_revisit_and_omits_paid_and_future_debt() {
 fn test_steering_records_refuse_missing_grounding_and_rank_revisit_evidence() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path();
-    let output = run(repo, &["--he"]);
-    assert_eq!(output.status.code(), Some(0));
-    assert!(output.stdout.starts_with(b"usage: provenance"));
-    assert!(output.stderr.is_empty());
+    for args in [
+        vec!["--he"],
+        vec!["--junk", "--help"],
+        vec!["--junk", "debt", "--help"],
+        vec!["check", "--hel"],
+        vec!["debt", "--he"],
+    ] {
+        let output = run(repo, &args);
+        assert_eq!(output.status.code(), Some(0));
+        assert!(output.stdout.starts_with(b"usage: provenance"));
+        assert!(output.stderr.is_empty());
+    }
+    for args in [
+        vec!["--help=x"],
+        vec!["debt", "--help=x"],
+        vec!["--junk"],
+        vec!["--junk", "debt"],
+    ] {
+        assert_eq!(run(repo, &args).status.code(), Some(2));
+    }
     let output = Command::new(env!("CARGO_BIN_EXE_north"))
         .args(["issue-box-lint", "north#83", "--repo", "north", "north#84"])
         .output()
@@ -127,6 +143,13 @@ fn test_steering_records_refuse_missing_grounding_and_rank_revisit_evidence() {
         String::from_utf8_lossy(&output.stderr),
         "usage: issue-box-lint [-h] [--repo REPO] [issues ...]\nissue-box-lint: error: unrecognized arguments: north#84\n"
     );
+    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["issue-box-lint", "--he"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.starts_with(b"usage: issue-box-lint"));
+    assert!(output.stderr.is_empty());
     git(repo, &["init", "-q", "-b", "main"]);
     write(repo, "AGENTS.md", "# Policy\n- Preserve main checkouts.\n");
     write(repo, "old/hooks/retained.sh", "#!/bin/sh\nexit 3\n");

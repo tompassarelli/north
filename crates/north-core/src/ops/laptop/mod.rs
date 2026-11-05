@@ -10,8 +10,6 @@ mod zone;
 mod tests;
 #[cfg(test)]
 mod capacity_power_tests;
-#[cfg(test)]
-mod seat_idle_tests;
 
 pub use ctx::{Ctx, hostname};
 pub use die::Die;

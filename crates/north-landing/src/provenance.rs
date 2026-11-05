@@ -891,74 +891,28 @@ options:
   --event EVENT  exact recorded event trigger that fired
 "#;
 
-enum Invocation {
-    Check { base: String, head: String },
-    Debt { paths: Vec<String>, only_due: bool },
-    Audit { paths: Vec<String>, db: String, events: Vec<String> },
-}
-
-#[derive(Debug)]
-enum Exit {
-    Help(&'static str),
-    Usage { command: String, message: String },
-}
-
-impl Exit {
-    fn usage(command: &str, message: impl Into<String>) -> Self {
-        Exit::Usage { command: command.to_owned(), message: message.into() }
-    }
-
-    fn code(&self) -> u8 {
-        match self {
-            Exit::Help(_) => 0,
-            Exit::Usage { .. } => 2,
-        }
-    }
-
-    fn stdout(&self) -> &str {
-        match self {
-            Exit::Help(text) => text,
-            Exit::Usage { .. } => "",
-        }
-    }
-
-    fn stderr(&self) -> String {
-        let Exit::Usage { command, message } = self else {
-            return String::new();
-        };
-        let help = match command.as_str() {
-            "check" => HELP_CHECK,
-            "debt" => HELP_DEBT,
-            "audit" => HELP_AUDIT,
-            _ => HELP,
-        };
-        let name = if command.is_empty() { "provenance".to_owned() } else { format!("provenance {command}") };
-        format!("{}\n{name}: error: {message}\n", help.lines().next().unwrap())
-    }
-}
-
-fn is_help(key: &str) -> bool {
-    key == "-h" || (key.len() > 2 && "--help".starts_with(key))
-}
-
-fn parse(args: &[String]) -> Result<Invocation, Exit> {
+pub fn run(args: &[String]) -> u8 {
     let mut start = 0;
     while start < args.len() && args[start].starts_with('-') && args[start] != "--" {
         let (key, value) = args[start]
             .split_once('=')
             .map_or((args[start].as_str(), None), |(k, v)| (k, Some(v)));
-        if is_help(key) {
+        if key == "-h" || (key.len() > 2 && "--help".starts_with(key)) {
             if let Some(value) = value {
-                return Err(Exit::usage("", format!("argument -h/--help: ignored explicit argument '{value}'")));
+                return usage_error(
+                    "",
+                    &format!("argument -h/--help: ignored explicit argument '{value}'"),
+                );
             }
-            return Err(Exit::Help(HELP));
+            print!("{HELP}");
+            return 0;
         }
         start += 1;
     }
     let leading = &args[..start];
     let args = &args[start..];
     let Some(command) = args.first() else {
-        return Err(Exit::usage("", "the following arguments are required: command"));
+        return usage_error("", "the following arguments are required: command");
     };
     if command == "check" {
         let mut positional = Vec::new();
@@ -968,11 +922,15 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
             let (key, value) = arg
                 .split_once('=')
                 .map_or((arg.as_str(), None), |(k, v)| (k, Some(v)));
-            if options && is_help(key) {
+            if options && (key == "-h" || (key.len() > 2 && "--help".starts_with(key))) {
                 if let Some(value) = value {
-                    return Err(Exit::usage("check", format!("argument -h/--help: ignored explicit argument '{value}'")));
+                    return usage_error(
+                        "check",
+                        &format!("argument -h/--help: ignored explicit argument '{value}'"),
+                    );
                 }
-                return Err(Exit::Help(HELP_CHECK));
+                print!("{HELP_CHECK}");
+                return 0;
             } else if options && arg == "--" {
                 options = false;
             } else if options && arg.starts_with('-') && !re!(r"\A-\d+$|\A-\d*\.\d+$").is_match(arg)
@@ -985,26 +943,37 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
             }
         }
         if positional.len() < 2 {
-            return Err(Exit::usage(
+            return usage_error(
                 "check",
                 if positional.is_empty() {
                     "the following arguments are required: base, head"
                 } else {
                     "the following arguments are required: head"
                 },
-            ));
+            );
         }
         unknown.splice(0..0, leading.iter().map(String::as_str));
         if !unknown.is_empty() {
-            return Err(Exit::usage("", format!("unrecognized arguments: {}", unknown.join(" "))));
+            return usage_error(
+                "",
+                &format!("unrecognized arguments: {}", unknown.join(" ")),
+            );
         }
-        return Ok(Invocation::Check { base: positional[0].clone(), head: positional[1].clone() });
+        return match check(Path::new("."), positional[0], positional[1]) {
+            Ok(c) => c,
+            Err(e) => {
+                eprint!("{e}");
+                1
+            }
+        };
     }
     if command != "debt" && command != "audit" {
-        return Err(Exit::usage(
+        return usage_error(
             "",
-            format!("argument command: invalid choice: '{command}' (choose from 'check', 'debt', 'audit')"),
-        ));
+            &format!(
+                "argument command: invalid choice: '{command}' (choose from 'check', 'debt', 'audit')"
+            ),
+        );
     }
     let mut paths = Vec::new();
     let mut events = Vec::new();
@@ -1028,11 +997,22 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
         let (key, inline) = args[i]
             .split_once('=')
             .map_or((args[i].as_str(), None), |(k, v)| (k, Some(v)));
-        if is_help(key) {
+        if key == "-h" || (key.len() > 2 && "--help".starts_with(key)) {
             if let Some(value) = inline {
-                return Err(Exit::usage(command, format!("argument -h/--help: ignored explicit argument '{value}'")));
+                return usage_error(
+                    command,
+                    &format!("argument -h/--help: ignored explicit argument '{value}'"),
+                );
             }
-            return Err(Exit::Help(if command == "debt" { HELP_DEBT } else { HELP_AUDIT }));
+            print!(
+                "{}",
+                if command == "debt" {
+                    HELP_DEBT
+                } else {
+                    HELP_AUDIT
+                }
+            );
+            return 0;
         }
         let options: &[&str] = if command == "debt" {
             &["--due", "--repo"]
@@ -1045,13 +1025,22 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
             .filter(|opt| key.starts_with("--") && opt.starts_with(key))
             .collect();
         if candidates.len() > 1 {
-            return Err(Exit::usage(command, format!("ambiguous option: {key} could match {}", candidates.join(", "))));
+            return usage_error(
+                command,
+                &format!(
+                    "ambiguous option: {key} could match {}",
+                    candidates.join(", ")
+                ),
+            );
         }
         let key = candidates.first().copied().unwrap_or(key);
         match key {
             "--due" if command == "debt" => {
                 if let Some(value) = inline {
-                    return Err(Exit::usage(command, format!("argument --due: ignored explicit argument '{value}'")));
+                    return usage_error(
+                        command,
+                        &format!("argument --due: ignored explicit argument '{value}'"),
+                    );
                 }
                 only_due = true;
             }
@@ -1064,7 +1053,10 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
                         || (args[i].starts_with('-')
                             && !re!(r"\A-\d+$|\A-\d*\.\d+$").is_match(&args[i]))
                     {
-                        return Err(Exit::usage(command, format!("argument {key}: expected one argument")));
+                        return usage_error(
+                            command,
+                            &format!("argument {key}: expected one argument"),
+                        );
                     }
                     &args[i]
                 };
@@ -1082,32 +1074,15 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
         i += 1;
     }
     if !unknown.is_empty() {
-        return Err(Exit::usage("", format!("unrecognized arguments: {}", unknown.join(" "))));
+        return usage_error(
+            "",
+            &format!("unrecognized arguments: {}", unknown.join(" ")),
+        );
     }
-    Ok(if command == "debt" { Invocation::Debt { paths, only_due } } else { Invocation::Audit { paths, db, events } })
-}
-
-pub fn run(args: &[String]) -> u8 {
-    let invocation = match parse(args) {
-        Ok(invocation) => invocation,
-        Err(exit) => {
-            print!("{}", exit.stdout());
-            eprint!("{}", exit.stderr());
-            return exit.code();
-        }
-    };
-    let result = match invocation {
-        Invocation::Check { base, head } => {
-            return match check(Path::new("."), &base, &head) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprint!("{e}");
-                    1
-                }
-            };
-        }
-        Invocation::Debt { paths, only_due } => debt(&paths, only_due),
-        Invocation::Audit { paths, db, events } => audit(&paths, &db, &events),
+    let result = if command == "debt" {
+        debt(&paths, only_due)
+    } else {
+        audit(&paths, &db, &events)
     };
     if let Err(error) = result {
         eprintln!("provenance: {error}");
@@ -1115,33 +1090,24 @@ pub fn run(args: &[String]) -> u8 {
     }
     0
 }
+fn usage_error(command: &str, message: &str) -> u8 {
+    let help = match command {
+        "check" => HELP_CHECK,
+        "debt" => HELP_DEBT,
+        "audit" => HELP_AUDIT,
+        _ => HELP,
+    };
+    let name = if command.is_empty() {
+        "provenance".to_owned()
+    } else {
+        format!("provenance {command}")
+    };
+    eprintln!("{}\n{name}: error: {message}", help.lines().next().unwrap());
+    2
+}
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn test_help_and_usage_errors_exit_like_argparse() {
-        let words = |args: &[&str]| args.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
-        for args in [
-            vec!["--he"],
-            vec!["--junk", "--help"],
-            vec!["--junk", "debt", "--help"],
-            vec!["check", "--hel"],
-            vec!["debt", "--he"],
-        ] {
-            let exit = parse(&words(&args)).err().unwrap();
-            assert_eq!(exit.code(), 0);
-            assert!(exit.stdout().starts_with("usage: provenance"));
-            assert!(exit.stderr().is_empty());
-        }
-        for args in [
-            vec!["--help=x"],
-            vec!["debt", "--help=x"],
-            vec!["--junk"],
-            vec!["--junk", "debt"],
-        ] {
-            assert_eq!(parse(&words(&args)).err().map(|exit| exit.code()), Some(2));
-        }
-    }
     #[test]
     fn test_galileo_plan_row_bar_is_found_and_a_measurement_is_not() {
         assert_eq!(clock::parse_python_date("२०२६१०१५"), None);

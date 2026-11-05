@@ -64,13 +64,7 @@ pub(crate) fn issue(item: &str) -> Result<(&str, &str), String> {
         .map(|(repo, number)| (repository(repo), number))
         .ok_or_else(|| format!("{item}: expected REPO#N or OWNER/REPO#N"))
 }
-enum Parsed<'a> {
-    Help,
-    Usage(String),
-    Lint { items: Vec<&'a String>, repos: Vec<&'a str> },
-}
-
-fn parse(args: &[String]) -> Parsed<'_> {
+fn lint(args: &[String]) -> Result<u8, String> {
     let mut items = Vec::new();
     let mut repos = Vec::new();
     let mut i = 0;
@@ -84,11 +78,12 @@ fn parse(args: &[String]) -> Parsed<'_> {
             .map_or((args[i].as_str(), None), |(k, v)| (k, Some(v)));
         if !positional && (key == "-h" || (key.len() > 2 && "--help".starts_with(key))) {
             if let Some(value) = inline {
-                return Parsed::Usage(format!(
+                return Ok(usage_error(&format!(
                     "argument -h/--help: ignored explicit argument '{value}'"
-                ));
+                )));
             }
-            return Parsed::Help;
+            print!("{HELP}");
+            return Ok(0);
         }
         if !positional && key.starts_with("--") && key.len() > 2 && "--repo".starts_with(key) {
             positional_done |= !items.is_empty();
@@ -102,7 +97,7 @@ fn parse(args: &[String]) -> Parsed<'_> {
                 || (args[i].starts_with('-')
                     && !negative_number.is_match(&args[i]))
             {
-                return Parsed::Usage("argument --repo: expected one argument".to_owned());
+                return Ok(usage_error("argument --repo: expected one argument"));
             }
             repos.push(args[i].as_str());
         } else if !positional && args[i] == "--" {
@@ -121,19 +116,11 @@ fn parse(args: &[String]) -> Parsed<'_> {
         i += 1;
     }
     if !unknown.is_empty() {
-        return Parsed::Usage(format!("unrecognized arguments: {}", unknown.join(" ")));
+        return Ok(usage_error(&format!(
+            "unrecognized arguments: {}",
+            unknown.join(" ")
+        )));
     }
-    Parsed::Lint { items, repos }
-}
-fn lint(args: &[String]) -> Result<u8, String> {
-    let (items, repos) = match parse(args) {
-        Parsed::Help => {
-            print!("{HELP}");
-            return Ok(0);
-        }
-        Parsed::Usage(message) => return Ok(usage_error(&message)),
-        Parsed::Lint { items, repos } => (items, repos),
-    };
     let mut issues = Vec::new();
     for item in items {
         let (repo, number) = issue(item)?;
@@ -175,11 +162,11 @@ fn lint(args: &[String]) -> Result<u8, String> {
     );
     Ok(u8::from(count > 0))
 }
-fn usage_text(message: &str) -> String {
-    format!("{}\nissue-box-lint: error: {message}\n", HELP.lines().next().unwrap())
-}
 fn usage_error(message: &str) -> u8 {
-    eprint!("{}", usage_text(message));
+    eprintln!(
+        "{}\nissue-box-lint: error: {message}",
+        HELP.lines().next().unwrap()
+    );
     2
 }
 const HELP: &str = r#"usage: issue-box-lint [-h] [--repo REPO] [issues ...]
@@ -207,20 +194,6 @@ pub fn run(args: &[String]) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn test_arguments_after_a_repo_and_a_help_prefix_parse_like_argparse() {
-        let words = |args: &[&str]| args.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
-        let Parsed::Usage(message) = parse(&words(&["north#83", "--repo", "north", "north#84"])) else {
-            panic!("a positional after --repo parsed");
-        };
-        assert_eq!(usage_error(&message), 2);
-        assert_eq!(
-            usage_text(&message),
-            "usage: issue-box-lint [-h] [--repo REPO] [issues ...]\nissue-box-lint: error: unrecognized arguments: north#84\n"
-        );
-        assert!(matches!(parse(&words(&["--he"])), Parsed::Help));
-        assert!(HELP.starts_with("usage: issue-box-lint"));
-    }
     #[test]
     fn test_makgora_12_oct_boxes_flag_only_mechanical_checks_routed_to_tom() {
         let body=[
