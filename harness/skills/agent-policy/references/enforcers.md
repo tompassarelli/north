@@ -3,7 +3,7 @@
 Read this before writing a prose rule, to see whether an enforcer already
 holds it, and when you delete prose an enforcer took over. Hook rows come from
 `harness/policy-owners.toml` (`guard[]`) and the hook `triggerDescription`s in
-south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
+south `agents/catalog-config.json`; gate rows come from `crates/north-safe-push` and
 `north language-gate`. Update this table in the same change as the enforcer.
 
 ## Edit-time hooks

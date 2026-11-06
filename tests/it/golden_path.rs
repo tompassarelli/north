@@ -53,6 +53,7 @@ impl Rig {
         for link in [tools.join("north"), runtime.join("north")] {
             std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), link).unwrap();
         }
+        crate::safe_push::link(&tools);
         shim::write_script(&tools.join("betterleaks"), "exit 0\n");
         shim::write_script(&tools.join("gh"), "case \"$1\" in repo) echo PUBLIC;; issue) echo '[]';; *) exit 1;; esac\n");
         git(&root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
@@ -94,7 +95,7 @@ impl Rig {
     }
 
     fn safe_push(&self) -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push")
+        self.root.join("bin/safe-push")
     }
 
     fn launch_worker(&self) -> Value {

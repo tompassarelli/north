@@ -10,7 +10,7 @@ use super::{Class, Era, Lane};
 use crate::land::queue;
 
 const INFRA_MARKERS: [&str; 5] = ["hung:", "exited 255", "cannot lock ref", "timed out", "red-main"];
-const LANDER_PATHS: [&str; 4] = ["crates/north-landing/", "crates/north-safe-push/", "bin/safe-push", "tests/it/land"];
+const LANDER_PATHS: [&str; 3] = ["crates/north-landing/", "crates/north-safe-push/", "tests/it/land"];
 const TOP_LEVEL_AREAS: [&str; 5] = ["src", "tests", "harness", "bin", "docs"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]

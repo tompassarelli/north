@@ -32,6 +32,7 @@ impl Gex45 {
         fs::write(root.join("home/.config/threads/remote"), "nexus\n").unwrap();
         fs::write(root.join("orchestration.toml"), "[hosts.gex45]\nledger_client = true\n\n[hosts.nexus]\nsettles_fleet = true\n").unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), tools.join("north")).unwrap();
+        crate::safe_push::link(&tools);
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), root.join("home/.local/state/north/current/north")).unwrap();
         let trace = root.join("trace");
         shim::write_script(&tools.join("ssh"), &format!("printf 'ssh %s\\n' \"$*\" >>'{}'\ncat >'{}'\necho {LANDED}\n", trace.display(), root.join("received.mbox").display()));
@@ -68,7 +69,7 @@ impl Gex45 {
     fn safe_push(&self, repo: &Path) -> Output {
         let mut paths = vec![self.root.join("tools")];
         paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
-        Command::new(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/safe-push"))
+        Command::new(self.root.join("tools/safe-push"))
             .current_dir(repo)
             .args(["--to", "main"])
             .env("PATH", std::env::join_paths(paths).unwrap())

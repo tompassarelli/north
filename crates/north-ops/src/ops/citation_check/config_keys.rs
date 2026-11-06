@@ -5,7 +5,7 @@ use toml_edit::DocumentMut;
 
 const DEFAULTS: &str = "harness/defaults.toml";
 const SAFE_PUSH: &str = ".safe-push";
-const SAFE_PUSH_READERS: &[&str] = &["bin/safe-push", "crates/north-landing/", "crates/north-safe-push/"];
+const SAFE_PUSH_READERS: &[&str] = &["crates/north-landing/", "crates/north-safe-push/"];
 const CODE: &[(&str, &str)] = &[("src/", ".rs"), ("crates/", ".rs"), ("harness/", ".ts"), ("agent-machinery/", ".ts")];
 
 #[derive(Debug, Eq, PartialEq)]

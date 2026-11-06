@@ -7,7 +7,6 @@ use super::verdict::Outcome;
 pub struct Target<'a> {
     pub root: &'a str,
     pub origin_url: &'a str,
-    pub safe_push: &'a str,
     pub lane: &'a str,
     pub branch: &'a str,
     pub branch_ref: &'a str,
@@ -24,7 +23,7 @@ impl Target<'_> {
         let own = |parts: &[&str]| Some(parts.iter().map(|part| (*part).to_owned()).collect());
         let outgoing = format!("{}..{}", self.base, self.head);
         match gate {
-            Gate::Language => own(&["language", "--base", self.base, "--head", self.head, "--origin", self.origin_url, "--safe-push", self.safe_push]),
+            Gate::Language => own(&["language", "--base", self.base, "--head", self.head, "--origin", self.origin_url]),
             Gate::StaleRevert => own(&[
                 "stale-revert",
                 "--repo",

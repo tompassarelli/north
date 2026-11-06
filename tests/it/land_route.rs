@@ -37,6 +37,7 @@ impl Fixture {
         fs::create_dir_all(&bin).unwrap();
         shim::write_executable(&bin.join("betterleaks"), "#!/bin/sh\nexit 0\n");
         shim::write_executable(&bin.join("north"), NORTH);
+        crate::safe_push::link(&bin);
         fixture
     }
 
@@ -97,7 +98,7 @@ impl Fixture {
 
     fn safe_push_on(&self, arguments: &[&str], config: &str, system_path: &str) -> Run {
         let path = format!("{}:{system_path}", self.top().join("bin").display());
-        let output = Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push"))
+        let output = Command::new(self.top().join("bin/safe-push"))
             .args(arguments)
             .current_dir(self.repo())
             .env("PATH", path)

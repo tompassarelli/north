@@ -422,6 +422,7 @@ the per-lane code still exists.
   - one real landing each in north and south goes through the link, each sha an ancestor of its
     origin/main;
   - `north health` reports the land probe passing.
+  - Landed 2026-11-06: `bin/safe-push` and its allowlist entry are gone. `Settings` takes the safe-push path as the running binary (`current_exe()`, absolute and pinned to one runtime, so a `current` that moves during a landing cannot run the publication scan in another runtime); the land-check runner sets argv[0] `safe-push` for that scan (P13), so the path need not be the link. The language scan, which runs in process, drops `--safe-push`, whose only use was naming the checkout of the bash wrapper in a skew refusal. `tests/it/safe_push::link` makes the link for `safe_push_tag`, `safe_push_remote_land`, `land_route` and `golden_path`, and `SAFE_PUSH_SELF` is gone from the code and the helper's scrub list. The three `LANDER_PATHS` lists and the config-key citation readers drop `bin/safe-push`. `runtime_floor_gate_tests.rs` needed no change: nothing in it names safe-push or `bin/`.
 - **P15 Boundaries.** Covered harness change: review per the rule above. Delete the verbs that only bash
   called: `north land push`, `north land route`, `north land restore`, `north remote-land` and
   `north safe-push-result`. Delete the test-only environment hooks, and settle structure.toml. Done when:

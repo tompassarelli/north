@@ -5,7 +5,7 @@ use std::process::{Command, ExitStatus, Stdio};
 use super::git::merge_base;
 use crate::land::after::follow::program;
 
-const USAGE: &str = "usage: north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]";
+const USAGE: &str = "usage: north land scan language --base BASE --head HEAD [--origin URL]";
 pub const STOP: u8 = 69;
 
 #[derive(Default)]
@@ -13,7 +13,6 @@ struct Arguments {
     base: String,
     head: String,
     origin: String,
-    safe_push: String,
 }
 
 fn parse(arguments: &[String]) -> Option<Arguments> {
@@ -25,7 +24,6 @@ fn parse(arguments: &[String]) -> Option<Arguments> {
             "--base" => parsed.base = value,
             "--head" => parsed.head = value,
             "--origin" => parsed.origin = value,
-            "--safe-push" => parsed.safe_push = value,
             _ => return None,
         }
     }
@@ -69,8 +67,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let gates = Gates { root, base, head: arguments.head.clone() };
     for subcommand in ["language-gate", "build-cache-gate"] {
         if lacks(subcommand) {
-            let needed = needed(&arguments.safe_push);
-            eprintln!("safe-push: this host's north runtime lacks north {subcommand}, which safe-push {needed} calls; run north runtime update to {needed} or later; NOT pushed.");
+            eprintln!("safe-push: this host's north runtime lacks north {subcommand}, which safe-push calls; run north runtime update; NOT pushed.");
             return STOP;
         }
     }
@@ -107,11 +104,6 @@ fn lacks(subcommand: &str) -> bool {
     };
     let unrecognized = format!("unrecognized command '{subcommand}");
     String::from_utf8_lossy(&output.stdout).contains(&unrecognized) || String::from_utf8_lossy(&output.stderr).contains(&unrecognized)
-}
-
-fn needed(safe_push: &str) -> String {
-    let directory = Path::new(safe_push).parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    git(Some(&directory.to_string_lossy()), &["rev-parse", "--short=12", "HEAD"]).filter(|oid| !oid.is_empty()).unwrap_or_else(|| "this safe-push".to_owned())
 }
 
 fn git(directory: Option<&str>, arguments: &[&str]) -> Option<String> {

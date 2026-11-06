@@ -36,7 +36,7 @@ pub fn run(arguments: &[String], shell: &Shell) -> u8 {
         },
         Ok(Plan::Push(Arguments { delete_tag: Some(tag), dry_run, .. })) => delete_tag(&DeleteRequest { tag: &tag, dry_run }, shell),
         Ok(Plan::Push(_)) => {
-            eprintln!("safe-push: north safe-push publishes tags only; land branches with bin/safe-push");
+            eprintln!("safe-push: north safe-push publishes tags only; land branches with safe-push");
             Err(Refused(2))
         }
         Err(refusal) => {

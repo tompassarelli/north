@@ -242,7 +242,8 @@ fn stage<'a>(fixture: &Fixture, case: Case<'a>) -> Staged<'a> {
 }
 
 fn all_entries(staged: &[Staged]) -> Vec<Observed> {
-    let entry = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push");
+    let directory = tempfile::tempdir().unwrap();
+    let entry = crate::safe_push::link(directory.path());
     let script_program = [entry.to_str().unwrap()];
     let binary_program = [env!("CARGO_BIN_EXE_north"), "safe-push"];
     std::thread::scope(|scope| {
@@ -252,7 +253,7 @@ fn all_entries(staged: &[Staged]) -> Vec<Observed> {
 }
 
 fn compare(script: Observed, binary: Observed, case: &Case) -> Observed {
-    assert_eq!(script.status, binary.status, "exit code differs for {:?}\nbin/safe-push: {script:#?}\nnorth safe-push: {binary:#?}", case.arguments);
+    assert_eq!(script.status, binary.status, "exit code differs for {:?}\nthe safe-push link: {script:#?}\nnorth safe-push: {binary:#?}", case.arguments);
     assert_eq!(script.stdout, binary.stdout, "stdout differs for {:?}", case.arguments);
     assert_eq!(script.stderr, binary.stderr, "stderr differs for {:?}", case.arguments);
     assert_eq!(script.remote, binary.remote, "origin differs for {:?}", case.arguments);

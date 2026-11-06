@@ -136,7 +136,6 @@ impl Preflight<'_> {
         let target = Target {
             root,
             origin_url: &identity.origin_url,
-            safe_push: &self.shell.settings.safe_push,
             lane: &outgoing.head,
             branch: identity.branch(),
             branch_ref: identity.branch_ref(),

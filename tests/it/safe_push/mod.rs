@@ -67,8 +67,7 @@ static RUNS: AtomicUsize = AtomicUsize::new(0);
 
 const GH_SHIM: &str = "[ \"$1\" = repo ] && [ -n \"$SAFE_PUSH_TEST_VISIBILITY\" ] || exit 1\necho \"$SAFE_PUSH_TEST_VISIBILITY\"\n";
 
-const SCRUBBED: [&str; 15] = [
-    "SAFE_PUSH_SELF",
+const SCRUBBED: [&str; 14] = [
     "SAFE_PUSH_WATCH",
     "SSH_CLIENT",
     "SSH2_CLIENT",
@@ -144,8 +143,13 @@ pub fn safe_push(scratch: &Scratch) -> PathBuf {
     std::fs::create_dir_all(&bin).unwrap();
     shim::write_script(&bin.join("north"), &NORTH_SHIM.replace("REAL_NORTH", &format!("'{}'", env!("CARGO_BIN_EXE_north"))));
     shim::write_script(&bin.join("gh"), GH_SHIM);
-    symlink(env!("CARGO_BIN_EXE_north"), bin.join("safe-push")).unwrap();
-    bin.join("safe-push")
+    link(&bin)
+}
+
+pub fn link(directory: &Path) -> PathBuf {
+    let entry = directory.join("safe-push");
+    symlink(env!("CARGO_BIN_EXE_north"), &entry).unwrap();
+    entry
 }
 
 pub struct Run<'a> {

@@ -92,8 +92,6 @@ impl Publisher<'_> {
             &outgoing.head,
             "--origin",
             &outgoing.identity.origin_url,
-            "--safe-push",
-            &self.shell.settings.safe_push,
         ];
         if gates::scan(&language).is_err() {
             refusals.push("language gate");

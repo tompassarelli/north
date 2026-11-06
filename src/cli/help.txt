@@ -47,7 +47,7 @@ Commands:
   land-tests [--jobs N] [--cases json] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
   land-actions --workflow FILE --base B --head H --timeout S -- COMMAND...
                                                  Run land checks as a GitHub Actions workflow on a scratch branch and wait for its verdict
-  safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag other than v* (branches still land through bin/safe-push)
+  safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag other than v* (branches land through safe-push --to)
   release VERSION [--notes FILE]                 From a clean main at origin, create and push the annotated tag vVERSION and its GitHub release; a rerun finishes a partial release
   safe-push-result refused SHA REASON MINUTES URL  Print the safe-push refused terminal line
   nix explain <nix subcommand | class>           Print a Nix footgun card, then the option sections of this host's `nix <cmd> --help` it names

@@ -154,7 +154,7 @@ completion.
 ## Landing a change
 
 Agents edit in `~/code/<project>/worktrees/<slug>`, never in `main/`, and land with
-`safe-push --to main` ([bin/safe-push](../bin/safe-push); `safe-push --help` is the full contract;
+`safe-push --to main` (the north binary entered through its `safe-push` link, [crates/north-safe-push](../crates/north-safe-push); `safe-push --help` is the full contract;
 the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure). The "Landing and
 lanes" entries in [features.md](features.md#landing-and-lanes) describe each gate. In outline:
 

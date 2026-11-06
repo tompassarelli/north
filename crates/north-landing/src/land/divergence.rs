@@ -7,7 +7,7 @@ use super::{after, queue, replay, sheriff};
 
 pub const TRAILER: &str = "Replay-change:";
 const KINDS: [&str; 8] = ["landed", "failed", "conflict", "undecided", "deferred", "transient", "red-main", "error"];
-const LANDER_PATHS: [&str; 5] = ["crates/north-landing/", "crates/north-safe-push/", "crates/north-runtime/", "bin/safe-push", "tests/it/land"];
+const LANDER_PATHS: [&str; 4] = ["crates/north-landing/", "crates/north-safe-push/", "crates/north-runtime/", "tests/it/land"];
 const WORKTREE: &str = "lander-divergence";
 
 pub fn declared_kind(line: &str) -> Option<Result<(String, String), String>> {

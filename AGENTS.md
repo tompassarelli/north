@@ -25,7 +25,7 @@ Build output stays in the worktree's `target/`.
 
 ## Routers
 
-- Before changing `bin/safe-push`, `.safe-push` or `crates/north-landing/src/landing/mod.rs`, read [docs/harness.md](docs/harness.md#landing-a-change) for how a lane reaches main.
+- Before changing `crates/north-safe-push`, `.safe-push` or `crates/north-landing/src/landing/mod.rs`, read [docs/harness.md](docs/harness.md#landing-a-change) for how a lane reaches main.
 - Before changing `crates/north-fleet/src/fleet/mod.rs` or `crates/north-tui/src/tui/fleet/mod.rs`, read [docs/architecture.md](docs/architecture.md#owning-boundary) and the [fleet sessions](docs/features.md#fleet-sessions) features.
 - Before changing `crates/north-threads/src/threads/staffing/mod.rs` or `crates/north-pace/src/router.rs`, read [docs/harness.md](docs/harness.md#staffing-a-worker) and the [staffing and routing](docs/features.md#staffing-and-routing) features.
 - Before changing `crates/north-capacity/src/capacity/admission.rs` or a tuned number in `harness/defaults.toml`, read the [machine-capacity skill](harness/skills/machine-capacity/SKILL.md) and the [capacity](docs/features.md#machines-capacity-and-scheduled-jobs) features.

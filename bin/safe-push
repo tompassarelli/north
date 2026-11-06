@@ -1,2 +1,0 @@
-#!/usr/bin/env bash
-exec env SAFE_PUSH_SELF="$(readlink -f "$0")" north safe-push "$@"

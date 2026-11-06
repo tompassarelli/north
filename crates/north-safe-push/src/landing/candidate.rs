@@ -156,7 +156,6 @@ fn observe(shell: &Shell, timeline: &Timeline, root: &str, origin_url: &str, (ba
     let target = Target {
         root,
         origin_url,
-        safe_push: &shell.settings.safe_push,
         lane: head,
         branch: "",
         branch_ref: "",
