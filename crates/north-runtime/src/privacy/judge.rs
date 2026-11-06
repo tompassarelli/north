@@ -69,7 +69,11 @@ fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, ask: &mut dyn
     if let Some(held) = cache.read(&key) {
         return Ok(held);
     }
-    let fresh = parse_answer(kinds, &ask(tier, &prompt(kinds, chunk))?)?;
+    let asked = prompt(kinds, chunk);
+    let fresh = match parse_answer(kinds, &ask(tier, &asked)?) {
+        Ok(fresh) => fresh,
+        Err(_) => parse_answer(kinds, &ask(tier, &asked)?)?,
+    };
     cache.write(&key, &fresh);
     Ok(fresh)
 }
@@ -155,4 +159,22 @@ fn parse_answer(kinds: &Kinds, answer: &str) -> Result<Vec<Finding>, String> {
 
 fn unreadable(answer: &str) -> String {
     format!("the judge answered in an unreadable form ({} characters)", answer.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn asks_once_more_when_an_answer_is_unreadable_and_refuses_after_a_second() {
+        let kinds = super::super::kinds::parse("[[kind]]\nid = \"fixture-kind\"\ndescription = \"a fixture\"\n".to_owned()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache { dir: dir.path().to_owned() };
+        let mut answers = vec!["I cannot judge this.", "NONE"].into_iter();
+        let mut asked = 0;
+        assert_eq!(judge(&kinds, "first text\n", &cache, &mut |_, _| { asked += 1; Ok(answers.next().unwrap().to_owned()) }), Ok(Vec::new()));
+        assert_eq!(asked, 2);
+        let refused = judge(&kinds, "second text\n", &cache, &mut |_, _| Ok("still prose".to_owned()));
+        assert!(refused.is_err_and(|reason| reason.contains("unreadable")));
+    }
 }
