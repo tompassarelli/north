@@ -168,6 +168,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
             }
             number = terminations.next() => {
                 dequeue(root, &ticket);
+                super::handover::forget(root, &ticket);
                 std::process::exit(128 + number);
             }
         }
