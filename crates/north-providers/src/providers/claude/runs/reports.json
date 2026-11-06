@@ -139,5 +139,50 @@
     "report": "Not done: the change is on origin/main and five of the six boxes on north#637 are ticked, but I can't close it yet. The last box needs a full day of the laptop's fleet-tick log with no start timeouts, and that day isn't up. - **Landed:** another session landed my branch as 2d663c0f2e on 2026-11-06 at 6:02 AM laptop time. `git merge-base --is-ancestor 2d663c0f2e origin/main` succeeds. The tick now times each probe job under its own name and gives up waiting on one still running when the 15 s budget runs out, printing a `deferred NAME to the next tick` line. Since then other work has added thre",
     "outcome": "deferred",
     "quiet": false
+  },
+  {
+    "report": "The named-issue rule now counts only real rework, and the change has landed on origin/main as f17f91413. North's 7-day rework rate drops from 185 of 494 landings (37%) to 17 of 495 (3%). **Sample.** I drew 20 of the 171 named-issue reworks at random (seed 657) and read each landing against the commit that triggered it. None of the 20 was true rework: - Every trigger was the next box of the same issue, or unrelated work under an umbrella issue such as north#88, north#360 or north#429. - 14 shared no file with the landing. - The 3 that did change the landing's lines only added to them: a usage ",
+    "quiet": false,
+    "outcome": "done"
+  },
+  {
+    "report": "P8 is on origin/main as `f272d21f1`: the safe-push report and session modules now run through the typed shell, and session's temporary landing edge is gone from `structure.toml`. `north code-health layers origin/main~1 origin/main` reports no new reference breaking the layers. The lane worktree and branch are already gone. The lander ran its full suite only on the landed batch; I did not see that result. Before landing I ran `cargo test -p north-safe-push` (14 passed, 0 failed) and `cargo check`. I did not run the bash suite (scenario 35 is not in this box's Done-when) or `cargo test --test i",
+    "quiet": false,
+    "outcome": "done"
+  },
+  {
+    "report": "The safe-push test fixtures no longer write spans into the north lander's trace. The fix landed on origin/main as aac8e03fa (north#634). **The cause:** the lander sets `NORTH_LAND_SPANS` (defined in `crates/north-landing/src/land/trace/mod.rs:17`) when it runs checks. The safe-push test fixtures inherited it and ran the real `north land checks`, which appended their `sleep 40` and `/tmp/nix-shell…/safe-push-test` spans to north's `land-queue/de2e0e8479546ba9/logs/spans.jsonl`. **The change:** - `bin/safe-push.test.sh:117` now unsets `NORTH_LAND_SPANS` along with the other lander variables it",
+    "quiet": false,
+    "outcome": "done"
+  },
+  {
+    "report": "The fix has landed as b8e34b591 and is on origin/main. The queued-job ship test now passes even when the host is short on disk. **Cause:** 51812b9dd didn't cause this failure. The line \"removing code-p-main/target (… MiB free on the host)\" comes from the ship slot script's own 30 GiB target floor in `land_offload/ship/script.rs`. That check read `df` on whichever host ran the test, so a host with under 30 GiB free deleted the target the test had just built. **Fix:** The script now uses the `AGENT_CAPACITY_DISK_FREE_GIB` reading when it is set, the same way the room probe has done since 94480",
+    "quiet": false,
+    "outcome": "done"
+  },
+  {
+    "report": "The pull hand-over works live and its code is on origin/main. The laptop's permanent `capacity-taker` service is not running yet, because `firn rebuild` stopped before activating it. **Live check.** I ran the taker by hand while gex45 was over its admission limit. A gex45 worker's `cargo --version` (a toolchain command, standing in for `cargo test`; I did not run `cargo test` itself) queued on gex45 under CPU pressure at 06:00:48 UTC. The laptop taker logged `took n634-live-worker (code/north/main 4453c83d5e83: cargo --version) from gex45`, then `finished … exit 0`. The worker got its output ",
+    "quiet": false,
+    "outcome": "not done"
+  },
+  {
+    "report": "Offload from a fleet session now works on ccx33 but is not yet confirmed on gex45. It landed as `8648c68c62e524d3495aab8e742be4910b392492` on origin/main. **Cause.** The fault was in the ssh shim a fleet session's `ssh` goes through, `north ssh-session`, not in ship.rs. It has two faults, both in `crates/north-base/src/platform/ssh_session.rs`: - It took `ssh HOST -- CMD` as a command that starts at `--`. The far shell then ran `-c '-- setsid …'`, which gave `--: invalid option`. - `systemd-run --scope` expanded `${command#nix develop}` and the other `${…}` words in the remote script, which g",
+    "quiet": false,
+    "outcome": "not done"
+  },
+  {
+    "report": "I landed two fixes for after-landing check time, but the box isn't done. On one-crate landings clippy and nextest still take well over 10 s of their own time, because a change to a hub crate such as north-base pulls its tests and its dependents into the run. **1. head-north's build now reuses nextest's build** (landed as 3e2dc5527) - **Cause:** `head-north --build` ran `cargo build --bin north` in the dev profile. Cargo keeps those artifacts separate from the test-profile ones nextest and the slot warmer build, because it hashes the profile name and the dev-dependency features (tokio `test-ut",
+    "quiet": false,
+    "outcome": "not done"
+  },
+  {
+    "report": "Nothing was left in progress when the limit hit: the work landed and the report went out before the compaction attempt. The Done-when is still not met: the after-landing shell-test check's span was 41.2 s, over the 25 s target. **Landed on origin/main** - 7a0b44e53 (7:39 AM): `bin/safe-push.test.sh` now runs as 28 parallel sections, each at most 10 s of measured case time on ccx33. - The Autoland storyline is four cases, each with its own fixture. - The gap case starts its probe on the lane's first Autoland poll instead of sleeping 3 s. - All 148 `safe-push` runs and the same PASS cases",
+    "quiet": false,
+    "outcome": "not done"
+  },
+  {
+    "report": "The runtime pin landed on origin/main as `71d10312b` at 2:25 PM. Two of the three Done-when checks are met; the 20-landing log watch has only just started. **What was actually wrong:** the check wasn't losing its runtime because `current` moved. The failing checks ran on ccx33, an offload host. There, `runtimes/1613a778…/` had been given `north` and `verify-north` before the swap but had no `tree/`. The offload script put that runtime on PATH after checking only that `north` existed, so `north` panicked at `harness.rs:16` with \"has no tree\". ccx33 still had that tree-less directory when I loo",
+    "quiet": false,
+    "outcome": "not done"
   }
 ]

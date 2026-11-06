@@ -42,6 +42,8 @@ const STOP_OPEN: &[&str] = &[r"(?m)^\W*stop\W*:[^\n]*\b(not (done|landed)|nothin
 const STOP_DONE: &[&str] = &[r"(?m)^\W*stop\W*:[^\n]{0,40}\b(done|goal met|landed)\b"];
 const MAIN: &str = r"\b(on|ancestor of) `?(origin/)?main\b";
 const FINISHED: &str = r"(#\d+\W{0,3}(is |was |now )?closed|\bclosed #\d|\bissue\b[^.\n]{0,40}\bclosed\b|\b(is|are|now|all|been|boxes) ticked\b|\bticked (its|the|every|all|both|each)\b|\b(is|are) (now )?(closed|done|fixed)\b)";
+const LANDED_PROSE: &str = r"\b(landed|is|are|now|sits|stays) (on|as|in)\b[^.\n]{0,40}\b(origin/)?main\b|\blanded (it |them )?as `?[0-9a-f]{7,}|\bis an ancestor of `?(origin/)?main";
+const OPEN_PROSE: &str = r"\b(still not met|not met\b|left open|remains? open|still open|is unticked|not ticked|couldn.t|could not (land|finish)|did not land|didn.t land|still fails?|isn.t done|not yet|only just started|still (missing|pending))\b";
 const FAILED: &[&str] = &[r"\b(fail(ed|s|ure)?|refused|error)\b"];
 const WAITING: &[&str] = &[
     r"^\W*(waiting|still (running|deferred|waiting|queued)|i.ll (wait|pick|act|replace|start|score|run))",
@@ -60,6 +62,7 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
         outcome,
     };
     let landed = format!("(?s){MAIN}.*{FINISHED}|{FINISHED}.*{MAIN}");
+    let landed_open = format!("(?s)(?:{LANDED_PROSE}).*(?:{OPEN_PROSE})|(?:{OPEN_PROSE}).*(?:{LANDED_PROSE})");
     vec![
         rule(Scope::Head, false, STOP, "idle"),
         rule(Scope::Head, false, &["(?-i:HANDOFF)"], "handoff"),
@@ -80,6 +83,8 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
         rule(Scope::Head, false, SCORED, "done"),
         rule(Scope::Head, false, DECISION, "not done"),
         rule(Scope::Head, false, WAITING, "idle"),
+        rule(Scope::Report, false, &[&landed_open], "not done"),
+        rule(Scope::Report, false, &[LANDED_PROSE], "done"),
     ]
 });
 
@@ -127,9 +132,9 @@ mod tests {
     }
 
     #[test]
-    fn at_most_two_of_twenty_eight_real_reports_from_2026_10_26_to_2026_11_06_are_labelled_wrong_and_none_that_the_first_try_bar_leaves_out() {
+    fn at_most_two_of_thirty_seven_real_reports_from_2026_10_26_to_2026_11_06_are_labelled_wrong_and_none_that_the_first_try_bar_leaves_out() {
         let reports: Vec<Labelled> = serde_json::from_str(include_str!("reports.json")).unwrap();
-        assert_eq!(reports.len(), 28);
+        assert_eq!(reports.len(), 37);
         let wrong: Vec<(&str, &str)> = reports.iter().map(|labelled| (first_try(labelled), labelled.outcome.as_str())).filter(|(got, want)| got != want).collect();
         assert!(wrong.len() <= 2, "{wrong:?}");
         assert!(wrong.iter().all(|(got, want)| ![*got, *want].iter().any(|outcome| ["reviewer", "deferred", "split"].contains(outcome))), "{wrong:?}");
