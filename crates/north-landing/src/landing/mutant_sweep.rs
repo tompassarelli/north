@@ -16,6 +16,7 @@ const EVERY_TEST: &str = "*";
 pub trait Issues {
     fn body(&self, repo: &str, number: u64) -> Result<String, String>;
     fn set_body(&self, repo: &str, number: u64, body: &str) -> Result<(), String>;
+    fn comment(&self, repo: &str, number: u64, body: &str) -> Result<String, String>;
 }
 
 pub(super) struct MatrixArgs {
@@ -118,6 +119,49 @@ pub(super) fn with_box(body: &str, line: &str) -> Option<String> {
     Some(format!("{}\n{line}\n", body.trim_end()))
 }
 
+const BODY_LIMIT: usize = 60_000;
+
+fn chunks(list: &str) -> Vec<String> {
+    let mut chunks = vec![String::new()];
+    for item in list.split(", ") {
+        let last = chunks.last_mut().expect("chunks starts non-empty");
+        if !last.is_empty() && last.len() + item.len() + 2 > BODY_LIMIT {
+            chunks.push(item.to_owned());
+        } else {
+            if !last.is_empty() {
+                last.push_str(", ");
+            }
+            last.push_str(item);
+        }
+    }
+    chunks
+}
+
+pub(super) fn post(issues: &dyn Issues, repo: &str, number: u64, line: &str, out: &mut dyn Write) -> Result<(), Stop> {
+    let body = issues.body(repo, number).map_err(Stop::Fail)?;
+    if with_box(&body, line).is_none() {
+        writeln!(out, "mutant sweep: {repo}#{number} already carries this sweep's box")?;
+        return Ok(());
+    }
+    let line = match line.split_once(mutant_retire::LIST_START) {
+        Some((head, list)) if body.len() + line.len() >= BODY_LIMIT => {
+            let parts = chunks(list);
+            let mut urls = Vec::new();
+            for (index, part) in parts.iter().enumerate() {
+                let text = format!("{head} ({} of {}):\n\n{part}\n", index + 1, parts.len()).replacen("- [ ] ", "", 1);
+                urls.push(issues.comment(repo, number, &text).map_err(Stop::Fail)?);
+            }
+            format!("{head}{}the list is in {}", mutant_retire::LIST_START, urls.join(", "))
+        }
+        _ => line.to_owned(),
+    };
+    if let Some(body) = with_box(&body, &line) {
+        issues.set_body(repo, number, &body).map_err(Stop::Fail)?;
+    }
+    writeln!(out, "mutant sweep: added to {repo}#{number}: {line}")?;
+    Ok(())
+}
+
 pub(super) struct SweepArgs {
     pub(super) repos: Vec<PathBuf>,
     pub(super) host: String,
@@ -187,11 +231,7 @@ pub(super) fn sweep(args: &SweepArgs, env: &Env, issues: &dyn Issues, out: &mut 
             Ok(line) => {
                 writeln!(out, "{line}")?;
                 if let Some((repo, number)) = &args.issue {
-                    let body = issues.body(repo, *number).map_err(Stop::Fail)?;
-                    match with_box(&body, &line) {
-                        Some(body) => issues.set_body(repo, *number, &body).map_err(Stop::Fail)?,
-                        None => writeln!(out, "mutant sweep: {repo}#{number} already carries this sweep's box")?,
-                    }
+                    post(issues, repo, *number, &line, out)?;
                 }
             }
             Err(Stop::Usage(why) | Stop::Fail(why)) => {

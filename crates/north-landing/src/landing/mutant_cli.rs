@@ -8,6 +8,7 @@ use super::mutant_sweep::{self, Issues, MatrixArgs, RetireArgs, SweepArgs};
 const USAGE: &str = "Usage: north mutant record <id> | north mutant verify <base> <head>
        north mutant matrix [--mutants N] [--seed TEXT] [--timeout SECONDS_PER_TREE]
        north mutant retire --repo NAME --evidence TSV [--matrix TSV]... [--contract TEST]... [--date YYYY-MM-DD] [--days N]
+       north mutant post --issue REPO#N < BOX
        north mutant sweep --repo DIR... [--host NAME] [--mutants N] [--timeout SECONDS_PER_TREE] [--days N] [--issue OWNER_REPO#N] [--remote-north COMMAND]
 Record the scratch copy diff against HEAD; verify each Test-kind kill claim on demand; mutate product code
 and print which tests kill which mutants; propose the tests with no recent catch, no unique kill and no
@@ -41,6 +42,11 @@ pub fn run(arguments: &[String], issues: &dyn Issues) -> u8 {
         [command, base, head] if command == "verify" => super::mutant_verify::verify(&cwd, base, head, &env, &mut io::stdout()),
         [command, rest @ ..] if command == "matrix" => matrix_args(rest).and_then(|args| mutant_sweep::matrix(&cwd, &args, &env, &mut io::stdout(), &mut io::stderr())),
         [command, rest @ ..] if command == "retire" => retire_args(rest).and_then(|args| mutant_sweep::retire(&args)).map(|line| println!("{line}")),
+        [command, flag, issue] if command == "post" && flag == "--issue" => issue_ref(issue).and_then(|(repo, number)| {
+            let mut line = String::new();
+            io::Read::read_to_string(&mut io::stdin(), &mut line)?;
+            mutant_sweep::post(issues, &repo, number, line.trim_end(), &mut io::stdout())
+        }),
         [command, rest @ ..] if command == "sweep" => sweep_args(rest).and_then(|args| mutant_sweep::sweep(&args, &env, issues, &mut io::stdout())),
         _ => Err(Stop::Usage(USAGE.to_owned())),
     });
@@ -121,6 +127,11 @@ fn retire_args(rest: &[String]) -> Result<RetireArgs, Stop> {
     Ok(args)
 }
 
+fn issue_ref(value: &str) -> Result<(String, u64), Stop> {
+    let (repo, issue) = value.split_once('#').ok_or_else(|| Stop::Usage(format!("mutant: --issue {value} is not REPO#N")))?;
+    Ok((repo.to_owned(), number("--issue", issue)?))
+}
+
 fn sweep_args(rest: &[String]) -> Result<SweepArgs, Stop> {
     let mut args = SweepArgs { repos: Vec::new(), host: "gex45".to_owned(), mutants: 40, timeout_seconds: 3600, days: 90, issue: None, remote_north: "north".to_owned() };
     for (flag, value) in pairs(rest)? {
@@ -131,10 +142,7 @@ fn sweep_args(rest: &[String]) -> Result<SweepArgs, Stop> {
             "--timeout" => args.timeout_seconds = number(flag, value)?,
             "--days" => args.days = number(flag, value)?,
             "--remote-north" => args.remote_north = value.to_owned(),
-            "--issue" => {
-                let (repo, issue) = value.split_once('#').ok_or_else(|| Stop::Usage(format!("mutant: --issue {value} is not REPO#N")))?;
-                args.issue = Some((repo.to_owned(), number(flag, issue)?));
-            }
+            "--issue" => args.issue = Some(issue_ref(value)?),
             _ => return Err(Stop::Usage(USAGE.to_owned())),
         }
     }

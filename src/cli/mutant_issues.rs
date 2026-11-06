@@ -25,4 +25,11 @@ impl Issues for MirrorIssues {
             .ok_or_else(|| format!("gh issue edit {slug}#{number} did not finish"))?;
         if output.status.success() { Ok(()) } else { Err(format!("gh issue edit {slug}#{number}: {}", String::from_utf8_lossy(&output.stderr).trim())) }
     }
+
+    fn comment(&self, repo: &str, number: u64, body: &str) -> Result<String, String> {
+        let slug = format!("{OWNER}/{repo}");
+        let output = north_core::platform::process::run_with_input_within("gh", &["issue", "comment", &number.to_string(), "-R", &slug, "--body-file", "-"], Some(body.as_bytes()), std::time::Duration::from_secs(60))
+            .ok_or_else(|| format!("gh issue comment {slug}#{number} did not finish"))?;
+        if output.status.success() { Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned()) } else { Err(format!("gh issue comment {slug}#{number}: {}", String::from_utf8_lossy(&output.stderr).trim())) }
+    }
 }
