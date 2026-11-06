@@ -35,6 +35,14 @@ impl Failure {
             Failure::Cargo(name) | Failure::Harness(name) | Failure::Line(name) => name,
         }
     }
+
+    pub fn line(&self) -> String {
+        match self {
+            Failure::Cargo(name) => format!("test {name} ... FAILED"),
+            Failure::Harness(path) => format!("land check: {path} exited 1"),
+            Failure::Line(text) => format!("FAIL {text}"),
+        }
+    }
 }
 
 fn log_text(line: &str) -> &str {

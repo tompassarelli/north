@@ -216,7 +216,7 @@ impl Watch {
     }
 
     fn finish(&mut self, lander: &Lander, mut batch: Batch, run: JoinHandle<Outcome>) {
-        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None, search: None });
+        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None, search: None, log: PathBuf::new() });
         let ended = epoch();
         if let Verdict::Transient(detail) = &outcome.verdict {
             println!("north land: the after-landing run of {} reached no verdict ({detail}); it runs again in {} s", batch.head, RETRY.as_secs());
@@ -237,7 +237,7 @@ impl Watch {
             record(lander, &[Span::new(&batch.head, format!("culprit search over {} landed lanes", batch.lanes.len()), Category::Lander, from, to).with(PHASE, AFTER)]);
         }
         if let Verdict::RedMain(detail) = outcome.verdict {
-            blame(lander, &batch.base, &batch.lanes, outcome.culprit, &detail);
+            blame(lander, &batch, outcome.culprit, &detail, &outcome.log);
         }
         for followed in &batch.heads {
             let _ = fs::remove_file(entry_path(lander, &followed.head));
@@ -255,8 +255,12 @@ fn record(lander: &Lander, spans: &[Span]) {
     }
 }
 
-fn blame(lander: &Lander, base: &str, lanes: &[LandedLane], culprit: Option<usize>, detail: &str) {
-    let Some(at) = culprit else { return };
+fn blame(lander: &Lander, batch: &Batch, culprit: Option<usize>, detail: &str, log: &Path) {
+    let Some(at) = culprit else {
+        inherited(lander, &batch.head, detail, log);
+        return;
+    };
+    let (base, lanes) = (&batch.base, &batch.lanes);
     let lane = &lanes[at];
     let since = if at == 0 { base } else { &lanes[at - 1].tip };
     if lane.ticket.red_fix.is_some() {
@@ -269,6 +273,17 @@ fn blame(lander: &Lander, base: &str, lanes: &[LandedLane], culprit: Option<usiz
         Ok(line) => println!("north land: {line}"),
         Err(error) => {
             let message = format!("north land: the post-land checks of {} failed ({detail}) and its revert could not be queued: {error}", lane.ticket.branch);
+            println!("{message}");
+            after::send("proxy", &message);
+        }
+    }
+}
+
+fn inherited(lander: &Lander, head: &str, detail: &str, log: &Path) {
+    match sheriff::chase(lander, head, log) {
+        Ok(line) => println!("north land: sheriff: {line}"),
+        Err(error) => {
+            let message = format!("north land: the post-land checks of {head} are red ({detail}) with no culprit among the batch, and the sheriff could not be asked for the earlier one: {error}");
             println!("{message}");
             after::send("proxy", &message);
         }

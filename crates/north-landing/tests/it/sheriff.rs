@@ -1,4 +1,8 @@
+use std::collections::BTreeSet;
 use std::path::Path;
+
+use north_landing::land::sheriff;
+use north_landing::landing::red_check::Failure;
 
 use super::serve::{Repository, World, git, report};
 
@@ -26,9 +30,7 @@ fn a_red_main_run_whose_previous_runs_were_not_green_reverts_exactly_the_culprit
     commit(&north, "d.txt", "d\n");
     let head = commit(&north, "e.txt", "e\n");
     git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
-    let message = format!("Main red at {head}\n\ntest: Check\nland check: check.sh exited 1\n\nGreen-parent: {green}\nMain-red-run: https://example.invalid/runs/9");
-    let request = git(&north.checkout, &["commit-tree", &format!("{head}^{{tree}}"), "-p", &head, "-m", &message]);
-    git(&north.checkout, &["push", "-q", "origin", &format!("{request}:refs/heads/claude/land-revert-{head}")]);
+    sheriff::file(&north.checkout, &head, &green, &BTreeSet::from([Failure::Harness("check.sh".to_owned())])).unwrap();
     north.lane("north-lane");
     git(&north.checkout.parent().unwrap().join("worktrees/north-lane"), &["push", "-q", "origin", "north-lane"]);
     let landers = [world.lander(&north, None).wait_with_output().unwrap(), world.lander(&north, None).wait_with_output().unwrap()];

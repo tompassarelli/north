@@ -32,6 +32,8 @@ fn bisects_a_range_to_the_lane_that_turns_the_case_red_and_verifies_only_that_on
     );
     assert_eq!(finding, Finding::Revert { lane: "l3".into(), cases: x().into_iter().collect() });
     assert_eq!(at_probed, ["l3", "l2"]);
+    let ledger = "1\tnorth\tg1\tgreen\t\t\t5\t\n2\tnorth\tg2\tred-main\tx\t\t5\t\n3\tother\tg3\tgreen\t\t\t5\t";
+    assert_eq!(green_ancestor(ledger, "north", &["g3", "g2", "g1"]), Some("g1".to_owned()));
     assert_eq!(revert_probed, ["l3"]);
 }
 

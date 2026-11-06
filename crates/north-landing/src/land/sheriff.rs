@@ -248,6 +248,47 @@ pub fn requests(lander: &Lander) -> Result<Vec<(String, String)>, String> {
         .collect())
 }
 
+pub fn request_message(head: &str, parent: &str, failing: &BTreeSet<Failure>) -> String {
+    let lines: Vec<String> = failing.iter().map(Failure::line).collect();
+    format!("Main red at {head}\n\n{}\n\nGreen-parent: {parent}\nMain-red-run: post-land checks of {}", lines.join("\n"), short(head))
+}
+
+pub fn green_ancestor(ledger: &str, repository: &str, history: &[&str]) -> Option<String> {
+    let green: BTreeSet<&str> = ledger
+        .lines()
+        .filter_map(|row| {
+            let fields: Vec<&str> = row.split('\t').collect();
+            (fields.get(1) == Some(&repository) && fields.get(3) == Some(&"green")).then(|| fields[2])
+        })
+        .collect();
+    history.iter().find(|commit| green.contains(**commit)).map(|commit| (*commit).to_owned())
+}
+
+pub fn file(repo: &Path, head: &str, parent: &str, failing: &BTreeSet<Failure>) -> Result<(), String> {
+    let request = git(repo, &["commit-tree", &format!("{head}^{{tree}}"), "-p", head, "-m", &request_message(head, parent, failing)])?;
+    let pushed = Command::new("git").arg("-C").arg(repo).args(["push", "-q", "--no-verify", "origin", &format!("{request}:{REQUESTS}{head}")]).env("SAFE_PUSH_ACTIVE", "1").output().map_err(|error| error.to_string())?;
+    if pushed.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&pushed.stderr).trim().to_owned()) }
+}
+
+pub fn chase(lander: &Lander, head: &str, log: &Path) -> Result<String, String> {
+    if records(lander).join(queue::slug(head)).exists() {
+        return Ok(format!("main red at {} was already answered", short(head)));
+    }
+    let failing = red_check::failures(&fs::read_to_string(log).unwrap_or_default());
+    if failing.is_empty() {
+        return Ok(format!("the red post-land run of {} names no failing test, so no revert is requested", short(head)));
+    }
+    let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
+    let repository = crate::platform::push_ledger::repository(&origin);
+    let history = git(&lander.repo, &["log", "--first-parent", "--format=%H", "-n", "400", &format!("{head}^")])?;
+    let ledger = fs::read_to_string(super::post_land::ledger_path()).unwrap_or_default();
+    let Some(parent) = green_ancestor(&ledger, &repository, &history.lines().collect::<Vec<_>>()) else {
+        return Ok(format!("no landing within 400 of {} has a green post-land verdict, so no revert is requested", short(head)));
+    };
+    file(&lander.repo, head, &parent, &failing)?;
+    Ok(format!("main was green at {} and is red at {} on {}; the sheriff bisects the landings between", short(&parent), short(head), names(&failing.into_iter().collect::<Vec<_>>())))
+}
+
 pub fn patrol(lander: &Lander) -> Result<(), String> {
     for (tip, name) in requests(lander)? {
         let (tip, name) = (tip.as_str(), name.as_str());

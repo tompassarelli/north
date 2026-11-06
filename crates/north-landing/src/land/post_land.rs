@@ -34,6 +34,7 @@ pub struct Outcome {
     pub verdict: Verdict,
     pub culprit: Option<usize>,
     pub search: Option<(f64, f64)>,
+    pub log: PathBuf,
 }
 
 pub struct Run {
@@ -96,6 +97,10 @@ impl Run {
     }
 }
 
+pub fn ledger_path() -> PathBuf {
+    state_home().join("safe-push").join("post-land.tsv")
+}
+
 pub fn start(lander: &Lander, host: Option<String>, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>) -> std::thread::JoinHandle<Outcome> {
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
     let landed = Landed { repo: lander.repo.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: head.to_owned(), heads, lanes, tips };
@@ -104,7 +109,7 @@ pub fn start(lander: &Lander, host: Option<String>, base: &str, head: &str, head
         worktree: lander.queue.join("post-land"),
         log: lander.queue.join("logs").join("post-land"),
         outcome: lander.queue.join("logs").join("post-land"),
-        ledger: state_home().join("safe-push").join("post-land.tsv"),
+        ledger: ledger_path(),
         offload_owner: lander.offload_owner.clone(),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
         deadline: deadline(&lander.repo),
@@ -115,14 +120,14 @@ pub fn start(lander: &Lander, host: Option<String>, base: &str, head: &str, head
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
         if !matches!(verdict, Verdict::RedMain(_)) {
-            return Outcome { verdict, culprit: None, search: None };
+            return Outcome { verdict, culprit: None, search: None, log: run.log.clone() };
         }
         let started = telemetry::epoch();
         let culprit = locate(&landed, &run);
         if let Some(at) = culprit {
             judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], &run.at(&landed.head, &landed.tips[at]).log);
         }
-        Outcome { verdict, culprit, search: Some((started, telemetry::epoch())) }
+        Outcome { verdict, culprit, search: Some((started, telemetry::epoch())), log: run.log.clone() }
     })
 }
 
