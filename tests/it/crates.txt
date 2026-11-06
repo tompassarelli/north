@@ -6,6 +6,7 @@ affected_modules north-landing north
 agents_plan north-ops north-pace
 autoland_rebased north-landing
 automation_chrome_service north
+capacity_agent_compile north-capacity north-capacity-host north-runtime
 capacity_exclusive_native north-capacity
 capacity_host north-capacity-host
 capacity_live north-capacity-host

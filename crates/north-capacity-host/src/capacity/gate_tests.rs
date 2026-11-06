@@ -39,3 +39,28 @@ fn heavy_command_fixture_rows_take_their_gate_class_through_nix_and_shell_wrappe
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
+
+// KEEP(contract): a rustc given a source file and a nextest run are heavy compiles, while rustc's probes (-vV, --print) stay local so cargo's toolchain queries are never offloaded; north#634
+#[test]
+fn the_gate_classes_a_direct_rustc_compile_and_nextest_but_not_a_rustc_probe() {
+    let class = |text: &str| class_of(&crate::shell::words(text).unwrap(), 0);
+    assert_eq!(class("rustc src/main.rs -o main"), Some(Class::Heavy));
+    assert_eq!(class("rustc -vV"), None);
+    assert_eq!(class("rustc - --crate-name ___ --print=file-names"), None);
+    assert_eq!(class("cargo-nextest nextest run"), Some(Class::Heavy));
+    assert_eq!(class("cargo metadata"), None);
+}
+
+// KEEP(contract): a fleet session's cargo that rewrites the lane or only prints help or a version is not an agent compile, so it never ships to a build host; north#634
+#[test]
+fn a_fleet_sessions_cargo_fix_help_and_version_are_not_offloaded() {
+    let words = |text: &str| crate::shell::words(text).unwrap();
+    for stays in ["cargo fix", "cargo clippy --fix", "cargo build --help", "cargo-nextest --version", "cargo test -h"] {
+        assert!(!super::gate::agent_compile_in(&words(stays), true), "{stays}");
+    }
+    for goes in ["cargo build", "cargo test fix", "cargo nextest run", "rustc a.rs", "cargo-nextest nextest run"] {
+        assert!(super::gate::agent_compile_in(&words(goes), true), "{goes}");
+    }
+    assert!(!super::gate::agent_compile_in(&words("cargo build"), false), "Tom's own shell");
+    assert!(!super::gate::agent_compile_in(&words("bun test"), true));
+}

@@ -110,6 +110,14 @@ impl Declined {
         if matches!(self, Self::Unreachable(_)) { base * UNREACHABLE_RETRY_FACTOR } else { base }
     }
 
+    /// True when the build must not fall back to this host: the build hosts had no room, were out of reach or could not take the lane, or the command names a path or redirect the agent can change.
+    pub fn lacks_host(&self) -> bool {
+        match self {
+            Self::Refused { class, .. } => matches!(class.as_str(), "absolute path" | "laptop redirect"),
+            _ => true,
+        }
+    }
+
     pub fn refused(class: &str, detail: String) -> Self {
         Self::Refused { class: class.to_owned(), detail }
     }
@@ -134,9 +142,38 @@ pub fn refusal(candidate: &Candidate) -> Option<Declined> {
     candidate.need.filter(|need| !need.is_empty()).map(|need| Declined::refused(need, String::new()))
 }
 
-/// A deferred heavy build moves when a host has room, and an agent's heavy build is offered to the hosts first even when this host would admit it, so the laptop builds only what no build host has room for.
+/// A deferred heavy build moves when a host has room, and an agent's heavy or moderate build is offered to the hosts first even when this host would admit it, so the laptop compiles nothing a build host has room for.
 pub fn wants_offload(candidate: &Candidate) -> bool {
-    candidate.class == "heavy" && (candidate.deferred || candidate.agent)
+    match candidate.class {
+        "heavy" => candidate.deferred || candidate.agent,
+        "moderate" => candidate.agent,
+        _ => false,
+    }
+}
+
+/// Whether a build started in this environment came from a fleet session that has no local need, is not a landing and did not already reach a build host: the compiles that session starts belong on a build host, wherever its own host would admit them.
+pub fn is_agent_build(env: impl Fn(&str) -> Option<String>) -> bool {
+    let set = |name: &str| env(name).is_some_and(|value| !value.is_empty());
+    (set("NORTH_FLEET_SESSION") || set("NORTH_FLEET_SCOPE")) && !set("SAFE_PUSH_LAND_HEAD") && !set("AGENT_CAPACITY_NEED") && !set(REMOTE_MARK)
+}
+
+/// Whether the command is a Rust toolchain program, the only commands a fleet session is refused for want of a build host.
+pub fn is_rust_command(command: &[String]) -> bool {
+    command.first().is_some_and(|program| matches!(program.rsplit('/').next(), Some("cargo" | "rustc" | "cargo-nextest")))
+}
+
+const TOOLCHAIN_PROGRAMS: [&str; 5] = ["cargo", "rustc", "cargo-nextest", "bun", "nix"];
+
+/// The command with a toolchain program named by its laptop path (the gate runs the real program it found on PATH) named by its bare name, so the build host finds its own copy inside the lane's dev shell.
+pub fn for_build_host(command: &[String]) -> Vec<String> {
+    let mut words = command.to_vec();
+    if let Some(first) = words.first_mut() {
+        let name = first.rsplit('/').next().unwrap_or_default();
+        if first.starts_with('/') && TOOLCHAIN_PROGRAMS.contains(&name) {
+            *first = name.to_owned();
+        }
+    }
+    words
 }
 
 pub fn first_free(hosts: impl IntoIterator<Item = (String, Room)>) -> Result<String, Declined> {

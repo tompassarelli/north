@@ -28,6 +28,7 @@ const QUEUE_POLL_MILLISECONDS: u64 = 1000;
 const BEHIND_POLL_MILLISECONDS: u64 = 10_000;
 pub(super) const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
 const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
+const NO_BUILD_HOST: &str = "NO_BUILD_HOST";
 const FROZEN_CLASSES: [&str; 4] = ["heavy", "moderate", "exclusive", "gpu"];
 const USER_HZ: f64 = 100.0;
 
@@ -124,17 +125,19 @@ impl Waiting<'_> {
 /// What the offload offers so far have declined for: the reason last printed, which an unchanged decline stays silent about, and how long the next offer waits, stretched while every offload host is out of reach so a queued build stops probing hosts this host has no path to.
 pub(super) struct Declines {
     printed: Option<String>,
+    missing_host: Option<Declined>,
     pub(super) retry_milliseconds: f64,
 }
 
 impl Declines {
     pub(super) fn new() -> Self {
-        Self { printed: None, retry_milliseconds: OFFLOAD_RETRY_MILLISECONDS }
+        Self { printed: None, missing_host: None, retry_milliseconds: OFFLOAD_RETRY_MILLISECONDS }
     }
 
     /// The OFFLOAD_DECLINED line a decline earns, None when it repeats the reason already printed.
     pub(super) fn note(&mut self, why: Option<Declined>, owner: &str) -> Option<Obj> {
         let why = why?;
+        self.missing_host = why.lacks_host().then(|| why.clone());
         self.retry_milliseconds = why.retry_milliseconds(OFFLOAD_RETRY_MILLISECONDS);
         why.changes(&mut self.printed).then(|| Obj::new().put("decision", "OFFLOAD_DECLINED").put("reason", why.reason()).put("detail", why.detail()).put("owner", owner))
     }
@@ -153,10 +156,10 @@ async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Host, terminat
     let (root, ticket) = (root.to_path_buf(), ticket.map(str::to_owned));
     let (waiting_root, waiting_ticket) = (root.clone(), ticket.clone());
     let landing = request.landing || env("SAFE_PUSH_LAND_HEAD").is_some_and(|head| !head.is_empty());
-    let (class, owner, command) = (request.name.clone(), create.owner.clone(), command.to_vec());
+    let (class, owner, command) = (request.name.clone(), create.owner.clone(), build_offload::for_build_host(command));
     let timeout_seconds = create.timeout_seconds.unwrap_or(OFFLOAD_DEFAULT_TIMEOUT_SECONDS);
     let need = env("AGENT_CAPACITY_NEED").filter(|need| !need.is_empty());
-    let agent = fleet_session();
+    let agent = agent_session();
     let offloaded_already = env(build_offload::REMOTE_MARK).is_some();
     let work = tokio::task::spawn_blocking(move || {
         let candidate = Candidate { class: &class, landing, need: need.as_deref(), deferred, agent, offloaded_already };
@@ -185,22 +188,37 @@ async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Host, terminat
     }
 }
 
-/// Whether this process runs inside a fleet session, whose heavy builds belong on a build host before the laptop.
+/// Whether this process runs inside a fleet session scope, which gets a session unit of its own for its leases.
 pub(super) fn fleet_session() -> bool {
     env("NORTH_FLEET_SCOPE").is_some_and(|scope| !scope.is_empty())
+}
+
+/// Whether this build was started by a fleet session that has no local need: its compiles belong on a build host before this one.
+pub(crate) fn agent_session() -> bool {
+    build_offload::is_agent_build(env)
+}
+
+/// The decision that ends a fleet session's compile on a host that does not compile for sessions, once no build host took it.
+fn no_build_host(missing: &Declined, create: &Create) -> Obj {
+    Obj::new().put("decision", "REFUSED").put("reason", NO_BUILD_HOST).put("detail", format!("{}: {}", missing.reason(), missing.detail())).put("owner", create.owner.as_str())
 }
 
 /// A fleet session's heavy request is offered to the build hosts before this host decides on it, so a build this host would admit still runs where there is room; any other heavy request runs elsewhere only when its host defers it on the first look. None sends it to the queue.
 async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminations: &mut Terminations) -> Option<Admitted> {
     let (root, request, create) = (waiting.root, waiting.request, waiting.create);
-    if fleet_session() && let Some(code) = try_offload(waiting.again(), false, host, terminations).await {
-        return Some(Admitted::Offloaded(code));
+    if agent_session() {
+        if let Some(code) = try_offload(waiting.again(), false, host, terminations).await {
+            return Some(Admitted::Offloaded(code));
+        }
+        if !(host.lease_builds)() && build_offload::is_rust_command(waiting.command) && let Some(missing) = waiting.declined.missing_host.as_ref() {
+            return Some(Admitted::Here(no_build_host(missing, create)));
+        }
     }
     let first = decision(root, request, Some(create), None, host);
     if first.get("decision").and_then(Value::as_str) != Some("DEFER") {
         return Some(Admitted::Here(first));
     }
-    if fleet_session() {
+    if agent_session() {
         return None;
     }
     try_offload(waiting, true, host, terminations).await.map(Admitted::Offloaded)
@@ -227,7 +245,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
     if !batch_class(&request.name) && request.wait_seconds.is_none() && !request.alone {
         return Admitted::Here(decision(root, request, Some(create), None, host));
     }
-    let offer = request.name == "heavy" && !request.landing;
+    let offer = (request.name == "heavy" || request.name == "moderate" && build_offload::is_rust_command(command)) && !request.landing;
     let mut declined = Declines::new();
     let resumed = requeue::resumed(root);
     if resumed.is_none() && offer && let Some(admitted) = offer_first(Waiting { root, ticket: None, request, create, command, declined: &mut declined }, host, terminations).await {
@@ -524,6 +542,9 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
 
 fn refusal(admitted: &Obj) -> Option<String> {
     let view = admitted.value();
+    if text(&view, "reason") == Some(NO_BUILD_HOST) {
+        return Some(format!("refused: this host does not compile for fleet sessions and no build host took the job ({}); the detail names what to change or wait for", text(&view, "detail").unwrap_or_default()));
+    }
     if text(&view, "reason") == Some("PAIR_HELD") {
         let holder = view.get("holder").map_or_else(String::new, |holder| holder.as_str().map_or_else(|| holder.to_string(), str::to_owned));
         return Some(format!("refused: pair {} is held by {holder}; free pair: {}", view["pair"], view["freePair"]));

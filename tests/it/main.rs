@@ -34,3 +34,4 @@ mod land_route;
 mod threads_ledger;
 mod threads_resume;
 mod ssh_attribution;
+mod capacity_agent_compile;

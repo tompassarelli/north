@@ -1,9 +1,11 @@
 #!/bin/sh
 # north capacity gate shim: the real program is the next one on PATH that is not a shim
-if north capacity gate --class "$0" >/dev/null 2>&1; then
-  exec north capacity gate "$0" "$@"
-fi
 name=${0##*/}
+if [ "$name" != rustc ] || [ -z "${CARGO_MANIFEST_DIR:-}" ]; then
+  if north capacity gate --class "$0" >/dev/null 2>&1; then
+    exec north capacity gate "$0" "$@"
+  fi
+fi
 self=$(readlink -f "$0")
 IFS=:
 for dir in $PATH; do

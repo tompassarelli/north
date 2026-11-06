@@ -1,15 +1,17 @@
-//! `north capacity gate`: the door the cargo, bun and nix shims and depbox go through, which holds a build for a capacity lease on a host whose `[hosts.NAME] lease_builds` is set.
+//! `north capacity gate`: the door the cargo, bun and nix shims and depbox go through, which holds a build for a capacity lease on a host whose `[hosts.NAME] lease_builds` is set, and sends a fleet session's compile to a build host on any host.
 
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 
 use super::effects::Host;
+use super::build_offload;
 use crate::nix_command::{self, Inner};
 use crate::shell;
 
 const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time"];
 const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
 const EXECUTED: &str = "NORTH_CAPACITY_GATE_EXECUTED";
+const RUST_PROGRAMS: [&str; 3] = ["cargo", "rustc", "cargo-nextest"];
 const TOOLCHAIN_MISSING: u8 = 75;
 const SHIM_MARKER: &str = "# north capacity gate shim: the real program is the next one on PATH that is not a shim";
 const SHIMS_OUTPUT: &str = "-capacity-gate-shims/bin/";
@@ -40,6 +42,9 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             let process = process();
             let executed = executed(&process, std::env::var(EXECUTED).ok().as_deref());
             let Some(real) = real_program(program, &name, rest, &executed) else {
+                if !(host.lease_builds)() && agent_compile(&words(program, rest)) && !in_lease() && let Some(class) = class_of(&words(program, rest), 0) {
+                    return leased(class, &name, rest, host);
+                }
                 let command: Vec<String> = std::iter::once(name.clone()).chain(rest.iter().cloned()).collect();
                 if let Some(words) = super::dev_shell::project(&north_base::platform::north_binary::north_binary().to_string_lossy(), &command) {
                     let error = std::process::Command::new(&words[0]).args(&words[1..]).exec();
@@ -56,11 +61,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
                 eprintln!("north capacity gate: {}: {error}", real.display());
                 return 126;
             };
-            eprintln!("north capacity gate: this host runs builds only inside a capacity lease; {name} waits for a {} lease", class.name());
-            let mut leased = ["run", "--class", class.name(), "--owner", &owner(), "--timeout-seconds", "3600", "--"].map(str::to_owned).to_vec();
-            leased.push(real.to_string_lossy().into_owned());
-            leased.extend(rest.iter().cloned());
-            super::host::run(&leased, host)
+            leased(class, &real.to_string_lossy(), rest, host)
         }
         _ => {
             eprintln!("usage: north capacity gate [--class] PROGRAM [ARG...]");
@@ -69,13 +70,34 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
     }
 }
 
+/// Holds `program` for a capacity lease of `class`, which sends a fleet session's compile to a build host.
+fn leased(class: Class, program: &str, rest: &[String], host: &Host) -> u8 {
+    eprintln!("north capacity gate: this host runs builds only inside a capacity lease; {} waits for a {} lease", shell::basename(program), class.name());
+    let mut run = ["run", "--class", class.name(), "--owner", &owner(), "--timeout-seconds", "3600", "--"].map(str::to_owned).to_vec();
+    run.push(program.to_owned());
+    run.extend(rest.iter().cloned());
+    super::host::run(&run, host)
+}
+
 fn words(program: &str, rest: &[String]) -> Vec<String> {
     std::iter::once(shell::basename(program).to_owned()).chain(rest.iter().cloned()).collect()
 }
 
 pub fn lease_class(words: &[String], host: &Host) -> Option<Class> {
     let class = class_of(words, 0)?;
-    (!in_lease() && (host.lease_builds)()).then_some(class)
+    (!in_lease() && ((host.lease_builds)() || agent_compile(words))).then_some(class)
+}
+
+/// A Rust compile a fleet session starts, which leaves any host for a build host whether or not that host leases its own builds; one that rewrites the lane's files (`fix`) or only prints help or a version stays where it is, since a build host's edits never come back.
+fn agent_compile(words: &[String]) -> bool {
+    agent_compile_in(words, build_offload::is_agent_build(|name| std::env::var(name).ok()))
+}
+
+
+pub(super) fn agent_compile_in(words: &[String], agent: bool) -> bool {
+    let before_filters = || words.iter().skip(1).take_while(|word| *word != "--");
+    let stays = before_filters().any(|word| matches!(word.as_str(), "--fix" | "--version" | "-V" | "--help" | "-h")) || before_filters().find(|word| !word.starts_with(['-', '+'])).is_some_and(|word| word == "fix");
+    agent && !stays && words.first().is_some_and(|program| RUST_PROGRAMS.contains(&shell::basename(program)))
 }
 
 fn in_lease() -> bool {
@@ -152,6 +174,8 @@ pub fn class_of(words: &[String], depth: usize) -> Option<Class> {
     let (name, args) = words.split_first()?;
     match shell::basename(name) {
         "cargo" => cargo(args),
+        "rustc" => args.iter().any(|word| word.ends_with(".rs")).then_some(Class::Heavy),
+        "cargo-nextest" => Some(Class::Heavy),
         "bun" => bun(args),
         "depbox" => args.iter().position(|word| word == "--").and_then(|marker| class_of(&args[marker + 1..], depth + 1)),
         _ => match (nix_command::launched(words), nix_command::unwrap(words)) {
