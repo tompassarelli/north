@@ -858,7 +858,7 @@ exit "$(cat "$ROOT/code")"
             format!("{PREFIX} north threads job-run nightly --host laptop"),
             format!("{PREFIX} north threads ingest"),
             format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads list"),
-            format!("-o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET -o ControlPath=none ledger-host north threads snapshot-pages"),
+            "-o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET -o ControlPath=none ledger-host north threads snapshot-pages".to_owned(),
         ]);
         assert_eq!(log(&rig, "ingest.log"), ["{\"type\": \"run\"}"]);
         let left: Vec<_> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().file_name()).collect();

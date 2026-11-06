@@ -212,17 +212,32 @@ fn level(earlier: &Reading, later: &Reading) -> Result<bool, Failure> {
     Ok(same_window(earlier.resets.as_deref(), later.resets.as_deref())? && later.used - earlier.used == 0.0)
 }
 
-/// Each account's readings sorted by time, the last reading at a timestamp replacing earlier ones in
-/// place; with `only`, that one account's readings from the given moment on.
-fn windows(db: &Connection, only: Option<(&str, Timestamp)>) -> Result<Vec<(String, Vec<Reading>)>, Failure> {
-    let mut sql = "SELECT provider, account, ts, used_pct, resets_at FROM usage WHERE kind = 'window' AND used_pct IS NOT NULL AND name IN (?1, ?2, ?3)".to_owned();
+/// The cost-window readouts in rowid order, with `only` one account's, from the given moment on when there is one.
+fn readings_query(only: Option<(&str, Option<Timestamp>)>) -> (String, Vec<Sql>) {
+    let mut sql = "SELECT provider, account, ts, used_pct, resets_at FROM usage WHERE kind = 'window' AND used_pct IS NOT NULL AND name IN (?, ?, ?)".to_owned();
     let mut bound: Vec<Sql> = COST_WINDOWS.iter().map(|name| Sql::Text((*name).to_owned())).collect();
     if let Some((account, since)) = only {
         let (provider, name) = account.strip_prefix("claude-").map_or((account, None), |name| ("claude", Some(name)));
-        sql += " AND provider = ?4 AND (?5 IS NULL OR account = ?5) AND ts >= ?6";
-        bound.extend([Sql::Text(provider.to_owned()), name.map_or(Sql::Null, |name| Sql::Text(name.to_owned())), Sql::Text(date_bound(since))]);
+        sql += " AND provider = ?";
+        bound.push(Sql::Text(provider.to_owned()));
+        if let Some(name) = name {
+            sql += " AND account = ?";
+            bound.push(Sql::Text(name.to_owned()));
+        }
+        if let Some(since) = since {
+            sql += " AND ts >= ?";
+            bound.push(Sql::Text(date_bound(since)));
+        }
     }
     sql += " ORDER BY rowid";
+    (sql, bound)
+}
+
+/// Each account's readings sorted by time, the last reading at a timestamp replacing earlier ones in
+/// place; with `only`, that one account's readings, from the given moment on when there is one.
+fn windows(db: &Connection, only: Option<(&str, Option<Timestamp>)>) -> Result<Vec<(String, Vec<Reading>)>, Failure> {
+    let (sql, bound) = readings_query(only);
+    let since = only.and_then(|(_, since)| since);
     let mut query = db.prepare(&sql)?;
     let rows = query.query_map(params_from_iter(bound), |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?, row.get::<_, f64>(3)?, row.get::<_, Option<String>>(4)?)))?;
     let mut accounts: Vec<(String, Vec<Reading>)> = Vec::new();
@@ -246,7 +261,7 @@ fn windows(db: &Connection, only: Option<(&str, Timestamp)>) -> Result<Vec<(Stri
     }
     for (_, readings) in &mut accounts {
         readings.sort_by_key(|reading| reading.at);
-        if let Some((_, since)) = only {
+        if let Some(since) = since {
             readings.retain(|reading| reading.at >= since);
         }
     }
@@ -289,7 +304,7 @@ fn intervals(db: &Connection, prices: &BTreeMap<String, f64>, only: Option<(&str
     let mut days = 1;
     let (readings, start) = loop {
         let whole = days > WIDEST_LOOKBACK_DAYS;
-        let from = if whole { None } else { Some((account, days_before(since, days))) };
+        let from = Some((account, (!whole).then(|| days_before(since, days))));
         let readings = windows(db, from)?.into_iter().find(|(name, _)| name == account).map(|(_, readings)| readings).unwrap_or_default();
         if let Some(start) = plateau(&readings, since, whole)? {
             break (readings, start);
@@ -354,5 +369,23 @@ fn split(fresh: &mut Costs, (account, started, ended): (&str, &str, &str), cost:
     }
     for (agent, weight) in weights {
         fresh.insert((account.to_owned(), started.to_owned(), ended.to_owned(), agent.to_owned()), cost * weight / total);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::{Connection, params_from_iter};
+
+    use super::readings_query;
+    use crate::foundation::clock::Timestamp;
+    use crate::platform::usage_table;
+
+    #[test]
+    fn one_claude_account_s_recent_readings_are_searched_by_account_and_time_not_scanned_by_provider() {
+        let db = Connection::open_in_memory().unwrap();
+        usage_table::ensure(&db).unwrap();
+        let (sql, bound) = readings_query(Some(("claude-a", Some(Timestamp::parse("2026-11-06T10:00:00Z").unwrap()))));
+        let plan: Vec<String> = db.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap().query_map(params_from_iter(bound), |row| row.get(3)).unwrap().collect::<Result<_, _>>().unwrap();
+        assert!(plan.iter().any(|step| step.contains("usage_latest (provider=? AND account=? AND kind=? AND name=? AND ts>?)")), "{plan:?}");
     }
 }
