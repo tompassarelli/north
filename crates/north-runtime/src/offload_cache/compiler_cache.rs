@@ -10,9 +10,9 @@ use crate::platform::disk_budget::{DiskBudget, Share};
 
 const DEFAULT_CAP_BYTES: u64 = 10 << 30;
 
-/// The store the lanes' sccache writes: `SCCACHE_DIR`, else sccache's own default under the home's cache.
+/// The store the build hosts' lanes set as `SCCACHE_DIR`, sccache's own default under the home's cache.
 pub fn root(home: &Path) -> PathBuf {
-    env::var_os("SCCACHE_DIR").filter(|dir| !dir.is_empty()).map_or_else(|| home.join(".cache/sccache"), PathBuf::from)
+    home.join(".cache/sccache")
 }
 
 /// The host's `sccache` disk budget, else the `SCCACHE_CACHE_SIZE` sccache itself trims to, else sccache's 10 GiB default.

@@ -43,7 +43,7 @@ fn build_offload_over_its_cap_evicts_the_least_recently_used_unlocked_slot_and_k
 }
 
 #[test]
-fn disk_floor_reclaim_evicts_offload_slots_oldest_first_until_the_disk_is_under_the_line() {
+fn disk_floor_reclaim_takes_build_slots_then_shared_build_output_and_sccache_to_their_caps_then_land_slots_the_landers_last() {
     let home = tempfile::tempdir().unwrap();
     let build = home.path().join(".cache/build-offload");
     let land = home.path().join(".cache/land-offload");
@@ -60,6 +60,7 @@ fn disk_floor_reclaim_evicts_offload_slots_oldest_first_until_the_disk_is_under_
     let mut calm = || Some(Disk { used_percent: 50.0, free_gib: 400.0, size_bytes: 1 << 40 });
     assert_eq!(reclaim_in(empty.path(), &mut calm, || None), None, "nothing evicted and no other sweep ran, so admission keeps its reading");
     assert_eq!(reclaim_in(empty.path(), &mut calm, || Some(12.5)), Some(12.5));
+    shared_build_output_and_sccache_go_to_their_caps_before_any_land_slot_and_the_landers_slot_goes_last();
 }
 
 #[test]
@@ -91,8 +92,7 @@ fn aged(path: &Path, kib: usize, age_hours: u64) {
     File::options().write(true).open(path).unwrap().set_modified(SystemTime::now() - Duration::from_secs(age_hours * 3600)).unwrap();
 }
 
-#[test]
-fn the_disk_line_trims_shared_cargo_targets_and_the_compiler_cache_to_their_caps_before_any_land_slot_and_the_lander_slot_goes_last() {
+fn shared_build_output_and_sccache_go_to_their_caps_before_any_land_slot_and_the_landers_slot_goes_last() {
     let lay_out = || {
         let home = tempfile::tempdir().unwrap();
         aged(&home.path().join(".cache/cargo-target/north/debug/incremental/north_core-1/blob"), 512, 3);
