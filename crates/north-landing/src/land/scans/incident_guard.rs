@@ -31,9 +31,11 @@ fn cited(subjects: &str, origin_is_north: bool) -> BTreeSet<u64> {
     numbers(&NORTH_CITATION, subjects).chain(bare).collect()
 }
 
+const REGISTRY: &str = "docs/rationale/experiments.toml";
+
 fn needs_no_test(directory: &Path, base: &str, head: &str) -> bool {
     let names = git::text(directory, &["diff", "--name-only", "--no-renames", base, head]).unwrap_or_default();
-    if names.lines().all(|path| path.ends_with(".md")) || names.lines().any(is_test_file) {
+    if names.lines().all(|path| path.ends_with(".md") || path == REGISTRY) || names.lines().any(is_test_file) {
         return true;
     }
     let diff = git::text(directory, &["diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-renames", base, head]).unwrap_or_default();
