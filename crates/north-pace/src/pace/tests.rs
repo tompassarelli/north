@@ -19,7 +19,7 @@ fn week(used: f64, burn: Option<f64>, reset_h: f64, resets_at: &str, at: f64) ->
 }
 
 fn reading(windows: Vec<Window>, workers: Option<i64>, at: f64) -> Reading {
-    Reading { windows, workers, at, initial: 2, margin: 10.0, target: None }
+    Reading { windows, workers, at, initial: 2, margin: 10.0, target: None, refill_h: None }
 }
 
 fn step(previous: &Control, windows: Vec<Window>, workers: Option<i64>, at: f64) -> Control {
@@ -152,6 +152,7 @@ fn a_short_window_projection_caps_workers_without_holding_and_the_week_caps_what
     assert_eq!((control.held, control.over), (Some(false), Some(false)));
     allowed_workers_follow_the_five_hour_window_within_what_the_week_pays_for();
     a_stale_five_hour_window_never_raises_allowed_workers_past_the_week_bound();
+    the_week_bound_spends_toward_the_next_refill_on_an_account_without_the_proxy();
 }
 
 // KEEP(mutant): a spawn is refused only at the five-hour stop or over the burn cap; mutant exhaustion-other-window-as-5h (d7da0bbe0)
@@ -201,7 +202,7 @@ fn allowed_workers_follow_the_five_hour_window_within_what_the_week_pays_for() {
     let at = 1_793_000_000.0;
     let climb = |five_used: f64, five_reset_h: f64, week_used: f64, week_reset_h: f64, week_slope: f64| {
         let mut previous = Control::default();
-        for tick in 0..25 {
+        for tick in 0..45 {
             let moment = at + 60.0 * f64::from(tick);
             let windows = weekly_reading(moment, five_used, five_reset_h, week_used + week_slope * f64::from(tick), week_reset_h);
             previous = advance(&previous, Reading { initial: 1, ..reading(windows, Some(2), moment) });
@@ -240,4 +241,40 @@ fn a_stale_five_hour_window_never_raises_allowed_workers_past_the_week_bound() {
     }
     assert!(control.burn_pct_worker_min.contains_key("week"), "the week burn per worker was never measured");
     assert_eq!(control.allowed_workers, Some(0));
+}
+
+fn the_week_bound_spends_toward_the_next_refill_on_an_account_without_the_proxy() {
+    let at = 1_793_946_000.0;
+    let week_at = |moment: f64, used: f64, reset_h: f64| {
+        window(json!({"window": "week", "used_pct": used, "burn_pct_h": 1.0, "reset_h": reset_h, "resets_at": stamp(at + reset_h * 3600.0),
+                      "age_s": 0, "as_of": stamp(moment), "quota_ceiling": 95.0}))
+    };
+    let accounts = [("claude:a", vec![week_at(at, 89.0, 140.0)]), ("claude:b", vec![week_at(at, 100.0, 30.0)]), ("claude:c", vec![week_at(at, 45.0, 150.0)]), ("claude:d", vec![week_at(at, 99.0, 98.0)])];
+    let fleet = |protected: Vec<&'static str>| super::refill::Fleet { accounts: accounts.iter().map(|(name, windows)| (*name, windows.as_slice())).collect(), protected };
+    assert_eq!(fleet(vec!["claude:c"]).refill_hours("claude:c"), None, "the proxy's account keeps its own reset");
+    assert_eq!(fleet(vec!["claude:c"]).refill_hours("claude:a"), Some(30.0));
+    assert_eq!(fleet(vec!["claude:a"]).refill_hours("claude:c"), Some(30.0));
+    let measured = |workers: i64| {
+        let mut control = Control::default();
+        for minute in 0..=40 {
+            let moment = at + 60.0 * f64::from(minute);
+            let windows = vec![week_at(moment, 45.0 + f64::from(minute / 10), 150.0)];
+            control = advance(&control, Reading { initial: 1, ..reading(windows, Some(workers), moment) });
+        }
+        control.burn_pct_worker_min.get("week").copied()
+    };
+    assert_eq!(measured(1), None, "a rise over fewer than 60 worker-minutes measures no rate per worker");
+    assert!(measured(2).is_some_and(|rate| rate < 0.06), "{:?}", measured(2));
+    let previous = Control {
+        at: Some(at - 60.0),
+        workers: Some(1),
+        allowed_workers: Some(1),
+        held: Some(false),
+        windows: vec![week_at(at - 60.0, 45.0, 150.0)],
+        burn_pct_worker_min: [("week".to_owned(), 0.025)].into(),
+        ..Control::default()
+    };
+    let paced = |refill_h: Option<f64>| advance(&previous, Reading { initial: 1, refill_h, ..reading(vec![week_at(at, 45.0, 150.0)], Some(1), at) }).allowed_workers;
+    assert_eq!(paced(None), Some(0), "50 points at 1.5% per worker-hour over 150 hours pays for no continuous worker");
+    assert_eq!(paced(Some(30.0)), Some(1), "spent toward b's refill in 30 hours, the same 50 points pay for one");
 }

@@ -135,7 +135,7 @@ fn replay(rows: &[Row]) -> Tally {
     let mut tally = Tally::default();
     let mut control = Control::default();
     for (index, row) in rows.iter().enumerate() {
-        let reading = Reading { windows: row.windows.clone(), workers: row.workers, at: row.at, initial: 2, margin: crate::pace::limits::claude_session_margin(), target: row.target.clone() };
+        let reading = Reading { windows: row.windows.clone(), workers: row.workers, at: row.at, initial: 2, margin: crate::pace::limits::claude_session_margin(), target: row.target.clone(), refill_h: None };
         control = advance(&control, reading);
         let refused = control.windows.iter().any(|w| exhaustion::refusal(&w.window, w.used_pct, w.burn_pct_h).is_some());
         let Some(cause) = cause(&control, refused) else { continue };

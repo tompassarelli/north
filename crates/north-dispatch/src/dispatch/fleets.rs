@@ -70,6 +70,16 @@ pub fn working_by_account(sessions: &[(Session, String)]) -> BTreeMap<String, i6
     working
 }
 
+pub fn proxy_accounts(listing: &Value) -> Vec<String> {
+    listing
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|session| session["role"] == "proxy" && session["status"] != "exited" && session["ended"].is_null())
+        .filter_map(account)
+        .collect()
+}
+
 /// The running sessions in one registry's `north fleet list --json`, each holding every item its
 /// `--task` names, else the items its name starts with.
 pub fn running_sessions(listing: &Value) -> Vec<Session> {
