@@ -12,6 +12,7 @@ use super::refusal;
 
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE", "NORTH_RUNTIME_LINK"];
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
+pub const BASE_FAILS: &str = "and also fails on base tree";
 pub const UNCHECKED_ENV: &str = "SAFE_PUSH_LAND_UNCHECKED";
 pub const INFRASTRUCTURE: &str = "infrastructure: the check host is unfit: ";
 const NORTH_MISSING: [&str; 4] = ["north: command not found", "north: not found", "north not on PATH", "north missing on PATH"];
@@ -59,8 +60,8 @@ pub fn parse(text: &str) -> Option<Verdict> {
 
 pub fn unfit_host(log: &str) -> Option<String> {
     let lines = || log.lines().map(str::trim);
-    let offline = log.contains("--offline was specified");
-    let crate_missing = || lines().find(|line| offline && line.contains("failed to download"));
+    let offline_on_main_too = log.contains("--offline was specified") && log.contains(BASE_FAILS);
+    let crate_missing = || lines().find(|line| offline_on_main_too && line.contains("failed to download"));
     let north_missing = || lines().find(|line| NORTH_MISSING.iter().any(|signature| line.contains(signature)));
     let exit = || lines().find(|line| line.contains(TRANSPORT_FAILED_TEXT));
     let transport = || exit().and_then(|exit| lines().rfind(|line| line.starts_with(OFFLOAD)).or_else(|| lines().any(|line| line.starts_with(OFFLOADED)).then_some(exit)));

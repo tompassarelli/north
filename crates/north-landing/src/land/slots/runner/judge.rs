@@ -6,7 +6,7 @@ use north_base::foundation::exit::NO_VERDICT_STATUS;
 
 use crate::land::slots::select::Config;
 use crate::landing::check_timings::outcomes::Outcome as CheckOutcome;
-use crate::land::checks::{BROKEN_BASE, ROUND};
+use crate::land::checks::{BASE_FAILS, BROKEN_BASE, ROUND};
 use crate::landing::check_findings;
 use crate::landing::check_timings::{Base, BaseResult, Deadline, Timings};
 use super::{Shared, TIMED_OUT, host_name, say, timeout_row, warn};
@@ -74,19 +74,19 @@ impl Shared {
             if self.config.is_inferred(command) {
                 let added = self.added_findings(command, &ran.log);
                 if added.is_empty() {
-                    say(&format!("safe-push: land check (inferred) {command} exited {status} on this lane and also fails on base tree {tree} ({first}), and the lane adds no finding the base lacks; the repository never declared it and main does not meet it, so it does not gate this lane; log: {log}"));
+                    say(&format!("safe-push: land check (inferred) {command} exited {status} on this lane {BASE_FAILS} {tree} ({first}), and the lane adds no finding the base lacks; the repository never declared it and main does not meet it, so it does not gate this lane; log: {log}"));
                     self.outcome.record(&["event", "land check", "not gating", &format!("{command}: main fails it too and the lane adds nothing; log: {log}")]);
                     return 0;
                 }
                 let shown = added.iter().take(5).cloned().collect::<Vec<_>>().join("; ");
-                warn(&format!("safe-push: land check (inferred) {command} exited {status} on this lane and also fails on base tree {tree}, but the lane adds {} finding(s) the base lacks: {shown}; log: {log}; NOT pushed.", added.len()));
+                warn(&format!("safe-push: land check (inferred) {command} exited {status} on this lane {BASE_FAILS} {tree}, but the lane adds {} finding(s) the base lacks: {shown}; log: {log}; NOT pushed.", added.len()));
                 self.cache_record(status, &[command.to_owned()]).await;
                 self.outcome.record(&["event", "land check", "failed", &format!("{command}: adds {shown}; log: {log}")]);
                 self.outcome.record(&["failed-step", command, &log.to_string()]);
                 return status;
             }
             let detail = format!("{BROKEN_BASE}{command} on {}: {first}", host_name(&self.cache_class(command)));
-            warn(&format!("safe-push: land check {command} exited {status} on this lane and also failed on base tree {tree}, so the failure is the check environment, not this lane; log: {log}; NOT pushed."));
+            warn(&format!("safe-push: land check {command} exited {status} on this lane {BASE_FAILS} {tree}, so the failure is the check environment, not this lane; log: {log}; NOT pushed."));
             self.outcome.record(&["skip", &detail]);
             self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {log}")]);
             return NO_VERDICT_STATUS;

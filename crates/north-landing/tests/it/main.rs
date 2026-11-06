@@ -1,6 +1,7 @@
 mod hold_alarm;
 mod land_chaos;
 mod land_profile;
+mod lander_never_waits;
 mod lane_adds_crates;
 mod promote;
 mod serve;

@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::after;
+use super::{after, alone};
 use super::candidate::{self, git};
 use super::lander::Lander;
 use super::pause;
@@ -36,6 +36,8 @@ pub struct Observation {
     pub waiting: usize,
     #[serde(default)]
     pub paused: bool,
+    #[serde(default)]
+    pub transient: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
 }
@@ -71,6 +73,7 @@ pub enum Repair {
     RemovedWorktree(PathBuf),
     QuarantinedRepository(usize),
     RestartedLoop(String),
+    AskedForAloneChecks,
     AlreadyRestarted(String),
     Failed(String),
     Nothing(String),
@@ -83,6 +86,7 @@ impl fmt::Display for Repair {
             Repair::RemovedWorktree(path) => write!(formatter, "removed the stray lander worktree {}", path.display()),
             Repair::QuarantinedRepository(lanes) => write!(formatter, "quarantined the repository: moved its {lanes} waiting lanes to {QUARANTINE}/"),
             Repair::RestartedLoop(unit) => write!(formatter, "restarted {unit}"),
+            Repair::AskedForAloneChecks => write!(formatter, "asked the lander to check each waiting lane alone"),
             Repair::AlreadyRestarted(unit) => write!(formatter, "{unit} was already restarted this round"),
             Repair::Failed(error) => write!(formatter, "failed: {error}"),
             Repair::Nothing(reason) => write!(formatter, "none: {reason}"),
@@ -230,10 +234,21 @@ fn inspect(queue: &Path, now: u64, hands: &dyn Hands) -> Result<Vec<Violation>, 
             continue;
         }
         let detail = format!("lane {} ({}) waited {} minutes", ticket.branch, path.file_name().unwrap_or_default().to_string_lossy(), age / 60_000_000);
-        let repair = Repair::Nothing("the lane stays queued; a lane that waits behind a backlog is not broken".to_owned());
+        let repair = stale_repair(queue, rounds.last(), now);
         found.push(Violation { invariant: Invariant::StaleLane, queue: queue.to_owned(), detail, repairs: vec![repair] });
     }
     Ok(found)
+}
+
+fn stale_repair(queue: &Path, latest: Option<&Observation>, now: u64) -> Repair {
+    if !latest.is_some_and(|round| round.transient) {
+        return Repair::Nothing("the lane stays queued; a lane that waits behind a backlog is not broken".to_owned());
+    }
+    match alone::request(queue, now, STALE_MICROS) {
+        Ok(true) => Repair::AskedForAloneChecks,
+        Ok(false) => Repair::Nothing("the lander was asked to check each lane alone within the last 20 minutes".to_owned()),
+        Err(error) => Repair::Failed(error),
+    }
 }
 
 fn repeated(rounds: &[Observation]) -> Option<String> {
@@ -388,6 +403,7 @@ pub fn after_round(lander: &Lander, round: &Result<Round, String>) {
         worktree: lander.worktree.clone(),
         waiting: queued.len(),
         paused: pause::held(&lander.queue).is_some(),
+        transient: matches!(round, Ok(Round::Waiting(reason)) if reason.contains("transient")),
         problem,
     };
     let at = observation.at_micros;

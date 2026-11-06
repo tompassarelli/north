@@ -63,7 +63,7 @@ pub struct BatchCase {
     pub limit: Option<u64>,
     pub red_only: bool,
     pub pause: Option<String>,
-    /// Transient and deferred streaks keyed as the lander keys a set of lanes.
+    /// Transient and deferred streaks of each lane, keyed by branch file and head.
     pub strikes: BTreeMap<String, Streak>,
     pub spares: u64,
     pub rebuilds: u64,

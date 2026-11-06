@@ -1,4 +1,5 @@
 pub mod after;
+pub mod alone;
 pub mod bisect;
 pub mod blame;
 pub mod candidate;

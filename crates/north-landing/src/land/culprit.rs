@@ -181,7 +181,7 @@ fn broken(checked: &[Checked]) -> Option<String> {
 }
 
 fn judged(set: &[Entry], mut checked: Checked, strikes: &mut Strikes) -> Checked {
-    let streak = strikes.record(&Strikes::key(set), &checked.verdict);
+    let streak = strikes.record(&Strikes::lanes(set), &checked.verdict);
     checked.verdict = bisect::escalate(checked.verdict, streak, &checked.log);
     checked
 }

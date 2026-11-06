@@ -195,6 +195,14 @@ fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home: &Path) -> 
     Err(format!("{} refused it here, as the lander would after its queue wait:\n{}", failed.join(", "), String::from_utf8_lossy(&text).trim_end()))
 }
 
+fn refuse_unfetchable(root: &Path, base: &str, head: &str) -> Result<(), String> {
+    let changed = git(root, &["diff", "--name-only", &format!("{base}..{head}"), "--", "Cargo.lock"])?;
+    if changed.is_empty() {
+        return Ok(());
+    }
+    super::slots::deps::fetch_crates(root).map_err(|error| format!("this lane changes Cargo.lock and its crates cannot be fetched: {error}"))
+}
+
 fn refuse_stale_revert(root: &Path, base: &str, head: &str) -> Result<(), String> {
     let Ok(merged) = git(root, &["merge-tree", "--write-tree", base, head]) else { return Ok(()) };
     let Some(tree) = merged.lines().next() else { return Ok(()) };
@@ -237,6 +245,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     outgoing::enqueue_gate(&root, &base, &denylist, &origin, &destination)?;
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     runner::fails_first(&root, &base, &lane_head)?;
+    refuse_unfetchable(&root, &base, &lane_head)?;
     let unchecked = runner::refuse_queue_checks(&root, &base, &lane_head)?;
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
     let (squash, several_commits) = match shape {

@@ -3,7 +3,7 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use super::{ATTEMPTS, Pushed, Round, micros};
-use crate::land::after;
+use crate::land::{after, alone};
 use crate::land::bisect::{self, Judgement, Strikes};
 use crate::land::candidate::{self, Built, Pick};
 use crate::land::checks::Verdict;
@@ -66,7 +66,7 @@ struct Batch<'a> {
     lanes: Vec<Entry<'a>>,
     head: String,
     strikes: Strikes,
-    key: String,
+    ids: Vec<String>,
     id: String,
 }
 
@@ -180,20 +180,26 @@ impl Lander {
 
     fn check_included<'a>(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt<'a>, lanes: Vec<Entry<'a>>) -> Result<Flow, String> {
         let strikes = Strikes::load(&self.queue, attempt.base)?;
-        let key = Strikes::key(&lanes);
-        let halve = (lanes.len() > 1 && strikes.exhausted(&key)).then(|| bisect::half(lanes.len()));
+        let ids = Strikes::lanes(&lanes);
+        let asked = alone::take(&self.queue) && lanes.len() > 1;
+        let halve = (lanes.len() > 1 && (asked || strikes.exhausted(&ids))).then(|| bisect::half(lanes.len()));
         let id = steps::batch(&pass.round(attempt, strikes.streaks(), self.spares.len()), &lanes, halve);
         if let Some(half) = halve {
-            pass.limit = half;
-            pass.bisect_depth += 1;
-            println!("north land: a candidate of {} lanes kept ending without a verdict; checking its first {} lanes", lanes.len(), pass.limit);
-            return Ok(Flow::Next);
+            println!("north land: {} of this candidate's {} lanes kept ending without a verdict; checking each lane alone", if asked { "the watchdog asked for it:" } else { "a lane" }, lanes.len());
+            let log = attempt.logs.join(format!("{}-candidate.log", micros()));
+            let mut checked = Checked { stacked: Vec::new(), stages: Stages::start(), log };
+            let mut batch = Batch { lanes, head: attempt.built.head.clone(), strikes, ids, id };
+            let transient = Verdict::Transient("lanes that kept ending without a verdict".to_owned());
+            let Some(judgement) = self.search_culprit(pass, attempt, &mut batch, Judgement::Halve(half), transient, &mut checked)? else {
+                return Ok(Flow::Next);
+            };
+            return self.settle(watch, pass, attempt, batch, checked, judgement);
         }
         let (verdict, mut checked) = match self.check(pass, attempt, &lanes)? {
             ControlFlow::Continue(checked) => checked,
             ControlFlow::Break(round) => return Ok(Flow::Done(round)),
         };
-        let mut batch = Batch { lanes, head: attempt.built.head.clone(), strikes, key, id };
+        let mut batch = Batch { lanes, head: attempt.built.head.clone(), strikes, ids, id };
         let (judged, refusal) = match self.judge(pass, attempt, &mut batch, verdict, &checked)? {
             ControlFlow::Continue(judged) => judged,
             ControlFlow::Break(round) => return Ok(Flow::Done(round)),
@@ -234,7 +240,7 @@ impl Lander {
                 Err(error) => return Ok(ControlFlow::Break(Round::Waiting(format!("transient: {error}")))),
             },
         };
-        let streak = if moved { 0 } else { batch.strikes.record(&batch.key, &verdict) };
+        let streak = if moved { 0 } else { batch.strikes.record(&batch.ids, &verdict) };
         let verdict = bisect::escalate(verdict, streak, &checked.log);
         batch.strikes.save(&self.queue)?;
         let (judged, decide_us) = decision_log::timed(|| bisect::judge(verdict.clone(), batch.lanes.len(), moved));

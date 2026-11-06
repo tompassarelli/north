@@ -70,8 +70,8 @@ impl Strikes {
         queue::write_atomic(&queue.join(STRIKES), &text).map_err(|error| error.to_string())
     }
 
-    pub fn key(included: &[(&PathBuf, &Ticket)]) -> String {
-        included.iter().map(|(path, ticket)| format!("{}@{}", path.file_name().unwrap_or_default().to_string_lossy(), ticket.head)).collect::<Vec<_>>().join(",")
+    pub fn lanes(included: &[(&PathBuf, &Ticket)]) -> Vec<String> {
+        included.iter().map(|(path, ticket)| format!("{}@{}", path.file_name().unwrap_or_default().to_string_lossy(), ticket.head)).collect()
     }
 
     /// The streaks as the decision log records them.
@@ -79,29 +79,37 @@ impl Strikes {
         self.streaks.iter().map(|(key, streak)| (key.clone(), north_strategy_types::land::Streak { transient: streak.transient, deferred: streak.deferred })).collect()
     }
 
-    pub fn exhausted(&self, key: &str) -> bool {
-        self.streaks.get(key).is_some_and(|streak| streak.transient >= PERSISTENT_AFTER || streak.deferred >= PERSISTENT_AFTER)
+    pub fn exhausted(&self, lanes: &[String]) -> bool {
+        lanes.iter().any(|lane| self.streaks.get(lane).is_some_and(|streak| streak.transient >= PERSISTENT_AFTER || streak.deferred >= PERSISTENT_AFTER))
     }
 
-    pub fn record(&mut self, key: &str, verdict: &Verdict) -> u32 {
-        match verdict {
-            Verdict::Transient(_) => {
-                let streak = self.streaks.entry(key.to_owned()).or_default();
-                streak.transient += 1;
-                streak.deferred = 0;
-                streak.transient
-            }
-            Verdict::Deferred(_) => {
-                let streak = self.streaks.entry(key.to_owned()).or_default();
-                streak.deferred += 1;
-                streak.transient = 0;
-                streak.deferred
-            }
+    pub fn record(&mut self, lanes: &[String], verdict: &Verdict) -> u32 {
+        let transient = match verdict {
+            Verdict::Transient(_) => true,
+            Verdict::Deferred(_) => false,
             _ => {
-                self.streaks.remove(key);
-                0
+                for lane in lanes {
+                    self.streaks.remove(lane);
+                }
+                return 0;
             }
-        }
+        };
+        lanes
+            .iter()
+            .map(|lane| {
+                let streak = self.streaks.entry(lane.clone()).or_default();
+                if transient {
+                    streak.transient += 1;
+                    streak.deferred = 0;
+                    streak.transient
+                } else {
+                    streak.deferred += 1;
+                    streak.transient = 0;
+                    streak.deferred
+                }
+            })
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -162,14 +170,14 @@ mod tests {
         let tail = "safe-push: verdict transient main's check environment is broken: cargo clippy on gex45: error[E0063]: missing field `breaches`";
         let broken = super::super::checks::parse(tail).unwrap();
         assert!(matches!(broken, Verdict::BrokenBase(_)));
-        let mut strikes = Strikes::default();
+        let (mut strikes, lane) = (Strikes::default(), vec!["k".to_owned()]);
         for _ in 0..PERSISTENT_AFTER * 3 {
             for verdict in [broken.clone(), Verdict::RedMain("abc".into())] {
-                let streak = strikes.record("k", &verdict);
+                let streak = strikes.record(&lane, &verdict);
                 assert_eq!(escalate(verdict.clone(), streak, log), verdict);
             }
         }
-        assert!(!strikes.exhausted("k"));
+        assert!(!strikes.exhausted(&lane));
     }
 
 }

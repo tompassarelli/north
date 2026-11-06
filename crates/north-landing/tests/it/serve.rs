@@ -95,7 +95,7 @@ impl Repository {
         git(&self.checkout, &["worktree", "add", "-q", "-b", branch, lane.to_str().unwrap(), "origin/main"]);
         std::fs::write(lane.join(format!("{branch}.txt")), "lane\n").unwrap();
         git(&lane, &["add", "-A"]);
-        git(&lane, &["commit", "-q", "-m", &format!("{branch} (north#360)")]);
+        git(&lane, &["commit", "-q", "-m", &format!("{branch} (north#360)\n\nIncident-test: none; a fixture lane the incident guard must not look up on GitHub")]);
         let micros = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros();
         let ticket = Ticket {
             origin: git(&lane, &["remote", "get-url", "--push", "origin"]),
