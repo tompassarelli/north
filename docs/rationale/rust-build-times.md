@@ -377,7 +377,7 @@ installs that commit's tree beside it, and the landing selects no cargo check fo
 tables still move together; a stale binary never reads a newer schema, because a lane that changes no
 Rust input must pass `north land scan run-time-data BASE..HEAD` before the push: every TOML file still
 parses, keeps every key the base had with the same type, and every array-of-tables entry keeps the keys
-all earlier entries shared; a file may not be deleted. Adding keys and changing values pass. A lane that
+all earlier entries shared; a file may not be deleted. Adding keys and changing values inside their declared range pass. A lane that
 also changes Rust is judged by its Rust checks, which read the lane's own tables.
 
 Values are judged as well as keys (north#634). Every entry in `harness/defaults.toml` declares what its `value` may be in
