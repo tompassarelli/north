@@ -171,3 +171,21 @@ pub(super) fn nix_adapters(module: &str) -> Vec<String> {
     adapters.sort();
     adapters
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_repo_policy_wires_prompt_grounding_as_the_north_hook_verb_the_claude_config_ships() {
+        let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/../../harness/policy-owners.toml");
+        let policy = crate::platform::toml_json::parse(&std::fs::read_to_string(manifest).unwrap()).unwrap();
+        let commands: Vec<String> = wiring(&policy, "claude")
+            .into_iter()
+            .filter(|(event, _)| event == "UserPromptSubmit")
+            .flat_map(|(_, groups)| groups.into_iter().flat_map(|(_, commands)| commands))
+            .collect();
+        assert!(commands.iter().any(|command| command.ends_with(" north hook prompt-grounding")), "{commands:?}");
+        assert!(!commands.iter().any(|command| command.contains("prompt-grounding.sh")), "{commands:?}");
+    }
+}
