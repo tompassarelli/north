@@ -468,3 +468,17 @@ fn test_run_seconds(log: &str) -> Option<u64> {
 #[cfg(test)]
 #[path = "post_land_tests.rs"]
 mod tests;
+
+pub fn reap_scratch(repo: &Path, queue: &Path) -> Vec<PathBuf> {
+    let listed = git(repo, &["worktree", "list", "--porcelain"]).unwrap_or_default();
+    let scratch: Vec<PathBuf> = listed
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .map(PathBuf::from)
+        .filter(|path| path.parent() == Some(queue) && path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("post-land")))
+        .collect();
+    for path in &scratch {
+        let _ = change_worktrees_alone(repo, &["worktree", "remove", "--force", &path.to_string_lossy()]);
+    }
+    scratch
+}

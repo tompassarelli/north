@@ -11,6 +11,7 @@ use super::bisect::{self, Judgement};
 use super::culprit::{self, Found};
 use super::checks::Verdict;
 use super::credential;
+use super::post_land;
 use super::telemetry::Stages;
 use super::push_refusal::{self, Backoff, Refusal};
 use super::records::{self, Candidate, Decision};
@@ -502,6 +503,9 @@ fn open(repo: &Path, options: &Options) -> Result<Opened, String> {
     match hold::take(&lander.queue, &lander.repo) {
         Ok(hold) => {
             reap_offloads(&lander);
+            for path in post_land::reap_scratch(&lander.repo, &lander.queue) {
+                println!("north land: removed the after-landing worktree {} a previous lander of {} left", path.display(), lander.repo.display());
+            }
             Ok(Opened::Serving(lander, hold))
         }
         Err(reason) if options.all => Ok(Opened::Held(reason)),

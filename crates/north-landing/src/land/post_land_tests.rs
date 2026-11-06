@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::time::Duration;
 
-use super::{Landed, Run, announce, execute, judged, record, settle};
+use super::{Landed, Run, announce, execute, judged, reap_scratch, record, settle};
 use crate::land::checks::Verdict;
 use crate::landing::red_check::Failure;
 
@@ -208,4 +208,23 @@ fn a_red_main_episode_messages_the_proxy_once_with_the_suspect_and_ends_only_on_
     at(&commit("docs"), NARROW, Verdict::Green);
     assert_eq!(sent.borrow().len(), 4, "the sheriff's revert landing green sends exactly one green message: {:?}", sent.borrow());
     assert!(green_again(3), "{:?}", sent.borrow());
+}
+
+#[test]
+fn a_post_land_worktree_a_killed_lander_left_in_its_queue_is_removed_and_other_worktrees_stay() {
+    let scratch = tempfile::tempdir().unwrap();
+    let repo = scratch.path().join("repo");
+    let queue = scratch.path().join("queue");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::create_dir_all(&queue).unwrap();
+    let git = |arguments: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(arguments).status().unwrap().success());
+    git(&["init", "-q", "-b", "main"]);
+    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"]);
+    let left = queue.join("post-land-4c43bc5c465d");
+    let lane = scratch.path().join("worktrees").join("lane");
+    git(&["worktree", "add", "-q", "--detach", left.to_str().unwrap()]);
+    git(&["worktree", "add", "-q", "--detach", lane.to_str().unwrap()]);
+    assert_eq!(reap_scratch(&repo, &queue), std::slice::from_ref(&left));
+    assert!(!left.exists());
+    assert!(lane.exists());
 }
