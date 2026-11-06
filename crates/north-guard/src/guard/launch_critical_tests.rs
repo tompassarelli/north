@@ -12,8 +12,9 @@ fn codex_equivalent(payload: &serde_json::Value) -> Option<serde_json::Value> {
 
 #[test]
 fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
-    if std::env::var_os("NORTH_LAUNCH_GUARD_CHILD").is_some() {
-        crate::hook::run(&[]).unwrap();
+    // libtest prints "test NAME ... " on the child's stdout before the hook's line when it runs one test thread, so the hook writes its decision to a file of its own.
+    if let Some(out) = std::env::var_os("NORTH_LAUNCH_GUARD_CHILD") {
+        crate::hook::process(std::io::stdin().lock(), &mut std::fs::File::create(out).unwrap(), &[], "").unwrap();
         return;
     }
     let fixture = fixture();
@@ -91,10 +92,11 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
             false,
         ),
     ];
+    let decided = fixture.directory.path().join("decided.jsonl");
     for (payload, override_value, denied) in &entry_cases {
         let mut child = std::process::Command::new(std::env::current_exe().unwrap());
         child.args(["--exact", "guard::launch_critical::tests::launch_guard_preserves_recorded_writes_and_allows_lanes", "--nocapture"])
-            .env("NORTH_LAUNCH_GUARD_CHILD", "1").env("HOME", root)
+            .env("NORTH_LAUNCH_GUARD_CHILD", &decided).env("HOME", root)
             .env("NORTH_AGENT_ACTIVE", &active).env("NORTH_AGENT_ACTIVATION", fixture.directory.path().join("missing.json"))
             .env("AGENT_HOOK_ERRORS", &errors).env_remove("LAUNCH_CRITICAL_CODE_ROOT").env_remove("NORTH_HOOK_ID")
             .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
@@ -112,7 +114,7 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
             .unwrap();
         let output = child.wait_with_output().unwrap();
         assert!(output.status.success(), "{payload}: {:?}", output.stderr);
-        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stdout = std::fs::read_to_string(&decided).unwrap();
         let decision = stdout
             .lines()
             .find_map(|line| serde_json::from_str::<Value>(line).ok());
@@ -135,7 +137,7 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
     );
     std::fs::write(&active, "hook other\n").unwrap();
     let mut child = std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact", "guard::launch_critical::tests::launch_guard_preserves_recorded_writes_and_allows_lanes", "--nocapture"])
-        .env("NORTH_LAUNCH_GUARD_CHILD", "1").env("HOME", root).env("NORTH_AGENT_ACTIVE", &active)
+        .env("NORTH_LAUNCH_GUARD_CHILD", &decided).env("HOME", root).env("NORTH_AGENT_ACTIVE", &active)
         .env_remove("AGENT_NO_AUTHORING_HOOKS").env_remove("NORTH_HOOK_ID").env_remove("LAUNCH_CRITICAL_CODE_ROOT")
         .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
     child
@@ -147,7 +149,7 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success());
     assert!(
-        !String::from_utf8(output.stdout)
+        !std::fs::read_to_string(&decided)
             .unwrap()
             .lines()
             .any(|line| serde_json::from_str::<Value>(line).is_ok())

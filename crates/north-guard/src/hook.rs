@@ -292,7 +292,7 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
     (output.as_object()?.len() > 1).then(|| Value::object([("hookSpecificOutput", output)]))
 }
 
-fn process(
+pub(crate) fn process(
     reader: impl Read,
     writer: &mut impl Write,
     guards: &[Guard],
