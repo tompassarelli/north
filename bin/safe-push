@@ -242,7 +242,6 @@ plan_push() {
     publication)
       local head_oid="$1" destination_ref="$2" destination_oid="$3"
       publication="${head_oid}:${destination_ref}"
-      publication_flags=(--force-with-lease="${destination_ref}:${destination_oid}")
       ;;
   esac
 }

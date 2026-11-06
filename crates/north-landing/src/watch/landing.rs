@@ -4,7 +4,7 @@ use super::facts::Event;
 use super::{Alert, Severity, WatchContext};
 
 pub const STALL_SECONDS: f64 = 120.0;
-const CHECK_STAGES: [&str; 4] = ["land checks", "pre-push checks", "dependency gate and scans", "landing train"];
+const CHECK_STAGES: [&str; 2] = ["land checks", "dependency gate and scans"];
 const TERMINAL: [&str; 4] = ["landed", "refused", "failed", "cancelled"];
 const MIN_SAMPLES: usize = 5;
 const RECENT: f64 = 3600.0;
@@ -14,7 +14,6 @@ const SETTLE_FRESH: u64 = 1800;
 pub(super) fn probe(context: &WatchContext) -> Vec<Alert> {
     let mut alerts = Vec::new();
     alerts.extend(stalls(context));
-    alerts.extend(requeues(context));
     alerts.extend(push_errors(context));
     alerts.extend(shared_failures(context));
     alerts.extend(runtime(context));
@@ -65,22 +64,6 @@ fn stalls(context: &WatchContext) -> Vec<Alert> {
         }
     }
     alerts
-}
-
-fn requeues(context: &WatchContext) -> Vec<Alert> {
-    let mut retries: BTreeMap<u32, Vec<&Event>> = BTreeMap::new();
-    for event in context.events.iter().filter(|event| event.status == "retry" && context.live.contains(&event.pid)) {
-        retries.entry(event.pid).or_default().push(event);
-    }
-    retries
-        .into_values()
-        .filter(|events| events.len() > 2)
-        .filter_map(|events| {
-            let (third, last) = (events.get(2)?, events.last()?);
-            let summary = format!("{} lane {}: re-queued {} times, last at {} ({})", last.repo, last.lane, events.len(), last.stage, last.detail);
-            Some(alert(format!("land:{}:requeue:{}", last.repo, last.lane), Severity::Warn, last, summary, third.time))
-        })
-        .collect()
 }
 
 fn push_errors(context: &WatchContext) -> Vec<Alert> {
