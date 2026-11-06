@@ -1,5 +1,6 @@
 use super::bounded;
 use super::failure::{Failure, failed};
+use super::host_facts;
 use super::layout::{self, Layout, PROGRAMS};
 use super::remote::{limit, run, run_reporting, ssh};
 use super::store::references;
@@ -80,7 +81,11 @@ fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>)
     stage(host, target, runtime, references)?;
     println!("north runtime deploy: {host}: promoting {} with the shipped north", layout::short(target));
     let shipped = format!(".local/state/north/runtimes/{target}/north");
-    run_reporting(host, &format!("north runtime update --sha {}", layout::short(target)), ssh(host).args([shipped.as_str(), "runtime", "update", "--sha", target]), PROMOTE)
+    run_reporting(host, &format!("north runtime update --sha {}", layout::short(target)), ssh(host).args([shipped.as_str(), "runtime", "update", "--sha", target]), PROMOTE)?;
+    if let Some(relayed) = land_offload::deployment().relays_facts.into_iter().find(|relayed| relayed.destination == host) {
+        host_facts::relay(&runtime.join("north"), host, &relayed.host);
+    }
+    Ok(())
 }
 
 pub(super) fn stage_for_lander(layout: &Layout, target: &str, runtime: &Path) {

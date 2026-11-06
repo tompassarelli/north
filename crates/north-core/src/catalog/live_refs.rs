@@ -14,7 +14,7 @@ use super::paths::home;
 
 pub const SCHEMA: &str = "north.host-config-facts/v1";
 pub(super) const DEFAULT_MAX_AGE_MS: u64 = 24 * 60 * 60 * 1000;
-const USAGE: &str = "usage: north config agents live-refs --record [--facts-dir DIR] [--repo DIR [--remote NAME]]\n       north config agents live-refs --path NAME [--facts-dir DIR | --repo DIR [--remote NAME]] [--max-age 24h] [--hosts a,b,c]\n       north config agents live-refs --dropped-by-catalog --south-root DIR --north-root DIR --repo DIR [--remote NAME] [--max-age 24h] [--hosts a,b,c]";
+const USAGE: &str = "usage: north config agents live-refs --record [--facts-dir DIR] [--repo DIR [--remote NAME]]\n       north config agents live-refs --relay HOST --repo DIR [--remote NAME] < FACTS_JSON\n       north config agents live-refs --path NAME [--facts-dir DIR | --repo DIR [--remote NAME]] [--max-age 24h] [--hosts a,b,c]\n       north config agents live-refs --dropped-by-catalog --south-root DIR --north-root DIR --repo DIR [--remote NAME] [--max-age 24h] [--hosts a,b,c]";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Facts {
@@ -242,8 +242,17 @@ pub fn record(directory: &Path, publish: Option<(&Path, &str)>) -> NorthResult<R
     Ok(Recorded { facts, path, published })
 }
 
+fn relay(repo: &Path, remote: &str, host: &str, recorded: &[u8]) -> NorthResult<String> {
+    let facts: Facts = serde_json::from_slice(recorded).map_err(|error| NorthError::Configuration(format!("cannot parse the facts relayed for {host}: {error}")))?;
+    if facts.schema != SCHEMA || facts.host != host {
+        return configuration(format!("facts relayed for {host} name host {} in schema {}, so they stay unpublished", facts.host, facts.schema));
+    }
+    transport::publish(repo, remote, &facts)
+}
+
 pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
     let mut recording = false;
+    let mut relayed = None;
     let mut name = None;
     let mut directory = None;
     let mut repo = None;
@@ -259,6 +268,7 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
                 return Ok(());
             }
             "--record" => recording = true,
+            "--relay" => relayed = Some(value()?),
             "--path" => name = Some(value()?),
             "--facts-dir" => directory = Some(PathBuf::from(value()?)),
             "--repo" => repo = Some(PathBuf::from(value()?)),
@@ -267,6 +277,14 @@ pub(super) fn run(arguments: &[String]) -> NorthResult<()> {
             "--hosts" => hosts = value()?.split(',').filter(|host| !host.is_empty()).map(str::to_owned).collect(),
             _ => return Err(NorthError::Usage(format!("unknown option {flag}\n{USAGE}"))),
         }
+    }
+    if let Some(host) = relayed {
+        let repo = repo.ok_or_else(|| NorthError::Usage(format!("--relay needs --repo DIR\n{USAGE}")))?;
+        let mut recorded = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::stdin(), &mut recorded)?;
+        let commit = relay(&repo, &remote, &host, &recorded)?;
+        println!("published {commit} to {remote} {}", transport::reference(&host));
+        return Ok(());
     }
     let directory = match directory {
         Some(directory) => directory,

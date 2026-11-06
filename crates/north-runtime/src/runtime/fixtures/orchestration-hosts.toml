@@ -2,6 +2,7 @@
 resident_cap = 6
 deploy_ssh = "nexus"
 builds_runtime = false
+publishes_host_facts = false
 
 [hosts.gex45]
 resident_cap = 24

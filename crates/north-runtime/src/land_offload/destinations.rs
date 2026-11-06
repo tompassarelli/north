@@ -6,6 +6,13 @@ use toml_edit::{DocumentMut, Item};
 pub struct Deployment {
     pub destinations: Vec<String>,
     pub skipped: Vec<String>,
+    pub relays_facts: Vec<Relayed>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Relayed {
+    pub destination: String,
+    pub host: String,
 }
 
 impl Deployment {
@@ -26,10 +33,21 @@ pub(super) fn deploy(cfg: &DocumentMut, here: &str) -> Deployment {
         if !settles && host.get("builds_runtime").and_then(Item::as_bool) == Some(false) {
             plan.skipped.push(name.to_owned());
         } else {
+            if settles && !publishes_facts(host) {
+                plan.relays_facts.push(Relayed { destination: destination.to_owned(), host: name.to_owned() });
+            }
             plan.destinations.push(destination.to_owned());
         }
     }
     plan
+}
+
+fn publishes_facts(host: &Item) -> bool {
+    host.get("publishes_host_facts").and_then(Item::as_bool).unwrap_or(true)
+}
+
+pub(super) fn publishes_host_facts(cfg: &DocumentMut, here: &str) -> bool {
+    cfg.get("hosts").and_then(Item::as_table_like).and_then(|hosts| hosts.get(here)).is_none_or(publishes_facts)
 }
 
 pub(super) fn builds_runtime(cfg: &DocumentMut, here: &str) -> bool {
@@ -73,3 +91,7 @@ pub(super) fn pull_sources(cfg: &DocumentMut, here: &str) -> Vec<String> {
         .collect();
     deploy(cfg, here).destinations.into_iter().filter(|destination| !refused.contains(&destination.as_str())).collect()
 }
+
+#[cfg(test)]
+#[path = "destinations_tests.rs"]
+mod tests;

@@ -85,6 +85,10 @@ pub fn pull_sources_in(cfg: &toml_edit::DocumentMut, here: &str) -> Vec<String> 
     destinations::pull_sources(cfg, here)
 }
 
+pub fn publishes_host_facts_here() -> bool {
+    config().map(|cfg| destinations::publishes_host_facts(&cfg, &crate::platform::host::name())).unwrap_or(true)
+}
+
 pub fn builds_runtime_here() -> bool {
     config().map(|cfg| destinations::builds_runtime(&cfg, &crate::platform::host::name())).unwrap_or(true)
 }
