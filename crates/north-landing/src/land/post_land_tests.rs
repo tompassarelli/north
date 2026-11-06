@@ -79,6 +79,8 @@ fn an_after_landing_run_past_its_deadline_is_killed_with_its_group_reaches_no_ve
     let rows: Vec<Vec<&str>> = rows.lines().map(|row| row.split('\t').collect()).collect();
     assert_eq!(rows.iter().map(|row| row[2]).collect::<Vec<_>>(), ["b", "c", "d"]);
     assert!(rows.iter().all(|row| row[3] == "transient" && row[5] == "lane-a,lane-b"), "{rows:?}");
+    assert!(rows.iter().all(|row| row[8].is_empty()), "a run with no nextest summary records no test-run time: {rows:?}");
+    assert_eq!(super::test_run_seconds("     Summary [  12.698s] 789 tests run: 789 passed\n     Summary [   3.1s] 5 tests run: 5 passed\n"), Some(16), "the nextest summaries of a log add up as the run's test time");
 }
 
 // KEEP(bug): on 2026-11-06 the after-landing run deadline was a fixed 1,800 s while 19 runs took p90 172 s, so a stuck run held every later landing's verdict for half an hour (north#634)

@@ -155,7 +155,7 @@ fn a_bug_fix_over_the_test_budget_lands_with_its_one_regression_test_and_both_ga
     fixture.label(672, "enhancement\n");
     let ledger = fixture.root.path().join("state/safe-push/post-land.tsv");
     fs::create_dir_all(ledger.parent().unwrap()).unwrap();
-    fs::write(&ledger, "1\tfirn\tabc\tgreen\t\tlane\t75\n".repeat(3)).unwrap();
+    fs::write(&ledger, "1\tfirn\tabc\tgreen\t\tlane\t900\t\t75\n".repeat(3)).unwrap();
     let unit = ("modules/land/default.nix", "{ Slice = \"agent.slice\"; }\n");
     for test in ["modules/land/tests/unit.test.sh", "modules/land/unit.test.sh", "modules/land/unit_test.sh", "src/tests.rs", "test/unit.sh", "tests/test_unit.py"] {
         fixture.lane("Run the lander in agent.slice (north#671)", &[unit, (test, "printf 'PASS: slice\\n'\n")]);

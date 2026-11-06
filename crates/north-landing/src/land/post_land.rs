@@ -452,11 +452,17 @@ fn record(run: &Run, landed: &Landed, verdict: &Verdict, expired: bool, seconds:
     if let Some(parent) = run.ledger.parent() {
         let _ = fs::create_dir_all(parent);
     }
+    let tests = fs::read_to_string(&run.log).ok().and_then(|text| test_run_seconds(&text)).map(|seconds| seconds.to_string()).unwrap_or_default();
     let covered_by = |head: &str| if head == landed.head { "" } else { landed.head.as_str() };
-    let lines: String = landed.heads.iter().map(|head| format!("{}\t{}\t{head}\t{class}\t{}\t{}\t{seconds}\t{}\n", telemetry::seconds(), landed.repository, detail.replace(['\t', '\n'], " "), landed.lanes.join(","), covered_by(head))).collect();
+    let lines: String = landed.heads.iter().map(|head| format!("{}\t{}\t{head}\t{class}\t{}\t{}\t{seconds}\t{}\t{tests}\n", telemetry::seconds(), landed.repository, detail.replace(['\t', '\n'], " "), landed.lanes.join(","), covered_by(head))).collect();
     if let Err(error) = OpenOptions::new().create(true).append(true).open(&run.ledger).and_then(|mut file| file.write_all(lines.as_bytes())) {
         eprintln!("north land: could not record the post-land verdict of {}: {error}", landed.head);
     }
+}
+
+fn test_run_seconds(log: &str) -> Option<u64> {
+    let runs: Vec<f64> = log.lines().filter_map(|line| line.trim_start().strip_prefix("Summary [")?.split_once("s]")?.0.trim().parse().ok()).collect();
+    (!runs.is_empty()).then(|| runs.iter().sum::<f64>().round() as u64)
 }
 
 #[cfg(test)]

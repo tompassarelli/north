@@ -178,7 +178,7 @@ fn trail(fixture: &Fixture, trailer: &str) {
 }
 
 fn verification_takes(fixture: &Fixture, seconds: u64) {
-    let green = format!("1\tremote\tabc\tgreen\t\tlane\t{seconds}\n").repeat(3);
+    let green = format!("1\tremote\tabc\tgreen\t\tlane\t900\t\t{seconds}\n").repeat(3);
     let red = "1\tremote\tdef\tred-main\tcheck\tlane\t900\n".repeat(4);
     write(&fixture.root.path().join("state/safe-push/post-land.tsv"), &(green + &red));
 }
