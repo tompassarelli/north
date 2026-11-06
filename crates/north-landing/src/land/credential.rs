@@ -88,7 +88,7 @@ mod tests {
         std::fs::write(&global, "[credential \"https://github.com\"]\n\thelper = !f() { printf 'username=decoy\\npassword=decoy\\n'; }; f\n").unwrap();
         let mut fill = Command::new("git");
         apply(&mut fill, Some("app-secret"));
-        let mut child = fill.args(["credential", "fill"]).env("GIT_CONFIG_GLOBAL", &global).env("GIT_CONFIG_NOSYSTEM", "1").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+        let mut child = fill.args(["credential", "fill"]).env("GIT_CONFIG_GLOBAL", &global).env("GIT_CONFIG_NOSYSTEM", "1").env_remove("GIT_CONFIG_COUNT").env_remove("GIT_CONFIG_PARAMETERS").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
         std::io::Write::write_all(child.stdin.as_mut().unwrap(), b"protocol=https\nhost=github.com\npath=tompassarelli/north\n\n").unwrap();
         let output = child.wait_with_output().unwrap();
         std::fs::remove_dir_all(&scratch).unwrap();
