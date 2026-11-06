@@ -57,7 +57,7 @@ fn red(set: &str, text: &str) -> Red {
 }
 
 #[test]
-fn the_tick_tells_once_when_a_goal_turns_red_and_again_when_the_set_changes_or_hours_pass() {
+fn the_tick_tells_once_when_a_goal_turns_red_again_when_the_set_changes_or_hours_pass_and_not_for_a_changed_value_of_the_same_goal() {
     let (told, state) = decide(State::default(), 1_000, || red("a", "goals red (1): a"));
     assert_eq!(told.as_deref(), Some("goals red (1): a"));
     let (told, state) = decide(state, 1_100, || unreachable!("the oracles ran again within ten minutes"));
@@ -70,17 +70,15 @@ fn the_tick_tells_once_when_a_goal_turns_red_and_again_when_the_set_changes_or_h
     assert_eq!(told, None);
     let (told, _) = decide(state, 4_400, || red("a", "goals red (1): a"));
     assert_eq!(told.as_deref(), Some("goals red (1): a"));
-}
-
-#[test]
-fn a_changed_value_of_the_same_red_goal_is_not_told_again_and_a_clock_gone_backwards_measures() {
-    let (_, state) = decide(State::default(), 100_000, || red("a", "goals red (1): a 13.1"));
-    let (told, state) = decide(state, 100_700, || red("a", "goals red (1): a 13.4"));
-    assert_eq!(told, None);
-    let mut measured = false;
-    let (_, _) = decide(state, 50_000, || {
-        measured = true;
-        red("a", "goals red (1): a 13.4")
-    });
-    assert!(measured, "a state written in the future must not hold the oracles off");
+    {
+        let (_, state) = decide(State::default(), 100_000, || red("a", "goals red (1): a 13.1"));
+        let (told, state) = decide(state, 100_700, || red("a", "goals red (1): a 13.4"));
+        assert_eq!(told, None);
+        let mut measured = false;
+        let (_, _) = decide(state, 50_000, || {
+            measured = true;
+            red("a", "goals red (1): a 13.4")
+        });
+        assert!(measured, "a state written in the future must not hold the oracles off");
+    }
 }

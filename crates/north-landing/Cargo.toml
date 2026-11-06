@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-github-mirror = { path = "../north-github-mirror" }
+north-goals = { path = "../north-goals" }
 north-strategy-types = { path = "../north-strategy-types" }
 percent-encoding.workspace = true
 regex.workspace = true

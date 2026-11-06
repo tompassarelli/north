@@ -2,6 +2,7 @@ pub mod cleanup;
 mod ci_budget;
 pub mod follow;
 pub mod gates;
+pub mod goals;
 pub mod tick;
 mod workflow_paths;
 

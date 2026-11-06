@@ -1065,6 +1065,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-github-mirror",
+ "north-goals",
  "north-strategy-types",
  "percent-encoding",
  "proptest",

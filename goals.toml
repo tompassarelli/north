@@ -79,3 +79,19 @@ source = "AGENTS.md: docs/features.md is generated and never edited by hand"
 oracle = "north docs features-index --check >/dev/null 2>&1; echo $?"
 max = 0
 class = "contract"
+
+[[goal]]
+name = "layer-terms"
+source = "AGENTS.md: use the four layer terms of docs/terms.md; never call a model an agent"
+oracle = "{ rg -n -i '\\b(claude|opus|sonnet|haiku|gpt|codex)[ -]agent\\b|\\bagent model\\b|\\bmodel agent\\b' README.md AGENTS.md docs --glob '*.md' || [ $? -eq 1 ]; } | wc -l"
+unit = "lines"
+max = 0
+class = "contract"
+
+[[goal]]
+name = "fleet-screen-in-tui"
+source = "AGENTS.md: keep fleet screen state and rendering in crates/north-tui/src/tui/fleet"
+oracle = "{ rg -l ratatui src crates --glob '*.rs' --glob '!crates/north-tui/**' || [ $? -eq 1 ]; } | wc -l"
+unit = "files"
+max = 0
+class = "contract"

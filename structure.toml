@@ -25,7 +25,7 @@ may_use = ["north-strategy-types"]
 [[crate_dag.crate]]
 name = "north-landing"
 paths = ["crates/north-landing/src/**"]
-may_use = ["north-base", "north-github-mirror"]
+may_use = ["north-base", "north-github-mirror", "north-goals"]
 
 [[crate_dag.crate]]
 name = "north-safe-push"

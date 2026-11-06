@@ -128,7 +128,7 @@ fn lanes(worktree: &Path, request: &Request) -> Result<Vec<Lane>, String> {
     Ok(log.split('\0').filter_map(|entry| entry.trim_start().split_once('\n')).map(|(commit, message)| Lane { commit: commit.to_owned(), message: message.trim().to_owned() }).collect())
 }
 
-fn without(worktree: &Path, head: &str, lane: &str) -> Result<bool, String> {
+pub(crate) fn without(worktree: &Path, head: &str, lane: &str) -> Result<bool, String> {
     git(worktree, &["reset", "-q", "--hard"])?;
     git(worktree, &["checkout", "-q", "--detach", head])?;
     if output(worktree, &["revert", "--no-commit", lane])?.status.success() {
@@ -172,7 +172,7 @@ fn lane_ticket(lander: &Lander, request: &Request, lane: &str) -> Option<Ticket>
     })
 }
 
-pub(super) fn queue_revert(lander: &Lander, worktree: &Path, branch: &str) -> Result<String, String> {
+pub(crate) fn queue_revert(lander: &Lander, worktree: &Path, branch: &str) -> Result<String, String> {
     let head = git(worktree, &["rev-parse", "HEAD"])?;
     let origin = git(&lander.repo, &["remote", "get-url", "--push", "origin"])?;
     let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned();
