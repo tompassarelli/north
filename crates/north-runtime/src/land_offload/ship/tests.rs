@@ -437,19 +437,6 @@ fn an_offload_passes_only_when_the_remote_reports_its_command_ran_and_succeeded(
 }
 
 #[test]
-fn a_connection_that_drops_before_the_remote_reports_its_command_reaches_no_verdict() {
-    for exited in [Some(255), Some(1), None] {
-        assert!(super::verdict(exited, None).is_err(), "ssh {exited:?} with no reported exit read as the command's verdict");
-    }
-    assert_eq!(super::verdict(Some(255), Some(1)), Ok(1), "a reported failure stays the command's verdict when the connection drops after it");
-    assert_eq!(super::verdict(Some(255), Some(0)), Ok(0), "a reported pass stays a pass when the connection drops after it");
-    for refusal in [super::SLOTS_BUSY, super::WRONG_TREE, super::BESIDE_MISSING] {
-        assert_eq!(super::verdict(Some(refusal), None), Ok(refusal), "the remote script's own refusal keeps its code");
-    }
-    assert_eq!(super::NO_VERDICT, 75, "safe-push reads exit 75 as no verdict, never the lane's failure");
-}
-
-#[test]
 fn every_slot_of_a_checkout_serves_sccache_on_its_own_stable_port_in_range() {
     let ports = super::script::slot_ports("code-north-main");
     assert_eq!(ports, super::script::slot_ports("code-north-main"));

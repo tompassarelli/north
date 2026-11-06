@@ -13,7 +13,7 @@ const CHECK_SECONDS: u64 = 4 * 60;
 const KEPT: usize = 50;
 const TAIL_LINES: usize = 12;
 const TAIL_BYTES: usize = 1200;
-const UNREACHED: [u8; 4] = [255, 96, 97, 75];
+const UNREACHED: [u8; 3] = [255, 96, 97];
 
 pub(super) enum Ran {
     Exited { code: u8, log: String },
