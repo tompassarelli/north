@@ -77,10 +77,11 @@ fn measure(previous: &Control, reading: &Reading, worker_minutes: Option<f64>) -
                 let duration = (at - anchor.at) / 60.0;
                 if duration >= BURN_PERIOD_MINUTES && delta >= 0.0 {
                     w.burn_pct_h = Some(delta * 60.0 / duration);
-                    if anchor.minutes >= RATE_WORKER_MINUTES {
+                    let closed = anchor.minutes >= RATE_WORKER_MINUTES && delta >= 1.0;
+                    if closed {
                         rates.insert(w.window.clone(), delta / anchor.minutes);
                     }
-                    if anchor.minutes <= 0.0 || anchor.minutes >= RATE_WORKER_MINUTES {
+                    if anchor.minutes <= 0.0 || closed {
                         anchor = Anchor { used: w.used_pct, at, minutes: 0.0 };
                     }
                 } else if delta >= 0.0 {
@@ -109,6 +110,7 @@ fn carried_rates(previous: &Control, windows: &[Window], measured: BTreeMap<Stri
             previous.windows.iter().any(|old| &old.window == *kind)
                 && windows.iter().any(|w| &w.window == *kind && previous.windows.iter().any(|old| old.window == w.window && old.resets_at == w.resets_at))
         })
+        .filter(|(_, rate)| **rate > 0.0)
         .map(|(kind, rate)| (kind.clone(), *rate))
         .collect();
     rates.extend(measured);
@@ -143,7 +145,8 @@ fn capacity(windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Reading
     windows
         .iter()
         .filter_map(|w| {
-            let rate = rates.get(&w.window).copied().filter(|rate| *rate > 0.0)?;
+            let observed = || w.burn_pct_h.filter(|burn| w.is_week() && *burn > 0.0).map(|burn| burn / 60.0 / reading.workers.unwrap_or(0).max(1) as f64);
+            let rate = rates.get(&w.window).copied().filter(|rate| *rate > 0.0).or_else(observed)?;
             let own = w.horizon(target, reading.at);
             let hours = if w.is_week() { reading.refill_h.map_or(own, |refill| own.min(refill)) } else { own };
             let ceiling = if w.is_week() { w.ceiling(target) } else { w.quota_ceiling.unwrap_or(100.0) };

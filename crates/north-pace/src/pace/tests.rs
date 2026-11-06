@@ -204,7 +204,7 @@ fn allowed_workers_follow_the_five_hour_window_within_what_the_week_pays_for() {
         let mut previous = Control::default();
         for tick in 0..45 {
             let moment = at + 60.0 * f64::from(tick);
-            let windows = weekly_reading(moment, five_used, five_reset_h, week_used + week_slope * f64::from(tick), week_reset_h);
+            let windows = weekly_reading(moment, five_used + 0.05 * f64::from(tick), five_reset_h, week_used + week_slope * f64::from(tick), week_reset_h);
             previous = advance(&previous, Reading { initial: 1, ..reading(windows, Some(2), moment) });
         }
         previous
@@ -241,6 +241,10 @@ fn a_stale_five_hour_window_never_raises_allowed_workers_past_the_week_bound() {
     }
     assert!(control.burn_pct_worker_min.contains_key("week"), "the week burn per worker was never measured");
     assert_eq!(control.allowed_workers, Some(0));
+    let moment = at + 60.0 * 40.0;
+    let zero = Control { allowed_workers: Some(7), burn_pct_worker_min: [("5h".to_owned(), 0.0), ("week".to_owned(), 0.0)].into(), ..control };
+    let capped = advance(&zero, Reading { initial: 1, ..reading(tick(moment, 89.0), Some(1), moment) });
+    assert_eq!(capped.allowed_workers, Some(0), "a carried zero rate does not lift the week cap while the week burns");
 }
 
 fn the_week_bound_spends_toward_the_next_refill_on_an_account_without_the_proxy() {
