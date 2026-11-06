@@ -23,6 +23,8 @@ fn the_commit_that_turned_a_contract_goal_red_is_named_among_a_landed_range_and_
     std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]).unwrap();
     git(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]).unwrap();
+    git(&repo, &["config", "user.name", "t"]).unwrap();
+    git(&repo, &["config", "user.email", "t@t"]).unwrap();
     let base = commit(&repo, "goals.toml", GOALS);
     commit(&repo, "one.txt", "1");
     let culprit = commit(&repo, "BAD", "x");
