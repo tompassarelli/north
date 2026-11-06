@@ -1,7 +1,6 @@
 use crate::fleet::runtime::{PROXY, ROLE_ENV, SESSION_ENV};
 use crate::guard::paths::{basename, expanduser, join, normpath};
 use crate::hook::{HookInput, Verdict};
-use crate::platform::process::run_command_within;
 use crate::shell::{blank_quotes, strip_heredocs};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -20,6 +19,9 @@ const SEPARATORS: [char; 9] = ['\n', ';', '&', '|', '(', ')', '`', '{', '}'];
 const CHILD_SESSION_ENV: &str = "CLAUDE_CODE_CHILD_SESSION";
 const CLAUDE_PID_ENV: &str = "CLAUDE_PID";
 const CONFIG_ENV: &str = "CLAUDE_CONFIG_DIR";
+const PLAN_REFRESH: Duration = Duration::from_secs(120);
+const PLAN_REFRESH_LIMIT: Duration = Duration::from_secs(90);
+const PLAN_STALE: Duration = Duration::from_secs(15 * 60);
 
 pub struct Registered {
     pub conversation: Option<String>,
@@ -36,8 +38,7 @@ pub trait World {
     fn registered_proxy(&self) -> Option<Registered>;
     fn profile(&self, account: &str) -> Option<String>;
     fn claude_start(&self) -> Option<ClaudeStart>;
-    fn fleet(&self) -> Option<String>;
-    fn ready(&self) -> Option<String>;
+    fn dispatch_plan(&self) -> Option<String>;
     fn seen(&self, session: &str, items: &str) -> bool;
 }
 
@@ -45,13 +46,6 @@ pub struct Live;
 
 fn north() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"))
-}
-
-fn stdout_of(arguments: &[&str], limit: Duration) -> Option<String> {
-    let mut command = Command::new(north());
-    command.args(arguments);
-    let output = run_command_within(command, None, limit)?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 impl World for Live {
@@ -83,12 +77,15 @@ impl World for Live {
         Some(ClaudeStart { nested, print })
     }
 
-    fn fleet(&self) -> Option<String> {
-        stdout_of(&["fleet", "list", "--json"], Duration::from_secs(5))
-    }
-
-    fn ready(&self) -> Option<String> {
-        stdout_of(&["threads", "ready"], Duration::from_secs(25))
+    fn dispatch_plan(&self) -> Option<String> {
+        let dir = PathBuf::from(self.var("HOME")?).join(".local/state/north/proxy-idle");
+        let plan = dir.join("dispatch-plan");
+        let age = |path: &std::path::Path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok().and_then(|modified| modified.elapsed().ok());
+        let refreshing = age(&dir.join("dispatch-plan.part")).is_some_and(|age| age < PLAN_REFRESH_LIMIT);
+        if !refreshing && age(&plan).is_none_or(|age| age > PLAN_REFRESH) {
+            refresh_plan(&dir);
+        }
+        age(&plan).filter(|age| *age < PLAN_STALE).and_then(|_| std::fs::read_to_string(&plan).ok())
     }
 
     fn seen(&self, session: &str, items: &str) -> bool {
@@ -114,7 +111,7 @@ pub fn decide(world: &impl World, input: &HookInput) -> Verdict {
         return Verdict::Allow;
     }
     match input.data["hook_event_name"].as_str() {
-        Some("Stop") => idle_fleet(world, input).map_or(Verdict::Allow, Verdict::Deny),
+        Some("Stop") => idle_capacity(world, input).map_or(Verdict::Allow, Verdict::Deny),
         _ => refusal(world, input).map_or(Verdict::Allow, |action| Verdict::Deny(message(&action))),
     }
 }
@@ -278,26 +275,48 @@ fn subcommand<'a>(words: &[&'a str], valued: &[&str]) -> Option<&'a str> {
     None
 }
 
-fn idle_fleet(world: &impl World, input: &HookInput) -> Option<String> {
+fn refresh_plan(dir: &std::path::Path) {
+    use std::os::unix::process::CommandExt;
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let mut command = Command::new("sh");
+    command.args(["-c", "\"$0\" dispatch --dry-run > \"$1\" 2>/dev/null && mv \"$1\" \"$2\""]).arg(north()).arg(dir.join("dispatch-plan.part")).arg(dir.join("dispatch-plan"));
+    let _ = command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).process_group(0).spawn();
+}
+
+fn idle_capacity(world: &impl World, input: &HookInput) -> Option<String> {
     if input.data["stop_hook_active"].as_bool() == Some(true) {
         return None;
     }
+    let plan = world.dispatch_plan()?;
+    let placed = plan.lines().find_map(|line| line.strip_prefix("would launch ").or_else(|| line.strip_prefix("would cloud-launch ")));
+    let (capacity, waiting) = match placed {
+        Some(launch) => {
+            let mut words = launch.split(' ');
+            let item = words.next()?;
+            let (host, account) = (words.nth(1)?, words.next()?);
+            (format!("{account} has a free worker slot on {host}"), format!("{item} is ready and dispatch would place it there"))
+        }
+        None => {
+            let free = plan.lines().filter_map(|line| line.strip_prefix("slots ")).find_map(|slot| {
+                let (pair, count) = slot.rsplit_once(": ")?;
+                let (host, account) = pair.split_once(' ')?;
+                (count.trim().parse::<u32>().ok()? > 0).then(|| format!("{account} has {} free worker slots on {host}", count.trim()))
+            })?;
+            let skipped = plan.lines().filter_map(|line| line.strip_prefix("skip ")).find_map(|skip| {
+                let (item, why) = skip.split_once(": ready, not placed: ")?;
+                Some(format!("{item} is ready but not placed: {why}"))
+            })?;
+            (free, skipped)
+        }
+    };
     let own = input.data["session_id"].as_str().unwrap_or_default();
-    let sessions: Value = serde_json::from_str(&world.fleet()?).ok()?;
-    let working = sessions.as_array()?.iter().any(|session| session["status"] == "working" && session["conversation"].as_str() != Some(own) && session["name"] != PROXY);
-    if working {
+    if world.seen(own, &format!("{capacity}\n{waiting}")) {
         return None;
     }
-    let ready = world.ready()?;
-    let items: Vec<&str> = ready.lines().filter_map(|line| line.split('\t').next()).filter(|item| item.contains('#') && !item.contains(' ')).collect();
-    if items.is_empty() || world.seen(own, &items.join("\n")) {
-        return None;
-    }
-    let sample = items.iter().take(5).copied().collect::<Vec<_>>().join(", ");
     Some(format!(
-        "{UNIT}: {} ready items ({sample}{}) and no fleet session is working. Staff them now with `north fleet launch --task REPO#N ...` up to the free worker slots before ending the turn, or tell Tom what blocks staffing.",
-        items.len(),
-        if items.len() > 5 { ", ..." } else { "" }
+        "{UNIT}: admitted capacity is idle while ready work waits: {capacity}, and {waiting}. Staff it before ending the turn (`north dispatch` launches what it places, `north fleet launch --task REPO#N ...` the rest, or fix what keeps a box from being placed), or tell Tom what blocks staffing."
     ))
 }
 

@@ -12,8 +12,7 @@ struct Fake {
     account: Option<&'static str>,
     config: Option<&'static str>,
     start: Option<(bool, bool)>,
-    fleet: &'static str,
-    ready: &'static str,
+    plan: Option<&'static str>,
     seen: Option<&'static str>,
 }
 
@@ -36,11 +35,8 @@ impl World for Fake {
     fn claude_start(&self) -> Option<ClaudeStart> {
         self.start.map(|(nested, print)| ClaudeStart { nested, print })
     }
-    fn fleet(&self) -> Option<String> {
-        Some(self.fleet.to_owned())
-    }
-    fn ready(&self) -> Option<String> {
-        Some(self.ready.to_owned())
+    fn dispatch_plan(&self) -> Option<String> {
+        self.plan.map(str::to_owned)
     }
     fn seen(&self, _session: &str, items: &str) -> bool {
         self.seen.is_some_and(|seen| seen == items)
@@ -105,24 +101,27 @@ fn stop(active: bool) -> HookInput {
     HookInput::parse(data.to_string().as_bytes()).unwrap()
 }
 
-const READY: &str = "north#523\tProxy role guard\nnorth#524\tOther\n";
+const PLACED: &str = "slots gex45 claude:c: 2\nskip north#525: ready, not placed: no Class: line\nwould launch north#523 on gex45 claude:c as worker (tune cell)\n";
+const UNPLACED: &str = "slots gex45 claude:a: 0\nslots gex45 claude:c: 2\nskip north#525: ready, not placed: Category debugging-unknown-cause has no Class: line\n";
+const SATURATED: &str = "slots gex45 claude:c: 0\nskip north#525: ready, not placed: gex45 takes nothing: load 37 on 20 threads\n";
 
 #[test]
-fn an_idle_fleet_with_ready_items_sends_the_proxy_back_to_staff_them() {
-    let idle = Fake { fleet: r#"[{"name":"proxy","conversation":"s1","status":"working"},{"name":"w","conversation":"s9","status":"parked"}]"#, ready: READY, ..proxy() };
-    match decide(&idle, &stop(false)) {
-        Verdict::Deny(reason) => assert!(reason.contains("2 ready items (north#523, north#524)") && reason.contains("north fleet launch"), "{reason}"),
+fn the_proxy_cannot_end_a_turn_while_admitted_capacity_is_idle_and_ready_boxes_wait() {
+    let placed = Fake { plan: Some(PLACED), ..proxy() };
+    match decide(&placed, &stop(false)) {
+        Verdict::Deny(reason) => assert!(reason.contains("claude:c has a free worker slot on gex45") && reason.contains("north#523 is ready"), "{reason}"),
         other => panic!("{other:?}"),
     }
-    assert_eq!(decide(&idle, &stop(true)), Verdict::Allow);
-    let flagged = Fake { seen: Some("north#523\nnorth#524"), fleet: idle.fleet, ready: READY, ..proxy() };
+    match decide(&Fake { plan: Some(UNPLACED), ..proxy() }, &stop(false)) {
+        Verdict::Deny(reason) => assert!(reason.contains("claude:c has 2 free worker slots on gex45") && reason.contains("north#525 is ready but not placed: Category"), "{reason}"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(decide(&placed, &stop(true)), Verdict::Allow);
+    let flagged = Fake { seen: Some("claude:c has a free worker slot on gex45\nnorth#523 is ready and dispatch would place it there"), plan: Some(PLACED), ..proxy() };
     assert_eq!(decide(&flagged, &stop(false)), Verdict::Allow);
-    let busy = Fake { fleet: r#"[{"name":"w","conversation":"s9","status":"working"}]"#, ready: READY, ..proxy() };
-    assert_eq!(decide(&busy, &stop(false)), Verdict::Allow);
-    let empty = Fake { fleet: "[]", ready: "", ..proxy() };
-    assert_eq!(decide(&empty, &stop(false)), Verdict::Allow);
-    let idle_worker = Fake { fleet: "[]", ready: READY, ..worker() };
-    assert_eq!(decide(&idle_worker, &stop(false)), Verdict::Allow);
+    assert_eq!(decide(&Fake { plan: Some(SATURATED), ..proxy() }, &stop(false)), Verdict::Allow);
+    assert_eq!(decide(&Fake { plan: None, ..proxy() }, &stop(false)), Verdict::Allow);
+    assert_eq!(decide(&Fake { plan: Some(PLACED), ..worker() }, &stop(false)), Verdict::Allow);
 }
 
 #[test]

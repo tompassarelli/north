@@ -81,6 +81,7 @@ pattern = '''(working|moving|going) (so |too )?slow(ly)?|too slow|(go|be) \d+(-\
 paraphrase = "Tom said the work was moving too slowly."
 owner = "north#636"
 guard = "The proxy's Stop hook refuses to end a turn while admitted account capacity is idle and ready boxes wait, naming the idle capacity and the first ready box."
+guarded_at = "2026-11-06T01:05:11Z"
 
 [[class]]
 name = "misrelayed-intent"
