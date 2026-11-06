@@ -18,15 +18,14 @@ use janitor::Janitor;
 use journey::Plan;
 use notes::{Note, Notes};
 
-const USAGE: &str = "usage: verify-north [--north PATH] [--claude-account A] [--codex-account A]
+const USAGE: &str = "usage: verify-north [--north PATH] [--claude-account A]
 Builds north from the checkout around the current directory, or uses --north PATH (a bare name is
 looked up on PATH), then drives the fleet TUI and CLI end to end and cleans up. Exits nonzero on
-any failure. Defaults: the Claude account `north agents plan --place` picks, --codex-account none (skips the codex step).";
+any failure. Defaults: the Claude account `north agents plan --place` picks.";
 
 struct Options {
     north: Option<String>,
     claude_account: Option<String>,
-    codex_account: String,
 }
 
 fn main() -> ExitCode {
@@ -48,14 +47,13 @@ fn main() -> ExitCode {
 }
 
 fn parse(arguments: &[String]) -> Result<Options, String> {
-    let mut options = Options { north: None, claude_account: None, codex_account: journey::NO_ACCOUNT.into() };
+    let mut options = Options { north: None, claude_account: None };
     let mut words = arguments.iter();
     while let Some(flag) = words.next() {
         let value = words.next().ok_or_else(|| format!("{flag} needs a value"))?.clone();
         match flag.as_str() {
             "--north" => options.north = Some(value),
             "--claude-account" => options.claude_account = Some(value),
-            "--codex-account" => options.codex_account = value,
             _ => return Err(format!("unknown argument {flag}")),
         }
     }
@@ -84,7 +82,7 @@ fn verify(options: &Options) -> ExitCode {
 
 fn plan(options: &Options) -> Plan {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-    Plan { stamp, claude_account: options.claude_account.clone(), codex_account: options.codex_account.clone() }
+    Plan { stamp, claude_account: options.claude_account.clone() }
 }
 
 fn prepare(options: &Options, notes: &Notes) -> Option<North> {

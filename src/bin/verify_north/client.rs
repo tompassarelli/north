@@ -80,9 +80,6 @@ impl North {
         Ok(Transcript::parse(&self.json(&["fleet", "show", name, "--json"])?))
     }
 
-    pub fn runs(&self) -> Result<Vec<Value>, String> {
-        Ok(self.json(&["ledger", "runs", "--json"])?.as_array().cloned().unwrap_or_default())
-    }
 
     pub fn tasks(&self) -> Result<Vec<Value>, String> {
         Ok(self.json(&["ledger", "summary", "--json"])?["tasks"].as_array().cloned().unwrap_or_default())
