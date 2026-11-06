@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/north-strategy-types", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror", "crates/north-goals", "crates/north-coverage"]
-default-members = [".", "crates/north-strategy-types", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror", "crates/north-goals", "crates/north-coverage"]
+members = ["crates/north-strategy-types", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror", "crates/north-goals", "crates/north-coverage", "crates/north-graph"]
+default-members = [".", "crates/north-strategy-types", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror", "crates/north-goals", "crates/north-coverage", "crates/north-graph"]
 
 [workspace.dependencies]
 crossterm = "0.28.1"
@@ -52,6 +52,7 @@ north-dispatch = { path = "crates/north-dispatch" }
 north-github-mirror = { path = "crates/north-github-mirror" }
 north-goals = { path = "crates/north-goals" }
 north-coverage = { path = "crates/north-coverage" }
+north-graph = { path = "crates/north-graph" }
 north-runtime = { path = "crates/north-runtime" }
 north-guard = { path = "crates/north-guard" }
 north-tui = { path = "crates/north-tui" }

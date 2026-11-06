@@ -62,6 +62,7 @@ Read in three rings and stop at the first one that answers:
 - [docs/feedback-loop.md](docs/feedback-loop.md): each recorded signal, its writer and its reader.
 - [docs/references.md](docs/references.md): outside sources, what they shaped and what came of them.
 - [docs/nexus-run.md](docs/nexus-run.md): running a CPU job on Nexus from an owned worktree.
+- [docs/graph.md](docs/graph.md): the fact graph behind `north graph`: terms, occurrences, the ask query and its timing.
 - [docs/rationale/review-triggers.md](docs/rationale/review-triggers.md): why review is triggered by risk, not a landing trailer.
 - [agent-machinery/skills/verification/SKILL.md](agent-machinery/skills/verification/SKILL.md): how tests are kept and run.
 
