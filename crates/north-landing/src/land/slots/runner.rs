@@ -69,6 +69,7 @@ struct Shared {
     it: Option<String>,
     selected_paths: Option<String>,
     placed: Arc<HashMap<String, String>>,
+    pinned: usize,
 }
 
 fn host_name(class: &str) -> String {
@@ -294,6 +295,7 @@ async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environmen
         scope,
         it,
         placed: Arc::default(),
+        pinned: 0,
     };
     if shared.arguments.leased {
         return Arc::new(shared).run_list(&commands).await.status();
@@ -400,7 +402,7 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     let it = it_for(&root, &arguments, &commands);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let paths = path_class(&root, &arguments.base, &arguments.head);
-    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default() });
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
     let pending = shared.cached(&commands).await;
     if pending.is_empty() { 0 } else { shared.run_list(&pending).await.status() }
 }

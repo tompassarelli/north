@@ -152,23 +152,29 @@ impl Shared {
         let joined: Vec<&String> = ordered.iter().filter(|command| self.offload_host_for(command).is_some() && !plan.is_expensive(command) && batch::joins(command)).collect();
         let joined = if joined.len() >= 2 { joined } else { Vec::new() };
         let mut jobs: Vec<Vec<&String>> = Vec::new();
-        if !joined.is_empty() && joined.iter().all(|command| movable(command)) {
+        let batched_here = !joined.is_empty() && !joined.iter().all(|command| movable(command));
+        if !joined.is_empty() && !batched_here {
             jobs.push(joined.clone());
         }
         jobs.extend(ordered.iter().filter(|command| !joined.contains(command) && movable(command)).map(|command| vec![command]));
-        if jobs.len() < 2 || !self.environment.offload_host.is_empty() {
+        let pinned = self.pinned + usize::from(batched_here) + ordered.iter().filter(|command| !joined.contains(command) && self.offload_host_for(command).is_some() && !movable(command)).count();
+        if jobs.is_empty() || jobs.len() + pinned < 2 || !self.environment.offload_host.is_empty() {
             return Arc::clone(self);
         }
         let count = jobs.len().to_string();
-        let Some(output) = self.north(&["capacity", "offload", "choose", "--any", "--count", &count]).await.filter(|output| output.status.success()) else { return Arc::clone(self) };
+        let mut choose = vec!["capacity", "offload", "choose", "--any", "--count", &count];
+        for _ in 0..pinned {
+            choose.extend(["--taken", self.arguments.runner_host.as_str()]);
+        }
+        let Some(output) = self.north(&choose).await.filter(|output| output.status.success()) else { return Arc::clone(self) };
         let hosts: Vec<String> = String::from_utf8_lossy(&output.stdout).lines().map(str::trim).filter(|host| !host.is_empty()).map(str::to_owned).collect();
         if hosts.len() != jobs.len() {
             return Arc::clone(self);
         }
-        let pinned = &self.arguments.runner_host;
-        let elsewhere: Vec<&String> = hosts.iter().filter(|host| *host != pinned).collect();
+        let run_host = &self.arguments.runner_host;
+        let elsewhere: Vec<&String> = hosts.iter().filter(|host| *host != run_host).collect();
         if !elsewhere.is_empty() {
-            say(&format!("safe-push: {} of {} offloaded land check job(s) run on {} beside {pinned}, by free slots", elsewhere.len(), jobs.len(), elsewhere.iter().map(|host| host.as_str()).collect::<Vec<_>>().join(", ")));
+            say(&format!("safe-push: {} of {} offloaded land check job(s) run on {} beside {pinned} head-north job(s) on {run_host}, by free slots", elsewhere.len(), jobs.len(), elsewhere.iter().map(|host| host.as_str()).collect::<Vec<_>>().join(", ")));
         }
         let placed = jobs.iter().zip(&hosts).flat_map(|(job, host)| job.iter().map(|command| ((*command).clone(), host.clone()))).collect();
         Arc::new(Self { placed: Arc::new(placed), ..(**self).clone() })
@@ -343,8 +349,10 @@ impl Shared {
             Err(commands) => return self.execute(commands).await,
         };
         say(&format!("safe-push: land check order: the north build the head-north checks share ({}), then {} head-north check(s), beside {} other land check(s)", phases.build, phases.head_north.len(), phases.others.len()));
+        let pinned = if self.offload_host_for(&phases.build).is_some() { head_north_jobs(&phases.head_north).max(1) } else { 0 };
+        let beside = Arc::new(Self { pinned, ..(*self).clone() });
         let others = async {
-            if phases.others.is_empty() { 0 } else { Arc::clone(&self).execute(phases.others).await }
+            if phases.others.is_empty() { 0 } else { beside.execute(phases.others).await }
         };
         let shared = async {
             let built = Arc::clone(&self).execute(vec![phases.build]).await;
@@ -422,4 +430,9 @@ impl Shared {
         shared.actions_down = true;
         shared
     }
+}
+
+fn head_north_jobs(commands: &[String]) -> usize {
+    let joined = commands.iter().filter(|command| batch::joins(command)).count();
+    commands.len() - joined + if joined >= 2 { 1 } else { joined }
 }

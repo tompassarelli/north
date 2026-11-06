@@ -201,6 +201,14 @@ fn land_publish() {
         assert!(fixture.trace().contains("betterleaks "), "the link did not run the publication scan: {}", fixture.trace());
         assert_eq!(fixture.path("ran").exists(), status == 0, "{}", text(&output));
     }
+
+    {
+        let fixture = Fixture::new(&[("land.check", "file.txt :: ./bin/head-north land tests one"), ("land.check", "file.txt :: ./bin/head-north land tests two"), ("land.check", "file.txt :: true clippy"), ("land.check", "file.txt :: true nextest")]);
+        let output = fixture.command().env("SAFE_PUSH_LAND_RUNNER", "buildbox").output().unwrap();
+        assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+        let trace = fixture.trace();
+        assert!(trace.contains("capacity offload choose --any --count 2 --taken buildbox --taken buildbox\n"), "the 1:51 AM run of 2026-11-07 spread clippy and nextest onto ccx33 beside the head-north checks pinned there, counting none of them: {trace}");
+    }
 }
 
 fn hung_log(fixture: &Fixture) -> String {
