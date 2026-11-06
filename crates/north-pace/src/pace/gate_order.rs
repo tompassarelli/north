@@ -33,7 +33,7 @@ struct Provider {
     #[serde(default)]
     controls: Members<IgnoredAny>,
 }
-pub(super) fn accounts(gate: &str) -> Result<Value, String> {
+pub fn accounts(gate: &str) -> Result<Value, String> {
     let providers: Members<Provider> = serde_json::from_str(gate).map_err(|e| e.to_string())?;
     let mut order = json!({});
     for (name, provider) in providers.0 {

@@ -150,7 +150,7 @@ pub(super) fn input() -> Result<Value, String> {
             gate: Box<serde_json::value::RawValue>,
         }
         let raw: Gate = serde_json::from_str(&input).map_err(|e| e.to_string())?;
-        request["account_order"] = super::gate_order::accounts(raw.gate.get())?;
+        request["account_order"] = crate::pace::gate_order::accounts(raw.gate.get())?;
     }
     Ok(request)
 }

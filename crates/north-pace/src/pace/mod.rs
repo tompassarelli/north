@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 pub mod admission;
 pub mod control;
 pub mod exhaustion;
+pub mod gate_order;
 pub mod limits;
 pub mod projection;
 pub mod target;

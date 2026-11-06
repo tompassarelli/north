@@ -8,7 +8,6 @@ mod command;
 #[cfg(test)]
 mod grant_tests;
 mod grants;
-mod gate_order;
 pub mod placement;
 #[cfg(test)]
 mod placement_gate_tests;
