@@ -11,8 +11,8 @@ pub const FACETS: [(&str, &[&str]); 4] = [
     ("Verify", &["none", "local-test", "farm", "native", "visual"]),
 ];
 
-pub const CATEGORIES: [&str; 11] =
-    ["mechanical", "docs-policy", "tooling", "feature", "bug-known-cause", "debugging-unknown-cause", "netcode-determinism", "performance", "balance-tuning", "native-check", "research"];
+pub const CATEGORIES: [&str; 13] =
+    ["mechanical", "docs-policy", "tooling", "feature", "bug-known-cause", "debugging-unknown-cause", "netcode-determinism", "performance", "balance-tuning", "native-check", "research", "planning", "review"];
 
 static FIELD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^([A-Za-z][A-Za-z ]*?):[ \t]*(.*)$").unwrap());

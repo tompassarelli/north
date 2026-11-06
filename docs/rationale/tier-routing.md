@@ -178,6 +178,19 @@ falls in the max band. The two boxes were retired on 2026-11-01 when Tom's gate 
 Overturned by: a planning-time input (box count, files named, issue text) that lifts the held-out check above chance
 at alpha 0.05 on a later ledger.
 
+## Planner and reviewer effort is a seeded random arm
+
+Reasoning: the section above found that planning-time facets, category among them, predict which plans need more
+effort no better than chance, so no category is pinned to xhigh. A run launched with `Category: planning` or
+`Category: review` runs Opus high, and xhigh when the FNV-1a hash of its item and launch count falls in the lowest 10
+of 100 (`dispatch::tier::XHIGH_PERCENT`); the brief and the dispatch record stamp `Arm: effort-high` or
+`Arm: effort-xhigh`. Once both arms hold 15 runs and 15 closed boxes in a category, that category runs the arm with the
+lower cost per kept box, high on a tie. Tom chose this over pinning top-band architecture, netcode-determinism and
+planning plans to xhigh (gate 163, north#636, 2026-11-06).
+
+Overturned by: a planning-time input that predicts effort need above chance (the section above), or an xhigh arm that
+reaches 15 closed boxes in no category within a month.
+
 ## Offline model replay for tier arms is superseded by ledger routing
 
 Reasoning: north#38 asked for a 120-run `policy-replay` sweep over 40 Test-kind scenarios with worker, worker-sonnet and

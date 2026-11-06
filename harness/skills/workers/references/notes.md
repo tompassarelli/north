@@ -43,13 +43,7 @@ a rule when its numbers move.
 
 ## Planner effort
 
-- Staff `planner` at Opus high by default. Tom's hypothesis (2026-10-12) is
-  that high fits about 90% of plans, xhigh the next 8% and `max` the top 2%.
-- Pass `effort: xhigh` or `max` only with evidence from our own data (a high
-  plan for the same issue came back Not done, or `north worker-ledger` shows high
-  plans in that category closing worse) or when Tom asks. Name that evidence
-  in the brief, and rank complexity against past planned work in
-  `north worker-ledger`, not by feel.
+- Launch a planner with `Category: planning` and a reviewer with `Category: review` and no `--effort`: routing runs it at Opus high, and at xhigh on a seeded 10% draw stamped `Arm: effort-xhigh`, until the ledger settles the cheaper arm (gate 163, 2026-11-06; category does not predict effort need, docs/rationale/tier-routing.md).
 - Staff it for a plan, not code, when an issue gets its second Not done, a
   category's last 10 runs fall below 40% closed, or the change is
   architectural.

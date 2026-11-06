@@ -44,7 +44,7 @@ owner = "tompassarelli/north#242"
 
 [[experiment]]
 id = "planner-band-unrouted"
-change = "Nothing routes on the planner effort band; planner effort stays high and rises only from an issue's own Not dones"
+change = "Nothing routes on the planner effort band; planner effort is high with a seeded 10% xhigh arm (planner-effort-xhigh-arm)"
 landed = "32b7b28cb"
 note = "docs/rationale/tier-routing.md"
 rule = "Overturned by: a planning-time input (box count, files named, issue text) that lifts the held-out check above chance at alpha 0.05 on a later ledger."
@@ -56,6 +56,21 @@ min_n = 0
 after = ["2026-11-01", "2026-11-29"]
 review = "2026-12-01"
 owner = "tompassarelli/north#242"
+
+[[experiment]]
+id = "planner-effort-xhigh-arm"
+change = "Planner and reviewer runs run Opus high and xhigh on a seeded 10% draw stamped Arm: effort-xhigh, until both arms hold 15 runs and 15 closed boxes in a category; this entry counts the xhigh arm"
+landed = "e2cdca277"
+note = "docs/rationale/tier-routing.md"
+rule = "Overturned by: a planning-time input that predicts effort need above chance (the section above), or an xhigh arm that reaches 15 closed boxes in no category within a month."
+metric = "runs"
+arm = "effort-xhigh"
+direction = "up"
+bar = 15.0
+min_n = 1
+after = ["2026-11-06", "2026-12-06"]
+review = "2026-12-08"
+owner = "tompassarelli/north#636"
 
 [[experiment]]
 id = "tier-arm-sonnet"

@@ -2,7 +2,9 @@
 //! retry on Sonnet, the Sonnet and Opus arms in turn on the armed categories until the ledger holds
 //! 15 runs and 15 closed boxes of each, then the arm with the lower cost per closed box, and Opus for
 //! the rest. An Opus box on no tier arm in a category with 15 Opus runs alternates the medium and
-//! high effort arms the same way until the tune tick or the ledger settles the cheaper one.
+//! high effort arms the same way until the tune tick or the ledger settles the cheaper one. A planner
+//! or reviewer run takes Opus high, and xhigh on a seeded tenth of its launches, until the ledger
+//! settles the cheaper of the two.
 use super::facets;
 use super::issues::Issue;
 use super::record::Record;
@@ -17,6 +19,10 @@ use toml_edit::DocumentMut;
 pub const ARM_WINDOW: &str = "30d";
 /// Categories whose Sonnet and Opus arms dispatch compares.
 pub const ARMED: [&str; 6] = ["feature", "tooling", "native-check", "balance-tuning", "bug-known-cause", "performance"];
+/// Categories of planner and reviewer runs, whose effort arms are high and xhigh.
+pub const PLANNED: [&str; 2] = ["planning", "review"];
+/// The share of planner and reviewer launches drawn onto the xhigh arm, in percent.
+pub const XHIGH_PERCENT: u64 = 10;
 const ART: [&str; 3] = ["anim", "animation", "art"];
 
 /// Categories whose ledger evidence dispatch and the tune tick read: every category but mechanical
@@ -30,16 +36,19 @@ pub fn evidenced() -> Vec<&'static str> {
 pub enum Effort {
     Medium,
     High,
+    Xhigh,
 }
 
 impl Effort {
     pub const ARMS: [Self; 2] = [Self::Medium, Self::High];
+    pub const ALL: [Self; 3] = [Self::Medium, Self::High, Self::Xhigh];
 
     /// The `--effort` word Claude Code takes, which is also the tune cell's value.
     pub fn name(self) -> &'static str {
         match self {
             Self::Medium => "medium",
             Self::High => "high",
+            Self::Xhigh => "xhigh",
         }
     }
 
@@ -48,15 +57,16 @@ impl Effort {
         match self {
             Self::Medium => "effort-medium",
             Self::High => "effort-high",
+            Self::Xhigh => "effort-xhigh",
         }
     }
 
     pub fn parse(text: &str) -> Option<Self> {
-        Self::ARMS.into_iter().find(|effort| effort.name() == text || effort.arm() == text)
+        Self::ALL.into_iter().find(|effort| effort.name() == text || effort.arm() == text)
     }
 
     fn parse_arm(text: &str) -> Option<Self> {
-        Self::ARMS.into_iter().find(|effort| effort.arm() == text)
+        Self::ALL.into_iter().find(|effort| effort.arm() == text)
     }
 
     fn other(self) -> Self {
@@ -196,13 +206,18 @@ impl Evidence {
     /// category.
     pub fn counted(self, stamped: &BTreeMap<String, usize>) -> Self {
         let arm_runs = Trial::counted(&[Tier::Sonnet, Tier::Opus], Tier::name, stamped);
-        let efforts = Trial { runs: Trial::counted(&Effort::ARMS, Effort::arm, stamped), ..self.efforts.clone() };
+        let efforts = Trial { runs: Trial::counted(&Effort::ALL, Effort::arm, stamped), ..self.efforts.clone() };
         Self { arm_runs, efforts, ..self }
     }
 
     /// The effort the category's Opus boxes settle on: medium on a tie.
     pub fn settled_effort(&self) -> Option<Effort> {
         self.efforts.settled(Effort::Medium, Effort::High)
+    }
+
+    /// The effort a planner or reviewer run settles on: high on a tie.
+    pub fn settled_planned_effort(&self) -> Option<Effort> {
+        self.efforts.settled(Effort::High, Effort::Xhigh)
     }
 
     /// Both effort arms' stamped runs behind the decision.
@@ -347,6 +362,10 @@ impl History {
         }
     }
 
+    fn launches(&self, item: &str) -> usize {
+        self.tried.get(item).map_or(0, Vec::len)
+    }
+
     fn haiku_try(&self, item: &str) -> Option<&str> {
         self.tried.get(item)?.iter().rev().find(|(tier, _)| *tier == Tier::Haiku).map(|(_, name)| name.as_str())
     }
@@ -369,7 +388,8 @@ pub fn route(issue: &Issue, history: &History, ledger: &BTreeMap<String, Evidenc
 pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, ledger: &BTreeMap<String, Evidence>) -> Route {
     let category = facet("Category").to_lowercase();
     let evidence = ledger.get(&category).cloned().unwrap_or_default();
-    efforted(tiered(item, &category, facet, history, &evidence), history, &evidence)
+    let route = tiered(item, &category, facet, history, &evidence);
+    if PLANNED.contains(&category.as_str()) { planned(route, item, history, &evidence) } else { efforted(route, history, &evidence) }
 }
 
 fn tiered(item: &str, category: &str, facet: &dyn Fn(&str) -> String, history: &History, evidence: &Evidence) -> Route {
@@ -415,4 +435,25 @@ fn efforted(route: Route, history: &History, evidence: &Evidence) -> Route {
         return route;
     };
     Route { effort: Some(effort), effort_arm: arm, why: format!("{}, {why}", route.why), ..route }
+}
+
+/// A planner or reviewer run's effort: the ledger's settled arm, else xhigh when the seeded draw for
+/// this item's next launch falls in `XHIGH_PERCENT`, else high.
+fn planned(route: Route, item: &str, history: &History, evidence: &Evidence) -> Route {
+    let figures = || [Effort::High, Effort::Xhigh].map(|effort| evidence.efforts.figures(effort, effort.arm())).join("; ");
+    let (effort, arm, why) = if let Some(effort) = evidence.settled_planned_effort() {
+        (effort, false, format!("at {} effort by the ledger's cost per kept box ({})", effort.name(), figures()))
+    } else {
+        let seed = format!("{item}#{}", history.launches(item));
+        let effort = if xhigh_drawn(&seed) { Effort::Xhigh } else { Effort::High };
+        (effort, true, format!("on effort arm {} by the {XHIGH_PERCENT}% xhigh draw seeded {seed} ({}; {ARM_RUNS} each to decide)", effort.arm(), figures()))
+    };
+    Route { tier: Tier::Opus, effort: Some(effort), effort_arm: arm, why: format!("{}, {why}", route.why), ..route }
+}
+
+/// Whether `seed` draws the xhigh arm: its FNV-1a hash modulo 100 under `XHIGH_PERCENT`, so a launch
+/// draws the same arm on every host and rerun.
+pub fn xhigh_drawn(seed: &str) -> bool {
+    let hash = seed.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3));
+    hash % 100 < XHIGH_PERCENT
 }
