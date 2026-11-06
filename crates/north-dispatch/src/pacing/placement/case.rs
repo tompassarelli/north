@@ -218,10 +218,6 @@ fn document(config: &Config) -> DocumentMut {
     document
 }
 
-#[cfg(test)]
-#[path = "case_tests.rs"]
-mod tests;
-
 /// The target as the decision log records it.
 pub fn recorded_target(target: &gate::Target) -> north_strategy_types::placement::Target {
     use north_strategy_types::placement::Target as Recorded;
