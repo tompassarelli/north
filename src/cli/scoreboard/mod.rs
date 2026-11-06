@@ -15,6 +15,7 @@ use crate::ledger::outcome::read::Places;
 mod audit;
 mod cause;
 mod landing;
+mod lanes;
 mod ready;
 mod tom;
 mod weekly;
@@ -150,6 +151,14 @@ fn measure(sources: &Sources, now: i64) -> Result<Vec<Measure>, String> {
     Ok(measures)
 }
 
+fn harness_lanes(sources: &Sources, now: i64) -> String {
+    let window = Window::weeks(now)[0];
+    match open(&sources.threads).and_then(|db| lanes::lanes(&db, &sources.places.rework, window)) {
+        Ok(found) => lanes::render(&found),
+        Err(why) => format!("harness lanes: unread: {why}\n"),
+    }
+}
+
 pub fn tick(now: i64) -> Vec<String> {
     ready::record(now);
     audit::tick(now);
@@ -216,6 +225,9 @@ pub fn run(arguments: &[String]) -> u8 {
     match measured {
         Ok((measures, record)) => {
             print!("{}", render(&measures, now));
+            if record.is_none() {
+                print!("{}", harness_lanes(&sources, now));
+            }
             if let Some(record) = record {
                 println!("{}", record.score());
             }
