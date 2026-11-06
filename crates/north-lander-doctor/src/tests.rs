@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;
-use std::process::Command;
-use std::time::{Duration, Instant};
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
 
 use north_landing::land::queue::{self, Ticket};
 
@@ -112,34 +112,51 @@ fn a_missing_registered_worktree_that_git_lists_prunable_is_pruned() {
     assert!(!git(&repo, &["worktree", "list", "--porcelain"]).contains("prunable"));
 }
 
+struct SlotJob {
+    child: std::process::Child,
+}
+
+impl SlotJob {
+    fn hold(lock: &Path) -> Self {
+        let mut child = Command::new("bash").args(["-c", "exec 9>\"$1\"; flock 9; echo held; exec sleep 30", "slot-job"]).arg(lock).process_group(0).stdout(Stdio::piped()).spawn().unwrap();
+        let mut said = String::new();
+        BufReader::new(child.stdout.take().unwrap()).read_line(&mut said).unwrap();
+        let job = Self { child };
+        assert_eq!(said.trim(), "held", "the fixture job took no lock on {}", lock.display());
+        job
+    }
+
+    fn pgid(&self) -> u32 {
+        self.child.id()
+    }
+}
+
+impl Drop for SlotJob {
+    fn drop(&mut self) {
+        let _ = Command::new("kill").args(["-KILL", &format!("-{}", self.pgid())]).stderr(Stdio::null()).status();
+        let _ = self.child.wait();
+    }
+}
+
 #[test]
 fn a_slot_past_its_deadline_is_released_by_ending_the_process_group_its_slot_files_name() {
     let root = tempfile::tempdir().unwrap();
-    let slot = "code-north-main-2";
-    let lock = root.path().join(format!("{slot}.lock"));
-    let job = Command::new("bash").args(["-c", "exec 9>\"$1\"; flock -n 9; exec sleep 30", "slot-job"]).arg(&lock).process_group(0).spawn().unwrap();
-    let pgid = job.id();
-    let reaper = std::thread::spawn(move || {
-        let mut job = job;
-        job.wait()
-    });
-    let started = Instant::now();
-    while Command::new("flock").args(["-n"]).arg(&lock).arg("true").status().unwrap().success() && started.elapsed() < Duration::from_secs(5) {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    for (suffix, text) in [("pgid", format!("{pgid}\n")), ("holder", "0123456789ab since 13:00:00\n".to_owned()), ("owner", "north-land\n".to_owned())] {
+    let slot = "fixture-slot-2";
+    let mut job = SlotJob::hold(&root.path().join(format!("{slot}.lock")));
+    let pgid = job.pgid();
+    for (suffix, text) in [("pgid", format!("{pgid}\n")), ("holder", "0123456789ab since 13:00:00\n".to_owned()), ("owner", "fixture-owner\n".to_owned())] {
         fs::write(root.path().join(format!("{slot}.{suffix}")), text).unwrap();
     }
     let held = SlotHold { slot: slot.to_owned(), held: SLOT_DEADLINE_SECS + 60, pgid: Some(pgid) };
-    let fresh = SlotHold { slot: "code-north-main".to_owned(), held: 120, pgid: Some(77) };
+    let fresh = SlotHold { slot: "fixture-slot".to_owned(), held: 120, pgid: Some(77) };
     let hands = Fake::default();
     cure(&at(gex45(), Probe { slots: vec![held, fresh], ..roomy() }), &mut Book::default(), &hands, NOW);
     assert_eq!(*hands.applied.borrow(), vec![Remedy::Release { place: gex45(), slot: slot.to_owned(), pgid }]);
     assert_eq!(hands.incidents.borrow()[0].0, "lander-slot-overdue");
-    let said = facts::shell(&here(), hands::RELEASE, &[slot, &pgid.to_string(), &root.path().to_string_lossy()]).unwrap();
-    assert_eq!(said.trim(), format!("ended process group {pgid}"));
-    assert!(!reaper.join().unwrap().unwrap().success(), "the job ended on a signal");
-    assert!(facts::shell(&here(), hands::RELEASE, &[slot, &pgid.to_string(), &root.path().to_string_lossy()]).is_err(), "a released slot is not released twice");
+    let release = || facts::shell(&here(), hands::RELEASE, &[slot, &pgid.to_string(), &root.path().to_string_lossy()]);
+    assert_eq!(release().unwrap().trim(), format!("ended process group {pgid}"));
+    assert!(!job.child.wait().unwrap().success(), "the job ended on a signal");
+    assert!(release().is_err(), "a released slot is not released twice");
     assert!(!root.path().join(format!("{slot}.pgid")).exists() && !root.path().join(format!("{slot}.holder")).exists());
 }
 

@@ -11,6 +11,7 @@ pub struct Lane<'a> {
     pub worktree: &'a Path,
     pub base: &'a str,
     pub head: &'a str,
+    pub red_fix: bool,
 }
 
 pub struct Refused {
@@ -68,6 +69,9 @@ fn removal(lane: &Lane, out: &mut Vec<u8>) -> bool {
 }
 
 fn debt_ceiling(lane: &Lane, out: &mut Vec<u8>) -> bool {
+    if lane.red_fix {
+        return false;
+    }
     let git = |args: &[&str]| candidate::git(lane.worktree, args);
     let Ok(registry) = git(&["show", &format!("{}:{}", lane.base, registry::PATH)]) else { return false };
     let Ok(changed) = git(&["diff", "--name-only", &lane.range()]) else { return false };
