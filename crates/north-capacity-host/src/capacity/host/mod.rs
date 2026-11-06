@@ -47,6 +47,9 @@ mod sizing;
 mod state;
 mod status;
 mod systemd;
+mod unleased_native;
+#[cfg(test)]
+mod unleased_native_tests;
 
 const USAGE: &str = "usage: offload-cost [--last N]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|land-waiting|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
 

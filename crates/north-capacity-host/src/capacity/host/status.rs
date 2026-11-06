@@ -8,6 +8,7 @@ use super::machine::{now_ms, read_gpu, read_signals};
 use super::policy::batch_class;
 use super::request::{class, cpu_accounting, id, is_run, lease_facts};
 use super::state::{active_profile, read_leases, read_queue, read_usage, record_gpu_busy, with_lock};
+use super::unleased_native::{fleet_units, unleased_native};
 use crate::capacity::cpus::aggregate_cpus;
 
 fn seconds(milliseconds: f64) -> Value {
@@ -94,11 +95,13 @@ pub fn status(root: &Path) -> Obj {
             .collect();
         active.sort_by(|left, right| field(left, "createdAt").unwrap_or(0.0).total_cmp(&field(right, "createdAt").unwrap_or(0.0)));
         let holding: Vec<Obj> = active.iter().map(|lease| holding(root, lease, &accounting, &quiet, now)).collect();
+        let clients = crate::capacity::warcraft::view();
+        let unleased_windows = unleased_native(&clients, &active, &fleet_units(Path::new(&std::env::var("HOME").unwrap_or_default())));
         Obj::new()
             .put("profile", profile)
             .put("mode", mode)
             .merge(gpu_view(gpu))
-            .put("warcraftClients", crate::capacity::warcraft::view())
+            .put("warcraftClients", clients)
             .merge(gpu_busy)
             .put("aggregateCpuLimit", num(aggregate_cpus(profile, signals.cores, signals.slice_cpus)))
             .put("protectedCpuSomeAvg10", num(signals.protected_cpu_some / 100.0))
@@ -109,6 +112,7 @@ pub fn status(root: &Path) -> Obj {
             .put("holding", holding.iter().map(Obj::value).collect::<Vec<_>>())
             .put("queued", queued(&read_queue(root), super::priority::open(&active), &draining, now).iter().map(Obj::value).collect::<Vec<_>>())
             .put("unleasedHeavy", accounting.unleased)
+            .put("unleasedNative", unleased_windows)
             .put("reclaimed", reclaimed)
     })
 }
