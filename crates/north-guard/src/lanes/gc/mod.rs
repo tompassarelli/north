@@ -7,6 +7,7 @@ mod local;
 mod remote;
 mod remote_boxes;
 mod report;
+mod scratch;
 mod state;
 mod strays;
 mod targets;
@@ -14,6 +15,8 @@ mod trees;
 
 #[cfg(test)]
 mod strays_tests;
+#[cfg(test)]
+mod scratch_tests;
 #[cfg(test)]
 mod targets_tests;
 
@@ -212,6 +215,9 @@ impl Gc {
             }
         }
         if !self.options.remote {
+            if self.options.repos.is_empty() {
+                self.drop_scratch_targets(&std::env::temp_dir(), &live);
+            }
             self.raise_alerts();
         }
     }

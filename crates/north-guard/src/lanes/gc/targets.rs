@@ -15,7 +15,7 @@ pub(super) enum BuildTarget {
     Failed(String),
 }
 
-fn walk(path: &Path, delete: bool) -> io::Result<u64> {
+pub(super) fn walk(path: &Path, delete: bool) -> io::Result<u64> {
     let meta = fs::symlink_metadata(path)?;
     let mut bytes = meta.blocks() * 512 / meta.nlink().max(1);
     if meta.is_dir() {

@@ -23,7 +23,9 @@ an open issue names gets one: a box on the first open issue its commits cite, el
 in its repository. Every origin decision is written to remote.txt beside the unlanded report.
 A worktree it keeps loses its build output: when its branch is landed or it has had no touch
 within --idle-hours, its git-ignored target/ is deleted unless the lane is locked or a process
-holds a file in it open, and the run prints the path and size freed.
+holds a file in it open, and the run prints the path and size freed. A run over every container
+also deletes each cargo target (cargo's CACHEDIR.TAG) directly under the temp directory or in a
+target/ one level below it that no process holds open and that has had no build within --idle-hours.
 Everything else is kept whatever its age or uncommitted state: a lane whose issue is still
 open, a dirty worktree, and a branch that names no issue. Each is written to the unlanded report
 (default ~/.local/state/agents/lane-gc/unlanded.txt: age, container, path, branch, ahead count,

@@ -242,7 +242,10 @@ lane-gc found one retirable worktree. The disk budget in south's `orchestration.
 cargo target, not worktree targets, so it does not move.
 Lane-gc bounds worktree targets instead: since 2026-11-05 it deletes the git-ignored `target/` of every
 worktree it keeps whose branch is landed or which has been idle for `--idle-hours`, unless a process holds
-a file in it open (north#589).
+a file in it open (north#589). The same run deletes each cargo target (a directory carrying cargo's
+`CACHEDIR.TAG`) directly under the temp directory, or in a `target/` one level below it, that no process holds
+open and that has seen no build within `--idle-hours`: on 2026-11-06 hand-made `CARGO_TARGET_DIR`s under
+gex45's `/tmp` held 62G that no store reclaimed.
 
 ## Codegen cost of north-core, 2026-11-05
 
