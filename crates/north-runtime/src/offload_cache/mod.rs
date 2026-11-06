@@ -32,7 +32,7 @@ const COMPANION_FILES: [&str; 2] = ["bundle", "patch"];
 pub enum Store {
     /// Offload slots under `root` that `take` admits, the oldest unlocked first, while they pass `cap_bytes` (`None`: the disk line only).
     Slots { root: PathBuf, cap_bytes: Option<u64>, take: Take },
-    /// The shared cargo targets under `cache`, each trimmed to `cap_bytes` of idle build output while the disk passes the line.
+    /// The shared cargo targets under `cache`, trimmed together to `cap_bytes`, idle build output of the least recently built first, while the disk passes the line.
     CargoTargets { cache: PathBuf, cap_bytes: u64 },
     /// sccache's local store at `root`, trimmed to `cap_bytes` oldest entry first while the disk passes the line.
     CompilerCache { root: PathBuf, cap_bytes: u64 },
@@ -98,7 +98,7 @@ pub fn evict(stores: &[Store], line: f64, disk: &mut dyn FnMut() -> Option<Disk>
         match store {
             Store::Slots { root, cap_bytes, take } => evict_slots(root, *cap_bytes, *take, line, disk, &mut evicted),
             Store::CargoTargets { cache, cap_bytes } if over(line, disk) => {
-                let trimmed = shared_target::sweep_cache(cache, SystemTime::now(), *cap_bytes).unwrap_or_default();
+                let trimmed = shared_target::sweep_store(cache, SystemTime::now(), *cap_bytes).unwrap_or_default();
                 evicted.extend(trimmed.into_iter().map(|(path, bytes)| Evicted { path, bytes, what: "idle build output of shared cargo target" }));
             }
             Store::CompilerCache { root, cap_bytes } if over(line, disk) => {

@@ -96,13 +96,14 @@ fn shared_build_output_and_sccache_go_to_their_caps_before_any_land_slot_and_the
     let lay_out = || {
         let home = tempfile::tempdir().unwrap();
         aged(&home.path().join(".cache/cargo-target/north/debug/incremental/north_core-1/blob"), 512, 3);
+        aged(&home.path().join(".cache/cargo-target/wisp-window/debug/incremental/wisp-1/blob"), 512, 1);
         aged(&home.path().join("sccache-store/a/b/older"), 256, 5);
         aged(&home.path().join("sccache-store/a/c/newer"), 256, 1);
         let land = home.path().join(".cache/land-offload");
         slot(&land, "code-north-main-5", 64, 50);
         slot(&land, "code-north-main", 64, 40);
         slot(&land, "code-north-main-2", 64, 10);
-        let budget = DiskBudget::parse("[hosts.h.disk_budget_gib]\ncargo_target = 1e-9\nsccache = 0.000244140625\n", "h");
+        let budget = DiskBudget::parse("[hosts.h.disk_budget_gib]\ncargo_target = 0.00048828125\nsccache = 0.000244140625\n", "h");
         let stores: Vec<Store> = stores(home.path(), None, &budget)
             .into_iter()
             .map(|store| match store {
@@ -118,6 +119,7 @@ fn shared_build_output_and_sccache_go_to_their_caps_before_any_land_slot_and_the
     let evicted = evict(&stores, line, &mut || Some(Disk { used_percent: used_kib(home.path()), free_gib: 0.0, size_bytes: 1 << 40 }));
     assert_eq!(evicted.iter().map(|gone| gone.what).collect::<Vec<_>>(), ["idle build output of shared cargo target", "oldest entries of compiler cache"]);
     assert!(!home.path().join("sccache-store/a/b/older").exists() && home.path().join("sccache-store/a/c/newer").exists(), "trimmed to its cap, oldest entry first");
+    assert!(home.path().join(".cache/cargo-target/wisp-window/debug/incremental/wisp-1/blob").exists(), "the shared targets are one store held to the cap, least recently built first");
     assert!(["code-north-main-5", "code-north-main", "code-north-main-2"].iter().all(|name| home.path().join(".cache/land-offload").join(name).join("target/blob").exists()));
     let (home, stores) = lay_out();
     let evicted = evict(&stores, 0.0, &mut || Some(Disk { used_percent: used_kib(home.path()), free_gib: 0.0, size_bytes: 1 << 40 }));
