@@ -83,7 +83,7 @@ fn spend_view(world: &impl World) -> (View, Rules) {
     let cfg = std::fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse::<DocumentMut>().ok()).unwrap_or_default();
     let rules = Rules::configured();
     let catalog = crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG);
-    (spend::view(&state_dir(world).join("agents"), &rules, 0, world.now(), |name| spend::plan_week(&cfg, catalog, name), |_| true), rules)
+    (spend::view(&state_dir(world).join("agents"), &rules, 0, world.now(), |name| spend::plan_week(&cfg, catalog, name), |_| true, spend::keyed(&cfg)), rules)
 }
 
 fn flow_refusal(world: &impl World, event: &Event) -> Option<String> {

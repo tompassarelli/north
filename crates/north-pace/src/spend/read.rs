@@ -15,11 +15,11 @@ pub const TRIPS: &str = "spend/trips.json";
 /// The view at `at` with `working` worker sessions across the fleet, read from the agents state
 /// directory `agents`; `plan_week` sizes an account's week in Max 5x weeks and `signed_in` says
 /// whether some host is signed in to it.
-pub fn view(agents: &Path, rules: &Rules, working: usize, at: f64, plan_week: impl Fn(&str) -> f64, signed_in: impl Fn(&str) -> bool) -> View {
+pub fn view(agents: &Path, rules: &Rules, working: usize, at: f64, plan_week: impl Fn(&str) -> f64, signed_in: impl Fn(&str) -> bool, keyed: Vec<String>) -> View {
     let gate = read(&agents.join("usage-gate.json"));
     let sampled = gate["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
     let accounts = sampled.map(|(name, windows)| account(rules, name, plan_week(name), windows, at, signed_in(name))).collect();
-    View { at, accounts, working, trips: trips(&read(&agents.join(TRIPS)), rules, at) }
+    View { at, accounts, working, trips: trips(&read(&agents.join(TRIPS)), rules, at), keyed }
 }
 
 /// Trips the last tick confirmed within the longer burst's span; a tick that stopped confirming one
@@ -40,6 +40,12 @@ fn account(rules: &Rules, name: &str, plan_week: f64, windows: &Value, at: f64, 
     let read_at = found("week").and_then(|week| week["as_of"].as_str()).and_then(rfc3339_seconds);
     let fresh = read_at.is_some_and(|read_at| at - read_at <= rules.reading_max_h * 3600.0);
     Account { name: name.to_owned(), plan_week, five_hour: window("5h"), week: window("week"), counted: signed_in && fresh }
+}
+
+/// The `provider:label` names of the accounts the policy bills by API key (`[accounts.claude.api_keys]`).
+pub fn keyed(cfg: &DocumentMut) -> Vec<String> {
+    let table = cfg.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_keys")).and_then(Item::as_table_like);
+    table.into_iter().flat_map(|table| table.iter().map(|(label, _)| format!("claude:{label}"))).collect()
 }
 
 /// The account's week in Max 5x weeks: the weekly multiplier of its `[accounts.PROVIDER] plans`

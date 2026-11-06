@@ -207,7 +207,7 @@ pub(super) fn standings(directory: &std::path::Path, cfg: &toml_edit::DocumentMu
     let working = fleets::working_by_account(&sessions);
     let rules = Rules::configured();
     let catalog = harness::document(harness::MODEL_CATALOG);
-    let view = spend::view(directory, &rules, fleets::active_workers(&sessions), at, |name| spend::plan_week(cfg, catalog, name), |_| true);
+    let view = spend::view(directory, &rules, fleets::active_workers(&sessions), at, |name| spend::plan_week(cfg, catalog, name), |_| true, spend::keyed(cfg));
     view.accounts
         .iter()
         .map(|account| {

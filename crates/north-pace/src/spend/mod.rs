@@ -9,7 +9,7 @@ pub mod tripwire;
 
 use std::fmt;
 
-pub use read::{TRIPS, plan_week, view};
+pub use read::{TRIPS, keyed, plan_week, view};
 pub use tripwire::Trip;
 
 /// The rule's knobs, from harness/defaults.toml.
@@ -89,6 +89,8 @@ pub struct View {
     pub accounts: Vec<Account>,
     pub working: usize,
     pub trips: Vec<Trip>,
+    /// Accounts that bill per token on an API key: no plan windows to read, so no window limit applies.
+    pub keyed: Vec<String>,
 }
 
 /// What one run has already started, so it cannot place past the cap or the reserve.
@@ -161,6 +163,9 @@ impl View {
             Starter::Worker => self.fleet(rules, placed)?,
             Starter::Subagent => self.reserved(rules, placed)?,
             Starter::Reserved => {}
+        }
+        if self.keyed.iter().any(|name| name == account) {
+            return Ok(());
         }
         let chosen = self.account(account).ok_or_else(|| Refusal { rule: Rule::Unread, line: format!("{account} has no usage reading") })?;
         if let Some(refusal) = chosen.limit(self.at) {
