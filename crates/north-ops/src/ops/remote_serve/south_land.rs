@@ -9,10 +9,9 @@ use rustix::fs::{FlockOperation, flock};
 
 use super::south_policy;
 use crate::platform::betterleaks;
+use crate::platform::south_land_limits::{MAX_COMMITS, MAX_PATCH_BYTES};
 use crate::fleet::attachments::base64;
 
-pub const MAX_PATCH_BYTES: usize = 4 * 1024 * 1024;
-pub const MAX_COMMITS: usize = 20;
 pub const TOKEN_FILE: &str = "github-token";
 const BRANCH: &str = "main";
 const REMOTE_REF: &str = "refs/remotes/origin/main";

@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use crate::shell::git::default_branch;
 use crate::session::cancel::watch_for_cancel;
 use north_landing::landing::step::{Refused, Step, git_quiet, git_read, refuse};
+use super::name::release_name;
 use super::publish::{self, Scanned, TagRequest};
 
 const USAGE: &str = "usage: north release VERSION [--notes FILE]
@@ -53,7 +54,7 @@ pub fn parse(arguments: &[String]) -> Result<Parsed, String> {
     if !plausible_version(version) {
         return Err(format!("invalid version '{version}': it starts with a digit and holds only letters, digits, '.', '-' and '+'"));
     }
-    Ok(Parsed::Release(Request { tag: format!("v{version}"), notes }))
+    Ok(Parsed::Release(Request { tag: release_name(version), notes }))
 }
 
 fn plausible_version(version: &str) -> bool {
@@ -61,10 +62,6 @@ fn plausible_version(version: &str) -> bool {
         && !version.contains("..")
         && !version.ends_with('.')
         && version.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '+'))
-}
-
-pub fn version_tag(tag: &str) -> bool {
-    tag.starts_with('v')
 }
 
 pub fn run(arguments: &[String]) -> u8 {

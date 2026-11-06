@@ -279,7 +279,7 @@ may_use = ["foundation", "landing", "landing.safe_push.report", "landing.safe_pu
 name = "landing.safe_push.landing"
 paths = ["crates/north-safe-push/src/landing/**"]
 responsibility = "The default branch: route to the lander or the south ledger, the dry-run preflight and the lander's candidate check."
-may_use = ["foundation", "landing", "landing.safe_push.gates", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell"]
+may_use = ["foundation", "landing", "platform", "landing.safe_push.gates", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell"]
 
 [[module]]
 name = "landing.safe_push.entry"

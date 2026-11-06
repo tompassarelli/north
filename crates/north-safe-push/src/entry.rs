@@ -1,18 +1,24 @@
 use crate::landing::route;
+use crate::landing::south_ledger;
+use crate::report::terminal;
 use crate::publication::run as publication;
-use crate::request::{self, Arguments, Plan};
+use crate::request;
 use crate::restore;
 use crate::tags::{publish, release};
 
-pub const USAGE: &str = request::USAGE;
+pub use crate::landing::south_ledger::HostFacts;
 
-pub struct Destination {
-    pub to: String,
-    pub dry_run: bool,
-}
+pub const USAGE: &str = request::USAGE;
 
 pub fn run(arguments: &[String]) -> u8 {
     publish::run(arguments)
+}
+
+pub fn safe_push(arguments: &[String], host: &HostFacts) -> u8 {
+    match south_ledger::ambient_route(arguments, host) {
+        Some(route) => south_ledger::land(&route),
+        None => run(arguments),
+    }
 }
 
 pub fn release(arguments: &[String]) -> u8 {
@@ -29,7 +35,10 @@ pub fn land(arguments: &[String]) -> Option<u8> {
     }
 }
 
-pub fn destination(arguments: &[String]) -> Option<Destination> {
-    let Ok(Plan::Push(Arguments { tag: None, to: Some(to), dry_run, .. })) = request::arguments(arguments) else { return None };
-    Some(Destination { to, dry_run })
+pub fn remote_land(arguments: &[String], host: &HostFacts) -> u8 {
+    south_ledger::run(arguments, host)
+}
+
+pub fn safe_push_result(arguments: &[String]) -> u8 {
+    terminal::run(arguments)
 }

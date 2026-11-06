@@ -139,6 +139,15 @@ fn plausible_branch(name: &str) -> bool {
         || forbidden.iter().any(|part| name.contains(part)))
 }
 
+pub struct Destination {
+    pub to: String,
+    pub dry_run: bool,
+}
+
+pub fn destination(arguments: &[String]) -> Option<Destination> {
+    let Ok(Plan::Push(Arguments { tag: None, to: Some(to), dry_run, .. })) = self::arguments(arguments) else { return None };
+    Some(Destination { to, dry_run })
+}
 
 #[cfg(test)]
 #[path = "request_tests.rs"]

@@ -1,6 +1,7 @@
 pub mod entry;
 pub mod landing;
 pub mod publication;
+pub mod report;
 pub mod request;
 pub mod restore;
 pub mod session;

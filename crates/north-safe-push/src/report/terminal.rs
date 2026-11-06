@@ -6,6 +6,13 @@ fn line(status: &str, sha: &str, reason: &str, minutes: &str, url: &str) -> Stri
     }
 }
 
+pub fn receipt(outcome: Result<String, String>) -> (String, u8) {
+    match outcome {
+        Ok(line) => (format!("safe-push: {line}"), 0),
+        Err(reason) => (line("refused", "", &reason, "", ""), 1),
+    }
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let [status, sha, reason, minutes, url] = arguments else {
         eprintln!("Usage: north safe-push-result STATUS SHA REASON MINUTES URL");

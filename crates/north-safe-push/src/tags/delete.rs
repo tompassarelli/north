@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::name::release_tag;
 use crate::shell::git::default_branch;
 use crate::session::identity::Identity;
 use north_landing::landing::step::{Refused, Step, cancelled, git_quiet, git_read, refuse};
@@ -20,7 +21,7 @@ pub enum Custody {
 pub fn delete_tag(request: &DeleteRequest) -> Step {
     let claims = claim_output_log()?;
     let tag = request.tag;
-    if tag.starts_with('v') {
+    if release_tag(tag) {
         return Err(refuse(format!("safe-push: tag '{tag}' is a release (v*) — releases are never deleted; NOT deleted.")));
     }
     let dir = std::env::current_dir().map_err(|_| Refused(1))?;

@@ -3,7 +3,8 @@ use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 
 use north_core::fleet::attachments::base64;
-use north_ops::ops::remote_serve::south_land::{self, Config, MAX_COMMITS, MAX_PATCH_BYTES, Refusal, TOKEN_FILE};
+use north_core::platform::south_land_limits::{MAX_COMMITS, MAX_PATCH_BYTES};
+use north_ops::ops::remote_serve::south_land::{self, Config, Refusal, TOKEN_FILE};
 use north_ops::ops::remote_serve::south_policy;
 use rustix::fs::{FlockOperation, flock};
 use tempfile::TempDir;

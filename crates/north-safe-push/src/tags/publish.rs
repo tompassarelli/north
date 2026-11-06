@@ -8,6 +8,7 @@ use north_landing::land::scans::outgoing::native_ref::native_ref_scan;
 use north_landing::land::scans::outgoing::secrets::{annotation_secret_scan, history_secret_scan};
 use north_landing::land::scans::outgoing::{exit_status, instruction_limits, on_path};
 use super::delete::{DeleteRequest, delete_tag};
+use super::name::release_tag;
 use crate::request::{self, Arguments, Plan, USAGE};
 use crate::session::cancel::watch_for_cancel;
 use crate::session::output_log::claim_output_log;
@@ -26,7 +27,7 @@ pub fn run(arguments: &[String]) -> u8 {
             print!("{USAGE}");
             return 0;
         }
-        Ok(Plan::Push(Arguments { tag: Some(tag), .. })) if super::release::version_tag(&tag) => {
+        Ok(Plan::Push(Arguments { tag: Some(tag), .. })) if release_tag(&tag) => {
             eprintln!("safe-push: version tag {tag} publishes only through north release, which also creates its GitHub release; NOT pushed.");
             Err(Refused(2))
         }

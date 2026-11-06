@@ -30,7 +30,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("land-tests", land_test_runner::run),
     ("land-actions", land_actions::run),
     ("land-red-check", red_check::run),
-    ("safe-push-result", super::safe_push_result::run),
+    ("safe-push-result", north_safe_push::entry::safe_push_result),
     ("watch", crate::ops::watch::run),
     ("safe-push", super::remote_land::safe_push),
     ("release", north_safe_push::entry::release),
