@@ -34,6 +34,7 @@ mod build_offload_tests;
 mod handover_tests;
 mod agent_load_tests;
 mod game_reserve_tests;
+mod mode_tests;
 mod unleased_tests;
 mod native_hold_tests;
 mod tests;
