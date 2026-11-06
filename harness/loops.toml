@@ -213,9 +213,13 @@ owner = "north#112 Skill effect"
 [[loop]]
 name = "corrections"
 decision = "which class of Tom's corrections gets a guard proposed, and whether a guarded class recurs"
-sites = ["crates/north-core/src/grounding/distill.rs"]
-signal = "Tom's corrections in the grounding ledger, counted per class per week; the weekly count is the harness's learning score"
-updated_by = "north grounding distill"
+sites = [
+  "crates/north-core/src/grounding/distill.rs",
+  "crates/north-threads/src/threads/incidents/corrections.rs",
+  "crates/north-ops/src/ops/detectors/correction.rs",
+]
+signal = "Tom's corrections in the grounding ledger, classed by harness/corrections.toml and counted per class per week; the weekly count is the harness's learning score, a class seen twice gets a guard box on its owner, and a guarded class that recurs is red in the proxy's fleet tick"
+updated_by = "north grounding distill, run 15 s after each of Tom's prompts in a proxy session; north flow detect files the guard boxes"
 cadence_hours = 24
 record = "north/grounding/ledger.jsonl"
 score = "north/grounding/corrections-week.txt"

@@ -20,6 +20,8 @@ use crate::fleet::tick::{ProbeJob, Probed, WaitProbes};
 use crate::fleet::limit::Parked;
 use crate::fleet::waits::{Probe, Registered, Run, Settled};
 use crate::foundation::clock::Timestamp;
+use crate::grounding::distill;
+use crate::threads::incidents::corrections;
 use crate::pacing::placement::{config, gate};
 use crate::platform::process::{run_command_within, run_within};
 
@@ -93,6 +95,7 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.park_limited", run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
             ProbeJob { name: "probes.settle.breaker", run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
             ProbeJob { name: "probes.settle.goals", run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
+            ProbeJob { name: "probes.settle.corrections", run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob {
                 name: "probes.settle.hand_over",
                 run: Box::new(|fleet| {
@@ -102,6 +105,14 @@ impl WaitProbes for Probes {
             },
         ]
     }
+}
+
+fn recurred_corrections(now: i64) -> Vec<String> {
+    north_goals::tick::announce(&north_goals::tick::state_file("north/grounding/recurrence-tick.json"), now, || {
+        let seen = distill::corrections_seen();
+        let (set, text) = corrections::red(&corrections::recurrences(&seen, corrections::classes(), now as f64));
+        north_goals::tick::Red { set, text }
+    })
 }
 
 fn said(lines: impl IntoIterator<Item = String>) -> Probed {

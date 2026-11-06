@@ -1,6 +1,6 @@
 //! The fleet tick's goal line: the proxy hears of red goals the tick after they turn red, again when
 //! the set of red goals changes and as a reminder every few hours, and a tick reads the oracles at most every few minutes.
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -46,21 +46,24 @@ pub fn decide(state: State, now: i64, measure: impl FnOnce() -> Red) -> (Option<
     (tell.then(|| red.text.clone()), State { checked_at, red, announced, announced_at })
 }
 
-fn path() -> PathBuf {
+pub fn state_file(relative: &str) -> PathBuf {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state"), PathBuf::from).join("north/goals/tick.json")
+    std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state"), PathBuf::from).join(relative)
 }
 
 pub fn lines(now: i64) -> Vec<String> {
-    let file = path();
-    let state = std::fs::read_to_string(&file).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
-    let (told, state) = decide(state, now, || {
+    announce(&state_file("north/goals/tick.json"), now, || {
         let projects: Vec<String> = PROJECTS.iter().map(|name| (*name).to_owned()).collect();
         let (rows, problems) = check(&code_root(), &projects);
         red(&rows, &problems)
-    });
+    })
+}
+
+pub fn announce(file: &Path, now: i64, measure: impl FnOnce() -> Red) -> Vec<String> {
+    let state = std::fs::read_to_string(file).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
+    let (told, state) = decide(state, now, measure);
     if let (Some(parent), Ok(text)) = (file.parent(), serde_json::to_string(&state)) {
-        let _ = std::fs::create_dir_all(parent).and_then(|()| std::fs::write(&file, text));
+        let _ = std::fs::create_dir_all(parent).and_then(|()| std::fs::write(file, text));
     }
     told.into_iter().collect()
 }

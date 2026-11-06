@@ -1,0 +1,101 @@
+# The classes of Tom's corrections, read by `north grounding distill` (pattern, paraphrase), the
+# repeated-correction detector of `north flow detect` (owner, guard) and the fleet tick (guarded_at).
+# A correction takes the first class whose pattern matches its typed text; its ledger row keeps the
+# paraphrase, never Tom's words. A class seen twice gets one box on its owner proposing the guard.
+# When that guard lands, set guarded_at to its landing time (ISO, UTC): a correction of the class
+# after it is a recurrence and prints red in the proxy's fleet tick for a week.
+
+[[class]]
+name = "unanswered"
+pattern = '''did (you|u) (answer|reply|respond)|you didn'?t answer|didn'?t answer (my|the) question'''
+paraphrase = "Tom said the reply did not answer his question."
+owner = "north#641"
+guard = "The proxy's Stop hook refuses a final message when Tom's last prompt asked a question and the message's first line answers none of it (no yes, no, number, name or fact in reply to the question's words)."
+
+[[class]]
+name = "recommendation-dropped"
+pattern = '''whenever you have a rec|(plan|rec\w*) (just )?automatically (becomes|gets)|so it doesn'?t (just )?get lost'''
+paraphrase = "Tom asked that a recommendation be filed as an issue and acted on instead of left in the conversation."
+owner = "north#641"
+guard = "The proxy's Stop hook refuses a message that recommends a change and names no issue box whose text carries it."
+
+[[class]]
+name = "harmful-brief"
+pattern = '''(ran|running|run|ordered) (a )?load (test|generator) on (my|the|this) laptop|busy loops on (my|the|this) laptop|(my|the|this) laptop.{0,40}(melting|on fire|frozen|unusable)'''
+paraphrase = "Tom said a brief ordered work that harmed his laptop."
+owner = "north#523"
+guard = "`north fleet launch` refuses a brief that orders a load test, soak or benchmark without a Needs: line naming a host other than the laptop."
+
+[[class]]
+name = "unproven-cause"
+pattern = '''(isn'?t|is not) (a|an) (compute|cpu|capacity|load|git|hardware) (issue|problem)|this is a (you|u) (issue|problem)|didn'?t (you|u) just|you were wrong|that'?s (wrong|not (it|right|true))'''
+paraphrase = "Tom rejected the cause the reply gave as unproven."
+owner = "north#523"
+guard = "The proxy's Stop hook refuses a message that names a cause (because, caused by, the cause is) with no command, log line or measurement quoted in the same turn."
+
+[[class]]
+name = "manual-not-guarded"
+pattern = '''do we not have (a|any) (mechanical|determ\w*)|(is )?(that|this|it)'?s? determ\w* enforced|never (ever,? )?(let|allow) this (to )?happen again'''
+paraphrase = "Tom asked why a rule was kept by hand instead of by a deterministic guard."
+owner = "north#523"
+guard = "`north agents check` refuses a new must or never line in AGENTS.md or a skill that names no enforcing hook, gate or check and carries no prose-only owner issue."
+
+[[class]]
+name = "overbuilt"
+pattern = '''isn'?t the (easiest|simplest) (pattern|way|answer|fix)|doesn'?t (require|need) spinning up|research project on'''
+paraphrase = "Tom said the reply chose a heavier path than the simplest one that works."
+owner = "north#523"
+guard = "Dispatch refuses a plan or design box that adds an agent, service, crate or bake-off without a Simplest: line naming the smallest change that meets its Done when and why it falls short."
+
+[[class]]
+name = "ungrounded-design"
+pattern = '''under-?specified|not (really )?grounded (on|in)|heavier doesn'?t mean'''
+paraphrase = "Tom said the design was not grounded in evidence."
+owner = "north#525"
+guard = "Dispatch refuses a design or plan box whose brief has no Spec: measured line citing a ledger measurement or a docs/references.md entry."
+
+[[class]]
+name = "stale-or-scaffolding"
+pattern = '''still in the (readme|docs?)|barnacles|stale (doc|line|readme)'''
+paraphrase = "Tom found stale text or leftover scaffolding that the harness should have removed."
+owner = "north#635"
+guard = "A land check resolves every repository path and doc link named in README.md, AGENTS.md and docs/ and refuses a lane that leaves one pointing at nothing."
+
+[[class]]
+name = "shallow-fix"
+pattern = '''\d+x smarter|re-?worked to be|band-?aid'''
+paraphrase = "Tom asked for a deeper fix than the patch proposed."
+owner = "north#525"
+guard = "Dispatch refuses a restaff of a box whose last attempt failed at the same tier unless the brief names the assumption both attempts shared."
+
+[[class]]
+name = "status-not-action"
+pattern = '''nothing (is )?(happening|moving|landing)|all i (ever )?(hear|here) (from you|is)|that'?s (actually |actuall )?your response|anything (happening|ahppening)'''
+paraphrase = "Tom said the reply reported status instead of acting."
+owner = "north#641"
+guard = "The proxy's Stop hook refuses a final message whose last sentence announces a future step (I'll, I will, next I, will now) when no tool call follows it in the turn."
+
+[[class]]
+name = "pace"
+pattern = '''(working|moving|going) (so |too )?slow(ly)?|too slow|(go|be) \d+(-\d+)?x faster|not keeping up|not seeing (enough|any) (urgency|speed|progress)|enough urgency|i need to see (some )?(speed|progress)|time is money|minutes left'''
+paraphrase = "Tom said the work was moving too slowly."
+owner = "north#636"
+guard = "The proxy's Stop hook refuses to end a turn while admitted account capacity is idle and ready boxes wait, naming the idle capacity and the first ready box."
+
+[[class]]
+name = "misrelayed-intent"
+paraphrase = "Tom said the reply relayed his intent wrongly."
+owner = "north#636"
+guard = "A relayed instruction carries Tom's request paraphrase and the worker's first turn echoes its Done when, which the proxy's tick compares against the request."
+
+[[class]]
+name = "low-ambition"
+paraphrase = "Tom said the plan was adequate but not ambitious enough."
+owner = "north#636"
+guard = "The proxy's tick names idle admitted capacity beside the ready box count, so a plan that leaves capacity idle is visible."
+
+[[class]]
+name = "accepted-slow-path"
+paraphrase = "Tom objected to a slow path the harness treated as normal."
+owner = "north#634"
+guard = "A goal in goals.toml bounds the step Tom named, so a slow run of it is red instead of normal."

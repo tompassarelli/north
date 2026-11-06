@@ -226,26 +226,10 @@ pub fn spawn_refresh_if_stale() {
             .create(true)
             .open(state_dir().join("refresh.log"))?;
         let exe = env::current_exe()?;
-        let ledger = state_dir().join("ledger.jsonl");
-        let stale = !ledger.exists() || Timestamp::now().unix_seconds_f64() - mtime(&ledger) > 900.0;
-        let script = if stale {
-            "\"$1\" grounding distill run --no-refresh --if-idle; \"$1\" grounding refresh --if-idle"
-        } else {
-            "\"$1\" grounding refresh --if-idle"
-        };
         let _ = Command::new("nice")
-            .args([
-                "-n",
-                "19",
-                "ionice",
-                "-c",
-                "3",
-                "bash",
-                "-c",
-                script,
-                "grounding-refresh",
-            ])
+            .args(["-n", "19", "ionice", "-c", "3"])
             .arg(exe)
+            .args(["grounding", "refresh", "--if-idle"])
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
             .stderr(log)

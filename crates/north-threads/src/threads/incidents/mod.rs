@@ -2,6 +2,7 @@
 //! withdrawal or a detector finding names it, the guard that closes each failure class, and the
 //! weekly reading `north flow` prints. The tables are created here, on first write; the reader in
 //! `report` tolerates a ledger that has none yet.
+pub mod corrections;
 pub mod report;
 
 use std::io::{Read, Write};

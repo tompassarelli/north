@@ -211,6 +211,7 @@ fn hook_reply(raw: &str, grounded: &dyn Fn(&str) -> bool, until: Option<std::tim
         return Ok(HookReply::Silent);
     }
     sources::spawn_refresh_if_stale();
+    distill::spawn_capture();
     let id = s(&payload, "session_id");
     let mut session = hook::load(&id);
     let text = hook::render(

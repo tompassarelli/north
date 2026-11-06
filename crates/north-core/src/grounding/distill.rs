@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::common::{state_dir, SQLITE_BUSY};
+use crate::threads::incidents::corrections;
 use crate::foundation::redact::redact;
 use crate::platform::sqlite::{self, Access};
 use crate::error::{NorthError, NorthResult};
@@ -36,17 +37,19 @@ with an override marker supersedes the latest older Tom decision, direction or p
 the three days before it that names at least three of the same specific subjects; both rows
 are kept.
 
-Each row is {id, at, kind, topic, quote, source, superseded_by}, and a correction also carries
-its class, the failure it names (pace, status-not-action, unproven-cause, ..., else
-unclassified); source starts with who said it (`tom`, `proxy` or the status file's lead) and
+Each row is {id, at, kind, topic, quote, source, superseded_by}. A correction also carries its
+class from harness/corrections.toml (pace, status-not-action, unproven-cause, ..., else unclassified),
+the tail of the reply it corrected and a digest of the typed text, and its quote is the class's
+neutral paraphrase, never Tom's words; source starts with who said it (`tom`, `proxy` or the status file's lead) and
 names the convo message and session or the file and line. A message seen in two copies of one
 session's transcript counts once, and so does a burst of Tom's corrections in one session
 within two minutes (a retyped or split message); lines Tom copies from the reply before his
 message are not read as his words. Each run also writes corrections-week.txt beside the ledger:
 the last seven days' corrections counted per class, which `north loops check` prints as the
-corrections loop's score.
+corrections loop's score. The prompt-grounding hook starts `run --after-prompt` on each of Tom's
+prompts: it waits 15 s for the transcript, then refreshes the convo index and runs.
 
-  north grounding distill run [--since 14d] [--no-refresh] [--if-idle]
+  north grounding distill run [--since 14d] [--no-refresh] [--if-idle] [--after-prompt]
   north grounding distill status
 "#;
 
@@ -57,6 +60,11 @@ const OVERLAP: f64 = 30.0 * MINUTE;
 const BURST: f64 = 2.0 * MINUTE;
 const SUPERSEDE_WINDOW: f64 = 3.0 * DAY;
 const QUOTE_MAX: usize = 500;
+const CORRECTED_MAX: usize = 400;
+const PENDING: &str = "capture.pending";
+const CAPTURE_LOG: &str = "capture.log";
+const CAPTURE_DELAY: Duration = Duration::from_secs(15);
+const PENDING_FRESH: f64 = 2.0 * MINUTE;
 const GENERIC: &[&str] = &[
     "issue", "policy", "skill", "hook", "lead", "worker", "test", "handoff", "landing", "review", "memory", "cpu",
     "terminal", "proxy",
@@ -94,6 +102,10 @@ pub struct Row {
     pub superseded_by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub class: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corrected: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 }
 
 struct Paths {
@@ -173,30 +185,12 @@ pattern!(override_marker, format!(
 pattern!(word_re, "[a-z0-9][a-z0-9'-]*[a-z0-9]|[a-z0-9]");
 pattern!(session_re, format!(r"{B}session:([^\s]+)"));
 pattern!(since_re, "^([0-9]+)([hdw])$");
+pattern!(reference_re, r"(?:[A-Za-z0-9_.-]+/)?([A-Za-z][A-Za-z0-9_-]*)#([0-9]+)\b");
 
-pub const UNCLASSIFIED: &str = "unclassified";
-
-const CLASSES: &[(&str, &str)] = &[
-    ("unanswered", r"did (you|u) (answer|reply|respond)|you didn'?t answer|didn'?t answer (my|the) question"),
-    ("recommendation-dropped", r"whenever you have a rec|(plan|rec\w*) (just )?automatically (becomes|gets)|so it doesn'?t (just )?get lost"),
-    ("harmful-brief", r"(ran|running|run|ordered) (a )?load (test|generator) on (my|the|this) laptop|busy loops on (my|the|this) laptop|(my|the|this) laptop.{0,40}(melting|on fire|frozen|unusable)"),
-    ("unproven-cause", r"(isn'?t|is not) (a|an) (compute|cpu|capacity|load|git|hardware) (issue|problem)|this is a (you|u) (issue|problem)|didn'?t (you|u) just|you were wrong|that'?s (wrong|not (it|right|true))"),
-    ("manual-not-guarded", r"do we not have (a|any) (mechanical|determ\w*)|(is )?(that|this|it)'?s? determ\w* enforced|never (ever,? )?(let|allow) this (to )?happen again"),
-    ("overbuilt", r"isn'?t the (easiest|simplest) (pattern|way|answer|fix)|doesn'?t (require|need) spinning up|research project on"),
-    ("ungrounded-design", r"under-?specified|not (really )?grounded (on|in)|heavier doesn'?t mean"),
-    ("stale-or-scaffolding", r"still in the (readme|docs?)|barnacles|stale (doc|line|readme)"),
-    ("shallow-fix", r"\d+x smarter|re-?worked to be|band-?aid"),
-    ("status-not-action", r"nothing (is )?(happening|moving|landing)|all i (ever )?(hear|here) (from you|is)|that'?s (actually |actuall )?your response|anything (happening|ahppening)"),
-    ("pace", r"(working|moving|going) (so |too )?slow(ly)?|too slow|(go|be) \d+(-\d+)?x faster|not keeping up|not seeing (enough|any) (urgency|speed|progress)|enough urgency|i need to see (some )?(speed|progress)|time is money|minutes left"),
-];
-
-fn class_patterns() -> &'static [(&'static str, Regex)] {
-    static SET: OnceLock<Vec<(&'static str, Regex)>> = OnceLock::new();
-    SET.get_or_init(|| CLASSES.iter().map(|(class, text)| (*class, re(&format!("(?i){B}({text})")))).collect())
-}
+pub use corrections::UNCLASSIFIED;
 
 pub fn correction_class(text: &str) -> Option<(&'static str, &'static Regex)> {
-    class_patterns().iter().find(|(_, pattern)| pattern.is_match(text)).map(|(class, pattern)| (*class, pattern))
+    corrections::class_of(text).and_then(|class| Some((class.name.as_str(), class.pattern.as_ref()?)))
 }
 
 fn rules() -> [(Kind, &'static Regex); 4] {
@@ -588,7 +582,94 @@ fn read_convo(db: &Path, since: f64) -> NorthResult<Vec<Message>> {
 }
 
 fn row(id: String, at: String, kind: Kind, text_for_topic: &str, quote: String, source: String) -> Row {
-    Row { id, at, kind: kind.name().into(), topic: topic(text_for_topic), quote, source, superseded_by: None, class: None }
+    Row { id, at, kind: kind.name().into(), topic: topic(text_for_topic), quote, source, superseded_by: None, class: None, corrected: None, digest: None }
+}
+
+fn digest(text: &str) -> String {
+    sha1_hex(text.as_bytes())[..16].to_owned()
+}
+
+fn corrected_reply(previous: Option<&str>) -> Option<String> {
+    let reply = squash(&redact(previous?));
+    (!reply.is_empty()).then(|| {
+        let tail = utf16_tail(&reply, CORRECTED_MAX);
+        if tail.len() < reply.len() { format!("… {tail}") } else { tail.to_owned() }
+    })
+}
+
+fn paraphrased(class: &str, typed: &str) -> String {
+    let mut named: Vec<String> = reference_re().captures_iter(typed).map(|found| format!("{}#{}", found[1].to_lowercase(), &found[2])).collect();
+    named.sort();
+    named.dedup();
+    let base = corrections::paraphrase(class);
+    if named.is_empty() { base } else { format!("{base} (about {})", named.join(", ")) }
+}
+
+fn into_paraphrase(r: &mut Row, typed: &str) {
+    let class = r.class.clone().unwrap_or_else(|| UNCLASSIFIED.to_owned());
+    r.quote = paraphrased(&class, typed);
+    r.topic = class;
+}
+
+fn said_key(r: &Row) -> (Option<String>, String) {
+    (session_of(r), r.digest.clone().unwrap_or_else(|| r.quote.clone()))
+}
+
+fn rule_captured_correction(r: &Row) -> bool {
+    speaker(r) == "tom" && r.kind == Kind::Correction.name() && r.digest.is_none()
+}
+
+fn convo_message(r: &Row) -> Option<i64> {
+    r.source.split(' ').nth(1)?.strip_prefix("convo:")?.parse().ok()
+}
+
+fn backfill(db: &Path, rows: &mut [Row]) -> NorthResult<usize> {
+    let pending: Vec<usize> = (0..rows.len()).filter(|&i| rule_captured_correction(&rows[i])).collect();
+    if pending.is_empty() {
+        return Ok(0);
+    }
+    let ids: Vec<i64> = pending.iter().filter_map(|&i| convo_message(&rows[i])).collect();
+    let mut found: HashMap<i64, (String, Option<String>)> = HashMap::new();
+    if db.exists() {
+        for chunk in ids.chunks(500) {
+            let got = sqlite::rows(db, Access::ReadOnly, SQLITE_BUSY, &format!(
+                "SELECT c.id, b.text, (SELECT pb.text FROM msg m JOIN body pb ON pb.id = m.body WHERE m.file_id = c.file_id AND m.line < c.line \
+                 AND m.role = 'assistant' ORDER BY m.line DESC LIMIT 1) AS prev FROM msg c JOIN body b ON b.id = c.body WHERE c.id IN ({})",
+                id_list(chunk)
+            ))?;
+            for g in got {
+                let prev = (!g["prev"].is_null()).then(|| text_of(&g["prev"]));
+                found.insert(int_of(&g["id"]), (text_of(&g["text"]), prev));
+            }
+        }
+    }
+    for &i in &pending {
+        let r = &mut rows[i];
+        match convo_message(r).and_then(|id| found.get(&id)) {
+            Some((text, prev)) => {
+                let typed = typed_text(&own_words(text, prev.as_deref()));
+                r.corrected = corrected_reply(prev.as_deref());
+                let plain = redact(&typed);
+                let verbatim = r.quote.split(" … ").all(|piece| plain.contains(piece));
+                if r.class.is_none() {
+                    r.class = Some(correction_class(&typed).map_or(UNCLASSIFIED, |(class, _)| class).to_owned());
+                }
+                r.digest = Some(digest(&typed));
+                if verbatim {
+                    into_paraphrase(r, &typed);
+                }
+            }
+            None => {
+                let quote = r.quote.clone();
+                r.digest = Some(digest(&quote));
+                if r.class.is_none() {
+                    r.class = Some(correction_class(&quote).map_or(UNCLASSIFIED, |(class, _)| class).to_owned());
+                }
+                into_paraphrase(r, &quote);
+            }
+        }
+    }
+    Ok(pending.len())
 }
 
 pub fn speaker(r: &Row) -> &str {
@@ -631,6 +712,8 @@ fn convo_records(messages: &[Message]) -> Vec<Row> {
         let mut found = row(rid(&key), at.clone(), kind, &format!("{text} {asked}"), trim_quote(&text, pattern), format!("tom {place}"));
         if kind == Kind::Correction {
             found.class = Some(correction_class(&text).map_or(UNCLASSIFIED, |(class, _)| class).to_owned());
+            found.digest = Some(digest(&text));
+            found.corrected = corrected_reply(m.previous.as_deref());
         }
         out.push(found);
     }
@@ -782,13 +865,19 @@ fn read_watermark(path: &Path) -> NorthResult<Value> {
     Ok(if path.exists() { serde_json::from_str(&fs::read_to_string(path)?)? } else { Value::Object(Default::default()) })
 }
 
-fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool) -> NorthResult<Result<String, String>> {
+fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool, after_prompt: bool) -> NorthResult<Result<String, String>> {
     fs::create_dir_all(&p.state)?;
+    if after_prompt {
+        thread::sleep(CAPTURE_DELAY);
+    }
     let lock = p.state.join("distill.lock.d");
     if if_idle && lock.exists() && lock_age_ms(&lock).is_some_and(|age| age <= 10.0 * MINUTE) {
         return Ok(Err(format!("distill: busy, another run holds {}", lock.display())));
     }
     with_lock(&p.state, || {
+        if after_prompt {
+            let _ = fs::remove_file(p.state.join(PENDING));
+        }
         let state = read_watermark(&p.watermark)?;
         let now = Timestamp::now().unix_millis() as f64;
         let since = match (since_arg, state.get("through").and_then(Value::as_str)) {
@@ -802,9 +891,10 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool) -> N
             refresh_index();
         }
         let mut rows = load_ledger(&p.ledger)?;
+        backfill(&p.db, &mut rows)?;
         let known: HashSet<String> = rows.iter().map(|r| r.id.clone()).collect();
         let mut said: HashSet<(Option<String>, String)> =
-            rows.iter().filter(|r| speaker(r) == "tom").flat_map(|r| [(session_of(r), r.quote.clone()), (session_of(r), r.at.clone())]).collect();
+            rows.iter().filter(|r| speaker(r) == "tom").flat_map(|r| [said_key(r), (session_of(r), r.at.clone())]).collect();
         let millis = |r: &Row| Timestamp::parse_loose(&r.at).map_or(f64::NAN, |t| t.unix_millis() as f64);
         let tom_correction = |r: &Row| speaker(r) == "tom" && r.kind == Kind::Correction.name();
         let mut bursts: Vec<(Option<String>, f64)> = rows.iter().filter(|r| tom_correction(r)).map(|r| (session_of(r), millis(r))).collect();
@@ -812,7 +902,7 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool) -> N
         let mut unique_ids: HashSet<String> = HashSet::new();
         let found = convo_records(&read_convo(&p.db, since)?).into_iter().chain(status_records(&p.handoffs, since));
         for r in found {
-            let (repeat, moment) = ((session_of(&r), r.quote.clone()), (session_of(&r), r.at.clone()));
+            let (repeat, moment) = (said_key(&r), (session_of(&r), r.at.clone()));
             if known.contains(&r.id) || unique_ids.contains(&r.id) || (speaker(&r) == "tom" && (said.contains(&repeat) || said.contains(&moment))) {
                 continue;
             }
@@ -840,6 +930,10 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool) -> N
         let added = unique.len();
         rows.extend(unique);
         let links = link_supersession(&mut rows, &unique_ids);
+        for r in rows.iter_mut().filter(|r| unique_ids.contains(&r.id) && speaker(r) == "tom" && r.kind == Kind::Correction.name()) {
+            let typed = r.quote.clone();
+            into_paraphrase(r, &typed);
+        }
         write_ledger(&p.ledger, &rows)?;
         fs::write(&p.score, format!("{}\n", weekly_score(&rows, now)))?;
         fs::write(&p.watermark, format!("{{\"through\":{},\"rows\":{}}}\n", json_str(&Timestamp::from_unix_millis_f64(started).iso()), rows.len()))?;
@@ -851,6 +945,22 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool) -> N
             json_str(&p.ledger.display().to_string())
         )))
     })
+}
+
+pub fn spawn_capture() {
+    let state = state_dir();
+    let marker = state.join(PENDING);
+    let pending = fs::metadata(&marker).ok().and_then(|meta| mtime_ms(&meta).ok()).is_some_and(|at| Timestamp::now().unix_millis() as f64 - at < PENDING_FRESH);
+    if pending || fs::create_dir_all(&state).and_then(|()| fs::write(&marker, "")).is_err() {
+        return;
+    }
+    let Ok(log) = fs::OpenOptions::new().append(true).create(true).open(state.join(CAPTURE_LOG)) else { return };
+    let Ok(err) = log.try_clone() else { return };
+    let _ = Command::new("nice").args(["-n", "19", "north", "grounding", "distill", "run", "--after-prompt"]).stdin(Stdio::null()).stdout(log).stderr(err).spawn();
+}
+
+pub fn corrections_seen() -> Vec<(String, f64)> {
+    corrections::seen(&paths().ledger)
 }
 
 fn status() -> NorthResult<i32> {
@@ -874,7 +984,7 @@ pub fn main(args: &[String]) -> NorthResult<i32> {
     match args.first().map(String::as_str) {
         Some("run") => {
             let since = rest.iter().position(|a| a == "--since").and_then(|i| rest.get(i + 1)).map(String::as_str);
-            match run(&paths(), since, has("--no-refresh"), has("--if-idle"))? {
+            match run(&paths(), since, has("--no-refresh"), has("--if-idle"), has("--after-prompt"))? {
                 Ok(line) => println!("{line}"),
                 Err(busy) => eprintln!("{busy}"),
             }

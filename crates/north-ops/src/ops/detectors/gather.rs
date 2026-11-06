@@ -4,6 +4,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use serde_json::Value;
 
+use super::correction;
 use super::disk;
 use super::plan::{self, Doc, IssueBox, Landed};
 use super::refusal::{self, Refusal};
@@ -21,6 +22,7 @@ const PLAN_REPO: &str = "north";
 const REFUSAL_DOC: &str = "landing-train";
 const DISK_DOC: &str = "capacity-scheduler";
 const OWNER_PREFIX: &str = "Owner: ";
+const GROUNDING_LEDGER: &str = "north/grounding/ledger.jsonl";
 
 pub struct Gatherer<'a> {
     places: &'a Places,
@@ -184,6 +186,10 @@ impl<'a> Gatherer<'a> {
                 }
             }
         }
+    }
+
+    pub fn corrections(&self) -> correction::Facts {
+        correction::Facts { seen: crate::threads::incidents::corrections::seen(&self.places.state.join(GROUNDING_LEDGER)) }
     }
 
     pub fn signals(&self) -> signal::Facts {

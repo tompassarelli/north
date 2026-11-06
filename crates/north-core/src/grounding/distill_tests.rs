@@ -28,3 +28,70 @@ fn an_agent_sentence_tom_pastes_with_you_keep_is_not_a_correction() {
     assert_ne!(classify("you keep every feature, but get no resume or failover", None).0, Some(Kind::Correction));
     assert_eq!(classify("you keep asking me for decisions you could make", None).0, Some(Kind::Correction));
 }
+
+fn message(msg: i64, text: &str, previous: &str) -> Message {
+    Message { msg, path: "/t/a.jsonl".into(), line: msg, ts: "2026-11-06T02:00:00.000Z".into(), role: "user".into(), text: text.into(), session: "s1".into(), previous: Some(previous.into()) }
+}
+
+#[test]
+fn a_captured_correction_keeps_its_class_paraphrase_and_the_reply_it_corrected_never_toms_words() {
+    let typed = "you're working way too slowly on north#634, pick it up";
+    let reply = "I'll check the lander queue and report back on the stalled lane.";
+    let mut rows = convo_records(&[message(7, typed, reply)]);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].class.as_deref(), Some("pace"));
+    assert_eq!(rows[0].corrected.as_deref(), Some(reply));
+    let ids: HashSet<String> = rows.iter().map(|r| r.id.clone()).collect();
+    link_supersession(&mut rows, &ids);
+    let quote = rows[0].quote.clone();
+    into_paraphrase(&mut rows[0], &quote);
+    assert_eq!(rows[0].quote, "Tom said the work was moving too slowly. (about north#634)");
+    assert_eq!(rows[0].topic, "pace");
+    assert_eq!(rows[0].digest.as_deref(), Some(digest(typed).as_str()));
+    let line = serde_json::to_string(&rows[0]).unwrap();
+    assert!(!line.contains("way too slowly") && !line.contains("pick it up"), "{line}");
+}
+
+#[test]
+fn two_corrections_of_one_class_in_one_session_stay_two_rows_after_paraphrase() {
+    let first = convo_records(&[message(7, "you're going too slow", "a")]).remove(0);
+    let second = convo_records(&[message(9, "this is too slow, not keeping up", "b")]).remove(0);
+    assert_ne!(said_key(&first), said_key(&second));
+    let mut paraphrased = first.clone();
+    let quote = paraphrased.quote.clone();
+    into_paraphrase(&mut paraphrased, &quote);
+    assert_eq!(said_key(&paraphrased), said_key(&first));
+}
+
+#[test]
+fn backfill_paraphrases_an_old_rule_row_and_keeps_a_hand_paraphrase_while_adding_the_corrected_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("convo.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE body(id INTEGER PRIMARY KEY, text TEXT); CREATE TABLE msg(id INTEGER PRIMARY KEY, file_id INT, line INT, role TEXT, body INT);
+         INSERT INTO body VALUES (1, 'Landing is queued behind two lanes.'), (2, 'you are moving too slow'), (3, 'Here is the plan.'), (4, 'that is under-specified');
+         INSERT INTO msg VALUES (10, 1, 1, 'assistant', 1), (11, 1, 2, 'user', 2), (12, 1, 3, 'assistant', 3), (13, 1, 4, 'user', 4);",
+    )
+    .unwrap();
+    let old = |msg: i64, quote: &str, class: Option<&str>| Row {
+        id: format!("L{msg}"),
+        at: "2026-11-05T20:00:00Z".into(),
+        kind: "correction".into(),
+        topic: "words".into(),
+        quote: quote.into(),
+        source: format!("tom convo:{msg} session:s1"),
+        superseded_by: None,
+        class: class.map(str::to_owned),
+        corrected: None,
+        digest: None,
+    };
+    let mut rows = vec![old(11, "you are moving too slow", None), old(13, "Tom said the gate was not grounded.", Some("ungrounded-design"))];
+    assert_eq!(backfill(&db, &mut rows).unwrap(), 2);
+    assert_eq!((rows[0].quote.as_str(), rows[0].class.as_deref()), ("Tom said the work was moving too slowly.", Some("pace")));
+    assert_eq!(rows[0].corrected.as_deref(), Some("Landing is queued behind two lanes."));
+    assert_eq!(rows[1].quote, "Tom said the gate was not grounded.");
+    assert_eq!(rows[1].corrected.as_deref(), Some("Here is the plan."));
+    assert!(rows.iter().all(|r| r.digest.is_some()));
+    assert_eq!(backfill(&db, &mut rows).unwrap(), 0);
+}

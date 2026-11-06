@@ -1,6 +1,6 @@
 //! The self-detectors: pure functions from recorded state to findings, run by `north flow`. A stalled
-//! plan box, a silent signal and a repeated lander refusal class each become one box on the owning
-//! issue, filed once per key and left to dispatch to staff.
+//! plan box, a silent signal, a repeated lander refusal class and a class of Tom's corrections seen
+//! twice each become one box on the owning issue, filed once per key and left to dispatch to staff.
 use std::sync::LazyLock;
 use std::time::Instant;
 
@@ -13,6 +13,7 @@ use super::flow::Places;
 pub use filing::Filer;
 pub use gather::Gatherer;
 
+mod correction;
 mod disk;
 mod filing;
 mod gather;
@@ -38,10 +39,11 @@ pub enum Detector {
     RepeatedRefusal,
     LowDisk,
     RecurringSequence,
+    RepeatedCorrection,
 }
 
 impl Detector {
-    pub const ALL: [Self; 5] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence];
+    pub const ALL: [Self; 6] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -50,6 +52,7 @@ impl Detector {
             Self::RepeatedRefusal => "repeated-refusal",
             Self::LowDisk => "low-disk",
             Self::RecurringSequence => "recurring-sequence",
+            Self::RepeatedCorrection => "repeated-correction",
         }
     }
 }
@@ -110,6 +113,7 @@ pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> (Vec<Find
             Detector::RepeatedRefusal => refusal::repeated(&gatherer.refusals(now, limits.refusal_window_s), now, limits),
             Detector::LowDisk => disk::low(&gatherer.disks(), now, limits),
             Detector::RecurringSequence => continue,
+            Detector::RepeatedCorrection => correction::repeated(&gatherer.corrections(), crate::threads::incidents::corrections::classes()),
         };
         spends.push(Spend { detector, millis: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), findings: found.len() });
         findings.extend(found);
