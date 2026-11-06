@@ -94,7 +94,7 @@ fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, 
         }
     }
     let Some(host) = host.or_else(|| choose(directory)) else {
-        let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: no build host has room (north capacity offload choose --any)");
+        let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: no build host has room (north capacity offload choose --any) and .safe-push declares no landing.remote-hosts");
         return UNAVAILABLE;
     };
     let command = format!("{remote} land scan test-admission kills --here {}..{}", lane.base, lane.head);
@@ -126,7 +126,8 @@ fn choose(directory: &Path) -> Option<String> {
     let here = north_base::platform::host::name();
     let output = Command::new(north_base::platform::north_binary::north_binary()).current_dir(directory).args(["capacity", "offload", "choose", "--any", "--avoid", &here]).stdin(Stdio::null()).stderr(Stdio::inherit()).output().ok()?;
     let host = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    (output.status.success() && !host.is_empty()).then_some(host)
+    let declared = || git::text(directory, &["config", "--file", ".safe-push", "--get", "landing.remote-hosts"]).and_then(|hosts| hosts.split_whitespace().next().map(str::to_owned));
+    (output.status.success() && !host.is_empty()).then_some(host).or_else(declared)
 }
 
 fn on_this_host(directory: &Path, lane: &Lane, out: &mut impl Write) -> u8 {
