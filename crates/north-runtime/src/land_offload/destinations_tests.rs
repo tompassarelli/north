@@ -16,7 +16,4 @@ fn a_host_sends_builds_only_to_the_hosts_it_reaches_and_one_that_reaches_none_is
     let cfg: DocumentMut = HOSTS.parse().expect("fixture");
     assert_eq!(build_hosts(&cfg, "whiterabbit"), [("gex45".to_owned(), "tom@gex45".to_owned())]);
     assert!(build_hosts(&cfg, "gex45").is_empty());
-    assert_eq!(crate::land_offload::standing(false, true), crate::land_offload::room::Standing::Peer, "an away laptop counts beside the build hosts");
-    assert_eq!(crate::land_offload::standing(false, false), crate::land_offload::room::Standing::Fallback);
-    assert_eq!(crate::land_offload::standing(true, true), crate::land_offload::room::Standing::Reserved);
 }

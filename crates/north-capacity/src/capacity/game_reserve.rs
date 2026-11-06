@@ -134,10 +134,6 @@ fn set_agent_slices(settings: &Settings, cpus: &str, memory_max: &str) -> Result
     if failed.is_empty() { Ok(()) } else { Err(failed.join("; ")) }
 }
 
-pub fn set_agent_quota(settings: &Settings, percent: u32) -> Result<(), String> {
-    systemctl(settings, &["set-property".to_owned(), "--runtime".to_owned(), AGENT_SLICE.to_owned(), format!("CPUQuota={percent}%")])
-}
-
 fn open_to_game(settings: &Settings, game_cpus: &str) -> Vec<String> {
     let game = cpu_set(game_cpus);
     let effective = |dir: &Path| fs::read_to_string(dir.join("cpuset.cpus.effective")).ok().map(|cpus| cpu_set(cpus.trim()));

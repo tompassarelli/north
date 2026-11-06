@@ -69,7 +69,7 @@ pub fn local_bar1_margin_mib() -> Option<u32> {
     gate::bar1_margin_mib(&sampling::config().ok()?, &local())
 }
 pub fn local_lease_builds() -> bool {
-    sampling::config().ok().and_then(|cfg| cfg.get("hosts")?.get(local())?.get("lease_builds")?.as_bool()).unwrap_or(false) || crate::capacity::mode::builds_here()
+    sampling::config().ok().and_then(|cfg| cfg.get("hosts")?.get(local())?.get("lease_builds")?.as_bool()).unwrap_or(false)
 }
 pub fn machine(name: &str) -> Option<crate::fleet::model::Machine> {
     let machine = gate::machines(&sampling::config().ok()?).into_iter().find(|machine| machine.name == name)?;

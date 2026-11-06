@@ -49,13 +49,12 @@ pub struct Effects {
     pub reserve: bool,
     pub hold: bool,
     pub pause_heavy: bool,
-    pub build_host: bool,
 }
 
 pub fn effects(table: &[String], mode: Mode) -> Effects {
     let flags = table.iter().find_map(|row| row.strip_prefix(mode.name())?.strip_prefix(':')).unwrap_or_default();
     let has = |flag: &str| flags.split(',').map(str::trim).any(|item| item == flag);
-    Effects { reserve: has("reserve"), hold: has("hold"), pause_heavy: has("pause-heavy"), build_host: has("build-host") }
+    Effects { reserve: has("reserve"), hold: has("hold"), pause_heavy: has("pause-heavy") }
 }
 
 impl Effects {
@@ -89,10 +88,6 @@ pub struct State {
     pub play_cpus: Option<u32>,
     #[serde(default)]
     pub calm_since: Option<u64>,
-    #[serde(default)]
-    pub ticked: u64,
-    #[serde(default)]
-    pub agent_quota_percent: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -106,9 +101,6 @@ pub struct Limits {
     pub play_cpus_step: u32,
     pub psi_target: f64,
     pub calm_seconds: u64,
-    pub agent_quota_percent: u32,
-    pub away_quota_percent: u32,
-    pub away_fresh_seconds: u64,
     pub table: Vec<String>,
 }
 
@@ -126,9 +118,6 @@ impl Limits {
             play_cpus_step: cpus("capacity_mode_play_cpus_step"),
             psi_target: number("capacity_mode_play_psi_target"),
             calm_seconds: whole("capacity_mode_play_calm_sec"),
-            agent_quota_percent: cpus("capacity_agent_cpu_quota_percent"),
-            away_quota_percent: cpus("capacity_away_agent_cpu_quota_percent"),
-            away_fresh_seconds: whole("capacity_away_fresh_sec"),
             table: strings("capacity_mode_table"),
         }
     }
@@ -162,7 +151,6 @@ pub struct Stepped {
 
 pub fn step(state: &State, seen: &Observation, limits: &Limits) -> (State, Stepped) {
     let mut next = state.clone();
-    next.ticked = seen.now;
     let mut notice = None;
     if let Some(hold) = next.hold.as_mut() {
         if seen.now >= hold.until {
@@ -288,18 +276,6 @@ fn record(dir: &Path, adjustment: &Adjustment) {
     }
 }
 
-pub fn builds_here_at(state: &State, limits: &Limits, now: u64) -> bool {
-    limits.effects(state.mode).build_host && now.saturating_sub(state.ticked) <= limits.away_fresh_seconds
-}
-
-pub fn builds_here() -> bool {
-    builds_here_at(&read(&state_dir()), &Limits::bundled(), now())
-}
-
-pub fn agent_quota_percent(effects: Effects, limits: &Limits) -> u32 {
-    if effects.build_host { limits.away_quota_percent } else { limits.agent_quota_percent }
-}
-
 pub fn confined_agent_cpus(host: &Host) -> Option<u32> {
     let state = read(&state_dir());
     confinement(Limits::bundled().effects(state.mode), agent_load::game_reserve_on(host), enforced_split().as_ref())
@@ -331,23 +307,21 @@ pub struct Applied {
 }
 
 pub fn tick(host: &Host, seat_idle: Option<bool>) -> Applied {
-    tick_in(host, seat_idle, game_reserve::Settings::from_env(), &state_dir(), now())
-}
-
-pub fn tick_in(host: &Host, seat_idle: Option<bool>, mut reserve: game_reserve::Settings, dir: &Path, now: u64) -> Applied {
     let limits = Limits::bundled();
-    let previous = read(dir);
+    let mut reserve = game_reserve::Settings::from_env();
+    let dir = state_dir();
+    let previous = read(&dir);
     let seen = Observation {
-        now,
+        now: now(),
         game_running: game_reserve::playing(&reserve),
         seat_idle,
         protected_psi: protected_psi(&reserve.cgroup),
     };
-    let (mut state, stepped) = step(&previous, &seen, &limits);
+    let (state, stepped) = step(&previous, &seen, &limits);
     let adjustment = stepped.adjustment;
     let mut lines = Vec::new();
     if let Some(adjustment) = &adjustment {
-        record(dir, adjustment);
+        record(&dir, adjustment);
         lines.push(format!(
             "capacity mode: play reserve {} -> {} CPUs at protected CPU pressure {:.1}%",
             adjustment.from, adjustment.to, adjustment.protected_cpu_some_avg10
@@ -356,20 +330,10 @@ pub fn tick_in(host: &Host, seat_idle: Option<bool>, mut reserve: game_reserve::
     if state.mode != previous.mode {
         lines.push(format!("capacity mode: {} -> {}: {}", previous.mode.name(), state.mode.name(), state.reason));
     }
-    let effects = limits.effects(state.mode);
-    let quota = agent_quota_percent(effects, &limits);
-    if state.agent_quota_percent != Some(quota) {
-        match game_reserve::set_agent_quota(&reserve, quota) {
-            Ok(()) => {
-                lines.push(format!("capacity mode: agent.slice CPUQuota {quota}%"));
-                state.agent_quota_percent = Some(quota);
-            }
-            Err(error) => eprintln!("north capacity mode: agent.slice CPUQuota {quota}%: {error}"),
-        }
-    }
-    if let Err(error) = write(dir, &state) {
+    if let Err(error) = write(&dir, &state) {
         eprintln!("north capacity mode: {error}");
     }
+    let effects = limits.effects(state.mode);
     if let Some(line) = apply(host, &mut reserve, &state, &limits, effects, adjustment.is_some()) {
         lines.push(line);
     }

@@ -1016,9 +1016,9 @@ fallback = "none: the threshold is always read"
 consumers = ["crates/north-ops/src/ops/watch/waste.rs"]
 
 [capacity_mode_table]
-value = ["away:build-host", "desktop:", "play:reserve,hold"]
+value = ["away:", "desktop:", "play:reserve,hold"]
 allowed = { min_len = 1 }
-unit = "what each laptop capacity mode applies: reserve pins the game CPUs (game reserve) and runs heavy and batch work confined to the agent CPUs, pausing heavy batch while the CPU split is not enforced, hold defers native, exclusive and gpu batch (gpu goes to the offload host) and stops native leases, pause-heavy defers and freezes heavy batch; build-host raises agent.slice CPUQuota to capacity_away_agent_cpu_quota_percent and makes this laptop a host that leases its own builds and a build host for land checks; away and desktop reserve nothing because elastic CPU already runs agent batch in an idle-weighted slice"
+unit = "what each laptop capacity mode applies: reserve pins the game CPUs (game reserve) and runs heavy and batch work confined to the agent CPUs, pausing heavy batch while the CPU split is not enforced, hold defers native, exclusive and gpu batch (gpu goes to the offload host) and stops native leases, pause-heavy defers and freezes heavy batch; away and desktop reserve nothing because elastic CPU already runs agent batch in an idle-weighted slice"
 source = "tom: the machine must be quiet while he plays or tests a game so lag is never the computer's load, light use needs only a core or two, and agents take the whole laptop while he is away (2026-11-04); the idle laptop beside a saturated build host while he played showed pausing heavy work wasted the agent CPUs the split already keeps off the game (2026-11-05)"
 fallback = "a mode missing from the table applies nothing"
 consumers = ["crates/north-capacity/src/capacity/mode.rs"]
@@ -1062,30 +1062,6 @@ unit = "words that, in a prompt of at most three words while a playtest lease is
 source = "tom: reply more to the check-in to add time (2026-11-05)"
 fallback = "with no lease on the words do nothing"
 consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
-
-[capacity_agent_cpu_quota_percent]
-value = 1800
-allowed = { min = 100, max = 25600 }
-unit = "agent.slice CPUQuota in percent of one CPU (1000 = 10 CPUs) while Tom is at the desktop or playing; the laptop mode tick sets it, and it equals cpuQuotaPercent of nixos-config modules/agent-slice"
-source = "measured: agent builds that skipped capacity admission filled all 24 laptop threads (load 150-194 on 2026-11-05) and drew more than the charger supplies, so agents are capped at 18 of 24 threads (2026-11-05)"
-fallback = "none: the mode tick always sets the quota"
-consumers = ["crates/north-capacity/src/capacity/mode.rs"]
-
-[capacity_away_agent_cpu_quota_percent]
-value = 2400
-allowed = { min = 100, max = 25600 }
-unit = "agent.slice CPUQuota in percent of one CPU while the seat is idle, which is every thread of the 24-thread laptop"
-source = "tom: while he is away the laptop is a full build and check host, and the cap returns within a minute of his return (2026-11-06)"
-fallback = "none: the mode tick always sets the quota"
-consumers = ["crates/north-capacity/src/capacity/mode.rs"]
-
-[capacity_away_fresh_sec]
-value = 120
-allowed = { min = 1, max = 3600 }
-unit = "seconds since the last mode tick past which an away reading no longer makes this laptop a build host, so a stopped laptop-auto timer cannot leave it one"
-source = "prior: four laptop-auto ticks of 30 s, so a missed tick or two does not flap the gate while a stopped timer ends it within two minutes"
-fallback = "none: a stale away reading counts as attended"
-consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_mode_play_cpus]
 value = 8
