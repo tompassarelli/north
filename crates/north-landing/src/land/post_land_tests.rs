@@ -152,10 +152,11 @@ const RED: &str = "safe-push: the Rust checks cover -p north -p north-base\n    
 const NARROW: &str = "safe-push: the Rust checks cover -p north -p north-safe-push\n        PASS [   0.633s] ( 21/140) north::it land_checks::other\n";
 const FULL: &str = "safe-push: the Rust checks cover -p north -p north-base\n        PASS [   0.006s] ( 97/668) north-base error::tests::drill\n";
 
-// KEEP(bug): on 2026-11-06 main stayed red for over an hour with the proxy learning it only from Tom or its own watch (north#634), then a docs-only landing whose after-landing run skipped the failing drill test told the proxy main was green again while the test still failed on main (north#679)
+// KEEP(bug): on 2026-11-06 main stayed red for over an hour with the proxy learning it only from Tom or its own watch (north#634), then a docs-only landing whose after-landing run skipped the failing drill test told the proxy main was green again while the test still failed on main (north#679), and from 56a0c2b2b to 6a95639db on 2026-11-07 every green after-landing run ran only its own landing's tests, so none reran the tests the red record named and main stayed red (north#634)
 #[test]
 fn a_red_main_episode_messages_the_proxy_once_with_the_suspect_and_ends_only_on_a_green_run_that_reran_its_failing_tests_or_on_the_sheriffs_revert() {
     a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_records_a_red_main();
+    a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the_red_record_when_they_pass();
     let scratch = tempfile::tempdir().unwrap();
     let repo = scratch.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -227,4 +228,35 @@ fn a_post_land_worktree_a_killed_lander_left_in_its_queue_is_removed_and_other_w
     assert_eq!(reap_scratch(&repo, &queue), std::slice::from_ref(&left));
     assert!(!left.exists());
     assert!(lane.exists());
+}
+
+fn a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the_red_record_when_they_pass() {
+    let scratch = tempfile::tempdir().unwrap();
+    let repo = scratch.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let head = committed_repo(&repo);
+    let mut green = run();
+    green.log = scratch.path().join("post-land.log");
+    green.outcome = scratch.path().join("post-land.outcome");
+    green.ledger = scratch.path().join("post-land.tsv");
+    let marker = scratch.path().join("post-land-red-owner_repo");
+    let failing = std::collections::BTreeSet::from([Failure::Cargo("drill".to_owned()), Failure::Harness("harness/a.test.sh".to_owned())]);
+    super::Episode { head: "red".to_owned(), scope: Default::default(), failing }.write(&marker).unwrap();
+    let mut landed = landed(&[&head]);
+    landed.repo = repo;
+    let sent = std::cell::RefCell::new(Vec::new());
+    std::fs::write(&green.log, "safe-push: the Rust checks cover -p north-landing\n").unwrap();
+    let asked = std::cell::RefCell::new(String::new());
+    let alarm = |_: &str, message: &str| {
+        sent.borrow_mut().push(message.to_owned());
+        true
+    };
+    let rerun = |command: &str| {
+        command.clone_into(&mut asked.borrow_mut());
+        "test drill ... ok\nland check: harness/a.test.sh passed after 0 s\n".to_owned()
+    };
+    assert_eq!(super::settle_from(&landed, &green, std::time::Instant::now(), Verdict::Green.into(), alarm, rerun), Verdict::Green);
+    assert!(asked.borrow().contains("--exact 'drill'") && asked.borrow().contains("land tests 'harness/a.test.sh'"), "{}", asked.borrow());
+    assert!(!marker.exists(), "the red record outlived a green rerun of its tests: {:?}", sent.borrow());
+    assert!(sent.borrow().len() == 1 && sent.borrow()[0].contains("main is green again"), "{:?}", sent.borrow());
 }

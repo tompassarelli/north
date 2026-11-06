@@ -47,8 +47,16 @@ impl Episode {
         self.covered_by(green_log) || reverted_since(repo, &self.head, head)
     }
 
+    pub fn rerun_command(&self) -> Option<String> {
+        red_check::rerun_command(&self.named().into_iter().cloned().collect())
+    }
+
+    pub fn named(&self) -> Vec<&Failure> {
+        self.failing.iter().filter(|failure| matches!(failure, Failure::Cargo(_) | Failure::Harness(_))).collect()
+    }
+
     fn covered_by(&self, green_log: &str) -> bool {
-        let named: Vec<&Failure> = self.failing.iter().filter(|failure| matches!(failure, Failure::Cargo(_) | Failure::Harness(_))).collect();
+        let named = self.named();
         if !named.is_empty() {
             let passed = passed(green_log);
             return named.iter().all(|failure| passed.contains(*failure));
@@ -72,7 +80,7 @@ fn passed(log: &str) -> BTreeSet<Failure> {
         } else if let Some(rest) = line.strip_prefix("test ") {
             let name = rest.split_once(" ... ok").map(|(name, _)| name.trim());
             found.extend(name.map(|name| Failure::Cargo(name.to_owned())));
-        } else if let Some(path) = line.strip_prefix("land check: ").and_then(|rest| rest.strip_suffix(" passed")) {
+        } else if let Some((path, _)) = line.strip_prefix("land check: ").and_then(|rest| rest.split_once(" passed")).filter(|(_, after)| after.is_empty() || after.starts_with(" after ")) {
             found.insert(Failure::Harness(path.to_owned()));
         }
     }

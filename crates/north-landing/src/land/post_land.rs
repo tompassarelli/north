@@ -298,22 +298,57 @@ fn prefixes(landed: &Landed, run: &Run, counts: &[usize]) -> Vec<Verdict> {
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
     let started = Instant::now();
     let checked = check(landed, &landed.head, run);
-    settle_from(landed, run, started, checked, alarm)
+    settle_from(landed, run, started, checked, alarm, |command| offload_rerun(landed, run, command))
 }
 
-fn settle_from(landed: &Landed, run: &Run, started: Instant, mut checked: Checked, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
+fn settle_from(landed: &Landed, run: &Run, started: Instant, mut checked: Checked, alarm: impl Fn(&str, &str) -> bool, rerun: impl Fn(&str) -> String) -> Verdict {
     if matches!(checked.verdict, Verdict::Transient(_)) && !checked.expired && !run.superseded() {
         println!("north land: the post-land checks of {} reached no verdict; rerunning them once", landed.head);
         checked = check(landed, &landed.head, run);
     }
     let Checked { verdict, expired } = checked;
     record(run, landed, &verdict, expired, started.elapsed().as_secs());
+    if verdict == Verdict::Green {
+        rerun_red(landed, run, rerun);
+    }
     announce(landed, run, &verdict, alarm);
     verdict
 }
 
 fn episode_marker(run: &Run, landed: &Landed) -> PathBuf {
     run.ledger.with_file_name(format!("{EPISODE}-{}", landed.repository.replace('/', "_")))
+}
+
+fn rerun_red(landed: &Landed, run: &Run, rerun: impl Fn(&str) -> String) {
+    let Some(episode) = Episode::read(&episode_marker(run, landed)) else { return };
+    if episode.ended_by(&fs::read_to_string(&run.log).unwrap_or_default(), &landed.repo, &landed.head) {
+        return;
+    }
+    let Some(command) = episode.rerun_command() else { return };
+    let names: Vec<&str> = episode.named().into_iter().map(Failure::label).collect();
+    println!("north land: main has been red since {}, so the after-landing run of {} reruns {}", episode.head, landed.head, names.join(", "));
+    let log = rerun(&command);
+    if let Err(error) = OpenOptions::new().append(true).open(&run.log).and_then(|mut file| file.write_all(log.as_bytes())) {
+        eprintln!("north land: could not add the rerun of main's red tests to {}: {error}", run.log.display());
+    }
+}
+
+fn offload_rerun(landed: &Landed, run: &Run, command: &str) -> String {
+    let host = run.host.clone().unwrap_or_else(north_base::platform::host::name);
+    let timeout = run.deadline.as_secs().to_string();
+    let ran = Command::new(follow::program())
+        .args(["capacity", "offload", "run", "--host", &host, "--base", &landed.head, "--head", &landed.head, "--timeout", &timeout, "--", command])
+        .current_dir(&landed.repo)
+        .env(OWNER_ENV, &run.offload_owner)
+        .stdin(Stdio::null())
+        .output();
+    match ran {
+        Ok(output) => format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)),
+        Err(error) => {
+            eprintln!("north land: could not rerun main's red tests on {host}: {error}");
+            String::new()
+        }
+    }
 }
 
 fn red_message(landed: &Landed, run: &Run, detail: &str) -> String {
@@ -337,6 +372,12 @@ fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: impl Fn(&str, 
                 let _ = Episode::opened(&landed.head, &log, failing(&run.log, &run.outcome)).write(&marker);
             } else {
                 eprintln!("north land: could not alarm {ALARMED} about red main {}", landed.head);
+            }
+        }
+        Verdict::RedMain(_) => {
+            if let Some(mut episode) = episode {
+                episode.failing.extend(failing(&run.log, &run.outcome));
+                let _ = episode.write(&marker);
             }
         }
         Verdict::Green if episode.as_ref().is_some_and(|episode| !episode.ended_by(&log, &landed.repo, &landed.head)) => {

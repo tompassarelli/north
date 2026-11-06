@@ -134,7 +134,7 @@ pub fn adopt(lander: &Lander, landed: Landed, record: Record, cancel: Arc<Atomic
     let run = super::after_run(lander, &landed, record.host.clone(), cancel, Duration::from_secs(record.deadline));
     std::thread::spawn(move || {
         let checked = adopted(&landed, &run, &record);
-        let verdict = super::settle_from(&landed, &run, started(&record), checked, send);
+        let verdict = super::settle_from(&landed, &run, started(&record), checked, send, |command| super::offload_rerun(&landed, &run, command));
         super::outcome(landed, run, verdict)
     })
 }
