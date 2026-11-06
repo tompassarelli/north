@@ -34,8 +34,6 @@ pub struct Profile<'a> {
     pub before: Split,
     pub after: Split,
     pub after_wall: f64,
-    pub after_reused: usize,
-    pub after_ran: usize,
     pub verdicts: Vec<&'a str>,
     pub spans: Vec<&'a Span>,
 }
@@ -118,10 +116,8 @@ impl<'a> Trace<'a> {
         let after_wall = union(&after);
         let before_split = attribute(&before, Some(landing), window);
         let after_split = attribute(&after, None, (after.iter().map(|span| span.start).fold(f64::INFINITY, f64::min), after.iter().map(|span| span.end).fold(f64::NEG_INFINITY, f64::max)));
-        let cached = |state: &str| after.iter().filter(|span| span.attribute("cache") == Some(state)).count();
-        let (after_reused, after_ran) = (cached("hit"), cached("miss"));
         before.extend(after);
-        Profile { landing, before: before_split, after: after_split, after_wall, after_reused, after_ran, verdicts, spans: before }
+        Profile { landing, before: before_split, after: after_split, after_wall, verdicts, spans: before }
     }
 }
 

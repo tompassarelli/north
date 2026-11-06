@@ -76,6 +76,6 @@ pub fn remote_record(key: &str, pass: Option<&Pass>) -> Option<String> {
     })
 }
 
-pub fn reused_line(command: &str, key: &str, host: &str, pass: &Pass) -> String {
-    format!("land check: {command}: reused verdict {} from the verdict cache on {host} (passed for these inputs at {}, {})", key.get(..12).unwrap_or(key), pass.at.local_twelve_hour(), pass.sha.get(..12).unwrap_or(&pass.sha))
+pub fn reused_line(command: &str, host: &str, pass: &Pass) -> String {
+    format!("land check: {command} reused from the verdict cache on {host} (passed for these inputs at {}, {})", pass.at.local_twelve_hour(), pass.sha.get(..12).unwrap_or(&pass.sha))
 }

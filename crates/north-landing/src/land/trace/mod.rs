@@ -20,7 +20,6 @@ pub const PHASE: &str = "phase";
 pub const AFTER: &str = "after";
 pub const COVERED_BY: &str = "covered_by";
 pub const VERDICT: &str = "verdict";
-pub const REUSED: &str = "reused";
 const FILE: &str = "spans.jsonl";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

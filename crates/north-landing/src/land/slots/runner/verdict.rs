@@ -67,18 +67,14 @@ fn hits(text: &str) -> BTreeMap<String, (String, Pass)> {
 impl Shared {
     pub(super) async fn reuse(&self, commands: Vec<String>) -> Vec<String> {
         let looked = epoch();
-        let (pending, reused) = self.lookup(&commands).await;
-        for (command, key) in reused {
-            trace::record(&[self.span(&command, Category::of_command(&command), looked).with("cache", "hit").with(trace::REUSED, format!("reused verdict {key}"))]);
+        let pending = self.cached(&commands).await;
+        for command in commands.iter().filter(|command| !pending.contains(command)) {
+            trace::record(&[self.span(command, Category::of_command(command), looked).with("cache", "hit")]);
         }
         pending
     }
 
     pub(super) async fn cached(&self, commands: &[String]) -> Vec<String> {
-        self.lookup(commands).await.0
-    }
-
-    async fn lookup(&self, commands: &[String]) -> (Vec<String>, Vec<(String, String)>) {
         let keys = keys(&Inputs::of(self), commands).await;
         let mut arguments = vec!["capacity", "offload", "verdict", "hit"];
         arguments.extend(keys.values().map(String::as_str));
@@ -93,18 +89,15 @@ impl Shared {
                 }
             }
         };
-        let mut pending = Vec::new();
-        let mut reused = Vec::new();
-        for command in commands {
-            match keys.get(command).and_then(|key| found.get(key).map(|hit| (key, hit))) {
-                Some((key, (host, pass))) => {
-                    say(&format!("safe-push: {}", verdict_cache::reused_line(command, key, host, pass)));
-                    reused.push((command.clone(), key.clone()));
-                }
-                None => pending.push(command.clone()),
-            }
-        }
-        (pending, reused)
+        commands
+            .iter()
+            .filter(|command| {
+                let Some((host, pass)) = keys.get(*command).and_then(|key| found.get(key)) else { return true };
+                say(&format!("safe-push: {}", verdict_cache::reused_line(command, host, pass)));
+                false
+            })
+            .cloned()
+            .collect()
     }
 
     pub(super) async fn cache_record_as(&self, status: i32, commands: &[String], class: Option<&str>) {
@@ -121,13 +114,5 @@ impl Shared {
 
     pub(super) async fn cache_record(&self, status: i32, commands: &[String]) {
         self.cache_record_as(status, commands, None).await;
-    }
-
-    pub(super) async fn record_built_equivalent(&self, command: &str, log: &Path) {
-        let Some(built) = verdict_cache::built_equivalent(command).filter(|_| !self.arguments.after) else { return };
-        if std::fs::read_to_string(log).is_ok_and(|text| !text.contains(verdict_cache::HEAD_NORTH_DEFERRED)) {
-            let class = self.cache_class(command);
-            self.cache_record_as(0, &[built], Some(class.as_str())).await;
-        }
     }
 }

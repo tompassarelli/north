@@ -634,7 +634,6 @@ impl Shared {
         }
         let _ = timings.passed(command, &class, ran.seconds);
         self.cache_record(0, &commands).await;
-        self.record_built_equivalent(command, &ran.log).await;
         let _ = fs::remove_file(&ran.log);
         0
     }
