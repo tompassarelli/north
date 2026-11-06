@@ -448,20 +448,25 @@ fn sweep_row(sha: &str, cleanup: [u32; 2]) -> String {
 }
 
 #[test]
-fn a_policy_change_lands_only_with_a_replay_sweep_row_for_its_exact_text_in_the_tree() {
+fn a_policy_change_lands_only_with_a_replay_sweep_row_for_its_exact_text_in_the_tree_and_a_named_enforcer_or_owner_for_each_new_rule() {
     let (fixture, base) = policy_fixture();
-    for case in ["no-row", "row", "row-one-trial", "row-other-sha", "row-in-state-only", "no-policy-change"] {
+    for case in ["no-row", "row", "row-one-trial", "row-other-sha", "row-in-state-only", "no-policy-change", "unowned-rule", "owned-rule"] {
         reset(&fixture, &base);
         if case == "no-policy-change" {
             let notes = fixture.repo.join("NOTES.md");
             write(&notes, "notes\nmore notes\n");
         } else {
             let policy = fixture.repo.join("agents/AGENTS.md");
-            write(&policy, &format!("{}- Ask once.\n", std::fs::read_to_string(&policy).unwrap()));
+            let line = match case {
+                "unowned-rule" => "- Never push twice.",
+                "owned-rule" => "- Never push twice (prose-only: north#523).",
+                _ => "- Ask once.",
+            };
+            write(&policy, &format!("{}{line}\n", std::fs::read_to_string(&policy).unwrap()));
             let sha = format!("{:x}", Sha256::digest(std::fs::read(&policy).unwrap()));
             let sweep = "agents/replay/sweep-2026-10-28.jsonl";
             match case {
-                "row" => write(&fixture.repo.join(sweep), &sweep_row(&sha, [2, 3])),
+                "row" | "unowned-rule" | "owned-rule" => write(&fixture.repo.join(sweep), &sweep_row(&sha, [2, 3])),
                 "row-one-trial" => write(
                     &fixture.repo.join(sweep),
                     &format!("{{\"variant\":\"base\",\"policy_sha256\":\"{sha}\",\"scenarios\":{{\"answer-first-line\":[1,1],\"cleanup\":[1,1]}}}}\n"),
@@ -475,7 +480,8 @@ fn a_policy_change_lands_only_with_a_replay_sweep_row_for_its_exact_text_in_the_
         fixture.git(&["commit", "-qm", &format!("policy sweep case {case}")]);
         let ran = fixture.run(&["--dry-run"]);
         match case {
-            "row" | "no-policy-change" => ran.expect(true, &[]),
+            "row" | "no-policy-change" | "owned-rule" => ran.expect(true, &[]),
+            "unowned-rule" => ran.expect(false, &["rule-owners: refused", "agents/AGENTS.md: - Never push twice."]),
             _ => ran.expect(false, &["makes agents/AGENTS.md"]),
         }
     }

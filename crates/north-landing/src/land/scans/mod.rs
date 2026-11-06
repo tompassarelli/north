@@ -11,6 +11,7 @@ pub mod language;
 pub mod nix_entry;
 pub mod outgoing;
 pub mod policy;
+pub mod rule_owners;
 pub mod shell_hook;
 pub mod strategy_replay;
 pub mod stale_revert;
@@ -98,7 +99,11 @@ pub fn run(arguments: &[String]) -> u8 {
             test_admission::scan(&directory, range, &crate::watch::state_home(), &mut std::io::stdout())
         }
         [name, range] if name == "policy-sweep" => {
-            policy::scan(&directory, range, &mut std::io::stdout())
+            let mut out = std::io::stdout();
+            match policy::scan(&directory, range, &mut out) {
+                0 => rule_owners::scan(&directory, range, &mut out),
+                refused => refused,
+            }
         }
         [name, range] if name == "strategy-replay" => strategy_replay::scan(&directory, range, &mut std::io::stdout()),
         [name, range] if name == "shell-hook" => {

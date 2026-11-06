@@ -73,6 +73,7 @@ These run for every provider, because every landing goes through `safe-push`.
 | No added test claiming a `Test-contract:` category outside the repository's `.safe-push` list; over the verification budget, no lane adding more tests, test files or goldens than it deletes | `test_admission_scan` |
 | After the push, every Rust test a lane adds next to a code change fails on base with the lane's non-test changes reverted, else red main names the lane | `north land scan test-admission run` as a `land.after` line |
 | Before landing, a lane that adds a Rust test next to a change in mutated source shows that the added tests kill at least one cargo-mutants mutant of its own diff, run on a build host within `mutant_kill_seconds` | `north land scan test-admission kills` as a `land.check` line |
+| A new must or never line in AGENTS.md or a skill names the hook, gate or check that enforces it, or ends with `(prose-only: REPO#N)` naming the issue that owns its guard; a line the same lane moves is not new | `north land scan policy-sweep` (`rule_owners`) |
 | Generated records are not mass-rewritten without their declared inputs changing | `generated_rewrite_scan` |
 | Main's CI budget is respected | `north after-landing` ci-budget gate (`north land scan ci-budget`) |
 | No new Python or script path, Python or script growth, or shell past 80 code lines without a Tom-approved allowlist entry | `run_language_gate` (`north language-gate`) |
