@@ -24,6 +24,7 @@ pub mod shell_call;
 pub mod sops_decrypt;
 mod git_invocation;
 pub mod heavy_command;
+mod heavy_command_tests;
 pub mod scratch_log;
 pub mod brief_skeleton;
 pub mod poll_loop;

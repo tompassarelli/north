@@ -3,6 +3,8 @@ use crate::nix_command::{self, Inner};
 use crate::{platform::pyjson::Value, shell};
 use std::path::{Path, PathBuf};
 
+mod local_write;
+
 const PREFIXES: &[&str] = &[
     "exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time",
 ];
@@ -24,6 +26,9 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     match decide(command, Path::new(input.cwd().unwrap_or(".")), false, 0) {
         Decision::Allow => Verdict::Allow,
         Decision::Refuse(reason) => Verdict::Deny(reason),
+        Decision::Route if let Some(segment) = local_write::first(command, 0) => Verdict::Deny(format!(
+            "`{segment}` changes files or the git index, and an offloaded build runs the whole command on the build host, so that change would not reach this worktree. Run it as its own command first, then the build alone."
+        )),
         Decision::Route => {
             let wrapped = format!(
                 "north capacity host run --owner heavy-command-guard --timeout-seconds 1200 -- bash -c {}",

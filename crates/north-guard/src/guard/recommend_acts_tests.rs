@@ -56,16 +56,12 @@ fn a_recommendation_naming_an_ask_once_category_passes() {
 }
 
 #[test]
-fn a_recommendation_that_cites_an_issue_the_turn_only_staffed_is_blocked_naming_the_missing_box_and_passes_once_the_turn_edited_it() {
+fn a_cited_issue_is_covered_only_once_the_turn_edited_that_same_issue() {
     let dir = state("cited-box");
     let launched = decide(&stop("launched_only", "s1"), &dir);
     assert!(blocked(&launched), "{launched:?}");
     assert!(matches!(&launched, Verdict::Deny(reason) if reason.contains("no box tracks this on north#633") && reason.contains("gh issue edit N")));
     assert_eq!(decide(&stop("edited", "s2"), &dir), Verdict::Allow);
-}
-
-#[test]
-fn an_edited_issue_does_not_cover_a_citation_of_another_issue() {
     let other = decide(&stop("other_issue", "s1"), &state("other-issue"));
     assert!(blocked(&other), "{other:?}");
     assert!(matches!(&other, Verdict::Deny(reason) if reason.contains("cites north#640") && reason.contains("only created or edited north#633")));
