@@ -1,6 +1,5 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 
 use north_base::build_inputs::rust_build_input;
 use serde::Deserialize;
@@ -217,15 +216,7 @@ fn dependents<'a>(members: &[Member<'a>], changed: BTreeSet<&'a str>) -> BTreeSe
 }
 
 pub fn scope(root: &Path, base: &str, head: &str) -> Result<Scope, String> {
-    let output = Command::new("cargo")
-        .args(["metadata", "--no-deps", "--format-version", "1", "--offline"])
-        .current_dir(root)
-        .output()
-        .map_err(|error| format!("cargo metadata: {error}"))?;
-    if !output.status.success() {
-        return Err(format!("cargo metadata exited {}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim()));
-    }
-    let metadata = String::from_utf8_lossy(&output.stdout);
+    let metadata = north_base::platform::cargo_metadata::no_deps(root)?;
     select(&metadata, &changed(root, base, head, &[]), &read_dep_info(&metadata))
 }
 

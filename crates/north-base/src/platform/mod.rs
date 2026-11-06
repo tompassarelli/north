@@ -3,6 +3,7 @@ pub mod reader_stamp;
 pub mod run_roles;
 pub mod repo_names;
 pub mod git;
+pub mod cargo_metadata;
 pub mod land_queue;
 pub mod betterleaks;
 pub mod harness;
