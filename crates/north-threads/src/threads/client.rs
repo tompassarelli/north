@@ -32,6 +32,8 @@ const PORTED: [(&[&str], verb::Verb); 9] = [
     (&review_findings::VERBS, review_findings::run),
 ];
 const UNREACHABLE: i32 = 255;
+/// The verb a call starts detached to send the spool to the ledger host without waiting on it.
+const SPOOL_FLUSH: &str = "spool-flush";
 /// Set on a `queue follow` the sender has vetted against its own checkouts before forwarding it.
 const FORWARDED: &str = "THREADS_FORWARDED";
 const TIMED_OUT: i32 = 124;
@@ -52,8 +54,8 @@ pub struct Client {
     ssh_wait: Duration,
     ingest_wait: Duration,
     ingest_hold: Duration,
-    /// The `snapshot-pull` a call that found the snapshot stale starts without waiting on it; with none, the call pulls inline.
-    background_pull: Option<Vec<OsString>>,
+    /// The `north threads` a call starts without waiting on it to pull a stale snapshot or send the spool; with none, the call does both inline.
+    background: Option<Vec<OsString>>,
     clock: Arc<dyn Fn() -> Timestamp + Send + Sync>,
 }
 
@@ -160,7 +162,7 @@ impl Client {
             ssh_wait: SSH_TIMEOUT,
             ingest_wait: INGEST_WAIT,
             ingest_hold: INGEST_HOLD,
-            background_pull: Some(vec![crate::platform::north_binary::north_binary().into(), "threads".into(), "snapshot-pull".into()]),
+            background: Some(vec![crate::platform::north_binary::north_binary().into(), "threads".into()]),
             clock: Arc::new(Timestamp::now),
         }
     }
@@ -199,6 +201,9 @@ impl Client {
         let first = argv.first().map(String::as_str);
         if first == Some("snapshot-pages") || first == Some("snapshot-pull") {
             return self.snapshot_verb(argv, stdin, err);
+        }
+        if first == Some(SPOOL_FLUSH) {
+            return self.spool_flush_verb(argv, err);
         }
         let database = self.var("THREADS_DB").is_some();
         if first == Some("routing-compare") && !database {
@@ -260,7 +265,7 @@ impl Client {
         let ported = PORTED.iter().find(|(verbs, _)| verbs.contains(&verb)).map(|(_, run)| *run);
         let claim = claims::verbs::VERBS.contains(&verb);
         if ported.is_none() && !claim {
-            let known: Vec<&str> = claims::verbs::VERBS.iter().chain(PORTED.iter().flat_map(|(verbs, _)| verbs.iter())).copied().chain(["snapshot-pages", "snapshot-pull"]).collect();
+            let known: Vec<&str> = claims::verbs::VERBS.iter().chain(PORTED.iter().flat_map(|(verbs, _)| verbs.iter())).copied().chain(["snapshot-pages", "snapshot-pull", SPOOL_FLUSH]).collect();
             eprintln!("usage: north threads VERB [ARGS]\nverbs: {}", known.join(", "));
             return Ok(if matches!(verb, "-h" | "--help" | "help") { 0 } else { 2 });
         }
@@ -300,7 +305,7 @@ impl Client {
             self.spool_argv(&argv)?;
             return Ok(Some(0));
         }
-        let flush = self.flush_spool(dest, err)?;
+        let flush = self.flush_spool_for(first, dest, err)?;
         let reachable = flush != Flush::Down;
         let clear = flush == Flush::Clear;
         if first == Some("ingest") {
@@ -409,7 +414,7 @@ impl Client {
         let Some(_lock) = self.spool_lock()? else { return Ok(Flush::Busy) };
         let mut paths: Vec<PathBuf> = fs::read_dir(&self.spool)?
             .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| path.extension().is_some_and(|extension| extension == "jsonl" || extension == "argv"))
+            .filter(|path| spooled_write(path))
             .collect();
         paths.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
         for path in paths {
@@ -452,19 +457,45 @@ impl Client {
     }
 
     fn refresh_snapshot_later(&self, dest: &str) {
-        let Some(program) = &self.background_pull else {
+        let Some(program) = &self.background else {
             let _ = self.refresh_snapshot(dest, false);
             return;
         };
         if !snapshot::take_turn(&self.snapshot, false).unwrap_or(false) {
             return;
         }
-        let mut command = Command::new(&program[0]);
-        command.args(&program[1..]).arg("--force").arg("--snapshot").arg(&self.snapshot).arg(dest);
-        command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0);
-        if let Ok(mut child) = command.spawn() {
-            std::thread::spawn(move || child.wait());
+        detach(program, &["snapshot-pull".as_ref(), "--force".as_ref(), "--snapshot".as_ref(), self.snapshot.as_os_str(), dest.as_ref()]);
+    }
+
+    /// A spooled write sends the spool before itself, because its order behind the spool matters; any other call leaves the spool to a detached `spool-flush`, because one spooled usage batch holds the ledger host for seconds and a bounded call such as a launch's `holder` must not wait on them.
+    fn flush_spool_for(&self, verb: Option<&str>, dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
+        let Some(program) = self.background.as_ref().filter(|_| !matches!(verb, Some("ingest" | "agent-event"))) else {
+            return self.flush_spool(dest, err);
+        };
+        if self.spool_pending()? {
+            detach(program, &[SPOOL_FLUSH.as_ref(), dest.as_ref()]);
         }
+        Ok(Flush::Clear)
+    }
+
+    fn spool_pending(&self) -> NorthResult<bool> {
+        let entries = match fs::read_dir(&self.spool) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        Ok(entries.filter_map(Result::ok).any(|entry| spooled_write(&entry.path())))
+    }
+
+    fn spool_flush_verb(&self, argv: &[String], err: &mut dyn Write) -> NorthResult<i32> {
+        let [_, dest] = argv else {
+            return Err(NorthError::Usage(format!("usage: north threads {SPOOL_FLUSH} DEST")));
+        };
+        Ok(match self.flush_spool(dest, err)? {
+            Flush::Clear => 0,
+            Flush::Busy => ingest_lock::RETRY,
+            Flush::Down => UNREACHABLE,
+        })
     }
 
     fn pull_argv(&self, dest: &str) -> Vec<OsString> {
@@ -607,6 +638,19 @@ fn agent_event_checks(argv: &[String]) -> Result<(), String> {
         return Err("key must be nonempty text".into());
     }
     Ok(())
+}
+
+fn spooled_write(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| extension == "jsonl" || extension == "argv")
+}
+
+/// Starts `program` with `arguments` in its own process group and reaps it on a thread, so the caller neither waits on it nor leaves a zombie.
+fn detach(program: &[OsString], arguments: &[&std::ffi::OsStr]) {
+    let mut command = Command::new(&program[0]);
+    command.args(&program[1..]).args(arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0);
+    if let Ok(mut child) = command.spawn() {
+        std::thread::spawn(move || child.wait());
+    }
 }
 
 fn feed(mut child: Child, bytes: Option<Vec<u8>>) -> Child {
@@ -765,7 +809,7 @@ exit "$(cat "$ROOT/code")"
             vec!["/bin/sh".into(), "-c".into(), ssh.into(), "ssh".into()],
             fleet,
         );
-        client.background_pull = None;
+        client.background = None;
         Rig { _directory: directory, root, client }
     }
 
@@ -839,6 +883,26 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(spooled(&rig), [kept.file_name().unwrap().to_string_lossy().into_owned()], "a timed-out flush is neither .failed nor dropped");
         fs::remove_file(rig.root.join("sleep")).unwrap();
         assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
+        assert!(spooled(&rig).is_empty());
+        assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 1}"]);
+    }
+
+    /// At 3:40 PM on 2026-11-06 every fleet launch's 2 s `holder` read sent the spooled usage batches first, each holding the ledger host 4 to 5 s, so the read timed out and the claim check was skipped.
+    #[test]
+    fn a_claim_leaves_the_spool_to_a_detached_flush_and_that_flush_sends_it() {
+        let mut rig = rig(&[]);
+        let started = rig.root.join("background.log");
+        rig.client.background = Some(vec!["/bin/sh".into(), "-c".into(), format!("printf '%s\\n' \"$*\" >> '{}'", started.display()).into(), "north".into(), "threads".into()]);
+        rig.client.write_spool(b"{\"n\": 1}\n").unwrap();
+        assert_eq!(call(&rig, &["claim", "north#63", "--by", "s"], b"").0, 0);
+        assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'north#63' --by s")], "the claim sent the spool before itself");
+        let begun = Instant::now();
+        while !fs::read_to_string(&started).unwrap_or_default().contains("spool-flush ledger-host") {
+            assert!(begun.elapsed() < Duration::from_secs(5), "no detached spool-flush started: {:?}", fs::read_to_string(&started));
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(spooled(&rig).len(), 1);
+        assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
         assert!(spooled(&rig).is_empty());
         assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 1}"]);
     }
