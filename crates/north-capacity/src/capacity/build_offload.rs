@@ -56,7 +56,7 @@ pub struct Job<'a> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Room {
-    Free,
+    Free { free_cpus: f64 },
     Short(String),
     Unreachable,
 }
@@ -176,14 +176,23 @@ pub fn for_build_host(command: &[String]) -> Vec<String> {
     words
 }
 
-pub fn first_free(hosts: impl IntoIterator<Item = (String, Room)>) -> Result<String, Declined> {
+/// The host with the most free CPUs among those with room, the earlier one on a tie.
+pub fn most_free(hosts: impl IntoIterator<Item = (String, Room)>) -> Result<String, Declined> {
     let (mut short, mut dark) = (Vec::new(), Vec::new());
+    let mut best: Option<(String, f64)> = None;
     for (name, room) in hosts {
         match room {
-            Room::Free => return Ok(name),
+            Room::Free { free_cpus } => {
+                if best.as_ref().is_none_or(|(_, most)| free_cpus > *most) {
+                    best = Some((name, free_cpus));
+                }
+            }
             Room::Short(why) => short.push(format!("{name}: {why}")),
             Room::Unreachable => dark.push(format!("{name}: unreachable or unreadable over ssh")),
         }
+    }
+    if let Some((name, _)) = best {
+        return Ok(name);
     }
     if short.is_empty() {
         return Err(Declined::Unreachable(dark));
@@ -204,7 +213,7 @@ pub fn route(candidate: &Candidate, rooms: impl FnOnce() -> Vec<(String, Room)>)
     if rooms.is_empty() {
         return Route::Local;
     }
-    first_free(rooms).map_or_else(Route::Declined, |host| Route::Offload { host })
+    most_free(rooms).map_or_else(Route::Declined, |host| Route::Offload { host })
 }
 
 /// Files whose extension marks a private or game asset, which never leave the laptop in a lane's uncommitted diff.

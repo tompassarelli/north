@@ -10,3 +10,10 @@ pub struct Quota {
     /// Seconds since the epoch when that window refills.
     pub resets_at: f64,
 }
+
+impl Quota {
+    /// Whether the reading is for a resource that refills hourly in thousands of calls; `search` allows 30 a minute and could never hold the floor.
+    pub fn is_hourly(&self) -> bool {
+        matches!(self.resource.as_str(), "core" | "graphql")
+    }
+}

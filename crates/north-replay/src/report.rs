@@ -117,7 +117,7 @@ pub fn github_floor(floor: f64) -> Invariant {
 impl Invariant {
     /// Judges one decision against the lowest GitHub reading its case logged; a case without one does not apply.
     pub fn check_github(&mut self, quota: Option<&Quota>, floor: f64, at: f64, what: impl FnOnce() -> String) {
-        let Some(quota) = quota else { return };
+        let Some(quota) = quota.filter(|quota| quota.is_hourly()) else { return };
         self.check(quota.remaining as f64 >= floor, || format!("{}: {} with {} GitHub {} calls left, under the floor of {floor}", stamp(at), what(), quota.remaining, quota.resource));
     }
 }

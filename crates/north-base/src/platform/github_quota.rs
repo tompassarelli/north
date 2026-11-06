@@ -34,6 +34,6 @@ pub fn lowest(directory: &Path, now: f64) -> Option<Quota> {
             let (remaining, resets_at) = text.split_once(' ')?;
             Some(Quota { resource: resource.to_owned(), remaining: remaining.trim().parse().ok()?, resets_at: resets_at.trim().parse().ok()? })
         })
-        .filter(|quota| quota.resets_at > now)
+        .filter(|quota| quota.is_hourly() && quota.resets_at > now)
         .min_by_key(|quota| quota.remaining)
 }

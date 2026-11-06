@@ -249,9 +249,10 @@ fn reapplying_the_parent_of_8d4c5d10a_to_slot_claims_exits_non_zero_naming_slot_
 
 fn assert_github_floor_refuses_a_launch_placed_under_1000_calls_and_skips_unread_cases() {
     let root = tempfile::tempdir().unwrap();
-    for (index, remaining) in [Some(4000), Some(900), None].into_iter().enumerate() {
+    for (index, remaining) in [Some(4000), Some(900), None, Some(29)].into_iter().enumerate() {
         let at = NOW - 200.0 + index as f64;
         let case = remaining.map_or_else(|| placed_case(20.0), |remaining| with_github(placed_case(20.0), remaining));
+        let case = if index == 3 { placement::Case { github: case.github.map(|quota| Quota { resource: "search".into(), ..quota }), ..case } } else { case };
         append(root.path(), Kind::Placement, "jsonl", at, &envelope(Kind::Placement, &format!("p{index}"), at, None, case, placed_on_c()));
     }
     let places = |_: &placement::Case| Some(Target::Account("claude:c".into()));

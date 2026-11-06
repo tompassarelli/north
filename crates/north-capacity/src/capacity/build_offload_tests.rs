@@ -21,11 +21,18 @@ fn candidate<'a>(class: &'a str, agent: bool, deferred: bool) -> Candidate<'a> {
 // KEEP(contract): a fleet session's cargo check and clippy (moderate) are offered to build hosts like its builds, while another shell's admitted moderate build stays local; north#634
 #[test]
 fn capacity_an_agents_moderate_build_is_offered_to_the_build_hosts_and_anyone_elses_is_not() {
-    let free = || vec![("ccx33".to_owned(), Room::Free)];
+    let free = || vec![("ccx33".to_owned(), Room::Free { free_cpus: 8.0 })];
     assert_eq!(route(&candidate("moderate", true, false), free), Route::Offload { host: "ccx33".to_owned() });
     assert_eq!(route(&candidate("moderate", false, true), free), Route::Local);
     assert_eq!(route(&candidate("heavy", true, false), free), Route::Offload { host: "ccx33".to_owned() });
     assert_eq!(route(&candidate("heavy", false, false), free), Route::Local);
+    let rooms = |free: [Room; 3]| ["laptop", "ccx33", "gex45"].into_iter().map(str::to_owned).zip(free).collect::<Vec<_>>();
+    let deferred = candidate("heavy", true, true);
+    let peer = |name: &str| Route::Offload { host: name.to_owned() };
+    let short = || Room::Short("0.0 cores free of 20, needs 6".to_owned());
+    assert_eq!(route(&deferred, || rooms([Room::Free { free_cpus: 8.0 }, Room::Free { free_cpus: 14.0 }, short()])), peer("ccx33"));
+    assert_eq!(route(&deferred, || rooms([Room::Free { free_cpus: 8.0 }, Room::Free { free_cpus: 8.0 }, Room::Unreachable])), peer("laptop"));
+    assert_eq!(route(&deferred, || rooms([Room::Unreachable, short(), Room::Free { free_cpus: 6.0 }])), peer("gex45"));
 }
 
 // KEEP(contract): only a shortage of hosts makes a fleet session's build refused on the laptop; a pinned local need or a landing runs here; north#634
@@ -75,3 +82,4 @@ fn capacity_a_fixable_command_is_kept_off_the_laptop_and_only_rust_programs_are_
     assert!(is_rust_command(&words("cargo test")) && is_rust_command(&words("/nix/store/x/bin/rustc a.rs")) && is_rust_command(&words("cargo-nextest nextest run")));
     assert!(!is_rust_command(&words("bun test")) && !is_rust_command(&words("nix build")) && !is_rust_command(&[]));
 }
+

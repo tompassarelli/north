@@ -15,7 +15,7 @@ mod tests;
 fn room_of(ssh: &str, claim: Option<&claims::Claim>) -> Room {
     let Some(read) = room::read_within(ssh, Duration::from_secs(PROBE_LIMIT_SECONDS)) else { return Room::Unreachable };
     let reserved = claim.map_or(0.0, |claim| claim.ahead() as f64 * offload_room().0);
-    room::build_shortfall_reserving(&read, reserved).map_or(Room::Free, Room::Short)
+    room::build_shortfall_reserving(&read, reserved).map_or(Room::Free { free_cpus: read.admission.free_cpus() - reserved }, Room::Short)
 }
 
 /// Ok(exit code) when the build ran on another host, trying each host with room in turn when one cannot take the lane; Err leaves it to the local path, naming why when an offload host was configured.
