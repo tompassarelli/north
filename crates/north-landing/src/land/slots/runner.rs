@@ -36,13 +36,13 @@ use crate::land::trace::check_log::{self, Line, Mark};
 use crate::landing::check_findings;
 use crate::landing::check_timings::{self, Base, BaseResult, Deadline, Timing, Timings};
 use crate::landing::land_test_selection::SELECT_PATHS_ENV;
+use north_base::foundation::exit::NO_VERDICT_STATUS;
 
 const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--tree TREE] [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
 const OFFLOAD_GRACE: u64 = 900;
 const BATCH_GRACE: u64 = 30;
 const REAP: Duration = Duration::from_secs(5);
 const LOG_KEEP: Duration = Duration::from_secs(14 * 24 * 3600);
-const INFRASTRUCTURE: i32 = 75;
 const TIMED_OUT: i32 = 124;
 const KILLED: i32 = 137;
 const RED_MAIN: i32 = 3;
@@ -647,12 +647,12 @@ impl Shared {
 
     async fn judge_failure(&self, command: &str, leased: bool, timeout: u64, ran: &Ran) -> i32 {
         let (status, log) = (ran.status, ran.log.display());
-        if status == INFRASTRUCTURE {
-            let detail = format!("land check {command} reached no verdict (exit {INFRASTRUCTURE}: its host or connection failed before the check reported), which is not this lane's failure");
+        if status == NO_VERDICT_STATUS {
+            let detail = format!("land check {command} reached no verdict (exit {NO_VERDICT_STATUS}: its host or connection failed before the check reported), which is not this lane's failure");
             warn(&format!("safe-push: {detail}; log: {log}; NOT pushed."));
             self.outcome.record(&["skip", &detail]);
             self.outcome.record(&["event", "land check", "no verdict", &format!("{command}; log: {log}")]);
-            return INFRASTRUCTURE;
+            return NO_VERDICT_STATUS;
         }
         if let Some(first) = self.base_failure(command, leased, timeout).await {
             let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
@@ -674,7 +674,7 @@ impl Shared {
             warn(&format!("safe-push: land check {command} exited {status} on this lane and also failed on base tree {tree}, so the failure is the check environment, not this lane; log: {log}; NOT pushed."));
             self.outcome.record(&["skip", &detail]);
             self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {log}")]);
-            return INFRASTRUCTURE;
+            return NO_VERDICT_STATUS;
         }
         warn(&format!("safe-push: land check {command} exited {status}; log: {log}; NOT pushed."));
         self.cache_record(status, &[command.to_owned()]).await;
@@ -766,7 +766,7 @@ impl Shared {
         warn(&format!("safe-push: {detail}; log: {}; NOT pushed.", log.display()));
         self.outcome.record(&["skip", &detail]);
         self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {}", log.display())]);
-        INFRASTRUCTURE
+        NO_VERDICT_STATUS
     }
 
     fn overloaded_host(&self, command: &str) -> Option<HostLoad> {
@@ -814,7 +814,7 @@ async fn forward_cancel(mut cancel: watch::Receiver<bool>, stop: Arc<watch::Send
 }
 
 fn first_failure(failed: &mut i32, status: i32) {
-    if *failed == 0 || (matches!(*failed, INFRASTRUCTURE | OFFLOAD_SLOTS_BUSY) && status != 0 && status != OFFLOAD_SLOTS_BUSY) {
+    if *failed == 0 || (matches!(*failed, NO_VERDICT_STATUS | OFFLOAD_SLOTS_BUSY) && status != 0 && status != OFFLOAD_SLOTS_BUSY) {
         *failed = status;
     }
 }
@@ -1063,7 +1063,7 @@ impl Shared {
         let (mut child, log) = started;
         let status = self.wait(&mut child).await;
         let mut failed = 0;
-        if status == INFRASTRUCTURE {
+        if status == NO_VERDICT_STATUS {
             say(&format!("safe-push: GitHub Actions is unavailable (infrastructure, not a check failure); its {} land check(s) run on a build host", commands.len()));
             let fallback = Arc::new(self.without_actions(resolve_runner_host("build-host").await));
             failed = fallback.run_list(commands).await.status();
@@ -1459,7 +1459,7 @@ pub fn fails_first(root: &Path, base: &str, head: &str) -> Result<(), String> {
     let status = block_on(run_added(root.to_owned(), arguments, config, commands)).map_err(|error| error.to_string())?;
     match status {
         0 => Ok(()),
-        INFRASTRUCTURE => {
+        NO_VERDICT_STATUS => {
             say("safe-push: a land check this lane adds reached no verdict (exit 75: no build host answered), which is not the lane's fault; queueing the lane");
             Ok(())
         }
@@ -1476,7 +1476,7 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     if !wanted.is_empty() {
         let Some(host) = build_host::chosen(&program(), &wanted, Some(&north_base::platform::host::name())).await else {
             warn("safe-push: no build host has room, so the checks before queueing reach no verdict rather than compile on this host; the lander runs them");
-            return INFRASTRUCTURE;
+            return NO_VERDICT_STATUS;
         };
         arguments.runner_host = host;
     }

@@ -9,6 +9,7 @@ use super::divergence::{self, Divergence};
 use super::lander::state_home;
 use super::{enqueue, link_hold, queue, replay, repositories, sheriff, telemetry};
 use crate::landing::red_check::Failure;
+use north_base::foundation::exit::NO_VERDICT;
 
 const USAGE: &str = "usage: north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]";
 pub const REFUSED: &str = "lander-refused";
@@ -407,14 +408,14 @@ pub fn run(arguments: &[String]) -> u8 {
             if !options.dry_run {
                 link_hold::unreached(&Runtime::from_env().home, &candidate, &reason);
             }
-            75
+            NO_VERDICT
         }
         Ok(Outcome::Retry { candidate, reason }) => {
             println!("north land promote: flaky: {reason}; a flaky check says nothing about the candidate, so the link is not held, and the next promotion replays the candidate again");
             if !options.dry_run {
                 link_hold::unreached(&Runtime::from_env().home, &candidate, &reason);
             }
-            75
+            NO_VERDICT
         }
         Ok(Outcome::Settled(result)) => {
             println!("north land promote: {result}");

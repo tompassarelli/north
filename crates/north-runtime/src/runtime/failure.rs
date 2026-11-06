@@ -1,6 +1,6 @@
 use std::process::ExitStatus;
 
-pub(super) const DEFERRED: u8 = 75;
+pub(super) const DEFERRED: u8 = north_base::foundation::exit::NO_VERDICT;
 
 pub(super) struct Failure {
     pub(super) code: u8,

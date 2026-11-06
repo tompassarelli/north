@@ -130,7 +130,7 @@ fn import_usage_log(db: &mut Connection) -> rusqlite::Result<()> {
     transaction.commit()
 }
 
-pub const TEMPORARY_FAILURE: i32 = 75;
+pub const TEMPORARY_FAILURE: i32 = north_base::foundation::exit::NO_VERDICT_STATUS;
 
 const LOCK_WAIT_SECONDS: f64 = 60.0;
 const RETRY_PAUSE: Duration = Duration::from_millis(50);

@@ -14,6 +14,7 @@ use super::{Range, git};
 use crate::dep_gate::trailer_lines;
 use crate::landing::fails_first;
 use crate::watch::state_home;
+use north_base::foundation::exit::NO_VERDICT;
 
 mod kills;
 mod limits;
@@ -347,7 +348,7 @@ pub fn fail_to_pass(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
         Ok(verdicts) => verdicts,
         Err(reason) => {
             let _ = writeln!(out, "fail-to-pass: could not run, not the lane's fault: {reason}");
-            return 75;
+            return NO_VERDICT;
         }
     };
     let guards: Vec<&str> = passing.iter().filter(|(_, passes)| !**passes).map(|(name, _)| name.as_str()).collect();

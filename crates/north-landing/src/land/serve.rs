@@ -22,6 +22,7 @@ use super::{incidents, jobs, pause, queue, red, speculate, watchdog};
 use super::repositories;
 use super::steps;
 use crate::platform::decision_log;
+use north_base::foundation::exit::NO_VERDICT;
 
 pub const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
@@ -419,7 +420,7 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
             }
             Ok(Round::PushRefused(reason)) if once => {
                 println!("north land: waiting: {reason}");
-                return 75;
+                return NO_VERDICT;
             }
             Ok(Round::PushRefused(reason)) => {
                 back_off(lander, &mut backoff, &reason, retire);
@@ -428,7 +429,7 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
             Ok(Round::Idle) if once => return 0,
             Ok(Round::Waiting(reason)) if once => {
                 println!("north land: waiting: {reason}");
-                return 75;
+                return NO_VERDICT;
             }
             Ok(Round::Waiting(reason)) => println!("north land: waiting: {reason}"),
             Ok(Round::Idle) => {}
@@ -516,7 +517,7 @@ fn open(repo: &Path, options: &Options) -> Result<Opened, String> {
 fn exit_code(codes: impl IntoIterator<Item = u8>) -> u8 {
     codes.into_iter().fold(0, |worst, code| match (worst, code) {
         (1, _) | (_, 1) => 1,
-        (75, _) | (_, 75) => 75,
+        (NO_VERDICT, _) | (_, NO_VERDICT) => NO_VERDICT,
         (_, other) => other,
     })
 }

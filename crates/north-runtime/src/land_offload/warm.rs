@@ -11,6 +11,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use north_base::foundation::offload;
 
 use rustix::fs::{FlockOperation, flock};
 
@@ -30,13 +31,6 @@ struct Slot {
     checkout: String,
     repo: PathBuf,
     at: String,
-}
-
-fn root() -> Option<PathBuf> {
-    env::var_os("NORTH_OFFLOAD_ROOT")
-        .filter(|root| !root.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").filter(|home| !home.is_empty()).map(|home| PathBuf::from(home).join(".cache/land-offload")))
 }
 
 fn held(lock: &Path) -> bool {
@@ -61,7 +55,7 @@ fn too_busy(root: &Path) -> bool {
 /// hold slots here. The reaper is a oneshot unit, and systemd ends every process left in its cgroup when it exits, so a child of the reaper
 /// would die with it; the fixed unit name also keeps a second warm job from starting beside a running one.
 pub fn tend() {
-    let Some(root) = root().filter(|root| root.is_dir()) else { return };
+    let Some(root) = offload::root().filter(|root| root.is_dir()) else { return };
     if held(&root.join(LOCK)) || too_busy(&root) {
         return;
     }
@@ -75,8 +69,8 @@ pub fn tend() {
         .arg(format!("--property=StandardError=append:{log}"))
         .arg(format!("--setenv=PATH={}", path.to_string_lossy()))
         .arg(format!("--setenv=HOME={}", home.display()));
-    if let Some(offload_root) = env::var_os("NORTH_OFFLOAD_ROOT") {
-        unit.arg(format!("--setenv=NORTH_OFFLOAD_ROOT={}", offload_root.to_string_lossy()));
+    if let Some(offload_root) = env::var_os(offload::ROOT_ENV) {
+        unit.arg(format!("--setenv={}={}", offload::ROOT_ENV, offload_root.to_string_lossy()));
     }
     let started = unit.arg("--").arg(north_base::platform::north_binary::north_binary()).args(["capacity", "offload", "warm"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     if let Err(error) = started {
@@ -86,7 +80,7 @@ pub fn tend() {
 
 /// `north capacity offload warm`: warms one slot, or does nothing when another warm job, a busy host or no stale slot stands in the way.
 pub fn run() -> u8 {
-    let Some(root) = root() else { return 0 };
+    let Some(root) = offload::root() else { return 0 };
     let Some(_warming) = take(&root.join(LOCK)) else { return 0 };
     if too_busy(&root) {
         return 0;

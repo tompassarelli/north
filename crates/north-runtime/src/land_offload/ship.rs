@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub(super) const TRANSPORT_FAILED: u8 = 255;
+pub(super) use north_base::foundation::exit::TRANSPORT_FAILED;
 const WRONG_TREE: u8 = 98;
-const NO_VERDICT: u8 = 75;
+use north_base::foundation::exit::NO_VERDICT;
 const BESIDE_MISSING: u8 = NO_VERDICT;
 const SLOTS_BUSY: u8 = 96;
 const WAITED: &str = "offload: waited ";
@@ -20,9 +20,7 @@ pub(super) const HEADROOM: (u32, u32) = (4, 5);
 const POLL_SECONDS: &str = "0.2";
 const TARGET_CAP_MIB: u32 = 40 * 1024;
 const TARGET_FLOOR_MIB: u32 = 30 * 1024;
-pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
-pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
-pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
+use north_base::foundation::offload::{LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const FREE: &str = r#"set -eu

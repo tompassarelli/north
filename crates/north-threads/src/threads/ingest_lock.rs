@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use rustix::fs::{FlockOperation, flock};
 
-pub const RETRY: i32 = 75;
+pub const RETRY: i32 = north_base::foundation::exit::NO_VERDICT_STATUS;
 const POLL: Duration = Duration::from_millis(50);
 
 pub struct IngestLock {

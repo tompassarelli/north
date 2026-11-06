@@ -7,13 +7,12 @@ use super::effects::Host;
 use super::build_offload;
 use crate::nix_command::{self, Inner};
 use crate::shell;
+use north_base::foundation::exit::NO_VERDICT;
 
 const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time"];
 const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
 const EXECUTED: &str = "NORTH_CAPACITY_GATE_EXECUTED";
 const RUST_PROGRAMS: [&str; 3] = ["cargo", "rustc", "cargo-nextest"];
-const TOOLCHAIN_MISSING: u8 = 75;
-const SANDBOXED: u8 = 75;
 const SANDBOX: &str = "DEPBOX";
 const SHIM_MARKER: &str = "# north capacity gate shim: the real program is the next one on PATH that is not a shim";
 const SHIMS_OUTPUT: &str = "-capacity-gate-shims/bin/";
@@ -54,7 +53,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
                     return 126;
                 }
                 eprintln!("{name}: command not found behind the north capacity gate: this host has no {name} on PATH outside the shims, so a check that needs it waits for a host that has it (infrastructure, exit 75)");
-                return TOOLCHAIN_MISSING;
+                return NO_VERDICT;
             };
             let Some(class) = lease_class(&words(program, rest), host) else {
                 let sized = std::env::var("CARGO_BUILD_JOBS").ok().filter(|_| in_lease()).and_then(|jobs| nix_command::sized(&words(program, rest), &jobs));
@@ -76,7 +75,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
 fn leased(class: Class, program: &str, rest: &[String], host: &Host) -> u8 {
     if std::env::var_os(SANDBOX).is_some_and(|sandbox| !sandbox.is_empty()) && !(host.lease_builds)() && agent_compile(&words(program, rest)) {
         eprintln!("north capacity gate: a fleet session's {} inside depbox reaches no build host, since the sandbox has no network or ssh keys; make the compile depbox's own command (depbox run -- cargo ...) so the gate sends the whole run to a build host (infrastructure, exit 75)", shell::basename(program));
-        return SANDBOXED;
+        return NO_VERDICT;
     }
     eprintln!("north capacity gate: this host runs builds only inside a capacity lease; {} waits for a {} lease", shell::basename(program), class.name());
     let mut run = ["run", "--class", class.name(), "--owner", &owner(), "--timeout-seconds", "3600", "--"].map(str::to_owned).to_vec();

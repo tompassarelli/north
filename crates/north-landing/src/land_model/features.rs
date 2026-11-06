@@ -3,13 +3,14 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::process::Command;
+use north_base::foundation::exit::TRANSPORT_FAILED_TEXT;
 
 use serde::{Deserialize, Serialize};
 
 use super::{Class, Era, Lane};
 use crate::land::queue;
 
-const INFRA_MARKERS: [&str; 5] = ["hung:", "exited 255", "cannot lock ref", "timed out", "red-main"];
+const INFRA_MARKERS: [&str; 5] = ["hung:", TRANSPORT_FAILED_TEXT, "cannot lock ref", "timed out", "red-main"];
 const LANDER_PATHS: [&str; 3] = ["crates/north-landing/", "crates/north-safe-push/", "tests/it/land"];
 const TOP_LEVEL_AREAS: [&str; 5] = ["src", "tests", "harness", "bin", "docs"];
 

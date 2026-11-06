@@ -1,4 +1,4 @@
-const TOOLCHAIN_MISSING: u8 = 75;
+use north_base::foundation::exit::NO_VERDICT;
 
 const CARGO_TEST: &str = "cargo test --locked --offline";
 const CARGO_CLIPPY: &str = "cargo clippy --all-targets --locked --offline -- -D warnings";
@@ -25,9 +25,9 @@ fn names_attribute(source: &str, name: &str) -> bool {
 }
 
 fn guarded(tool: &str, command: &str, dev_shell: bool) -> String {
-    let guard = format!("command -v {tool} >/dev/null || exit {TOOLCHAIN_MISSING}; {command}");
+    let guard = format!("command -v {tool} >/dev/null || exit {NO_VERDICT}; {command}");
     if dev_shell {
-        format!("command -v nix >/dev/null || exit {TOOLCHAIN_MISSING}; nix develop --offline --no-update-lock-file -c bash -euc '{guard}'")
+        format!("command -v nix >/dev/null || exit {NO_VERDICT}; nix develop --offline --no-update-lock-file -c bash -euc '{guard}'")
     } else {
         guard
     }

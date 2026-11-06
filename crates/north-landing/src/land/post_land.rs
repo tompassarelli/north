@@ -7,6 +7,8 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_base::foundation::offload::OWNER_ENV;
 
 use crate::landing::red_check::{self, Failure};
 use crate::platform::push_ledger;
@@ -367,7 +369,7 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
     if here {
         command.args(["-euo", "pipefail", "-c", &format!("exec {} \"$@\"", run.capacity), "post-land-capacity", program]);
     }
-    command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--tree", tree, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity);
+    command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--tree", tree, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env(OWNER_ENV, &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity);
     match &run.host {
         Some(host) => command.env("SAFE_PUSH_LAND_RUNNER", host),
         None => command.env_remove("SAFE_PUSH_LAND_RUNNER"),
@@ -417,7 +419,7 @@ fn judged(status: ExitStatus, run: &Run) -> Verdict {
     match status.code() {
         _ if status.success() => Verdict::Green,
         Some(126 | 127) => Verdict::Transient(format!("post-land checks could not start their command (exit {status}), so they reached no verdict; log: {}", run.log.display())),
-        Some(75) => Verdict::Transient(format!("post-land checks exited 75; log: {}", run.log.display())),
+        Some(NO_VERDICT_STATUS) => Verdict::Transient(format!("post-land checks exited {NO_VERDICT_STATUS}; log: {}", run.log.display())),
         Some(OFFLOAD_SLOTS_BUSY) => Verdict::Transient(format!("every build-host slot stayed busy, so the post-land checks reached no verdict; log: {}", run.log.display())),
         _ if steps(&run.outcome).is_empty() => Verdict::Transient(format!("post-land checks exited {status} with no check reaching a failing verdict, so they reached no verdict; log: {}", run.log.display())),
         _ => Verdict::RedMain(failed_check(&run.outcome).unwrap_or_else(|| format!("exit {status}; log: {}", run.log.display()))),

@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::{Arguments, Config, affected, block_on, clippy_first, run_added, say};
+use north_base::foundation::exit::NO_VERDICT_STATUS;
 
-const NO_VERDICT: i32 = 75;
 
 pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let config = Config::load(root, head);
@@ -20,7 +20,7 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<Vec<St
     if status == 0 {
         return Ok(Vec::new());
     }
-    if status == NO_VERDICT {
+    if status == NO_VERDICT_STATUS {
         say("safe-push: a check before queueing reached no verdict (exit 75: no build host answered), which is not the lane's fault; queueing the lane, and the lander runs them on its candidate before landing it");
         return Ok(commands);
     }

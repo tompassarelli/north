@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use north_base::foundation::offload;
 
 use rustix::fs::{FlockOperation, flock};
 
@@ -55,10 +56,6 @@ fn micros() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros())
 }
 
-fn offload_root() -> Option<PathBuf> {
-    std::env::var_os("NORTH_OFFLOAD_ROOT").filter(|value| !value.is_empty()).map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache/land-offload")))
-}
-
 fn slot_name(repo: &Path) -> Option<String> {
     let home = PathBuf::from(std::env::var_os("HOME")?);
     Some(repo.strip_prefix(home).ok()?.to_string_lossy().replace('/', "-"))
@@ -70,7 +67,7 @@ fn belongs(file: &str, name: &str) -> bool {
 }
 
 pub fn free_slots(repo: &Path) -> Option<(usize, usize)> {
-    let (root, name) = (offload_root()?, slot_name(repo)?);
+    let (root, name) = (offload::root()?, slot_name(repo)?);
     let locks: Vec<PathBuf> = fs::read_dir(root).ok()?.flatten().filter(|entry| belongs(&entry.file_name().to_string_lossy(), &name)).map(|entry| entry.path()).collect();
     if locks.is_empty() {
         return None;

@@ -72,7 +72,7 @@ fn push(refspec: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-pub const INFRASTRUCTURE: u8 = 75;
+pub const INFRASTRUCTURE: u8 = north_base::foundation::exit::NO_VERDICT;
 
 #[derive(Debug, PartialEq)]
 enum RefPush {

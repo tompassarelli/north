@@ -7,6 +7,7 @@ use crate::report::timeline::Timeline;
 use crate::session::cancel::watch_for_cancel;
 use crate::session::output_log::claim;
 use crate::shell::Shell;
+use north_base::foundation::exit::NO_VERDICT;
 
 const SCANS: [Gate; 10] = [
     Gate::Language,
@@ -22,7 +23,6 @@ const SCANS: [Gate; 10] = [
 ];
 
 const BROKEN_BASE: &str = "main's check environment is broken: ";
-const RETRY: u8 = 75;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Verdict {
@@ -72,12 +72,12 @@ pub fn classify(head: &str, reached: &Reached, log: &str) -> Verdict {
     let skip = checks.skip.as_deref().unwrap_or("");
     if let Some(base) = &checks.red_main {
         Verdict::RedMain(base.clone())
-    } else if checks.status == RETRY && skip.starts_with(BROKEN_BASE) {
+    } else if checks.status == NO_VERDICT && skip.starts_with(BROKEN_BASE) {
         Verdict::Transient(skip.to_owned())
-    } else if checks.status == RETRY && log.contains("DEFER") {
+    } else if checks.status == NO_VERDICT && log.contains("DEFER") {
         Verdict::Deferred
-    } else if checks.status == RETRY || skip.contains("bun install failed") {
-        Verdict::Transient(if skip.is_empty() { format!("exit {RETRY}") } else { skip.to_owned() })
+    } else if checks.status == NO_VERDICT || skip.contains("bun install failed") {
+        Verdict::Transient(if skip.is_empty() { format!("exit {NO_VERDICT}") } else { skip.to_owned() })
     } else {
         Verdict::Refused(last_actions_run(log).unwrap_or_default())
     }

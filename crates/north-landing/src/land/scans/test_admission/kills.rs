@@ -12,9 +12,9 @@ use crate::platform::push_ledger;
 use super::super::{Range, git};
 use super::limits;
 use crate::watch::state_home;
+use north_base::foundation::exit::NO_VERDICT;
 
 pub const USAGE: &str = "usage: north land scan test-admission kills [--host NAME] [--remote-north COMMAND] BASE..HEAD\n       north land scan test-admission kills --here BASE..HEAD";
-const UNAVAILABLE: u8 = 75;
 const SHIP_SECONDS: u64 = 900;
 const WORK: &str = "target/mutant-kills";
 const POLL: Duration = Duration::from_secs(2);
@@ -96,7 +96,7 @@ fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, 
     let hosts = hosts(directory, host);
     if hosts.is_empty() {
         let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: no build host has room (north capacity offload choose --any) and .safe-push declares no landing.remote-hosts");
-        return UNAVAILABLE;
+        return NO_VERDICT;
     }
     let command = format!("{remote} land scan test-admission kills --here {}..{}", lane.base, lane.head);
     let mut attempt = None;
@@ -110,7 +110,7 @@ fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, 
             .output();
         let Ok(output) = ran else {
             let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: north capacity offload run did not start");
-            return UNAVAILABLE;
+            return NO_VERDICT;
         };
         let reached = matches!(output.status.code(), Some(0 | 1));
         let _ = out.write_all(&output.stdout);
@@ -119,7 +119,7 @@ fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, 
             break;
         }
     }
-    let Some((host, output)) = attempt else { return UNAVAILABLE };
+    let Some((host, output)) = attempt else { return NO_VERDICT };
     let verdict: String = String::from_utf8_lossy(&output.stdout).lines().filter(|line| line.starts_with("mutant kill:") || line.starts_with("safe-push: ✗ mutant kill")).map(|line| format!("{line}\n")).collect();
     let code = match output.status.code() {
         Some(0) if !verdict.is_empty() => 0,
@@ -319,5 +319,5 @@ fn tail(work: &Path) -> String {
 
 fn unavailable(out: &mut impl Write, reason: &str) -> u8 {
     let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: {reason}");
-    UNAVAILABLE
+    NO_VERDICT
 }

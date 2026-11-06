@@ -8,6 +8,7 @@ use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::Value;
 use tokio::process::Command;
 use tokio::signal::unix::{Signal as Incoming, SignalKind, signal};
+use north_base::foundation::exit::NO_VERDICT;
 
 const USAGE: &str = "usage: north capacity deadline [--wall] LEASE_FILE|- SECONDS -- COMMAND...";
 const POLL: Duration = Duration::from_millis(250);
@@ -15,7 +16,6 @@ const KILL_AFTER: Duration = Duration::from_secs(5);
 const REPORT_PATIENCE: Duration = Duration::from_secs(2);
 const TIMED_OUT: u8 = 124;
 const KILLED: u8 = 137;
-const NO_VERDICT: u8 = 75;
 const ANCESTRY_LIMIT: usize = 256;
 const DRIVEN_CLOCK: &str = "NORTH_CAPACITY_DEADLINE_CLOCK";
 

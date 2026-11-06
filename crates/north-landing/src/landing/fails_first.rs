@@ -9,10 +9,10 @@ use regex::Regex;
 
 use super::mutant::{Env, Lease, Stop, git_bytes, git_text};
 use super::mutant_trees::{self, RunDir};
+use north_base::foundation::exit::NO_VERDICT;
 
 const USAGE: &str = "usage: north land-fails-first [BASE HEAD] (default: $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)";
 pub(crate) const MARK: &str = "Behavior: unchanged";
-const UNAVAILABLE: u8 = 75;
 
 static HUNK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@").unwrap());
 static ATTRIBUTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*#\[(?:[A-Za-z_][A-Za-z0-9_]*::)*test\b").unwrap());
@@ -52,7 +52,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let Some((base, head)) = pair.filter(|(base, head)| !base.is_empty() && !head.is_empty()) else {
         eprintln!("{USAGE}");
-        return UNAVAILABLE;
+        return NO_VERDICT;
     };
     let env = Env { lease: Lease::Inherited, ..super::mutant_cli::process_env() };
     let outcome = std::env::current_dir().map_err(Stop::from).and_then(|cwd| check(&cwd, &base, &head, &env, &mut io::stdout()));
@@ -61,7 +61,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Err(Stop::Refused) => 1,
         Err(Stop::Usage(message) | Stop::Fail(message)) => {
             eprintln!("fails-first: could not run, not the lane's fault: {message}");
-            UNAVAILABLE
+            NO_VERDICT
         }
     }
 }

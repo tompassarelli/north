@@ -3,6 +3,8 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::Ordering;
+use north_base::foundation::exit::{NO_VERDICT_STATUS, TRANSPORT_FAILED_TEXT};
+use north_base::foundation::offload::{LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 
 pub use crate::platform::land_queue::ROUND;
 use super::lander::Lander;
@@ -10,12 +12,10 @@ use super::refusal;
 
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE", "NORTH_RUNTIME_LINK"];
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
-pub const RED_FIX: &str = "NORTH_LAND_RED_FIX";
 pub const UNCHECKED_ENV: &str = "SAFE_PUSH_LAND_UNCHECKED";
 pub const INFRASTRUCTURE: &str = "infrastructure: the check host is unfit: ";
 const NORTH_MISSING: [&str; 4] = ["north: command not found", "north: not found", "north not on PATH", "north missing on PATH"];
 const OFFLOAD: &str = "north capacity offload: ";
-const OFFLOAD_EXIT: &str = "exited 255";
 const OFFLOADED: &str = "safe-push: offloading to ";
 const LAND_CHECK: &str = "safe-push: land check ";
 
@@ -62,7 +62,7 @@ pub fn unfit_host(log: &str) -> Option<String> {
     let offline = log.contains("--offline was specified");
     let crate_missing = || lines().find(|line| offline && line.contains("failed to download"));
     let north_missing = || lines().find(|line| NORTH_MISSING.iter().any(|signature| line.contains(signature)));
-    let exit = || lines().find(|line| line.contains(OFFLOAD_EXIT));
+    let exit = || lines().find(|line| line.contains(TRANSPORT_FAILED_TEXT));
     let transport = || exit().and_then(|exit| lines().rfind(|line| line.starts_with(OFFLOAD)).or_else(|| lines().any(|line| line.starts_with(OFFLOADED)).then_some(exit)));
     crate_missing().or_else(north_missing).or_else(transport).map(str::to_owned)
 }
@@ -131,12 +131,12 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
         Err(error) => return Err(Verdict::Transient(format!("{}: {error}", log.display()))),
     };
     let mut command = Command::new(program);
-    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", launch.offload_owner).env(ROUND, &launch.round);
+    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env(OWNER_ENV, launch.offload_owner).env(ROUND, &launch.round);
     if launch.red_fix {
-        command.env(RED_FIX, "1");
+        command.env(RED_FIX_ENV, "1");
     }
     if launch.lander_slot {
-        command.env("NORTH_OFFLOAD_LANDER_SLOT", "1");
+        command.env(LANDER_SLOT_ENV, "1");
     }
     if !launch.unchecked.is_empty() {
         command.env(UNCHECKED_ENV, launch.unchecked.join("\n"));
@@ -191,7 +191,7 @@ impl Started {
         }
         match parse(&text) {
             Some(Verdict::Refused(_)) if let Some(verdict) = unfit(log, &text) => verdict,
-            Some(Verdict::Refused(_) | Verdict::Green) if status.code() == Some(75) => Verdict::Transient(format!("{program} exited 75; log: {}", log.display())),
+            Some(Verdict::Refused(_) | Verdict::Green) if status.code() == Some(NO_VERDICT_STATUS) => Verdict::Transient(format!("{program} exited {NO_VERDICT_STATUS}; log: {}", log.display())),
             Some(Verdict::Refused(detail)) => Verdict::Refused(named(&text, if detail.is_empty() { log.display().to_string() } else { detail })),
             Some(verdict) => verdict,
             None => Verdict::Transient(format!("{program} gave no verdict line ({status}); log: {}", log.display())),

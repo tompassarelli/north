@@ -5,7 +5,7 @@ use std::process::Command;
 use super::config::{Check, Step};
 
 pub const DESCRIPTION_CHARS: usize = 140;
-pub const DEFERRED: i32 = 75;
+pub const DEFERRED: i32 = north_base::foundation::exit::NO_VERDICT_STATUS;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StatusRequest {

@@ -6,6 +6,7 @@ use std::process::Command;
 
 use super::github_app::{self, Host};
 use crate::foundation::clock::Timestamp;
+use crate::foundation::exit::NO_VERDICT;
 
 const USAGE: &str = "usage: north gh-session REAL_GH [ARGS...]
 
@@ -28,7 +29,6 @@ const PAGINATE_COST: u32 = 20;
 const ROWS_PER_UNIT: u32 = 100;
 const FREE_COMMANDS: [&str; 6] = ["help", "version", "config", "alias", "completion", "extension"];
 const SCRUBBED: [&str; 4] = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
-const REFUSED: u8 = 75;
 const ALARM_PERCENTS: [u32; 2] = [50, 80];
 const PROXY: &str = "proxy";
 
@@ -69,7 +69,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Err(Refusal::Budget(message)) => {
             eprintln!("north gh-session: {message}");
             send(budget_notices(&session, &ledger, before, cost(rest), budget));
-            REFUSED
+            NO_VERDICT
         }
         Err(Refusal::Token(message)) => {
             eprintln!("north gh-session: no Socrates Agent App token ({message}); not falling back to a personal login");
