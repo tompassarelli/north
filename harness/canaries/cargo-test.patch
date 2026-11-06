@@ -1,13 +1,13 @@
-diff --git a/crates/north-base/src/shell/lexer.rs b/crates/north-base/src/shell/lexer.rs
-index 193d1124..2aa26c21 100644
---- a/crates/north-base/src/shell/lexer.rs
-+++ b/crates/north-base/src/shell/lexer.rs
-@@ -171,7 +171,7 @@ pub fn words(cmd: &str) -> Option<Vec<String>> {
-         search = close;
-     }
-     text.push_str(&cmd[i..]);
--    lex(&strip_comments(&text))
-+    lex(&text)
- }
- 
- pub fn lex(text: &str) -> Option<Vec<String>> {
+diff --git a/crates/north-base/src/foundation/redact.rs b/crates/north-base/src/foundation/redact.rs
+index 20c0f6d88..66e09616c 100644
+--- a/crates/north-base/src/foundation/redact.rs
++++ b/crates/north-base/src/foundation/redact.rs
+@@ -8,7 +8,7 @@ fn prefixed() -> &'static Regex {
+     static RE: OnceLock<Regex> = OnceLock::new();
+     RE.get_or_init(|| {
+         Regex::new(
+-            r"(?-u:\b)(?:[sS][kK]-[A-Za-z0-9_-]{16,}|[gG][hH][pousrPOUSR]_[A-Za-z0-9]{20,}|[xX][oO][xX][abpABP]-[A-Za-z0-9-]{10,}|[aA][kK][iI][aA][A-Za-z0-9]{16})(?-u:\b)",
++            r"(?-u:\b)(?:[sS][kK]-[A-Za-z0-9_-]{64,}|[gG][hH][pousrPOUSR]_[A-Za-z0-9]{20,}|[xX][oO][xX][abpABP]-[A-Za-z0-9-]{10,}|[aA][kK][iI][aA][A-Za-z0-9]{16})(?-u:\b)",
+         )
+         .expect("secret prefixes")
+     })
