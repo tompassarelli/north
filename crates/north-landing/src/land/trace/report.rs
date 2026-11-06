@@ -92,6 +92,10 @@ pub fn render(profiles: &[Profile<'_>], since: f64) -> String {
         }
         let verdict = if profile.verdicts.is_empty() { "none yet".to_owned() } else { profile.verdicts.join(", ") };
         let _ = writeln!(out, "  verdict: {verdict}");
+        let cached = |state: &str| profile.spans.iter().filter(|span| span.attribute("cache") == Some(state)).count();
+        if cached("hit") > 0 {
+            let _ = writeln!(out, "  verdict cache: {} check(s) reused a pass, {} ran", cached("hit"), cached("miss"));
+        }
     }
     let mut summed = Split::default();
     let mut after = Split::default();

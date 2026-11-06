@@ -24,6 +24,7 @@ use fail_fast::Plan;
 mod fail_fast;
 mod queue_clippy;
 mod timeout_row;
+mod verdict;
 pub use queue_clippy::refuse_clippy;
 use crate::land::after::follow::program;
 use crate::land::checks::{BROKEN_BASE, ROUND};
@@ -451,38 +452,6 @@ impl Shared {
 
     async fn north(&self, arguments: &[&str]) -> Option<std::process::Output> {
         Command::new(program()).args(arguments).current_dir(&self.root).stdin(Stdio::null()).output().await.ok()
-    }
-
-    async fn cache_reused(&self, command: &str) -> bool {
-        if self.arguments.pinned() {
-            return false;
-        }
-        let head = &self.arguments.head;
-        let root = self.root.to_string_lossy().into_owned();
-        let class = self.cache_class(command);
-        let Some(output) = self.north(&["land-cache", "hit", "--repo", &root, "--head", head, "--command", command, "--host-class", &class]).await else { return false };
-        let line = String::from_utf8_lossy(&output.stdout).trim_end().to_owned();
-        if output.status.success() && !line.is_empty() {
-            say(&format!("safe-push: {line}"));
-            return true;
-        }
-        false
-    }
-
-    async fn cache_record(&self, status: i32, commands: &[String]) {
-        self.cache_record_as(status, commands, None).await;
-    }
-
-    async fn cache_record_as(&self, status: i32, commands: &[String], class: Option<&str>) {
-        if self.arguments.pinned() {
-            return;
-        }
-        let root = self.root.to_string_lossy().into_owned();
-        let status = status.to_string();
-        for command in commands {
-            let class = class.map_or_else(|| self.cache_class(command), str::to_owned);
-            let _ = self.north(&["land-cache", "record", "--repo", &root, "--head", &self.arguments.head, "--command", command, "--host-class", &class, "--status", &status]).await;
-        }
     }
 
     async fn spawn_check(&self, command: &str, leased: bool, tree: &str, timeout: u64) -> Result<Ran, i32> {
@@ -1012,11 +981,6 @@ impl Shared {
         let mut here = Vec::new();
         let mut on_actions = Vec::new();
         for command in commands {
-            let looked = epoch();
-            if self.cache_reused(&command).await {
-                trace::record(&[self.span(&command, Category::of_command(&command), looked).with("cache", "hit")]);
-                continue;
-            }
             if placement.on_actions(self.portable(&command)) {
                 on_actions.push(command);
             } else {
@@ -1255,6 +1219,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     if shared.arguments.leased {
         return shared.run_list(&commands).await.status();
     }
+    let commands = shared.reuse(commands).await;
     let Some(plan) = clippy_first::plan(&commands, |command| !shared.config.is_inferred(command)).filter(|_| !shared.arguments.after) else {
         return shared.execute_sharing_build(commands).await;
     };
@@ -1337,11 +1302,6 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let paths = path_class(&root, &arguments.base, &arguments.head);
     let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None });
-    let mut pending = Vec::new();
-    for command in commands {
-        if !shared.cache_reused(&command).await {
-            pending.push(command);
-        }
-    }
+    let pending = shared.cached(&commands).await;
     if pending.is_empty() { 0 } else { shared.run_list(&pending).await.status() }
 }

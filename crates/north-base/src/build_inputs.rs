@@ -25,6 +25,10 @@ pub const RUN_TIME_DATA: [&str; 18] = [
     "docs/feedback-loop.md",
 ];
 
+pub fn rust_build_input_paths() -> impl Iterator<Item = &'static str> {
+    ROOT_FILES.into_iter().chain(ROOT_DIRS).chain(EMBEDDED.iter().copied()).chain([".gitattributes"])
+}
+
 pub fn rust_build_input(path: &str) -> bool {
     ROOT_FILES.contains(&path) || ROOT_DIRS.iter().any(|dir| path.starts_with(dir)) || EMBEDDED.contains(&path) || path == ".gitattributes" || path.ends_with("/.gitattributes")
 }

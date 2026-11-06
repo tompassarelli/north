@@ -4,10 +4,11 @@ use ship::CommitId;
 use std::path::Path;
 
 mod destinations;
+pub mod verdict;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out) | cost | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out) | cost | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail)";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -18,6 +19,7 @@ pub fn run(arguments: &[String]) -> u8 {
             None => usage(),
         },
         ["cost"] => cost(),
+        ["verdict", rest @ ..] => verdict::run(rest),
         ["free", "--host", host] => free(host),
         ["reap", "--owner", owner] if !owner.is_empty() => reap(owner),
         ["run", "--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => {

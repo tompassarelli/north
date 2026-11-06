@@ -1,5 +1,4 @@
 use super::judge::{self, Quarantine, Verdict};
-use super::land_cache::checkout_head;
 use super::results::{Case, Env, Key, Results, Store};
 use north_base::foundation::clock::Timestamp;
 use std::collections::BTreeMap;
@@ -21,6 +20,10 @@ fn git(arguments: &[&str]) -> Option<String> {
     let output = Command::new("git").args(arguments).stderr(std::process::Stdio::null()).output().ok()?;
     let text = String::from_utf8(output.stdout).ok()?.trim().to_owned();
     (output.status.success() && !text.is_empty()).then_some(text)
+}
+
+fn checkout_head(root: &Path) -> String {
+    git(&["-C", &root.to_string_lossy(), "rev-parse", "--verify", "--quiet", "HEAD"]).unwrap_or_else(|| "absent".to_owned())
 }
 
 fn tree(revision: &str) -> Option<String> {

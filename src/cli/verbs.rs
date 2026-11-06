@@ -88,7 +88,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("land", Landing),
     ("land-abandon", Bookkeeping),
     ("land-actions", Landing),
-    ("land-cache", Diagnosis),
     ("land-clean", Bookkeeping),
     ("land-fails-first", Diagnosis),
     ("land-red-check", Status),

@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 const NORTH_STUB: &str = r#"printf 'north %s\n' "$*" >>"$STUB_TRACE"
 case "$1" in
-  land-cache) exit 1 ;;
   capacity)
     case "$2 $3" in
       "offload choose") printf 'buildbox\n'; exit 0 ;;
+      "offload verdict") exit 0 ;;
       "offload run") [ -z "${STUB_OFFLOAD_EXEC:-}" ] || exec bash -euo pipefail -c "${!#}"; exit 0 ;;
     esac
     ;;

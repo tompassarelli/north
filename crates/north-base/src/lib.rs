@@ -7,3 +7,4 @@ pub mod platform;
 pub mod run_time_data;
 pub mod shell;
 pub mod test_inputs;
+pub mod verdict_cache;

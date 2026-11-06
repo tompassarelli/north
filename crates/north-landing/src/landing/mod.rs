@@ -4,7 +4,6 @@ pub mod denylist;
 pub mod denylist_attest;
 pub(crate) mod instruction_limits;
 pub mod land_actions;
-pub mod land_cache;
 pub mod red_check;
 pub mod release;
 pub mod base_relative;

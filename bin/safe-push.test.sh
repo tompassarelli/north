@@ -46,9 +46,9 @@ shim_main() {
     north:land-train)
       printf '%s\n' "${*:2}" >>"${SAFE_PUSH_TEST_LAND_TRAIN_TRACE:-/dev/null}"
       ;;
-    north:land-cache) return 1 ;;
     north:capacity)
       [ "${2:-}" = offload ] || exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
+      [ "${3:-}" != verdict ] || return 0
       if [ "${3:-}" = choose ]; then
         [ -n "${SAFE_PUSH_TEST_BUILD_HOST:-}" ] || { echo 'north capacity offload: no other host has room' >&2; return 1; }
         printf '%s\n' "$SAFE_PUSH_TEST_BUILD_HOST"

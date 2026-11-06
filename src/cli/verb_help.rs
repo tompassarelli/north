@@ -4,7 +4,7 @@
 use super::CLI_HELP;
 use crate::capacity::WATCHDOG_USAGE;
 use crate::land::serve;
-use crate::landing::{land_cache, safe_push_plan};
+use crate::landing::safe_push_plan;
 use crate::lanes::GC_USAGE;
 
 const ASKS: [&str; 2] = ["--help", "-h"];
@@ -18,12 +18,11 @@ const WRAPPERS: [&[&str]; 8] = [
     &["ssh-session"],
     &["threads"],
 ];
-const CONTRACTS: [(&[&str], &str); 7] = [
+const CONTRACTS: [(&[&str], &str); 6] = [
     (&["capacity", "watchdog"], WATCHDOG_USAGE),
     (&["cloud"], super::cloud::USAGE),
     (&["fleet"], super::fleet::usage::USAGE),
     (&["land", "serve"], serve::USAGE),
-    (&["land-cache"], land_cache::USAGE),
     (&["lane-gc"], GC_USAGE),
     (&["safe-push"], safe_push_plan::USAGE),
 ];

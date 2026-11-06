@@ -116,7 +116,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror"]
+may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "verdict_cache"]
 
 [[module]]
 name = "strategy_types"
@@ -140,6 +140,12 @@ may_use = ["strategy_types", "foundation"]
 name = "shell"
 paths = ["crates/north-base/src/shell/**", "crates/north-base/src/shellcmd.rs", "crates/north-base/src/nix_command.rs"]
 responsibility = "One shell lexer and segmenter, and one Nix command reader, for every guard and gate."
+may_use = ["foundation"]
+
+[[module]]
+name = "verdict_cache"
+paths = ["crates/north-base/src/verdict_cache.rs", "crates/north-base/src/verdict_cache/**"]
+responsibility = "The key of a land check's inputs and the store of passing verdicts on each check host."
 may_use = ["foundation"]
 
 [[module]]
@@ -182,7 +188,7 @@ may_use = ["platform", "foundation"]
 name = "landing"
 paths = ["crates/north-landing/src/landing/**", "crates/north-landing/src/dep_gate.rs", "crates/north-landing/src/language_gate.rs", "crates/north-landing/src/build_cache_gate.rs", "crates/north-landing/src/stub_exec_gate.rs", "crates/north-landing/src/runtime_floor_gate.rs", "crates/north-landing/src/runtime_floor_gate_tests.rs", "crates/north-landing/src/language_gate/**", "crates/north-landing/src/provenance.rs", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/issue_box_lint.rs", "crates/north-landing/src/land_abandon.rs", "crates/north-landing/src/land_abandon/**", "crates/north-landing/src/follows_release.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
-may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots", "github_mirror"]
+may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots", "github_mirror", "verdict_cache"]
 
 [[module]]
 name = "landing.safe_push.shell"
@@ -296,7 +302,7 @@ may_use = ["crate-roots", "platform"]
 name = "ops"
 paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-core/src/health.rs", "crates/north-core/src/health/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots", "providers", "github_mirror"]
+may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache"]
 
 [[module]]
 name = "usage"
