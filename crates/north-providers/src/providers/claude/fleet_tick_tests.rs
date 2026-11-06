@@ -376,6 +376,42 @@ fn north_576_with_a_and_d_reading_headroom_after_their_parks_the_lead_on_c_goes_
     assert!(matches!(view(&world, &Label("a".into()), Window::FiveHour), View::Stale { .. }), "a's 5-hour reading whose reset passed is unknown, not out");
 }
 
+#[test]
+fn a_working_session_whose_five_hour_window_is_spent_is_parked_by_the_tick_and_resumed_at_the_reset_and_not_before() {
+    use crate::fleet::limit::{UsageWait, resume_message};
+    use crate::fleet::waits::{Probe, Registered, Run};
+    use crate::usage::decide::world::Window;
+    struct Clock(u64);
+    impl Probe for Clock {
+        fn result(&self, wait: &Registered) -> Option<String> {
+            UsageWait::of(wait)?.lifted(&[], self.0)
+        }
+    }
+    let host = host("nexus");
+    with_accounts(&host, &["c"]);
+    working_on(&host, "worker", "c", Some("lead"), &lane(&host, "worker"));
+    let resets_in_s = 2 * 3_600;
+    let table = Table(crate::fleet::handover::Observed { readings: vec![read(0, "c", Window::Week, 40.0, 3 * 86_400), read(1, "c", Window::FiveHour, 100.0, resets_in_s)], limits: Vec::new() });
+    let launches = Launches::default();
+
+    let done = hand_over_with(&host, &table, &launches);
+
+    assert!(launches.borrow().is_empty(), "{:?}", done.lines);
+    let waits = host.fleet.waits();
+    let reset_ms = (NOW_MS / 1000 + resets_in_s as u64) * 1000;
+    let parked: Vec<Run> = waits.of("worker").into_iter().map(|wait| wait.run).collect();
+    assert_eq!(parked, [Run::Usage { account: "c".into(), at_ms: reset_ms }], "{:?}", done.lines);
+    let told = std::cell::RefCell::new(Vec::new());
+    let tell = |name: &str, text: &str| -> NorthResult<()> {
+        told.borrow_mut().push((name.to_owned(), text.to_owned()));
+        Ok(())
+    };
+    let early = waits.settle(&Clock(reset_ms - 60_000), &|_| true, &tell);
+    let due = waits.settle(&Clock(reset_ms), &|_| true, &tell);
+    assert!(early.is_empty() && due.len() == 1, "{early:?} {due:?}");
+    assert_eq!(told.into_inner(), [("worker".to_owned(), resume_message("c"))]);
+    assert!(waits.of("worker").is_empty(), "the wait is released once the session is told");
+}
 
 const HANG: Duration = Duration::from_secs(30);
 

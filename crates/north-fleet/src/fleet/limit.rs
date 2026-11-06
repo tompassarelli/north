@@ -9,7 +9,8 @@ use regex::Regex;
 use super::model::{Ending, EntryKind, SessionRecord, Status, UsageLimit};
 use super::registry::Fleet;
 use super::transcript::stream_path;
-use super::waits::{Registered, Run};
+use super::waits::{Registered, Run, Waits};
+use crate::error::NorthResult;
 use crate::usage::decide::world::{Label, Reading, Unix, Window};
 
 const RECENT: Duration = Duration::from_secs(48 * 3600);
@@ -45,7 +46,7 @@ pub fn lifts_at_ms(limit: &UsageLimit, now_ms: u64, account: impl FnOnce() -> Op
     let stream = limit.resets_at_s.map(|seconds| seconds.saturating_mul(1000));
     let future = |at: Option<u64>| at.filter(|at| *at > now_ms);
     let lifts = future(stream).or_else(|| future(limit.message.as_deref().and_then(|text| clock_after(text, now_ms)))).or_else(|| future(account()));
-    lifts.unwrap_or(now_ms + UNREADABLE_RETRY_MS).div_ceil(1000) * 1000
+    lifts.unwrap_or_else(|| unknown_reset_ms(now_ms)).div_ceil(1000) * 1000
 }
 
 fn clock_after(text: &str, now_ms: u64) -> Option<u64> {
@@ -74,13 +75,23 @@ pub fn park_limited(fleet: &Fleet, resets: &dyn AccountResets, now_ms: u64) -> V
         let ended = transcript.status != Status::Working && transcript.entries.last().is_some_and(|entry| entry.kind == EntryKind::TurnEnd);
         let Some(limit) = transcript.limit.as_ref().filter(|_| ended) else { continue };
         let until_ms = lifts_at_ms(limit, now_ms, || resets.reset_ms(&record.account, now_ms));
-        let run = Run::Usage { account: record.account.clone(), at_ms: until_ms };
-        match waits.register(&record.name, run, &record.cwd, Some(LABEL)) {
-            Ok(()) => parked.push(Parked { session: record.name.clone(), account: record.account.clone(), until_ms }),
+        match park(&waits, &record, until_ms) {
+            Ok(done) => parked.push(done),
             Err(error) => eprintln!("north fleet: {} hit its usage limit but its wait was not registered: {}", record.name, error.user_message()),
         }
     }
     parked
+}
+
+/// Registers the `usage:ACCOUNT@TIME` wait that revives the session once its account's window lifts.
+pub fn park(waits: &Waits, record: &SessionRecord, until_ms: u64) -> NorthResult<Parked> {
+    waits.register(&record.name, Run::Usage { account: record.account.clone(), at_ms: until_ms }, &record.cwd, Some(LABEL))?;
+    Ok(Parked { session: record.name.clone(), account: record.account.clone(), until_ms })
+}
+
+/// When a park whose reset is unknown retries.
+pub fn unknown_reset_ms(now_ms: u64) -> u64 {
+    now_ms + UNREADABLE_RETRY_MS
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,44 +131,4 @@ pub fn resume_message(account: &str) -> String {
          If it is not, rebase it onto origin/main, re-run the targeted checks and re-enqueue it with `safe-push --to main`. \
          If it is, report `Done:` with the landed sha."
     )
-}
-
-
-#[cfg(test)]
-mod tests {
-    use std::cell::RefCell;
-    use std::path::Path;
-
-    use super::*;
-    use crate::fleet::waits::{Probe, Waits};
-
-    struct Clock(u64);
-
-    impl Probe for Clock {
-        fn result(&self, wait: &Registered) -> Option<String> {
-            UsageWait::of(wait)?.lifted(&[], self.0)
-        }
-    }
-
-    #[test]
-    fn a_session_parked_on_its_accounts_usage_limit_is_resumed_by_the_tick_at_the_reset_and_not_before() {
-        let home = tempfile::tempdir().unwrap();
-        let waits = Waits::in_root(home.path());
-        let reset_ms = 1_793_934_000_000;
-        waits.register("worker", Run::Usage { account: "c".into(), at_ms: reset_ms }, Path::new("/tmp"), Some(LABEL)).unwrap();
-        let told = RefCell::new(Vec::new());
-        let tell = |name: &str, text: &str| -> crate::error::NorthResult<()> {
-            told.borrow_mut().push((name.to_owned(), text.to_owned()));
-            Ok(())
-        };
-
-        let early = waits.settle(&Clock(reset_ms - 60_000), &|_| true, &tell);
-        let held = waits.of("worker").len();
-        let due = waits.settle(&Clock(reset_ms), &|_| true, &tell);
-
-        assert!(early.is_empty() && held == 1, "{early:?}");
-        assert_eq!(due.len(), 1);
-        assert_eq!(told.into_inner(), [("worker".to_owned(), resume_message("c"))]);
-        assert!(waits.of("worker").is_empty(), "the wait is released once the session is told");
-    }
 }

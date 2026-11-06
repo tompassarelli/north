@@ -3,7 +3,7 @@
 //! the old one's lane, and a lead goes first.
 use std::collections::BTreeSet;
 
-use super::limit::{UsageWait, recent};
+use super::limit::{UsageWait, park, recent, unknown_reset_ms};
 use super::model::{Ending, LaunchRequest, Role, SessionRecord};
 use super::registry::Fleet;
 use super::waits::Run;
@@ -83,8 +83,18 @@ pub fn hand_over(
         }
     }
     for (name, action) in assessed.actions {
-        let Action::HandOver { to } = action else { continue };
         let Some(record) = records.iter().find(|record| record.name == name.0) else { continue };
+        let to = match action {
+            Action::HandOver { to } => to,
+            Action::Park { resumes_at } => {
+                let until_ms = resumes_at.and_then(|at| u64::try_from(at.0).ok()).map(|at| at * 1000).filter(|at| *at > now_ms).unwrap_or_else(|| unknown_reset_ms(now_ms));
+                match park(&waits, record, until_ms) {
+                    Ok(parked) => done.lines.push(format!("{} (account {} is paused)", parked.line(), record.account)),
+                    Err(error) => done.lines.push(format!("{}: account {} is paused but its wait was not registered: {}", record.name, record.account, error.user_message())),
+                }
+                continue;
+            }
+        };
         let proxy = record.role() == Role::Proxy;
         if !proxy && !holds_work(record) {
             continue;
