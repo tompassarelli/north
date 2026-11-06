@@ -181,6 +181,11 @@ if [ -n "${runtime:-}" ]; then
 fi
 @SLOT_ENV@=$slot; export @SLOT_ENV@
 if [ -n "${carried:-}" ]; then eval "export $carried"; fi
+if [ -n "${cap:-}" ]; then
+  share=$((${cores:-1} / cap)); [ "$share" -ge 1 ] || share=1
+  CARGO_BUILD_JOBS=$share RUST_TEST_THREADS=$share NEXTEST_TEST_THREADS=$share; export CARGO_BUILD_JOBS RUST_TEST_THREADS NEXTEST_TEST_THREADS
+  case ${SAFE_PUSH_LAND_CPUS:-} in "" | *[!0-9]*) ;; *) [ "$SAFE_PUSH_LAND_CPUS" -le "$share" ] || SAFE_PUSH_LAND_CPUS=$share ;; esac
+fi
 wall=--wall
 north capacity deadline --wall - 5 -- true 2>/dev/null || wall=
 limited() {

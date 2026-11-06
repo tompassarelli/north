@@ -319,12 +319,13 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    crate::foundation::shim::write_script(&bin.path().join("nproc"), "echo 4\n");
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
     let script = super::remote_script("code-p-main");
     let job = |command: String| {
         Command::new("setsid")
-            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0"])
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LAND_CPUS='6'", "", "", "0"])
             .env("HOME", home.path())
             .env("PATH", &path)
             .env("NORTH_OFFLOAD_MAX_JOBS", "1")
@@ -338,14 +339,14 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     };
     let holder = job("sleep 2".to_owned());
     std::thread::sleep(std::time::Duration::from_millis(500));
-    let queued = job(format!("printf '%s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, seen.display()));
+    let queued = job(format!("printf '%s %s %s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" \"$CARGO_BUILD_JOBS $RUST_TEST_THREADS $NEXTEST_TEST_THREADS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, seen.display()));
     let queued = queued.wait_with_output().unwrap();
     assert!(holder.wait_with_output().unwrap().status.success());
     assert!(queued.status.success(), "{}", String::from_utf8_lossy(&queued.stderr));
     let stderr = String::from_utf8_lossy(&queued.stderr);
     assert!(stderr.lines().any(|line| line.starts_with(super::WAITED) && line.ends_with("s in line for code-p-main")), "{stderr}");
     let slot = home.path().join(".cache/land-offload/code-p-main");
-    assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0} {1}", slot.display(), super::slot_ports("code-p-main")[0].1));
+    assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0} {1} 4 4 4 4", slot.display(), super::slot_ports("code-p-main")[0].1), "a slot job builds and tests on the host's cores divided by its job cap");
 }
 
 fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, String) {
