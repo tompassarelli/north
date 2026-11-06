@@ -439,7 +439,7 @@ functions where they live through three seams (`capacity::replay::reason`, `land
   matched the log case for case.
 
 `--invariants` adds the invariant lines and their refusals to the counts and the shift check, which
-always run. `--budget` also refuses a replay slower than `replay_budget_seconds`. Exit is 0 when nothing
+always run. `--budget` also refuses a replay slower than `replay_budget_seconds`, a decision kind whose slowest replayed call passes `replay_call_milliseconds` (10 ms), and a replay process that grows past `replay_peak_mebibytes` (64 MiB) above where it started. Exit is 0 when nothing
 is refused, 1 when something is, 2 for bad use or a log that is off.
 
 Before a push, `north land scan strategy-replay BASE..HEAD` (called by safe-push after the policy
@@ -450,6 +450,15 @@ the host's own north and refuses only for a count, invariant or budget the lane'
 main's does not, so a breach already in recorded history (on 2026-11-06 landing-p90 at 65.9 s over 60 s)
 does not refuse every lane that touches a decision file (north#684). The budget is judged like with like (2026-11-06): the report ends with the build profile, and the replay time names a lane only when it is over `replay_budget_seconds` and more than 1.5 times main's replay of the same profile on the same host, so a lane built in debug is not held to a release run of main and an unchanged lane under host load passes. A count the lane moves on purpose passes when a commit in its range declares it with `Replay-shift: KEY: REASON`, KEY being the refusal's key such as `placement cloud`, and the scan prints each declared shift with its reason (north#690). A host whose north runtime predates the scan skips it with a
 printed line until `north runtime update`.
+
+The same scan first runs the purity gate (`strategy-purity`) over `crates/north-strategy-types` and `crates/north-strategy`
+at the lane's head whenever the range touches either (2026-11-06). It refuses a `lib.rs` without `#![no_std]` or
+`#![forbid(unsafe_code)]`, any `std::` path, `extern crate std`, `include!`, `include_str!`, `include_bytes!`, `env!`,
+`option_env!`, `static mut`, `thread_local!`, an `Atomic*` type, `core::cell`, `unsafe`, a `build.rs` or `build` key, target-specific
+dependencies, and any dependency in any table outside the crate's allowlist (`serde` for the types crate; `north-strategy-types`
+and `libm` for `north-strategy`). The source text is checked rather than a build for `x86_64-unknown-none`, so the gate needs no
+extra target installed; the 24-hour lane replay, not a 7-day one, carries the time and memory bound.
+The replay report's `measured:` line gives each kind's slowest call and the replay's memory growth, and like the time budget, the scan names a lane for a call or growth bound only when its figure is more than 1.5 times main's of the same build profile on the same host (2026-11-06: a debug lane replaying a day of the laptop's log showed 16.7 ms calls and 238 MiB of growth, mostly the log itself, which main's release build does not match).
 
 ## Loading
 

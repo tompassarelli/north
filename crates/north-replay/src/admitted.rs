@@ -41,7 +41,7 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders) -> (Counts
             if logged.at < since {
                 continue;
             }
-            let replayed = held.get(&logged.case.snapshot).and_then(|snapshot| (deciders.admission)(snapshot.get(), &logged.case.request));
+            let replayed = held.get(&logged.case.snapshot).and_then(|snapshot| counts.timed(|| (deciders.admission)(snapshot.get(), &logged.case.request)));
             counts.record(&label(logged.decision.reason), replayed.map(|(reason, _)| label(reason)).as_deref());
             let Some((reason, claimed)) = replayed else { continue };
             counts.compare(logged.at, logged.case.request.ticket.as_deref().unwrap_or("-"), &label(logged.decision.reason), &label(reason));

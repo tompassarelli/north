@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 
 use super::{Range, git};
 
-const DECIDES: [&str; 15] = [
+const DECIDES: [&str; 16] = [
     "crates/north-dispatch/src/pacing/placement/",
     "crates/north-pace/src/pace/",
     "crates/north-capacity/src/capacity/",
@@ -19,6 +19,7 @@ const DECIDES: [&str; 15] = [
     "crates/north-landing/src/land/sheriff.rs",
     "crates/north-landing/src/land/steps.rs",
     "crates/north-landing/src/land/judge_case.rs",
+    "crates/north-strategy/",
     "crates/north-strategy-types/",
     "crates/north-replay/",
     "crates/north-base/src/platform/decision_log.rs",
@@ -48,6 +49,9 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl std::io::Write) -> u8 
     if touched.is_empty() {
         return 0;
     }
+    if super::strategy_purity::scan(directory, range.head, out) != 0 {
+        return 1;
+    }
     let _ = writeln!(out, "strategy-replay: the lane touches {}; replaying the last 24 hours of logged decisions with its build", touched.join(", "));
     let lane = match Command::new(directory.join(HEAD_NORTH)).current_dir(directory).args(["--code", "crates/"]).args(REPLAY).stderr(Stdio::inherit()).output() {
         Ok(output) => output,
@@ -74,6 +78,13 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl std::io::Write) -> u8 
     if lane_refused.contains(BUDGET_KEY) && !slower_than_main(&report, &main_report) {
         lane_refused.remove(BUDGET_KEY);
         let _ = writeln!(out, "strategy-replay: the lane's replay is over its time budget but not slower than main's replay of the same build profile on this host; the budget is not held against the lane");
+    }
+    for key in lane_refused.clone() {
+        let Some(name) = measure_name(&key) else { continue };
+        if !figure_slower(&report, &main_report, name) {
+            lane_refused.remove(&key);
+            let _ = writeln!(out, "strategy-replay: the lane's {name} is over its bound but not past 1.5 times main's of the same build profile on this host; it is not held against the lane");
+        }
     }
     let bodies = git::text(directory, &["log", "--format=%B", &format!("{}..{}", range.base, range.head)]).unwrap_or_default();
     let declared = declared(&bodies);
@@ -109,6 +120,25 @@ fn timing(report: &str) -> Option<(f64, &str)> {
 fn slower_than_main(lane: &str, main: &str) -> bool {
     match (timing(lane), timing(main)) {
         (Some((lane_seconds, lane_profile)), Some((main_seconds, main_profile))) => lane_profile == main_profile && lane_seconds > main_seconds * SLOWER_THAN_MAIN,
+        _ => false,
+    }
+}
+
+/// The figure a refusal's key is judged on in the replay's `measured:` line: a kind's slowest call, or the replay's memory growth.
+fn measure_name(key: &str) -> Option<&str> {
+    key.strip_suffix(" call took").or_else(|| (key == "the replay grew").then_some("growth"))
+}
+
+/// The figure the replay's `measured:` line gives for `name`, whose entries read `NAME FIGURE UNIT`.
+fn figure(report: &str, name: &str) -> Option<f64> {
+    let line = report.lines().find_map(|line| line.strip_prefix("measured: "))?;
+    line.split(", ").find_map(|entry| entry.strip_prefix(name)?.split_whitespace().next()?.parse().ok())
+}
+
+/// Whether the lane's figure is past 1.5 times main's of the same build profile; one built differently cannot be compared, so the lane is not named.
+fn figure_slower(lane: &str, main: &str, name: &str) -> bool {
+    match (timing(lane), timing(main), figure(lane, name), figure(main, name)) {
+        (Some((_, lane_profile)), Some((_, main_profile)), Some(lane_figure), Some(main_figure)) => lane_profile == main_profile && lane_figure > main_figure * SLOWER_THAN_MAIN,
         _ => false,
     }
 }

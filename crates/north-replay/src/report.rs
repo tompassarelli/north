@@ -20,6 +20,7 @@ pub struct Counts {
     pub same: usize,
     pub changes: BTreeMap<String, usize>,
     pub first: Vec<(f64, String)>,
+    pub slowest_call: f64,
 }
 
 const FIRST_CHANGES: usize = 3;
@@ -27,6 +28,14 @@ const FIRST_CHANGES: usize = 3;
 impl Counts {
     pub fn new(kind: &'static str) -> Self {
         Self { kind, ..Self::default() }
+    }
+
+    /// Runs one replayed decision and keeps the longest any took, in seconds.
+    pub fn timed<T>(&mut self, call: impl FnOnce() -> T) -> T {
+        let started = std::time::Instant::now();
+        let decided = call();
+        self.slowest_call = self.slowest_call.max(started.elapsed().as_secs_f64());
+        decided
     }
 
     /// Compares one replayed decision with the logged one in full, keeping the earliest changes by time.
@@ -79,6 +88,7 @@ impl Counts {
             *self.replayed.entry(label).or_default() += count;
         }
         self.same += other.same;
+        self.slowest_call = self.slowest_call.max(other.slowest_call);
         for (change, count) in other.changes {
             *self.changes.entry(change).or_default() += count;
         }

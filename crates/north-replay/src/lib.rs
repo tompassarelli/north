@@ -48,6 +48,11 @@ pub struct Replayed {
 
 impl Replayed {
     /// Every reason the change is refused: an outcome count that shifted past its bound, and each breached invariant.
+    /// The decision kinds whose slowest replayed call passed the bound, which a strategy that does not finish quickly would.
+    pub fn slow_calls(&self, bounds: &Bounds) -> Vec<String> {
+        self.counts.iter().filter(|counts| counts.slowest_call > bounds.call_seconds).map(|counts| format!("{} call took {:.1} ms, over the {} ms of replay_call_milliseconds", counts.kind, counts.slowest_call * 1000.0, bounds.call_seconds * 1000.0)).collect()
+    }
+
     pub fn refusals(&self, bounds: &Bounds, invariants: bool) -> Vec<String> {
         let shifts = self.counts.iter().flat_map(|counts| counts.shifts(bounds));
         let breaches = self.invariants.iter().filter(|_| invariants).flat_map(|invariant| invariant.breaches.iter().map(|breach| format!("{}: {breach}", invariant.name)));
@@ -101,13 +106,21 @@ pub fn run_with(deciders: &Deciders, bounds: &Bounds, arguments: &[String]) -> u
 
 /// Replays `options.since` seconds of the log under `root` up to `now`, prints the report and the refusals, and returns the exit code.
 pub fn execute(root: &Path, now: f64, deciders: &Deciders, bounds: &Bounds, options: &Options) -> u8 {
+    let resident = memory_mebibytes("VmRSS");
     let started = Instant::now();
     let replayed = replay(root, now - options.since, now, deciders, bounds);
     let seconds = started.elapsed().as_secs_f64();
-    print_report(&replayed, options.invariants, now - options.since, now, seconds);
+    let grown = (memory_mebibytes("VmHWM") - resident).max(0.0);
+    print_report(&replayed, options.invariants, (now - options.since, now), seconds, grown);
     let mut refusals = replayed.refusals(bounds, options.invariants);
     if options.budget && seconds > bounds.budget_seconds {
         refusals.push(format!("the replay took {seconds:.1} s, over the {} s of replay_budget_seconds", bounds.budget_seconds));
+    }
+    if options.budget {
+        refusals.extend(replayed.slow_calls(bounds));
+        if grown > bounds.peak_mebibytes {
+            refusals.push(format!("the replay grew {grown:.0} MiB, over the {} MiB of replay_peak_mebibytes", bounds.peak_mebibytes));
+        }
     }
     for refusal in &refusals {
         println!("refused: {refusal}");
@@ -115,13 +128,18 @@ pub fn execute(root: &Path, now: f64, deciders: &Deciders, bounds: &Bounds, opti
     u8::from(!refusals.is_empty())
 }
 
+/// A figure of this process's `/proc/self/status` in mebibytes, such as its current `VmRSS` or its peak `VmHWM`; zero where the file has none.
+fn memory_mebibytes(field: &str) -> f64 {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    status.lines().find_map(|line| line.strip_prefix(field)?.strip_prefix(':')?.trim().strip_suffix("kB")?.trim().parse::<f64>().ok()).map_or(0.0, |kibibytes| kibibytes / 1024.0)
+}
 
 fn usage() -> u8 {
     eprintln!("{USAGE}");
     2
 }
 
-fn print_report(replayed: &Replayed, invariants: bool, since: f64, now: f64, seconds: f64) {
+fn print_report(replayed: &Replayed, invariants: bool, (since, now): (f64, f64), seconds: f64, grown: f64) {
     println!("north strategy replay: {} to {}", stamp(since), stamp(now));
     for counts in &replayed.counts {
         println!("{}", counts.line());
@@ -131,6 +149,8 @@ fn print_report(replayed: &Replayed, invariants: bool, since: f64, now: f64, sec
             println!("{}", invariant.line());
         }
     }
+    let slowest: Vec<String> = replayed.counts.iter().map(|counts| format!("{} {:.1} ms", counts.kind, counts.slowest_call * 1000.0)).collect();
+    println!("measured: {}, growth {grown:.0} MiB", slowest.join(", "));
     println!("replayed {} cases in {seconds:.2} s ({} build)", replayed.counts.iter().map(|counts| counts.cases).sum::<usize>(), if cfg!(debug_assertions) { "debug" } else { "release" });
 }
 

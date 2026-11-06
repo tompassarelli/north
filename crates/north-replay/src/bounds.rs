@@ -7,6 +7,8 @@ pub struct Bounds {
     pub shift_ratio: f64,
     pub shift_min_cases: usize,
     pub budget_seconds: f64,
+    pub call_seconds: f64,
+    pub peak_mebibytes: f64,
 }
 
 impl Bounds {
@@ -22,6 +24,8 @@ impl Bounds {
             shift_ratio: number("replay_outcome_shift_ratio"),
             shift_min_cases: number("replay_outcome_shift_min_cases") as usize,
             budget_seconds: number("replay_budget_seconds"),
+            call_seconds: number("replay_call_milliseconds") / 1000.0,
+            peak_mebibytes: number("replay_peak_mebibytes"),
         }
     }
 }

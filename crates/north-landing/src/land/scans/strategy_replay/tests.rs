@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
-use super::{beyond, declared, refused, slower_than_main};
+use super::super::strategy_purity::tests::{assert_a_dependency_outside_the_allowlist_or_a_build_script_is_refused, assert_a_strategy_that_could_reach_the_host_is_refused_and_a_sealed_one_passes};
+use super::{beyond, declared, figure_slower, refused, slower_than_main};
 
 const MAIN: &str = "landing-p90: 261 of 294 checked pass, BREACHED\nrefused: landing-p90: p90 is 65.9 s over 60 s; slowest landed north-621-p12a took 219 s\n";
 
@@ -18,6 +19,12 @@ fn a_lane_is_refused_only_for_what_its_build_breaks_beyond_main_s_own_replay() {
     assert!(!slower_than_main(&report("8.35", "debug"), &report("2.25", "release")), "i643-decision-diff was refused on 2026-11-06 at 8.35 s by comparing a debug build to main's release one");
     assert!(!slower_than_main(&report("8.35", "debug"), &report("7.90", "debug")), "an unchanged lane under the same host load is not named");
     assert!(!slower_than_main("no timing line\n", &report("2.10", "debug")));
+    let measured = |profile: &str, call: &str, growth: &str| format!("measured: admission {call} ms, placement 0.4 ms, growth {growth} MiB\nreplayed 25828 cases in 2.63 s ({profile} build)\n");
+    assert!(figure_slower(&measured("debug", "30.0", "10"), &measured("debug", "12.0", "10"), "admission"), "a planted slow strategy call is named");
+    assert!(!figure_slower(&measured("debug", "16.7", "238"), &measured("release", "1.2", "230"), "admission"), "the 2026-11-06 debug lane was refused for calls and memory against main's release build");
+    assert!(!figure_slower(&measured("debug", "16.7", "238"), &measured("debug", "15.0", "230"), "growth"), "an unchanged lane under the same load is not named");
+    assert_a_strategy_that_could_reach_the_host_is_refused_and_a_sealed_one_passes();
+    assert_a_dependency_outside_the_allowlist_or_a_build_script_is_refused();
 }
 
 fn report(seconds: &str, profile: &str) -> String {

@@ -62,7 +62,7 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &B
     let mut closed: BTreeSet<&str> = BTreeSet::new();
     let mut times: Vec<(f64, f64, &str)> = Vec::new();
     for logged in &judged {
-        let replayed = (deciders.judge)(&logged.case);
+        let replayed = counts.timed(|| (deciders.judge)(&logged.case));
         counts.record(&label(&logged.decision), Some(&label(&replayed)));
         counts.compare(logged.at, &logged.case.included.join(" "), &label(&logged.decision), &label(&replayed));
         let batch = logged.follows.as_ref().and_then(|batch| batches.get(batch));

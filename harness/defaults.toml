@@ -1461,6 +1461,22 @@ source = "tom: the pre-push replay runs in under 5 seconds (north#643, 2026-11-0
 fallback = "none: the scan always applies the budget"
 consumers = ["crates/north-replay/src/bounds.rs"]
 
+[replay_call_milliseconds]
+value = 10
+allowed = { min = 1, max = 60000 }
+unit = "milliseconds one replayed decision may take, the slowest of the replay's window, before the pre-push scan refuses a change as a strategy that does not finish quickly; a linked call cannot be given a fuel limit, so the check stands in for one"
+source = "tom: the purity gate refuses a strategy whose slowest call passes 10 ms (north#643, 2026-11-06)"
+fallback = "none: the scan always applies the bound"
+consumers = ["crates/north-replay/src/bounds.rs"]
+
+[replay_peak_mebibytes]
+value = 64
+allowed = { min = 1, max = 65536 }
+unit = "mebibytes the replay process may grow to above where it started while it replays the window, before the pre-push scan refuses a change as a strategy that takes too much memory"
+source = "tom: the purity gate refuses a strategy whose memory peaks above 64 MiB (north#643, 2026-11-06)"
+fallback = "none: the scan always applies the bound"
+consumers = ["crates/north-replay/src/bounds.rs"]
+
 [ask_once_cost]
 value = ["billing", "overage", "extra usage", "usage credits", "auto-purchase", "paid plan", "subscription", "spend money", "spends money", "costs money", "pay", "buy", "purchase"]
 allowed = { min_len = 1 }

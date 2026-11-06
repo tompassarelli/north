@@ -104,7 +104,7 @@ fn log_admission(root: &Path, count: usize, slot: bool, logged: impl Fn(usize) -
 }
 
 fn bounds() -> Bounds {
-    Bounds { github_floor_calls: 1000.0, landing_p90_seconds: 60.0, shift_ratio: 2.0, shift_min_cases: 20, budget_seconds: 5.0 }
+    Bounds { github_floor_calls: 1000.0, landing_p90_seconds: 60.0, shift_ratio: 2.0, shift_min_cases: 20, budget_seconds: 5.0, call_seconds: 0.01, peak_mebibytes: 64.0 }
 }
 
 fn deciders<'a>(
@@ -159,6 +159,7 @@ fn a_change_that_shifts_counts_or_places_a_launch_on_an_account_at_its_provider_
     assert_eq!((code, limit.checked, limit.passed), (1, 4, 3));
     assert!(limit.breaches[0].contains("at its provider's five-hour limit"), "{:?}", limit.breaches);
     assert_github_floor_refuses_a_launch_placed_under_1000_calls_and_skips_unread_cases();
+    assert_a_strategy_whose_slowest_call_passes_10_ms_is_refused_naming_its_kind_and_a_quick_one_is_not();
     assert_a_placement_change_that_moves_launches_to_another_account_prints_each_move_beside_the_unchanged_count();
 }
 
@@ -292,4 +293,20 @@ fn assert_a_placement_change_that_moves_launches_to_another_account_prints_each_
     let line = placed.line();
     assert!(line.contains("same 3, changed 2\n        2  account claude:c -> account claude:a\n  first changes:\n    2026-"), "{line}");
     assert!(line.contains("  box1  account claude:c -> account claude:a\n") && line.ends_with("  box3  account claude:c -> account claude:a"), "{line}");
+}
+
+fn assert_a_strategy_whose_slowest_call_passes_10_ms_is_refused_naming_its_kind_and_a_quick_one_is_not() {
+    let root = tempfile::tempdir().unwrap();
+    log_admission(root.path(), 3, false, |_| Reason::Run);
+    let options = Options { since: 86_400.0, invariants: false, budget: true };
+    let sleeps = |_: &str, _: &admission::Request| {
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        Some((Reason::Run, false))
+    };
+    let replayed = replay(root.path(), NOW - 86_400.0, NOW, &deciders(&sleeps, &same_judgement, &unplaced), &bounds());
+    let slow = replayed.slow_calls(&bounds());
+    assert_eq!(slow.len(), 1);
+    assert!(slow[0].starts_with("admission call took 3") && slow[0].ends_with("over the 10 ms of replay_call_milliseconds"), "{slow:?}");
+    assert_eq!(execute(root.path(), NOW, &deciders(&sleeps, &same_judgement, &unplaced), &bounds(), &options), 1);
+    assert_eq!(execute(root.path(), NOW, &deciders(&quiet_admission, &same_judgement, &unplaced), &bounds(), &options), 0);
 }

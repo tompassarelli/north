@@ -13,6 +13,7 @@ pub mod outgoing;
 pub mod policy;
 pub mod rule_owners;
 pub mod shell_hook;
+pub mod strategy_purity;
 pub mod strategy_replay;
 pub mod stale_revert;
 pub mod test_admission;
