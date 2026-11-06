@@ -1,7 +1,7 @@
 //! `north capacity offload take`: this host polls the hosts it reaches for a queued agent heavy run, takes the oldest when it has free slots beyond what interactive work keeps, and runs it under its own heavy admission. The polled host opens nothing outward: the lane streams in and the output streams back over the ssh connection this host opened.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
