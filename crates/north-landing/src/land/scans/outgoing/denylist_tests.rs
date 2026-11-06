@@ -12,10 +12,12 @@ fn git(dir: &Path, args: &[&str]) {
 fn a_push_to_south_itself_is_private_whatever_the_origin_spelling_and_without_asking_github() {
     let dir = tempfile::tempdir().unwrap();
     let south = dir.path().join("south");
-    std::fs::create_dir_all(&south).unwrap();
-    git(&south, &["init", "-q"]);
-    git(&south, &["remote", "add", "origin", "https://github.com/tompassarelli/south.git"]);
+    let main = south.join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q"]);
+    git(&main, &["remote", "add", "origin", "https://github.com/tompassarelli/south.git"]);
     let denylist = Denylist { south, config: None };
+    assert!(denylist.is_south("https://github.com/tompassarelli/south.git"));
     assert_eq!(denylist.visibility_of("git@github.com:tompassarelli/south.git"), "PRIVATE");
     assert_eq!(denylist.visibility_of("https://github.com/TomPassarelli/south"), "PRIVATE");
     assert!(!denylist.is_south("https://github.com/tompassarelli/north.git"));

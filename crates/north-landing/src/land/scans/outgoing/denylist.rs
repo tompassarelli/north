@@ -52,7 +52,7 @@ impl Denylist {
     }
 
     fn is_south(&self, origin_url: &str) -> bool {
-        let south = Command::new("git").arg("-C").arg(&self.south).args(["remote", "get-url", "origin"]).stderr(Stdio::null()).output();
+        let south = Command::new("git").arg("-C").arg(self.south.join("main")).args(["remote", "get-url", "origin"]).stderr(Stdio::null()).output();
         let south = south.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
         south.as_deref().and_then(slug_of).zip(slug_of(origin_url)).is_some_and(|(south, pushed)| south.eq_ignore_ascii_case(&pushed))
     }
