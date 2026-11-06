@@ -115,6 +115,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
         ["accounts"] => accounts(&fleet, false),
         ["accounts", "--claude-ai"] => accounts(&fleet, true),
+        ["accounts", "--api"] => api_pool_listing(),
         ["launch", rest @ ..] => launch(&fleet, rest),
         ["adopt", rest @ ..] => adopt::run(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),
@@ -170,10 +171,22 @@ fn forget(fleet: &Fleet, name: &str, force: Option<&str>) -> NorthResult<()> {
 }
 
 
+fn api_pool_listing() -> NorthResult<()> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    let policy = std::fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    for line in crate::providers::claude::api_pool::listing(&policy, &home, &home.join(".local/state/north"), &crate::platform::host::name()) {
+        println!("{line}");
+    }
+    Ok(())
+}
+
 fn accounts(fleet: &Fleet, claude_ai: bool) -> NorthResult<()> {
     let roster = fleet.roster();
     for account in roster.accounts.iter().filter(|account| !claude_ai || account.home.join(".credentials.json").is_file()) {
-        println!("{}\t{}", account.provider.label(), account.label);
+        match &account.api {
+            Some(key) => println!("{}\t{}\t{}", account.provider.label(), account.label, key.org),
+            None => println!("{}\t{}", account.provider.label(), account.label),
+        }
     }
     for omitted in roster.omitted() {
         eprintln!("omitted: {omitted}");

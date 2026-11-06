@@ -6,9 +6,11 @@ use sha2::{Digest, Sha256};
 use toml_edit::{DocumentMut, Item};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Account, ProviderName};
+use crate::fleet::model::{Account, ApiKey, ProviderName};
 use crate::fleet::roster::{Declared, Roster};
 use crate::fleet::runtime::labelled_homes;
+
+use super::api_pool::{self, Org};
 
 const PREFIX: &str = "claude-";
 const CREDENTIALS: &str = ".credentials.json";
@@ -18,7 +20,8 @@ pub struct Profiles {
     pub keepers: BTreeMap<String, String>,
     pub homes: Vec<(String, PathBuf)>,
     pub tokens: Vec<(String, PathBuf)>,
-    pub api_keys: Vec<(String, PathBuf, PathBuf)>,
+    pub api: Vec<(String, PathBuf)>,
+    pub orgs: Vec<Org>,
     pub elsewhere: BTreeMap<String, Vec<String>>,
     pub default_home: PathBuf,
 }
@@ -38,14 +41,14 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
         .map(|(label, home)| {
             let identity = identity(&home, &profiles.default_home);
             let token_file = declared_token(&label).cloned();
-            (Account { provider: provider.clone(), label, home, token_file, api_key_file: None }, identity)
+            (Account { provider: provider.clone(), label, home, token_file, api: None }, identity)
         })
         .collect();
     let owned_elsewhere: Vec<(Account, Option<String>)> = profiles
         .elsewhere
         .keys()
         .filter(|label| !found.iter().any(|(account, _)| &&account.label == label))
-        .map(|label| (Account { provider: provider.clone(), label: label.clone(), home: state_root.join("profiles").join(format!("{PREFIX}{label}")), token_file: None, api_key_file: None }, None))
+        .map(|label| (Account { provider: provider.clone(), label: label.clone(), home: state_root.join("profiles").join(format!("{PREFIX}{label}")), token_file: None, api: None }, None))
         .collect();
     let tokens: Vec<(Account, Option<String>)> = profiles
         .tokens
@@ -53,11 +56,10 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
         .filter(|(label, file)| !found.iter().any(|(account, _)| &account.label == label) && readable_token(file))
         .filter_map(|(label, file)| {
             let (_, home) = profiles.homes.iter().find(|(home_label, _)| home_label == label)?;
-            Some((Account { provider: provider.clone(), label: label.clone(), home: home.clone(), token_file: Some(file.clone()), api_key_file: None }, None))
+            Some((Account { provider: provider.clone(), label: label.clone(), home: home.clone(), token_file: Some(file.clone()), api: None }, None))
         })
         .collect();
-    let api_keys = profiles.api_keys.iter().filter(|(_, _, file)| readable_token(file)).map(|(label, home, file)| (Account { provider: provider.clone(), label: label.clone(), home: home.clone(), token_file: None, api_key_file: Some(file.clone()) }, None));
-    found.extend(api_keys);
+    found.extend(api_accounts(provider, state_root, profiles));
     found.extend(tokens);
     found.extend(owned_elsewhere);
     let holders = profiles
@@ -67,6 +69,21 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
         .filter_map(|(label, home)| Some((label.clone(), identity(home, &profiles.default_home)?)))
         .collect();
     Roster::distinct(found, &Declared { keepers: profiles.keepers.clone(), holders, elsewhere: profiles.elsewhere.clone() })
+}
+
+/// The pooled API account `label` launches on the entry whose credit expires soonest, and one pinned account `label:ORG` per entry, so a session can be relaunched on the key it ran on.
+fn api_accounts(provider: &ProviderName, state_root: &Path, profiles: &Profiles) -> Vec<(Account, Option<String>)> {
+    let marks = state_root.join("api-exhausted");
+    let account = |label: String, home: &PathBuf, key: ApiKey| (Account { provider: provider.clone(), label, home: home.clone(), token_file: None, api: Some(key) }, None);
+    let mut accounts = Vec::new();
+    for (label, home) in &profiles.api {
+        let pinned = |org: &Org| org.keys.iter().find(|file| readable_token(file)).map(|file| ApiKey { org: org.name.clone(), file: file.clone() });
+        if let Some((_, key)) = api_pool::open(&profiles.orgs, &api_pool::today(), |org| api_pool::exhausted(&marks, org), readable_token) {
+            accounts.push(account(label.clone(), home, key));
+        }
+        accounts.extend(profiles.orgs.iter().filter_map(|org| Some(account(format!("{label}:{}", org.name), home, pinned(org)?))));
+    }
+    accounts
 }
 
 pub fn declared(policy: &Path, home: &Path) -> Profiles {
@@ -83,7 +100,7 @@ pub fn on_machine(provider: &ProviderName, policy: &Path, home: &Path, label: &s
         owners => NorthError::Refused(format!("{}:{label} is declared for {}, not {machine}; launch on {} or another --account", provider.label(), owners.join(" and "), owners.join(" or "))),
     })?;
     let path = |key: &str| entry.get(key).and_then(Item::as_str).map(|path| expand(home, path));
-    Ok(Account { provider: provider.clone(), label: label.to_owned(), home: path("path").unwrap_or_else(|| default_home(home)), token_file: path("token_file"), api_key_file: None })
+    Ok(Account { provider: provider.clone(), label: label.to_owned(), home: path("path").unwrap_or_else(|| default_home(home)), token_file: path("token_file"), api: None })
 }
 
 pub(super) fn default_home(home: &Path) -> PathBuf {
@@ -113,12 +130,8 @@ fn profiles(policy: &DocumentMut, home: &Path, here: &str) -> Profiles {
             (!owners.is_empty() && !owners.iter().any(|owner| owner == here)).then(|| (label.to_owned(), owners))
         })
         .collect();
-    let api_keys = table("api_keys").flat_map(|(label, hosts)| {
-        let entry = hosts.get(here)?;
-        let path = |key: &str| entry.get(key)?.as_str().map(|path| expand(home, path));
-        Some((label.to_owned(), path("path")?, path("key_file")?))
-    }).collect();
-    Profiles { keepers, homes, tokens, api_keys, elsewhere, default_home: default_home(home) }
+    let api = table("api_keys").filter_map(|(label, hosts)| Some((label.to_owned(), expand(home, hosts.get(here)?.get("path")?.as_str()?)))).collect();
+    Profiles { keepers, homes, tokens, api, orgs: api_pool::declared(policy, home, here), elsewhere, default_home: default_home(home) }
 }
 
 pub(super) fn readable_token(file: &Path) -> bool {

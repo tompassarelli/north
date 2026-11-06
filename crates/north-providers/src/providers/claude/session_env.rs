@@ -55,16 +55,16 @@ pub(super) fn agent_args(request: &LaunchRequest) -> Vec<String> {
 
 pub(super) fn inherited_env(account: &Account) -> Vec<String> {
     let mut inherited = vec!["CLAUDE_CODE_CHILD_SESSION".into(), TOKEN_ENV.into()];
-    inherited.extend(account.api_key_file.is_none().then(|| API_KEY_ENV.into()));
+    inherited.extend(account.api.is_none().then(|| API_KEY_ENV.into()));
     inherited.extend(at_default(account).then(|| CONFIG_ENV.into()));
     inherited
 }
 
 pub(super) fn with_credential(account: &Account, argv: Vec<String>) -> Vec<String> {
     let wrapped = |script: &str, file: &Path| ["/bin/sh".into(), "-c".into(), script.into(), file.display().to_string()].into_iter().chain(argv.clone()).collect();
-    match (&account.token_file, &account.api_key_file) {
+    match (&account.token_file, &account.api) {
         (Some(file), _) => wrapped(READ_TOKEN, file),
-        (None, Some(file)) => wrapped(READ_API_KEY, file),
+        (None, Some(key)) => wrapped(READ_API_KEY, &key.file),
         (None, None) => argv,
     }
 }

@@ -22,7 +22,7 @@ pub(super) fn gate(accounts: &[(&str, Value)]) -> Value {
 
 fn roster(identities: &[(&str, Option<&str>)]) -> Roster {
     Roster::distinct(identities.iter().map(|(label, identity)| {
-        let account = Account { provider: ProviderName::new("claude"), label: (*label).into(), home: format!("/profiles/claude-{label}").into(), token_file: None, api_key_file: None };
+        let account = Account { provider: ProviderName::new("claude"), label: (*label).into(), home: format!("/profiles/claude-{label}").into(), token_file: None, api: None };
         (account, identity.map(str::to_owned))
     }), &Declared::default())
 }

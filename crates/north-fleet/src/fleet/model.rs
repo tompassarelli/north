@@ -32,7 +32,24 @@ pub struct Account {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_file: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_key_file: Option<PathBuf>,
+    pub api: Option<ApiKey>,
+}
+
+/// The organization key an API-billed account runs on: the pool entry's name and the file holding its key.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ApiKey {
+    pub org: String,
+    pub file: PathBuf,
+}
+
+impl Account {
+    /// The label a session records: an API-billed account's label with the organization it ran on, so a row names which key was spent.
+    pub fn recorded_label(&self) -> String {
+        match &self.api {
+            Some(key) if !self.label.contains(':') => format!("{}:{}", self.label, key.org),
+            _ => self.label.clone(),
+        }
+    }
 }
 
 /// Another machine a session's provider CLI runs on, reached through `ssh`; the session host and

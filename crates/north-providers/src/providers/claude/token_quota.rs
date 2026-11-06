@@ -26,7 +26,7 @@ pub fn token_accounts(policy: &Path, home: &Path) -> Vec<Account> {
         .filter(|(_, file)| accounts::readable_token(file))
         .filter_map(|(label, file)| {
             let (_, account_home) = profiles.homes.iter().find(|(home_label, _)| home_label == label)?;
-            Some(Account { provider: ProviderName::new("claude"), label: label.clone(), home: account_home.clone(), token_file: Some(file.clone()), api_key_file: None })
+            Some(Account { provider: ProviderName::new("claude"), label: label.clone(), home: account_home.clone(), token_file: Some(file.clone()), api: None })
         })
         .collect()
 }

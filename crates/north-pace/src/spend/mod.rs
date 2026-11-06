@@ -159,12 +159,14 @@ impl View {
 
     /// Whether `starter` may start one more session on `account`, given what this run has placed.
     pub fn admit(&self, rules: &Rules, account: &str, starter: Starter, placed: Placed) -> Result<(), Refusal> {
+        let keyed = self.keyed.iter().any(|name| name == account);
         match starter {
+            Starter::Worker if keyed => self.capped(rules, placed)?,
             Starter::Worker => self.fleet(rules, placed)?,
-            Starter::Subagent => self.reserved(rules, placed)?,
-            Starter::Reserved => {}
+            Starter::Subagent if !keyed => self.reserved(rules, placed)?,
+            Starter::Subagent | Starter::Reserved => {}
         }
-        if self.keyed.iter().any(|name| name == account) {
+        if keyed {
             return Ok(());
         }
         let chosen = self.account(account).ok_or_else(|| Refusal { rule: Rule::Unread, line: format!("{account} has no usage reading") })?;
@@ -179,11 +181,17 @@ impl View {
 
     /// The rules no account choice passes: the cap on working sessions and the pooled reserve.
     pub fn fleet(&self, rules: &Rules, placed: Placed) -> Result<(), Refusal> {
+        self.capped(rules, placed)?;
+        self.reserved(rules, placed)
+    }
+
+    /// The cap on working sessions alone, the one rule a worker on an API-key account meets, since it spends no subscription week.
+    fn capped(&self, rules: &Rules, placed: Placed) -> Result<(), Refusal> {
         let working = self.working + placed.workers;
         if working >= rules.cap {
             return Err(Refusal { rule: Rule::Cap, line: format!("{working} worker sessions are working, the cap is {}", rules.cap) });
         }
-        self.reserved(rules, placed)
+        Ok(())
     }
 
     /// The pooled reserve alone: whether the pool, less one more charge for each placed worker and this

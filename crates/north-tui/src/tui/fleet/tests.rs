@@ -116,7 +116,7 @@ impl SessionDesk for DeskFake {
 }
 
 fn account(provider: &str, label: &str) -> Account {
-    Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::from("/accounts").join(label), token_file: None, api_key_file: None }
+    Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::from("/accounts").join(label), token_file: None, api: None }
 }
 
 #[test]
