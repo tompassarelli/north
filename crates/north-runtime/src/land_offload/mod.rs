@@ -15,17 +15,9 @@ pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
         ["choose"] => choose(false, &Placement::default()),
-        ["choose", "--any", rest @ ..] => match Placement::parse(rest) {
-            Some(placement) => choose(true, &placement),
-            None => usage(),
-        },
+        ["choose", "--any", rest @ ..] => Placement::parse(rest).map_or_else(usage, |placement| choose(true, &placement)),
         ["cost"] => cost(),
-        ["hosts"] => {
-            for (name, ssh) in build_hosts() {
-                println!("{name} {ssh}");
-            }
-            0
-        }
+        ["hosts"] => hosts(),
         ["take", rest @ ..] => crate::build_offload::take::run(&rest.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>()),
         ["verdict", rest @ ..] => verdict::run(rest),
         ["free", "--host", host] => free(host),
@@ -35,6 +27,13 @@ pub fn run(arguments: &[String]) -> u8 {
         ["run", rest @ ..] => run_job(rest, ship::SlotClass::LandCheck),
         _ => usage(),
     }
+}
+
+fn hosts() -> u8 {
+    for (name, ssh) in build_hosts() {
+        println!("{name} {ssh}");
+    }
+    0
 }
 
 fn run_job(words: &[&str], class: ship::SlotClass) -> u8 {
