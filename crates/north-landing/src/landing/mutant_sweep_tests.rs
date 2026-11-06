@@ -43,6 +43,6 @@ fn retire_proposes_only_tests_with_no_recent_catch_no_unique_kill_and_no_contrac
     };
     assert_eq!(
         retire(&args).ok(),
-        Some("- [ ] north retirement sweep 2026-11-06: delete or justify the 4 tests with no catch since 2026-08-08, no unique kill among 3 live mutants and no `[mutant] contract` (1 caught, 1 unique killers, 1 contracts kept; 1 failed on the untouched tree and were not judged): `caught::long_ago`, `flaky::only`, `kills::{twin, with_a_twin}`".to_owned())
+        Some("- [ ] north retirement sweep 2026-11-06: delete or justify the 4 tests with no catch since 2026-08-08, no unique kill among 3 live mutants and no listed `Test-contract:` (1 caught, 1 unique killers, 1 contracts kept; 1 failed on the untouched tree and were not judged): `caught::long_ago`, `flaky::only`, `kills::{twin, with_a_twin}`".to_owned())
     );
 }

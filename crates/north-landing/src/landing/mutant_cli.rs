@@ -7,7 +7,7 @@ use super::mutant_sweep::{self, Issues, MatrixArgs, RetireArgs, SweepArgs};
 
 const USAGE: &str = "Usage: north mutant record <id> | north mutant verify <base> <head>
        north mutant matrix [--mutants N] [--seed TEXT] [--timeout SECONDS_PER_TREE]
-       north mutant retire --repo NAME --evidence TSV [--matrix TSV]... [--contract TEST]... [--date YYYY-MM-DD] [--days N]
+       north mutant retire --repo NAME --evidence TSV [--matrix TSV]... [--contract TEST]... (adds the Test-contract: trailers listed at HEAD) [--date YYYY-MM-DD] [--days N]
        north mutant post --issue REPO#N < BOX
        north mutant sweep --repo DIR... [--host NAME] [--mutants N] [--timeout SECONDS_PER_TREE] [--days N] [--issue OWNER_REPO#N] [--remote-north COMMAND]
 Record the scratch copy diff against HEAD; verify each Test-kind kill claim on demand; mutate product code
@@ -41,7 +41,10 @@ pub fn run(arguments: &[String], issues: &dyn Issues) -> u8 {
         [command, id] if command == "record" => record(&cwd, id, &env),
         [command, base, head] if command == "verify" => super::mutant_verify::verify(&cwd, base, head, &env, &mut io::stdout()),
         [command, rest @ ..] if command == "matrix" => matrix_args(rest).and_then(|args| mutant_sweep::matrix(&cwd, &args, &env, &mut io::stdout(), &mut io::stderr())),
-        [command, rest @ ..] if command == "retire" => retire_args(rest).and_then(|args| mutant_sweep::retire(&args)).map(|line| println!("{line}")),
+        [command, rest @ ..] if command == "retire" => retire_args(rest).and_then(|mut args| {
+            args.contracts.extend(crate::land::scans::test_admission::contract_tests(&cwd, "HEAD"));
+            mutant_sweep::retire(&args)
+        }).map(|line| println!("{line}")),
         [command, flag, issue] if command == "post" && flag == "--issue" => issue_ref(issue).and_then(|(repo, number)| {
             let mut line = String::new();
             io::Read::read_to_string(&mut io::stdin(), &mut line)?;

@@ -215,7 +215,7 @@ fn sweep_repo(dir: &Path, args: &SweepArgs, env: &Env, date: &str, since: &str) 
         .filter(|path| path.file_stem().and_then(|stem| stem.to_str()).is_some_and(|stem| stem >= since))
         .collect();
     matrices.sort();
-    retire(&RetireArgs { repo, matrices, evidence, contracts: config.contracts, date: date.to_owned(), days: args.days })
+    retire(&RetireArgs { repo, matrices, evidence, contracts: crate::land::scans::test_admission::contract_tests(dir, "HEAD"), date: date.to_owned(), days: args.days })
 }
 
 pub(super) fn today() -> String {

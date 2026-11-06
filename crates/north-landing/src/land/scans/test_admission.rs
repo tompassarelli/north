@@ -244,6 +244,16 @@ fn contracts(messages: &[String]) -> Vec<limits::Claim> {
         .collect()
 }
 
+pub fn contract_tests(directory: &Path, rev: &str) -> Vec<String> {
+    let listed = limits::categories(directory, rev);
+    let history: Vec<String> = git::text(directory, &["log", "--grep=Test-contract:", "-i", "--format=%B%x00", rev])
+        .unwrap_or_default()
+        .split('\0')
+        .map(str::to_owned)
+        .collect();
+    contracts(&history).into_iter().filter(|claim| listed.contains(&claim.category.to_ascii_lowercase())).map(|claim| claim.test).collect()
+}
+
 fn over_budget(directory: &Path, found: &Admission, contracted: usize) -> Option<String> {
     let added = found.added.saturating_sub(contracted);
     let origin = git::text(directory, &["remote", "get-url", "origin"]).unwrap_or_default();

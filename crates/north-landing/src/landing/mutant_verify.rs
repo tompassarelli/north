@@ -127,7 +127,6 @@ pub(super) fn config(cwd: &Path, base: &str) -> Result<Option<Config>, Stop> {
         class,
         links: get(&["--get-all", "mutant.link"])?,
         sources: get(&["--get-all", "mutant.source"])?,
-        contracts: get(&["--get-all", "mutant.contract"])?,
     }))
 }
 

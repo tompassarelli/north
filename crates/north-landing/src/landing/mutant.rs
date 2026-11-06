@@ -24,7 +24,6 @@ pub(super) struct Config {
     pub(super) class: String,
     pub(super) links: Vec<String>,
     pub(super) sources: Vec<String>,
-    pub(super) contracts: Vec<String>,
 }
 
 pub(super) struct Env {

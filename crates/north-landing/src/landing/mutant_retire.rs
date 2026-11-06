@@ -129,7 +129,7 @@ pub(super) const LIST_START: &str = " were not judged): ";
 
 pub(super) fn render_box(repo: &str, date: &str, since: &str, verdict: &Verdict) -> String {
     format!(
-        "- [ ] {repo} retirement sweep {date}: delete or justify the {} tests with no catch since {since}, no unique kill among {} live mutants and no `[mutant] contract` ({} caught, {} unique killers, {} contracts kept; {} failed on the untouched tree and{LIST_START}{}",
+        "- [ ] {repo} retirement sweep {date}: delete or justify the {} tests with no catch since {since}, no unique kill among {} live mutants and no listed `Test-contract:` ({} caught, {} unique killers, {} contracts kept; {} failed on the untouched tree and{LIST_START}{}",
         verdict.idle.len(),
         verdict.live_mutants,
         verdict.caught,
