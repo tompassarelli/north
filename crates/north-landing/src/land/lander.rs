@@ -36,7 +36,7 @@ fn plain(text: &str) -> bool {
     !text.is_empty() && !text.starts_with('-') && text.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | '@'))
 }
 
-fn ssh(host: &str, script: &str) -> Result<String, String> {
+pub(super) fn ssh(host: &str, script: &str) -> Result<String, String> {
     let output = Command::new("ssh").args(SSH_OPTIONS).args(["-T", host, "--", script]).output().map_err(|error| format!("ssh {host}: {error}"))?;
     if !output.status.success() {
         return Err(format!("ssh {host} exited {}: {}", output.status.code().map_or("on a signal".to_owned(), |code| code.to_string()), String::from_utf8_lossy(&output.stderr).trim()));

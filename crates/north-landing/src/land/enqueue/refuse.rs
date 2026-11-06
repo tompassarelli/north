@@ -34,9 +34,10 @@ pub(in crate::land) fn refuse_static_gates(root: &Path, destination: &str, head:
     Ok(())
 }
 
-pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home: &Path) -> Result<(), String> {
+pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home: &Path, lander_ledger: Option<String>) -> Result<(), String> {
     let fork = merge_base(root, base, head);
-    let lane = Lane { worktree: root, base: &fork, head, state_home };
+    let borrowed = lander_ledger.map(|rows| ledger_home(&rows)).transpose().map_err(|error| format!("cannot keep the lander's post-land ledger: {error}"))?;
+    let lane = Lane { worktree: root, base: &fork, head, state_home: borrowed.as_ref().map_or(state_home, |home| home.path()) };
     let Some((failed, text)) = lane_gates::failed(&lane, Judging::Recorded) else { return Ok(()) };
     Err(format!("{} refused it here, as the lander would after its queue wait:\n{}", failed.join(", "), String::from_utf8_lossy(&text).trim_end()))
 }
@@ -57,4 +58,11 @@ pub(super) fn refuse_stale_revert(root: &Path, base: &str, head: &str) -> Result
         Ok(found) if !found.is_empty() => Err(format!("the revert guard refused it here, as the lander would after its queue wait:\n{}", stale_revert::refusal(&found))),
         _ => Ok(()),
     }
+}
+
+fn ledger_home(rows: &str) -> std::io::Result<tempfile::TempDir> {
+    let home = tempfile::tempdir()?;
+    std::fs::create_dir_all(home.path().join("safe-push"))?;
+    std::fs::write(home.path().join("safe-push/post-land.tsv"), rows)?;
+    Ok(home)
 }

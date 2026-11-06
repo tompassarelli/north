@@ -74,8 +74,12 @@ impl Lane {
     }
 
     fn try_enqueue(&self, shape: super::Shape) -> Result<super::Queued, String> {
+        self.try_enqueue_from("fixture-host", &|_| None, shape)
+    }
+
+    fn try_enqueue_from(&self, host: &str, lander_ledger: &dyn Fn(&str) -> Option<String>, shape: super::Shape) -> Result<super::Queued, String> {
         let (state, south) = (self.dir.path().join("state"), self.dir.path().join("absent-south"));
-        let environment = super::Environment { state_home: &state, host: "fixture-host", session: None, south: &south, denylist: None };
+        let environment = super::Environment { state_home: &state, host, session: None, south: &south, denylist: None, lander_ledger };
         super::enqueue(&self.repo, shape, false, &environment)
     }
 
@@ -127,6 +131,16 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     assert!(refused.contains("test admission: origin's verification takes 100000 s"), "{refused}");
     let queue = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
     assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.next().is_none()), "a refused lane left a ticket in {}", queue.display());
+
+    let lane = Lane::new();
+    run(&lane.repo, &["config", "landing.lander-host", "lander-fixture"]);
+    fs::create_dir_all(lane.repo.join("src")).unwrap();
+    fs::write(lane.repo.join("src/tests.rs"), "#[test]\nfn added() {}\n").unwrap();
+    lane.commit("add a test from a host that keeps no post-land ledger", &[]);
+    let slow = "1\torigin\tabc\tgreen\t\tlane\t900\t\t100000\n".repeat(3);
+    let read = |host: &str| (host == "lander-fixture").then(|| slow.clone());
+    let refused = lane.try_enqueue_from("build-fixture", &read, super::Shape::OneCommit { message: None }).unwrap_err();
+    assert!(refused.contains("test admission: origin's verification takes 100000 s"), "{refused}");
 
     let lane = Lane::new();
     run(&lane.repo, &["switch", "-q", "main"]);
