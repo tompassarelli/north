@@ -1,5 +1,5 @@
 use crate::fleet::runtime::PROXY;
-use crate::guard::proxy_role::{self, Live};
+use crate::guard::proxy_role::{self, Live, World};
 use crate::hook::{HookInput, Verdict};
 use crate::platform::process;
 use std::process::Command;
@@ -12,12 +12,13 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
-    adoption(input, proxy_role::is_tom_window(&Live, input), |session| adopt(session, input.data["cwd"].as_str()))
+    let window = proxy_role::is_tom_window(&Live, input).then(|| Live.claude_start()).flatten().and_then(|start| start.conversation);
+    adoption(input, window.as_deref(), |session| adopt(session, input.data["cwd"].as_str()))
 }
 
-fn adoption(input: &HookInput, window: bool, adopt: impl FnOnce(&str) -> Option<String>) -> Verdict {
+fn adoption(input: &HookInput, window: Option<&str>, adopt: impl FnOnce(&str) -> Option<String>) -> Verdict {
     let session = input.data["session_id"].as_str().unwrap_or("");
-    if !window || session.is_empty() {
+    if session.is_empty() || window != Some(session) {
         return Verdict::Allow;
     }
     match adopt(session) {
@@ -47,17 +48,19 @@ mod tests {
         let payload = br#"{"hook_event_name":"SessionStart","session_id":"conv-1","cwd":"/tmp","source":"startup"}"#;
         let input = HookInput::parse(payload).unwrap();
         let seen = Cell::new(String::new());
-        let verdict = adoption(&input, true, |session| {
+        let verdict = adoption(&input, Some("conv-1"), |session| {
             seen.set(session.to_owned());
             Some("proxy now reaches this window on account a\n".into())
         });
         assert_eq!(seen.take(), "conv-1");
         assert_eq!(verdict, Verdict::Advise("proxy now reaches this window on account a".into()));
 
-        assert_eq!(adoption(&input, true, |_| Some(String::new())), Verdict::Allow, "a held name prints nothing");
-        assert_eq!(adoption(&input, true, |_| None), Verdict::Allow, "a failed adoption leaves the start unchanged");
+        assert_eq!(adoption(&input, Some("conv-1"), |_| Some(String::new())), Verdict::Allow, "a held name prints nothing");
+        assert_eq!(adoption(&input, Some("conv-1"), |_| None), Verdict::Allow, "a failed adoption leaves the start unchanged");
         let ran = Cell::new(false);
-        assert_eq!(adoption(&input, false, |_| { ran.set(true); None }), Verdict::Allow);
+        assert_eq!(adoption(&input, None, |_| { ran.set(true); None }), Verdict::Allow);
         assert!(!ran.get(), "a fleet session or subagent never runs the adoption");
+        assert_eq!(adoption(&input, Some("tom-window"), |_| { ran.set(true); None }), Verdict::Allow);
+        assert!(!ran.get(), "a start whose session is not the conversation its own window holds, such as the token measurement's budget start, never runs the adoption");
     }
 }

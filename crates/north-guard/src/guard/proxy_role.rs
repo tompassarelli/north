@@ -31,6 +31,7 @@ pub struct Registered {
 pub struct ClaudeStart {
     pub nested: bool,
     pub print: bool,
+    pub conversation: Option<String>,
 }
 
 pub trait World {
@@ -74,7 +75,9 @@ impl World for Live {
         let cmdline = std::fs::read(process.join("cmdline")).ok()?;
         let nested = environ.split(|byte| *byte == 0).any(|entry| entry.starts_with(format!("{CHILD_SESSION_ENV}=").as_bytes()));
         let print = cmdline.split(|byte| *byte == 0).skip(1).any(|argument| argument == b"-p" || argument == b"--print");
-        Some(ClaudeStart { nested, print })
+        let record = own_profile(self).and_then(|profile| std::fs::read(PathBuf::from(profile).join("sessions").join(format!("{}.json", self.var(CLAUDE_PID_ENV)?))).ok());
+        let conversation = record.and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()).and_then(|record| record["sessionId"].as_str().map(str::to_owned));
+        Some(ClaudeStart { nested, print, conversation })
     }
 
     fn dispatch_plan(&self) -> Option<String> {

@@ -39,3 +39,4 @@ threads_resume north-threads
 threads_snapshot north-threads
 ssh_attribution north-capacity-host north-base north
 capacity_agent_compile north-capacity north-capacity-host north-runtime
+session_start_measurement north-guard north-core north-fleet

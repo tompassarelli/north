@@ -33,7 +33,7 @@ impl World for Fake {
         Some(format!("/home/tom/.local/state/north/profiles/claude-{account}/"))
     }
     fn claude_start(&self) -> Option<ClaudeStart> {
-        self.start.map(|(nested, print)| ClaudeStart { nested, print })
+        self.start.map(|(nested, print)| ClaudeStart { nested, print, conversation: None })
     }
     fn dispatch_plan(&self) -> Option<String> {
         self.plan.map(str::to_owned)

@@ -393,7 +393,7 @@ fn judge(point: &Value, row: &Value, tokens: usize) -> Result<String, String> {
 const START_DEADLINE: Duration = Duration::from_secs(10);
 const LEASE_WAIT_SECONDS: u64 = 600;
 
-pub(super) fn north_session_start(north: OsString, home: PathBuf) -> Box<dyn Fn(bool) -> Result<usize, String>> {
+pub fn north_session_start(north: OsString, home: PathBuf) -> Box<dyn Fn(bool) -> Result<usize, String>> {
     session_start_probe(north, home, START_DEADLINE, host::contention)
 }
 

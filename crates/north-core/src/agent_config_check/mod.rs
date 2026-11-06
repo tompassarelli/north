@@ -18,6 +18,8 @@ mod vocabulary;
 #[cfg(test)]
 mod tests;
 
+pub use gate::north_session_start;
+
 use gate::{Gate, Mode};
 use crate::platform::north_binary::north_binary;
 use report::Report;
