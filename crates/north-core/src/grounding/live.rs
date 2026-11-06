@@ -45,7 +45,7 @@ pub fn pace_lines() -> Vec<String> {
 }
 fn window_line(w: &Value, now: Timestamp) -> String {
     let as_of = Timestamp::parse_loose(&s(w, "as_of"));
-    if as_of.is_none_or(|at| (now.unix_seconds() - at.unix_seconds()) as f64 > crate::pace::window::STALE_SECONDS) {
+    if as_of.is_none_or(|at| (now.unix_seconds() - at.unix_seconds()) as f64 > crate::usage::STALE_SECONDS) {
         let age = as_of.map_or_else(|| "never read".to_owned(), |at| format!("last read {}Z, {}m ago", slice(&at.iso_minute(), 11, 5), (now.unix_seconds() - at.unix_seconds()) / 60));
         return format!("{} stale ({age}; the pace sampler is not reading, so no number is quoted)", s(w, "window"));
     }

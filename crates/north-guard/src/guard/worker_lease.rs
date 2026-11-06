@@ -38,7 +38,7 @@ fn lease(input: &HookInput, env: &Env) -> Option<String> {
     let agent_id = data["agent_id"].as_str().filter(|id| valid_id(id))?;
     let session = data["transcript_path"].as_str()?.strip_suffix(".jsonl")?;
     let transcript = Path::new(session).join("subagents").join(format!("agent-{agent_id}.jsonl"));
-    let leash = crate::pace::limits::overtime_min() as i64;
+    let leash = (crate::platform::harness::default_number("overtime_min") as u64) as i64;
     let minutes = transcript::started_at(&transcript).map_or(0, |start| ((env.now - start) / 60.0).floor() as i64);
     if minutes < leash || (env.off)() {
         return None;

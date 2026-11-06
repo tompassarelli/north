@@ -4,33 +4,24 @@ use std::io::Read;
 
 pub(super) fn operation(request: &Value) -> Result<Option<Value>, String> {
     Ok(Some(match request["op"].as_str().unwrap_or_default() {
-        "sample" => sampling::sample(
-            request["provider"].as_str(),
-            request["initial"].as_i64().unwrap_or(2),
-            request["notify"].as_bool().unwrap_or(true),
-        )?,
+        "sample" => sampling::sample(request["provider"].as_str())?,
         _ => return Ok(None),
     }))
 }
 pub(super) fn cli(arguments: &[String]) -> Result<(), String> {
-    let (provider, initial, notify) = sample_options(arguments)?;
-    sampling::sample(provider, initial, notify)?;
+    sampling::sample(sample_options(arguments)?)?;
     Ok(())
 }
-fn sample_options(arguments: &[String]) -> Result<(Option<&str>, i64, bool), String> {
+fn sample_options(arguments: &[String]) -> Result<Option<&str>, String> {
     let mut provider = None;
-    let mut initial = 2;
-    let mut notify = true;
     let mut args = arguments.iter();
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--provider" => provider = Some(provider_option(args.next())?),
-            "--initial" => initial = initial_option(args.next())?,
-            "--dry-run" => notify = false,
             _ => return Err(format!("unknown option {argument}")),
         }
     }
-    Ok((provider, initial, notify))
+    Ok(provider)
 }
 fn provider_option(value: Option<&String>) -> Result<&str, String> {
     let value = value.ok_or("provider required")?;
@@ -38,12 +29,6 @@ fn provider_option(value: Option<&String>) -> Result<&str, String> {
         return Err("invalid provider".into());
     }
     Ok(value.as_str())
-}
-fn initial_option(value: Option<&String>) -> Result<i64, String> {
-    value
-        .and_then(|s| s.parse().ok())
-        .filter(|n| *n > 0)
-        .ok_or_else(|| "--initial must be positive".into())
 }
 pub(super) fn input() -> Result<Value, String> {
     let mut input = String::new();

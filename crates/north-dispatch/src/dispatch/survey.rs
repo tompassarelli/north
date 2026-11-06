@@ -142,8 +142,8 @@ pub fn account(name: &str, usage: &Value, basis: &Basis, hosts: Vec<String>, at:
 fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<Account> {
     let usage = placement::pace_state("usage-gate.json");
     let basis = Basis::new(cfg, at);
-    let controls = usage["claude"]["controls"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
-    controls.map(|(name, control)| account(name, control, &basis, signed_in(cfg, roster, name, here), at, notes)).collect()
+    let sampled = usage["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
+    sampled.map(|(name, windows)| account(name, windows, &basis, signed_in(cfg, roster, name, here), at, notes)).collect()
 }
 
 /// The spend rule's view at `at`: every account's readings, counted while some host is signed in to
@@ -386,7 +386,7 @@ mod github {
 
     fn touched(node: &Value) -> f64 {
         let comment = node["comments"]["nodes"].as_array().and_then(|nodes| nodes.last()).unwrap_or(&Value::Null);
-        [&node["lastEditedAt"], &comment["createdAt"], &comment["updatedAt"]].into_iter().filter_map(|time| crate::pace::target::seconds(time.as_str()?)).fold(0.0, f64::max)
+        [&node["lastEditedAt"], &comment["createdAt"], &comment["updatedAt"]].into_iter().filter_map(|time| crate::foundation::clock::rfc3339_seconds(time.as_str()?)).fold(0.0, f64::max)
     }
 
     pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
@@ -408,7 +408,7 @@ mod github {
             report: comments.last().and_then(|comment| comment["body"].as_str()).unwrap_or_default().into(),
             comments,
             touched: touched(node),
-            created: node["createdAt"].as_str().and_then(crate::pace::target::seconds).unwrap_or(0.0),
+            created: node["createdAt"].as_str().and_then(crate::foundation::clock::rfc3339_seconds).unwrap_or(0.0),
             stop: Default::default(),
         })
     }

@@ -1,4 +1,4 @@
-//! `usage-gate.json`: each provider's money refusal, per-account refusals, window projections and pace reading,
+//! `usage-gate.json`: each provider's money refusal, per-account refusals and each account's sampled windows,
 //! read by the spawn hook without a subprocess.
 use std::fs;
 use std::path::Path;
@@ -52,11 +52,10 @@ pub(super) fn write(db: &Connection, providers: &[&str], places: &Places, now: T
         let refusal = |account: Option<&str>| refusal(&context, provider, account, local.as_deref());
         let named: Vec<&String> = context["accounts"].as_object().into_iter().flatten().map(|(name, _)| name).filter(|name| name.split(':').next() == Some(provider)).collect();
         let refusals: Map<String, Value> = named.iter().map(|name| ((*name).clone(), refusal(Some(name)))).collect();
-        let projections: Map<String, Value> = named.iter().map(|name| projection(&context, name, provider, now).map(|found| (found.0, found.1))).collect::<Result<_, _>>()?;
+        let windows: Map<String, Value> = named.iter().map(|name| sampled(&context, name, provider, now)).collect::<Result<_, _>>()?;
         let verdict = json!({
-            "ts": py::second(now), "epoch": now.unix_seconds_f64(), "stale_min": settings::default_value("usage_stale_min"), "pace_control": true,
-            "controls": verdicts.get(*provider).and_then(|previous| previous.get("controls")).cloned().unwrap_or_else(|| json!({})),
-            "refusal": refusal(None), "refusals": refusals, "projections": projections,
+            "ts": py::second(now), "epoch": now.unix_seconds_f64(), "stale_min": settings::default_value("usage_stale_min"),
+            "refusal": refusal(None), "refusals": refusals, "windows": windows,
         });
         verdicts.insert((*provider).to_owned(), verdict);
     }
@@ -97,32 +96,18 @@ fn refusal(context: &Value, provider: &str, account: Option<&str>, local: Option
     }
 }
 
-fn projection(context: &Value, name: &str, provider: &str, now: Timestamp) -> Result<(String, Value), String> {
+fn sampled(context: &Value, name: &str, provider: &str, now: Timestamp) -> Result<(String, Value), String> {
     let account = &context["accounts"][name];
     let key = if provider == "claude" { format!("claude:{}", account["id"].as_str().unwrap_or("None")) } else { name.to_owned() };
-    let ceiling = quota_ceiling(&account["target_left"]);
     let mut windows = Vec::new();
     for (kind, window) in account["windows"].as_object().into_iter().flatten() {
-        let (headroom, reset_in) = (window["headroom"].as_f64().unwrap_or_default(), window["reset_in"].as_f64().unwrap_or_default());
-        let burn = window["beta"].as_f64();
         let age = (now.unix_nanos() - py::parse(window["as_of"].as_str().unwrap_or_default())?.unix_nanos()) as f64 / 1e9;
         windows.push(json!({
-            "window": kind, "used_pct": 100.0 - headroom, "quota_ceiling": ceiling, "burn_pct_h": window["beta"], "reset_h": window["reset_in"],
+            "window": kind, "used_pct": 100.0 - window["headroom"].as_f64().unwrap_or_default(), "reset_h": window["reset_in"],
             "age_s": age, "as_of": window["as_of"], "resets_at": window["resets_at"],
-            "projected_pct": burn.map(|burn| 100.0 - headroom + burn * reset_in),
         }));
     }
     Ok((key, Value::Array(windows)))
-}
-
-fn quota_ceiling(target_left: &Value) -> Value {
-    let plan_stop = settings::default_value("plan_stop");
-    let left = match (target_left.as_i64(), target_left.as_f64()) {
-        (Some(whole), _) => json!(100 - whole),
-        (None, Some(fraction)) => json!(100.0 - fraction),
-        _ => return plan_stop,
-    };
-    if plan_stop.as_f64() <= left.as_f64() { plan_stop } else { left }
 }
 
 pub(super) fn local_account(provider: &str, cfg: &Value) -> Option<String> {

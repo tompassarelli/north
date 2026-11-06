@@ -46,7 +46,7 @@ fn an_account_at_its_provider_limit_refuses_even_a_pin_and_names_the_account_pla
     assert!(admit(&week, &launch, "", &local).unwrap_err().to_string().starts_with("provider limit: claude:c unavailable: week window at the provider's limit; placement picks claude:a"));
 
     let mut all_out = decision(Target::Held("no account".into()));
-    let week_out = placement::verdict("claude:c", &serde_json::json!({"windows": [{"window": "week", "used_pct": 100.0}]}));
+    let week_out = placement::verdict("claude:c", &serde_json::json!([{"window": "week", "used_pct": 100.0}]));
     assert!(week_out.exhausted && !week_out.available, "{week_out:?}");
 
     all_out.verdicts.retain(|verdict| verdict.exhausted);

@@ -48,7 +48,7 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
 }
 
 fn project_profiles() -> bool {
-    let cfg = crate::usage::profiles::policy_value(&crate::pace::target::policy_path());
+    let cfg = crate::usage::profiles::policy_value(&crate::platform::orchestration::path());
     match crate::usage::profiles::sync(&cfg, &crate::platform::host::name(), &crate::usage::profiles::home()) {
         Ok(lines) => {
             lines.iter().for_each(|line| println!("{line}"));

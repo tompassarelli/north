@@ -91,7 +91,7 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
     if stall_alert(places, host, rows, now).is_err() {
         println!("agents flow: stall alert state error");
     }
-    if saturation_alert(places, host, &crate::pace::target::policy_path(), now).is_err() {
+    if saturation_alert(places, host, &crate::platform::orchestration::path(), now).is_err() {
         println!("agents flow: saturation alert state error");
     }
     if sampler_alert(places, host, now).is_err() {
@@ -126,7 +126,7 @@ pub fn landing_minutes(repo: &str) -> f64 {
         return 0.0;
     }
     let (places, machine) = (Places::from_env(), Machine::default());
-    let env = Env::new(&places, &machine, project_targets(&crate::pace::target::policy_path()));
+    let env = Env::new(&places, &machine, project_targets(&crate::platform::orchestration::path()));
     get(&env, repo, Timestamp::now().unix_seconds_f64(), &["push_to_land_minutes"])["push_to_land_minutes"].as_f64().unwrap_or(0.0)
 }
 
@@ -140,7 +140,7 @@ fn row(arguments: &[String]) -> u8 {
         return 2;
     }
     let (places, machine) = (Places::from_env(), Machine::default());
-    let env = Env::new(&places, &machine, project_targets(&crate::pace::target::policy_path()));
+    let env = Env::new(&places, &machine, project_targets(&crate::platform::orchestration::path()));
     let fields: Vec<&str> = fields.iter().map(String::as_str).collect();
     let row = get(&env, repo, Timestamp::now().unix_seconds_f64(), &fields);
     println!("{}", json!({ "row": row, "line": format_row(&row, None) }));
@@ -175,7 +175,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let places = Places::from_env();
     let machine = Machine::default();
-    let targets = project_targets(&crate::pace::target::policy_path());
+    let targets = project_targets(&crate::platform::orchestration::path());
     let repos: Vec<String> = if options.repos.is_empty() {
         DEFAULT_REPOS.iter().map(|repo| (*repo).to_owned()).chain(targets.keys().cloned()).collect()
     } else {

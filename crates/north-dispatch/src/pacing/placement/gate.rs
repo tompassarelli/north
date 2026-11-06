@@ -233,8 +233,8 @@ fn usage(windows: &[Value]) -> String {
         .join(", ")
 }
 
-pub fn verdict(account: &str, control: &Value) -> Verdict {
-    let windows = rows(&control["windows"]);
+pub fn verdict(account: &str, sampled: &Value) -> Verdict {
+    let windows = rows(sampled);
     if windows.iter().all(|w| w["used_pct"].as_f64().is_none()) {
         return unavailable(account, "no live quota sample".into());
     }
@@ -436,7 +436,7 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
 }
 
 fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
-    gate["claude"]["controls"]
+    gate["claude"]["windows"]
         .as_object()
         .into_iter()
         .flatten()
@@ -453,7 +453,7 @@ pub fn verdicts(gate: &Value, roster: &Roster, basis: &Basis) -> Vec<Verdict> {
 pub fn verdicts_of(gate: &Value, standings: &BTreeMap<String, record::Standing>, basis: &Basis) -> Vec<Verdict> {
     standing_verdicts(gate, standings)
         .into_iter()
-        .map(|verdict| Verdict { rank: basis.rank(verdict.available, &verdict.account, &gate["claude"]["controls"][&verdict.account]), ..verdict })
+        .map(|verdict| Verdict { rank: basis.rank(verdict.available, &verdict.account, &gate["claude"]["windows"][&verdict.account]), ..verdict })
         .collect()
 }
 

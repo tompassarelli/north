@@ -105,3 +105,12 @@ fn runtime_sha(runtime: &Path) -> Option<&str> {
 #[cfg(test)]
 #[path = "harness_tests.rs"]
 mod tests;
+
+pub fn default_number(name: &str) -> f64 {
+    let value = &document(DEFAULTS)[name]["value"];
+    value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
+}
+
+pub fn default_measured(name: &str) -> bool {
+    document(DEFAULTS).get(name).and_then(|entry| entry.get("settles_when")).and_then(|settles| settles.get("measured")).and_then(|measured| measured.as_str()).is_some_and(|measured| !measured.trim().is_empty())
+}

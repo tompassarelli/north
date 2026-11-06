@@ -29,7 +29,7 @@ impl Settings {
         let home = profiles::home();
         let state = std::env::var_os("XDG_STATE_HOME").filter(|path| !path.is_empty()).map_or_else(|| home.join(".local/state"), PathBuf::from);
         let configured = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
-        Self { cfg: profiles::policy_value(&crate::pace::target::policy_path()), host: crate::platform::host::name(), state, home, configured, refresh }
+        Self { cfg: profiles::policy_value(&crate::platform::orchestration::path()), host: crate::platform::host::name(), state, home, configured, refresh }
     }
 }
 

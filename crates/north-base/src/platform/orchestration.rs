@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use toml_edit::{DocumentMut, Item};
 
@@ -9,8 +9,12 @@ pub fn path() -> PathBuf {
     }
     match env::var_os("AGENTS_OPERATOR_DIR") {
         Some(operator) => PathBuf::from(operator).join("orchestration.toml"),
-        None => PathBuf::from(env::var_os("HOME").unwrap_or_default()).join("code/south/main/agents/orchestration.toml"),
+        None => under(Path::new(&env::var_os("HOME").unwrap_or_default())),
     }
+}
+
+pub fn under(home: &Path) -> PathBuf {
+    home.join("code/south/main/agents/orchestration.toml")
 }
 
 pub fn read() -> Result<DocumentMut, String> {

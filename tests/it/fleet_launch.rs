@@ -37,7 +37,7 @@ fn shared_fixture(root: &Path) {
     fs::write(profile.join(".credentials.json"), "{}").unwrap();
     let read_at = north_core::foundation::clock::Timestamp::now().iso();
     let windows = serde_json::json!([{"window": "5h", "used_pct": 10.0, "resets_at": "2099-01-01T00:00:00Z", "as_of": read_at}, {"window": "week", "used_pct": 10.0, "resets_at": "2099-01-01T00:00:00Z", "as_of": read_at}]);
-    fs::write(agents.join("usage-gate.json"), serde_json::json!({"claude": {"controls": {"claude:a": {"windows": windows}}}}).to_string()).unwrap();
+    fs::write(agents.join("usage-gate.json"), serde_json::json!({"claude": {"windows": {"claude:a": windows}}}).to_string()).unwrap();
     let setsid = Command::new("sh").args(["-c", "command -v setsid"]).output().unwrap();
     executable(&root.join("bin/setsid"), &format!("exec {} \"$@\"\n", String::from_utf8_lossy(&setsid.stdout).trim()));
     executable(

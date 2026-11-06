@@ -121,13 +121,9 @@ struct PaceRow {
     account: Option<String>,
     at: f64,
     #[serde(default)]
-    allowed_workers: u32,
+    admits: bool,
     #[serde(default)]
     workers: u32,
-    #[serde(default)]
-    held: bool,
-    #[serde(default)]
-    over: bool,
 }
 
 struct Idle {
@@ -156,7 +152,7 @@ impl Idle {
             let Ok(row) = serde_json::from_slice::<PaceRow>(&line) else { continue };
             let Some(account) = row.account.filter(|account| account.starts_with("claude:")) else { continue };
             if row.at >= since as f64 {
-                samples.entry(account).or_default().push((row.at, row.allowed_workers > 0 && !row.held && !row.over && row.workers == 0));
+                samples.entry(account).or_default().push((row.at, row.admits && row.workers == 0));
             }
         }
         let mut stretches = Vec::new();

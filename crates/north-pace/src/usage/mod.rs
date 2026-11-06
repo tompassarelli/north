@@ -33,6 +33,8 @@ mod web;
 
 const USAGE: &str = "usage: north usage [--refresh [--local]] [--json | --verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample";
 const PACED: [&str; 2] = ["claude", "gemini"];
+/// A usage reading older than this is stale: readers mark it so, the sampler never backs off past it, and flow alerts.
+pub const STALE_SECONDS: f64 = 600.0;
 
 pub struct Places {
     pub policy: PathBuf,
@@ -45,7 +47,7 @@ impl Places {
         let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
         let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
         Self {
-            policy: crate::pace::target::policy_path(),
+            policy: crate::platform::orchestration::path(),
             operator: set("AGENTS_OPERATOR_DIR").unwrap_or_else(|| home.join("code/south/main/agents")),
             state: set("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state")),
         }
@@ -146,7 +148,7 @@ fn clock() -> Timestamp {
 }
 
 pub fn billed_account(provider: &str) -> Option<String> {
-    let document = std::fs::read_to_string(crate::pace::target::policy_path()).ok().and_then(|text| text.parse::<toml_edit::DocumentMut>().ok());
+    let document = std::fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse::<toml_edit::DocumentMut>().ok());
     let cfg = document.map_or(serde_json::Value::Null, |document| crate::router::policy::json_value(document.as_item()));
     gate::local_account(provider, &cfg)
 }
@@ -234,6 +236,6 @@ pub fn open_ledger(home: &Path, explicit: Option<std::ffi::OsString>, refresh: &
 }
 
 pub fn json_readings(db: &Connection, now: Timestamp) -> Result<Vec<serde_json::Value>, String> {
-    let text = report(db, &crate::pace::target::policy_path(), now)?;
+    let text = report(db, &crate::platform::orchestration::path(), now)?;
     serde_json::from_str(&text).map_err(|error| format!("unreadable usage readings: {error}"))
 }

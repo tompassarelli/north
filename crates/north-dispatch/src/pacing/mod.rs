@@ -1,4 +1,4 @@
-use crate::pace::{admission, control, target, window};
+use crate::pace::{admission, control, target};
 use crate::error::NorthResult;
 use crate::fleet::roster::Roster;
 use std::collections::BTreeMap;
@@ -46,7 +46,7 @@ fn finish(outcome: Result<(), String>, label: &str) -> u8 {
     }
 }
 fn gate(provider: &str) -> u8 {
-    match sampling::sample(Some(provider), 2, true) {
+    match sampling::sample(Some(provider)) {
         Ok(gate) => {
             if let Some(reason) = gate[provider]["refusal"].as_str() {
                 println!("{reason}");

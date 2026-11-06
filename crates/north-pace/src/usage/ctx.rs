@@ -6,7 +6,7 @@ use rusqlite::{Connection, params};
 use serde_json::{Map, Value, json};
 
 use super::store::Row;
-use super::{burn, py};
+use super::py;
 use crate::foundation::clock::Timestamp;
 
 const MODES: [&str; 4] = ["standard", "fast", "ultrafast", "overflow"];
@@ -66,7 +66,7 @@ pub(super) fn live_ctx(cfg: &Value, tiers: &[Tier], catalog: &Value, rows: &[&Ro
             entry
         })
         .collect();
-    let mut accounts = accounts_from(rows, db, now)?;
+    let mut accounts = accounts_from(rows, now)?;
     configure_accounts(&mut accounts, cfg);
     Ok(json!({
         "now": py::second(now), "tiers": listed, "billing": billing, "lease": false, "success": success,
@@ -87,7 +87,7 @@ fn window_key(row: &Row) -> Option<String> {
     (!name.contains('/')).then(|| name.to_owned())
 }
 
-fn accounts_from(rows: &[&Row], db: &Connection, now: Timestamp) -> Result<Map<String, Value>, String> {
+fn accounts_from(rows: &[&Row], now: Timestamp) -> Result<Map<String, Value>, String> {
     let mut ids: BTreeMap<&str, BTreeSet<Option<&str>>> = BTreeMap::new();
     for row in rows {
         ids.entry(row.text("provider").unwrap_or_default()).or_default().insert(row.text("account"));
@@ -117,7 +117,7 @@ fn accounts_from(rows: &[&Row], db: &Connection, now: Timestamp) -> Result<Map<S
             if account["windows"].get(&name).is_none() || better {
                 let reset_in = (py::parse(resets_at)?.unix_nanos() - now.unix_nanos()) as f64 / 1e9 / 3600.0;
                 account["windows"][&name] = json!({
-                    "headroom": headroom, "beta": burn::beta(db, row, now)?, "reset_in": reset_in.max(0.0), "resets_at": resets_at,
+                    "headroom": headroom, "reset_in": reset_in.max(0.0), "resets_at": resets_at,
                     "window_h": row.number("window_min").unwrap_or_default() / 60.0, "as_of": row.text("ts"),
                 });
                 account["resets"][&name] = json!(resets_at);
@@ -146,7 +146,6 @@ fn roll_over_expired(account: &mut Value, read_at: Timestamp) -> Result<(), Stri
         let reset = py::parse(window["resets_at"].as_str().unwrap_or_default())?;
         if reset.unix_nanos() <= read_at.unix_nanos() && window["as_of"].as_str().is_some_and(|as_of| py::parse(as_of).is_ok_and(|as_of| as_of.unix_nanos() < reset.unix_nanos())) {
             window["headroom"] = json!(100.0);
-            window["beta"] = json!(0.0);
             window["as_of"] = json!(stamp);
         }
     }

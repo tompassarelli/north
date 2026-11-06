@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use super::{age, plain};
-use crate::pace::limits::default;
+use crate::platform::harness::default_number;
 
 pub(super) const QUERY: &str = "SELECT at, kind, cell, n, p25, median, p75, value, source FROM calibration";
 const GOAL_KINDS: [&str; 2] = ["goal_eta", "goal_actual"];
@@ -38,15 +38,15 @@ pub fn stamp(text: &str) -> Option<f64> {
 
 fn fallback(row: &Row, now: f64) -> Option<String> {
     let floor = match row.kind.as_str() {
-        "tier" => default("min_runs"),
-        "box" => default("box_calibration_n"),
-        _ => default("calibration_thin_n"),
+        "tier" => default_number("min_runs"),
+        "box" => default_number("box_calibration_n"),
+        _ => default_number("calibration_thin_n"),
     } as i64;
     let n = row.n.unwrap_or(0);
     if n < floor {
         return Some(format!("n={n} < {floor}"));
     }
-    let days = default("calibration_stale_days") as i64;
+    let days = default_number("calibration_stale_days") as i64;
     (((now - stamp(&row.at)?) / 86_400.0).floor() as i64 >= days).then(|| format!("older than {days} days"))
 }
 
@@ -70,7 +70,7 @@ fn latest(rows: &[Row]) -> BTreeMap<&str, Vec<&Row>> {
 
 fn prior_lines(batch: &[&Row], now: f64) -> Vec<String> {
     let enough = |row: &Row| row.n.is_some_and(|n| row.value.is_some_and(|value| n as f64 >= value));
-    let state = |row: &Row| match (enough(row), crate::pace::limits::prior_measured(&row.cell)) {
+    let state = |row: &Row| match (enough(row), crate::platform::harness::default_measured(&row.cell)) {
         (false, _) => "WAIT",
         (true, true) => "SETTLED",
         (true, false) => "MEASURABLE-NOT-MEASURED",

@@ -9,15 +9,15 @@ const CODE_ONLY: &str = "Item: north#12 tidy placement\nSurface: rust\nNeeds: co
 const WARCRAFT: &str = "Item: makgora#4 LAN check\nSurface: rust\nNeeds: warcraft, native\n";
 
 pub(super) fn control(five: (f64, f64, &str), week: (f64, f64)) -> Value {
-    json!({"windows": [
+    json!([
         {"window": "5h", "used_pct": five.0, "burn_pct_h": five.1, "resets_at": five.2},
         {"window": "week", "used_pct": week.0, "burn_pct_h": week.1, "resets_at": "2026-10-20T00:00:00Z"},
-    ]})
+    ])
 }
 
 pub(super) fn gate(accounts: &[(&str, Value)]) -> Value {
     let controls: serde_json::Map<String, Value> = accounts.iter().map(|(n, c)| ((*n).to_owned(), c.clone())).collect();
-    json!({"claude": {"controls": controls}})
+    json!({"claude": {"windows": controls}})
 }
 
 fn roster(identities: &[(&str, Option<&str>)]) -> Roster {
@@ -28,7 +28,7 @@ fn roster(identities: &[(&str, Option<&str>)]) -> Roster {
 }
 
 fn verdicts(quota: &Value, roster: &Roster) -> Vec<Verdict> {
-    let at = crate::pace::target::seconds("2026-10-19T00:00:00Z").unwrap();
+    let at = crate::foundation::clock::rfc3339_seconds("2026-10-19T00:00:00Z").unwrap();
     gate::verdicts(quota, roster, &Basis::new(&DocumentMut::new(), at))
 }
 

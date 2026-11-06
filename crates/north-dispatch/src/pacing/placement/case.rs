@@ -2,7 +2,7 @@
 //! decides, and the decision taken from that `Case` alone, so the decision log can hold it and replay
 //! can run it again (docs/rationale/strategy-kernel.md).
 use super::super::storage;
-use super::super::{sampling, target};
+use super::super::target;
 use super::gate::{self, Decision, Machine};
 use super::hosts::{self, Facts};
 use super::room::Basis;
@@ -30,7 +30,7 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
     for table in [crate::platform::harness::MODEL_CATALOG, crate::platform::harness::DEFAULTS] {
         crate::platform::harness::document(table);
     }
-    let text = std::fs::read_to_string(sampling::policy_path()).map_err(|error| error.to_string())?;
+    let text = std::fs::read_to_string(crate::platform::orchestration::path()).map_err(|error| error.to_string())?;
     let cfg: DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
     let at = std::env::var("PLACEMENT_NOW").ok().and_then(|s| target::seconds(&s)).unwrap_or_else(storage::now);
     let (gate, usage) = usage(at);
@@ -105,13 +105,13 @@ fn here() -> Here {
     }
 }
 
-/// The Claude controls in usage-gate.json, with the file's sha256 and age, and the gate as decisions read it.
+/// The Claude accounts' sampled windows in usage-gate.json, with the file's sha256 and age, and the gate as decisions read it.
 fn usage(at: f64) -> (Value, Usage) {
     let path = gate::live_gate_path();
     let bytes = std::fs::read(&path).unwrap_or_default();
     let modified = std::fs::metadata(&path).and_then(|meta| meta.modified()).ok().and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
     let gate: Value = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
-    let controls = gate["claude"]["controls"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:")).map(|(name, control)| (name.clone(), storage::rows(&control["windows"]).iter().map(window).collect())).collect();
+    let controls = gate["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:")).map(|(name, sampled)| (name.clone(), storage::rows(sampled).iter().map(window).collect())).collect();
     let usage = Usage { sha256: crate::platform::decision_log::sha256_hex(&bytes), age_s: modified.map(|since| at - since.as_secs_f64()), controls };
     (gate_value(&usage), usage)
 }
@@ -143,10 +143,10 @@ fn gate_value(usage: &Usage) -> Value {
                     Value::Object(fields)
                 })
                 .collect();
-            (name.clone(), json!({ "windows": windows }))
+            (name.clone(), Value::Array(windows))
         })
         .collect();
-    json!({ "claude": { "controls": controls } })
+    json!({ "claude": { "windows": controls } })
 }
 
 fn config(cfg: &DocumentMut, sha256: String) -> Config {

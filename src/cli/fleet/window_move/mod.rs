@@ -57,7 +57,7 @@ pub(super) fn auto() {
 fn outlooks() -> NorthResult<Vec<AccountOutlook>> {
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| NorthError::Usage("no home directory".into()))?;
     let db = crate::usage::open_ledger(&home, None, &crate::threads::client::refresh_mirrored_snapshot).map_err(NorthError::State)?;
-    crate::usage::outlook::claude_accounts(&db, &north_core::pace::target::policy_path(), Timestamp::now()).map_err(NorthError::State)
+    crate::usage::outlook::claude_accounts(&db, &crate::platform::orchestration::path(), Timestamp::now()).map_err(NorthError::State)
 }
 
 fn execute(request: &Request) -> NorthResult<()> {

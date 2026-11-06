@@ -49,11 +49,11 @@ fn the_recorded_config_rebuilds_a_document_placement_reads_the_same_as_the_file(
 
 #[test]
 fn the_recorded_usage_gives_the_gate_value_its_verdicts_read() {
-    let gate = json!({"claude": {"controls": {
-        "claude:a": {"windows": [{"window": "5h", "used_pct": 40, "burn_pct_h": 3.5}, {"window": "7d", "used_pct": 61.5, "resets_at": "2026-11-08T00:00:00Z", "reset_h": 50.0, "extra": 1}]},
-        "codex:x": {"windows": []}
+    let gate = json!({"claude": {"windows": {
+        "claude:a": [{"window": "5h", "used_pct": 40, "burn_pct_h": 3.5}, {"window": "7d", "used_pct": 61.5, "resets_at": "2026-11-08T00:00:00Z", "reset_h": 50.0, "extra": 1}],
+        "codex:x": []
     }}});
-    let controls = gate["claude"]["controls"].as_object().unwrap().iter().filter(|(name, _)| name.starts_with("claude:")).map(|(name, control)| (name.clone(), storage::rows(&control["windows"]).iter().map(window).collect())).collect();
+    let controls = gate["claude"]["windows"].as_object().unwrap().iter().filter(|(name, _)| name.starts_with("claude:")).map(|(name, sampled)| (name.clone(), storage::rows(sampled).iter().map(window).collect())).collect();
     let usage = Usage { sha256: String::new(), age_s: None, controls };
     let rebuilt = gate_value(&usage);
     let roster = BTreeMap::from([("claude:a".to_owned(), north_strategy_types::placement::Standing::Listed)]);

@@ -374,3 +374,7 @@ fn python_clock_nanos(text: &str) -> Option<i128> {
     Some((i128::from(hour) * 3600 + i128::from(minute) * 60 + i128::from(second)) * NANOS_PER_SECOND + micros * 1000)
 }
 
+
+pub fn rfc3339_seconds(text: &str) -> Option<f64> {
+    Timestamp::parse_rfc3339(text).map(Timestamp::unix_seconds_f64)
+}

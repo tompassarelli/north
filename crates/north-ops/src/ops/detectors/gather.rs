@@ -240,7 +240,7 @@ impl<'a> Gatherer<'a> {
 
     pub fn disks(&self) -> disk::Facts {
         let owner = fs::read_to_string(self.checkout().join(format!("docs/rationale/{DISK_DOC}.md"))).ok().and_then(|text| owner_line(&text));
-        let readings = crate::ops::flow::read_hosts(self.host, &crate::pace::target::policy_path());
+        let readings = crate::ops::flow::read_hosts(self.host, &crate::platform::orchestration::path());
         disk::Facts { owner, hosts: readings.into_iter().map(|reading| disk::Host { name: reading.host, free_gib: reading.disk_free_gib }).collect() }
     }
 

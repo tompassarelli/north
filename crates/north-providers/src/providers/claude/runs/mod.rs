@@ -98,7 +98,7 @@ pub fn rows(session: Option<&str>, since: &str, settled: HashMap<String, Option<
 
 fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<()> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or_else(|| NorthError::Usage("no home directory".into()))?);
-    let policy = fs::read_to_string(crate::pace::target::policy_path()).ok().and_then(|text| text.parse().ok());
+    let policy = fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse().ok());
     let main = MainIndex::parse(main);
     let repositories = landing::repositories();
     let pushes = landing::settle(landings::pushes(&landings::push_log()), &main, |push| landing::subject_in(&repositories, push));

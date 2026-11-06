@@ -19,7 +19,7 @@ fn fleet_claiming(home: &Path, profiles: &str, held: Arc<claims::Held>) -> Fleet
     fs::create_dir_all(&local).unwrap();
     fs::write(local.join(".credentials.json"), "{}").unwrap();
     fs::write(local.join(".claude.json"), r#"{"oauthAccount":{"accountUuid":"local-login"}}"#).unwrap();
-    let policy = crate::pace::target::home_policy_path(home);
+    let policy = crate::platform::orchestration::under(home);
     fs::create_dir_all(policy.parent().unwrap()).unwrap();
     let here = crate::platform::host::name();
     fs::write(&policy, format!("[accounts.claude.profiles.a]\n\"{here}\" = {{ path = \"~/.local/state/north/profiles/claude-a\" }}\n{profiles}")).unwrap();

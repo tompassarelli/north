@@ -83,7 +83,7 @@ fn operator() -> PathBuf {
     std::env::var_os("AGENTS_OPERATOR_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            sampling::policy_path()
+            crate::platform::orchestration::path()
                 .parent()
                 .unwrap_or(Path::new("."))
                 .to_owned()

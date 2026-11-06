@@ -1,1 +1,0 @@
-- Pace notices: a pace hold or resume goes to the phone only (`PACE-HELD`, `PACE-RESUMED`); no fleet session is messaged, so a notice never wakes a session and never reads as an instruction to stop spawning (north#186, north#249). An idle session sees each account's pace in its next prompt through the grounding hook.

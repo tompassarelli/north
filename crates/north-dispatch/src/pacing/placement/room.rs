@@ -60,13 +60,13 @@ pub fn plan(cfg: &DocumentMut, catalog: &DocumentMut, account: &str) -> Result<P
     Ok(PlanSize { five_hour: five_hour / unit.0, week: week / unit.1 })
 }
 
-/// The room a usage-gate control leaves at `at`: its tightest five-hour and week windows, an
+/// The room an account's sampled windows leave at `at`: its tightest five-hour and week windows, an
 /// unsampled window or one whose reset has passed counting as unused.
-pub fn room(control: &Value, at: f64) -> Room {
+pub fn room(windows: &Value, at: f64) -> Room {
     let mut room = Room { five_hour: 100.0, week: 100.0, week_reset_h: WEEK_H };
-    for window in control["windows"].as_array().into_iter().flatten() {
+    for window in windows.as_array().into_iter().flatten() {
         let (Some(name), Some(used)) = (window["window"].as_str(), window["used_pct"].as_f64()) else { continue };
-        let resets = window["resets_at"].as_str().and_then(crate::pace::target::seconds);
+        let resets = window["resets_at"].as_str().and_then(crate::foundation::clock::rfc3339_seconds);
         let left = if resets.is_some_and(|resets| resets <= at) { 100.0 } else { (100.0 - used).max(0.0) };
         if name == "5h" {
             room.five_hour = room.five_hour.min(left);

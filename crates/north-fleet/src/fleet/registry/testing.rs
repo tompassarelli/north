@@ -21,7 +21,7 @@ impl Fleet {
     }
 
     pub fn at_claiming(home: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>) -> NorthResult<Self> {
-        let policy = crate::pace::target::home_policy_path(&home);
+        let policy = crate::platform::orchestration::under(&home);
         Self::rooted(home, policy, runtimes, ledger, claims, Arc::new(Unrecorded), Arc::new(HeldLeases::default()))
     }
 

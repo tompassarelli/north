@@ -1,37 +1,14 @@
-use super::{
-    admission,
-    control::{self, Control, Reading},
-    process, readout, storage, target,
-    window::Window,
-};
+use super::{process, readout, storage};
+use crate::foundation::clock::rfc3339_seconds;
+use crate::spend::{self, Placed, Rules, Starter};
 use crate::dispatch::fleets;
 use crate::platform::harness;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use storage::{load, number, rows, save};
 
-pub(super) fn root() -> PathBuf {
-    harness::harness_root().unwrap_or_else(|skew| {
-        eprintln!("{skew}");
-        std::process::exit(1)
-    })
-}
-pub(super) fn policy_path() -> PathBuf {
-    std::env::var_os("AGENTS_ORCHESTRATION")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::var_os("AGENTS_OPERATOR_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| {
-                    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-                        .join("code/south/main/agents")
-                })
-                .join("orchestration.toml")
-        })
-}
 pub(super) fn config() -> Result<toml_edit::DocumentMut, String> {
-    std::fs::read_to_string(policy_path())
+    std::fs::read_to_string(crate::platform::orchestration::path())
         .map_err(|e| e.to_string())?
         .parse()
         .map_err(|e: toml_edit::TomlError| e.to_string())
@@ -99,7 +76,7 @@ pub(super) fn install_token_usage(read: TokenUsage) {
 }
 
 fn token_rows(at: f64) -> Vec<Value> {
-    TOKEN_USAGE.get().map_or_else(Vec::new, |read| read(&policy_path(), at))
+    TOKEN_USAGE.get().map_or_else(Vec::new, |read| read(&crate::platform::orchestration::path(), at))
 }
 
 pub(super) fn merge_token_rows(reads: &mut Reads, rows: impl FnOnce() -> Vec<Value>) {
@@ -162,7 +139,7 @@ pub(super) fn record_cadence(
     for (provider, (_, measured)) in reads {
         let previous = number(&state["providers"][*provider]["interval_s"], 60.0);
         let failed = measured["throttled"] == true || measured["code"] != 0;
-        let cadence = admission::interval(previous, number(&measured["elapsed_s"], 0.0), failed, 0.0);
+        let cadence = interval(previous, number(&measured["elapsed_s"], 0.0), failed);
         let mut measured = measured.clone();
         measured["interval_s"] = json!(cadence);
         measured["sampled_at"] = if failed { state["providers"][*provider]["sampled_at"].clone() } else { json!(at) };
@@ -175,55 +152,41 @@ pub(super) fn record_cadence(
     Ok(())
 }
 
+const MIN_INTERVAL_SECONDS: f64 = 60.0;
+const SLOW_READ_SECONDS: f64 = 20.0;
+
+pub(super) fn interval(previous: f64, elapsed: f64, throttled: bool) -> f64 {
+    if throttled {
+        return MIN_INTERVAL_SECONDS.max(previous * 2.0).min(crate::usage::STALE_SECONDS);
+    }
+    if elapsed > SLOW_READ_SECONDS { MIN_INTERVAL_SECONDS.max((elapsed * 2.0).ceil()) } else { MIN_INTERVAL_SECONDS }
+}
+
 fn usage_gate(db: &rusqlite::Connection) -> Result<Value, String> {
     crate::usage::write_pace_gate(db).map_err(|error| format!("usage gate failed: {error}"))
 }
 
 pub(super) fn prune_retired(state: &mut Value) {
     let live = |provider: &str| ADAPTERS.contains(&provider);
-    for key in ["accounts", "providers"] {
-        if let Some(entries) = state[key].as_object_mut() {
-            entries.retain(|name, _| live(name.split(':').next().unwrap_or_default()));
-        }
+    if let Some(providers) = state["providers"].as_object_mut() {
+        providers.retain(|name, _| live(name));
     }
-    for (key, field) in [("history", "provider"), ("grants", "account")] {
-        if let Some(entries) = state[key].as_array_mut() {
-            entries.retain(|entry| entry[field].as_str().is_none_or(|name| live(name.split(':').next().unwrap_or_default())));
-        }
+    if let Some(history) = state["history"].as_array_mut() {
+        history.retain(|entry| entry["provider"].as_str().is_none_or(live));
     }
 }
 
-fn measure(
-    directory: &std::path::Path,
-    db: &rusqlite::Connection,
-    reads: &Reads,
-    at: f64,
-) -> Result<(Value, Value), String> {
+fn measure(directory: &std::path::Path, db: &rusqlite::Connection, reads: &Reads, at: f64) -> Result<(Value, Value), String> {
     let _lock = storage::lock(directory, "pace-control.lock", None)?;
-    let mut state = load(&directory.join("pace-control.json"));
-    for key in ["accounts", "providers"] {
-        if !state[key].is_object() {
-            state[key] = json!({});
-        }
+    let loaded = load(&directory.join("pace-control.json"));
+    let mut state = json!({"providers": loaded["providers"], "history": loaded["history"]});
+    if !state["providers"].is_object() {
+        state["providers"] = json!({});
     }
     prune_retired(&mut state);
     record_cadence(directory, &mut state, reads, at)?;
     readout::record(db, rows(&state["history"]))?;
-    let gate = usage_gate(db)?;
-    Ok((state, gate))
-}
-
-fn lead_is_live(grant: &Value, nodes: &[Value]) -> bool {
-    nodes.iter().any(|n| {
-        n["name"] == grant["lead"]
-            && n["conversation"] == grant["session"]
-            && n["status"] != "exited"
-            && grant["account"].as_str().is_some_and(|a| {
-                n["provider"] == a.split(':').next().unwrap_or_default()
-                    && (!a.starts_with("claude:")
-                        || n["account"] == a.trim_start_matches("claude:"))
-            })
-    })
+    Ok((state, usage_gate(db)?))
 }
 
 pub(super) fn history_window(remote: bool) -> f64 {
@@ -234,74 +197,27 @@ pub(super) fn recent_history(state: &Value, fresh: &[Value], window: f64) -> Vec
     rows(&state["history"])
         .iter()
         .chain(fresh.iter())
-        .filter(|r| {
-            r["ts"]
-                .as_str()
-                .and_then(target::seconds)
-                .is_some_and(|ts| ts >= storage::now() - window)
-        })
+        .filter(|r| r["ts"].as_str().and_then(rfc3339_seconds).is_some_and(|ts| ts >= storage::now() - window))
         .cloned()
         .collect()
 }
 
-struct Round<'a> {
-    directory: &'a std::path::Path,
-    providers: Vec<&'a str>,
-    fleet: Option<Vec<(String, Value)>>,
-    fresh: Vec<Value>,
-    remote: bool,
-    initial: i64,
-    notify: bool,
+pub(super) fn standings(directory: &std::path::Path, cfg: &toml_edit::DocumentMut, fleet: &[(String, Value)], at: f64) -> Vec<Value> {
+    let sessions: Vec<_> = fleet.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
+    let working = fleets::working_by_account(&sessions);
+    let rules = Rules::configured();
+    let catalog = harness::document(harness::MODEL_CATALOG);
+    let view = spend::view(directory, &rules, fleets::active_workers(&sessions), at, |name| spend::plan_week(cfg, catalog, name), |_| true);
+    view.accounts
+        .iter()
+        .map(|account| {
+            let refusal = view.admit(&rules, &account.name, Starter::Worker, Placed::default()).err().map(|refusal| refusal.to_string());
+            json!({"at": at, "account": account.name, "admits": refusal.is_none(), "refusal": refusal, "workers": working.get(&account.name).copied().unwrap_or(0)})
+        })
+        .collect()
 }
 
-fn publish(
-    round: &Round,
-    state: &mut Value,
-    gate: &mut Value,
-) -> Result<Vec<(String, Control)>, String> {
-    let directory = round.directory;
-    let _lock = storage::lock(directory, "pace-control.lock", None)?;
-    let retained = load(&directory.join("pace-control.json"));
-    state["grants"] = json!(
-        rows(&retained["grants"])
-            .iter()
-            .filter(|g| round.fleet.as_deref().is_none_or(|fleet| fleet.iter().any(|(_, listing)| lead_is_live(g, listing.as_array().map_or(&[], Vec::as_slice)))))
-            .collect::<Vec<_>>()
-    );
-    let mut deliveries = update_controls(
-        state,
-        gate,
-        &round.providers,
-        round.fleet.as_deref(),
-        storage::now(),
-        round.initial,
-        target::target_for,
-    )?;
-    for (account, control) in &deliveries {
-        let mut raw = serde_json::to_value(control).map_err(|e| e.to_string())?;
-        raw["account"] = json!(account);
-        storage::append(&directory.join("pace-control.jsonl"), &raw)?;
-    }
-    deliveries.retain(|(_, c)| round.notify && c.notify);
-    state["history"] = json!(recent_history(state, &round.fresh, history_window(round.remote)));
-    save(&directory.join("pace-control.json"), state)?;
-    save(&directory.join("usage-gate.json"), gate)?;
-    Ok(deliveries)
-}
-
-fn deliver_all(deliveries: &[(String, Control)]) {
-    std::thread::scope(|scope| {
-        for (account, control) in deliveries {
-            scope.spawn(move || {
-                if let Err(error) = deliver(account, control) {
-                    eprintln!("pace-control: delivery failed for {account}: {error}");
-                }
-            });
-        }
-    });
-}
-
-pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Result<Value, String> {
+pub(super) fn sample(provider: Option<&str>) -> Result<Value, String> {
     let directory = storage::directory();
     let _sampling = storage::lock(&directory, "pace-sampling.lock", None)?;
     let at = storage::now();
@@ -321,133 +237,14 @@ pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Resu
     if remote && !fresh.is_empty() {
         ingest_remote(&directory, &fresh, at)?;
     }
-    config()?;
-    let (mut state, mut gate) = measure(&directory, &db, &reads, at)?;
-    let round = Round {
-        directory: &directory,
-        providers: reads.keys().copied().collect(),
-        fleet: cfg.as_ref().and_then(|cfg| fleets::every_fleet(cfg, &here, at, FLEET_READ)),
-        fresh,
-        remote,
-        initial,
-        notify,
-    };
-    let deliveries = publish(&round, &mut state, &mut gate)?;
-    deliver_all(&deliveries);
+    let cfg = config()?;
+    let (mut state, gate) = measure(&directory, &db, &reads, at)?;
+    let fleet = fleets::every_fleet(&cfg, &here, at, FLEET_READ);
+    let _lock = storage::lock(&directory, "pace-control.lock", None)?;
+    for standing in fleet.as_deref().map(|fleet| standings(&directory, &cfg, fleet, storage::now())).unwrap_or_default() {
+        storage::append(&directory.join("pace-control.jsonl"), &standing)?;
+    }
+    state["history"] = json!(recent_history(&state, &fresh, history_window(remote)));
+    save(&directory.join("pace-control.json"), &state)?;
     Ok(gate)
-}
-
-fn window_summary(w: &Window) -> String {
-    format!(
-        "{} used={:.1}% burn={}%/h horizon={:.2}h projected={}%",
-        w.window,
-        w.used_pct,
-        w.burn_pct_h
-            .map(|n| json!(n).to_string())
-            .unwrap_or_else(|| "None".into()),
-        w.horizon_h.unwrap_or(w.reset_h),
-        w.projected_pct
-            .map(|n| json!(n).to_string())
-            .unwrap_or_else(|| "None".into())
-    )
-}
-
-fn control_line(account: &str, control: &Control, action: &str) -> String {
-    let mut numbers = control
-        .windows
-        .iter()
-        .map(window_summary)
-        .collect::<Vec<_>>()
-        .join("; ");
-    if let Some(target) = &control.target {
-        numbers.push_str(&format!(
-            " target={}% by={}",
-            json!(target.spend_to_pct),
-            target.by
-        ));
-    }
-    format!(
-        "{action} {account} allowed={} {numbers}",
-        control.allowed_workers.unwrap_or(0)
-    )
-}
-
-pub(super) fn phone_notice(account: &str, control: &Control) -> (String, String) {
-    let action = if control.held == Some(true) {
-        "PACE-HELD"
-    } else {
-        "PACE-RESUMED"
-    };
-    (
-        format!("Pace: {account} {action}"),
-        control_line(account, control, action),
-    )
-}
-
-pub(super) fn deliver(account: &str, control: &Control) -> Result<(), String> {
-    let (title, line) = phone_notice(account, control);
-    let output = process::run(
-        &root().join("bin/supply-alert").to_string_lossy(),
-        &["normal", &line, &title],
-        None,
-        15.0,
-    )?;
-    if output.code != 0 {
-        eprintln!("pace-control: phone notification failed for {account}");
-    }
-    Ok(())
-}
-
-pub(super) fn update_controls(
-    state: &mut Value,
-    gate: &mut Value,
-    providers: &[&str],
-    fleet: Option<&[(String, Value)]>,
-    at: f64,
-    initial: i64,
-    target_for: impl Fn(&str, f64) -> Result<Option<super::target::Target>, String>,
-) -> Result<Vec<(String, Control)>, String> {
-    if !state["accounts"].is_object() {
-        state["accounts"] = json!({});
-    }
-    let working = fleet.map(|fleet| {
-        let sessions: Vec<_> = fleet.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
-        fleets::working_by_account(&sessions)
-    });
-    let mut deliveries = Vec::new();
-    for provider in providers {
-        let projections = gate[provider]["projections"]
-            .as_object()
-            .cloned()
-            .unwrap_or_default();
-        let mut controls = json!({});
-        let readings: Vec<(String, Vec<Window>)> = projections
-            .into_iter()
-            .map(|(account, windows)| Ok((account, serde_json::from_value(windows).map_err(|e: serde_json::Error| e.to_string())?)))
-            .collect::<Result<_, String>>()?;
-        for (account, windows) in readings {
-            let previous: Control =
-                serde_json::from_value(state["accounts"][&account].clone()).unwrap_or_default();
-            let current = at;
-            let control = control::advance(
-                &previous,
-                Reading {
-                    windows,
-                    workers: working.as_ref().map(|working| working.get(&account).copied().unwrap_or(0)),
-                    at: current,
-                    initial,
-                    margin: crate::pace::limits::claude_session_margin(),
-                    target: target_for(&account, current)?,
-                },
-            );
-            deliveries.push((account.clone(), control.clone()));
-            let raw = serde_json::to_value(&control).map_err(|e| e.to_string())?;
-            controls[&account] = raw.clone();
-            state["accounts"][&account] = raw.clone();
-            gate[provider]["projections"][&account] = json!(control.windows);
-        }
-        gate[provider]["controls"] = controls;
-    }
-
-    Ok(deliveries)
 }

@@ -105,7 +105,7 @@ pub struct Fleet {
 
 impl Fleet {
     pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>, leases: Arc<dyn JobLeases>) -> NorthResult<Self> {
-        Self::rooted(home_dir()?, crate::pace::target::policy_path(), runtimes, ledger, claims, registrar, leases)
+        Self::rooted(home_dir()?, crate::platform::orchestration::path(), runtimes, ledger, claims, registrar, leases)
     }
 
     fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>, leases: Arc<dyn JobLeases>) -> NorthResult<Self> {

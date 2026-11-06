@@ -29,7 +29,7 @@ pub struct Rules {
 
 impl Rules {
     pub fn configured() -> Self {
-        let number = crate::pace::limits::default;
+        let number = crate::platform::harness::default_number;
         Self {
             reserve: number("spend_reserve"),
             charge: number("spend_worker_charge"),

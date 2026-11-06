@@ -281,7 +281,7 @@ fn with_accounts(host: &Host, labels: &[&str]) {
         std::fs::write(dir.join(".claude.json"), format!(r#"{{"oauthAccount":{{"accountUuid":"login-{label}"}}}}"#)).unwrap();
         policy.push_str(&format!("[accounts.claude.profiles.{label}]\n\"{}\" = {{ path = \"{}\" }}\n", crate::platform::host::name(), dir.display()));
     }
-    let file = crate::pace::target::home_policy_path(host.home.path());
+    let file = crate::platform::orchestration::under(host.home.path());
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(file, policy).unwrap();
 }

@@ -80,7 +80,7 @@ fn spawn(world: &impl World, event: &Event) -> Result<Vec<String>, String> {
 /// The spend view from this host's state as last sampled; a subagent adds no session, so the active
 /// count is not read.
 fn spend_view(world: &impl World) -> (View, Rules) {
-    let cfg = std::fs::read_to_string(crate::pace::target::policy_path()).ok().and_then(|text| text.parse::<DocumentMut>().ok()).unwrap_or_default();
+    let cfg = std::fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse::<DocumentMut>().ok()).unwrap_or_default();
     let rules = Rules::configured();
     let catalog = crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG);
     (spend::view(&state_dir(world).join("agents"), &rules, 0, world.now(), |name| spend::plan_week(&cfg, catalog, name), |_| true), rules)

@@ -163,7 +163,7 @@ fn a_window_a_newer_reading_of_the_account_postdates_the_reset_of_reads_zero_use
         ]);
         let scratch = Scratch::new(&serde_json::json!({"rows": rows, "orchestration": include_str!("../router/fixtures/policy/orchestration.toml")}));
         let gate = super::gate::write(&scratch.open(), &["claude"], &scratch.places(), frozen()).unwrap();
-        gate["claude"]["projections"]["claude:a"].as_array().unwrap().iter().find(|w| w["window"] == "5h").unwrap().clone()
+        gate["claude"]["windows"]["claude:a"].as_array().unwrap().iter().find(|w| w["window"] == "5h").unwrap().clone()
     };
     let rolled = window("2026-10-28T11:59:00Z");
     assert_eq!((rolled["used_pct"].as_f64(), rolled["as_of"].as_str(), rolled["age_s"].as_f64()), (Some(0.0), Some("2026-10-28T11:59:00Z"), Some(60.0)), "{rolled}");

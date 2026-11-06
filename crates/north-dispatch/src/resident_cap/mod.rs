@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use regex::Regex;
 use serde_json::{Value, json};
 
-use crate::pace::target::policy_path;
+use crate::platform::orchestration;
 use crate::platform::{host, process};
 
 const AGENTS: [&str; 2] = ["claude", "codex"];
@@ -59,7 +59,7 @@ pub fn run(arguments: &[String]) -> u8 {
 
 
 fn cap(name: &str) -> Option<i64> {
-    let text = fs::read_to_string(policy_path()).ok()?;
+    let text = fs::read_to_string(orchestration::path()).ok()?;
     let document: toml_edit::DocumentMut = text.parse().ok()?;
     document.get("hosts")?.get(name)?.get("resident_cap")?.as_integer()
 }

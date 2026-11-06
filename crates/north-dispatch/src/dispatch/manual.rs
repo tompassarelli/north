@@ -173,7 +173,7 @@ pub fn picked_tier(brief: &str) -> Result<Tier, String> {
 fn issue_text(item: &str) -> Result<(String, f64), String> {
     let item = IssueRef::parse(item).ok_or_else(|| format!("{item} names no issue"))?;
     let json = github::json(&["issue", "view", &item.number.to_string(), "-R", &format!("{OWNER}/{}", item.repo), "--json", "body,createdAt"])?;
-    let created = json["createdAt"].as_str().and_then(crate::pace::target::seconds).ok_or_else(|| format!("{item} carries no createdAt"))?;
+    let created = json["createdAt"].as_str().and_then(crate::foundation::clock::rfc3339_seconds).ok_or_else(|| format!("{item} carries no createdAt"))?;
     Ok((json["body"].as_str().unwrap_or_default().to_owned(), created))
 }
 

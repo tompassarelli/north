@@ -99,7 +99,7 @@ fn category_eta(category: &str) -> Result<(Option<f64>, u64, String), String> {
 }
 
 fn run_quote(options: &Options) -> Result<Option<String>, String> {
-    let config = read_config(&crate::pace::target::policy_path())?;
+    let config = read_config(&crate::platform::orchestration::path())?;
     let Some(project) = config["projects"].get(&options.project) else { return Ok(Some(format!("unknown project '{}'", options.project))) };
     let database = snapshot_path();
     if database.file_name().is_some_and(|name| name == "threads.db") {
