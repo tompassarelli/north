@@ -376,7 +376,7 @@ pub(super) fn run(land: &Land) -> u8 {
     let marker = ran_marker(&reference);
     let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker].map(quote);
     let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
-    let spawned = Command::new("ssh")
+    let spawned = with_caller("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])
         .stdin(Stdio::from(bundle))
         .stdout(Stdio::piped())
@@ -391,6 +391,17 @@ pub(super) fn run(land: &Land) -> u8 {
         Err(error) => return fail(&format!("ssh: {error}")),
     };
     verdict(exited, ran).unwrap_or_else(|why| fail(&why))
+}
+
+/// `program` set to die with this process when `setpriv` is on PATH: an ssh client orphaned by a killed caller stops relaying the remote output, so the remote job blocks writing it and holds its slot until its deadline.
+fn with_caller(program: &str) -> Command {
+    let setpriv = std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|directory| directory.join("setpriv").is_file()));
+    if !setpriv {
+        return Command::new(program);
+    }
+    let mut command = Command::new("setpriv");
+    command.args(["--pdeathsig", "TERM", "--", program]);
+    command
 }
 
 fn ran_marker(reference: &str) -> String {
