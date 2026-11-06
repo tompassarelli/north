@@ -65,8 +65,8 @@ fn a_red_main_run_whose_previous_runs_were_not_green_reverts_exactly_the_culprit
     assert_eq!(git(&north.origin, &["for-each-ref", "refs/heads/north-lane"]), "", "a landing deletes the lane's origin branch\n{transcript}");
     let decisions = recorded(&world.path().join("state/north/decisions/land.sheriff"));
     let steps: Vec<&Value> = decisions.iter().map(|line| &line["decision"]).collect();
-    assert_eq!(steps[steps.len() - 3..], [&json!({"confirm": 2}), &json!("recheck"), &json!({"revert": 2})], "the revert follows the confirmation and the recheck that justified it: {steps:?}");
+    assert_eq!(steps[steps.len() - 5..], [&json!({"confirm": 2}), &json!("recheck"), &json!({"confirm": 2}), &json!("recheck"), &json!({"revert": 2})], "the revert follows two confirmations and two rechecks that justified it: {steps:?}");
     let case = &decisions.last().unwrap()["case"];
-    assert_eq!(case["confirmations"], json!([[2, []]]), "main without the culprit passed check.sh: {case}");
+    assert_eq!(case["confirmations"], json!([[2, []], [2, []]]), "main without the culprit passed check.sh twice: {case}");
     assert_eq!(case["lanes"][2], json!(culprit), "{case}");
 }

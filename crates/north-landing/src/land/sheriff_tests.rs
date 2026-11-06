@@ -41,10 +41,10 @@ fn bisects_a_range_to_the_lane_that_turns_the_case_red_and_verifies_only_that_on
         },
     );
     assert_eq!(finding, Finding::Revert { lane: "l3".into(), cases: x().into_iter().collect() });
-    assert_eq!(at_probed, ["head", "l3", "l2", "head"], "the tip reruns once more after the confirmation");
+    assert_eq!(at_probed, ["head", "l3", "l2", "head", "head"], "the tip reruns twice more, each after a confirmation");
     let ledger = "1\tnorth\tg1\tgreen\t\t\t5\t\n2\tnorth\tg2\tred-main\tx\t\t5\t\n3\tother\tg3\tgreen\t\t\t5\t";
     assert_eq!(green_ancestor(ledger, "north", &["g3", "g2", "g1"]), Some("g1".to_owned()));
-    assert_eq!(revert_probed, ["l3"]);
+    assert_eq!(revert_probed, ["l3", "l3"], "main without the culprit passes twice before its revert");
 }
 
 #[test]
@@ -83,6 +83,13 @@ fn a_failure_that_passes_at_the_tip_on_the_recheck_is_flaky_and_reverts_nothing(
         (!at_tip || tip_runs < 4).then(|| if lane.commit == "l1" { BTreeSet::new() } else { x() })
     }, |_| Some(BTreeSet::new()));
     assert!(matches!(unreached, Finding::NoVerdict(_)), "a recheck with no verdict never reverts: {unreached:?}");
+    let mut base_runs = 0;
+    let host_state = find(&request(), "head", &lanes, &BTreeSet::new(), |lane| Some(if lane.commit == "l1" { BTreeSet::new() } else { x() }), |_| {
+        base_runs += 1;
+        Some(if base_runs == 1 { BTreeSet::new() } else { x() })
+    });
+    assert_eq!(host_state, Finding::Flaky { lane: "l2".into(), cases: x().into_iter().collect() }, "a case that fails once in two runs on the base names no culprit");
+    assert_eq!(base_runs, 2, "the base runs a second time before any revert");
 }
 
 #[test]
@@ -104,7 +111,7 @@ fn a_red_that_names_no_test_bisects_by_rerunning_its_failing_step_at_the_tip_and
         |lane| Some(if lane.commit == "l2" { BTreeSet::new() } else { clippy() }),
     );
     assert_eq!(finding, Finding::Revert { lane: "l2".into(), cases: clippy().into_iter().collect() });
-    assert_eq!(reran, ["red", "l2", "l1", "red"], "the step reruns at the red head, bisects, then rechecks the tip after the confirmation");
+    assert_eq!(reran, ["red", "l2", "l1", "red", "red"], "the step reruns at the red head, bisects, then rechecks the tip after each confirmation");
     main_moved_past_the_red_head();
 }
 
@@ -129,7 +136,7 @@ fn main_moved_past_the_red_head() {
     );
     assert_eq!(finding, Finding::Revert { lane: "culprit".into(), cases: clippy().into_iter().collect() });
     assert_eq!(reran.first().map(String::as_str), Some("tip"), "the failing step reruns at the new tip first: {reran:?}");
-    assert_eq!(without, ["culprit"], "main at the tip without the culprit is the confirmation");
+    assert_eq!(without, ["culprit", "culprit"], "main at the tip without the culprit, twice, is the confirmation");
     let fixed = find(&request, "tip", &lanes, &BTreeSet::new(), |_| Some(BTreeSet::new()), |_| Some(BTreeSet::new()));
     assert_eq!(fixed, Finding::Fixed { cases: clippy().into_iter().collect() }, "a later landing that fixed it leaves nothing to revert");
 }

@@ -80,6 +80,30 @@ fn bisect(case: &mut SheriffCase, failing: &BTreeSet<Failure>, lanes: &[Lane], a
     Some(culprit)
 }
 
+type Rerun<'a> = dyn FnMut(&Lane) -> Option<BTreeSet<Failure>> + 'a;
+
+fn reproduce(case: &mut SheriffCase, index: usize, lane: &Lane, newest: &Lane, failing: &BTreeSet<Failure>, at: &mut Rerun, probe: &mut Rerun) -> Result<Option<BTreeSet<Failure>>, String> {
+    let mut held = failing.clone();
+    for round in 0..2 {
+        if round > 0 {
+            steps::sheriff(case, &SheriffStep::Confirm(index as u64));
+            let base = probe(lane).ok_or_else(|| format!("on main without {} a second time", short(&lane.commit)))?;
+            case.confirmations.push((index as u64, Some(labels(&base))));
+            if !base.is_disjoint(&held) {
+                return Ok(None);
+            }
+        }
+        steps::sheriff(case, &SheriffStep::Recheck);
+        let again = at(newest).ok_or_else(|| format!("at the tip {} after the confirmation", short(&newest.commit)))?;
+        case.probes.push((0, labels(&again)));
+        held = held.intersection(&again).cloned().collect();
+        if held.is_empty() {
+            return Ok(None);
+        }
+    }
+    Ok(Some(held))
+}
+
 pub fn find(
     request: &Request,
     tip: &str,
@@ -122,19 +146,20 @@ pub fn find(
         steps::sheriff(&case, &SheriffStep::Confirm(index as u64));
         let still = probe(lane);
         case.confirmations.push((index as u64, still.as_ref().map(labels)));
-        if still.is_some_and(|still| still.is_disjoint(&failing)) {
-            steps::sheriff(&case, &SheriffStep::Recheck);
-            let Some(again) = at(newest) else {
-                return no_verdict(&case, format!("rerunning {} at the tip {} after the confirmation reached no verdict", names(&cases), short(tip)));
-            };
-            case.probes.push((0, labels(&again)));
-            if again.is_disjoint(&failing) {
-                steps::sheriff(&case, &SheriffStep::Flaky);
-                return Finding::Flaky { lane: lane.commit.clone(), cases };
-            }
-            steps::sheriff(&case, &SheriffStep::Revert(index as u64));
-            return Finding::Revert { lane: lane.commit.clone(), cases };
+        if !still.is_some_and(|still| still.is_disjoint(&failing)) {
+            continue;
         }
+        return match reproduce(&mut case, index, lane, newest, &failing, &mut at, &mut probe) {
+            Err(reason) => no_verdict(&case, format!("rerunning {} {reason} reached no verdict", names(&cases))),
+            Ok(None) => {
+                steps::sheriff(&case, &SheriffStep::Flaky);
+                Finding::Flaky { lane: lane.commit.clone(), cases }
+            }
+            Ok(Some(held)) => {
+                steps::sheriff(&case, &SheriffStep::Revert(index as u64));
+                Finding::Revert { lane: lane.commit.clone(), cases: held.into_iter().collect() }
+            }
+        };
     }
     steps::sheriff(&case, &SheriffStep::Environment);
     Finding::Environment { cases }
@@ -262,7 +287,7 @@ fn revert(lander: &Lander, worktree: &Path, request: &Request, tip: &str, lane: 
     let subject = git(worktree, &["log", "-1", "--format=%s", lane])?;
     let since = if tip == request.head { String::new() } else { format!(" and still at the tip {}", short(tip)) };
     let message = format!(
-        "Revert {subject}\n\nMain went red at {}{since} ({}): {} fail there and pass on main without {}, so the sheriff reverts it through the landing queue.\n\nReverts: {lane}\nSheriff-Reverts: {lane}\nMain-red: {}",
+        "Revert {subject}\n\nMain went red at {}{since} ({}): {} fail there twice and pass twice on main without {} in back-to-back reruns, so the sheriff reverts it through the landing queue.\n\nReverts: {lane}\nSheriff-Reverts: {lane}\nMain-red: {}",
         short(&request.head),
         request.run,
         names(cases),
@@ -297,7 +322,7 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
         Finding::Environment { cases } => Ok(format!("environment {} still fail on main without each landed lane; nothing is reverted", names(&cases))),
         Finding::Revert { lane, cases } => revert(lander, worktree, &request, &main, &lane, &cases),
         Finding::Flaky { lane, cases } => {
-            let text = format!("north land: sheriff: {} failed at the tip {}, passed on main without {}, then passed at the same tip on a rerun, so they are flaky, not that lane's failure; nothing is reverted; file the flaky test on its owner; log: {}", names(&cases), short(&main), short(&lane), request.log);
+            let text = format!("north land: sheriff: {} failed at the tip {} and passed on main without {}, but did not fail twice at the tip and pass twice without it in back-to-back reruns, so they are flaky, not that lane's failure; nothing is reverted; file the flaky test on its owner; log: {}", names(&cases), short(&main), short(&lane), request.log);
             if !super::after::send("proxy", &text) {
                 println!("{text}");
             }

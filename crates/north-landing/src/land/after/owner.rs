@@ -38,7 +38,7 @@ impl Reverted<'_> {
     }
 
     fn evidence(&self) -> String {
-        format!("the post-land checks failed at {} on {}; main without {} ({}) passes them, so the sheriff queued its revert {} ahead of the queue; log: {}", &self.red[..self.red.len().min(9)], self.failing, self.branch, self.short(), self.revert, self.log.display())
+        format!("the post-land checks failed at {} on {}; they failed twice at the tip and passed twice on main without {} ({}) in back-to-back reruns, so the sheriff queued its revert {} ahead of the queue; log: {}", &self.red[..self.red.len().min(9)], self.failing, self.branch, self.short(), self.revert, self.log.display())
     }
 
     fn notice(&self) -> String {
