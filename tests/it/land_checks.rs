@@ -116,6 +116,7 @@ impl Fixture {
             .env_remove("SAFE_PUSH_LAND_OFFLOAD_HOST")
             .env_remove("SAFE_PUSH_LAND_RUNNER")
             .env_remove("SAFE_PUSH_LAND_CHECK_TIMEOUT")
+            .env_remove("NORTH_LAND_SPANS")
             .env_remove("SAFE_PUSH_LANDING")
             .env_remove("SAFE_PUSH_LAND_BASE")
             .env_remove("SAFE_PUSH_LAND_HEAD")
