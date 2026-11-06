@@ -7,6 +7,7 @@ mod accounts;
 mod advisory;
 mod codex;
 mod gate;
+mod help_surface;
 mod programs;
 mod report;
 mod roots;
@@ -192,6 +193,7 @@ fn execute(context: &Context, verbose: bool) -> u8 {
     skills_group(context, &mut report);
     rules_group(context, &mut report);
     vocabulary_group(context, &mut report);
+    help_group(context, &mut report);
     programs_group(context, &mut report);
 
     if context.local {
@@ -257,6 +259,17 @@ fn vocabulary_group(context: &Context, report: &mut Report) {
         report.bad(&text);
     }
     report.group("vocabulary", "harness/ paths · Socrates names the workforce", before);
+}
+
+fn help_group(context: &Context, report: &mut Report) {
+    let before = report.fail;
+    let (text, clean) = help_surface::help_surface(&context.north);
+    if clean {
+        report.ok(&text);
+    } else {
+        report.bad(&text);
+    }
+    report.group("help", "north --help summaries and visible command ceiling", before);
 }
 
 fn routines(context: &Context, report: &mut Report) {

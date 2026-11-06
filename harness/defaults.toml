@@ -1576,3 +1576,11 @@ unit = "hours an idle or parked fleet session may stay quiet, with no registered
 source = "measured: dry run of north fleet reap on the laptop, 2026-11-06 2:40 PM: of 122 idle or parked sessions 82 retire on their report or past 12 h, 13 are held by a wait, queued lane, live child or a named commit not yet on origin/main, and 27 were quiet 8 min to 12 h; idle_exit ends a host after 10 min, so a session quiet 2 h with nothing to wake it is not working, and 2 is the smallest whole-hour value that leaves under 20 idle or parked"
 fallback = "a session the fleet tick does not retire stays addressable until the proxy forgets it"
 consumers = ["crates/north-fleet/src/fleet/reaper.rs"]
+
+[help_visible_ceiling]
+value = 70
+allowed = { min = 1, max = 200 }
+unit = "top-level entries north --help may list; each lane that folds a hyphenated family under its domain noun lowers it to the new count"
+source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07; the issue's target is 24 (north#703)"
+fallback = "none: agent-config-check refuses a help.txt over it"
+consumers = ["crates/north-core/src/agent_config_check/help_surface.rs"]
