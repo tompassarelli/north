@@ -916,6 +916,9 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   repository over its verification budget, so a bug fix never has to delete an unrelated test to land
   (north#681).
   A lane that changes only Markdown fixes no behaviour and passes without a label read (north#649).
+  A fix that cannot carry a test (a skill, policy or configuration change) passes with an
+  `Incident-test: none; REASON` commit trailer on any commit of the lane, also without a label read; a
+  trailer with no reason does not count (north#675).
   Labels are read with gh only when no test changed or a lane adds tests over budget, cached per lander round for an hour under
   the state dir; a GitHub that does not answer passes the lane with one warning line.
   Case incident-fix-needs-a-test pins the citation formats and gh's label listing as a file-or-wire-format contract.

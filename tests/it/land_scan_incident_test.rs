@@ -56,6 +56,10 @@ impl Fixture {
     }
 
     fn lane(&self, subject: &str, files: &[(&str, &str)]) {
+        self.lane_with(subject, files, &[]);
+    }
+
+    fn lane_with(&self, subject: &str, files: &[(&str, &str)], trailers: &[&str]) {
         git(&self.repo, &["reset", "-q", "--hard", &self.base]);
         for (path, text) in files {
             let path = self.repo.join(path);
@@ -63,7 +67,11 @@ impl Fixture {
             fs::write(path, text).unwrap();
         }
         git(&self.repo, &["add", "-A"]);
-        git(&self.repo, &["commit", "-qm", subject]);
+        let mut commit = vec!["commit", "-qm", subject];
+        for trailer in trailers {
+            commit.extend(["--trailer", trailer]);
+        }
+        git(&self.repo, &commit);
     }
 
     fn gh_calls(&self) -> usize {
@@ -104,7 +112,7 @@ fn incident_fix_needs_a_test() {
         assert_eq!(refused.status, 1, "{subject}: {}", refused.stdout);
         assert_eq!(
             refused.stdout,
-            "safe-push: ✗ this lane fixes bug north#7 but adds or changes no test; add a test that fails without the fix (a file under tests/ or test/, one named tests.*, *.test.*, *_test.* or *_tests.*, or a #[test]); NOT pushed.\n",
+            "safe-push: ✗ this lane fixes bug north#7 but adds or changes no test; add a test that fails without the fix (a file under tests/ or test/, one named tests.*, *.test.*, *_test.* or *_tests.*, or a #[test]), or name why none can exist in an `Incident-test: none; REASON` commit trailer; NOT pushed.\n",
             "{subject}"
         );
     }
@@ -129,6 +137,16 @@ fn incident_fix_needs_a_test() {
     assert_eq!(fixture.gh_calls(), asked);
     fixture.lane("Drain the precheck queue first (north#7)", &[("crates/drain/src/drain.rs", FIX), ("docs/rationale/experiments.toml", "[[check]]\nid = \"drain\"\n")]);
     assert_eq!(fixture.scan().status, 1);
+    for trailer in ["Incident-test: none; the fix is a skill paragraph", "Incident-test: none;the fix is a skill paragraph"] {
+        fixture.lane_with("Drain the precheck queue first (north#7)", &[("crates/drain/src/drain.rs", FIX)], &[trailer]);
+        let excused = fixture.scan();
+        assert_eq!(excused.status, 0, "{trailer}: {}", excused.stdout);
+        assert!(excused.stdout.is_empty(), "{trailer}: {}", excused.stdout);
+    }
+    for trailer in ["Incident-test: none", "Incident-test: none;  ", "Incident-test: yes; because"] {
+        fixture.lane_with("Drain the precheck queue first (north#7)", &[("crates/drain/src/drain.rs", FIX)], &[trailer]);
+        assert_eq!(fixture.scan().status, 1, "{trailer}");
+    }
     fixture.label(8, "enhancement\n");
     fixture.lane("Add a drain verb (north#8)", &[("crates/drain/src/drain.rs", FIX)]);
     assert_eq!(fixture.scan().status, 0);

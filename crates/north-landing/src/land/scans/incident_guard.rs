@@ -17,6 +17,7 @@ use crate::watch::state_home;
 const NORTH: &str = "tompassarelli/north";
 const BUG: &str = "bug";
 const FRESH: Duration = Duration::from_secs(3600);
+const TRAILER: &str = "Incident-test";
 
 static NORTH_CITATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bnorth#([0-9]+)").expect("citation pattern"));
 static FIXES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bfix(?:es|ed)?\s+#([0-9]+)").expect("fixes pattern"));
@@ -40,6 +41,11 @@ fn needs_no_test(directory: &Path, base: &str, head: &str) -> bool {
     }
     let diff = git::text(directory, &["diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-renames", base, head]).unwrap_or_default();
     TEST_ATTRIBUTE.is_match(&diff)
+}
+
+fn excused(directory: &Path, base: &str, head: &str) -> bool {
+    let trailers = git::text(directory, &["log", "--no-merges", &format!("--format=%(trailers:key={TRAILER},valueonly)"), &format!("{base}..{head}")]).unwrap_or_default();
+    trailers.lines().any(|line| line.trim().strip_prefix("none;").is_some_and(|reason| !reason.trim().is_empty()))
 }
 
 struct Labels {
@@ -116,7 +122,7 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
         return 0;
     };
     let base = git::merge_base(directory, base, head);
-    if needs_no_test(directory, &base, head) {
+    if needs_no_test(directory, &base, head) || excused(directory, &base, head) {
         return 0;
     }
     let Fixes { bugs, unread } = fixes(directory, &base, head);
@@ -126,6 +132,6 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
     if bugs.is_empty() {
         return 0;
     }
-    let _ = writeln!(out, "safe-push: ✗ this lane fixes bug {} but adds or changes no test; add a test that fails without the fix (a file under tests/ or test/, one named tests.*, *.test.*, *_test.* or *_tests.*, or a #[test]); NOT pushed.", named(&bugs));
+    let _ = writeln!(out, "safe-push: ✗ this lane fixes bug {} but adds or changes no test; add a test that fails without the fix (a file under tests/ or test/, one named tests.*, *.test.*, *_test.* or *_tests.*, or a #[test]), or name why none can exist in an `Incident-test: none; REASON` commit trailer; NOT pushed.", named(&bugs));
     1
 }
