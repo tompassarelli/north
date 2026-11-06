@@ -71,6 +71,8 @@ pub mod issue_cleanup;
 pub mod recommend_acts;
 pub mod status_not_action;
 mod status_not_action_tests;
+pub mod unproven_cause;
+mod unproven_cause_tests;
 mod gate_digest_tests;
 pub mod correction_capture;
 pub mod gate_digest;

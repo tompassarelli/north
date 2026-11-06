@@ -21,10 +21,6 @@ fn a_final_sentence_announcing_a_step_or_saying_nothing_is_needed_blocks_twice_p
     assert_eq!(decide(&stop(reply, "s1"), &dir), Verdict::Allow);
     let quiet = "Landed the gate digest on main as 4ea48c6. Nothing needs your decision.";
     assert!(matches!(decide(&stop(quiet, "s2"), &dir), Verdict::Deny(reason) if reason.contains("\"nothing needs your decision\"") && reason.contains("noise")));
-}
-
-#[test]
-fn only_the_last_sentence_counts_and_a_finished_report_passes() {
     assert_eq!(announced_step("I'll check the lander. It is landed as 4ea48c6."), None);
     assert_eq!(announced_step("Done: the guard is on main and its fixture tests pass."), None);
     assert_eq!(announced_step("The audit is written. I\u{2019}ll file the follow-up now").as_deref(), Some("i'll"));
