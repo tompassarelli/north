@@ -52,6 +52,9 @@ impl Lane {
         run(dir.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
         run(dir.path(), &["init", "-q", "-b", "main", repo.to_str().unwrap()]);
         run(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        for (key, value) in [("user.name", "Gate fixture"), ("user.email", "fixture@example.invalid"), ("commit.gpgsign", "false")] {
+            run(&repo, &["config", key, value]);
+        }
         fs::write(repo.join("content.txt"), "base\n").unwrap();
         let base = commit(&repo, "base");
         run(&repo, &["push", "-q", "origin", "main"]);

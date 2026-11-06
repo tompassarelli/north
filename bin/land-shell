@@ -5,9 +5,10 @@ dev=0
 [ "${1:-}" = -- ] || { printf 'usage: land-shell [--dev] -- COMMAND...\n' >&2; exit 2; }
 shift
 if [ "${GITHUB_ACTIONS:-}" = true ]; then exec "$@"; fi
+hermetic=(env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL -u EMAIL GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
 depbox=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/depbox
-[ "$dev" -eq 1 ] || exec "$depbox" run -- "$@"
+[ "$dev" -eq 1 ] || exec "$depbox" run -- "${hermetic[@]}" "$@"
 north=$(command -v north) || north=
-[ -z "$north" ] || [ -z "${DEPBOX:-}" ] || exec "$north" dev-shell run -- "$@"
-if [ -n "$north" ] && "$north" dev-shell run --prepare; then exec "$depbox" run -- "$north" dev-shell run -- "$@"; fi
-exec "$depbox" run -- nix develop --offline --no-update-lock-file -c "$@"
+[ -z "$north" ] || [ -z "${DEPBOX:-}" ] || exec "$north" dev-shell run -- "${hermetic[@]}" "$@"
+if [ -n "$north" ] && "$north" dev-shell run --prepare; then exec "$depbox" run -- "$north" dev-shell run -- "${hermetic[@]}" "$@"; fi
+exec "$depbox" run -- nix develop --offline --no-update-lock-file -c "${hermetic[@]}" "$@"

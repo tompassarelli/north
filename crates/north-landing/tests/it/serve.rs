@@ -54,6 +54,9 @@ impl World {
         git(&origin, &["init", "-q", "--bare", "-b", "main"]);
         let checkout = project.join("main");
         git(&project, &["clone", "-q", origin.to_str().unwrap(), "main"]);
+        for (key, value) in [("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
+            git(&checkout, &["config", key, value]);
+        }
         std::fs::write(checkout.join("README"), "start\n").unwrap();
         git(&checkout, &["add", "-A"]);
         git(&checkout, &["commit", "-q", "-m", "start"]);
