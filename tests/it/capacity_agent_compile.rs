@@ -6,6 +6,8 @@ const SYSTEMD_RUN: &str = "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nsh
 const SYSTEMCTL: &str = "#!/bin/sh\ncase \" $* \" in *\" show \"*) echo inactive ;; esac\n";
 const DARK_SSH: &str = "#!/bin/sh\nexit 255\n";
 const ORCHESTRATION: &str = "[hosts.laptop]\nreaches = [\"farhost\"]\n\n[hosts.farhost]\nssh = \"farhost\"\noffload_builds = true\n";
+const FULL: &str = "some avg10=95.00 avg60=95.00 avg300=95.00 total=1\n";
+const IDLE: &str = "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n";
 
 fn host() -> Host {
     let host = Host::new("agent-compile-", &[("systemd-run", SYSTEMD_RUN), ("systemctl", SYSTEMCTL), ("ssh", DARK_SSH)]);
@@ -21,7 +23,7 @@ fn host() -> Host {
 fn gate(host: &Host, session: Option<&str>, arguments: &[&str]) -> Output {
     let mut command = host.command(env!("CARGO_BIN_EXE_north"));
     command.env("RESIDENT_CAP_HOST", "laptop");
-    command.args(["capacity", "gate", "cargo"]).args(arguments).env("PATH", format!("{}:{}", host.path("real").display(), host.path("bin").display()));
+    command.args(["capacity", "gate", "cargo"]).args(arguments).env("PATH", format!("{}:{}:{}", host.path("real").display(), host.path("bin").display(), std::env::var("PATH").unwrap_or_default()));
     command.env("AGENT_CAPACITY_SELF_CGROUP", host.path("self-cgroup"));
     for key in ["NORTH_FLEET_SESSION", "NORTH_FLEET_SCOPE", "AGENT_CAPACITY_NEED"] {
         command.env_remove(key);
@@ -36,10 +38,11 @@ fn compiled(host: &Host) -> String {
     fs::read_to_string(host.path("compiled-here")).unwrap_or_default()
 }
 
-// KEEP(contract): a fleet session's compile on a host that does not lease builds is refused with the build hosts' reason when none has room, never compiled here, whether typed bare, inside depbox (which cleared the session, north#671) or as a shimless rustc or cargo-nextest the hook routes (north#671), while a shell outside any session runs the same cargo locally; north#634
+// KEEP(contract): a fleet session's compile on a host that does not lease builds is refused with the build hosts' reason only when no build host and not this host either has room beyond its reserves, never compiled here then, whether typed bare, inside depbox (which cleared the session, north#671) or as a shimless rustc or cargo-nextest the hook routes (north#671); with room here it waits in this host's own admission and compiles here (refusing it while the laptop idled left builds nowhere to run, 2026-11-06), and a shell outside any session runs the same cargo locally; north#634
 #[test]
-fn a_fleet_sessions_compile_from_any_entry_is_refused_when_no_build_host_has_room_and_another_shell_builds_locally() {
+fn a_fleet_sessions_compile_from_any_entry_is_refused_only_when_no_build_host_and_not_this_host_has_room() {
     let host = host();
+    fs::write(host.path("pressure"), FULL).unwrap();
     for subcommand in [&["build"][..], &["check", "-p", "x"], &["clippy"], &["nextest", "run"], &["test"]] {
         let refused = gate(&host, Some("n634-x"), subcommand);
         let stderr = String::from_utf8_lossy(&refused.stderr);
@@ -48,10 +51,14 @@ fn a_fleet_sessions_compile_from_any_entry_is_refused_when_no_build_host_has_roo
     }
     refused_inside_depbox(&host);
     refused_through_the_hook(&host);
-    assert_eq!(compiled(&host), "", "a fleet session compiled on the laptop");
+    assert_eq!(compiled(&host), "", "a fleet session compiled on a laptop with no room");
+    fs::write(host.path("pressure"), IDLE).unwrap();
+    let waited = gate(&host, Some("n634-x"), &["test"]);
+    assert_eq!(waited.status.code(), Some(0), "a fleet compile with room here: {}", String::from_utf8_lossy(&waited.stderr));
+    assert_eq!(compiled(&host), "test\n", "with room here the fleet compile runs here");
     let mine = gate(&host, None, &["build"]);
     assert_eq!(mine.status.code(), Some(0), "{}", String::from_utf8_lossy(&mine.stderr));
-    assert_eq!(compiled(&host), "build\n");
+    assert_eq!(compiled(&host), "test\nbuild\n");
 }
 
 // KEEP(contract): a fleet session's cargo that compiles nothing (metadata, fmt) and one with a local need keep running here; north#634
@@ -68,10 +75,11 @@ fn a_fleet_sessions_cargo_that_compiles_nothing_or_needs_this_host_runs_here() {
     assert_eq!(compiled(&host), "build\nmetadata\nfmt\n");
 }
 
-// KEEP(contract): a fleet session outside any dev shell on a laptop with no cargo on PATH is refused for want of a build host, not sent into the dev shell to compile here; north#634
+// KEEP(contract): a fleet session outside any dev shell on a full laptop with no cargo on PATH is refused for want of a build host, not sent into the dev shell to compile here; north#634
 #[test]
 fn a_fleet_sessions_cargo_with_no_real_cargo_on_path_is_refused_not_run_in_the_dev_shell() {
     let host = host();
+    fs::write(host.path("pressure"), FULL).unwrap();
     let mut command = host.command(env!("CARGO_BIN_EXE_north"));
     command.env("RESIDENT_CAP_HOST", "laptop");
     command.args(["capacity", "gate", "cargo", "test"]).env("PATH", host.path("bin")).env("AGENT_CAPACITY_SELF_CGROUP", host.path("self-cgroup")).env("NORTH_FLEET_SESSION", "n634-x");
