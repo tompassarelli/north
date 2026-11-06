@@ -18,7 +18,7 @@ Read this to create or edit issues, labels or Done-when boxes.
 
 - Count completion only from the issue's acceptance checks, never from a component check, because a passing part does not finish the issue.
 - Give each box one verification class (code, headless run, farm field, native check, product proof, Tom's direction or feel judgment, time-gated) and name the run that passes it, because mixed classes stall on the slowest one.
-- Make a box machine-checkable where possible, as a named command and its expected output, so an auto-close job can run it on main.
+- Make a box machine-checkable where possible, written as ``Done when: `CMD` passes`` (or `prints X`, `prints nothing`), because after-landing runs that command for the box a `Box:` trailer names and ticks it with the `Evidence:` stamp the policy climber counts as checker-verified, while a box ticked with only its landed sha counts as self-ticked.
 - Run `north issue-box-lint REPO#N` after writing boxes, because it flags any box that hands Tom a mechanical check.
 - Link a box that another issue already owns to that issue and never copy it in, because copies drift.
 - Keep a shared target (such as a 45-55% balance band or a frame budget) in the one issue that owns it; other issues' boxes require only no regression against main, because one owner decides the target.

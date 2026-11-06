@@ -6,6 +6,7 @@ use crate::issue_body::{self, Edit, Issue};
 use crate::issue_box_lint;
 
 const OBSERVATION_MARKERS: [&str; 2] = ["(observed", "(headless run)"];
+const CHECKED: &str = "Done when: `";
 const SHORT_SHA: usize = 12;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -15,6 +16,7 @@ pub enum Tick {
     Ambiguous(usize),
     AlreadyTicked,
     NeedsObservation,
+    NeedsChecker,
     OpenChildren(usize),
     NoBoxes,
 }
@@ -27,6 +29,7 @@ impl fmt::Display for Tick {
             Tick::Ambiguous(count) => write!(formatter, "{count} unticked boxes match; quote more of the box"),
             Tick::AlreadyTicked => write!(formatter, "the box is already ticked"),
             Tick::NeedsObservation => write!(formatter, "landed, box not ticked: needs observation"),
+            Tick::NeedsChecker => write!(formatter, "landed, box not ticked: its Done-when command did not pass on main, and only that command's passing Evidence stamp ticks it"),
             Tick::OpenChildren(count) => write!(formatter, "landed, box not ticked: {count} boxes under it are unticked"),
             Tick::NoBoxes => write!(formatter, "the issue has no checkboxes"),
         }
@@ -64,6 +67,12 @@ fn checkboxes<'a>(lines: &[&'a str]) -> Vec<Checkbox<'a>> {
 
 pub fn needs_observation(text: &str) -> bool {
     OBSERVATION_MARKERS.iter().any(|marker| text.contains(marker)) || issue_box_lint::hands_tom_a_check(text)
+}
+
+/// Whether the box names its own ``Done when: `CMD` ``, which `north task check --done-when` runs and
+/// stamps, so the landing tick leaves it to that check.
+fn commanded(text: &str) -> bool {
+    text.split_once(CHECKED).and_then(|(_, after)| after.split_once('`')).is_some_and(|(command, _)| !command.trim().is_empty())
 }
 
 fn children(lines: &[&str], boxes: &[Checkbox], parent: usize) -> Vec<usize> {
@@ -108,6 +117,9 @@ pub fn tick(body: &str, box_text: &str, sha: Option<&str>) -> Tick {
     if needs_observation(boxes[found].text) {
         return Tick::NeedsObservation;
     }
+    if commanded(boxes[found].text) {
+        return Tick::NeedsChecker;
+    }
     let open_children = children(&lines, &boxes, found).into_iter().filter(|&child| !boxes[child].ticked).count();
     if open_children > 0 {
         return Tick::OpenChildren(open_children);
@@ -117,7 +129,7 @@ pub fn tick(body: &str, box_text: &str, sha: Option<&str>) -> Tick {
     let mut cascade = vec![found];
     let mut child = found;
     while let Some(up) = parent(&lines, &boxes, child) {
-        if ticked[up] || needs_observation(boxes[up].text) || !children(&lines, &boxes, up).iter().all(|&below| ticked[below]) {
+        if ticked[up] || needs_observation(boxes[up].text) || commanded(boxes[up].text) || !children(&lines, &boxes, up).iter().all(|&below| ticked[below]) {
             break;
         }
         ticked[up] = true;

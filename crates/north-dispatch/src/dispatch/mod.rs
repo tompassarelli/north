@@ -41,6 +41,7 @@ mod stops;
 mod strands;
 mod survey;
 mod tier;
+pub mod shares;
 mod tuned;
 mod tries;
 mod wait;
@@ -128,7 +129,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     holds.extend(revival.holds.clone());
     outcome.revival = revival;
     let world = issues::World { open: &survey.open, holds: &holds, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
-    let mut history = survey.history.clone();
+    let history = &survey.history;
     let mut claims = hotspots::Claims::default();
     for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
         if let Some(why) = survey.projects.paused(&issue.repo, survey.at) {
@@ -152,7 +153,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", hotspots::hold_reason(&file, holder))));
             continue;
         }
-        let route = tier::route(issue, &history, &survey.ledger);
+        let route = tier::route(issue, history, &survey.ledger);
         let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route);
         let eta_h = grounds.minutes().map(|minutes| minutes / 60.0);
         let brief = brief::brief(issue, launched_by, &route, &grounds);
@@ -165,9 +166,11 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
             Ok(mut launch) => {
                 if !launch.cloud && launch.route.stamp().is_none() {
-                    launch.brief = brief::armed(&launch.brief, &tier::context_arm(&launch.item.to_string(), &history));
+                    let evidence = survey.ledger.get(&launch.route.category).cloned().unwrap_or_default();
+                    let (arm, drawn) = tier::context_arm(&launch.item.to_string(), &launch.route.category, history, &evidence);
+                    launch.brief = brief::armed(&launch.brief, &arm);
+                    launch.route.why = format!("{}, context arm {arm} {drawn}", launch.route.why);
                 }
-                history.chose(&launch.route);
                 claims.take(issue);
                 outcome.launches.push(launch);
             }

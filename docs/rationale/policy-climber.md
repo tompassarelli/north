@@ -41,7 +41,9 @@ decisions, runs the survivor as a bounded live arm, and keeps it or reverts it b
    `north task check --done-when` writes for an exit of 0, and self-ticked otherwise; a brief-generation candidate rewrites
    the briefs of the workers who tick boxes, so a gain made only of self-ticked boxes never wins. Each reward records the
    rework judge (`JUDGE_VERSION`) it was taken under, and `reward::comparable` judges the older of two again before they are
-   compared.
+   compared. The stamp comes from the landing: a box whose text names its own ``Done when: `CMD` `` is ticked only by
+   after-landing's run of that command (`north task check --done-when --box TEXT REPO#N`), never with the landed sha, so a
+   box filed with a command closes checker-verified when the command passes on main.
 7. **Archive.** Every candidate, kept or not, is recorded (below). Losers stay: a failed variant can parent a later success.
 
 ## What replay can and cannot score
@@ -76,7 +78,7 @@ cost per kept box and gives the next box to the arm with the lower draw, with a 
 (the settle rule below). A settled arm takes the whole category. `north climb run --dry-run` prints every live arm's
 category, its experiment (tier, effort, handoff, context or climb arms, each splitting the category's boxes on its own), share and how it was set (Thompson over 1,000 seeded draws with a 10% floor, or settled), boxes, closed, kept and
 dollars per kept box. A posterior draw resamples the arm's boxes with replacement, and arms tied cheapest split the draw.
-Dispatch itself still alternates armed categories; routing its picks by these shares is the next step.
+Dispatch and `north fleet launch` draw each armed launch's arm from these shares (`dispatch::shares`, seeded by the item and its launch count, so a relaunch draws again and every host draws alike), and the dry run reads the same 30-day arm window dispatch prices arms over, so the share it prints is the share launched (2026-11-06). The draw covers tier arms, effort arms on Opus and planner or reviewer boxes, and the context arm of a local box on neither; handoff and climb arms are stamped by their briefs.
 
 ## An arm settles on evidence (2026-11-06)
 

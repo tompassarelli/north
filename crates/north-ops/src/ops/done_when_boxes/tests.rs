@@ -82,10 +82,24 @@ fn a_threshold_or_comparison_the_program_cannot_read_is_a_judge_verdict_and_is_n
 }
 
 #[test]
-fn a_command_that_must_print_nothing_fails_while_the_file_it_lists_is_still_on_main() {
+fn a_command_box_is_ticked_only_when_its_expectation_holds_on_main_and_a_landed_box_alone_gets_the_evidence_stamp_the_climber_counts_as_checker_verified() {
     let still_there = git_main_with(&["bin/safe-push.test.sh"]);
     assert_eq!(judge("git ls-files bin/safe-push.test.sh", still_there.path()).exit, 0);
     assert_eq!(verdict_of(SAFE_PUSH_BOX, still_there.path()).0, Outcome::Fail);
     let retired = git_main_with(&["bin/safe-push"]);
     assert_eq!(verdict_of(SAFE_PUSH_BOX, retired.path()).0, Outcome::Pass);
+    let main = main_with_marker();
+    let body = "- [ ] Climb shares. Done when: `true` passes.\n- [ ] Other box. Done when: `false` passes.\n";
+    let mut issue = Fixture { read: body.into(), edits: Vec::new() };
+    let ran = std::cell::RefCell::new(Vec::new());
+    let run = |command: &str| {
+        ran.borrow_mut().push(command.to_owned());
+        judge(command, main.path())
+    };
+    settle(&mut issue, 7, &only(body, Some("Climb shares")), &run, &stamp(), false).unwrap();
+    assert_eq!(ran.into_inner(), ["true"], "only the landed box's command runs");
+    let [edited] = issue.edits.as_slice() else { panic!("{:?}", issue.edits) };
+    assert!(edited.lines().next().unwrap().starts_with("- [x] Climb shares. Done when: `true` passes. Evidence: `true` exited 0 on main "), "{edited}");
+    assert!(edited.contains("- [ ] Other box."), "{edited}");
+    assert!(north_providers::ledger::closed::checker_verified(edited), "{edited}");
 }

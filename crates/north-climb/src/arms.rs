@@ -1,10 +1,12 @@
 //! The arms dispatch runs live: each category's arms with the ledger boxes behind them and the share
-//! of that category's boxes each should take. Shares start equal and move by Thompson sampling on cost
-//! per kept box (`settle::shares`), each arm keeping a floor until `settle::settled` decides the category.
+//! of that category's boxes each takes. The shares are dispatch's own (`dispatch::shares`): equal at
+//! the start, then Thompson sampling on cost per kept box with a floor per arm until `settle::settled`
+//! decides the category, and every launch draws its arm from them.
 use std::collections::BTreeMap;
 
-use north_dispatch::router::settle::{self, Outcome};
+use north_dispatch::dispatch::shares::{self, Shares};
 use north_dispatch::ledger::closed::ClosedReport;
+use north_dispatch::router::settle;
 
 #[derive(Debug, PartialEq)]
 pub struct Arm {
@@ -27,41 +29,44 @@ impl Arm {
     }
 }
 
-struct Ledgered<'a> {
+/// An arm the window's boxes name: the tier its first box ran on and its checker-verified kept boxes.
+#[derive(Clone, Copy)]
+struct Named<'a> {
     tier: &'a str,
-    outcomes: Vec<Outcome>,
     verified: usize,
 }
 
-/// Every arm the window's boxes carry, with the share of its experiment's boxes in its category it should take.
+/// Every experiment the window's boxes carry, each arm with its share of the experiment's boxes in its
+/// category: the arms dispatch draws between when it runs the experiment, else the arms the boxes name.
 pub fn live(report: &ClosedReport) -> Vec<Arm> {
-    let mut categories: BTreeMap<(&str, &str), BTreeMap<&str, Ledgered>> = BTreeMap::new();
+    let mut experiments: BTreeMap<(&str, &'static str), BTreeMap<&str, Named>> = BTreeMap::new();
     for armed in &report.arms {
-        let arm = categories.entry((armed.category.as_str(), settle::family(&armed.arm))).or_default().entry(armed.arm.as_str()).or_insert(Ledgered { tier: armed.tier.as_str(), outcomes: Vec::new(), verified: 0 });
-        arm.outcomes.push(Outcome { usd: armed.usd, closed: armed.closed, kept: armed.closed && !armed.reworked });
+        let arm = experiments.entry((armed.category.as_str(), settle::family(&armed.arm))).or_default().entry(armed.arm.as_str()).or_insert(Named { tier: armed.tier.as_str(), verified: 0 });
         arm.verified += usize::from(armed.closed && !armed.reworked && armed.verified);
     }
     let mut live = Vec::new();
-    for ((category, family), arms) in categories {
-        let boxes: Vec<&[Outcome]> = arms.values().map(|arm| arm.outcomes.as_slice()).collect();
-        let (shares, settled) = settle::shares(&boxes, &format!("{category} {family}"));
-        for ((name, arm), share) in arms.into_iter().zip(shares) {
-            let count = |keep: fn(&Outcome) -> bool| arm.outcomes.iter().filter(|outcome| keep(outcome)).count();
+    for ((category, family), named) in experiments {
+        let outcomes = shares::arm_outcomes(report, category);
+        let drawn = shares::experiment_arms(category, family);
+        let arms = if drawn.is_empty() { named.keys().map(|arm| (*arm).to_owned()).collect() } else { drawn };
+        let experiment = Shares::of(category, family, &arms, &outcomes);
+        for (name, share) in experiment.arms {
+            let boxes = outcomes.get(&name).map_or(&[][..], Vec::as_slice);
+            let Named { tier, verified } = named.get(name.as_str()).copied().unwrap_or(Named { tier: "", verified: 0 });
             live.push(Arm {
                 category: category.to_owned(),
-                arm: name.to_owned(),
-                tier: arm.tier.to_owned(),
+                tier: tier.to_owned(),
                 family,
                 share,
-                settled,
-                boxes: arm.outcomes.len(),
-                closed: count(|outcome| outcome.closed),
-                kept: count(|outcome| outcome.kept),
-                verified: arm.verified,
-                usd: arm.outcomes.iter().map(|outcome| outcome.usd).sum(),
+                settled: experiment.settled,
+                boxes: boxes.len(),
+                closed: settle::closed(boxes),
+                kept: boxes.iter().filter(|outcome| outcome.kept).count(),
+                verified,
+                usd: boxes.iter().map(|outcome| outcome.usd).sum(),
+                arm: name,
             });
         }
     }
     live
 }
-

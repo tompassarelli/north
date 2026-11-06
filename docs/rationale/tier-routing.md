@@ -23,7 +23,7 @@ A tier is eligible in a category while its rework per landed outcome is not abov
 sample supports; among eligible tiers the lowest cost per landed, kept outcome wins, Sonnet on a tie.
 
 Until each arm holds 15 runs stamped `Arm: <tier>` in the category and 15 closed arm boxes (boxes whose first run
-carried that arm) in the last 30 days, `north dispatch` and `north fleet launch` alternate the arms, then route to the
+carried that arm) in the last 30 days, `north dispatch` and `north fleet launch` draw each launch's arm from the arms' shares (equal at the start, then Thompson sampling on cost per kept box with a 10% floor per arm, docs/rationale/policy-climber.md), then route to the
 arm with the lower spend per kept closed arm box. The count is stamped runs and the cost is arm boxes, not all runs and
 boxes on the tier, because a tier's unstamped work carries the earlier routing's selection bias: counting those runs
 settled every category on 31 Oct with the Opus arm at 8 to 11 runs, and pricing those boxes made Opus look 2.4 times

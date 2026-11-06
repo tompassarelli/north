@@ -3,7 +3,8 @@
 //! good. An arm wins only when a seeded bootstrap over both arms' boxes puts it ahead on cost per kept
 //! box in `AHEAD` of `RESAMPLES` resamples and its kept share is no lower; until then the arms keep
 //! sampling, and each arm's share of the next boxes follows Thompson sampling on cost per kept box
-//! (`shares`). The policy climber may not change this file (docs/rationale/policy-climber.md).
+//! (`shares`), and dispatch draws each launch's arm from those shares (`pick`). The policy climber may not
+//! change this file (docs/rationale/policy-climber.md).
 use crate::router::policy::ARM_RUNS;
 
 pub const RESAMPLES: usize = 100;
@@ -14,6 +15,7 @@ pub const FLOOR: f64 = 0.1;
 /// The posterior draws behind each arm's share.
 pub const DRAWS: usize = 1000;
 const SHARE_SEED: u64 = 0x7407_9503_a4b0_0636;
+const PICK_SEED: u64 = 0xcbf2_9ce4_8422_2325;
 
 /// One box an arm ran: its dollars, whether its issue closed, and whether it closed without rework.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -141,4 +143,20 @@ fn drawn(boxes: &[Outcome], random: &mut SplitMix) -> f64 {
     let resampled: Vec<Outcome> = (0..boxes.len()).map(|_| boxes[random.below(boxes.len())]).collect();
     let kept = resampled.iter().filter(|outcome| outcome.kept).count();
     if kept == 0 { f64::INFINITY } else { resampled.iter().map(|outcome| outcome.usd).sum::<f64>() / kept as f64 }
+}
+
+/// The arm a launch seeded `seed` takes from `shares`: the one whose span, the shares laid end to end,
+/// holds the seed's hashed point, so a launch draws the same arm on every host and rerun and a run of
+/// launches takes each arm in its share.
+pub fn pick(shares: &[f64], seed: &str) -> usize {
+    let hashed = seed.bytes().fold(PICK_SEED, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3));
+    let point = (SplitMix(hashed).draw() >> 11) as f64 / (1_u64 << 53) as f64 * shares.iter().sum::<f64>();
+    let mut reached = 0.0;
+    shares
+        .iter()
+        .position(|share| {
+            reached += share;
+            point < reached
+        })
+        .unwrap_or(shares.len().saturating_sub(1))
 }

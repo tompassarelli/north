@@ -2,7 +2,7 @@
 //! A dry run names the week's largest measured loss, the candidate policy change a generator writes for
 //! it, and the candidate's score from strategy replay against the current policy.
 use north_base::platform::decision_log;
-use north_dispatch::dispatch::LEDGER_WINDOW;
+use north_dispatch::dispatch::{ARM_WINDOW, LEDGER_WINDOW};
 use north_dispatch::ledger;
 
 pub mod arms;
@@ -66,8 +66,9 @@ fn dry_run(span: f64) -> Result<(), String> {
         Some(candidate) => show(&candidate, span)?,
         None => println!("candidate: none"),
     }
-    println!("live arms (kept boxes split by who ticked them, rework judge v{}; only checker-verified boxes win a selection):", report.judge);
-    for arm in arms::live(&report) {
+    let armed = ledger::closed_report(ARM_WINDOW).map_err(|error| error.user_message())?;
+    println!("live arms over {ARM_WINDOW}, the shares dispatch draws each launch from (kept boxes split by who ticked them, rework judge v{}; only checker-verified boxes win a selection):", armed.judge);
+    for arm in arms::live(&armed) {
         let cost = arm.usd_per_kept().map_or("no kept box".to_owned(), |usd| format!("${usd:.2} per kept box"));
         println!("  {} {}: share {:.0}% of its {} arms ({}), {} boxes, {} closed, {} kept ({} checker-verified, {} self-ticked), {cost}", arm.category, arm.arm, 100.0 * arm.share, arm.family, if arm.settled { "settled by the bootstrap rule".to_owned() } else { format!("Thompson over {} seeded draws, floor {:.0}%", north_dispatch::router::settle::DRAWS, 100.0 * north_dispatch::router::settle::FLOOR) }, arm.boxes, arm.closed, arm.kept, arm.verified, arm.kept - arm.verified);
     }

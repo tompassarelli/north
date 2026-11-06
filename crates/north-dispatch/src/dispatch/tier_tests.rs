@@ -22,7 +22,7 @@ fn a_rolling_alarm_issue_is_ready_but_never_placed_because_its_body_declares_no_
 }
 
 #[test]
-fn seeded_arm_draws_give_a_planner_run_high_or_xhigh_until_the_ledger_settles_the_cheaper_and_spread_an_unarmed_local_box_over_the_context_windows() {
+fn every_armed_launch_draws_its_arm_from_the_share_the_climber_prints_in_dispatch_and_a_hand_launch_with_each_arm_keeping_its_floor_until_the_ledger_settles() {
     use super::tier::{CONTEXT_WINDOWS, Effort, Evidence, History, Tier, Trial, context_arm, route_for};
     use std::collections::BTreeMap;
     let facet = |category: &'static str| move |key: &str| if key == "Category" { category.to_owned() } else { super::facets::default(key).to_owned() };
@@ -40,7 +40,7 @@ fn seeded_arm_draws_give_a_planner_run_high_or_xhigh_until_the_ledger_settles_th
     let mut history = History::default();
     let item = format!("north#{}", drawn.0 + 1);
     history.launched(&item, "first", &drawn.1);
-    assert!(drawn.1.why.contains(&format!("seeded {item}#0")) && route_for(&item, &facet("planning"), &history, &unread).why.contains(&format!("seeded {item}#1")));
+    assert!(drawn.1.why.contains(&format!("seeded effort:{item}#0")) && route_for(&item, &facet("planning"), &history, &unread).why.contains(&format!("seeded effort:{item}#1")));
 
     let full = |usd: f64| (15, 15, usd);
     let boxes = |(_, closed, usd): (usize, usize, f64)| vec![crate::router::settle::Outcome { usd, closed: true, kept: true }; closed];
@@ -54,7 +54,7 @@ fn seeded_arm_draws_give_a_planner_run_high_or_xhigh_until_the_ledger_settles_th
     assert_eq!(settled(trial(full(9.0), full(12.0))).effort, Some(Effort::High));
     assert!(settled(trial(full(12.0), (14, 15, 9.0))).effort_arm, "xhigh one run short keeps drawing");
 
-    let draw = || (1..=4000).map(|n| context_arm(&format!("north#{n}"), &History::default())).collect::<Vec<_>>();
+    let draw = || (1..=4000).map(|n| context_arm(&format!("north#{n}"), "docs-policy", &History::default(), &Evidence::default()).0).collect::<Vec<_>>();
     let arms = draw();
     for window in CONTEXT_WINDOWS {
         let arm = crate::fleet::compaction::arm(window);
@@ -67,9 +67,33 @@ fn seeded_arm_draws_give_a_planner_run_high_or_xhigh_until_the_ledger_settles_th
     let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None, readings: Vec::new(), workers: None }];
     let launched = decide(&survey(vec![uncategorised("north", 636, "Category: docs-policy\n- [ ] a box", &[])], Cloud::Closed(String::new()), hosts, accounts), "test");
     let [launch] = launched.launches.as_slice() else { panic!("{:?}", launched.skipped) };
-    let stamp = format!("Arm: {}", context_arm("north#636", &History::default()));
+    let stamp = format!("Arm: {}", context_arm("north#636", "docs-policy", &History::default(), &Evidence::default()).0);
     let lines: Vec<&str> = launch.brief.lines().collect();
     let tier = lines.iter().position(|line| line.starts_with("Tier: ")).unwrap();
     assert_eq!(lines[tier + 1], stamp, "{}", launch.brief);
     assert_eq!(crate::fleet::compaction::window(&launch.brief).map(crate::fleet::compaction::arm), Some(stamp.trim_start_matches("Arm: ").to_owned()));
+    use super::manual::{Ask, start};
+    use crate::ledger::closed::{ArmBox, ClosedReport};
+    use crate::router::settle::FLOOR;
+    let armed = |arm: &str, usd: f64, reworked: bool| ArmBox { item: format!("north#{usd}"), tier: arm.into(), arm: arm.into(), usd, category: "tooling".into(), closed: true, reworked, verified: false };
+    let mut arms: Vec<ArmBox> = [150.0, 200.0, 260.0, 90.0, 300.0, 180.0].map(|usd| armed("sonnet-high", usd, false)).to_vec();
+    arms.extend([40.0, 55.0, 20.0, 230.0, 35.0, 60.0].map(|usd| armed("worker", usd, false)));
+    arms.extend([armed("sonnet-high", 140.0, true), armed("worker", 30.0, true)]);
+    let report = ClosedReport { arms, ..ClosedReport::default() };
+    let ledger = BTreeMap::from([("tooling".to_owned(), Evidence::default().priced(&report, "tooling"))]);
+    let printed = ledger["tooling"].shares("tooling", "tier");
+    assert!(!printed.settled && printed.arms.iter().all(|(_, share)| *share >= FLOOR) && printed.arms[1].1 > 0.6, "the ledger favours worker and both arms keep the floor: {printed:?}");
+    let facet = |key: &str| if key == "Category" { "tooling".to_owned() } else { super::facets::default(key).to_owned() };
+    let routes: Vec<_> = (1..=1000).map(|n| route_for(&format!("north#{n}"), &facet, &History::default(), &ledger)).collect();
+    for (arm, share) in &printed.arms {
+        let drawn = routes.iter().filter(|route| route.arm && route.tier.name() == arm).count();
+        assert!((drawn as f64 - 1000.0 * share).abs() <= 50.0, "{arm}: {drawn} of 1000 drawn against a printed share of {share:.3}");
+    }
+    let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
+    [Tier::Sonnet, Tier::Opus].into_iter().for_each(|tier| assert!(routes.iter().any(|route| route.tier == tier)));
+    let ask = Ask { item: "north#7", brief: "Item: north#7\nCategory: tooling", prompt: "Item: north#7\nCategory: tooling\n\nDo the box.", model: None, reason: None };
+    let hand = start(&ask, "", &cfg, &History::default(), &ledger, &|_| super::grounds::Grounds::default()).unwrap();
+    assert_eq!(hand.route, route_for("north#7", &facet, &History::default(), &ledger), "a hand launch draws as dispatch does");
+    let share = printed.arms.iter().find(|(arm, _)| arm == hand.route.tier.name()).unwrap().1;
+    assert!(hand.prompt.contains(&format!("Arm: {}", hand.route.tier.name())) && hand.route.why.contains(&format!("drawn at its {:.0}% share of the tooling tier arms", 100.0 * share)), "{}\n{}", hand.prompt, hand.route.why);
 }

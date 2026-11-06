@@ -146,7 +146,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     };
-    for line in tick_boxes(&args) {
+    for line in check_boxes(&args).into_iter().chain(tick_boxes(&args)) {
         println!("after-landing: {line}");
     }
     match gate_and_file(&args) {
@@ -159,6 +159,30 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
     }
+}
+
+/// Runs each landed `Box:` trailer's own Done-when command through `north task check --done-when`,
+/// which ticks a passing box with its Evidence stamp before the landing tick, which leaves such a box to it.
+fn check_boxes(args: &Args) -> Vec<String> {
+    let (main, north) = match (main_checkout(&args.git_dir), std::env::current_exe()) {
+        (Ok(main), Ok(north)) => (main, north),
+        (Err(error), _) => return vec![format!("no Done-when command run: {error}")],
+        (_, Err(error)) => return vec![format!("no Done-when command run: cannot find the north binary: {error}")],
+    };
+    let landed = match crate::land::after::tick::landed(&main, &args.base, &args.head) {
+        Ok(landed) => landed,
+        Err(error) => return vec![format!("no Done-when command run: {error}")],
+    };
+    landed
+        .iter()
+        .map(|landed| {
+            let issue = landed.issue.to_string();
+            match Command::new(&north).args(["task", "check", "--done-when", "--box", &landed.box_text, &issue]).current_dir(&main).output() {
+                Ok(output) => format!("Done-when check of {issue} box {:?}: {}{}", landed.box_text, String::from_utf8_lossy(&output.stdout).trim(), String::from_utf8_lossy(&output.stderr).trim()),
+                Err(error) => format!("Done-when check of {issue} box {:?}: cannot run {}: {error}", landed.box_text, north.display()),
+            }
+        })
+        .collect()
 }
 
 fn tick_boxes(args: &Args) -> Vec<String> {

@@ -183,9 +183,10 @@ struct Options {
     issue: Option<String>,
     repo: Option<String>,
     main: Option<PathBuf>,
+    only: Option<String>,
 }
 
-const USAGE: &str = "north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
+const USAGE: &str = "north task check --done-when [--dry-run] [--main DIR] [--box TEXT] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
 
 fn options(arguments: &[String]) -> NorthResult<Options> {
     let usage = || NorthError::Usage(USAGE.into());
@@ -198,6 +199,7 @@ fn options(arguments: &[String]) -> NorthResult<Options> {
             "--body-file" => found.body_file = Some(words.next().ok_or_else(usage)?.clone()),
             "--repo" => found.repo = Some(words.next().ok_or_else(usage)?.clone()),
             "--main" => found.main = Some(PathBuf::from(words.next().ok_or_else(usage)?)),
+            "--box" => found.only = Some(words.next().ok_or_else(usage)?.clone()),
             reference if reference.contains('#') => found.issue = Some(reference.to_owned()),
             _ => return Err(usage()),
         }
@@ -233,15 +235,24 @@ fn issues(repo: &str, reference: Option<&str>) -> NorthResult<Vec<(u64, String)>
         .collect())
 }
 
+/// `body` with every open box that does not contain `only` left out, so only the named box is checked.
+fn only(body: &str, only: Option<&str>) -> String {
+    body.lines().filter(|line| only.is_none_or(|text| !line.trim_start().starts_with(OPEN) || line.contains(text))).collect::<Vec<_>>().join("\n")
+}
+
+fn main_for(options: &Options) -> NorthResult<Main> {
+    match options.main.clone() {
+        Some(dir) => Ok(Main::Given(dir)),
+        None => Main::fetch(&std::env::current_dir()?),
+    }
+}
+
 pub fn run(arguments: &[String]) -> NorthResult<()> {
     let options = options(arguments)?;
-    let main = match options.main.clone() {
-        Some(dir) => Main::Given(dir),
-        None => Main::fetch(&std::env::current_dir()?)?,
-    };
-    let stamp = Stamp { sha: main.sha()?, date: Timestamp::now().iso_date() };
-    let run = |command: &str| judge(command, main.dir());
     if let Some(path) = &options.body_file {
+        let main = main_for(&options)?;
+        let stamp = Stamp { sha: main.sha()?, date: Timestamp::now().iso_date() };
+        let run = |command: &str| judge(command, main.dir());
         let body = std::fs::read_to_string(path)?;
         let verdicts = verdicts(&body, &run);
         for verdict in &verdicts {
@@ -255,7 +266,14 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
         None => slug(options.repo.as_deref().unwrap_or_default()),
     };
     let mut tracker = Gh::of(&repo, &[]);
-    for (number, body) in issues(&repo, options.issue.as_deref())? {
+    let issues: Vec<(u64, String)> = issues(&repo, options.issue.as_deref())?.into_iter().map(|(number, body)| (number, only(&body, options.only.as_deref()))).filter(|(_, body)| !checks(body).is_empty()).collect();
+    if issues.is_empty() {
+        return Ok(());
+    }
+    let main = main_for(&options)?;
+    let stamp = Stamp { sha: main.sha()?, date: Timestamp::now().iso_date() };
+    let run = |command: &str| judge(command, main.dir());
+    for (number, body) in issues {
         let verdicts = settle(&mut tracker, number, &body, &run, &stamp, options.dry_run).map_err(NorthError::Refused)?;
         for verdict in &verdicts {
             println!("{}", verdict.line(&format!("{repo}#{number}")));

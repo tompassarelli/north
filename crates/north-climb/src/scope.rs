@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 
 pub const DEFAULTS: &str = "harness/defaults.toml";
 pub const EVALUATOR: &[&str] = &["crates/north-climb/", "crates/north-replay/", "crates/north-strategy-types/"];
-pub const WINNER: &[&str] = &["crates/north-pace/src/router/settle.rs", "crates/north-dispatch/src/tune/cells.rs"];
+pub const WINNER: &[&str] = &["crates/north-pace/src/router/settle.rs", "crates/north-dispatch/src/dispatch/shares.rs", "crates/north-dispatch/src/tune/cells.rs"];
 pub const COUNTING: &[&str] = &["crates/north-providers/src/ledger/", "crates/north-threads/", "src/cli/worker_ledger/", "src/cli/ledger.rs", "crates/north-goals/", "src/cli/scoreboard/"];
 const SYMBOLS: &[&str] = &["ARM_RUNS", "ARM_WINDOW", "replay_outcome_shift", "replay_landing_p90", "replay_five_hour", "replay_week_floor", "replay_budget", "settle", "fn tiered", "fn efforted", "fn other_arm"];
 const BARS: &[&str] = &["harness/goals.toml", "harness/loops.toml", "harness/corrections.toml", "docs/rationale/experiments.toml", "structure.toml"];

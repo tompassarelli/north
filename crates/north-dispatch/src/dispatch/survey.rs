@@ -305,11 +305,11 @@ fn closed(notes: &mut Vec<String>) -> Option<ClosedReport> {
 }
 
 pub(super) fn read_closed(report: NorthResult<ClosedReport>, notes: &mut Vec<String>) -> Option<ClosedReport> {
-    report.map_err(|why| notes.push(format!("{DEGRADED}: north ledger summary --since {} unread, so the arms keep alternating: {}", tier::ARM_WINDOW, why.user_message()))).ok()
+    report.map_err(|why| notes.push(format!("{DEGRADED}: north ledger summary --since {} unread, so the arms draw at equal shares: {}", tier::ARM_WINDOW, why.user_message()))).ok()
 }
 
 pub(super) fn read_arm_runs(category: &str, runs: NorthResult<BTreeMap<String, usize>>, notes: &mut Vec<String>) -> BTreeMap<String, usize> {
-    runs.map_err(|why| notes.push(format!("{DEGRADED}: arm runs of {category} unread, so its arms keep alternating: {}", why.user_message()))).unwrap_or_default()
+    runs.map_err(|why| notes.push(format!("{DEGRADED}: arm runs of {category} unread, so its arms draw at equal shares: {}", why.user_message()))).unwrap_or_default()
 }
 
 pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
@@ -331,7 +331,7 @@ fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut
                 found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)).tuned(&routes, category).tuned_effort(&efforts, category));
             }
             _ => {
-                notes.push(format!("{DEGRADED}: north worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms unless north tune routed it"));
+                notes.push(format!("{DEGRADED}: north worker-ledger --recommend {facets:?} unread, so {category} keeps drawing its arms unless north tune routed it"));
                 if routes.contains_key(*category) || efforts.contains_key(*category) {
                     found.insert((*category).to_owned(), Evidence::default().tuned(&routes, category).tuned_effort(&efforts, category));
                 }
