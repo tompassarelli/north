@@ -20,6 +20,7 @@ mod gpu_admission;
 pub mod deadline;
 mod process_tree;
 pub mod dev_shell;
+pub mod sandbox;
 pub mod carry;
 mod lease_deadline;
 pub mod warcraft;

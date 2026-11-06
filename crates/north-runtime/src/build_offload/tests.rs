@@ -282,3 +282,31 @@ fn capacity_the_takers_last_frame_reaches_the_far_end_before_it_hangs_up() {
     let wire = std::fs::read(&received).unwrap_or_default();
     assert_eq!(crate::capacity::handover::Frame::read(&mut wire.as_slice()).ok().flatten(), Some(crate::capacity::handover::Frame::Exit(0)), "{wire:?}");
 }
+
+// KEEP(bug): on 2026-11-06 the taker ran a command pulled from gex45 as tom with this host's ssh keys, sops keys, gh token and network in reach (north#634)
+#[test]
+fn capacity_a_pulled_run_executes_in_a_sandbox_without_credentials_or_network_and_writes_only_its_lane() {
+    let scratch = tempfile::tempdir().unwrap();
+    let home = scratch.path().join("home");
+    for secret in [".ssh/id_ed25519", ".config/sops/age/keys.txt", ".config/gh/hosts.yml"] {
+        write(&home.join(secret), "secret\n");
+    }
+    let lane = home.join(".cache/build-offload/code-proj-main-pulled");
+    std::fs::create_dir_all(&lane).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let probe = format!(
+        "echo inside; test -e ~/.ssh && echo LEAK-ssh; test -e ~/.config/sops && echo LEAK-sops; test -e ~/.config/gh && echo LEAK-gh; [ -n \"${{GH_TOKEN-}}\" ] && echo LEAK-token; (exec 3<>/dev/tcp/127.0.0.1/{port}) 2>/dev/null && echo LEAK-net; touch written; echo done"
+    );
+    let north = std::env::current_exe().unwrap();
+    let layout = crate::capacity::sandbox::Layout::of(&lane, &lane, &home, &north);
+    let output = layout.command(&["bash".to_owned(), "-c".to_owned(), probe]).env("GH_TOKEN", "gho_secret").output().unwrap();
+    let seen = String::from_utf8_lossy(&output.stdout);
+    assert!(!seen.contains("LEAK"), "the sandboxed command reached what it must not: {seen}");
+    if seen.contains("inside") {
+        assert!(seen.contains("done") && lane.join("written").is_file(), "the lane stays writable: {seen} {}", String::from_utf8_lossy(&output.stderr));
+    } else {
+        assert!(!output.status.success() && !lane.join("written").exists(), "a host that cannot build the sandbox refuses the run: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert!(super::remote::script(super::remote::Trust::Pulled).contains(r#""$north" capacity sandbox --lane "$slot" -- "$@""#), "the taker's lane script runs the job through the sandbox");
+}

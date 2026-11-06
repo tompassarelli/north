@@ -42,7 +42,7 @@ cd "$slot/$sub"
 if [ "${1##*/}" = north ] && [ "${1#/}" != "$1" ] && [ ! -x "$1" ]; then shift; set -- "$north" "$@"; fi
 echo @SYNCED@
 exec 8<&0
-@MARK@=1 @SHIP@=$shipped @TARGET@=$slot_target @HEAD@=$slot_head "$north" capacity host run --class heavy --owner "$owner" --timeout-seconds "$limit" -- "$@" 9>&- 8<&- &
+@MARK@=1 @SHIP@=$shipped @TARGET@=$slot_target @HEAD@=$slot_head "$north" capacity host run --class heavy --owner "$owner" --timeout-seconds "$limit" -- @WRAP@"$@" 9>&- 8<&- &
 child=$!
 ( cat <&8 >/dev/null; kill -TERM "$child" 2>/dev/null ) 9>&- &
 watcher=$!
@@ -77,9 +77,18 @@ pub(super) fn offer(lane: &Lane, job: &Job, returned: &str) -> Offer {
     }
 }
 
-/// The script that rebuilds a lane on a host and runs the job there under that host's capacity run, which enters the lane's flake dev shell.
-pub(super) fn script() -> String {
-    SCRIPT.replace("@SYNCED@", SYNCED).replace("@MARK@", REMOTE_MARK).replace("@SHIP@", SHIP_SECONDS_ENV).replace("@TARGET@", SLOT_TARGET_ENV).replace("@HEAD@", SLOT_HEAD_ENV)
+/// How the job runs inside the rebuilt lane: as given for this host's own lane, or inside `north capacity sandbox` for a run another host composed.
+#[derive(Clone, Copy)]
+pub(super) enum Trust {
+    Own,
+    Pulled,
+}
+
+const SANDBOX: &str = r#""$north" capacity sandbox --lane "$slot" -- "#;
+
+/// The script that rebuilds a lane on a host and runs the job there under that host's capacity run, which enters the lane's flake dev shell, inside the sandbox for a pulled run.
+pub(super) fn script(trust: Trust) -> String {
+    SCRIPT.replace("@WRAP@", match trust { Trust::Own => "", Trust::Pulled => SANDBOX }).replace("@SYNCED@", SYNCED).replace("@MARK@", REMOTE_MARK).replace("@SHIP@", SHIP_SECONDS_ENV).replace("@TARGET@", SLOT_TARGET_ENV).replace("@HEAD@", SLOT_HEAD_ENV)
 }
 
 /// The arguments the script takes for an offer.
@@ -90,7 +99,7 @@ pub(super) fn words(offer: &Offer) -> Vec<String> {
 }
 
 pub(super) fn invocation(lane: &Lane, job: &Job, returned: &str) -> (String, Vec<String>) {
-    (script(), words(&offer(lane, job, returned)))
+    (script(Trust::Own), words(&offer(lane, job, returned)))
 }
 
 /// Rebuilds the lane on the host, runs the command there under that host's own heavy admission, streams its output here, writes back each Cargo.lock the run changed and returns its exit code. A failure before the command starts is `NotSynced`.

@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use super::remote::{SYNCED, script, words};
+use super::remote::{SYNCED, Trust, script, words};
 use crate::capacity::admission::offload_room;
 use crate::capacity::handover::{Frame, Offer};
 use crate::land_offload::room::{self, Room};
@@ -225,12 +225,12 @@ pub(super) fn transport(offer: &Offer, ssh: Option<&str>) -> Command {
     match ssh {
         None => {
             let mut command = Command::new("sh");
-            command.arg("-c").arg(script()).arg("offload").args(words(offer));
+            command.arg("-c").arg(script(Trust::Pulled)).arg("offload").args(words(offer));
             command
         }
         Some(ssh) => {
             let quoted: Vec<String> = words(offer).iter().map(|word| quote(word)).collect();
-            ssh_to(ssh, &format!("sh -c {} offload {}", quote(&script()), quoted.join(" ")))
+            ssh_to(ssh, &format!("sh -c {} offload {}", quote(&script(Trust::Pulled)), quoted.join(" ")))
         }
     }
 }

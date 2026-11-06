@@ -82,7 +82,7 @@ pub fn enter(north: &str, command: &[String]) -> Vec<String> {
 }
 
 fn runs_nix(command: &[String]) -> bool {
-    command.first().is_none_or(|program| Path::new(program).file_name().is_some_and(|name| name == "nix"))
+    command.first().is_none_or(|program| Path::new(program).file_name().is_some_and(|name| name == "nix")) || super::sandbox::sandboxes(command)
 }
 
 /// `command` inside the current directory's project dev shell, when its flake has a `devShells` output this process is not already in and the command is not itself a `nix` invocation.
