@@ -69,7 +69,7 @@ impl Worker {
 }
 
 #[test]
-fn a_worker_answering_forty_turns_left_at_260k_is_sent_its_focus_as_a_compact_and_one_answering_three_is_sent_nothing() {
+fn a_worker_answering_forty_turns_left_at_260k_is_sent_its_focus_as_a_compact_and_resumed_once_after_it_and_one_answering_three_is_sent_nothing() {
     let mut long = worker();
     long.call(249_000, "reading the code");
     assert_eq!(long.questions(), 0);
@@ -85,6 +85,11 @@ fn a_worker_answering_forty_turns_left_at_260k_is_sent_its_focus_as_a_compact_an
     assert!(long.sent_when_idle().is_empty());
 
     long.feed(json!({"type": "system", "subtype": "compact_boundary", "session_id": "s", "compact_metadata": {"trigger": "manual", "pre_tokens": 260_500, "post_tokens": 9_000}}));
+    long.turn_ends();
+    let frames = long.sent_when_idle();
+    assert_eq!(frames.len(), 1, "one resume turn after the compaction: {frames:?}");
+    assert!(frames[0].contains("Continue it from your focus"), "{frames:?}");
+    assert!(long.sent_when_idle().is_empty(), "exactly one resume turn");
     long.call(250_000, "working again");
     assert_eq!(long.questions(), 2, "a compaction re-arms the checkpoint at 250k");
 
@@ -94,5 +99,8 @@ fn a_worker_answering_forty_turns_left_at_260k_is_sent_its_focus_as_a_compact_an
     near.turn_ends();
     assert_eq!(near.questions(), 1);
     assert!(near.sent_when_idle().is_empty());
+    near.feed(json!({"type": "system", "subtype": "compact_boundary", "session_id": "s", "compact_metadata": {"trigger": "auto", "pre_tokens": 400_000, "post_tokens": 9_000}}));
+    near.turn_ends();
+    assert!(near.sent_when_idle().is_empty(), "a compaction the checkpoint did not send owes no resume turn");
 }
 

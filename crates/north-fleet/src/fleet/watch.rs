@@ -266,10 +266,15 @@ impl TurnWatch {
         fresh(self.runtime.as_ref(), &checkpoint::question(context)).into_iter().flatten().for_each(|frame| self.courier.answer(&self.host_dir, frame));
     }
 
-    /// The `/compact` frame a checkpoint answer chose, once no turn is running.
-    fn chosen_compaction(&mut self) -> Option<String> {
-        let focus = (!self.turns.in_flight()).then(|| self.checkpoints.take_ready()).flatten()?;
-        self.runtime.compact(Some(&focus))
+    /// The checkpoint's next frames once no turn is running: the worker's resume turn after its compaction, else the `/compact` its answer chose.
+    fn checkpoint_frames(&mut self) -> Option<Vec<String>> {
+        if self.turns.in_flight() {
+            return None;
+        }
+        if self.checkpoints.take_resume() {
+            return fresh(self.runtime.as_ref(), checkpoint::RESUME);
+        }
+        self.runtime.compact(Some(&self.checkpoints.take_ready()?)).map(|frame| vec![frame])
     }
 
     fn speak_up(&mut self, state: State, idle: Duration) {
@@ -446,7 +451,7 @@ impl FrameWatch for TurnWatch {
             _ => {}
         }
         match step {
-            Step::Wait => self.chosen_compaction().map_or(Rest::Wait, |frame| Rest::Send(vec![frame])),
+            Step::Wait => self.checkpoint_frames().map_or(Rest::Wait, Rest::Send),
             Step::Park => Rest::End,
             Step::Compact => {
                 self.rolled_over = true;

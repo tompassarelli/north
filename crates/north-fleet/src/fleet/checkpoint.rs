@@ -20,6 +20,10 @@ pub fn question(context: u64) -> String {
     )
 }
 
+/// The turn that sends a worker back to its task once the compaction its answer chose has run as a turn of its own.
+pub const RESUME: &str = "The session host compacted your context at your checkpoint, and the brief, lane, branch and open boxes restated above are your task. \
+     Continue it from your focus; if you were waiting on a background command or a Monitor, read its output or wait on it again. End the task with your report.";
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct Answer {
     pub turns_left: u64,
@@ -48,12 +52,15 @@ pub fn pays(model: Option<&str>, context: u64, turns_left: u64) -> bool {
     PriceTable::load().is_ok_and(|prices| price(&prices, model).compaction_pays(context, turns_left))
 }
 
-/// One conversation's checkpoint: when it last asked, whether an answer is awaited, and the compaction its answer chose.
+/// One conversation's checkpoint: when it last asked, whether an answer is awaited, the compaction its answer chose,
+/// whether that compaction was sent, and whether the worker is owed its resume turn.
 #[derive(Debug, Default)]
 pub struct Checkpoint {
     last: Option<u64>,
     asked_at: Option<u64>,
     ready: Option<String>,
+    sent: bool,
+    resume: bool,
 }
 
 impl Checkpoint {
@@ -78,11 +85,19 @@ impl Checkpoint {
 
     /// The focus of the compaction the answer chose, once.
     pub fn take_ready(&mut self) -> Option<String> {
-        self.ready.take()
+        let focus = self.ready.take()?;
+        self.sent = true;
+        Some(focus)
     }
 
+    /// A compaction ran; only one this checkpoint sent owes the worker a resume turn.
     pub fn compacted(&mut self) {
-        *self = Self::default();
+        let resume = self.sent;
+        *self = Self { resume, ..Self::default() };
+    }
+
+    pub fn take_resume(&mut self) -> bool {
+        std::mem::take(&mut self.resume)
     }
 }
 
@@ -118,6 +133,10 @@ impl Checkpoints {
     pub fn take_ready(&mut self) -> Option<String> {
         self.0.values_mut().find_map(Checkpoint::take_ready)
     }
+
+    pub fn take_resume(&mut self) -> bool {
+        self.0.values_mut().any(Checkpoint::take_resume)
+    }
 }
 
 #[cfg(test)]
@@ -150,5 +169,6 @@ mod tests {
         assert_eq!(checkpoint.take_ready().as_deref(), Some("keep the lane"));
         checkpoint.compacted();
         assert!(checkpoint.due(250_000));
+        assert!(checkpoint.take_resume() && !checkpoint.take_resume(), "the compaction it sent owes one resume turn");
     }
 }
