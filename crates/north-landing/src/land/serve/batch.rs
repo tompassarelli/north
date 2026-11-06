@@ -308,7 +308,7 @@ impl Lander {
     }
 
     fn land(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, batch: Batch, checked: Checked) -> Result<Flow, String> {
-        let Checked { stacked, mut stages, .. } = checked;
+        let Checked { stacked, mut stages, log } = checked;
         let (included, head) = (batch.lanes, batch.head.as_str());
         let (base, built) = (attempt.base, attempt.built);
         self.heartbeat.enter(Step::Push);
@@ -341,6 +341,7 @@ impl Lander {
             }
         }
         stages.mark("push");
+        records::coverage(&self.queue, &built.tips[..included.len().min(built.tips.len())], &log);
         watch.follow(self, base, head, included.iter().zip(&built.tips).map(|((_, ticket), tip)| LandedLane { ticket: (*ticket).clone(), tip: tip.clone() }).collect());
         self.heartbeat.enter(Step::Finish);
         after::finish(self, &after::intent_path(self), head, base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;

@@ -62,6 +62,12 @@ below does not trace. So the pre-push run can be the few tests that reach the ch
   `north coverage refresh` in the background, so the next selection reads a map with that reach.
   A selection that ran nothing (an untraced input, an old map, over 400 tests) is not judged. One
   refresh runs at a time, whether nightly or after a miss.
+- Record: the lander appends one `landed` line per landed lane tip, naming its candidate log, to
+  `logs/coverage-record.tsv` in its queue, and `north coverage miss` appends a `judged` line with
+  the tip's miss count. `north coverage agreement --landings N` reads the newest N landings: of
+  those whose candidate ran the coverage check, the share that ran a selection instead of standing
+  down, and the misses among them. It exits 0 only when that share is at least half and no test
+  was missed (north#686).
 
 ## Measured, 2026-11-06
 

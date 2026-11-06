@@ -12,6 +12,9 @@ use crate::pick::{Added, Change, Selection, added_before_push, before_push, sele
 const DEFAULT_TIMEOUT: &str = "1800";
 pub const MOST_BEFORE_PUSH: usize = 400;
 const OLDEST_MAP_SECONDS: u64 = 3 * 86_400;
+const REACHED: &str = "tests reach the changed";
+const STOOD_DOWN: &str = "no coverage-selected tests run before the push";
+const OVER: &str = "run before a push; the full suite runs after it";
 
 struct Request {
     base: String,
@@ -57,7 +60,7 @@ pub fn test(arguments: &[String]) -> u8 {
     if let Selection::Tests { tests, added, .. } = &selection
         && tests.len() + added.len() > MOST_BEFORE_PUSH
     {
-        eprintln!("north coverage: {} tests is over the {MOST_BEFORE_PUSH} run before a push; the full suite runs after it", tests.len() + added.len());
+        eprintln!("north coverage: {} tests is over the {MOST_BEFORE_PUSH} {OVER}", tests.len() + added.len());
     }
     let always = always_run(&request.head);
     if !always.is_empty() {
@@ -91,9 +94,26 @@ fn fail(why: &str) -> u8 {
 
 fn report(selection: &Selection) {
     match selection {
-        Selection::Tests { tests, file_level, added } if file_level.is_empty() => eprintln!("north coverage: {} tests reach the changed functions, and {} tests the lane adds run too", tests.len(), added.len()),
-        Selection::Tests { tests, file_level, added } => eprintln!("north coverage: {} tests reach the changed code, and {} tests the lane adds run too; a change outside every function, newer than the map, or in a file or input the map cannot place in a function selects every test reaching the whole file ({})", tests.len(), added.len(), file_level.join(", ")),
-        Selection::Unmapped(why) => eprintln!("north coverage: {why}; no coverage-selected tests run before the push, the full suite runs after it"),
+        Selection::Tests { tests, file_level, added } if file_level.is_empty() => eprintln!("north coverage: {} {REACHED} functions, and {} tests the lane adds run too", tests.len(), added.len()),
+        Selection::Tests { tests, file_level, added } => eprintln!("north coverage: {} {REACHED} code, and {} tests the lane adds run too; a change outside every function, newer than the map, or in a file or input the map cannot place in a function selects every test reaching the whole file ({})", tests.len(), added.len(), file_level.join(", ")),
+        Selection::Unmapped(why) => eprintln!("north coverage: {why}; {STOOD_DOWN}, the full suite runs after it"),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ran {
+    Selected,
+    StoodDown,
+}
+
+pub fn ran(candidate_log: &str) -> Option<Ran> {
+    let lines = || candidate_log.lines().filter_map(|line| line.trim_start().strip_prefix("north coverage: "));
+    if lines().any(|line| line.contains(STOOD_DOWN) || line.contains(OVER)) {
+        Some(Ran::StoodDown)
+    } else if lines().any(|line| line.contains(REACHED)) {
+        Some(Ran::Selected)
+    } else {
+        None
     }
 }
 
@@ -174,7 +194,7 @@ fn diff_text(root: &Path, from: &str, to: &str, paths: &[&str]) -> Result<String
     git(root, &arguments)
 }
 
-fn git(root: &Path, arguments: &[&str]) -> Result<String, String> {
+pub(crate) fn git(root: &Path, arguments: &[&str]) -> Result<String, String> {
     let output = Command::new("git").arg("-C").arg(root).args(arguments).output().map_err(|error| format!("git: {error}"))?;
     if output.status.success() { Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_owned()) } else { Err(format!("git {} failed: {}", arguments.join(" "), String::from_utf8_lossy(&output.stderr).trim())) }
 }

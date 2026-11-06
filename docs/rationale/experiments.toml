@@ -555,3 +555,10 @@ command = "for f in $(find \"$HOME/.local/state/north/fleet\" -path '*/g*/stream
 expect = "pass"
 review = "2026-11-08"
 owner = "tompassarelli/north#636"
+
+[[check]]
+id = "n634-the-pre-push-coverage-selection"
+box = "The pre-push coverage selection runs before most Rust landings instead of standing down"
+command = "north coverage agreement --landings 20"
+review = "2026-11-10"
+owner = "tompassarelli/north#634"

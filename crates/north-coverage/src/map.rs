@@ -44,8 +44,11 @@ impl Map {
     }
 }
 
-pub fn path_for(repository: &str) -> PathBuf {
+pub fn state_home() -> PathBuf {
     let home = || std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state"));
-    let state = std::env::var_os("XDG_STATE_HOME").filter(|dir| !dir.is_empty()).map(PathBuf::from).or_else(home).unwrap_or_default();
-    state.join("north/coverage").join(format!("{repository}.json"))
+    std::env::var_os("XDG_STATE_HOME").filter(|dir| !dir.is_empty()).map(PathBuf::from).or_else(home).unwrap_or_default()
+}
+
+pub fn path_for(repository: &str) -> PathBuf {
+    state_home().join("north/coverage").join(format!("{repository}.json"))
 }

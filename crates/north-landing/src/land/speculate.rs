@@ -7,6 +7,7 @@ use super::candidate::{self, Pick, git};
 use super::checks::{self, Started, Verdict};
 use super::lander::Lander;
 use super::queue::{self, Lane, Ticket, lane};
+use super::records;
 use super::serve::Pushed;
 use super::watch::{LandedLane, Watch};
 use super::telemetry::Stages;
@@ -41,6 +42,7 @@ pub struct Next {
     tips: Vec<String>,
     tickets: Vec<(PathBuf, Ticket)>,
     stages: Stages,
+    log: PathBuf,
     check: Option<Started>,
     verdict: Option<Verdict>,
 }
@@ -124,7 +126,7 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
         }
     };
     println!("north land: speculative candidate {} carries {} lanes onto candidate {head}; checking it at depth {}", built.head, tickets.len(), level + 2);
-    Ok(Some(Next { worktree: worktree.clone(), base: head.to_owned(), head: built.head, identity, tips, tickets, stages, check: Some(check), verdict: None }))
+    Ok(Some(Next { worktree: worktree.clone(), base: head.to_owned(), head: built.head, identity, tips, tickets, stages, log, check: Some(check), verdict: None }))
 }
 
 pub fn check(lander: &Lander, head: &str, base: &str, log: &Path, taken: Option<&Taken>, red_fix: bool, unchecked: &[String]) -> (Verdict, Vec<Next>) {
@@ -204,6 +206,7 @@ fn push(lander: &Lander, watch: &mut Watch, mut next: Next, landed: &str) -> Res
         return Ok(None);
     }
     next.stages.mark("push");
+    records::coverage(&lander.queue, &next.tips[..next.tickets.len().min(next.tips.len())], &next.log);
     let lanes = next.tickets.iter().zip(&next.tips).map(|((_, ticket), tip)| LandedLane { ticket: ticket.clone(), tip: tip.clone() }).collect();
     watch.follow(lander, &next.base, &next.head, lanes);
     after::finish(lander, &after::intent_path(lander), &next.head, &next.base, &next.stages, std::mem::take(&mut next.tickets))?;

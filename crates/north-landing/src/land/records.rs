@@ -2,6 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use crate::platform::coverage_record::{self, Line};
 use crate::platform::push_ledger;
 use super::after::{cleanup, follow};
 use super::candidate::git;
@@ -107,5 +108,13 @@ pub fn write(lander: &Lander, path: &Path, ticket: &Ticket, candidate: &Candidat
     let Some(arguments) = arguments(path, ticket, candidate, &tree, decision, telemetry::epoch()) else { return };
     if let Err(error) = spawn(&lander.queue, &arguments) {
         println!("north land: could not record {}: {error}", ticket.branch);
+    }
+}
+
+pub fn coverage(queue: &Path, tips: &[String], candidate_log: &Path) {
+    let lines: Vec<Line> = tips.iter().map(|sha| Line::Landed { sha: sha.clone(), log: candidate_log.to_owned() }).collect();
+    let path = coverage_record::path(queue);
+    if let Err(error) = coverage_record::append(&path, &lines) {
+        println!("north land: could not record the coverage selection of {} landings in {}: {error}", tips.len(), path.display());
     }
 }
