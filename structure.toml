@@ -152,9 +152,9 @@ paths = ["target/**", "src/fixtures/**", "crates/*/src/fixtures/**", "**/node_mo
 [[module]]
 name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
-paths = ["tests/**", "crates/*/tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
+paths = ["tests/**", "crates/*/tests/**", "examples/**", "crates/*/examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb"]
+may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep"]
 
 [[module]]
 name = "strategy_types"
@@ -178,17 +178,17 @@ may_use = ["crate-roots", "foundation", "landing", "platform"]
 name = "climb"
 paths = ["crates/north-climb/src/**"]
 responsibility = "The policy climber: the ledger's largest measured loss, one candidate policy change for it, the paths a candidate may not touch, its score from strategy replay, and the live arms."
-may_use = ["crate-roots", "foundation", "ledger", "platform", "replay", "strategy_types"]
+may_use = ["crate-roots", "foundation", "ledger", "ops", "platform", "replay", "strategy_types"]
 
 [[module]]
 name = "foundation"
-paths = ["crates/north-base/src/foundation/**", "crates/north-base/src/error.rs", "crates/north-base/src/test_inputs.rs", "crates/north-base/src/build_inputs.rs"]
+paths = ["crates/north-base/src/foundation/**", "crates/north-base/src/error.rs", "crates/north-base/src/test_inputs.rs", "crates/north-base/src/build_inputs.rs", "crates/north-base/src/agents_sync.rs"]
 responsibility = "Error type, clock port and time values, identifiers."
 may_use = []
 
 [[module]]
 name = "platform"
-paths = ["crates/north-base/src/platform/**"]
+paths = ["crates/north-base/src/platform/**", "crates/north-base/src/run_time_data.rs", "crates/north-base/src/run_time_data/**"]
 responsibility = "Adapters for processes, git, GitHub, SQLite, files and ssh."
 may_use = ["strategy_types", "foundation"]
 
@@ -212,7 +212,7 @@ may_use = ["foundation", "crate-roots"]
 
 [[module]]
 name = "fleet"
-paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**"]
+paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/*/src/claude_stream.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
 may_use = ["domain", "platform", "foundation", "crate-roots"]
 
@@ -224,7 +224,7 @@ may_use = ["fleet", "domain", "platform", "foundation", "crate-roots", "threads"
 
 [[module]]
 name = "guard"
-paths = ["crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs"]
+paths = ["crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs", "crates/north-guard/src/nix_explain.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
 may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "platform", "foundation", "crate-roots", "code_health", "lanes", "threads", "graph_ground"]
 
@@ -242,7 +242,7 @@ may_use = ["platform", "foundation"]
 
 [[module]]
 name = "landing"
-paths = ["crates/north-landing/src/landing/**", "crates/north-landing/src/dep_gate.rs", "crates/north-landing/src/language_gate.rs", "crates/north-landing/src/build_cache_gate.rs", "crates/north-landing/src/stub_exec_gate.rs", "crates/north-landing/src/runtime_floor_gate.rs", "crates/north-landing/src/runtime_floor_gate_tests.rs", "crates/north-landing/src/language_gate/**", "crates/north-landing/src/provenance.rs", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/issue_box_lint.rs", "crates/north-landing/src/land_abandon.rs", "crates/north-landing/src/land_abandon/**", "crates/north-landing/src/follows_release.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**"]
+paths = ["crates/north-landing/src/landing/**", "crates/north-landing/src/dep_gate.rs", "crates/north-landing/src/language_gate.rs", "crates/north-landing/src/build_cache_gate.rs", "crates/north-landing/src/stub_exec_gate.rs", "crates/north-landing/src/runtime_floor_gate.rs", "crates/north-landing/src/runtime_floor_gate_tests.rs", "crates/north-landing/src/language_gate/**", "crates/north-landing/src/provenance.rs", "crates/north-landing/src/provenance/**", "crates/north-landing/src/land_model/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/issue_box_lint.rs", "crates/north-landing/src/land_abandon.rs", "crates/north-landing/src/land_abandon/**", "crates/north-landing/src/follows_release.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
 may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals"]
 
@@ -380,7 +380,7 @@ may_use = ["crate-roots", "foundation", "graph"]
 
 [[module]]
 name = "ops"
-paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**", "crates/north-runtime/src/offload_cache/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**"]
+paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/loops/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**", "crates/north-runtime/src/offload_cache/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
 may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground"]
 
@@ -409,6 +409,12 @@ responsibility = "Measured Rust edit-to-result times per workspace, their ledger
 may_use = ["platform", "foundation", "crate-roots"]
 
 [[module]]
+name = "nix_upkeep"
+paths = ["crates/north-core/src/nix_gc/**", "crates/north-core/src/doctor_nix/**"]
+responsibility = "Nix store upkeep: the gc roots for what the hosts still run, and the doctor's checks of the Nix footguns a host would hit."
+may_use = ["platform", "foundation", "crate-roots"]
+
+[[module]]
 name = "learn"
 paths = ["crates/north-core/src/learn/**"]
 responsibility = "Replay, tuning, measurement and backtests over recorded outcomes."
@@ -416,22 +422,22 @@ may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "providers"
-paths = ["crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/rpc.rs", "crates/*/src/claude_stream.rs", "crates/north-providers/src/codex.rs", "crates/north-providers/src/providers/**"]
+paths = ["crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/rpc.rs", "crates/north-providers/src/codex.rs", "crates/north-providers/src/providers/**"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection."
-may_use = ["fleet", "guard", "catalog", "threads", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "tui"
 paths = ["crates/north-tui/src/lib.rs", "crates/north-tui/src/tui/**"]
 responsibility = "Fleet terminal screen, input, transcript and digest views."
-may_use = ["fleet", "catalog", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["fleet", "ledger", "providers", "catalog", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor"]
+may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor"]
 
 [[module]]
 name = "verify"
