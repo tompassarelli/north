@@ -16,6 +16,7 @@ use super::ship::{SLOTS, is_lander_slot, slot_ports};
 
 const LOCK: &str = "warm.lock";
 const LOG: &str = "warm.log";
+const UNIT: &str = "north-slot-warm";
 const SETTING: &str = "landing.warm";
 const DEADLINE: Duration = Duration::from_secs(1800);
 const POLL: Duration = Duration::from_millis(500);
@@ -53,25 +54,28 @@ fn too_busy(root: &Path) -> bool {
     held_slots.count() > BUSY_SLOTS
 }
 
-/// The lease reaper's step: starts a detached warm job when none is in flight and at most `BUSY_SLOTS` land checks hold slots here.
+/// The lease reaper's step: starts the warm job as its own transient user unit when none is in flight and at most `BUSY_SLOTS` land checks
+/// hold slots here. The reaper is a oneshot unit, and systemd ends every process left in its cgroup when it exits, so a child of the reaper
+/// would die with it; the fixed unit name also keeps a second warm job from starting beside a running one.
 pub fn tend() {
     let Some(root) = root().filter(|root| root.is_dir()) else { return };
     if held(&root.join(LOCK)) || too_busy(&root) {
         return;
     }
-    let Ok(log) = OpenOptions::new().create(true).append(true).open(root.join(LOG)) else { return };
-    let Ok(errors) = log.try_clone() else { return };
     let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let inherited = env::var_os("PATH").unwrap_or_default();
     let path = env::join_paths([home.join(".local/bin"), home.join(".nix-profile/bin")].into_iter().chain(env::split_paths(&inherited))).unwrap_or_else(|_| inherited.clone());
-    let started = Command::new(north_base::platform::north_binary::north_binary())
-        .args(["capacity", "offload", "warm"])
-        .env("PATH", path)
-        .stdin(Stdio::null())
-        .stdout(log)
-        .stderr(errors)
-        .process_group(0)
-        .spawn();
+    let log = root.join(LOG).display().to_string();
+    let mut unit = Command::new("systemd-run");
+    unit.args(["--user", "--quiet", "--collect", "--unit", UNIT])
+        .arg(format!("--property=StandardOutput=append:{log}"))
+        .arg(format!("--property=StandardError=append:{log}"))
+        .arg(format!("--setenv=PATH={}", path.to_string_lossy()))
+        .arg(format!("--setenv=HOME={}", home.display()));
+    if let Some(offload_root) = env::var_os("NORTH_OFFLOAD_ROOT") {
+        unit.arg(format!("--setenv=NORTH_OFFLOAD_ROOT={}", offload_root.to_string_lossy()));
+    }
+    let started = unit.arg("--").arg(north_base::platform::north_binary::north_binary()).args(["capacity", "offload", "warm"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     if let Err(error) = started {
         eprintln!("north capacity: could not start the slot warmer: {error}");
     }
