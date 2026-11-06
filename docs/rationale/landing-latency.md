@@ -151,5 +151,29 @@ building head-north and 55 s building tests. Four causes, three fixed together:
 
 The remaining critical path is `bin/safe-push.test.sh`, which every Rust change selects because it
 calls the north binary: 98 s mean over 138 runs (max 1,583 s), against 54 s for `bin/threads.test.sh`
-and under 11 s for every other shell test. Its four parallel sections are unbalanced (section 3 holds
-1,250 of 2,584 lines); the 30 s target needs that test split or ported, tracked on north#634.
+and under 11 s for every other shell test. Its four parallel sections were unbalanced (section 3 held
+1,250 of 2,584 lines); the next section records the split.
+
+## Shell-test split (2026-11-06)
+
+Timed on ccx33 (8 cores) through `north capacity offload run`, with a stamp at every fixture: the
+four sections took 16, 46, 103 and 6 s, so the test took 104 s, and its 60 fixtures summed to 223 s.
+The slowest were one Autoland storyline that built every case on the last case's repository (26 s),
+the conflict and lane-container cases (16 s), the land-check trains (12 s) and the admitted land
+check (10 s). The Autoland gap case slept 3 s before its probe and waited out a 6 s gap window.
+
+- The test now runs 28 sections cut at fixture boundaries, none over 10 s of measured case time.
+  The helpers moved out of the sections, the shared deny-list fixture and the landing template are
+  built once before the sections start, and each section has its own state and tool directories.
+- The Autoland storyline is four cases, each building its own Autoland fixture: the refusals, the
+  pre-push hook, the train landing with the stopped and resumed waits, and the gap and lock cases.
+- The gap probe starts when the lane first polls Autoland, through a marker the `gh` shim writes,
+  so the gap window is 1 s and the probe fails when no poll happened.
+
+After, all 148 safe-push runs passing with the same cases: ccx33 30.2 s at load 1.3, gex45 (20
+threads) 14.4 s. The test is now CPU-bound: 212 s of CPU on ccx33 (68 s user, 144 s system), and every
+section took 26 to 29 s there against 10 s alone, so its wall time is its CPU divided by the host's
+cores. Each safe-push run costs about 1.4 s of CPU over about 100 processes: 6,600 git, 771 debug
+north and 1,500 bash runs across the suite, plus the shell's own forks. The cases that cost the most
+CPU, first for the Rust port: the capacity lease released for the Actions wait (10.8 s), the mixed
+train (8.9 s), the admitted land check (8.7 s), tool removal (8.5 s) and the three-lane train (8.3 s).
