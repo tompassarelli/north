@@ -496,7 +496,7 @@ Marked risky or outdated, each with its box:
 - Runtime GC roots (90618140a, 2d43dfc83) and the deployed-unit check (b7290d292): root every store path a promoted
   runtime loads, and refuse a landing that deletes a `bin/` entry a deployed unit runs. Gaps: dev shells of live
   worktrees and rustup toolchains are unrooted; the unit check knows `bin/` names, not `north` subcommands or flags.
-- dep-gate (`crates/north-landing/src/dep_gate.rs:744`): age-gates changed flake.lock nodes. Gap: nothing flags a
+- dep-gate (`crates/north-diff-gates/src/dep_gate.rs:744`): age-gates changed flake.lock nodes. Gap: nothing flags a
   second nixpkgs node.
 - `tests/it/dev_shell_target.rs`: pins target keying only.
 - There is no `north doctor`, and no Nix health probe anywhere.

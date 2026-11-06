@@ -8,10 +8,10 @@ publish = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-diff-gates = { path = "../north-diff-gates" }
 north-github-mirror = { path = "../north-github-mirror" }
 north-goals = { path = "../north-goals" }
 north-strategy-types = { path = "../north-strategy-types" }
-percent-encoding.workspace = true
 regex.workspace = true
 rustix.workspace = true
 serde.workspace = true

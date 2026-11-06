@@ -151,7 +151,7 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
    naming `bin/gone` exits 1, and 0 once `bin/gone` is tracked); `git config --file .safe-push
    --get-all land.check` lists the `**` citation-check line.
 2a. **Agent router (20 min).** Rewrite only the `## Routers` section of `AGENTS.md` (the provenance
-   gate, `crates/north-landing/src/provenance.rs`, exempts that section alone) as one sentence per
+   gate, `crates/north-diff-gates/src/provenance.rs`, exempts that section alone) as one sentence per
    area that names a concrete file, so the grounding index keys it: for example "Before changing
    `bin/safe-push` or `crates/north-landing/src/landing/mod.rs`, read docs/harness.md#landing-a-change".
    Cover landing, fleet and TUI, capacity, hooks and skills, policy, grounding, the ledger. Done

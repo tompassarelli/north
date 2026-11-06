@@ -148,7 +148,7 @@ trust).
 - north `flake.nix:4` and wisp `window/flake.nix:4` follow `nixos-unstable`, both locked to 2026-08-31 with
   rust-overlay of 2026-09-01, while hosts run nixos-26.05 locked to 2026-11-02. Current pattern, outdated lock: two
   months behind, and a second nixpkgs to download and keep beside the system's. Gated updates go through
-  `crates/north-landing/src/dep_gate.rs:735` (`lock_candidates`), which is the right place to keep the age bounded.
+  `crates/north-diff-gates/src/dep_gate.rs:735` (`lock_candidates`), which is the right place to keep the age bounded.
 - makgora `flake.nix:2` pins nixpkgs by a raw revision in the URL (`github:NixOS/nixpkgs/e1d7762c…`, 2026-09-16).
   Outdated: `nix flake update` cannot move it, so the lock policy and dep gate never see it age; a branch URL with
   the lock as the pin is the usual form.

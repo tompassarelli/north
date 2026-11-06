@@ -998,6 +998,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-diff-gates"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "percent-encoding",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "toml_edit",
+]
+
+[[package]]
 name = "north-dispatch"
 version = "0.1.0"
 dependencies = [
@@ -1148,10 +1162,10 @@ name = "north-landing"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-diff-gates",
  "north-github-mirror",
  "north-goals",
  "north-strategy-types",
- "percent-encoding",
  "proptest",
  "regex",
  "rustix 0.38.44",
