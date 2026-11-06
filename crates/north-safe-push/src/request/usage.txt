@@ -1,7 +1,7 @@
 Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--message FILE | --several-commits REASON]
        safe-push [--dry-run] --tag NAME
        safe-push [--dry-run] --delete-tag NAME
-       safe-push abandon [BRANCH | scratch/NAME | --superseded BRANCH]
+       safe-push abandon [BRANCH | scratch/NAME | --superseded BRANCH [--by COMMIT]]
 
 Scan secrets and private values and run the landing checks, then push the current
 branch or one tag. Process gates (code-health, instruction limits,
@@ -53,7 +53,10 @@ Options:
                subject or patch or Autoland handed it back (a failure or
                error status); with --superseded, a claude/* or
                farm/* BRANCH goes only once each of its commits is on origin by
-               subject or patch, whatever Autoland reported; a scratch/NAME
+               subject or patch, whatever Autoland reported; with
+               --superseded BRANCH --by COMMIT, any branch but main, master,
+               gh-pages and release/* goes once COMMIT, named as the change
+               that supersedes it, is on origin's default branch; a scratch/NAME
                goes once this session pushed its tip, the session that pushed
                it has exited, or it has been untouched for a day; any other
                branch is refused

@@ -238,11 +238,10 @@ fn parse(arguments: &[String]) -> Option<(Vec<String>, bool)> {
 
 fn gc_state(home: &Path) -> (Vec<(&'static str, String)>, Option<i64>) {
     let mut results = Vec::new();
-    for unit in ["lane-gc.service", "lane-gc-remote.service"] {
-        let ran = command(&["systemctl", "--user", "show", "-p", "Result", "--value", unit]);
-        if ran.ok && !ran.out.is_empty() {
-            results.push((unit, ran.out));
-        }
+    let unit = "lane-gc.service";
+    let ran = command(&["systemctl", "--user", "show", "-p", "Result", "--value", unit]);
+    if ran.ok && !ran.out.is_empty() {
+        results.push((unit, ran.out));
     }
     let state = std::fs::read_to_string(home.join(".local/state/agents/lane-gc/stale.json")).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
     let at = state.as_ref().and_then(|state| state["at"].as_str()).and_then(Timestamp::parse_rfc3339).map(Timestamp::unix_millis);

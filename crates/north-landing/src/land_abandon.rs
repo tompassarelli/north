@@ -60,22 +60,28 @@ fn superseded(tip: &str, destination: &str) -> Option<bool> {
 
 enum Abandon {
     LandBranch(Option<String>),
-    Superseded(String),
+    Superseded(String, Option<String>),
     Scratch(String),
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum Rule {
     LandedOrHandedBack,
     Superseded,
+    SupersededBy(String),
     Scratch,
+}
+
+fn protected(branch: &str) -> bool {
+    matches!(branch, "main" | "master" | "gh-pages") || branch.starts_with("release/")
 }
 
 impl Abandon {
     fn parse(arguments: &[String]) -> Option<Self> {
         match arguments {
             [] => Some(Self::LandBranch(lane_land_branch())),
-            [flag, branch] if flag == "--superseded" => Some(Self::Superseded(branch.clone())),
+            [flag, branch] if flag == "--superseded" => Some(Self::Superseded(branch.clone(), None)),
+            [flag, branch, by, commit] if flag == "--superseded" && by == "--by" => Some(Self::Superseded(branch.clone(), Some(commit.clone()))),
             [branch] if branch.starts_with("scratch/") => Some(Self::Scratch(branch.clone())),
             [branch] => Some(Self::LandBranch(Some(branch.clone()))),
             _ => None,
@@ -87,9 +93,10 @@ impl Abandon {
             Self::LandBranch(branch) => branch
                 .filter(|branch| branch.starts_with("claude/"))
                 .map(|branch| (branch, Rule::LandedOrHandedBack)),
-            Self::Superseded(branch) => (branch.starts_with("claude/")
+            Self::Superseded(branch, None) => (branch.starts_with("claude/")
                 || branch.starts_with("farm/"))
             .then_some((branch, Rule::Superseded)),
+            Self::Superseded(branch, Some(commit)) => (!protected(&branch)).then_some((branch, Rule::SupersededBy(commit))),
             Self::Scratch(branch) => Some((branch, Rule::Scratch)),
         }
     }
@@ -97,12 +104,12 @@ impl Abandon {
 
 pub fn abandon(arguments: &[String], witness: &dyn Witness) -> u8 {
     let Some(request) = Abandon::parse(arguments) else {
-        eprintln!("Usage: north land-abandon [BRANCH | scratch/NAME | --superseded BRANCH]");
+        eprintln!("Usage: north land-abandon [BRANCH | scratch/NAME | --superseded BRANCH [--by COMMIT]]");
         return 2;
     };
     let Some((branch, rule)) = request.branch() else {
         eprintln!(
-            "safe-push: abandon refuses anything but a claude/* or scratch/* branch (farm/* too with --superseded); NOT deleted."
+            "safe-push: abandon refuses anything but a claude/* or scratch/* branch (farm/* too with --superseded, any unprotected branch with --by); NOT deleted."
         );
         return 1;
     };
@@ -153,6 +160,14 @@ fn verdict(rule: Rule, branch: &str, tip: &str, destination: &str, witness: &dyn
             .ok_or_else(|| "could not fetch its tip".to_owned())
             .and_then(|_| scratch::verdict(&scratch::observe(branch, tip, witness)))
             .map_err(|refusal| format!(": {refusal}"));
+    }
+    if let Rule::SupersededBy(commit) = &rule {
+        let subject = fetched
+            .and_then(|_| git_output(&["merge-base", "--is-ancestor", commit, &tracking]))
+            .and_then(|_| git_output(&["log", "-1", "--format=%h %s", commit]));
+        return subject
+            .map(|subject| format!("superseded by {}", subject.trim()))
+            .ok_or_else(|| format!(": {commit} is not a commit on origin/{destination}"));
     }
     if fetched.is_some() && superseded(tip, &tracking) == Some(true) {
         return Ok(format!("every lane commit is on origin/{destination} by subject or patch"));

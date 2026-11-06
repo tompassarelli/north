@@ -1,13 +1,16 @@
 usage: north lane-gc [--remote] [--dry-run] [--repo NAME]... [--root DIR] [--idle-hours H] [--state FILE]
        north lane-gc --unlanded
 
-For every ~/code/<project> container with main/ and worktrees/ (clients,
-resources and archive are skipped), lane-gc deletes a lane, branch or origin branch only
+For every ~/code/<project> container with main/ (clients, resources and archive are
+skipped; lanes are swept only where worktrees/ exists, origin branches in every container
+whose origin is tompassarelli GitHub), lane-gc deletes a lane, branch or origin branch only
 when it is finished, and never backs it up or pushes a tag:
   - landed: its tip is contained in origin/main, patch-equivalent there (git cherry shows no +),
     its tree already on main (north landed-tree) or it adds nothing when merged;
-  - superseded: it is not landed but every issue it names (Refs/Fixes/Closes/Part of in its
-    commits) is closed.
+  - superseded: a lane or local branch is not landed but every issue it names
+    (Refs/Fixes/Closes/Part of in its commits) is closed; an origin branch is superseded only
+    when each of its commits has a commit on origin/main with its subject or its author and
+    author date, and the deletion names those commits.
 A worktree under worktrees/ must also have no uncommitted or untracked files, no process with
 its cwd or an open file inside, no live Fleet session, no lock, and no touch within
 --idle-hours (default 3); it is removed with git worktree remove, then its branch. A local
@@ -15,7 +18,9 @@ branch with no worktree passes the same idle check and, when superseded, the liv
 (live claim, pushed under 24h, open PR, active Actions, autoland). Origin branches are
 deleted when landed or superseded and not protected by an open PR, active Actions, Autoland,
 a land ticket, a claim, a live worktree or a push under 24h (4h for claude/land-*); --remote
-sweeps only origin branches.
+sweeps only origin branches. An unlanded origin branch kept for 24h that no unchecked box in
+an open issue names gets one: a box on the first open issue its commits cite, else a new issue
+in its repository. Every origin decision is written to remote.txt beside the unlanded report.
 A worktree it keeps loses its build output: when its branch is landed or it has had no touch
 within --idle-hours, its git-ignored target/ is deleted unless the lane is locked or a process
 holds a file in it open, and the run prints the path and size freed.

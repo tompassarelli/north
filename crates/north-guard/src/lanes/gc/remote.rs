@@ -6,8 +6,9 @@ use north_github_mirror::store::{self, Mirror};
 use serde_json::Value;
 
 use super::Gc;
-use super::evidence::{LaneClass, LaneFacts, lane_class, landed, named_issues, origin_repo, own_repo, protected_branch, refs_on};
-use super::exec::{api, git_slow, verified};
+use super::evidence::{landed, named_issues, origin_repo, own_repo, protected_branch, refs_on};
+use super::exec::{api, git, git_slow, verified};
+use super::remote_boxes::{append_box, box_line, cited_open, named_in_open_box, open_issue, superseding};
 use super::liveness::{open_pull_heads, pending_autoland, tree_is_live};
 use super::state::RemoteStale;
 use north_core::foundation::clock::Timestamp;
@@ -15,9 +16,11 @@ use north_core::foundation::clock::Timestamp;
 const BASE: &str = "refs/remotes/origin/main";
 const LANDING: &str = "claude/land-";
 const HOUR_MS: i64 = 3_600_000;
+const BOX_AFTER_H: i64 = 24;
 const RUN_STATUSES: [&str; 5] = ["queued", "in_progress", "waiting", "pending", "requested"];
 
 struct Evidence {
+    repo: String,
     branches: Vec<Value>,
     prs: HashSet<String>,
     active: HashSet<String>,
@@ -135,7 +138,8 @@ impl Gc {
         let branches = remote_branches(&repo)?;
         let prs = open_pull_heads(&repo)?;
         let (active, active_tips) = active_runs(&repo)?;
-        let evidence = Evidence { branches, prs, active, active_tips, pushes: self.pushed_refs(&repo) };
+        let pushes = self.pushed_refs(&repo);
+        let evidence = Evidence { repo, branches, prs, active, active_tips, pushes };
         let report = self.stale.repo(&name);
         report.remote_landed.clear();
         report.remote_stale.clear();
@@ -143,13 +147,13 @@ impl Gc {
         for target in &evidence.branches {
             self.remote_branch(&name, &main, &evidence, target, &mut split)?;
         }
-        println!(
-            "{name}: remote split: {} LIVE, {} deleted, {} unlanded kept",
-            split.skipped,
-            split.deletable,
-            split.kept
-        );
+        self.say(format!("{name}: remote split: {} LIVE, {} deleted, {} unlanded kept", split.skipped, split.deletable, split.kept));
         Ok(())
+    }
+
+    pub(super) fn say(&mut self, line: String) {
+        println!("{line}");
+        self.remote_rows.push(line);
     }
 
     fn branch_facts<'a>(&self, name: &str, main: &Path, evidence: &Evidence, node: &'a Value) -> Result<Branch<'a>, String> {
@@ -217,7 +221,7 @@ impl Gc {
         let reason = self.live_reason(name, main, evidence, &branch);
         if !reason.is_empty() {
             split.skipped += 1;
-            println!("{name}: origin {}: LIVE({reason})", branch.name);
+            self.say(format!("{name}: origin {}: LIVE({reason})", branch.name));
             return Ok(());
         }
         let age = branch.age_h.floor() as i64;
@@ -225,29 +229,59 @@ impl Gc {
             self.stale.repo(name).remote_landed.push(branch.name.into());
             return self.delete_remote(name, main, &branch, "landed", age, split);
         }
+        if let Some(commits) = superseding(main, BASE, branch.tip)? {
+            return self.delete_remote(name, main, &branch, &format!("superseded by {}", commits.join(" ")), age, split);
+        }
         let issues = named_issues(main, &own_repo(main, name), BASE, branch.tip)?;
         let states = self.issue_states(&issues);
-        if lane_class(&LaneFacts { dirty: false, equivalent: false, issues: &states, idle_hours: 0.0, held: false }) == LaneClass::Superseded {
-            return self.delete_remote(name, main, &branch, "superseded", age, split);
-        }
         let owner = self.owner(name)?;
         let described = if issues.is_empty() { vec!["fault: names no issue".to_string()] } else { issues.iter().zip(&states).map(|(item, state)| format!("{item}={}", state.label())).collect() };
         self.stale.repo(name).remote_stale.push(RemoteStale { branch: branch.name.into(), age_h: age, issues: described.clone(), owner });
         split.kept += 1;
-        println!("{name}: origin {}: KEEP unlanded ({age}h; {})", branch.name, described.join(" "));
+        let boxed = if age >= BOX_AFTER_H { self.boxed(main, evidence, &branch, age)? } else { format!("under {BOX_AFTER_H}h, no box yet") };
+        self.say(format!("{name}: origin {}: KEEP unlanded ({age}h; {}; {boxed})", branch.name, described.join(" ")));
         Ok(())
+    }
+
+    fn boxed(&mut self, main: &Path, evidence: &Evidence, branch: &Branch, age: i64) -> Result<String, String> {
+        let repo = evidence.repo.as_str();
+        let bodies = git(main, &["log", "--format=%B", &format!("{BASE}..{}", branch.tip)]);
+        let (named, target) = {
+            let open = self.open_issues(repo)?;
+            (named_in_open_box(open, branch.name), cited_open(&bodies.out, repo, open))
+        };
+        if let Some(number) = named {
+            return Ok(format!("named in an open box on {repo}#{number}"));
+        }
+        let line = box_line(branch.name, branch.tip, age);
+        if self.options.dry_run {
+            return Ok(target.map_or_else(|| format!("would open an issue on {repo} for it"), |number| format!("would file a box on {repo}#{number}")));
+        }
+        let filed = match target {
+            Some(number) => append_box(repo, number, &line, branch.name).map(|appended| if appended { format!("filed a box on {repo}#{number}") } else { format!("{repo}#{number} already names it") }),
+            None => open_issue(repo, branch.name, &line).map(|url| format!("opened {url} for it")),
+        };
+        Ok(filed.unwrap_or_else(|error| format!("box not filed: {error}")))
+    }
+
+    fn open_issues(&mut self, repo: &str) -> Result<&[Value], String> {
+        if !self.open.contains_key(repo) {
+            let open = read::listed(&Mirror::local(), read::now(), repo, store::OPEN_ISSUES, || store::fetch_open_issues(repo))?;
+            self.open.insert(repo.to_string(), open);
+        }
+        Ok(&self.open[repo])
     }
 
     fn delete_remote(&mut self, name: &str, main: &Path, branch: &Branch, class: &str, age: i64, split: &mut Split) -> Result<(), String> {
         split.deletable += 1;
-        println!("{name}: origin {}: STALE {class} ({age}h; delete)", branch.name);
+        self.say(format!("{name}: origin {}: STALE {class} ({age}h; delete)", branch.name));
         if self.options.dry_run {
             return Ok(());
         }
         let lease = format!("--force-with-lease=refs/heads/{}:{}", branch.name, branch.tip);
         let deletion = git_slow(main, &["push", "-q", &lease, "origin", &format!(":refs/heads/{}", branch.name)]);
         if !deletion.ok {
-            println!("{name}: keep origin {}: delete failed: {}", branch.name, deletion.last_err_line());
+            self.say(format!("{name}: keep origin {}: delete failed: {}", branch.name, deletion.last_err_line()));
             return Ok(());
         }
         self.counts.deleted_remote += 1;

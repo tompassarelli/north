@@ -30,6 +30,7 @@ fn a_red_main_run_whose_previous_runs_were_not_green_reverts_exactly_the_culprit
     let request = git(&north.checkout, &["commit-tree", &format!("{head}^{{tree}}"), "-p", &head, "-m", &message]);
     git(&north.checkout, &["push", "-q", "origin", &format!("{request}:refs/heads/claude/land-revert-{head}")]);
     north.lane("north-lane");
+    git(&north.checkout.parent().unwrap().join("worktrees/north-lane"), &["push", "-q", "origin", "north-lane"]);
     let landers = [world.lander(&north, None).wait_with_output().unwrap(), world.lander(&north, None).wait_with_output().unwrap()];
     let transcript = landers.iter().map(report).collect::<Vec<_>>().join("\n");
     println!("{transcript}");
@@ -48,4 +49,5 @@ fn a_red_main_run_whose_previous_runs_were_not_green_reverts_exactly_the_culprit
         assert!(files.contains(&kept.to_owned()), "{kept} missing from {files:?}");
     }
     assert_eq!(git(&north.origin, &["for-each-ref", "refs/heads/claude/land-revert-"]).len(), 0);
+    assert_eq!(git(&north.origin, &["for-each-ref", "refs/heads/north-lane"]), "", "a landing deletes the lane's origin branch\n{transcript}");
 }

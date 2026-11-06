@@ -5,6 +5,7 @@ mod exec;
 mod liveness;
 mod local;
 mod remote;
+mod remote_boxes;
 mod report;
 mod state;
 mod strays;
@@ -34,6 +35,7 @@ pub use audit::run as repo;
 
 const SKIP: [&str; 3] = ["clients", "resources", "archive"];
 pub const USAGE: &str = include_str!("usage.txt").trim_ascii_end();
+const REMOTE_RECORD: &str = "remote.txt";
 
 #[derive(Clone, Debug)]
 pub(super) struct Options {
@@ -70,6 +72,8 @@ pub(super) struct Gc {
     issues: HashMap<String, IssueState>,
     pushes: HashMap<String, Option<HashMap<String, i64>>>,
     github: HashMap<String, GithubFacts>,
+    open: HashMap<String, Vec<Value>>,
+    remote_rows: Vec<String>,
 }
 
 enum Parsed {
@@ -141,14 +145,14 @@ fn print_unlanded(home: &Path, state: &Path) -> u8 {
     }
 }
 
-fn containers(root: &Path, only: &[String], remote: bool) -> std::io::Result<Vec<PathBuf>> {
+fn containers(root: &Path, only: &[String]) -> std::io::Result<Vec<PathBuf>> {
     let mut names: Vec<String> = std::fs::read_dir(root)?.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
     names.sort();
     Ok(names
         .into_iter()
         .filter(|name| !SKIP.contains(&name.as_str()) && !name.ends_with("-data") && (only.is_empty() || only.contains(name)))
         .map(|name| root.join(name))
-        .filter(|container| container.join("main/.git").exists() && (remote || container.join("worktrees").exists()))
+        .filter(|container| container.join("main/.git").exists())
         .collect())
 }
 
@@ -159,7 +163,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Parsed::Sweep(options) => options,
         Parsed::Exit(code) => return code,
     };
-    let containers = match containers(&options.root, &options.repos, options.remote) {
+    let containers = match containers(&options.root, &options.repos) {
         Ok(containers) => containers,
         Err(error) => {
             eprintln!("lane-gc: {}: {error}", options.root.display());
@@ -188,6 +192,8 @@ pub fn run(arguments: &[String]) -> u8 {
         issues: HashMap::new(),
         pushes: HashMap::new(),
         github: HashMap::new(),
+        open: HashMap::new(),
+        remote_rows: Vec::new(),
     };
     gc.sweep_all(&containers);
     gc.finish()
@@ -198,13 +204,11 @@ impl Gc {
         let live = if self.options.remote { Vec::new() } else { open_paths(Path::new("/proc")) };
         for container in containers {
             let name = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
-            let swept = if self.options.remote {
-                self.remote_sweep(container)
-            } else {
-                self.sweep(container, &live).and_then(|()| if origin_repo(&container.join("main")).is_some() { self.remote_sweep(container) } else { Ok(()) })
-            };
+            let has_origin = origin_repo(&container.join("main")).is_some();
+            let local = if self.options.remote || !container.join("worktrees").exists() { Ok(()) } else { self.sweep(container, &live) };
+            let swept = local.and_then(|()| if self.options.remote || has_origin { self.remote_sweep(container) } else { Ok(()) });
             if let Err(error) = swept {
-                println!("{name}: stopped: {error}");
+                self.say(format!("{name}: stopped: {error}"));
             }
         }
         if !self.options.remote {
@@ -228,6 +232,12 @@ impl Gc {
             let text = format!("{header}{body}{}", if body.is_empty() { "" } else { "\n" });
             if let Err(error) = write_atomically(&self.options.state, &text) {
                 eprintln!("lane-gc: {}: {error}", self.options.state.display());
+                return 1;
+            }
+            let remote = self.options.state.with_file_name(REMOTE_RECORD);
+            let text = format!("# lane-gc {}: origin branch decisions\n{}\n", Timestamp::now().iso_millis(), self.remote_rows.join("\n"));
+            if let Err(error) = write_atomically(&remote, &text) {
+                eprintln!("lane-gc: {}: {error}", remote.display());
                 return 1;
             }
         } else if self.options.dry_run {
