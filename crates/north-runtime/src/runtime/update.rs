@@ -191,6 +191,7 @@ fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previ
     }
     super::entry_links::link(runtime)?;
     store::root(runtime)?;
+    super::deploy::stage_for_lander(layout, target, runtime);
     sync(layout, previous, target)
 }
 

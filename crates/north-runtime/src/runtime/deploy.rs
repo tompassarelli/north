@@ -6,6 +6,7 @@ use super::store::references;
 use super::update::{DEPLOY_LOCK, built_main, checkout, lock_waiting, named_lock_waiting};
 use crate::land_offload;
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -80,4 +81,20 @@ fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>)
     println!("north runtime deploy: {host}: promoting {} with the shipped north", layout::short(target));
     let shipped = format!(".local/state/north/runtimes/{target}/north");
     run_reporting(host, &format!("north runtime update --sha {}", layout::short(target)), ssh(host).args([shipped.as_str(), "runtime", "update", "--sha", target]), PROMOTE)
+}
+
+pub(super) fn stage_for_lander(layout: &Layout, target: &str, runtime: &Path) {
+    if fs::symlink_metadata(layout.lander()).is_err() {
+        return;
+    }
+    let hosts = land_offload::deployment().destinations;
+    std::thread::scope(|scope| {
+        for host in &hosts {
+            scope.spawn(move || {
+                if let Err(failure) = stage_runtime(host, target, runtime) {
+                    eprintln!("north runtime update: staging on {host} before the swap: {}; its first offloaded land check stages it instead", failure.message);
+                }
+            });
+        }
+    });
 }
