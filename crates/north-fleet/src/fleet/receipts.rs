@@ -59,6 +59,7 @@ pub fn retires(reply: &str) -> bool {
 
 pub trait ReceiptBook: Send + Sync {
     fn claim_receipt(&self, session: &str, key: &str, claimed_ms: u64) -> NorthResult<bool>;
+    fn reported(&self, session: &str) -> NorthResult<bool>;
 }
 
 pub trait Courier: Send + Sync {
@@ -208,6 +209,10 @@ mod tests {
     impl ReceiptBook for Book {
         fn claim_receipt(&self, session: &str, key: &str, _claimed_ms: u64) -> NorthResult<bool> {
             Ok(self.0.lock().unwrap().insert((session.to_owned(), key.to_owned())))
+        }
+
+        fn reported(&self, session: &str) -> NorthResult<bool> {
+            Ok(self.0.lock().unwrap().iter().any(|(owner, key)| owner == session && key.starts_with("turn:")))
         }
     }
 

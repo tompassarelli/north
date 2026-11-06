@@ -1536,3 +1536,11 @@ unit = "words that, on the same line as a sign-in phrase, show the line is descr
 source = "tom: the box that builds the machine path has to be able to say what it removes, so a line like 'no agent work depends on a human sign-in' must launch (north#522, 2026-11-06)"
 fallback = "no line is exempt, so a brief that merely mentions a sign-in is refused"
 consumers = ["crates/north-base/src/platform/signin.rs"]
+
+[fleet_stale_hours]
+value = 2
+allowed = { min = 1, max = 168 }
+unit = "hours an idle or parked fleet session may stay quiet, with no registered wait, open gate, queued lane, live child or running job, before the fleet tick retires it"
+source = "measured: dry run of north fleet reap on the laptop, 2026-11-06 2:40 PM: of 122 idle or parked sessions 82 retire on their report or past 12 h, 13 are held by a wait, queued lane, live child or a named commit not yet on origin/main, and 27 were quiet 8 min to 12 h; idle_exit ends a host after 10 min, so a session quiet 2 h with nothing to wake it is not working, and 2 is the smallest whole-hour value that leaves under 20 idle or parked"
+fallback = "a session the fleet tick does not retire stays addressable until the proxy forgets it"
+consumers = ["crates/north-fleet/src/fleet/reaper.rs"]

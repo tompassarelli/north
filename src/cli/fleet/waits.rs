@@ -18,6 +18,7 @@ use crate::fleet::sender::Sender;
 use crate::fleet::store::LedgerHost;
 use crate::fleet::tick::{ProbeJob, Probed, WaitProbes};
 use crate::fleet::limit::Parked;
+use crate::fleet::reaper;
 use crate::fleet::waits::{Probe, Registered, Run, Settled};
 use crate::foundation::clock::Timestamp;
 use crate::grounding::distill;
@@ -104,8 +105,24 @@ impl WaitProbes for Probes {
                     said(handed.lines.into_iter().chain(handed.alert))
                 }),
             },
+            ProbeJob { name: "probes.settle.reap", run: Box::new(|fleet| said(reaper::reap(&fleet, &reaper::Here, now_ms(), true).lines())) },
         ]
     }
+}
+
+pub(super) fn reap(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
+    let apply = match words {
+        [] => true,
+        ["--dry-run"] => false,
+        _ => return Err(NorthError::Usage("Usage: north fleet reap [--dry-run]".into())),
+    };
+    let reaped = reaper::reap(fleet, &reaper::Here, now_ms(), apply);
+    for kept in &reaped.kept {
+        println!("kept {}: {}", kept.name, kept.why);
+    }
+    reaped.lines().iter().for_each(|line| println!("{line}"));
+    println!("{} {}, {} kept, {} failed", if apply { "retired" } else { "would retire" }, reaped.retired.len(), reaped.kept.len(), reaped.failed.len());
+    Ok(())
 }
 
 fn recurred_corrections(now: i64) -> Vec<String> {

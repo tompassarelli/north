@@ -122,3 +122,42 @@ pub fn resume_message(account: &str) -> String {
     )
 }
 
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::path::Path;
+
+    use super::*;
+    use crate::fleet::waits::{Probe, Waits};
+
+    struct Clock(u64);
+
+    impl Probe for Clock {
+        fn result(&self, wait: &Registered) -> Option<String> {
+            UsageWait::of(wait)?.lifted(&[], self.0)
+        }
+    }
+
+    #[test]
+    fn a_session_parked_on_its_accounts_usage_limit_is_resumed_by_the_tick_at_the_reset_and_not_before() {
+        let home = tempfile::tempdir().unwrap();
+        let waits = Waits::in_root(home.path());
+        let reset_ms = 1_793_934_000_000;
+        waits.register("worker", Run::Usage { account: "c".into(), at_ms: reset_ms }, Path::new("/tmp"), Some(LABEL)).unwrap();
+        let told = RefCell::new(Vec::new());
+        let tell = |name: &str, text: &str| -> crate::error::NorthResult<()> {
+            told.borrow_mut().push((name.to_owned(), text.to_owned()));
+            Ok(())
+        };
+
+        let early = waits.settle(&Clock(reset_ms - 60_000), &|_| true, &tell);
+        let held = waits.of("worker").len();
+        let due = waits.settle(&Clock(reset_ms), &|_| true, &tell);
+
+        assert!(early.is_empty() && held == 1, "{early:?}");
+        assert_eq!(due.len(), 1);
+        assert_eq!(told.into_inner(), [("worker".to_owned(), resume_message("c"))]);
+        assert!(waits.of("worker").is_empty(), "the wait is released once the session is told");
+    }
+}

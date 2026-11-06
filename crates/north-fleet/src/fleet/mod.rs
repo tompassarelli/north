@@ -20,6 +20,7 @@ pub mod lane_probe;
 pub mod prompt;
 pub mod rebooted;
 pub mod receipts;
+pub mod reaper;
 pub mod records;
 pub mod link;
 mod remote;

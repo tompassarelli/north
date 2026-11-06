@@ -43,6 +43,7 @@ mod interactive;
 mod kept;
 mod lanes;
 mod relaunching;
+mod retiring;
 mod launching;
 mod home;
 mod start_lock;

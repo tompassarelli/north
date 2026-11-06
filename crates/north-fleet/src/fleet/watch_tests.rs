@@ -45,6 +45,10 @@ impl ReceiptBook for Books0 {
     fn claim_receipt(&self, _session: &str, _key: &str, _claimed_ms: u64) -> NorthResult<bool> {
         Ok(true)
     }
+
+    fn reported(&self, _session: &str) -> NorthResult<bool> {
+        Ok(false)
+    }
 }
 
 impl GateBook for Books0 {

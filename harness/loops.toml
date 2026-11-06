@@ -595,3 +595,13 @@ defaults = [
   "success_threshold",
   "tom_class_owners",
 ]
+
+[[loop]]
+name = "fleet-retire"
+decision = "which idle or parked fleet session the fleet tick retires, and how long a quiet one waits first"
+sites = ["crates/north-fleet/src/fleet/reaper.rs", "crates/north-fleet/src/fleet/registry/retiring.rs"]
+signal = "messages routed to a retired session's heir (.dead-letters.jsonl): a stale retirement addressed again soon after says fleet_stale_hours is too short; idle or parked sessions left after each tick say it is too long"
+updated_by = "north fleet tick, every 30 s, writes the verdicts; fleet_stale_hours by hand"
+cadence_hours = 1
+record = "north/fleet/.reap.json"
+defaults = ["fleet_stale_hours"]

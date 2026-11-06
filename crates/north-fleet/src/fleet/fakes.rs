@@ -46,6 +46,10 @@ impl ReceiptBook for Paper {
     fn claim_receipt(&self, session: &str, key: &str, _claimed_ms: u64) -> NorthResult<bool> {
         Ok(self.receipts.lock().unwrap().insert((session.to_owned(), key.to_owned())))
     }
+
+    fn reported(&self, session: &str) -> NorthResult<bool> {
+        Ok(self.receipts.lock().unwrap().iter().any(|(owner, key)| owner == session && key.starts_with("turn:")))
+    }
 }
 
 impl GateBook for Paper {

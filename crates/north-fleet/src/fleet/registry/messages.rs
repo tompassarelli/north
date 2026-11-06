@@ -10,6 +10,7 @@ use super::Fleet;
 pub enum Sent {
     HandedIn,
     Spooled { id: String, host: String },
+    Retired { heir: String },
 }
 
 impl Fleet {
@@ -27,6 +28,10 @@ impl Fleet {
     pub fn send_message(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
         if self.session_dir(name)?.exists() {
             return self.send_signed(from, name, text, delivery).map(|()| Sent::HandedIn);
+        }
+        if let Some(heir) = self.heir(name)? {
+            self.send_message(from, &heir, &self.dead_letter(name, &heir, text), delivery)?;
+            return Ok(Sent::Retired { heir });
         }
         let held = self.held_elsewhere(name)?.ok_or_else(|| NorthError::Usage(format!("no session named {name}")))?;
         let row = self.spool_message(from, name, text, delivery)?;

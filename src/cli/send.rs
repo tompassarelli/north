@@ -32,8 +32,10 @@ pub(super) fn leading_flags<'a, 'w>(mut words: &'w [&'a str]) -> NorthResult<(Fl
 
 fn send(fleet: &Fleet, from: Option<&str>, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
     let from = signer(fleet, from, name)?;
-    if let Sent::Spooled { id, host } = fleet.send_message(&from, name, text, delivery)? {
-        eprintln!("north fleet: {name} runs on {host}; spooled {id} for the fleet tick to deliver");
+    match fleet.send_message(&from, name, text, delivery)? {
+        Sent::Spooled { id, host } => eprintln!("north fleet: {name} runs on {host}; spooled {id} for the fleet tick to deliver"),
+        Sent::Retired { heir } => eprintln!("north fleet: {name} is retired; the message went to {heir}"),
+        Sent::HandedIn => {}
     }
     Ok(())
 }

@@ -277,6 +277,7 @@ pub enum Ending {
     IdleExit,
     HostEnded,
     Stopped,
+    Retired,
 }
 
 impl Ending {
@@ -285,6 +286,7 @@ impl Ending {
             Self::IdleExit => "idle-exit",
             Self::HostEnded => "host-ended",
             Self::Stopped => "stopped",
+            Self::Retired => "retired",
         }
     }
 }

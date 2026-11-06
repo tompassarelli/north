@@ -32,6 +32,10 @@ impl ReceiptBook for Recorded {
     fn claim_receipt(&self, _session: &str, _key: &str, _claimed_ms: u64) -> NorthResult<bool> {
         Ok(true)
     }
+
+    fn reported(&self, _session: &str) -> NorthResult<bool> {
+        Ok(false)
+    }
 }
 
 impl Courier for Recorded {

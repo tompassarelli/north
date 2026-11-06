@@ -603,8 +603,3 @@ path = "crates/north-fleet/src/fleet/session_host.rs"
 item = "FrameWatch"
 reason = "Keeps the process host free of the turn watcher's parsing, as SentLog does; candidate to make concrete."
 
-[[rust_habits.allow]]
-rule = "single-impl-trait"
-path = "crates/north-fleet/src/fleet/waits.rs"
-item = "Probe"
-reason = "A north-fleet seam the north binary implements over its job, farm and branch readers; the crate cannot depend on the binary."

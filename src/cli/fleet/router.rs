@@ -123,6 +123,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["adopt", rest @ ..] => adopt::run(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),
         ["tick", rest @ ..] => tick::run(&fleet, rest),
+        ["reap", rest @ ..] => waits::reap(&fleet, rest),
         ["send", rest @ ..] => send::run(&fleet, rest),
         ["ask", name, rest @ ..] => ask(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
