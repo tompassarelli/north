@@ -51,7 +51,7 @@ fn runtime_floor(lane: &Lane, out: &mut Vec<u8>) -> bool {
 }
 
 fn admission(lane: &Lane, out: &mut Vec<u8>) -> bool {
-    test_admission::scan(lane.worktree, &lane.range(), out) != 0
+    test_admission::scan(lane.worktree, &lane.range(), &crate::watch::state_home(), out) != 0
 }
 
 fn integrity(lane: &Lane, out: &mut Vec<u8>) -> bool {

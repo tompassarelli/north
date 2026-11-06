@@ -13,7 +13,6 @@ use super::test_file::is_test_file;
 use super::{Range, git};
 use crate::dep_gate::trailer_lines;
 use crate::landing::fails_first;
-use crate::watch::state_home;
 use north_base::foundation::exit::NO_VERDICT;
 
 mod kills;
@@ -224,7 +223,7 @@ fn messages(directory: &Path, base: &str, head: &str) -> Vec<String> {
         .collect()
 }
 
-pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
+pub fn scan(directory: &Path, range: &str, state_home: &Path, out: &mut impl Write) -> u8 {
     let Some(Range { base, head }) = Range::parse(range) else {
         return 0;
     };
@@ -240,7 +239,7 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
         .into_iter()
         .map(|reason| format!("safe-push: ✗ test admission: {reason}; a contract test names a category from test-admission.contract in .safe-push on main with the trailer {CONTRACT_FORMAT}, or guards a bug instead; NOT pushed.\n"))
         .collect();
-    refusals.extend(over_budget(directory, base, head, &found, contracted, out));
+    refusals.extend(over_budget(directory, state_home, base, head, &found, contracted, out));
     for refusal in &refusals {
         let _ = out.write_all(refusal.as_bytes());
     }
@@ -265,11 +264,11 @@ pub fn contract_tests(directory: &Path, rev: &str) -> Vec<String> {
     contracts(&history).into_iter().filter(|claim| listed.contains(&claim.category.to_ascii_lowercase())).map(|claim| claim.test).collect()
 }
 
-fn over_budget(directory: &Path, base: &str, head: &str, found: &Admission, contracted: usize, out: &mut impl Write) -> Option<String> {
+fn over_budget(directory: &Path, state_home: &Path, base: &str, head: &str, found: &Admission, contracted: usize, out: &mut impl Write) -> Option<String> {
     let added = found.added.saturating_sub(contracted);
     let origin = git::text(directory, &["remote", "get-url", "origin"]).unwrap_or_default();
     let repository = push_ledger::repository(origin.trim());
-    let measured = limits::measured_seconds(&state_home(), &repository)?;
+    let measured = limits::measured_seconds(state_home, &repository)?;
     let budget = limits::budget_seconds();
     if measured <= budget || found.deleted >= added {
         return None;

@@ -15,6 +15,7 @@ use super::repositories;
 use super::setting;
 use super::scans::git::merge_base;
 use super::scans::outgoing;
+use super::scans::test_admission;
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::Denylist;
@@ -186,6 +187,14 @@ fn refuse_static_gates(root: &Path, destination: &str, head: &str) -> Result<(),
     Ok(())
 }
 
+fn refuse_test_admission(root: &Path, base: &str, head: &str, state_home: &Path) -> Result<(), String> {
+    let mut text = Vec::new();
+    if test_admission::scan(root, &format!("{base}..{head}"), state_home, &mut text) == 0 {
+        return Ok(());
+    }
+    Err(format!("test admission refuses it here, as the lander would after its queue wait:\n{}", String::from_utf8_lossy(&text).trim_end()))
+}
+
 fn published(root: &Path, branch: &str, destination: &str) -> Option<String> {
     let upstream = git(root, &["rev-parse", "--symbolic-full-name", &format!("{branch}@{{upstream}}")]).ok()?;
     let name = upstream.strip_prefix("refs/remotes/origin/")?;
@@ -225,6 +234,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         Shape::SeveralCommits { reason } => (Squash::Kept(format!("--several-commits: {reason}")), Some(reason.to_owned())),
     };
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+    refuse_test_admission(&root, &base, &head, environment.state_home)?;
     let red_fix = red_fix(&root, &base, &destination)?;
     let urgent = if red_fix.is_some() { None } else { pays_debt(&root, &base, &head) };
     let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();

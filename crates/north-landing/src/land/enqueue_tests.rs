@@ -73,15 +73,19 @@ impl Lane {
         run(&self.repo, &args);
     }
 
-    fn enqueue(&self, shape: super::Shape) -> super::Queued {
+    fn try_enqueue(&self, shape: super::Shape) -> Result<super::Queued, String> {
         let (state, south) = (self.dir.path().join("state"), self.dir.path().join("absent-south"));
         let environment = super::Environment { state_home: &state, host: "fixture-host", session: None, south: &south, denylist: None };
-        super::enqueue(&self.repo, shape, false, &environment).unwrap()
+        super::enqueue(&self.repo, shape, false, &environment)
+    }
+
+    fn enqueue(&self, shape: super::Shape) -> super::Queued {
+        self.try_enqueue(shape).unwrap()
     }
 }
 
 #[test]
-fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_keeps_it_as_it_is() {
+fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_keeps_it_as_it_is_and_a_test_over_the_budget_is_refused_before_it_queues() {
     let lane = Lane::new();
     lane.commit("add the first lane line", &["Refs: #7", "Lane-note: first"]);
     lane.commit("add the second lane line", &["Refs: #7", "Lane-note: second"]);
@@ -111,4 +115,16 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     let queued = lane.enqueue(super::Shape::SeveralCommits { reason: "each commit is a bisect point" });
     assert_eq!((queued.ticket.several_commits.as_deref(), queued.ticket.head.as_str()), (Some("each commit is a bisect point"), head.as_str()));
     assert_eq!(run(&lane.repo, &["rev-list", "--count", "origin/main..HEAD"]), "2", "--several-commits squashed the lane");
+
+    let lane = Lane::new();
+    let ledger = lane.dir.path().join("state/safe-push/post-land.tsv");
+    fs::create_dir_all(ledger.parent().unwrap()).unwrap();
+    fs::write(&ledger, "1\torigin\tabc\tgreen\t\tlane\t900\t\t100000\n".repeat(3)).unwrap();
+    fs::create_dir_all(lane.repo.join("src")).unwrap();
+    fs::write(lane.repo.join("src/tests.rs"), "#[test]\nfn added() {}\n").unwrap();
+    lane.commit("add a test while verification is over its budget", &[]);
+    let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
+    assert!(refused.contains("test admission: origin's verification takes 100000 s"), "{refused}");
+    let queue = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
+    assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.next().is_none()), "a refused lane left a ticket in {}", queue.display());
 }

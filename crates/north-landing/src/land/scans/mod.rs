@@ -95,7 +95,7 @@ pub fn run(arguments: &[String]) -> u8 {
             test_admission::fail_to_pass(&directory, range, &mut std::io::stdout())
         }
         [name, range] if name == "test-admission" => {
-            test_admission::scan(&directory, range, &mut std::io::stdout())
+            test_admission::scan(&directory, range, &crate::watch::state_home(), &mut std::io::stdout())
         }
         [name, range] if name == "policy-sweep" => {
             policy::scan(&directory, range, &mut std::io::stdout())
