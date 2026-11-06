@@ -165,3 +165,15 @@ PATH differs between an ssh login, a fleet service, a systemd timer and a hook. 
 are not installed on gex45; a unit without the Nix profile had a bun shim that exited 127 hourly.
 Run `command -v PROGRAM` where the command will run before relying on it.
 """
+
+[[card]]
+class = "N13"
+incident = "host-disk"
+title = "A build host's root disk over 85%"
+commands = ["df", "du", "north reclaim"]
+text = """
+Each build host's lease reaper evicts the least recently used offload slot whose `.lock` no job holds, every 30 s,
+while ~/.cache/build-offload passes its cap (`build_offload` in the host's disk_budget_gib, else 15% of the disk) or
+the root disk passes 80%; land-offload slots go only for the disk line. Over 85% it records one host-disk incident.
+Never delete a slot by hand while its lock is held, and never touch worktrees or checkouts outside those caches.
+"""

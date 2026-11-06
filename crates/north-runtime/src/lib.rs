@@ -8,6 +8,7 @@ pub mod land_offload;
 pub mod laptop_ntfy;
 pub mod laptop_runner;
 pub mod model_watch;
+pub mod offload_cache;
 pub mod outside_watch;
 pub mod runtime;
 pub mod runtime_access;

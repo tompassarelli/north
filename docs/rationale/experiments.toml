@@ -369,3 +369,17 @@ before = ["2026-10-09", "2026-11-06"]
 after = ["2026-11-06", "2026-11-17"]
 review = "2026-11-19"
 owner = "tompassarelli/north#523"
+
+[[experiment]]
+id = "card-host-disk"
+change = "The N13 card (host-disk: a build host's root disk over 85%) guards its class, and each build host's lease reaper evicts unlocked offload slots oldest first before the disk passes 85%"
+landed = "683e6c3a9"
+metric = "incident_rows_per_week"
+class = "host-disk"
+direction = "down"
+bar = 0.25
+min_n = 0
+before = ["2026-10-09", "2026-11-06"]
+after = ["2026-11-06", "2026-11-20"]
+review = "2026-11-22"
+owner = "tompassarelli/north#634"

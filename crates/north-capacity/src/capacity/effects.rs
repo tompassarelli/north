@@ -9,4 +9,5 @@ pub struct Host {
     pub build_offload: build_offload::Offloader,
     pub lease_builds: fn() -> bool,
     pub reclaim_disk: fn() -> Option<f64>,
+    pub tend_disk: fn(),
 }

@@ -7,15 +7,19 @@ use super::effects::Host;
 use super::enrich::admit_enriched;
 use super::{agent_load, carry, deadline, dev_shell, game_reserve, gaming, gate, host, laptop_auto, mode, native_hold, seat_idle, unleased, warcraft, watchdog};
 
-fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
+fn route(arguments: &[String], host: &Host) -> Option<u8> {
     let status = match arguments.first().map(String::as_str) {
         Some("admission") if arguments.len() == 1 => return None,
         Some("laptop-auto") => laptop_auto::run(&arguments[1..]),
         Some("seat-idle-hint") => seat_idle::run(&arguments[1..]),
-        Some("offload") => offload(&arguments[1..]),
+        Some("offload") => (host.offload)(&arguments[1..]),
         Some("pull") => host::pull(&arguments[1..]),
         Some("actions-pull") => host::actions_pull(&arguments[1..]),
-        Some("reap-orphans") if arguments.len() == 1 => agent_load::reap_orphans_run(),
+        Some("reap-orphans") if arguments.len() == 1 => {
+            let status = agent_load::reap_orphans_run();
+            (host.tend_disk)();
+            status
+        }
         Some("gaming") => gaming::run(&arguments[1..]),
         Some("mode") => mode::run(&arguments[1..]),
         Some("game-reserve") => game_reserve::run(&arguments[1..]),
@@ -56,7 +60,7 @@ pub fn run(arguments: &[String], host: Host) -> u8 {
     if let [verb, share] = arguments && verb == "disk-share" {
         return disk_share(share);
     }
-    if let Some(status) = route(arguments, host.offload) {
+    if let Some(status) = route(arguments, &host) {
         return status;
     }
     let mut input = String::new();
