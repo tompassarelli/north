@@ -1,9 +1,11 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
-use super::after::{follow, send};
+use super::after::{deadline, follow, send};
 use super::blame;
 use super::candidate::{change_worktrees_alone, git};
 use super::checks::Verdict;
@@ -14,6 +16,7 @@ use super::telemetry;
 
 const TAIL_LINES: usize = 20;
 const ALARMED: &str = "proxy";
+const POLL: Duration = Duration::from_millis(50);
 
 #[derive(Clone)]
 pub struct Landed {
@@ -21,6 +24,7 @@ pub struct Landed {
     pub repository: String,
     pub base: String,
     pub head: String,
+    pub heads: Vec<String>,
     pub lanes: Vec<String>,
     pub tips: Vec<String>,
 }
@@ -38,6 +42,7 @@ pub struct Run {
     pub ledger: PathBuf,
     pub offload_owner: String,
     pub capacity: String,
+    pub deadline: Duration,
 }
 
 impl Run {
@@ -53,13 +58,14 @@ impl Run {
             ledger: self.ledger.clone(),
             offload_owner: self.offload_owner.clone(),
             capacity: self.capacity.clone(),
+            deadline: self.deadline,
         }
     }
 }
 
-pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>, tips: Vec<String>) -> std::thread::JoinHandle<Outcome> {
+pub fn start(lander: &Lander, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>) -> std::thread::JoinHandle<Outcome> {
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
-    let landed = Landed { repo: lander.repo.clone(), repository: telemetry::repository(&origin), base: base.to_owned(), head: head.to_owned(), lanes, tips };
+    let landed = Landed { repo: lander.repo.clone(), repository: telemetry::repository(&origin), base: base.to_owned(), head: head.to_owned(), heads, lanes, tips };
     let run = Run {
         runner: vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--dry".to_owned(), "1".to_owned()],
         worktree: lander.queue.join("post-land"),
@@ -68,6 +74,7 @@ pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>, tips: 
         ledger: state_home().join("safe-push").join("post-land.tsv"),
         offload_owner: lander.offload_owner.clone(),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
+        deadline: deadline(&lander.repo),
     }
     .at(head, head);
     std::thread::spawn(move || {
@@ -81,7 +88,7 @@ pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>, tips: 
 fn locate(landed: &Landed, run: &Run) -> Option<usize> {
     let culprit = blame::culprit(landed.tips.len(), |count| {
         let tip = &landed.tips[count - 1];
-        let verdict = check(landed, tip, &run.at(&landed.head, tip));
+        let verdict = check(landed, tip, &run.at(&landed.head, tip)).verdict;
         println!("north land: post-land checks with the first {count} of {} landed lanes ended {verdict:?}", landed.tips.len());
         verdict
     });
@@ -95,7 +102,7 @@ fn locate(landed: &Landed, run: &Run) -> Option<usize> {
 }
 
 fn base_already_red(landed: &Landed, run: &Run) -> bool {
-    let verdict = check(landed, &landed.base, &run.at(&landed.head, &landed.base));
+    let verdict = check(landed, &landed.base, &run.at(&landed.head, &landed.base)).verdict;
     println!("north land: post-land checks of the base {} before the first landed lane ended {verdict:?}", landed.base);
     let red = matches!(verdict, Verdict::RedMain(_));
     if red {
@@ -106,8 +113,8 @@ fn base_already_red(landed: &Landed, run: &Run) -> bool {
 
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
     let started = std::time::Instant::now();
-    let verdict = check(landed, &landed.head, run);
-    record(run, landed, &verdict, started.elapsed().as_secs());
+    let Checked { verdict, expired } = check(landed, &landed.head, run);
+    record(run, landed, &verdict, expired, started.elapsed().as_secs());
     if let Verdict::RedMain(detail) = &verdict {
         let message = format!("north land: red main {} in {}: post-land check failed: {detail}; landed lanes: {}\n{}", landed.head, landed.repository, landed.lanes.join(", "), tail(&run.log));
         if !alarm(ALARMED, &message) {
@@ -117,27 +124,38 @@ pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) ->
     verdict
 }
 
-fn check(landed: &Landed, tree: &str, run: &Run) -> Verdict {
-    let Some((program, prefix)) = run.runner.split_first() else { return Verdict::Transient("no post-land runner".to_owned()) };
-    let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
-    if let Err(error) = change_worktrees_alone(&landed.repo, &["worktree", "add", "--detach", &run.worktree.to_string_lossy(), tree]) {
-        return Verdict::Transient(format!("post-land worktree: {error}"));
-    }
-    let verdict = execute(program, prefix, landed, tree, run);
-    let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
-    verdict
+struct Checked {
+    verdict: Verdict,
+    expired: bool,
 }
 
-fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &str, run: &Run) -> Verdict {
+impl From<Verdict> for Checked {
+    fn from(verdict: Verdict) -> Self {
+        Self { verdict, expired: false }
+    }
+}
+
+fn check(landed: &Landed, tree: &str, run: &Run) -> Checked {
+    let Some((program, prefix)) = run.runner.split_first() else { return Verdict::Transient("no post-land runner".to_owned()).into() };
+    let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
+    if let Err(error) = change_worktrees_alone(&landed.repo, &["worktree", "add", "--detach", &run.worktree.to_string_lossy(), tree]) {
+        return Verdict::Transient(format!("post-land worktree: {error}")).into();
+    }
+    let checked = execute(program, prefix, landed, tree, run);
+    let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
+    checked
+}
+
+pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &str, run: &Run) -> Checked {
     if let Some(parent) = run.log.parent()
         && let Err(error) = fs::create_dir_all(parent)
     {
-        return Verdict::Transient(format!("{}: {error}", parent.display()));
+        return Verdict::Transient(format!("{}: {error}", parent.display())).into();
     }
     let _ = fs::remove_file(&run.outcome);
     let (stdout, stderr) = match File::create(&run.log).and_then(|file| Ok((file.try_clone()?, file))) {
         Ok(files) => files,
-        Err(error) => return Verdict::Transient(format!("{}: {error}", run.log.display())),
+        Err(error) => return Verdict::Transient(format!("{}: {error}", run.log.display())).into(),
     };
     let mut command = Command::new(program);
     command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--tree", tree, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity).env_remove("SAFE_PUSH_LAND_RUNNER");
@@ -147,7 +165,31 @@ fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &str, run: &
     for name in super::checks::SCRUBBED {
         command.env_remove(name);
     }
-    command.status().map_or_else(|error| Verdict::Transient(format!("{program}: {error}")), |status| judged(status, run))
+    command.process_group(0);
+    match supervise(&mut command, run.deadline) {
+        Ok(Some(status)) => judged(status, run).into(),
+        Ok(None) => Checked { verdict: Verdict::Transient(format!("post-land checks passed their {} s deadline and were killed with their process group, so they reached no verdict; log: {}", run.deadline.as_secs(), run.log.display())), expired: true },
+        Err(error) => Verdict::Transient(format!("{program}: {error}")).into(),
+    }
+}
+
+fn supervise(command: &mut Command, limit: Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+    let mut child = command.spawn()?;
+    let deadline = Instant::now() + limit;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if Instant::now() >= deadline {
+            if let Some(pid) = rustix::process::Pid::from_raw(child.id().cast_signed()) {
+                let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::Kill);
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        std::thread::sleep(POLL);
+    }
 }
 
 fn judged(status: std::process::ExitStatus, run: &Run) -> Verdict {
@@ -175,7 +217,7 @@ fn tail(log: &Path) -> String {
     lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n")
 }
 
-fn record(run: &Run, landed: &Landed, verdict: &Verdict, seconds: u64) {
+fn record(run: &Run, landed: &Landed, verdict: &Verdict, expired: bool, seconds: u64) {
     let (class, detail) = match verdict {
         Verdict::Green => ("green", String::new()),
         Verdict::RedMain(detail) => ("red-main", detail.clone()),
@@ -187,8 +229,9 @@ fn record(run: &Run, landed: &Landed, verdict: &Verdict, seconds: u64) {
     if let Some(parent) = run.ledger.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let line = format!("{}\t{}\t{}\t{class}\t{}\t{}\t{seconds}\n", telemetry::seconds(), landed.repository, landed.head, detail.replace(['\t', '\n'], " "), landed.lanes.join(","));
-    if let Err(error) = OpenOptions::new().create(true).append(true).open(&run.ledger).and_then(|mut file| file.write_all(line.as_bytes())) {
+    let covered = if expired { landed.heads.clone() } else { vec![landed.head.clone()] };
+    let lines: String = covered.iter().map(|head| format!("{}\t{}\t{head}\t{class}\t{}\t{}\t{seconds}\n", telemetry::seconds(), landed.repository, detail.replace(['\t', '\n'], " "), landed.lanes.join(","))).collect();
+    if let Err(error) = OpenOptions::new().create(true).append(true).open(&run.ledger).and_then(|mut file| file.write_all(lines.as_bytes())) {
         eprintln!("north land: could not record the post-land verdict of {}: {error}", landed.head);
     }
 }

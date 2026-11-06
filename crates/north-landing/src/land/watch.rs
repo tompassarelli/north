@@ -178,9 +178,10 @@ impl Watch {
         }
         let waits: Vec<Span> = batch.heads.iter().filter(|followed| started - followed.at >= 1.0).map(|followed| Span::new(&followed.head, "waiting for the after-landing run in flight", Category::Queue, followed.at, started).with(PHASE, AFTER)).collect();
         record(lander, &waits);
+        let heads = batch.heads.iter().map(|followed| followed.head.clone()).collect();
         let names = batch.lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
         let tips = batch.lanes.iter().map(|lane| lane.tip.clone()).collect();
-        let run = post_land::start(lander, &batch.base, &batch.head, names, tips);
+        let run = post_land::start(lander, &batch.base, &batch.head, heads, names, tips);
         self.running = Some(Running { batch, run });
     }
 

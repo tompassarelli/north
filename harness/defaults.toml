@@ -1207,6 +1207,14 @@ source = "tom: close gracefully first, wait about ten seconds, then force only w
 fallback = "none"
 consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
+[after_landing_run_deadline_sec]
+value = 1800
+allowed = { min = 1, max = 604800 }
+unit = "seconds one north land checks --after run, which since coalescing covers every journaled landing of its repository, may take before the lander kills its process group, records no verdict and runs it again 30 s later"
+source = "measured: 19 timed post-land runs in the local ledger on 2026-11-06 took p50 63 s, p90 172 s, max 278 s, and one run waited up to 1,000 s for an offload slot (north#634); 1,800 s leaves the slot wait room and still frees a stuck run within half an hour"
+fallback = "a repository's landing.after-deadline-sec setting replaces the value; without that setting the value stands"
+consumers = ["crates/north-landing/src/land/after/mod.rs", "crates/north-landing/src/land/post_land.rs"]
+
 [detector_plan_stall_hours]
 value = 2
 allowed = { min = 1, max = 8760 }

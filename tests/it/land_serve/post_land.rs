@@ -140,3 +140,53 @@ fn landings_during_an_after_landing_run_wait_as_one_run_of_the_newest_head_that_
     assert_eq!(told.len(), 1, "{told:?}");
     assert!(told[0].starts_with("fleet send --from service:north-land session-lane-breaker "), "{told:?}");
 }
+
+const HOLD_THEN_HANG_NEXT_AFTER_RUN: &str = r#"#!/usr/bin/env bash
+if [ "$1 $2 $3" = "land checks --after" ]; then
+  if [ ! -e "$LAND_TRACE/held" ]; then
+    touch "$LAND_TRACE/held"
+    for _ in $(seq 1200); do [ -e "$LAND_TRACE/release" ] && exit 0; sleep 0.1; done
+    exit 1
+  fi
+  echo $$ >>"$LAND_TRACE/hung"
+  sleep 600
+fi
+"#;
+
+#[test]
+fn an_after_landing_run_past_its_deadline_reaches_no_verdict_stays_journaled_and_counts_every_covered_head() {
+    let mut fixture = Fixture::new();
+    executable(&fixture.trace.join("north-hook"), HOLD_THEN_HANG_NEXT_AFTER_RUN);
+    let first = fixture.lane("first", "first.txt", "first\n");
+    let first = fixture.enqueue(&first, None);
+    let mut serve = fixture.command().spawn().unwrap();
+    landed(&fixture, &first);
+    until("the first after-landing run", || fixture.trace.join("held").exists());
+    let mut heads = Vec::new();
+    for (name, file) in [("second", "second.txt"), ("third", "third.txt")] {
+        let lane = fixture.lane(name, file, &format!("{name}\n"));
+        let ticket = fixture.enqueue(&lane, None);
+        heads.push(landed(&fixture, &ticket));
+    }
+    git(&fixture.repo, &["config", "landing.after-deadline-sec", "1"]);
+    fs::write(fixture.trace.join("release"), "").unwrap();
+    let ledger = fixture.state.join("safe-push/post-land.tsv");
+    let expired = || fs::read_to_string(&ledger).unwrap_or_default().lines().filter(|row| row.split('\t').nth(3) == Some("transient")).map(|row| row.split('\t').nth(2).unwrap_or_default().to_owned()).collect::<Vec<_>>();
+    until("the stuck run's deadline", || expired().len() >= heads.len());
+    let mut rows = expired();
+    rows.sort();
+    let mut covered = heads.clone();
+    covered.sort();
+    assert_eq!(rows, covered, "one row per covered head");
+    let journal = fixture.queue().join("following");
+    let mut journaled: Vec<String> = fs::read_dir(&journal).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().trim_end_matches(".json").to_owned()).collect();
+    journaled.sort();
+    assert_eq!(journaled, covered, "the covered landings stay journaled for the rerun");
+    assert_eq!(fixture.subjects(), ["change from first", "change from second", "change from third"], "no verdict, so nothing is reverted");
+    assert!(fixture.fleet().iter().all(|call| !call.contains("post-land checks failed") && !call.contains("red main")), "{:?}", fixture.fleet());
+    let hung = fs::read_to_string(fixture.trace.join("hung")).unwrap();
+    let pid: i32 = hung.lines().next().unwrap().trim().parse().unwrap();
+    assert!(!Path::new(&format!("/proc/{pid}")).exists(), "the stuck run was killed");
+    serve.kill().unwrap();
+    let _ = serve.wait();
+}

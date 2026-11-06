@@ -6,13 +6,16 @@ pub mod tick;
 mod workflow_paths;
 
 use std::fs;
+use std::sync::LazyLock;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use toml_edit::DocumentMut;
 
 use super::candidate::git;
+use super::setting;
 use super::queue::{self, Ticket};
 use super::lander::{Lander, state_home};
 use super::records::{self, Candidate, Decision};
@@ -24,6 +27,15 @@ const SEND_WAIT: Duration = Duration::from_secs(60);
 const INTENT: &str = "intent.json";
 const RECOVERING: &str = "recovering.json";
 const LANDED_MAIN: &str = "refs/lander/landed-main";
+const DEADLINE_SETTING: &str = "landing.after-deadline-sec";
+
+static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
+
+pub fn deadline(repo: &Path) -> Duration {
+    let named = DEFAULTS["after_landing_run_deadline_sec"]["value"].as_integer().and_then(|seconds| u64::try_from(seconds).ok()).expect("harness/defaults.toml has after_landing_run_deadline_sec");
+    let seconds = setting::landing(repo, "refs/remotes/origin/main", DEADLINE_SETTING).trim().parse().ok().filter(|seconds| *seconds > 0).unwrap_or(named);
+    Duration::from_secs(seconds)
+}
 
 fn fetch_main(lander: &Lander) -> Result<String, String> {
     git(&lander.worktree, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", &format!("+refs/heads/main:{LANDED_MAIN}")])
