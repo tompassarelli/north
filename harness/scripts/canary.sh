@@ -22,9 +22,9 @@ case "$kind" in
     shell=(bash -e -c)
     ;;
   land)
-    command=$(git config -f "$root/.safe-push" --get-all land.check | grep -F -- "$rest" | head -n 1 || true)
+    command=$(git config -f "$root/.safe-push" --get-regexp '^land\.(check|after)$' | cut -d " " -f 2- | grep -F -- "$rest" | head -n 1 || true)
     command=${command#* :: }
-    command=$(sed -E 's#(\./bin/)?depbox run -- ##g; s#nix develop -c ##g' <<<"$command")
+    command=$(sed -E 's#(\./bin/)?depbox run -- ##g; s#nix develop -c ##g; s#(head-north( --code [^ ]+)?) --no-build#\1#g' <<<"$command")
     ;;
   *) echo "canary: unknown check source '$source'" >&2; exit 2 ;;
 esac

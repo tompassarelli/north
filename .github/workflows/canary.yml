@@ -25,6 +25,9 @@ jobs:
       - name: clippy catches its planted fault
         if: ${{ !cancelled() }}
         run: harness/scripts/canary.sh clippy
+      - name: Agent-machinery check catches its planted fault
+        if: ${{ !cancelled() }}
+        run: harness/scripts/canary.sh agent-machinery-check
   harness:
     runs-on: ubuntu-latest
     steps:
@@ -36,6 +39,3 @@ jobs:
       - name: Agent-machinery tests catch their planted fault
         if: ${{ !cancelled() }}
         run: harness/scripts/canary.sh agent-machinery-tests
-      - name: Agent-machinery check catches its planted fault
-        if: ${{ !cancelled() }}
-        run: harness/scripts/canary.sh agent-machinery-check
