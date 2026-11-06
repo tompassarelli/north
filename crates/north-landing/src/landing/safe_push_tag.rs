@@ -3,12 +3,16 @@ use std::os::fd::AsFd;
 use std::path::Path;
 use std::process::Command;
 
-use super::safe_push_guards::{self as guards, Denylist};
+use crate::land::scans::outgoing::denylist::Denylist;
+use crate::land::scans::outgoing::email::commit_email_scan;
+use crate::land::scans::outgoing::language::language_gate;
+use crate::land::scans::outgoing::native_ref::native_ref_scan;
+use crate::land::scans::outgoing::secrets::{annotation_secret_scan, history_secret_scan};
+use crate::land::scans::outgoing::{exit_status, instruction_limits, on_path};
 use super::safe_push_plan::{self, Arguments, Plan, USAGE};
 use super::safe_push_tag_delete::{DeleteRequest, delete_tag};
-use super::safe_push_state::{
-    Identity, OriginRefs, Refused, Step, watch_for_cancel, cancelled, git_quiet, git_read, refuse, remote_snapshot, state_changed,
-};
+use super::safe_push_state::{Identity, OriginRefs, cancelled, refuse, remote_snapshot, state_changed, watch_for_cancel};
+use super::step::{Refused, Step, git_quiet, git_read};
 
 pub struct TagRequest<'a> {
     pub tag: &'a str,
@@ -76,7 +80,7 @@ pub fn publish_tag(request: &TagRequest) -> Step<Scanned> {
         return Err(refuse(format!("safe-push: tag '{}' is not annotated — refusing", request.tag)));
     }
     let target = git_read(&dir, &["rev-list", "-n1", &tag_oid])?;
-    if !guards::on_path("betterleaks") {
+    if !on_path("betterleaks") {
         return Err(refuse("safe-push: betterleaks not on PATH — refusing to push without a secret scan"));
     }
     cancelled()?;
@@ -137,17 +141,17 @@ impl ScanRange {
 }
 
 fn scan_tag(dir: &Path, identity: &Identity, tag: &str, tag_oid: &str, scan: &ScanRange) -> Step {
-    guards::language_gate(&identity.root, &scan.base, &scan.target)?;
-    guards::instruction_limits(&identity.root, &scan.target)?;
+    language_gate(&identity.root, &scan.base, &scan.target)?;
+    instruction_limits(&identity.root, &scan.target)?;
     let annotation = Command::new("git").current_dir(dir).args(["cat-file", "-p", tag_oid]).output().map_err(|_| Refused(127))?;
     let annotation_text = String::from_utf8_lossy(&annotation.stdout);
-    guards::native_ref_scan(dir, &[tag, annotation_text.trim_end_matches('\n')], &scan.revisions)?;
+    native_ref_scan(dir, &[tag, annotation_text.trim_end_matches('\n')], &scan.revisions)?;
     if scan.outgoing {
-        guards::history_secret_scan(dir, &scan.revisions)?;
-        guards::commit_email_scan(dir, &scan.revisions)?;
+        history_secret_scan(dir, &scan.revisions)?;
+        commit_email_scan(dir, &scan.revisions)?;
     }
     Denylist::from_env().scan(&identity.root, &identity.origin_url, &scan.base, &scan.target, tag)?;
-    guards::annotation_secret_scan(dir, &annotation.stdout)
+    annotation_secret_scan(dir, &annotation.stdout)
 }
 
 fn push(dir: &Path, origin_url: &str, request: &TagRequest, tag_oid: &str, tag_ref: &str, claimed: &str) -> Step {
@@ -165,7 +169,7 @@ fn push(dir: &Path, origin_url: &str, request: &TagRequest, tag_oid: &str, tag_r
         .env("SAFE_PUSH_OUTPUT_CLAIMED", claimed)
         .args(["push", "--no-follow-tags", origin_url, &refspec])
         .status();
-    guards::exit_status(status)?;
+    exit_status(status)?;
     cancelled()
 }
 

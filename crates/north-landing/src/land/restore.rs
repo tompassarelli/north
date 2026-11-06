@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::landing::safe_push_guards as guards;
+use crate::land::scans::outgoing::exit_status;
 use crate::landing::safe_push_plan::{self, Snapshot};
-use crate::landing::safe_push_state::{Refused, Step, git_quiet};
+use crate::landing::step::{Refused, Step, git_quiet};
 
 use super::telemetry;
 
@@ -83,7 +83,7 @@ fn restore(directory: &Path, request: &Request) -> Step {
         .env("SAFE_PUSH_ACTIVE", "1")
         .args(["push", "--no-follow-tags", "--no-verify", &lease, &origin, &refspec])
         .status();
-    guards::exit_status(status)?;
+    exit_status(status)?;
     match git_quiet(directory, &["ls-remote", &origin, &destination_ref]) {
         Some(listing) if listing.split('\t').next() == Some(request.oid.as_str()) => {
             println!("safe-push: restored {} to {}", request.oid, request.branch);

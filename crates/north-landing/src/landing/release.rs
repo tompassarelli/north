@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::safe_push_plan;
-use super::safe_push_state::{Refused, Step, git_quiet, git_read, refuse, watch_for_cancel};
+use super::safe_push_state::{refuse, watch_for_cancel};
+use super::step::{Refused, Step, git_quiet, git_read};
 use super::safe_push_tag::{self, Scanned, TagRequest};
 
 const USAGE: &str = "usage: north release VERSION [--notes FILE]

@@ -17,7 +17,7 @@ use super::scans::git::merge_base;
 use super::scans::outgoing;
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
-use crate::landing::safe_push_guards::Denylist;
+use crate::land::scans::outgoing::denylist::Denylist;
 use crate::watch::facts::slug_of;
 
 const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane]";

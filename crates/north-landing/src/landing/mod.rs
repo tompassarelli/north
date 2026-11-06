@@ -27,10 +27,10 @@ mod mutant_sites;
 pub mod mutant_sweep;
 mod mutant_trees;
 mod mutant_verify;
-pub(crate) mod safe_push_guards;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod safe_push_plan;
 pub(crate) mod safe_push_state;
+pub(crate) mod step;
 pub mod safe_push_tag;
 pub(crate) mod safe_push_tag_delete;
 pub mod stale_revert;

@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::landing::safe_push_guards as guards;
+use crate::land::scans::outgoing::{exit_status, on_path};
 use crate::landing::safe_push_plan::{self, Arguments, Plan, Snapshot, USAGE};
-use crate::landing::safe_push_state::{Identity, Refused, Step, cancelled, git_quiet, refuse, state_changed, watch_for_cancel};
+use crate::landing::safe_push_state::{Identity, cancelled, refuse, state_changed, watch_for_cancel};
+use crate::landing::step::{Refused, Step, git_quiet};
 use crate::landing::safe_push_tag::claim_output_log;
 
 use super::{setting, telemetry};
@@ -130,7 +131,7 @@ fn publish(directory: &Path, request: &Arguments, to: &str) -> Step<Published> {
     if scan(&["language", "--base", &outgoing.base, "--head", &outgoing.head, "--origin", &outgoing.identity.origin_url, "--safe-push", &safe_push]).is_err() {
         refusals.push("language gate");
     }
-    if !guards::on_path("betterleaks") {
+    if !on_path("betterleaks") {
         return Err(refuse("safe-push: betterleaks not on PATH — refusing to push without a secret scan"));
     }
     if refusals.is_empty() && outgoing.base == outgoing.head {
@@ -166,7 +167,7 @@ fn publish(directory: &Path, request: &Arguments, to: &str) -> Step<Published> {
         .env("SAFE_PUSH_OUTPUT_CLAIMED", &claims.list)
         .args(["push", "--no-follow-tags", "--no-verify", &publication.lease, &outgoing.identity.origin_url, &publication.refspec])
         .status();
-    guards::exit_status(status)?;
+    exit_status(status)?;
     let state_home = state_home();
     let push = telemetry::Push {
         at_secs: pushed_at,
@@ -258,7 +259,7 @@ fn run_hook(hook: &Path, outgoing: &Outgoing) -> Step {
         .spawn()
         .map_err(|_| Refused(1))?;
     let _ = child.stdin.take().map(|mut stdin| stdin.write_all(line.as_bytes()));
-    if guards::exit_status(child.wait()).is_err() {
+    if exit_status(child.wait()).is_err() {
         cancelled()?;
         eprintln!("safe-push: ✗ the pre-push checks failed; NOT pushed.");
         return Err(Refused(1));

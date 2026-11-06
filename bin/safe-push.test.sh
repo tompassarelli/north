@@ -233,7 +233,7 @@ run_real_case() {
 
 # A branch landing to a public destination runs the deny-list gate with real
 # betterleaks before it pushes; the scanner and stage cases live in
-# crates/north-landing/src/landing/denylist_publication_tests.rs and safe_push_guards_tests.rs.
+# crates/north-landing/src/landing/denylist_publication_tests.rs and land/scans/outgoing/{denylist,email}_tests.rs.
 fixture_denylist="$scratch/denylist.toml"
 cat >"$fixture_denylist" <<'TOML'
 title = "safe-push test deny-list"
@@ -1092,7 +1092,7 @@ expect_status zero
 printf 'PASS: claude/ pushes to a public Autoland repository attest their tip\n'
 
 # A branch landing runs the email scan before it pushes; its cases live in
-# crates/north-landing/src/landing/safe_push_guards_tests.rs.
+# crates/north-landing/src/land/scans/outgoing/email_tests.rs.
 private_email=someone@private.example
 
 make_real_fixture email-to-main
