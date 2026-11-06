@@ -69,4 +69,5 @@ mod recommend_acts_tests;
 pub mod issue_cleanup;
 pub mod recommend_acts;
 pub mod status_not_action;
+pub mod correction_capture;
 mod status_not_action_tests;

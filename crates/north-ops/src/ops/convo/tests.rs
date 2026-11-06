@@ -224,11 +224,14 @@ fn compression_never_touches_claude_transcripts() {
 }
 
 #[test]
-fn indexing_reads_every_north_account_profile_not_only_the_callers() {
+fn indexing_reads_every_north_account_profile_and_what_tom_types_while_a_turn_runs() {
     let mut lab = Lab::new();
     lab.env.root_pinned = false;
     let other = lab.env.home.join(".local/state/north/profiles/claude-x/projects/-synthetic-claude");
-    write(&other.join(format!("{CSID}.jsonl")), &[claude_record("user", json!("OTHERPROFILETOKEN typed in another account"), "2026-08-08T10:00:00Z", json!({}))]);
+    let queued = |token: &str, origin: &str| json!({"type": "attachment", "sessionId": CSID, "timestamp": "2026-08-08T10:01:00Z", "attachment": {"type": "queued_command", "prompt": format!("{token} typed mid-turn"), "commandMode": "prompt", "origin": {"kind": origin}}}).to_string();
+    write(&other.join(format!("{CSID}.jsonl")), &[claude_record("user", json!("OTHERPROFILETOKEN typed in another account"), "2026-08-08T10:00:00Z", json!({})), queued("MIDTURNTOKEN", "human"), queued("NOTIFYTOKEN", "task-notification")]);
     lab.index();
     assert_eq!(lab.run(&["OTHERPROFILETOKEN"]).0, 0);
+    assert_eq!(lab.run(&["MIDTURNTOKEN"]).0, 0);
+    assert_ne!(lab.run(&["NOTIFYTOKEN"]).0, 0);
 }

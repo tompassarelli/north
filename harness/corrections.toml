@@ -28,7 +28,7 @@ guard = "`north fleet launch` refuses a brief that orders a load test, soak or b
 
 [[class]]
 name = "unproven-cause"
-pattern = '''(isn'?t|is not) (a|an) (compute|cpu|capacity|load|git|hardware) (issue|problem)|this is a (you|u) (issue|problem)|didn'?t (you|u) just|you were wrong|that'?s (wrong|not (it|right|true))'''
+pattern = '''(isn'?t|is not) (a|an) (compute|cpu|capacity|load|git|hardware) (issue|problem)|this is a (you|u) (issue|problem)|didn'?t (you|u) just|you were wrong|that'?s (wrong|not (it|right|true))|what \w+ are (you|u) talking about'''
 paraphrase = "Tom rejected the cause the reply gave as unproven."
 owner = "north#523"
 guard = "The proxy's Stop hook refuses a message that names a cause (because, caused by, the cause is) with no command, log line or measurement quoted in the same turn."
@@ -79,11 +79,32 @@ guarded_at = "2026-11-06T01:49:53Z"
 
 [[class]]
 name = "pace"
-pattern = '''(working|moving|going) (so |too )?slow(ly)?|too slow|(go|be) \d+(-\d+)?x faster|not keeping up|not seeing (enough|any) (urgency|speed|progress)|enough urgency|i need to see (some )?(speed|progress)|time is money|minutes left'''
+pattern = '''(working|moving|going) (so |too )?slow(ly)?|too slow|(go|be) \d+(-\d+)?x faster|not keeping up|not seeing (enough|any) (urgency|speed|progress)|enough urgency|i need to see (some )?(speed|progress)|time is money|minutes left|pacing (allows|blocks|holds|refuses)|(this|that|the) pac(e|ing) rule'''
 paraphrase = "Tom said the work was moving too slowly."
 owner = "north#636"
 guard = "The proxy's Stop hook refuses to end a turn while admitted account capacity is idle and ready boxes wait, naming the idle capacity and the first ready box."
 guarded_at = "2026-11-06T01:05:11Z"
+
+[[class]]
+name = "tom-as-monitor"
+pattern = '''(requiring|making|forcing|using) me (to be )?(your|the) [^.?!\n]{0,40}(alarm|bot|monitor|watchdog)|red for \d+ ?min\w*,? missed'''
+paraphrase = "Tom said he had to be the alarm for a fault the harness should have caught itself."
+owner = "north#634"
+guard = "`north loops check` fails when a main branch stayed red over 10 minutes with neither a sheriff revert nor a fleet tick line naming it, read from the cargo.yml run history."
+
+[[class]]
+name = "dropped-thread"
+pattern = '''let (this|that|it) slip|slip like this|(dropped|lost) the (ball|thread)'''
+paraphrase = "Tom said the proxy let a thread that waited on it slip."
+owner = "north#636"
+guard = "The proxy's fleet tick lists every message that names the proxy as the one waited on and has had no reply for 10 minutes."
+
+[[class]]
+name = "noise-in-report"
+pattern = '''(completely|totally|entirely) unnec?ess?ary|waste of tokens|otherwise don'?t say anything'''
+paraphrase = "Tom said a line in the report was noise he did not need."
+owner = "north#641"
+guard = "The proxy's Stop hook refuses a final message that ends on a line saying no decision is needed."
 
 [[class]]
 name = "misrelayed-intent"

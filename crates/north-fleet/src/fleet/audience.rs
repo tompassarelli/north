@@ -12,7 +12,7 @@ pub fn fleet_dir() -> PathBuf {
 
 pub fn grounded(fleet: &Path, named: Option<&str>, conversation: &str, entrypoint: Option<&str>) -> bool {
     match record(fleet, named.filter(|name| !name.is_empty()), conversation) {
-        Some(record) => (role(&record) == Some(Role::Proxy) || record["name"] == PROXY) && sender(&record) == Some(Sender::Tom),
+        Some(record) => (role(&record) == Some(Role::Proxy) || record["name"] == PROXY) && (adopted(&record) || sender(&record) == Some(Sender::Tom)),
         None => entrypoint == Some("cli"),
     }
 }
@@ -34,6 +34,10 @@ fn read(path: &Path) -> Option<Value> {
 
 fn role(record: &Value) -> Option<Role> {
     serde_json::from_value(record.get("role")?.clone()).ok()
+}
+
+fn adopted(record: &Value) -> bool {
+    record.get("adopted_ms").is_some_and(|at| !at.is_null())
 }
 
 fn sender(record: &Value) -> Option<Sender> {
@@ -64,12 +68,15 @@ mod tests {
     }
 
     #[test]
-    fn the_proxy_record_from_before_roles_is_grounded_for_a_tom_message_as_lineage_reads_it() {
+    fn a_proxy_record_from_before_roles_or_an_adopted_window_is_grounded_for_what_tom_types() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("proxy")).unwrap();
         let record = serde_json::json!({"name": "proxy", "conversation": "p1", "prompt_sender": "tom"});
         std::fs::write(dir.path().join("proxy/session.json"), record.to_string()).unwrap();
         assert!(grounded(dir.path(), Some("proxy"), "p1", None));
+        assert!(grounded(dir.path(), None, "p1", None));
+        let adopted = serde_json::json!({"name": "proxy", "role": "proxy", "conversation": "p1", "prompt_sender": "service:north-capacity-watchdog@ccx33", "adopted_ms": 1793952078246u64});
+        std::fs::write(dir.path().join("proxy/session.json"), adopted.to_string()).unwrap();
         assert!(grounded(dir.path(), None, "p1", None));
     }
 }

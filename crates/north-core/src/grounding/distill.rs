@@ -47,10 +47,12 @@ within two minutes (a retyped or split message); lines Tom copies from the reply
 message are not read as his words. Each run also writes corrections-week.txt beside the ledger:
 the last seven days' corrections counted per class, which `north loops check` prints as the
 corrections loop's score. The prompt-grounding hook starts `run --after-prompt` on each of Tom's
-prompts: it waits 15 s for the transcript, then refreshes the convo index and runs.
+prompts, and the Stop hook at the end of each turn in his window, so a message he typed while the
+turn ran is read too: it waits 15 s for the transcript, then refreshes the convo index and runs.
 
   north grounding distill run [--since 14d] [--no-refresh] [--if-idle] [--after-prompt]
   north grounding distill status
+  north grounding distill capture
 "#;
 
 pub const SCORE_FILE: &str = "corrections-week.txt";
@@ -152,7 +154,7 @@ pattern!(brief_session, format!(
 ));
 pattern!(brief_read, format!(r"(?i)^{S}*Read [^\s]*handoffs/([^\s]+) and (follow|take over)"));
 pattern!(skip_message, format!(
-    r"(?i)^{S}*(/[a-z-]+{S}*$|/compact|\[from [^\]\n]+\]|\[Your previous response|Delegation:|Category:|Parent:|Caveat:|\[Request interrupted|This session is being continued|Base directory for this skill|Read [^\s]*handoffs/[^\s]*brief)"
+    r"(?i)^{S}*(/[a-z-]+{S}*$|/compact|\[from [^\]\n]+\]|Another Claude session sent a message|\[Your previous response|Delegation:|Category:|Parent:|Caveat:|\[Request interrupted|This session is being continued|Base directory for this skill|Read [^\s]*handoffs/[^\s]*brief)"
 ));
 pattern!(pasted, r"(?s)<pasted_content[^>]*>.*?(</pasted_content>|\z)");
 pattern!(line_record, format!(r"^{S}*(?:[-*]{S}+)?(DECIDED|APPROVED){B}[:{}]*([^\n\r\u{{2028}}\u{{2029}}]*)$", &S[1..S.len() - 1]));
@@ -202,7 +204,7 @@ fn is_brief_session(text: &str) -> bool {
         || brief_read().captures(text).is_some_and(|c| !c[1].to_lowercase().contains("proxy"))
 }
 
-fn is_skip_message(text: &str) -> bool {
+pub(crate) fn is_skip_message(text: &str) -> bool {
     let rest = text.trim_start_matches(js_space);
     (rest.starts_with('<') && !rest[1..].to_lowercase().starts_with("pasted_content")) || skip_message().is_match(text)
 }
@@ -991,6 +993,10 @@ pub fn main(args: &[String]) -> NorthResult<i32> {
             Ok(0)
         }
         Some("status") => status(),
+        Some("capture") => {
+            spawn_capture();
+            Ok(0)
+        }
         _ => {
             eprintln!("{USAGE}");
             Ok(2)

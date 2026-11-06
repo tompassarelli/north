@@ -207,7 +207,7 @@ fn hook_reply(raw: &str, grounded: &dyn Fn(&str) -> bool, until: Option<std::tim
         return Ok(HookReply::Silent);
     }
     let prompt = s(&payload, "prompt");
-    if hook::typed_text(&prompt).is_empty() {
+    if hook::typed_text(&prompt).is_empty() || distill::is_skip_message(&prompt) {
         return Ok(HookReply::Silent);
     }
     sources::spawn_refresh_if_stale();

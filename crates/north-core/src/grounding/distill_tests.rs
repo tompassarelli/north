@@ -12,6 +12,7 @@ fn rid_and_iso_match_the_typescript_forms() {
 fn a_fleet_message_relayed_into_a_session_is_never_read_as_tom_typing() {
     assert!(is_skip_message("[from proxy] Fact, no order: the lane is innocent."));
     assert!(is_skip_message("[from service:north-land] landed w230"));
+    assert!(is_skip_message("Another Claude session sent a message: [from n634-lander-doctor] three updates"));
     assert!(!is_skip_message("from now on file every plan as an issue"));
 }
 
@@ -24,9 +25,20 @@ fn a_line_tom_quotes_from_the_reply_before_is_not_read_as_his_words() {
 }
 
 #[test]
-fn an_agent_sentence_tom_pastes_with_you_keep_is_not_a_correction() {
+fn a_pasted_agent_sentence_is_no_correction_and_each_correction_shape_gets_its_class() {
     assert_ne!(classify("you keep every feature, but get no resume or failover", None).0, Some(Kind::Correction));
     assert_eq!(classify("you keep asking me for decisions you could make", None).0, Some(Kind::Correction));
+    for (typed, class) in [
+        ("you are making me the alarm bot for the build", "tom-as-monitor"),
+        ("the branch was red for 40 minutes, missed again", "tom-as-monitor"),
+        ("how did you let that slip", "dropped-thread"),
+        ("that footer is totally unnecessary", "noise-in-report"),
+        ("what quota are you talking about", "unproven-cause"),
+        ("the pace rule should go", "pace"),
+    ] {
+        assert_eq!(correction_class(typed).map(|(name, _)| name), Some(class), "{typed}");
+        assert_eq!(classify(typed, None).0, Some(Kind::Correction), "{typed}");
+    }
 }
 
 fn message(msg: i64, text: &str, previous: &str) -> Message {

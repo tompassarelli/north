@@ -23,7 +23,7 @@ static TAG: LazyLock<Regex> = LazyLock::new(|| {
     .expect("tag expression")
 });
 static CLAUDE_KEEP: LazyLock<ByteRegex> =
-    LazyLock::new(|| ByteRegex::new(r#""type": ?"(?:user|assistant|ai-title)""#).expect("keep expression"));
+    LazyLock::new(|| ByteRegex::new(r#""type": ?"(?:user|assistant|ai-title|queued_command)""#).expect("keep expression"));
 
 pub(super) struct Message {
     pub role: String,
@@ -102,12 +102,25 @@ fn claude_meta(record: &Json) -> Meta {
     Meta { session_id: field("sessionId"), cwd: field("cwd"), branch: field("gitBranch"), slug: field("slug"), ..Meta::default() }
 }
 
+fn typed_mid_turn(record: &Json) -> Option<Message> {
+    let attachment = record.get("attachment")?;
+    let human = attachment.get("origin").and_then(|origin| origin.text_of("kind")) == Some("human");
+    if attachment.text_of("type") != Some("queued_command") || !human {
+        return None;
+    }
+    let text = clip(attachment.text_of("prompt")?);
+    (!text.is_empty()).then(|| Message { role: speaker("user", &text), text, tool: None })
+}
+
 pub(super) fn extract_claude(record: &Json) -> (Vec<Message>, Meta) {
     let mut meta = claude_meta(record);
     let kind = record.text_of("type").unwrap_or("");
     if kind == "ai-title" {
         meta.title = record.text_of("aiTitle").filter(|title| !title.is_empty()).map(str::to_owned);
         return (Vec::new(), meta);
+    }
+    if kind == "attachment" {
+        return (typed_mid_turn(record).into_iter().collect(), meta);
     }
     let Some(message) = record.get("message").filter(|message| message.is_object()) else {
         return (Vec::new(), meta);
