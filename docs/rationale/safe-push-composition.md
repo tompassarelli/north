@@ -377,6 +377,26 @@ the per-lane code still exists.
   - Each box moves about eight of the kept scenarios (1, 2, 4, 5, 7-13, 17, 21-23, 31-38, 49) and
     deletes them from the bash suite.
   - The runtime-skew halves of 4, 5 and 54 are deleted, not ported: safe-push and north are one binary.
+  - Landed 2026-11-06, P12a (the suite's first eleven `PASS:` lines, which are the plan's 1, 2, 4, 5 and
+    7-13): `gates::a_language_gate_refusal_blocks_the_landing_and_names_the_gate` (1),
+    `publication::a_language_gate_pass_publishes_to_another_branch` (2),
+    `gates::an_initial_push_hands_the_language_gate_the_empty_tree_as_base` (4),
+    `publication::a_failed_fetch_of_the_destination_is_refused_before_any_check_runs` (5),
+    `preflight::a_fresh_north_worktree_installs_agent_machinery_before_its_land_check` (7),
+    `preflight::a_landing_that_undoes_recent_main_is_refused_with_its_land_checks_still_run` (8),
+    `gates::a_failing_land_check_and_a_secret_are_refused_once_naming_both` (9),
+    `preflight::a_land_check_failure_keeps_its_output_in_a_state_log_a_pass_keeps_none_and_only_committed_matching_checks_run`
+    (10, with the passing, background and uncommitted checks that ran after it in the same fixture),
+    `candidate::land_publish_pushes_the_scanned_lane_to_a_scratch_ref_for_the_land_checks_and_deletes_it_afterwards`
+    (11), `gates::a_commit_message_naming_a_native_item_refuses_before_landing` (12) and
+    `gates::a_north_skill_change_lands_with_no_reviewed_trailer` (13). They share P12b's `safe_push()` helper and `north` shim;
+    `SAFE_PUSH_TEST_NORTH_TRACE` makes the shim trace every call and record `land-clean` instead of
+    running it, and `SAFE_PUSH_TEST_LANGUAGE_DENY` makes it answer `language-gate` from a file. The helper
+    now leaves `SAFE_PUSH_SELF` unset, so every safe-push test enters through the link. Sections 1-3 of the bash suite are gone, and its wait loop prints
+    the remaining section logs by name rather than by index. The move found that a safe-push entered
+    through its link, with no `SAFE_PUSH_SELF` from `bin/safe-push`, handed the land runner an empty
+    program for `--publication-scan`, so every `land.publish` lane was refused with no reason. The
+    shell settings now fall back to the path the link was invoked by.
   - P12c retires the suite. It points the `harness-tests` canary (`harness/canaries/canaries.conf`
     and `harness-tests.patch`) at another shell suite and drops the allowlist entry.
   - Done when (P12c): (1) `git ls-files bin/safe-push.test.sh` prints nothing; (2) `cargo test --test it

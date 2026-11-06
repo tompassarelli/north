@@ -1,7 +1,5 @@
-use super::{Landing, Run, Scratch, git, write};
+use super::{CLEAN, Fixture, Landing, Run, Scratch, git, write};
 use std::path::{Path, PathBuf};
-
-const CLEAN: &str = "safe-push: ✓ clean (--dry-run)";
 
 struct Case {
     landing: Landing,
@@ -96,4 +94,64 @@ fn a_real_check_failure_on_actions_or_a_build_host_refuses_the_landing_and_is_ne
     assert!(failed.status != Some(0) && !failed.output.contains(CLEAN), "a failed build-host check landed: {}", failed.output);
     assert_eq!(lines(&runner.landing.root.join("runs")).len(), 1, "a failed build-host check was retried");
     assert!(failed.output.contains("exited 7"), "a failed build-host check lost its report: {}", failed.output);
+}
+
+fn gate_call(fixture: &Fixture, base: &str, head: &str) -> String {
+    format!("north <language-gate> <--repo> <{}> <--base> <{base}> <--head> <{head}>", fixture.repo.display())
+}
+
+#[test]
+fn a_language_gate_refusal_blocks_the_landing_and_names_the_gate() {
+    let fixture = Fixture::new();
+    let before = fixture.remote_state();
+    let (base, head) = (git(&fixture.remote, &["rev-parse", "main"]), fixture.head());
+    fixture.deny_language("new.py: Python files are forbidden");
+    let ran = fixture.run(&["--dry-run", "--to", "main"]);
+    ran.expect(false, &["new.py: Python files are forbidden"]);
+    assert_eq!(fixture.remote_state(), before, "a language refusal published");
+    let summary = ran.output.lines().find_map(|line| line.split_once("blocking check(s) failed: ")).map(|(_, failed)| failed.to_owned());
+    assert!(summary.is_some_and(|failed| failed.split("; ").any(|gate| gate.starts_with("language gate"))), "{}", ran.output);
+    assert!(fixture.traced().lines().any(|line| line == gate_call(&fixture, &base, &head)), "{}", fixture.traced());
+}
+
+#[test]
+fn an_initial_push_hands_the_language_gate_the_empty_tree_as_base() {
+    let fixture = Fixture::new();
+    for line in fixture.remote_state().lines() {
+        let reference = line.split_once(' ').unwrap().0;
+        git(&fixture.remote, &["update-ref", "-d", reference]);
+    }
+    let (empty_tree, head) = (fixture.git(&["hash-object", "-t", "tree", "/dev/null"]), fixture.head());
+    fixture.deny_language("initial push denied by language gate");
+    fixture.run(&["--dry-run", "--to", "main"]).expect(false, &["initial push denied by language gate"]);
+    assert!(fixture.traced().lines().any(|line| line == gate_call(&fixture, &empty_tree, &head)), "{}", fixture.traced());
+    assert_eq!(fixture.remote_state(), "", "an initial language refusal published");
+}
+
+#[test]
+fn a_failing_land_check_and_a_secret_are_refused_once_naming_both() {
+    let fixture = Fixture::new();
+    fixture.land_checks(&["file.txt :: printf \"FAIL boundary\\n\" >&2; exit 9"], "a test that fails");
+    fixture.commit("file.txt", "changed\n", "change under test beside a secret fixture");
+    let before = fixture.remote_state();
+    fixture.leak_secret();
+    let ran = fixture.run(&["--dry-run", "--to", "main"]);
+    ran.expect(false, &["safe-push: ✗ 2 blocking check(s) failed: land checks; secret scan; NOT pushed.", "safe-push: ✗ SECRET DETECTED"]);
+    assert_eq!(ran.output.lines().filter(|line| line.contains("✗ ") && line.contains(" blocking check(s) failed")).count(), 1, "the refusal was not reported once: {}", ran.output);
+    assert_eq!(fixture.remote_state(), before, "a refused landing published");
+}
+
+#[test]
+fn a_commit_message_naming_a_native_item_refuses_before_landing() {
+    let fixture = Fixture::new();
+    fixture.git(&["commit", "-q", "--allow-empty", "-m", "query scroll target for ops#17"]);
+    fixture.run(&["--dry-run"]).expect(false, &["names a native NorthThread item"]);
+}
+
+#[test]
+fn a_north_skill_change_lands_with_no_reviewed_trailer() {
+    let fixture = Fixture::new();
+    fixture.origin_named_north();
+    fixture.commit("harness/skills/example/SKILL.md", "changed\n", "change a skill");
+    fixture.run(&["--dry-run", "--to", "main"]).expect(true, &[CLEAN]);
 }

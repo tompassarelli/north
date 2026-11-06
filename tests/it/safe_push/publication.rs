@@ -1,4 +1,6 @@
-use super::{Real, Run, Scratch, git, write};
+use north_core::foundation::shim;
+
+use super::{Fixture, Real, Run, Scratch, git, write};
 
 const DENYLIST: &str = "title = \"safe-push test deny-list\"\n[[rules]]\nid = \"fake-private-term\"\ndescription = \"fake private identity term\"\nregex = '''zebra-quokka-7731'''\n";
 
@@ -92,4 +94,25 @@ fn a_branch_landing_refuses_a_private_author_email_before_push() {
     assert!(observed.output.contains(&format!("safe-push: commit {sha} author email {private_email} is not safe-push-test@example.invalid")), "{}", observed.output);
     assert!(observed.output.contains("git commit --amend --reset-author (or rebase --exec) before pushing; NOT pushed."), "{}", observed.output);
     assert_eq!(fixture.remote_state(), before, "private author email refusal mutated the remote");
+}
+
+#[test]
+fn a_language_gate_pass_publishes_to_another_branch() {
+    let fixture = Fixture::new();
+    fixture.run(&["--to", "other"]).expect(true, &[]);
+    assert_eq!(git(&fixture.remote, &["rev-parse", "other"]), fixture.head(), "a language pass did not publish");
+}
+
+#[test]
+fn a_failed_fetch_of_the_destination_is_refused_before_any_check_runs() {
+    let fixture = Fixture::new();
+    shim::write_script(&fixture.repo.join(".git/hooks/pre-push"), "cat >/dev/null\n");
+    fixture.git(&["config", "remote.origin.pushurl", &fixture.remote.to_string_lossy()]);
+    fixture.git(&["config", "remote.origin.url", &fixture.root.join("unreachable.git").to_string_lossy()]);
+    let before = fixture.remote_state();
+    let ran = fixture.run(&["--to", "main"]);
+    ran.expect(false, &["safe-push: could not fetch origin/main; NOT pushed."]);
+    assert!(!ran.output.contains("R1"), "a failed fetch was reported as a language refusal: {}", ran.output);
+    assert!(!fixture.traced().contains("<language-gate>"), "a failed fetch reached the language gate");
+    assert_eq!(fixture.remote_state(), before, "a failed fetch published");
 }

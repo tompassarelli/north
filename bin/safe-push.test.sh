@@ -68,16 +68,7 @@ fi
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="$REPO/bin/safe-push"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/safe-push-test.XXXXXX")"
-owned_sleeper_file=''
-cleanup_sleeper() {
-  local sleeper
-  if [ -n "$owned_sleeper_file" ] && [ -f "$owned_sleeper_file" ]; then
-    read -r sleeper <"$owned_sleeper_file"
-    kill "$sleeper" 2>/dev/null || true
-  fi
-  owned_sleeper_file=''
-}
-trap 'cleanup_sleeper; rm -rf "${scratch:?}"' EXIT
+trap 'rm -rf "${scratch:?}"' EXIT
 live_push_log="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/pushes.tsv"
 live_push_log_size="$(stat -c %s "$live_push_log" 2>/dev/null || echo 0)"
 export XDG_STATE_HOME="$scratch/state"
@@ -240,252 +231,8 @@ run_denylist_case() {
 
 sections=()
 
-{ xdg_state="$scratch/xdg-state-1"; new_real_bin -1
-make_real_fixture language-gate-boundary
-language_remote_before=$(real_remote_state)
-language_base=$("$real_git" --git-dir="$real_remote" rev-parse main)
-language_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
-language_trace="$real_fixture/language-trace"
-SAFE_PUSH_TEST_LANGUAGE_TRACE="$language_trace" SAFE_PUSH_TEST_LANGUAGE_DENY='new.py: Python files are forbidden' run_real_case --dry-run --to main
-expect_status nonzero
-expect_output 'new.py: Python files are forbidden'
-[ "$(real_remote_state)" = "$language_remote_before" ] || fail 'language refusal published'
-grep -Eq 'blocking check\(s\) failed: (.*; )?language gate' <<<"$case_output" || fail "the refusal did not name the language gate: $case_output"
-grep -Fxq "north <language-gate> <--repo> <$real_repo> <--base> <$language_base> <--head> <$language_head>" "$language_trace" || fail 'language gate lost repository or landing oids'
-printf 'PASS: language gate refusal blocks every repository\n'
-
-run_real_case --to other
-expect_status zero
-[ "$("$real_git" --git-dir="$real_remote" rev-parse other)" = "$language_head" ] || fail 'language pass did not publish'
-printf 'PASS: language gate pass publishes\n'
-
-
-make_real_fixture language-initial
-while read -r ref _; do
-  "$real_git" --git-dir="$real_remote" update-ref -d "$ref"
-done < <(real_remote_state)
-language_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
-language_empty_tree=$("$real_git" -C "$real_repo" hash-object -t tree /dev/null)
-language_trace="$real_fixture/language-trace"
-SAFE_PUSH_TEST_LANGUAGE_TRACE="$language_trace" SAFE_PUSH_TEST_LANGUAGE_DENY='initial push denied by language gate' run_real_case --dry-run --to main
-expect_status nonzero
-expect_output 'initial push denied by language gate'
-grep -Fxq "north <language-gate> <--repo> <$real_repo> <--base> <$language_empty_tree> <--head> <$language_head>" "$language_trace" || fail 'initial push did not use the empty-tree base'
-[ -z "$(real_remote_state)" ] || fail 'initial language refusal published'
-printf 'PASS: initial push uses the empty tree as the language gate base\n'
-
-make_real_fixture unreachable-fetch
-printf '#!/bin/sh\ncat >/dev/null\n' >"$real_repo/.git/hooks/pre-push"
-chmod +x "$real_repo/.git/hooks/pre-push"
-"$real_git" -C "$real_repo" config remote.origin.pushurl "$real_remote"
-"$real_git" -C "$real_repo" config remote.origin.url "$real_fixture/unreachable.git"
-fetch_remote_before=$(real_remote_state)
-fetch_language_trace="$real_fixture/language-trace"
-SAFE_PUSH_TEST_LANGUAGE_TRACE="$fetch_language_trace" run_real_case --to main
-expect_status nonzero
-expect_output 'safe-push: could not fetch origin/main; NOT pushed.'
-! grep -Fq 'R1' <<<"$case_output" || fail 'a failed fetch was reported as a language refusal'
-! grep -Fq '<language-gate>' "$fetch_language_trace" || fail 'a failed fetch reached the language gate'
-[ "$(real_remote_state)" = "$fetch_remote_before" ] || fail 'a failed fetch published'
-printf 'PASS: a failed fetch of the destination is refused before any check runs\n'
-
-make_real_fixture fresh-north-worktree
-land_home="$real_fixture/home"
-mkdir -p "$land_home"
-ln -s remote.git "$real_fixture/north.git"
-"$real_git" -C "$real_repo" config remote.origin.pushurl "$real_remote"
-"$real_git" -C "$real_repo" config remote.origin.url "$real_fixture/north.git"
-mkdir -p "$real_repo/agent-machinery"
-printf '{}\n' >"$real_repo/agent-machinery/package.json"
-printf '{\n  "lockfileVersion": 1,\n  "workspaces": {"": {"name": "agent-machinery"}},\n  "packages": {}\n}\n' >"$real_repo/agent-machinery/bun.lock"
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'agent-machinery/ :: test -d agent-machinery/node_modules'
-"$real_git" -C "$real_repo" add .safe-push agent-machinery
-"$real_git" -C "$real_repo" commit -qm 'agent-machinery project'
-printf '%s\n' "#!/usr/bin/env bash" "[ \"\$*\" = \"install --frozen-lockfile\" ] || exit 2" "mkdir -p node_modules" >"$real_bin/bun"
-chmod +x "$real_bin/bun"
-HOME="$land_home" run_real_case --dry-run --to main
-rm -f "$real_bin/bun"
-expect_status zero
-expect_output "safe-push: no node_modules — bun install --frozen-lockfile in $real_repo/agent-machinery"
-expect_output 'safe-push: ✓ clean (--dry-run)'
-printf 'PASS: a fresh north worktree installs agent-machinery before its land check\n'
-
-} >"$scratch/section-1.log" 2>&1 &
-sections+=($!)
-
-{ xdg_state="$scratch/xdg-state-2"; new_real_bin -2
-make_real_fixture stale-revert-before-land-checks
-land_home="$real_fixture/home"
-mkdir -p "$land_home"
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check "content.txt :: printf 'ran\\n' >> check-runs"
-"$real_git" -C "$real_repo" add .safe-push
-"$real_git" -C "$real_repo" commit -qm 'checks on content.txt'
-"$real_git" clone -q "$real_remote" "$real_fixture/mover"
-"$real_git" -C "$real_fixture/mover" config user.name safe-push-test
-"$real_git" -C "$real_fixture/mover" config user.email safe-push-test@example.invalid
-printf 'moved\n' >"$real_fixture/mover/content.txt"
-"$real_git" -C "$real_fixture/mover" commit -qam 'main moves content.txt'
-"$real_git" -C "$real_fixture/mover" push -q origin main
-"$real_git" -C "$real_repo" fetch -q origin
-"$real_git" -C "$real_repo" reset -q --soft origin/main
-"$real_git" -C "$real_repo" commit -qm 'squash without a rebase'
-stale_remote_before=$(real_remote_state)
-HOME="$land_home" run_real_case --dry-run --to main
-expect_status nonzero
-expect_output 'safe-push: ✗ this landing undoes recent commits on main'
-expect_output 'stale revert of newer main'
-[ -e "$real_repo/check-runs" ] || fail 'a stale-revert refusal skipped the land checks instead of reporting them too'
-[ "$(real_remote_state)" = "$stale_remote_before" ] || fail 'a stale-revert refusal published'
-printf 'PASS: a landing that undoes recent main is refused, with its land checks still run and reported\n'
-
-make_real_fixture all-at-once
-land_home="$real_fixture/home"
-mkdir -p "$land_home"
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'file.txt :: printf "FAIL boundary\\n" >&2; exit 9'
-"$real_git" -C "$real_repo" add .safe-push
-"$real_git" -C "$real_repo" commit -qm 'a test that fails'
-printf 'changed\n' >"$real_repo/file.txt"
-"$real_git" -C "$real_repo" add file.txt
-"$real_git" -C "$real_repo" commit -qm 'change under test beside a secret fixture'
-all_remote_before=$(real_remote_state)
-SAFE_PUSH_TEST_BETTERLEAKS_LEAK=1 HOME="$land_home" run_real_case --dry-run --to main
-expect_status nonzero
-expect_output 'safe-push: ✗ 2 blocking check(s) failed: land checks; secret scan; NOT pushed.'
-expect_output 'safe-push: ✗ SECRET DETECTED'
-[ "$(grep -c '✗ [0-9]* blocking check(s) failed' <<<"$case_output")" -eq 1 ] || fail "the refusal was not reported once: $case_output"
-[ "$(real_remote_state)" = "$all_remote_before" ] || fail 'a refused landing published'
-all_log=${case_output##*exited 9; log: }
-rm -f -- "${all_log%%; NOT pushed.*}"
-printf 'PASS: a landing with a failing test and a secret is refused once, naming both\n'
-
-} >"$scratch/section-2.log" 2>&1 &
-sections+=($!)
-
-{ xdg_state="$scratch/xdg-state-3"; new_real_bin -3
-make_real_fixture land-check-boundary
-land_home="$real_fixture/home"
-land_clean_trace="$real_fixture/land-clean-trace"
-mkdir -p "$land_home"
-land_remote_before=$(real_remote_state)
-land_command='printf "ran\\n" >> check-runs; printf "PASS before\\n"; printf "FAIL named-land-case\\n" >&2; printf "PASS after\\n"; exit 23'
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check "file.txt,other.txt :: $land_command"
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'unmatched/ :: exit 71'
-"$real_git" -C "$real_repo" add .safe-push
-"$real_git" -C "$real_repo" commit -qm 'affected checks'
-printf 'changed\n' >"$real_repo/file.txt"
-"$real_git" -C "$real_repo" add file.txt
-"$real_git" -C "$real_repo" commit -qm 'changed input'
-: >"$land_clean_trace"
-watch_calls="$real_fixture/watch-calls"
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"%s"\n' "$watch_calls" >"$real_fixture/watch-stub"
-chmod +x "$real_fixture/watch-stub"
-SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" SAFE_PUSH_WATCH="$real_fixture/watch-stub" HOME="$land_home" run_real_case --dry-run --to main
-expect_status nonzero
-land_log=${case_output##*exited 23; log: }
-land_log=${land_log%%; NOT pushed.*}
-expect_output "safe-push: land check $land_command exited 23; log: $land_log; NOT pushed."
-[[ "$land_log" = "$xdg_state/safe-push/land-check-"*.log ]] || fail 'failure did not name an absolute state log'
-[ -f "$land_log" ] || fail 'failure log does not exist'
-printf 'PASS before\nFAIL named-land-case\nPASS after\n' >"$real_fixture/expected-log"
-while IFS= read -r line; do
-  grep -Fxq "$line" "$land_log" || fail "failure log lost line: $line"
-done <"$real_fixture/expected-log"
-[ "$(wc -c <"$land_log")" -eq "$(wc -c <"$real_fixture/expected-log")" ] || fail 'failure log changed output bytes'
-[ "$(wc -l <"$real_repo/check-runs")" -eq 1 ] || fail 'matching check did not run exactly once'
-! grep -Fq '<land-clean>' "$land_clean_trace" || fail 'a failed land check released the lane build output its retry reuses'
-[ "$(real_remote_state)" = "$land_remote_before" ] || fail 'failing land check published'
-events="$xdg_state/safe-push/events.jsonl"
-grep -Fq "\"stage\":\"land check\",\"status\":\"failed\",\"detail\":\"" "$events" || fail 'the failed land check wrote no event'
-grep -Fq "log: $land_log\"" "$events" || fail 'the land check event did not name its log'
-grep -Fq '"stage":"exit","status":"refused"' "$events" || fail 'the refusal wrote no event'
-for _ in $(seq 50); do [ -s "$watch_calls" ] && break; sleep 0.1; done
-grep -Fxq 'watch --once' "$watch_calls" || fail 'a failed landing did not start north watch at once'
-printf 'PASS: a failed land check and its refusal write events and start north watch at once\n'
-"$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
-land_command='printf "PASS stdout\\n"; printf "PASS stderr\\n" >&2'
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check "file.txt :: $land_command"
-"$real_git" -C "$real_repo" add .safe-push
-"$real_git" -C "$real_repo" commit -qm 'successful check'
-stale_land_log="$xdg_state/safe-push/land-check-old.log"
-unrelated_land_log="$xdg_state/safe-push/unrelated.log"
-printf old >"$stale_land_log"
-printf unrelated >"$unrelated_land_log"
-touch -d '16 days ago' "$stale_land_log" "$unrelated_land_log"
-: >"$land_clean_trace"
-SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" HOME="$land_home" run_real_case --dry-run --to main
-expect_status zero
-expect_output "safe-push: land check: $land_command"
-expect_output 'PASS stdout'
-expect_output 'PASS stderr'
-expect_output 'safe-push: ✓ clean (--dry-run)'
-! grep -Fq 'log:' <<<"$case_output" || fail 'successful check added visible logging output'
-grep -Fxq "north <land-clean> <$real_repo>" "$land_clean_trace" || fail 'a passing land check left the lane build output'
-: >"$land_clean_trace"
-SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" HOME="$land_home" run_real_case --dry-run --to main --keep-lane
-expect_status zero
-! grep -Fq '<land-clean>' "$land_clean_trace" || fail '--keep-lane released the lane build output'
-: >"$land_clean_trace"
-SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" HOME="$land_home" run_real_case --dry-run --to other
-expect_status zero
-! grep -Fq '<land-clean>' "$land_clean_trace" || fail 'a push to a non-main branch released the lane build output'
-land_logs=("$xdg_state/safe-push/land-check-"*.log)
-[ "${#land_logs[@]}" -eq 1 ] && [ "${land_logs[0]}" = "$land_log" ] || fail 'successful check retained a log or removed failure log'
-[ ! -e "$stale_land_log" ] || fail 'old failure log was not pruned'
-[ -f "$unrelated_land_log" ] || fail 'pruning removed an unrelated log'
-"$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
-land_command='sleep 30 >/dev/null 2>&1 & printf "%s\n" "$!" > sleeper.pid'
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check "file.txt :: $land_command"
-"$real_git" -C "$real_repo" add .safe-push
-"$real_git" -C "$real_repo" commit -qm 'background check'
-owned_sleeper_file="$real_repo/sleeper.pid"
-inherited_descriptors="$(for descriptor in /proc/$$/fd/*; do readlink "$descriptor" || true; done)"
-HOME="$land_home" run_real_case --dry-run --to main
-expect_status zero
-[ -f "$owned_sleeper_file" ] || fail 'background check did not start the sleeper'
-read -r sleeper_pid <"$owned_sleeper_file"
-kill -0 "$sleeper_pid" 2>/dev/null || fail 'background check sleeper ended before its descriptors were read'
-leaked_descriptors="$(ls -1 "/proc/$sleeper_pid/fd" | awk '$1 > 2' | while read -r descriptor; do target="$(readlink "/proc/$sleeper_pid/fd/$descriptor")"; grep -Fxq -- "$target" <<<"$inherited_descriptors" || printf '%s->%s ' "$descriptor" "$target"; done)"
-[ -z "$leaked_descriptors" ] || fail "background check inherited private descriptors: $leaked_descriptors"
-cleanup_sleeper
-expect_output 'safe-push: ✓ clean (--dry-run)'
-[ "$(real_remote_state)" = "$land_remote_before" ] || fail 'background dry-run published'
-"$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'unmatched/ :: exit 71'
-"$real_git" -C "$real_repo" add .safe-push
-"$real_git" -C "$real_repo" commit -qm 'unmatched check'
-printf 'uncommitted land.check must not run\n' >>"$real_repo/.safe-push"
-: >"$land_clean_trace"
-SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" HOME="$land_home" run_real_case --dry-run --to main
-expect_status zero
-[ "$(wc -l <"$real_repo/check-runs")" -eq 1 ] || fail 'unmatched or uncommitted check ran'
-! grep -Fq '<land-clean>' "$land_clean_trace" || fail 'a push that ran no land check released the lane build output'
-"$real_git" -C "$real_repo" checkout -- .safe-push
-"$real_git" -C "$real_repo" rm -q .safe-push
-"$real_git" -C "$real_repo" commit -qm 'no land.check'
-HOME="$land_home" run_real_case --dry-run --to main
-expect_status zero
-expect_output "safe-push: ✓ clean (--dry-run)"
-
-make_real_fixture land-publish
-"$real_git" -C "$real_repo" config --file .safe-push land.publish farm/
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check "file.txt :: printf '%s\\n' \"\$SAFE_PUSH_LAND_REF\" > '$real_fixture/published-ref'; '$real_git' --git-dir='$real_remote' rev-parse \"refs/heads/\$SAFE_PUSH_LAND_REF\" > '$real_fixture/published-head'"
-printf 'published\n' >"$real_repo/file.txt"
-"$real_git" -C "$real_repo" add .safe-push file.txt
-"$real_git" -C "$real_repo" commit -qm 'publish for the land check'
-HOME="$real_fixture" run_real_case --check-candidate --base "$("$real_git" -C "$real_repo" rev-parse origin/main)"
-expect_status zero
-expect_output "safe-push: verdict green"
-publish_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
-[ "$(cat "$real_fixture/published-ref")" = "farm/${publish_head:0:12}" ] || fail 'land check did not get the published ref'
-[ "$(cat "$real_fixture/published-head")" = "$publish_head" ] || fail 'published ref did not hold the lane head while the land check ran'
-! "$real_git" --git-dir="$real_remote" rev-parse -q --verify "refs/heads/farm/${publish_head:0:12}" >/dev/null || fail 'published ref outlived the land checks'
-printf 'PASS: land.publish pushes the scanned lane to a scratch ref for the land checks and deletes it afterwards\n'
-
 # ~/.local/bin links firn dotfiles/bin/ and north bin/ tools out-of-store, so a
 # removed tool needs a same-name replacement in either repository.
-} >"$scratch/section-3.log" 2>&1 &
-sections+=($!)
-
 { xdg_state="$scratch/xdg-state-4"; new_real_bin -4
 make_real_fixture tool-removal
 mv "$real_remote" "$real_fixture/firn.git"
@@ -783,26 +530,6 @@ PYRECORD
 done
 printf 'Generated rewrite recorded journey: PASS (after landing, a churning rewrite does not refuse the landing)\n'
 
-make_real_fixture native-ref
-"$real_git" -C "$real_repo" commit -q --allow-empty -m 'query scroll target for ops#17'
-run_real_case --dry-run
-expect_status nonzero
-expect_output 'names a native NorthThread item'
-printf 'PASS: a commit message naming a native item refuses before landing\n'
-
-make_real_fixture skill-without-review
-ln -s remote.git "$real_fixture/north.git"
-"$real_git" -C "$real_repo" config remote.origin.pushurl "$real_remote"
-"$real_git" -C "$real_repo" config remote.origin.url "$real_fixture/north.git"
-mkdir -p "$real_repo/harness/skills/example"
-printf 'changed\n' >>"$real_repo/harness/skills/example/SKILL.md"
-"$real_git" -C "$real_repo" add harness/skills/example/SKILL.md
-"$real_git" -C "$real_repo" commit -qm 'change a skill'
-run_real_case --dry-run --to main
-expect_status zero
-expect_output 'safe-push: ✓ clean (--dry-run)'
-printf 'PASS: a north skill change lands with no Reviewed trailer\n'
-
 } >"$scratch/section-6.log" 2>&1 &
 sections+=($!)
 
@@ -896,10 +623,8 @@ if grep -Fq 'zebra-quokka-7731' <<<"$case_output"; then fail 'deny-list refusal 
 sections+=($!)
 
 status=0
-for i in "${!sections[@]}"; do
-  wait "${sections[$i]}" || status=1
-  cat "$scratch/section-$((i + 1)).log"
-done
+for section in "${sections[@]}"; do wait "$section" || status=1; done
+for log in "$scratch"/section-*.log; do cat "$log"; done
 [ "$status" -eq 0 ] || exit 1
 while IFS=$'\t' read -r _ _ _ oid _; do
   for git_dir in "$scratch"/*/*.git; do

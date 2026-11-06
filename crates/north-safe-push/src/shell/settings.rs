@@ -28,7 +28,7 @@ impl Settings {
             state_home: std::env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from),
             south: std::env::var_os("SAFE_PUSH_SOUTH").map_or_else(|| home.join("code/south"), PathBuf::from),
             mirrors: std::env::var_os("LANE_GC_MIRRORS").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/agents/lane-gc/mirrors"), PathBuf::from),
-            safe_push: std::env::var("SAFE_PUSH_SELF").unwrap_or_default(),
+            safe_push: std::env::var("SAFE_PUSH_SELF").ok().filter(|path| !path.is_empty()).unwrap_or_else(invoked_link),
             fleet_session: std::env::var("NORTH_FLEET_SESSION").unwrap_or_default(),
             host: std::fs::read_to_string("/proc/sys/kernel/hostname").map(|name| name.trim().to_owned()).unwrap_or_default(),
             pid: host_pid(),
@@ -47,6 +47,19 @@ impl Settings {
     pub fn mirror(&self, origin_url: &str) -> PathBuf {
         self.mirrors.join(format!("{}.git", repository(origin_url)))
     }
+}
+
+fn invoked_link() -> String {
+    let Some(invoked) = std::env::args_os().next().map(PathBuf::from) else { return String::new() };
+    if invoked.file_name().is_none_or(|name| name != "safe-push") {
+        return String::new();
+    }
+    let found = if invoked.components().count() > 1 {
+        std::path::absolute(&invoked).ok()
+    } else {
+        std::env::var_os("PATH").and_then(|paths| std::env::split_paths(&paths).map(|directory| directory.join(&invoked)).find(|candidate| candidate.is_file()))
+    };
+    found.map(|path| path.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 fn host_pid() -> u32 {

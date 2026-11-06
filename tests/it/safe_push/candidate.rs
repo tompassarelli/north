@@ -1,4 +1,6 @@
-use super::{Landing, Run, Scratch, git};
+use std::fs;
+
+use super::{Fixture, Landing, Run, Scratch, git};
 
 #[test]
 fn check_candidate_ends_verdict_red_main_for_a_red_main_failure_and_verdict_green_for_a_green_one_and_pushes_nothing() {
@@ -37,4 +39,26 @@ fn check_candidate_names_the_broken_base_transient_when_main_fails_its_own_check
     let observed = Run::new(&scratch, &lane, &["--check-candidate", "--base", &base]).env("NORTH_LAND_ROUND", "582").output();
     assert_ne!(observed.status, Some(0), "a candidate on a main that fails its own check exited 0: {}", observed.output);
     assert!(observed.last_line().starts_with("safe-push: verdict transient main's check environment is broken: "), "{}", observed.output);
+}
+
+#[test]
+fn land_publish_pushes_the_scanned_lane_to_a_scratch_ref_for_the_land_checks_and_deletes_it_afterwards() {
+    let fixture = Fixture::new();
+    let (published_ref, published_head) = (fixture.root.join("published-ref"), fixture.root.join("published-head"));
+    fixture.git(&["config", "--file", ".safe-push", "land.publish", "farm/"]);
+    let check = format!(
+        "file.txt :: printf '%s\\n' \"$SAFE_PUSH_LAND_REF\" > '{}'; git --git-dir='{}' rev-parse \"refs/heads/$SAFE_PUSH_LAND_REF\" > '{}'",
+        published_ref.display(),
+        fixture.remote.display(),
+        published_head.display()
+    );
+    fs::write(fixture.repo.join("file.txt"), "published\n").unwrap();
+    fixture.git(&["add", "file.txt"]);
+    fixture.land_checks(&[&check], "publish for the land check");
+    let (base, head) = (fixture.git(&["rev-parse", "origin/main"]), fixture.head());
+    fixture.run(&["--check-candidate", "--base", &base]).expect(true, &["safe-push: verdict green"]);
+    let scratch_ref = format!("farm/{}", &head[..12]);
+    assert_eq!(fs::read_to_string(&published_ref).unwrap().trim(), scratch_ref, "the land check did not get the published ref");
+    assert_eq!(fs::read_to_string(&published_head).unwrap().trim(), head, "the published ref did not hold the lane head while the land check ran");
+    assert!(!git(&fixture.remote, &["for-each-ref", "--format=%(refname)"]).contains(&scratch_ref), "the published ref outlived the land checks");
 }

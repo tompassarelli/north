@@ -15,7 +15,17 @@ mod preflight;
 mod publication;
 mod session;
 
-const NORTH_SHIM: &str = r#"case "$1" in
+const NORTH_SHIM: &str = r#"[ -z "${SAFE_PUSH_TEST_NORTH_TRACE:-}" ] || { printf north; printf ' <%s>' "$@"; printf '\n'; } >>"$SAFE_PUSH_TEST_NORTH_TRACE"
+case "$1" in
+  language-gate)
+    if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY:-}" ]; then
+      [ ! -s "$SAFE_PUSH_TEST_LANGUAGE_DENY" ] || { cat "$SAFE_PUSH_TEST_LANGUAGE_DENY"; exit 1; }
+      exit 0
+    fi
+    ;;
+  land-clean)
+    [ -z "${SAFE_PUSH_TEST_NORTH_TRACE:-}" ] || exit 0
+    ;;
   denylist)
     if [ "$2" = attest ]; then
       printf '%s\n' "$*" >>"${SAFE_PUSH_TEST_ATTEST_TRACE:-/dev/null}"
@@ -56,7 +66,14 @@ static RUNS: AtomicUsize = AtomicUsize::new(0);
 
 const GH_SHIM: &str = "[ \"$1\" = repo ] && [ -n \"$SAFE_PUSH_TEST_VISIBILITY\" ] || exit 1\necho \"$SAFE_PUSH_TEST_VISIBILITY\"\n";
 
-const SCRUBBED: [&str; 8] = [
+const SCRUBBED: [&str; 15] = [
+    "SAFE_PUSH_SELF",
+    "SAFE_PUSH_WATCH",
+    "SSH_CLIENT",
+    "SSH2_CLIENT",
+    "SSH_CONNECTION",
+    "BASH_ENV",
+    "ENV",
     "SAFE_PUSH_LAND_CAPACITY",
     "SAFE_PUSH_LAND_OFFLOAD_HOST",
     "SAFE_PUSH_LAND_RUNNER",
@@ -139,6 +156,17 @@ pub struct Observed {
 }
 
 impl Observed {
+    pub fn succeeded(&self) -> bool {
+        self.status == Some(0)
+    }
+
+    pub fn expect(&self, success: bool, lines: &[&str]) {
+        assert_eq!(self.succeeded(), success, "{}", self.output);
+        for line in lines {
+            assert!(self.output.contains(line), "missing {line:?} in:\n{}", self.output);
+        }
+    }
+
     pub fn last_line(&self) -> &str {
         self.output.lines().last().unwrap_or_default()
     }
@@ -197,7 +225,6 @@ impl<'a> Run<'a> {
             .args(&self.arguments)
             .current_dir(&self.directory)
             .env("PATH", path)
-            .env("SAFE_PUSH_SELF", safe_push(self.scratch))
             .env("XDG_STATE_HOME", self.scratch.state())
             .env("GIT_CONFIG_GLOBAL", scratch.join("gitconfig"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -322,5 +349,93 @@ impl Landing {
         }
         git(lane, &["add", ".safe-push"]);
         git(lane, &["commit", "-qm", message]);
+    }
+}
+
+pub const CLEAN: &str = "safe-push: ✓ clean (--dry-run)";
+
+pub struct Fixture {
+    pub scratch: Scratch,
+    pub root: PathBuf,
+    pub repo: PathBuf,
+    pub remote: PathBuf,
+    pub bin: PathBuf,
+    pub state: PathBuf,
+    pub trace: PathBuf,
+}
+
+impl Fixture {
+    pub fn new() -> Self {
+        let scratch = Scratch::new();
+        let real = Real::new(&scratch, "real");
+        let bin = safe_push(&scratch).parent().unwrap().canonicalize().unwrap();
+        let (repo, remote) = (real.repo.canonicalize().unwrap(), real.remote.canonicalize().unwrap());
+        let root = repo.parent().unwrap().to_owned();
+        std::fs::create_dir_all(root.join("home")).unwrap();
+        Self { state: scratch.state(), trace: root.join("north-trace"), scratch, root, repo, remote, bin }
+    }
+
+    pub fn deny_language(&self, message: &str) {
+        write(&self.root.join("language-deny"), &format!("{message}\n"));
+    }
+
+    pub fn leak_secret(&self) {
+        shim::write_script(&self.bin.join("betterleaks"), "[ \"$1\" != git ] || { echo 'leaks found: 1'; exit 1; }\n");
+    }
+
+    pub fn run(&self, arguments: &[&str]) -> Observed {
+        self.run_with(arguments, &[])
+    }
+
+    pub fn run_with(&self, arguments: &[&str], environment: &[(&str, &Path)]) -> Observed {
+        let mut run = Run::new(&self.scratch, &self.repo, arguments)
+            .env("HOME", self.root.join("home"))
+            .env("SAFE_PUSH_TEST_NORTH_TRACE", &self.trace)
+            .env("SAFE_PUSH_TEST_LANGUAGE_DENY", self.root.join("language-deny"));
+        for (name, value) in environment {
+            run = run.env(name, value);
+        }
+        run.output()
+    }
+
+    pub fn git(&self, arguments: &[&str]) -> String {
+        git(&self.repo, arguments)
+    }
+
+    pub fn head(&self) -> String {
+        self.git(&["rev-parse", "HEAD"])
+    }
+
+    pub fn remote_state(&self) -> String {
+        git(&self.remote, &["for-each-ref", "--sort=refname", "--format=%(refname) %(objectname)"])
+    }
+
+    pub fn commit(&self, path: &str, content: &str, message: &str) {
+        write(&self.repo.join(path), content);
+        self.git(&["add", path]);
+        self.git(&["commit", "-qm", message]);
+    }
+
+    pub fn land_checks(&self, checks: &[&str], message: &str) {
+        let _ = Command::new("git").current_dir(&self.repo).args(["config", "--file", ".safe-push", "--unset-all", "land.check"]).status();
+        for check in checks {
+            self.git(&["config", "--file", ".safe-push", "--add", "land.check", check]);
+        }
+        self.git(&["add", ".safe-push"]);
+        self.git(&["commit", "-qm", message]);
+    }
+
+    pub fn origin_named_north(&self) {
+        symlink("remote.git", self.root.join("north.git")).unwrap();
+        self.git(&["config", "remote.origin.pushurl", &self.remote.to_string_lossy()]);
+        self.git(&["config", "remote.origin.url", &self.root.join("north.git").to_string_lossy()]);
+    }
+
+    pub fn traced(&self) -> String {
+        std::fs::read_to_string(&self.trace).unwrap_or_default()
+    }
+
+    pub fn clear_trace(&self) {
+        let _ = std::fs::remove_file(&self.trace);
     }
 }
