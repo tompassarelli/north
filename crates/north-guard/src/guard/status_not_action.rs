@@ -28,7 +28,7 @@ pub fn decide(input: &HookInput, state: &Path) -> Verdict {
     if !recommend_acts::count_block(&state.join(session), &turn.id) {
         return Verdict::Allow;
     }
-    Verdict::Deny(format!("BLOCKED ({UNIT}): your final sentence announces a step (\"{announced}\") but no tool call follows it; make the call now, or end on what was done and what Tom must decide."))
+    Verdict::Deny(format!("BLOCKED ({UNIT}): your final sentence announces a step (\"{announced}\") but no tool call follows it; make the call now, or end on what was done, or on the one decision Tom must make as a multiple-choice question."))
 }
 
 pub fn announced_step(reply: &str) -> Option<String> {

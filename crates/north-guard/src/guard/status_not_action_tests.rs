@@ -16,7 +16,7 @@ fn a_final_sentence_announcing_a_step_blocks_twice_per_turn_and_then_passes() {
     let _ = std::fs::remove_dir_all(&dir);
     let reply = "Landed the guard on main. Next I'll run the audit against yesterday's replies.";
     for _ in 0..2 {
-        assert!(matches!(decide(&stop(reply, "s1"), &dir), Verdict::Deny(reason) if reason.starts_with("BLOCKED (status-not-action)") && reason.contains("\"i'll\"")));
+        assert!(matches!(decide(&stop(reply, "s1"), &dir), Verdict::Deny(reason) if reason.starts_with("BLOCKED (status-not-action)") && reason.contains("\"i'll\"") && reason.contains("or on the one decision Tom must make as a multiple-choice question.") && !reason.contains("what Tom must decide")));
     }
     assert_eq!(decide(&stop(reply, "s1"), &dir), Verdict::Allow);
 }
