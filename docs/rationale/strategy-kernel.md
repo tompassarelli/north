@@ -79,8 +79,8 @@ pattern, applied by hand to one function each. Here it becomes the one shape eve
   and its only dependency is `north-strategy-types`. Its interface is `decide_placement(&placement::Case) -> placement::Verdict`
   and the same for each kind. Without `std` it has no file, environment, clock, process, thread or
   network API, so a strategy edit that tries to read one fails to compile. The parameters compiled in
-  today from `harness/defaults.toml` and `harness/model-catalog.toml` (read through `admission.rs:15`,
-  `room.rs:8` and `spawn_capacity.rs`) move into this crate, so its content hash covers them.
+  today from `harness/defaults.toml` and `harness/model-catalog.toml` (parsed once per process by
+  `north_base::platform::harness::document` and read through `admission.rs`, `room.rs` and `spawn_capacity.rs`) move into this crate, so its content hash covers them.
 - The call passes native structs: no virtual machine, no serialization on the decision path. Serde runs
   only when the kernel appends the log line. The types crate turns on `serde_json`'s `float_roundtrip`,
   and replay checks that a native case and its JSON round trip decide alike. Without it the default float
@@ -338,7 +338,9 @@ parts differ from the brief above. `AGENT_CAPACITY_SETTLE_SECONDS` stays until t
 module exists to own the settle window as a parameter, because two capacity-host journeys shorten it to
 run in seconds; each admission line records the window it used (`settle_seconds`). Retention is
 `north strategy log retain` (zstd on closed hours, days past 14 deleted) rather than a step of
-`north retain`, which archives to one host, while this log stays on the host that decided.
+`north retain`, which archives to one host, while this log stays on the host that decided. Placement's `gather`
+parses the model catalog and the harness defaults before the timer starts, so a launch process's one
+placement no longer spends most of its `decide_us` parsing them (north#666).
 
 ## Replay
 

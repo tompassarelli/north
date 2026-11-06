@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, PoisonError};
 
+use toml_edit::DocumentMut;
+
 pub const TREE: &str = "tree";
 pub const DEFAULTS: &str = "harness/defaults.toml";
 pub const MODEL_CATALOG: &str = "harness/model-catalog.toml";
@@ -16,6 +18,15 @@ pub fn table(relative: &'static str) -> &'static str {
         let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("north: cannot read {}: {error}", path.display()));
         Box::leak(text.into_boxed_str())
     })
+}
+
+static DOCUMENTS: LazyLock<Mutex<BTreeMap<&'static str, &'static DocumentMut>>> = LazyLock::new(Mutex::default);
+
+/// The harness table at `relative` parsed as TOML, once per process however many crates read it:
+/// `harness/defaults.toml` alone takes over a millisecond to parse.
+pub fn document(relative: &'static str) -> &'static DocumentMut {
+    let mut documents = DOCUMENTS.lock().unwrap_or_else(PoisonError::into_inner);
+    documents.entry(relative).or_insert_with(|| Box::leak(Box::new(table(relative).parse().unwrap_or_else(|error| panic!("north: {relative} does not parse: {error}")))))
 }
 
 pub fn harness_root() -> Result<PathBuf, String> {

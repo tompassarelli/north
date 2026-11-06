@@ -5,7 +5,6 @@ use serde_json::Value;
 use std::cmp::Ordering;
 use toml_edit::{DocumentMut, Item};
 
-pub static CATALOG: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table(crate::platform::harness::MODEL_CATALOG));
 pub const WEEK_H: f64 = 7.0 * 24.0;
 
 /// What a plan holds of each window, in Max 5x units: Max 20x holds four times the five-hour room of Max 5x but only twice its week.
@@ -125,18 +124,18 @@ impl Rank {
 /// The configuration and pace state accounts are ranked from.
 pub struct Basis<'a> {
     cfg: &'a DocumentMut,
-    catalog: DocumentMut,
+    catalog: &'static DocumentMut,
     pace: Value,
     at: f64,
 }
 
 impl<'a> Basis<'a> {
     pub fn new(cfg: &'a DocumentMut, pace: Value, at: f64) -> Self {
-        Self { cfg, catalog: CATALOG.parse().expect("harness/model-catalog.toml parses"), pace, at }
+        Self { cfg, catalog: crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG), pace, at }
     }
 
     pub fn plan(&self, account: &str) -> Result<PlanSize, String> {
-        plan(self.cfg, &self.catalog, account)
+        plan(self.cfg, self.catalog, account)
     }
 
     pub fn spending(&self, account: &str) -> bool {

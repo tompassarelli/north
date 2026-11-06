@@ -31,7 +31,7 @@ const RECOVERING: &str = "recovering.json";
 const LANDED_MAIN: &str = "refs/lander/landed-main";
 const DEADLINE_SETTING: &str = "landing.after-deadline-sec";
 
-static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
+static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
 pub fn deadline(repo: &Path) -> Duration {
     let named = DEFAULTS["after_landing_run_deadline_sec"]["value"].as_integer().and_then(|seconds| u64::try_from(seconds).ok()).expect("harness/defaults.toml has after_landing_run_deadline_sec");

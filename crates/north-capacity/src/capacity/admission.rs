@@ -12,11 +12,7 @@ pub(super) const GPU_BUSY_PERCENT: u32 = 85;
 const ATTENDED_GPU_CLIENTS: u32 = 4;
 const GPU_SLOTS: u32 = 2;
 
-static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| {
-    north_base::platform::harness::table(north_base::platform::harness::DEFAULTS)
-        .parse()
-        .expect("harness/defaults.toml parses")
-});
+static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]

@@ -9,8 +9,7 @@ const LEDGER: &str = "safe-push/post-land.tsv";
 const WINDOW: usize = 10;
 const TIMED: usize = 3;
 
-static DEFAULTS: LazyLock<DocumentMut> =
-    LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
+static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
 pub(super) struct Claim {
     pub test: String,

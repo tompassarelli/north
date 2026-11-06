@@ -2,11 +2,7 @@ use std::sync::LazyLock;
 
 use toml_edit::DocumentMut;
 
-static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| {
-    north_base::platform::harness::table(north_base::platform::harness::DEFAULTS)
-        .parse()
-        .expect("harness/defaults.toml parses")
-});
+static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
 pub fn default(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];

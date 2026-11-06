@@ -17,7 +17,7 @@ const LEASE_SCOPE_ID_LENGTH: usize = 32;
 const MINIMUM_QUOTA_PERCENT: f64 = 100.0;
 const CAPPED_WEIGHT: u32 = 10;
 
-static DEFAULTS: std::sync::LazyLock<DocumentMut> = std::sync::LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
+static DEFAULTS: std::sync::LazyLock<&DocumentMut> = std::sync::LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
 pub(super) fn registry(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];

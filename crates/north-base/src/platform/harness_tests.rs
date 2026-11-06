@@ -1,4 +1,4 @@
-use super::{DEFAULTS, TREE, resolve, table};
+use super::{DEFAULTS, TREE, document, resolve, table};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -29,6 +29,8 @@ fn a_test_or_dev_build_reads_the_tables_of_the_source_tree_it_was_built_from() {
     let text = fs::read_to_string(root.join(DEFAULTS)).unwrap();
     assert_eq!(table(DEFAULTS), text);
     assert!(std::ptr::eq(table(DEFAULTS), table(DEFAULTS)));
+    assert!(document(DEFAULTS).contains_key("usage_stale_min"));
+    assert!(std::ptr::eq(document(DEFAULTS), document(DEFAULTS)), "every crate reads one parse of a table per process");
 }
 
 #[test]

@@ -26,7 +26,7 @@ mod slow_test;
 #[cfg(test)]
 mod reflex_tests;
 
-static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
+static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
 fn default_number(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];

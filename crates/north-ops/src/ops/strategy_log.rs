@@ -21,10 +21,11 @@ pub fn run(arguments: &[String]) -> u8 {
         return 2;
     };
     let now = decision_log::now();
+    let check = |since: f64| check(&root, since, now, &mut std::io::stdout().lock());
     match words.as_slice() {
-        ["log", "check"] => check(&root, now - 3600.0, now),
+        ["log", "check"] => check(now - 3600.0),
         ["log", "check", "--since", since] => match decision_log::span_seconds(since) {
-            Some(span) => check(&root, now - span, now),
+            Some(span) => check(now - span),
             None => usage(),
         },
         ["log", "retain"] => retain(&root, now, KEEP_DAYS),
@@ -45,42 +46,56 @@ struct Tally {
     decide_us: Vec<u64>,
 }
 
-/// Parses every line from `since` on into its kind's types and prints one line per kind; exits 1 when
-/// any line does not parse or an admission call names a snapshot no snapshot file holds.
-fn check(root: &Path, since: f64, now: f64) -> u8 {
-    let (snapshots, mut failed) = snapshot_hashes(root, since, now);
+/// Parses every line from `since` on into its kind's types and writes one line per kind to `out`; exits 1
+/// when any line does not parse or an admission call names a snapshot no snapshot file holds, and 0
+/// without a word when the reader of `out` closes it first, as `| head` does.
+fn check(root: &Path, since: f64, now: f64, out: &mut impl Write) -> u8 {
+    match report(root, since, now, out) {
+        Ok(failed) => u8::from(failed),
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => 0,
+        Err(error) => {
+            eprintln!("north strategy log check: {error}");
+            1
+        }
+    }
+}
+
+fn report(root: &Path, since: f64, now: f64, out: &mut impl Write) -> std::io::Result<bool> {
+    let (snapshots, unreadable) = snapshot_hashes(root, since, now);
+    let mut failed = !unreadable.is_empty();
+    for line in &unreadable {
+        writeln!(out, "{line}")?;
+    }
     let mut named = Vec::new();
     for kind in Kind::ALL {
         let mut tally = tally(root, kind, since, now, &mut named);
         failed |= !tally.unparsed.is_empty();
-        println!("{}", summary(kind, &mut tally));
+        writeln!(out, "{}", summary(kind, &mut tally))?;
         for unparsed in tally.unparsed.iter().take(3) {
-            println!("  does not parse: {unparsed}");
+            writeln!(out, "  does not parse: {unparsed}")?;
         }
     }
     let missing: Vec<&(PathBuf, String)> = named.iter().filter(|(_, hash)| !snapshots.contains(hash)).collect();
     if let Some((path, hash)) = missing.first() {
         failed = true;
-        println!("admission: {} calls name a snapshot no snapshot file holds, first {hash} in {}", missing.len(), path.display());
+        writeln!(out, "admission: {} calls name a snapshot no snapshot file holds, first {hash} in {}", missing.len(), path.display())?;
     }
-    u8::from(failed)
+    Ok(failed)
 }
 
-fn snapshot_hashes(root: &Path, since: f64, now: f64) -> (BTreeSet<String>, bool) {
-    let mut failed = false;
+/// The snapshot hashes the admission log holds from `since` on, and one line for each snapshot that does not parse.
+fn snapshot_hashes(root: &Path, since: f64, now: f64) -> (BTreeSet<String>, Vec<String>) {
+    let mut unreadable = Vec::new();
     let mut hashes = BTreeSet::new();
     for (path, line) in decision_log::lines(root, Kind::Admission, "snapshots.jsonl", since, now) {
         match serde_json::from_str::<Snapshot<admission::Snapshot>>(&line) {
             Ok(snapshot) => {
                 hashes.insert(snapshot.hash);
             }
-            Err(error) => {
-                failed = true;
-                println!("admission snapshot: {} does not parse: {error}", path.display());
-            }
+            Err(error) => unreadable.push(format!("admission snapshot: {} does not parse: {error}", path.display())),
         }
     }
-    (hashes, failed)
+    (hashes, unreadable)
 }
 
 /// The lines of one kind from `since` on, each parsed into its types; admission calls add the snapshot they name to `named`.
@@ -179,8 +194,21 @@ mod tests {
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         let good = Envelope { v: 1, kind: Kind::LandWave, id: "x".into(), at, host: "h".into(), strategy: "live:dev".into(), follows: None, case: land::WaveCase { wanted: 4, slots: Some((2, 6)) }, decision: land::WaveDecision { width: 2 }, decide_us: 3, dropped: 0 };
         std::fs::write(&file, format!("{}\n", serde_json::to_string(&good).unwrap())).unwrap();
-        assert_eq!(check(root.path(), at - 60.0, at + 60.0), 0);
+        assert_eq!(check(root.path(), at - 60.0, at + 60.0, &mut Vec::new()), 0);
         std::fs::write(&file, format!("{}\n{{\"v\":1,\"kind\":\"land.wave\"}}\n", serde_json::to_string(&good).unwrap())).unwrap();
-        assert_eq!(check(root.path(), at - 60.0, at + 60.0), 1);
+        assert_eq!(check(root.path(), at - 60.0, at + 60.0, &mut Vec::new()), 1);
+        assert_eq!(check(root.path(), at - 60.0, at + 60.0, &mut ClosedPipe), 0, "a reader closing the pipe, as `| head` does, ends the check quietly instead of panicking");
+    }
+
+    struct ClosedPipe;
+
+    impl Write for ClosedPipe {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
 }

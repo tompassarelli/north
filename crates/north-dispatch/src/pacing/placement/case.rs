@@ -24,8 +24,12 @@ pub struct Ask<'a> {
     pub roster: &'a Roster,
 }
 
-/// Reads every input placement decides from, once, at one clock reading.
+/// Reads every input placement decides from, once, at one clock reading, parsing the model catalog and
+/// the harness defaults here so the timed decision spends none of its `decide_us` on that.
 pub fn gather(ask: &Ask) -> Result<Case, String> {
+    for table in [crate::platform::harness::MODEL_CATALOG, crate::platform::harness::DEFAULTS] {
+        crate::platform::harness::document(table);
+    }
     let text = std::fs::read_to_string(sampling::policy_path()).map_err(|error| error.to_string())?;
     let cfg: DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
     let at = std::env::var("PLACEMENT_NOW").ok().and_then(|s| target::seconds(&s)).unwrap_or_else(storage::now);
