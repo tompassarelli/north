@@ -159,6 +159,22 @@ fn a_needs_host_launch_runs_on_that_host_and_only_a_launch_host_with_room_takes_
     only_nexus[1].live = Some(8);
     let held = decide(code, &cfg, &quota, credit, &only_nexus, "laptop");
     assert_eq!(held.machine, None, "nexus is not a launch host even with room: {:?}", held.machine_lines);
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\", \"ccx33\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\nserves = [\"native:wisp\", \"client:wisp\"]\n[hosts.ccx33]\nresident_cap = 8\nssh = \"tom@ccx33\"\nlaunches = true\nserves = []\n[hosts.whiterabbit]\nresident_cap = 8\nreaches = [\"gex45\", \"ccx33\"]\nserves = [\"native\", \"sign-ins\", \"laptop\"]\n".parse().unwrap();
+    let quota = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
+    let mut machines = gate::machines(&cfg);
+    for machine in &mut machines {
+        machine.live = Some(0);
+        machine.accounts = vec!["c".into()];
+    }
+    for needs in ["laptop", "chrome-profile", "gpu", "native-client"] {
+        let brief = format!("Item: north#706 laptop box\nSurface: rust\nNeeds: {needs}\n");
+        let placed = decide(&brief, &cfg, &quota, (false, "cloud credit: spent".to_owned()), &machines, "whiterabbit");
+        assert_eq!(placed.machine, None, "{needs}: {:?}", placed.machine_lines);
+        for host in ["gex45", "ccx33"] {
+            assert!(gate::lacks(&cfg, host, &brief).is_some(), "{needs} on {host}");
+        }
+        assert_eq!(gate::lacks(&cfg, "whiterabbit", &brief), None, "{needs}");
+    }
 }
 
 mod properties {
