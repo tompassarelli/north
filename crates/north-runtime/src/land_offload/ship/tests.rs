@@ -133,6 +133,9 @@ fn a_remote_job_runs_only_on_the_shipped_commit_and_reads_each_checkout_beside_i
     assert_eq!(String::from_utf8_lossy(&refused.stderr), format!("offload: refusing to run: {} is on {second}, not the shipped {first}\n", dir.path().display()));
     let ran = verify(dir.path(), &second);
     assert!(ran.status.success());
+    let mut slot_waits_ended = 0;
+    super::relay(ran.stdout.as_slice(), &mut Vec::new(), "north-offload-ran:job", || slot_waits_ended += 1);
+    assert_eq!(slot_waits_ended, 1, "the line the remote prints once it holds its slot ends the slot wait a deadline above the offload excuses");
     assert_eq!(String::from_utf8(ran.stdout).unwrap().lines().next(), Some(format!("offload: running {second} in {}", dir.path().display()).as_str()));
     let command = "check-owners --north-root $HOME/code/north/main --south-root $HOME/code/south/main --nixos-root ~/code/nixos-config/main/agents $HOME/code/gone/main $HOME/code/south/mainline";
     let head_of = |path: &Path| path.ends_with("code/south/main").then(|| CommitId(first.clone())).or_else(|| path.ends_with("code/nixos-config/main").then(|| CommitId("b".repeat(40))));
@@ -451,7 +454,7 @@ fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, Strin
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let output = Command::new("sh").args(["-c", &script]).env("HOME", slot.path()).env("PATH", path).output().unwrap();
     let mut shown = Vec::new();
-    let ran = super::relay(output.stdout.as_slice(), &mut shown, marker);
+    let ran = super::relay(output.stdout.as_slice(), &mut shown, marker, || {});
     (output.status.code().and_then(|code| u8::try_from(code).ok()), ran, String::from_utf8(shown).unwrap())
 }
 
@@ -463,7 +466,7 @@ fn an_offload_passes_only_when_the_remote_reports_its_command_ran_and_succeeded(
     let (exited, ran, _) = remote_reports("false", marker);
     assert_eq!(super::verdict(exited, ran), Ok(1));
     let mut shown = Vec::new();
-    let never_ran = super::relay(b"bash: --: invalid option\nUsage: bash [option] ...\n".as_slice(), &mut shown, marker);
+    let never_ran = super::relay(b"bash: --: invalid option\nUsage: bash [option] ...\n".as_slice(), &mut shown, marker, || {});
     assert!(super::verdict(Some(0), never_ran).is_err(), "a remote that exits 0 without reporting its command passed");
     assert_eq!(String::from_utf8(shown).unwrap(), "bash: --: invalid option\nUsage: bash [option] ...\n");
 }
