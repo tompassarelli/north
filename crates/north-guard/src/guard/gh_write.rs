@@ -31,6 +31,7 @@ pub struct GhWrite {
     pub labels: Vec<String>,
     pub closes_issue: Option<String>,
     pub opaque: bool,
+    pub edits: Option<(String, String)>,
 }
 
 pub fn writes(command_text: &str, cwd: Option<&str>) -> Vec<GhWrite> {
@@ -176,6 +177,7 @@ fn complete(write: &mut GhWrite, group: &str, positionals: &[&str], cwd: Option<
     }
     write.creates_issue = group == "issue" && verb == Some("create");
     write.closes_issue = (group == "issue" && verb == Some("close")).then(|| positionals.get(1).map(|word| (*word).to_owned()).unwrap_or_default());
+    write.edits = positionals.get(1).filter(|_| matches!(group, "issue" | "pr") && verb == Some("edit")).map(|word| (group.to_owned(), (*word).to_owned()));
     write.public = match group {
         "gist" => true,
         "repo" => verb == Some("create"),

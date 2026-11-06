@@ -178,17 +178,18 @@ fn parse_answer(kinds: &Kinds, answer: &str) -> Result<Vec<Finding>, String> {
     if lines == ["NONE"] {
         return Ok(Vec::new());
     }
-    if lines.is_empty() {
-        return Err(unreadable(answer));
+    let mut found: Vec<Finding> = Vec::new();
+    for line in lines {
+        match line.split_once(" | ").or_else(|| line.split_once('\t')).map(|(kind, span)| (kind.trim(), span)).filter(|(kind, _)| !kind.contains(' ')) {
+            Some((kind, span)) if kinds.list.iter().any(|known| known.id == kind) => found.push(Finding { kind: kind.to_owned(), span: span.trim().trim_matches('"').to_owned() }),
+            None if !found.is_empty() => {
+                let open = found.last_mut().expect("a finding is open");
+                open.span = format!("{} {}", open.span.trim_end_matches('"'), line.trim_matches('"'));
+            }
+            _ => return Err(unreadable(answer)),
+        }
     }
-    lines
-        .iter()
-        .map(|line| {
-            let (kind, span) = line.split_once(" | ").or_else(|| line.split_once('\t')).ok_or_else(|| unreadable(answer))?;
-            let kind = kind.trim();
-            kinds.list.iter().any(|known| known.id == kind).then(|| Finding { kind: kind.to_owned(), span: span.trim().trim_matches('"').to_owned() }).ok_or_else(|| unreadable(answer))
-        })
-        .collect()
+    if found.is_empty() { Err(unreadable(answer)) } else { Ok(found) }
 }
 
 fn unreadable(answer: &str) -> String {
@@ -202,7 +203,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn asks_once_more_when_an_answer_is_unreadable_and_refuses_after_a_second() {
+    fn reads_a_span_wrapped_over_lines_asks_once_more_when_unreadable_and_refuses_after_a_second() {
         let kinds = super::super::kinds::parse("[[kind]]\nid = \"fixture-kind\"\ndescription = \"a fixture\"\n".to_owned()).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let cache = Cache { dir: dir.path().to_owned() };
@@ -212,6 +213,8 @@ mod tests {
         assert_eq!(*asked.lock().unwrap(), 2);
         let refused = judge(&kinds, "second text\n", &cache, &|_, _| Ok("still prose".to_owned()));
         assert!(refused.is_err_and(|reason| reason.contains("unreadable")));
+        let wrapped = judge(&kinds, "third text\nwhose quoted line\nwraps\n", &cache, &|_, _| Ok("fixture-kind | whose quoted line\nwraps".to_owned()));
+        assert_eq!(wrapped, Ok(vec![Finding { kind: "fixture-kind".to_owned(), span: "whose quoted line wraps".to_owned() }]));
     }
 
     #[test]

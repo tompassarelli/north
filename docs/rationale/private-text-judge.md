@@ -13,7 +13,7 @@ Tom asked on 2026-11-06 for one rule that keeps private kinds of text out of eve
 ## Where it applies
 
 - safe-push, after the deny-list scan, for a PUBLIC or UNKNOWN destination (`Denylist::verdict`). A finding refuses the push with `file it in south: <kind>`; so does a judge that cannot run. With neither a south checkout nor `NORTH_PRIVATE_KINDS`, it prints the same warning the deny-list prints and passes.
-- The `public_text` hook, after the deny-list match, for every `gh` write to a repository that is not private. A finding, or a judge that cannot run, denies the command. The hook waits 7 s, under the runtime's 10 s hook limit; a judge still running then, usually Sonnet's three confirming runs, is left to finish into the cache, and the command is refused with "judging, retry the same command in about 15 s", so the retry is answered from the cache.
+- The `public_text` hook, after the deny-list match, for every `gh` write to a repository that is not private. A finding, or a judge that cannot run, denies the command. An `issue edit` or `pr edit` judges only the lines its body adds to the current body, read with `gh issue view` or `gh pr view`, so ticking a box does not re-judge text already public; when the current body cannot be read, the whole body is judged. The hook waits 7 s, under the runtime's 10 s hook limit; a judge still running then, usually Sonnet's three confirming runs, is left to finish into the cache, and the command is refused with "judging, retry the same command in about 15 s", so the retry is answered from the cache.
 
 A new project needs no setup: visibility comes from GitHub, as it does for the deny-list.
 

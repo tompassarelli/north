@@ -24,6 +24,7 @@ fn decide(command: &str, cwd: &str, private: bool) -> Verdict {
             text if text.contains(KIND_TEXT) => Ok(vec![Finding { kind: "fixture-kind".into(), span: KIND_TEXT.into() }]),
             _ => Ok(Vec::new()),
         },
+        |write| write.edits.as_ref().map(|_| format!("- [ ] landed\nthe {KIND_TEXT} plan\n")),
     )
 }
 
@@ -43,6 +44,8 @@ fn scratch() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("dirty.md"), format!("the {TERM} again\n")).unwrap();
     std::fs::write(dir.path().join("clean.md"), "landed and verified\n").unwrap();
+    std::fs::write(dir.path().join("ticked.md"), format!("- [x] landed\nthe {KIND_TEXT} plan\n")).unwrap();
+    std::fs::write(dir.path().join("grown.md"), format!("- [x] landed\nthe {KIND_TEXT} plan\nthe {KIND_TEXT} again\n")).unwrap();
     dir
 }
 
@@ -78,4 +81,6 @@ fn refuses_a_deny_listed_term_and_a_private_kind_in_every_place_a_gh_write_carri
     assert!(matches!(decide(&format!("gh issue comment 5 --body 'the {KIND_TEXT} plan'"), cwd, true), Verdict::Allow));
     let Verdict::Deny(reason) = decide("gh issue comment 5 --body 'judge-down'", cwd, false) else { panic!("an unjudged text passed") };
     assert!(reason.contains("has no verdict"), "{reason}");
+    assert!(matches!(decide("gh issue edit 5 --body-file ticked.md", cwd, false), Verdict::Allow));
+    assert!(matches!(decide("gh issue edit 5 --body-file grown.md", cwd, false), Verdict::Deny(_)));
 }
