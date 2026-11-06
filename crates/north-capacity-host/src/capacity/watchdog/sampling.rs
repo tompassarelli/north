@@ -53,6 +53,8 @@ pub(super) struct Snapshot {
     pub(super) mem_total_mib: f64,
     pub(super) cgroups: BTreeMap<String, f64>,
     #[serde(default)]
+    pub(super) quotas: BTreeMap<String, f64>,
+    #[serde(default)]
     pub(super) busy_ticks: Option<f64>,
     pub(super) procs: Vec<Proc>,
     pub(super) leases: Vec<Value>,
@@ -118,6 +120,8 @@ struct Hog {
 struct CgroupCores {
     cgroup: String,
     cores: f64,
+    #[serde(rename = "quotaPercent", skip_serializing_if = "Option::is_none")]
+    quota_percent: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -270,11 +274,11 @@ fn cgroup_cores(prev: Option<&Snapshot>, snap: &Snapshot, dt: f64) -> Vec<Cgroup
     let mut busy: Vec<CgroupCores> = snap
         .cgroups
         .iter()
-        .filter_map(|(cgroup, usec)| prev.cgroups.get(cgroup).map(|before| CgroupCores { cgroup: cgroup.clone(), cores: round2((usec - before).max(0.0) / 1e6 / dt) }))
+        .filter_map(|(cgroup, usec)| prev.cgroups.get(cgroup).map(|before| CgroupCores { cgroup: cgroup.clone(), cores: round2((usec - before).max(0.0) / 1e6 / dt), quota_percent: snap.quotas.get(cgroup).copied() }))
         .filter(|entry| entry.cores >= MIN_CGROUP_CORES)
         .collect();
     busy.sort_by(|left, right| right.cores.total_cmp(&left.cores));
-    busy.into_iter().enumerate().filter(|(index, entry)| *index < UNCONDITIONAL_CGROUPS || UNIT_CGROUP.is_match(&entry.cgroup)).map(|(_, entry)| entry).collect()
+    busy.into_iter().enumerate().filter(|(index, entry)| *index < UNCONDITIONAL_CGROUPS || UNIT_CGROUP.is_match(&entry.cgroup) || entry.quota_percent.is_some()).map(|(_, entry)| entry).collect()
 }
 
 pub(super) fn step(state: State, snap: Snapshot) -> Stepped {

@@ -46,9 +46,27 @@ fn child_directories(directory: &Path) -> Vec<(String, PathBuf)> {
     entries.filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())).map(|entry| (entry.file_name().to_string_lossy().into_owned(), entry.path())).collect()
 }
 
-fn walk_usage(directory: &Path, relative: &str, depth: usize, out: &mut BTreeMap<String, f64>) {
-    if let Some(usec) = usage_usec(directory).filter(|_| !relative.is_empty()) {
-        out.insert(relative.to_owned(), usec);
+#[derive(Default)]
+struct Cgroups {
+    usage: BTreeMap<String, f64>,
+    quotas: BTreeMap<String, f64>,
+}
+
+fn quota_percent(directory: &Path) -> Option<f64> {
+    let max = read(directory.join("cpu.max"))?;
+    let (quota, period) = max.trim().split_once(' ')?;
+    let (quota, period): (f64, f64) = (quota.parse().ok()?, period.parse().ok()?);
+    (period > 0.0).then(|| (quota / period * 100.0).round())
+}
+
+fn walk_usage(directory: &Path, relative: &str, depth: usize, out: &mut Cgroups) {
+    if !relative.is_empty() {
+        if let Some(usec) = usage_usec(directory) {
+            out.usage.insert(relative.to_owned(), usec);
+        }
+        if let Some(percent) = quota_percent(directory) {
+            out.quotas.insert(relative.to_owned(), percent);
+        }
     }
     if depth >= CGROUP_DEPTH {
         return;
@@ -59,14 +77,19 @@ fn walk_usage(directory: &Path, relative: &str, depth: usize, out: &mut BTreeMap
     }
 }
 
-fn cgroup_usage() -> BTreeMap<String, f64> {
-    let mut out = BTreeMap::new();
+fn cgroup_usage() -> Cgroups {
+    let mut out = Cgroups::default();
     walk_usage(&user_root(), "", 0, &mut out);
     walk_usage(Path::new(&format!("{CGROOT}/system.slice")), "system.slice", SYSTEM_SLICE_DEPTH, &mut out);
     let login = format!("user.slice/user-{}.slice", user_id());
     for (name, path) in child_directories(Path::new(&format!("{CGROOT}/{login}"))) {
         if name.starts_with("session-") && name.ends_with(".scope") {
             walk_usage(&path, &format!("{login}/{name}"), CGROUP_DEPTH, &mut out);
+        }
+    }
+    for (name, path) in child_directories(Path::new(&format!("{CGROOT}/user.slice"))) {
+        if name.starts_with("user-") && name.ends_with(".slice") && format!("user.slice/{name}") != login && quota_percent(&path).is_some() {
+            walk_usage(&path, &format!("user.slice/{name}"), 0, &mut out);
         }
     }
     out
@@ -173,6 +196,7 @@ pub(super) fn snapshot(north: &Path) -> Snapshot {
     let leases = leases(&by_pid, &sessions);
     let kib = |key: &str| memory.lines().find_map(|line| line.strip_prefix(key)?.strip_prefix(':')?.split_whitespace().next()?.parse::<f64>().ok()).unwrap_or(0.0);
     let load = read("/proc/loadavg").unwrap_or_else(|| "0 0 0".to_owned()).split(' ').take(3).map(|word| word.parse().unwrap_or(0.0)).collect();
+    let cgroups = cgroup_usage();
     Snapshot {
         at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |age| age.as_millis() as i64),
         load,
@@ -182,7 +206,8 @@ pub(super) fn snapshot(north: &Path) -> Snapshot {
         mem_full_psi: pressure("/proc/pressure/memory", "full", "avg10="),
         mem_available_mib: (kib("MemAvailable") / 1024.0).round(),
         mem_total_mib: (kib("MemTotal") / 1024.0).round(),
-        cgroups: cgroup_usage(),
+        cgroups: cgroups.usage,
+        quotas: cgroups.quotas,
         busy_ticks: busy_ticks(),
         leases,
         procs: all,

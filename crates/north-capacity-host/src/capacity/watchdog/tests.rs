@@ -119,3 +119,30 @@ fn a_larger_attributed_offender_the_watchdog_cannot_cap_leaves_the_smaller_fleet
     assert!(caps(&actions).is_empty(), "{actions:#?}");
     assert!(sends(&actions).contains(&"n-626-repro"), "{actions:#?}");
 }
+
+fn farm_readings(quota_percent: Option<f64>) -> String {
+    let mut state = super::sampling::State::default();
+    let mut readings = Vec::new();
+    for tick in 0..4_i64 {
+        let farm_usec = (tick * 30) as f64 * 12.0 * 1e6;
+        let quotas = quota_percent.map_or_else(|| serde_json::json!({}), |percent| serde_json::json!({ FARM_SLICE: percent }));
+        let snapshot = serde_json::json!({
+            "at": 1_762_400_000_000_i64 + tick * 30_000, "load": [60.0, 55.0, 50.0], "cpuPsi": 80.0, "cpuPsi60": 60.0, "memPsi": 0.0, "memFullPsi": 0.0,
+            "memAvailableMiB": 60000.0, "memTotalMiB": 128000.0, "cgroups": { FARM_SLICE: farm_usec, FARM_RUNNER: farm_usec }, "quotas": quotas, "procs": [], "leases": [],
+        });
+        let stepped = super::sampling::step(state, serde_json::from_value(snapshot).unwrap());
+        state = stepped.state;
+        readings.push(serde_json::to_string(&stepped.reading).unwrap());
+    }
+    readings.join("\n")
+}
+
+// KEEP(bug): the sampler carries the farm slice's cpu.max into quotaPercent, so the farm inside its 1400% quota on gex45 raises no page
+#[test]
+fn a_sampled_farm_slice_carries_its_cpu_max_quota_and_inside_it_raises_no_page() {
+    let inside = farm_readings(Some(1400.0));
+    let farm = inside.lines().last().and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok()).and_then(|reading| reading["cgroups"].as_array()?.iter().find(|entry| entry["cgroup"] == FARM_SLICE).cloned()).unwrap();
+    assert_eq!(farm["quotaPercent"], 1400.0, "{farm}");
+    assert!(sends(&replayed(&inside, &mut BTreeMap::new(), Settings::bundled(GEX45_CPUS))).is_empty());
+    assert!(!sends(&replayed(&farm_readings(None), &mut BTreeMap::new(), Settings::bundled(GEX45_CPUS))).is_empty());
+}
