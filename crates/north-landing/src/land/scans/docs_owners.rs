@@ -7,33 +7,13 @@ use north_github_mirror::read::{Seen, recorded_issue_state};
 use north_github_mirror::store::Mirror;
 use regex::Regex;
 
+use super::doc_paths::{Tree, missing_paths};
 use super::{Range, git};
 
 const KINDS: [&str; 9] = ["plan", "plans", "planning", "port", "porting", "migration", "migrations", "order", "orders"];
 
 static OWNERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\s*(?:[-*]\s*)?(?:\*\*)?owners?(?:\*\*)?:\s*(.*)$").expect("owners pattern"));
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:\b([a-z][a-z0-9_-]*))?#(\d+)").expect("issue reference pattern"));
-static CREATES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\s*(?:[-*]\s*)?creates:.*$").expect("creates pattern"));
-static BACKTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([^`\s]+)`").expect("backtick pattern"));
-static LOCATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?::\d+(?:-\d+)?|::.*)$").expect("location suffix pattern"));
-
-struct Tree {
-    files: BTreeSet<String>,
-    tops: BTreeSet<String>,
-}
-
-impl Tree {
-    fn new(listing: &str) -> Self {
-        let files: BTreeSet<String> = listing.lines().map(str::to_owned).collect();
-        let tops = files.iter().filter_map(|path| path.split('/').next()).map(str::to_owned).collect();
-        Self { files, tops }
-    }
-
-    fn contains(&self, path: &str) -> bool {
-        let directory = format!("{}/", path.trim_end_matches('/'));
-        self.files.contains(path) || self.files.range(directory.clone()..).next().is_some_and(|next| next.starts_with(&directory))
-    }
-}
 
 fn is_plan_document(path: &str) -> bool {
     let Some(rest) = path.strip_prefix("docs/").filter(|rest| !rest.starts_with("references/") && !rest.starts_with("features/")) else {
@@ -55,24 +35,6 @@ fn owners(text: &str, own: &str) -> Vec<(String, u64)> {
                 .collect::<Vec<_>>()
         })
         .collect()
-}
-
-fn missing_paths(text: &str, tree: &Tree) -> Vec<String> {
-    let text = CREATES.replace_all(text, "");
-    let mut missing: Vec<String> = BACKTICKED
-        .captures_iter(&text)
-        .map(|found| LOCATION.replace(found[1].trim_end_matches(['.', ',', ';']), "").into_owned())
-        .filter(|token| {
-            let trailing = token.ends_with('/');
-            let last = token.rsplit('/').find(|part| !part.is_empty()).unwrap_or_default();
-            let plain = token.chars().all(|character| character.is_ascii_alphanumeric() || "/._-@".contains(character)) && !token.starts_with(['/', '.']);
-            plain && token.contains('/') && (trailing || last.contains('.')) && token.split('/').next().is_some_and(|top| tree.tops.contains(top))
-        })
-        .filter(|token| !tree.contains(token))
-        .collect();
-    missing.sort();
-    missing.dedup();
-    missing
 }
 
 fn findings(path: &str, text: &str, tree: &Tree, own: &str, touched: bool, state: &dyn Fn(&str, u64) -> Option<Seen>) -> Vec<String> {
