@@ -209,7 +209,7 @@ pub struct TomTurn {
 
 pub fn relay_gate(book: &dyn GateBook, id: i64, number: usize, turn: &TomTurn, relayer: &str, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
     let gate = book.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
-    let refuse = |why: String| Err(NorthError::Rejected(format!("convo turn {} cannot close gate {id}: {why}", turn.id)));
+    let refuse = |why: String| Err(NorthError::Refused(format!("convo turn {} cannot close gate {id}: {why}", turn.id)));
     if !gate.for_tom() {
         return refuse("only a gate for Tom takes a relayed answer".into());
     }
