@@ -41,6 +41,7 @@ const SSH_TIMEOUT: Duration = Duration::from_secs(20);
 const RECORD_WAIT: Duration = Duration::from_secs(10);
 const INGEST_WAIT: Duration = Duration::from_secs(5);
 const INGEST_HOLD: Duration = Duration::from_secs(12);
+const SPOOL_DRAIN: Duration = Duration::from_secs(10);
 
 pub struct Client {
     home: PathBuf,
@@ -54,12 +55,13 @@ pub struct Client {
     ssh_wait: Duration,
     ingest_wait: Duration,
     ingest_hold: Duration,
+    spool_drain: Duration,
     /// The `north threads` a call starts without waiting on it to pull a stale snapshot or send the spool; with none, the call does both inline.
     background: Option<Vec<OsString>>,
     clock: Arc<dyn Fn() -> Timestamp + Send + Sync>,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 enum Flush {
     Clear,
     Busy,
@@ -162,6 +164,7 @@ impl Client {
             ssh_wait: SSH_TIMEOUT,
             ingest_wait: INGEST_WAIT,
             ingest_hold: INGEST_HOLD,
+            spool_drain: SPOOL_DRAIN,
             background: Some(vec![crate::platform::north_binary::north_binary().into(), "threads".into()]),
             clock: Arc::new(Timestamp::now),
         }
@@ -407,7 +410,7 @@ impl Client {
         }
     }
 
-    fn flush_spool(&self, dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
+    fn flush_spool(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>) -> NorthResult<Flush> {
         if !self.spool.is_dir() {
             return Ok(Flush::Clear);
         }
@@ -417,7 +420,11 @@ impl Client {
             .filter(|path| spooled_write(path))
             .collect();
         paths.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+        let started = Instant::now();
         for path in paths {
+            if budget.is_some_and(|budget| started.elapsed() >= budget) {
+                return Ok(Flush::Busy);
+            }
             let mut file = match File::open(&path) {
                 Ok(file) => file,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -470,7 +477,11 @@ impl Client {
     /// A spooled write sends the spool before itself, because its order behind the spool matters; any other call leaves the spool to a detached `spool-flush`, because one spooled usage batch holds the ledger host for seconds and a bounded call such as a launch's `holder` must not wait on them.
     fn flush_spool_for(&self, verb: Option<&str>, dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
         let Some(program) = self.background.as_ref().filter(|_| !matches!(verb, Some("ingest" | "agent-event"))) else {
-            return self.flush_spool(dest, err);
+            let flush = self.flush_spool(dest, err, Some(self.spool_drain))?;
+            if let (Flush::Busy, Some(program)) = (flush, self.background.as_ref()) {
+                detach(program, &[SPOOL_FLUSH.as_ref(), dest.as_ref()]);
+            }
+            return Ok(flush);
         };
         if self.spool_pending()? {
             detach(program, &[SPOOL_FLUSH.as_ref(), dest.as_ref()]);
@@ -491,7 +502,7 @@ impl Client {
         let [_, dest] = argv else {
             return Err(NorthError::Usage(format!("usage: north threads {SPOOL_FLUSH} DEST")));
         };
-        Ok(match self.flush_spool(dest, err)? {
+        Ok(match self.flush_spool(dest, err, None)? {
             Flush::Clear => 0,
             Flush::Busy => ingest_lock::RETRY,
             Flush::Down => UNREACHABLE,
@@ -828,7 +839,7 @@ exit "$(cat "$ROOT/code")"
 
     #[test]
     fn threads_client_spools_unreachable_writes_and_flushes_them_in_order() {
-        let rig = rig(&[]);
+        let mut rig = rig(&[]);
         fs::write(rig.root.join("code"), "255").unwrap();
         assert_eq!(call(&rig, &["job-run", "nightly", "--host", "laptop"], b"").0, 0);
         let (code, err) = call(&rig, &["ingest"], b"{\"type\": \"run\"}\n");
@@ -852,6 +863,13 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(log(&rig, "ingest.log"), ["{\"type\": \"run\"}"]);
         let left: Vec<_> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().file_name()).collect();
         assert_eq!(left, [".lock"]);
+        rig.client.spool_drain = Duration::ZERO;
+        rig.client.write_spool(b"{\"n\": 1}\n").unwrap();
+        let (code, err) = call(&rig, &["ingest"], b"{\"n\": 2}\n");
+        assert_eq!(code, 0);
+        assert!(err.contains("ledger-host busy; spooled ingest to "), "an ingest past its drain budget spools behind the backlog: {err}");
+        assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
+        assert_eq!(log(&rig, "ingest.log")[1..], ["{\"n\": 1}", "{\"n\": 2}"]);
     }
 
     #[test]
