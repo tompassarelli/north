@@ -33,6 +33,7 @@ fn mark_copies(credentials: &mut [Credential]) {
 pub fn failure(credential: &Credential, now: u64) -> Option<String> {
     match credential.kind {
         Kind::HumanSession => Some("human-session: only a browser sign-in renews it".into()),
+        Kind::Retired => None,
         Kind::Undeclared => Some("undeclared: no kind in south agents/credentials.toml".into()),
         Kind::Machine => credential.expires.filter(|expires| *expires <= now).map(|expires| format!("expired on {}", day(expires))),
     }

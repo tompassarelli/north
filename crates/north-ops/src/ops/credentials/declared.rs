@@ -20,6 +20,7 @@ pub struct Declaration {
 #[derive(Debug)]
 pub struct Browser {
     pub host: String,
+    pub alternative: Option<String>,
     pub usage: String,
     pub renewal: Renewal,
 }
@@ -65,7 +66,7 @@ pub fn parse(source: &str) -> Result<Declarations, String> {
         found.files.push(Declaration { source: text(table, "source")?, usage: text(table, "use")?, kind, renewal: renewal(&text(table, "renewal")?)?, expires });
     }
     for table in document.get("browser_session").and_then(Item::as_array_of_tables).into_iter().flatten() {
-        found.browsers.push(Browser { host: text(table, "host")?, usage: text(table, "use")?, renewal: renewal(&text(table, "renewal")?)? });
+        found.browsers.push(Browser { host: text(table, "host")?, alternative: table.get("alternative").and_then(Item::as_str).map(str::to_owned), usage: text(table, "use")?, renewal: renewal(&text(table, "renewal")?)? });
     }
     Ok(found)
 }
@@ -132,11 +133,13 @@ pub fn browser_sessions(profile: &Path, declarations: &Declarations, now: u64) -
         .browsers
         .iter()
         .map(|browser| {
-            let (expires, note) = match cookie_expiry(&database, &browser.host) {
+            let (expires, state) = match cookie_expiry(&database, &browser.host) {
                 Some(Some(expires)) => (Some(expires), None),
-                Some(None) => (Some(now), Some("no persistent session cookie: signed out".to_owned())),
-                None => (None, Some("cookie store unreadable".to_owned())),
+                Some(None) => (Some(now), Some("no persistent session cookie: signed out")),
+                None => (None, Some("cookie store unreadable")),
             };
+            let alternative = browser.alternative.as_deref().map_or_else(|| "no machine alternative: only the 30-day notice asks for it".to_owned(), |alternative| format!("machine alternative: {alternative}"));
+            let note = Some(state.map_or(alternative.clone(), |state| format!("{state}; {alternative}")));
             Credential { name: format!("browser:{}", browser.host), source: "automation-chrome profile".into(), usage: browser.usage.clone(), kind: Kind::HumanSession, fingerprint: None, expires, renewal: browser.renewal.clone(), note }
         })
         .collect()

@@ -75,7 +75,8 @@ fn registry_lists_every_source_by_kind_and_never_prints_a_secret() {
     let token = named(&credentials, "claude:a:token");
     assert_eq!((token.kind, token.expires.is_some()), (Kind::Machine, true));
     assert!(token.usage.contains("far"), "other hosts are named, not read: {}", token.usage);
-    assert_eq!(named(&credentials, "claude:a:login").kind, Kind::HumanSession);
+    assert_eq!(named(&credentials, "claude:a:login").kind, Kind::Retired, "a login beside a held setup token is retired, not failing");
+    assert_eq!(named(&credentials, "claude:b:login").kind, Kind::HumanSession, "a login with no setup token on this host stays a human session");
     assert_eq!(named(&credentials, "claude:a:login").expires, Some(NOW + 3 * DAY));
     let shown = registry::lines(&credentials, NOW).join("\n") + &registry::json(&credentials, NOW).to_string();
     assert!(!shown.contains(SECRET), "{shown}");
@@ -89,7 +90,7 @@ fn check_fails_on_a_human_session_an_undeclared_file_or_an_expired_machine_crede
         assert!(named(&credentials, name).note.as_deref().is_some_and(|note| note.contains("copied login")), "{name}");
     }
     let failing: Vec<&str> = registry::failing(&credentials, NOW).iter().map(|(credential, _)| credential.name.as_str()).collect();
-    assert_eq!(failing, ["claude:a:login", "claude:b:login", "sops:new-thing", "sops:nexus/github"]);
+    assert_eq!(failing, ["claude:b:login", "sops:new-thing", "sops:nexus/github"]);
     let machine = credentials.iter().filter(|credential| credential.kind == Kind::Machine).cloned().collect::<Vec<_>>();
     assert!(registry::failing(&machine, NOW).is_empty());
     assert_eq!(registry::failing(&machine, NOW + 400 * DAY).len(), 1);
@@ -108,13 +109,15 @@ fn browser_sessions_read_the_cookie_store_expiry() {
     drop(connection);
     write(
         &world.south.join("agents/credentials.toml"),
-        "[[browser_session]]\nhost = \"github.com\"\nuse = \"settings\"\nrenewal = \"tom: sign in\"\n[[browser_session]]\nhost = \"claude.ai\"\nuse = \"usage\"\nrenewal = \"tom: sign in\"\n",
+        "[[browser_session]]\nhost = \"github.com\"\nuse = \"settings\"\nrenewal = \"tom: sign in\"\nalternative = \"GitHub App token\"\n[[browser_session]]\nhost = \"claude.ai\"\nuse = \"usage\"\nrenewal = \"tom: sign in\"\n",
     );
     world.orchestration = directory.path().join("none.toml");
     write(&world.orchestration, "");
     let credentials = registry::gather(&world).unwrap();
     assert_eq!(named(&credentials, "browser:github.com").expires, Some(NOW + 5 * DAY));
     assert_eq!(named(&credentials, "browser:claude.ai").expires, Some(NOW), "no cookie reads as signed out");
+    assert!(named(&credentials, "browser:github.com").note.as_deref().is_some_and(|note| note.contains("machine alternative: GitHub App token")));
+    assert!(named(&credentials, "browser:claude.ai").note.as_deref().is_some_and(|note| note.contains("no machine alternative")));
     assert!(credentials.iter().all(|credential| credential.name != "browser:tracker.example"));
 }
 

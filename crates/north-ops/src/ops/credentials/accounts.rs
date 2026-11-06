@@ -45,7 +45,7 @@ fn token(world: &World, profile: &Profile, file: &Path) -> Credential {
     Credential {
         name: format!("claude:{account}:token"),
         source: file.display().to_string(),
-        usage: format!("Claude account {account}: setup token a session on this host launches on when the host holds no login of its own{elsewhere}"),
+        usage: format!("Claude account {account}: setup token every session on this host launches on whenever the host holds one{elsewhere}"),
         kind: Kind::Machine,
         fingerprint: print,
         expires,
@@ -54,19 +54,19 @@ fn token(world: &World, profile: &Profile, file: &Path) -> Credential {
     }
 }
 
-fn login(profile: &Profile, file: &Path) -> Option<Credential> {
+fn login(profile: &Profile, file: &Path, retired: bool) -> Option<Credential> {
     let text = std::fs::read_to_string(file).ok()?;
     let oauth = serde_json::from_str::<serde_json::Value>(&text).ok()?.get("claudeAiOauth")?.clone();
     let account = &profile.account;
     Some(Credential {
         name: format!("claude:{account}:login"),
         source: file.display().to_string(),
-        usage: format!("Claude account {account}: browser sign-in whose refresh token this host holds; north launches on it before the setup token"),
-        kind: Kind::HumanSession,
+        usage: format!("Claude account {account}: browser sign-in whose refresh token this host holds; unused once the host holds the setup token"),
+        kind: if retired { Kind::Retired } else { Kind::HumanSession },
         fingerprint: oauth.get("refreshToken").and_then(|token| token.as_str()).map(|token| fingerprint(token.as_bytes())),
         expires: oauth.get("refreshTokenExpiresAt").and_then(serde_json::Value::as_u64).map(|millis| millis / 1000),
-        renewal: Renewal::Tom(format!("delete this login so account {account} launches on its setup token, or sign in again in a browser; never copy it from another host (one refresh token, one host)")),
-        note: None,
+        renewal: if retired { Renewal::Never } else { Renewal::Tom(format!("sign in again in a browser, or give account {account} a setup token on this host so the login is retired; never copy a login from another host (one refresh token, one host)")) },
+        note: retired.then(|| format!("retired: launches run on claude:{account}:token and never fall back to this login; the file is left in place unused")),
     })
 }
 
@@ -76,7 +76,8 @@ pub fn gather(world: &World) -> Result<Vec<Credential>, String> {
         if let Some(file) = &profile.token_file {
             found.push(token(world, &profile, file));
         }
-        found.extend(login(&profile, &profile.path.join(".credentials.json")));
+        let held = profile.token_file.as_deref().is_some_and(|file| std::fs::metadata(file).is_ok_and(|meta| meta.is_file() && meta.len() > 0));
+        found.extend(login(&profile, &profile.path.join(".credentials.json"), held));
     }
     Ok(found)
 }

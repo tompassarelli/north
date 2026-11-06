@@ -6,6 +6,7 @@ Decided 2026-11-06 under north#522. Tom ruled that a request to sign in does not
 
 - **machine**: used and renewed without a browser. A GitHub App private key, a wireguard key, an ssh host key and a Claude setup token all count, although a setup token still needs one browser consent per year. That consent is batched into the 30-day notice, so no session waits on it.
 - **human-session**: valid only as long as a browser sign-in is, such as a cookie session in the automation-chrome profile or a Claude `.credentials.json` login. Any such credential makes `north credentials check` exit 1.
+- **retired**: a browser login that this host no longer launches on because it holds the account's setup token. `north fleet launch` uses the token whenever the host holds one and refuses the account, rather than falling back to the login, when the declared token cannot be read. The file stays in place unused, the check lists it without failing it, and nothing renews it.
 - **undeclared**: a sops file in south `secrets/` that `agents/credentials.toml` does not cover. The check fails it so a new secret cannot be added without saying what it is for.
 
 ## Parts

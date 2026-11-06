@@ -30,11 +30,14 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
         }
     }
     homes.sort();
+    let declared_token = |label: &str| profiles.tokens.iter().find(|(token_label, _)| token_label == label).map(|(_, file)| file);
     let mut found: Vec<(Account, Option<String>)> = homes
         .into_iter()
+        .filter(|(label, _)| declared_token(label).is_none_or(|file| readable_token(file)))
         .map(|(label, home)| {
             let identity = identity(&home, &profiles.default_home);
-            (Account { provider: provider.clone(), label, home, token_file: None }, identity)
+            let token_file = declared_token(&label).cloned();
+            (Account { provider: provider.clone(), label, home, token_file }, identity)
         })
         .collect();
     let owned_elsewhere: Vec<(Account, Option<String>)> = profiles

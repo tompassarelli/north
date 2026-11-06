@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 pub enum Kind {
     Machine,
     HumanSession,
+    Retired,
     Undeclared,
 }
 
@@ -12,6 +13,7 @@ impl Kind {
         match self {
             Kind::Machine => "machine",
             Kind::HumanSession => "human-session",
+            Kind::Retired => "retired",
             Kind::Undeclared => "undeclared",
         }
     }
