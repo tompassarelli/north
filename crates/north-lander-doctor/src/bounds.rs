@@ -27,6 +27,7 @@ pub enum Bound {
     StaleWorktrees,
     InfrastructureFailures,
     UnservedQueues,
+    SourceBuilds,
 }
 
 impl Bound {
@@ -42,6 +43,7 @@ impl Bound {
             Bound::StaleWorktrees => "stale-worktrees",
             Bound::InfrastructureFailures => "infrastructure-failures",
             Bound::UnservedQueues => "unserved-queues",
+            Bound::SourceBuilds => "toolchain-from-source",
         }
     }
 
@@ -54,7 +56,7 @@ impl Bound {
             Bound::Held => minutes(HELD_SECS),
             Bound::SlotHold => minutes(SLOT_DEADLINE_SECS),
             Bound::DiskFree => format!("{DISK_FREE_PERCENT:.0}% free"),
-            Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues => "0".to_owned(),
+            Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues | Bound::SourceBuilds => "0".to_owned(),
         }
     }
 }
@@ -71,6 +73,7 @@ pub enum Remedy {
     Evict { place: Place },
     Restart { unit: String },
     Rollback { home: PathBuf, from: String, to: String, units: Vec<String> },
+    Alarm(String),
     Wait(String),
 }
 
@@ -83,6 +86,7 @@ impl Remedy {
             Remedy::Evict { .. } => Some("lander-disk-pressure"),
             Remedy::Restart { .. } => Some("lander-wedged"),
             Remedy::Rollback { .. } => Some("lander-rollback"),
+            Remedy::Alarm(_) => Some("lander-source-build"),
             Remedy::Wait(_) => None,
         }
     }
@@ -97,6 +101,7 @@ impl fmt::Display for Remedy {
             Remedy::Evict { place } => write!(formatter, "evict unlocked offload caches on {}", place.name),
             Remedy::Restart { unit } => write!(formatter, "restart {unit}"),
             Remedy::Rollback { from, to, .. } => write!(formatter, "roll the lander link back from {from} to {to}, the last build that landed a batch green"),
+            Remedy::Alarm(text) => write!(formatter, "tell the proxy: {text}"),
             Remedy::Wait(reason) => write!(formatter, "none: {reason}"),
         }
     }
@@ -163,6 +168,7 @@ fn judge_queue(queue: &QueueFacts, link: Option<&LinkFacts>, book: &Book, now: u
     let Some(oldest) = queue.oldest_queued else {
         let mut findings = vec![Finding::healthy(Bound::OldestQueued, subject, "none queued".to_owned()), Finding::healthy(Bound::SinceLanding, subject, "none queued".to_owned())];
         findings.extend(infrastructure(queue));
+        findings.extend(source_builds(queue));
         return findings;
     };
     let since_landing = queue.since_landing.map_or(oldest, |since| since.min(oldest));
@@ -190,6 +196,7 @@ fn judge_queue(queue: &QueueFacts, link: Option<&LinkFacts>, book: &Book, now: u
     let silence = queue.round_silence.map_or_else(|| "no round recorded".to_owned(), minutes);
     findings.push(if silent { Finding::over(Bound::RoundSilence, subject, silence, wedged(queue, link, book, now)) } else { Finding::healthy(Bound::RoundSilence, subject, silence) });
     findings.extend(infrastructure(queue));
+    findings.extend(source_builds(queue));
     findings
 }
 
@@ -233,6 +240,26 @@ fn infrastructure(queue: &QueueFacts) -> Vec<Finding> {
             let subject = format!("{}/{}", queue.name, failed.branch);
             let remedy = Remedy::Rerun { queue: queue.queue.clone(), ticket: failed.ticket.clone() };
             Finding::over(Bound::InfrastructureFailures, &subject, format!("1 ({})", failed.signature), known("infrastructure failure", remedy))
+        })
+        .collect()
+}
+
+fn source_builds(queue: &QueueFacts) -> Vec<Finding> {
+    if queue.source_builds.is_empty() {
+        return vec![Finding::healthy(Bound::SourceBuilds, &queue.name, "0".to_owned())];
+    }
+    queue
+        .source_builds
+        .iter()
+        .map(|build| {
+            let subject = format!("{}/{}", queue.name, build.log.file_name().unwrap_or_default().to_string_lossy());
+            let cause = if build.offline {
+                "its check line runs nix with --offline, which turns substitution off, so a host whose store lacks the closure builds it; keep that check on the host whose store holds the closure (land.local-only) or drop --offline"
+            } else {
+                "the check runs without substituters, on a nixpkgs pin the cache does not hold, or with an override that changes its hash"
+            };
+            let text = format!("a {} land check builds {} from source ({}), a toolchain the binary cache supplies: {cause}; it holds the queue's verdict for up to {}", queue.name, build.derivation, build.log.display(), minutes(SLOT_DEADLINE_SECS));
+            Finding::over(Bound::SourceBuilds, &subject, format!("1 ({})", build.derivation), known("toolchain built from source", Remedy::Alarm(text)))
         })
         .collect()
 }

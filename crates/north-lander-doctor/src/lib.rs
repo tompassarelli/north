@@ -57,7 +57,7 @@ fn treat(finding: Finding, book: &mut Book, hands: &dyn Hands, now: u64) -> Trea
                     continue;
                 };
                 match book.last_remedy(&key, class).map(|at| now.saturating_sub(at)) {
-                    Some(waited) if waited < PATIENCE_SECS => outcomes.push(format!("waiting: applied \"{remedy}\" {} ago", minutes(waited))),
+                    Some(waited) if waited < PATIENCE_SECS || matches!(remedy, Remedy::Alarm(_)) => outcomes.push(format!("waiting: applied \"{remedy}\" {} ago", minutes(waited))),
                     Some(waited) => outcomes.push(page(&finding, &format!("\"{remedy}\" did not clear it {} after it was applied", minutes(waited)), book, hands, now)),
                     None => outcomes.push(apply(&finding, remedy, class, book, hands, now)),
                 }

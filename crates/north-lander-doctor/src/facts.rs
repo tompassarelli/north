@@ -14,6 +14,7 @@ pub const INFRASTRUCTURE_WINDOW_SECS: u64 = 2 * 3600;
 pub const DECIDED_WINDOW_SECS: u64 = 24 * 3600;
 pub const PROBE_SECONDS: &str = "60";
 pub const INFRASTRUCTURE: &[&str] = &["is a missing but already registered worktree", "is not on this host", "lacks the commits under", "No space left on device"];
+pub const TOOLCHAINS: &[&str] = &["gcc", "binutils", "glibc", "clang", "llvm", "rustc", "ghc"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Place {
@@ -41,6 +42,14 @@ pub struct QueueFacts {
     pub paused: Option<String>,
     pub unit_state: Option<String>,
     pub infrastructure: Vec<Infrastructure>,
+    pub source_builds: Vec<SourceBuild>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceBuild {
+    pub log: PathBuf,
+    pub derivation: String,
+    pub offline: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,6 +131,7 @@ pub fn queue_facts(name: &str, queue: &Path, repo: &Path, now: u64) -> QueueFact
         round_silence: silence(queue, now),
         paused: pause::held(queue),
         infrastructure,
+        source_builds: source_builds(&queue.join("logs"), now),
     }
 }
 
@@ -160,6 +170,37 @@ pub fn infrastructure_of(ticket: &Path, branch: &str, verdict: &str) -> Option<I
     let logs = verdict.split("log: ").skip(1).filter_map(|rest| rest.split([';', ' ', '\n']).next()).map(PathBuf::from);
     let signature = std::iter::once(verdict.to_owned()).chain(logs.filter_map(|log| fs::read_to_string(log).ok())).find_map(|text| INFRASTRUCTURE.iter().find(|signature| text.contains(**signature)).map(|signature| (*signature).to_owned()))?;
     Some(Infrastructure { ticket: ticket.to_owned(), branch: branch.to_owned(), signature })
+}
+
+/// The toolchain derivation a land check log last started building from source, as nix prints `building '/nix/store/HASH-NAME.drv'`.
+pub fn toolchain_build(text: &str) -> Option<String> {
+    text.lines().rev().find_map(|line| {
+        let path = line.strip_prefix("building '")?.split('\'').next()?;
+        let name = path.strip_prefix("/nix/store/")?.split_once('-')?.1.strip_suffix(".drv")?;
+        let (stem, version) = TOOLCHAINS.iter().find_map(|stem| Some((*stem, name.strip_prefix(stem)?.strip_prefix('-')?)))?;
+        version.starts_with(|first: char| first.is_ascii_digit()).then(|| format!("{stem}-{version}"))
+    })
+}
+
+/// Whether a check log may still be written: younger than a check slot's deadline and no `.outcome` beside it written after it.
+fn running(log: &Path, now: u64) -> bool {
+    let Some(written) = age(log, now) else { return false };
+    written <= crate::bounds::SLOT_DEADLINE_SECS && age(&log.with_extension("outcome"), now).is_none_or(|finished| finished > written)
+}
+
+pub fn source_builds(logs: &Path, now: u64) -> Vec<SourceBuild> {
+    let Ok(entries) = fs::read_dir(logs) else { return Vec::new() };
+    let mut found: Vec<SourceBuild> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "log") && running(path, now))
+        .filter_map(|log| {
+            let text = fs::read_to_string(&log).ok()?;
+            Some(SourceBuild { derivation: toolchain_build(&text)?, offline: text.lines().any(|line| line.starts_with("safe-push: land check: ") && line.contains(" --offline")), log })
+        })
+        .collect();
+    found.sort_by(|left, right| left.log.cmp(&right.log));
+    found
 }
 
 pub const MISSING_UNIT: &str = "not-found";

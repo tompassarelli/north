@@ -28,6 +28,7 @@ impl Hands for Fake {
             Remedy::Rerun { queue, ticket } => hands::rerun(queue, ticket),
             Remedy::Prune { .. } => hands::Host.apply(remedy),
             Remedy::Rollback { home, from, to, .. } => hands::roll_back(home, from, to, &[]),
+            Remedy::Alarm(text) => Ok(format!("paged: {}", self.page(text))),
             _ => Ok("done".to_owned()),
         }
     }
@@ -86,7 +87,7 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
     let link = LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/a".to_owned(), lag: Some(60), ..LinkFacts::default() };
     let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places, unserved: Vec::new() };
     let text = render(&cure(&facts, &mut Book::default(), &Fake::default(), NOW));
-    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-held lander: 0 min", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0"] {
+    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-held lander: 0 min", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "toolchain-from-source north: 0"] {
         assert!(text.contains(&format!("bound {bound}")), "{bound} missing from:\n{text}");
     }
 }
@@ -274,4 +275,31 @@ fn a_build_is_good_once_a_green_after_landing_run_in_the_ledger_started_after_it
     book.learn(&LinkFacts { lander: "runtimes/a".to_owned(), green_since_link: true, ..LinkFacts::default() });
     book.learn(&LinkFacts { lander: "runtimes/b".to_owned(), green_since_link: false, ..LinkFacts::default() });
     assert_eq!(book.good, ["runtimes/a"]);
+}
+
+#[test]
+fn a_running_land_check_that_builds_a_toolchain_from_source_tells_the_proxy_once() {
+    let scratch = tempfile::tempdir().unwrap();
+    let logs = scratch.path();
+    let nix = include_str!("../../../tests/fixtures/lander-doctor/offline-binutils.log");
+    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    fs::write(logs.join("post-land-a.outcome"), "").unwrap();
+    fs::File::options().write(true).open(logs.join("post-land-a.outcome")).unwrap().set_modified(hour_ago).unwrap();
+    fs::write(logs.join("post-land-a.log"), nix).unwrap();
+    fs::write(logs.join("post-land-b.log"), nix).unwrap();
+    fs::write(logs.join("post-land-b.outcome"), "").unwrap();
+    fs::write(logs.join("2-candidate.log"), nix.replace(" --offline", "")).unwrap();
+    let found = facts::source_builds(logs, facts::now());
+    assert_eq!(found.iter().map(|build| (build.log.file_name().unwrap().to_string_lossy().into_owned(), build.derivation.as_str(), build.offline)).collect::<Vec<_>>(), [("2-candidate.log".to_owned(), "binutils-2.46", false), ("post-land-a.log".to_owned(), "binutils-2.46", true)]);
+    assert!(render(&cure(&Facts { queues: vec![QueueFacts { source_builds: vec![found[0].clone()], since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], ..Facts::default() }, &mut Book::default(), &Fake::default(), NOW)).contains("without substituters, on a nixpkgs pin"));
+    let facts = Facts { queues: vec![QueueFacts { source_builds: vec![found[1].clone()], since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], ..Facts::default() };
+    let hands = Fake::default();
+    let mut book = Book::default();
+    let text = render(&cure(&facts, &mut book, &hands, NOW));
+    assert!(text.contains("bound toolchain-from-source north/post-land-a.log: 1 (binutils-2.46) (limit 0): over: toolchain built from source"), "{text}");
+    assert_eq!(hands.pages.borrow().len(), 1);
+    assert!(hands.pages.borrow()[0].contains(&format!("builds binutils-2.46 from source ({}), a toolchain the binary cache supplies: its check line runs nix with --offline", logs.join("post-land-a.log").display())), "{:?}", hands.pages.borrow());
+    assert_eq!(hands.incidents.borrow()[0].0, "lander-source-build");
+    cure(&facts, &mut book, &hands, NOW + 2 * PATIENCE_SECS);
+    assert_eq!(hands.pages.borrow().len(), 1, "a second run in the same episode paged again");
 }

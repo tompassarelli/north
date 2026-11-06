@@ -50,6 +50,7 @@ impl Hands for Host {
             Remedy::Evict { place } => shell(place, EVICT, &[]).map(|said| said.trim().to_owned()),
             Remedy::Restart { unit } => watchdog::Host.restart(unit, "the lander doctor read it wedged").map(|()| format!("restarted {unit}")),
             Remedy::Rollback { home, from, to, units } => roll_back(home, from, to, units),
+            Remedy::Alarm(text) => if self.page(text) { Ok("the proxy heard of it".to_owned()) } else { Err("paging the proxy failed".to_owned()) },
             Remedy::Wait(reason) => Ok(reason.clone()),
         }
     }
