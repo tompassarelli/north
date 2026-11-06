@@ -31,6 +31,7 @@ pub fn box_run(row: &Value) -> Option<BoxRun> {
         landed: row.get("landed").and_then(Value::as_i64).is_some_and(|landed| landed != 0),
         landed_at: text(row, "landed_at"),
         cost_usd: row.get("cost_usd").and_then(Value::as_f64),
+        box_name: text(row, "brief_text").as_deref().map(super::boxes::box_name).unwrap_or_default(),
     })
 }
 

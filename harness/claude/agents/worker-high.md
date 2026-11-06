@@ -26,5 +26,7 @@ limit tripped; leave the lane intact for the train or your lead to land.
 Write landing messages and other landing scratch files in your lane's git dir, such as
 `$(git rev-parse --git-dir)/LANDING_MSG`, not the session's shared scratchpad, because
 in-process subagents share their lead's scratchpad directory.
-A Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`;
+A Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`,
+or `Stop: host NAME` when only another host or need (laptop, native) can finish the box
+and `Stop: wait until YYYY-MM-DDTHH:MMZ` when it cannot go on before that UTC time, which dispatch honors;
 a hypothesis refuted with evidence is `Done: ruled out`.

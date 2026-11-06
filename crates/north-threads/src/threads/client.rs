@@ -851,7 +851,7 @@ exit "$(cat "$ROOT/code")"
     }
 
     #[test]
-    fn an_ingest_that_times_out_is_spooled_not_refused_and_sent_again_once_the_host_answers() {
+    fn an_ingest_or_agent_event_that_times_out_is_spooled_not_refused_and_sent_again_once_the_host_answers() {
         let rig = stalled_rig();
         let (code, err) = call(&rig, &["ingest"], b"{\"n\": 1}\n");
         assert_eq!(code, 0, "{err}");
@@ -861,10 +861,7 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
         assert!(spooled(&rig).is_empty());
         assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 1}"]);
-    }
 
-    #[test]
-    fn an_agent_event_that_times_out_is_spooled_and_sent_again_once_the_host_answers() {
         let rig = stalled_rig();
         let event = ["agent-event", "--session", "s", "--kind", "note", "--key", "k1"];
         let (code, err) = call(&rig, &event, b"");

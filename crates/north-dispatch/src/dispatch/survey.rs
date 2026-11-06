@@ -271,13 +271,13 @@ fn shown(launch: &record::Record, laptop: Option<&str>) -> Result<Value, String>
     remote_json(None, &["fleet", "show", &launch.name, "--json"])
 }
 
-/// Marks each open box whose last dispatched session ended its report with `Stop: decision` or `Blocked:`.
+/// Reads the holds of each open box's last dispatched session's final report.
 fn stopped(laptop: Option<&str>, records: &[record::Record], issues: &mut [Issue], notes: &mut Vec<String>) {
     let launches = super::stops::last_launches(records);
     for issue in issues.iter_mut().filter(|issue| issue.unticked() > 0) {
         let Some(launch) = launches.get(&issue.reference()) else { continue };
         match shown(launch, laptop) {
-            Ok(session) => issue.stopped = super::stops::stopped_at(&session),
+            Ok(session) => issue.stop = super::stops::stop(&session),
             Err(why) => notes.push(format!("{} report unread, so {} may relaunch: {why}", launch.name, issue.reference())),
         }
     }
@@ -456,7 +456,7 @@ mod github {
             comments,
             touched: touched(node),
             created: node["createdAt"].as_str().and_then(crate::pace::target::seconds).unwrap_or(0.0),
-            stopped: None,
+            stop: Default::default(),
         })
     }
 

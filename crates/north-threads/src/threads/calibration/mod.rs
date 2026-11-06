@@ -3,6 +3,8 @@
 //! tunable is a field of [`Knobs`], so a sweep can run the same core under other values.
 mod box_eta;
 mod boxes;
+#[cfg(test)]
+mod boxes_tests;
 mod calibrate;
 mod eta_calibration;
 mod feeds;

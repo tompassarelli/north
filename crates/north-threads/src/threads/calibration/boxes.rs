@@ -18,6 +18,15 @@ pub struct BoxRun {
     pub landed: bool,
     pub landed_at: Option<String>,
     pub cost_usd: Option<f64>,
+    /// The box its brief names, empty when the brief is unread, so runs on one issue chain only per box.
+    pub box_name: String,
+}
+
+/// The box a brief names: its `Box:` line, else its `Item:` line, which a dispatch brief writes as the issue and a hand
+/// brief as the box.
+pub fn box_name(brief: &str) -> String {
+    let line = |key: &str| brief.lines().find_map(|line| line.strip_prefix(key)).map(str::trim);
+    line("Box:").or_else(|| line("Item:")).unwrap_or_default().to_owned()
 }
 
 /// One box: its first staffing to its last landing, the runs it took, and its category when known.
@@ -40,22 +49,23 @@ fn minutes_between(from: Timestamp, to: Timestamp) -> f64 {
     (to.unix_nanos() - from.unix_nanos()) as f64 / 60e9
 }
 
-/// The runs of each item in staffed order, split where a run is staffed more than `gap` minutes after the latest end so
+/// The runs of each box of an item in staffed order, split where a run is staffed more than `gap` minutes after the latest end so
 /// far. Each run is paired with when it began.
 pub(super) fn item_chains(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &BoxRun)>> {
-    let mut order: Vec<&str> = Vec::new();
-    let mut by_item: BTreeMap<&str, Vec<(Timestamp, &BoxRun)>> = BTreeMap::new();
+    let mut order: Vec<(&str, &str)> = Vec::new();
+    let mut by_item: BTreeMap<(&str, &str), Vec<(Timestamp, &BoxRun)>> = BTreeMap::new();
     for run in runs.iter().filter(|run| !run.item.is_empty() && run.outcome != "split" && !run.ended.is_empty()) {
         let begin = run.staffed.as_deref().or(run.started.as_deref()).filter(|text| !text.is_empty()).unwrap_or(&run.ended);
         let (Some(begin), Some(_)) = (moment(begin), moment(&run.ended)) else { continue };
-        if !by_item.contains_key(run.item.as_str()) {
-            order.push(&run.item);
+        let key = (run.item.as_str(), run.box_name.as_str());
+        if !by_item.contains_key(&key) {
+            order.push(key);
         }
-        by_item.entry(&run.item).or_default().push((begin, run));
+        by_item.entry(key).or_default().push((begin, run));
     }
     let mut groups: Vec<Vec<(Timestamp, &BoxRun)>> = Vec::new();
     for item in order {
-        let mut rs = by_item.remove(item).unwrap_or_default();
+        let mut rs = by_item.remove(&item).unwrap_or_default();
         rs.sort_by(|(left, a), (right, b)| left.cmp(right).then_with(|| a.agent.cmp(&b.agent)));
         let mut end: Option<Timestamp> = None;
         for (begin, run) in rs {

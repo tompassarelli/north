@@ -7,7 +7,7 @@ use rusqlite::{Connection, Row as SqlRow};
 use crate::router::pricing::PriceTable;
 use crate::platform::run_roles::worker_where;
 
-use super::boxes::{BoxRun, item_chains};
+use super::boxes::{BoxRun, box_name, item_chains};
 use super::rework::{Rework, Sources};
 use super::{GROUPS, Run, cell_value, tier_key};
 
@@ -90,7 +90,7 @@ pub fn raw_runs(db: &Connection, condition: &str, params: &[&dyn rusqlite::ToSql
 /// A Done run counts as kept only when no other run on its item was staffed within this long of its end.
 pub const RERUN_WINDOW_MIN: f64 = 24.0 * 60.0;
 
-/// How an item's worker runs chain: each run's attempt number, and for each run that a later run on the item
+/// How the worker runs on each box of an item chain: each run's attempt number, and for each run that a later run on the box
 /// re-ran within [`RERUN_WINDOW_MIN`], when that re-run ended.
 pub struct Attempts {
     pub numbers: BTreeMap<String, usize>,
@@ -98,9 +98,13 @@ pub struct Attempts {
 }
 
 pub fn attempts(db: &Connection) -> rusqlite::Result<Attempts> {
-    let rows = box_rows(db)?;
+    Ok(chained(&box_rows(db)?))
+}
+
+/// The attempt numbers and re-runs of `rows`, where only a later run on the same box of the same item counts as a re-run.
+pub fn chained(rows: &[BoxRun]) -> Attempts {
     let mut found = Attempts { numbers: BTreeMap::new(), reruns: BTreeMap::new() };
-    for chain in item_chains(&rows, RERUN_WINDOW_MIN) {
+    for chain in item_chains(rows, RERUN_WINDOW_MIN) {
         for (index, (_, run)) in chain.iter().enumerate() {
             found.numbers.insert(run.agent.clone(), index + 1);
             if let Some((_, next)) = chain.get(index + 1) {
@@ -108,10 +112,10 @@ pub fn attempts(db: &Connection) -> rusqlite::Result<Attempts> {
             }
         }
     }
-    Ok(found)
+    found
 }
 
-/// The agents some later worker run follows, by its Follows line or by re-running the same item within a day,
+/// The agents some later worker run follows, by its Follows line or by re-running the same box within a day,
 /// and the agents whose landing was reworked on main.
 pub fn escalated(db: &Connection) -> rusqlite::Result<BTreeSet<String>> {
     escalated_with(db, &Rework::read(db, &Sources::live())?)
@@ -153,7 +157,7 @@ pub fn calibration_runs_with(db: &Connection, rework: &Rework) -> rusqlite::Resu
 
 /// Finished worker runs that name an item, for box chains.
 pub fn box_rows(db: &Connection) -> rusqlite::Result<Vec<BoxRun>> {
-    let mut statement = db.prepare(&format!("SELECT agent, item, category, outcome, staffed, started, ended, landed, landed_at, cost_usd FROM runs WHERE {} AND outcome != 'running' AND item IS NOT NULL", worker_where()))?;
+    let mut statement = db.prepare(&format!("SELECT agent, item, category, outcome, staffed, started, ended, landed, landed_at, cost_usd, brief_text FROM runs WHERE {} AND outcome != 'running' AND item IS NOT NULL", worker_where()))?;
     statement
         .query_map([], |row| {
             Ok(BoxRun {
@@ -167,6 +171,7 @@ pub fn box_rows(db: &Connection) -> rusqlite::Result<Vec<BoxRun>> {
                 landed: row.get::<_, Option<i64>>(7)?.is_some_and(|landed| landed != 0),
                 landed_at: row.get(8)?,
                 cost_usd: row.get(9)?,
+                box_name: box_name(row.get::<_, Option<String>>(10)?.as_deref().unwrap_or_default()),
             })
         })?
         .collect()

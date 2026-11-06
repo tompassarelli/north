@@ -69,8 +69,8 @@ pub struct Issue {
     pub touched: f64,
     /// When it was opened, as unix seconds; dispatch staffs the oldest ready issue first.
     pub created: f64,
-    /// When the last dispatched worker's final report named `Stop: decision` or opened `Blocked:`.
-    pub stopped: Option<f64>,
+    /// What the last dispatched worker's final report holds the box for.
+    pub stop: super::stops::Stop,
 }
 
 impl Issue {
@@ -166,7 +166,7 @@ pub fn references(text: &str, repo: &str) -> Vec<IssueRef> {
         .collect()
 }
 
-fn not_before(found: &regex::Captures) -> Option<i64> {
+pub(super) fn not_before(found: &regex::Captures) -> Option<i64> {
     let part = |index: usize| found.get(index)?.as_str().parse::<u8>().ok();
     let year = found.get(2)?.as_str().parse().ok()?;
     let date = time::Date::from_calendar_date(year, time::Month::try_from(part(3)?).ok()?, part(4)?).ok()?;
@@ -268,6 +268,9 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     }
     if let Some(label) = issue.labelled(&RUNNING_LABELS) {
         return Err(format!("held: labelled {label}"));
+    }
+    if let Some(until) = super::stops::waits_until(issue, world.at) {
+        return Err(format!("its last worker stopped to wait until {until}"));
     }
     if let Some(sentence) = issue.waiting() {
         return Err(format!("its newest report waits: {sentence}"));

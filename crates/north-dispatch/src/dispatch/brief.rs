@@ -20,7 +20,7 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds)
     head.push(format!("Tier: {}", route.tier.name()));
     head.extend(route.stamp().map(|arm| format!("Arm: {arm}")));
     head.extend(route.follows.as_ref().map(|follows| format!("Follows: {follows}")));
-    let needs = declared(issue, "Needs").map(str::to_owned).or_else(|| native(issue).then(|| "native".to_owned()));
+    let needs = [declared(issue, "Needs").map(str::to_owned), issue.stop.host.clone()].into_iter().flatten().reduce(|declared, host| format!("{declared}, {host}")).or_else(|| native(issue).then(|| "native".to_owned()));
     head.extend(needs.map(|needs| format!("Needs: {needs}")));
     head.push(format!(
         "Done when: every Done-when box of {reference} is ticked with its evidence, the change is on origin/main (`git merge-base --is-ancestor SHA origin/main`), and {reference} is closed with the verified SHA."
@@ -36,7 +36,7 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds)
          Claim it with `threads claim {reference}` first, and stop with `Not done:` if someone else holds it. \
          Load the skills the issue's work needs, edit in a worktree, land through safe-push, tick each box with its evidence and close the issue with the SHA on origin/main. \
          File a new issue only for a real blocker (a `Blocks: REPO#N` body line links it) or an outcome independent of {reference}; add the pieces of your own task as boxes on {reference}, and the filing guard refuses a split of it and a title matching an open issue. \
-         End with Done:, Not done: or Split:, and Stop: with its reason.{}{}",
+         End with Done:, Not done: or Split:, and Stop: with its reason: `Stop: host NAME` when only another host or need (laptop, native) can finish the box, `Stop: wait until YYYY-MM-DDTHH:MMZ` when it cannot go on before that UTC time.{}{}",
         head.join("\n"),
         issue.number,
         issue.repo,

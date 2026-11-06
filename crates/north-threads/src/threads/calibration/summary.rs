@@ -47,6 +47,7 @@ struct Run {
     model: Option<String>,
     effort: Option<String>,
     fast: Option<i64>,
+    box_name: String,
 }
 
 impl Run {
@@ -84,6 +85,7 @@ impl Run {
             model: row.get("model")?,
             effort: row.get("effort")?,
             fast: row.get("fast")?,
+            box_name: super::boxes::box_name(row.get::<_, Option<String>>("brief_text")?.as_deref().unwrap_or_default()),
         })
     }
 
@@ -107,6 +109,7 @@ impl Run {
             landed: self.landed.is_some_and(|landed| landed != 0),
             landed_at: self.landed_at.clone(),
             cost_usd: self.cost_usd,
+            box_name: self.box_name.clone(),
         }
     }
 }
