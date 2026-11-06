@@ -5,9 +5,9 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const TOOLS: [&str; 47] = [
+const TOOLS: [&str; 46] = [
     "sh", "bash", "env", "git", "printenv", "realpath", "readlink", "dirname", "basename", "sha256sum", "cut", "mkdir", "find", "touch", "id", "cat", "xargs", "ln", "rm", "bwrap", "timeout", "setsid", "flock", "du", "df", "awk",
-    "date", "tr", "sleep", "grep", "sed", "head", "tail", "wc", "ls", "mv", "cp", "chmod", "mktemp", "stat", "sort", "kill", "true", "false", "uname", "ssh-keygen", "cksum",
+    "date", "tr", "sleep", "grep", "sed", "head", "tail", "wc", "ls", "mv", "cp", "chmod", "mktemp", "stat", "sort", "kill", "true", "false", "uname", "ssh-keygen",
 ];
 
 const FAKE_NIX: &str = "case \"$1\" in

@@ -12,6 +12,8 @@ const WAITED: &str = "offload: waited ";
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 const LOCK_WAIT_SECONDS: u32 = 600;
 const SLOTS: u32 = 6;
+const SCCACHE_FIRST_PORT: u32 = 20000;
+const SCCACHE_PORTS: u32 = 20000;
 const POLL_SECONDS: &str = "0.2";
 const TARGET_CAP_MIB: u32 = 40 * 1024;
 const TARGET_FLOOR_MIB: u32 = 30 * 1024;
@@ -109,6 +111,9 @@ waited=$(( $(date +%s) - started ))
 rm -f "$ticket"
 exec 8>&-
 slot=$root/$s
+# sccache keys hold absolute paths, so every slot names its own directory as the base its keys are relative to, and serves it on its own port.
+case $s in @SLOT_PORTS@ esac
+SCCACHE_BASEDIRS=$slot; export SCCACHE_BASEDIRS SCCACHE_SERVER_PORT
 printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
 printf '%s\n' "$owner" >"$root/$s.owner"
 printf '%s\n' "$$" >"$root/$s.pgid"
@@ -164,8 +169,6 @@ if [ -n "${runtime:-}" ]; then
   PATH="$runtime_dir:$PATH"; export PATH
 fi
 @SLOT_ENV@=$slot; export @SLOT_ENV@
-# sccache keys hold absolute paths, so every slot names its own directory as the base its keys are relative to, and serves it on its own port.
-SCCACHE_BASEDIRS=$slot; SCCACHE_SERVER_PORT=$((20000 + $(printf %s "$slot" | cksum | cut -d " " -f1) % 20000)); export SCCACHE_BASEDIRS SCCACHE_SERVER_PORT
 if [ -n "${carried:-}" ]; then eval "export $carried"; fi
 wall=--wall
 north capacity deadline --wall - 5 -- true 2>/dev/null || wall=
@@ -305,8 +308,21 @@ fn run_part() -> String {
     RUN.replace("@SLOT_ENV@", crate::capacity::land_claim::OFFLOAD_SLOT_ENV).replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
 }
 
-fn remote_script() -> String {
+fn slot_name(name: &str, index: u32) -> String {
+    if index == 0 { name.to_owned() } else { format!("{name}-{index}") }
+}
+
+/// One block of `SLOTS` sccache ports per checkout, picked by FNV-1a of its name, so the build host's script needs no hashing program.
+fn slot_ports(name: &str) -> Vec<(String, u32)> {
+    let hash = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3));
+    let block = u32::try_from(hash % u64::from(SCCACHE_PORTS / SLOTS)).unwrap_or(0) * SLOTS;
+    (0..SLOTS).map(|index| (slot_name(name, index), SCCACHE_FIRST_PORT + block + index)).collect()
+}
+
+fn remote_script(name: &str) -> String {
+    let ports: String = slot_ports(name).iter().map(|(slot, port)| format!("{}) SCCACHE_SERVER_PORT={port} ;; ", quote(slot))).collect();
     format!("{REMOTE}{VERIFY}{}", run_part())
+        .replace("@SLOT_PORTS@", &ports)
         .replace("@ROOT@", OFFLOAD_ROOT)
         .replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string())
         .replace("@POLL@", POLL_SECONDS)
@@ -329,7 +345,7 @@ pub(super) fn run(land: &Land) -> u8 {
         Ok(file) => file,
         Err(why) => return fail(&why),
     };
-    let script = remote_script();
+    let script = remote_script(&name);
     let own = crate::runtime::own_runtime();
     if let Some((sha, directory)) = &own
         && let Err(why) = ensure_shipped(land.ssh, sha, || crate::runtime::staged_on(land.ssh, sha), || crate::runtime::stage_on(land.ssh, sha, directory))

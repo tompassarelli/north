@@ -167,7 +167,7 @@ fn shipping_a_job_runs_no_git_maintenance_that_could_prune_a_worktree_while_git_
     git(&repo, &["update-ref", "-d", "refs/land-offload/job"]);
     let half_made = repo.join(".git/worktrees/half-made");
     fs::create_dir_all(&half_made).unwrap();
-    let script = super::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1");
+    let script = super::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@SLOT_PORTS@", "");
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
         .env("HOME", home.path())
@@ -214,7 +214,7 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let log = home.path().join("order.log");
-    let script = super::remote_script();
+    let script = super::remote_script("code-p-main");
     let jobs: Vec<std::process::Child> = ["a", "b", "c", "d"]
         .iter()
         .map(|label| {
@@ -249,7 +249,7 @@ fn a_red_fix_land_check_takes_the_first_freed_slot_ahead_of_an_earlier_queued_re
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let log = home.path().join("order.log");
-    let script = super::remote_script();
+    let script = super::remote_script("code-p-main");
     let jobs: Vec<std::process::Child> = [("holder", ""), ("regular", ""), ("red-fix", "1")]
         .iter()
         .map(|(label, red_fix)| {
@@ -283,7 +283,7 @@ fn a_dead_job_leaves_no_ticket_that_blocks_the_queue() {
     let queue = home.path().join(".cache/land-offload/queue");
     fs::create_dir_all(&queue).unwrap();
     fs::write(queue.join("1-1000000000000000000-1"), "").unwrap();
-    let script = super::remote_script();
+    let script = super::remote_script("code-p-main");
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", "", "0"])
         .env("HOME", home.path())
@@ -303,7 +303,7 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
-    let script = super::remote_script();
+    let script = super::remote_script("code-p-main");
     let job = |command: String| {
         Command::new("setsid")
             .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0"])
@@ -320,14 +320,14 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     };
     let holder = job("sleep 2".to_owned());
     std::thread::sleep(std::time::Duration::from_millis(500));
-    let queued = job(format!("printf '%s %s' \"${}\" \"$SCCACHE_BASEDIRS\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, seen.display()));
+    let queued = job(format!("printf '%s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, seen.display()));
     let queued = queued.wait_with_output().unwrap();
     assert!(holder.wait_with_output().unwrap().status.success());
     assert!(queued.status.success(), "{}", String::from_utf8_lossy(&queued.stderr));
     let stderr = String::from_utf8_lossy(&queued.stderr);
     assert!(stderr.lines().any(|line| line.starts_with(super::WAITED) && line.ends_with("s in line for code-p-main")), "{stderr}");
     let slot = home.path().join(".cache/land-offload/code-p-main");
-    assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0}", slot.display()));
+    assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0} {1}", slot.display(), super::slot_ports("code-p-main")[0].1));
 }
 
 fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, String) {
@@ -353,4 +353,15 @@ fn an_offload_passes_only_when_the_remote_reports_its_command_ran_and_succeeded(
     let never_ran = super::relay(b"bash: --: invalid option\nUsage: bash [option] ...\n".as_slice(), &mut shown, marker);
     assert!(super::verdict(Some(0), never_ran).is_err(), "a remote that exits 0 without reporting its command passed");
     assert_eq!(String::from_utf8(shown).unwrap(), "bash: --: invalid option\nUsage: bash [option] ...\n");
+}
+
+#[test]
+fn every_slot_of_a_checkout_serves_sccache_on_its_own_stable_port_in_range() {
+    let ports = super::slot_ports("code-north-main");
+    assert_eq!(ports, super::slot_ports("code-north-main"));
+    assert_eq!(ports.iter().map(|(slot, _)| slot.as_str()).collect::<Vec<_>>(), ["code-north-main", "code-north-main-1", "code-north-main-2", "code-north-main-3", "code-north-main-4", "code-north-main-5"]);
+    let mut numbers: Vec<u32> = ports.iter().map(|(_, port)| *port).collect();
+    assert!(numbers.iter().all(|port| (20000..40000).contains(port)), "{numbers:?}");
+    numbers.dedup();
+    assert_eq!(numbers.len(), super::SLOTS as usize);
 }
