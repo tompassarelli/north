@@ -342,6 +342,7 @@ fn promote_bisects_an_undeclared_replay_change_to_its_commit_queues_its_revert_a
     assert_eq!(chain.lander(), format!("runtimes/{}", revert.head));
     reaches_the_revert_in_the_same_run_when_a_runtime_between_cannot_replay();
     reverts_nothing_when_a_replay_reaches_no_verdict();
+    a_replay_that_reaches_no_verdict_holds_nothing_queues_no_revert_and_the_next_promotion_retries();
 }
 
 fn reverts_nothing_when_a_replay_reaches_no_verdict() {
@@ -379,4 +380,29 @@ fn reaches_the_revert_in_the_same_run_when_a_runtime_between_cannot_replay() {
     assert!(stdout.contains(&format!("runtime {} cannot replay round lane-a", &broken[..9])), "{stdout}");
     assert!(stdout.contains(&format!("to {}; revert {culprit} ", &culprit[..9])), "{stdout}");
     assert_eq!(chain.reverts().len(), 1, "{stdout}");
+}
+
+fn a_replay_that_reaches_no_verdict_holds_nothing_queues_no_revert_and_the_next_promotion_retries() {
+    let chain = Chain::new();
+    let candidate = chain.commit("crates/north-landing/src/land/rule.rs", "Change a landing rule without saying so");
+    chain.runtime(&candidate, "echo \"replay: verdict transient main's check environment is broken: mkdir -p on tom@gex45 did not finish within 20s and was stopped\"");
+    chain.current(&candidate);
+    let unreached = chain.state.join("north/lander-unreached");
+    for attempt in 1..=2 {
+        let promoted = chain.promote();
+        let stdout = &promoted.stdout;
+        assert!(!promoted.status, "{stdout}");
+        assert!(stdout.contains("but the candidate's replay reached no verdict: transient main's check environment is broken") && stdout.contains("neither held nor bisected"), "{stdout}");
+        assert!(!stdout.contains("bisect:"), "a replay with no verdict was bisected: {stdout}");
+        assert!(chain.reverts().is_empty(), "a replay with no verdict queued a revert: {stdout}");
+        assert!(!chain.state.join("north/lander-held").exists(), "a replay with no verdict held the link: {stdout}");
+        assert_eq!(chain.told(), "", "a replay with no verdict alarmed the proxy");
+        assert_eq!(chain.lander(), format!("runtimes/{}", chain.held));
+        assert!(std::fs::read_to_string(&unreached).unwrap().starts_with(&format!("{candidate}\t{attempt}\t")), "{stdout}");
+    }
+    chain.runtime(&candidate, "echo 'replay: verdict landed'");
+    let promoted = chain.promote();
+    assert!(promoted.status, "{}", promoted.stdout);
+    assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
+    assert!(!unreached.exists(), "a promotion that settled left its no-verdict record");
 }

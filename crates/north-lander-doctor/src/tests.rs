@@ -87,7 +87,7 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
     let link = LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/a".to_owned(), lag: Some(60), ..LinkFacts::default() };
     let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places, unserved: Vec::new() };
     let text = render(&cure(&facts, &mut Book::default(), &Fake::default(), NOW));
-    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-held lander: 0 min", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "toolchain-from-source north: 0"] {
+    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-held lander: 0 min", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0"] {
         assert!(text.contains(&format!("bound {bound}")), "{bound} missing from:\n{text}");
     }
 }
@@ -262,6 +262,28 @@ fn a_wedged_lander_is_restarted_then_rolled_back_to_the_last_build_that_landed_a
     assert_eq!(hands.incidents.borrow().iter().map(|(class, _)| class.as_str()).collect::<Vec<_>>(), ["lander-wedged", "lander-rollback"]);
     assert_eq!(fs::read_link(home.path().join("lander")).unwrap(), Path::new("runtimes/good"));
     assert_eq!(fs::read_to_string(home.path().join(REFUSED)).unwrap(), "runtimes/bad\n");
+    a_promotion_whose_replay_reached_no_verdict_is_retried_and_the_third_in_a_row_pages();
+}
+
+fn a_promotion_whose_replay_reached_no_verdict_is_retried_and_the_third_in_a_row_pages() {
+    let facts = |attempts: u32| {
+        let unreached = north_landing::land::link_hold::Unreached { candidate: "b".to_owned(), attempts, reason: "round lane-a: transient mkdir -p on tom@gex45 did not finish within 20s".to_owned() };
+        Facts { link: Some(LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/b".to_owned(), lag: Some(60), unreached: Some(unreached), ..LinkFacts::default() }), ..Facts::default() }
+    };
+    let hands = Fake::default();
+    let mut book = Book::default();
+    let text = render(&cure(&facts(1), &mut book, &hands, NOW));
+    assert!(text.contains("bound promotion-no-verdict lander/b#1: 1 promotion(s) (limit 0): over: replay reached no verdict"), "{text}");
+    cure(&facts(1), &mut book, &hands, NOW + 3 * PATIENCE_SECS);
+    assert_eq!(*hands.applied.borrow(), vec![Remedy::Promote], "a retry still running is not started again");
+    cure(&facts(2), &mut book, &hands, NOW + 4 * PATIENCE_SECS);
+    assert_eq!(*hands.applied.borrow(), vec![Remedy::Promote, Remedy::Promote]);
+    assert!(hands.pages.borrow().is_empty(), "{:?}", hands.pages.borrow());
+    cure(&facts(3), &mut book, &hands, NOW + 5 * PATIENCE_SECS);
+    assert_eq!(hands.applied.borrow().len(), 2);
+    assert_eq!(hands.pages.borrow().len(), 1);
+    assert!(hands.pages.borrow()[0].contains("3 promotions in a row of b reached no verdict"), "{:?}", hands.pages.borrow());
+    assert!(!render(&cure(&Facts { link: Some(LinkFacts { lander: "runtimes/b".to_owned(), current: "runtimes/b".to_owned(), lag: Some(60), ..LinkFacts::default() }), ..Facts::default() }, &mut book, &hands, NOW)).contains("promotion-no-verdict lander/"));
 }
 
 #[test]

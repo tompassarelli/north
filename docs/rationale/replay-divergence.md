@@ -33,3 +33,18 @@ minutes under a heavy lease, longer than the 15-minute hold bound; every landed 
 leaves a runtime behind, so the search costs one replay per probe, about log2 of the runtimes kept.
 The cost is precision: when a batch landed several lander commits as one runtime, all of them are
 reverted, and each owner re-queues with `Follows:` and the declaration.
+
+## A replay with no verdict is no divergence
+
+A candidate replay that ends transient (the check environment broke, a host did not answer) has
+said nothing about the candidate, so `north land promote` neither holds the link nor bisects on
+it. It writes `~/.local/state/north/lander-unreached` with the candidate and the count of
+promotions in a row that reached no verdict, exits 75, and the next promotion retries; a promotion
+that settles clears the record. At about 4:10 PM on 2026-11-06 a replay of round
+n656-adopted-capture failed because `mkdir -p` on gex45 did not finish within 20 s. The judge read
+that as a divergence, bisected it to 9d67ceebd and fc091653d, queued a false revert and held the
+link. A transient replay of a round recorded transient still matches, and the shadow pass still
+counts a repeated transient as an error, so a candidate that breaks the check environment for
+every lane is held there. The lander doctor retries a no-verdict promotion through
+`north runtime promote` and pages the proxy at the third in a row
+(docs/rationale/lander-doctor.md).

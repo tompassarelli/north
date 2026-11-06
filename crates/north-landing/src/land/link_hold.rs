@@ -6,6 +6,7 @@ use super::after::{follow, send};
 
 pub const CLASS: &str = "lander-held";
 const FILE: &str = "lander-held";
+const UNREACHED: &str = "lander-unreached";
 const ALARM_AFTER_SECONDS: u64 = 15 * 60;
 const ALARMED: &str = "alarmed";
 const PROXY: &str = "proxy";
@@ -43,6 +44,28 @@ pub fn since(home: &Path) -> Option<u64> {
 
 pub fn clear(home: &Path) {
     let _ = fs::remove_file(path(home));
+    let _ = fs::remove_file(home.join(UNREACHED));
+}
+
+/// A promotion whose replays of `candidate` reached no verdict, and how many promotions in a row did so.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unreached {
+    pub candidate: String,
+    pub attempts: u32,
+    pub reason: String,
+}
+
+pub fn unreached_of(home: &Path) -> Option<Unreached> {
+    let text = fs::read_to_string(home.join(UNREACHED)).ok()?;
+    let mut fields = text.trim_end().splitn(3, '\t');
+    Some(Unreached { candidate: fields.next()?.to_owned(), attempts: fields.next()?.parse().ok()?, reason: fields.next().unwrap_or_default().to_owned() })
+}
+
+/// Notes one promotion of `candidate` whose replays reached no verdict; it writes no hold, so it alarms no one and the next promotion retries.
+pub fn unreached(home: &Path, candidate: &str, reason: &str) {
+    let attempts = unreached_of(home).filter(|previous| previous.candidate == candidate).map_or(1, |previous| previous.attempts + 1);
+    let _ = fs::create_dir_all(home);
+    let _ = fs::write(home.join(UNREACHED), format!("{candidate}\t{attempts}\t{}\n", reason.replace(['\t', '\n'], " ")));
 }
 
 pub fn key(hold: Hold) -> String {

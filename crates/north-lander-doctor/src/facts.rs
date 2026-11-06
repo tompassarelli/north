@@ -70,6 +70,7 @@ pub struct LinkFacts {
     pub refused: Option<String>,
     pub builds: BTreeSet<String>,
     pub units: Vec<String>,
+    pub unreached: Option<link_hold::Unreached>,
 }
 
 #[derive(Clone, Debug)]
@@ -236,7 +237,7 @@ pub fn link_facts(home: &Path, north: Option<&Path>, units: Vec<String>, now: u6
         .map(|entry| format!("runtimes/{}", entry.file_name().to_string_lossy()))
         .collect();
     let refused = fs::read_to_string(home.join(crate::REFUSED)).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty());
-    Some(LinkFacts { home: home.to_owned(), green_since_link: green_since(&post_land::ledger_path(), now.saturating_sub(link_set)), lander, current, held, lag, refused, builds, units })
+    Some(LinkFacts { home: home.to_owned(), green_since_link: green_since(&post_land::ledger_path(), now.saturating_sub(link_set)), lander, current, held, lag, refused, builds, units, unreached: link_hold::unreached_of(home) })
 }
 
 fn lag(checkout: &Path, lander: &str) -> Option<u64> {

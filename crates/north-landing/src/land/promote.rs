@@ -214,7 +214,7 @@ fn only_fixes(checkout: &Path, held: &Path, target: &Path) -> bool {
     !messages.is_empty() && messages.iter().all(|message| sheriff::is_revert(message) || message.lines().any(enqueue::is_main_red_marker))
 }
 
-fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker: &str, divergences: &mut Vec<Divergence>) -> usize {
+fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker: &str, divergences: &mut Vec<Divergence>, unreached: &mut Vec<String>) -> usize {
     let mut replayed = 0;
     for round in recorded(&repository.queue.join("done")) {
         let lanes = round.names();
@@ -234,6 +234,11 @@ fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker:
         let outcome = run_replay(binary, &repository.checkout, &base, checker, &round.tickets()).unwrap_or_else(|error| replay::Replayed { verdict: format!("error {error}"), failures: Default::default() });
         let verdict = outcome.verdict.clone();
         let shown = verdict.split_whitespace().next().unwrap_or_default();
+        if shown == "transient" && !replay::same(&round.verdict, &verdict) {
+            println!("north land promote: round {lanes} on {} recorded {class} but the candidate's replay reached no verdict: {verdict}", &base[..base.len().min(12)]);
+            unreached.push(format!("round {lanes}: {verdict}"));
+            continue;
+        }
         if replay::lands_what_was_refused(&round.verdict, &verdict) {
             println!("north land promote: round {lanes} on {} recorded {class} but the candidate lands it: an improvement, not a hold", &base[..base.len().min(12)]);
             replayed += 1;
@@ -308,6 +313,7 @@ fn shadow(binary: &Path, repositories: &[Repository], checker: &str, minutes: u6
 enum Outcome {
     Settled(String),
     Swap { link: PathBuf, target: PathBuf },
+    Unreached { candidate: String, reason: String },
 }
 
 fn promote(options: &Options) -> Result<Outcome, String> {
@@ -329,10 +335,14 @@ fn promote(options: &Options) -> Result<Outcome, String> {
     let held_binary = held_target.as_deref().map(|held| runtime.binary(held)).filter(|binary| binary.is_file());
     let fixes = held_target.as_deref().is_some_and(|held| repositories.iter().all(|repository| only_fixes(&repository.checkout, held, &target)));
     let held = Held { binary: held_binary.as_deref(), only_fixes: fixes };
-    let mut divergences = Vec::new();
+    let (mut divergences, mut unreached) = (Vec::new(), Vec::new());
     let mut replayed = 0;
     for repository in &repositories {
-        replayed += replay_recorded(&binary, &held, repository, &options.checker, &mut divergences);
+        replayed += replay_recorded(&binary, &held, repository, &options.checker, &mut divergences, &mut unreached);
+    }
+    if divergences.is_empty() && !unreached.is_empty() {
+        let candidate = target.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        return Ok(Outcome::Unreached { candidate, reason: unreached.join("; ") });
     }
     if !divergences.is_empty() {
         let replay = |binary: &Path, divergence: &Divergence| run_replay(binary, &divergence.checkout, &divergence.base, &options.checker, &divergence.tickets).map(|replayed| replayed.verdict);
@@ -389,6 +399,13 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     match promote(&options) {
         Ok(Outcome::Swap { link, target }) => settle(&link, &target),
+        Ok(Outcome::Unreached { candidate, reason }) => {
+            println!("north land promote: no verdict: {reason}; a replay that reached no verdict says nothing about the candidate, so the link is neither held nor bisected, and the next promotion retries");
+            if !options.dry_run {
+                link_hold::unreached(&Runtime::from_env().home, &candidate, &reason);
+            }
+            75
+        }
         Ok(Outcome::Settled(result)) => {
             println!("north land promote: {result}");
             if !options.dry_run {

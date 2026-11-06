@@ -14,6 +14,7 @@ pub const SLOT_GRACE_SECS: u64 = 900;
 pub const SLOT_DEADLINE_SECS: u64 = CEILING + SLOT_GRACE_SECS;
 pub const DISK_FREE_PERCENT: f64 = 10.0;
 pub const PATIENCE_SECS: u64 = 5 * 60;
+pub const NO_VERDICT_PROMOTIONS: u32 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Bound {
@@ -28,6 +29,7 @@ pub enum Bound {
     InfrastructureFailures,
     UnservedQueues,
     SourceBuilds,
+    NoVerdict,
 }
 
 impl Bound {
@@ -44,6 +46,7 @@ impl Bound {
             Bound::InfrastructureFailures => "infrastructure-failures",
             Bound::UnservedQueues => "unserved-queues",
             Bound::SourceBuilds => "toolchain-from-source",
+            Bound::NoVerdict => "promotion-no-verdict",
         }
     }
 
@@ -56,7 +59,7 @@ impl Bound {
             Bound::Held => minutes(HELD_SECS),
             Bound::SlotHold => minutes(SLOT_DEADLINE_SECS),
             Bound::DiskFree => format!("{DISK_FREE_PERCENT:.0}% free"),
-            Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues | Bound::SourceBuilds => "0".to_owned(),
+            Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues | Bound::SourceBuilds | Bound::NoVerdict => "0".to_owned(),
         }
     }
 }
@@ -74,6 +77,7 @@ pub enum Remedy {
     Restart { unit: String },
     Rollback { home: PathBuf, from: String, to: String, units: Vec<String> },
     Alarm(String),
+    Promote,
     Wait(String),
 }
 
@@ -87,6 +91,7 @@ impl Remedy {
             Remedy::Restart { .. } => Some("lander-wedged"),
             Remedy::Rollback { .. } => Some("lander-rollback"),
             Remedy::Alarm(_) => Some("lander-source-build"),
+            Remedy::Promote => Some("lander-promotion-retry"),
             Remedy::Wait(_) => None,
         }
     }
@@ -102,6 +107,7 @@ impl fmt::Display for Remedy {
             Remedy::Restart { unit } => write!(formatter, "restart {unit}"),
             Remedy::Rollback { from, to, .. } => write!(formatter, "roll the lander link back from {from} to {to}, the last build that landed a batch green"),
             Remedy::Alarm(text) => write!(formatter, "tell the proxy: {text}"),
+            Remedy::Promote => write!(formatter, "retry the promotion with north runtime promote, which replays under lander-promote.lock"),
             Remedy::Wait(reason) => write!(formatter, "none: {reason}"),
         }
     }
@@ -281,7 +287,21 @@ fn judge_link(link: &LinkFacts) -> Vec<Finding> {
         Some(lag) if link.lander != link.current => Finding::over(Bound::LinkLag, subject, minutes(lag), wait("held", "the link-held bound owns a lander that does not follow current")),
         Some(lag) => Finding::over(Bound::LinkLag, subject, minutes(lag), State::Unknown(format!("the lander runs {} and current is the same, yet main is {} newer: the runtime does not follow main", link.lander, minutes(lag)))),
     };
-    vec![held, lag]
+    vec![held, lag, no_verdict(link)]
+}
+
+fn no_verdict(link: &LinkFacts) -> Finding {
+    let Some(unreached) = link.unreached.as_ref().filter(|unreached| link.lander != link.current && link.current.ends_with(&unreached.candidate)) else {
+        return Finding::healthy(Bound::NoVerdict, "lander", "0".to_owned());
+    };
+    let subject = format!("lander/{}#{}", unreached.candidate, unreached.attempts);
+    let value = format!("{} promotion(s)", unreached.attempts);
+    let state = if unreached.attempts < NO_VERDICT_PROMOTIONS {
+        known("replay reached no verdict", Remedy::Promote)
+    } else {
+        State::Unknown(format!("{} promotions in a row of {} reached no verdict on a replay: {}", unreached.attempts, unreached.candidate, unreached.reason))
+    };
+    Finding::over(Bound::NoVerdict, &subject, value, state)
 }
 
 fn judge_place(place: &PlaceFacts) -> Vec<Finding> {

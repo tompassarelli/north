@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
 use north_landing::land::after::{follow, send};
@@ -51,6 +52,7 @@ impl Hands for Host {
             Remedy::Restart { unit } => watchdog::Host.restart(unit, "the lander doctor read it wedged").map(|()| format!("restarted {unit}")),
             Remedy::Rollback { home, from, to, units } => roll_back(home, from, to, units),
             Remedy::Alarm(text) => if self.page(text) { Ok("the proxy heard of it".to_owned()) } else { Err("paging the proxy failed".to_owned()) },
+            Remedy::Promote => promote(),
             Remedy::Wait(reason) => Ok(reason.clone()),
         }
     }
@@ -68,6 +70,14 @@ impl Hands for Host {
     fn page(&self, text: &str) -> bool {
         send(PROXY, text)
     }
+}
+
+/// Starts `north runtime promote` detached, logging where a landing's promotion logs, so a retry waits its turn on lander-promote.lock.
+pub fn promote() -> Result<String, String> {
+    let log = north_landing::land::lander::state_home().join("north/runtime-follow.log");
+    let file = fs::OpenOptions::new().create(true).append(true).open(&log).map_err(|error| format!("{}: {error}", log.display()))?;
+    let child = Command::new(follow::program()).args(["runtime", "promote"]).stdin(Stdio::null()).stdout(file.try_clone().map_err(|error| error.to_string())?).stderr(file).process_group(0).spawn().map_err(|error| format!("north runtime promote: {error}"))?;
+    Ok(format!("started north runtime promote (pid {}), logging to {}", child.id(), log.display()))
 }
 
 /// Moves a refused ticket back into its queue once, leaving a marker so its next refusal is final.
