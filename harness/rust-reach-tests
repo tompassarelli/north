@@ -1,0 +1,2 @@
+# Shell tests that run north only through the code listed after them: a Rust change runs such a test only when it touches a listed path or a workspace crate a listed crate depends on.
+bin/safe-push.test.sh src/ crates/north-safe-push/ crates/north-landing/ crates/north-capacity-host/

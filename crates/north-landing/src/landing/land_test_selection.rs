@@ -1,11 +1,14 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::land::slots::affected;
+
 const ROOTS: [&str; 5] = ["bin", "lib", "harness/hooks", "harness/lib", "harness/scripts"];
 const MACHINE_BOUND: &str = "harness/machine-bound-tests";
+const RUST_REACH: &str = "harness/rust-reach-tests";
 pub const SELECT_PATHS_ENV: &str = "SAFE_PUSH_LAND_SELECT_PATHS";
 const NORTH_BINARY: [&str; 3] = ["NORTH_PACE_BIN", "NORTH_BIN", "debug/north"];
 
@@ -76,7 +79,9 @@ pub fn select(root: &Path, scope: Scope, only: Only, env: &ChildEnv) -> Result<V
         Scope::All => Vec::new(),
         Scope::Changed => changes(root, env)?,
     };
-    let mut walk = Walk { root, only, machine_bound, seen: HashSet::new(), selected: Vec::new(), visited: HashSet::new(), queue: VecDeque::new() };
+    let rust: Vec<String> = changes.iter().filter(|path| rust_input(path)).cloned().collect();
+    let unreached = if rust.is_empty() { BTreeMap::new() } else { unreached(root, &rust)? };
+    let mut walk = Walk { root, only, machine_bound, unreached, through_binary: false, skipped: HashSet::new(), seen: HashSet::new(), selected: Vec::new(), visited: HashSet::new(), queue: VecDeque::new() };
     let roots: Vec<&str> = ROOTS.into_iter().filter(|dir| root.join(dir).is_dir()).collect();
     let mut files = Vec::new();
     for dir in roots {
@@ -90,28 +95,20 @@ pub fn select(root: &Path, scope: Scope, only: Only, env: &ChildEnv) -> Result<V
             || (path.starts_with("harness/") && path.ends_with(".toml"))
         {
             walk.enqueue(path);
-        } else if path.starts_with("src/") || path.starts_with("crates/") || ["Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml"].contains(&path.as_str()) {
-            walk.enqueue(path);
-            NORTH_BINARY.into_iter().for_each(|name| walk.enqueue(name));
         }
     }
+    rust.iter().for_each(|path| walk.enqueue(path));
     if scope == Scope::All {
         files.iter().filter(|file| is_test(file)).for_each(|file| walk.add(file));
     }
-    while let Some(path) = walk.queue.pop_front() {
-        let stem = test_stem(&path);
-        walk.add(&format!("{stem}.test.sh"));
-        walk.add(&format!("{stem}.test.py"));
-        if files.is_empty() {
-            continue;
-        }
-        let matches = referencing(root, &patterns(&path), &files)?;
-        for file in matches {
-            if is_test(&file) {
-                walk.add(&file);
-            }
-            walk.enqueue(&file);
-        }
+    walk.drain(&files)?;
+    if !rust.is_empty() {
+        walk.through_binary = true;
+        NORTH_BINARY.into_iter().for_each(|name| walk.enqueue(name));
+        walk.drain(&files)?;
+    }
+    for (test, entries) in walk.unreached.iter().filter(|(test, _)| walk.skipped.contains(*test) && !walk.seen.contains(*test)) {
+        println!("land check: skipped {test}: this change reaches none of {}", entries.join(" "));
     }
     Ok(walk.selected)
 }
@@ -120,6 +117,9 @@ struct Walk<'a> {
     root: &'a Path,
     only: Only,
     machine_bound: HashSet<String>,
+    unreached: BTreeMap<String, Vec<String>>,
+    through_binary: bool,
+    skipped: HashSet<String>,
     seen: HashSet<String>,
     selected: Vec<String>,
     visited: HashSet<String>,
@@ -129,6 +129,10 @@ struct Walk<'a> {
 impl Walk<'_> {
     fn add(&mut self, test: &str) {
         if !self.root.join(test).is_file() || self.seen.contains(test) {
+            return;
+        }
+        if self.through_binary && self.unreached.contains_key(test) {
+            self.skipped.insert(test.to_owned());
             return;
         }
         let bound = self.machine_bound.contains(test);
@@ -145,6 +149,23 @@ impl Walk<'_> {
         }
     }
 
+    fn drain(&mut self, files: &[String]) -> Result<(), Failure> {
+        while let Some(path) = self.queue.pop_front() {
+            let stem = test_stem(&path);
+            self.add(&format!("{stem}.test.sh"));
+            self.add(&format!("{stem}.test.py"));
+            if files.is_empty() {
+                continue;
+            }
+            for file in referencing(self.root, &patterns(&path), files)? {
+                if is_test(&file) {
+                    self.add(&file);
+                }
+                self.enqueue(&file);
+            }
+        }
+        Ok(())
+    }
 }
 
 fn listing(root: &Path, dir: &str) -> Result<Vec<(String, fs::FileType)>, Failure> {
@@ -185,6 +206,46 @@ fn referencing(root: &Path, patterns: &[String], files: &[String]) -> Result<Vec
         }
     }
     Ok(matches)
+}
+
+fn rust_input(path: &str) -> bool {
+    path.starts_with("src/") || path.starts_with("crates/") || ["Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml"].contains(&path)
+}
+
+fn unreached(root: &Path, rust: &[String]) -> Result<BTreeMap<String, Vec<String>>, Failure> {
+    let Ok(listed) = fs::read_to_string(root.join(RUST_REACH)) else {
+        return Ok(BTreeMap::new());
+    };
+    let mut reach = Vec::new();
+    for line in listed.lines().filter(|line| !line.starts_with('#') && !line.trim().is_empty()) {
+        let mut words = line.split_whitespace().map(str::to_owned);
+        let (Some(test), entries) = (words.next(), words.collect::<Vec<_>>()) else { continue };
+        if let Some(missing) = std::iter::once(&test).chain(&entries).find(|path| !root.join(path).exists()) {
+            return Err(Failure::new(format!("land check: {RUST_REACH} names {missing}, which does not exist")));
+        }
+        reach.push((test, entries));
+    }
+    if reach.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let metadata = match north_base::platform::cargo_metadata::no_deps(root) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            eprintln!("land check: {error}; every test in {RUST_REACH} runs for this Rust change");
+            return Ok(BTreeMap::new());
+        }
+    };
+    let mut unreached = BTreeMap::new();
+    for (test, entries) in reach {
+        match affected::reaches(&metadata, &entries, rust) {
+            Ok(true) => {}
+            Ok(false) => {
+                unreached.insert(test, entries);
+            }
+            Err(error) => eprintln!("land check: {error}; {test} runs for this Rust change"),
+        }
+    }
+    Ok(unreached)
 }
 
 fn machine_bound(root: &Path) -> Result<HashSet<String>, Failure> {

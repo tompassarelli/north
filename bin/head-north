@@ -8,20 +8,31 @@ defer=0
 live=${XDG_STATE_HOME:-$HOME/.local/state}/north/current/north
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/north/head-north
 keep=4
+hold=3600
 build() {
   printf 'head-north: building north from the tree: %s\n' "${reason%%$'\n'*}" >&2
   "$root/bin/land-shell" --dev -- cargo build -q --locked --offline --bin north >&2
   readlink -f "${CARGO_TARGET_DIR:-target}/debug/north"
 }
 prune() {
-  find "$cache" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/[0-9a-f]{40}' -printf '%T@ %f\n' | sort -rn | tail -n +$((keep + 1)) | while read -r _ old; do
+  local cutoff=$(($(date +%s) - hold))
+  find "$cache" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/[0-9a-f]{40}' -printf '%T@ %f\n' | sort -rn | tail -n +$((keep + 1)) | while read -r stamp old; do
+    [ "${stamp%.*}" -lt "$cutoff" ] || continue
     rm -f "$cache/$old/north" "$cache/$old.lock"
     rmdir "$cache/$old" 2>/dev/null || true
   done
 }
+clean_tree() {
+  [ -z "$(git -C "$root" status --porcelain)" ] && git -C "$root" rev-parse 'HEAD^{tree}'
+}
+store() {
+  cp --reflink=auto "$1" "$cache/$tree.part"
+  mkdir -p "$cache/$tree"
+  mv -f "$cache/$tree.part" "$cache/$tree/north"
+  prune
+}
 from_tree() {
-  local tree built
-  if [ -n "$(git -C "$root" status --porcelain)" ] || ! tree=$(git -C "$root" rev-parse 'HEAD^{tree}'); then
+  if ! tree=$(clean_tree); then
     north=$(build)
     return
   fi
@@ -32,19 +43,27 @@ from_tree() {
     printf 'head-north: running the north this host built from tree %.12s: %s\n' "$tree" "${reason%%$'\n'*}" >&2
     touch "$cache/$tree"
   else
-    built=$(build)
-    cp --reflink=auto "$built" "$cache/$tree.part"
-    mkdir -p "$cache/$tree"
-    mv -f "$cache/$tree.part" "$cache/$tree/north"
-    prune
+    store "$(build)"
   fi
   exec 7>&-
   north=$cache/$tree/north
   export NORTH_HOME=${NORTH_HOME:-$root}
 }
-north="" reason="no live runtime at $live"
-if [ -x "$live" ] && reason=$("$live" runtime covers --head "${SAFE_PUSH_LAND_RUNTIME_HEAD:-${SAFE_PUSH_LAND_HEAD:-HEAD}}" "${code[@]}" 2>&1); then
+north="" tree="" reason="no live runtime at $live" covered=${SAFE_PUSH_LAND_RUNTIME_HEAD:-${SAFE_PUSH_LAND_HEAD:-HEAD}}
+if [ ${#code[@]} = 0 ] && tree=$(clean_tree) && [ -x "$cache/$tree/north" ]; then
+  printf 'head-north: running the north this host keeps for tree %.12s\n' "$tree" >&2
+  touch "$cache/$tree"
+  north=$cache/$tree/north
+  export NORTH_HOME=${NORTH_HOME:-$root}
+elif [ -x "$live" ] && reason=$("$live" runtime covers --head "$covered" "${code[@]}" 2>&1); then
   north=$reason
+  if [ -n "$tree" ] && [ "$(git -C "$root" rev-parse "$covered^{tree}" 2>/dev/null)" = "$tree" ]; then
+    mkdir -p "$cache"
+    exec 7>"$cache/$tree.lock"
+    flock 7
+    [ -x "$cache/$tree/north" ] || store "$north"
+    exec 7>&-
+  fi
 elif [ "$defer" = 1 ]; then
   printf 'head-north: not run before the push, no live runtime covers the checker code (%s); the after-landing run builds north from this tree and runs it\n' "${reason%%$'\n'*}" >&2
   exit 0

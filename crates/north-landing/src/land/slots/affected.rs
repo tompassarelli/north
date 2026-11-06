@@ -100,8 +100,11 @@ pub struct DepInfo {
 
 type Embedders<'a> = HashMap<String, BTreeSet<&'a str>>;
 
-pub fn select(metadata: &str, files: &[String], dep_info: &[DepInfo]) -> Result<Scope, String> {
-    let metadata: Metadata = serde_json::from_str(metadata).map_err(|error| format!("cargo metadata: {error}"))?;
+fn parse(metadata: &str) -> Result<Metadata, String> {
+    serde_json::from_str(metadata).map_err(|error| format!("cargo metadata: {error}"))
+}
+
+fn members(metadata: &Metadata) -> Result<Vec<Member<'_>>, String> {
     let root = Path::new(&metadata.workspace_root);
     let mut members = Vec::new();
     for package in metadata.packages.iter().filter(|package| metadata.workspace_members.contains(&package.id)) {
@@ -110,7 +113,13 @@ pub fn select(metadata: &str, files: &[String], dep_info: &[DepInfo]) -> Result<
         let directory = directory.to_string_lossy().into_owned();
         members.push(Member { directory: if directory.is_empty() { directory } else { format!("{directory}/") }, package });
     }
-    let embedders = embedders(&members, root, dep_info);
+    Ok(members)
+}
+
+pub fn select(metadata: &str, files: &[String], dep_info: &[DepInfo]) -> Result<Scope, String> {
+    let metadata = parse(metadata)?;
+    let members = members(&metadata)?;
+    let embedders = embedders(&members, Path::new(&metadata.workspace_root), dep_info);
     let mut changed = BTreeSet::new();
     for file in files {
         match owner(&members, &embedders, file) {
@@ -213,6 +222,39 @@ fn dependents<'a>(members: &[Member<'a>], changed: BTreeSet<&'a str>) -> BTreeSe
         }
     }
     affected
+}
+
+pub fn reaches(metadata: &str, entries: &[String], files: &[String]) -> Result<bool, String> {
+    let metadata = parse(metadata)?;
+    let members = members(&metadata)?;
+    let listed: BTreeSet<&str> = members.iter().filter(|member| !member.directory.is_empty() && entries.contains(&member.directory)).map(|member| member.package.name.as_str()).collect();
+    let reached = dependency_closure(&members, listed);
+    Ok(files.iter().any(|file| {
+        entries.iter().any(|entry| file.starts_with(entry.as_str()))
+            || match owner(&members, &Embedders::new(), file) {
+                Owner::Everything => true,
+                Owner::Package(name) => reached.contains(name),
+                Owner::Packages(names) => names.iter().any(|name| reached.contains(name)),
+                Owner::Nothing => false,
+            }
+    }))
+}
+
+fn dependency_closure<'a>(members: &[Member<'a>], listed: BTreeSet<&'a str>) -> BTreeSet<&'a str> {
+    let forward: HashMap<&str, Vec<&str>> = members
+        .iter()
+        .map(|member| (member.package.name.as_str(), member.package.dependencies.iter().filter(|dependency| dependency.path.is_some()).map(|dependency| dependency.name.as_str()).collect()))
+        .collect();
+    let mut reached = listed.clone();
+    let mut pending: Vec<&str> = listed.into_iter().collect();
+    while let Some(name) = pending.pop() {
+        for dependency in forward.get(name).into_iter().flatten() {
+            if reached.insert(dependency) {
+                pending.push(dependency);
+            }
+        }
+    }
+    reached
 }
 
 pub fn scope(root: &Path, base: &str, head: &str) -> Result<Scope, String> {
