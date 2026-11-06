@@ -1,9 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::error::NorthResult;
 
-use super::super::model::{SessionRecord, Transcript};
+use super::super::model::{SessionRecord, Status, Transcript};
 use super::super::records::{read_record, write_record};
 use super::super::runtime::{Runtime, now_ms};
 use super::super::transcript::{StreamTail, stream_path};
@@ -16,19 +16,18 @@ pub struct Follower {
     runtime: Arc<dyn Runtime>,
     record: SessionRecord,
     session_dir: PathBuf,
-    index_path: PathBuf,
-    tail: StreamTail,
+    tail: Option<StreamTail>,
     transcript: Transcript,
 }
 
 impl Follower {
     pub(super) fn open(runtime: Arc<dyn Runtime>, record: SessionRecord, session_dir: PathBuf, index_path: PathBuf, indexed_to: u64, full_history: bool) -> NorthResult<Self> {
-        let tail = StreamTail::open(stream_path(&record.host_dir), indexed_to);
+        let tail = Some(StreamTail::open(stream_path(&record.host_dir), indexed_to));
         let transcript = seeded(&record);
-        let mut follower = Self { runtime, record, session_dir, index_path: index_path.clone(), tail, transcript };
+        let mut follower = Self { runtime, record, session_dir, tail, transcript };
         let index_len = std::fs::metadata(&index_path).map_or(0, |metadata| metadata.len());
         let index_offset = if full_history { 0 } else { index_len.saturating_sub(TUI_HISTORY_LIMIT) };
-        let mut index = StreamTail::open(index_path, index_offset);
+        let mut index = StreamTail::open(index_path.clone(), index_offset);
         loop {
             let frames = index.frames()?;
             if frames.is_empty() {
@@ -36,14 +35,22 @@ impl Follower {
             }
             follower.observe(frames);
         }
-        follower.settle_status()?;
+        follower.settle_status(&index_path)?;
         Ok(follower)
     }
 
+    pub(super) fn window(runtime: Arc<dyn Runtime>, record: SessionRecord, session_dir: PathBuf, status: Status) -> Self {
+        let mut transcript = seeded(&record);
+        transcript.status = status;
+        Self { runtime, record, session_dir, tail: None, transcript }
+    }
+
     pub fn poll(&mut self) -> NorthResult<bool> {
+        let Some(tail) = self.tail.as_mut() else { return Ok(false) };
+        let frames = tail.frames()?;
         let before = (self.transcript.entries.len(), self.transcript.status);
         self.refresh_record();
-        let frames: Vec<_> = self.tail.frames()?.into_iter().filter(|frame| self.runtime.frame_conversation(frame) == self.record.conversation.as_deref()).collect();
+        let frames: Vec<_> = frames.into_iter().filter(|frame| self.runtime.frame_conversation(frame) == self.record.conversation.as_deref()).collect();
         let got_frames = !frames.is_empty();
         self.observe(frames);
         self.persist_conversation()?;
@@ -63,8 +70,8 @@ impl Follower {
         }
     }
 
-    fn settle_status(&mut self) -> NorthResult<()> {
-        if let Some(status) = super::status::latest_turn_status(&self.index_path, 0, self.record.conversation.as_deref(), &|frame| self.runtime.signals(frame))? {
+    fn settle_status(&mut self, index_path: &Path) -> NorthResult<()> {
+        if let Some(status) = super::status::latest_turn_status(index_path, 0, self.record.conversation.as_deref(), &|frame| self.runtime.signals(frame))? {
             self.transcript.status = status;
         }
         self.transcript.status = settled(&self.record, self.transcript.status);

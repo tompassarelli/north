@@ -235,6 +235,10 @@ impl Fleet {
 
     fn follow_with_history(&self, name: &str, full_history: bool) -> NorthResult<Follower> {
         let record = self.record(name)?;
+        if record.adopted() {
+            let status = self.window_status(&record);
+            return Ok(Follower::window(self.runtime(&record)?, record, self.root.join(name), status));
+        }
         let (path, indexed_to) = self.stream_index(&record)?;
         Follower::open(self.runtime(&record)?, record, self.root.join(name), path, indexed_to, full_history)
     }
