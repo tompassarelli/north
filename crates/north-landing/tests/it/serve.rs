@@ -92,6 +92,7 @@ impl Repository {
         std::fs::write(lane.join(format!("{branch}.txt")), "lane\n").unwrap();
         git(&lane, &["add", "-A"]);
         git(&lane, &["commit", "-q", "-m", &format!("{branch} (north#360)")]);
+        let micros = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros();
         let ticket = Ticket {
             origin: git(&lane, &["remote", "get-url", "--push", "origin"]),
             root: lane.clone(),
@@ -108,8 +109,8 @@ impl Repository {
             verdict: None,
             keep_lane: false,
             published: None,
+            queued_micros: Some(micros),
         };
-        let micros = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros();
         queue::write(&self.queue.join(queue::file_name(micros, branch)), &ticket).unwrap();
         ticket.head
     }

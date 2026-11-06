@@ -443,10 +443,10 @@ the lander makes unnecessary instead of porting them. Planned at origin/main 602
 `$XDG_STATE_HOME/north/land-queue/<key>/<epoch µs>-<branch slug>.json`, with `<key>` the first 16 hex
 characters of sha256(origin push URL), the key bash's lock already uses. Fields: `origin`, `root`
 (lane worktree), `host`, `branch`, `head` (40 hex), `session` (`NORTH_FLEET_SESSION`), `queued_at`
-(RFC 3339), and `red_fix` (issue number, `marker` for a `Main-red:` trailer, or null). Written to a
+(RFC 3339), `queued_micros` (epoch µs, the order key), and `red_fix` (issue number, `marker` for a `Main-red:` trailer, or null). Written to a
 temporary file and renamed, so the lander never reads half a ticket. The lander moves a decided
 ticket to `<key>/done/` with a `verdict` field: `landed <sha>`, `conflict <files>`,
-`failed <log-or-url>`. Order: red-fix tickets first, then oldest. A re-enqueued lane replaces its
+`failed <log-or-url>`. Order: red-fix tickets first, then oldest by the `queued_micros` time enqueue records in the ticket, never by the file name, so renaming a ticket does not move it. A re-enqueued lane replaces its
 older undecided ticket. Lane commits are fetched from `root` (same host) or `ssh://<host><root>`
 (S11).
 

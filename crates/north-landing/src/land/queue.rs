@@ -43,6 +43,8 @@ pub struct Ticket {
     pub session: Option<String>,
     pub queued_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_micros: Option<u128>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_commit_secs: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub several_commits: Option<String>,
@@ -93,8 +95,21 @@ pub fn read(path: &Path) -> io::Result<Ticket> {
     serde_json::from_str(&fs::read_to_string(path)?).map_err(|error| io::Error::other(format!("{}: {error}", path.display())))
 }
 
+fn named_micros(path: &Path) -> Option<u128> {
+    path.file_name().and_then(|name| name.to_str()).and_then(|name| name.split('-').next()).and_then(|micros| micros.parse().ok())
+}
+
+fn recorded_micros(path: &Path) -> Option<u128> {
+    #[derive(Deserialize)]
+    struct Recorded {
+        queued_micros: Option<u128>,
+    }
+    serde_json::from_str::<Recorded>(&fs::read_to_string(path).ok()?).ok()?.queued_micros
+}
+
+/// When enqueue received the ticket, as it recorded inside the ticket; only a ticket written before that field existed falls back to the file-name id, so renaming a ticket never moves it in the queue.
 pub fn queued_micros(path: &Path) -> u128 {
-    path.file_name().and_then(|name| name.to_str()).and_then(|name| name.split('-').next()).and_then(|micros| micros.parse().ok()).unwrap_or(u128::MAX)
+    recorded_micros(path).or_else(|| named_micros(path)).unwrap_or(u128::MAX)
 }
 
 pub type Lane = (String, PathBuf, String);

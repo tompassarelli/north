@@ -120,8 +120,10 @@ fn tickets_in(directory: &Path) -> NorthResult<Vec<(u128, Value)>> {
         if !path.is_file() || path.extension().is_none_or(|extension| extension != "json") {
             continue;
         }
-        let queued = path.file_name().and_then(|name| name.to_str()).and_then(|name| name.split('-').next()).and_then(|micros| micros.parse().ok()).unwrap_or(u128::MAX);
-        tickets.push((queued, serde_json::from_str(&fs::read_to_string(&path)?)?));
+        let ticket: Value = serde_json::from_str(&fs::read_to_string(&path)?)?;
+        let named = path.file_name().and_then(|name| name.to_str()).and_then(|name| name.split('-').next()).and_then(|micros| micros.parse().ok());
+        let queued = ticket["queued_micros"].as_u64().map(u128::from).or(named).unwrap_or(u128::MAX);
+        tickets.push((queued, ticket));
     }
     Ok(tickets)
 }

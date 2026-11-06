@@ -227,6 +227,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         head,
         session: environment.session.map(str::to_owned),
         queued_at: rfc3339(OffsetDateTime::now_utc()),
+        queued_micros: Some(queued_micros),
         first_commit_secs,
         several_commits,
         red_fix,
