@@ -896,6 +896,7 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   every lander and per-lane check gets it with no bash change. A lane whose commit subject cites a
   north issue labelled `bug` (`north#N`, or `Fixes #N` on north) and changes no test (a path
   under tests/, a `*_tests.rs`, a `tests.rs`, a `.test.ts`, or an added `#[test]`) is refused naming the issue.
+  A lane that changes only Markdown fixes no behaviour and passes without a label read (north#649).
   Labels are read with gh only when no test changed, cached per lander round for an hour under
   the state dir; a GitHub that does not answer passes the lane with one warning line.
   Case incident-fix-needs-a-test pins the citation formats and gh's label listing as a file-or-wire-format contract.
@@ -1214,7 +1215,9 @@ lander did not see.
   stopped lander records no verdict for a run it was in: systemd's SIGTERM ends the lander before
   its killed run can report. The next start finds each unsettled batch in `<queue>/following/` and
   reruns it, whether the stop was a runtime swap, a `systemctl stop`, a crash or the watchdog
-  (north#639).
+  (north#639). Before serving, it reaps the remote offload jobs the previous lander left on the
+  build hosts (`north capacity offload reap --owner`), so a rerun never holds a slot beside an
+  orphaned run of the same commit (north#649).
 - An after-landing run that only waited out busy build-host slots (exit 96) reached no verdict: it
   is recorded as transient and blames no lane, and a real failure in another check still wins over
   it (north#649).

@@ -32,9 +32,9 @@ fn cited(subjects: &str, origin_is_north: bool) -> BTreeSet<u64> {
     numbers(&NORTH_CITATION, subjects).chain(bare).collect()
 }
 
-fn changes_test(directory: &Path, base: &str, head: &str) -> bool {
+fn needs_no_test(directory: &Path, base: &str, head: &str) -> bool {
     let names = git::text(directory, &["diff", "--name-only", "--no-renames", base, head]).unwrap_or_default();
-    if names.lines().any(|path| TEST_PATH.is_match(path)) {
+    if names.lines().all(|path| path.ends_with(".md")) || names.lines().any(|path| TEST_PATH.is_match(path)) {
         return true;
     }
     let diff = git::text(directory, &["diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-renames", base, head]).unwrap_or_default();
@@ -98,7 +98,7 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
     let subjects = git::text(directory, &["log", "--no-merges", "--format=%s", &format!("{base}..{head}")]).unwrap_or_default();
     let origin = git::text(directory, &["remote", "get-url", "origin"]).and_then(|url| slug_of(&url));
     let issues = cited(&subjects, origin.as_deref() == Some(NORTH));
-    if issues.is_empty() || changes_test(directory, &base, head) {
+    if issues.is_empty() || needs_no_test(directory, &base, head) {
         return 0;
     }
     let labels = Labels::for_round();

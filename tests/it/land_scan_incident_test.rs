@@ -112,7 +112,8 @@ fn incident_fix_needs_a_test() {
     assert_eq!(integrity.status, 1, "{}", integrity.stdout);
     assert!(integrity.stdout.contains("bug north#7"), "{}", integrity.stdout);
     let asked = fixture.gh_calls();
-    let cases: [&[(&str, &str)]; 4] = [
+    let cases: [&[(&str, &str)]; 5] = [
+        &[("docs/drain.md", "Drains first.\n"), ("README.md", "drain\n")],
         &[("crates/drain/src/drain.rs", FIX), ("tests/it/drain.rs", "#[test]\nfn drains() {}\n")],
         &[("crates/drain/src/drain.rs", FIX), ("crates/drain/src/drain_tests.rs", "fn helper() {}\n")],
         &[("crates/drain/src/drain.rs", FIX), ("crates/drain/src/tests.rs", "fn helper() {}\n")],
