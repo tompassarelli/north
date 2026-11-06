@@ -23,8 +23,8 @@ impl GateRow {
         format!("{}:{}", self.host, self.id)
     }
 
-    pub fn default_at_ms(&self) -> u64 {
-        self.opened_ms.saturating_add(self.request.default_after_ms)
+    pub fn default_at_ms(&self) -> Option<u64> {
+        self.request.has_default().then(|| self.opened_ms.saturating_add(self.request.default_after_ms))
     }
 }
 

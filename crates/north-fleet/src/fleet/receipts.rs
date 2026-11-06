@@ -19,7 +19,7 @@ const DECISION_REPLY: &str = "North did not pass your report to your parent: it 
 Routine calls are decided, not asked: pick the option you would recommend, do the work and report the result. \
 If only Tom can decide, open a gate and report again naming its id (`gate <id>`): \
 `north gate open --session <your session> --question <question> --option <option> --option <option> --recommend N --default N --default-after D` \
-(D is 30s, 10m, 4h or 1d; it prints the gate id, and the default applies when nobody answers in time). \
+(D is 30s, 10m, 4h or 1d; it prints the gate id, and the default applies when nobody answers in time; a question about cost, accounts, credentials or access, making something public, deleting valuable data, or core direction and dependencies is refused with --default and --default-after: open it without them and it waits for Tom). \
 If you report again unchanged, the report goes to your parent with a warning.";
 const DECISION_WARNING: &str = "[warning: this report stops on a decision but names no open gate; the child was told to decide routine calls or open one, and reported again]";
 static DECISION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:\A\W*Blocked:\s*decision\b|(?m:^\W*Stop:\s*decision\b))").expect("decision stop pattern"));
@@ -145,7 +145,10 @@ fn open_gate_named(gates: &dyn GateBook, reply: &str) -> NorthResult<Option<Gate
 fn gate_line(gate: &Gate, now_ms: u64) -> String {
     let option = |number: usize| gate.option(number).unwrap_or_default();
     let request = &gate.request;
-    let left = gate.default_at_ms().saturating_sub(now_ms) / 60_000;
+    let Some(at) = gate.default_at_ms() else {
+        return format!("[gate {} is open: recommends {} ({}); it has no default and waits for Tom's answer, given with `north gate answer {} N`]", gate.id, request.recommend, option(request.recommend), gate.id);
+    };
+    let left = at.saturating_sub(now_ms) / 60_000;
     format!("[gate {} is open: recommends {} ({}); defaults to {} ({}) in {left}m unless answered with `north gate answer {} N`]", gate.id, request.recommend, option(request.recommend), request.default, option(request.default), gate.id)
 }
 

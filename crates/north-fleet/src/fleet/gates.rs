@@ -1,4 +1,5 @@
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::ask_once;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GateRequest {
@@ -28,10 +29,19 @@ impl GateRequest {
         if self.options.len() < 2 || self.options.iter().any(|option| option.trim().is_empty()) {
             return Err(NorthError::Usage("a gate needs at least two non-empty options".into()));
         }
-        if !in_range(self.recommend) || !in_range(self.default) {
-            return Err(NorthError::Usage(format!("--recommend and --default must name an option from 1 to {}", self.options.len())));
+        if !in_range(self.recommend) {
+            return Err(NorthError::Usage(format!("--recommend must name an option from 1 to {}", self.options.len())));
         }
-        Ok(())
+        match ask_once::class(&self.question, &self.options) {
+            Some(class) if self.has_default() => Err(NorthError::Usage(format!("this gate decides an ask-once matter ({class}) that only Tom answers: open it without --default and --default-after, and it waits for his answer"))),
+            Some(_) => Ok(()),
+            None if in_range(self.default) && self.default_after_ms > 0 => Ok(()),
+            None => Err(NorthError::Usage(format!("--default must name an option from 1 to {} and --default-after must be a duration", self.options.len()))),
+        }
+    }
+
+    pub fn has_default(&self) -> bool {
+        self.default != 0 || self.default_after_ms != 0
     }
 }
 
@@ -64,7 +74,8 @@ impl Ask {
                 options.push(filler.to_owned());
             }
         }
-        GateRequest { verification: false, issue: None, box_text: None, session: session.to_owned(), question: self.text.clone(), options, recommend, default: recommend, default_after_ms: ASK_DEFAULT_AFTER_MS }
+        let (default, default_after_ms) = if ask_once::class(&self.text, &options).is_some() { (0, 0) } else { (recommend, ASK_DEFAULT_AFTER_MS) };
+        GateRequest { verification: false, issue: None, box_text: None, session: session.to_owned(), question: self.text.clone(), options, recommend, default, default_after_ms }
     }
 }
 
@@ -110,8 +121,8 @@ pub struct Gate {
 }
 
 impl Gate {
-    pub fn default_at_ms(&self) -> u64 {
-        self.opened_ms.saturating_add(self.request.default_after_ms)
+    pub fn default_at_ms(&self) -> Option<u64> {
+        self.request.has_default().then(|| self.opened_ms.saturating_add(self.request.default_after_ms))
     }
 
     pub fn is_open(&self) -> bool {
@@ -223,7 +234,7 @@ pub fn decisions(gates: Vec<Gate>) -> Vec<Gate> {
 }
 
 pub fn due(gate: &Gate, now_ms: u64) -> bool {
-    gate.is_open() && now_ms >= gate.default_at_ms()
+    gate.is_open() && gate.default_at_ms().is_some_and(|at| now_ms >= at)
 }
 
 pub fn default_overdue(book: &dyn GateBook, now_ms: u64, deliver: impl Fn(&str, &str) -> NorthResult<()>) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
@@ -233,8 +244,8 @@ pub fn default_overdue(book: &dyn GateBook, now_ms: u64, deliver: impl Fn(&str, 
 }
 
 fn opened_notice(label: &str, request: &GateRequest) -> String {
-    let default = request.options.get(request.default.saturating_sub(1)).map_or("", String::as_str);
-    format!("[gate {label} from {}] {} (default: {default})", request.session, request.question.replace('\n', " "))
+    let default = if request.has_default() { format!("default: {}", request.options.get(request.default.saturating_sub(1)).map_or("", String::as_str)) } else { "no default: waits for Tom's answer".to_owned() };
+    format!("[gate {label} from {}] {} ({default})", request.session, request.question.replace('\n', " "))
 }
 
 fn answer(gate: &Gate, decision: &Decision) -> NorthResult<String> {
@@ -363,5 +374,13 @@ mod tests {
         assert!(default_overdue(&book, 41_000, deliver).unwrap().is_empty());
         assert!(default_overdue(&Stale(&book, snapshot), 42_000, deliver).unwrap().is_empty(), "a sweeper with a stale view loses the close and stays quiet");
         assert_eq!(delivered.into_inner().unwrap(), ["worker"]);
+        let ask = Ask { text: "May we spend money on the GPU box?".into(), options: vec!["yes".into(), "no".into()] };
+        let gate = ask.gate("worker");
+        assert_eq!((gate.has_default(), gate.validate().is_ok()), (false, true));
+        let book = Book::default();
+        book.open_gate(&gate, 1_000).unwrap();
+        assert!(default_overdue(&book, u64::MAX, |_, _| Ok(())).unwrap().is_empty());
+        let routine = Ask { text: "Rename the module?".into(), options: vec!["yes".into(), "no".into()] }.gate("worker");
+        assert!(routine.has_default());
     }
 }

@@ -14,7 +14,7 @@ pub struct GateLine {
     pub session: String,
     pub question: String,
     pub recommended: String,
-    pub default_at_ms: u64,
+    pub default_at_ms: Option<u64>,
 }
 
 pub struct Facts<'a> {
@@ -66,7 +66,7 @@ pub fn render(facts: &Facts) -> String {
         let _ = writeln!(text, "  {} {}: {} Recommended: {}", gate.label, gate.session, gate.question, gate.recommended);
     }
     let mut stalls: Vec<String> = live.iter().filter_map(|session| stalled(session, quiet_for(session, facts.now)?)).collect();
-    stalls.extend(facts.gates.iter().filter(|gate| gate.default_at_ms < facts.now_ms).map(|gate| format!("gate {} is past its default time by {}", gate.label, span(facts.now_ms - gate.default_at_ms))));
+    stalls.extend(facts.gates.iter().filter_map(|gate| gate.default_at_ms.filter(|at| *at < facts.now_ms).map(|at| format!("gate {} is past its default time by {}", gate.label, span(facts.now_ms - at)))));
     let _ = writeln!(text, "Stalls: {}", stalls.len());
     for stall in stalls {
         let _ = writeln!(text, "  {stall}");

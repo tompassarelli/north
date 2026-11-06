@@ -10,7 +10,9 @@ use super::Fleet;
 impl Fleet {
     pub fn open_gate(&self, request: &GateRequest) -> NorthResult<i64> {
         let id = self.record_gate(request)?;
-        (self.arm)(id)?;
+        if request.has_default() {
+            (self.arm)(id)?;
+        }
         Ok(id)
     }
 

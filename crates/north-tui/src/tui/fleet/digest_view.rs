@@ -51,8 +51,11 @@ fn gate_lines(gate: &Gate, selected: bool, now_ms: u64) -> Vec<Line<'static>> {
     let marker = if selected { Span::styled("› ", KEY) } else { Span::raw("  ") };
     let title = Span::styled(format!("gate {} · {}", gate.id, gate.request.session), BOLD);
     let Some(closure) = &gate.closure else {
-        let remaining = gate.default_at_ms().saturating_sub(now_ms);
-        let when = if remaining == 0 { "default overdue".to_owned() } else { format!("default in {}", span(remaining)) };
+        let when = match gate.default_at_ms().map(|at| at.saturating_sub(now_ms)) {
+            None => "no default, waits for Tom".to_owned(),
+            Some(0) => "default overdue".to_owned(),
+            Some(remaining) => format!("default in {}", span(remaining)),
+        };
         let mut choices = vec![Span::raw("    ")];
         for (index, option) in gate.request.options.iter().enumerate() {
             let number = index + 1;
