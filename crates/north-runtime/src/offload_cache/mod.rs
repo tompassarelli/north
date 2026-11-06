@@ -107,9 +107,9 @@ fn remove_unlocked(slot: &Slot) -> bool {
     let name = slot.path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
     let parent = slot.path.parent().unwrap_or(Path::new("/"));
     let companions: Vec<PathBuf> = COMPANION_DIRS.iter().map(|suffix| parent.join(format!("{name}.{suffix}"))).collect();
-    let mut repositories: Vec<PathBuf> = std::iter::once(&slot.path).chain(&companions).flat_map(|tree| registrations(tree)).collect();
-    repositories.sort();
-    repositories.dedup();
+    for tree in std::iter::once(&slot.path).chain(&companions) {
+        unregister_within(tree);
+    }
     let removed = fs::remove_dir_all(&slot.path).is_ok();
     for directory in &companions {
         let _ = fs::remove_dir_all(directory);
@@ -117,21 +117,32 @@ fn remove_unlocked(slot: &Slot) -> bool {
     for suffix in COMPANION_FILES {
         let _ = fs::remove_file(parent.join(format!("{name}.{suffix}")));
     }
-    for repository in repositories {
-        let _ = Command::new("git").arg("--git-dir").arg(&repository).args(["worktree", "prune"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
-    }
     removed
 }
 
-/// The repositories whose worktrees live in `tree` or one level under it, read from each worktree's `.git` file.
-fn registrations(tree: &Path) -> Vec<PathBuf> {
-    let common = |checkout: &Path| {
-        let text = fs::read_to_string(checkout.join(".git")).ok()?;
-        let gitdir = PathBuf::from(text.strip_prefix("gitdir:")?.trim());
-        Some(gitdir.parent()?.parent()?.to_path_buf())
-    };
+/// Unregisters every worktree checked out at `tree` or one level under it from its repository, as `git worktree remove` does, without
+/// needing git on PATH: the lease reaper's unit has none, and a slot deleted with its entry left behind refuses the next `worktree add`.
+fn unregister_within(tree: &Path) {
     let nested = fs::read_dir(tree).into_iter().flatten().flatten().map(|entry| entry.path());
-    std::iter::once(tree.to_path_buf()).chain(nested).filter_map(|checkout| common(&checkout)).collect()
+    for checkout in std::iter::once(tree.to_path_buf()).chain(nested) {
+        if let Some(entry) = registration(&checkout)
+            && let Err(error) = fs::remove_dir_all(&entry)
+        {
+            eprintln!("north capacity: could not unregister worktree {} ({}): {error}", checkout.display(), entry.display());
+        }
+    }
+}
+
+/// The repository's `worktrees/NAME` entry for the worktree at `checkout`, only when that entry's own `gitdir` names this checkout.
+fn registration(checkout: &Path) -> Option<PathBuf> {
+    let text = fs::read_to_string(checkout.join(".git")).ok()?;
+    let entry = PathBuf::from(text.strip_prefix("gitdir:")?.trim());
+    let entry = if entry.is_absolute() { entry } else { checkout.join(entry) };
+    (entry.parent()?.file_name()? == "worktrees").then_some(())?;
+    let named = PathBuf::from(fs::read_to_string(entry.join("gitdir")).ok()?.trim());
+    let named = if named.is_absolute() { named } else { entry.join(named) };
+    let same = |left: &Path, right: &Path| left.canonicalize().ok().zip(right.canonicalize().ok()).is_some_and(|(left, right)| left == right);
+    same(&named, &checkout.join(".git")).then_some(entry)
 }
 
 /// The filesystem holding `path`, as `df` reads it: used over used plus available.

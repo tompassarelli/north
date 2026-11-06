@@ -124,7 +124,7 @@ if [ -d "$slot/target" ]; then
     rm -rf -- "$slot/target"
   fi
 fi
-if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
+if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree remove --force "$slot" 2>/dev/null || true; git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
 git -C "$slot" clean -ffdxq -e /target
 "#;
 

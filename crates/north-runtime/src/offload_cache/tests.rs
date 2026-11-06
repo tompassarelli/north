@@ -61,3 +61,26 @@ fn disk_floor_reclaim_evicts_offload_slots_oldest_first_until_the_disk_is_under_
     assert_eq!(reclaim_in(empty.path(), &mut calm, || None), None, "nothing evicted and no other sweep ran, so admission keeps its reading");
     assert_eq!(reclaim_in(empty.path(), &mut calm, || Some(12.5)), Some(12.5));
 }
+
+#[test]
+fn evicting_a_worktree_slot_unregisters_it_and_its_beside_checkouts_so_the_next_job_can_add_them_again() {
+    let home = tempfile::tempdir().unwrap();
+    let repository = |name: &str| {
+        let repo = home.path().join("code").join(name).join("main");
+        fs::create_dir_all(&repo).unwrap();
+        let run = |arguments: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).status().unwrap().success());
+        run(&["init", "-q"]);
+        run(&["commit", "-q", "--allow-empty", "-m", "first"]);
+        repo
+    };
+    let (north, south) = (repository("north"), repository("south"));
+    let root = home.path().join(".cache/land-offload");
+    let (slot, beside) = (root.join("code-north-main-4"), root.join("code-north-main-4.beside/south"));
+    let add = |repo: &Path, at: &Path| std::process::Command::new("git").arg("-C").arg(repo).args(["worktree", "add", "-q", "--detach"]).arg(at).status().unwrap().success();
+    assert!(add(&north, &slot) && add(&south, &beside));
+    File::create(root.join("code-north-main-4.lock")).unwrap();
+    let evicted = evict(&[Store { root, cap_bytes: Some(0) }], EVICT_ABOVE_PERCENT, &mut || None);
+    assert_eq!(names(&evicted), ["code-north-main-4"]);
+    assert!(fs::read_dir(north.join(".git/worktrees")).unwrap().next().is_none() && fs::read_dir(south.join(".git/worktrees")).unwrap().next().is_none());
+    assert!(add(&north, &slot) && add(&south, &beside), "git refuses a missing but already registered worktree");
+}

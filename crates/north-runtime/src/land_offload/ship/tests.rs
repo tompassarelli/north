@@ -166,7 +166,7 @@ fn two_concurrent_jobs_at_the_same_head_bundle_under_distinct_refs() {
 }
 
 #[test]
-fn shipping_a_job_runs_no_git_maintenance_that_could_prune_a_worktree_while_git_creates_it() {
+fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_entry_while_git_creates_it() {
     let home = tempfile::tempdir().unwrap();
     let repo = home.path().join("code/p/main");
     fs::create_dir_all(&repo).unwrap();
@@ -180,6 +180,9 @@ fn shipping_a_job_runs_no_git_maintenance_that_could_prune_a_worktree_while_git_
     git(&repo, &["update-ref", "-d", "refs/land-offload/job"]);
     let half_made = repo.join(".git/worktrees/half-made");
     fs::create_dir_all(&half_made).unwrap();
+    let slot = home.path().join(".cache/land-offload/code-p-main");
+    git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap(), &head]);
+    fs::remove_dir_all(&slot).unwrap();
     let script = super::script::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@SLOT_PORTS@", "");
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
