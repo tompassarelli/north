@@ -121,7 +121,7 @@ fn capacity_an_offloaded_post_land_worktree_outside_the_project_container_rebuil
     assert_eq!(line(&report, "file"), ["a.txt landed"]);
 }
 
-// KEEP(bug): on 2026-11-06 the lander's land-check command named the laptop's runtime by absolute path, which ccx33 does not have, so the offloaded run exited 127 (north#634)
+// KEEP(bug): on 2026-11-06 the lander's land-check command named the laptop's runtime by absolute path, which ccx33 does not have, so the offloaded run exited 127 (north#662)
 #[test]
 fn capacity_an_offloaded_command_naming_a_runtime_the_host_lacks_runs_the_hosts_own_north() {
     let hosts = hosts();

@@ -1218,6 +1218,12 @@ lander did not see.
 - An after-landing run that only waited out busy build-host slots (exit 96) reached no verdict: it
   is recorded as transient and blames no lane, and a real failure in another check still wins over
   it (north#649).
+- An after-landing run whose command exits 126 or 127 (not executable, not found) reached no
+  verdict: it is recorded as transient and blames no lane. On 2026-11-06 the lander's check
+  command named the laptop's runtime by its absolute path under `north-data/runtimes/`, which
+  ccx33 never has, so the offloaded run exited 127 and was reported as red main. The offload slot
+  script now runs the build host's own north when the command's program is an absolute path to a
+  `north` the host cannot execute, and leaves a path the host has as given (north#662).
 
 ### Measured after
 
