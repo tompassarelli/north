@@ -59,7 +59,7 @@ echo app-token
 const NORTH: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "${*//$'\n'/\\n}" >>"$LAND_TRACE/north-calls"
 if { [ "$1" = land-train ] || [ "$1" = incident ]; } && [ -n "${LAND_LEDGER:-}" ]; then THREADS_DB="$LAND_LEDGER" exec "$LAND_REAL_NORTH" "$@"; fi
-if [ "$1 $2" = "land checks" ] && { [ -e "$LAND_TRACE/post-land-fail" ] || { [ -f "$LAND_TRACE/post-land-red-if" ] && [ -e "$(cat "$LAND_TRACE/post-land-red-if")" ]; }; }; then echo "test after_landing_probe ... FAILED"; exit 1; fi
+if [ "$1 $2" = "land checks" ] && { [ -e "$LAND_TRACE/post-land-fail" ] || { [ -f "$LAND_TRACE/post-land-red-if" ] && [ -e "$(cat "$LAND_TRACE/post-land-red-if")" ]; }; }; then echo "test after_landing_probe ... FAILED"; outcome=; previous=; for argument in "$@"; do [ "$previous" != --outcome ] || outcome=$argument; previous=$argument; done; [ -z "$outcome" ] || printf 'failed-step\tafter_landing_probe\t\n' >>"$outcome"; exit 1; fi
 if [ "$1 $2" = "runtime follow" ] && [ -n "${NORTH_RUNTIME_LINK:-}" ]; then ln -sfn gen-2 "$NORTH_RUNTIME_LINK"; fi
 [ ! -x "$LAND_TRACE/north-hook" ] || exec "$LAND_TRACE/north-hook" "$@"
 if [ "$1" = fleet ] && [ "$2" = send ] && [ "${6%% *}" = landed ]; then

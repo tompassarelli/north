@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
@@ -9,6 +10,7 @@ use super::after;
 use super::candidate::{self, git, output};
 use super::checks::Verdict;
 use super::lander::Lander;
+use super::after::owner::{self, Reverted};
 use super::post_land::{self, Hosts, Outcome};
 use super::queue::{self, Ticket};
 use super::jobs::Jobs;
@@ -20,6 +22,7 @@ use super::trace::{self, AFTER, COVERED_BY, Category, PHASE, Span, VERDICT};
 const WORKTREE: &str = "lander-revert";
 const JOURNAL: &str = "following";
 const RETRY: Duration = Duration::from_secs(30);
+const UNSETTLED: u32 = 3;
 const AFTER_RUNS: &str = "landing.after-runs";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -47,11 +50,12 @@ struct Batch {
     heads: Vec<Followed>,
     started: Option<f64>,
     retry_at: f64,
+    misses: u32,
 }
 
 impl Batch {
     fn landed(base: String, head: String, lanes: Vec<LandedLane>, at: f64) -> Self {
-        Self { base, heads: vec![Followed { head: head.clone(), at }], head, lanes, started: None, retry_at: 0.0 }
+        Self { base, heads: vec![Followed { head: head.clone(), at }], head, lanes, started: None, retry_at: 0.0, misses: 0 }
     }
 
     fn covers(&self, head: &str) -> bool {
@@ -216,11 +220,15 @@ impl Watch {
     }
 
     fn finish(&mut self, lander: &Lander, mut batch: Batch, run: JoinHandle<Outcome>) {
-        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None, search: None, log: PathBuf::new() });
+        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None, search: None, log: PathBuf::new(), failing: BTreeSet::new() });
         let ended = epoch();
         if let Verdict::Transient(detail) = &outcome.verdict {
             println!("north land: the after-landing run of {} reached no verdict ({detail}); it runs again in {} s", batch.head, RETRY.as_secs());
             batch.retry_at = ended + RETRY.as_secs_f64();
+            batch.misses += 1;
+            if batch.misses == UNSETTLED {
+                after::send("proxy", &format!("north land: the after-landing run of {} reached no verdict {UNSETTLED} times in a row ({detail}); main is unverified until one does, and it keeps running every {} s", batch.head, RETRY.as_secs()));
+            }
             for followed in &mut batch.heads {
                 followed.at = ended;
             }
@@ -236,8 +244,8 @@ impl Watch {
         if let Some((from, to)) = outcome.search {
             record(lander, &[Span::new(&batch.head, format!("culprit search over {} landed lanes", batch.lanes.len()), Category::Lander, from, to).with(PHASE, AFTER)]);
         }
-        if let Verdict::RedMain(detail) = outcome.verdict {
-            blame(lander, &batch, outcome.culprit, &detail, &outcome.log);
+        if let Verdict::RedMain(detail) = &outcome.verdict {
+            blame(lander, &batch, outcome.culprit, detail, &outcome);
         }
         for followed in &batch.heads {
             let _ = fs::remove_file(entry_path(lander, &followed.head));
@@ -255,9 +263,9 @@ fn record(lander: &Lander, spans: &[Span]) {
     }
 }
 
-fn blame(lander: &Lander, batch: &Batch, culprit: Option<usize>, detail: &str, log: &Path) {
+fn blame(lander: &Lander, batch: &Batch, culprit: Option<usize>, detail: &str, outcome: &Outcome) {
     let Some(at) = culprit else {
-        inherited(lander, &batch.head, detail, log);
+        inherited(lander, &batch.head, detail, outcome);
         return;
     };
     let (base, lanes) = (&batch.base, &batch.lanes);
@@ -269,7 +277,7 @@ fn blame(lander: &Lander, batch: &Batch, culprit: Option<usize>, detail: &str, l
         after::send("proxy", &message);
         return;
     }
-    match revert(lander, lane, since, detail) {
+    match revert(lander, lane, since, detail, outcome) {
         Ok(line) => println!("north land: {line}"),
         Err(error) => {
             let message = format!("north land: the post-land checks of {} failed ({detail}) and its revert could not be queued: {error}", lane.ticket.branch);
@@ -279,8 +287,8 @@ fn blame(lander: &Lander, batch: &Batch, culprit: Option<usize>, detail: &str, l
     }
 }
 
-fn inherited(lander: &Lander, head: &str, detail: &str, log: &Path) {
-    match sheriff::chase(lander, head, log) {
+fn inherited(lander: &Lander, head: &str, detail: &str, outcome: &Outcome) {
+    match sheriff::chase(lander, head, &outcome.failing, &outcome.log) {
         Ok(line) => println!("north land: sheriff: {line}"),
         Err(error) => {
             let message = format!("north land: the post-land checks of {head} are red ({detail}) with no culprit among the batch, and the sheriff could not be asked for the earlier one: {error}");
@@ -294,7 +302,7 @@ fn short(sha: &str) -> &str {
     &sha[..sha.len().min(9)]
 }
 
-fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str) -> Result<String, String> {
+fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str, outcome: &Outcome) -> Result<String, String> {
     let worktree: PathBuf = candidate::lander_worktree(&lander.repo, WORKTREE)?;
     let main = candidate::prepare(&lander.repo, &worktree)?;
     git(&worktree, &["reset", "-q", "--hard"])?;
@@ -313,12 +321,9 @@ fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str) -> Resu
     let message = format!("Revert {subject}\n\n{} landed and its post-land checks failed on {} ({detail}), so the lander reverts it through the landing queue.\n\n{}", lane.ticket.branch, short(&lane.tip), trailers.join("\n"));
     git(&worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &message])?;
     let head = sheriff::queue_revert(lander, &worktree, &branch)?;
-    if let Some(session) = lane.ticket.session.as_deref().filter(|session| !session.is_empty()) {
-        let text = format!("north land: {} landed, but its post-land checks failed on {} ({detail}); the lander queued its revert {branch} ahead of the queue; fix the lane and queue it again with Follows: {}", lane.ticket.branch, short(&lane.tip), short(&lane.tip));
-        if !after::send(session, &text) {
-            println!("north land: could not tell session {session} that {} was reverted", lane.ticket.branch);
-        }
-    }
+    let failing = if outcome.failing.is_empty() { detail.to_owned() } else { sheriff::names(&outcome.failing.iter().cloned().collect::<Vec<_>>()) };
+    let reverted = Reverted { branch: &lane.ticket.branch, commit: &lane.tip, revert: &branch, red: &lane.tip, failing: &failing, log: &outcome.log };
+    println!("north land: {}", owner::tell(&owner::Cli, lane.ticket.session.as_deref(), &reverted));
     Ok(format!("revert of {} {head} queued as {branch}", lane.ticket.branch))
 }
 

@@ -255,7 +255,7 @@ They do not become strategy themselves.
   `free_slots` reads today. Decision: the wave size.
 - `land.sheriff`, one per step of `sheriff::find`. Case: the red request (`head`, `parent`, `run`,
   `failing`), the tip, the lanes, the reverted set (read from files at `sheriff.rs:110`), and every bisect
-  and probe result so far. Decision: the next lane to bisect or probe, or the `Finding` (stale, unnamed,
+  and probe result so far. Decision: the next lane to bisect or probe, or the `Finding` (no verdict, fixed,
   revert or environment).
 
 The rule for steps: a new strategy that would have probed a different lane, or included a different set,

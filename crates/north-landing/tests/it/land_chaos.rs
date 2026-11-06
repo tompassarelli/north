@@ -35,7 +35,7 @@ const AFTER_RUNNER: &str = r#"[ "$1" = land ] || exit 0
 eval outcome=\${$#}
 while [ -e "$HOME/stall" ]; do echo $$ > "$HOME/stalled"; sleep 0.05; done
 git rev-parse HEAD >> "$HOME/after-runs"
-if [ -e bad.txt ]; then printf "event\tafter\tfailed\tbad.txt check\n" > "$outcome"; exit 1; fi
+if [ -e bad.txt ]; then printf "event\tafter\tfailed\tbad.txt check\nfailed-step\tbad.txt check\t\n" > "$outcome"; exit 1; fi
 "#;
 
 fn isolated(name: &str, scenario: fn(&World)) {

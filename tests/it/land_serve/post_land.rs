@@ -19,8 +19,8 @@ fi
 
 const RED_WHEN_WIDE_SELECTED: &str = r#"#!/usr/bin/env bash
 [ "$1 $2" = "land checks" ] || exit 0
-while [ $# -gt 0 ]; do case $1 in --base) base=$2; shift ;; --head) head=$2; shift ;; esac; shift; done
-if [ -e broken.txt ] && git diff --name-only "$base" "$head" | grep -qx wide.txt; then echo "test wide_selection ... FAILED"; exit 1; fi
+while [ $# -gt 0 ]; do case $1 in --base) base=$2; shift ;; --head) head=$2; shift ;; --outcome) outcome=$2; shift ;; esac; shift; done
+if [ -e broken.txt ] && git diff --name-only "$base" "$head" | grep -qx wide.txt; then echo "test wide_selection ... FAILED"; [ -z "${outcome:-}" ] || printf 'failed-step\twide_selection\t\n' >>"$outcome"; exit 1; fi
 "#;
 
 fn post_land_runs(fixture: &Fixture) -> usize {
