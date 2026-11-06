@@ -7,8 +7,7 @@ use std::process::{Command, Stdio};
 
 use toml_edit::{DocumentMut, Item};
 
-use crate::landing::safe_push_plan::{self, Arguments, Plan};
-use crate::landing::safe_push_tag;
+use north_safe_push::entry;
 use crate::pacing::placement;
 use crate::ops::remote_serve::south_land::{MAX_COMMITS, MAX_PATCH_BYTES};
 
@@ -50,12 +49,12 @@ pub fn run(arguments: &[String]) -> u8 {
 pub fn safe_push(arguments: &[String]) -> u8 {
     match ambient_route(arguments) {
         Some(route) => terminal(land(&route)),
-        None => safe_push_tag::run(arguments),
+        None => entry::run(arguments),
     }
 }
 
 pub fn route(arguments: &[String], origin_url: &str, host: &Host) -> Option<Route> {
-    let Ok(Plan::Push(Arguments { tag: None, to: Some(to), dry_run, .. })) = safe_push_plan::arguments(arguments) else { return None };
+    let entry::Destination { to, dry_run } = entry::destination(arguments)?;
     (to == DESTINATION && host.ledger_client && repository_name(origin_url) == Some(SOUTH)).then(|| Route { ledger_host: host.ledger_host.clone(), dry_run })
 }
 

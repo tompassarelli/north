@@ -15,20 +15,20 @@ golden_path north-fleet north-landing
 land_checks north-landing
 land_checks_script north-landing north
 land_enqueue north-landing
-land_publication north-landing north
+land_publication north-landing north-safe-push north
 land_rebase north-landing
-land_route north-landing north
+land_route north-landing north-safe-push north
 land_scan north-landing
 land_serve north-landing
 landing_targets north-landing
 lane_gc_journeys north-guard
 policy_replay_login north-ops
-release north-landing north
+release north-landing north-safe-push north
 run_bounded north-ops north-capacity-host
 runtime_update north-runtime
-safe_push_entry north-base north
-safe_push_remote_land north
-safe_push_tag north-landing
+safe_push_entry north-base north-safe-push north
+safe_push_remote_land north north-safe-push
+safe_push_tag north-landing north-safe-push
 stdio north-fleet
 support north
 threads_ingest_lock north-threads

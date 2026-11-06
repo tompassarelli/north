@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use crate::platform::betterleaks;
 use crate::landing::step::{Refused, Step, exit_code, git_read};
 
-pub(crate) mod denylist;
-pub(crate) mod email;
-pub(crate) mod language;
-pub(crate) mod native_ref;
-pub(crate) mod secrets;
+pub mod denylist;
+pub mod email;
+pub mod language;
+pub mod native_ref;
+pub mod secrets;
 
 use self::denylist::Denylist;
 use self::email::commit_email_scan;
@@ -106,7 +106,7 @@ pub fn run(arguments: &[String]) -> Option<u8> {
     })
 }
 
-pub(crate) fn on_path(program: &str) -> bool {
+pub fn on_path(program: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|path| {
         std::env::split_paths(&path).any(|dir| {
             let candidate = dir.join(program);
@@ -117,14 +117,14 @@ pub(crate) fn on_path(program: &str) -> bool {
     })
 }
 
-pub(crate) fn instruction_limits(root: &Path, reference: &str) -> Step {
+pub fn instruction_limits(root: &Path, reference: &str) -> Step {
     match crate::landing::instruction_limits::check(root, reference) {
         0 => Ok(()),
         code => Err(Refused(code)),
     }
 }
 
-pub(crate) fn exit_status(status: std::io::Result<std::process::ExitStatus>) -> Step {
+pub fn exit_status(status: std::io::Result<std::process::ExitStatus>) -> Step {
     match status {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => Err(Refused(exit_code(status))),

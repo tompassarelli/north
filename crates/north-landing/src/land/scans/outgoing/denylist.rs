@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::landing::denylist;
-use crate::landing::safe_push_state::cancelled;
+use crate::landing::step::cancelled;
 use crate::landing::step::{Refused, Step};
 use crate::watch::facts::slug_of;
 

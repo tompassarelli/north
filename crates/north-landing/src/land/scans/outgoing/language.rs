@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::landing::safe_push_state::cancelled;
+use crate::landing::step::cancelled;
 use crate::landing::step::{Refused, Step, git_read};
 
 pub fn language_gate(root: &Path, base: &str, head: &str) -> Step {

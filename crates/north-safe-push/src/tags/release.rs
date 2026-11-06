@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::safe_push_plan;
-use super::safe_push_state::{refuse, watch_for_cancel};
-use super::step::{Refused, Step, git_quiet, git_read};
-use super::safe_push_tag::{self, Scanned, TagRequest};
+use crate::shell::git::default_branch;
+use crate::session::cancel::watch_for_cancel;
+use north_landing::landing::step::{Refused, Step, git_quiet, git_read, refuse};
+use super::publish::{self, Scanned, TagRequest};
 
 const USAGE: &str = "usage: north release VERSION [--notes FILE]
 
@@ -100,7 +100,7 @@ fn release(request: &Request) -> Step {
     if !git_read(root, &["status", "--porcelain", "--untracked-files=normal"])?.is_empty() {
         return Err(refuse("north release: the working tree is dirty; commit or remove the changes first"));
     }
-    let default = safe_push_plan::default_branch(root);
+    let default = default_branch(root);
     let branch = git_quiet(root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).unwrap_or_default();
     if branch != default {
         return Err(refuse(format!("north release: release from the {default} branch's checkout, not '{}'", if branch.is_empty() { "detached HEAD" } else { &branch })));
@@ -150,7 +150,7 @@ fn create_tag(root: &Path, request: &Request, head: &str) -> Step {
 
 fn push_tag(root: &Path, tag: &str) -> Step {
     std::env::set_current_dir(root).map_err(|_| Refused(1))?;
-    match safe_push_tag::publish_tag(&TagRequest { tag, dry_run: false })? {
+    match publish::publish_tag(&TagRequest { tag, dry_run: false })? {
         Scanned::Clean => Ok(()),
         Scanned::Refused(refused) => Err(refused),
     }

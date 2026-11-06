@@ -1,10 +1,11 @@
 use std::path::Path;
 
-use crate::landing::safe_push_plan::{self, Arguments, Plan};
+use crate::request::{self, Arguments, Plan};
+use crate::shell::git::default_branch;
 
-use super::candidate::git;
-use super::lander::state_home;
-use super::{enqueue, hold, queue, repositories, setting};
+use north_landing::land::candidate::git;
+use north_landing::land::lander::state_home;
+use north_landing::land::{enqueue, hold, queue, repositories, setting};
 
 const USAGE: &str = "usage: north land route [--to BRANCH] [--message FILE | --several-commits REASON] [--keep-lane]";
 
@@ -75,7 +76,7 @@ fn ticket_arguments(request: &Arguments) -> Vec<String> {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    let request = match safe_push_plan::arguments(arguments) {
+    let request = match request::arguments(arguments) {
         Ok(Plan::Help) => {
             println!("{USAGE}");
             return 0;
@@ -91,7 +92,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     };
     let repo = Path::new(".");
-    let to = request.to.clone().unwrap_or_else(|| safe_push_plan::default_branch(repo));
+    let to = request.to.clone().unwrap_or_else(|| default_branch(repo));
     let settings = Settings::read(repo, &to);
     let host = repositories::local_host();
     match decide(&settings, &host, &to, &request) {

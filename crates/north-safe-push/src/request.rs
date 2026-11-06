@@ -1,8 +1,5 @@
-use std::path::Path;
 
-use crate::platform::git;
-
-pub const USAGE: &str = include_str!("safe_push_usage.txt");
+pub const USAGE: &str = include_str!("request/usage.txt");
 
 const DESTRUCTIVE: [&str; 6] = ["-f", "--force", "--force-with-lease", "--mirror", "--delete", "--prune"];
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -45,27 +42,6 @@ impl Refusal {
             ),
         }
     }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum Snapshot {
-    Absent,
-    Object(String),
-}
-
-impl Snapshot {
-    pub fn render(&self) -> String {
-        match self {
-            Self::Absent => "absent".to_owned(),
-            Self::Object(oid) => format!("object:{oid}"),
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct Publication {
-    pub refspec: String,
-    pub lease: String,
 }
 
 fn usage_error(reason: impl Into<String>) -> Refusal {
@@ -163,67 +139,7 @@ fn plausible_branch(name: &str) -> bool {
         || forbidden.iter().any(|part| name.contains(part)))
 }
 
-pub fn source(current: &str, default: &str) -> Result<(), String> {
-    if current == default {
-        return Ok(());
-    }
-    Err(format!(
-        "safe-push: non-main branch {current}: publish with safe-push --to main (one-branch-main doctrine)\n\
-         safe-push: pushing branch names to origin is disabled\n"
-    ))
-}
-
-pub fn one_branch_main(repository: &Path) -> Result<(), String> {
-    let Some(head) = symbolic_ref(repository, "HEAD") else { return Ok(()) };
-    let Some(current) = head.strip_prefix("refs/heads/") else { return Ok(()) };
-    source(current, &default_branch(repository))
-}
-
-pub fn default_branch(repository: &Path) -> String {
-    let origin_head = symbolic_ref(repository, "refs/remotes/origin/HEAD").unwrap_or_default();
-    let default = origin_head.strip_prefix("refs/remotes/origin/").unwrap_or(&origin_head);
-    if default.is_empty() { "main".to_owned() } else { default.to_owned() }
-}
-
-fn symbolic_ref(repository: &Path, name: &str) -> Option<String> {
-    let output = git::run(repository, &["symbolic-ref", "--quiet", name]).ok()?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_owned())
-}
-
-pub fn snapshot(observed: &str, destination_ref: &str) -> Result<Snapshot, String> {
-    if observed.is_empty() {
-        return Ok(Snapshot::Absent);
-    }
-    let refused = |what: &str| format!("safe-push: origin destination {destination_ref} is {what} — refusing\n");
-    let mut found = Vec::new();
-    for line in observed.split('\n') {
-        let fields: Vec<&str> = line.split('\t').filter(|field| !field.is_empty()).collect();
-        let value = fields.first().copied().unwrap_or("");
-        if value.starts_with("ref: ") {
-            return Err(refused("symbolic"));
-        }
-        if !object_id(value) || fields.get(1) != Some(&destination_ref) || fields.len() > 2 {
-            return Err(refused("malformed or ambiguous"));
-        }
-        found.push(value);
-    }
-    match found.as_slice() {
-        [oid] => Ok(Snapshot::Object((*oid).to_owned())),
-        _ => Err(refused("malformed or ambiguous")),
-    }
-}
-
-fn object_id(value: &str) -> bool {
-    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-}
-
-pub fn publication(head_oid: &str, destination_ref: &str, destination_oid: &str) -> Publication {
-    Publication {
-        refspec: format!("{head_oid}:{destination_ref}"),
-        lease: format!("--force-with-lease={destination_ref}:{destination_oid}"),
-    }
-}
 
 #[cfg(test)]
-#[path = "safe_push_plan_tests.rs"]
+#[path = "request_tests.rs"]
 mod tests;

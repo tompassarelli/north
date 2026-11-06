@@ -320,14 +320,13 @@ the per-lane code still exists.
   - Add `crates/north-safe-push/` to `citation_check/config_keys.rs` `SAFE_PUSH_READERS` and to
     `land_model/features.rs` `LANDER_PATHS`.
   - Point `north land push` and `north land route` in `src/cli/tools.rs` at the crate.
+  - Changed on 2026-11-06 while landing this box: `land/restore.rs`, `safe_push_tag.rs`, `safe_push_tag_delete.rs` and `release.rs` move here too, as `restore.rs`, `tags/publish.rs`, `tags/delete.rs` and `tags/release.rs`, because they use the identity, plan and cancel code that moves, and leaving them in north-landing would make that crate depend on the crate that depends on it. The cancel flag, `cancelled`, `refuse` and `request_cancel` go to `landing/step.rs` in north-landing, which the scans there also use, and `session/cancel.rs` only installs the signal handler. `north land push`, `route` and `restore` are dispatched from `src/cli/tools.rs`, and `land/commands.rs` no longer lists them. All of `land/route.rs` moves, not only `decide`: `Settings::read` and `run` use the moved arguments type, and the lander-side reads they call are now `pub` in north-landing. The modules that now call north-landing's scans and step helpers (session, publication, tags, restore) gain `landing` in their `may_use` in structure.toml until P6, P7 and P9 route those calls through `shell` and `gates`; `default_branch` and the ls-remote snapshot parse sit in `shell/git.rs` and `shell/origin.rs` for the same reason, and `claim_output_log` is `session/output_log.rs`.
   - Done when: (1) `cargo test --workspace` passes; (2) code-health layers is clean; (3)
     `git -C ~/code/south/main show origin/main:agents/roles.toml | rg -c north:crates/north-safe-push/`
     prints 1; (4) `north code-health` shows north-landing's non-test line count lower than before.
 - **P5 Tags, restore, south ledger, receipt.** Covered harness change: review per the rule above.
-  `git mv` each file:
-  - `safe_push_tag.rs` to `tags/publish.rs`, `safe_push_tag_delete.rs` to `tags/delete.rs`, and
-    `release.rs` to `tags/release.rs`. `tags/name.rs` holds the one `release_tag` predicate.
-  - `land/restore.rs` to `restore.rs`.
+  The tag and restore files already moved in P4. Remaining:
+  - `tags/name.rs` holds the one `release_tag` predicate, used by `tags/publish.rs` and `tags/release.rs`.
   - `src/cli/remote_land.rs` to `landing/south_ledger.rs`. Its limits move to north-base, and root
     passes `ledger_client` in as a `HostFacts` field.
   - `src/cli/safe_push_result.rs` to `report/terminal.rs`.
@@ -423,14 +422,14 @@ Why this order:
 
 All four are on origin/main as of this revision.
 
-- `--restore` (north#618, eb3fddf5f): `land/restore.rs` moves to `restore.rs` (P5) and goes onto
+- `--restore` (north#618, eb3fddf5f): `land/restore.rs` moves to `restore.rs` (P4) and goes onto
   `Origin::push` (P7). Its scenarios already live in cargo.
-- `--delete-tag` (north#620, a1c853cf2): `safe_push_tag_delete.rs` moves to `tags/delete.rs` (P5). Its
+- `--delete-tag` (north#620, a1c853cf2): `safe_push_tag_delete.rs` moves to `tags/delete.rs` (P4). Its
   inline `starts_with('v')` gives way to `tags::name::release_tag`, and its push goes through
   `Origin::delete` (P7).
 - The non-admin push identity (north#619, bc3aa3bde and b081e327c): nothing in safe-push changes.
   Decision 7 and P6's property keep every safe-push write under the session's credential helper.
-- `v*` refusal outside `north release` (d8e911988): `release.rs` moves to `tags/release.rs` and its
+- `v*` refusal outside `north release` (d8e911988): `release.rs` moves to `tags/release.rs` (P4) and its
   `version_tag` to `tags/name.rs` as `release_tag` (P5). `--tag` and `--delete-tag` refuse through the
   same function.
 

@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::land::scans::outgoing::exit_status;
-use crate::landing::safe_push_plan::{self, Snapshot};
-use crate::landing::step::{Refused, Step, git_quiet};
+use north_landing::land::scans::outgoing::exit_status;
+use crate::shell::git::default_branch;
+use crate::shell::origin::{self, Snapshot};
+use north_landing::landing::step::{Refused, Step, git_quiet};
 
-use super::telemetry;
+use north_landing::land::telemetry;
 
 const USAGE: &str = "usage: safe-push --restore [--dry-run] COMMIT BRANCH\n\
 republish a commit that is already public to a branch origin no longer has: COMMIT must be reachable from origin's default branch or from a ref in the lane-gc mirror (LANE_GC_MIRRORS, default ~/.local/state/agents/lane-gc/mirrors/REPO.git); BRANCH must be absent on origin and not the default branch. The content scans are skipped because the commits were published and scanned when first pushed.\n";
@@ -58,13 +59,13 @@ fn restore(directory: &Path, request: &Request) -> Step {
     if !git(directory, &["check-ref-format", &destination_ref]) || request.branch.starts_with('-') || request.branch == "HEAD" {
         return Err(say(format!("safe-push: invalid destination branch '{}'", request.branch)));
     }
-    let default = safe_push_plan::default_branch(directory);
+    let default = default_branch(directory);
     if request.branch == default {
         return Err(say(format!("safe-push: --restore never touches origin's default branch {default}")));
     }
     let origin = git_quiet(directory, &["remote", "get-url", "--push", "origin"]).ok_or_else(|| say("safe-push: origin push URL unavailable"))?;
     let listing = git_quiet(directory, &["ls-remote", "--symref", &origin, &destination_ref]).ok_or_else(|| say(format!("safe-push: cannot read origin {destination_ref}")))?;
-    match safe_push_plan::snapshot(&listing, &destination_ref) {
+    match origin::snapshot(&listing, &destination_ref) {
         Ok(Snapshot::Absent) => {}
         Ok(Snapshot::Object(oid)) => return Err(say(format!("safe-push: origin {destination_ref} exists at {oid} — --restore only recreates a missing branch; NOT pushed"))),
         Err(refusal) => return Err(say(refusal.trim_end())),

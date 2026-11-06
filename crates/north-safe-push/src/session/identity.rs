@@ -1,15 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::step::{Refused, Step, git_quiet, git_read, git_status};
-
-pub fn refuse(message: impl std::fmt::Display) -> Refused {
-    if let Err(cancel) = cancelled() {
-        return cancel;
-    }
-    println!("{message}");
-    Refused(1)
-}
+use north_landing::landing::step::{Refused, Step, cancelled, git_quiet, git_read, git_status, refuse};
 
 pub fn state_changed(what: &str) -> Refused {
     if let Err(cancel) = cancelled() {
@@ -133,34 +125,6 @@ fn names(dir: &Path, namespace: &str) -> Vec<String> {
 fn delete_namespace(dir: &Path, namespace: &str) {
     let input: String = names(dir, namespace).iter().map(|name| format!("delete {name}\n")).collect();
     let _ = feed(dir, &["update-ref", "--stdin"], &input);
-}
-
-static CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-pub fn cancelled() -> Step {
-    if CANCELLED.load(std::sync::atomic::Ordering::SeqCst) { Err(Refused(130)) } else { Ok(()) }
-}
-
-pub fn watch_for_cancel() {
-    std::thread::spawn(|| {
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
-        runtime.block_on(async {
-            use tokio::signal::unix::{SignalKind, signal};
-            let (Ok(mut interrupt), Ok(mut terminate), Ok(mut hangup)) =
-                (signal(SignalKind::interrupt()), signal(SignalKind::terminate()), signal(SignalKind::hangup()))
-            else {
-                return;
-            };
-            loop {
-                tokio::select! {
-                    _ = interrupt.recv() => {}
-                    _ = terminate.recv() => {}
-                    _ = hangup.recv() => {}
-                }
-                CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
-            }
-        });
-    });
 }
 
 fn feed(dir: &Path, args: &[&str], input: &str) -> Option<String> {

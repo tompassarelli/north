@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::landing::safe_push_state::refuse;
+use crate::landing::step::refuse;
 use crate::landing::step::{Step, git_quiet, git_read};
 
 pub fn commit_email_scan(dir: &Path, revisions: &[String]) -> Step {

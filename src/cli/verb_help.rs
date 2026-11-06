@@ -4,7 +4,7 @@
 use super::CLI_HELP;
 use crate::capacity::WATCHDOG_USAGE;
 use crate::land::serve;
-use crate::landing::safe_push_plan;
+use north_safe_push::entry;
 use crate::lanes::GC_USAGE;
 
 const ASKS: [&str; 2] = ["--help", "-h"];
@@ -24,7 +24,7 @@ const CONTRACTS: [(&[&str], &str); 6] = [
     (&["fleet"], super::fleet::usage::USAGE),
     (&["land", "serve"], serve::USAGE),
     (&["lane-gc"], GC_USAGE),
-    (&["safe-push"], safe_push_plan::USAGE),
+    (&["safe-push"], entry::USAGE),
 ];
 
 fn starts_with(arguments: &[String], prefix: &[&str]) -> bool {

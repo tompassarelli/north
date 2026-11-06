@@ -17,7 +17,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("denylist", denylist::run),
     ("autoland-status", autoland_status::run),
     ("land-abandon", |arguments| land_abandon::abandon(arguments, &super::abandon_witness::FleetWitness)),
-    ("land", crate::land::run),
+    ("land", land),
     ("land-clean", lane_target::run),
     ("land-train", |arguments| ledger_verb("land-train", arguments)),
     ("incident", |arguments| ledger_verb("incident", arguments)),
@@ -33,7 +33,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("safe-push-result", super::safe_push_result::run),
     ("watch", crate::ops::watch::run),
     ("safe-push", super::remote_land::safe_push),
-    ("release", crate::landing::release::run),
+    ("release", north_safe_push::entry::release),
     ("remote-land", super::remote_land::run),
     ("provenance", provenance::run),
     ("issue-box-lint", issue_box_lint::run),
@@ -212,4 +212,8 @@ pub(super) fn verbs() -> impl Iterator<Item = &'static str> {
         .chain(super::session::NAMES.iter().map(|(name, _)| *name))
         .chain(super::FORWARDED.iter().map(|(name, _)| *name))
         .chain(BUILT_IN.iter().copied())
+}
+
+fn land(arguments: &[String]) -> u8 {
+    north_safe_push::entry::land(arguments).unwrap_or_else(|| crate::land::run(arguments))
 }

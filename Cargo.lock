@@ -869,6 +869,7 @@ dependencies = [
  "north-ops",
  "north-replay",
  "north-runtime",
+ "north-safe-push",
  "north-strategy-types",
  "north-tui",
  "percent-encoding",
@@ -1183,6 +1184,17 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml_edit",
+]
+
+[[package]]
+name = "north-safe-push"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-landing",
+ "rustix 0.38.44",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

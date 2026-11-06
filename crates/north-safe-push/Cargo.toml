@@ -1,0 +1,19 @@
+[package]
+name = "north-safe-push"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-landing = { path = "../north-landing" }
+rustix.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

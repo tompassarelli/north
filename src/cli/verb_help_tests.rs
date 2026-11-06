@@ -62,7 +62,7 @@ fn help_after_a_command_separator_or_inside_a_wrapped_program_belongs_to_that_pr
 
 #[test]
 fn a_verb_that_publishes_its_contract_prints_it_whole() {
-    assert_eq!(usage(&words("safe-push")), Some(format!("{}\n", crate::landing::safe_push_plan::USAGE.trim_end())));
+    assert_eq!(usage(&words("safe-push")), Some(format!("{}\n", north_safe_push::entry::USAGE.trim_end())));
     assert_eq!(usage(&words("capacity watchdog sample")), Some(format!("{}\n", crate::capacity::WATCHDOG_USAGE)));
     assert!(usage(&words("lane-gc")).unwrap().contains("--idle-hours"));
     assert!(usage(&words("land serve")).unwrap().contains("--all"));

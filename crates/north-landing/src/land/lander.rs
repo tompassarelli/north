@@ -24,7 +24,7 @@ pub struct Lander {
     pub heartbeat: Heartbeat,
 }
 
-pub(crate) fn state_home() -> PathBuf {
+pub fn state_home() -> PathBuf {
     std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"))
 }
 

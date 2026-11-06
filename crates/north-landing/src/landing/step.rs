@@ -1,12 +1,28 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use super::safe_push_state::cancelled;
-
 #[derive(Debug, Eq, PartialEq)]
 pub struct Refused(pub u8);
 
 pub type Step<T = ()> = Result<T, Refused>;
+
+static CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn cancelled() -> Step {
+    if CANCELLED.load(std::sync::atomic::Ordering::SeqCst) { Err(Refused(130)) } else { Ok(()) }
+}
+
+pub fn request_cancel() {
+    CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn refuse(message: impl std::fmt::Display) -> Refused {
+    if let Err(cancel) = cancelled() {
+        return cancel;
+    }
+    println!("{message}");
+    Refused(1)
+}
 
 fn git(dir: &Path, args: &[&str], stderr: Stdio) -> Step<String> {
     let output = Command::new("git").current_dir(dir).args(args).stderr(stderr).output().map_err(|_| Refused(127))?;

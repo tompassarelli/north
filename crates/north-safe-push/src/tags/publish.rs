@@ -1,18 +1,18 @@
-use std::fs::File;
-use std::os::fd::AsFd;
 use std::path::Path;
 use std::process::Command;
 
-use crate::land::scans::outgoing::denylist::Denylist;
-use crate::land::scans::outgoing::email::commit_email_scan;
-use crate::land::scans::outgoing::language::language_gate;
-use crate::land::scans::outgoing::native_ref::native_ref_scan;
-use crate::land::scans::outgoing::secrets::{annotation_secret_scan, history_secret_scan};
-use crate::land::scans::outgoing::{exit_status, instruction_limits, on_path};
-use super::safe_push_plan::{self, Arguments, Plan, USAGE};
-use super::safe_push_tag_delete::{DeleteRequest, delete_tag};
-use super::safe_push_state::{Identity, OriginRefs, cancelled, refuse, remote_snapshot, state_changed, watch_for_cancel};
-use super::step::{Refused, Step, git_quiet, git_read};
+use north_landing::land::scans::outgoing::denylist::Denylist;
+use north_landing::land::scans::outgoing::email::commit_email_scan;
+use north_landing::land::scans::outgoing::language::language_gate;
+use north_landing::land::scans::outgoing::native_ref::native_ref_scan;
+use north_landing::land::scans::outgoing::secrets::{annotation_secret_scan, history_secret_scan};
+use north_landing::land::scans::outgoing::{exit_status, instruction_limits, on_path};
+use super::delete::{DeleteRequest, delete_tag};
+use crate::request::{self, Arguments, Plan, USAGE};
+use crate::session::cancel::watch_for_cancel;
+use crate::session::output_log::claim_output_log;
+use crate::session::identity::{Identity, OriginRefs, remote_snapshot, state_changed};
+use north_landing::landing::step::{Refused, Step, cancelled, git_quiet, git_read, refuse};
 
 pub struct TagRequest<'a> {
     pub tag: &'a str,
@@ -21,7 +21,7 @@ pub struct TagRequest<'a> {
 
 pub fn run(arguments: &[String]) -> u8 {
     watch_for_cancel();
-    let outcome = match safe_push_plan::arguments(arguments) {
+    let outcome = match request::arguments(arguments) {
         Ok(Plan::Help) => {
             print!("{USAGE}");
             return 0;
@@ -171,34 +171,4 @@ fn push(dir: &Path, origin_url: &str, request: &TagRequest, tag_oid: &str, tag_r
         .status();
     exit_status(status)?;
     cancelled()
-}
-
-pub(crate) struct Claims {
-    pub(crate) list: String,
-    _files: Vec<File>,
-}
-
-pub(crate) fn claim_output_log() -> Step<Claims> {
-    let claimed_before = std::env::var("SAFE_PUSH_OUTPUT_CLAIMED").unwrap_or_default();
-    let mut claims: Vec<(String, File)> = Vec::new();
-    for fd in [1, 2] {
-        let Ok(target) = std::fs::read_link(format!("/proc/self/fd/{fd}")) else { continue };
-        let target = target.to_string_lossy().into_owned();
-        let known = format!(" {} {claimed_before} ", claims.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>().join(" "));
-        if !Path::new(&target).is_file() || known.contains(&format!(" {target} ")) {
-            continue;
-        }
-        let Ok(file) = File::open(&target) else { return Err(Refused(1)) };
-        if rustix::fs::flock(file.as_fd(), rustix::fs::FlockOperation::NonBlockingLockExclusive).is_err() {
-            let cwd = std::env::current_dir().unwrap_or_default();
-            eprintln!(
-                "safe-push: refusing in {}: {target} is already the log of another running safe-push; give each landing its own log file. NOT pushed.",
-                cwd.display()
-            );
-            return Err(Refused(1));
-        }
-        claims.push((target, file));
-    }
-    let added: String = claims.iter().map(|(path, _)| format!(" {path}")).collect();
-    Ok(Claims { list: format!("{claimed_before}{added}"), _files: claims.into_iter().map(|(_, file)| file).collect() })
 }
