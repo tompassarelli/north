@@ -360,8 +360,9 @@ impl Goals {
     }
 }
 
-/// One bar's readings for one repository: the last 24 h carries the verdict, 12 h and 7 d are context.
+/// One bar's readings for one repository: the last 24 h carries the verdict, 1 h, 12 h and 7 d are context.
 struct Cells {
+    hour: Option<Reading>,
     half_day: Option<Reading>,
     day: (Option<Reading>, Standing),
     week: Option<Reading>,
@@ -387,7 +388,7 @@ fn assess(reading: impl Fn(Bar, Window) -> Option<Reading>, goals: &Goals, repo:
         .map(|day| Window { start: now - (day + 1) * DAY_S + 1, end: now - day * DAY_S + 1 })
         .take_while(|window| Bar::ALL.iter().all(|bar| counts(standing(*bar, *window).1, *bar)))
         .count();
-    let bars = Bar::ALL.iter().map(|&bar| Cells { half_day: reading(bar, last(now, 12)), day: standing(bar, last(now, 24)), week: reading(bar, last(now, DAYS as i64 * 24)) }).collect();
+    let bars = Bar::ALL.iter().map(|&bar| Cells { hour: reading(bar, last(now, 1)), half_day: reading(bar, last(now, 12)), day: standing(bar, last(now, 24)), week: reading(bar, last(now, DAYS as i64 * 24)) }).collect();
     Repo { name: repo, bars, days_in_a_row }
 }
 
