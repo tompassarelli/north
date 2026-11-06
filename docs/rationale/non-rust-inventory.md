@@ -19,7 +19,6 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 | bin/automation-chrome | 9 | stay | 9-line flock wrapper that execs the Playwright CLI in lib/automation-chrome |
 | bin/automation-chrome.test.sh | 9 | stay | test of the Playwright wrapper |
 | bin/bun | 14 | stay | PATH shadow that routes bun through `north capacity gate` admission, then execs the real bun; must be an executable named bun (<=80-line glue) |
-| bin/capacity-watchdog | 549 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | Bun TS using bun:sqlite (rusqlite replaces it) and; no Bun-only API that Rust lacks |
 | bin/cargo | 14 | stay | same admission shadow for cargo |
 | bin/depbox | 88 | stay | execs bwrap/unshare sandbox around an arbitrary command (namespace setup before any runtime exists); glue under 80 code lines |
 | bin/effect-kit | 4 | stay | 4-line PATH name for agent-machinery/scripts/effect-kit.mjs |
