@@ -47,6 +47,9 @@ pub struct Judged {
     pub repo: String,
     pub at: i64,
     pub cause: Option<Cause>,
+    pub sha: String,
+    pub files: Vec<String>,
+    pub fixed_by: Option<String>,
 }
 
 /// Where the history and the red-main culprits are read from: `<code_root>/<checkout>/main` and the
@@ -178,17 +181,14 @@ impl<'a> Read<'a> {
 
 const REVERTS: &str = "This reverts commit ";
 
-fn cause(landed: &Commit, later: &[Read], landing: &Landing) -> Option<Cause> {
+fn cause<'a>(landed: &Commit, later: &[Read<'a>], landing: &Landing) -> Option<(Cause, &'a Commit)> {
     let window: Vec<&Read> = later.iter().filter(|read| read.commit.at <= landed.at + REWORK_WINDOW_S).collect();
     let revert_subject = format!("Revert \"{}\"", landed.subject);
-    if window.iter().any(|read| read.commit.subject == revert_subject || read.reverts.iter().any(|rest| rest.starts_with(landed.sha.as_str()))) {
-        return Some(Cause::Reverted);
+    if let Some(read) = window.iter().find(|read| read.commit.subject == revert_subject || read.reverts.iter().any(|rest| rest.starts_with(landed.sha.as_str()))) {
+        return Some((Cause::Reverted, read.commit));
     }
     let overlaps = |commit: &Commit| !landed.files.is_empty() && 2 * commit.files.iter().filter(|file| landed.files.contains(file)).count() >= landed.files.len();
-    if window.iter().any(|read| (read.fix && read.names(landing)) || (read.commit.subject.starts_with("Fix") && overlaps(read.commit))) {
-        return Some(Cause::FixedForward);
-    }
-    None
+    window.iter().find(|read| (read.fix && read.names(landing)) || (read.commit.subject.starts_with("Fix") && overlaps(read.commit))).map(|read| (Cause::FixedForward, read.commit))
 }
 
 
@@ -201,12 +201,14 @@ pub struct Verdict {
     pub at: i64,
     pub cause: Option<Cause>,
     pub closed: bool,
+    pub files: Vec<String>,
+    pub fixed_by: Option<String>,
 }
 
 impl Verdict {
     pub fn judged(&self, repo: &str, landing: &Landing, culprits: &BTreeSet<String>) -> Judged {
         let cause = self.cause.or_else(|| culprits.contains(&landing.sha).then_some(Cause::Culprit));
-        Judged { repo: repo.to_owned(), at: self.at, cause }
+        Judged { repo: repo.to_owned(), at: self.at, cause, sha: landing.sha.clone(), files: self.files.clone(), fixed_by: self.fixed_by.clone() }
     }
 }
 
@@ -221,8 +223,15 @@ pub fn judge_history(commits: &[Commit], landings: &[&Landing]) -> Vec<(usize, V
         .into_iter()
         .map(|(index, position)| {
             let landed = &commits[position];
-            let cause = cause(landed, &reads[position - first + 1..], landings[index]);
-            (index, Verdict { at: landed.at, cause, closed: newest > landed.at + REWORK_WINDOW_S + CLOSE_MARGIN_S })
+            let found = cause(landed, &reads[position - first + 1..], landings[index]);
+            let verdict = Verdict {
+                at: landed.at,
+                cause: found.map(|(cause, _)| cause),
+                closed: newest > landed.at + REWORK_WINDOW_S + CLOSE_MARGIN_S,
+                files: landed.files.clone(),
+                fixed_by: found.map(|(_, commit)| commit.subject.clone()),
+            };
+            (index, verdict)
         })
         .collect()
 }

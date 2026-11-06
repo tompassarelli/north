@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::history;
 use super::rework::{self, Landing, Verdict};
 
-const FILE: &str = "north-rework.json";
+const FILE: &str = "north-rework-detail.json";
 
 /// The verdicts judged so far against one main: `judged` holds every landing asked about at `head`, and a landing
 /// in it without a verdict is not on that main.

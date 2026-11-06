@@ -41,3 +41,7 @@ The landings ledger starts on 2026-11-04 and the after-push spans on 2026-11-06,
 ## Where north stands
 
 North leads on how fast an ask becomes a landed commit and on the median wait in the landing queue. It trails on rework (19% against DORA's elite 5%), on the landing queue's tail (p90 110 min against SubmitQueue's P95 under 19 min), and on acting on its own recommendations (4%). Corrections per hour, verification after the push and first-try success have no published figure to set them against.
+
+## Weekly run
+
+The fleet tick runs `north scoreboard --record` when the last recording is a week old, writing `north/scoreboard/week.json` and a one-line score under the state root; the `scoreboard` loop in `harness/loops.toml` declares it, so `north loops check` fails when the record is older than two weeks. Each recording compares every number's headline figure (the rate, the median, the share) with the week before. A number counts as worse when both weeks hold at least five observations and it moved more than 10% in its worse direction (up for corrections, waits and rework, down for first-try success and acted recommendations). The proxy hears the worse numbers once per recording, in the fleet tick; the margin and the sample floor are guesses to be tuned once a few weeks of recordings show how much a number moves without cause. `north scoreboard rework` splits the rework number by the class of change and by what the rework fixed, so the fixes can aim at the class that reworks most.

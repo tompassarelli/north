@@ -6,7 +6,7 @@ use std::path::Path;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
-use super::{Figure, Measure, Window};
+use super::{Better, Figure, Measure, Window};
 use crate::foundation::clock::Timestamp;
 use crate::guard::recommend_acts::{self, Turn, turn_in};
 use crate::ledger::outcome::attention::{Typed, references};
@@ -142,6 +142,7 @@ impl Tom {
         };
         Measure {
             name: "Tom's corrections per active hour".into(),
+            better: Better::Lower,
             source: "grounding ledger correction rows on Tom's typed messages, over clock hours holding one of those messages (convo store, proxy conversations)",
             weeks: weeks.map(figure),
         }
@@ -165,6 +166,7 @@ impl Tom {
         };
         Measure {
             name: "Tom's ask to its first landed commit".into(),
+            better: Better::Lower,
             source: "each typed message whose turn created, edited or staffed an issue (its transcript, read as north hook recommend-acts reads it) to the first worker-ledger run landing that issue on main (threads runs.landed_at)",
             weeks: weeks.map(figure),
         }
@@ -184,6 +186,7 @@ impl Tom {
         };
         Measure {
             name: "proxy recommendations filed as an issue the same turn".into(),
+            better: Better::Higher,
             source: "proxy turns whose final reply recommends or asks (north hook recommend-acts' rule, ask-once decisions excluded) that created or edited an issue the reply cites (transcripts)",
             weeks: weeks.map(figure),
         }

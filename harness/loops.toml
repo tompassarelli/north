@@ -224,6 +224,16 @@ cadence_hours = 24
 record = "north/grounding/ledger.jsonl"
 score = "north/grounding/corrections-week.txt"
 
+[[loop]]
+name = "scoreboard"
+decision = "which of the harness's weekly numbers the proxy hears got worse than the week before"
+sites = ["src/cli/scoreboard/weekly.rs"]
+signal = "the scoreboard's headline figure per number (north scoreboard), this week against the week before, compared only when both weeks hold at least five observations and the move passes 10% in the worse direction; the proxy hears each recording's worse numbers once"
+updated_by = "north scoreboard --record, run by the fleet tick once a week"
+cadence_hours = 168
+record = "north/scoreboard/week.json"
+score = "north/scoreboard/week.txt"
+
 [plumbing]
 constants = [
   "crates/north-capacity-host/src/capacity/gate.rs::TOOLCHAIN_MISSING",

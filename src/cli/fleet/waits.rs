@@ -95,6 +95,7 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.park_limited", run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
             ProbeJob { name: "probes.settle.breaker", run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
             ProbeJob { name: "probes.settle.goals", run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
+            ProbeJob { name: "probes.settle.scoreboard", run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob { name: "probes.settle.corrections", run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob {
                 name: "probes.settle.hand_over",

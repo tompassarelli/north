@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use rusqlite::Connection;
 
-use super::{Figure, Measure, Window};
+use super::{Better, Figure, Measure, Window};
 use crate::foundation::clock::Timestamp;
 use crate::land::trace::profile::Trace;
 use crate::land::trace::report::every_queue;
@@ -34,7 +34,7 @@ pub fn queue_to_main(db: &Connection, weeks: [Window; 2]) -> rusqlite::Result<Me
     let landed: Vec<(i64, i64)> =
         statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?.filter_map(Result::ok).filter_map(|(queued, landed)| Some((seconds(&queued)?, seconds(&landed)?))).collect();
     let figure = |window: Window| Figure::Spread { seconds: landed.iter().filter(|(_, at)| window.holds(*at)).map(|(queued, at)| (at - queued).max(0) as f64).collect(), open: 0, open_label: "" };
-    Ok(Measure { name: "landing queue to main".into(), source: "the lander's landings ledger, queued_at to landed_at of each landed lane (threads landings)", weeks: weeks.map(figure) })
+    Ok(Measure { name: "landing queue to main".into(), better: Better::Lower, source: "the lander's landings ledger, queued_at to landed_at of each landed lane (threads landings)", weeks: weeks.map(figure) })
 }
 
 pub fn verification(weeks: [Window; 2]) -> Measure {
@@ -42,7 +42,7 @@ pub fn verification(weeks: [Window; 2]) -> Measure {
     let trace = Trace::of(&spans);
     let profiles: Vec<(f64, f64)> = trace.landings(weeks[1].start as f64).into_iter().map(|landing| (landing.end, trace.profile(landing).after_wall)).filter(|(_, wall)| *wall > 0.0).collect();
     let figure = |window: Window| Figure::Spread { seconds: profiles.iter().filter(|(end, _)| window.holds(*end as i64)).map(|(_, wall)| *wall).collect(), open: 0, open_label: "" };
-    Measure { name: "verification after the push".into(), source: "each landing's after-push check spans in the land queues' spans.jsonl, as north land profile reads them", weeks: weeks.map(figure) }
+    Measure { name: "verification after the push".into(), better: Better::Lower, source: "each landing's after-push check spans in the land queues' spans.jsonl, as north land profile reads them", weeks: weeks.map(figure) }
 }
 
 pub fn rework(db: &Connection, sources: &Sources, weeks: [Window; 2], now: i64) -> Result<Measure, String> {
@@ -66,6 +66,7 @@ pub fn rework(db: &Connection, sources: &Sources, weeks: [Window; 2], now: i64) 
     };
     Ok(Measure {
         name: "rework within 48 h per landing".into(),
+        better: Better::Lower,
         source: "worker landings on each ~/code/<repo>/main reverted, fixed forward or named a red-main culprit within 48 h (threads calibration rework)",
         weeks: weeks.map(figure),
     })

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use rusqlite::Connection;
 
-use super::{Figure, Measure, Window};
+use super::{Better, Figure, Measure, Window};
 use crate::foundation::clock::Timestamp;
 use crate::platform::run_roles::worker_where;
 
@@ -46,6 +46,6 @@ pub fn first_try(db: &Connection, weeks: [Window; 2]) -> rusqlite::Result<Vec<Me
     };
     Ok(std::iter::once(ALL)
         .chain(categories)
-        .map(|category| Measure { name: format!("worker first-try success, {category}"), source: SOURCE, weeks: weeks.map(|window| figure(category, window)) })
+        .map(|category| Measure { name: format!("worker first-try success, {category}"), better: Better::Higher, source: SOURCE, weeks: weeks.map(|window| figure(category, window)) })
         .collect())
 }

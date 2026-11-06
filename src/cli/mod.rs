@@ -23,7 +23,7 @@ pub(crate) mod remote_land;
 mod remote_serve;
 #[cfg(test)]
 mod remote_serve_tests;
-mod scoreboard;
+pub(crate) mod scoreboard;
 mod send;
 mod safe_push_result;
 mod session;
