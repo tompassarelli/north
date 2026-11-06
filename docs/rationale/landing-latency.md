@@ -121,7 +121,9 @@ nearest its head, the slot last built at main:
   over north-core's seven dependents, 1,287 tests 18.8 s), 73 s wall. Under 20 s needs the build and the
   tests split: build on gex45's 20 threads instead of ccx33's 8, run the tests from one `cargo nextest
   archive` partitioned over gex45 and ccx33, and finish north-core's split (north#259) so a north-core
-  edit stops rebuilding north-guard and north-ops (34,000 lines each) whose code does not use it.
+  edit stops rebuilding north-guard and north-ops (34,000 lines each) whose code does not use it. The split
+  landed first and alone brought the check under 20 s; the measurement is in crate-split.md, "north-providers
+  and north-health".
 
 gex45 is the binding constraint: through the morning it ran six slot jobs at once at load 37 to 57 on
 20 threads, and a job waited 1 to 5 minutes for a slot, longer than the verification itself.

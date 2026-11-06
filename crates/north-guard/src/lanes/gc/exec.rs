@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use north_core::platform::process;
+use north_base::platform::process;
 
 pub(super) const LIMIT: Duration = Duration::from_secs(120);
 pub(super) const PUSH_LIMIT: Duration = Duration::from_secs(180);

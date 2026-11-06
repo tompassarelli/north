@@ -7,7 +7,9 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
-north-core = { path = "../north-core" }
+north-base = { path = "../north-base" }
+north-fleet = { path = "../north-fleet" }
+north-providers = { path = "../north-providers" }
 crossterm.workspace = true
 ratatui.workspace = true
 sha2.workspace = true

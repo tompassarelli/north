@@ -10,7 +10,7 @@ use super::{Consumer, ProofError, Target, consumer_proof, expand};
 use crate::lanes::reference_search::{Scope, mentioning};
 use crate::lanes::repo::{git_ok, git_out};
 use crate::lanes::verdict::retires;
-use north_core::platform::git;
+use north_base::platform::git;
 
 static FULL_OBJECT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9a-f]{40}$").unwrap());
 static CONSUMER_RECORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^consumer-main:\s*(.*\S)\s*$").unwrap());

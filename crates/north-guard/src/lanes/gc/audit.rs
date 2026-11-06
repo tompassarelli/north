@@ -14,7 +14,7 @@ use super::remote::{active_runs, remote_branches};
 use super::state::write_atomically;
 use north_github_mirror::store::{self, Mirror};
 use north_github_mirror::read;
-use north_core::foundation::clock::Timestamp;
+use north_base::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north repo audit [--repo NAME]... [--alert]";
 const LANDING: &str = "claude/land-";

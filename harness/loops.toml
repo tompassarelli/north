@@ -68,7 +68,7 @@ owner = "north#112 Effort is an arm"
 [[loop]]
 name = "context-window"
 decision = "the auto-compact window a dispatched Claude box with no tier or effort arm launches with"
-sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-fleet/src/fleet/compaction.rs", "crates/north-core/src/providers/claude/session_env.rs"]
+sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-fleet/src/fleet/compaction.rs", "crates/north-providers/src/providers/claude/session_env.rs"]
 signal = "ledger cost per kept box and closed boxes per context arm stamp"
 updated_by = "north dispatch draws the arms in equal seeded shares"
 cadence_hours = 24

@@ -19,21 +19,28 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
   `north-landing` would make `guard` rebuild on every landing-gate edit.
 - `north-landing`: `landing`, `dep_gate`, `language_gate`, `provenance`, `issue_box_lint`,
   `follows_release`, `land_abandon`. Depends on `north-base` only.
-- `north-core`: everything else (`fleet`, `ledger`, `threads`, `health`, `providers`, ...).
-  Depends on `north-base`; nothing in it uses `north-landing`, `north-tui`, `north-guard` or `north-ops`.
-- `north-tui`: `tui`, the fleet terminal screen. Depends on `north-core`; nothing in `north-core` uses it,
-  so a screen edit rebuilds `north-tui` and the root package while `north-core` stays cached.
-- `north-guard`: `guard` and `hook`, the tool-call policy behind `north hook`. Depends on `north-core`,
-  `north-capacity` and `north-base`; nothing in `north-core` uses it, so a guard edit rebuilds `north-guard` and the root package.
-- `north-ops`: `ops`, the operational commands. Depends on `north-base` and `north-core`; nothing in
-  `north-core` uses it, and `north-guard` names it only for its tests.
+- `north-core`: the agent catalog and config checks, `build_time`, `grounding`, `doctor_nix`, `nix_gc`,
+  `proxy`, `split` and `contract_probe`. Depends on `north-base`, `north-pace`, `north-threads`, `north-fleet`
+  and `north-graph-ground`; only the root package depends on it, so a north-core edit rebuilds north-core
+  and the root and nothing else.
+- `north-providers`: `providers`, `codex` and `ledger`, the provider adapters and the run ledger they write.
+  Depends on `north-base`, `north-pace`, `north-threads` and `north-fleet`. `north-guard`, `north-ops`,
+  `north-dispatch`, `north-runtime`, `north-tui` and the root package import `ledger` and `providers` from it.
+- `north-health`: `health`, the `north health` checks. Depends on `north-base` and `north-threads`;
+  `north-ops` (for `health::loops`) and the root package import it.
+- `north-tui`: `tui`, the fleet terminal screen. Depends on `north-providers`; nothing below it uses it,
+  so a screen edit rebuilds `north-tui` and the root package while `north-providers` stays cached.
+- `north-guard`: `guard` and `hook`, the tool-call policy behind `north hook`. Depends on `north-providers`,
+  `north-capacity` and `north-base`; nothing below it uses it, so a guard edit rebuilds `north-guard` and the root package.
+- `north-ops`: `ops`, the operational commands. Depends on `north-base`, `north-providers` and `north-health`;
+  nothing below it uses it, and `north-guard` names it only for its tests.
 - `north-capacity`: the rest of `capacity` (admission, leases, aperture, deadlines and the game reserve),
   moved out of `north-core` (box 4-17). Depends on `north-base` only. `capacity::fixtures` is compiled under
   its `test-support` feature, which `north-capacity-host` enables as a dev-dependency.
 - `north-capacity-host`: `capacity/host`, `capacity/gate`, `capacity/watchdog` and the `north capacity`
   subcommand dispatch (`capacity/command.rs`). Its `capacity` module re-exports `north_capacity::capacity` and adds
   those modules, so `crate::capacity::...` and `super::` paths inside them are unchanged. Depends on
-  `north-base`, `north-capacity` and `north-core`; `north-ops` (for `land_offload`) and the root package import `capacity` from it.
+  `north-base`, `north-capacity`, `north-fleet` and `north-threads`; `north-ops` (for `land_offload`) and the root package import `capacity` from it.
 - `north-runtime`: `runtime`, `land_offload`, `build_offload`, `laptop_runner`, `agent_contain`,
   `laptop_ntfy`, `timers`, `model_watch`, `job_watch`, `outside_watch`, `usage_web_read` and
   `runtime_access`, moved out of `ops` (box 4-9). Depends on `north-ops` for `ops::pacing`, `ops::dispatch`
@@ -95,6 +102,28 @@ lists for review. It ends with `cargo test --workspace --no-run` and the new cra
 `Dependency: NAME — REASON` trailer for each dependency it added, which the lander's dependency gate
 requires. A second run on a moved tree changes nothing. To rebase a move, reset to the new main and run
 it again rather than merging by hand.
+
+## north-providers and north-health (2026-11-06)
+
+North-guard, north-ops, north-dispatch, north-runtime, north-tui and north-capacity-host listed
+north-core only for `ledger`, `providers` and `health` and for north-core's re-exports of north-base,
+north-fleet, north-pace and north-threads. Moving the three modules (with `codex`, which `providers`
+uses) into two crates, and pointing each `lib.rs` at the crates that own what it re-exports, left the
+root package as north-core's only dependent. `north split move-module` refuses this move, because
+sibling `lib.rs` re-exports name the modules, so it was done by hand as byte-identical renames.
+`health` got its own crate because north-ops was 600 lines under its 25,000-line cap.
+
+The hub land check, a one-line north-core edit followed by `cargo nextest run --lib --bins` over the
+affected packages, measured on gex45 through `north capacity offload run`. The slot was first warmed
+by the same command at the base, and wall time runs from shipping the bundle to the verdict:
+
+- Before (fc091653d, 10 packages): build 6.1 s rebuilding north-core and its 9 dependents, then
+  327 tests in 12.2 s, 25.8 s wall.
+- After (north-core and the root): build 1.9 s, then 57 tests in 5.0 s, 17.9 s wall.
+
+About 11 s of the 17.9 s is shipping the bundle and entering the dev shell. Partitioning one
+`cargo nextest archive` over gex45 and ccx33 would split a 5 s test run and pay that shipping
+twice, so it was not built.
 
 ## north-guard
 

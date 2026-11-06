@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use super::exec::{command, git, real};
 use super::liveness::Trees;
 use super::super::live_process::{any_inside, open_paths};
-use north_core::foundation::clock::Timestamp;
+use north_base::foundation::clock::Timestamp;
 
 const DAY_MS: i64 = 86_400_000;
 

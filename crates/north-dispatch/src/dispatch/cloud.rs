@@ -177,7 +177,7 @@ pub fn current_login() -> Result<Login, String> {
 
 /// Writes the launched session's running row with its brief, so the ledger holds the cloud run from its start.
 pub fn record_run(launched: &Launched, brief: &str, at: f64) {
-    let row = north_core::providers::claude::runs::cloud::launched(&launched.session, brief, crate::foundation::clock::Timestamp::from_unix_seconds_f64(at));
+    let row = north_providers::providers::claude::runs::cloud::launched(&launched.session, brief, crate::foundation::clock::Timestamp::from_unix_seconds_f64(at));
     if let Err(error) = crate::threads::client::ingest(format!("{row}\n").as_bytes()) {
         eprintln!("north cloud launch: the run row for {} went unrecorded: {error}", launched.session);
     }

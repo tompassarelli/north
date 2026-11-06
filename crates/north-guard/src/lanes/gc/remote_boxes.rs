@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use north_core::platform::process;
+use north_base::platform::process;
 use regex::Regex;
 use serde_json::Value;
 

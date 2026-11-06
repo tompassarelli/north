@@ -109,7 +109,7 @@ ignored.
 - `crates/north-pace/src/router/prices.json` priced Sonnet 5.5 cache reads at $0.10 per million against the list price
   of $0.20. Reads are 74% of Sonnet spend, so the closed-box report understated Sonnet's cost per box by about a third.
   That tilted the Sonnet-against-Opus tier arms toward Sonnet. Corrected in this change.
-- `Prices::weight` in `crates/north-core/src/providers/claude/runs/telemetry.rs`, which splits an account's plan dollars
+- `Prices::weight` in `crates/north-providers/src/providers/claude/runs/telemetry.rs`, which splits an account's plan dollars
   across concurrent runs, prices writes at 1.25 times input and reads at 0.1 times. Claude Code writes at 2 times, and
   Opus 5.5 reads at 0.05 times. Over the window its formula gives $19,082 against the list price of $13,589. Left as a
   box.

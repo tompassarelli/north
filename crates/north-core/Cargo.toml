@@ -12,14 +12,9 @@ north-pace = { path = "../north-pace" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 north-fleet = { path = "../north-fleet" }
 north-graph-ground = { path = "../north-graph-ground" }
-crossterm.workspace = true
-ratatui.workspace = true
 fancy-regex.workspace = true
 regex.workspace = true
-percent-encoding.workspace = true
-rusqlite.workspace = true
 rustix.workspace = true
-ryu.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -27,12 +22,10 @@ tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
-tui-markdown.workspace = true
-tui-textarea-2.workspace = true
 
 [dev-dependencies]
+rusqlite.workspace = true
 north-fleet = { path = "../north-fleet", features = ["test-support"] }
-proptest = { version = "1", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

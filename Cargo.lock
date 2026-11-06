@@ -867,9 +867,11 @@ dependencies = [
  "north-graph-ground",
  "north-graph-ingest",
  "north-guard",
+ "north-health",
  "north-lander-doctor",
  "north-landing",
  "north-ops",
+ "north-providers",
  "north-replay",
  "north-runtime",
  "north-safe-push",
@@ -938,7 +940,8 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-capacity",
- "north-core",
+ "north-fleet",
+ "north-threads",
  "proptest",
  "regex",
  "rusqlite",
@@ -964,20 +967,15 @@ dependencies = [
 name = "north-core"
 version = "0.1.0"
 dependencies = [
- "crossterm 0.28.1",
  "fancy-regex",
  "north-base",
  "north-fleet",
  "north-graph-ground",
  "north-pace",
  "north-threads",
- "percent-encoding",
- "proptest",
- "ratatui",
  "regex",
  "rusqlite",
  "rustix 0.38.44",
- "ryu",
  "serde",
  "serde_json",
  "sha2",
@@ -985,8 +983,6 @@ dependencies = [
  "time",
  "tokio",
  "toml_edit",
- "tui-markdown",
- "tui-textarea-2",
 ]
 
 [[package]]
@@ -1004,11 +1000,15 @@ dependencies = [
 name = "north-dispatch"
 version = "0.1.0"
 dependencies = [
+ "north-base",
  "north-capacity-host",
- "north-core",
+ "north-fleet",
  "north-github-mirror",
  "north-graph-ground",
+ "north-pace",
+ "north-providers",
  "north-strategy-types",
+ "north-threads",
  "proptest",
  "regex",
  "rusqlite",
@@ -1100,11 +1100,14 @@ dependencies = [
  "fancy-regex",
  "north-base",
  "north-capacity",
- "north-core",
  "north-dispatch",
+ "north-fleet",
  "north-github-mirror",
  "north-graph-ground",
+ "north-pace",
+ "north-providers",
  "north-strategy-types",
+ "north-threads",
  "regex",
  "rusqlite",
  "rustix 0.38.44",
@@ -1114,6 +1117,18 @@ dependencies = [
  "tempfile",
  "time",
  "toml_edit",
+]
+
+[[package]]
+name = "north-health"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-threads",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -1155,10 +1170,14 @@ dependencies = [
  "fancy-regex",
  "north-base",
  "north-capacity-host",
- "north-core",
  "north-dispatch",
+ "north-fleet",
  "north-github-mirror",
+ "north-health",
+ "north-pace",
+ "north-providers",
  "north-strategy-types",
+ "north-threads",
  "percent-encoding",
  "proptest",
  "regex",
@@ -1191,6 +1210,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-providers"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-fleet",
+ "north-pace",
+ "north-threads",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml_edit",
+]
+
+[[package]]
 name = "north-replay"
 version = "0.1.0"
 dependencies = [
@@ -1211,8 +1247,8 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "north-base",
- "north-core",
  "north-dispatch",
+ "north-providers",
  "percent-encoding",
  "regex",
  "rusqlite",
@@ -1266,7 +1302,9 @@ name = "north-tui"
 version = "0.1.0"
 dependencies = [
  "crossterm 0.28.1",
- "north-core",
+ "north-base",
+ "north-fleet",
+ "north-providers",
  "proptest",
  "ratatui",
  "serde_json",

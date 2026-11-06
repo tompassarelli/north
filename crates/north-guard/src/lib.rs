@@ -1,5 +1,9 @@
 pub use north_capacity::capacity;
-pub use north_core::{autoland_status, error, fleet, foundation, ledger, nix_command, pace, platform, router, shell, threads, usage};
+pub use north_base::{autoland_status, error, foundation, nix_command, platform, shell};
+pub use north_fleet::fleet;
+pub use north_pace::{pace, router, usage};
+pub use north_providers::ledger;
+pub use north_threads::threads;
 
 pub mod code_health;
 pub mod guard;

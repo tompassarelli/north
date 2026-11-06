@@ -24,7 +24,7 @@ the boxes. It implements nothing. Owner: north#621.
      Autoland, the final-scan and land-check interleave under the lock, the push, and the aftermath
      (lane cleanup, auto-reap, follows-release, after-landing gates). About 1,100 lines.
   2. The **dry-run landing**, `safe-push --dry-run --to main`: every gate and the land checks, no push.
-     `north health` runs it every 30 minutes (`crates/north-core/src/health.rs`, the
+     `north health` runs it every 30 minutes (`crates/north-health/src/health.rs`, the
      `north-health-probe-*` lanes in `~/.local/state/safe-push/events.jsonl`).
   3. The **candidate verdict**, `safe-push --check-candidate --base SHA`: the lander's checker
      (`land/serve.rs` `checker: safe-push`), classes green, refused, transient, deferred, red-main.

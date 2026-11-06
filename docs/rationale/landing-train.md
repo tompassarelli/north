@@ -38,7 +38,7 @@ Three structural causes, each enough on its own to put a break on main:
 
 1. **Selection gaps.** b4c690bc5 widened the .safe-push path filters of both land-checks.sh checks to
    `crates/`, but land-checks.sh still enqueues the north binary's dependants only for `src/*`,
-   `crates/north-core/src/threads/*`, `crates/north-core/src/ledger/*` and Cargo files (line 44), so a
+   `crates/north-core/src/threads/*`, `crates/north-providers/src/ledger/*` and Cargo files (line 44), so a
    change elsewhere in `crates/` (18ab04ed1, 566e9007d) runs the check and selects no shell test that runs
    north. check-owners also reads `$HOME/code/south/main` and `$HOME/code/nixos-config/main`, whose
    revisions no verdict records.

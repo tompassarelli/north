@@ -117,7 +117,7 @@ Enforced by: types. A new timer cannot send without naming itself, so it cannot 
 - `SessionRecord` (`crates/north-core/src/fleet/model.rs:135`) gains `role: Role` with `Proxy`,
   `Lead` and `Worker`. `north fleet launch --role proxy` sets it; a launch with a task (`--task` or an
   `Item:` line) is `Worker`, any other `Lead`. The launcher exports `NORTH_FLEET_ROLE` beside
-  `NORTH_FLEET_SESSION` (`crates/north-core/src/providers/claude/session_env.rs:30`).
+  `NORTH_FLEET_SESSION` (`crates/north-providers/src/providers/claude/session_env.rs:30`).
 - At most one live session has role `Proxy`, named `proxy`, the constant receipts, alarms and lineage
   already use (`crates/north-core/src/fleet/runtime.rs:94`). A second proxy launch is refused unless it
   passes `--take-over`. For a proxy, take-over archives the old record and hands over one digest line
@@ -128,7 +128,7 @@ Enforced by: types. A new timer cannot send without naming itself, so it cannot 
   handover the provider-reserve plan already designs for work in flight (north `d7509e4ea`). While
   idle it parks like any session and the next message revives it.
 - Every place that infers the proxy from an absence reads the field:
-  `crates/north-core/src/providers/claude/runs/mod.rs:147` and `crates/north-core/src/providers/ledger_rows.rs:89`
+  `crates/north-providers/src/providers/claude/runs/mod.rs:147` and `crates/north-providers/src/providers/ledger_rows.rs:89`
   (no parent and no children means proxy), `crates/north-guard/src/guard/lead_timer.rs:36` (a name
   containing `lead`), `harness/hooks/prompt-grounding.sh:29` (absent from fleet records).
 
@@ -145,7 +145,7 @@ sends from a composer and renders the transcript (`crates/north-tui/src/tui/flee
 the agent definition from the first turn. Firn's entry for Tom's proxy window runs `north proxy`.
 
 What Tom loses: a fleet session runs `claude -p --input-format stream-json`
-(`crates/north-core/src/providers/claude/fleet.rs:50`), which has no slash commands beyond the wired
+(`crates/north-providers/src/providers/claude/fleet.rs:50`), which has no slash commands beyond the wired
 `/compact`, no image paste and no `!` shell. In the measured day he used each once (`/model`,
 `/effort`, `/goal`, one image, one shell line). `north proxy` covers model and effort with a TUI slash
 command that relaunches the proxy through take-over. The F1 test box (2026-11-05) found image paste
@@ -423,8 +423,8 @@ push access to South and the Firn timers are host configuration.
    section 1 counts within the difference the verb table makes, recorded in this page.
 3. **R1 role on the session record.** feature, cross-module, rust, local-test; 45 min. Files:
    `crates/north-core/src/fleet/model.rs`, `src/cli/fleet/launch.rs`, `src/cli/fleet/lineage.rs`,
-   `crates/north-core/src/fleet/registry/launching.rs`, `crates/north-core/src/providers/claude/session_env.rs`,
-   `crates/north-core/src/providers/claude/runs/mod.rs`, `crates/north-core/src/providers/ledger_rows.rs`,
+   `crates/north-core/src/fleet/registry/launching.rs`, `crates/north-providers/src/providers/claude/session_env.rs`,
+   `crates/north-providers/src/providers/claude/runs/mod.rs`, `crates/north-providers/src/providers/ledger_rows.rs`,
    `crates/north-guard/src/guard/lead_timer.rs`. Needs: the staffing-overlap lane, which edits the same
    launch files. Done when: `cargo test -p north-core fleet::` passes cases where `--role proxy`
    records `Proxy` and exports `NORTH_FLEET_ROLE=proxy`, a task launch records `Worker`, a second live
@@ -501,7 +501,7 @@ push access to South and the Firn timers are host configuration.
     section 3 and the typo fixed.
 13. **R3 `north proxy`.** feature, cross-module, rust, local-test; 45 min. Files: `src/cli/` (a
     `proxy` verb), `crates/north-tui/src/tui/fleet/` (model and effort slash commands),
-    `crates/north-core/src/providers/claude/fleet.rs` (`--agent`), `crates/north-core/src/fleet/registry/takeover.rs`.
+    `crates/north-providers/src/providers/claude/fleet.rs` (`--agent`), `crates/north-core/src/fleet/registry/takeover.rs`.
     Needs: R1, R2, A1, W1. Done when: an integration test under `tests/it/` shows `north proxy` with no
     proxy launching one with role proxy, `--parent none`, cwd `~/code/north/main` and `--agent proxy`
     in the fake Claude's argv; with a live proxy it attaches without launching; with the old `proxy`

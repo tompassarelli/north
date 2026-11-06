@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, SystemTime};
 
-use north_core::platform::git;
+use north_base::platform::git;
 use super::reap::{Counts, Sweep};
 use super::test_git::{git_in, init_repo};
 

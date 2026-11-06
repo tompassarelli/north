@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use north_core::platform::git;
+use north_base::platform::git;
 
 pub(super) fn git_in(dir: &Path, args: &[&str]) -> String {
     let identity = ["-c", "user.name=lanes-test", "-c", "user.email=lanes-test@example.invalid"];

@@ -13,7 +13,10 @@ doctest = false
 north-strategy-types = { path = "../north-strategy-types" }
 north-base = { path = "../north-base" }
 north-capacity = { path = "../north-capacity" }
-north-core = { path = "../north-core" }
+north-fleet = { path = "../north-fleet" }
+north-pace = { path = "../north-pace" }
+north-providers = { path = "../north-providers" }
+north-threads = { path = "../north-threads", features = ["test-support"] }
 north-github-mirror = { path = "../north-github-mirror" }
 north-graph-ground = { path = "../north-graph-ground" }
 fancy-regex.workspace = true

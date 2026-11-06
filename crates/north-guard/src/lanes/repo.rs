@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use north_core::platform::git;
+use north_base::platform::git;
 
 pub(super) fn git_out(dir: &Path, args: &[&str]) -> Option<String> {
     git::run(dir, args)

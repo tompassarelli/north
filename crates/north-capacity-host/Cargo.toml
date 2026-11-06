@@ -12,7 +12,8 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-capacity = { path = "../north-capacity" }
-north-core = { path = "../north-core" }
+north-fleet = { path = "../north-fleet" }
+north-threads = { path = "../north-threads", features = ["test-support"] }
 regex.workspace = true
 rusqlite.workspace = true
 rustix.workspace = true

@@ -4,7 +4,7 @@
 const EVALUATOR: &[&str] = &["crates/north-climb/", "crates/north-replay/", "crates/north-strategy-types/"];
 const WINNER: &[&str] = &["crates/north-core/src/router/"];
 const SYMBOLS: &[&str] = &["ARM_RUNS", "ARM_WINDOW", "replay_outcome_shift", "replay_landing_p90", "replay_five_hour", "replay_week_floor", "replay_budget", "fn tiered", "fn efforted", "fn other_arm"];
-const COUNTING: &[&str] = &["crates/north-core/src/ledger/", "crates/north-threads/", "src/cli/worker_ledger/", "crates/north-goals/", "src/cli/scoreboard/"];
+const COUNTING: &[&str] = &["crates/north-providers/src/ledger/", "crates/north-threads/", "src/cli/worker_ledger/", "crates/north-goals/", "src/cli/scoreboard/"];
 const BARS: &[&str] = &["harness/defaults.toml", "harness/goals.toml", "harness/loops.toml", "harness/corrections.toml", "docs/rationale/experiments.toml", "structure.toml"];
 
 fn is_test(path: &str) -> bool {
