@@ -255,6 +255,9 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     if super::facets::category(issue).is_none() {
         return Err(super::facets::UNCATEGORISED.into());
     }
+    if let Some(adds) = super::facets::overbuilt(issue) {
+        return Err(format!("a planning or design box adds {adds} with no `Simplest:` line naming the smallest change that meets its Done when and why it falls short"));
+    }
     if let Some(owners) = issue.owned_by(world.live) {
         let owners: Vec<&str> = owners.iter().map(String::as_str).collect();
         return Err(format!("every open box has a live owner: {}", owners.join(", ")));

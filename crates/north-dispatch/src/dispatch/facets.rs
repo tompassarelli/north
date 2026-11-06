@@ -73,3 +73,18 @@ pub fn design(text: &str) -> Option<&'static str> {
 pub fn settled(category: String, text: &str) -> String {
     if category == "mechanical" && design(text).is_some() { "feature".to_owned() } else { category }
 }
+
+static HEAVIER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(?:new|add(?:s|ing)?|another|spin(?:s|ning)? up|stand(?:s|ing)? up)\b(?:[ -][\w-]+){0,2}[ -](agent|service|crate|daemon)s?\b|\b(bake-?off)s?\b").unwrap());
+
+/// What a planning or design box adds (an agent, service, crate or bake-off) when the issue names no
+/// `Simplest:` line, the smallest change that meets its Done when and why it falls short.
+pub fn overbuilt(issue: &Issue) -> Option<String> {
+    if declared(issue, "Simplest").is_some() {
+        return None;
+    }
+    let category = category(issue)?;
+    if category != "planning" && design(&issue.body).is_none() {
+        return None;
+    }
+    issue.body.lines().filter_map(|line| line.trim_start().strip_prefix("- [ ]").or_else(|| line.trim_start().strip_prefix("* [ ]"))).find_map(|line| HEAVIER.captures(line)).map(|found| found.get(1).or_else(|| found.get(2)).map_or("", |named| named.as_str()).to_lowercase())
+}
