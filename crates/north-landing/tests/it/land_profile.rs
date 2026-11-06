@@ -107,8 +107,8 @@ fn the_projected_wait_reads_the_last_landings_service_time_times_the_queue_ahead
     assert!(read("landing-p50", 20, 0) > ceiling, "the median of the last twenty landings still reads the slow hour");
     assert!(near(read("landing-projected", 5, 0), 12.0) && near(read("landing-projected", 5, 1), 12.0), "an idle queue, or one holding only the judged lane's own ticket, costs one landing's service time");
     assert!(read("landing-projected", 5, 0) <= ceiling, "so the gate admits any lane");
-    assert!(near(read("landing-projected", 5, 4), 48.0), "four tickets queued make four services");
-    assert!(read("landing-projected", 5, 6) > ceiling, "a queue deep enough to break the contract refuses a lane that pays nothing");
+    assert!(near(read("landing-projected", 5, 4), 24.0) && near(read("landing-projected", 5, 40), 24.0), "a burst of queued lanes costs two services, the candidate in flight and the one that carries them all");
+    assert!(read("landing-projected", 30, 2) > ceiling, "a service time that breaks the contract still refuses a lane that pays nothing");
     assert!(near(read("landing-projected", 30, 0), 80.0), "a window that keeps the slow hour still reads it");
     assert!(near(read("landing-projected", 5, 0), Metric::parse("landing-projected").unwrap().value(&trace.latest(0.0, Some(5)).into_iter().map(|landing| trace.profile(landing)).collect::<Vec<_>>())), "value reads an empty queue");
 }

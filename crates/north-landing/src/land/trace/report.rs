@@ -226,7 +226,7 @@ impl Metric {
         self.value_behind(profiles, 0)
     }
 
-    /// The metric over `profiles`, the `pending` tickets in the queue, the judged lane's own among them while the lane gates run; only the projected wait reads the queue.
+    /// The metric over `profiles`, the `pending` tickets in the queue, the judged lane's own among them while the lane gates run; the lander checks every queued lane as one candidate, so a lane waits for at most the candidate in flight and its own, and only the projected wait reads the queue.
     pub fn value_behind(self, profiles: &[Profile<'_>], pending: usize) -> f64 {
         let values: Vec<f64> = match self {
             Self::Landing(_) => profiles.iter().map(Profile::wall).collect(),
@@ -236,7 +236,7 @@ impl Metric {
         match self {
             Self::Landing(fraction) | Self::Verification(fraction) => percentile(&values, fraction),
             #[allow(clippy::cast_precision_loss)]
-            Self::Projected => percentile(&values, 0.5) * pending.max(1) as f64,
+            Self::Projected => percentile(&values, 0.5) * pending.clamp(1, 2) as f64,
         }
     }
 }
