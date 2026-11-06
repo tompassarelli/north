@@ -40,6 +40,7 @@ pub enum Finding {
     NoVerdict(String),
     Fixed { cases: Vec<Failure> },
     Revert { lane: String, cases: Vec<Failure> },
+    Flaky { lane: String, cases: Vec<Failure> },
     Environment { cases: Vec<Failure> },
 }
 
@@ -122,6 +123,15 @@ pub fn find(
         let still = probe(lane);
         case.confirmations.push((index as u64, still.as_ref().map(labels)));
         if still.is_some_and(|still| still.is_disjoint(&failing)) {
+            steps::sheriff(&case, &SheriffStep::Recheck);
+            let Some(again) = at(newest) else {
+                return no_verdict(&case, format!("rerunning {} at the tip {} after the confirmation reached no verdict", names(&cases), short(tip)));
+            };
+            case.probes.push((0, labels(&again)));
+            if again.is_disjoint(&failing) {
+                steps::sheriff(&case, &SheriffStep::Flaky);
+                return Finding::Flaky { lane: lane.commit.clone(), cases };
+            }
             steps::sheriff(&case, &SheriffStep::Revert(index as u64));
             return Finding::Revert { lane: lane.commit.clone(), cases };
         }
@@ -286,6 +296,13 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
         Finding::Fixed { cases } => Ok(format!("fixed: {} pass at the tip {}; nothing is reverted", names(&cases), short(&main))),
         Finding::Environment { cases } => Ok(format!("environment {} still fail on main without each landed lane; nothing is reverted", names(&cases))),
         Finding::Revert { lane, cases } => revert(lander, worktree, &request, &main, &lane, &cases),
+        Finding::Flaky { lane, cases } => {
+            let text = format!("north land: sheriff: {} failed at the tip {}, passed on main without {}, then passed at the same tip on a rerun, so they are flaky, not that lane's failure; nothing is reverted; file the flaky test on its owner; log: {}", names(&cases), short(&main), short(&lane), request.log);
+            if !super::after::send("proxy", &text) {
+                println!("{text}");
+            }
+            Ok(format!("flaky: {} flipped between runs at the tip {}; nothing is reverted", names(&cases), short(&main)))
+        }
     }
 }
 

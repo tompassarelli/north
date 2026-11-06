@@ -164,6 +164,10 @@ pub enum SheriffStep {
     Fixed,
     /// Rerun the failing steps on the tip without the lane at this index next.
     Confirm(u64),
+    /// Rerun the failing steps at the tip once more, after the confirmation, before any revert.
+    Recheck,
+    /// The failing steps passed at the tip on the recheck, so they are flaky and nothing is reverted.
+    Flaky,
     /// Main without the lane at this index passes the failing steps, so it is reverted.
     Revert(u64),
     /// The failing steps still fail without the culprit, so nothing is reverted.
