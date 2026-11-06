@@ -1,35 +1,60 @@
-use std::fs::File;
-use std::os::fd::AsFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use north_landing::landing::step::{Refused, Step};
+use north_base::foundation::step::{Refused, Step};
+
+use crate::shell::Shell;
+use crate::shell::files::Lock;
 
 pub struct Claims {
     pub list: String,
-    _files: Vec<File>,
+    _locks: Vec<Box<dyn Send>>,
 }
 
 pub fn claim_output_log() -> Step<Claims> {
-    let claimed_before = std::env::var("SAFE_PUSH_OUTPUT_CLAIMED").unwrap_or_default();
-    let mut claims: Vec<(String, File)> = Vec::new();
-    for fd in [1, 2] {
-        let Ok(target) = std::fs::read_link(format!("/proc/self/fd/{fd}")) else { continue };
-        let target = target.to_string_lossy().into_owned();
-        let known = format!(" {} {claimed_before} ", claims.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>().join(" "));
-        if !Path::new(&target).is_file() || known.contains(&format!(" {target} ")) {
+    claim(&Shell::live(Path::new(".")))
+}
+
+pub fn claim(shell: &Shell) -> Step<Claims> {
+    let claimed_before = &shell.settings.output_claimed;
+    let mut claimed: Vec<PathBuf> = Vec::new();
+    let mut locks: Vec<Box<dyn Send>> = Vec::new();
+    for target in shell.files.output_logs() {
+        let known = format!(" {} {claimed_before} ", join(&claimed));
+        if known.contains(&format!(" {} ", target.display())) {
             continue;
         }
-        let Ok(file) = File::open(&target) else { return Err(Refused(1)) };
-        if rustix::fs::flock(file.as_fd(), rustix::fs::FlockOperation::NonBlockingLockExclusive).is_err() {
-            let cwd = std::env::current_dir().unwrap_or_default();
-            eprintln!(
-                "safe-push: refusing in {}: {target} is already the log of another running safe-push; give each landing its own log file. NOT pushed.",
-                cwd.display()
-            );
-            return Err(Refused(1));
+        match shell.files.lock_exclusive(&target) {
+            Lock::Held(lock) => locks.push(lock),
+            Lock::Unavailable => return Err(Refused(1)),
+            Lock::Busy => {
+                eprintln!(
+                    "safe-push: refusing in {}: {} is already the log of another running safe-push; give each landing its own log file. NOT pushed.",
+                    shell.settings.working_directory.display(),
+                    target.display()
+                );
+                return Err(Refused(1));
+            }
         }
-        claims.push((target, file));
+        claimed.push(target);
     }
-    let added: String = claims.iter().map(|(path, _)| format!(" {path}")).collect();
-    Ok(Claims { list: format!("{claimed_before}{added}"), _files: claims.into_iter().map(|(_, file)| file).collect() })
+    let added: String = claimed
+        .iter()
+        .map(|path| format!(" {}", path.display()))
+        .collect();
+    Ok(Claims {
+        list: format!("{claimed_before}{added}"),
+        _locks: locks,
+    })
 }
+
+fn join(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(test)]
+#[path = "output_log_tests.rs"]
+mod tests;

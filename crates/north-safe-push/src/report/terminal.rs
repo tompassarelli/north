@@ -1,41 +1,60 @@
-fn line(status: &str, sha: &str, reason: &str, minutes: &str, url: &str) -> String {
-    match status {
-        "landed" => format!("safe-push: landed {sha}"),
-        "timeout" => format!("safe-push: timed out after {minutes}m (run {url})"),
-        _ => format!("safe-push: refused {reason}"),
-    }
+#[derive(Debug, Eq, PartialEq)]
+pub enum Terminal {
+    Published(String),
+    Queued(String),
+    Clean(String),
+    Refused(String),
+    Cancelled,
 }
 
-pub fn receipt(outcome: Result<String, String>) -> (String, u8) {
-    match outcome {
-        Ok(line) => (format!("safe-push: {line}"), 0),
-        Err(reason) => (line("refused", "", &reason, "", ""), 1),
+pub fn receipt(terminal: &Terminal) -> (String, u8) {
+    match terminal {
+        Terminal::Published(line) | Terminal::Queued(line) | Terminal::Clean(line) => {
+            (format!("safe-push: {line}"), 0)
+        }
+        Terminal::Refused(reason) => (format!("safe-push: refused {reason}"), 1),
+        Terminal::Cancelled => ("safe-push: cancelled".to_owned(), 130),
     }
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    let [status, sha, reason, minutes, url] = arguments else {
-        eprintln!("Usage: north safe-push-result STATUS SHA REASON MINUTES URL");
+    let [status, _sha, reason, _minutes, _url] = arguments else {
+        eprintln!("Usage: north safe-push-result refused SHA REASON MINUTES URL");
         return 2;
     };
-    if status == "landed" && sha.is_empty() {
-        eprintln!("north safe-push-result: landed requires a commit sha");
+    if status != "refused" {
+        eprintln!("north safe-push-result: only refused is a terminal result bash reports");
         return 2;
     }
-    println!("{}", line(status, sha, reason, minutes, url));
+    println!("{}", receipt(&Terminal::Refused(reason.clone())).0);
     0
 }
 
 #[cfg(test)]
 mod tests {
-    use super::line;
+    use super::{Terminal, receipt};
 
     #[test]
-    fn landed_terminal_line_contains_the_published_sha() {
-        let sha = "a".repeat(40);
+    fn each_terminal_has_its_line_and_exit_code() {
         assert_eq!(
-            line("landed", &sha, "", "0", ""),
-            format!("safe-push: landed {sha}")
+            receipt(&Terminal::Refused("not on a branch".to_owned())),
+            ("safe-push: refused not on a branch".to_owned(), 1)
+        );
+        assert_eq!(
+            receipt(&Terminal::Cancelled),
+            ("safe-push: cancelled".to_owned(), 130)
+        );
+        assert_eq!(
+            receipt(&Terminal::Clean("✓ clean".to_owned())),
+            ("safe-push: ✓ clean".to_owned(), 0)
+        );
+        assert_eq!(
+            receipt(&Terminal::Queued("queued".to_owned())),
+            ("safe-push: queued".to_owned(), 0)
+        );
+        assert_eq!(
+            receipt(&Terminal::Published("pushed".to_owned())),
+            ("safe-push: pushed".to_owned(), 0)
         );
     }
 }

@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use north_base::platform::south_land_limits::{MAX_COMMITS, MAX_PATCH_BYTES};
 use north_base::platform::ssh;
 
-use crate::report::terminal::receipt;
+use crate::report::terminal::{Terminal, receipt};
 use crate::request::{Destination, destination};
 
 const SOUTH: &str = "south";
@@ -51,7 +51,7 @@ pub fn run(arguments: &[String], host: &HostFacts) -> u8 {
 }
 
 pub fn land(route: &Route) -> u8 {
-    let (line, code) = receipt(deliver(route));
+    let (line, code) = receipt(&deliver(route));
     println!("{line}");
     code
 }
@@ -95,7 +95,15 @@ fn git(checkout: &Path, arguments: &[&str]) -> Result<String, String> {
     }
 }
 
-fn deliver(route: &Route) -> Result<String, String> {
+fn deliver(route: &Route) -> Terminal {
+    match transfer(route) {
+        Ok(line) if route.dry_run => Terminal::Clean(line),
+        Ok(line) => Terminal::Queued(line),
+        Err(reason) => Terminal::Refused(reason),
+    }
+}
+
+fn transfer(route: &Route) -> Result<String, String> {
     let destination = route.ledger_host.as_deref().ok_or_else(|| format!("this host is a ledger client but ~/{LEDGER_HOST_FILE} names no ledger host to run {REMOTE_COMMAND} on; NOT pushed"))?;
     let checkout = std::env::current_dir().map_err(|error| format!("current directory: {error}"))?;
     let mbox = Lane::at(checkout).mbox()?;

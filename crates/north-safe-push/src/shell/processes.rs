@@ -30,6 +30,7 @@ pub trait Processes {
     fn run_with_outcome(&self, child: &Child) -> Finished;
     fn succeeds(&self, program: &Path, directory: &Path, arguments: &[&str]) -> Option<String>;
     fn exit_code(&self, program: &str, arguments: &[&str]) -> Option<i32>;
+    fn spawn_detached(&self, program: &Path, arguments: &[&str]);
 }
 
 pub struct Live;
@@ -67,6 +68,14 @@ impl Processes for Live {
 
     fn exit_code(&self, program: &str, arguments: &[&str]) -> Option<i32> {
         Command::new(program).args(arguments).status().ok().and_then(|status| status.code())
+    }
+
+    fn spawn_detached(&self, program: &Path, arguments: &[&str]) {
+        let executable = std::fs::metadata(program).is_ok_and(|meta| meta.is_file() && std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o111 != 0);
+        if !executable {
+            return;
+        }
+        let _ = Command::new("setsid").arg("-f").arg(program).args(arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     }
 }
 

@@ -8,7 +8,7 @@ use crate::publication::plan;
 use crate::request::{self, Arguments, Plan, USAGE};
 use crate::session::cancel::watch_for_cancel;
 use crate::session::identity::{Identity, state_changed};
-use crate::session::output_log::claim_output_log;
+use crate::session::output_log::claim;
 use crate::shell::Shell;
 use crate::shell::files::Pushed;
 use crate::shell::origin::{Push, Snapshot};
@@ -128,7 +128,7 @@ impl Publisher<'_> {
     }
 
     fn publish(&self, request: &Arguments, to: &str) -> Step<Published> {
-        let claims = claim_output_log()?;
+        let claims = claim(self.shell)?;
         println!("safe-push: {to} is not origin's default branch — pushing without the landing queue");
         let outgoing = self.capture(to)?;
         let range = outgoing.range();

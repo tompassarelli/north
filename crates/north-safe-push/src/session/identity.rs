@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
-use north_landing::landing::step::{Refused, Step, cancelled, git_quiet, git_read, git_status, refuse};
+use north_base::foundation::step::{Refused, Step, cancelled, refuse};
+
+use crate::shell::git::{feed, quiet as git_quiet, read as git_read, status as git_status};
 
 pub fn state_changed(what: &str) -> Refused {
     if let Err(cancel) = cancelled() {
@@ -125,26 +126,6 @@ fn names(dir: &Path, namespace: &str) -> Vec<String> {
 fn delete_namespace(dir: &Path, namespace: &str) {
     let input: String = names(dir, namespace).iter().map(|name| format!("delete {name}\n")).collect();
     let _ = feed(dir, &["update-ref", "--stdin"], &input);
-}
-
-fn feed(dir: &Path, args: &[&str], input: &str) -> Option<String> {
-    use std::io::Write;
-    let mut child = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let mut stdin = child.stdin.take()?;
-    let output = std::thread::scope(|scope| {
-        let writer = scope.spawn(move || stdin.write_all(input.as_bytes()));
-        let output = child.wait_with_output().ok()?;
-        writer.join().ok()?.ok()?;
-        Some(output)
-    })?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 pub fn remote_snapshot(dir: &Path, origin_url: &str) -> Step<String> {

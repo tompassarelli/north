@@ -1,7 +1,10 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
-use north_base::foundation::step::cancelled;
+use north_base::foundation::step::{Refused, Step, cancelled};
 use north_base::platform::git;
+use north_base::platform::process::exit_code;
 
 pub trait Git {
     fn default_branch(&self) -> String;
@@ -63,7 +66,7 @@ impl Git for Live {
     }
 }
 
-pub(super) fn quiet(directory: &Path, arguments: &[&str]) -> Option<String> {
+pub fn quiet(directory: &Path, arguments: &[&str]) -> Option<String> {
     let output = git::run(directory, arguments).ok()?;
     cancelled().ok()?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_owned())
@@ -78,4 +81,38 @@ pub fn default_branch(repository: &Path) -> String {
 pub fn symbolic_ref(repository: &Path, name: &str) -> Option<String> {
     let output = git::run(repository, &["symbolic-ref", "--quiet", name]).ok()?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_owned())
+}
+
+pub fn read(directory: &Path, arguments: &[&str]) -> Step<String> {
+    let output = Command::new("git").current_dir(directory).args(arguments).stderr(Stdio::inherit()).output().map_err(|_| Refused(127))?;
+    cancelled()?;
+    if !output.status.success() {
+        return Err(Refused(exit_code(output.status)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_owned())
+}
+
+pub fn status(directory: &Path, arguments: &[&str]) -> Step {
+    let status = Command::new("git").current_dir(directory).args(arguments).status().map_err(|_| Refused(127))?;
+    cancelled()?;
+    if status.success() { Ok(()) } else { Err(Refused(exit_code(status))) }
+}
+
+pub fn feed(directory: &Path, arguments: &[&str], input: &str) -> Option<String> {
+    let mut child = Command::new("git")
+        .current_dir(directory)
+        .args(arguments)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdin = child.stdin.take()?;
+    let output = std::thread::scope(|scope| {
+        let writer = scope.spawn(move || stdin.write_all(input.as_bytes()));
+        let output = child.wait_with_output().ok()?;
+        writer.join().ok()?.ok()?;
+        Some(output)
+    })?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }

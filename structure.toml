@@ -243,7 +243,7 @@ may_use = ["foundation", "landing.safe_push.shell"]
 name = "landing.safe_push.session"
 paths = ["crates/north-safe-push/src/session/**"]
 responsibility = "One safe-push per output log, cancellation of its children, and the repository-identity rule."
-may_use = ["foundation", "landing", "landing.safe_push.report", "landing.safe_push.shell"]
+may_use = ["foundation", "landing.safe_push.report", "landing.safe_push.shell"]
 
 [[module]]
 name = "landing.safe_push.mode"

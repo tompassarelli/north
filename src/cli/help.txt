@@ -49,7 +49,7 @@ Commands:
                                                  Run land checks as a GitHub Actions workflow on a scratch branch and wait for its verdict
   safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag other than v* (branches still land through bin/safe-push)
   release VERSION [--notes FILE]                 From a clean main at origin, create and push the annotated tag vVERSION and its GitHub release; a rerun finishes a partial release
-  safe-push-result STATUS SHA REASON MINUTES URL  Print safe-push.s terminal result
+  safe-push-result refused SHA REASON MINUTES URL  Print the safe-push refused terminal line
   nix explain <nix subcommand | class>           Print a Nix footgun card, then the option sections of this host's `nix <cmd> --help` it names
   nix gc [--dry-run] [--max-freed SIZE]          Root every promoted runtime, live worktree dev shell and rustup wrapper store path, then collect the store
   doctor nix [--lock FILE [--allow FILE]]        Report each dev shell as rooted and enterable offline, missing rustup wrapper store paths and a second nixpkgs in flake.lock

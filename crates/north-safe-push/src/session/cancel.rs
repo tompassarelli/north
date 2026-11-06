@@ -1,4 +1,4 @@
-use north_landing::landing::step::request_cancel;
+use north_base::foundation::step::request_cancel;
 
 pub fn watch_for_cancel() {
     std::thread::spawn(|| {

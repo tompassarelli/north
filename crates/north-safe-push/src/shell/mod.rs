@@ -3,6 +3,8 @@ pub mod git;
 pub mod github;
 pub mod origin;
 pub mod processes;
+#[cfg(test)]
+pub mod recorded;
 pub mod settings;
 
 use std::path::Path;
