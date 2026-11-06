@@ -58,7 +58,9 @@ jobs:
           while IFS=$'\t' read -r exe dir; do
             mapfile -t names < <(awk -F'\t' -v exe="$exe" '$1 == exe { print $3 }' "$out/mine")
             [ "${#names[@]}" -gt 0 ] || continue
-            if [ -z "${names[0]}" ]; then (cd "$dir" && "$exe") || status=1; else (cd "$dir" && "$exe" --exact "${names[@]}") || status=1; fi
+            echo "::group::$(basename "$exe") (${#names[@]} tests)"
+            if [ -z "${names[0]}" ]; then (cd "$dir" && timeout -k 10 240 "$exe") || status=1; else (cd "$dir" && timeout -k 10 240 "$exe" --exact "${names[@]}") || status=1; fi
+            echo "::endgroup::"
           done < "$out/binaries"
           [ "$shard" != 1 ] || cargo test --locked --doc || status=1
           exit "$status"
