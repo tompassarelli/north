@@ -189,6 +189,21 @@ it passed 10 of 10 runs alone under each toolchain. `cargo fmt --check` reports 
 with stable and nightly rustfmt, and no check runs it. `RUSTFLAGS`, which the dev shell exports for a
 foreign `CARGO_TARGET_DIR`, does not displace profile `rustflags`, so the levers hold in every lane.
 
+### The parallel front end withdrawn, 2026-11-06
+
+`-Zthreads=8` came out of `[profile.dev]` on 2026-11-06 because it deadlocks. That evening, promotion
+replays of the lander's coverage check (`head-north --code crates/north-coverage/ --no-build coverage test`)
+hung past their 1,800 s deadline and then passed on rerun on the same runtime. The check offloads
+`cargo nextest run` to a build host. There, each hung run had one rustc of a workspace crate (north_core,
+north_guard, north_health, north_dispatch, north_runtime, north_landing), built incrementally with
+`-Zthreads=8`. Each had used 0 to 4 CPU seconds in 13 to 23 minutes of wall time: two of its threads were
+blocked reading cargo's jobserver pipe and the other ten sat in `futex_do_wait`, while cargo polled for
+the rustc to finish. This held for two such rustc on gex45 and four on ccx33 at 8:00 PM (+07).
+A deadlock in the front end's thread pool is intermittent by nature, which is why every rerun passed.
+Cranelift stays, so builds keep its 18% CPU cut. They lose the front end's wall-time third, and the
+leaf `test --no-run` returns to about the Cranelift row above, against a 30-minute hang per deadlock.
+`tests/it/cargo_config.rs` keeps the flag out of the workspace config.
+
 ### Incremental on the adopted toolchain
 
 Measured on gex45 at origin/main 8a8f2296b with Cranelift and `-Zthreads=8`, 10:58-11:41 AM (+07) on
