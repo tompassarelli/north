@@ -205,3 +205,18 @@ laptop often answered as the host with the most room; the probe then queued for 
 capacity lease, which defers under CPU pressure while Tom is at it (232 s for the probes of
 328e9b3a9 at 10:10 AM, the largest host wait of that hour). The probes now run on the host their run
 claimed, which holds the claim until the search ends and has the run's tree warm in its slots.
+
+## Host choice by slot backlog (2026-11-06)
+
+From 11:49 AM to 12:30 PM, n634-slot-fifo counted 92 slot waits on ccx33 (median 149 s, p90 428 s,
+longest 533 s) against 19 on gex45 (longest 12 s). ccx33's 8 cores were full with the 2 slot jobs its
+cap allows while gex45 had free slots, yet host choice kept picking ccx33: it ranked hosts by free
+cores from their capacity admission, which offload slot jobs do not lease, so a host whose slots
+queued whole runs still read as having room. At 12:33 PM ccx33 read 0.26 cores free and gex45 -2.77,
+so ccx33 won.
+
+`choose --any` now also reads each host's slot jobs (held slot locks of every checkout, land checks
+and red fixes queued for one, and its cores) and ranks hosts by how oversubscribed they are: the
+backlog per job the host runs at once (cores over a land check's, at most the slot count), or its
+committed share of its CPUs, whichever is higher. A host on an older runtime that prints no slot
+line is ranked by its committed share alone.

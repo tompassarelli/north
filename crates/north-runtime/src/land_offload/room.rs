@@ -4,11 +4,13 @@ use crate::dispatch::measure::{self, Measure};
 use crate::platform::process::run_within;
 use std::time::Duration;
 
-use super::ship::{OFFLOAD_ROOT, quote};
+use super::ship::{OFFLOAD_ROOT, SLOTS, quote};
 
 const LIMIT: Duration = Duration::from_secs(15);
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
 const STATUS_MARK: &str = "@ADMISSION@";
+const SLOTS_MARK: &str = "@SLOTS@";
+const SLOTS_PROBE: &str = r#"root=$1; n=0; for l in "$root"/*.lock; do [ -e "$l" ] || continue; case $l in *.background.lock) continue ;; esac; (exec 7>>"$l"; flock -n 7) 2>/dev/null || n=$((n + 1)); done; q=$(ls "$root/queue" 2>/dev/null | grep -c "^[01]-" || true); echo "$n $q $(nproc)""#;
 const STATUS_PROBE: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host status"#;
 const CLAIM: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host land-waiting"#;
 
@@ -17,13 +19,46 @@ pub struct Room {
     pub measure: Measure,
     pub admission: Admission,
     pub disk_free_gib: f64,
+    pub slots: Option<Slots>,
+}
+
+/// The host's offload slot jobs: those running in any checkout's slot, the land checks and red fixes queued for one, and its cores.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Slots {
+    pub running: u32,
+    pub queued: u32,
+    pub cores: u32,
+}
+
+impl Slots {
+    fn parse(text: &str) -> Option<Self> {
+        let mut words = text.split_whitespace().map(str::parse::<u32>);
+        let (running, queued, cores) = (words.next()?.ok()?, words.next()?.ok()?, words.next()?.ok()?);
+        Some(Self { running, queued, cores })
+    }
+
+    /// The jobs running or queued, with `taken` more on their way, per job the host runs at once: its cores over a land check's, at least one and at most its slots.
+    fn backlog(&self, per_check: f64, taken: usize) -> f64 {
+        let cap = (self.cores / (per_check.ceil() as u32).max(1)).clamp(1, SLOTS);
+        f64::from(self.running + self.queued + taken as u32) / f64::from(cap)
+    }
+}
+
+impl Room {
+    /// How oversubscribed the host is for a land check of `cores` with `taken` more on their way: its slot backlog or its committed share of its CPUs, whichever is higher.
+    fn busy(&self, cores: f64, taken: usize) -> f64 {
+        let limit = self.admission.limit_cpus.max(1.0);
+        let committed = (limit - self.admission.free_cpus() + cores * taken as f64) / limit;
+        self.slots.map_or(committed, |slots| slots.backlog(cores, taken).max(committed))
+    }
 }
 
 pub(super) fn parse(text: &str) -> Option<Room> {
     let (text, status) = text.split_once(STATUS_MARK)?;
+    let (status, slots) = status.split_once(SLOTS_MARK).map_or((status, None), |(status, slots)| (status, Slots::parse(slots)));
     let admission = Admission::from_status(&serde_json::from_str(status.trim()).ok()?)?;
     let kib: f64 = text.lines().rev().find(|line| !line.trim().is_empty())?.split_whitespace().nth(3)?.parse().ok()?;
-    Some(Room { measure: measure::parse(text)?, admission, disk_free_gib: kib / KIB_PER_GIB })
+    Some(Room { measure: measure::parse(text)?, admission, disk_free_gib: kib / KIB_PER_GIB, slots })
 }
 
 pub(super) fn read(ssh: &str) -> Option<Room> {
@@ -37,7 +72,7 @@ pub(super) fn read_local() -> Option<Room> {
 
 fn script() -> String {
     let disk = format!("d=\"{OFFLOAD_ROOT}\"; while [ ! -d \"$d\" ]; do d=$(dirname \"$d\"); done; df -Pk \"$d\"");
-    format!("{}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}", measure::PROBE)
+    format!("{}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}; echo {SLOTS_MARK}; sh -c {} offload-slots \"{OFFLOAD_ROOT}\"", measure::PROBE, quote(SLOTS_PROBE))
 }
 
 pub fn read_within(ssh: &str, limit: Duration) -> Option<Room> {
@@ -110,7 +145,7 @@ pub(super) enum Chosen {
     Queued(String),
 }
 
-/// The host a land check runs on: the one with the most free cores for a land check of `cores` once each name in `taken` counts as one more land check already on its way there, among `remotes` and this host as `here` when it is a `Peer`; when this host is the `Fallback` and no remote has room, the land check queues on the readable remote with the most free cores, and runs on this host only when no remote answers; a tie goes to the earlier remote.
+/// The host a land check runs on: the least busy for a land check of `cores` (its slot backlog per job it runs at once, or its committed share of its CPUs, whichever is higher) once each name in `taken` counts as one more land check already on its way there, among `remotes` and this host as `here` when it is a `Peer`; when this host is the `Fallback` and no remote has room, the land check queues on the least busy readable remote, and runs on this host only when no remote answers; a tie goes to the earlier remote.
 pub(super) fn check_host(standing: Standing, here: &str, local: impl FnOnce() -> Option<Room>, remotes: Vec<(String, Option<Room>)>, taken: &[String], cores: f64) -> Result<Chosen, Vec<String>> {
     let mut refused = Vec::new();
     let chosen = match standing {
@@ -122,16 +157,16 @@ pub(super) fn check_host(standing: Standing, here: &str, local: impl FnOnce() ->
 }
 
 fn least_busy(remotes: &[(String, Option<Room>)], taken: &[String], cores: f64) -> Option<String> {
-    let free = |name: &str, room: &Room| room.admission.free_cpus() - cores * taken.iter().filter(|host| *host == name).count() as f64;
-    remotes.iter().filter_map(|(name, room)| room.as_ref().map(|room| (name, free(name, room)))).fold(None::<(&String, f64)>, |best, (name, free)| if best.is_none_or(|(_, most)| free > most) { Some((name, free)) } else { best }).map(|(name, _)| name.clone())
+    let on = |name: &str| taken.iter().filter(|host| *host == name).count();
+    remotes.iter().filter_map(|(name, room)| room.as_ref().map(|room| (name, room.busy(cores, on(name))))).fold(None::<(&String, f64)>, |best, (name, busy)| if best.is_none_or(|(_, least)| busy < least) { Some((name, busy)) } else { best }).map(|(name, _)| name.clone())
 }
 
 fn most_room(hosts: impl IntoIterator<Item = (String, Option<Room>)>, taken: &[String], cores: f64, refused: &mut Vec<String>) -> Option<String> {
     let mut best: Option<(String, f64)> = None;
     for (name, room) in hosts {
-        let pending = cores * taken.iter().filter(|host| **host == name).count() as f64;
-        match room.as_ref().map(|room| (shortfall_needing(room, pending, cores), room.admission.free_cpus() - pending)) {
-            Some((None, free)) if best.as_ref().is_none_or(|(_, most)| free > *most) => best = Some((name, free)),
+        let on = taken.iter().filter(|host| **host == name).count();
+        match room.as_ref().map(|room| (shortfall_needing(room, cores * on as f64, cores), room.busy(cores, on))) {
+            Some((None, busy)) if best.as_ref().is_none_or(|(_, least)| busy < *least) => best = Some((name, busy)),
             Some((None, _)) => {}
             Some((Some(why), _)) => refused.push(format!("{name}: {why}")),
             None => refused.push(format!("{name}: unreachable or unreadable")),
@@ -169,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn a_host_with_heavy_jobs_queued_loses_to_an_idle_one_and_the_laptop_runs_a_land_check_only_when_no_build_host_answers() {
+    fn a_host_with_heavy_jobs_or_slot_jobs_queued_loses_to_one_with_room_and_the_laptop_runs_a_land_check_only_when_no_build_host_answers() {
         let gib = 1024 * 1024;
         let queued = |jobs: &str| parse(&PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", "3.0").replace("%PRESSURE%", "5").replace("\"cpuSomeAvg10\":5", &format!("\"cpuSomeAvg10\":5,\"queued\":[{jobs}]"))).unwrap();
         let heavy = |cpus: u32| format!("{{\"owner\":\"gate\",\"class\":\"heavy\",\"requestedClass\":\"heavy\",\"requestedCpus\":{cpus}}}");
@@ -181,7 +216,9 @@ mod tests {
         idle.admission.limit_cpus = 8.0;
         assert!(shortfall(&queued(&format!("{},{},{}", heavy(6), heavy(6), heavy(6)))).unwrap().contains("cores free of 20"));
         assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("gex45".to_owned(), Some(busy)), ("ccx33".to_owned(), Some(idle))], &[], 6.0), Ok(Chosen::Room("ccx33".to_owned())));
-        assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("gex45".to_owned(), Some(moderate)), ("ccx33".to_owned(), Some(idle))], &[], 6.0), Ok(Chosen::Room("gex45".to_owned())));
+        let mut quarter = reading(80 * gib, "2.00", "2.0", "1");
+        quarter.admission.limit_cpus = 8.0;
+        assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("gex45".to_owned(), Some(moderate)), ("ccx33".to_owned(), Some(quarter))], &[], 6.0), Ok(Chosen::Room("gex45".to_owned())));
         let laptop = || Some(reading(80 * gib, "0.10", "0.0", "1"));
         let gex45 = reading(80 * gib, "3.10", "10.0", "5");
         let full = reading(80 * gib, "3.00", "17.0", "10");
@@ -190,5 +227,16 @@ mod tests {
         assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())));
         assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), None)], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())));
         assert!(check_host(Standing::Reserved, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0).is_err());
+        let slotted = |committed: &str, limit: f64, slots: &str| {
+            let mut room = parse(&format!("{}@SLOTS@\n{slots}\n", PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", committed).replace("%PRESSURE%", "1"))).unwrap();
+            room.admission.limit_cpus = limit;
+            room
+        };
+        let ccx33 = slotted("1.0", 8.0, "2 9 8");
+        let gex45 = slotted("8.0", 20.0, "3 0 20");
+        assert_eq!(ccx33.slots, Some(Slots { running: 2, queued: 9, cores: 8 }));
+        assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("ccx33".to_owned(), Some(ccx33)), ("gex45".to_owned(), Some(gex45))], &[], 4.0), Ok(Chosen::Room("gex45".to_owned())), "ccx33 runs 2 jobs at once with 9 queued; gex45 runs 5 with 2 free");
+        let taken = ["gex45".to_owned(), "gex45".to_owned()];
+        assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("ccx33".to_owned(), Some(slotted("1.0", 8.0, "0 0 8"))), ("gex45".to_owned(), Some(gex45))], &taken, 4.0), Ok(Chosen::Room("ccx33".to_owned())), "an idle ccx33 takes the run once gex45's free slots are taken");
     }
 }
