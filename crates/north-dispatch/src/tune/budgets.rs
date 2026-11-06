@@ -9,6 +9,10 @@ use std::collections::BTreeMap;
 /// Runs carrying a stored Budget a category needs before its p90 sets the multiplier.
 pub const SCORED_MIN_RUNS: usize = 30;
 
+/// The most a scored multiplier may reach: most runs carrying a Budget spend pennies against it, so the
+/// p90 of their actual over E is a tail of a few runs and left alone sets a Budget that stops nothing.
+pub const MAX_TIMES: f64 = 4.0;
+
 /// How a category's runs spent against the Budget each launched with.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Score {
@@ -51,10 +55,10 @@ pub fn scores(runs: &[EstimatedRun]) -> Vec<Score> {
 
 impl Score {
     /// The multiplier on the median closed box that would have covered the p90 run: the p90 of
-    /// actual over E times the multiplier the Budgets were set with, never below 1; None while the
-    /// category holds fewer than `SCORED_MIN_RUNS` runs carrying a Budget.
+    /// actual over E times the multiplier the Budgets were set with, between 1 and `MAX_TIMES`; None
+    /// while the category holds fewer than `SCORED_MIN_RUNS` runs carrying a Budget.
     pub fn times(&self) -> Option<f64> {
-        (self.n >= SCORED_MIN_RUNS).then(|| ((self.p90 * self.set_with).max(1.0) * 100.0).round() / 100.0)
+        (self.n >= SCORED_MIN_RUNS).then(|| ((self.p90 * self.set_with).clamp(1.0, MAX_TIMES) * 100.0).round() / 100.0)
     }
 
     pub fn line(&self) -> String {
@@ -76,4 +80,28 @@ pub fn multipliers(scores: &[Score]) -> BTreeMap<String, (f64, String)> {
         .iter()
         .filter_map(|score| Some((score.category.clone(), (score.times()?, format!("p90 {:.2}x of actual/E over n={} runs carrying a Budget, set at {:.2}x", score.p90, score.n, score.set_with)))))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn score(n: usize, p90: f64, set_with: f64) -> Score {
+        Score { category: "feature".to_owned(), n, over: 0.0, p50: 0.1, p90, set_with }
+    }
+
+    /// Reproduces north#608: a p90 of actual over E at 23x times a 6.5x set-with gave a 151x
+    /// multiplier, so the feature cell proposed a $1,245 Budget.
+    #[test]
+    fn a_tail_heavy_p90_never_sets_a_budget_past_the_cap() {
+        assert_eq!(score(38, 23.43, 6.47).times(), Some(MAX_TIMES));
+    }
+
+    /// Pins the contract that a calm category keeps its measured multiplier and one under the
+    /// minimum run count keeps the constant.
+    #[test]
+    fn a_calm_category_keeps_its_measured_multiplier_until_it_holds_enough_runs() {
+        assert_eq!(score(35, 0.86, 2.69).times(), Some(2.31));
+        assert_eq!(score(29, 0.86, 2.69).times(), None);
+    }
 }
