@@ -96,6 +96,25 @@ fn parse(text: &str) -> Vec<Commit> {
         .collect()
 }
 
+/// Whether `later` changes, in a file both commits touched, a line that `landed` wrote, as `git blame` reads the
+/// lines `later` removes or rewrites at its first parent.
+pub fn touches(checkout: &Path, landed: &Commit, later: &Commit) -> bool {
+    let parent = format!("{}^", later.sha);
+    later.files.iter().filter(|file| landed.files.contains(file)).any(|file| {
+        let Some(diff) = git(checkout, &["diff", "-U0", "--no-color", &parent, &later.sha, "--", file]) else { return false };
+        diff.lines().filter_map(old_side).any(|range| {
+            git(checkout, &["blame", "--porcelain", "-L", &range, &parent, "--", file]).is_some_and(|blame| blame.lines().any(|line| line.starts_with(&landed.sha)))
+        })
+    })
+}
+
+/// The `START,+COUNT` range a `@@ -START,COUNT +...` hunk header removes or rewrites; `None` for a pure addition.
+fn old_side(line: &str) -> Option<String> {
+    let old = line.strip_prefix("@@ -")?.split(' ').next()?;
+    let (start, count) = old.split_once(',').unwrap_or((old, "1"));
+    (count != "0").then(|| format!("{start},+{count}"))
+}
+
 /// The checkout's own git directory: `.git`, or where a `gitdir:` file in its place points.
 pub(super) fn git_dir(checkout: &Path) -> Option<PathBuf> {
     let dot_git = checkout.join(".git");

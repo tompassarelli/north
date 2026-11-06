@@ -35,8 +35,14 @@ fn the_largest_reworking_class_comes_first_and_one_landing_counts_once() {
     let commit = |sha: &str, at: i64, subject: &str, body: &str| Commit { sha: sha.repeat(20), at, subject: subject.into(), body: body.into(), files: vec!["src/x.rs".into()] };
     let history = [commit("a1", 1_000, "Add x", ""), commit("b2", 1_100, "Repair x", "Follows: north#7"), commit("c3", 1_200, "Revert \"Add x\"", "")];
     let asked = Landing { agent: "w".into(), item: Some("north#7".into()), sha: "a1".repeat(20) };
-    let verdict = &judge_history(&history, &[&asked])[0].1;
+    let touched = |_: &Commit, _: &Commit| true;
+    let verdict = &judge_history(&history, &[&asked], &touched)[0].1;
     assert_eq!((verdict.rule, verdict.trigger.as_ref().map(|trigger| trigger.subject.as_str())), (Some(Rule::Revert), Some("Revert \"Add x\"")));
+    let next_box = [commit("a1", 1_000, "Add x", ""), commit("b2", 1_100, "Add y, box 2 (north#7)", "Fixes after review; prefixes x")];
+    assert_eq!(judge_history(&next_box, &[&asked], &touched)[0].1.rule, None);
+    let restored = [commit("a1", 1_000, "Add x", ""), commit("b2", 1_100, "Restore x's default (north#7)", "")];
+    let rule = |touches: bool| judge_history(&restored, &[&asked], &move |_: &Commit, _: &Commit| touches)[0].1.rule;
+    assert_eq!((rule(true), rule(false)), (Some(Rule::NamedIssue), None));
     let stored: Verdict = serde_json::from_str(r#"{"at":5,"cause":"FixedForward","closed":true}"#).unwrap();
     assert!(!stored.recorded());
 }

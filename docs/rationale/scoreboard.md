@@ -42,6 +42,49 @@ The landings ledger starts on 2026-11-04 and the after-push spans on 2026-11-06,
 
 North leads on how fast an ask becomes a landed commit and on the median wait in the landing queue. It trails on rework (19% against DORA's elite 5%), on the landing queue's tail (p90 110 min against SubmitQueue's P95 under 19 min), and on acting on its own recommendations (4%). Corrections per hour, verification after the push and first-try success have no published figure to set them against.
 
+## The named-issue rule (north#657)
+
+On 2026-11-06 the named-issue rule made 171 of north's 185 reworked landings over 7 days (37% of 494 judged). The rule called a landing fixed forward when any commit within 48 h named the landing's issue and said "fixes", "fix forward" or "Follows:" anywhere in its message. North's issues close box by box, so the next box of the same issue names it too, and "fixes" matched as a substring: "prefixes", "red fixes", "a round of fixes" from the trigger's own review.
+
+A sample of 20 of the 171, drawn with `shuf --random-source=<(yes 657) -n 20` over the named-issue lines of the 7-day output, read commit against commit, with the trigger's changed lines blamed at its parent to see whether it touched lines the landing wrote:
+
+- a0b83f6f8 (fence native leases, north#259) by b3d1886b6 (crate split box 4-12, north#259): not rework; no shared file, its "Fixes after the verb" are its own moved paths.
+- f4771806c (fleet store, north#429 box 1a) by 930ad18df (fleet tick, the next box): not rework; of 9 shared files it changes 4 of the landing's lines, a usage string and imports it extends.
+- 6aec1fadd (lane-gc moves idle lanes, north#523) by 53cdfd58a (refuse the proxy implementation work, north#523): not rework; no shared file.
+- 7151960a3 (skip the install build in land checks, north#360) by d380ce323 (workers queue on infrastructure refusals, north#360): not rework; no shared file.
+- 975af79c4 (prompt-grounding recall, north#523) by 53cdfd58a: not rework; no shared file.
+- 8424e2772 (fleet waits in the store, north#429 box 3a) by eaeb7a955 (fleet invariant in the tick, box 3b): not rework; 4 of the landing's lines changed are re-exports and a signature the next box widens, and "a round of fixes" is the trigger's own review.
+- 2be8a0bf2 (router admission tests, north#88) by cea43e2f0 (threads verbs reland, north#88 slice 1): not rework; no shared file.
+- 3f1d25c48 (cloud placement by headroom) by d380ce323: not rework; no shared file.
+- 315d1823f (capacity watchdog port, north#88) by cea43e2f0: not rework; no shared file.
+- 7f596e9ca (register launches in the fleet store, north#429 box 4b) by 6d7daa7aa (box 4c): not rework; its 62 blamed lines are the relay and outbox that box 4c was planned to delete, and its three named fixes are to box 3b.
+- 3f80b3356 (split north-core box 2) by d0ba66afa (lander fast lane, north#360): not rework; no shared file, "red fixes" matched.
+- c7d367180 (one integration test binary) by 055a4a24a (conflict-free landing plan, one new doc): not rework; no shared file.
+- 7fb890020 (land cloud handbacks) by d0ba66afa: not rework; no shared file.
+- 7833ab399 (sheriff re-verifies before reverting, north#360) by d380ce323: not rework; no shared file.
+- 6e4143c79 (gh-app-token switch, north#88) by cea43e2f0: not rework; no shared file.
+- f9f1cd052 (pull remote outboxes per candidate, north#360) by 055a4a24a: not rework; no shared file.
+- 230a3c190 (goal-eta fixture move, north#88) by cea43e2f0: not rework; one shared file, none of the landing's lines changed.
+- 9b7022a77 (delete unreferenced bin files, north#88) by cea43e2f0: not rework; no shared file.
+- 214dd7074 (CI watchers port, north#88) by cea43e2f0: not rework; one shared file, none of the landing's lines changed.
+- b24fb3367 (land check deadlines, north#360) by c879ceb5e (parallel culprit search, north#360): not rework; one shared file, none of the landing's lines changed, "fixes" matched inside "prefixes".
+
+None of the 20 is true rework. Every trigger was progress on the same issue, often a later box, or unrelated work by a run whose item was the same umbrella issue; 14 share no file with the landing, and the 3 that change the landing's lines extend them rather than repair them.
+
+The rule now asks three things of the trigger besides naming the issue: its subject says it repairs something (it begins Fix, Repair, Restore or Correct, or says fix forward), it changes a file the landing changed, and, as `git blame` reads the lines it removes or rewrites at its first parent, at least one of those lines is the landing's. The fix words of the named-commit rule match as words, so "prefixes" no longer counts; the Fix-subject rule is unchanged. A verdict stored by the earlier judge carries no judge version and is judged again on the next read.
+
+`north scoreboard --rework --since 7d` for north, before the change (at 9:22 AM on 2026-11-06) and after it (at 10:16 AM the same day, so the window moved by about an hour):
+
+- all landings: 185 of 494 reworked (37%) before, 17 of 495 (3%) after
+- by rule: named issue 171 before, 2 after; named commit 8 before, 9 after; Fix subject with file overlap 6 before, 6 after; revert and red-main culprit 0 both times
+- control-plane code: 99 of 325 before, 10 of 324 after
+- gates, guards and hooks: 56 of 92 before, 6 of 93 after
+- docs: 20 of 58 before, 1 of 59 after
+- tests: 10 of 15 before, 0 of 15 after
+- tables: 0 of 4 both times
+
+The two named-issue reworks left are both real: 020e57e22 restores a test that 1355312d0 broke, and 6ba11bbb9 restores two client calls that 62b04d092 deleted while they still had callers. The other repositories' counts did not move (makgora 49, wisp 15, firn and south 0).
+
 ## Weekly run
 
 The fleet tick runs `north scoreboard --record` when the last recording is a week old, writing `north/scoreboard/week.json` and a one-line score under the state root; the `scoreboard` loop in `harness/loops.toml` declares it, so `north loops check` fails when the record is older than two weeks. Each recording compares every number's headline figure (the rate, the median, the share) with the week before. A number counts as worse when both weeks hold at least five observations and it moved more than 10% in its worse direction (up for corrections, waits and rework, down for first-try success and acted recommendations). The proxy hears the worse numbers once per recording, in the fleet tick; the margin and the sample floor are guesses to be tuned once a few weeks of recordings show how much a number moves without cause. `north scoreboard rework` splits the rework number by the class of change and by what the rework fixed, so the fixes can aim at the class that reworks most.

@@ -16,6 +16,11 @@ use crate::threads::catalog::CATALOG;
 pub const REWORK_WINDOW_S: i64 = 48 * 3600;
 
 static SHA_TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{7,40}\b").expect("sha pattern"));
+static FIX_WORDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bfixes\b|\bfix forward\b").expect("fix pattern"));
+static FIX_SUBJECT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(Fix|Repair|Restore|Correct)\b|(?i)\bfix forward\b").expect("fix subject pattern"));
+
+/// Bumped whenever a rule changes, so the verdicts an earlier judge stored are judged again.
+pub const JUDGE_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Cause {
@@ -200,6 +205,7 @@ struct Read<'a> {
     commit: &'a Commit,
     text: String,
     fix: bool,
+    fix_subject: bool,
     tokens: Vec<String>,
     reverts: Vec<&'a str>,
 }
@@ -207,11 +213,11 @@ struct Read<'a> {
 impl<'a> Read<'a> {
     fn new(commit: &'a Commit) -> Self {
         let text = format!("{}\n{}", commit.subject, commit.body);
-        let lower = text.to_lowercase();
-        let fix = text.contains("Follows:") || lower.contains("fixes") || lower.contains("fix forward");
+        let fix = text.contains("Follows:") || FIX_WORDS.is_match(&text);
+        let fix_subject = FIX_SUBJECT.is_match(&commit.subject);
         let tokens = if fix { SHA_TOKEN.find_iter(&text).map(|token| token.as_str().to_owned()).collect() } else { Vec::new() };
         let reverts = commit.body.match_indices(REVERTS).map(|(start, _)| &commit.body[start + REVERTS.len()..]).collect();
-        Self { commit, text, fix, tokens, reverts }
+        Self { commit, text, fix, fix_subject, tokens, reverts }
     }
 
     fn names_commit(&self, landing: &Landing) -> bool {
@@ -225,20 +231,25 @@ impl<'a> Read<'a> {
 
 const REVERTS: &str = "This reverts commit ";
 
-fn cause(landed: &Commit, later: &[Read], landing: &Landing) -> Option<(Rule, Trigger)> {
+/// Whether a later commit changes lines a landing wrote: `touches(landed, later)`.
+pub type Touches<'a> = &'a dyn Fn(&Commit, &Commit) -> bool;
+
+/// An issue that closes box by box names every box's landing, so a later commit naming the issue is rework only when
+/// its subject says it repairs something and it changes lines the landing wrote.
+fn cause(landed: &Commit, later: &[Read], landing: &Landing, touches: Touches) -> Option<(Rule, Trigger)> {
     let window: Vec<&Read> = later.iter().filter(|read| read.commit.at <= landed.at + REWORK_WINDOW_S).collect();
     let revert_subject = format!("Revert \"{}\"", landed.subject);
     let found = |read: &Read, rule| (rule, Trigger { sha: read.commit.sha.clone(), subject: read.commit.subject.clone() });
     if let Some(read) = window.iter().find(|read| read.commit.subject == revert_subject || read.reverts.iter().any(|rest| rest.starts_with(landed.sha.as_str()))) {
         return Some(found(read, Rule::Revert));
     }
-    let overlaps = |commit: &Commit| !landed.files.is_empty() && 2 * commit.files.iter().filter(|file| landed.files.contains(file)).count() >= landed.files.len();
+    let shared = |commit: &Commit| commit.files.iter().filter(|file| landed.files.contains(file)).count();
     window.iter().find_map(|read| {
         let rule = if read.fix && read.names_commit(landing) {
             Rule::NamedCommit
-        } else if read.fix && read.names_item(landing) {
+        } else if read.fix_subject && read.names_item(landing) && shared(read.commit) > 0 && touches(landed, read.commit) {
             Rule::NamedIssue
-        } else if read.commit.subject.starts_with("Fix") && overlaps(read.commit) {
+        } else if read.commit.subject.starts_with("Fix") && !landed.files.is_empty() && 2 * shared(read.commit) >= landed.files.len() {
             Rule::FixOverlap
         } else {
             return None;
@@ -278,7 +289,7 @@ impl Verdict {
 }
 
 /// The verdict of each of `landings` that `commits` (one main, oldest first) holds, by its index in `landings`.
-pub fn judge_history(commits: &[Commit], landings: &[&Landing]) -> Vec<(usize, Verdict)> {
+pub fn judge_history(commits: &[Commit], landings: &[&Landing], touches: Touches) -> Vec<(usize, Verdict)> {
     let positions: BTreeMap<&str, usize> = commits.iter().enumerate().map(|(position, commit)| (commit.sha.as_str(), position)).collect();
     let found: Vec<(usize, usize)> = landings.iter().enumerate().filter_map(|(index, landing)| Some((index, *positions.get(landing.sha.as_str())?))).collect();
     let Some(first) = found.iter().map(|(_, position)| *position).min() else { return Vec::new() };
@@ -288,7 +299,7 @@ pub fn judge_history(commits: &[Commit], landings: &[&Landing]) -> Vec<(usize, V
         .into_iter()
         .map(|(index, position)| {
             let landed = &commits[position];
-            let found = cause(landed, &reads[position - first + 1..], landings[index]);
+            let found = cause(landed, &reads[position - first + 1..], landings[index], touches);
             let (rule, trigger) = found.map_or((None, None), |(rule, trigger)| (Some(rule), Some(trigger)));
             let verdict = Verdict { at: landed.at, cause: rule.map(Rule::cause), closed: newest > landed.at + REWORK_WINDOW_S + CLOSE_MARGIN_S, files: landed.files.clone(), rule, trigger };
             (index, verdict)
@@ -297,11 +308,11 @@ pub fn judge_history(commits: &[Commit], landings: &[&Landing]) -> Vec<(usize, V
 }
 
 /// Each landing found in `histories` (oldest first per repository) with its rework cause, if any.
-pub fn judge(landings: &[Landing], histories: &[(String, Vec<Commit>)], culprits: &BTreeSet<String>) -> BTreeMap<String, Judged> {
+pub fn judge(landings: &[Landing], histories: &[(String, Vec<Commit>)], culprits: &BTreeSet<String>, touches: Touches) -> BTreeMap<String, Judged> {
     let asked: Vec<&Landing> = landings.iter().collect();
     let mut judged = BTreeMap::new();
     for (repo, commits) in histories {
-        for (index, verdict) in judge_history(commits, &asked) {
+        for (index, verdict) in judge_history(commits, &asked, touches) {
             judged.insert(landings[index].agent.clone(), verdict.judged(repo, &landings[index], culprits));
         }
     }

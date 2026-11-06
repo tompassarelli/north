@@ -19,6 +19,8 @@ const FILE: &str = "north-rework-detail.json";
 /// in it without a verdict is not on that main.
 #[derive(Default, Serialize, Deserialize)]
 struct Store {
+    #[serde(default)]
+    judge: u32,
     head: String,
     judged: BTreeSet<String>,
     verdicts: BTreeMap<String, Verdict>,
@@ -44,7 +46,7 @@ fn key(landing: &Landing) -> String {
 pub fn verdicts(checkout: &Path, landings: &[Landing], since: Option<i64>) -> Vec<(usize, Verdict)> {
     let (Some(directory), Some(head)) = (history::git_dir(checkout), history::head(checkout)) else { return Vec::new() };
     let path = directory.join(FILE);
-    let mut store = read(&path).unwrap_or_default();
+    let mut store = read(&path).filter(|store| store.judge == rework::JUDGE_VERSION).unwrap_or_default();
     let keys: Vec<String> = landings.iter().map(key).collect();
     let pending: Vec<usize> = (0..landings.len()).filter(|&index| !store.settled(&keys[index], &head)).collect();
     if !pending.is_empty() {
@@ -53,9 +55,10 @@ pub fn verdicts(checkout: &Path, landings: &[Landing], since: Option<i64>) -> Ve
         for &index in &pending {
             store.verdicts.remove(&keys[index]);
         }
-        for (asked_index, verdict) in rework::judge_history(&commits, &asked) {
+        for (asked_index, verdict) in rework::judge_history(&commits, &asked, &|landed, later| history::touches(checkout, landed, later)) {
             store.verdicts.insert(keys[pending[asked_index]].clone(), verdict);
         }
+        store.judge = rework::JUDGE_VERSION;
         store.head = head;
         store.judged = keys.iter().cloned().collect();
         write(&path, &store);

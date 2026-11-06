@@ -45,7 +45,7 @@ pub fn judged(db: &Connection) -> BTreeMap<String, Judged> {
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
-    judge(&landings, &history(), &BTreeSet::new())
+    judge(&landings, &history(), &BTreeSet::new(), &|_, _| true)
 }
 
 pub fn spend_runs(db: &Connection, judged: &BTreeMap<String, Judged>) -> Vec<SpendRun> {
