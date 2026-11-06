@@ -27,3 +27,7 @@ Why not nixpkgs' 1.3.1: on the same ranges it took 104 to 160 ms for 3 commits (
 
 Full history of makgora (7789 commits, 21 s) reports two findings, both TLS test keys in the first import of the vendored Effect packages (commit 66c1182e); the other repositories report none.
 
+## Checked on 2026-11-06
+
+Current-main scans with the compiled-in config: the full history of north, south, nixos-config, firn and wisp reports no finding, and makgora's reports only the two historic test keys above; its current tree, scanned the way the lander scans it (from inside the directory), reports none. The north test `every_guarded_secret_type_is_caught_in_a_range_and_clean_text_passes` plants an age key, an OpenSSH key, a GitHub App key, a GitHub token (classic and fine-grained), and Hetzner, DigitalOcean, Cloudflare and Anthropic tokens and passes. Hosts: gex45 resolves `betterleaks` to the pinned 1.10.0 in `/run/current-system/sw/bin`; south enables the `betterleaks` module on nexus, gex45 and ccx33, and the laptop takes it from nixos-config's module.
+
