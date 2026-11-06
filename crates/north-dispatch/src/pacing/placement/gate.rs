@@ -520,7 +520,7 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
         open,
         moved: None,
     };
-    decision.target = if let Some(lane) = code_only.then(|| decision.cloud_lane(credit.1)).flatten() {
+    decision.target = if let Some(lane) = (code_only && credit.0).then(|| decision.cloud_lane(credit.1)).flatten() {
         Target::Cloud(lane)
     } else if let Some(best) = decision.best_account().map(|best| best.account.clone()) {
         Target::Account(best)

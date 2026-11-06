@@ -75,6 +75,8 @@ fn needs_on_separate_lines_place_like_needs_on_one_line() {
     assert_eq!(lines, place(&format!("{head}Needs: code, local-state\n")));
     assert_eq!(lines.0, "claude:c");
     assert_eq!(place(CODE_ONLY).0, "anthropic-cloud");
+    let expired = decide(CODE_ONLY, &cfg, &gate, (false, "cloud credit: expired 2026-11-05T07:59Z".to_owned()), &[], "here");
+    assert_eq!((target(&expired).as_str(), super::placement::gate::summary(&expired).contains("anthropic-cloud")), ("claude:c", false), "an expired credit placed code-only boxes on anthropic-cloud on 2026-11-06, where claude --cloud refused");
 }
 
 #[test]

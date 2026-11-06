@@ -123,6 +123,10 @@ fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_cont
     let launched = super::cloud::launch("wisp", "wisp-9-d1200", "brief", &[], home.path(), home.path(), &mut run);
 
     assert_eq!(launched.map(|launched| launched.session), Ok("session_01Test".to_owned()));
+
+    crate::foundation::shim::write_script(&claude, "printf '\\033[38;2;255;107;128mError:\\033[8GCloud\\033[14Gsessions\\033[23Gneed\\033[28Ga\\033[30Gclaude.ai\\033[40Gsign-in.\\033[39m\\r\\r\\n\\033[?25h\\033(B\\017\\033[?1006l\\0337\\033[r\\0338\\033]9;4;0;\\007\\033(B\\0337\\033[r\\0338'; exit 1\n");
+    let refused = super::cloud::launch("wisp", "wisp-9-d1200", "brief", &[], home.path(), home.path(), &mut run);
+    assert_eq!(refused.map(|launched| launched.session), Err("claude --cloud: exit status: 1: Error: Cloud sessions need a claude.ai sign-in.".to_owned()), "north cloud launch printed only claude's (B78(B78 reset bytes on 2026-11-06");
 }
 
 #[test]

@@ -143,7 +143,7 @@ pub fn run_from(directory: &Path, program: &str, path: &Path, args: &[String]) -
     match captured.map_err(|error| error.to_string())? {
         (None, _) => Err(format!("did not return within {} s", LAUNCH_WAIT.as_secs())),
         (Some(status), text) if status.success() => Ok(text),
-        (Some(status), text) => Err(format!("{status}: {}", text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or_default())),
+        (Some(status), text) => Err(format!("{status}: {}", text.split_whitespace().collect::<Vec<_>>().join(" "))),
     }
 }
 

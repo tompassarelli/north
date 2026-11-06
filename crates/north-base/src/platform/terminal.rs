@@ -9,10 +9,10 @@ use std::sync::LazyLock;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-static CONTROL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b(\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)|[@-Z\\-_])").expect("control pattern"));
+static CONTROL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b(\[[0-?]*[ -/]*([@-~])|\][^\x07\x1b]*(\x07|\x1b\\)|[ -/]*[0-~])|[\x00-\x08\x0b-\x1f\x7f]").expect("control pattern"));
 
 fn plain(text: &str) -> String {
-    CONTROL.replace_all(text, "").into_owned()
+    CONTROL.replace_all(text, |found: &regex::Captures| if matches!(found.get(2).map(|end| end.as_str()), Some("C" | "G")) { " " } else { "" }).into_owned()
 }
 
 pub fn capture(mut command: Command, limit: Duration) -> std::io::Result<(Option<ExitStatus>, String)> {
