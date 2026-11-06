@@ -165,15 +165,62 @@ fn edit_under_code(world: &impl World, input: &HookInput) -> Option<String> {
 
 fn shell_refusal(world: &impl World, input: &HookInput, command: &str) -> Option<String> {
     let first = shell_action(command, false)?;
-    if LANDING.contains(&first.as_str()) && lane_is_one_doc_or_config(world, input) {
+    if LANDING.contains(&first.as_str()) && lane_is_one_doc_or_config(world, input, command) {
         return shell_action(command, true);
     }
     Some(first)
 }
 
-fn lane_is_one_doc_or_config(world: &impl World, input: &HookInput) -> bool {
-    let Some(cwd) = input.cwd() else { return false };
-    world.lane_files(cwd).is_some_and(|files| matches!(files.as_slice(), [file] if is_doc_or_config(file)))
+fn lane_is_one_doc_or_config(world: &impl World, input: &HookInput, command: &str) -> bool {
+    let Some(dir) = input.cwd().and_then(|cwd| acting_dir(command, cwd, world.var("HOME").as_deref())) else { return false };
+    world.lane_files(&dir).is_some_and(|files| matches!(files.as_slice(), [file] if is_doc_or_config(file)))
+}
+
+fn acting_dir(command: &str, cwd: &str, home: Option<&str>) -> Option<String> {
+    let command = strip_heredocs(command);
+    let command = command.trim_start();
+    let (base, rest) = match command.strip_prefix("cd ") {
+        Some(tail) => {
+            let (dir, rest) = split_cd(tail)?;
+            (resolve_dir(cwd, dir, home)?, rest)
+        }
+        None => (cwd.to_owned(), command),
+    };
+    let words: Vec<&str> = rest.split(|c: char| c.is_whitespace() || SEPARATORS.contains(&c)).filter(|word| !word.is_empty()).collect();
+    if words.iter().any(|word| matches!(*word, "cd" | "pushd" | "popd") || word.starts_with("--git-dir") || word.starts_with("--work-tree")) {
+        return None;
+    }
+    let mut dirs: Vec<String> = Vec::new();
+    for pair in words.windows(2).filter(|pair| pair[0] == "-C") {
+        let dir = resolve_dir(&base, pair[1], home)?;
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    match dirs.as_slice() {
+        [] => Some(base),
+        [dir] => Some(dir.clone()),
+        _ => None,
+    }
+}
+
+fn split_cd(tail: &str) -> Option<(&str, &str)> {
+    let end = tail.find(['&', ';'])?;
+    let dir = tail[..end].trim();
+    let rest = tail[end..].strip_prefix("&&").or_else(|| tail[end..].strip_prefix(';'))?;
+    (!dir.contains(char::is_whitespace)).then_some((dir, rest))
+}
+
+fn resolve_dir(base: &str, word: &str, home: Option<&str>) -> Option<String> {
+    if word.is_empty() || word.contains(['"', '\'', '$', '`', '*', '?', '\\', '(', ')', '{', '}', '[', ']']) {
+        return None;
+    }
+    let word = match (word.starts_with('~'), home) {
+        (false, _) => word.to_owned(),
+        (true, Some(home)) => expanduser(word, home),
+        (true, None) => return None,
+    };
+    Some(normpath(&join(base, &word)))
 }
 
 fn is_doc_or_config(file: &str) -> bool {

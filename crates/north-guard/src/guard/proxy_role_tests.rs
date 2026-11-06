@@ -4,6 +4,8 @@ use super::proxy_role::{ClaudeStart, Registered, World, decide};
 use crate::hook::{HookInput, Verdict};
 use serde_json::{Value, json};
 
+const LANE: &str = "/home/tom/code/north/worktrees/lane";
+
 #[derive(Default)]
 struct Fake {
     role: Option<&'static str>,
@@ -31,8 +33,8 @@ impl World for Fake {
     fn profile(&self, account: &str) -> Option<String> {
         Some(format!("/home/tom/.local/state/north/profiles/claude-{account}/"))
     }
-    fn lane_files(&self, _cwd: &str) -> Option<Vec<String>> {
-        self.lane.map(|files| files.iter().map(|file| (*file).to_owned()).collect())
+    fn lane_files(&self, dir: &str) -> Option<Vec<String>> {
+        self.lane.filter(|_| dir == LANE).map(|files| files.iter().map(|file| (*file).to_owned()).collect())
     }
     fn claude_start(&self) -> Option<ClaudeStart> {
         self.start.map(|(nested, print)| ClaudeStart { nested, print, conversation: None })
@@ -135,7 +137,13 @@ fn tom_resumed_window_on_another_profile_than_the_registered_proxy_is_his_window
 }
 
 fn a_lane_of_one_config_or_doc_file_lands_and_any_other_lane_is_refused() {
-    let landing = [bash("git commit -m x"), bash("safe-push --to main"), bash("git add -A && git commit -m x && safe-push --to main")];
+    let landing = [
+        bash(&format!("cd {LANE} && git commit -qam x")),
+        bash(&format!("cd {LANE}; safe-push --to main")),
+        bash(&format!("git -C {LANE} commit -m x")),
+        bash("cd ../worktrees/lane && git add -A && git commit -m x && safe-push --to main"),
+        bash("cd ~/code/north/worktrees/lane && git commit -m x"),
+    ];
     let lane = |files| Fake { lane: Some(files), ..proxy() };
     for allowed in [&["harness/defaults.toml"][..], &["docs/features.md"], &["harness/skills/github/SKILL.md"], &["harness/skills/github/references/x.md"]] {
         for input in &landing {
@@ -148,5 +156,11 @@ fn a_lane_of_one_config_or_doc_file_lands_and_any_other_lane_is_refused() {
         }
     }
     assert!(denied(&proxy(), &landing[0]), "an unreadable lane is refused");
-    assert!(denied(&lane(&["harness/defaults.toml"]), &bash("git commit -m x && cargo test")), "only the landing steps are allowed");
+    for elsewhere in ["git commit -m x", "safe-push --to main", "cd /home/tom/code/north/main && git commit -m x", "git -C /home/tom/code/north/main commit -m x"] {
+        assert!(denied(&lane(&["harness/defaults.toml"]), &bash(elsewhere)), "{elsewhere} acts in the session directory");
+    }
+    for unresolved in [format!("cd \"{LANE}\" && git commit -m x"), "cd $D && git commit -m x".to_owned(), format!("cd {LANE} && cd .. && git commit -m x"), format!("git -C {LANE} -C /tmp commit -m x"), format!("cd {LANE} && git -C /tmp commit -m x")] {
+        assert!(denied(&lane(&["harness/defaults.toml"]), &bash(&unresolved)), "{unresolved}");
+    }
+    assert!(denied(&lane(&["harness/defaults.toml"]), &bash(&format!("cd {LANE} && git commit -m x && cargo test"))), "only the landing steps are allowed");
 }
