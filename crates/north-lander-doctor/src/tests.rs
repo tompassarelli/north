@@ -326,3 +326,22 @@ fn a_running_land_check_that_builds_a_toolchain_from_source_tells_the_proxy_once
     cure(&facts, &mut book, &hands, NOW + 2 * PATIENCE_SECS);
     assert_eq!(hands.pages.borrow().len(), 1, "a second run in the same episode paged again");
 }
+
+#[test]
+fn a_withdrawn_ticket_refused_by_an_infrastructure_failure_is_never_rerun() {
+    let scratch = tempfile::tempdir().unwrap();
+    let queue_dir = scratch.path().join("queue");
+    fs::create_dir_all(queue_dir.join("done")).unwrap();
+    fs::create_dir_all(queue_dir.join(queue::WITHDRAWN)).unwrap();
+    let log = scratch.path().join("land-check.log");
+    fs::write(&log, "fatal: '/home/tom/.cache/land-offload/code-north-main' is a missing but already registered worktree;\n").unwrap();
+    let name = queue::file_name(1_793_000_000_000_000, "sheriff-revert-344cf09f8");
+    let done = queue_dir.join("done").join(&name);
+    queue::write(&done, &ticket("sheriff-revert-344cf09f8", Some(format!("failed land check cargo test exited 128; log: {}", log.display())))).unwrap();
+    queue::write(&queue_dir.join(queue::WITHDRAWN).join(&name), &ticket("sheriff-revert-344cf09f8", Some("withdrawn by proxy: not reproducible".to_owned()))).unwrap();
+    let now = facts::now();
+    let found = facts::queue_facts("north", &queue_dir, Path::new("/home/tom/code/north/main"), now);
+    assert!(found.infrastructure.is_empty(), "a withdrawn ticket is no rerun candidate: {:?}", found.infrastructure);
+    assert!(hands::rerun(&queue_dir, &done).is_err_and(|why| why.contains("was withdrawn")));
+    assert!(!queue_dir.join(&name).exists(), "the withdrawn revert stays out of the queue");
+}

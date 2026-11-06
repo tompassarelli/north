@@ -82,6 +82,11 @@ impl Ticket {
 pub use crate::platform::land_queue::{directory, key, slug};
 
 pub const OUTBOX: &str = "outbox";
+pub const WITHDRAWN: &str = "withdrawn";
+
+pub fn is_withdrawn(directory: &Path, name: &std::ffi::OsStr) -> bool {
+    directory.join(WITHDRAWN).join(name).is_file()
+}
 
 pub fn file_name(queued_micros: u128, branch: &str) -> String {
     format!("{queued_micros}-{}.json", slug(branch))
@@ -167,7 +172,7 @@ pub fn pending(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     let mut tickets = Vec::new();
     for entry in entries {
         let path = entry?.path();
-        if path.extension().is_some_and(|extension| extension == "json") && path.is_file() {
+        if path.extension().is_some_and(|extension| extension == "json") && path.is_file() && !path.file_name().is_some_and(|name| is_withdrawn(directory, name)) {
             let ticket = read(&path)?;
             tickets.push((path, ticket));
         }

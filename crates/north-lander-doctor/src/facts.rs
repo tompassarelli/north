@@ -131,7 +131,7 @@ pub fn served_queue_facts(name: &str, queue: &Path, unit: String, now: u64) -> Q
     let infrastructure = decided
         .iter()
         .filter(|decision| decision.age <= INFRASTRUCTURE_WINDOW_SECS && decision.verdict.starts_with("failed "))
-        .filter(|decision| !pending.iter().any(|(_, ticket)| ticket.branch == decision.branch) && !reran(queue, &decision.path))
+        .filter(|decision| !pending.iter().any(|(_, ticket)| ticket.branch == decision.branch) && !reran(queue, &decision.path) && !decision.path.file_name().is_some_and(|name| queue::is_withdrawn(queue, name)))
         .filter_map(|decision| infrastructure_of(&decision.path, &decision.branch, &decision.verdict))
         .collect();
     QueueFacts {

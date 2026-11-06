@@ -21,3 +21,16 @@ fn a_ticket_renamed_to_sort_first_keeps_the_place_its_recorded_time_gives_it() {
     let order: Vec<String> = collect(directory.path()).unwrap().into_iter().map(|(_, ticket)| ticket.branch).collect();
     assert_eq!(order, ["earlier", "later", "old"]);
 }
+
+#[test]
+fn a_ticket_written_back_into_the_queue_after_its_withdrawal_is_never_pending_again() {
+    let directory = tempfile::tempdir().unwrap();
+    let ticket = |branch: &str, micros| Ticket { branch: branch.to_owned(), queued_micros: Some(micros), ..Default::default() };
+    let withdrawn = file_name(1_000, "sheriff-revert-344cf09f8");
+    write(&directory.path().join(&withdrawn), &ticket("sheriff-revert-344cf09f8", 1_000)).unwrap();
+    write(&directory.path().join(file_name(2_000, "other")), &ticket("other", 2_000)).unwrap();
+    settle(&directory.path().join(&withdrawn), ticket("sheriff-revert-344cf09f8", 1_000), "withdrawn by proxy: not reproducible".to_owned(), WITHDRAWN).unwrap();
+    write(&directory.path().join(&withdrawn), &ticket("sheriff-revert-344cf09f8", 1_000)).unwrap();
+    let order: Vec<String> = collect(directory.path()).unwrap().into_iter().map(|(_, ticket)| ticket.branch).collect();
+    assert_eq!(order, ["other"], "a withdrawn ticket a later writer put back (the doctor's rerun, a lander rewrite) never lands");
+}

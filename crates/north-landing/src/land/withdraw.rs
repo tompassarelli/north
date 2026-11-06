@@ -8,7 +8,6 @@ use super::lander::state_home;
 use super::queue::{self, Ticket};
 
 const USAGE: &str = "usage: north land withdraw TICKET --reason TEXT [--repo DIR] [--noticed-by WHO] [--class CLASS]";
-const AREA: &str = "withdrawn";
 
 struct Options {
     ticket: String,
@@ -52,7 +51,7 @@ pub(super) fn find(queue: &Path, wanted: &str) -> Result<(PathBuf, Ticket), Stri
 fn withdraw(queue: &Path, options: &Options) -> Result<String, String> {
     let (path, ticket) = find(queue, &options.ticket)?;
     let verdict = format!("withdrawn by {}: {}", options.noticed_by, options.reason.trim());
-    let moved = queue::settle(&path, ticket.clone(), verdict.clone(), AREA).map_err(|error| format!("{}: {error}", path.display()))?;
+    let moved = queue::settle(&path, ticket.clone(), verdict.clone(), queue::WITHDRAWN).map_err(|error| format!("{}: {error}", path.display()))?;
     let mut lines = vec![format!("north land: withdrew {} ({}) to {}", ticket.branch, ticket.head, moved.display())];
     if let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) {
         let told = after::send(session, &format!("north land: {} ({}) was withdrawn from the landing queue: {}", ticket.branch, ticket.head, options.reason.trim()));

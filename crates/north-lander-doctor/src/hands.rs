@@ -83,6 +83,9 @@ pub fn promote() -> Result<String, String> {
 /// Moves a refused ticket back into its queue once, leaving a marker so its next refusal is final.
 pub fn rerun(queue_dir: &Path, ticket: &Path) -> Result<String, String> {
     let name = ticket.file_name().ok_or_else(|| format!("{} names no file", ticket.display()))?;
+    if queue::is_withdrawn(queue_dir, name) {
+        return Err(format!("{} was withdrawn, so it is never queued again", name.to_string_lossy()));
+    }
     let mut decided = queue::read(ticket).map_err(|error| format!("{}: {error}", ticket.display()))?;
     decided.verdict = None;
     decided.decided_on = None;
