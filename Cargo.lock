@@ -955,6 +955,7 @@ dependencies = [
  "fancy-regex",
  "north-base",
  "north-fleet",
+ "north-graph-ground",
  "north-pace",
  "north-threads",
  "percent-encoding",
@@ -1051,6 +1052,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-graph-ground"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-graph",
+ "regex",
+ "tempfile",
+]
+
+[[package]]
 name = "north-graph-ingest"
 version = "0.1.0"
 dependencies = [
@@ -1077,6 +1088,7 @@ dependencies = [
  "north-core",
  "north-dispatch",
  "north-github-mirror",
+ "north-graph-ground",
  "north-strategy-types",
  "regex",
  "rusqlite",

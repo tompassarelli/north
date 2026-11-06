@@ -11,6 +11,7 @@ north-base = { path = "../north-base" }
 north-pace = { path = "../north-pace" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 north-fleet = { path = "../north-fleet" }
+north-graph-ground = { path = "../north-graph-ground" }
 crossterm.workspace = true
 ratatui.workspace = true
 fancy-regex.workspace = true

@@ -15,6 +15,7 @@ north-base = { path = "../north-base" }
 north-capacity = { path = "../north-capacity" }
 north-core = { path = "../north-core" }
 north-github-mirror = { path = "../north-github-mirror" }
+north-graph-ground = { path = "../north-graph-ground" }
 fancy-regex.workspace = true
 regex.workspace = true
 rusqlite.workspace = true

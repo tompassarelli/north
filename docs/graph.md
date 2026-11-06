@@ -77,6 +77,8 @@ query can join a claim to the checks of the commit it names.
   by `checker`, from the ledger's checks; `(SESSION :works-on north#634)` and `(north#634 :landed-as SHA)` by `ledger`.
 - `pushes` (writer `push-log`): per pushed commit `:repo`, `:branch`, `:pushed-at`, `(SESSION :pushed SHA)`, and for a
   commit that reached main `:landed-as`, `:landed-by` and `:landed-at`.
+- `touches` (writer `git`): `(SHA :touched FILE)` for each commit the push log landed in the last 30 days, from `git log
+  --name-only` of that repository's checkout under `~/code/REPO/main`. Facts are only added: a landed commit's files do not change.
 - `decisions` (writer `decision-log`): per decision `(decision:ID :decision-kind|:at|:host|:follows|...)` with the branch,
   commit, lane, session, account and outcome the kind's case names. The log keeps 14 days; the graph keeps what it read.
 - `corrections` (writer `corrections`): `(correction:ID :class|:at|:paraphrase|:in-session|:superseded-by ...)` from the
@@ -103,3 +105,20 @@ of the issue; `observed` is a commit `checker` passed):
      {"rel": "claim", "args": [{"var": "who"}, {"var": "box"}, {"var": "sha"}]},
      {"rel": "observed", "args": [{"var": "sha"}], "neg": true}]}]]}
 ```
+
+## Grounding
+
+The UserPromptSubmit grounding hook and `north brief new --category C --item REPO#N` read this graph through
+`crates/north-graph-ground`: for each issue (`north#634`) or file path a message names, up to four, they add the
+neighborhood two hops out, and the hook shows it among its live lines inside its 600 ms retrieval bound.
+
+- An issue: title, state, labels and blockers; its open boxes with owners; each ticked box with the Done claim of its owner,
+  shown as a claim, or as observed when `checker` passed the commit the claim names, or as a failed check; recent landings;
+  corrections made in the sessions that worked on it.
+- A file: the functions the coverage map holds for it and the tests that reach them; recent landings that touched it with
+  the issue each served; corrections made in those sessions.
+
+The reader opens the graph read-only and never ingests, so a missing, locked or older graph costs the hook nothing but the
+lines. `north land follow` runs `north graph ingest` after each landing, and ingests take a lock so concurrent follows run one
+at a time. Started 2026-11-06: the week of ungrounded-design corrections and the scoreboard's rework rate are compared with the
+week before once a week of data exists.

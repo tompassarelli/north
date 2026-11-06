@@ -6,7 +6,7 @@ mod write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{GraphError, Result};
 
@@ -72,6 +72,16 @@ impl Graph {
             std::fs::create_dir_all(parent).map_err(|why| GraphError::Corrupt(format!("{}: {why}", parent.display())))?;
         }
         Self::prepare(Connection::open(path)?)
+    }
+
+    pub fn open_read_only(path: &Path, patience: Duration) -> Result<Self> {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        connection.busy_timeout(patience)?;
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version != SCHEMA_VERSION {
+            return Err(GraphError::Corrupt(format!("graph schema version {version}, this build reads {SCHEMA_VERSION}")));
+        }
+        Ok(Self { connection })
     }
 
     pub fn open_in_memory() -> Result<Self> {

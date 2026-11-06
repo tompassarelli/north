@@ -100,6 +100,7 @@ pub fn run(arguments: &[String]) -> u8 {
         timed("after-landing gates", Category::Ci, &[os("after-landing"), os("--git-dir"), os(git_dir), os("--base"), os(base), os("--head"), os(head), os("--safe-push"), os(safe_push)]),
         timed("follows-release", Category::Follow, &[os("follows-release"), os("--repo-dir"), os(repo)]),
         timed("runtime follow", Category::Follow, &[os("runtime"), os("follow"), os("--repo-dir"), os(repo)]),
+        timed("graph ingest", Category::Follow, &[os("graph"), os("ingest")]),
     ];
     trace::record(&spans);
     0

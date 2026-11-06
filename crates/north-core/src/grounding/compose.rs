@@ -7,6 +7,7 @@ pub const LIMIT_CHARS: usize = 6000;
 pub const HOOK_LIMIT_CHARS: usize = 1500;
 pub const HOOK_FLOOR: f64 = 0.5;
 pub const HOOK_TERMS: usize = 12;
+#[derive(Clone)]
 pub struct Shape {
     pub limit: usize,
     pub floor: f64,
@@ -20,6 +21,9 @@ pub struct Shape {
     pub bound: Bound,
 }
 impl Shape {
+    fn with_room(&self, room: usize) -> Self {
+        Self { limit: self.limit + room, ..self.clone() }
+    }
     pub fn query() -> Self {
         Shape { limit: LIMIT_CHARS, floor: 0.2, keep: 0.2, mentions: 1600, terms: 12, width: 80, brief: false, seen: HashSet::new(), last_live: None, bound: Bound::default() }
     }
@@ -378,8 +382,11 @@ pub fn block(message: &str, tier: &str, now: f64, prior: &str) -> Result<String>
 pub fn shaped(message: &str, tier: &str, now: f64, prior: &str, shape: &Shape) -> Result<Rendered> {
     let usage = live::usage(message);
     let org = live::org_query(message);
+    let graph = north_graph_ground::ground(message, shape.bound.until);
+    let roomy = shape.with_room(graph.iter().map(|line| ulen(line) + 1).sum());
+    let shape = &roomy;
     let count = store::terms(message).len();
-    if count < 2 && (prior.is_empty() || count == 0) && !usage && !org {
+    if count < 2 && (prior.is_empty() || count == 0) && !usage && !org && graph.is_empty() {
         return Ok(Rendered::default());
     }
     let mut db = store::open(true).ok();
@@ -404,6 +411,7 @@ pub fn shaped(message: &str, tier: &str, now: f64, prior: &str, shape: &Shape) -
     if org {
         live.extend(live::org_lines(message));
     }
+    live.extend(graph);
     let confident = hits.iter().any(|h| h.cover >= 0.5);
     let mut extra = Vec::new();
     if tier=="B"{let(lines,searched)=tierb::tier_b(&words,db.as_mut());if !lines.is_empty(){extra.push("Tier B (convo rephrasings, handoffs):".into());extra.extend(lines.into_iter().take(14));}else if !confident{let near=hits.first().map(|h|format!("closest: {}{}",h.reference,if h.at!=0.0{format!(" on {}",Timestamp::from_unix_seconds(h.at as i64).day_and_minute())}else{String::new()})).unwrap_or_else(||"closest: none".into());extra.push(format!("Ask Tom in this form: \"searched {} for '{}'; {near}; this one?\"",searched.join(", "),words.iter().take(6).cloned().collect::<Vec<_>>().join(" ")));}}

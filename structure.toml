@@ -40,7 +40,7 @@ may_use = ["north-providers"]
 [[crate_dag.crate]]
 name = "north-guard"
 paths = ["crates/north-guard/src/**", "crates/*/src/lanes.rs", "crates/*/src/lanes/**", "crates/*/src/code_health.rs", "crates/*/src/code_health/**"]
-may_use = ["north-dispatch", "north-providers", "north-github-mirror"]
+may_use = ["north-dispatch", "north-providers", "north-github-mirror", "north-graph-ground"]
 
 [[crate_dag.crate]]
 name = "north-capacity-host"
@@ -76,6 +76,11 @@ may_use = []
 name = "north-graph-ingest"
 paths = ["crates/north-graph-ingest/src/**"]
 may_use = ["north-base", "north-coverage", "north-fleet", "north-github-mirror", "north-graph", "north-threads"]
+
+[[crate_dag.crate]]
+name = "north-graph-ground"
+paths = ["crates/north-graph-ground/src/**"]
+may_use = ["north-base", "north-graph"]
 
 [[crate_dag.crate]]
 name = "north-dispatch"
@@ -120,7 +125,7 @@ may_use = ["north-fleet", "north-threads"]
 [[crate_dag.crate]]
 name = "north-core"
 paths = ["crates/north-core/src/**"]
-may_use = ["north-fleet", "north-threads"]
+may_use = ["north-fleet", "north-graph-ground", "north-threads"]
 
 [review]
 commits = 600
@@ -196,7 +201,7 @@ may_use = ["fleet", "domain", "platform", "foundation", "crate-roots", "threads"
 name = "guard"
 paths = ["crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "platform", "foundation", "crate-roots", "code_health", "lanes", "threads"]
+may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "platform", "foundation", "crate-roots", "code_health", "lanes", "threads", "graph_ground"]
 
 [[module]]
 name = "threads"
@@ -298,7 +303,7 @@ may_use = ["crate-roots", "foundation", "shell"]
 name = "grounding"
 paths = ["crates/north-core/src/grounding/**"]
 responsibility = "Index and retrieval of existing infrastructure and history for prompts."
-may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["threads", "domain", "platform", "foundation", "crate-roots", "graph_ground"]
 
 [[module]]
 name = "capacity"
@@ -341,6 +346,12 @@ name = "graph_ingest"
 paths = ["crates/north-graph-ingest/src/**"]
 responsibility = "Loading what north already records into the fact graph: the GitHub mirror, ledger, push log, decision log, corrections and coverage map, each told as a set by its own writer."
 may_use = ["coverage", "crate-roots", "fleet", "foundation", "github_mirror", "graph", "platform", "threads"]
+
+[[module]]
+name = "graph_ground"
+paths = ["crates/north-graph-ground/src/**"]
+responsibility = "Reading the fact graph around the issues and files a message names, as the lines the prompt hook and a brief show."
+may_use = ["crate-roots", "foundation", "graph"]
 
 [[module]]
 name = "ops"

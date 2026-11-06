@@ -39,7 +39,7 @@ fn places(directory: &Path) -> Places {
     std::fs::write(directory.join("pushes.tsv"), format!("1793926432\tnorth\tn634-hung-slots\t{FULL}\t{FULL}\tn634-hung-slots\n")).unwrap();
     std::fs::write(directory.join("corrections.jsonl"), "{\"id\":\"L1\",\"at\":\"2026-10-01T14:15:12Z\",\"kind\":\"correction\",\"quote\":\"Tom said the reply did not answer his question.\",\"source\":\"tom convo:1 session:abc\",\"superseded_by\":null,\"class\":\"unanswered\"}\n").unwrap();
     std::fs::create_dir_all(directory.join("coverage")).unwrap();
-    Places { mirror, ledger, pushes: directory.join("pushes.tsv"), decisions: None, corrections: directory.join("corrections.jsonl"), coverage: directory.join("coverage") }
+    Places { mirror, ledger, pushes: directory.join("pushes.tsv"), code: directory.join("code"), decisions: None, corrections: directory.join("corrections.jsonl"), coverage: directory.join("coverage") }
 }
 
 fn unobserved_claims() -> Query {
@@ -98,4 +98,35 @@ fn ingesting_twice_adds_nothing_and_a_changed_source_is_followed() {
     ingest(&mut graph, &places, &all);
     assert_eq!(claims(&graph), 2, "unticking the box withdraws its owner's claim");
     assert!(graph.validate().unwrap().is_sound());
+}
+
+fn git(directory: &Path, arguments: &[&str]) -> String {
+    let output = std::process::Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@example.com"]).args(arguments).output().unwrap();
+    assert!(output.status.success(), "{arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+#[test]
+fn a_landed_commit_is_told_to_have_touched_the_files_it_changed() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut places = places(directory.path());
+    let checkout = directory.path().join("code/north/main");
+    std::fs::create_dir_all(checkout.join("crates/x")).unwrap();
+    git(&checkout, &["init", "-q"]);
+    std::fs::write(checkout.join("crates/x/lib.rs"), "a").unwrap();
+    std::fs::write(checkout.join("README.md"), "a").unwrap();
+    git(&checkout, &["add", "."]);
+    git(&checkout, &["commit", "-q", "-m", "one"]);
+    let landed = git(&checkout, &["rev-parse", "HEAD"]);
+    std::fs::write(checkout.join("README.md"), "b").unwrap();
+    git(&checkout, &["commit", "-q", "-am", "never pushed"]);
+    let now = north_base::foundation::clock::Timestamp::now().unix_seconds();
+    std::fs::write(&places.pushes, format!("{now}\tnorth\tlane\t{landed}\t{landed}\tn669-grounding\n")).unwrap();
+    places.code = directory.path().join("code");
+    let mut graph = Graph::open_in_memory().unwrap();
+    let report = ingest(&mut graph, &places, &[Source::Touches]);
+    assert!(!report.failed, "{:?}", report.lines);
+    let mut touched: Vec<String> = graph.mentions(&Term::string(landed.as_str()), 10).unwrap().into_iter().filter(|fact| fact.triple.t2 == Term::keyword("touched")).map(|fact| fact.triple.t3.to_string()).collect();
+    touched.sort();
+    assert_eq!(touched, ["\"README.md\"", "\"crates/x/lib.rs\""], "only a commit the push log landed is read, with the files that commit changed");
 }

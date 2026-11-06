@@ -13,6 +13,7 @@ mod places;
 mod pushes;
 mod run;
 mod shas;
+mod touches;
 
 #[cfg(test)]
 mod ingest_tests;

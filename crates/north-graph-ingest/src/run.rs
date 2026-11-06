@@ -5,28 +5,30 @@ use north_graph::{Graph, Synced, Telling, Term, default_path};
 
 use crate::places::Places;
 use crate::shas::Shas;
-use crate::{corrections, coverage, decisions, issues, ledger, pushes};
+use crate::{corrections, coverage, decisions, issues, ledger, pushes, touches};
 
-const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\nsources: mirror ledger pushes decisions corrections coverage (all when none is named)";
+const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\nsources: mirror ledger pushes touches decisions corrections coverage (all when none is named)";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Source {
     Mirror,
     Ledger,
     Pushes,
+    Touches,
     Decisions,
     Corrections,
     Coverage,
 }
 
 impl Source {
-    pub const ALL: [Self; 6] = [Self::Mirror, Self::Ledger, Self::Pushes, Self::Decisions, Self::Corrections, Self::Coverage];
+    pub const ALL: [Self; 7] = [Self::Mirror, Self::Ledger, Self::Pushes, Self::Touches, Self::Decisions, Self::Corrections, Self::Coverage];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Mirror => "mirror",
             Self::Ledger => "ledger",
             Self::Pushes => "pushes",
+            Self::Touches => "touches",
             Self::Decisions => "decisions",
             Self::Corrections => "corrections",
             Self::Coverage => "coverage",
@@ -38,6 +40,7 @@ impl Source {
             Self::Mirror => issues::read(places, shas),
             Self::Ledger => ledger::read(places),
             Self::Pushes => pushes::read(places),
+            Self::Touches => touches::read(places),
             Self::Decisions => decisions::read(places),
             Self::Corrections => corrections::read(places),
             Self::Coverage => coverage::read(places),
@@ -105,11 +108,19 @@ fn ingest_command(arguments: &[String]) -> u8 {
             return 1;
         }
     };
+    let Some(_alone) = alone(&db) else { return 1 };
     let report = ingest(&mut graph, &Places::local(), &sources);
     for line in &report.lines {
         println!("{line}");
     }
     u8::from(report.failed)
+}
+
+fn alone(db: &std::path::Path) -> Option<std::fs::File> {
+    let mut name = db.as_os_str().to_owned();
+    name.push(".ingest.lock");
+    let lock = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(&name).and_then(|file| file.lock().map(|()| file));
+    lock.map_err(|why| eprintln!("north graph ingest: {}: {why}", std::path::Path::new(&name).display())).ok()
 }
 
 fn usage(why: &str) -> u8 {
