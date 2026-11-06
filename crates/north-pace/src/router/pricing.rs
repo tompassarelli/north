@@ -60,3 +60,19 @@ impl Price {
             / 1_000_000.0
     }
 }
+
+const COMPACTION_READ_TOKENS: f64 = 450_000.0;
+const COMPACTION_SUMMARY_TOKENS: f64 = 20_000.0;
+const COMPACTION_REWRITE_TOKENS: f64 = 30_600.0;
+const COMPACTED_CONTEXT: u64 = 49_000;
+
+impl Price {
+    /// Whether compacting at `context` tokens repays its cost when `turns_left` more turns follow: the context shed is
+    /// re-read each turn at the cache read price, against one compaction (a read, a 20k summary, a 30.6k rewrite).
+    pub fn compaction_pays(self, context: u64, turns_left: u64) -> bool {
+        let cost = (COMPACTION_READ_TOKENS * self.cache_read + COMPACTION_SUMMARY_TOKENS * self.output + COMPACTION_REWRITE_TOKENS * self.cache_write) / 1_000_000.0;
+        let saved_per_turn = context.saturating_sub(COMPACTED_CONTEXT) as f64 * self.cache_read / 1_000_000.0;
+        turns_left as f64 * saved_per_turn > cost
+    }
+}
+

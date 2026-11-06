@@ -43,7 +43,7 @@ session quiet past twice its ETA to its parent.
 | 16 | `threads queue follow`: a Follows box is sent to its parent once its predecessor lands | `crates/north-core/src/threads/jobs/queue.rs:82`; `crates/north-landing/src/follows_release.rs:114` | 1 | 0 | is the message event (a landing) | keep |
 | 17 | `north flow` stall, stranded and refused alerts to the repository's Fleet parent, repeated every 15 min while they last | `crates/north-ops/src/ops/flow/alerts.rs:136`, `:15` (`REPEAT_SECONDS`), `:93` to `:106` | 219 | 192 (88%) | the first alert is the event; each repeat restates it | cut the repeat; the first alert stays a message event |
 | 18 | Host reboot resume | `crates/north-core/src/fleet/rebooted.rs:18`, `:59` | 1 | 0 | is the process event | keep |
-| 19 | Context handoff nudge at the brief's arm threshold | `crates/north-core/src/fleet/handoff.rs:19`; `crates/north-core/src/fleet/watch.rs:223` | 0 | n/a | is a message event (a context reading) | keep |
+| 19 | Compaction checkpoint question at 250k context and every 50k after | `crates/north-fleet/src/fleet/checkpoint.rs`; `crates/north-fleet/src/fleet/watch.rs` | 0 | n/a | is a message event (a context reading) | keep |
 
 19 paths: 12 keep as process or message events, 1 keeps as the silence check (12, retimed), and 6 are cut
 (4, 5, 6, 9, 10, and 17's repeat, which leaves its first alert as a message event). Rows 1, 2 and 3 are the reason subagents rarely go quiet:

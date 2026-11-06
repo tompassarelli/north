@@ -12,11 +12,11 @@ use super::books::WatchBooks;
 use super::claims::{self, Claims};
 use super::detached::{Detached, NoScope, Scope};
 use super::gates::Question;
-use super::handoff;
+use super::checkpoint::{self, Checkpoints};
 use super::idle::{self, Step};
 use super::jobs::{HeldLeases, JobLeases};
 use super::landings::{self, push_log};
-use super::model::{Delivery, Ending, Entry, EntryKind, Machine, SessionRecord, Transcript};
+use super::model::{Delivery, Ending, Entry, EntryKind, Machine, Role, SessionRecord, Transcript};
 use super::prompt::is_deepened;
 use super::receipts::{Courier, Report, deliver_report, retires};
 use super::records::{find_session, host_sessions, parents_live, write_record};
@@ -44,7 +44,7 @@ pub struct TurnWatch {
     idle: idle::Policy,
     finished: HashMap<String, bool>,
     rolled_over: bool,
-    nudges: HashMap<String, Option<Nudge>>,
+    checkpoints: Checkpoints,
     unaccepted: Arc<SentPrompts>,
     lanes: Arc<dyn Lanes + Send + Sync>,
     scope: Arc<dyn Scope>,
@@ -137,11 +137,6 @@ impl SentLog for SentPrompts {
     }
 }
 
-struct Nudge {
-    threshold: u64,
-    last: Option<u64>,
-}
-
 struct View {
     transcript: Transcript,
     reply: Option<String>,
@@ -154,14 +149,17 @@ impl View {
         Self { transcript, reply: None }
     }
 
-    fn observe(&mut self, runtime: &dyn Runtime, frame: &Value) {
+    /// The assistant texts the frame added.
+    fn observe(&mut self, runtime: &dyn Runtime, frame: &Value) -> Vec<String> {
         let seen = self.transcript.entries.len();
         runtime.observe(frame, &mut self.transcript);
-        if let Some(reply) = self.transcript.entries[seen..].iter().rev().find(|entry| entry.kind == EntryKind::Assistant) {
-            self.reply = Some(reply.text.clone());
+        let said: Vec<String> = self.transcript.entries[seen..].iter().filter(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.clone()).collect();
+        if let Some(reply) = said.last() {
+            self.reply = Some(reply.clone());
         }
         let surplus = self.transcript.entries.len().saturating_sub(KEPT_LINES);
         self.transcript.entries.drain(..surplus);
+        said
     }
 }
 
@@ -180,7 +178,7 @@ impl TurnWatch {
             idle: idle::Policy::default(),
             finished: HashMap::new(),
             rolled_over: false,
-            nudges: HashMap::new(),
+            checkpoints: Checkpoints::default(),
             unaccepted,
             lanes: Arc::new(NoLanes),
             scope: Arc::new(NoScope),
@@ -231,15 +229,10 @@ impl TurnWatch {
             }
             TurnSignal::Call { conversation, tokens, .. } => {
                 self.rolled_over = false;
-                let context = tokens.context();
-                let (root, host_dir) = (&self.root, &self.host_dir);
-                let armed = self.nudges.entry(conversation.clone()).or_insert_with(|| {
-                    find_session(root, host_dir, conversation).and_then(|record| record.handoff_at).map(|threshold| Nudge { threshold, last: None })
-                });
-                let Some(nudge) = armed.as_mut().filter(|nudge| handoff::due(nudge.threshold, context, nudge.last)) else { return };
-                nudge.last = Some(context);
-                let threshold = nudge.threshold;
-                self.nudge(conversation, context, threshold);
+                self.checkpoint(conversation, tokens.context());
+            }
+            TurnSignal::Compacted { conversation, .. } => {
+                self.checkpoints.compacted(conversation);
             }
             TurnSignal::Ended { conversation, .. } => {
                 let Some(reply) = self.views.get(conversation).and_then(|view| view.reply.clone()).filter(|reply| !reply.trim().is_empty()) else { return };
@@ -265,14 +258,18 @@ impl TurnWatch {
         host_sessions(&self.root, &self.host_dir).iter().any(|record| !waits.of(&record.name).is_empty())
     }
 
-    fn nudge(&self, conversation: &str, context: u64, threshold: u64) {
-        let name = find_session(&self.root, &self.host_dir, conversation).map_or_else(|| conversation.to_owned(), |record| record.name);
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-        let note = home.join(".local/state/agents/handoffs").join(format!("{name}.md"));
-        let Some(frames) = fresh(self.runtime.as_ref(), &handoff::nudge(context, threshold, &note)) else { return };
-        for frame in frames {
-            self.courier.answer(&self.host_dir, frame);
+    fn checkpoint(&mut self, conversation: &str, context: u64) {
+        if !self.checkpoints.due(conversation, context) || find_session(&self.root, &self.host_dir, conversation).is_none_or(|record| record.role() == Role::Proxy) {
+            return;
         }
+        self.checkpoints.ask(conversation, context);
+        fresh(self.runtime.as_ref(), &checkpoint::question(context)).into_iter().flatten().for_each(|frame| self.courier.answer(&self.host_dir, frame));
+    }
+
+    /// The `/compact` frame a checkpoint answer chose, once no turn is running.
+    fn chosen_compaction(&mut self) -> Option<String> {
+        let focus = (!self.turns.in_flight()).then(|| self.checkpoints.take_ready()).flatten()?;
+        self.runtime.compact(Some(&focus))
     }
 
     fn speak_up(&mut self, state: State, idle: Duration) {
@@ -407,8 +404,11 @@ impl FrameWatch for TurnWatch {
         for signal in &signals {
             self.views.entry(signal.conversation().to_owned()).or_insert_with(|| View::of(signal.conversation()));
         }
-        for view in self.views.values_mut() {
-            view.observe(self.runtime.as_ref(), &frame);
+        let answers: Vec<_> = self.views.iter_mut().map(|(conversation, view)| (conversation.clone(), view.observe(self.runtime.as_ref(), &frame))).filter(|(_, said)| !said.is_empty()).collect();
+        let answers: Vec<_> = answers.into_iter().filter(|(conversation, _)| self.checkpoints.awaiting(conversation)).collect();
+        for (conversation, said) in answers {
+            let model = find_session(&self.root, &self.host_dir, &conversation).and_then(|record| record.model);
+            self.checkpoints.answered(&conversation, &said, model.as_deref());
         }
         for signal in signals {
             self.follow(&signal);
@@ -446,11 +446,11 @@ impl FrameWatch for TurnWatch {
             _ => {}
         }
         match step {
-            Step::Wait => Rest::Wait,
+            Step::Wait => self.chosen_compaction().map_or(Rest::Wait, |frame| Rest::Send(vec![frame])),
             Step::Park => Rest::End,
             Step::Compact => {
                 self.rolled_over = true;
-                self.runtime.compact().map_or(Rest::Wait, |frame| Rest::Send(vec![frame]))
+                self.runtime.compact(None).map_or(Rest::Wait, |frame| Rest::Send(vec![frame]))
             }
             Step::Exit if self.retire(Ending::IdleExit) => {
                 self.speak_up(State::Exited, idle);

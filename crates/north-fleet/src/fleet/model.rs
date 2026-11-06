@@ -250,8 +250,6 @@ pub struct SessionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_sender: Option<LastSender>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub handoff_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_window: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eta_min: Option<u64>,
@@ -325,7 +323,6 @@ impl SessionRecord {
             machine: request.machine.clone(),
             capacity_need: request.capacity_need.clone(),
             last_sender: None,
-            handoff_at: super::handoff::threshold(&request.prompt),
             compact_window: request.window(),
             eta_min: request.eta_min(),
             addressed_since_ms: None,

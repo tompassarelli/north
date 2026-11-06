@@ -106,7 +106,7 @@ pub trait Runtime: Send + Sync {
     fn caller_conversation(&self) -> Option<String> {
         None
     }
-    fn compact(&self) -> Option<String> {
+    fn compact(&self, _focus: Option<&str>) -> Option<String> {
         None
     }
     fn sent_prompt(&self, _frame: &Value) -> Option<String> {

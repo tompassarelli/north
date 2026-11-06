@@ -10,35 +10,14 @@ const MEMORY_FLOOR_MIB: f64 = 8192.0;
 const MEMORY_FLOOR_SHARE: f64 = 0.2;
 const FLOOR_WARNING_MINUTES: f64 = 30.0;
 const TOP_UNLEASED: usize = 5;
-const CLAUDE_TIERS: [&str; 7] = ["haiku", "sonnet", "low", "medium", "high", "xhigh", "max"];
-
-pub(super) const HANDOFF_FIX: &str = "2026-10-10T20:24:00Z";
-
-pub(super) struct Run {
-    pub(super) agent: String,
-    pub(super) tier: String,
-    pub(super) role: String,
-    pub(super) ended: String,
-    pub(super) peak_ctx: Option<f64>,
-    pub(super) handoff_fires: Option<i64>,
-    pub(super) handoff_ignored: Option<i64>,
-}
-
 pub(super) struct Inputs<'a> {
     pub(super) samples: &'a [Value],
     pub(super) incidents: &'a [String],
-    pub(super) runs: &'a [Run],
-    pub(super) ledger_since: Option<i64>,
-    pub(super) handoff_ctx: f64,
     pub(super) now: i64,
 }
 
 pub(super) fn parse_time(text: &str) -> Option<i64> {
     Timestamp::parse_rfc3339(text).or_else(|| Timestamp::parse_loose(text)).map(Timestamp::unix_millis)
-}
-
-pub(super) fn handoff_fix() -> i64 {
-    parse_time(HANDOFF_FIX).expect("the handoff fix instant parses")
 }
 
 fn round_half_up(number: f64) -> f64 {
@@ -65,24 +44,6 @@ struct Owner {
     cpus: f64,
     seen: Vec<f64>,
     org: Option<String>,
-}
-
-fn handoff_flags(inputs: &Inputs, since: i64) -> Vec<String> {
-    let earliest = inputs.ledger_since.unwrap_or_else(|| since.max(handoff_fix()));
-    let mut flags = Vec::new();
-    for run in inputs.runs {
-        let in_window = parse_time(&run.ended).is_some_and(|ended| ended >= earliest && ended <= inputs.now);
-        if !in_window || run.role != "worker" || !CLAUDE_TIERS.contains(&run.tier.as_str()) {
-            continue;
-        }
-        if run.peak_ctx.unwrap_or(0.0) > inputs.handoff_ctx && run.handoff_fires == Some(0) {
-            flags.push(format!("handoff hook silent: {} peak {}k, 0 fires", run.agent, round_half_up(run.peak_ctx.unwrap_or(0.0) / 1000.0)));
-        }
-        if run.handoff_fires.unwrap_or(0) > 0 && run.handoff_ignored.unwrap_or(0) > 0 {
-            flags.push(format!("handoff ignored: {}", run.agent));
-        }
-    }
-    flags
 }
 
 fn lease_owners(window: &[&Value]) -> Vec<Owner> {
@@ -143,7 +104,7 @@ pub(super) fn report(inputs: &Inputs, minutes: f64) -> Value {
     let since = inputs.now - (minutes * 60000.0) as i64;
     let window: Vec<&Value> = inputs.samples.iter().filter(|sample| sample["at"].as_str().and_then(parse_time).is_some_and(|at| at >= since)).collect();
     let incidents: Vec<&String> = inputs.incidents.iter().filter(|line| line.strip_prefix("- ").and_then(|rest| rest.split_whitespace().next()).and_then(parse_time).is_some_and(|at| at >= since)).collect();
-    let mut flags = handoff_flags(inputs, since);
+    let mut flags = Vec::new();
     if window.is_empty() {
         flags.insert(0, "no samples: is capacity-watchdog.service running?".to_owned());
         return json!({ "minutes": minutes, "samples": 0, "incidents": incidents, "flags": flags });

@@ -175,7 +175,7 @@ fn hook_command(arguments: Vec<String>) -> ExitCode {
             ExitCode::SUCCESS
         }
         _ => {
-            guard::worker_handoff::install_confirm(crate::pacing::confirm_spawn);
+            guard::worker_lease::install_confirm(crate::pacing::confirm_spawn);
             guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home });
             let started = std::time::Instant::now();
             match foundation::hook_deadline::within(started + GUARD_DEADLINE, move || hook::run(&arguments)) {

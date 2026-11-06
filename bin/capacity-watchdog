@@ -1,13 +1,9 @@
 #!/usr/bin/env -S bun --no-install
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
-import { Database } from "bun:sqlite";
-import registry from "../harness/defaults.toml";
-
-const DEFAULTS = Object.fromEntries(Object.entries(registry as Record<string, { value: number }>).map(([name, entry]) => [name, entry.value]));
 
 const USAGE = `usage: capacity-watchdog sample [--once] [--interval SECONDS]
-       capacity-watchdog report [--minutes N]... [--since DATE]
+       capacity-watchdog report [--minutes N]...
        capacity-watchdog replay FILE
        capacity-watchdog rest-check [--seconds N] [--expected FILE] [--observed FILE] [--save FILE]
 
@@ -18,9 +14,6 @@ sample   every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clients
          to north capacity watchdog step, which on sustained overload names the top process trees
          by fleet session, caps the offending session scope and sends the owner and coordinators.
 report   summarize the last N minutes (default 5 and 30) of samples and incidents with flags.
-         Claude workers over 350k with no handoff fire flag in that window since the hook fix.
-         A fire without HANDOFF or a Done:/Not done: report in its next three assistant turns flags as handoff ignored.
-         --since DATE replays ledger runs from DATE, including pre-fix runs (samples keep their minute window).
          A Codex turn in the window that failed with "Selected model is at capacity" flags provider-capacity codex.
 replay   run recorded snapshots (JSONL) through the decision core and print its actions.
 rest-check  compare running system and user units, active timers and listening sockets with the
@@ -37,8 +30,6 @@ const TREE_CORES = 4;
 const TREE_SECONDS = 120;
 const PSI_LIMIT = 50;
 const CLIENT_SHARE = 1.6;
-const HANDOFF_FIX = Date.parse("2026-10-10T20:24:00Z");
-const CLAUDE_TIERS = new Set(["haiku", "sonnet", "low", "medium", "high", "xhigh", "max"]);
 const ROTATE_MS = 24 * 3600 * 1000;
 const LEASED = /\/agent-capacity-[0-9a-f]{32}\.scope(\/|$)/;
 const NIGHTLY = /\/git-maintenance-nightly\.service(\/|$)/;
@@ -52,7 +43,6 @@ type Hot = { since: number; reported: boolean };
 type State = { prev: Snapshot | null; hot: Record<string, Hot> };
 type Incident = { at: string; kind: "unleased-tree" | "git-maintenance-terminated"; summary: string; cgroup: string; cores?: number; seconds?: number; cwd?: string | null; chain?: string[]; pids?: number[] };
 type Term = { pid: number; start: string };
-type Run = { agent: string; tier: string; role: string; ended: string; peak_ctx: number | null; handoff_fires: number | null; handoff_ignored: number | null };
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const command = (p: Proc) => (p.args.length ? p.args.join(" ") : `[${p.comm}]`).slice(0, 160);
@@ -181,19 +171,11 @@ export function restCheck(expected: RestExpected, observed: RestObserved) {
 
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
 
-export function report(samples: any[], incidents: string[], minutes: number, now: number, runs: Run[] = [], ledgerSince?: number) {
+export function report(samples: any[], incidents: string[], minutes: number, now: number) {
   const since = now - minutes * 60000;
   const win = samples.filter((s) => Date.parse(s.at) >= since);
   const inc = incidents.filter((line) => { const m = line.match(/^- (\S+)/); return m && Date.parse(m[1]) >= since; });
   const flags: string[] = [];
-  for (const run of runs) {
-    const ended = Date.parse(run.ended);
-    if (run.role !== "worker" || !CLAUDE_TIERS.has(run.tier) || ended < (ledgerSince ?? Math.max(since, HANDOFF_FIX)) || ended > now) continue;
-    if ((run.peak_ctx ?? 0) > DEFAULTS["handoff_ctx"] && run.handoff_fires === 0) {
-      flags.push(`handoff hook silent: ${run.agent} peak ${Math.round(run.peak_ctx! / 1000)}k, 0 fires`);
-    }
-    if ((run.handoff_fires ?? 0) > 0 && (run.handoff_ignored ?? 0) > 0) flags.push(`handoff ignored: ${run.agent}`);
-  }
   if (!win.length) return { minutes, samples: 0, incidents: inc, flags: ["no samples: is capacity-watchdog.service running?", ...flags] };
   const psi = win.map((s) => s.cpuPsi);
   const high = psi.filter((p) => p > PSI_LIMIT).length;
@@ -473,42 +455,15 @@ async function main(argv: string[]) {
   }
   if (cmd === "report") {
     const mins: number[] = [];
-    let ledgerSince: number | undefined;
     for (let i = 0; i < argv.length; i++) {
       if (argv[i] === "--minutes") mins.push(Number(argv[++i]));
-      else if (argv[i] === "--since") {
-        ledgerSince = Date.parse(argv[++i]);
-        if (!Number.isFinite(ledgerSince)) { console.error("invalid --since date"); return 2; }
-      }
     }
     const samples = [...readLines(join(DIR, "samples.1.jsonl")), ...readLines(SAMPLES)].slice(-200).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
     const incidents = readLines(INCIDENTS).filter((l) => l.startsWith("- "));
     const windows = mins.length ? mins : [5, 30];
     const now = Date.now();
-    let path = process.env.THREADS_DB ?? join(HOME, ".local/state/threads/threads.db");
-    let runs: Run[] = [];
-    let ledgerError = "";
-    try {
-      if (!process.env.THREADS_DB && existsSync(join(HOME, ".config/threads/remote"))) {
-        mkdirSync(DIR, { recursive: true });
-        path = join(DIR, "ledger-snapshot.db");
-        const remote = readFileSync(join(HOME, ".config/threads/remote"), "utf8").trim();
-        const pull = Bun.spawnSync([process.env.NORTH_BIN || "north", "threads", "snapshot-pull", "--force", "--snapshot", path, remote], { stderr: "pipe" });
-        if (pull.exitCode !== 0) throw new Error(`threads snapshot-pull exit ${pull.exitCode}`);
-      }
-      if (existsSync(path)) {
-        const db = new Database(path, { readonly: true });
-        try {
-          const since = new Date(ledgerSince ?? Math.max(now - Math.max(...windows) * 60000, HANDOFF_FIX)).toISOString();
-          runs = db.query("SELECT agent, tier, role, ended, peak_ctx, handoff_fires, handoff_ignored FROM runs WHERE julianday(ended) >= julianday(?) AND julianday(ended) <= julianday(?)").all(since, new Date(now).toISOString()) as Run[];
-        } finally { db.close(); }
-      }
-    } catch (error) {
-      ledgerError = (error as Error).message;
-    }
     for (const m of windows) {
-      const result = report(samples, incidents, m, now, runs, ledgerSince);
-      if (ledgerError) result.flags.push(`handoff check unavailable: ${ledgerError}`);
+      const result = report(samples, incidents, m, now);
       const probe = Bun.spawnSync([process.env.NORTH_BIN || "north", "provider-capacity", "events", "--minutes", String(m)], { stderr: "pipe" });
       try {
         const hits = JSON.parse(probe.stdout.toString()) as { at: string; model: string }[];

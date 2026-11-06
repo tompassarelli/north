@@ -8,7 +8,7 @@ pub mod digest_report;
 pub mod effort;
 pub mod gates;
 pub mod compaction;
-pub mod handoff;
+pub mod checkpoint;
 pub mod idle;
 pub mod install;
 mod host;

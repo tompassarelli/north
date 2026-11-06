@@ -23,7 +23,7 @@ mod tests;
 use detect::{Action, Owner, Sample, Settings, State};
 
 pub const USAGE: &str = "usage: north capacity watchdog sample [--once] [--interval SECONDS]
-       north capacity watchdog report [--minutes N]... [--since DATE]
+       north capacity watchdog report [--minutes N]...
        north capacity watchdog replay SAMPLES.jsonl [--owners OWNERS.json] [--cpus N] | replay --snapshots SNAPSHOTS.jsonl
        north capacity watchdog rest-check [--seconds N] [--expected FILE] [--observed FILE] [--save FILE]
        north capacity watchdog step < SAMPLE.json
@@ -33,10 +33,7 @@ sample      every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clie
             for 2 minutes and SIGTERM git maintenance/gc/repack outside capacity scopes and the nightly timer. Each
             sample also goes through step, which on sustained overload names the top process trees by fleet session,
             caps the offending session scope and sends the owner and coordinators.
-report      summarize the last N minutes (default 5 and 30) of samples and incidents with flags. Claude workers over
-            the handoff context with no handoff fire flag in that window since the hook fix. A fire without HANDOFF or
-            a Done:/Not done: report in its next three assistant turns flags as handoff ignored. --since DATE replays
-            ledger runs from DATE, including pre-fix runs (samples keep their minute window). A Codex turn in the
+report      summarize the last N minutes (default 5 and 30) of samples and incidents with flags. A Codex turn in the
             window that failed with \"Selected model is at capacity\" flags provider-capacity codex.
 replay      run recorded overload samples through the overload decision core and print its actions; with --snapshots,
             run recorded process snapshots through the sampling core and print its incidents and terminations.

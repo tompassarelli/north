@@ -25,10 +25,6 @@ pub(super) fn plan_stop() -> f64 {
     default("plan_stop")
 }
 
-pub fn handoff_ctx() -> u64 {
-    default("handoff_ctx") as u64
-}
-
 pub fn overtime_min() -> u64 {
     default("overtime_min") as u64
 }

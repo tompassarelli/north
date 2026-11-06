@@ -77,7 +77,7 @@ Commands:
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
   context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks
-  worker-ledger [--session ID] [--since DATE] [--backfill] | --summary [--by LIST] | --recommend FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
+  worker-ledger [--session ID] [--backfill] | --summary [--by LIST] | --recommend FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
   scoreboard [--record | --rework [--since 7d] | audit [--tell]] Print the weekly harness numbers for the last 7 days and the 7 days before, each from a recorded source
   policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
@@ -100,7 +100,7 @@ Commands:
   capacity host estimate|status|backlog|land-waiting|probe|mode|reserve|renew|release|session|offload-cost ...  Read or drive the host's capacity leases (see the machine-capacity skill)
   capacity offload choose | run --host H --base B --head S --timeout N -- CMD  Run a held land check on another host with room, shipped by git bundle
   capacity watchdog sample [--once] [--interval SECONDS]  Every 30 s append host load, pressure and top processes to samples.jsonl, log unleased overload and step each sample
-  capacity watchdog report [--minutes N]... [--since DATE]  Summarize the last N minutes of watchdog samples and incidents with flags
+  capacity watchdog report [--minutes N]...  Summarize the last N minutes of watchdog samples and incidents with flags
   capacity watchdog rest-check [--seconds N] [--expected FILE] [--observed FILE] [--save FILE]  Compare running units, timers and sockets with the host's expected-at-rest set
   capacity watchdog step < SAMPLE.json | replay SAMPLES.jsonl [--owners OWNERS.json] [--cpus N] | replay --snapshots SNAPSHOTS.jsonl  On sustained host overload name the top process trees by fleet session, cap the offending session scope and tell its owner and coordinators
   nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)

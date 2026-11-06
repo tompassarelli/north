@@ -185,8 +185,9 @@ impl Runtime for Claude {
         session_env::caller_conversation()
     }
 
-    fn compact(&self) -> Option<String> {
-        Some(encode_user_message(&new_uuid().ok()?, "/compact"))
+    fn compact(&self, focus: Option<&str>) -> Option<String> {
+        let command = focus.map(str::trim).filter(|focus| !focus.is_empty()).map_or_else(|| "/compact".to_owned(), |focus| format!("/compact {focus}"));
+        Some(encode_user_message(&new_uuid().ok()?, &command))
     }
 
     fn sent_prompt(&self, frame: &Value) -> Option<String> {
@@ -308,3 +309,6 @@ mod fleet_tick;
 #[cfg(test)]
 #[path = "fleet_registry_tests.rs"]
 mod fleet_registry;
+#[cfg(test)]
+#[path = "checkpoint_tests.rs"]
+mod checkpoint;

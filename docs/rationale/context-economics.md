@@ -146,21 +146,22 @@ should compact early. Only the working agent holds the context to judge which.
   that measures better with a larger window keeps it, belongs to the north#636 box "The policy loop owns experiment
   design end to end"; nobody picks by hand. Tom expects about 300k to win; the replay alone would pick 200k, which
   is why quality has to be measured.
-- **Checkpoint: the worker decides (box).** At 250k, then every 50k, the session host asks the worker for one line:
-  `Turns left: N. Focus: TEXT`. The fleet watch's handoff nudge already re-fires every 50k and can be rebuilt as this
-  checkpoint. When N is under the break-even for the tier at that context, the worker continues to the next
-  checkpoint, with the backstop as the ceiling. Otherwise the session host sends `/compact TEXT` as its own unsigned
-  frame.
+- **Checkpoint: the worker decides (built here).** At 250k, then every 50k, the session host (`fleet/checkpoint.rs`, wired in
+  `fleet/watch.rs`) asks the worker for one line: `Turns left: N. Focus: TEXT`. When N does not repay a compaction at that
+  context, priced from the session's model with `Price::compaction_pays` (the 18, 15 and 10 turns above on Opus), the worker
+  continues to the next checkpoint, with the backstop as the ceiling. Otherwise, once its turn has ended, the session host
+  sends `/compact TEXT` as its own unsigned frame. A compaction, manual or automatic, re-arms the checkpoint at 250k. The
+  proxy is not asked.
   - Verified on 2026-11-06: a stream-json user message `/compact Keep the code word and the brief path verbatim`
     compacted a live session from 24,433 to 6,809 tokens, and the next turn recalled both facts.
   - `north fleet send` from another session signs its text `[from NAME] …`, so the command has to come from the
     session host, as the nudge's frames and `Runtime::compact` already do.
-  - This retires the 350k worker-handoff hook, the capacity watchdog's handoff check and the handoff nudge as separate
-    mechanisms. No supervisor model is used unless the worker's estimates prove uncalibrated.
-- **What compaction keeps, by construction (box).** North's SessionStart hook runs only the unlanded-work check. After
-  a compaction the brief, the lane, the open boxes and the running jobs survive only inside the summary.
-  - Claude Code's built-in primitive for this is SessionStart with source `compact`. North should use it to re-inject
-    the session's brief (the fleet record's prompt), its worktree, branch and unlanded commits, the unticked boxes of
+  - This retired the 350k worker-handoff hook (its 45-minute leash stays as `guard/worker_lease.rs`), the capacity
+    watchdog's handoff check, the handoff nudge, `handoff_at` and `handoff_ctx`. No supervisor model is used unless the worker's estimates prove uncalibrated.
+- **What compaction keeps, by construction (built here).** North's SessionStart hook ran only the unlanded-work check, so after
+  a compaction the brief, the lane, the open boxes and the running jobs survived only inside the summary.
+  - Claude Code's built-in primitive for this is SessionStart with source `compact`. `guard/compact_state.rs` uses it to re-inject
+    the session's brief (its first user message in the Claude transcript; the fleet record stores no prompt), its worktree, branch and unlanded commits, the unticked boxes of
     its Item, and its registered background waits.
   - Decisions and dead ends live in the worker's own focus text.
   - Nothing else is missing for a fleet worker. The repeat-runs audit found 916 of 1,344 worker ledger rows without
@@ -171,8 +172,7 @@ should compact early. Only the working agent holds the context to judge which.
   ends a worker whose only remaining check is a wait (`Stop: wait until`). No arm is opened for this: the most it could
   recover is $344 in 18 days, less the cost of rebuilding the context.
 - **Retired here.** Dispatch no longer assigns `handoff-150k` or `no-handoff`; the context arms take those boxes. The
-  dispatch arm code and `handoff_arm_ctx` are deleted. Already running sessions keep their nudge until the checkpoint
-  box replaces it.
+  dispatch arm code and `handoff_arm_ctx` are deleted. The checkpoint replaced the nudge for every session.
 
 ## Judging the arms, and the noise at 15 boxes
 

@@ -140,8 +140,8 @@ instructions, and no text was copied.
   (`crates/north-guard/src/guard/proxy_role.rs`) and the proxy agent definition: the proxy routes and judges, and
   every worker is a fleet session.
 - **Subagents protect the main context; hand off at a context threshold** (thread lines on subagents and a 50%
-  context hook). Workers hand off at 350k context through the `worker-handoff` hook
-  (`crates/north-guard/src/guard/worker_handoff.rs`). Fleet sessions start fresh, and the context arms in
+  context hook). Fleet workers choose their own compaction at a 250k-context checkpoint
+  (`crates/north-fleet/src/fleet/checkpoint.rs`). The context arms in
   `docs/rationale/experiments.toml` measure the compaction window.
 - **YAGNI, no scope growth, simplicity, a post-task complexity check** (several thread lines). Worker briefs forbid
   reviews, checks or scope beyond the brief (`harness/claude/agents/worker.md:14`). Tom's policy holds his
