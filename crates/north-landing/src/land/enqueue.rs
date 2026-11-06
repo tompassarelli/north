@@ -7,7 +7,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 use time::OffsetDateTime;
 
-use super::check_coverage;
 use super::first_commit;
 use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
@@ -240,7 +239,6 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let base = git(&root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
     refuse_static_gates(&root, &base, "HEAD")?;
     super::divergence::refuse_malformed(&git(&root, &["log", "--format=%B", &format!("{base}..HEAD")])?)?;
-    check_coverage::refuse_lost_coverage(&root, &base, "HEAD")?;
     let denylist = Denylist { south: environment.south.to_path_buf(), config: environment.denylist.map(Path::to_path_buf) };
     outgoing::enqueue_gate(&root, &base, &denylist, &origin, &destination)?;
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;

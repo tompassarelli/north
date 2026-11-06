@@ -69,7 +69,7 @@ fn selection_places_untraced_lines_files_and_inputs_and_leaves_toolchain_inputs_
 #[test]
 fn a_lane_touching_only_north_climb_still_selects_the_whole_tree_habits_test() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let queue = std::process::Command::new("git").arg("-C").arg(&root).args(["config", "--file", ".safe-push", "--get-all", "land.queue"]).output().unwrap();
+    let queue = std::process::Command::new("git").arg("-C").arg(&root).args(["config", "--file", ".safe-push", "--get-all", "land.after"]).output().unwrap();
     let always = crate::always::named(&String::from_utf8_lossy(&queue.stdout).lines().map(str::to_owned).collect::<Vec<_>>());
     let habits = Test { binary: "north-guard".to_owned(), name: "code_health::habits_tests::the_north_tree_keeps_its_rust_habits".to_owned() };
     let climb = Test { binary: "north-climb".to_owned(), name: "scope::tests::a_scope_reads".to_owned() };

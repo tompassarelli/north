@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
@@ -135,29 +133,6 @@ impl Config {
         }
         Ok(commands)
     }
-
-    pub fn coverage(&self, repo: &Path, tree: &str) -> BTreeMap<String, BTreeSet<String>> {
-        let empty = empty_tree(repo);
-        let mut coverage: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        if self.checks.is_empty() {
-            let files: BTreeSet<String> = changed(repo, &empty, tree, &[]).into_iter().collect();
-            for command in &self.inferred {
-                coverage.entry(command.clone()).or_default().extend(files.iter().cloned());
-            }
-            return coverage;
-        }
-        for (patterns, command) in self.checks.iter().filter_map(|entry| entry.split_once(SEPARATOR)) {
-            let (rust, specs): (Vec<&str>, Vec<&str>) = patterns.split(',').filter(|spec| !spec.is_empty()).partition(|spec| *spec == RUST_INPUT);
-            let covered = coverage.entry(command.to_owned()).or_default();
-            if !rust.is_empty() {
-                covered.extend(changed(repo, &empty, tree, &[]).into_iter().filter(|path| rust_build_input(path)));
-            }
-            if !specs.is_empty() {
-                covered.extend(changed(repo, &empty, tree, &specs));
-            }
-        }
-        coverage
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -204,10 +179,6 @@ pub fn path_class(repo: &Path, base: &str, head: &str) -> String {
 fn touches(repo: &Path, base: &str, head: &str, patterns: &str) -> bool {
     let (rust, specs): (Vec<&str>, Vec<&str>) = patterns.split(',').partition(|spec| *spec == RUST_INPUT);
     (!rust.is_empty() && changed(repo, base, head, &[]).iter().any(|path| rust_build_input(path))) || (!specs.is_empty() && !changed(repo, base, head, &specs).is_empty())
-}
-
-fn empty_tree(repo: &Path) -> String {
-    git_lines(repo, &["hash-object", "-t", "tree", "--stdin"]).into_iter().next().unwrap_or_default()
 }
 
 pub(super) fn changed(repo: &Path, base: &str, head: &str, specs: &[&str]) -> Vec<String> {

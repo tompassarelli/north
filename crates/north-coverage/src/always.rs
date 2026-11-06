@@ -7,9 +7,9 @@ use crate::map::Test;
 const BINARY: &str = "binary_id(=";
 const NAME: &str = ") & test(=";
 
-pub fn queue_lines(root: &Path, revision: &str) -> Vec<String> {
+pub fn after_lines(root: &Path, revision: &str) -> Vec<String> {
     let blob = format!("{revision}:.safe-push");
-    let output = Command::new("git").arg("-C").arg(root).args(["config", "--blob", &blob, "--get-all", "land.queue"]).output();
+    let output = Command::new("git").arg("-C").arg(root).args(["config", "--blob", &blob, "--get-all", "land.after"]).output();
     output.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect()).unwrap_or_default()
 }
 

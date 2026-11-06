@@ -331,7 +331,7 @@ fn split_entry(entry: &str) -> (&str, &str) {
 }
 
 fn features_check() -> String {
-    let entry = safe_push_entries("land.check").into_iter().find(|entry| entry.contains(" --no-build docs features-index --check")).expect("the features-index check runs before the push without a build");
+    let entry = safe_push_entries("land.after").into_iter().find(|entry| entry.contains(" --no-build docs features-index --check")).expect("the features-index check runs after landing without a build");
     split_entry(&entry).1.to_owned()
 }
 
@@ -370,7 +370,7 @@ fn render_features(fixture: &Fixture, message: &str) -> String {
 }
 
 #[test]
-fn a_features_entry_over_its_cap_is_refused_before_the_push_even_on_a_runtime_older_than_its_checker() {
+fn a_features_entry_over_its_cap_is_refused_even_on_a_runtime_older_than_its_checker() {
     let command = features_check();
     let fixture = Fixture::new(&[("land.check-local", "true"), ("land.check", &format!("docs/features/ :: {command}"))]);
     live_runtime(&fixture);

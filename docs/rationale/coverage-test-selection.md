@@ -35,9 +35,9 @@ below does not trace. So the pre-push run can be the few tests that reach the ch
     in the map, so it runs by name in its package and target, and its failure after the push is
     not a miss. A map over 3 days old or a selection of over 400 tests also runs nothing.
   - The full suite always runs after the push.
-- Always run: the `land.queue` lines in `.safe-push` name the tests that scan the whole tree rather
-  than one module, so no coverage map can trace a change to them. Enqueue runs them before it
-  writes the ticket, and their pass is cached by tree like clippy. Selection adds them to every
+- Always run: the `land.after` lines in `.safe-push` name the tests that scan the whole tree rather
+  than one module, so no coverage map can trace a change to them. The lander runs them after the
+  landing, and their pass is cached by tree like clippy. Selection adds them to every
   lane, including an unmapped one. On 2026-11-06 landings read green between red verdicts while
   the habits test failed on main, because selection skipped north-guard (north#634).
   - `the_north_tree_keeps_its_rust_habits` (north-guard): it reads every Rust file for the habits
@@ -52,7 +52,7 @@ below does not trace. So the pre-push run can be the few tests that reach the ch
     every source and test for embedded files.
   - `every_class_in_the_harness_table_has_a_paraphrase_an_owner_and_a_guard` (north-threads): it
     reads the corrections table in `harness/`.
-  - `code-health layers` is a check, not a test. It runs as a `land.queue` line beside them.
+  - `code-health layers` is a check, not a test. It runs as a `land.after` line beside them.
   - Left out: `every_tests_it_module_maps_to_crates_the_crate_dag_names` and the
     `run_time_readers_tests`. They build the `north` integration and binary targets, which take
     minutes, not seconds. The full suite after the push still runs them.

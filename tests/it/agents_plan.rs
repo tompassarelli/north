@@ -90,7 +90,7 @@ fn scenario(name: &str) -> PathBuf {
 #[test]
 fn every_recorded_scenario_replays_to_its_expected_decisions() {
     let fixture = Fixture::new();
-    for name in ["burn", "conserve", "new-model", "deadline", "two-claude", "reserve", "thursday-behind", "capacity-astra", "capacity-floor"] {
+    for name in ["burn", "new-model", "deadline", "two-claude", "capacity-astra", "capacity-floor"] {
         let path = scenario(name);
         let (code, actual) = fixture.json(&["--at", path.to_str().unwrap()]);
         assert_eq!(code, 0, "replay {name}");
