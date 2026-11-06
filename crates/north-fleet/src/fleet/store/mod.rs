@@ -17,7 +17,7 @@ mod sessions;
 mod spool;
 mod waits;
 
-pub use cache::{FleetTable, cache_sessions, cache_table, cached_gates, cached_sessions};
+pub use cache::{FleetTable, LeaseTable, cache_leases, cache_sessions, cache_table, cached_gates, cached_leases, cached_sessions};
 pub use gates::GateRow;
 pub use exchange::{Addressee, Exchange, Exchanged, LedgerHost};
 pub use remote::{FarRegistry, FarSpools, Handed, HandedRow, OverSsh, Pull, Undecodable, UnknownKind, drop_with, set_aside_with, take_with};

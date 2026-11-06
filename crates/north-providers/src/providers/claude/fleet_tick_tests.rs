@@ -389,15 +389,17 @@ impl WaitProbes for Sleepy {
     fn jobs(&self) -> Vec<ProbeJob> {
         let said = |line: &str| Probed { lines: vec![line.to_owned()], settled: Vec::new() };
         vec![
-            ProbeJob { name: "probes.quick", run: Box::new(move |_| said("quick ran")) },
+            ProbeJob { name: "probes.quick", own: None, run: Box::new(move |_| said("quick ran")) },
             ProbeJob {
                 name: "probes.slow",
+                own: None,
                 run: Box::new(move |_| {
                     std::thread::sleep(HANG);
                     said("slow ran")
                 }),
             },
-            ProbeJob { name: "probes.after", run: Box::new(move |_| said("after ran")) },
+            ProbeJob { name: "probes.after", own: None, run: Box::new(move |_| said("after ran")) },
+            ProbeJob { name: "probes.own", own: Some(Duration::from_secs(5)), run: Box::new(move |_| said("own ran")) },
         ]
     }
 }
@@ -446,7 +448,7 @@ impl FarSpools for HungTake {
 }
 
 #[test]
-fn a_tick_whose_ledger_exchange_placement_take_far_and_a_probe_hang_past_their_budgets_finishes_naming_each_deferred_stage() {
+fn a_tick_whose_ledger_exchange_placement_take_far_and_a_probe_hang_past_their_budgets_finishes_naming_each_deferred_stage_while_a_probe_with_its_own_budget_runs_beside_them() {
     let host = host("nexus");
     let pulls = Pulls { spools: Arc::new(HungTake), always: vec![far_host("gex45")] };
 
@@ -460,6 +462,7 @@ fn a_tick_whose_ledger_exchange_placement_take_far_and_a_probe_hang_past_their_b
     assert!(lines.iter().any(|line| line == "quick ran"), "the probes still run after a deferred exchange: {lines:?}");
     assert!(lines.iter().any(|line| line == "deferred probes.slow to the next tick: still running when probes spent their 300ms budget"), "{lines:?}");
     assert!(lines.iter().any(|line| line == "deferred probes.after to the next tick: probes spent their 300ms budget before it began"), "{lines:?}");
+    assert!(lines.iter().any(|line| line == "own ran"), "{lines:?}");
     let timing = ticked.timing();
     assert!(timing.contains(", probes.quick ") && timing.contains(", probes.slow "), "{timing}");
     assert!(Budgets::TICK.worst() < Duration::from_secs(40), "the tick's stage budgets sum to {:?}, past 40 s of its 50 s start timeout", Budgets::TICK.worst());

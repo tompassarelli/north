@@ -189,3 +189,36 @@ fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_w
     assert!(reaped.kept.iter().any(|kept| kept.name == "monitoring" && kept.why.contains("background task")), "{reaped:?}");
     assert!(fleet.session("finished").is_err() && fleet.session("ended").is_err() && fleet.session("monitoring").is_ok());
 }
+
+struct Nexus;
+
+impl crate::fleet::jobs::JobLeases for Nexus {
+    fn leased(&self, _session: &str, _machine: Option<&crate::fleet::model::Machine>) -> crate::error::NorthResult<bool> {
+        std::thread::sleep(Duration::from_secs(60));
+        Ok(true)
+    }
+}
+
+#[test]
+fn the_reaper_reads_job_leases_from_the_ticks_exchange_and_defers_a_session_whose_lease_read_outlasts_its_budget_instead_of_holding_it_as_leased() {
+    let home = tempfile::tempdir().unwrap();
+    let (fleet, _paper) = fleet(home.path());
+    let fleet = fleet.leasing(Arc::new(Nexus));
+    for name in ["expired", "held", "unexchanged"] {
+        reported(&fleet, name, None, "Done: nothing to land.");
+    }
+    let wait = |session: &str, deadline: &str| crate::fleet::store::WaitRow { session: session.into(), kind: crate::fleet::store::WaitKind::Job, key: format!("{session}#1"), deadline: deadline.into(), created: "2026-11-06T16:00:00Z".into() };
+    let waits = [wait("expired", "2026-11-06T17:00:00Z"), wait("held", "2026-11-06T17:03:00Z")];
+    fleet.cache_leases(&crate::fleet::store::LeaseTable::read(&waits, ["expired".to_owned(), "held".to_owned()], "2026-11-06T17:01:00Z", now_ms())).unwrap();
+    let started = std::time::Instant::now();
+
+    let reaped = reap_within(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true, Duration::from_millis(300));
+
+    assert!(started.elapsed() < Duration::from_secs(5), "the reaper waited {:?} on a lease read", started.elapsed());
+    assert_eq!(retired(&reaped), ["expired"], "{reaped:?}");
+    let why = |name: &str| reaped.kept.iter().find(|kept| kept.name == name).map(|kept| kept.why.clone()).unwrap_or_default();
+    assert!(why("held").contains("holds a lease") && why("unexchanged").contains("next tick"), "{reaped:?}");
+    assert_eq!(reaped.unread, 1);
+    assert!(reaped.lines().iter().any(|line| line.starts_with("deferred 1 sessions to the next tick: their job leases")), "{:?}", reaped.lines());
+    assert!(fleet.session("unexchanged").is_ok() && fleet.session("held").is_ok());
+}

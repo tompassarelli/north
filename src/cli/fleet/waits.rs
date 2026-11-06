@@ -94,20 +94,21 @@ impl WaitProbes for Probes {
 
     fn jobs(&self) -> Vec<ProbeJob> {
         vec![
-            ProbeJob { name: "probes.settle.waits", run: Box::new(|fleet| settle_waits(&fleet)) },
-            ProbeJob { name: "probes.settle.park_limited", run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
-            ProbeJob { name: "probes.settle.breaker", run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
-            ProbeJob { name: "probes.settle.goals", run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
-            ProbeJob { name: "probes.settle.scoreboard", run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
-            ProbeJob { name: "probes.settle.corrections", run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
+            ProbeJob { name: "probes.settle.waits", own: None, run: Box::new(|fleet| settle_waits(&fleet)) },
+            ProbeJob { name: "probes.settle.park_limited", own: None, run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
+            ProbeJob { name: "probes.settle.breaker", own: None, run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
+            ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
+            ProbeJob { name: "probes.settle.scoreboard", own: None, run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
+            ProbeJob { name: "probes.settle.corrections", own: None, run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob {
                 name: "probes.settle.hand_over",
+                own: None,
                 run: Box::new(|fleet| {
                     let handed = hand_over(&fleet, &UsageTable, &|record| holds_unlanded_lane(&record.cwd), &|request| fleet.take_over(request), &tell_tom, now_ms());
                     said(handed.lines.into_iter().chain(handed.alert))
                 }),
             },
-            ProbeJob { name: "probes.settle.reap", run: Box::new(|fleet| said(reaper::reap(&fleet, &reaper::Here, now_ms(), true).lines())) },
+            ProbeJob { name: "probes.settle.reap", own: Some(2 * reaper::BUDGET), run: Box::new(|fleet| said(reaper::reap(&fleet, &reaper::Here, now_ms(), true).lines())) },
         ]
     }
 }

@@ -10,6 +10,7 @@ use toml_edit::DocumentMut;
 
 use super::detached::{self, Prior, Scope};
 use super::host::alive;
+use super::jobs::Lease;
 use super::model::{Ending, Entry, EntryKind, Role, SessionRecord, Status};
 use super::receipts::is_final;
 use super::registry::Fleet;
@@ -20,7 +21,7 @@ const STALE_KEY: &str = "fleet_stale_hours";
 pub const RECORD: &str = ".reap.json";
 const LAST_CHARS: usize = 4_000;
 const LEASE_BATCH: usize = 16;
-const BUDGET: Duration = Duration::from_secs(5);
+pub const BUDGET: Duration = Duration::from_secs(5);
 
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\W*Stop:").expect("stop line pattern"));
@@ -135,6 +136,7 @@ pub struct Reaped {
     pub failed: Vec<Retired>,
     pub kept: Vec<Retired>,
     pub deferred: usize,
+    pub unread: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -148,7 +150,8 @@ impl Reaped {
         let retired = self.retired.iter().map(|retired| format!("retired {}: {}", retired.name, retired.why));
         let failed = self.failed.iter().map(|failed| format!("not retired {}: {}", failed.name, failed.why));
         let deferred = (self.deferred > 0).then(|| format!("deferred {} sessions to the next tick: the reaper spent its {}s", self.deferred, BUDGET.as_secs()));
-        retired.chain(failed).chain(deferred).collect()
+        let unread = (self.unread > 0).then(|| format!("deferred {} sessions to the next tick: their job leases did not answer within the reaper's budget", self.unread));
+        retired.chain(failed).chain(deferred).chain(unread).collect()
     }
 }
 
@@ -190,11 +193,19 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.chars().take(LAST_CHARS).collect::<String>());
             due.push((record, verdict.why(stale), last));
         }
-        let leased = leased(fleet, &due.iter().map(|(record, _, _)| *record).collect::<Vec<_>>());
-        for ((record, why, last), leased) in due.into_iter().zip(leased) {
-            if leased {
-                reaped.kept.push(Retired { name: record.name.clone(), why: "a job-run job still holds a lease on it".into() });
-                continue;
+        let leases = fleet.job_leases(&due.iter().map(|(record, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(started.elapsed()));
+        for ((record, why, last), lease) in due.into_iter().zip(leases) {
+            match lease {
+                Lease::Held => {
+                    reaped.kept.push(Retired { name: record.name.clone(), why: "a job-run job still holds a lease on it".into() });
+                    continue;
+                }
+                Lease::Unknown => {
+                    reaped.unread += 1;
+                    reaped.kept.push(Retired { name: record.name.clone(), why: "its job lease did not answer in time; the next tick reads it again".into() });
+                    continue;
+                }
+                Lease::Free => {}
             }
             let retired = if apply { fleet.retire(&record.name, &why, last.as_deref()).map(drop) } else { Ok(()) };
             match retired {
@@ -207,13 +218,6 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
         let _ = std::fs::write(fleet.root.join(RECORD), text);
     }
     reaped
-}
-
-fn leased(fleet: &Fleet, records: &[&SessionRecord]) -> Vec<bool> {
-    std::thread::scope(|scope| {
-        let asking: Vec<_> = records.iter().map(|record| scope.spawn(|| fleet.job_leased(record))).collect();
-        asking.into_iter().map(|asked| asked.join().unwrap_or(true)).collect()
-    })
 }
 
 fn ended_by_host(record: &SessionRecord) -> bool {

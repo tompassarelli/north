@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::{Fleet, FleetBooks, Runtimes};
 use crate::error::NorthResult;
 use crate::fleet::claims::{Claims, Held};
-use crate::fleet::jobs::HeldLeases;
+use crate::fleet::jobs::{HeldLeases, JobLeases};
 use crate::fleet::store::{Claim, Registrar, SessionRow};
 
 pub struct Unrecorded;
@@ -42,6 +42,11 @@ impl Fleet {
 
     pub fn registering(mut self, registrar: Arc<dyn Registrar>) -> Self {
         self.registrar = registrar;
+        self
+    }
+
+    pub fn leasing(mut self, leases: Arc<dyn JobLeases>) -> Self {
+        self.leases = leases;
         self
     }
 }

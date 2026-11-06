@@ -7,7 +7,7 @@ use super::model::SessionRecord;
 use super::peer_row::{self, Refusal};
 use super::registry::{Fleet, HandedIn};
 use super::stage::{Late, detach, each_by};
-use super::store::{Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LAUNCH_GRACE_MS, LedgerHost, RowKind, SessionRow, Undecodable, UnknownKind, WaitKey};
+use super::store::{Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LAUNCH_GRACE_MS, LeaseTable, LedgerHost, RowKind, SessionRow, Undecodable, UnknownKind, WaitKey};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
@@ -96,6 +96,7 @@ pub struct Probed {
 
 pub struct ProbeJob {
     pub name: &'static str,
+    pub own: Option<Duration>,
     pub run: Box<dyn FnOnce(Fleet) -> Probed + Send>,
 }
 
@@ -254,6 +255,7 @@ fn exchange_and_hand_in(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, clock
     let pulled = rows.len() - spooled.len();
     let FarRegistry { sessions, addressees, gates, .. } = registered?;
     let outranks = far_hosts(fleet, &records, pulls).into_iter().map(|host| host.name).collect();
+    let covered: Vec<String> = addressees.iter().map(|addressee| addressee.name.clone()).collect();
     let exchange = Exchange { rows, host: fleet.host().to_owned(), sessions, addressees, gates, outranks };
     let exchanged = match clock.time("ledger.exchange", || exchange_by(ledger, exchange, Instant::now() + budgets.ledger)) {
         Ok(exchanged) => exchanged?,
@@ -265,6 +267,7 @@ fn exchange_and_hand_in(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, clock
     clock.time("spool.withdraw", || spooled.iter().try_for_each(|id| spool.withdraw(id)))?;
     let table = FleetTable { sessions: exchanged.sessions.clone(), gates: exchanged.gates.clone() };
     clock.time("cache_table", || fleet.cache_table(&table))?;
+    clock.time("cache_leases", || fleet.cache_leases(&LeaseTable::read(&exchanged.waits, covered, &exchanged.now, now_ms)))?;
     ticked.flushed = spooled.len();
     ticked.pulled = pulled;
     ticked.held_elsewhere = exchanged.held_elsewhere.clone();
@@ -303,26 +306,48 @@ fn settle(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: &C
 }
 
 fn probe(fleet: &Fleet, jobs: Vec<ProbeJob>, clock: &Clock, budget: Duration) -> Probed {
-    let deadline = Instant::now() + budget;
+    let started = Instant::now();
+    let deadline = started + budget;
+    let (own, shared): (Vec<ProbeJob>, Vec<ProbeJob>) = jobs.into_iter().partition(|job| job.own.is_some());
+    let beside: Vec<_> = own
+        .into_iter()
+        .map(|ProbeJob { name, own, run }| {
+            let fleet = fleet.clone();
+            let by = own.map_or(deadline, |own| (started + own).min(deadline));
+            (name, by, detach(name, move || run(fleet)))
+        })
+        .collect();
     let mut probed = Probed { lines: Vec::new(), settled: Vec::new() };
-    for ProbeJob { name, run } in jobs {
+    for ProbeJob { name, run, .. } in shared {
         if Instant::now() >= deadline {
             probed.lines.push(format!("deferred {name} to the next tick: probes spent their {}ms budget before it began", budget.as_millis()));
             continue;
         }
         let fleet = fleet.clone();
         let running = detach(name, move || run(fleet));
-        match clock.time(name, || running.by(deadline)) {
-            Ok(Probed { lines, settled }) => {
-                probed.lines.extend(lines);
-                probed.settled.extend(settled);
-            }
-            Err(Late::Running) => probed.lines.push(format!("deferred {name} to the next tick: still running when probes spent their {}ms budget", budget.as_millis())),
-            Err(Late::Panicked) => probed.lines.push(format!("{name} failed: it panicked")),
-            Err(late @ Late::Unstarted(_)) => probed.lines.push(format!("deferred {name} to the next tick: {}", late.why(budget))),
-        }
+        let answer = clock.time(name, || running.by(deadline));
+        probed.hear(name, answer, || format!("still running when probes spent their {}ms budget", budget.as_millis()));
+    }
+    for (name, by, running) in beside {
+        let answer = running.by(by);
+        clock.record(name, started, Instant::now());
+        probed.hear(name, answer, || format!("still running when it spent its own {}ms budget", by.saturating_duration_since(started).as_millis()));
     }
     probed
+}
+
+impl Probed {
+    fn hear(&mut self, name: &str, answer: Result<Probed, Late>, running: impl FnOnce() -> String) {
+        match answer {
+            Ok(Probed { lines, settled }) => {
+                self.lines.extend(lines);
+                self.settled.extend(settled);
+            }
+            Err(Late::Running) => self.lines.push(format!("deferred {name} to the next tick: {}", running())),
+            Err(Late::Panicked) => self.lines.push(format!("{name} failed: it panicked")),
+            Err(Late::Unstarted(error)) => self.lines.push(format!("deferred {name} to the next tick: its thread did not start: {error}")),
+        }
+    }
 }
 
 fn joined<R>(handle: std::thread::ScopedJoinHandle<'_, R>) -> R {

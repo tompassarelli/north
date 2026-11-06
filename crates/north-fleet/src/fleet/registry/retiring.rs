@@ -2,17 +2,25 @@ use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 
 use crate::error::NorthResult;
 use crate::fleet::forget;
+use crate::fleet::jobs::Lease;
 use crate::fleet::model::{Ending, Role, SessionRecord, Status};
 use crate::fleet::records::{ARCHIVE, read_record, write_record};
 use crate::fleet::runtime::now_ms;
-use crate::fleet::store::FleetRow;
+use crate::fleet::store::{FleetRow, LeaseTable, cache_leases, cached_leases};
 
 use super::Fleet;
+
+enum Asking {
+    Known(Lease),
+    Asked(mpsc::Receiver<NorthResult<bool>>),
+}
 
 pub const NOTE: &str = "retired.json";
 const DEAD_LETTERS: &str = ".dead-letters.jsonl";
@@ -99,8 +107,31 @@ impl Fleet {
         None
     }
 
-    pub(crate) fn job_leased(&self, record: &SessionRecord) -> bool {
-        self.leases.leased(&record.name, record.machine.as_ref()).unwrap_or(true)
+    pub(crate) fn job_leases(&self, records: &[&SessionRecord], now_ms: u64, within: Duration) -> Vec<Lease> {
+        let cached = cached_leases(&self.root).ok().flatten();
+        let deadline = Instant::now().checked_add(within);
+        let asking: Vec<Asking> = records.iter().map(|record| match cached.as_ref().and_then(|table| table.leased(&record.name, now_ms)) {
+            Some(leased) => Asking::Known(Lease::read(Ok(leased))),
+            None => self.ask_lease(record),
+        }).collect();
+        asking.into_iter().map(|asked| match asked {
+            Asking::Known(lease) => lease,
+            Asking::Asked(answered) => match deadline {
+                Some(deadline) => answered.recv_timeout(deadline.saturating_duration_since(Instant::now())).map_or(Lease::Unknown, Lease::read),
+                None => answered.recv().map_or(Lease::Unknown, Lease::read),
+            },
+        }).collect()
+    }
+
+    fn ask_lease(&self, record: &SessionRecord) -> Asking {
+        let (answer, answered) = mpsc::channel();
+        let (leases, name, machine) = (self.leases.clone(), record.name.clone(), record.machine.clone());
+        let asked = std::thread::Builder::new().name("reap.lease".into()).spawn(move || answer.send(leases.leased(&name, machine.as_ref())));
+        asked.map_or(Asking::Known(Lease::Unknown), |_| Asking::Asked(answered))
+    }
+
+    pub fn cache_leases(&self, table: &LeaseTable) -> NorthResult<()> {
+        cache_leases(&self.root, table)
     }
 
     pub(crate) fn open_gate_sessions(&self) -> BTreeSet<String> {

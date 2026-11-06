@@ -9,6 +9,23 @@ use crate::error::NorthResult;
 use super::model::Machine;
 use super::store::{FarSpools, FleetRow, RowKind, Spool};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Lease {
+    Held,
+    Free,
+    Unknown,
+}
+
+impl Lease {
+    pub fn read(answer: NorthResult<bool>) -> Self {
+        match answer {
+            Ok(true) => Self::Held,
+            Ok(false) => Self::Free,
+            Err(_) => Self::Unknown,
+        }
+    }
+}
+
 pub trait JobLeases: Send + Sync {
     fn leased(&self, session: &str, machine: Option<&Machine>) -> NorthResult<bool>;
 }
