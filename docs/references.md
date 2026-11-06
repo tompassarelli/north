@@ -88,6 +88,28 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   sampled retro was tested and kept (8 recurring failure modes with no enforcer in a one-in-five sample), and the
   Spec axis and the no-op test by replay are under test.
 
+- <a id="ponytail"></a>**Ponytail** (Dietrich Gebert, MIT), https://github.com/DietrichGebert/ponytail, read at
+  `96608e0` on 2026-11-06. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
+  Informed: [rationale/watch/2026-11-06-screen.md](rationale/watch/2026-11-06-screen.md) (north#636).
+  Outcome: followed for its agentic arm benchmark of a code-writing prompt against no skill and a seven-word
+  control; nothing taken yet.
+
+- <a id="impeccable"></a>**Impeccable** (Paul Bakaus, Apache-2.0), https://github.com/pbakaus/impeccable, read at
+  `c3bb418` on 2026-11-06. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
+  Informed: [rationale/watch/2026-11-06-screen.md](rationale/watch/2026-11-06-screen.md) (north#636).
+  Outcome: followed for the Mak'gora client UI and the Wisp and Mak'gora pages (deterministic slop rules,
+  ranked critique and audit); nothing taken yet.
+
+- <a id="superpowers"></a>**Superpowers** (Jesse Vincent, MIT), https://github.com/obra/superpowers, read at
+  `22f0b46` on 2026-11-06. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
+  Informed: [rationale/watch/2026-11-06-screen.md](rationale/watch/2026-11-06-screen.md) (north#636).
+  Outcome: followed for its RED-then-GREEN skill pressure tests and the subagent fix loop; nothing taken yet.
+
+- <a id="addyosmani-agent-skills"></a>**agent-skills** (Addy Osmani, MIT), https://github.com/addyosmani/agent-skills,
+  read at `301b02b` on 2026-11-06. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
+  Informed: [rationale/watch/2026-11-06-screen.md](rationale/watch/2026-11-06-screen.md) (north#636).
+  Outcome: followed for its fire and stay-quiet skill evals and rejected-change ledger; nothing taken yet.
+
 ### Delivery and harness benchmarks
 
 - <a id="google-tap"></a>**Software Engineering at Google, chapter 23: Continuous Integration** (Winters, Manshreck and Wright, O'Reilly 2020),

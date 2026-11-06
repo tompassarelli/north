@@ -14,7 +14,10 @@ moves `last_reviewed`. The daily watch-review timer (`watch-review.timer` on the
 laptop, running `north watch-review`) checks every source in the follow list and launches
 one fleet session for each due source that has no live session, with fleet
 placement choosing the account. That session is how the lead learns a source is
-due; a failed run alerts the proxy.
+due; a failed run alerts the proxy. A screened repository held back for a later look
+gets a `[[recheck]]` entry (id, repo, recheck date at most 60 days out, reason) instead
+of a source. On that date the timer launches one session to answer the reason, which
+follows, skips or rechecks it again, and removes the entry.
 
 ## One cycle per source
 
