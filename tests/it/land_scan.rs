@@ -234,6 +234,19 @@ fn added_tests_are_refused_under_an_unlisted_contract_or_over_the_verification_b
     write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
     fixture.commit(&["move the test out of the source file"]);
     assert_eq!(admission_scan(&fixture).status, 0);
+    fixture.reset();
+    write(&fixture.repo.join("bin/suite.test.sh"), "printf 'PASS: retries\\n'\nprintf 'PASS: backoff\\n'\n");
+    fixture.commit(&["a bash suite"]);
+    fixture.mark_base();
+    write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
+    fixture.commit(&["add a test without removing a scenario"]);
+    assert_eq!(admission_scan(&fixture).status, 1, "a new test beside every bash scenario");
+    fixture.reset();
+    write(&fixture.repo.join("src/retry_tests.rs"), RUST_TEST);
+    write(&fixture.repo.join("bin/suite.test.sh"), "printf 'PASS: backoff\\n'\n");
+    fixture.commit(&["move a scenario to cargo"]);
+    let moved = admission_scan(&fixture);
+    assert_eq!(moved.status, 0, "{}", moved.stdout);
 }
 
 const STUB_RUNNER: &str = "printf '%s\\n' \"$MUTANT_TREES\" | while read -r tree; do\n  for name in $MUTANT_TESTS; do\n    if [ \"$name\" = guards ] && ! grep -q fixed \"$tree/src/lib.rs\"; then v=fail; else v=pass; fi\n    printf '%s\\t%s\\n' \"$v\" \"$name\" >>\"$tree/.mutant-results\"\n  done\ndone\n";

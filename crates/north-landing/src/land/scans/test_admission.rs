@@ -22,6 +22,7 @@ static TEST_MARKER: LazyLock<BytesRegex> = LazyLock::new(|| {
     BytesRegex::new(r"^[+-]\s*(#\[(?:\w+::)*(?:test|test_case|proptest|rstest)\b|(?:\w+::)*proptest!\s*[({])")
         .expect("test marker pattern")
 });
+static SCENARIO: LazyLock<BytesRegex> = LazyLock::new(|| BytesRegex::new(r"^[+-]\s*printf\s+'PASS:").expect("scenario pattern"));
 static TEST_FILE: LazyLock<BytesRegex> = LazyLock::new(|| {
     BytesRegex::new(r"(^|/)tests?/|[._]tests?\.[^/]*$").expect("test file pattern")
 });
@@ -109,6 +110,14 @@ fn count(section: &Section, sign: u8) -> usize {
     section.hunks.iter().map(|hunk| marked(hunk, sign)).sum()
 }
 
+fn scenarios(section: &Section, sign: u8) -> usize {
+    let edited = !section.created && !section.deleted && section.path.ends_with(b".sh") && TEST_FILE.is_match(section.path);
+    if !edited {
+        return 0;
+    }
+    section.hunks.iter().flatten().filter(|line| line.first() == Some(&sign) && SCENARIO.is_match(line)).count()
+}
+
 static HUNK_HEADER: LazyLock<BytesRegex> = LazyLock::new(|| BytesRegex::new(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@").expect("hunk header pattern"));
 
 fn brace_change(text: &[u8]) -> (i32, bool) {
@@ -175,7 +184,8 @@ fn admission(diff: &[u8], trees: &[String]) -> Admission {
     let kind = |section: &Section| TEST_FILE.is_match(section.path) || RECORD_FILE.is_match(section.path);
     let files = |flag: fn(&Section) -> bool| live.iter().filter(|section| flag(section) && !rust(section) && kind(section)).count();
     let (created, gone) = (files(|section| section.created), files(|section| section.deleted));
-    let mut found = Admission { added: added + created, deleted: removed + gone, ..Admission::default() };
+    let scenario = |sign: u8| live.iter().map(|section| scenarios(section, sign)).sum::<usize>();
+    let mut found = Admission { added: added + created + scenario(b'+'), deleted: removed + gone + scenario(b'-'), ..Admission::default() };
     for section in live {
         let named = TEST_FILE.is_match(section.path);
         let whole = section.created && (named || RECORD_FILE.is_match(section.path)) && (!rust(section) || net > 0);
