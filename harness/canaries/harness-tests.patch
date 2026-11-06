@@ -1,13 +1,13 @@
-diff --git a/bin/safe-push.test.sh b/bin/safe-push.test.sh
-index 4a06a9b4a..e893eea91 100755
---- a/bin/safe-push.test.sh
-+++ b/bin/safe-push.test.sh
-@@ -2874,7 +2874,7 @@ opted_out_before=$("$real_git" --git-dir="$real_remote" rev-parse main)
- : >"$default_trace"
- GIT_CONFIG_GLOBAL="$machine_config" SAFE_PUSH_TEST_HOSTNAME=fixture-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$default_trace" run_real_case '' --to main
- expect_status zero
--[ ! -s "$default_trace" ] || fail "landing.queue = lock queued a ticket: $(cat "$default_trace")"
-+[ -s "$default_trace" ] || fail "landing.queue = lock queued a ticket: $(cat "$default_trace")"
- [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" != "$opted_out_before" ] || fail 'landing.queue = lock did not land per lane'
- printf 'PASS: lander-default: no landing.queue queues on the machine lander host, another host and landing.queue = lock land per lane\n'
+diff --git a/bin/follows-release-gates.test.sh b/bin/follows-release-gates.test.sh
+index d6258fa31..eb7a8d18d 100755
+--- a/bin/follows-release-gates.test.sh
++++ b/bin/follows-release-gates.test.sh
+@@ -51,7 +51,7 @@ queue 26 'Unrelated change (#50)' claude:opus-medium >/dev/null
+ : >"$scratch/bin/started"
+ north follows-release >/dev/null
+ check '[10] a Follows line naming the exact subject of a commit on origin/main is released' \
+-  '[ "$(grep -c "Item: north#26" "$scratch/bin/started")" -eq 1 ]'
++  '[ "$(grep -c "Item: north#26" "$scratch/bin/started")" -eq 2 ]'
+ 
+ check '[4] no north call in the run fell back to the installed runtime' '[ ! -e "$scratch/installed-calls" ]'
  

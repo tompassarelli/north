@@ -13,6 +13,7 @@ mod candidate;
 mod gates;
 mod preflight;
 mod publication;
+mod scans;
 mod session;
 
 const NORTH_SHIM: &str = r#"[ -z "${SAFE_PUSH_TEST_NORTH_TRACE:-}" ] || { printf north; printf ' <%s>' "$@"; printf '\n'; } >>"$SAFE_PUSH_TEST_NORTH_TRACE"
@@ -88,6 +89,10 @@ pub fn git(directory: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").current_dir(directory).args(arguments).output().unwrap();
     assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
     String::from_utf8(output.stdout).unwrap().trim_end().to_owned()
+}
+
+pub fn remote_state(remote: &Path) -> String {
+    git(remote, &["for-each-ref", "--sort=refname", "--format=%(refname) %(objectname)"])
 }
 
 pub fn identify(repo: &Path) {
@@ -286,7 +291,7 @@ impl Real {
     }
 
     pub fn remote_state(&self) -> String {
-        git(&self.remote, &["for-each-ref", "--format=%(refname) %(objectname)"])
+        remote_state(&self.remote)
     }
 
     pub fn remote_ref(&self, name: &str) -> Option<String> {
@@ -407,7 +412,7 @@ impl Fixture {
     }
 
     pub fn remote_state(&self) -> String {
-        git(&self.remote, &["for-each-ref", "--sort=refname", "--format=%(refname) %(objectname)"])
+        remote_state(&self.remote)
     }
 
     pub fn commit(&self, path: &str, content: &str, message: &str) {

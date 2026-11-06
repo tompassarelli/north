@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use north_core::foundation::shim;
 
 use super::{Fixture, Real, Run, Scratch, git, write};
@@ -99,8 +101,12 @@ fn a_branch_landing_refuses_a_private_author_email_before_push() {
 #[test]
 fn a_language_gate_pass_publishes_to_another_branch() {
     let fixture = Fixture::new();
+    fixture.git(&["switch", "-q", "-c", "feature"]);
+    fixture.git(&["commit", "--allow-empty", "-qm", "feature"]);
     fixture.run(&["--to", "other"]).expect(true, &[]);
     assert_eq!(git(&fixture.remote, &["rev-parse", "other"]), fixture.head(), "a language pass did not publish");
+    let tracking = std::process::Command::new("git").current_dir(&fixture.repo).args(["rev-parse", "--verify", "@{upstream}"]).output().unwrap();
+    assert!(!tracking.status.success(), "--to changed local branch tracking");
 }
 
 #[test]
@@ -115,4 +121,17 @@ fn a_failed_fetch_of_the_destination_is_refused_before_any_check_runs() {
     assert!(!ran.output.contains("R1"), "a failed fetch was reported as a language refusal: {}", ran.output);
     assert!(!fixture.traced().contains("<language-gate>"), "a failed fetch reached the language gate");
     assert_eq!(fixture.remote_state(), before, "a failed fetch published");
+}
+
+#[test]
+fn a_public_destination_runs_the_deny_list_scan_and_names_the_rule_and_file_without_printing_the_match() {
+    let fixture = Fixture::new();
+    let denylist = fixture.root.join("denylist.toml");
+    write(&denylist, DENYLIST);
+    fixture.commit("identity.txt", "owner: zebra-quokka-7731\n", "add identity");
+    let before = fixture.remote_state();
+    let ran = fixture.run_with(&["--dry-run"], &[("SAFE_PUSH_DENYLIST", &denylist), ("SAFE_PUSH_TEST_VISIBILITY", Path::new("PUBLIC"))]);
+    ran.expect(false, &["fake-private-term", "identity.txt"]);
+    assert!(!ran.output.contains("zebra-quokka-7731"), "the deny-list refusal printed the matched value: {}", ran.output);
+    assert_eq!(fixture.remote_state(), before, "the deny-list refusal mutated the remote");
 }
