@@ -90,6 +90,10 @@ pub fn render(profiles: &[Profile<'_>], since: f64) -> String {
     if !verified.is_empty() {
         let _ = writeln!(out, "verification after the push: p50 {}, p90 {} over {} landing{}", seconds(percentile(&verified, 0.5)), seconds(percentile(&verified, 0.9)), verified.len(), if verified.len() == 1 { "" } else { "s" });
     }
+    let (reused, ran): (usize, usize) = profiles.iter().fold((0, 0), |(reused, ran), profile| (reused + profile.after_reused, ran + profile.after_ran));
+    if reused + ran > 0 {
+        let _ = writeln!(out, "after-landing checks: {reused} reused a verdict, {ran} ran ({:.0}% reused)", reused as f64 / (reused + ran) as f64 * 100.0);
+    }
     let counted = |verdicts: usize| profiles.iter().filter(|profile| profile.verdicts.len() == verdicts).count();
     let many = profiles.len() - counted(0) - counted(1);
     let _ = writeln!(out, "verification verdicts: {} landing{} with one, {} with none yet, {many} with more than one", counted(1), if counted(1) == 1 { "" } else { "s" }, counted(0));
@@ -151,8 +155,9 @@ pub fn render(profiles: &[Profile<'_>], since: f64) -> String {
     for (rank, (span, landing)) in spans.iter().take(TOP).enumerate() {
         let host = if span.host.is_empty() { String::new() } else { format!(" on {}", span.host) };
         let cache = span.attribute("cache").map(|cache| format!(", cache {cache}")).unwrap_or_default();
+        let reused = span.attribute(super::REUSED).map(|reused| format!(", {}", reused.get(..27).unwrap_or(reused))).unwrap_or_default();
         let cpu = span.cpu.map(|cpu| format!(", cpu {cpu:.0} s")).unwrap_or_default();
-        let _ = writeln!(out, "{}. {} {}: {}{host}{cache}{cpu} ({landing})", rank + 1, seconds(span.seconds()), span.category.label(), span.name);
+        let _ = writeln!(out, "{}. {} {}: {}{host}{cache}{reused}{cpu} ({landing})", rank + 1, seconds(span.seconds()), span.category.label(), span.name);
     }
     out
 }

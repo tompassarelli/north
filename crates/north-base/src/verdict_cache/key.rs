@@ -14,8 +14,16 @@ const LINE_KEYS: [&str; 3] = ["land.check", "land.after", "land.queue"];
 const MACHINE_MARKERS: [&str; 3] = ["code/south", "code/nixos-config", "machine-bound"];
 const SCRIPT_LIMIT: usize = 1 << 20;
 const BUILDS_NORTH: [&str; 2] = ["bin/head-north", "cargo "];
-const LANDING_RANGE: [&str; 3] = ["SAFE_PUSH_LAND_BASE", "SAFE_PUSH_LAND_HEAD", "SAFE_PUSH_LAND_RUNTIME_HEAD"];
+pub const NORTH_READS: [&str; 4] = ["SAFE_PUSH_LAND_BASE", "SAFE_PUSH_LAND_HEAD", "SAFE_PUSH_LAND_RUNTIME_HEAD", "SAFE_PUSH_LAND_SELECT_PATHS"];
+pub const NORTH_IGNORES: [(&str, &str); 4] = [
+    ("SAFE_PUSH_LAND_PACKAGES", "a check line expands it in its own text"),
+    ("SAFE_PUSH_LAND_CHANGED", "a check line expands it in its own text"),
+    ("SAFE_PUSH_LAND_IT", "a check line expands it in its own text"),
+    ("SAFE_PUSH_LAND_CPUS", "it sizes the check's lease, never its verdict"),
+];
 const RUNS_NORTH: [&str; 2] = ["bin/head-north", "north "];
+const NO_BUILD: &str = " --no-build ";
+pub const HEAD_NORTH_DEFERRED: &str = "head-north: not run before the push";
 
 pub struct Check<'a> {
     pub repo: &'a Path,
@@ -61,16 +69,27 @@ fn repository_path(word: &str) -> Option<String> {
     (inside && (word.contains('/') || word.contains('.'))).then(|| word.to_owned())
 }
 
-fn named(repo: &Path, tree: &str, command: &str) -> BTreeSet<String> {
+fn named(repo: &Path, tree: &str, command: &str) -> (BTreeSet<String>, String) {
     let mut paths: BTreeSet<String> = words(command).filter_map(repository_path).collect();
+    let mut text = command.to_owned();
     let scripts: Vec<String> = paths.iter().filter(|path| path.starts_with("bin/") || path.ends_with(".sh")).cloned().collect();
     for script in scripts {
         let body = git(repo, &["cat-file", "blob", &format!("{tree}:{script}")]).unwrap_or_default();
         if body.len() <= SCRIPT_LIMIT {
             paths.extend(words(&body).filter_map(repository_path));
+            text.push('\n');
+            text.push_str(&body);
         }
     }
-    paths
+    (paths, text)
+}
+
+fn reads_variable(command: &str, text: &str, name: &str) -> bool {
+    text.contains(name) || (RUNS_NORTH.iter().any(|marker| command.contains(marker)) && !NORTH_IGNORES.iter().any(|(ignored, _)| *ignored == name))
+}
+
+pub fn built_equivalent(command: &str) -> Option<String> {
+    command.contains(NO_BUILD).then(|| command.replacen(NO_BUILD, " ", 1))
 }
 
 fn object_specs(tree: &str, paths: &BTreeSet<String>) -> Vec<String> {
@@ -101,7 +120,8 @@ fn environment_value(repo: &Path, value: &str) -> String {
 pub fn key(check: &Check) -> Option<String> {
     let mut paths = selectors(check.repo, check.tree, check.command)?;
     paths.extend(TOOLCHAIN.iter().map(|path| (*path).to_owned()));
-    paths.extend(named(check.repo, check.tree, check.command));
+    let (named, text) = named(check.repo, check.tree, check.command);
+    paths.extend(named);
     if BUILDS_NORTH.iter().any(|marker| check.command.contains(marker)) {
         paths.extend(rust_build_input_paths().map(str::to_owned));
     }
@@ -117,8 +137,7 @@ pub fn key(check: &Check) -> Option<String> {
         let object = if object.contains(' ') { "missing" } else { object };
         hasher.update(format!("path\0{path}\0{object}\n"));
     }
-    let reads_range = RUNS_NORTH.iter().chain(LANDING_RANGE.iter()).any(|marker| check.command.contains(marker));
-    for (name, value) in check.environment.iter().filter(|(name, _)| reads_range || !LANDING_RANGE.contains(&name.as_str())) {
+    for (name, value) in check.environment.iter().filter(|(name, _)| reads_variable(check.command, &text, name)) {
         hasher.update(format!("env\0{name}\0{}\n", environment_value(check.repo, value)));
     }
     if machine_bound(check.command) {
