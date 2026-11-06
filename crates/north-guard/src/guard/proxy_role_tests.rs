@@ -104,6 +104,7 @@ fn stop(active: bool) -> HookInput {
 const PLACED: &str = "slots gex45 claude:c: 2\nskip north#525: ready, not placed: no Class: line\nwould launch north#523 on gex45 claude:c as worker (tune cell)\n";
 const UNPLACED: &str = "slots gex45 claude:a: 0\nslots gex45 claude:c: 2\nskip north#525: ready, not placed: Category debugging-unknown-cause has no Class: line\n";
 const SATURATED: &str = "slots gex45 claude:c: 0\nskip north#525: ready, not placed: gex45 takes nothing: load 37 on 20 threads\n";
+const PAUSED: &str = "slots gex45 claude:c: 2\nskip makgora#798: project makgora paused paused = true\nskip wisp#230: project wisp paused paused = true\n";
 
 #[test]
 fn the_proxy_cannot_end_a_turn_while_admitted_capacity_is_idle_and_ready_boxes_wait() {
@@ -120,6 +121,7 @@ fn the_proxy_cannot_end_a_turn_while_admitted_capacity_is_idle_and_ready_boxes_w
     let flagged = Fake { seen: Some("claude:c has a free worker slot on gex45\nnorth#523 is ready and dispatch would place it there"), plan: Some(PLACED), ..proxy() };
     assert_eq!(decide(&flagged, &stop(false)), Verdict::Allow);
     assert_eq!(decide(&Fake { plan: Some(SATURATED), ..proxy() }, &stop(false)), Verdict::Allow);
+    assert_eq!(decide(&Fake { plan: Some(PAUSED), ..proxy() }, &stop(false)), Verdict::Allow);
     assert_eq!(decide(&Fake { plan: None, ..proxy() }, &stop(false)), Verdict::Allow);
     assert_eq!(decide(&Fake { plan: Some(PLACED), ..worker() }, &stop(false)), Verdict::Allow);
 }

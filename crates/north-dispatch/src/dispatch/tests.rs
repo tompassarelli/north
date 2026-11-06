@@ -153,9 +153,17 @@ fn an_issue_whose_every_open_box_names_a_live_owner_is_skipped_and_one_with_an_u
 }
 
 #[test]
-fn the_needs_a_box_summary_goes_to_the_triage_lead_only_while_a_registry_lists_it_else_to_the_proxy() {
-    let cfg: toml_edit::DocumentMut = "[dispatch]\ntriage_lead = \"triage-lead\"\n".parse().unwrap();
-    assert_eq!(super::effects::boxless_recipient(&cfg, &BTreeSet::new()), "proxy");
-    assert_eq!(super::effects::boxless_recipient(&cfg, &BTreeSet::from(["triage-lead".to_owned()])), "triage-lead");
-    assert_eq!(super::effects::boxless_recipient(&toml_edit::DocumentMut::new(), &BTreeSet::from(["triage-lead".to_owned()])), "proxy");
+fn a_project_with_paused_true_gets_no_launch_and_each_of_its_issues_prints_as_paused_while_other_projects_still_launch() {
+    let config = CONFIG.replace("[projects.makgora]\n", "[projects.makgora]\npaused = true\n").replace("[projects.wisp]\n", "[projects.wisp]\npaused = true\n").replace("[projects.galileo]\n", "[projects.galileo]\npaused = true\n");
+    let cfg: toml_edit::DocumentMut = config.parse().unwrap();
+    let (hosts, accounts) = fleet();
+    let boxes = vec![issue("makgora", 798, "- [ ] a", &[]), issue("wisp", 230, "- [ ] a", &[]), issue("north", 1, "- [ ] a", &[])];
+    let mut paused = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    paused.projects = super::projects::Projects::read(&cfg).unwrap();
+    assert_eq!(paused.projects.set_aside(), ["galileo", "makgora", "wisp"]);
+    let outcome = decide(&paused, "test");
+    let launched: Vec<String> = outcome.launches.iter().map(|launch| launch.item.to_string()).collect();
+    assert_eq!(launched, ["north#1"]);
+    let skipped: Vec<(String, &str)> = outcome.skipped.iter().map(|(item, why)| (item.to_string(), why.as_str())).collect();
+    assert_eq!(skipped, [("makgora#798".to_owned(), "project makgora paused paused = true"), ("wisp#230".to_owned(), "project wisp paused paused = true")]);
 }

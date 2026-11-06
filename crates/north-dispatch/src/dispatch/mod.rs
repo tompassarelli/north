@@ -207,6 +207,9 @@ fn print_survey(survey: &Survey) {
         plan::Cloud::Closed(line) => format!("closed ({line})"),
     };
     println!("cloud lane: {cloud}");
+    for project in survey.projects.set_aside() {
+        println!("paused {project}: paused = true in orchestration.toml, so its issues are not dispatched");
+    }
     for note in &survey.notes {
         println!("note: {note}");
     }
