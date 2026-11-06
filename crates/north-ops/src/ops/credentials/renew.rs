@@ -89,7 +89,7 @@ pub fn tick(credentials: &[Credential], host: &str, now: u64, window_days: u64, 
     let text = notice(&ask, window_days);
     let (sent, sent_at) = previous(record);
     let repeat = sent.as_deref() != text.as_deref() || now.saturating_sub(sent_at) >= NOTICE_REPEAT_DAYS * DAY;
-    let mut recorded = (text.as_ref().and(sent.clone()), sent_at);
+    let mut recorded = (text.as_ref().and(sent), sent_at);
     if let Some(text) = text.as_deref().filter(|_| repeat) {
         if effects.dry_run() {
             lines.push(format!("would alert: {text}"));
