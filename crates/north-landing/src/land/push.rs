@@ -201,7 +201,7 @@ fn final_scans(outgoing: &Outgoing, to: &str, range: &str) -> Vec<&'static str> 
     for (index, (arguments, label)) in checks.into_iter().enumerate() {
         if index == 5 {
             println!(
-                "safe-push: scanning {range} for secrets ({} -> origin {}@{})…",
+                "safe-push: scanning {range} for secrets with betterleaks ({} -> origin {}@{})…",
                 outgoing.identity.branch_ref(),
                 outgoing.destination_ref,
                 outgoing.snapshot_oid_or("absent")

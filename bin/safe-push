@@ -1630,7 +1630,7 @@ final_scans() {
       || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; failed+=("dependency gate"); }
   fi
   policy_scans "$branch" "$destination_branch" "$scan_range" || failed+=("${policy_failures[@]}")
-  echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
+  echo "safe-push: scanning $scan_range for secrets with betterleaks ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
   north land scan secrets "$scan_range" \
     || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; failed+=("secret scan"); }
   denylist_scan "${destination_oid:-${absent_base:-}}" "$head_oid" "$destination_branch" || failed+=("deny-list scan")
