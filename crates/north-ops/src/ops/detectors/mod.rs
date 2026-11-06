@@ -20,6 +20,7 @@ mod gather;
 mod plan;
 mod refusal;
 mod signal;
+mod slow_check;
 mod slow_test;
 
 #[cfg(test)]
@@ -49,10 +50,11 @@ pub enum Detector {
     RecurringSequence,
     RepeatedCorrection,
     SlowTest,
+    SlowCheck,
 }
 
 impl Detector {
-    pub const ALL: [Self; 7] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection, Self::SlowTest];
+    pub const ALL: [Self; 8] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection, Self::SlowTest, Self::SlowCheck];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -63,6 +65,7 @@ impl Detector {
             Self::RecurringSequence => "recurring-sequence",
             Self::RepeatedCorrection => "repeated-correction",
             Self::SlowTest => "slow-test",
+            Self::SlowCheck => "slow-check",
         }
     }
 }
@@ -129,6 +132,7 @@ pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> (Vec<Find
             Detector::RecurringSequence => continue,
             Detector::RepeatedCorrection => correction::repeated(&gatherer.corrections(), crate::threads::incidents::corrections::classes()),
             Detector::SlowTest => slow_test::slow(&gatherer.slow_tests(limits, now), limits),
+            Detector::SlowCheck => slow_check::slow(&slow_check::over(&gatherer.check_samples(), &slow_check::budgets(), limits.slow_test_runs), &default_text("detector_slow_check_owner")),
         };
         spends.push(Spend { detector, millis: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), findings: found.len() });
         findings.extend(found);

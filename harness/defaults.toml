@@ -1303,6 +1303,54 @@ source = "tom: the slow-test reflex files on the issue that owns the test's file
 fallback = "the box is not filed"
 consumers = ["crates/north-ops/src/ops/detectors/mod.rs"]
 
+[detector_slow_check_owner]
+value = "north#634"
+allowed = { prefix = "north#" }
+unit = "issue a land check family's over-budget box is filed on by the slow-check detector"
+source = "tom: verification after the push should fit 20 s, and a check that grows past its budget three runs in a row files its own box (north#634, 2026-11-06)"
+fallback = "the box is not filed"
+consumers = ["crates/north-ops/src/ops/detectors/mod.rs"]
+
+[land_check_budget_nextest_seconds]
+value = 100
+allowed = { min = 1, max = 3600 }
+unit = "seconds of its own time, slot and lease waits excluded, the cargo nextest run land check (the selected Rust tests, compile included) may take in a green after-landing run; over it in each of its newest detector_slow_test_runs runs, the slow-check detector files a box"
+source = "measured: p90 own time 99 s over the post-land runs of the 3 hours to 11:40 AM on 2026-11-06, read from the lander's spans; a growth guard on the way to the 20 s verification target (north#634)"
+fallback = "none; the slow-check detector reads this value"
+consumers = ["crates/north-ops/src/ops/detectors/slow_check.rs"]
+
+[land_check_budget_clippy_seconds]
+value = 65
+allowed = { min = 1, max = 3600 }
+unit = "seconds of its own time, slot and lease waits excluded, the cargo clippy land check on the changed crates may take in a green after-landing run; over it in each of its newest detector_slow_test_runs runs, the slow-check detector files a box"
+source = "measured: p90 own time 64 s over the post-land runs of the 3 hours to 11:40 AM on 2026-11-06, read from the lander's spans; a growth guard on the way to the 20 s verification target (north#634)"
+fallback = "none; the slow-check detector reads this value"
+consumers = ["crates/north-ops/src/ops/detectors/slow_check.rs"]
+
+[land_check_budget_north_build_seconds]
+value = 60
+allowed = { min = 1, max = 3600 }
+unit = "seconds of its own time, slot and lease waits excluded, the shared ./bin/head-north --build that every head-north check reuses may take in a green after-landing run; over it in each of its newest detector_slow_test_runs runs, the slow-check detector files a box"
+source = "measured: p90 own time 59 s over the post-land runs of the 3 hours to 11:40 AM on 2026-11-06, read from the lander's spans; a growth guard on the way to the 20 s verification target (north#634)"
+fallback = "none; the slow-check detector reads this value"
+consumers = ["crates/north-ops/src/ops/detectors/slow_check.rs"]
+
+[land_check_budget_land_tests_seconds]
+value = 35
+allowed = { min = 1, max = 3600 }
+unit = "seconds of its own time, slot and lease waits excluded, the ./bin/head-north land-tests --select changed checks may take in a green after-landing run; over it in each of its newest detector_slow_test_runs runs, the slow-check detector files a box"
+source = "measured: p90 own time 33 s over the post-land runs of the 3 hours to 11:40 AM on 2026-11-06, read from the lander's spans; a growth guard on the way to the 20 s verification target (north#634)"
+fallback = "none; the slow-check detector reads this value"
+consumers = ["crates/north-ops/src/ops/detectors/slow_check.rs"]
+
+[land_check_budget_head_north_seconds]
+value = 10
+allowed = { min = 1, max = 3600 }
+unit = "seconds of its own time, slot and lease waits excluded, the any other ./bin/head-north land check (docs, scans, config and policy checks) may take in a green after-landing run; over it in each of its newest detector_slow_test_runs runs, the slow-check detector files a box"
+source = "measured: p90 own time 9 s over the post-land runs of the 3 hours to 11:40 AM on 2026-11-06, read from the lander's spans; a growth guard on the way to the 20 s verification target (north#634)"
+fallback = "none; the slow-check detector reads this value"
+consumers = ["crates/north-ops/src/ops/detectors/slow_check.rs"]
+
 [lander_idle_alarm_minutes]
 value = 20
 allowed = { min = 1, max = 10080 }

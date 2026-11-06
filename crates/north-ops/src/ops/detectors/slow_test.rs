@@ -152,16 +152,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nextest_pass_and_leak_lines_give_each_test_its_slowest_time_and_other_lines_none() {
+    fn nextest_pass_and_leak_lines_give_each_test_its_slowest_time_and_a_strace_summary_keeps_the_top_syscalls_in_one_line() {
         let log = "        PASS [   0.027s] (  1/750) north::it capacity_live::fast\n        PASS [  16.402s] (  2/750) north::it slow::sleeps\n        FAIL [  30.000s] (  3/750) north::it slow::fails\n    Starting 750 tests across 18 binaries\n        PASS [  17.000s] (  4/750) north::it slow::sleeps\n        LEAK [  17.500s] (  5/750) north::it slow::leaky\n";
         let times = passed(log);
         assert_eq!(times.len(), 3);
         assert_eq!(times[&("north::it".to_owned(), "slow::sleeps".to_owned())], 17.0);
         assert_eq!(times[&("north::it".to_owned(), "slow::leaky".to_owned())], 17.5);
-    }
-
-    #[test]
-    fn a_strace_summary_keeps_the_top_syscalls_by_wall_time_in_one_line() {
         let output = format!(
             "test result: ok\n{PROFILE_MARK}\n% time     seconds  usecs/call     calls    errors syscall\n------ ----------- ----------- --------- --------- ------------------\n 99.90   16.000500    16000500         1           clock_nanosleep\n  0.06    0.009600           3      3200       121 read\n  0.04    0.006400           2         7           futex\n------ ----------- ----------- --------- --------- ------------------\n100.00   16.016500                  3208       121 total\n"
         );

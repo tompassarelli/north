@@ -11,6 +11,7 @@ use super::filing::Filer;
 use super::plan::{self, Doc, IssueBox, Landed};
 use super::refusal::{self, Refusal};
 use super::signal::{self, Signal};
+use super::slow_check;
 use super::slow_test;
 use super::{Limits, default_number, default_text};
 use crate::health::loops::{self, Declared, Origin};
@@ -296,6 +297,11 @@ impl Gatherer<'_> {
         if let Err(error) = serde_json::to_string(attempts).map_err(std::io::Error::other).and_then(|text| crate::ops::flow::write_atomic(&self.attempts_path(), &text)) {
             eprintln!("detectors: could not record the profile attempt: {error}");
         }
+    }
+
+    pub fn check_samples(&self) -> Vec<slow_check::Sample> {
+        let text: String = subdirectories(&self.places.state.join("north/land-queue")).iter().filter_map(|queue| fs::read_to_string(queue.join("logs/spans.jsonl")).ok()).collect();
+        slow_check::samples(&text)
     }
 
     pub fn slow_tests(&self, limits: &Limits, now: f64) -> slow_test::Facts {
