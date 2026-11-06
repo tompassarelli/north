@@ -539,7 +539,14 @@ test_no_run_seconds = 10
 contention_ceiling = 0.5
 
 [rust_habits]
-checks = ["shared-mutability", "single-impl-trait"]
+checks = ["shared-mutability", "single-impl-trait", "ambient-test-input"]
+
+[rust_habits.ambient_inputs]
+mode = "advisory"
+allowlist = "ambient-test-inputs.tsv"
+fixtures = ["tests/it/capacity_host/mod.rs"]
+time_fixture = "wait on an event instead: run on tokio's paused clock (#[tokio::test(start_paused = true)]), drive a capacity deadline with DrivenClock or wait with Host::until (tests/it/capacity_host/mod.rs)"
+host_fixture = "pin the reading the code takes, as tests/it/capacity_host/mod.rs does with AGENT_CAPACITY_DISK_FREE_GIB, AGENT_CAPACITY_CORES, AGENT_CAPACITY_LOADAVG and AGENT_CAPACITY_MEMINFO"
 
 [[rust_habits.allow]]
 rule = "shared-mutability"

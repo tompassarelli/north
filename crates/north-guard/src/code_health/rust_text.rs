@@ -16,6 +16,7 @@ static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 pub(super) struct RustFile {
     pub(super) path: String,
     code: String,
+    commentless: String,
     tests: Vec<Range<usize>>,
     pub(super) whole_test: bool,
 }
@@ -38,15 +39,23 @@ impl RustFile {
             }
             tests.push(whole.start()..item_end(code.as_bytes(), whole.end()));
         }
-        Self { path: path.to_owned(), code, tests, whole_test }
+        Self { path: path.to_owned(), code, commentless: blank_literals(text, |first| first == b'/'), tests, whole_test }
     }
 
-    fn is_test(&self, at: usize) -> bool {
+    pub(super) fn is_test(&self, at: usize) -> bool {
         self.whole_test || self.tests.iter().any(|range| range.contains(&at))
     }
 
-    fn line(&self, at: usize) -> usize {
+    pub(super) fn line(&self, at: usize) -> usize {
         self.code.as_bytes()[..at].iter().filter(|byte| **byte == b'\n').count() + 1
+    }
+
+    pub(super) fn masked(&self) -> &str {
+        &self.code
+    }
+
+    pub(super) fn commentless(&self) -> &str {
+        &self.commentless
     }
 
     pub(super) fn shared_state(&self) -> Vec<(usize, String)> {
