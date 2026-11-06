@@ -1,6 +1,7 @@
 //! Keeps a host's land-check slots warm between landings: a build host's, and the lander host's own, which its after-landing runs use when no
 //! build host has room. While at most `BUSY_SLOTS` land checks hold slots here, the lease reaper (the laptop-auto tick on the laptop) starts
-//! one warm job: it takes the unlocked slot furthest behind its repository's origin/main, never the lander's reserved one, checks it out at
+//! one warm job: it takes the unlocked slot whose last warm build is furthest behind its repository's origin/main (a land check that left a
+//! slot at the head may not have built what the next one needs), never the lander's reserved one, checks it out at
 //! that head and runs the repository's `landing.warm` command there under a heavy lease at the lowest CPU priority, so the next check on any
 //! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since.
 use std::collections::BTreeMap;
@@ -17,6 +18,7 @@ use super::ship::{SLOTS, is_lander_slot, slot_ports};
 
 const LOCK: &str = "warm.lock";
 const LOG: &str = "warm.log";
+const WARMED: &str = ".warmed";
 const UNIT: &str = "north-slot-warm";
 const SETTING: &str = "landing.warm";
 const DEADLINE: Duration = Duration::from_secs(1800);
@@ -118,7 +120,7 @@ fn slots(root: &Path) -> Vec<Slot> {
             let gitdir = fs::read_to_string(path.join(".git")).ok()?;
             let repo = PathBuf::from(gitdir.strip_prefix("gitdir:")?.trim()).ancestors().nth(3)?.to_path_buf();
             let checkout = (1..SLOTS).find_map(|index| name.strip_suffix(&format!("-{index}"))).unwrap_or(&name).to_owned();
-            let at = git(&path, &["rev-parse", "HEAD"])?;
+            let at = fs::read_to_string(root.join(format!("{name}{WARMED}"))).map(|warmed| warmed.trim().to_owned()).unwrap_or_default();
             Some(Slot { name, checkout, repo, at })
         })
         .collect()
@@ -182,6 +184,9 @@ fn warm(root: &Path, slot: &Slot, head: &str) -> u8 {
         Err(error) => format!("not started: {error}"),
     };
     let _ = fs::remove_file(&holder);
+    if status == "exit 0" {
+        let _ = fs::write(root.join(format!("{}{WARMED}", slot.name)), format!("{head}\n"));
+    }
     eprintln!("north capacity: warmed {} at {} in {} s ({status})", slot.name, &head[..head.len().min(12)], started.elapsed().as_secs());
     0
 }
