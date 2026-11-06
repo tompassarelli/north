@@ -252,6 +252,9 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     if issue.unticked() == 0 {
         return Err(if issue.needs_box() { NEEDS_BOX } else { "no unticked Done-when box" }.into());
     }
+    if super::facets::category(issue).is_none() {
+        return Err(super::facets::UNCATEGORISED.into());
+    }
     if let Some(owners) = issue.owned_by(world.live) {
         let owners: Vec<&str> = owners.iter().map(String::as_str).collect();
         return Err(format!("every open box has a live owner: {}", owners.join(", ")));

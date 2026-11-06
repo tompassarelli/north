@@ -18,7 +18,7 @@ use super::accounts::{config_file, default_home};
 mod activity;
 pub mod cloud;
 pub mod landing;
-mod outcome;
+pub mod outcome;
 pub mod row;
 pub mod telemetry;
 

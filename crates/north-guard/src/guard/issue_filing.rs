@@ -18,9 +18,14 @@ static ISSUE_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https://github
 static DEFECT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Defect:[\s*_]*\S").unwrap());
 static DONE_WHEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Done when:[ \t*_]*").unwrap());
 static BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t>]*[-*][ \t]+\[[ xX]\]").unwrap());
+static CATEGORY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[ \t>*-]*\**Category\**:[ \t*_`]*([A-Za-z][\w-]*)").unwrap());
+static CLASS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[ \t>*-]*\**Class\**:[ \t*_`]*\S").unwrap());
 static FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][\w -]*:").unwrap());
 static MARKER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t>*-]*(?:\[[ xX]\][ \t]*)?").unwrap());
 const BRIEF_LINES: usize = 64;
+const BUG_CATEGORIES: [&str; 2] = ["bug-known-cause", "debugging-unknown-cause"];
+const CATEGORY_LABELS: [(&str, &str); 3] = [("enhancement", "feature"), ("bug", "debugging-unknown-cause"), ("documentation", "docs-policy")];
+const ROOT_LABEL: &str = "roadmap";
 
 pub(super) trait World {
     fn repo(&mut self, named: Option<&str>) -> Option<String>;
@@ -248,9 +253,7 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
             }
         }
     }
-    if DONE_WHEN.is_match(&body) && !BOX.is_match(&body) {
-        reasons.push(NO_BOX.to_owned());
-    }
+    reasons.extend(shape(write, &body));
     if let Some(brief) = world.worker_brief()
         && !BLOCKS.is_match(&body)
         && !DEFECT.is_match(&body)
@@ -268,7 +271,7 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
     (!reasons.is_empty()).then(|| reasons.join("\n"))
 }
 
-const NO_BOX: &str = "No. The body has a `Done when:` line but no `- [ ]` box, and north dispatch staffs only issues with an unticked box. Write each check as a `- [ ]` line under a `## Done when` heading, one per guarantee, each naming the command or observation that proves it.";
+const NO_BOX: &str = "No. The body has no `- [ ]` box, and north dispatch staffs only issues with an unticked box. Write each check as a `- [ ]` line under a `## Done when` heading, one per guarantee, each naming the command or observation that proves it.";
 const UNFOUNDED: &str = "No. A worker files an issue only for what it cannot finish in its lane: a blocker, with a `Blocks: repo#N` body line naming the issue it blocks, or a measured defect, with a `Defect:` body line giving the command you ran and what it showed. A finding you can fix in 20 minutes is fixed in this lane and lands with it. An idea or a possible follow-up goes under `Ideas:` in your final report, not into a new issue. The issue for the item you were launched on passes when its body carries your brief's Done when.";
 const OPAQUE: &str = " This body is built from a shell variable or a pipe the guard cannot read, so give it literally, in a heredoc or with --body-file PATH.";
 
@@ -317,3 +320,32 @@ fn similar(title: &str, other: &str) -> bool {
     shared / left.union(&right).count() as f64 >= SIMILAR
 }
 
+
+const NO_CATEGORY: &str = "No. The body has no `Category:` line and no label names one (`category:NAME`, enhancement, bug or documentation), and north dispatch places no box without a category. Add a `Category:` line before the first blank line, such as `Category: tooling`.";
+const NO_CLASS: &str = "No. A bug category (bug-known-cause, debugging-unknown-cause, or the bug label) needs a `Class:` line, and north dispatch places no such box without one. Add `Class:` before the first blank line naming the class of failure, and write a Done when that covers every instance of it.";
+
+/// The category dispatch would place the issue under: its `Category:` line, else a category label.
+fn category(body: &str, labels: &[String]) -> Option<String> {
+    let named = CATEGORY.captures(body).map(|found| found[1].to_lowercase());
+    let labelled = || {
+        labels.iter().find_map(|label| label.strip_prefix("category:").filter(|name| !name.is_empty()).map(str::to_owned)).or_else(|| CATEGORY_LABELS.iter().find(|(label, _)| labels.iter().any(|has| has == label)).map(|(_, category)| (*category).to_owned()))
+    };
+    named.or_else(labelled)
+}
+
+/// Why dispatch could not staff the new issue: no box, no category, or a bug category with no `Class:` line. A roadmap root is finished by its children, so it needs none.
+fn shape(write: &GhWrite, body: &str) -> Vec<String> {
+    if write.labels.iter().any(|label| label == ROOT_LABEL) {
+        return Vec::new();
+    }
+    let mut reasons = Vec::new();
+    if !BOX.is_match(body) {
+        reasons.push(NO_BOX.to_owned());
+    }
+    match category(body, &write.labels) {
+        None => reasons.push(NO_CATEGORY.to_owned()),
+        Some(category) if BUG_CATEGORIES.contains(&category.as_str()) && !CLASS.is_match(body) => reasons.push(NO_CLASS.to_owned()),
+        Some(_) => {}
+    }
+    reasons
+}

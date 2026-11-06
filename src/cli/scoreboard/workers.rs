@@ -1,13 +1,17 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::LazyLock;
 
+use north_github_mirror::store::{self as mirror, Mirror};
+use regex::Regex;
 use rusqlite::Connection;
 
 use super::{Better, Figure, Measure, Window};
 use crate::foundation::clock::Timestamp;
 use crate::ledger::outcome::attention::references;
 use crate::platform::run_roles::worker_where;
+use crate::providers::claude::runs::outcome::waits_on_time;
 
-const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them, split, idle and running runs left out (threads runs)";
+const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running and deferred runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
 const ALL: &str = "all categories";
 
 pub struct Attempt {
@@ -17,18 +21,38 @@ pub struct Attempt {
     pub repos: BTreeSet<String>,
 }
 
-pub fn attempts(db: &Connection, since: i64) -> rusqlite::Result<Vec<Attempt>> {
+static MISSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<!-- check \S+ missed -->").unwrap());
+
+/// The issues, as `repo#N`, whose body records a deferred check that missed, from the GitHub mirror's open issues: a miss reopens its issue.
+pub fn missed_checks(mirror: &Mirror) -> BTreeSet<String> {
+    let mut missed = BTreeSet::new();
+    for repo in mirror::REPOS {
+        let Some(copy) = mirror.read(&mirror::key(repo, mirror::OPEN_ISSUES)) else { continue };
+        for issue in copy.body.as_array().into_iter().flatten() {
+            if issue["body"].as_str().is_some_and(|body| MISSED.is_match(body)) {
+                missed.insert(format!("{repo}#{}", issue["number"]));
+            }
+        }
+    }
+    missed
+}
+
+pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>) -> rusqlite::Result<Vec<Attempt>> {
     let mut statement = db.prepare("SELECT DISTINCT follows FROM runs WHERE coalesce(follows, '') != ''")?;
     let followed: HashSet<String> = statement.query_map([], |row| row.get(0))?.filter_map(Result::ok).collect();
     let mut statement = db.prepare(&format!(
-        "SELECT agent, category, ended, outcome, coalesce(item, '') FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
+        "SELECT agent, category, ended, outcome, coalesce(item, ''), report FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
         worker_where()
     ))?;
-    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
+    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?)))?;
     Ok(rows
         .filter_map(Result::ok)
-        .filter_map(|(agent, category, ended, outcome, item)| {
+        .filter_map(|(agent, category, ended, outcome, item, report)| {
             let ended = Timestamp::parse(&ended).ok()?.unix_seconds();
+            let checked_miss = || references(&item).iter().any(|issue| missed.contains(issue));
+            if outcome != "done" && waits_on_time(&report) && !checked_miss() {
+                return None;
+            }
             Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item) })
         })
         .collect())
@@ -40,7 +64,7 @@ pub fn repos(item: &str) -> BTreeSet<String> {
 }
 
 pub fn first_try(db: &Connection, weeks: [Window; 2]) -> rusqlite::Result<Vec<Measure>> {
-    let attempts = attempts(db, weeks[1].start)?;
+    let attempts = attempts(db, weeks[1].start, &missed_checks(&Mirror::local()))?;
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for attempt in attempts.iter().filter(|attempt| weeks[0].holds(attempt.ended)) {
         *counts.entry(attempt.category.as_str()).or_default() += 1;

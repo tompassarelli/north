@@ -145,10 +145,6 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             continue;
         }
         outcome.ready += 1;
-        if facets::category(issue).is_none() {
-            outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", facets::UNCATEGORISED)));
-            continue;
-        }
         if let Some((file, holder)) = claims.conflict(issue) {
             outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", hotspots::hold_reason(&file, holder))));
             continue;

@@ -283,7 +283,7 @@ impl Records {
             landings: landed(&threads, since)?,
             verification: verified(since),
             reworked: landing::judged_landings(&threads, rework)?,
-            attempts: workers::attempts(&threads, since).map_err(failed)?,
+            attempts: workers::attempts(&threads, since, &workers::missed_checks(&north_github_mirror::store::Mirror::local())).map_err(failed)?,
             firsts: landing::first_landings(&threads).map_err(failed)?,
             tom: tom::Tom::read(&sources.places, &sources.home, since, now)?,
             priority: note(now),
@@ -344,10 +344,14 @@ impl Goals {
     fn read() -> Result<Self, String> {
         let path = north_goals::code_root().join("north/main").join(registry::PATH);
         let text = fs::read_to_string(&path).map_err(|why| format!("{}: {why}", path.display()))?;
-        let mut goals = registry::parse(&text).map_err(|found| found.join("; "))?;
+        Self::parse(&text).map_err(|why| format!("{}: {why}", path.display()))
+    }
+
+    fn parse(text: &str) -> Result<Self, String> {
+        let mut goals = registry::parse(text).map_err(|found| found.join("; "))?;
         let mut held = HashMap::new();
         for bar in Bar::ALL {
-            let at = goals.iter().position(|goal| goal.name == bar.goal() && goal.class == Class::Ready).ok_or_else(|| format!("{}: no ready goal {}", path.display(), bar.goal()))?;
+            let at = goals.iter().position(|goal| goal.name == bar.goal() && goal.class == Class::Ready).ok_or_else(|| format!("no ready goal {}", bar.goal()))?;
             held.insert(bar.goal(), goals.swap_remove(at));
         }
         Ok(Self(held))
@@ -372,42 +376,60 @@ fn threshold(goal: &Goal) -> String {
     format!("{} {}", if matches!(goal.bound, Bound::Max(_)) { "<=" } else { ">=" }, show(&goal.unit, goal.bound.limit()))
 }
 
+/// One bar's readings for one repository: the last 24 h carries the verdict, 12 h and 7 d are context.
+struct Cells {
+    half_day: Option<Reading>,
+    day: (Option<Reading>, Standing),
+    week: Option<Reading>,
+}
+
 struct Repo {
     name: &'static str,
-    week: Vec<(Option<Reading>, Standing)>,
+    bars: Vec<Cells>,
     days_in_a_row: usize,
 }
 
-fn assess(records: &Records, goals: &Goals, repo: &'static str, now: i64) -> Repo {
-    let week = Window { start: now - DAYS as i64 * DAY_S, end: now + 1 };
+/// The `hours` ending at `now`, bounded as days in a row bounds its newest day.
+fn last(now: i64, hours: i64) -> Window {
+    Window { start: now - hours * 3_600 + 1, end: now + 1 }
+}
+
+fn assess(reading: impl Fn(Bar, Window) -> Option<Reading>, goals: &Goals, repo: &'static str, now: i64) -> Repo {
     let standing = |bar: Bar, window: Window| {
-        let reading = records.reading(bar, repo, window);
+        let reading = reading(bar, window);
         (reading, Standing::of(goals.of(bar).bound, reading))
     };
     let days_in_a_row = (0..DAYS as i64)
         .map(|day| Window { start: now - (day + 1) * DAY_S + 1, end: now - day * DAY_S + 1 })
         .take_while(|window| Bar::ALL.iter().all(|bar| counts(standing(*bar, *window).1, *bar)))
         .count();
-    Repo { name: repo, week: Bar::ALL.iter().map(|bar| standing(*bar, week)).collect(), days_in_a_row }
+    let bars = Bar::ALL.iter().map(|&bar| Cells { half_day: reading(bar, last(now, 12)), day: standing(bar, last(now, 24)), week: reading(bar, last(now, DAYS as i64 * 24)) }).collect();
+    Repo { name: repo, bars, days_in_a_row }
 }
 
-fn cell(goal: &Goal, reading: Option<Reading>, standing: Standing) -> String {
+fn cell(goal: &Goal, reading: Option<Reading>, standing: Option<Standing>) -> String {
+    let word = standing.map(|standing| format!(" {}", standing.word())).unwrap_or_default();
     match reading {
-        Some(reading) => format!("{} {} (n={})", show(&goal.unit, reading.value), standing.word(), reading.sample),
-        None => standing.word().into(),
+        Some(reading) => format!("{}{word} (n={})", show(&goal.unit, reading.value), reading.sample),
+        None => standing.map_or("none", Standing::word).into(),
     }
 }
 
 fn render(repos: &[Repo], goals: &Goals, now: i64) -> String {
-    let mut rows: Vec<Vec<String>> = vec![["bar".into(), "ready threshold".into()].into_iter().chain(repos.iter().map(|repo| repo.name.to_owned())).collect()];
+    let mut rows: Vec<Vec<String>> = vec![["bar".into(), "ready threshold".into()].into_iter().chain(repos.iter().flat_map(|repo| ["12 h", "24 h", "7 d"].map(|span| format!("{} {span}", repo.name)))).collect()];
     for (index, bar) in Bar::ALL.iter().enumerate() {
         let goal = goals.of(*bar);
-        rows.push([bar.label().to_owned(), threshold(goal)].into_iter().chain(repos.iter().map(|repo| cell(goal, repo.week[index].0, repo.week[index].1))).collect());
+        let cells = repos.iter().flat_map(|repo| {
+            let cells = &repo.bars[index];
+            [cell(goal, cells.half_day, None), cell(goal, cells.day.0, Some(cells.day.1)), cell(goal, cells.week, None)]
+        });
+        rows.push([bar.label().to_owned(), threshold(goal)].into_iter().chain(cells).collect());
     }
-    rows.push(["days in a row all bars pass".into(), format!(">= {NEEDED_DAYS}")].into_iter().chain(repos.iter().map(|repo| format!("{} {}", repo.days_in_a_row, if repo.days_in_a_row >= NEEDED_DAYS { "pass" } else { "FAIL" }))).collect());
+    let streaks = repos.iter().flat_map(|repo| [String::new(), format!("{} {}", repo.days_in_a_row, if repo.days_in_a_row >= NEEDED_DAYS { "pass" } else { "FAIL" }), String::new()]);
+    rows.push(["days in a row all bars pass".into(), format!(">= {NEEDED_DAYS}")].into_iter().chain(streaks).collect());
     let widths: Vec<usize> = (0..rows[0].len()).map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0)).collect();
     let mut out = String::new();
-    let _ = writeln!(out, "north scoreboard --ready: last 7 days at {}; days in a row counts the newest 24 h windows in which every bar passed", Timestamp::from_unix_seconds(now).local_twelve_hour());
+    let _ = writeln!(out, "north scoreboard --ready at {}: each bar passes or fails on its last 24 h; the 12 h and 7 d columns are context with no verdict; days in a row counts the newest 24 h windows in which every bar passed", Timestamp::from_unix_seconds(now).local_twelve_hour());
     for row in &rows {
         let line: Vec<String> = row.iter().zip(&widths).map(|(text, width)| format!("{text:<width$}")).collect();
         let _ = writeln!(out, "{}", line.join("  ").trim_end());
@@ -421,6 +443,6 @@ fn render(repos: &[Repo], goals: &Goals, now: i64) -> String {
 pub fn run(now: i64) -> Result<String, String> {
     let goals = Goals::read()?;
     let records = Records::read(&Sources::live(), now)?;
-    let repos: Vec<Repo> = REPOS.iter().map(|repo| assess(&records, &goals, repo, now)).collect();
+    let repos: Vec<Repo> = REPOS.iter().map(|repo| assess(|bar, window| records.reading(bar, repo, window), &goals, repo, now)).collect();
     Ok(render(&repos, &goals, now))
 }

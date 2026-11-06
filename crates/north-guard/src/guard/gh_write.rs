@@ -10,6 +10,7 @@ const TEXT_FLAGS: &[&str] = &["--body", "-b", "--title", "-t", "--comment", "-c"
 const DESCRIPTION_FLAGS: &[&str] = &["-d", "--desc", "--description"];
 const FILE_FLAGS: &[&str] = &["--body-file", "-F", "--notes-file"];
 const FIELD_FLAGS: &[&str] = &["-f", "-F", "--field", "--raw-field"];
+const LABEL_FLAGS: &[&str] = &["-l", "--label"];
 const API_VALUE_FLAGS: &[&str] = &[
     "-X", "--method", "-H", "--header", "-q", "--jq", "-t", "--template", "--hostname", "-p", "--preview", "--cache",
 ];
@@ -27,6 +28,7 @@ pub struct GhWrite {
     pub bodies: Vec<String>,
     pub title: Option<String>,
     pub creates_issue: bool,
+    pub labels: Vec<String>,
     pub closes_issue: Option<String>,
     pub opaque: bool,
 }
@@ -198,8 +200,9 @@ fn takes_value(group: Option<&str>, verb: Option<&str>, flag: &str) -> bool {
     if group == Some("api") {
         return API_VALUE_FLAGS.contains(&flag) || FIELD_FLAGS.contains(&flag) || flag == "--input";
     }
+    let labelled = group == Some("issue") && LABEL_FLAGS.contains(&flag);
     let described = matches!(group, Some("gist" | "repo" | "label")) && DESCRIPTION_FLAGS.contains(&flag);
-    described || TEXT_FLAGS.contains(&flag) || FILE_FLAGS.contains(&flag)
+    described || labelled || TEXT_FLAGS.contains(&flag) || FILE_FLAGS.contains(&flag)
 }
 
 fn collect(write: &mut GhWrite, group: Option<&str>, flag: &str, value: &str, cwd: Option<&str>) {
@@ -214,6 +217,8 @@ fn collect(write: &mut GhWrite, group: Option<&str>, flag: &str, value: &str, cw
                 _ => push_text(write, field, cwd),
             }
         }
+    } else if group == Some("issue") && LABEL_FLAGS.contains(&flag) {
+        write.labels.extend(value.split(',').map(str::trim).filter(|label| !label.is_empty()).map(str::to_owned));
     } else if FILE_FLAGS.contains(&flag) {
         push_file(write, value, cwd);
     } else if TEXT_FLAGS.contains(&flag) || DESCRIPTION_FLAGS.contains(&flag) {

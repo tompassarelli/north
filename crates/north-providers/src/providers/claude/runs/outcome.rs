@@ -6,6 +6,7 @@ const HEAD_CHARS: usize = 400;
 
 enum Scope {
     Head,
+    Opener,
     Report,
     FirstLineNotDone,
     FirstLineDone,
@@ -47,6 +48,10 @@ const WAITING: &[&str] = &[
     r"\b(will (report|notify)|is queued|are queued|holding the push|waiting (on|for|up to))\b",
 ];
 
+static WAITS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\bdated checks?\b|\bdeferred (it |them |the box |its box |both boxes )?to .{0,60}\bcheck\b|\(waits: \d{4}-|stop:\s*wait until|\b(needs?|waits? (on|for)|waiting (on|for)) (a |an |the )?(full |clean |another )?(day|hour|week|\d+ (more )?(hours|days|landings|runs))\b|\b(day|hour|window) (isn.t|is not|hasn.t|has not) (up|over|passed|closed)|\blive (traffic|data|measurement)\b|\bwaits on the real (proxy|traffic)\b").unwrap()
+});
+
 static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
     let rule = |scope, quiet_only, patterns: &[&str], outcome| Rule {
         scope,
@@ -59,6 +64,7 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
         rule(Scope::Head, false, STOP, "idle"),
         rule(Scope::Head, false, &["(?-i:HANDOFF)"], "handoff"),
         rule(Scope::Head, false, &[r"^\W*split\b[.:]"], "split"),
+        rule(Scope::Opener, false, &[r"(?-i:\bSplit\b)\W{0,2}:"], "split"),
         rule(Scope::Head, false, &[r"^\W*(not|partly|mostly|half) done"], "not done"),
         rule(Scope::Head, false, &[r"^\W*blocked"], "escalated"),
         rule(Scope::Head, false, &[r"^\W*done\b"], "done"),
@@ -77,10 +83,16 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
     ]
 });
 
+/// Whether a report stops on a box deferred to a dated check (`north experiments defer`) or waiting on stated elapsed time or live traffic.
+pub fn waits_on_time(report: &str) -> bool {
+    WAITS.is_match(report)
+}
+
 pub(super) fn classify(report: &str, quiet: bool) -> &'static str {
     let head: String = report.chars().take(HEAD_CHARS).collect();
     let matches = |rule: &Rule| match rule.scope {
         Scope::Head => rule.pattern.is_match(&head),
+        Scope::Opener => rule.pattern.is_match(report.split("\n\n").next().unwrap_or_default()),
         Scope::Report => rule.pattern.is_match(report),
         Scope::FirstLineNotDone => rule.pattern.captures(report).is_some_and(|found| found.name("not").is_some()),
         Scope::FirstLineDone => rule.pattern.captures(report).is_some_and(|found| found.name("not").is_none()),
@@ -92,22 +104,34 @@ pub(super) fn classify(report: &str, quiet: bool) -> &'static str {
 mod tests {
     use serde::Deserialize;
 
-    use super::classify;
+    use super::{classify, waits_on_time};
+    use crate::platform::run_roles::ingest_role;
 
     #[derive(Deserialize)]
     struct Labelled {
         report: String,
         quiet: bool,
         outcome: String,
+        brief: Option<String>,
+    }
+
+    /// How the first-try bar reads the run: a reviewer is no worker, and a failed box waiting on time or traffic is deferred.
+    fn first_try(labelled: &Labelled) -> &'static str {
+        if labelled.brief.as_deref().is_some_and(|brief| ingest_role("research", brief, "unclear", 5) == "reviewer") {
+            return "reviewer";
+        }
+        match classify(&labelled.report, labelled.quiet) {
+            "not done" | "unclear" | "escalated" if waits_on_time(&labelled.report) => "deferred",
+            outcome => outcome,
+        }
     }
 
     #[test]
-    fn at_most_two_of_twenty_four_real_reports_from_2026_10_26_and_2026_11_06_are_labelled_wrong() {
+    fn at_most_two_of_twenty_eight_real_reports_from_2026_10_26_to_2026_11_06_are_labelled_wrong_and_none_that_the_first_try_bar_leaves_out() {
         let reports: Vec<Labelled> = serde_json::from_str(include_str!("reports.json")).unwrap();
-        assert_eq!(reports.len(), 24);
-        let wrong: Vec<(&str, &str)> =
-            reports.iter().map(|labelled| (classify(&labelled.report, labelled.quiet), labelled.outcome.as_str())).filter(|(got, want)| got != want).collect();
+        assert_eq!(reports.len(), 28);
+        let wrong: Vec<(&str, &str)> = reports.iter().map(|labelled| (first_try(labelled), labelled.outcome.as_str())).filter(|(got, want)| got != want).collect();
         assert!(wrong.len() <= 2, "{wrong:?}");
+        assert!(wrong.iter().all(|(got, want)| ![*got, *want].iter().any(|outcome| ["reviewer", "deferred", "split"].contains(outcome))), "{wrong:?}");
     }
-
 }
