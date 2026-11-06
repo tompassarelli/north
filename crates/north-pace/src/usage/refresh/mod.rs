@@ -77,6 +77,7 @@ pub(super) fn read_provider(db: &Connection, source: &store::Source, provider: &
 }
 
 pub(super) fn sample_readings(db: &Connection, source: &store::Source, places: &Places, host: &Host) -> Result<usize, String> {
-    let ports = sample::Ports { headers: (host.token_headers)(&places.policy), cli: &sample::cli_readings, ingest: host.ingest, at: super::clock().unix_seconds_f64() };
+    let headers = || (host.token_headers)(&places.policy);
+    let ports = sample::Ports { headers: &headers, cli: &sample::cli_readings, ingest: host.ingest, at: super::clock().unix_seconds_f64() };
     sample::run(db, source.mirrored(), &ports)
 }

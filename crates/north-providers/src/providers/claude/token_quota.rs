@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -12,6 +13,10 @@ const MESSAGES: &str = "https://api.anthropic.com/v1/messages";
 const MINIMAL_TURN: &str = r#"{"model":"claude-haiku-5-5","max_tokens":1,"system":"You are Claude Code, Anthropic's official CLI for Claude.","messages":[{"role":"user","content":"."}]}"#;
 const SOURCE: &str = "Messages response anthropic-ratelimit-unified headers on the account's setup token";
 const WINDOWS: [(&str, &str, u32); 2] = [("5h", "session", 300), ("7d", "weekly_all", 10080)];
+const ATTEMPT: Duration = Duration::from_secs(4);
+const ATTEMPTS: usize = 2;
+
+pub type Headers = (String, Result<String, String>);
 
 pub fn token_accounts(policy: &Path, home: &Path) -> Vec<Account> {
     let profiles = accounts::declared(policy, home);
@@ -26,17 +31,37 @@ pub fn token_accounts(policy: &Path, home: &Path) -> Vec<Account> {
         .collect()
 }
 
-pub fn usage_rows(account: &Account, at: f64) -> Result<Vec<Value>, String> {
-    let file = account.token_file.as_deref().ok_or("account has no token file")?;
-    rows_from(&account.label, &fetch_headers(file)?, at)
+pub fn read_all(accounts: &[Account]) -> Vec<Headers> {
+    read_all_from(MESSAGES, accounts)
 }
 
-pub fn fetch_headers(token_file: &Path) -> Result<String, String> {
+fn read_all_from(endpoint: &str, accounts: &[Account]) -> Vec<Headers> {
+    std::thread::scope(|scope| {
+        let reads: Vec<_> = accounts
+            .iter()
+            .map(|account| (account.label.clone(), scope.spawn(move || account.token_file.as_deref().ok_or_else(|| "account has no token file".to_owned()).and_then(|file| fetch_headers(endpoint, file)))))
+            .collect();
+        reads.into_iter().map(|(label, read)| (label, read.join().unwrap_or_else(|_| Err("header read panicked".into())))).collect()
+    })
+}
+
+fn fetch_headers(endpoint: &str, token_file: &Path) -> Result<String, String> {
     let token = std::fs::read_to_string(token_file).map_err(|error| format!("token file: {error}"))?;
-    let token = token.trim();
-    let config = curl_config(token)?;
+    let config = curl_config(token.trim())?;
+    let mut failure = String::new();
+    for _ in 0..ATTEMPTS {
+        match attempt(endpoint, &config, token.trim()) {
+            Ok(headers) => return Ok(headers),
+            Err(error) => failure = error,
+        }
+    }
+    Err(format!("{failure} ({ATTEMPTS} attempts of {}s)", ATTEMPT.as_secs()))
+}
+
+fn attempt(endpoint: &str, config: &str, token: &str) -> Result<String, String> {
+    let limit = ATTEMPT.as_secs().to_string();
     let mut child = Command::new("curl")
-        .args(["--silent", "--show-error", "--max-time", "30", "--config", "-", "--request", "POST", "--dump-header", "-", "--output", "/dev/null", "--data-binary", MINIMAL_TURN, MESSAGES])
+        .args(["--silent", "--show-error", "--connect-timeout", &limit, "--max-time", &limit, "--config", "-", "--request", "POST", "--dump-header", "-", "--output", "/dev/null", "--data-binary", MINIMAL_TURN, endpoint])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -62,7 +87,7 @@ fn curl_config(token: &str) -> Result<String, String> {
         .collect())
 }
 
-fn rows_from(label: &str, headers: &str, at: f64) -> Result<Vec<Value>, String> {
+pub fn rows_from(label: &str, headers: &str, at: f64) -> Result<Vec<Value>, String> {
     let header = |name: &str| {
         headers.lines().find_map(|line| {
             let (key, value) = line.split_once(':')?;

@@ -40,14 +40,11 @@ pub(super) fn read(settings: &Settings) -> Vec<Reading> {
     directories.extend(settings.configured.clone().map(Some));
     directories.sort();
     directories.dedup();
-    let mut rows = Vec::new();
-    for directory in directories {
-        if directory.as_ref().is_some_and(|directory| !directory.join(".credentials.json").exists()) {
-            continue;
-        }
-        rows.extend(read_profile(settings, directory.as_deref(), &now));
-    }
-    rows
+    directories.retain(|directory| directory.as_ref().is_none_or(|directory| directory.join(".credentials.json").exists()));
+    std::thread::scope(|scope| {
+        let reads: Vec<_> = directories.iter().map(|directory| scope.spawn(|| read_profile(settings, directory.as_deref(), &now))).collect();
+        reads.into_iter().flat_map(|read| read.join().unwrap_or_default()).collect()
+    })
 }
 
 fn read_profile(settings: &Settings, directory: Option<&Path>, now: &str) -> Vec<Reading> {

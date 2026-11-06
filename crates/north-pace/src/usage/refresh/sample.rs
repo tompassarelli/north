@@ -9,7 +9,7 @@ use super::record::{self, Reading};
 use crate::usage::{TokenHeaders, events};
 
 pub(super) struct Ports<'a> {
-    pub headers: TokenHeaders,
+    pub headers: &'a dyn Fn() -> TokenHeaders,
     pub cli: &'a (dyn Fn() -> Vec<Reading> + Sync),
     pub ingest: &'a dyn Fn(&[u8]) -> Result<(), String>,
     pub at: f64,
@@ -18,7 +18,7 @@ pub(super) struct Ports<'a> {
 pub(super) fn run(db: &Connection, mirrored: bool, ports: &Ports) -> Result<usize, String> {
     let rows = std::thread::scope(|scope| {
         let cli = scope.spawn(ports.cli);
-        let mut rows = token_readings(&ports.headers, ports.at);
+        let mut rows = token_readings(&(ports.headers)(), ports.at);
         rows.extend(cli.join().unwrap_or_default());
         rows
     });
