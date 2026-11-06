@@ -103,6 +103,21 @@ review = "2026-12-04"
 owner = "tompassarelli/north#40"
 
 [[experiment]]
+id = "goals-as-checks"
+change = "Each project keeps its goals as named checks in goals.toml, measured by north goals check, with a class saying how long a goal may stay red"
+landed = "2ecdd5a66"
+note = "docs/rationale/targets.md"
+rule = "Overturned by: goals that stay red past their revisit triggers with no landing aimed at them, or oracles whose values disagree with the project's own CI."
+metric = "none"
+measure = "north goals check: goals red past their revisit triggers with no landing aimed at them, and oracle values that disagree with the project's own CI"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-06", "2026-12-04"]
+review = "2026-12-06"
+owner = "tompassarelli/north#641"
+
+[[experiment]]
 id = "pstack-fleet-prompt"
 change = "North keeps its own fleet prompt, routing and ledger instead of adopting pstack wholesale"
 landed = "9fd40c119"
