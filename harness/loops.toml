@@ -379,7 +379,6 @@ constants = [
   "crates/north-landing/src/land/candidate.rs::DEADLINE",
   "crates/north-landing/src/land/check_coverage.rs::SHOWN",
   "crates/north-landing/src/land/culprit.rs::POLL",
-  "crates/north-landing/src/land/route.rs::PER_LANE",
   "crates/north-landing/src/landing/after_landing.rs::BODY_LIMIT",
   "crates/north-landing/src/landing/after_landing.rs::TAIL_LINES",
   "crates/north-landing/src/landing/denylist_archive.rs::BYTE_CAP",

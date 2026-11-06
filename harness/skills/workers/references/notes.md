@@ -93,7 +93,7 @@ a rule when its numbers move.
 - Autoland repository: the worker ends once `safe-push --to main` has pushed
   its `claude/land-*` branch, and reports `Done: queued <worktree> <branch> <sha>`. Autoland
   lands it, and a Haiku worker ticks its boxes after landing.
-- Lander host (a repository whose committed `.safe-push` sets `landing.queue = lander`, on the host named by `landing.lander-host`): `safe-push --to main` queues the lane and writes only a ticket, and the worker reports `Done: queued <branch>`. The lander's fleet "landed" message is the landing, so the worker ends its turn instead of waiting. Other hosts land per lane as below.
+- Lander host (a repository whose committed `.safe-push` sets `landing.queue = lander`, on the host named by `landing.lander-host`): `safe-push --to main` queues the lane and writes only a ticket, and the worker reports `Done: queued <branch>`. The lander's fleet "landed" message is the landing, so the worker ends its turn instead of waiting. Any other host is refused, naming the setting to add.
 - Elsewhere: a lead runs `safe-push` in the foreground with a 10-minute
   timeout. A worker runs it in the background, because worker-wait-guard
   refuses a foreground landing, and reports once it exits. If the landing takes

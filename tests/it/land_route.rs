@@ -134,15 +134,28 @@ impl Fixture {
 }
 
 #[test]
-fn lander_queue_without_north_refuses_instead_of_pushing() {
+fn a_landing_the_lander_cannot_take_is_refused_naming_why_and_pushes_and_queues_nothing() {
     let fixture = Fixture::lander_queue();
-    fs::remove_file(fixture.top().join("bin/north")).unwrap();
+    let host = local_host();
     let without_north = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).filter(|directory| !directory.join("north").exists()).collect::<Vec<_>>();
-    let main_before = fixture.main();
-    let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::join_paths(without_north).unwrap().to_string_lossy());
-    assert_ne!(run.status, 0, "{}", run.output);
-    assert!(run.output.contains("north not on PATH; refusing to land without the language gate"), "{}", run.output);
-    assert_eq!(fixture.main(), main_before, "a lander repository pushed main without north land route");
-    assert!(fixture.tickets(&fixture.queue()).is_empty(), "{}", run.output);
+    let system = std::env::join_paths(without_north).unwrap().to_string_lossy().into_owned();
+    let refused = |arguments: &[&str], expected: &str| {
+        let main_before = fixture.main();
+        let run = fixture.safe_push_on(arguments, "gitconfig", &system);
+        assert_ne!(run.status, 0, "{}", run.output);
+        assert!(run.output.contains(expected), "expected {expected:?}: {}", run.output);
+        assert_eq!(fixture.main(), main_before, "a refused landing pushed main");
+        assert!(fixture.tickets(&fixture.queue()).is_empty(), "{}", run.output);
+    };
+    refused(&["--to", "main", "--direct"], "--direct is refused");
+    fixture.settle("[landing]\n\tqueue = lander\n\tlander-host = another-host\n", "another lander host");
+    fixture.work("work from an unnamed host");
+    refused(&["--to", "main"], &format!("{host} is neither landing.lander-host nor in landing.remote-hosts for main, so the lander cannot take this lane; add {host} to landing.remote-hosts"));
+    fixture.settle(&format!("[landing]\n\tqueue = lock\n\tlander-host = {host}\n"), "a lock queue");
+    fixture.work("work under the lock queue");
+    refused(&["--to", "main"], "landing.queue = lock in .safe-push is no longer served: the lander lands every change to main");
+    fixture.settle(&format!("[landing]\n\tqueue = lander\n\tlander-host = {host}\n"), "this host is the lander");
+    fixture.work("work without north");
+    fs::remove_file(fixture.top().join("bin/north")).unwrap();
+    refused(&["--to", "main"], "north not on PATH; refusing to land without the language gate");
 }
-

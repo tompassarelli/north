@@ -6,7 +6,6 @@ affected_modules north-landing north
 agents_plan north-ops north-pace
 autoland_rebased north-landing
 automation_chrome_service north
-capacity_agent_compile north-capacity north-capacity-host north-runtime
 capacity_exclusive_native north-capacity
 capacity_host north-capacity-host
 capacity_live north-capacity-host
@@ -29,7 +28,6 @@ release north-landing north
 run_bounded north-ops north-capacity-host
 runtime_update north-runtime
 safe_push_entry north-base north
-safe_push_land_branch north-landing
 safe_push_remote_land north
 safe_push_tag north-landing
 stdio north-fleet
@@ -39,3 +37,4 @@ threads_ledger north-threads
 threads_resume north-threads
 threads_snapshot north-threads
 ssh_attribution north-capacity-host north-base north
+capacity_agent_compile north-capacity north-capacity-host north-runtime

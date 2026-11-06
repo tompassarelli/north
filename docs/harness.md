@@ -156,36 +156,35 @@ completion.
 Agents edit in `~/code/<project>/worktrees/<slug>`, never in `main/`, and land with
 `safe-push --to main` ([bin/safe-push](../bin/safe-push); `safe-push --help` is the full contract;
 the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure). The "Landing and
-lanes" entries in [features.md](features.md#landing-and-lanes) describe each gate. In outline it:
+lanes" entries in [features.md](features.md#landing-and-lanes) describe each gate. In outline:
 
-1. fetches and rebases onto origin/main under the per-origin lock, holding no capacity lease while
-   it does; red-main fixes take priority, and queued lanes can land as one train;
+1. `safe-push --to main` asks `north land route`, which refuses any host that is neither
+   `landing.lander-host` nor in `landing.remote-hosts`, and any `landing.queue` other than the
+   lander, naming the setting to add; otherwise `north land enqueue` runs the outgoing scans and
+   the land checks the lane adds, squashes the lane to one commit unless `--several-commits`, and
+   queues it; the worker reports `Done: queued <branch>` and ends its turn;
 
-2. runs the checks the repository's committed `.safe-push` maps to the changed paths
+2. the lander (`north land serve`) takes the queued lanes and builds one candidate from origin/main
+   plus each lane;
+
+3. it runs the checks the repository's committed `.safe-push` maps to the changed paths
    (`land.check` entries; [this repository's](../.safe-push) cover the Rust host, the harness
-   scripts, agent-machinery and the docs), or the pre-push hook when there are none;
+   scripts, agent-machinery and the docs) through `safe-push --check-candidate`, sending each where
+   it can run: with a `land.workflow`, every check except the `land.local-only` and
+   `land.machine-bound` ones runs as one GitHub Actions job through `north land-actions`;
+   machine-bound checks run on the `land.runner` build host; and a host in game-reserve ships the
+   candidate to another host with room (`north capacity offload`);
 
-3. sends those checks where they can run: with a `land.workflow`, every check except the
-   `land.local-only` and `land.machine-bound` ones runs as one GitHub Actions job through
-   `north land-actions`; machine-bound checks run on the `land.runner` build host; and a host in
-   game-reserve ships the lane to another host with room (`north capacity offload`);
+4. it refuses a lane unless every gate passes, among them a betterleaks secret scan, the dependency
+   gate (`north land scan dep-gate`), the stale-revert gate (`north stale-revert`), the
+   bin-reference gate (`north bin-references`) and the CI time budgets in `.safe-push`; it never
+   force-pushes;
 
-4. refuses the push unless every gate passes, among them a betterleaks secret scan, the dependency
-   gate (`north land scan dep-gate`), the stale-revert gate (`north stale-revert`), the bin-reference gate
-   (`north bin-references`) and the CI time budgets in `.safe-push`; it never force-pushes;
+5. it pushes the green candidate to main, tells each lane's session it landed, and runs the
+   after-landing checks (`land.after`) and `follows-release`; a red after-landing run reverts only
+   the lane that broke it.
 
-5. pushes to main, removes the clean lane and its branch, and runs `follows-release`.
-
-`north land checks` runs the local checks one after another under one capacity lease, so the
-fetch, rebase, queue wait and the wait on GitHub Actions hold no cores. Checks run with the landing
-lock released, so two landings' checks overlap. If main moved during the checks, a lane whose files
-the new commits do not touch rebases and keeps its verdict; any other lane rechecks. A landed
-receipt names the lane head verified on the destination.
-
-A repository with `landing.queue = autoland` in its `.safe-push`, or an Autoland workflow and no
-`landing.queue`, instead gets a `claude/land-*` branch that the workflow lands; North has neither.
-A worker runs `safe-push` in the background and reports when it exits; a lead runs it in the
-foreground.
+`safe-push --dry-run --to main` runs the same scans and land checks on this host without queueing.
 
 After the push, CI runs on main ([.github/workflows/](../.github/workflows/)). When a run fails, the
 "Main is red" workflow re-runs the failed job, and if the same step fails again after a green parent

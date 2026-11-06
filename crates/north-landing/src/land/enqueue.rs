@@ -197,7 +197,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .map_err(|_| "HEAD is detached; switch to the lane's own branch".to_owned())?;
     let origin = git(&root, &["remote", "get-url", "--push", "origin"]).map_err(|_| "origin has no push URL".to_owned())?;
-    repositories::servable(&root).map_err(|error| format!("the lander cannot serve this repository: {error}; set landing.queue = direct in .safe-push to land it per lane"))?;
+    repositories::servable(&root).map_err(|error| format!("the lander cannot serve this repository: {error}"))?;
     refuse_archived(&origin)?;
     let destination = default_branch(&root);
     let remote_ref = format!("refs/remotes/origin/{destination}");

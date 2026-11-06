@@ -1533,12 +1533,11 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   if [ "$to" = main ] && has_land_checks; then hook=""; hook_verified=1; land_train=1; fi
   if [ "$to" = "$(default_branch)" ]; then
     autoland_base=$(fetch_destination) || exit 1
-    route_status=3
-    if [ "$(landing_queue "refs/remotes/origin/$to")" = lander ] && command -v north >/dev/null 2>&1; then
-      north land route --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land route, which decides whether the lander takes this lane; run north runtime update; NOT pushed." >&2; exit 1; }
-      route_status=0; north land route "${original_arguments[@]}" || route_status=$?
-    fi
-    [ "$route_status" -eq 3 ] || { [ "$route_status" -ne 0 ] || safe_push_internal=1; exit "$route_status"; }
+    command -v north >/dev/null 2>&1 || { echo "safe-push: north not on PATH; refusing to land without the language gate; NOT pushed." >&2; exit 1; }
+    north land route --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land route, which decides whether the lander takes this lane; run north runtime update; NOT pushed." >&2; exit 1; }
+    route_status=0; north land route "${original_arguments[@]}" || route_status=$?
+    [ "$route_status" -ne 0 ] || safe_push_internal=1
+    exit "$route_status"
     land_as_one_commit "$autoland_base"
     if autoland_queue "$autoland_base" && [ "$direct" = 1 ]; then
       mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
