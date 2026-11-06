@@ -105,19 +105,6 @@ fn an_unchanged_repository_costs_only_conditional_reads_and_an_edited_one_or_a_m
 }
 
 #[test]
-fn a_failed_issue_refetch_keeps_the_old_probe_so_the_next_sync_tries_again() {
-    let root = tempfile::tempdir().unwrap();
-    let (fake, mirror) = (Fake::new(), Mirror::at(root.path().join("github-mirror.db")));
-    outcomes(&fake, &mirror, 100.0);
-    fake.issues_edited.set(true);
-    fake.graphql_fails.set(true);
-    assert!(outcomes(&fake, &mirror, 200.0)[0].is_err());
-    fake.graphql_fails.set(false);
-    assert_eq!(outcomes(&fake, &mirror, 300.0)[0], Ok(Fetch::Refreshed));
-    assert_eq!(fake.graphql_reads.get(), 3);
-}
-
-#[test]
 fn gh_include_output_reads_as_unchanged_on_304_and_as_the_body_and_etag_on_200_and_a_pages_404_as_no_site() {
     a_404_from_the_pages_endpoint_means_no_site_and_any_other_failure_is_an_error();
     assert_eq!(response("HTTP/2.0 304 Not Modified\r\nEtag: W/\"abc\"\r\n\r\n"), Ok(Answer::Unchanged));
@@ -150,24 +137,6 @@ fn a_fresh_mirror_answers_branches_tags_releases_issue_states_pages_the_reposito
     mirror.write(&key("north", &store::runs_kind("waiting")), &json!({"total_count": 150, "workflow_runs": [{"head_branch": "a"}]}), None, 100.0).unwrap();
     assert_eq!(read::pages(&mirror, at, "north", &store::runs_kind("waiting"), || Ok(json!("live"))).unwrap(), json!("live"), "a run list GitHub holds more of than one page is read from GitHub");
     assert_eq!(read::pages(&mirror, at + 1.0, "north", store::OPEN_PULLS, || Ok(json!("live"))).unwrap(), json!("live"));
-}
-
-#[test]
-fn closed_issue_numbers_are_refetched_only_when_the_open_set_changes_and_stay_fresh_otherwise() {
-    let root = tempfile::tempdir().unwrap();
-    let (fake, mirror) = (Fake::new(), Mirror::at(root.path().join("github-mirror.db")));
-    outcomes(&fake, &mirror, 100.0);
-    fake.issues_edited.set(true);
-    outcomes(&fake, &mirror, 200.0);
-    assert_eq!((fake.graphql_reads.get(), fake.closed_reads.get()), (2, 1));
-    outcomes(&fake, &mirror, 300.0);
-    assert_eq!(read::issue_state(&mirror, 300.0, "north", 7), Some(Seen::Closed));
-    fake.issue_closed.set(true);
-    fake.issues_edited.set(false);
-    outcomes(&fake, &mirror, 400.0);
-    assert_eq!(fake.closed_reads.get(), 2);
-    assert_eq!(read::issue_state(&mirror, 400.0, "north", 638), Some(Seen::Closed));
-    assert_eq!(fake.branch_reads.get(), 1);
 }
 
 

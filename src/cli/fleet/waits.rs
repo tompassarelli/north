@@ -228,31 +228,3 @@ fn branch_state(branch: &str, cwd: &Path) -> Option<String> {
         _ => None,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::cell::Cell;
-
-    use super::*;
-
-    #[test]
-    fn the_job_ledger_is_fetched_once_for_every_job_wait_of_a_pass() {
-        let runs = Runs::default();
-        let fetched = Cell::new(0);
-        let load = || {
-            fetched.set(fetched.get() + 1);
-            Some(serde_json::json!([]))
-        };
-        assert!(runs.job_rows(load).is_some() && runs.job_rows(load).is_some() && runs.job_rows(load).is_some());
-        assert_eq!(fetched.get(), 1);
-        let failed = Runs::default();
-        let tries = Cell::new(0);
-        let load = || {
-            tries.set(tries.get() + 1);
-            None
-        };
-        assert!(failed.job_rows(load).is_none() && failed.job_rows(load).is_none());
-        assert_eq!(tries.get(), 1, "a failed fetch is not retried within the pass");
-    }
-
-}

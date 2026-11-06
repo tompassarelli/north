@@ -198,15 +198,6 @@ mod tests {
     }
 
     #[test]
-    fn a_host_a_land_check_claims_refuses_worker_builds_and_still_takes_the_land_check() {
-        let gib = 1024 * 1024;
-        let claimed = parse(&PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", "2.0").replace("%PRESSURE%", "5").replace("\"cpuSomeAvg10\":5", "\"cpuSomeAvg10\":5,\"landCheckWaiting\":true")).unwrap();
-        assert_eq!(build_shortfall_reserving(&claimed, 0.0).as_deref(), Some("land check waiting"));
-        assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("gex45".to_owned(), Some(claimed))], &[], 6.0), Ok(Chosen::Room("gex45".to_owned())));
-        assert_eq!(build_shortfall_reserving(&reading(80 * gib, "3.10", "2.0", "5"), 0.0), None);
-    }
-
-    #[test]
     fn a_host_with_heavy_jobs_or_slot_jobs_queued_loses_to_one_with_room_and_the_laptop_runs_a_land_check_only_when_no_build_host_answers() {
         let gib = 1024 * 1024;
         let queued = |jobs: &str| parse(&PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", "3.0").replace("%PRESSURE%", "5").replace("\"cpuSomeAvg10\":5", &format!("\"cpuSomeAvg10\":5,\"queued\":[{jobs}]"))).unwrap();

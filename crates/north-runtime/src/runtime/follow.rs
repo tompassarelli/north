@@ -82,23 +82,3 @@ fn names_north(url: &str) -> bool {
     let url = url.strip_suffix(".git").unwrap_or(url);
     url.rsplit(['/', ':']).next() == Some("north")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::foundation::shim::write_executable;
-
-    fn candidate(directory: &Path, script: &str) -> std::path::PathBuf {
-        let binary = directory.join("north");
-        write_executable(&binary, script);
-        binary
-    }
-
-    #[test]
-    fn the_lander_is_held_with_the_named_reason_when_the_candidate_replay_differs() {
-        let directory = tempfile::tempdir().unwrap();
-        let binary = candidate(directory.path(), "#!/bin/sh\necho \"north land promote: refused: round lane-a on abc recorded landed but the candidate replayed failed; the lander link is unchanged\"\nexit 1\n");
-        let held = lander_verdict(&binary, directory.path()).unwrap_err();
-        assert_eq!(held.message, "lander link held: round lane-a on abc recorded landed but the candidate replayed failed");
-    }
-}

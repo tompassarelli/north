@@ -98,11 +98,6 @@ impl LaunchFlags {
     }
 }
 
-#[cfg(test)]
-pub(super) fn launch_request(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<LaunchRequest> {
-    launch_parts(providers, words, caller, true).map(|parts| parts.request)
-}
-
 /// A parsed `north fleet launch`.
 pub(super) struct LaunchParts {
     pub request: LaunchRequest,

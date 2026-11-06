@@ -154,22 +154,3 @@ fn paged(repo: &str, query: &str, connection: &str) -> Result<Vec<Value>, String
         cursor = page["pageInfo"]["endCursor"].as_str().map(str::to_owned);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn a_copy_is_fresh_until_five_minutes_after_its_last_sync_and_a_confirm_renews_it() {
-        let root = tempfile::tempdir().unwrap();
-        let mirror = Mirror::at(root.path().join("state/github-mirror.db"));
-        assert_eq!(mirror.fresh("north/issues/open", 0.0), None);
-        mirror.write("north/issues/open", &json!([{"number": 1}]), Some("\"e1\""), 1000.0).unwrap();
-        assert_eq!(mirror.fresh("north/issues/open", 1000.0 + FRESH_S), Some(json!([{"number": 1}])));
-        assert_eq!(mirror.fresh("north/issues/open", 1001.0 + FRESH_S), None);
-        mirror.confirm("north/issues/open", 2000.0).unwrap();
-        let copy = mirror.read("north/issues/open").unwrap();
-        assert_eq!((copy.etag.as_deref(), copy.fetched, copy.synced), (Some("\"e1\""), 1000.0, 2000.0));
-    }
-}

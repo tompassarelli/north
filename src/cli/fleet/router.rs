@@ -27,8 +27,6 @@ use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
 use super::one_proxy;
 use super::launch::{LaunchParts, launch_parts};
-#[cfg(test)]
-use super::launch::launch_request;
 use super::list;
 use super::usage::usage;
 use super::interactive;

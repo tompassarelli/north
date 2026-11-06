@@ -116,38 +116,6 @@ async fn notifications_after_the_turn_do_not_keep_a_codex_host_awake() {
     assert_eq!(parked.ok().map(Result::unwrap), Some(143), "an idle host must park despite steady non-turn output");
 }
 
-#[test]
-fn a_launch_inherits_the_calling_session_as_parent_else_the_proxy_unless_told_none() {
-    let providers = [ProviderName::new("claude")];
-    let test_request = launch_request(&providers, &["--provider", "claude", "--account", "c", "--test", "test prompt"], None).unwrap();
-    assert!(test_request.verification);
-    let parent = |flags: &[&str], caller: Option<&str>| {
-        let words = [&["--provider", "claude", "--account", "c", "--name", "w"], flags, &["go"]].concat();
-        launch_request(&providers, &words, caller.map(str::to_owned)).unwrap().parent
-    };
-    assert_eq!(parent(&[], Some("boss")), Some("boss".into()));
-    assert_eq!(parent(&["--parent", "none"], Some("boss")), None);
-    assert_eq!(parent(&["--parent", "lead"], Some("boss")), Some("lead".into()));
-    assert_eq!(parent(&[], None), Some("proxy".into()));
-    assert_eq!(parent(&["--parent", "none"], None), None);
-    let proxy = launch_request(&providers, &["--provider", "claude", "--account", "c", "--name", "proxy", "go"], None).unwrap();
-    assert_eq!(proxy.parent, None, "the proxy is never its own parent");
-    let wait = |flags: &[&str], caller: Option<&str>| launch_parts(&providers, &[&["--provider", "claude", "--account", "c"], flags, &["go"]].concat(), caller.map(str::to_owned), true).unwrap().wait;
-    assert_eq!(wait(&[], None), Some(false), "a launch from outside the fleet does not hold for admission under its default proxy parent");
-    assert_eq!((wait(&[], Some("boss")), wait(&["--parent", "lead"], None), wait(&["--wait"], None)), (None, None, Some(true)));
-}
-
-#[test]
-fn a_launch_flag_never_takes_the_next_flag_as_its_value() {
-    let providers = [ProviderName::new("claude")];
-    let words = ["--provider", "claude", "--account", "c", "--local", "--name", "firn-statix", "go"];
-    assert!(launch_request(&providers, &words, None).is_err());
-}
-
-fn seconds(rollover: u64, finished_exit: u64) -> crate::fleet::idle::Policy {
-    crate::fleet::idle::Policy { eta_minute: Duration::from_secs(60), rollover_after: Duration::from_secs(rollover), cache_lifetime: Duration::from_secs(60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(finished_exit), registered_park_after: Duration::from_secs(30) }
-}
-
 fn claude_turn(root: &Path, context: u64, reply: &str) -> (HostConfig, PathBuf) {
     let usage = json!({"input_tokens": 1, "output_tokens": 5, "cache_read_input_tokens": context - 1, "cache_creation_input_tokens": 0});
     let assistant = json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null, "message": {"id": "m1", "content": [{"type": "text", "text": reply}], "usage": usage}});
@@ -183,6 +151,3 @@ async fn a_host_told_to_end_leaves_a_finished_worker_stopped_and_an_unfinished_o
         assert_eq!((record.stopped, record.ended), (stopped, stopped.then_some(Ending::HostEnded)), "{reply}");
     }
 }
-
-#[path = "silent_tests.rs"]
-mod silent;

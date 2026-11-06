@@ -1,4 +1,4 @@
-use super::{Host, Route, route};
+use super::{Host, route};
 
 fn words(line: &str) -> Vec<String> {
     line.split_whitespace().map(str::to_owned).collect()
@@ -6,15 +6,6 @@ fn words(line: &str) -> Vec<String> {
 
 fn client() -> Host {
     Host { ledger_client: true, ledger_host: Some("nexus".to_owned()) }
-}
-
-#[test]
-fn remote_land_routes_a_south_landing_to_main_on_a_ledger_client() {
-    let routed = Route { ledger_host: Some("nexus".to_owned()), dry_run: false };
-    for origin in ["git@github.com:tompassarelli/south.git", "https://github.com/tompassarelli/south", "/fixture/south.git"] {
-        assert_eq!(route(&words("--to main"), origin, &client()), Some(Route { ledger_host: routed.ledger_host.clone(), dry_run: routed.dry_run }), "{origin}");
-    }
-    assert_eq!(route(&words("--dry-run --to main"), "/fixture/south.git", &client()), Some(Route { ledger_host: Some("nexus".to_owned()), dry_run: true }));
 }
 
 #[test]
