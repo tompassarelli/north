@@ -61,7 +61,16 @@ if ! git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1; then
   git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1 || { echo "offload: $repo lacks the commits under $base" >&2; exit 97; }
 fi
 git -C "$repo" fetch -q --no-auto-maintenance "$bundle" "+$ref:$ref"
-nearest=$(
+"#;
+
+const NESTED: &str = r#"caller_slot=${@SLOT_ENV@:-}
+if [ -z "@BACKGROUND@" ] && [ "${caller_slot%/*}" = "$root" ] && case ${caller_slot##*/} in "$name" | "$name"-[1-9]) true ;; *) false ;; esac && [ "$(git -C "$caller_slot" rev-parse HEAD 2>/dev/null)" = "$head" ]; then
+  s=${caller_slot##*/} slot=$caller_slot
+  echo "offload: running in $s, the slot this job's caller holds on this host" >&2
+else
+"#;
+
+const TAKE: &str = r#"nearest=$(
   i=0
   while [ "$i" -lt @SLOTS@ ]; do
     s=$name
@@ -234,6 +243,10 @@ pub(crate) fn jobs_part() -> String {
     JOBS.replace("@LAND_SLOTS@", &SLOTS.to_string()).replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX).replace("@WARM_LOCK@", super::super::warm::LOCK)
 }
 
+pub(super) fn slot_part() -> String {
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
+}
+
 pub(super) fn beside_part() -> String {
     BESIDE.replace("@BESIDE_MISSING@", &BESIDE_MISSING.to_string()).replace("@BESIDE_ENV@", beside::BESIDE_ENV)
 }
@@ -260,7 +273,7 @@ pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
         SlotClass::Background => (1, BACKGROUND_WAIT_SECONDS, "1"),
     };
     let ports: String = slot_ports(name).iter().map(|(slot, port)| format!("{}) SCCACHE_SERVER_PORT={port} ;; ", quote(slot))).collect();
-    format!("{REMOTE}{VERIFY}{}{}", beside_part(), run_part())
+    format!("{}{VERIFY}{}{}", slot_part(), beside_part(), run_part())
         .replace("@JOBS@", &jobs_part())
         .replace("@CAP@", CAP)
         .replace("@SLOT_PORTS@", &ports)

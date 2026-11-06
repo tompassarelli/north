@@ -209,7 +209,7 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     let slot = home.path().join(".cache/land-offload/code-p-main");
     git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap(), &head]);
     fs::remove_dir_all(&slot).unwrap();
-    let script = super::script::REMOTE.replace("@JOBS@", &super::script::jobs_part()).replace("@CAP@", super::script::CAP).replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@JOB_MIB@", "0").replace("@SLOT_PORTS@", "");
+    let script = super::script::slot_part().replace("@JOBS@", &super::script::jobs_part()).replace("@CAP@", super::script::CAP).replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@JOB_MIB@", "0").replace("@SLOT_PORTS@", "");
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
         .env("HOME", home.path())
@@ -518,4 +518,42 @@ fn every_slot_of_a_checkout_serves_sccache_on_its_own_stable_port_in_range() {
     assert!(numbers.iter().all(|port| (20000..40000).contains(port)), "{numbers:?}");
     numbers.dedup();
     assert_eq!(numbers.len(), super::SLOTS as usize);
+}
+
+#[test]
+fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_waiting_out_the_queue() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let inner = home.path().join("inner.sh");
+    fs::write(&inner, &script).unwrap();
+    let ran = home.path().join("inner-ran");
+    let command = format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}' refs/land-offload/job '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = crate::capacity::land_claim::OFFLOAD_SLOT_ENV);
+    let started = std::time::Instant::now();
+    let mut outer = Command::new("setsid")
+        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0"])
+        .env("HOME", home.path())
+        .env("PATH", &path)
+        .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+        .env_remove(crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .stdin(fs::File::open(&bundle).unwrap())
+        .stdout(fs::File::create(home.path().join("outer.out")).unwrap())
+        .stderr(fs::File::create(home.path().join("outer.err")).unwrap())
+        .spawn()
+        .unwrap();
+    while outer.try_wait().unwrap().is_none() && started.elapsed() < std::time::Duration::from_secs(10) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let finished = outer.try_wait().unwrap();
+    if finished.is_none() {
+        let _ = rustix::process::kill_process_group(rustix::process::Pid::from_raw(outer.id() as i32).unwrap(), rustix::process::Signal::Kill);
+        let _ = outer.wait();
+    }
+    let err = fs::read_to_string(home.path().join("outer.err")).unwrap_or_default();
+    assert!(finished.is_some_and(|status| status.success()), "the nested job did not run within 10 s while its caller held the host's one slot: {err}");
+    assert_eq!(fs::read_to_string(&ran).unwrap(), home.path().join(".cache/land-offload/code-p-main").display().to_string(), "the nested job ran in the slot its caller holds");
+    assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "the nested job left no ticket in the queue");
 }
