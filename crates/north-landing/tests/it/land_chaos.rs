@@ -318,8 +318,8 @@ fn stopped_mid_after_run(world: &World) {
     fs::write(world.root.join("stall"), "").unwrap();
     let mut first = Command::new(std::env::current_exe().unwrap()).args([STOPPED_AFTER_RUN, "--exact", "--nocapture", "--test-threads=1"]).env(LANDER_ROLE, "1").stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().unwrap();
     wait_for("the first lander to land the batch and start its after run", || world.root.join("stalled").exists() && queue::pending(&lander.queue).unwrap().is_empty());
-    let stopped = Command::new("kill").args(["-TERM", &format!("-{}", first.id())]).status().unwrap();
-    assert!(stopped.success());
+    let group = rustix::process::Pid::from_raw(first.id().cast_signed()).unwrap();
+    rustix::process::kill_process_group(group, rustix::process::Signal::Term).unwrap();
     first.wait().unwrap();
     let landed_head = run(&world.origin, &["rev-parse", "main"]);
     assert_eq!(journaled(&lander), 1, "the stopped lander left no journal entry for the after run of {landed_head}");
