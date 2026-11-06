@@ -88,7 +88,8 @@ fn fleet_names(env: &TickEnv) -> Option<HashSet<String>> {
         return None;
     }
     let sessions: Vec<serde_json::Value> = serde_json::from_str(&listed.stdout).ok()?;
-    Some(sessions.iter().filter_map(|session| session.get("name")?.as_str().map(str::to_owned)).collect())
+    let live = |session: &&serde_json::Value| session.get("status").and_then(serde_json::Value::as_str) != Some("exited");
+    Some(sessions.iter().filter(live).filter_map(|session| session.get("name")?.as_str().map(str::to_owned)).collect())
 }
 
 fn locked_name(lock: &Path) -> String {

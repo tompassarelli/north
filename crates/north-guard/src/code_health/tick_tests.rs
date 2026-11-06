@@ -64,3 +64,15 @@ fn every_repo_of_a_project_with_paused_true_gets_no_review_launch_while_other_en
     assert!(!lock(&env).exists());
     assert!(fs::read_to_string(dir.path().join("north-calls")).unwrap_or_default().is_empty());
 }
+
+#[test]
+fn a_review_lock_named_by_an_exited_session_past_the_launch_grace_is_taken_over_and_a_live_one_still_holds() {
+    let (dir, env) = scratch("echo quiet");
+    let env = TickEnv { now: OffsetDateTime::now_utc() + time::Duration::hours(2), ..env };
+    fs::create_dir_all(lock(&env).parent().unwrap()).unwrap();
+    fs::write(lock(&env), "{\"name\":\"code-health-review-makgora-20261104-2100\"}\n").unwrap();
+    fs::write(dir.path().join("fleet.json"), "[{\"name\":\"code-health-review-makgora-20261104-2100\",\"status\":\"running\"}]\n").unwrap();
+    assert_eq!(tick(&env, &mut Vec::new()), Verdict::Held);
+    fs::write(dir.path().join("fleet.json"), "[{\"name\":\"code-health-review-makgora-20261104-2100\",\"status\":\"exited\"}]\n").unwrap();
+    assert_ne!(tick(&env, &mut Vec::new()), Verdict::Held);
+}
