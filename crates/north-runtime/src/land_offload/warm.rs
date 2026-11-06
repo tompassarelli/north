@@ -1,10 +1,11 @@
 //! Keeps a host's land-check slots warm between landings: a build host's, and the lander host's own, which its after-landing runs use when no
 //! build host has room. While at most `BUSY_SLOTS` land checks hold slots here, the lease reaper (the laptop-auto tick on the laptop) starts
 //! one warm job: it takes the unlocked slot whose last warm build is furthest behind its repository's origin/main (a land check that left a
-//! slot at the head may not have built what the next one needs), never the lander's reserved one, checks it out at
+//! slot at the head may not have built what the next one needs), a slot that has never built while the disk keeps its eviction line with one
+//! more of the largest target here, never the lander's reserved one, checks it out at
 //! that head and runs the repository's `landing.warm` command there under a heavy lease at the lowest CPU priority, so the next check on any
 //! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::process::CommandExt;
@@ -16,6 +17,7 @@ use north_base::foundation::offload;
 use rustix::fs::{FlockOperation, flock};
 
 use super::ship::{SLOTS, is_lander_slot, slot_ports};
+use crate::offload_cache::{Disk, Line, disk_of};
 
 const LOCK: &str = "warm.lock";
 const LOG: &str = "warm.log";
@@ -25,12 +27,14 @@ const SETTING: &str = "landing.warm";
 const DEADLINE: Duration = Duration::from_secs(1800);
 const POLL: Duration = Duration::from_millis(500);
 const BUSY_SLOTS: usize = 2;
+const GIB: f64 = (1u64 << 30) as f64;
 
 struct Slot {
     name: String,
     checkout: String,
     repo: PathBuf,
     at: String,
+    cold: bool,
 }
 
 fn held(lock: &Path) -> bool {
@@ -85,9 +89,12 @@ pub fn run() -> u8 {
     if too_busy(&root) {
         return 0;
     }
+    let slots = slots(&root);
+    let cold_fits = slots.iter().any(|slot| slot.cold) && room_for_a_cold_slot(&root, &slots);
     let mut heads = BTreeMap::new();
-    let mut stale: Vec<(usize, Slot, String)> = slots(&root)
+    let mut stale: Vec<(usize, Slot, String)> = slots
         .into_iter()
+        .filter(|slot| !slot.cold || cold_fits)
         .filter_map(|slot| {
             let head = heads.entry(slot.repo.clone()).or_insert_with(|| main_head(&slot.repo)).clone()?;
             (slot.at != head).then(|| (changed_files(&slot.repo, &slot.at, &head), slot, head))
@@ -108,16 +115,22 @@ fn slots(root: &Path) -> Vec<Slot> {
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
             let path = entry.path();
-            if is_lander_slot(&name) || !path.join("target").is_dir() {
+            if is_lander_slot(&name) {
                 return None;
             }
             let gitdir = fs::read_to_string(path.join(".git")).ok()?;
             let repo = PathBuf::from(gitdir.strip_prefix("gitdir:")?.trim()).ancestors().nth(3)?.to_path_buf();
             let checkout = (1..SLOTS).find_map(|index| name.strip_suffix(&format!("-{index}"))).unwrap_or(&name).to_owned();
             let at = fs::read_to_string(root.join(format!("{name}{WARMED}"))).map(|warmed| warmed.trim().to_owned()).unwrap_or_default();
-            Some(Slot { name, checkout, repo, at })
+            Some(Slot { name, checkout, repo, at, cold: !path.join("target").is_dir() })
         })
         .collect()
+}
+
+fn room_for_a_cold_slot(root: &Path, slots: &[Slot]) -> bool {
+    let largest = slots.iter().filter(|slot| !slot.cold).filter_map(|slot| north_base::platform::shared_target::allocated_tree(&root.join(&slot.name).join("target"), &mut HashSet::new()).ok()).map(|(bytes, _)| bytes).max();
+    let (Some(largest), Some(disk)) = (largest, disk_of(root)) else { return false };
+    !Disk { free_gib: disk.free_gib - largest as f64 / GIB, ..disk }.past(Line::eviction())
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> Option<String> {
