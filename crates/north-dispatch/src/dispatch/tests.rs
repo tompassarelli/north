@@ -168,3 +168,15 @@ fn a_project_with_paused_true_gets_no_launch_and_each_of_its_issues_prints_as_pa
     let skipped: Vec<(String, &str)> = outcome.skipped.iter().map(|(item, why)| (item.to_string(), why.as_str())).collect();
     assert_eq!(skipped, [("makgora#798".to_owned(), "project makgora paused paused = true"), ("wisp#230".to_owned(), "project wisp paused paused = true")]);
 }
+
+#[test]
+fn the_main_red_workflows_boxless_issue_is_neither_named_for_a_box_nor_given_a_clean_up_group() {
+    let (hosts, accounts) = fleet();
+    let main_red = ["bug", "priority:now", "evidence:code", crate::platform::cleanup::MAIN_RED];
+    let boxes = vec![issue("makgora", 912, "Run 1 failed", &main_red), issue("makgora", 913, "Nobody boxed this", &["bug"])];
+    let survey = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    let outcome = decide(&survey, "test");
+    let named: Vec<String> = super::boxless(&survey, &outcome).iter().map(|issue| issue.reference().to_string()).collect();
+    assert_eq!(named, ["makgora#913"]);
+    assert!(!crate::platform::cleanup::applies(&main_red.map(str::to_owned)));
+}

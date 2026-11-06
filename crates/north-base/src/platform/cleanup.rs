@@ -8,6 +8,10 @@ pub const BOXES: [&str; 3] = [
     "- [ ] Clean-up: nothing left for later. No TODOs, follow-up notes or half-removed old paths remain, and the docs describe what shipped.",
 ];
 const REPOSITORIES: [&str; 3] = ["tompassarelli/north", "tompassarelli/makgora", "tompassarelli/wisp"];
+/// Labels on issues a workflow opens, rewrites and closes itself, so no person boxes or cleans them.
+pub const WORKFLOW_OWNED: [&str; 1] = [MAIN_RED];
+/// The label the Main is red workflow puts on its one tracking issue.
+pub const MAIN_RED: &str = "main-red";
 const NOT_PRODUCT: [&str; 9] = ["documentation", "research", "question", "idea", "roadmap", "invalid", "duplicate", "wontfix", "superseded-by-fleet"];
 
 static BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[ \t>]*[-*][ \t]+\[([ xX])\][ \t]+Clean-up:").expect("clean-up box pattern"));
@@ -21,7 +25,7 @@ pub fn covers(repo: &str) -> bool {
 }
 
 pub fn applies(labels: &[String]) -> bool {
-    !labels.iter().any(|label| NOT_PRODUCT.contains(&label.to_lowercase().as_str()))
+    !labels.iter().any(|label| NOT_PRODUCT.iter().chain(&WORKFLOW_OWNED).any(|name| name.eq_ignore_ascii_case(label)))
 }
 
 pub fn is_box(line: &str) -> bool {

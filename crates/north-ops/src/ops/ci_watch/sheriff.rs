@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{Call, TITLE, gh, gh_json};
+use crate::platform::cleanup::MAIN_RED;
 
 const USAGE: &str = "usage: north main-red RUN_ID";
 const BODY_LIMIT: usize = 60_000;
@@ -279,8 +280,8 @@ fn report(existing: Option<&Issue>, marker: &str, body: &str) -> Result<(), Stri
     let text = issue_body(existing.map(|i| i.body.as_str()), marker, body);
     let number = existing.map(|i| i.number.to_string());
     let mut args = match &number {
-        Some(number) => vec!["issue", "edit", number],
-        None => vec!["issue", "create", "--title", TITLE],
+        Some(number) => vec!["issue", "edit", number, "--add-label", MAIN_RED],
+        None => vec!["issue", "create", "--title", TITLE, "--label", MAIN_RED],
     };
     args.extend(["--body-file", "-"]);
     Call { input: Some(&text), ..Call::new("gh", &args) }.output()?;

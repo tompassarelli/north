@@ -86,9 +86,9 @@ impl Issue {
         product_boxes(&self.body)
     }
 
-    /// An issue with no box, ticked or not, that no label hands to Tom, its children or a running native job.
+    /// An issue with no box, ticked or not, that no label hands to Tom, its children, a running native job or the workflow that owns it.
     pub fn needs_box(&self) -> bool {
-        !self.body.lines().any(|line| ANY_BOX.is_match(line) && !cleanup::is_box(line)) && [&TOM_LABELS[..], &ROOT_LABELS, &RUNNING_LABELS].iter().all(|names| self.labelled(names).is_none())
+        !self.body.lines().any(|line| ANY_BOX.is_match(line) && !cleanup::is_box(line)) && [&TOM_LABELS[..], &ROOT_LABELS, &RUNNING_LABELS, &cleanup::WORKFLOW_OWNED].iter().all(|names| self.labelled(names).is_none())
     }
 
     /// The live sessions that own every unticked box, or none when some unticked box names no live owner.
