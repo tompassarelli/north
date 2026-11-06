@@ -49,6 +49,10 @@ fn a_recommendation_filed_with_the_url_gh_printed_and_cited_passes_and_an_uncite
 #[test]
 fn a_recommendation_naming_an_ask_once_category_passes() {
     assert_eq!(decide(&stop("ask_once", "s1"), &state("ask-once")), Verdict::Allow);
+    let turn = super::recommend_acts::Turn::default();
+    assert!(super::recommend_acts::recommendation("I recommend minting the GitHub token for the mirror.", &turn).is_none(), "a token is an ask-once decision");
+    assert!(super::recommend_acts::recommendation("My recommendation: the second option, as the north gate asks.", &turn).is_none(), "an open north gate is an ask-once decision");
+    assert!(super::recommend_acts::recommendation("My recommendation is the second option; answer it with the fleet.", &turn).is_some());
 }
 
 #[test]
@@ -77,12 +81,4 @@ fn the_edited_issue_is_the_first_positional_and_its_repo_may_come_before_the_iss
     assert_eq!(moved("gh issue edit -R tompassarelli/north --title 'Split 3 checks' 633"), vec![]);
     assert_eq!(moved("gh issue edit 633 -R tompassarelli/north --add-label x"), vec![issue(Some("north"), 633)]);
     assert_eq!(moved("gh -R tompassarelli/south issue edit 633"), vec![issue(Some("south"), 633)]);
-}
-
-#[test]
-fn a_recommendation_about_a_token_or_an_open_north_gate_is_an_ask_once_decision() {
-    let turn = super::recommend_acts::Turn::default();
-    assert!(super::recommend_acts::recommendation("I recommend minting the GitHub token for the mirror.", &turn).is_none());
-    assert!(super::recommend_acts::recommendation("My recommendation is the second option; answer it with the fleet.", &turn).is_some());
-    assert!(super::recommend_acts::recommendation("My recommendation: the second option, as the north gate asks.", &turn).is_none());
 }

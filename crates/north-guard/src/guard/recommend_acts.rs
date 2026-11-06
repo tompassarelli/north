@@ -106,6 +106,16 @@ pub fn recommendation(reply: &str, turn: &Turn) -> Option<Recommendation> {
     Some(Recommendation { phrase, cited, acted })
 }
 
+/// The ask-once word that let the reply's recommendation pass unfiled, when one did.
+pub fn ask_once_word(reply: &str) -> Option<&'static str> {
+    let reply = reply.replace(['\u{2019}', '\u{2018}'], "'");
+    let triggered = triggering_sentences(&reply);
+    triggered.iter().find_map(|(_, sentence)| {
+        let words = words(sentence);
+        ASK_ONCE.iter().find(|word| words.contains(&format!(" {word} "))).copied()
+    })
+}
+
 pub fn missing_step(reply: &str, turn: &Turn) -> Option<String> {
     let Recommendation { phrase, cited, acted } = recommendation(reply, turn)?;
     if acted {

@@ -135,6 +135,11 @@ impl Tom {
         Ok(Self { typed, corrections, turns })
     }
 
+    /// The turns that answered a message Tom typed in the window, with their final replies.
+    pub fn answered_turns(&self, window: Window) -> Vec<&Turn> {
+        self.turns.iter().filter(|proxy| proxy.tom && window.holds(proxy.at)).filter_map(|proxy| proxy.turn.as_ref()).filter(|turn| turn.reply.is_some()).collect()
+    }
+
     pub fn corrections(&self, weeks: [Window; 2]) -> Measure {
         let figure = |window: Window| {
             let hours: BTreeSet<i64> = self.typed.iter().filter(|typed| window.holds(typed.at)).map(|typed| typed.at.div_euclid(HOUR_S)).collect();

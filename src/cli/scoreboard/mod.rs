@@ -11,13 +11,14 @@ use crate::foundation::clock::Timestamp;
 use crate::land::trace::profile::percentile;
 use crate::ledger::outcome::read::Places;
 
+mod audit;
 mod cause;
 mod landing;
 mod tom;
 mod weekly;
 mod workers;
 
-const USAGE: &str = "usage: north scoreboard [--record | --rework [--since 7d]]";
+const USAGE: &str = "usage: north scoreboard [--record | --rework [--since 7d] | audit [--tell]]";
 const WEEK_S: i64 = 7 * 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -148,6 +149,7 @@ fn measure(sources: &Sources, now: i64) -> Result<Vec<Measure>, String> {
 }
 
 pub fn tick(now: i64) -> Vec<String> {
+    audit::tick(now);
     weekly::tick(now)
 }
 
@@ -168,6 +170,7 @@ fn rework(request: &cause::Request) -> u8 {
 pub fn run(arguments: &[String]) -> u8 {
     let recording = match arguments {
         [] => false,
+        [word, rest @ ..] if word == "audit" => return audit::run(rest),
         [flag] if flag == "--record" => true,
         _ => match cause::Request::parse(arguments) {
             Some(request) => return rework(&request),
