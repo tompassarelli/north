@@ -3,7 +3,7 @@ use std::process::Command;
 
 use super::lane::{Lane, gather};
 use super::remote::{Ran, drive, hand_over, invocation};
-use super::take::{Sender, Starting, Target, pick, refusal, release_command, run_lane, transport};
+use super::take::{Sender, Starting, Target, hang_up, pick, refusal, release_command, run_lane, transport};
 use crate::capacity::build_offload::{Admission, Declined, Job};
 use crate::capacity::handover::Offer;
 use crate::dispatch::measure::Measure;
@@ -262,4 +262,17 @@ fn capacity_the_taker_never_rides_the_shared_ssh_master() {
         assert_eq!(command.get_program(), "ssh");
         assert!(words.windows(2).any(|pair| pair == ["-o", "ControlPath=none"]), "{words:?}");
     }
+}
+
+// KEEP(bug): the taker killed its ssh right after writing the exit frame, so a passing pulled run reached its worker on gex45 as exit 255 (2026-11-06 5:29 PM); the last frame must reach the far end before the connection ends; north#677
+#[test]
+fn capacity_the_takers_last_frame_reaches_the_far_end_before_it_hangs_up() {
+    let scratch = tempfile::tempdir().unwrap();
+    let received = scratch.path().join("received");
+    let mut far = Command::new("sh").arg("-c").arg(format!("sleep 0.3; cat > {}", received.display())).stdin(std::process::Stdio::piped()).spawn().unwrap();
+    let sender = std::sync::Arc::new(Sender::to(far.stdin.take().unwrap()));
+    sender.send(&crate::capacity::handover::Frame::Exit(0));
+    hang_up(far, sender);
+    let wire = std::fs::read(&received).unwrap_or_default();
+    assert_eq!(crate::capacity::handover::Frame::read(&mut wire.as_slice()).ok().flatten(), Some(crate::capacity::handover::Frame::Exit(0)), "{wire:?}");
 }

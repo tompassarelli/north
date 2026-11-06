@@ -21,6 +21,7 @@ const ROOM_FRESH: Duration = Duration::from_secs(10);
 const ROOM_READ_LIMIT: Duration = Duration::from_secs(8);
 /// The taker opens its own ssh connections: the shared host master also carries bulk transfers, and one tar stream through it held every new session past 25 s (north#682).
 const OWN_CONNECTION: [&str; 11] = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "-o", "ControlPath=none"];
+const CLOSE_LIMIT: Duration = Duration::from_secs(15);
 const CHUNK: usize = 32 * 1024;
 const NOTHING_QUEUED: i32 = 3;
 const USAGE: &str = "usage: north capacity offload take [--once]";
@@ -147,7 +148,16 @@ fn describe(offer: &Offer) -> String {
     format!("{} ({} {}: {})", offer.owner, offer.repo, &offer.head[..offer.head.len().min(12)], offer.command.join(" "))
 }
 
-fn hang_up(mut ssh: Child) {
+/// Ends the connection after its last frame: closing ssh's stdin lets it deliver the frames it still holds before it exits, and it is killed only if it outlasts `CLOSE_LIMIT`. Killing it at once lost the exit frame, so the queued run on gex45 read a cut stream (exit 255) after a run that passed.
+pub(super) fn hang_up(mut ssh: Child, sender: Arc<Sender>) {
+    drop(sender);
+    let deadline = Instant::now() + CLOSE_LIMIT;
+    while Instant::now() < deadline {
+        if !matches!(ssh.try_wait(), Ok(None)) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
     let _ = ssh.kill();
     let _ = ssh.wait();
 }
@@ -255,7 +265,7 @@ fn serve(route: &Route, mut ssh: Child, reader: BufReader<ChildStdout>, offer: O
             None => {}
         }
     }
-    hang_up(ssh);
+    hang_up(ssh, sender);
     starting.release();
 }
 
