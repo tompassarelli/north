@@ -177,3 +177,10 @@ cores. Each safe-push run costs about 1.4 s of CPU over about 100 processes: 6,6
 north and 1,500 bash runs across the suite, plus the shell's own forks. The cases that cost the most
 CPU, first for the Rust port: the capacity lease released for the Actions wait (10.8 s), the mixed
 train (8.9 s), the admitted land check (8.7 s), tool removal (8.5 s) and the three-lane train (8.3 s).
+
+A typical landing's six shell tests through `head-north land-tests` on origin/main 6cfd4dc37: gex45
+15.3 s at load 15 (`bin/safe-push.test.sh` 15 s, `bin/follows-release.test.sh` 10 s), ccx33 39.3 s
+at load 9.7 (39 s and 20 s). One run of the test starts about 90,000 processes, counted in a PID
+namespace of its own: about 600 per safe-push run, of which about 100 are programs and the rest
+forks of the shell inside safe-push. That per-run cost, not the section layout, now sets the wall
+time on an 8-core host, and the Rust port of the cases on north#634 removes it.
