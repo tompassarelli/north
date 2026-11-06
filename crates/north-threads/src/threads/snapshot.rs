@@ -62,6 +62,12 @@ pub fn refresh(ssh: &[OsString], snapshot: &Path, force: bool, wait: Duration) -
     if !take_turn(snapshot, force)? {
         return Ok(false);
     }
+    let pulling = OpenOptions::new().create(true).append(true).open(suffixed(snapshot, ".tried"))?;
+    match pulling.try_lock() {
+        Ok(()) => {}
+        Err(fs::TryLockError::WouldBlock) => return Ok(false),
+        Err(fs::TryLockError::Error(error)) => return Err(error),
+    }
     pull(ssh, snapshot, wait)?;
     Ok(true)
 }

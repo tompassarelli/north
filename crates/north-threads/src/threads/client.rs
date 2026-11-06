@@ -323,7 +323,7 @@ impl Client {
                     state = "timed out";
                 } else if code != UNREACHABLE {
                     if code == 0 && has_usage(&data)? {
-                        self.refresh_snapshot(dest, true)?;
+                        self.refresh_snapshot_later(dest, true);
                     }
                     return Ok(Some(code));
                 }
@@ -364,7 +364,7 @@ impl Client {
                 if code == 0 && (first == Some("record-priors") || calibrate_write) {
                     self.refresh_snapshot(dest, true)?;
                 } else {
-                    self.refresh_snapshot_later(dest);
+                    self.refresh_snapshot_later(dest, false);
                 }
             }
             return Ok(Some(code));
@@ -463,12 +463,12 @@ impl Client {
         Ok(())
     }
 
-    fn refresh_snapshot_later(&self, dest: &str) {
+    fn refresh_snapshot_later(&self, dest: &str, force: bool) {
         let Some(program) = &self.background else {
-            let _ = self.refresh_snapshot(dest, false);
+            let _ = self.refresh_snapshot(dest, force);
             return;
         };
-        if !snapshot::take_turn(&self.snapshot, false).unwrap_or(false) {
+        if !snapshot::take_turn(&self.snapshot, force).unwrap_or(false) {
             return;
         }
         detach(program, &["snapshot-pull".as_ref(), "--force".as_ref(), "--snapshot".as_ref(), self.snapshot.as_os_str(), dest.as_ref()]);
