@@ -445,7 +445,10 @@ is refused, 1 when something is, 2 for bad use or a log that is off.
 Before a push, `north land scan strategy-replay BASE..HEAD` (called by safe-push after the policy
 sweep) lists the range's changed files and, when one is a decide function, the placement gate, admission
 or the lander's judgement, builds the lane's north through `bin/head-north` and runs the command with
-`--since 24h --invariants --budget`. A host whose north runtime predates the scan skips it with a
+`--since 24h --invariants --budget`. When the lane's build refuses, the scan runs the same replay with
+the host's own north and refuses only for a count, invariant or budget the lane's build breaks and
+main's does not, so a breach already in recorded history (on 2026-11-06 landing-p90 at 65.9 s over 60 s)
+does not refuse every lane that touches a decision file (north#684). A host whose north runtime predates the scan skips it with a
 printed line until `north runtime update`.
 
 ## Loading
