@@ -274,6 +274,7 @@ impl Fleet {
     }
 
     fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening) -> NorthResult<()> {
+        self.refuse_on_window(record.conversation.as_deref())?;
         let runtime = self.runtime(record)?;
         let request = record.relaunch_request();
         let (instructions, sha) = self.instructions(record)?;

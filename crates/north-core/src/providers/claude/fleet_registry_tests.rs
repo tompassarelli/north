@@ -155,3 +155,59 @@ fn a_message_to_the_name_whose_holder_died_reaches_the_newest_live_window_and_re
     assert_eq!(proxies(&fleet), ["window-newest"]);
     assert!(fleet.session("proxy").unwrap().adopted(), "no host was started under the name");
 }
+
+#[test]
+fn an_adopted_name_leaves_no_socket_a_session_host_of_an_older_runtime_could_bind_and_keeps_the_adoption_through_a_second_adopt() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    fleet_proxy(home.path(), "fleet-proxy");
+    let _window = open_window(home.path(), std::process::id(), "window-a", 1);
+
+    fleet.adopt("proxy", "window-a", "/tmp".into()).unwrap();
+    let socket = fleet.root().join("proxy/host.sock");
+
+    assert!(socket.is_dir());
+    assert!(fs::remove_file(&socket).is_err(), "an older session host removes a stale socket before it binds, and cannot remove this");
+    assert!(std::os::unix::net::UnixListener::bind(&socket).is_err(), "so its bind fails before it starts the provider");
+    fleet.adopt("proxy", "window-a", "/tmp".into()).unwrap();
+    assert!(socket.is_dir());
+    assert!(fleet.session("proxy").unwrap().adopted());
+}
+
+#[test]
+fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no_host_and_keeps_the_record() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    fleet_proxy(home.path(), "window-a");
+    let _window = open_window(home.path(), std::process::id(), "window-a", 1);
+
+    let revive = fleet.revive("proxy", None).unwrap_err().user_message();
+    assert!(revive.contains("interactive window"), "{revive}");
+    let request = crate::fleet::model::LaunchRequest {
+        verification: false,
+        name: "proxy".into(),
+        provider: crate::fleet::model::ProviderName::new("claude"),
+        account: "a".into(),
+        cwd: "/tmp".into(),
+        model: None,
+        effort: None,
+        prompt: String::new(),
+        system_prompt: None,
+        foreground_cap_secs: None,
+        prompt_mode: crate::fleet::prompt::PromptMode::default(),
+        idle_exit_minutes: None,
+        parent: None,
+        task_ref: None,
+        placement: None,
+        machine: None,
+        capacity_need: None,
+        role: Some(crate::fleet::model::Role::Proxy),
+        resume: Some("window-a".into()),
+        compact_window: None,
+    };
+    let take_over = fleet.take_over(&request).unwrap_err().user_message();
+
+    assert!(take_over.contains("interactive window"), "{take_over}");
+    assert_eq!(fleet.session("proxy").unwrap().conversation.as_deref(), Some("window-a"));
+    assert!(!fleet.root().join("proxy/host.pid").exists());
+}

@@ -1,11 +1,12 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{LaunchRequest, Role, SessionRecord, Status};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::records::write_record;
+use crate::fleet::host::SOCKET;
 use crate::fleet::runtime::{LiveWindow, PROXY, Runtime, WindowInbox, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
@@ -20,6 +21,7 @@ impl Fleet {
             && held.adopted()
             && held.conversation.as_deref() == Some(conversation)
         {
+            bar_hosts(&session_dir)?;
             return Ok(held);
         }
         let role = if name == PROXY { Role::Proxy } else { Role::Lead };
@@ -56,6 +58,7 @@ impl Fleet {
             hand_in::inherit_journal(&predecessor.archived, &session_dir)?;
         }
         write_record(&session_dir, &record)?;
+        bar_hosts(&session_dir)?;
         Ok(record)
     }
 
@@ -129,7 +132,24 @@ impl Fleet {
         windows
     }
 
+    pub(super) fn refuse_on_window(&self, conversation: Option<&str>) -> NorthResult<()> {
+        let Some(conversation) = conversation else { return Ok(()) };
+        match self.live_windows().iter().find(|window| window.conversation == conversation) {
+            Some(window) => Err(NorthError::Refused(format!("conversation {conversation} is open in an interactive window (process {}); the fleet starts no host on it", window.inbox.pid))),
+            None => Ok(()),
+        }
+    }
+
     fn holds(&self, record: &SessionRecord) -> bool {
         !matches!(self.status(record), Status::Exited | Status::Parked)
     }
+}
+
+fn bar_hosts(session_dir: &Path) -> NorthResult<()> {
+    let socket = session_dir.join(SOCKET);
+    if !socket.is_dir() {
+        let _ = fs::remove_file(&socket);
+        fs::create_dir(&socket)?;
+    }
+    Ok(())
 }

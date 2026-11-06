@@ -19,6 +19,8 @@ const REPLY_WAIT: Duration = Duration::from_secs(10);
 const TERM_GRACE: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(50);
 
+pub const SOCKET: &str = "host.sock";
+
 pub struct Host {
     dir: PathBuf,
     proc: PathBuf,
@@ -47,6 +49,9 @@ impl Host {
 
     pub fn start(&self, spec: &HostSpec, provider: &ProviderName, idle_exit: Option<Duration>) -> NorthResult<u32> {
         fs::create_dir_all(&self.dir)?;
+        if self.socket().is_dir() {
+            return Err(NorthError::Refused(format!("{} is held by an interactive window; the fleet starts no host there", self.dir.display())));
+        }
         if self.dir.join("host.scope").exists() {
             self.retire()?;
         }
@@ -183,7 +188,7 @@ impl Host {
     }
 
     fn socket(&self) -> PathBuf {
-        self.dir.join("host.sock")
+        self.dir.join(SOCKET)
     }
 
     fn await_socket(&self, pid: u32) -> NorthResult<()> {
