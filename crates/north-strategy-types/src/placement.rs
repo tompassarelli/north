@@ -37,7 +37,6 @@ pub struct Launch {
 pub struct Overrides {
     pub local: Option<String>,
     pub pin: Option<String>,
-    pub duplicate: Option<String>,
     pub tier: Option<String>,
 }
 

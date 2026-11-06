@@ -27,14 +27,6 @@ fn a_laptop_launch_absent_from_a_copy_older_than_it_still_holds_its_item() {
 }
 
 #[test]
-fn a_launch_queued_behind_an_in_flight_lane_or_held_by_staffing_is_no_launch_failure() {
-    let started_nothing = |detail: &str| Record { launched: false, detail: detail.into(), ..launch("north#630", "north-630-d0900", 0.0) };
-    assert!(!started_nothing("queued: behind n629-fix, which changed crates/north-dispatch/src/dispatch/effects.rs").failed());
-    assert!(!started_nothing("refuse: staffing: north is stalled").failed());
-    assert!(started_nothing("claude:b is not signed in on gex45").failed());
-}
-
-#[test]
 fn a_forgotten_sessions_unread_report_is_no_try_but_an_unread_listed_one_still_counts() {
     let now = 100_000.0;
     let records = [launch("north#255", "north-255-d0900", now - 5.0 * 3600.0), launch("north#255", "north-255-d1100", now - 3.0 * 3600.0)];

@@ -22,12 +22,10 @@ use super::adopt;
 use super::ask;
 use super::admission;
 use super::digest;
-use super::duplicate;
-use super::governor;
+use super::gated;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
 use super::one_proxy;
-use super::overlap;
 use super::launch::{LaunchParts, launch_parts};
 #[cfg(test)]
 use super::launch::launch_request;
@@ -189,31 +187,22 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
-    let LaunchParts { mut request, mut overrides, wait, take_over, overlap_ok, staffing_ok } = launch_parts(&fleet.providers(), words, caller.clone(), proxy)?;
+    let LaunchParts { mut request, mut overrides, wait, take_over } = launch_parts(&fleet.providers(), words, caller.clone(), proxy)?;
     if !(take_over && request.role() == Role::Proxy) {
         one_proxy::admit(fleet, caller.as_deref(), &format!("launch {}", request.name))?;
     }
     lineage::reader(fleet, &mut request, caller.as_deref())?;
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;
-    if !take_over {
-        let tier = started.as_ref().map_or("worker", |start| start.route.tier.name());
-        if let overlap::Outcome::Queued(said) = overlap::guard(fleet, &request, tier, overlap_ok.as_deref())? {
-            println!("{said}");
-            return Ok(());
-        }
-    }
     let waiting = admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
     let mut placed = admission::admitted(&request.name, waiting, |first| placement::placed(fleet, &request, &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
     if let Some(account) = placed.account.take() {
         request.account = account;
     }
-    (request.placement, request.capacity_need) = (governor::noted(overlap::noted(duplicate::noted(fleet, &request, &overrides, placed.note)?, overlap_ok.as_deref()), staffing_ok.as_deref()), placed.need);
+    gated::admit(fleet, &request)?;
+    (request.placement, request.capacity_need) = (placed.note, placed.need);
     request.machine = placed.machine.or(request.machine);
     request.slots = placed.slots;
-    if !take_over {
-        governor::guard(fleet, &request, staffing_ok.as_deref(), lineage::from_proxy(fleet, caller.as_deref()))?;
-    }
     let tasks = request.tasks();
     if let Err(error) = fleet.release_exited_claims_on(&tasks) {
         eprintln!("north fleet: {} launches with its holder check left to its claim, because the ledger did not say who holds {}: {}", request.name, tasks.join(" "), error.user_message());

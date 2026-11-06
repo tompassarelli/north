@@ -13,8 +13,6 @@ pub const LAPTOP_SHOW_S: f64 = 15.0 * 60.0;
 const RETRY_WINDOW_S: f64 = 24.0 * 3600.0;
 const RETRIES: usize = 2;
 const FAILED_HOLD_S: f64 = 15.0 * 60.0;
-const STAFFING_HOLD_S: f64 = 5.0 * 60.0;
-pub const STAFFING_REFUSAL: &str = "refuse: staffing:";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Record {
@@ -40,19 +38,13 @@ pub struct Record {
 }
 
 impl Record {
-    pub fn staffing_held(&self) -> bool {
-        !self.launched && self.detail.starts_with(STAFFING_REFUSAL)
-    }
-
-    /// A launch that started nothing for a reason other than staffing refusing it or `north fleet launch`
-    /// queueing the box behind an in-flight lane, which are dispatch's own bookkeeping.
     pub fn failed(&self) -> bool {
-        !self.launched && !self.staffing_held() && !self.detail.starts_with(crate::fleet::overlap::QUEUED)
+        !self.launched
     }
 }
 
 fn hold(record: &Record) -> f64 {
-    if record.staffing_held() { STAFFING_HOLD_S } else if !record.launched { FAILED_HOLD_S } else if record.cloud { CLOUD_HOLD_S } else { HOLD_S }
+    if !record.launched { FAILED_HOLD_S } else if record.cloud { CLOUD_HOLD_S } else { HOLD_S }
 }
 
 pub fn directory() -> PathBuf {
@@ -108,8 +100,6 @@ pub fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>, go
                 let spared: Vec<String> = spared.iter().map(|record| format!("{}, which {}", record.name, unspent[&record.name])).collect();
                 let spared = if spared.is_empty() { String::new() } else { format!("; not counted: {}", spared.join("; ")) };
                 format!("north dispatch, {} tries in 24 h without closing ({}){spared}; the proxy decides the next one", counted.len(), names.join(", "))
-            } else if let Some(last) = last.filter(|last| at - last.at < hold(last) && last.staffing_held()) {
-                format!("north dispatch staffing hold {:.0} min ago: {}", (at - last.at) / 60.0, last.detail)
             } else if let Some(last) = last.filter(|last| at - last.at < hold(last)) {
                 format!("north dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0)
             } else {

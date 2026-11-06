@@ -1,14 +1,9 @@
-//! Whether a box about to start names files that lanes already in flight have changed, and what
-//! staffing does about it: say so, and when two or more in-flight lanes already changed one of the
-//! files, queue the box behind the earliest of them instead of starting it. Everything here is a pure
+//! Which files a box about to start names, and which of them lanes already in flight changed. Everything here is a pure
 //! function of the box's `Files:` line and the lanes' changed files; gathering the lanes is the caller's.
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
 use regex::Regex;
-
-/// What `north fleet launch` prints, instead of a session name, when it queued the box.
-pub const QUEUED: &str = "queued:";
 
 static FILES_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t]*(?:[-*][ \t]+)?Files:(.*)$").expect("files pattern"));
 
@@ -30,35 +25,6 @@ pub struct Overlap {
     pub files: Vec<String>,
 }
 
-/// The staffing setting: whether a box overlapping hot files waits, and how many in-flight lanes make a file hot.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Policy {
-    pub follows_on_overlap: bool,
-    pub hot_lanes: usize,
-}
-
-impl Default for Policy {
-    fn default() -> Self {
-        Self { follows_on_overlap: true, hot_lanes: 2 }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Verdict {
-    Clear,
-    Warn(Vec<Overlap>),
-    Queue { behind: Overlap, hot: Vec<String>, overlaps: Vec<Overlap> },
-}
-
-impl Verdict {
-    pub fn overlaps(&self) -> &[Overlap] {
-        match self {
-            Self::Clear => &[],
-            Self::Warn(overlaps) | Self::Queue { overlaps, .. } => overlaps,
-        }
-    }
-}
-
 /// The worktree under `worktrees` that a session's recent output names most often, the lane it is working in.
 pub fn worktree_in_use(output: &str, worktrees: &str) -> Option<String> {
     let pattern = Regex::new(&format!("{}/([A-Za-z0-9._-]+)", regex::escape(worktrees.trim_end_matches('/')))).ok()?;
@@ -70,51 +36,6 @@ pub fn worktree_in_use(output: &str, worktrees: &str) -> Option<String> {
         }
     }
     seen.into_iter().max_by_key(|(_, count, last)| (*count, *last)).map(|(slug, ..)| slug)
-}
-
-/// The paths a repository's `.gitattributes` gives a merge driver, which regenerates them on a
-/// merge, so two lanes changing one never conflict on it.
-#[derive(Clone, Debug, Default)]
-pub struct MergeDriven {
-    patterns: Vec<Regex>,
-}
-
-impl MergeDriven {
-    pub fn parse(attributes: &str) -> Self {
-        let patterns = attributes
-            .lines()
-            .filter_map(|line| {
-                let mut words = line.split_whitespace();
-                let pattern = words.next().filter(|word| !word.starts_with('#'))?;
-                words.any(|word| word.strip_prefix("merge=").is_some_and(|driver| !matches!(driver, "text" | "binary"))).then(|| glob(pattern))?
-            })
-            .collect();
-        Self { patterns }
-    }
-
-    pub fn covers(&self, path: &str) -> bool {
-        self.patterns.iter().any(|pattern| pattern.is_match(path))
-    }
-}
-
-fn glob(pattern: &str) -> Option<Regex> {
-    let anchored = pattern.starts_with('/') || pattern.trim_end_matches('/').contains('/');
-    let body = pattern.trim_start_matches('/').trim_end_matches('/');
-    let mut regex = String::from(if anchored { "^" } else { "^(?:.*/)?" });
-    let mut chars = body.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '*' if chars.peek() == Some(&'*') => {
-                chars.next();
-                regex.push_str(".*");
-            }
-            '*' => regex.push_str("[^/]*"),
-            '?' => regex.push_str("[^/]"),
-            other => regex.push_str(&regex::escape(&other.to_string())),
-        }
-    }
-    regex.push_str("(?:/.*)?$");
-    Regex::new(&regex).ok()
 }
 
 /// The paths a box's `Files:` line names; a directory ends in `/`, and notes beside the paths are dropped.
@@ -148,32 +69,3 @@ pub fn overlaps(declared: &[String], lanes: &[Lane], excused: &dyn Fn(&str) -> b
     found.sort_by(|a, b| (a.since_ms, &a.lane).cmp(&(b.since_ms, &b.lane)));
     found
 }
-
-/// What to do with a box that names `declared` files while `lanes` are in flight.
-pub fn assess(declared: &[String], lanes: &[Lane], excused: &dyn Fn(&str) -> bool, policy: Policy) -> Verdict {
-    let found = overlaps(declared, lanes, excused);
-    if found.is_empty() {
-        return Verdict::Clear;
-    }
-    let changers = |file: &str| found.iter().filter(|overlap| overlap.files.iter().any(|changed| changed == file)).count();
-    let mut hot: Vec<String> = found.iter().flat_map(|overlap| overlap.files.iter()).filter(|file| changers(file) >= policy.hot_lanes).cloned().collect();
-    hot.sort();
-    hot.dedup();
-    let behind = found.iter().find(|overlap| overlap.task.is_some() && overlap.files.iter().any(|file| hot.contains(file)));
-    match behind {
-        Some(behind) if policy.follows_on_overlap => Verdict::Queue { behind: behind.clone(), hot, overlaps: found.clone() },
-        _ => Verdict::Warn(found),
-    }
-}
-
-/// The warning lines for `verdict`, one per overlapping lane and file.
-pub fn warnings(verdict: &Verdict) -> Vec<String> {
-    verdict.overlaps().iter().flat_map(|overlap| overlap.files.iter().map(move |file| format!("overlap: lane {} also changes {file}", overlap.lane))).collect()
-}
-
-/// The `Follows:` line that queues a box behind `behind`, which must carry a task.
-pub fn follows_line(behind: &Overlap, hot: &[String]) -> Option<String> {
-    let task = behind.task.as_deref()?;
-    Some(format!("Follows: {task} (lane {} changes {})", behind.lane, hot.join(", ")))
-}
-

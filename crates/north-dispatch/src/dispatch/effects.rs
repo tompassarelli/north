@@ -2,7 +2,7 @@
 //! `north fleet launch` (on the laptop through its job queue), record the attempt, send Tom's one
 //! ntfy line, and send the triage lead, else the proxy, its daily list of issues that need a box.
 use super::{brief, cloud};
-use super::issues::{Issue, IssueRef};
+use super::issues::Issue;
 use super::plan::Launch;
 use super::revive::Revive;
 use super::record::{self, Record};
@@ -24,26 +24,17 @@ const BOXLESS_EVERY_S: f64 = 24.0 * 3600.0;
 pub const REVIVED: &str = "revived.json";
 
 /// `sc-277-d1435`: the session name `north fleet list` shows and the hold reads back.
-pub fn session_name(item: &IssueRef, at: f64) -> String {
-    let short = if item.repo == "makgora" { "sc" } else { item.repo.as_str() };
+pub fn session_name(launch: &Launch, at: f64) -> String {
+    let short = if launch.item.repo == "makgora" { "sc" } else { launch.item.repo.as_str() };
     let clock = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso_micros_utc_offset();
     let hhmm: String = clock.get(11..16).unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
-    format!("{short}-{}-d{hhmm}", item.number)
-}
-
-fn checkout_in(home: &str, repo: &str) -> String {
-    format!("{home}/code/{}/main", crate::threads::catalog::checkout(repo))
-}
-
-/// The main checkout a launch for `repo` starts in.
-pub fn checkout_dir(repo: &str) -> Option<std::path::PathBuf> {
-    std::env::var("HOME").ok().map(|home| checkout_in(&home, repo).into())
+    format!("{short}-{}-d{hhmm}", launch.item.number)
 }
 
 /// The program and arguments that start `launch`: `north fleet launch` here or on an ssh host, or
 /// a laptop job that runs it there.
 pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: &str) -> Result<(String, Vec<String>), String> {
-    let directory = checkout_in(home, &launch.item.repo);
+    let directory = format!("{home}/code/{}/main", crate::threads::catalog::checkout(&launch.item.repo));
     let remote = launch.host != survey.here && survey.laptop.as_deref() != Some(launch.host.as_str());
     let cwd = if remote { format!("{}:{directory}", launch.host) } else { directory };
     let (provider, label) = launch.account.split_once(':').unwrap_or((launch.account.as_str(), "pooled"));
@@ -66,7 +57,7 @@ pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: 
 
 pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
     let at = placement::now();
-    let name = session_name(&launch.item, at);
+    let name = session_name(launch, at);
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
     let result = if launch.cloud {
         let started = brief::standing_orders().and_then(|orders| {
@@ -119,20 +110,8 @@ fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Res
     let arguments: Vec<&str> = words.iter().map(String::as_str).collect();
     match run_within(&program, &arguments, LAUNCH_WAIT) {
         None => Err(format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs())),
-        Some(output) if output.status.success() => launched_or_queued(name, &output),
+        Some(output) if output.status.success() => Ok(name.to_owned()),
         Some(output) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
-    }
-}
-
-/// The launch's name, or why it is not a session: `north fleet launch` queued the box behind a lane that changed its files; its overlap warnings go on the dispatch run's output.
-fn launched_or_queued(name: &str, output: &std::process::Output) -> Result<String, String> {
-    for line in String::from_utf8_lossy(&output.stderr).lines().filter(|line| line.starts_with("overlap")) {
-        println!("{line}");
-    }
-    let said = String::from_utf8_lossy(&output.stdout);
-    match said.lines().find(|line| line.starts_with(crate::fleet::overlap::QUEUED)) {
-        Some(queued) => Err(queued.to_owned()),
-        None => Ok(name.to_owned()),
     }
 }
 

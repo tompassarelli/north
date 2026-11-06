@@ -14,19 +14,12 @@ use super::{Fleet, session_running};
 const OWNERS_PER_READ: usize = 64;
 
 impl Fleet {
-    /// Claims every task of a launch before its session starts: a live holder refuses it unless `--force-dup` put it beside the holder. A `--test` session claims nothing.
+    /// Claims every task of a launch before its session starts: a live holder refuses it. A `--test` session claims nothing.
     pub(super) fn claim_before_start(&self, request: &LaunchRequest, tasks: &[String], verification: bool) -> NorthResult<()> {
         if verification {
             return Ok(());
         }
-        let beside_holder = request.placement.as_deref().is_some_and(|note| note.contains("dup: "));
-        match claims::hold_all(self.claims.as_ref(), tasks, &request.name) {
-            Err(error) if beside_holder => {
-                eprintln!("north fleet: {} runs beside the holder: {}", request.name, error.user_message());
-                Ok(())
-            }
-            result => result,
-        }
+        claims::hold_all(self.claims.as_ref(), tasks, &request.name)
     }
 
     /// Starts a fresh session, giving its claims back when it does not start.

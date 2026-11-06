@@ -1,44 +1,20 @@
-//! The one-holder rule in front of `north fleet launch --task`: an item an open gate decides is
-//! refused until the gate is answered, and an item a running session on any host or a fresh
-//! dispatch launch holds is refused, unless `--force-dup REASON` says why it runs beside it.
-use serde_json::Value;
-
+//! The open-gate rule in front of `north fleet launch --task`: an item an open gate decides is
+//! refused until the gate is answered.
+use crate::dispatch::IssueRef;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::Hold;
 use crate::fleet::model::LaunchRequest;
 use crate::fleet::registry::Fleet;
-use crate::dispatch::{IssueRef, task_holder};
-use crate::platform::attribution::{self, Cause, Harness};
 
-use super::list;
-use super::placement::Overrides;
-
-/// The note the session records: placement's, then `dup: REASON` when it runs beside a holder;
-/// Err naming the open gate or the holder when nothing says why. `--test` sessions skip the rule.
-pub(super) fn noted(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrides, placement: Option<String>) -> NorthResult<Option<String>> {
+pub(super) fn admit(fleet: &Fleet, request: &LaunchRequest) -> NorthResult<()> {
     let tasks = request.tasks();
     if request.verification || tasks.is_empty() {
-        return Ok(placement);
+        return Ok(());
     }
-    if let Some(refusal) = gated(&tasks, request.item_line().as_deref(), &fleet.gate_holds()?) {
-        return Err(NorthError::Refused(refusal));
+    match gated(&tasks, request.item_line().as_deref(), &fleet.gate_holds()?) {
+        Some(refusal) => Err(NorthError::Refused(refusal)),
+        None => Ok(()),
     }
-    let task = tasks.join(" ");
-    let local = Value::Array(fleet.sessions()?.iter().map(|record| list::session_json(record, fleet.status(record), &fleet.waits())).collect());
-    let mut notes = Vec::new();
-    let held = task_holder(&task, local, &mut notes);
-    for note in notes {
-        eprintln!("fleet launch: {note}");
-    }
-    let duplicate = match (held, &overrides.duplicate) {
-        (None, _) => return Ok(placement),
-        (Some(_), Some(reason)) => {
-            attribution::record(&request.name, "fleet", Cause::Harness(Harness::Duplicate), reason);
-            format!("dup: {reason}")
-        }
-        (Some((item, holder)), None) => return Err(NorthError::Refused(format!("{item} is held by {holder}; staff it there, or launch beside it with --force-dup \"<reason>\""))),
-    };
-    Ok(Some(placement.map_or_else(|| duplicate.clone(), |placement| format!("{placement}; {duplicate}"))))
 }
 
 /// Why a launch naming `tasks` with `Item:` line `item` waits: the first task an open gate in `holds` decides, whole or

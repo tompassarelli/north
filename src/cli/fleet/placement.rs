@@ -20,8 +20,6 @@ use north_strategy_types::Kind;
 pub(super) struct Overrides {
     pub local: Option<String>,
     pub pin: Option<String>,
-    /// Why a `--task` launch runs beside the session or dispatch launch that already holds its item.
-    pub duplicate: Option<String>,
     pub tier: Option<String>,
 }
 
@@ -30,7 +28,6 @@ impl Overrides {
         let slot = match flag {
             "--local" => &mut self.local,
             "--pin" => &mut self.pin,
-            "--force-dup" => &mut self.duplicate,
             "--tier-reason" => &mut self.tier,
             _ => return false,
         };
@@ -170,7 +167,7 @@ fn recorded_launch(launch: &Launch, overrides: &Overrides) -> record::Launch {
         fresh: launch.cwd.is_some(),
         cwd: launch.cwd.map(path),
         named_machine: launch.machine.map(str::to_owned),
-        overrides: record::Overrides { local: overrides.local.clone(), pin: overrides.pin.clone(), duplicate: overrides.duplicate.clone(), tier: overrides.tier.clone() },
+        overrides: record::Overrides { local: overrides.local.clone(), pin: overrides.pin.clone(), tier: overrides.tier.clone() },
         provider: "claude".to_owned(),
         verification: false,
     }

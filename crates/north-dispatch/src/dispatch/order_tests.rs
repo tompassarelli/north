@@ -268,7 +268,7 @@ fn check_decide(holds: BTreeMap<IssueRef, String>, surveyed: &mut Survey, rng: &
     let before = rng.chance(50);
     surveyed.at = if before { GATE_AT - 100.0 } else { GATE_AT + 100.0 };
     surveyed.holds = holds.clone();
-    let outcome = decide(surveyed, "order test", &|_| None);
+    let outcome = decide(surveyed, "order test");
     for launched in &outcome.launches {
         broken.expect("dispatch launches nothing that is held", !holds.contains_key(&launched.item), || format!("{}\n{trail}", launched.item));
     }
