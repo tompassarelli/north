@@ -6,12 +6,18 @@ use std::path::Path;
 
 pub(super) const WINDOW_DAYS: i64 = 90;
 pub(super) const WINDOW_COMMITS: usize = 2000;
-const BULK_COMMIT_FILES: usize = 50;
+pub(super) const BULK_COMMIT_FILES: usize = 50;
 
 pub(super) struct History {
     pub(super) commits: usize,
     pub(super) churn: Vec<(String, usize)>,
     changes: Vec<Vec<String>>,
+}
+
+impl History {
+    pub(super) fn changes(&self) -> &[Vec<String>] {
+        &self.changes
+    }
 }
 
 fn tally(changes: &[Vec<String>]) -> Vec<(String, usize)> {

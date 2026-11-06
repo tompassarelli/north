@@ -1,8 +1,11 @@
+mod budget;
+mod change_cost;
 mod check;
 mod cli;
 #[cfg(test)]
 mod cli_tests;
 mod config;
+mod coupling;
 mod crate_lines;
 mod functions;
 mod gate;

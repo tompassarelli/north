@@ -238,6 +238,14 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   at most one intervention at a safe boundary, traces of selected and declined actions.
   Outcome: prior only; conceptual prior art, with no implementation copied or adapted because of its licence.
 
+- <a id="untangle-codebase"></a>**caldoai/skills untangle-codebase**,
+  https://github.com/caldoai/skills/blob/442c29918339cc8dbf09ae27aaf17b05745465a3/skills/untangle-codebase/SKILL.md,
+  MIT (Copyright (c) 2026 Maze, LICENSE at that commit); accessed 2026-11-06, with a rewrite Claude made for Tom the
+  same day. Its claims about coupling and agent cost are unverified here.
+  Informed: [architectural-drift.md](rationale/architectural-drift.md), the `code-health budget` coupling signals, the
+  review brief's method and the change-together section of program-craftsmanship.
+  Outcome: ideas adopted in north's own words and code; no text copied, and the co-change script ported to Rust.
+
 - <a id="threejs-skills"></a>**CloudAI-X/threejs-skills**,
   https://github.com/CloudAI-X/threejs-skills/blob/b1c623076c661fc9b03dac19292e825a5d106823/README.md; accessed:
   not recorded.

@@ -1,7 +1,9 @@
+use super::change_cost::{ChangeCost, change_cost};
 use super::config::{Config, Kind, at_rev};
+use super::coupling::coupling;
 use super::report::{build, hand_of, inventory, now, texts};
 use super::snapshot::{Snapshot, git, line_count};
-use super::state::{Marker, State};
+use super::state::{LoopRecord, Marker, State};
 use north_base::foundation::clock::Timestamp;
 use regex::Regex;
 use std::collections::HashMap;
@@ -84,6 +86,7 @@ pub(super) fn signal(state: &State, repo: &Path, config: &Config, now: Timestamp
     {
         reasons.push(format!("hotspot {} score {} > {}", top.path, top.score, r.hotspot_score));
     }
+    reasons.extend(coupling_reasons(repo, rev, &marker.sha, config)?);
     Ok(reasons)
 }
 
@@ -91,4 +94,42 @@ pub(super) fn review_done(state: &State, repo: &Path, sha: &str, config: Option<
     let full = git(repo, &["rev-parse", sha])?.trim().to_owned();
     let hand_lines = hand_lines(repo, &full, config)?;
     state.write_marker(repo, &Marker { sha: full, at: now(), hand_lines })
+}
+
+fn coupling_reasons(repo: &Path, rev: &str, since: &str, config: &Config) -> Result<Vec<String>, String> {
+    let r = config.review;
+    if r.hidden_links <= 0.0 && r.volatile_imports <= 0.0 && r.special_cases <= 0.0 {
+        return Ok(Vec::new());
+    }
+    let (now, then) = (coupling(repo, rev, config)?, coupling(repo, since, config)?);
+    let rows = [
+        ("hidden links", r.hidden_links, now.hidden_links.len(), then.hidden_links.len()),
+        ("volatile imports", r.volatile_imports, now.volatile_imports.len(), then.volatile_imports.len()),
+        ("special cases", r.special_cases, now.special_cases_total(), then.special_cases_total()),
+    ];
+    Ok(rows
+        .into_iter()
+        .filter(|(_, limit, now, then)| *limit > 0.0 && now.saturating_sub(*then) as f64 >= *limit)
+        .map(|(name, limit, now, then)| format!("{name} grew {then} -> {now} since review (limit +{limit})"))
+        .collect())
+}
+
+pub(super) fn cost_since_review(state: &State, repo: &Path, rev: &str, config: &Config) -> Result<(Option<String>, ChangeCost), String> {
+    let since = state.marker(repo)?.map(|marker| marker.sha);
+    let range = since.as_ref().map_or_else(|| rev.to_owned(), |sha| format!("{sha}..{rev}"));
+    let cost = change_cost(repo, &range, &|path| config.classify(path, |_| true) == Kind::Hand)?;
+    Ok((since, cost))
+}
+
+pub(super) fn cost_line(since: Option<&str>, cost: &ChangeCost) -> String {
+    let window = since.map_or_else(|| "in the history window".to_owned(), |sha| format!("since review {}", &sha[..sha.len().min(10)]));
+    format!("median {} hand files per feature commit over {} feature commits {window}, {} reworked ({:.1}%)", cost.median_files, cost.feature_commits, cost.reworked, cost.rework_rate * 100.0)
+}
+
+pub(super) fn record_loop(state: &State, repo: &Path, rev: &str, config: &Config, reasons: &[String]) -> Result<(), String> {
+    let (since, cost) = cost_since_review(state, repo, rev, config)?;
+    let sha = git(repo, &["rev-parse", rev])?.trim().to_owned();
+    let line = cost_line(since.as_deref(), &cost);
+    let record = LoopRecord { at: now(), sha, since, change_cost: cost, review: config.review, fired: reasons.to_vec() };
+    state.write_loop(repo, &record, &line)
 }

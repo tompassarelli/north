@@ -12,13 +12,16 @@ pub(super) struct Thresholds {
     pub(super) hotspot_top: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub(super) struct Review {
     pub(super) commits: f64,
     pub(super) hand_lines_added: f64,
     pub(super) test_lines_changed: f64,
     pub(super) days: f64,
     pub(super) hotspot_score: f64,
+    pub(super) hidden_links: f64,
+    pub(super) volatile_imports: f64,
+    pub(super) special_cases: f64,
 }
 
 pub(super) struct Module {
@@ -54,7 +57,7 @@ pub(super) enum Kind {
 }
 
 const DEFAULT_THRESHOLDS: Thresholds = Thresholds { file_lines: 500.0, function_lines: 80.0, function_complexity: 15.0, hotspot_top: 20.0 };
-const DEFAULT_REVIEW: Review = Review { commits: 100.0, hand_lines_added: 5000.0, test_lines_changed: 3000.0, days: 7.0, hotspot_score: 0.0 };
+const DEFAULT_REVIEW: Review = Review { commits: 100.0, hand_lines_added: 5000.0, test_lines_changed: 3000.0, days: 7.0, hotspot_score: 0.0, hidden_links: 0.0, volatile_imports: 0.0, special_cases: 0.0 };
 
 pub(super) fn glob(pattern: &str) -> Regex {
     let mut out = String::from("^");
@@ -118,7 +121,7 @@ fn thresholds(defaults: Thresholds, item: Option<&toml_edit::Item>, place: &str)
 
 fn review(item: Option<&toml_edit::Item>) -> Result<Review, String> {
     let mut r = DEFAULT_REVIEW;
-    numbers(&mut [("commits", &mut r.commits), ("hand_lines_added", &mut r.hand_lines_added), ("test_lines_changed", &mut r.test_lines_changed), ("days", &mut r.days), ("hotspot_score", &mut r.hotspot_score)], item, "review")?;
+    numbers(&mut [("commits", &mut r.commits), ("hand_lines_added", &mut r.hand_lines_added), ("test_lines_changed", &mut r.test_lines_changed), ("days", &mut r.days), ("hotspot_score", &mut r.hotspot_score), ("hidden_links", &mut r.hidden_links), ("volatile_imports", &mut r.volatile_imports), ("special_cases", &mut r.special_cases)], item, "review")?;
     Ok(r)
 }
 

@@ -244,6 +244,28 @@ record = "north/scoreboard/week.json"
 score = "north/scoreboard/week.txt"
 
 [[loop]]
+name = "code-health-review"
+decision = "when a repository gets a structure review: the [review] thresholds in its structure.toml (commits, hand lines added, days, hotspot score, and growth in hidden links, volatile imports and special cases since the last review)"
+sites = [
+  "crates/north-guard/src/code_health/signal.rs",
+  "crates/north-guard/src/code_health/coupling.rs",
+  "crates/north-guard/src/code_health/change_cost.rs",
+  "crates/north-guard/src/code_health/tick.rs",
+  "structure.toml",
+]
+signal = "median hand files touched per feature commit and the share of feature commits later reverted, since the last review, with the thresholds in force and the reasons that fired"
+updated_by = "north climb run proposes [review] threshold changes in structure.toml; code-health tick records the signal each hour through code-health signal --record"
+cadence_hours = 24
+record = "code-health/north/loop.json"
+score = "code-health/north/loop.txt"
+
+host = "lander"
+constants = [
+  "crates/north-guard/src/code_health/coupling.rs::VOLATILITY_RATIO",
+  "crates/north-guard/src/code_health/coupling.rs::VOLATILE_MIN_COMMITS",
+]
+
+[[loop]]
 name = "slow-test"
 decision = "which test is profiled on a build host and gets a box on its owning issue because it ran over the line in each of its newest after-landing runs"
 sites = ["crates/north-ops/src/ops/detectors/slow_test.rs"]

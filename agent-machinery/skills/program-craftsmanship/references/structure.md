@@ -42,6 +42,23 @@ If a module's responsibility needs "and" between unrelated things, or new code
 does not fit any stated responsibility, that is a structural decision: split
 the module or add one, and say so in `structure.toml`.
 
+## Should these change together?
+
+Ask it of every boundary: pieces that must change together belong together, with
+the link visible in the code; pieces that change for different reasons are not
+tied; and dependencies point at what changes less. Three kinds of coupling get
+it wrong:
+
+- Hidden links: pieces that must change together while nothing shows it, such
+  as a copied value, a global one module sets and another reads, or a call order
+  callers just have to know. `code-health budget` lists module pairs that change
+  together with no `may_use` edge.
+- Needless links: pieces tied together that change for different reasons, such
+  as callers reaching into internals or stable code importing more volatile
+  code (`code-health budget` lists volatile imports).
+- Surplus: pieces with no reason of their own to change: pass-through wrappers,
+  extension points nothing varies, dead code.
+
 ## Interface layers
 
 Callers use a module's public entry (its index, `mod.rs` or header), not its
@@ -99,7 +116,7 @@ Exit 2 is a tool error; report it rather than working around it.
 
 ## Code-health-allow
 
-For file-size, function and hotspot only, a commit trailer
+For file-size, function, hotspot and crate-lines (the path is the crate name) only, a commit trailer
 `Code-health-allow: <rule> <path> — <reason>` passes the gate when splitting
 now would be worse, for example a table-driven function whose branches are
 data. The reason must say why. The report lists every allow as debt for the
@@ -109,8 +126,11 @@ change `structure.toml`.
 ## The recurring review
 
 An hourly timer runs `code-health signal` per enrolled repo. It fires after
-the `[review]` thresholds (commits, hand lines added, days with a landing, or a
-hotspot score) since the last review. A fired review starts one worker or lead
+the `[review]` thresholds (commits, hand lines added, days with a landing, a
+hotspot score, or growth since the last review in hidden links, volatile
+imports or special cases) since the last review. The thresholds are the
+`code-health-review` loop in `harness/loops.toml`, judged by the median files
+touched per feature commit and the rework rate since the last review. A fired review starts one worker or lead
 that reads `code-health report`, lands behavior-preserving slices against the
 top hotspots, allowed debt, cycles and layer violations, then runs
 `code-health report --save` and `code-health review-done`. Ordinary work does

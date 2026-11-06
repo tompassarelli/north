@@ -142,6 +142,9 @@ commits = 600
 hand_lines_added = 20000
 days = 3
 hotspot_score = 0
+hidden_links = 2
+volatile_imports = 2
+special_cases = 40
 
 [ignore]
 paths = ["target/**", "src/fixtures/**", "crates/*/src/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**", "crates/north-pace/src/router/fixtures/**"]

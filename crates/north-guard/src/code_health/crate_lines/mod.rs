@@ -1,6 +1,9 @@
 mod snapshot;
+#[cfg(test)]
+mod tests;
 mod workspace;
 
+use super::history::allows;
 use snapshot::Snapshot;
 use std::path::PathBuf;
 use workspace::{Caps, Measured, census};
@@ -14,7 +17,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
     };
     let outcome = match range {
         [] => Snapshot::worktree(&repo).and_then(|head| report(&head)).map(|lines| (lines, 0)),
-        [base, head] => gate(&Snapshot::at(&repo, base), &Snapshot::at(&repo, head)),
+        [base, head] => gate(&repo, base, head),
         _ => Err(USAGE.to_owned()),
     };
     match outcome {
@@ -31,12 +34,20 @@ pub(super) fn run(arguments: &[String]) -> u8 {
     }
 }
 
-fn gate(base: &Result<Snapshot, String>, head: &Result<Snapshot, String>) -> Result<(Vec<String>, u8), String> {
-    let (base, head) = (base.as_ref()?, head.as_ref()?);
-    let refused = refusals(base, head)?;
+fn gate(repo: &std::path::Path, base: &str, head: &str) -> Result<(Vec<String>, u8), String> {
+    let allowed = allows(repo, &[&format!("{base}..{head}")])?;
+    let refused: Vec<String> = refusals(&Snapshot::at(repo, base)?, &Snapshot::at(repo, head)?)?
+        .into_iter()
+        .filter(|(name, _)| !allowed.iter().any(|allow| allow.rule == "crate-lines" && allow.path == *name))
+        .map(|(_, line)| line)
+        .collect();
     let code = u8::from(!refused.is_empty());
     let summary = if refused.is_empty() { "crate-lines: no crate over its cap grew".to_owned() } else { format!("✗ crate-lines: {} crate(s) over their cap grew", refused.len()) };
     Ok((refused.into_iter().chain([summary]).collect(), code))
+}
+
+pub(super) fn lines_at(repo: &std::path::Path, rev: &str) -> Result<Vec<String>, String> {
+    report(&Snapshot::at(repo, rev)?)
 }
 
 fn report(head: &Snapshot) -> Result<Vec<String>, String> {
@@ -53,7 +64,7 @@ fn report(head: &Snapshot) -> Result<Vec<String>, String> {
         .collect())
 }
 
-fn refusals(base: &Snapshot, head: &Snapshot) -> Result<Vec<String>, String> {
+fn refusals(base: &Snapshot, head: &Snapshot) -> Result<Vec<(String, String)>, String> {
     let caps = Caps::read(head)?;
     let before = census(base, &caps);
     let after = census(head, &caps);
@@ -67,7 +78,7 @@ fn refusals(base: &Snapshot, head: &Snapshot) -> Result<Vec<String>, String> {
                 Some(old) if krate.lines > old.lines => format!("{} grew {} -> {} non-test lines", krate.name, old.lines, krate.lines),
                 Some(_) => return None,
             };
-            Some(format!("✗ crate-lines: {grew}, over its cap of {} ({} dependents); put the new code in {}", krate.cap, krate.dependents, destination(krate, previous, &after)))
+            Some((krate.name.clone(), format!("✗ crate-lines: {grew}, over its cap of {} ({} dependents); put the new code in {}, or record why in a `Code-health-allow: crate-lines {} — <reason>` trailer", krate.cap, krate.dependents, destination(krate, previous, &after), krate.name)))
         })
         .collect())
 }

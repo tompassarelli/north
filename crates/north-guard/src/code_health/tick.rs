@@ -177,6 +177,9 @@ fn reviewed(repo: &str, checkout: &Path, name: &str, lock: &Path, env: &TickEnv,
     let code_health = |verb: &str| {
         let mut argv = env.code_health.clone();
         argv.extend(words(&[verb, "--repo", &checkout_arg, "--rev", "origin/main"]));
+        if verb == "signal" {
+            argv.push("--record".to_owned());
+        }
         run(&argv, checkout)
     };
     let signal = code_health("signal");

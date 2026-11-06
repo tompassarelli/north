@@ -89,3 +89,25 @@ fn a_moved_file_counts_only_the_lines_its_move_changed_so_a_crate_split_does_not
     repo.commit(&[("crate/new.ts", "export const n = 1;\n".repeat(5))]);
     assert_eq!(repo.fire(&[]).1, "FIRE 6 hand lines added since review (limit 5)");
 }
+
+const TWO_MODULES: &str = "[review]\ncommits = 0\nhand_lines_added = 0\ntest_lines_changed = 0\ndays = 0\nhidden_links = 1\n\n[[module]]\nname = \"left\"\npaths = [\"src/left/**\"]\n\n[[module]]\nname = \"right\"\npaths = [\"src/right/**\"]\n";
+
+#[test]
+fn changes_since_review_fire_on_a_hidden_link_show_in_the_budget_and_record_files_per_commit_and_the_reverted_share() {
+    let repo = scratch(&[("structure.toml", TWO_MODULES.to_owned()), ("src/left/a.ts", "let _ = 0;\n".to_owned())], true);
+    let mut last = String::new();
+    for n in 1..4 {
+        last = repo.commit(&[("src/left/a.ts", format!("let _ = {n};\n")), ("src/right/b.ts", format!("export const b = {n};\n"))]);
+    }
+    repo.git(&["revert", "--no-edit", &last]);
+    repo.commit(&[("src/left/c.ts", "export const c = 1;\n".to_owned())]);
+    assert_eq!(repo.fire(&["--record"]).1, "FIRE hidden links grew 0 -> 1 since review (limit +1)");
+    let (code, out, err) = repo.north(&["budget"]);
+    assert_eq!((code, err.as_str()), (0, ""));
+    assert!(out.contains("Hidden links: 1 ") && out.contains("     4  left <-> right  e.g. src/left/a.ts <-> src/right/b.ts"), "{out}");
+    assert!(out.contains("Special cases: 1 ") && out.contains("  left     1    0    0"), "{out}");
+    let name = repo.repo.file_name().unwrap().to_string_lossy().into_owned();
+    let score = std::fs::read_to_string(repo.state.join("code-health").join(name).join("loop.txt")).unwrap();
+    assert!(score.starts_with("median 2 hand files per feature commit over 4 feature commits since review "), "{score}");
+    assert!(score.trim_end().ends_with(", 1 reworked (25.0%)"), "{score}");
+}

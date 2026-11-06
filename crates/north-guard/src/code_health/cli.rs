@@ -1,9 +1,10 @@
+use super::budget::budget;
 use super::check::check;
 use super::config::at_rev;
 use super::functions::ast_grep_available;
 use super::gate::{Violation, gate};
 use super::report::{build, format, trend_row};
-use super::signal::{review_done, signal};
+use super::signal::{record_loop, review_done, signal};
 use super::snapshot::{Snapshot, git};
 use super::state::State;
 use std::io::Write;
@@ -13,7 +14,8 @@ pub(super) const USAGE: &str = "usage: north code-health <command> [--repo DIR] 
   report [--save]          full metrics for REV's tree (default HEAD); --save writes the baseline and appends the trend
   gate BASE HEAD           new structural debt between two commits (exit 0 pass, 1 debt, 2 error)
   check FILE               edit-time check of one worktree file against HEAD (prints nothing when clean)
-  signal                   FIRE <reason> lines for REV (exit 0) or quiet (exit 1) for the recurring review
+  signal                   FIRE <reason> lines for REV (exit 0) or quiet (exit 1) for the recurring review; --record writes the review loop record
+  budget [REV]             each crate against its line budget, the coupling signals and the change cost since the last review
   review-done [--sha SHA]  record the review marker
   imports                  resolve imports of files given as JSON on stdin
   habits [--repo DIR]      the Rust habit checks
@@ -30,6 +32,7 @@ struct Arguments {
     config: Option<PathBuf>,
     json: bool,
     save: bool,
+    record: bool,
     sha: Option<String>,
     rev: Option<String>,
 }
@@ -46,6 +49,7 @@ fn parse(arguments: &[String], cwd: &Path) -> Result<Arguments, String> {
             "--rev" => parsed.rev = Some(value()?),
             "--json" => parsed.json = true,
             "--save" => parsed.save = true,
+            "--record" => parsed.record = true,
             "-h" | "--help" => parsed.command = Some("help".to_owned()),
             flag if flag.starts_with("--") => return Err(format!("unknown flag {flag}")),
             _ if parsed.command.is_none() => parsed.command = Some(argument.clone()),
@@ -134,7 +138,11 @@ fn dispatch(arguments: &[String], io: &mut Io) -> Result<u8, String> {
             Ok(u8::from(!found.is_empty()))
         }
         "signal" => {
-            let reasons = signal(&io.state, &repo, &at_rev(&Snapshot::new(&repo, rev)?, config)?, north_base::foundation::clock::Timestamp::now(), rev)?;
+            let map = at_rev(&Snapshot::new(&repo, rev)?, config)?;
+            let reasons = signal(&io.state, &repo, &map, north_base::foundation::clock::Timestamp::now(), rev)?;
+            if a.record {
+                record_loop(&io.state, &repo, rev, &map, &reasons)?;
+            }
             let text = if a.json {
                 serde_json::json!({ "fire": !reasons.is_empty(), "reasons": reasons }).to_string()
             } else if reasons.is_empty() {
@@ -144,6 +152,13 @@ fn dispatch(arguments: &[String], io: &mut Io) -> Result<u8, String> {
             };
             print(io, &text)?;
             Ok(u8::from(reasons.is_empty()))
+        }
+        "budget" => {
+            let rev = a.positional.first().map_or(rev, String::as_str);
+            let found = budget(&io.state, &repo, rev, &at_rev(&Snapshot::new(&repo, rev)?, config)?)?;
+            let text = if a.json { serde_json::to_string(&found).map_err(|error| error.to_string())? } else { super::budget::format(&found) };
+            print(io, &text)?;
+            Ok(0)
         }
         "review-done" => {
             let sha = a.sha.as_deref().unwrap_or(rev);

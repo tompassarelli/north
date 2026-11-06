@@ -3,7 +3,7 @@ name: program-craftsmanship
 description: >-
   Refactor, clean up or port code preserving behavior; structure.toml code-health messages; organize project files, pipelines, handoff layouts.
 grounded: 2026-10-15
-written: 2026-10-15
+written: 2026-11-06
 ---
 
 # Program craftsmanship
@@ -19,4 +19,4 @@ written: 2026-10-15
 9. Resolve cwd, refs and ambient env into explicit values (absolute path, full commit id) before crossing a process, host or agent boundary, verify them on arrival, and stamp results with the commit they ran on, because a result without a stamp counts as not run.
 10. Check the final diff for scope and behavior drift.
 
-Read [refactor and port details](references/notes.md) when classifying a transformation, and [structure, layout and code-health](references/structure.md) when a gate or hook fires, a module boundary moves, or files, data pipelines or handoff layouts need placing.
+Read [refactor and port details](references/notes.md) when classifying a transformation, and [structure, layout and code-health](references/structure.md) when a gate or hook fires, a module boundary moves, you judge whether pieces should change together, or files, data pipelines or handoff layouts need placing.

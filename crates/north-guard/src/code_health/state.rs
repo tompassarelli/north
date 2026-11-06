@@ -14,6 +14,16 @@ pub(super) struct Marker {
     pub(super) hand_lines: usize,
 }
 
+#[derive(Debug, Serialize)]
+pub(super) struct LoopRecord {
+    pub(super) at: String,
+    pub(super) sha: String,
+    pub(super) since: Option<String>,
+    pub(super) change_cost: super::change_cost::ChangeCost,
+    pub(super) review: super::config::Review,
+    pub(super) fired: Vec<String>,
+}
+
 impl State {
     pub(super) fn from_env() -> Self {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
@@ -50,6 +60,13 @@ impl State {
 
     pub(super) fn write_marker(&self, repo: &Path, marker: &Marker) -> Result<(), String> {
         write_json(&self.directory(repo).join("review.json"), marker)
+    }
+
+    pub(super) fn write_loop(&self, repo: &Path, record: &LoopRecord, score: &str) -> Result<(), String> {
+        let directory = self.directory(repo);
+        write_json(&directory.join("loop.json"), record)?;
+        let path = directory.join("loop.txt");
+        std::fs::write(&path, format!("{score}\n")).map_err(|error| format!("{}: {error}", path.display()))
     }
 
     pub(super) fn save(&self, repo: &Path, baseline: &impl Serialize, trend: &impl Serialize) -> Result<(), String> {
