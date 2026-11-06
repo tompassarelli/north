@@ -43,7 +43,7 @@ impl World {
         Self { root }
     }
 
-    fn path(&self) -> &Path {
+    pub(super) fn path(&self) -> &Path {
         self.root.path()
     }
 
@@ -72,6 +72,7 @@ impl World {
             .args(["--exact", "serve::lander_process", "--nocapture", "--test-threads", "1"])
             .env(ARGUMENTS, arguments)
             .env("XDG_STATE_HOME", self.path().join("state"))
+            .env("NORTH_DECISION_LOG", self.path().join("state/north/decisions"))
             .env("HOME", self.path())
             .env("NORTH_LAND_NORTH", self.path().join("bin/north"))
             .env("NORTH_RUNTIME_LINK", self.path().join("current"))

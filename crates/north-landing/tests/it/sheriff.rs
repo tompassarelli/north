@@ -3,6 +3,7 @@ use std::path::Path;
 
 use north_landing::land::sheriff;
 use north_landing::landing::red_check::Failure;
+use serde_json::{Value, json};
 
 use super::serve::{Repository, World, git, report};
 
@@ -15,12 +16,22 @@ fn commit(repository: &Repository, file: &str, text: &str) -> String {
     git(&repository.checkout, &["rev-parse", "HEAD"])
 }
 
+fn recorded(root: &Path) -> Vec<Value> {
+    let mut files: Vec<_> = walk(root);
+    files.sort();
+    files.iter().flat_map(|file| std::fs::read_to_string(file).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect::<Vec<Value>>()).collect()
+}
+
+fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
+    std::fs::read_dir(dir).into_iter().flatten().flatten().flat_map(|entry| if entry.path().is_dir() { walk(&entry.path()) } else { vec![entry.path()] }).collect()
+}
+
 fn names(origin: &Path) -> Vec<String> {
     git(origin, &["ls-tree", "--name-only", "refs/heads/main"]).lines().map(str::to_owned).collect()
 }
 
 #[test]
-fn a_red_main_run_whose_previous_runs_were_not_green_reverts_exactly_the_culprit_and_lands_the_revert_before_the_queue() {
+fn a_red_main_run_whose_previous_runs_were_not_green_reverts_exactly_the_culprit_records_the_confirmation_that_justified_it_and_lands_the_revert_before_the_queue() {
     let world = World::new();
     let north = world.repository("north");
     let green = commit(&north, "check.sh", CHECK);
@@ -52,4 +63,10 @@ fn a_red_main_run_whose_previous_runs_were_not_green_reverts_exactly_the_culprit
     }
     assert_eq!(git(&north.origin, &["for-each-ref", "refs/heads/claude/land-revert-"]).len(), 0);
     assert_eq!(git(&north.origin, &["for-each-ref", "refs/heads/north-lane"]), "", "a landing deletes the lane's origin branch\n{transcript}");
+    let decisions = recorded(&world.path().join("state/north/decisions/land.sheriff"));
+    let steps: Vec<&Value> = decisions.iter().map(|line| &line["decision"]).collect();
+    assert_eq!(steps[steps.len() - 2..], [&json!({"confirm": 2}), &json!({"revert": 2})], "the revert follows the confirmation that justified it: {steps:?}");
+    let case = &decisions.last().unwrap()["case"];
+    assert_eq!(case["confirmations"], json!([[2, []]]), "main without the culprit passed check.sh: {case}");
+    assert_eq!(case["lanes"][2], json!(culprit), "{case}");
 }

@@ -87,7 +87,7 @@ pub fn find(
     mut at: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>,
     mut probe: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>,
 ) -> Finding {
-    let mut case = SheriffCase { head: request.head.clone(), tip: tip.to_owned(), failing: labels(&request.failing), lanes: lanes.iter().map(|lane| lane.commit.clone()).collect(), probes: Vec::new() };
+    let mut case = SheriffCase { head: request.head.clone(), tip: tip.to_owned(), failing: labels(&request.failing), lanes: lanes.iter().map(|lane| lane.commit.clone()).collect(), probes: Vec::new(), confirmations: Vec::new() };
     let no_verdict = |case: &SheriffCase, reason: String| {
         steps::sheriff(case, &SheriffStep::NoVerdict);
         Finding::NoVerdict(reason)
@@ -118,7 +118,10 @@ pub fn find(
         if is_revert(&lane.message) || reverted.contains(&lane.commit) {
             continue;
         }
-        if probe(lane).is_some_and(|still| still.is_disjoint(&failing)) {
+        steps::sheriff(&case, &SheriffStep::Confirm(index as u64));
+        let still = probe(lane);
+        case.confirmations.push((index as u64, still.as_ref().map(labels)));
+        if still.is_some_and(|still| still.is_disjoint(&failing)) {
             steps::sheriff(&case, &SheriffStep::Revert(index as u64));
             return Finding::Revert { lane: lane.commit.clone(), cases };
         }

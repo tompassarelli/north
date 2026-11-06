@@ -144,6 +144,9 @@ pub struct SheriffCase {
     pub lanes: Vec<String>,
     /// The failures each probed lane showed, by lane index, in probe order.
     pub probes: Vec<(u64, Vec<String>)>,
+    /// Each confirmation rerun on the tip without a suspect, by lane index: its failures, or none when it reached no verdict.
+    #[serde(default)]
+    pub confirmations: Vec<(u64, Option<Vec<String>>)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -159,6 +162,8 @@ pub enum SheriffStep {
     NoVerdict,
     /// The failing steps pass at the tip, so nothing is reverted.
     Fixed,
+    /// Rerun the failing steps on the tip without the lane at this index next.
+    Confirm(u64),
     /// Main without the lane at this index passes the failing steps, so it is reverted.
     Revert(u64),
     /// The failing steps still fail without the culprit, so nothing is reverted.
