@@ -15,22 +15,16 @@ const NIX_SHIM: &str = "echo \"nix $*\"\n";
 
 const NORTH_SHIM: &str = r#"case "$1 $2" in
   "capacity deadline") shift; while [ "$1" != -- ]; do shift; done; shift; exec "$@" ;;
-  "capacity host")
-    shift 2
-    echo "lease $*" | sed 's/ -- .*//' >&2
-    while [ "$1" != -- ]; do shift; done
-    shift
-    if grep -qs devShells flake.nix; then echo "dev-shell $PWD $*"; exit 0; fi
+  "dev-shell run")
+    dir=$4
+    shift 5
+    if grep -qs devShells "$dir/flake.nix"; then echo "dev-shell $dir $*"; exit 0; fi
     exec "$@" ;;
 esac
 exit 64
 "#;
 
 fn remote_run_flake(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home: Option<&Path>) -> String {
-    remote_run(command, flake, caller, home, "").0
-}
-
-fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home: Option<&Path>, prelude: &str) -> (String, String) {
     let slot = tempfile::tempdir().unwrap();
     let bin = tempfile::tempdir().unwrap();
     if let Some(text) = flake {
@@ -42,7 +36,7 @@ fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home:
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let fresh_home = tempfile::tempdir().unwrap();
     let output = Command::new("sh")
-        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h carried={}\n{prelude}\n{}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)), run_part())])
+        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h carried={}\n{}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)), run_part())])
         .env("PATH", path)
         .env_remove("SAFE_PUSH_LAND_BASE")
         .env_remove("SAFE_PUSH_LAND_HEAD")
@@ -56,8 +50,7 @@ fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home:
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let shown = slot.path().display().to_string();
-    (String::from_utf8(output.stdout).unwrap().replace(&shown, "SLOT"), String::from_utf8(output.stderr).unwrap().replace(&shown, "SLOT"))
+    String::from_utf8(output.stdout).unwrap().replace(&slot.path().display().to_string(), "SLOT")
 }
 
 fn shell(word: &Path) -> String {
@@ -117,11 +110,6 @@ fn reaping_an_owner_kills_its_remote_runs_and_leaves_every_other_run_alone() {
 #[test]
 fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
     assert_eq!(remote_run_flake("echo plain", Some(FLAKE_WITHOUT_DEV_SHELL), &[], None), "plain\n");
-    let (stdout, stderr) = remote_run("printf '%s' \"$SAFE_PUSH_LAND_CPUS\"", None, &[("SAFE_PUSH_LANDING", "1")], None, "cores=20 usable=16 cap=4");
-    assert_eq!(stdout, "4", "a slot command's lease is sized by its share of the host's cores");
-    assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-check --timeout-seconds 10"), "{stderr}");
-    let (_, stderr) = remote_run("true", None, &[], None, "");
-    assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-offload --timeout-seconds 10"), "{stderr}");
 }
 
 #[test]
@@ -195,7 +183,7 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     let slot = home.path().join(".cache/land-offload/code-p-main");
     git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap(), &head]);
     fs::remove_dir_all(&slot).unwrap();
-    let script = super::script::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@HEADROOM_NUM@", "1").replace("@HEADROOM_DEN@", "1").replace("@SLOT_PORTS@", "");
+    let script = super::script::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@SLOT_PORTS@", "");
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
         .env("HOME", home.path())
@@ -361,7 +349,7 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
-    crate::foundation::shim::write_script(&bin.path().join("nproc"), "echo ${NPROC:-4}\n");
+    crate::foundation::shim::write_script(&bin.path().join("nproc"), "echo 4\n");
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
@@ -394,21 +382,6 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     assert!(stderr.lines().any(|line| line.starts_with(super::WAITED) && line.ends_with("s in line for code-p-main")), "{stderr}");
     let slot = home.path().join(".cache/land-offload/code-p-main");
     assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0} {1} 4 4 4 4", slot.display(), super::script::slot_ports("code-p-main")[0].1), "a slot job builds and tests on the host's cores divided by its job cap");
-    let sized = home.path().join("sized");
-    let command = format!("printf '%s %s' \"$CARGO_BUILD_JOBS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", sized.display());
-    let thirty = Command::new("setsid")
-        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "4"])
-        .env("HOME", home.path())
-        .env("PATH", &path)
-        .env("NPROC", "30")
-        .env_remove("NORTH_OFFLOAD_MAX_JOBS")
-        .env_remove("NORTH_OFFLOAD_ROOT")
-        .env_remove("SAFE_PUSH_LAND_CPUS")
-        .stdin(fs::File::open(&bundle).unwrap())
-        .output()
-        .unwrap();
-    assert!(thirty.status.success(), "{}", String::from_utf8_lossy(&thirty.stderr));
-    assert_eq!(fs::read_to_string(&sized).unwrap(), "4 4", "30 cores less a fifth run six 4-core jobs, not seven sharing five");
 }
 
 fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, String) {

@@ -15,7 +15,6 @@ const LOCK_WAIT_SECONDS: u32 = 600;
 pub const SLOTS: u32 = 6;
 const SCCACHE_FIRST_PORT: u32 = 20000;
 const SCCACHE_PORTS: u32 = 20000;
-pub(super) const HEADROOM: (u32, u32) = (4, 5);
 const POLL_SECONDS: &str = "0.2";
 const TARGET_CAP_MIB: u32 = 40 * 1024;
 const TARGET_FLOOR_MIB: u32 = 30 * 1024;
