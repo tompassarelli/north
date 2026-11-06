@@ -7,7 +7,7 @@ max = 20
 class = "debt"
 ceiling = 60
 owner = "tompassarelli/north#641"
-revisit = "the projected wait of a lane arriving now, the median service time of the last 5 landings times the tickets queued plus one, stays over 60 s for a week"
+revisit = "the projected wait of a lane judged now, the median service time of the last 5 landings times the tickets queued, at least one, stays over 60 s for a week"
 pays = ["crates/north-landing/", "crates/north-safe-push/"]
 
 [[goal]]
