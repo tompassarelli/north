@@ -61,29 +61,38 @@ fn write(record: &Path, value: &Value) -> Result<(), String> {
     std::fs::write(&scratch, format!("{value}\n")).and_then(|()| std::fs::rename(&scratch, record)).map_err(|error| format!("{}: {error}", record.display()))
 }
 
-pub fn tick(credentials: &[Credential], host: &str, now: u64, window_days: u64, record: &Path, effects: &dyn Effects) -> Outcome {
-    let found = plan(credentials, now, window_days);
-    let mut lines = Vec::new();
-    let mut failed = false;
-    let mut renewed = Vec::new();
-    let mut unrenewed: Vec<&Credential> = Vec::new();
-    for (credential, command) in &found.renew {
+struct Renewals<'a> {
+    lines: Vec<String>,
+    renewed: Vec<String>,
+    unrenewed: Vec<&'a Credential>,
+    failed: bool,
+}
+
+fn renew_each<'a>(due: &[(&'a Credential, &'a [String])], effects: &dyn Effects) -> Renewals<'a> {
+    let mut done = Renewals { lines: Vec::new(), renewed: Vec::new(), unrenewed: Vec::new(), failed: false };
+    for (credential, command) in due {
         if effects.dry_run() {
-            lines.push(format!("would renew {}: {}", credential.name, command.join(" ")));
+            done.lines.push(format!("would renew {}: {}", credential.name, command.join(" ")));
             continue;
         }
         match effects.run(command) {
             Ok(()) => {
-                lines.push(format!("renewed {}", credential.name));
-                renewed.push(credential.name.clone());
+                done.lines.push(format!("renewed {}", credential.name));
+                done.renewed.push(credential.name.clone());
             }
             Err(error) => {
-                lines.push(format!("renewal of {} failed: {error}", credential.name));
-                unrenewed.push(credential);
-                failed = true;
+                done.lines.push(format!("renewal of {} failed: {error}", credential.name));
+                done.unrenewed.push(credential);
+                done.failed = true;
             }
         }
     }
+    done
+}
+
+pub fn tick(credentials: &[Credential], host: &str, now: u64, window_days: u64, record: &Path, effects: &dyn Effects) -> Outcome {
+    let found = plan(credentials, now, window_days);
+    let Renewals { mut lines, renewed, unrenewed, mut failed } = renew_each(&found.renew, effects);
     let mut ask = found.ask;
     ask.extend(unrenewed);
     let text = notice(&ask, window_days);
