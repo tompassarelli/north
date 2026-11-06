@@ -1,13 +1,55 @@
-//! `north scoreboard rework`: the week's reworked landings by class of change and by what the rework fixed,
-//! so the fixes can target the class that reworks most.
+//! `north scoreboard --rework [--since 7d]`: the reworked landings of a window by the judge's rule and by class of
+//! change, each with the main commit that triggered the rework, so the fixes can target the rule or class that
+//! reworks most.
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use super::{Sources, Window, open};
-use crate::threads::calibration::rework::{Cause, Judged, Rework};
+use crate::foundation::clock::Timestamp;
+use crate::threads::calibration::rework::{Cause, Judged, Rework, Rule};
 
-const EXAMPLES: usize = 3;
-const SUBJECT_CHARS: usize = 100;
+const SUBJECT_CHARS: usize = 90;
+const SHA_CHARS: usize = 9;
+
+const DEFAULT_SINCE: &str = "7d";
+
+/// A `--rework [--since 7d]` request: the window of landings to break down.
+pub struct Request {
+    since_s: i64,
+    label: String,
+}
+
+impl Request {
+    /// `None` when the arguments are not a rework request.
+    pub fn parse(arguments: &[String]) -> Option<Self> {
+        let (rework, rest) = arguments.split_first()?;
+        let since = match rest {
+            [] => DEFAULT_SINCE,
+            [flag, value] if flag == "--since" => value,
+            _ => return None,
+        };
+        (rework == "--rework").then_some(())?;
+        Some(Self { since_s: span(since)?, label: since.to_owned() })
+    }
+
+    pub fn window(&self, now: i64) -> Window {
+        Window { start: now - self.since_s, end: now }
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+fn span(text: &str) -> Option<i64> {
+    let (count, unit) = text.char_indices().next_back().map(|(at, _)| text.split_at(at))?;
+    let count: i64 = count.parse().ok().filter(|count| *count > 0)?;
+    Some(count * match unit {
+        "d" => 86_400,
+        "h" => 3_600,
+        _ => return None,
+    })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Class {
@@ -92,28 +134,44 @@ fn tally(landings: &[&Judged]) -> BTreeMap<Class, Tally> {
             Some(Cause::Culprit) => tally.culprit += 1,
             None => continue,
         }
-        if let Some(subject) = &landing.fixed_by {
-            tally.fixes.push((landing.at, subject.chars().take(SUBJECT_CHARS).collect()));
-        }
+        tally.fixes.push((landing.at, trigger_line(landing)));
     }
     classes
+}
+
+fn short(sha: &str) -> String {
+    sha.chars().take(SHA_CHARS).collect()
+}
+
+fn trigger_line(landing: &Judged) -> String {
+    let rule = landing.rule.map_or("rule not recorded", Rule::label);
+    match &landing.trigger {
+        Some(trigger) => {
+            let subject: String = trigger.subject.chars().take(SUBJECT_CHARS).collect();
+            format!("{} reworked by {} {subject} [{rule}]", short(&landing.sha), short(&trigger.sha))
+        }
+        None => format!("{} named by a red-main issue [{rule}]", short(&landing.sha)),
+    }
 }
 
 fn percent(part: usize, whole: usize) -> String {
     if whole == 0 { "n/a".into() } else { format!("{:.0}%", part as f64 / whole as f64 * 100.0) }
 }
 
-pub fn render(landings: &[&Judged], window: &str) -> String {
+fn render_repo(repo: &str, landings: &[&Judged]) -> String {
     let classes = tally(landings);
     let reworked: usize = classes.values().map(Tally::reworked).sum();
     let mut out = String::new();
-    let _ = writeln!(out, "north scoreboard rework: {reworked} of {} landings that reached main {window} were reworked within 48 h ({}), by class of change", landings.len(), percent(reworked, landings.len()));
+    let _ = writeln!(out, "{repo}: {reworked} of {} judged landings reworked within 48 h ({})", landings.len(), percent(reworked, landings.len()));
+    let by_rule: Vec<String> = Rule::ALL.iter().map(|rule| format!("{} {}", rule.label(), landings.iter().filter(|landing| landing.rule == Some(*rule)).count())).collect();
+    let _ = writeln!(out, "  by rule: {}", by_rule.join(", "));
     let mut ordered: Vec<(Class, Tally)> = classes.into_iter().collect();
     ordered.sort_by_key(|(_, tally)| std::cmp::Reverse(tally.reworked()));
+    let _ = writeln!(out, "  by class of change:");
     for (class, mut tally) in ordered {
         let _ = writeln!(
             out,
-            "- {}: {} of {} ({}): reverted {}, fixed forward {}, red-main culprit {}",
+            "  - {}: {} of {} ({}): reverted {}, fixed forward {}, red-main culprit {}",
             class.name(),
             tally.reworked(),
             tally.landings,
@@ -122,19 +180,31 @@ pub fn render(landings: &[&Judged], window: &str) -> String {
             tally.fixed_forward,
             tally.culprit
         );
-        tally.fixes.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
-        for (_, subject) in tally.fixes.iter().take(EXAMPLES) {
-            let _ = writeln!(out, "    fixed by: {subject}");
+        tally.fixes.sort_by_key(|(at, _)| *at);
+        for (_, line) in &tally.fixes {
+            let _ = writeln!(out, "      {line}");
         }
     }
     out
 }
 
-pub fn run(sources: &Sources, weeks: [Window; 2]) -> Result<String, String> {
+pub fn render(landings: &[&Judged], window: &str, now: i64) -> String {
+    let mut repos: BTreeMap<&str, Vec<&Judged>> = BTreeMap::new();
+    for landing in landings {
+        repos.entry(landing.repo.as_str()).or_default().push(landing);
+    }
+    let mut out = format!("north scoreboard --rework: worker landings that reached main in the last {window}, ending {} today\n", Timestamp::from_unix_seconds(now).local_twelve_hour());
+    for (repo, held) in repos {
+        out.push_str(&render_repo(repo, &held));
+    }
+    out
+}
+
+pub fn run(sources: &Sources, window: Window, label: &str, now: i64) -> Result<String, String> {
     let threads = open(&sources.threads)?;
     let rework = Rework::read(&threads, &sources.places.rework).map_err(|why| format!("rework: {why}"))?;
-    let held = landings(rework.judged.values().filter(|judged| weeks[0].holds(judged.at)));
-    Ok(render(&held, "in the last 7 days"))
+    let held = landings(rework.judged.values().filter(|judged| window.holds(judged.at)));
+    Ok(render(&held, label, now))
 }
 
 #[cfg(test)]

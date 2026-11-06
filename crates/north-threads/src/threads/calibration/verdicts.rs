@@ -26,7 +26,11 @@ struct Store {
 
 impl Store {
     fn settled(&self, key: &str, head: &str) -> bool {
-        self.verdicts.get(key).is_some_and(|verdict| verdict.closed) || (self.head == head && self.judged.contains(key))
+        let current = self.head == head && self.judged.contains(key);
+        match self.verdicts.get(key) {
+            Some(verdict) => verdict.recorded() && (verdict.closed || current),
+            None => current,
+        }
     }
 }
 

@@ -24,6 +24,45 @@ pub enum Cause {
     Culprit,
 }
 
+/// The rule of the judge that fired for a reworked landing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Rule {
+    Revert,
+    NamedCommit,
+    NamedIssue,
+    FixOverlap,
+    RedMain,
+}
+
+impl Rule {
+    pub const ALL: [Self; 5] = [Self::Revert, Self::NamedCommit, Self::NamedIssue, Self::FixOverlap, Self::RedMain];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Revert => "revert",
+            Self::NamedCommit => "named commit",
+            Self::NamedIssue => "named issue",
+            Self::FixOverlap => "Fix subject with file overlap",
+            Self::RedMain => "red-main culprit",
+        }
+    }
+
+    pub fn cause(self) -> Cause {
+        match self {
+            Self::Revert => Cause::Reverted,
+            Self::NamedCommit | Self::NamedIssue | Self::FixOverlap => Cause::FixedForward,
+            Self::RedMain => Cause::Culprit,
+        }
+    }
+}
+
+/// The later main commit whose revert, naming or Fix subject made the judge call a landing reworked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Trigger {
+    pub sha: String,
+    pub subject: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Commit {
     pub sha: String,
@@ -49,7 +88,8 @@ pub struct Judged {
     pub cause: Option<Cause>,
     pub sha: String,
     pub files: Vec<String>,
-    pub fixed_by: Option<String>,
+    pub rule: Option<Rule>,
+    pub trigger: Option<Trigger>,
 }
 
 /// Where the history and the red-main culprits are read from: `<code_root>/<checkout>/main` and the
@@ -174,21 +214,37 @@ impl<'a> Read<'a> {
         Self { commit, text, fix, tokens, reverts }
     }
 
-    fn names(&self, landing: &Landing) -> bool {
-        self.tokens.iter().any(|token| landing.sha.starts_with(token.as_str())) || landing.item.as_deref().filter(|item| !item.is_empty()).is_some_and(|item| names_item(&self.text, item))
+    fn names_commit(&self, landing: &Landing) -> bool {
+        self.tokens.iter().any(|token| landing.sha.starts_with(token.as_str()))
+    }
+
+    fn names_item(&self, landing: &Landing) -> bool {
+        landing.item.as_deref().filter(|item| !item.is_empty()).is_some_and(|item| names_item(&self.text, item))
     }
 }
 
 const REVERTS: &str = "This reverts commit ";
 
-fn cause<'a>(landed: &Commit, later: &[Read<'a>], landing: &Landing) -> Option<(Cause, &'a Commit)> {
+fn cause(landed: &Commit, later: &[Read], landing: &Landing) -> Option<(Rule, Trigger)> {
     let window: Vec<&Read> = later.iter().filter(|read| read.commit.at <= landed.at + REWORK_WINDOW_S).collect();
     let revert_subject = format!("Revert \"{}\"", landed.subject);
+    let found = |read: &Read, rule| (rule, Trigger { sha: read.commit.sha.clone(), subject: read.commit.subject.clone() });
     if let Some(read) = window.iter().find(|read| read.commit.subject == revert_subject || read.reverts.iter().any(|rest| rest.starts_with(landed.sha.as_str()))) {
-        return Some((Cause::Reverted, read.commit));
+        return Some(found(read, Rule::Revert));
     }
     let overlaps = |commit: &Commit| !landed.files.is_empty() && 2 * commit.files.iter().filter(|file| landed.files.contains(file)).count() >= landed.files.len();
-    window.iter().find(|read| (read.fix && read.names(landing)) || (read.commit.subject.starts_with("Fix") && overlaps(read.commit))).map(|read| (Cause::FixedForward, read.commit))
+    window.iter().find_map(|read| {
+        let rule = if read.fix && read.names_commit(landing) {
+            Rule::NamedCommit
+        } else if read.fix && read.names_item(landing) {
+            Rule::NamedIssue
+        } else if read.commit.subject.starts_with("Fix") && overlaps(read.commit) {
+            Rule::FixOverlap
+        } else {
+            return None;
+        };
+        Some(found(read, rule))
+    })
 }
 
 
@@ -201,14 +257,23 @@ pub struct Verdict {
     pub at: i64,
     pub cause: Option<Cause>,
     pub closed: bool,
+    #[serde(default)]
     pub files: Vec<String>,
-    pub fixed_by: Option<String>,
+    #[serde(default)]
+    pub rule: Option<Rule>,
+    #[serde(default)]
+    pub trigger: Option<Trigger>,
 }
 
 impl Verdict {
     pub fn judged(&self, repo: &str, landing: &Landing, culprits: &BTreeSet<String>) -> Judged {
-        let cause = self.cause.or_else(|| culprits.contains(&landing.sha).then_some(Cause::Culprit));
-        Judged { repo: repo.to_owned(), at: self.at, cause, sha: landing.sha.clone(), files: self.files.clone(), fixed_by: self.fixed_by.clone() }
+        let rule = if self.cause.is_none() && culprits.contains(&landing.sha) { Some(Rule::RedMain) } else { self.rule };
+        Judged { repo: repo.to_owned(), at: self.at, cause: rule.map(Rule::cause).or(self.cause), sha: landing.sha.clone(), files: self.files.clone(), rule, trigger: self.trigger.clone() }
+    }
+
+    /// Whether the verdict carries the evidence the judge now records; a verdict stored before that is judged again.
+    pub fn recorded(&self) -> bool {
+        !self.files.is_empty() && (self.cause.is_none() || self.rule.is_some())
     }
 }
 
@@ -224,13 +289,8 @@ pub fn judge_history(commits: &[Commit], landings: &[&Landing]) -> Vec<(usize, V
         .map(|(index, position)| {
             let landed = &commits[position];
             let found = cause(landed, &reads[position - first + 1..], landings[index]);
-            let verdict = Verdict {
-                at: landed.at,
-                cause: found.map(|(cause, _)| cause),
-                closed: newest > landed.at + REWORK_WINDOW_S + CLOSE_MARGIN_S,
-                files: landed.files.clone(),
-                fixed_by: found.map(|(_, commit)| commit.subject.clone()),
-            };
+            let (rule, trigger) = found.map_or((None, None), |(rule, trigger)| (Some(rule), Some(trigger)));
+            let verdict = Verdict { at: landed.at, cause: rule.map(Rule::cause), closed: newest > landed.at + REWORK_WINDOW_S + CLOSE_MARGIN_S, files: landed.files.clone(), rule, trigger };
             (index, verdict)
         })
         .collect()

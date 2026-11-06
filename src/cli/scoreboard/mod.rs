@@ -17,7 +17,7 @@ mod tom;
 mod weekly;
 mod workers;
 
-const USAGE: &str = "usage: north scoreboard [--record | rework]";
+const USAGE: &str = "usage: north scoreboard [--record | --rework [--since 7d]]";
 const WEEK_S: i64 = 7 * 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,9 +151,9 @@ pub fn tick(now: i64) -> Vec<String> {
     weekly::tick(now)
 }
 
-fn rework() -> u8 {
+fn rework(request: &cause::Request) -> u8 {
     let now = Timestamp::now().unix_seconds();
-    match cause::run(&Sources::live(), Window::weeks(now)) {
+    match cause::run(&Sources::live(), request.window(now), request.label(), now) {
         Ok(text) => {
             print!("{text}");
             0
@@ -168,12 +168,14 @@ fn rework() -> u8 {
 pub fn run(arguments: &[String]) -> u8 {
     let recording = match arguments {
         [] => false,
-        [word] if word == "rework" => return rework(),
         [flag] if flag == "--record" => true,
-        _ => {
-            eprintln!("{USAGE}");
-            return 64;
-        }
+        _ => match cause::Request::parse(arguments) {
+            Some(request) => return rework(&request),
+            None => {
+                eprintln!("{USAGE}");
+                return 64;
+            }
+        },
     };
     let now = Timestamp::now().unix_seconds();
     let sources = Sources::live();
