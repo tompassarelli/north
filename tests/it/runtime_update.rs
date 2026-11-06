@@ -2,6 +2,8 @@ use std::fs::{self};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+#[path = "runtime_update/forward_only.rs"]
+mod forward_only;
 #[path = "runtime_update/harness.rs"]
 mod harness;
 #[path = "runtime_update/prune.rs"]

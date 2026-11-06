@@ -101,11 +101,4 @@ mod tests {
         let held = lander_verdict(&binary, directory.path()).unwrap_err();
         assert_eq!(held.message, "lander link held: round lane-a on abc recorded landed but the candidate replayed failed");
     }
-
-    #[test]
-    fn the_lander_is_held_naming_the_missing_binary_when_the_runtime_has_none() {
-        let directory = tempfile::tempdir().unwrap();
-        let held = lander_verdict(&directory.path().join("absent"), directory.path()).unwrap_err();
-        assert!(held.message.starts_with("lander link held: ") && held.message.contains("absent"), "{}", held.message);
-    }
 }

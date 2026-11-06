@@ -26,7 +26,7 @@ const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime set
 
 update [--sha SHA]     bring this host's current runtime to origin/main (or SHA): pull it from a peer, reuse the live binaries when no Rust build input changed, else build it under a runtime capacity lease; swap back when health or agents sync fails
 settle                 on the host that settles the fleet: update here, deploy where current differs, probe every host, run one offloaded canary land check per promoted runtime per host and roll a host back when it fails, and judge each landing once by landing_live_deadline_sec
-deploy [HOST...]       build here, then ship and promote that runtime on each HOST (default: every other declared host with an ssh destination)
+deploy [HOST...]       build here, then ship and promote that runtime on each HOST (default: every other declared host with an ssh destination); a HOST whose live runtime descends from it keeps its own
 health                 check the live runtime
 rollback --from SHA    relink current to the previous runtime and hold SHA back for an hour, when current is SHA; settle runs it on a host whose canary land check failed
 promote                update here, then deploy to every declared host; when this host runs the lander, also run north land promote against the new current so the lander link follows it, or log the named reason it is held

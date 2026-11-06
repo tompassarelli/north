@@ -148,7 +148,7 @@ Commands:
   warcraft-close [--list]                       Close Tom's Steam launch of Battle.net and Warcraft III completely, or list its processes
   wc3-login-field PRIVATE_RUN a|b|c|d username|password [--owner-authorized]  Type one stored Battle.net field into the verified private login window
   agent-capture --screen|--window ID|--region "X,Y WxH" OUT.png  Screenshot without touching Tom's clipboard
-  runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there
+  runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there unless HOST runs a newer descendant
   runtime health                                Check that the running binary is the current runtime with its programs and tree
   after-landing --git-dir DIR --base BASE --head HEAD --safe-push PATH  Run the after-landing checks on a landed range
   build-cache-gate --repo DIR --base REV --head REV  Refuse a landing that breaks build-cache reuse

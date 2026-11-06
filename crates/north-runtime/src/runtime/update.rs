@@ -13,7 +13,7 @@ use super::supersede::{self, SUPERSEDED};
 use crate::capacity::game_reserve::Confinement;
 use crate::land_offload;
 use crate::pacing::placement::gate;
-use crate::platform::process;
+use crate::platform::{host, process};
 use rustix::fs::{FlockOperation, flock};
 use std::ffi::OsStr;
 use std::fs::{self, File};
@@ -72,6 +72,10 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
     let previous = fs::read_link(layout.current()).ok();
     if previous.as_deref() == Some(layout::link(target).as_path()) {
         println!("north runtime current: {}", layout::short(target));
+        return Ok(());
+    }
+    if let Some(newer) = previous.as_deref().and_then(layout::linked_sha).filter(|current| ancestor(&checkout, target, current)) {
+        println!("north runtime: not moving {} back from {} to {}", host::name(), layout::short(newer), layout::short(target));
         return Ok(());
     }
     if !usable(&layout.runtime(target)) {
