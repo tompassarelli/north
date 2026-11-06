@@ -44,6 +44,7 @@ pub use survey::spend_now;
 mod tier;
 pub mod shares;
 mod tuned;
+pub mod waste;
 mod tries;
 mod wait;
 #[cfg(test)]

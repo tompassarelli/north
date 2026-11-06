@@ -19,12 +19,14 @@ pub(super) fn run(arguments: &[String]) -> u8 {
             return 1;
         }
     };
+    let waste = crate::dispatch::waste::measure();
     if !json {
         println!("{}", view.line(&rules));
+        println!("{}", waste.line());
         return 0;
     }
     let accounts: Vec<_> = view.accounts.iter().map(|account| json!({ "account": account.name, "plan_week": account.plan_week, "five_hour_pct": account.five_hour.map(|window| window.used(view.at)), "week_pct": account.week.map(|window| window.used(view.at)), "week_left": account.week_left(view.at), "counted": account.counted })).collect();
-    let out = json!({ "at": view.at, "pool": view.pool(), "reserve": view.reserve(&rules), "working": view.working, "cap": rules.cap, "trips": view.trips, "accounts": accounts, "line": view.line(&rules) });
+    let out = json!({ "at": view.at, "pool": view.pool(), "reserve": view.reserve(&rules), "working": view.working, "cap": rules.cap, "trips": view.trips, "accounts": accounts, "waste": waste.json(), "line": view.line(&rules) });
     println!("{out}");
     0
 }

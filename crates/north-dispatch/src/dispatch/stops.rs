@@ -37,6 +37,10 @@ pub fn last_launches(records: &[Record]) -> BTreeMap<IssueRef, &Record> {
     newest
 }
 
+pub fn host_need(report: &str) -> Option<String> {
+    HOST.captures(report).map(|found| found[1].to_lowercase())
+}
+
 /// The holds of the session's final report, from `north fleet show NAME --json`.
 pub fn stop(session: &Value) -> Stop {
     let Some(report) = session["entries"].as_array().and_then(|entries| entries.iter().rfind(|entry| entry["kind"] == "assistant")).and_then(|entry| entry["text"].as_str()) else {
@@ -44,7 +48,7 @@ pub fn stop(session: &Value) -> Stop {
     };
     let ended = session["turns"].as_array().and_then(|turns| turns.last()).and_then(|turn| turn["ended_ms"].as_f64()).map(|ms| ms / 1000.0);
     let until = WAIT.captures(report).and_then(|found| Some((found.get(1)?.as_str().to_owned(), super::issues::not_before(&found)? as f64)));
-    Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host: HOST.captures(report).map(|found| found[1].to_lowercase()) }
+    Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host: host_need(report) }
 }
 
 /// Whether the issue is unchanged since the report that stopped for a decision.
