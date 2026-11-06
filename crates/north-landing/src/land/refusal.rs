@@ -9,7 +9,7 @@ const LINE_BOUND: usize = 300;
 const TAIL_HEADER: &str = "last lines of the log:";
 
 pub(super) fn gate(line: &str) -> bool {
-    line.split_once(": ").is_some_and(|(name, _)| !name.contains(' ') && (name.ends_with("-gate") || name.ends_with("-guard")))
+    line.split_once(": ").is_some_and(|(name, status)| !name.contains(' ') && (name.ends_with("-gate") || name.ends_with("-guard")) && status.trim() != "passed")
 }
 
 fn exited(line: &str) -> bool {
