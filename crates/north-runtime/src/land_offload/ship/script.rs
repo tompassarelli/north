@@ -205,6 +205,11 @@ pub(super) fn beside_part() -> String {
     BESIDE.replace("@BESIDE_MISSING@", &BESIDE_MISSING.to_string()).replace("@BESIDE_ENV@", beside::BESIDE_ENV)
 }
 
+/// Whether an offload slot directory is the lander's reserved one, the last of its checkout's `SLOTS`, which the lander's pre-push checks take first and every other job last.
+pub fn is_lander_slot(slot: &str) -> bool {
+    slot.strip_suffix(&format!("-{}", SLOTS - 1)).is_some_and(|checkout| !checkout.is_empty())
+}
+
 fn slot_name(name: &str, index: u32) -> String {
     if index == 0 { name.to_owned() } else { format!("{name}-{index}") }
 }

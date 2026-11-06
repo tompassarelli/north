@@ -1,7 +1,8 @@
-//! Keeps a build host's offload slots from filling its root disk: the least recently used slot whose lock no job holds goes first,
-//! build-offload slots while they pass their byte cap or the disk passes its eviction line, land-offload slots only while the disk does.
-//! The lease reaper runs it every 30 s on each build host, a disk-floor admission defer runs it before deciding again, and a disk over the incident
-//! line raises one host-disk incident per episode.
+//! Keeps a build host's caches from filling its root disk, cheapest to lose first: build-offload slots (one lane's scratch) while they pass
+//! their byte cap or the disk passes its eviction line, then for the disk line only the shared cargo targets and sccache's store down to
+//! their caps, then land-offload slots, the lander's reserved slot of each checkout last. Within a slot store the least recently used slot
+//! whose lock no job holds goes first. The lease reaper runs it every 30 s on each build host, a disk-floor admission defer runs it before
+//! deciding again, and a disk over the incident line raises one host-disk incident per episode.
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -10,9 +11,11 @@ use std::time::SystemTime;
 
 use rustix::fs::{FlockOperation, flock, statvfs};
 
+use crate::land_offload::ship::is_lander_slot;
 use crate::platform::disk_budget::{DiskBudget, Share};
-use crate::platform::shared_target::allocated_tree;
+use crate::platform::shared_target::{self, allocated_tree};
 
+mod compiler_cache;
 #[cfg(test)]
 mod tests;
 
@@ -25,15 +28,38 @@ const EPISODE_FILE: &str = "host-disk.episode";
 const COMPANION_DIRS: [&str; 1] = ["beside"];
 const COMPANION_FILES: [&str; 2] = ["bundle", "patch"];
 
-/// One cache root and the bytes its slots may hold before the oldest unlocked one goes; `None` evicts only for the disk line.
-pub struct Store {
-    pub root: PathBuf,
-    pub cap_bytes: Option<u64>,
+/// One thing eviction may take from, in the order `stores` lists them.
+pub enum Store {
+    /// Offload slots under `root` that `take` admits, the oldest unlocked first, while they pass `cap_bytes` (`None`: the disk line only).
+    Slots { root: PathBuf, cap_bytes: Option<u64>, take: Take },
+    /// The shared cargo targets under `cache`, each trimmed to `cap_bytes` of idle build output while the disk passes the line.
+    CargoTargets { cache: PathBuf, cap_bytes: u64 },
+    /// sccache's local store at `root`, trimmed to `cap_bytes` oldest entry first while the disk passes the line.
+    CompilerCache { root: PathBuf, cap_bytes: u64 },
+}
+
+/// Which slots of a root a `Store::Slots` pass may remove.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Take {
+    Every,
+    AllButLanders,
+    Landers,
+}
+
+impl Take {
+    fn admits(self, slot: &str) -> bool {
+        match self {
+            Self::Every => true,
+            Self::AllButLanders => !is_lander_slot(slot),
+            Self::Landers => is_lander_slot(slot),
+        }
+    }
 }
 
 pub struct Evicted {
-    pub slot: PathBuf,
+    pub path: PathBuf,
     pub bytes: u64,
+    pub what: &'static str,
 }
 
 /// The root disk as `df` reads it.
@@ -51,34 +77,60 @@ struct Slot {
     lock: PathBuf,
 }
 
-/// The stores of this home in eviction order: build-offload slots are one lane's scratch, land-offload slots the lander's warm checkouts.
+/// The stores of this home in eviction order: a lane's scratch, then rebuildable shared build output, then the lander's warm checkouts,
+/// whose loss turns the next land check into a cold build of every dependency.
 pub fn stores(home: &Path, disk: Option<Disk>, budget: &DiskBudget) -> Vec<Store> {
     let share = disk.map(|disk| (disk.size_bytes as f64 * BUILD_OFFLOAD_DISK_SHARE) as u64);
+    let land = home.join(".cache/land-offload");
     vec![
-        Store { root: home.join(".cache/build-offload"), cap_bytes: budget.bytes(Share::BuildOffload).or(share) },
-        Store { root: home.join(".cache/land-offload"), cap_bytes: None },
+        Store::Slots { root: home.join(".cache/build-offload"), cap_bytes: budget.bytes(Share::BuildOffload).or(share), take: Take::Every },
+        Store::CargoTargets { cache: home.join(".cache"), cap_bytes: shared_target::cap_bytes(budget) },
+        Store::CompilerCache { root: compiler_cache::root(home), cap_bytes: compiler_cache::cap_bytes(budget) },
+        Store::Slots { root: land.clone(), cap_bytes: None, take: Take::AllButLanders },
+        Store::Slots { root: land, cap_bytes: None, take: Take::Landers },
     ]
 }
 
-/// Evicts the least recently used unlocked slot of each store in turn while that store passes its cap or `disk` reads over `line` percent.
+/// Takes from each store in turn while it passes its cap or `disk` reads over `line` percent.
 pub fn evict(stores: &[Store], line: f64, disk: &mut dyn FnMut() -> Option<Disk>) -> Vec<Evicted> {
     let mut evicted = Vec::new();
     for store in stores {
-        let mut slots = slots(&store.root);
-        slots.sort_by_key(|slot| slot.used);
-        let mut held: u64 = slots.iter().map(|slot| slot.bytes).sum();
-        for slot in slots {
-            let over_cap = store.cap_bytes.is_some_and(|cap| held > cap);
-            if !over_cap && !disk().is_some_and(|disk| disk.used_percent > line) {
-                break;
+        match store {
+            Store::Slots { root, cap_bytes, take } => evict_slots(root, *cap_bytes, *take, line, disk, &mut evicted),
+            Store::CargoTargets { cache, cap_bytes } if over(line, disk) => {
+                let trimmed = shared_target::sweep_cache(cache, SystemTime::now(), *cap_bytes).unwrap_or_default();
+                evicted.extend(trimmed.into_iter().map(|(path, bytes)| Evicted { path, bytes, what: "idle build output of shared cargo target" }));
             }
-            if remove_unlocked(&slot) {
-                held = held.saturating_sub(slot.bytes);
-                evicted.push(Evicted { slot: slot.path, bytes: slot.bytes });
+            Store::CompilerCache { root, cap_bytes } if over(line, disk) => {
+                let bytes = compiler_cache::trim(root, *cap_bytes);
+                if bytes > 0 {
+                    evicted.push(Evicted { path: root.clone(), bytes, what: "oldest entries of compiler cache" });
+                }
             }
+            Store::CargoTargets { .. } | Store::CompilerCache { .. } => {}
         }
     }
     evicted
+}
+
+fn over(line: f64, disk: &mut dyn FnMut() -> Option<Disk>) -> bool {
+    disk().is_some_and(|disk| disk.used_percent > line)
+}
+
+fn evict_slots(root: &Path, cap_bytes: Option<u64>, take: Take, line: f64, disk: &mut dyn FnMut() -> Option<Disk>, evicted: &mut Vec<Evicted>) {
+    let mut slots: Vec<Slot> = slots(root).into_iter().filter(|slot| slot.path.file_name().is_some_and(|name| take.admits(&name.to_string_lossy()))).collect();
+    slots.sort_by_key(|slot| slot.used);
+    let mut held: u64 = slots.iter().map(|slot| slot.bytes).sum();
+    for slot in slots {
+        let over_cap = cap_bytes.is_some_and(|cap| held > cap);
+        if !over_cap && !over(line, disk) {
+            break;
+        }
+        if remove_unlocked(&slot) {
+            held = held.saturating_sub(slot.bytes);
+            evicted.push(Evicted { path: slot.path, bytes: slot.bytes, what: "offload slot" });
+        }
+    }
 }
 
 fn slots(root: &Path) -> Vec<Slot> {
@@ -183,7 +235,7 @@ fn evict_here(home: &Path, disk: &mut dyn FnMut() -> Option<Disk>) -> (Vec<Evict
     let first = disk();
     let evicted = evict(&stores(home, first, &DiskBudget::local()), EVICT_ABOVE_PERCENT, disk);
     for gone in &evicted {
-        eprintln!("north capacity: evicted offload slot {} ({} MiB), least recently used and unlocked", gone.slot.display(), gone.bytes >> 20);
+        eprintln!("north capacity: evicted {} {} ({} MiB), least recently used", gone.what, gone.path.display(), gone.bytes >> 20);
     }
     (evicted, disk())
 }

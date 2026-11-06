@@ -12,7 +12,7 @@ const SLOTS_BUSY: u8 = 96;
 const WAITED: &str = "offload: waited ";
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 const LOCK_WAIT_SECONDS: u32 = 600;
-pub(super) const SLOTS: u32 = 6;
+pub const SLOTS: u32 = 6;
 const SCCACHE_FIRST_PORT: u32 = 20000;
 const SCCACHE_PORTS: u32 = 20000;
 const POLL_SECONDS: &str = "0.2";
@@ -123,7 +123,7 @@ fn job_ref(head: &CommitId) -> String {
 
 mod beside;
 mod script;
-pub use script::SlotClass;
+pub use script::{SlotClass, is_lander_slot};
 use script::remote_script;
 #[cfg(test)]
 mod pinned;

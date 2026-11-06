@@ -13,11 +13,12 @@ pub enum Share {
     MutantCargo,
     CaptureBatches,
     BuildOffload,
+    CompilerCache,
 }
 
 impl Share {
     pub fn parse(name: &str) -> Option<Self> {
-        [Self::CargoTarget, Self::MapStore, Self::MakgoraEvidence, Self::MutantCargo, Self::CaptureBatches, Self::BuildOffload].into_iter().find(|share| share.key() == name)
+        [Self::CargoTarget, Self::MapStore, Self::MakgoraEvidence, Self::MutantCargo, Self::CaptureBatches, Self::BuildOffload, Self::CompilerCache].into_iter().find(|share| share.key() == name)
     }
 
     fn key(self) -> &'static str {
@@ -28,6 +29,7 @@ impl Share {
             Self::MutantCargo => "mutant_cargo",
             Self::CaptureBatches => "capture_batches",
             Self::BuildOffload => "build_offload",
+            Self::CompilerCache => "sccache",
         }
     }
 }
