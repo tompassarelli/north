@@ -519,7 +519,7 @@ pub(super) fn alert_proxy(text: &str) {
     }
 }
 
-fn collect(layout: &Layout, target: &str, previous: Option<&Path>) -> std::io::Result<()> {
+pub(crate) fn collect(layout: &Layout, target: &str, previous: Option<&Path>) -> std::io::Result<()> {
     let mut listed = Vec::new();
     for entry in fs::read_dir(layout.runtimes())? {
         let entry = entry?;
@@ -541,6 +541,9 @@ fn collect(layout: &Layout, target: &str, previous: Option<&Path>) -> std::io::R
         if fs::canonicalize(&doomed).ok() == current {
             continue;
         }
+        let Some(_unleased) = layout::unleased(&doomed)? else {
+            continue;
+        };
         process::run("chmod", None, &[OsStr::new("-R"), "u+w".as_ref(), doomed.as_os_str()])?;
         fs::remove_dir_all(&doomed)?;
     }

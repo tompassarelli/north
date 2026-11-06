@@ -5,6 +5,10 @@ use std::path::{Path, PathBuf};
 pub use crate::platform::store_refs::RUNTIME_PROGRAMS as PROGRAMS;
 pub const BUILT_HERE: &str = "built-here";
 pub use crate::platform::harness::{TREE, is_sha};
+use crate::platform::harness::DEFAULTS;
+use rustix::fs::{FlockOperation, flock};
+
+pub const LEASE: &str = "lease";
 const KEPT_OLDER: usize = 3;
 
 pub struct Layout {
@@ -86,6 +90,15 @@ pub fn has_programs(runtime: &Path) -> bool {
 
 pub fn usable(runtime: &Path, own_build_only: bool) -> bool {
     has_programs(runtime) && (!own_build_only || runtime.join(BUILT_HERE).is_file())
+}
+
+pub fn tree_marker() -> String {
+    format!("{TREE}/{DEFAULTS}")
+}
+
+pub fn unleased(runtime: &Path) -> std::io::Result<Option<fs::File>> {
+    let lease = fs::OpenOptions::new().create(true).append(true).open(runtime.join(LEASE))?;
+    Ok(flock(&lease, FlockOperation::NonBlockingLockExclusive).is_ok().then_some(lease))
 }
 
 pub fn running(proc_root: &Path, runtimes: &Path) -> Vec<String> {

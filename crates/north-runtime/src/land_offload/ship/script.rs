@@ -152,7 +152,8 @@ const RUN: &str = r#"cd "$slot"
 if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; export PATH; fi
 if [ -n "${runtime:-}" ]; then
   runtime_dir=$HOME/.local/state/north/runtimes/$runtime
-  [ -x "$runtime_dir/north" ] || { echo "offload: the lander runtime $runtime is not on this host" >&2; exit @TRANSPORT_FAILED@; }
+  [ -d "$runtime_dir" ] && command exec 6>>"$runtime_dir/@LEASE@" && flock -s 6 || { echo "offload: the lander runtime $runtime is not on this host" >&2; exit @TRANSPORT_FAILED@; }
+  [ -x "$runtime_dir/north" ] && [ -f "$runtime_dir/@TREE_MARKER@" ] || { echo "offload: the lander runtime $runtime on this host lacks north or @TREE_MARKER@" >&2; exit @TRANSPORT_FAILED@; }
   PATH="$runtime_dir:$PATH"; export PATH
 fi
 @SLOT_ENV@=$slot; export @SLOT_ENV@
@@ -169,9 +170,9 @@ limited() {
 }
 rc=0
 if [ "${command#nix develop}" = "$command" ] && command -v north >/dev/null 2>&1; then
-  limited north dev-shell run --dir "$slot" -- bash -euo pipefail -c "$command" 9>&- || rc=$?
+  limited north dev-shell run --dir "$slot" -- bash -euo pipefail -c "$command" 6>&- 9>&- || rc=$?
 else
-  limited bash -euo pipefail -c "$command" 9>&- || rc=$?
+  limited bash -euo pipefail -c "$command" 6>&- 9>&- || rc=$?
 fi
 [ -z "${ran:-}" ] || printf "%s %s\n" "$ran" "$rc"
 exit "$rc"
@@ -194,7 +195,10 @@ impl SlotClass {
 }
 
 pub(super) fn run_part() -> String {
-    RUN.replace("@SLOT_ENV@", crate::capacity::land_claim::OFFLOAD_SLOT_ENV).replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
+    RUN.replace("@SLOT_ENV@", crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
+        .replace("@LEASE@", crate::runtime::layout::LEASE)
+        .replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker())
+        .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
 }
 
 pub(super) fn beside_part() -> String {

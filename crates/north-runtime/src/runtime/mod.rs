@@ -18,6 +18,8 @@ mod settle;
 mod store;
 mod supersede;
 mod update;
+#[cfg(test)]
+pub(crate) use update::collect;
 
 use crate::land_offload;
 use std::path::Path;
