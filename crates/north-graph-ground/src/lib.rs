@@ -3,6 +3,7 @@
 //! missing graph costs the reader nothing but the lines.
 mod backlog;
 mod file;
+mod footprint;
 mod issue;
 mod ready;
 mod reach;
@@ -15,6 +16,8 @@ mod ground_tests;
 #[cfg(test)]
 mod backlog_tests;
 
+pub use footprint::{Footprint, footprints};
+pub use north_graph::default_path as graph_path;
 pub use backlog::{Backlog, Entry, Held, Verdict, read as read_backlog_from, read_default as read_backlog};
 pub use rules::{held_query, ready_query};
 pub use ready::command as ready_command;

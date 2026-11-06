@@ -31,6 +31,7 @@ mod grounds;
 mod hotspots;
 mod issues;
 mod manual;
+mod nearest;
 pub mod measure;
 mod plan;
 mod projects;
@@ -69,7 +70,7 @@ mod wait_tests;
 #[cfg(test)]
 mod spread_tests;
 
-const USAGE: &str = "usage: north dispatch [--dry-run]";
+const USAGE: &str = "usage: north dispatch [--dry-run] | route-replay [--days N] [--db PATH]";
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
@@ -274,6 +275,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     let dry_run = match arguments {
         [] => false,
         [flag] if flag == "--dry-run" => true,
+        [verb, rest @ ..] if verb == "route-replay" => return nearest::replay(rest),
         _ => {
             eprintln!("{USAGE}");
             return 2;
