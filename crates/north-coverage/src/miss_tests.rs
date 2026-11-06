@@ -20,7 +20,7 @@ fn the_failed_tests_are_the_nextest_failure_lines_and_nothing_else() {
 
 #[test]
 fn a_planted_miss_is_named_and_starts_one_refresh() {
-    let selection = Selection::Tests { tests: [test("north::it", "carry_matrix::b")].into(), file_level: Vec::new(), added: Vec::new() };
+    let selection = Selection::Tests { tests: [test("north::it", "carry_matrix::b")].into(), file_level: Vec::new() };
     let refreshes = Cell::new(0);
     let code = judge(&selection, LOG, || {
         refreshes.set(refreshes.get() + 1);
@@ -32,7 +32,7 @@ fn a_planted_miss_is_named_and_starts_one_refresh() {
 
 #[test]
 fn a_selection_that_ran_every_failed_test_agrees_and_one_that_ran_nothing_is_not_judged() {
-    let ran = Selection::Tests { tests: failed(LOG), file_level: Vec::new(), added: Vec::new() };
+    let ran = Selection::Tests { tests: failed(LOG), file_level: Vec::new() };
     let refreshes = Cell::new(0);
     let refresh = || {
         refreshes.set(refreshes.get() + 1);
@@ -42,5 +42,5 @@ fn a_selection_that_ran_every_failed_test_agrees_and_one_that_ran_nothing_is_not
     assert_eq!(judge(&Selection::Unmapped("Cargo.toml is a build input".to_owned()), LOG, refresh), 0);
     assert_eq!(refreshes.get(), 0);
     let over: BTreeSet<Test> = (0..=MOST_BEFORE_PUSH).map(|index| test("north-base", &index.to_string())).collect();
-    assert!(matches!(agreement(&Selection::Tests { tests: over, file_level: Vec::new(), added: Vec::new() }, &failed(LOG)), Agreement::NotJudged(_)));
+    assert!(matches!(agreement(&Selection::Tests { tests: over, file_level: Vec::new() }, &failed(LOG)), Agreement::NotJudged(_)));
 }

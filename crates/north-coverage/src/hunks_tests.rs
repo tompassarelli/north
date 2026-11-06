@@ -13,10 +13,7 @@ fn a_span_shifts_past_earlier_hunks_and_goes_stale_when_a_hunk_lands_inside_it()
 }
 
 #[test]
-fn a_removed_line_that_starts_with_two_dashes_is_content_not_a_file_header_and_an_added_test_is_named() {
+fn a_removed_line_that_starts_with_two_dashes_is_content_not_a_file_header() {
     let files = parse("diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -3 +2,0 @@\n--- comment\n@@ -9 +8 @@\n-x\n+y\n");
     assert_eq!(files["src/a.rs"].len(), 2);
-    let added = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -3,0 +4,6 @@ fn b() {\n+#[test]\n+#[should_panic]\n+fn first_one() {\n+}\n+\n+fn helper() {}\n@@ -9 +12 @@ mod tests {\n-fn old_one() {\n+fn old_one_renamed() {\n";
-    assert_eq!(added_tests(added), BTreeMap::from([("src/a.rs".to_owned(), vec!["first_one".to_owned()])]));
 }
-

@@ -23,17 +23,10 @@ below does not trace. So the pre-push run can be the few tests that reach the ch
   changed line. Each function's span is carried from the map's commit to the lane's base through
   `git diff -U0 MAP BASE`.
   - A function that was edited since the map was recorded selects every test reaching its file.
-  - A line outside every function (a constant, a type, a `use`, a macro) cannot be traced to one
-    function, so it selects every test reaching its whole file, as an edited-since-map function
-    does. A file with no function in the map selects the tests reaching its crate, and a new file
-    selects nothing itself, since only the `mod` line in a changed parent compiles it.
-  - A run-time input (a harness table, `src/cli/help.txt`, `.safe-push`, a file under `tests/` that
-    is not Rust) selects every test reaching the Rust sources that name its file name
-    (`git grep` at the head). Cargo.toml, Cargo.lock, build.rs and the other toolchain inputs,
-    and an input no Rust source names, run nothing before the push.
-  - A test the lane adds (`#[test]` and its function name, read from the added diff lines) is not
-    in the map, so it runs by name in its package and target, and its failure after the push is
-    not a miss. A map over 3 days old or a selection of over 400 tests also runs nothing.
+  - A line outside every function (a constant, a type, a `use`, a macro, a new test) cannot be
+    traced, so it runs nothing before the push. Neither does an untraced input (Cargo.toml,
+    build.rs, a run-time table, a file under `tests/` that is not Rust), a new file, a map over
+    3 days old, or a selection of over 400 tests.
   - The full suite always runs after the push.
 - Always run: the `land.queue` lines in `.safe-push` name the tests that scan the whole tree rather
   than one module, so no coverage map can trace a change to them. Enqueue runs them before it
