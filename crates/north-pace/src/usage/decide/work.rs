@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
-use super::place::{Decision, place};
-use super::rank::rank;
 use super::{LEAD_FAILOVER_AFTER, PROXY_WEEK_CEILING};
 use super::state::{State, state};
-use super::world::{Label, ModelFamily, Name, Owner, Provider, Request, Session, Standing, Unix, World};
+use super::world::{Account, Label, ModelFamily, Name, Owner, Provider, Session, Standing, Unix, World};
+
+const WEEK_HOURS: f64 = 7.0 * 24.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -82,27 +82,30 @@ fn week_spent(account_state: State) -> bool {
 }
 
 fn week_headroom_target(world: &World, session: &Session) -> Option<Label> {
-    let request = request_of(world, session)?;
-    rank(world, &request).placeable().find(|entry| entry.account != session.account && !week_spent(entry.state)).map(|entry| entry.account.clone())
+    roomiest(world, session, |account_state| !week_spent(account_state))
 }
 
 fn hand_over_target(world: &World, session: &Session) -> Option<Label> {
-    match place(world, &request_of(world, session)?) {
-        Decision::Place { account, .. } => Some(account),
-        Decision::Refuse(_) => None,
-    }
+    roomiest(world, session, |_| true)
 }
 
-fn request_of(world: &World, session: &Session) -> Option<Request> {
-    Some(Request {
-        provider: provider_of(world, &session.account)?,
-        family: session.family,
-        owner: session.owner.clone(),
-        workstream: session.workstream.clone(),
-        expected: session.expected.clone(),
-        pin: None,
-        host: None,
-    })
+fn roomiest(world: &World, session: &Session, takes: impl Fn(State) -> bool) -> Option<Label> {
+    let provider = provider_of(world, &session.account)?;
+    let room = |account: &Account| match state(world, &account.label, session.family) {
+        open @ State::Open { week, week_resets, .. } if takes(open) => Some(account.weight * (100.0 - week.0).max(0.0) / hours_to(world, week_resets)),
+        _ => None,
+    };
+    world
+        .accounts
+        .iter()
+        .filter(|account| account.provider == provider && account.label != session.account)
+        .filter_map(|account| Some((room(account)?, &account.label)))
+        .max_by(|left, right| left.0.total_cmp(&right.0).then_with(|| right.1.cmp(left.1)))
+        .map(|(_, label)| label.clone())
+}
+
+fn hours_to(world: &World, at: Option<Unix>) -> f64 {
+    at.map_or(WEEK_HOURS, |at| ((at.0 - world.now.0) as f64 / 3600.0).max(1.0 / 60.0))
 }
 
 fn provider_of(world: &World, account: &Label) -> Option<Provider> {

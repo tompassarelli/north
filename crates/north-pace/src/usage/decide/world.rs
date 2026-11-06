@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Label(pub String);
@@ -158,31 +158,6 @@ pub enum EstimateSource {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Request {
-    pub provider: Provider,
-    pub family: ModelFamily,
-    pub owner: Owner,
-    pub workstream: Option<Workstream>,
-    pub expected: Expected,
-    pub pin: Option<Label>,
-    pub host: Option<Host>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Credit {
-    pub remaining: Usd,
-    pub expires_at: Unix,
-    pub read_at: Unix,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Crossing {
-    pub provider: Provider,
-    pub until: Unix,
-    pub gate: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct Clear {
     pub workstream: Workstream,
     pub p90: Usd,
@@ -198,8 +173,6 @@ pub struct Trip {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Settings {
-    pub reserve: BTreeMap<Provider, Percent>,
-    pub crossings: Vec<Crossing>,
     pub clears: Vec<Clear>,
 }
 
@@ -210,7 +183,5 @@ pub struct World<'a> {
     pub readings: &'a [Reading],
     pub limits: &'a [LimitEvent],
     pub sessions: &'a [Session],
-    pub tripped: &'a [Trip],
-    pub credit: Option<Credit>,
     pub settings: &'a Settings,
 }

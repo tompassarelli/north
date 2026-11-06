@@ -1,7 +1,6 @@
 mod landed_issues;
 mod pull;
 mod recalibrate;
-mod tripped;
 
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
@@ -106,25 +105,8 @@ pub fn run(arguments: &[String]) -> u8 {
             return 126;
         }
     };
-    if let Mode::Recommend { facets } = &mode {
-        return recommend(&mut command, facets);
-    }
     eprintln!("north worker-ledger: cannot run north threads: {}", command.exec());
     126
-}
-
-fn recommend(command: &mut Command, facets: &str) -> u8 {
-    let status = match command.status() {
-        Ok(status) => status,
-        Err(error) => {
-            eprintln!("north worker-ledger: cannot run north threads: {error}");
-            return 126;
-        }
-    };
-    if let Some(line) = tripped::line(facets) {
-        println!("{line}");
-    }
-    status.code().map_or(1, |code| u8::try_from(code).unwrap_or(1))
 }
 
 fn run_ids(arguments: &[&str]) -> Option<String> {

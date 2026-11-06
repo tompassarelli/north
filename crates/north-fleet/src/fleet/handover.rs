@@ -64,7 +64,7 @@ pub fn hand_over(
         })
         .collect();
     let settings = Settings::default();
-    let world = World { now, accounts: &accounts, readings: &observed.readings, limits: &limits, sessions: &sessions, tripped: &[], credit: None, settings: &settings };
+    let world = World { now, accounts: &accounts, readings: &observed.readings, limits: &limits, sessions: &sessions, settings: &settings };
     let previous = Assessments { all_out: fleet.all_out_announced().then_some(crate::usage::decide::AllOut { earliest_resume: None, announce: false }), ..Assessments::default() };
     let assessed = assess(&world, &previous);
     match &assessed.all_out {

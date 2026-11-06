@@ -2,7 +2,6 @@
 //! brief stated, this module turns the judgement into what the tick does: record warnings, trips, clears and outcomes,
 //! tell a tripped workstream's sessions once, and a tripped box's where its issue holds several boxes, and take clears
 //! from newer briefs and Tom's gate answers.
-mod ledger;
 mod state;
 #[cfg(test)]
 mod tests;
@@ -11,7 +10,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
-pub use ledger::{FILE as LEDGER_FILE, read as read_trips, trips as trips_in};
 pub use state::{Cleared, State};
 
 use super::decide::world::{BoxId, Clear, EstimateSource, Expected, Label, ModelFamily, Name, Owner, Session, Settings, Standing, Unix, Usd, Workstream, World};
@@ -79,8 +77,8 @@ pub fn judge(now_ms: u64, sessions: &[Spending], answers: &[Answer], previous: &
     let mut state = previous.clone();
     state.clears.extend(new_clears(sessions, answers, previous));
     let counted: Vec<Session> = sessions.iter().map(session).collect();
-    let settings = Settings { clears: state.clears.iter().map(|clear| Clear { workstream: Workstream(clear.workstream.clone()), p90: Usd(clear.p90), by: clear.by.clone() }).collect(), ..Settings::default() };
-    let world = World { now: Unix(i64::try_from(now_ms / 1000).unwrap_or(i64::MAX)), accounts: &[], readings: &[], limits: &[], sessions: &counted, tripped: &[], credit: None, settings: &settings };
+    let settings = Settings { clears: state.clears.iter().map(|clear| Clear { workstream: Workstream(clear.workstream.clone()), p90: Usd(clear.p90), by: clear.by.clone() }).collect() };
+    let world = World { now: Unix(i64::try_from(now_ms / 1000).unwrap_or(i64::MAX)), accounts: &[], readings: &[], limits: &[], sessions: &counted, settings: &settings };
     let assessed = assess(&world, &Assessments { spend: previous.spends(), ..Assessments::default() });
     let mut judged = Judged::default();
     for (scope, spend) in assessed.spend.iter().filter(|(_, spend)| spend.changed) {

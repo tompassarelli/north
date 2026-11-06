@@ -372,7 +372,7 @@ fn north_576_with_a_and_d_reading_headroom_after_their_parks_the_lead_on_c_goes_
     let rate = Rate::Pooled { points_per_usd: 1.0, n: 0 };
     let account = Account { provider: Provider::Claude, label: Label("a".into()), weight: 1.0, signed_in: [Machine("nexus".into())].into(), extra_usage_enabled: Some(false), extra_usage_spend: None, rates: Rates { five_hour: rate, week: rate } };
     let settings = Settings::default();
-    let world = World { now: Unix((NOW_MS / 1000) as i64), accounts: &[account], readings: &table.0.readings, limits: &table.0.limits, sessions: &[], tripped: &[], credit: None, settings: &settings };
+    let world = World { now: Unix((NOW_MS / 1000) as i64), accounts: &[account], readings: &table.0.readings, limits: &table.0.limits, sessions: &[], settings: &settings };
     assert!(matches!(view(&world, &Label("a".into()), Window::FiveHour), View::Stale { .. }), "a's 5-hour reading whose reset passed is unknown, not out");
 }
 

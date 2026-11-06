@@ -24,7 +24,6 @@ mod py;
 mod refresh;
 mod render;
 mod settings;
-pub mod shell;
 mod store;
 mod plain;
 mod table;
@@ -32,7 +31,7 @@ mod table;
 mod tests;
 mod web;
 
-const USAGE: &str = "usage: north usage [--refresh [--local]] [--json | --verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | decide --dry-run BRIEF | sample";
+const USAGE: &str = "usage: north usage [--refresh [--local]] [--json | --verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample";
 const PACED: [&str; 2] = ["claude", "gemini"];
 
 pub struct Places {
@@ -55,7 +54,6 @@ impl Places {
 
 enum Action {
     Sample,
-    Decide { brief: PathBuf },
     WritePaceGate,
     Fast { provider: String, cached: bool },
     Show { refresh: bool, json: bool, verbose: bool, remote: bool },
@@ -67,12 +65,6 @@ impl Action {
             && verb == "sample"
         {
             return Some(Self::Sample);
-        }
-        if let [verb, flag, brief] = arguments
-            && verb == "decide"
-            && flag == "--dry-run"
-        {
-            return Some(Self::Decide { brief: brief.into() });
         }
         let (mut json, mut verbose, mut local, mut refresh, mut write_gate, mut cached, mut fast) = (false, false, false, false, false, false, None);
         let mut rest = arguments.iter();
@@ -107,7 +99,6 @@ impl Action {
     fn perform(&self, db: &Connection, source: &store::Source, places: &Places, host: &Host) -> Result<(String, u8), String> {
         match self {
             Self::Sample => refresh::sample_readings(db, source, places, host).map(|rows| (format!("sampled {rows} readings"), 0)),
-            Self::Decide { brief } => decide(db, places, host, brief),
             Self::WritePaceGate => gate::write(db, &PACED, places, clock()).map(|verdicts| (verdicts.to_string(), 0)),
             Self::Fast { provider, cached } => fast::decide(db, source, places, provider, *cached, host),
             Self::Show { refresh, json, verbose, remote } => {
@@ -129,13 +120,6 @@ impl Action {
 
 pub fn handles(arguments: &[String]) -> bool {
     rows_request(arguments).is_some() || Action::parse(arguments).is_some()
-}
-
-fn decide(db: &Connection, places: &Places, host: &Host, brief: &Path) -> Result<(String, u8), String> {
-    let text = std::fs::read_to_string(brief).map_err(|error| format!("{}: {error}", brief.display()))?;
-    let registry = (host.registry)()?;
-    let shell = shell::Shell { db, policy: &places.policy, host: &host.name, registry: registry.as_ref(), directory: places.state.join("agents/usage") };
-    shell::dry_run(&shell, &text).map(|text| (text, 0))
 }
 
 fn rows_request(arguments: &[String]) -> Option<(&str, bool)> {
@@ -179,7 +163,6 @@ pub struct Host<'a> {
     pub ingest: &'a dyn Fn(&[u8]) -> Result<(), String>,
     pub run: &'a (dyn Fn(std::process::Command, std::time::Duration) -> Option<std::process::Output> + Sync),
     pub ssh: &'a dyn Fn(&[&str]) -> Vec<std::ffi::OsString>,
-    pub registry: &'a dyn Fn() -> Result<Box<dyn shell::Registry>, String>,
     pub token_headers: &'a dyn Fn(&Path) -> TokenHeaders,
 }
 
