@@ -7,7 +7,17 @@ case "$1" in
   capacity)
     case "$2 $3" in
       "offload choose") printf 'buildbox\n'; exit 0 ;;
-      "offload verdict") exit 0 ;;
+      "offload verdict")
+        [ -n "${STUB_VERDICTS:-}" ] || exit 0
+        mkdir -p "$STUB_VERDICTS"
+        if [ "$4" = hit ]; then
+          shift 4
+          for key in "$@"; do [ ! -f "$STUB_VERDICTS/$key" ] || printf '%s stubhost %s\n' "$key" "$(cat "$STUB_VERDICTS/$key")"; done
+          exit 0
+        fi
+        if [ "$9" = --pass ]; then printf '1000 %s' "${10}" >"$STUB_VERDICTS/$8"; else rm -f "$STUB_VERDICTS/$8"; fi
+        exit 0
+        ;;
       "offload run") [ -z "${STUB_OFFLOAD_EXEC:-}" ] || exec bash -euo pipefail -c "${!#}"; exit 0 ;;
     esac
     ;;
@@ -374,4 +384,69 @@ fn a_features_entry_over_its_cap_is_refused_before_the_push() {
     let landed = fixture.command_between(&clean, &over).output().unwrap();
     assert_eq!(landed.status.code(), Some(1), "the lander ran the check from the lane's own .safe-push and the cap refused the lane: {}", text(&landed));
     assert!(text(&landed).contains("over the 1200-character entry cap"), "{}", text(&landed));
+}
+
+const REUSED_CHECK: &str = "printf 'ran %s\\n' \"$*\" >>../check-runs\n[ ! -e ../defer ] || { echo 'head-north: not run before the push, no live runtime covers the checker code' >&2; exit 0; }\ngrep -q changed file.txt\n";
+
+fn reuse_fixture() -> Fixture {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: bash check.sh --no-build verify"), ("land.after", "file.txt :: bash check.sh verify")]);
+    fs::write(fixture.repo.join("check.sh"), REUSED_CHECK).unwrap();
+    git(&fixture.repo, &["add", "check.sh"]);
+    git(&fixture.repo, &["commit", "-qm", "check"]);
+    Fixture { head: git(&fixture.repo, &["rev-parse", "HEAD"]), ..fixture }
+}
+
+fn checked(fixture: &Fixture, base: &str, head: &str, after: bool) -> Output {
+    let mut command = fixture.command_between(base, head);
+    if after {
+        command.args(["--after", "--dry", "1"]);
+    }
+    command.env("STUB_VERDICTS", fixture.path("verdicts")).env("NORTH_LAND_SPANS", fixture.path("spans.jsonl")).output().unwrap()
+}
+
+fn check_runs(fixture: &Fixture) -> Vec<String> {
+    fs::read_to_string(fixture.path("check-runs")).unwrap_or_default().lines().map(str::to_owned).collect()
+}
+
+fn reused_spans(fixture: &Fixture) -> Vec<String> {
+    fs::read_to_string(fixture.path("spans.jsonl")).unwrap_or_default().lines().filter(|line| line.contains("reused verdict ")).map(str::to_owned).collect()
+}
+
+#[test]
+fn an_after_landing_check_whose_inputs_passed_before_the_push_reuses_that_verdict_and_reruns_once_an_input_changes() {
+    let fixture = reuse_fixture();
+    let pushed = checked(&fixture, &fixture.base, &fixture.head, false);
+    assert_eq!(pushed.status.code(), Some(0), "{}", text(&pushed));
+    assert_eq!(check_runs(&fixture), ["ran --no-build verify"]);
+
+    git(&fixture.repo, &["commit", "-q", "--allow-empty", "-m", "the lane landed as a new commit with the tree it was checked on"]);
+    let landed = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    let after = checked(&fixture, &fixture.base, &landed, true);
+    assert_eq!(after.status.code(), Some(0), "{}", text(&after));
+    assert_eq!(check_runs(&fixture), ["ran --no-build verify"], "the after-landing run re-ran a check whose inputs the pre-push run judged: {}", text(&after));
+    let spans = reused_spans(&fixture);
+    assert_eq!(spans.len(), 1, "{spans:?}");
+    assert!(spans[0].contains("bash check.sh verify") && spans[0].contains("\"cache\":\"hit\""), "{spans:?}");
+    assert!(text(&after).contains("land check: bash check.sh verify: reused verdict "), "{}", text(&after));
+
+    fs::write(fixture.repo.join("file.txt"), "changed again\n").unwrap();
+    git(&fixture.repo, &["commit", "-qam", "an input the check reads"]);
+    let moved = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    let rerun = checked(&fixture, &landed, &moved, true);
+    assert_eq!(rerun.status.code(), Some(0), "{}", text(&rerun));
+    assert_eq!(check_runs(&fixture), ["ran --no-build verify", "ran verify"], "a changed input did not re-run the after-landing check: {}", text(&rerun));
+    assert_eq!(reused_spans(&fixture).len(), 1);
+    a_pre_push_check_that_head_north_deferred_leaves_its_after_landing_line_to_run();
+}
+
+fn a_pre_push_check_that_head_north_deferred_leaves_its_after_landing_line_to_run() {
+    let fixture = reuse_fixture();
+    fs::write(fixture.path("defer"), "").unwrap();
+    let pushed = checked(&fixture, &fixture.base, &fixture.head, false);
+    assert_eq!(pushed.status.code(), Some(0), "{}", text(&pushed));
+    fs::remove_file(fixture.path("defer")).unwrap();
+    let after = checked(&fixture, &fixture.base, &fixture.head, true);
+    assert_eq!(after.status.code(), Some(0), "{}", text(&after));
+    assert_eq!(check_runs(&fixture), ["ran --no-build verify", "ran verify"], "a deferred pre-push pass stood in for the after-landing check: {}", text(&after));
+    assert!(reused_spans(&fixture).is_empty());
 }
