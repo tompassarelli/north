@@ -324,7 +324,29 @@ fn a_replay_divergence_that_flips_on_its_rerun_is_a_flaky_check_and_reverts_noth
     assert!(stdout.contains(&format!("runtime {} replayed it as recorded on the rerun", &suspect[..9])) && stdout.contains("a flaky check, not a commit's replay change; no commit is reverted"), "{stdout}");
     assert!(chain.reverts().is_empty(), "a check that flips between runs queued a revert: {stdout}");
     assert_eq!(chain.lander(), format!("runtimes/{}", chain.held));
-    assert!(chain.told().contains("file the flaky test on its owner"), "{}", chain.told());
+    assert!(!chain.state.join("north/lander-held").exists(), "a flaky check held the link: {stdout}");
+    assert!(stdout.contains("so the link is not held, and the next promotion replays the candidate again"), "{stdout}");
+    assert!(std::fs::read_to_string(chain.state.join("north/lander-unreached")).unwrap().starts_with(&format!("{candidate}\t1\t")), "{stdout}");
+    assert!(chain.told().contains("file the flaky test on its owner") && chain.told().contains("lander link not held"), "{}", chain.told());
+}
+
+// KEEP(bug): on 2026-11-06 at 7:50 PM a coverage hang in the candidate's first replay, which every rerun replayed as recorded, was judged flaky but held the lander link, so the lander stayed on 84372bec2 (north#688)
+#[test]
+fn a_candidate_whose_replay_flips_on_its_rerun_moves_the_lander_link_to_it() {
+    let chain = Chain::new();
+    let innocent = chain.commit("crates/north-landing/src/land/rule.rs", "Count a dropped connection as no verdict");
+    let candidate = chain.commit("docs/two.md", "Document another thing");
+    chain.runtime(&innocent, "echo 'replay: verdict landed'");
+    chain.runtime(&candidate, "echo x >> \"$0.replays\"; if [ \"$(wc -l < \"$0.replays\")\" -eq 1 ]; then echo 'replay: verdict failed'; else echo 'replay: verdict landed'; fi");
+    chain.current(&candidate);
+    let promoted = chain.promote();
+    let stdout = &promoted.stdout;
+    assert!(promoted.status, "{stdout}");
+    assert!(stdout.contains(&format!("runtime {} replayed it as recorded on the rerun", &candidate[..9])) && stdout.contains("1 flaky replay(s) the candidate replayed as recorded on its rerun"), "{stdout}");
+    assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
+    assert!(chain.reverts().is_empty(), "a check that flips between runs queued a revert: {stdout}");
+    assert!(!chain.state.join("north/lander-held").exists(), "a flaky check held the link: {stdout}");
+    assert!(chain.told().contains(&format!("the lander link follows {}", &candidate[..9])) && chain.told().contains("file the flaky test on its owner"), "{}", chain.told());
 }
 
 #[test]

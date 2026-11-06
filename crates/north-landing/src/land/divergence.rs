@@ -97,28 +97,45 @@ fn tell(runtimes: &Runtimes, text: &str) {
     }
 }
 
-pub fn judge(runtimes: &Runtimes, divergences: &[Divergence]) -> Result<String, String> {
+/// What a promotion does after its divergences are judged, when none of them holds the link.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Judged {
+    Follows(String),
+    Retry(String),
+}
+
+pub fn judge(runtimes: &Runtimes, divergences: &[Divergence]) -> Result<Judged, String> {
     let first = divergences.first().ok_or("no divergence to judge")?;
     let Some(held) = runtimes.held.map(sha) else { return Err(format!("{}; no held runtime to bisect from", first.named())) };
     let candidate = sha(runtimes.candidate);
     let Some(commits) = chain(runtimes.source, &held, &candidate) else { return Err(format!("{}; {}..{} is not a readable range in {}", first.named(), short(&held), short(&candidate), runtimes.source.display())) };
     let declared = declarations(runtimes.source, &commits);
     let kinds: BTreeSet<String> = declared.iter().map(|(_, kind, _)| kind.clone()).collect();
-    let Some(undeclared) = divergences.iter().find(|divergence| !kinds.contains(divergence.kind())) else {
-        let lines: Vec<String> = divergences
-            .iter()
-            .map(|divergence| {
-                let (commit, kind, reason) = declared.iter().find(|(_, kind, _)| kind == divergence.kind()).expect("declared kind");
-                format!("{}: declared by {} ({TRAILER} land.{kind} {reason})", divergence.named(), short(commit))
-            })
-            .collect();
-        for line in &lines {
-            println!("north land promote: {line}");
+    let (known, undeclared): (Vec<&Divergence>, Vec<&Divergence>) = divergences.iter().partition(|divergence| kinds.contains(divergence.kind()));
+    let mut flaky = 0;
+    for divergence in undeclared {
+        match bisected(runtimes, divergence, &held, &commits)? {
+            Judged::Follows(why) => {
+                println!("north land promote: {why}");
+                flaky += 1;
+            }
+            retry @ Judged::Retry(_) => return Ok(retry),
         }
+    }
+    let lines: Vec<String> = known
+        .iter()
+        .map(|divergence| {
+            let (commit, kind, reason) = declared.iter().find(|(_, kind, _)| kind == divergence.kind()).expect("declared kind");
+            format!("{}: declared by {} ({TRAILER} land.{kind} {reason})", divergence.named(), short(commit))
+        })
+        .collect();
+    for line in &lines {
+        println!("north land promote: {line}");
+    }
+    if !lines.is_empty() {
         tell(runtimes, &format!("north land promote: the lander link follows {} over {} declared replay change(s): {}", short(&candidate), lines.len(), lines.join("; ")));
-        return Ok(format!("{} declared replay change(s)", lines.len()));
-    };
-    bisected(runtimes, undeclared, &held, &commits)
+    }
+    Ok(Judged::Follows(format!("{} declared replay change(s), {flaky} flaky replay(s) the candidate replayed as recorded on its rerun", lines.len())))
 }
 
 fn points(home: &Path, held: &str, commits: &[String]) -> Vec<Point> {
@@ -153,7 +170,7 @@ fn diverges_at(runtimes: &Runtimes, divergence: &Divergence, commits: &[String],
     }
 }
 
-fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &[String]) -> Result<String, String> {
+fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &[String]) -> Result<Judged, String> {
     let mut points = points(runtimes.home, held, commits);
     if points.first().is_none_or(|point| point.sha != held) || points.last().is_none_or(|point| commits.last() != Some(&point.sha)) {
         return Err(format!("{}; the held or candidate runtime has no binary to bisect with", divergence.named()));
@@ -183,8 +200,8 @@ fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &
             At::NoVerdict(why) => return halted(runtimes, divergence, &why),
         }
     }
-    if let Some(reason) = unconfirmed(runtimes, divergence, commits, &points[bad], &points[good]) {
-        return Err(reason);
+    if let Some(judged) = unconfirmed(runtimes, divergence, commits, &points[bad], &points[good], &points[points.len() - 1]) {
+        return judged;
     }
     let range = chain(runtimes.source, &points[good].sha, &points[bad].sha).unwrap_or_default();
     let suspects = suspects(runtimes.source, &range);
@@ -199,22 +216,27 @@ fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &
     Err(reason)
 }
 
-fn unconfirmed(runtimes: &Runtimes, divergence: &Divergence, commits: &[String], bad: &Point, good: &Point) -> Option<String> {
+fn unconfirmed(runtimes: &Runtimes, divergence: &Divergence, commits: &[String], bad: &Point, good: &Point, candidate: &Point) -> Option<Result<Judged, String>> {
     match (diverges_at(runtimes, divergence, commits, bad), diverges_at(runtimes, divergence, commits, good)) {
         (At::Diverges(true), At::Diverges(false)) => None,
-        (At::NoVerdict(why), _) | (_, At::NoVerdict(why)) => halted(runtimes, divergence, &why).err(),
-        (At::Unreplayable, _) | (_, At::Unreplayable) => halted(runtimes, divergence, "a runtime the bisect named could not replay the round again to confirm it").err(),
+        (At::NoVerdict(why), _) | (_, At::NoVerdict(why)) => Some(halted(runtimes, divergence, &why)),
+        (At::Unreplayable, _) | (_, At::Unreplayable) => Some(halted(runtimes, divergence, "a runtime the bisect named could not replay the round again to confirm it")),
         (bad_again, good_again) => {
             let flipped = |at: &At, diverged: bool, sha: &str| matches!(at, At::Diverges(again) if *again != diverged).then(|| format!("runtime {} replayed it {} on the rerun", short(sha), if diverged { "as recorded" } else { "differently" }));
             let flips: Vec<String> = [flipped(&bad_again, true, &bad.sha), flipped(&good_again, false, &good.sha)].into_iter().flatten().collect();
             let reason = format!("{}; {}, so the replay flips between runs in the same environment: a flaky check, not a commit's replay change; no commit is reverted; file the flaky test on its owner", divergence.named(), flips.join(" and "));
-            tell(runtimes, &format!("north land promote: lander link held: {reason}"));
-            Some(reason)
+            let matched = if bad.sha == candidate.sha { matches!(bad_again, At::Diverges(false)) } else { matches!(diverges_at(runtimes, divergence, commits, candidate), At::Diverges(false)) };
+            if matched {
+                tell(runtimes, &format!("north land promote: the lander link follows {}: {reason}; the candidate replayed the round as recorded on its rerun", short(&candidate.sha)));
+                return Some(Ok(Judged::Follows(reason)));
+            }
+            tell(runtimes, &format!("north land promote: lander link not held: {reason}; the candidate {} still replays it differently, so the next promotion replays it again", short(&candidate.sha)));
+            Some(Ok(Judged::Retry(reason)))
         }
     }
 }
 
-fn halted(runtimes: &Runtimes, divergence: &Divergence, why: &str) -> Result<String, String> {
+fn halted(runtimes: &Runtimes, divergence: &Divergence, why: &str) -> Result<Judged, String> {
     let reason = format!("{}; {why}, so the check environment decides nothing and no commit is bisected or reverted", divergence.named());
     tell(runtimes, &format!("north land promote: lander link held: {reason}"));
     Err(reason)

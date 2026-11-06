@@ -314,6 +314,7 @@ enum Outcome {
     Settled(String),
     Swap { link: PathBuf, target: PathBuf },
     Unreached { candidate: String, reason: String },
+    Retry { candidate: String, reason: String },
 }
 
 fn promote(options: &Options) -> Result<Outcome, String> {
@@ -349,8 +350,10 @@ fn promote(options: &Options) -> Result<Outcome, String> {
         let sha = target.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
         let source = repositories.iter().find(|repository| output(&repository.checkout, &["cat-file", "-e", &format!("{sha}^{{commit}}")]).is_ok_and(|output| output.status.success())).unwrap_or(&repositories[0]);
         let runtimes = divergence::Runtimes { home: &runtime.home, source: &source.checkout, queue: &source.queue, held: held_target.as_deref(), candidate: &target, dry_run: options.dry_run, replay: &replay };
-        let declared = divergence::judge(&runtimes, &divergences)?;
-        println!("north land promote: {declared}");
+        match divergence::judge(&runtimes, &divergences)? {
+            divergence::Judged::Follows(judged) => println!("north land promote: {judged}"),
+            divergence::Judged::Retry(reason) => return Ok(Outcome::Retry { candidate: sha, reason }),
+        }
         replayed += divergences.len();
     }
     if replayed == 0 {
@@ -401,6 +404,13 @@ pub fn run(arguments: &[String]) -> u8 {
         Ok(Outcome::Swap { link, target }) => settle(&link, &target),
         Ok(Outcome::Unreached { candidate, reason }) => {
             println!("north land promote: no verdict: {reason}; a replay that reached no verdict says nothing about the candidate, so the link is neither held nor bisected, and the next promotion retries");
+            if !options.dry_run {
+                link_hold::unreached(&Runtime::from_env().home, &candidate, &reason);
+            }
+            75
+        }
+        Ok(Outcome::Retry { candidate, reason }) => {
+            println!("north land promote: flaky: {reason}; a flaky check says nothing about the candidate, so the link is not held, and the next promotion replays the candidate again");
             if !options.dry_run {
                 link_hold::unreached(&Runtime::from_env().home, &candidate, &reason);
             }
