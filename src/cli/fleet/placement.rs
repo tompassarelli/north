@@ -151,12 +151,7 @@ fn recorded_launch(launch: &Launch, overrides: &Overrides) -> record::Launch {
 }
 
 fn recorded_decision(decision: &Decision, settled: &Result<Placed, Refusal>) -> record::Decision {
-    let target = match &decision.target {
-        Target::Cloud(lane) => record::Target::Cloud { account: lane.account.clone(), host: lane.host.clone(), credit: lane.credit.clone() },
-        Target::Account(account) => record::Target::Account(account.clone()),
-        Target::Held(why) => record::Target::Held(why.clone()),
-        Target::Unserved(why) => record::Target::Unserved(why.clone()),
-    };
+    let target = case::recorded_target(&decision.target);
     let outcome = match settled {
         Ok(placed) => record::Outcome::Placed { account: placed.account.clone(), note: placed.note.clone(), machine: placed.machine.as_ref().map(|machine| machine.name.clone()), need: placed.need.clone() },
         Err(refusal) => {

@@ -78,6 +78,11 @@ paths = ["crates/north-dispatch/src/**"]
 may_use = ["north-capacity", "north-fleet", "north-providers", "north-threads", "north-github-mirror"]
 
 [[crate_dag.crate]]
+name = "north-replay"
+paths = ["crates/north-replay/src/**"]
+may_use = ["north-base", "north-capacity", "north-dispatch", "north-landing"]
+
+[[crate_dag.crate]]
 name = "north-runtime"
 paths = ["crates/north-runtime/src/**"]
 may_use = ["north-capacity-host", "north-dispatch", "north-providers"]
@@ -126,13 +131,19 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph"]
+may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "graph", "verdict_cache"]
 
 [[module]]
 name = "strategy_types"
 paths = ["crates/north-strategy-types/src/**"]
 responsibility = "The decision records the kernel writes and strategies read: one Case and one Decision per decision kind."
 may_use = []
+
+[[module]]
+name = "replay"
+paths = ["crates/north-replay/src/**"]
+responsibility = "Strategy replay: the logged decision cases decided again by the linked code, their outcome counts beside the logged ones, and the declared invariants checked over the replayed decisions."
+may_use = ["capacity", "crate-roots", "foundation", "landing", "ops", "platform", "strategy_types"]
 
 [[module]]
 name = "foundation"
@@ -373,7 +384,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph"]
+may_use = ["strategy_types", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "replay"]
 
 [[module]]
 name = "verify"

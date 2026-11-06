@@ -55,15 +55,7 @@ pub struct Judged<'a> {
 
 pub fn judge(judged: &Judged, judgement: &Judgement, batch: &str, decide_us: u64) {
     let case = JudgeCase { verdict: verdict(judged.verdict), included: branches(judged.included), base_moved: judged.base_moved, streak: judged.streak, searched: judged.searched };
-    let decision = match judgement {
-        Judgement::Land => land::Judgement::Land,
-        Judgement::Halve(half) => land::Judgement::Halve(count(*half)),
-        Judgement::Culprit(detail) => land::Judgement::Culprit(detail.clone()),
-        Judgement::Rebuild => land::Judgement::Rebuild,
-        Judgement::RedMain(detail) => land::Judgement::RedMain(detail.clone()),
-        Judgement::Hold(reason) => land::Judgement::Hold(reason.clone()),
-        Judgement::Paused(detail) => land::Judgement::Paused(detail.clone()),
-    };
+    let decision = recorded_judgement(judgement);
     decision_log::record(Entry { kind: Kind::LandJudge, at: decision_log::now(), follows: Some(batch), case: &case, decision: &decision, decide_us });
 }
 
@@ -74,6 +66,18 @@ pub fn wave(wanted: usize, slots: Option<(usize, usize)>, width: usize) {
 
 pub fn sheriff(case: &land::SheriffCase, step: &land::SheriffStep) {
     decision_log::record(Entry { kind: Kind::LandSheriff, at: decision_log::now(), follows: None, case, decision: step, decide_us: 0 });
+}
+
+pub(super) fn recorded_judgement(judgement: &Judgement) -> land::Judgement {
+    match judgement {
+        Judgement::Land => land::Judgement::Land,
+        Judgement::Halve(half) => land::Judgement::Halve(count(*half)),
+        Judgement::Culprit(detail) => land::Judgement::Culprit(detail.clone()),
+        Judgement::Rebuild => land::Judgement::Rebuild,
+        Judgement::RedMain(detail) => land::Judgement::RedMain(detail.clone()),
+        Judgement::Hold(reason) => land::Judgement::Hold(reason.clone()),
+        Judgement::Paused(detail) => land::Judgement::Paused(detail.clone()),
+    }
 }
 
 fn verdict(verdict: &Verdict) -> land::Verdict {

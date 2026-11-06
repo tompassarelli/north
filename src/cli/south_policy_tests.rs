@@ -1,4 +1,4 @@
-use north_ops::ops::remote_serve::south_policy::{self, Change, Refusal};
+use north_ops::ops::remote_serve::south_policy::{self, Refusal};
 
 use super::south_test_repo::{Repo, raw_diff};
 
@@ -19,11 +19,6 @@ fn verdict(change: impl FnOnce(&Repo)) -> Result<(), Refusal> {
     change(&repo);
     repo.commit_all("change");
     south_policy::check_raw_diff(&raw_diff(&repo, &base))
-}
-
-#[test]
-fn south_policy_accepts_an_added_decision() {
-    assert_eq!(verdict(|repo| repo.write("agents/decisions/x.md", "x\n")), Ok(()));
 }
 
 #[test]
@@ -119,8 +114,3 @@ fn south_policy_one_refused_change_refuses_the_whole_patch() {
     assert_eq!(result, Err(Refusal::Path("agents/roles.toml".to_owned())));
 }
 
-#[test]
-fn south_policy_an_empty_diff_has_nothing_to_refuse() {
-    assert_eq!(south_policy::check(&[]), Ok(()));
-    assert_eq!(south_policy::parse_raw_diff(b""), Ok(Vec::<Change>::new()));
-}

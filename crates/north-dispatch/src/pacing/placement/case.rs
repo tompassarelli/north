@@ -226,3 +226,19 @@ fn document(config: &Config) -> DocumentMut {
 #[cfg(test)]
 #[path = "case_tests.rs"]
 mod tests;
+
+/// The target as the decision log records it.
+pub fn recorded_target(target: &gate::Target) -> north_strategy_types::placement::Target {
+    use north_strategy_types::placement::Target as Recorded;
+    match target {
+        gate::Target::Cloud(lane) => Recorded::Cloud { account: lane.account.clone(), host: lane.host.clone(), credit: lane.credit.clone() },
+        gate::Target::Account(account) => Recorded::Account(account.clone()),
+        gate::Target::Held(why) => Recorded::Held(why.clone()),
+        gate::Target::Unserved(why) => Recorded::Unserved(why.clone()),
+    }
+}
+
+/// Where placement targets the launch a logged case recorded, decided again from the case alone.
+pub fn replayed_target(case: &Case) -> Option<north_strategy_types::placement::Target> {
+    decide(case).ok().map(|decision| recorded_target(&decision.target))
+}

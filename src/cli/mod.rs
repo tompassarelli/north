@@ -25,6 +25,7 @@ mod remote_serve;
 mod remote_serve_tests;
 pub(crate) mod scoreboard;
 mod send;
+mod strategy;
 mod safe_push_result;
 mod session;
 #[cfg(test)]

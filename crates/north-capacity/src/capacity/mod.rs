@@ -40,3 +40,4 @@ pub mod cpus;
 pub mod local_machine;
 #[doc(hidden)]
 pub mod fixtures;
+pub mod replay;

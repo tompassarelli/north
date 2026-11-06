@@ -37,6 +37,41 @@ pub fn hour_file(root: &Path, kind: Kind, at: f64, suffix: &str) -> PathBuf {
     root.join(kind.name()).join(&stamp[..10]).join(format!("{}.{suffix}", &stamp[11..13]))
 }
 
+/// `30m`, `1h`, `7d` in seconds.
+pub fn span_seconds(span: &str) -> Option<f64> {
+    let unit = match span.chars().last()? {
+        'm' => 60.0,
+        'h' => 3600.0,
+        'd' => 86400.0,
+        _ => return None,
+    };
+    span[..span.len() - 1].parse::<f64>().ok().filter(|count| *count > 0.0).map(|count| count * unit)
+}
+
+/// Every line of `kind`'s hour files ending in `suffix` that cover `since` to `now`, compressed or not.
+pub fn lines(root: &Path, kind: Kind, suffix: &str, since: f64, now: f64) -> Vec<(PathBuf, String)> {
+    let mut found = Vec::new();
+    let mut hour = (since / 3600.0).floor() * 3600.0;
+    while hour <= now {
+        let plain = hour_file(root, kind, hour, suffix);
+        let packed = plain.with_extension(format!("{}.zst", plain.extension().and_then(|ext| ext.to_str()).unwrap_or("jsonl")));
+        let text = std::fs::read_to_string(&plain).ok().or_else(|| unpacked(&packed));
+        for line in text.unwrap_or_default().lines().filter(|line| !line.trim().is_empty()) {
+            found.push((plain.clone(), line.to_owned()));
+        }
+        hour += 3600.0;
+    }
+    found
+}
+
+fn unpacked(path: &Path) -> Option<String> {
+    if !path.is_file() {
+        return None;
+    }
+    let output = std::process::Command::new("zstd").args(["-q", "-d", "-c"]).arg(path).output().ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 /// The runtime that decides: `live:SHA` of the promoted runtime this process runs from, else `live:unpromoted`.
 pub fn strategy() -> String {
     let executable = std::env::current_exe().unwrap_or_default();

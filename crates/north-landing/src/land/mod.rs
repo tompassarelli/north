@@ -3,6 +3,7 @@ pub mod bisect;
 pub mod blame;
 pub mod candidate;
 mod steps;
+pub mod judge_case;
 pub mod check_coverage;
 pub mod checks;
 pub mod credential;

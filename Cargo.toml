@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/north-strategy-types", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror", "crates/north-goals", "crates/north-coverage", "crates/north-graph"]
-default-members = [".", "crates/north-strategy-types", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror", "crates/north-goals", "crates/north-coverage", "crates/north-graph"]
+members = ["crates/north-strategy-types", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-replay", "crates/north-github-mirror", "crates/north-goals", "crates/north-coverage", "crates/north-graph"]
+default-members = [".", "crates/north-strategy-types", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-replay", "crates/north-github-mirror", "crates/north-goals", "crates/north-coverage", "crates/north-graph"]
 
 [workspace.dependencies]
 crossterm = "0.28.1"
@@ -48,6 +48,7 @@ autobins = false
 north-core = { path = "crates/north-core" }
 north-capacity-host = { path = "crates/north-capacity-host" }
 north-ops = { path = "crates/north-ops" }
+north-replay = { path = "crates/north-replay" }
 north-dispatch = { path = "crates/north-dispatch" }
 north-github-mirror = { path = "crates/north-github-mirror" }
 north-goals = { path = "crates/north-goals" }

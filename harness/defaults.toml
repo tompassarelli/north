@@ -1384,3 +1384,51 @@ unit = "seconds cargo-mutants may spend on a build host, baseline build included
 source = "prior: the run stops at the first caught mutant, and a warm offload slot rebuilds one north crate and its test binary per mutant in about a minute, so 15 minutes covers the baseline and about ten mutants (north#635, 2026-11-06)"
 fallback = "none; the land check reads this value"
 consumers = ["crates/north-landing/src/land/scans/test_admission/limits.rs"]
+
+[replay_five_hour_floor_points]
+value = 5
+allowed = { min = 0, max = 100 }
+unit = "percentage points of a Claude account's five-hour window a placed launch must leave unspent; strategy replay refuses a change that places a launch on an account with fewer points left"
+source = "prior: placement refuses an account at 95% of its five-hour window (crates/north-pace/src/pace/exhaustion.rs FIVE_HOUR_STOP), so 5 points is the headroom today's placement already keeps"
+fallback = "none: strategy replay always checks the floor"
+consumers = ["crates/north-replay/src/bounds.rs"]
+
+[replay_week_floor_points]
+value = 0
+allowed = { min = 0, max = 100 }
+unit = "percentage points of a Claude account's weekly window a placed launch must leave unspent; strategy replay refuses a change that places a launch on an account with fewer points left"
+source = "prior: placement refuses a week the provider reports exhausted (crates/north-pace/src/pace/exhaustion.rs WEEK_EXHAUSTED), so only a spent week is out"
+fallback = "none: strategy replay always checks the floor"
+consumers = ["crates/north-replay/src/bounds.rs"]
+
+[replay_landing_p90_seconds]
+value = 60
+allowed = { min = 1, max = 604800 }
+unit = "seconds a replayed ticket may take from the candidate round that first carried it to the judgement that lands it, at the 90th percentile, before strategy replay refuses a change to the lander's judgement"
+source = "tom: queue-to-main p90 under 60 s is the landing contract (north#643, 2026-11-06)"
+fallback = "none: strategy replay always checks the tail"
+consumers = ["crates/north-replay/src/bounds.rs"]
+
+[replay_outcome_shift_ratio]
+value = 2
+allowed = { min = 1, max = 1000 }
+unit = "factor by which an outcome's replayed count may exceed or fall below the logged count, per decision kind, before strategy replay refuses a change"
+source = "prior: a rule change is meant to move a few percent of decisions; two-fold is far outside that, and ten-fold is a rule that decides a different thing"
+fallback = "none: strategy replay always checks the shift"
+consumers = ["crates/north-replay/src/bounds.rs"]
+
+[replay_outcome_shift_min_cases]
+value = 20
+allowed = { min = 1, max = 100000000 }
+unit = "cases of one outcome, logged or replayed, below which strategy replay does not judge that outcome's count shift"
+source = "prior: under twenty cases a doubling is one or two decisions, which the day's mix explains"
+fallback = "none: strategy replay always applies the floor"
+consumers = ["crates/north-replay/src/bounds.rs"]
+
+[replay_budget_seconds]
+value = 5
+allowed = { min = 1, max = 3600 }
+unit = "seconds the replay of a lane that touches a replayed decision may run before the pre-push scan refuses it as too slow to gate a landing"
+source = "tom: the pre-push replay runs in under 5 seconds (north#643, 2026-11-06)"
+fallback = "none: the scan always applies the budget"
+consumers = ["crates/north-replay/src/bounds.rs"]

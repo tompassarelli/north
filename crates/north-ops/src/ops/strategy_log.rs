@@ -23,7 +23,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let now = decision_log::now();
     match words.as_slice() {
         ["log", "check"] => check(&root, now - 3600.0, now),
-        ["log", "check", "--since", since] => match seconds(since) {
+        ["log", "check", "--since", since] => match decision_log::span_seconds(since) {
             Some(span) => check(&root, now - span, now),
             None => usage(),
         },
@@ -36,17 +36,6 @@ pub fn run(arguments: &[String]) -> u8 {
 fn usage() -> u8 {
     eprintln!("{USAGE}");
     2
-}
-
-/// `30m`, `1h`, `7d` in seconds.
-fn seconds(span: &str) -> Option<f64> {
-    let unit = match span.chars().last()? {
-        'm' => 60.0,
-        'h' => 3600.0,
-        'd' => 86400.0,
-        _ => return None,
-    };
-    span[..span.len() - 1].parse::<f64>().ok().filter(|count| *count > 0.0).map(|count| count * unit)
 }
 
 #[derive(Default)]
@@ -80,7 +69,7 @@ fn check(root: &Path, since: f64, now: f64) -> u8 {
 fn snapshot_hashes(root: &Path, since: f64, now: f64) -> (BTreeSet<String>, bool) {
     let mut failed = false;
     let mut hashes = BTreeSet::new();
-    for (path, line) in lines(root, Kind::Admission, "snapshots.jsonl", since, now) {
+    for (path, line) in decision_log::lines(root, Kind::Admission, "snapshots.jsonl", since, now) {
         match serde_json::from_str::<Snapshot<admission::Snapshot>>(&line) {
             Ok(snapshot) => {
                 hashes.insert(snapshot.hash);
@@ -97,7 +86,7 @@ fn snapshot_hashes(root: &Path, since: f64, now: f64) -> (BTreeSet<String>, bool
 /// The lines of one kind from `since` on, each parsed into its types; admission calls add the snapshot they name to `named`.
 fn tally(root: &Path, kind: Kind, since: f64, now: f64, named: &mut Vec<(PathBuf, String)>) -> Tally {
     let mut tally = Tally::default();
-    for (path, line) in lines(root, kind, "jsonl", since, now) {
+    for (path, line) in decision_log::lines(root, kind, "jsonl", since, now) {
         let parsed = match kind {
             Kind::Placement => parse::<placement::Case, placement::Decision>(&line).map(|(at, us, _)| (at, us)),
             Kind::Admission => parse::<admission::Case, admission::Decision>(&line).map(|(at, us, case)| {
@@ -137,30 +126,6 @@ fn summary(kind: Kind, tally: &mut Tally) -> String {
         _ => String::new(),
     };
     format!("{}: {} lines, {} unparsed{timing}", kind.name(), tally.lines, tally.unparsed.len())
-}
-
-/// Every line of `kind`'s hour files ending in `suffix` that cover `since` to `now`, compressed or not.
-fn lines(root: &Path, kind: Kind, suffix: &str, since: f64, now: f64) -> Vec<(PathBuf, String)> {
-    let mut found = Vec::new();
-    let mut hour = (since / 3600.0).floor() * 3600.0;
-    while hour <= now {
-        let plain = decision_log::hour_file(root, kind, hour, suffix);
-        let packed = plain.with_extension(format!("{}.zst", plain.extension().and_then(|ext| ext.to_str()).unwrap_or("jsonl")));
-        let text = std::fs::read_to_string(&plain).ok().or_else(|| unpacked(&packed));
-        for line in text.unwrap_or_default().lines().filter(|line| !line.trim().is_empty()) {
-            found.push((plain.clone(), line.to_owned()));
-        }
-        hour += 3600.0;
-    }
-    found
-}
-
-fn unpacked(path: &Path) -> Option<String> {
-    if !path.is_file() {
-        return None;
-    }
-    let output = Command::new("zstd").args(["-q", "-d", "-c"]).arg(path).output().ok()?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// Compresses each closed hour file and deletes each day directory older than `days`.

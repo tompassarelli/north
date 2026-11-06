@@ -49,7 +49,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("worktree-layout-check", crate::lanes::layout_check),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
     ("lane-gc", crate::lanes::lane_gc),
-    ("strategy", crate::ops::strategy_log::run),
+    ("strategy", super::strategy::run),
     ("repo", crate::lanes::repo_verb),
     ("target-seed", crate::lanes::target_seed),
     ("pin-retire", crate::lanes::pin_retire),

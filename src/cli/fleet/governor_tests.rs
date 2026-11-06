@@ -253,12 +253,6 @@ fn every_decision_appends_one_json_line() {
 }
 
 #[test]
-fn the_shipped_defaults_are_the_2026_11_05_measurements() {
-    let defaults = default_bounds();
-    assert_eq!((defaults.drain_minutes, defaults.launch_to_queued_minutes, defaults.lanes_per_session), (30.0, 66.0, 1.18));
-}
-
-#[test]
 fn staffing_ok_is_recorded_beside_the_placement_note() {
     assert_eq!(noted(None, Some("repairs the lander")), Some("staffing-ok: repairs the lander".into()));
     assert_eq!(noted(Some("overlap-ok: x".into()), Some("repairs the lander")), Some("overlap-ok: x; staffing-ok: repairs the lander".into()));

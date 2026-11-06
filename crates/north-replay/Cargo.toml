@@ -1,0 +1,24 @@
+[package]
+name = "north-replay"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-capacity = { path = "../north-capacity" }
+north-dispatch = { path = "../north-dispatch" }
+north-landing = { path = "../north-landing" }
+north-strategy-types = { path = "../north-strategy-types" }
+serde.workspace = true
+serde_json.workspace = true
+toml_edit.workspace = true
+
+[dev-dependencies]
+north-capacity = { path = "../north-capacity", features = ["test-support"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

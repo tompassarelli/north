@@ -397,6 +397,47 @@ build does, and a heavy lease gives it only 6 CPUs. On 6 CPUs the full-volume we
 under about 33 µs a call. If the first week's measured replay misses that, the 10-second sampling rule
 applies, and replay prints the resolution it ran at.
 
+## Replay against declared invariants (built 2026-11-06)
+
+`north strategy replay [--since 24h] [--invariants] [--budget]` is the first replay that ships. It runs
+the decisions the binary links over the logged cases and judges the replayed answers, not only their
+equality with the logged ones. It needs no strategy crate yet: `north-replay` calls the decide
+functions where they live through three seams (`capacity::replay::reason`, `land::judge_case::judge`,
+`placement::case::replayed_target`), so a change to any of them is replayed by the next build.
+
+- **Outcome counts.** Per kind (admission by reason, placement by target, lander judgement by kind) the
+  replayed counts print beside the logged ones. A count whose replayed or logged side has at least
+  `replay_outcome_shift_min_cases` cases and differs from the other side by more than
+  `replay_outcome_shift_ratio` refuses the change and prints both counts. A planted rule that defers
+  every admission on a day where 25 of 300 calls deferred is refused as `admission DEFER_QUEUED:
+  logged 25, replayed 300`.
+- **Quota floor.** The account placement targets keeps `replay_five_hour_floor_points` of its
+  five-hour window and `replay_week_floor_points` of its week unspent. The bounds are harness
+  defaults, not the constants placement itself uses, so a change to placement's own stop cannot
+  move the bound with it. The log holds Claude usage windows only: GitHub's remaining calls are read by
+  no decision the log records, so the 1,000-call GitHub floor of north#643 has no case to judge until
+  the lander's cases carry it.
+- **Slot time.** A lease asked from inside an offload slot (`holds_offload_slot`) is never deferred
+  behind the land check that waits for that slot. Reapplying the parent of `8d4c5d10a` (the request
+  without its slot flag) deferred every such lease on 2026-11-06 and held five of six gex45 slots for 60
+  to 80 minutes; the same replay of that parent exits 1 and prints `slot-time:` with the recorded time
+  of each deferral. Cases logged before the flag existed do not carry it, so the invariant checks the
+  cases from `8d4c5d10a` on.
+- **Landing tail.** A ticket's landing time is the check time of the rounds that carried it (batch line
+  to judge line) until the replayed judgement lands it, so idle gaps between rounds and pauses on a
+  broken main stay out, and a ticket the log landed but the replay holds counts as never landing. The
+  90th percentile must stay within `replay_landing_p90_seconds`.
+
+`--invariants` adds the invariant lines and their refusals to the counts and the shift check, which
+always run. `--budget` also refuses a replay slower than `replay_budget_seconds`. Exit is 0 when nothing
+is refused, 1 when something is, 2 for bad use or a log that is off.
+
+Before a push, `north land scan strategy-replay BASE..HEAD` (called by safe-push after the policy
+sweep) lists the range's changed files and, when one is a decide function, the placement gate, admission
+or the lander's judgement, builds the lane's north through `bin/head-north` and runs the command with
+`--since 24h --invariants --budget`. A host whose north runtime predates the scan skips it with a
+printed line until `north runtime update`.
+
 ## Loading
 
 `north-strategy` is a pure `no_std` leaf crate linked into north, as laid out under

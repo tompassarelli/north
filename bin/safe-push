@@ -415,6 +415,11 @@ policy_sweep_scan() {
   north land scan policy-sweep "$1"
 }
 
+strategy_replay_scan() {
+  [[ "$(north land scan --help 2>&1)" == *strategy-replay* ]] || { echo "safe-push: this host's north runtime predates north land scan strategy-replay; the replay of a lane that touches a logged decision is skipped until north runtime update." >&2; return 0; }
+  north land scan strategy-replay "$1"
+}
+
 publication_scan() {
   north land scan publication "$1" "$2"
 }
@@ -1001,7 +1006,7 @@ candidate_checks() {
     return
   fi
   north land scan dep-gate "$2..$3" && tool_removal_scan "$2..$3" && test_integrity_scan "$2..$3" \
-    && test_admission_scan "$2..$3" && policy_sweep_scan "$2..$3" && land_checks_call "$2" "$3"
+    && test_admission_scan "$2..$3" && policy_sweep_scan "$2..$3" && strategy_replay_scan "$2..$3" && land_checks_call "$2" "$3"
 }
 
 # Prints "ok" or the farm URL (else the log path) of the failed check on the
@@ -1457,7 +1462,7 @@ candidate_verdict() {
     class=transient detail="this host's north runtime predates safe-push; run north runtime update"
   elif ! { run_language_gate "$base" "$head" && native_ref_scan && north land scan secrets "$base..$head" \
       && denylist_scan "$base" "$head" main && commit_email_scan "$base..$head" && north land scan dep-gate "$base..$head" \
-      && tool_removal_scan "$base..$head" && test_integrity_scan "$base..$head" && policy_sweep_scan "$base..$head"; } >>"$log" 2>&1; then
+      && tool_removal_scan "$base..$head" && test_integrity_scan "$base..$head" && policy_sweep_scan "$base..$head" && strategy_replay_scan "$base..$head"; } >>"$log" 2>&1; then
     :
   elif land_checks_call "$base" "$head" >>"$log" 2>&1; then
     class=green detail=$head

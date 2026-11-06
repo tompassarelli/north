@@ -867,6 +867,7 @@ dependencies = [
  "north-guard",
  "north-landing",
  "north-ops",
+ "north-replay",
  "north-runtime",
  "north-strategy-types",
  "north-tui",
@@ -1129,6 +1130,21 @@ dependencies = [
  "sha2",
  "tempfile",
  "time",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-replay"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-capacity",
+ "north-dispatch",
+ "north-landing",
+ "north-strategy-types",
+ "serde",
+ "serde_json",
+ "tempfile",
  "toml_edit",
 ]
 
