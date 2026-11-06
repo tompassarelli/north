@@ -24,4 +24,5 @@ The access plan removes every direct channel gex45 controls that becomes code or
 
 - Push through a key held by gex45 (the earlier design): rejected by the access plan.
 - A queue the laptop reads from a shared store (Nexus ledger): adds a second hop and a service on Nexus; pull needs only the ssh route that exists.
-- A long-lived ssh tunnel opened from the laptop to gex45: equal security, but a tunnel outlives the work and needs its own supervision; one short ssh call per poll needs none.
+- A fresh ssh connection per poll: chosen first, because it needs no supervision, and replaced on 2026-11-06 by an ssh master of the taker's own per host. A fresh handshake to ccx33 took 5.7 s at 5:35 PM against 0.48 s through a master, which held a pulled run past the 10 s the pull promises. The master is bounded by construction: it opens from the laptop (gex45 still gains no channel, as the access plan requires), it is apart from the shared host master that bulk transfers clog (north#682), and `ControlPersist=120` closes it after two idle minutes, so it never outlives the taker's polling.
+- A long-lived ssh tunnel opened from the laptop to gex45 and supervised as its own service: the taker's own master gives the same reuse and closes itself when idle.
