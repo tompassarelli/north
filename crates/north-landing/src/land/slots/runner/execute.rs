@@ -147,25 +147,53 @@ impl Shared {
         joined
     }
 
+    async fn spread(self: &Arc<Self>, ordered: &[String], plan: &Plan) -> Arc<Self> {
+        let movable = |command: &String| self.offload_host_for(command).is_some() && !shared_build::uses_head_north(command);
+        let joined: Vec<&String> = ordered.iter().filter(|command| self.offload_host_for(command).is_some() && !plan.is_expensive(command) && batch::joins(command)).collect();
+        let joined = if joined.len() >= 2 { joined } else { Vec::new() };
+        let mut jobs: Vec<Vec<&String>> = Vec::new();
+        if !joined.is_empty() && joined.iter().all(|command| movable(command)) {
+            jobs.push(joined.clone());
+        }
+        jobs.extend(ordered.iter().filter(|command| !joined.contains(command) && movable(command)).map(|command| vec![command]));
+        if jobs.len() < 2 || !self.environment.offload_host.is_empty() {
+            return Arc::clone(self);
+        }
+        let count = jobs.len().to_string();
+        let Some(output) = self.north(&["capacity", "offload", "choose", "--any", "--count", &count]).await.filter(|output| output.status.success()) else { return Arc::clone(self) };
+        let hosts: Vec<String> = String::from_utf8_lossy(&output.stdout).lines().map(str::trim).filter(|host| !host.is_empty()).map(str::to_owned).collect();
+        if hosts.len() != jobs.len() {
+            return Arc::clone(self);
+        }
+        let pinned = &self.arguments.runner_host;
+        let elsewhere: Vec<&String> = hosts.iter().filter(|host| *host != pinned).collect();
+        if !elsewhere.is_empty() {
+            say(&format!("safe-push: {} of {} offloaded land check job(s) run on {} beside {pinned}, by free slots", elsewhere.len(), jobs.len(), elsewhere.iter().map(|host| host.as_str()).collect::<Vec<_>>().join(", ")));
+        }
+        let placed = jobs.iter().zip(&hosts).flat_map(|(job, host)| job.iter().map(|command| ((*command).clone(), host.clone()))).collect();
+        Arc::new(Self { placed: Arc::new(placed), ..(**self).clone() })
+    }
+
     pub(super) async fn run_list(self: &Arc<Self>, commands: &[String]) -> Listed {
         let plan = Plan::of(commands, &self.paths, &Records::at(Records::default_path()).read());
         if !plan.expensive.is_empty() {
             say(&format!("safe-push: {} expensive land check(s) run in fail-fast order and are cancelled at the first failure: {}", plan.expensive.len(), plan.expensive.join("; ")));
         }
+        let ordered: Vec<String> = plan.ordered().cloned().collect();
+        let this = self.spread(&ordered, &plan).await;
         let (stop, stopped) = watch::channel(false);
         let stop = Arc::new(stop);
-        tokio::spawn(forward_cancel(self.cancel.clone(), Arc::clone(&stop)));
-        let expensive = Arc::new(Self { cancel: stopped, fail_fast: true, ..(**self).clone() });
-        let ordered: Vec<String> = plan.ordered().cloned().collect();
+        tokio::spawn(forward_cancel(this.cancel.clone(), Arc::clone(&stop)));
+        let expensive = Arc::new(Self { cancel: stopped, fail_fast: true, ..(*this).clone() });
         let mut offloaded = JoinSet::new();
         let mut local = Vec::new();
-        let joined = self.spawn_batch(&ordered, &plan, &stop, &mut offloaded);
+        let joined = this.spawn_batch(&ordered, &plan, &stop, &mut offloaded);
         for (index, command) in ordered.iter().enumerate() {
             if joined.contains(&index) {
                 continue;
             }
-            if self.offload_host_for(command).is_some() {
-                let shared = if plan.is_expensive(command) { Arc::clone(&expensive) } else { Arc::clone(self) };
+            if this.offload_host_for(command).is_some() {
+                let shared = if plan.is_expensive(command) { Arc::clone(&expensive) } else { Arc::clone(&this) };
                 let (command, stop) = (command.clone(), Arc::clone(&stop));
                 offloaded.spawn(async move {
                     let status = Arc::clone(&shared).run_check(command.clone(), false).await;
@@ -180,7 +208,7 @@ impl Shared {
         }
         let mut failed = 0;
         if !local.is_empty() {
-            let status = self.run_local(&local, &plan, &expensive, &stop).await;
+            let status = this.run_local(&local, &plan, &expensive, &stop).await;
             if status != 0 {
                 stop.send_replace(true);
             }
@@ -194,7 +222,7 @@ impl Shared {
         let mut overflowed = Vec::new();
         for (index, status) in results {
             match ordered.get(index) {
-                Some(command) if self.overflows(command, status) => overflowed.push(command.clone()),
+                Some(command) if this.overflows(command, status) => overflowed.push(command.clone()),
                 _ => first_failure(&mut failed, status),
             }
         }

@@ -4,7 +4,7 @@ use crate::dispatch::measure::{self, Measure};
 use crate::platform::process::run_within;
 use std::time::Duration;
 
-use super::ship::{OFFLOAD_ROOT, SLOTS, quote};
+use super::ship::{OFFLOAD_ROOT, job_cap, quote};
 
 const LIMIT: Duration = Duration::from_secs(15);
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
@@ -37,9 +37,8 @@ impl Slots {
         Some(Self { running, queued, cores })
     }
 
-    /// The jobs running or queued, with `taken` more on their way, per job the host runs at once: its cores over a land check's, at least one and at most its slots.
-    fn backlog(&self, per_check: f64, taken: usize) -> f64 {
-        let cap = (self.cores / (per_check.ceil() as u32).max(1)).clamp(1, SLOTS);
+    /// The jobs running or queued, with `taken` more on their way, per job the host runs at once.
+    fn backlog(&self, cap: u32, taken: usize) -> f64 {
         f64::from(self.running + self.queued + taken as u32) / f64::from(cap)
     }
 }
@@ -49,7 +48,7 @@ impl Room {
     fn busy(&self, cores: f64, taken: usize) -> f64 {
         let limit = self.admission.limit_cpus.max(1.0);
         let committed = (limit - self.admission.free_cpus() + cores * taken as f64) / limit;
-        self.slots.map_or(committed, |slots| slots.backlog(cores, taken).max(committed))
+        self.slots.map_or(committed, |slots| slots.backlog(job_cap(slots.cores, cores.ceil() as u32, self.measure.memory_total_mib as u32), taken).max(committed))
     }
 }
 

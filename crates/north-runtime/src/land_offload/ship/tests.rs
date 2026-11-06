@@ -118,11 +118,21 @@ fn reaping_an_owner_kills_its_remote_runs_and_leaves_every_other_run_alone() {
 #[test]
 fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
     assert_eq!(remote_run_flake("echo plain", Some(FLAKE_WITHOUT_DEV_SHELL), &[], None), "plain\n");
-    let (stdout, stderr) = remote_run("printf '%s' \"$SAFE_PUSH_LAND_CPUS\"", None, &[("SAFE_PUSH_LANDING", "1")], None, "cores=20 usable=16 cap=4");
+    let (stdout, stderr) = remote_run("printf '%s' \"$SAFE_PUSH_LAND_CPUS\"", None, &[("SAFE_PUSH_LANDING", "1")], None, "cores=16 cap=4");
     assert_eq!(stdout, "4", "a slot command's lease is sized by its share of the host's cores");
     assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-check --timeout-seconds 10"), "{stderr}");
     let (_, stderr) = remote_run("true", None, &[], None, "");
     assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-offload --timeout-seconds 10"), "{stderr}");
+    let job = super::job_mib();
+    let cases = [(8, 4, 31_000, 2, "ccx33 at 4 cores a land check: its heavy leases keep the CPU headroom, so no 4/5 cut leaves it one job"), (20, 4, 64_000, 5, "gex45"), (8, 1, 3 * job, 3, "memory caps a host whose land checks charge one core"), (2, 4, 64_000, 1, "a host smaller than one land check still runs one")];
+    for (cores, per, memory, expected, why) in cases {
+        let meminfo = tempfile::NamedTempFile::new().unwrap();
+        fs::write(meminfo.path(), format!("MemTotal:       {} kB\n", memory * 1024)).unwrap();
+        let script = format!("per={per}\n{}echo \"$cap\"", super::script::CAP.replace("@SLOTS@", &super::SLOTS.to_string()).replace("@JOB_MIB@", &job.to_string()));
+        let output = Command::new("sh").args(["-c", &script]).env("AGENT_CAPACITY_CORES", cores.to_string()).env("AGENT_CAPACITY_MEMINFO", meminfo.path()).env_remove("NORTH_OFFLOAD_MAX_JOBS").output().unwrap();
+        let shell: u32 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap();
+        assert_eq!((shell, super::job_cap(cores, per, memory)), (expected, expected), "{why}");
+    }
 }
 
 #[test]
@@ -199,7 +209,7 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     let slot = home.path().join(".cache/land-offload/code-p-main");
     git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap(), &head]);
     fs::remove_dir_all(&slot).unwrap();
-    let script = super::script::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@HEADROOM_NUM@", "1").replace("@HEADROOM_DEN@", "1").replace("@SLOT_PORTS@", "");
+    let script = super::script::REMOTE.replace("@CAP@", super::script::CAP).replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@JOB_MIB@", "0").replace("@SLOT_PORTS@", "");
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
         .env("HOME", home.path())
@@ -431,12 +441,15 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     assert_eq!(fs::read_to_string(home.path().join("marker")).unwrap(), "built\n", "a later job in the slot builds on the target the job before it left");
     assert!(!home.path().join("ssh-calls").exists(), "a job for this host runs the slot script here and never reaches ssh");
     let sized = home.path().join("sized");
+    let meminfo = home.path().join("meminfo");
+    fs::write(&meminfo, "MemTotal:       67108864 kB\n").unwrap();
     let command = format!("printf '%s %s' \"$CARGO_BUILD_JOBS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", sized.display());
     let thirty = Command::new("setsid")
         .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "4"])
         .env("HOME", home.path())
         .env("PATH", &path)
         .env("NPROC", "30")
+        .env("AGENT_CAPACITY_MEMINFO", &meminfo)
         .env_remove("NORTH_OFFLOAD_MAX_JOBS")
         .env_remove("NORTH_OFFLOAD_ROOT")
         .env_remove("SAFE_PUSH_LAND_CPUS")
@@ -444,7 +457,7 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
         .output()
         .unwrap();
     assert!(thirty.status.success(), "{}", String::from_utf8_lossy(&thirty.stderr));
-    assert_eq!(fs::read_to_string(&sized).unwrap(), "4 4", "30 cores less a fifth run six 4-core jobs, not seven sharing five");
+    assert_eq!(fs::read_to_string(&sized).unwrap(), "5 5", "30 cores and 64 GiB run their six slots at once with 5 cores each, every job under a lease that keeps the host admission headroom, not six 4-core jobs under a fifth held back as well");
 }
 
 fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, String) {

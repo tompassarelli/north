@@ -344,6 +344,9 @@ fn stopped_mid_after_run(world: &World) {
     assert_eq!(verdicts(&landed_head), ["red-main"], "the rerun after run of {landed_head} recorded no single red verdict");
     let runs = fs::read_to_string(world.root.join("after-runs")).unwrap();
     assert!(runs.lines().any(|head| head == landed_head), "the restarted lander never reran the after run of {landed_head}: {runs}");
+    let spans: Vec<serde_json::Value> = fs::read_to_string(restarted.queue.join("logs").join("spans.jsonl")).unwrap().lines().filter_map(|line| serde_json::from_str(line).ok()).filter(|span: &serde_json::Value| span["trace"] == landed_head.as_str()).collect();
+    let lost = spans.iter().find(|span| span["name"] == "after-landing run lost to a lander restart").unwrap_or_else(|| panic!("the restart left no span naming the after run it lost: {spans:?}"));
+    assert!(spans.iter().filter(|span| span["name"] == "waiting for the after-landing run in flight").all(|wait| wait["start"].as_f64() >= lost["end"].as_f64()), "the run the stopped lander lost is counted as waiting for a run in flight: {spans:?}");
     let subjects = world.landed_subjects();
     assert_eq!(subjects[0], format!("Revert {}", bad.subject), "{subjects:?}");
     assert_eq!(subjects.iter().filter(|subject| subject.starts_with("Revert ")).count(), 1, "{subjects:?}");

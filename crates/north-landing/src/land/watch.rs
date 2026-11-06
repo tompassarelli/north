@@ -148,12 +148,14 @@ impl Watch {
         let Ok(entries) = fs::read_dir(journal(lander)) else { return watch };
         let mut paths: Vec<(f64, PathBuf)> = entries.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).map(|path| (journaled_at(&path), path)).collect();
         paths.sort_by(|left, right| left.0.total_cmp(&right.0));
+        let resumed = epoch();
         for (at, path) in paths {
             match read_entry(&path) {
                 Ok(Entry { base, head, lanes }) => {
                     println!("north land: rerunning the after-landing run of {head}, which a stopped lander left without a verdict");
+                    record(lander, &[Span::new(&head, "after-landing run lost to a lander restart", Category::Lander, at, resumed).with(PHASE, AFTER)]);
                     if !watch.pending.covers(&head) {
-                        watch.pending.add(Batch::landed(base, head, lanes, at));
+                        watch.pending.add(Batch::landed(base, head, lanes, resumed));
                     }
                 }
                 Err(error) => {

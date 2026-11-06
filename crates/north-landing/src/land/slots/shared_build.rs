@@ -13,6 +13,10 @@ pub fn runs_head_north(command: &str) -> bool {
     builds(&command.split_whitespace().collect::<Vec<_>>()).is_some()
 }
 
+pub fn uses_head_north(command: &str) -> bool {
+    command.split_whitespace().any(|word| word == HEAD_NORTH)
+}
+
 pub fn lander_only_code(command: &str) -> Option<&str> {
     let words: Vec<&str> = command.split_whitespace().collect();
     let at = words.iter().position(|word| *word == HEAD_NORTH)?;

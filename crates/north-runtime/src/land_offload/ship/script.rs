@@ -1,7 +1,19 @@
-use super::{BESIDE_MISSING, HEADROOM, LOCK_WAIT_SECONDS, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, quote};
+use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, job_mib, quote};
 
 const BACKGROUND_WAIT_SECONDS: u32 = 3600;
 const BACKGROUND_SUFFIX: &str = ".background";
+
+pub(super) const CAP: &str = r#"cores=${AGENT_CAPACITY_CORES:-$(nproc 2>/dev/null || echo 1)}
+cap=${NORTH_OFFLOAD_MAX_JOBS:-}
+if [ -z "$cap" ]; then
+  cap=@SLOTS@
+  [ "$per" -le 1 ] || cap=$((cores / per))
+  memory=$(awk '/^MemTotal:/ { print int($2 / 1024) }' "${AGENT_CAPACITY_MEMINFO:-/proc/meminfo}" 2>/dev/null || echo 0)
+  [ @JOB_MIB@ -eq 0 ] || [ "$memory" -lt @JOB_MIB@ ] || [ $((memory / @JOB_MIB@)) -ge "$cap" ] || cap=$((memory / @JOB_MIB@))
+  [ "$cap" -ge 1 ] || cap=1
+  [ "$cap" -le @SLOTS@ ] || cap=@SLOTS@
+fi
+"#;
 
 pub(super) const REMOTE: &str = r#"set -eu
 repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0} red_fix=${12:-} ran=${13:-} pins=${14:-} lander_slot=${15:-}
@@ -42,15 +54,7 @@ ticket=$queue/$rank-$(date +%s%N)-$$@$name
 exec 8>"$ticket"
 flock -n 8
 trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
-cores=$(nproc 2>/dev/null || echo 1)
-usable=$cores
-cap=${NORTH_OFFLOAD_MAX_JOBS:-}
-if [ -z "$cap" ]; then
-  cap=@SLOTS@
-  usable=$((cores * @HEADROOM_NUM@ / @HEADROOM_DEN@))
-  [ "$per" -le 1 ] || { cap=$((usable / per)); [ "$cap" -ge 1 ] || cap=1; [ "$cap" -le @SLOTS@ ] || cap=@SLOTS@; }
-fi
-served=$root/served
+@CAP@served=$root/served
 mkdir -p "$served"
 turn_order() {
   for t in $(ls "$queue"); do
@@ -161,7 +165,7 @@ fi
 @SLOT_ENV@=$slot; export @SLOT_ENV@
 if [ -n "${carried:-}" ]; then eval "export $carried"; fi
 if [ -n "${cap:-}" ]; then
-  share=$((${usable:-${cores:-1}} / cap)); [ "$share" -ge 1 ] || share=1
+  share=$((${cores:-1} / cap)); [ "$share" -ge 1 ] || share=1
   CARGO_BUILD_JOBS=$share RUST_TEST_THREADS=$share NEXTEST_TEST_THREADS=$share; export CARGO_BUILD_JOBS RUST_TEST_THREADS NEXTEST_TEST_THREADS
   case ${SAFE_PUSH_LAND_CPUS:-} in "" | *[!0-9]*) SAFE_PUSH_LAND_CPUS=$share ;; *) [ "$SAFE_PUSH_LAND_CPUS" -le "$share" ] || SAFE_PUSH_LAND_CPUS=$share ;; esac
   export SAFE_PUSH_LAND_CPUS
@@ -227,13 +231,13 @@ pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
     };
     let ports: String = slot_ports(name).iter().map(|(slot, port)| format!("{}) SCCACHE_SERVER_PORT={port} ;; ", quote(slot))).collect();
     format!("{REMOTE}{VERIFY}{}{}", beside_part(), run_part())
+        .replace("@CAP@", CAP)
         .replace("@SLOT_PORTS@", &ports)
         .replace("@ROOT@", OFFLOAD_ROOT)
         .replace("@LOCK_WAIT@", &wait.to_string())
         .replace("@POLL@", POLL_SECONDS)
         .replace("@SLOTS@", &slots.to_string())
-        .replace("@HEADROOM_NUM@", &HEADROOM.0.to_string())
-        .replace("@HEADROOM_DEN@", &HEADROOM.1.to_string())
+        .replace("@JOB_MIB@", &job_mib().to_string())
         .replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX)
         .replace("@BACKGROUND@", background)
         .replace("@TARGET_CAP@", &TARGET_CAP_MIB.to_string())

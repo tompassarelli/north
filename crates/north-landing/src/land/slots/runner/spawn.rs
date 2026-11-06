@@ -89,7 +89,7 @@ impl Shared {
         if !self.environment.offload_host.is_empty() {
             return Some(self.environment.offload_host.clone());
         }
-        (!self.arguments.runner_host.is_empty() && self.config.local_reason(command).is_none()).then(|| self.arguments.runner_host.clone())
+        (!self.arguments.runner_host.is_empty() && self.config.local_reason(command).is_none()).then(|| self.placed.get(command).unwrap_or(&self.arguments.runner_host).clone())
     }
 
     pub(super) fn scope_environment(&self) -> Vec<(&'static str, String)> {
@@ -141,7 +141,7 @@ impl Shared {
         self.offload_host_for(command).unwrap_or_else(|| "local".to_owned())
     }
 
-    async fn north(&self, arguments: &[&str]) -> Option<std::process::Output> {
+    pub(super) async fn north(&self, arguments: &[&str]) -> Option<std::process::Output> {
         Command::new(program()).args(arguments).current_dir(&self.root).stdin(Stdio::null()).output().await.ok()
     }
 
