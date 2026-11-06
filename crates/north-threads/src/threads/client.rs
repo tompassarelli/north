@@ -515,12 +515,8 @@ impl Client {
 
     fn snapshot_verb(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
         if argv[0] == "snapshot-pages" {
-            if let Some(reason) = self.no_native_reason() {
-                writeln!(err, "NorthThreads: the snapshot holds native items: {reason}")?;
-                return Ok(1);
-            }
             let database = self.var("THREADS_DB").map_or_else(|| self.home.join(".local/state/threads/threads.db"), PathBuf::from);
-            return match snapshot::serve(&database, stdin, &mut io::stdout().lock()) {
+            return match snapshot::serve(&database, self.no_native_reason().is_some(), stdin, &mut io::stdout().lock()) {
                 Ok(()) => Ok(0),
                 Err(error) => {
                     writeln!(err, "NorthThreads: snapshot pages failed: {error}")?;
@@ -807,7 +803,7 @@ exit "$(cat "$ROOT/code")"
         let ledger = root.join("ledger.db");
         rusqlite::Connection::open(&ledger).unwrap().execute_batch("CREATE TABLE t(v); INSERT INTO t VALUES (1);").unwrap();
         let mut pages = Vec::new();
-        snapshot::serve(&ledger, &mut &snapshot::manifest_bytes(0, &[])[..], &mut pages).unwrap();
+        snapshot::serve(&ledger, false, &mut &snapshot::manifest_bytes(0, &[])[..], &mut pages).unwrap();
         fs::write(root.join("pages"), pages).unwrap();
         let ssh = format!("ROOT='{}'\n{FAKE_SSH}", root.display());
         let mut variables: BTreeMap<String, String> = env.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect();
@@ -953,12 +949,6 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
         assert!(spooled(&rig).is_empty());
         assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.ends_with("north threads agent-event --session s --kind note --key k1")).count(), 2);
-    }
-
-    #[test]
-    fn a_caller_that_may_not_read_native_items_is_served_no_snapshot_pages() {
-        let rig = rig(&[("THREADS_NO_NATIVE", "1")]);
-        assert_eq!(call(&rig, &["snapshot-pages"], b""), (1, "NorthThreads: the snapshot holds native items: THREADS_NO_NATIVE is set (agy)\n".to_owned()));
     }
 
     #[test]

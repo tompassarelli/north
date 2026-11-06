@@ -1,10 +1,8 @@
 use north_core::foundation::shim;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
 use rusqlite::Connection;
-
-const MAGIC: &[u8] = b"NORTH-SNAPSHOT-PAGES 1\n";
 
 const FAKE_SSH: &str = r#"for a; do last=$a; done
 [ "${MODE:-}" = down ] && exit 255
@@ -127,28 +125,29 @@ fn c_freelist_leaf_pages_and_deleted_cells_arrive_zeroed() {
 }
 
 #[test]
-fn d_the_page_server_refuses_under_the_no_native_signals() {
+fn d_a_caller_that_may_not_read_native_items_pulls_the_ledger_without_them() {
     let rig = Rig::new();
-    ledger(&rig.source, 10);
-    let mut manifest = MAGIC.to_vec();
-    manifest.extend([0; 8]);
+    let db = Connection::open(&rig.source).unwrap();
+    db.execute_batch("PRAGMA secure_delete=OFF;
+        CREATE TABLE items(ns TEXT, number INTEGER, title TEXT);
+        CREATE TABLE events(seq INTEGER PRIMARY KEY, item TEXT, data TEXT);
+        CREATE INDEX events_item ON events(item);
+        INSERT INTO items VALUES ('north', 1, 'kept north title'), ('ops', 2, 'SECRET-TITLE');
+        INSERT INTO events(item, data) VALUES ('north#1', 'kept event'), ('ops#2', 'SECRET-EVENT'), ('north#1', 'needs life#3 SECRET-NEED');").unwrap();
+    let contains = |bytes: &[u8], needle: &[u8]| bytes.windows(needle.len()).any(|window| window == needle);
+    let snapshot = rig.snapshot.display().to_string();
+    let rows = |sql: &str| -> i64 { Connection::open(format!("file:{snapshot}?immutable=1")).unwrap().query_row(sql, [], |row| row.get(0)).unwrap() };
     for (name, value) in [("THREADS_NO_NATIVE", "1"), ("CLAUDE_CODE_REMOTE", "true")] {
-        let mut child = rig.north(&["threads", "snapshot-pages"], "").env(name, value)
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-        use std::io::Write;
-        let _ = child.stdin.take().unwrap().write_all(&manifest);
-        let output = child.wait_with_output().unwrap();
-        assert_eq!(output.status.code(), Some(1), "{name}");
-        assert!(output.stdout.is_empty(), "{name}");
-        let err = String::from_utf8(output.stderr).unwrap();
-        assert!(err.starts_with("NorthThreads: the snapshot holds native items: ") && err.contains(name), "{err}");
+        let pulled = rig.north(&["threads", "snapshot-pull", "--force", "--snapshot", &snapshot, "ledger-host"], "").env(name, value).output().unwrap();
+        assert!(pulled.status.success(), "{name}: {pulled:?}");
+        let image = fs::read(&rig.snapshot).unwrap();
+        assert!(!contains(&image, b"SECRET-"), "{name}: a native row left the ledger host");
+        assert!(contains(&image, b"kept north title") && contains(&image, b"kept event"), "{name}");
+        assert_eq!((rows("SELECT count(*) FROM items"), rows("SELECT count(*) FROM events")), (1, 1), "{name}");
+        assert_eq!(quick_check(&rig.snapshot), "ok");
     }
-    let mut child = rig.north(&["threads", "snapshot-pages"], "")
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    use std::io::Write;
-    child.stdin.take().unwrap().write_all(&manifest).unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success() && output.stdout.starts_with(MAGIC), "{output:?}");
+    assert!(rig.pull("").status.success());
+    assert_eq!((rows("SELECT count(*) FROM items"), rows("SELECT count(*) FROM events")), (2, 3), "the ledger host's own callers read every row");
 }
 
 #[test]
@@ -161,5 +160,9 @@ fn e_a_stream_with_a_flipped_byte_keeps_the_previous_snapshot_and_leaves_no_temp
     assert!(!rig.pull("flip").status.success());
     assert_eq!(fs::read(&rig.snapshot).unwrap(), before);
     assert!(rig.leftovers().is_empty(), "{:?}", rig.leftovers());
+    let tried = rig.root.join("state/snapshot.db.tried");
+    assert_eq!(fs::read_to_string(&tried).unwrap(), "the rebuilt snapshot does not match the ledger host's digest\n", "a failed pull says why");
+    assert!(rig.pull("").status.success());
+    assert_eq!(fs::read_to_string(&tried).unwrap(), "", "a good pull clears the failure");
 }
 

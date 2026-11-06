@@ -107,6 +107,11 @@ fn usage(input: FreshnessInput) -> Verdict {
     fresh(input.now, timestamp(&input.text?), 10 * 60)
 }
 
+/// A mirrored host's snapshot pull fails loudly here, since its readers see only an empty or stale ledger.
+fn snapshot_pull(snapshot: &Path) -> Verdict {
+    crate::threads::snapshot::last_failure(snapshot).map_or(Ok(()), |why| Err(format!("the ledger snapshot pull failed: {why}")))
+}
+
 fn timer_names(config: &str) -> Result<Vec<String>, String> {
     let rest = config
         .split_once("capacity-watchdog")
@@ -366,6 +371,7 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
                 text: newest_usage(&home.join(".local/state/threads/snapshot.db")),
             }),
         ),
+        ("snapshot".into(), snapshot_pull(&home.join(".local/state/threads/snapshot.db"))),
     ];
     let config = read(&home.join("code/nixos-config/main/hosts/whiterabbit/configuration.nix"));
     let names = config

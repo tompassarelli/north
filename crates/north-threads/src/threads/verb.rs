@@ -50,7 +50,7 @@ impl Context<'_> {
 
     /// gh, refused before it runs when an argument names a native item.
     pub fn gh(&self, args: &[&str]) -> Result<String, Failure> {
-        if args.iter().any(|arg| NATIVE_REF.is_match(arg)) {
+        if args.iter().any(|arg| names_native_ref(arg)) {
             return Err(Failure::Refused("a gh argument names a native item; native items never reach GitHub".into()));
         }
         Ok(self.outside.gh(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>())?)
@@ -156,6 +156,11 @@ pub fn item_ref(text: &str, context: &Context) -> Result<(String, u64), Failure>
 
 pub fn is_native_ref(item: &str) -> bool {
     NATIVE_REF.find(item).is_some_and(|found| found.start() == 0 && found.end() == item.len())
+}
+
+/// Whether `text` names a native item anywhere in it.
+pub fn names_native_ref(text: &str) -> bool {
+    NATIVE_REF.is_match(text)
 }
 
 /// One ledger event, its data as Python's `json.dumps` writes it.

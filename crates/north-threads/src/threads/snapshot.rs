@@ -9,9 +9,13 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
 use rusqlite::backup::{Backup, StepResult};
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OpenFlags};
 use rustix::fs::{AtFlags, Mode, OFlags, CWD};
 use sha2::{Digest, Sha256};
+
+use crate::threads::catalog::CATALOG;
+use crate::threads::verb::names_native_ref;
 
 pub const MAGIC: &[u8] = b"NORTH-SNAPSHOT-PAGES 1\n";
 pub const REMOTE_COMMAND: &str = "north threads snapshot-pages";
@@ -22,9 +26,11 @@ const MAX_PAGES: u32 = 1 << 24;
 
 type Hash = [u8; 32];
 
-pub fn serve(database: &Path, input: &mut dyn Read, output: &mut dyn Write) -> io::Result<()> {
+/// Streams the pages of the ledger image that differ from the caller's manifest; `withhold_native`
+/// builds the image with every row naming a native item removed.
+pub fn serve(database: &Path, withhold_native: bool, input: &mut dyn Read, output: &mut dyn Write) -> io::Result<()> {
     let (manifest_size, manifest) = read_manifest(input)?;
-    let image = image(database)?;
+    let image = image(database, withhold_native)?;
     let size = page_size(&image).ok_or_else(|| invalid("the ledger image has no SQLite header"))?;
     let mut out = BufWriter::with_capacity(1 << 16, output);
     out.write_all(MAGIC)?;
@@ -68,8 +74,19 @@ pub fn refresh(ssh: &[OsString], snapshot: &Path, force: bool, wait: Duration) -
         Err(fs::TryLockError::WouldBlock) => return Ok(false),
         Err(fs::TryLockError::Error(error)) => return Err(error),
     }
-    pull(ssh, snapshot, wait)?;
-    Ok(true)
+    let pulled = pull(ssh, snapshot, wait);
+    record(&pulling, pulled.as_ref().err())?;
+    pulled.map(|()| true)
+}
+
+/// Why the last pull into `snapshot` failed, kept in its `.tried` marker until a pull succeeds.
+pub fn last_failure(snapshot: &Path) -> Option<String> {
+    fs::read_to_string(suffixed(snapshot, ".tried")).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty())
+}
+
+fn record(mut tried: &File, failure: Option<&io::Error>) -> io::Result<()> {
+    tried.set_len(0)?;
+    failure.map_or(Ok(()), |error| writeln!(tried, "{error}"))
 }
 
 pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration) -> io::Result<()> {
@@ -77,7 +94,7 @@ pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration) -> io::Result<()>
     let (size, hashes) = old.as_ref().map(hash_pages).unwrap_or((0, Vec::new()));
     let directory = snapshot.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf();
     let mut child = Command::new(&ssh[0]).args(&ssh[1..])
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let manifest = manifest_bytes(size, &hashes);
     let mut stdin = child.stdin.take().ok_or_else(|| invalid("ssh has no stdin"))?;
     std::thread::spawn(move || {
@@ -85,6 +102,12 @@ pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration) -> io::Result<()>
     });
     let stdout = child.stdout.take().ok_or_else(|| invalid("ssh has no stdout"))?;
     let receiver = std::thread::spawn(move || receive(stdout, &directory, old, size, hashes.len()));
+    let mut stderr = child.stderr.take().ok_or_else(|| invalid("ssh has no stderr"))?;
+    let complaint = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = stderr.read_to_string(&mut text);
+        text.lines().rev().map(str::trim).find(|line| !line.is_empty()).map(str::to_owned)
+    });
     let deadline = Instant::now() + wait;
     let status = loop {
         if let Some(status) = child.try_wait()? {
@@ -99,7 +122,8 @@ pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration) -> io::Result<()>
     };
     let built = receiver.join().map_err(|_| invalid("snapshot receiver panicked"))?;
     if !status.success() {
-        return Err(io::Error::other(format!("ssh exited with {status}")));
+        let said = complaint.join().ok().flatten().map_or_else(String::new, |line| format!(": {line}"));
+        return Err(io::Error::other(format!("ssh exited with {status}{said}")));
     }
     let file = built?;
     file.sync_all()?;
@@ -194,7 +218,7 @@ fn sweep(snapshot: &Path) {
     }
 }
 
-fn image(database: &Path) -> io::Result<Vec<u8>> {
+fn image(database: &Path, withhold_native: bool) -> io::Result<Vec<u8>> {
     let source = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(sql)?;
     source.busy_timeout(Duration::from_secs(10)).map_err(sql)?;
     let size: i64 = source.query_row("PRAGMA page_size", [], |row| row.get(0)).map_err(sql)?;
@@ -206,11 +230,41 @@ fn image(database: &Path) -> io::Result<Vec<u8>> {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+    if withhold_native {
+        remove_native(&memory).map_err(sql)?;
+    }
     let btree: Vec<u32> = memory.prepare("SELECT pageno FROM dbstat WHERE pagetype IN ('internal', 'leaf')").map_err(sql)?
         .query_map([], |row| row.get(0)).map_err(sql)?.collect::<Result<_, _>>().map_err(sql)?;
     let mut bytes = memory.serialize("main").map_err(sql)?.to_vec();
     normalize(&mut bytes, &btree)?;
     Ok(bytes)
+}
+
+/// Deletes every native item and every row any of whose text names a native ref, and the index
+/// samples ANALYZE keeps, which can quote one; secure delete zeroes what the rows held.
+fn remove_native(db: &Connection) -> rusqlite::Result<()> {
+    db.create_scalar_function("names_native", 1, FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC, |context| {
+        Ok(context.get_raw(0).as_str().is_ok_and(names_native_ref))
+    })?;
+    db.execute_batch("PRAGMA secure_delete=ON")?;
+    let namespaces = CATALOG.native.iter().map(|name| format!("'{name}'")).collect::<Vec<_>>().join(", ");
+    db.execute(&format!("DELETE FROM items WHERE ns IN ({namespaces})"), [])?;
+    let tables: Vec<String> = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")?
+        .query_map([], |row| row.get(0))?.collect::<Result<_, _>>()?;
+    for table in tables {
+        let columns: Vec<String> = db.prepare("SELECT name FROM pragma_table_info(?1)")?.query_map([&table], |row| row.get(0))?.collect::<Result<_, _>>()?;
+        let named = columns.iter().map(|column| format!("names_native({})", identifier(column))).collect::<Vec<_>>().join(" OR ");
+        db.execute(&format!("DELETE FROM {} WHERE {named}", identifier(&table)), [])?;
+    }
+    let sampled: bool = db.query_row("SELECT count(*) > 0 FROM sqlite_schema WHERE name = 'sqlite_stat4'", [], |row| row.get(0))?;
+    if sampled {
+        db.execute("DELETE FROM sqlite_stat4", [])?;
+    }
+    Ok(())
+}
+
+fn identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
 }
 
 pub fn normalize(image: &mut [u8], btree: &[u32]) -> io::Result<()> {
