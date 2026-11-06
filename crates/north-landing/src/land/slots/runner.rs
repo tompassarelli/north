@@ -22,6 +22,7 @@ use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, R
 use fail_fast::Plan;
 
 mod batch;
+mod build_host;
 mod fail_fast;
 mod queue_checks;
 mod timeout_row;
@@ -1178,18 +1179,10 @@ impl Shared {
 }
 
 async fn resolve_runner_host(value: &str) -> String {
-    chosen_build_host(value).await.unwrap_or_else(|| {
+    build_host::chosen(&program(), value, None).await.unwrap_or_else(|| {
         warn("safe-push: no build host has room; the land checks run on this host under the land-check capacity lease");
         String::new()
     })
-}
-
-async fn chosen_build_host(value: &str) -> Option<String> {
-    if value != "build-host" {
-        return Some(value.to_owned());
-    }
-    let chosen = Command::new(program()).args(["capacity", "offload", "choose", "--any"]).stdin(Stdio::null()).stderr(Stdio::inherit()).output().await;
-    chosen.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim_end().to_owned()).filter(|host| !host.is_empty())
 }
 
 async fn runner_host(environment: &Environment, config: &Config) -> String {
@@ -1481,7 +1474,7 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     }
     let wanted = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
     if !wanted.is_empty() {
-        let Some(host) = chosen_build_host(&wanted).await else {
+        let Some(host) = build_host::chosen(&program(), &wanted, Some(&north_base::platform::host::name())).await else {
             warn("safe-push: no build host has room, so the checks before queueing reach no verdict rather than compile on this host; the lander runs them");
             return INFRASTRUCTURE;
         };
