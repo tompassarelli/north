@@ -341,6 +341,27 @@ fn promote_bisects_an_undeclared_replay_change_to_its_commit_queues_its_revert_a
     assert!(next.status, "{}", next.stdout);
     assert_eq!(chain.lander(), format!("runtimes/{}", revert.head));
     reaches_the_revert_in_the_same_run_when_a_runtime_between_cannot_replay();
+    reverts_nothing_when_a_replay_reaches_no_verdict();
+}
+
+fn reverts_nothing_when_a_replay_reaches_no_verdict() {
+    let unreachable = "echo \"replay: verdict transient main's check environment is broken: mkdir -p on tom@gex45 did not finish within 20s\"";
+    let chain = Chain::new();
+    let innocent = chain.commit("crates/north-landing/src/land/rule.rs", "Fix an eviction without changing a decision");
+    let candidate = chain.commit("docs/two.md", "Document another thing");
+    chain.runtime(&innocent, unreachable);
+    chain.runtime(&candidate, "echo 'replay: verdict failed'");
+    chain.current(&candidate);
+    let promoted = chain.promote();
+    assert!(!promoted.status, "{}", promoted.stdout);
+    assert!(promoted.stdout.contains("which is no verdict") && promoted.stdout.contains("no commit is bisected or reverted"), "{}", promoted.stdout);
+    assert!(chain.reverts().is_empty(), "an unreachable check host names no culprit: {}", promoted.stdout);
+    let chain = Chain::new();
+    let candidate = chain.commit("crates/north-landing/src/land/rule.rs", "Fix an eviction without changing a decision");
+    chain.runtime(&candidate, unreachable);
+    chain.current(&candidate);
+    let promoted = chain.promote();
+    assert!(chain.reverts().is_empty(), "a candidate whose own replay reached no verdict is not bisected: {}", promoted.stdout);
 }
 
 fn reaches_the_revert_in_the_same_run_when_a_runtime_between_cannot_replay() {

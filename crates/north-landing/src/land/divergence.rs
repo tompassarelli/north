@@ -125,17 +125,30 @@ fn points(home: &Path, held: &str, commits: &[String]) -> Vec<Point> {
     std::iter::once(held.to_owned()).chain(commits.iter().cloned()).map(|sha| Point { binary: binary(home, &sha), sha }).filter(|point| point.binary.is_file()).collect()
 }
 
-fn diverges_at(runtimes: &Runtimes, divergence: &Divergence, commits: &[String], point: &Point) -> Option<bool> {
+enum At {
+    Diverges(bool),
+    Unreplayable,
+    NoVerdict(String),
+}
+
+fn no_verdict(verdict: &str) -> Option<String> {
+    replay::recorded_class(verdict).is_none().then(|| verdict.split_whitespace().next().unwrap_or("nothing").to_owned())
+}
+
+fn diverges_at(runtimes: &Runtimes, divergence: &Divergence, commits: &[String], point: &Point) -> At {
     let upto = commits.iter().position(|commit| *commit == point.sha).map_or(0, |index| index + 1);
     let declared: BTreeSet<String> = declarations(runtimes.source, &commits[..upto]).into_iter().map(|(_, kind, _)| kind).collect();
     match (runtimes.replay)(&point.binary, divergence) {
         Ok(verdict) => {
             println!("north land promote: bisect: runtime {} replays round {} {}", short(&point.sha), divergence.lanes, verdict.split_whitespace().next().unwrap_or_default());
-            Some(divergence.diverges(&verdict, &declared))
+            match no_verdict(&verdict) {
+                Some(class) => At::NoVerdict(format!("runtime {} replayed round {} {class}, which is no verdict", short(&point.sha), divergence.lanes)),
+                None => At::Diverges(divergence.diverges(&verdict, &declared)),
+            }
         }
         Err(error) => {
             println!("north land promote: bisect: runtime {} cannot replay round {}: {error}; skipped", short(&point.sha), divergence.lanes);
-            None
+            At::Unreplayable
         }
     }
 }
@@ -145,21 +158,29 @@ fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &
     if points.first().is_none_or(|point| point.sha != held) || points.last().is_none_or(|point| commits.last() != Some(&point.sha)) {
         return Err(format!("{}; the held or candidate runtime has no binary to bisect with", divergence.named()));
     }
-    if diverges_at(runtimes, divergence, commits, &points[0]) != Some(false) {
-        let reason = format!("{}; the held runtime {} does not reproduce the recorded verdict either, so a bisect by verdict cannot name a commit between the runtimes", divergence.named(), short(held));
-        tell(runtimes, &format!("north land promote: lander link held: {reason}"));
-        return Err(reason);
+    if let Some(class) = no_verdict(&divergence.replayed) {
+        return halted(runtimes, divergence, &format!("the candidate replayed {class}, which is no verdict"));
+    }
+    match diverges_at(runtimes, divergence, commits, &points[0]) {
+        At::Diverges(false) => {}
+        At::NoVerdict(why) => return halted(runtimes, divergence, &why),
+        At::Diverges(true) | At::Unreplayable => {
+            let reason = format!("{}; the held runtime {} does not reproduce the recorded verdict either, so a bisect by verdict cannot name a commit between the runtimes", divergence.named(), short(held));
+            tell(runtimes, &format!("north land promote: lander link held: {reason}"));
+            return Err(reason);
+        }
     }
     let (mut good, mut bad) = (0, points.len() - 1);
     while bad - good > 1 {
         let middle = good + (bad - good) / 2;
         match diverges_at(runtimes, divergence, commits, &points[middle]) {
-            Some(true) => bad = middle,
-            Some(false) => good = middle,
-            None => {
+            At::Diverges(true) => bad = middle,
+            At::Diverges(false) => good = middle,
+            At::Unreplayable => {
                 points.remove(middle);
                 bad -= 1;
             }
+            At::NoVerdict(why) => return halted(runtimes, divergence, &why),
         }
     }
     let range = chain(runtimes.source, &points[good].sha, &points[bad].sha).unwrap_or_default();
@@ -172,6 +193,12 @@ fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &
     let queued: Vec<String> = suspects.iter().map(|commit| revert(runtimes, divergence, commit, &found).unwrap_or_else(|error| format!("revert of {} not queued: {error}", short(commit)))).collect();
     let reason = format!("{found}; {}", queued.join("; "));
     tell(runtimes, &format!("north land promote: lander link held: {reason}; the link follows once the revert lands, or the commit declares {TRAILER} land.{} <reason>", divergence.kind()));
+    Err(reason)
+}
+
+fn halted(runtimes: &Runtimes, divergence: &Divergence, why: &str) -> Result<String, String> {
+    let reason = format!("{}; {why}, so the check environment decides nothing and no commit is bisected or reverted", divergence.named());
+    tell(runtimes, &format!("north land promote: lander link held: {reason}"));
     Err(reason)
 }
 
