@@ -473,7 +473,6 @@ constants = [
   "crates/north-dispatch/src/dispatch/record.rs::LAPTOP_SHOW_S",
   "crates/north-dispatch/src/dispatch/record.rs::RETRIES",
   "crates/north-dispatch/src/dispatch/record.rs::RETRY_WINDOW_S",
-  "crates/north-dispatch/src/dispatch/record.rs::STAFFING_HOLD_S",
   "crates/north-dispatch/src/dispatch/strands.rs::PROBE",
   "crates/north-dispatch/src/pacing/placement/room.rs::SOONEST_RESET_H",
   "crates/north-dispatch/src/pacing/placement/room.rs::WEEK_H",

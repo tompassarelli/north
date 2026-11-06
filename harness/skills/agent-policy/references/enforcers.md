@@ -46,7 +46,6 @@ south `agents/catalog-config.json`; gate rows come from `crates/north-safe-push`
 | Unlanded lanes older than 24 h are surfaced at session start (advisory) | `north-hook` (unlanded-work) | Claude |
 | The proxy never opens a blocking question box: AskUserQuestion from a proxy-role session is denied with the gate-open path | `north-hook` (question-box) | Claude |
 | Tom's window starts with his decision queue (open for-Tom gates and defaults applied since the last look) when it is non-empty (advisory) | `north-hook` (gate-digest, `north gate digest`) | Claude |
-| A proxy or Tom-window reply that names a cause (because, caused by, the cause is) in a paragraph quoting no command, log line or measurement is blocked | `north-hook` (unproven-cause) | Claude |
 | A gate without a default and deadline is refused unless it names an ask-once class | `north gate open` (`GateRequest::validate`) | Claude, Codex |
 | A decision, audit, review or research file written under the handoffs directory draws an advisory before the write: durable records go in the owning repository (advisory) | `handoff_record` through `north-hook` | Claude, Codex |
 
