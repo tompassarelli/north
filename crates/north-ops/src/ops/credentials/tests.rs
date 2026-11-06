@@ -53,6 +53,9 @@ far = {{ path = "~/p", token_file = "~/t" }}
 
 [accounts.claude.profiles.b]
 here = {{ path = "{h}/profiles/claude-b" }}
+
+[accounts.claude.profiles.c]
+here = {{ path = "{h}/profiles/claude-c" }}
 "#,
             h = home.display()
         ),
@@ -78,6 +81,8 @@ fn registry_lists_every_source_by_kind_and_never_prints_a_secret() {
     assert_eq!(named(&credentials, "claude:a:login").kind, Kind::Retired, "a login beside a held setup token is retired, not failing");
     assert_eq!(named(&credentials, "claude:b:login").kind, Kind::HumanSession, "a login with no setup token on this host stays a human session");
     assert_eq!(named(&credentials, "claude:a:login").expires, Some(NOW + 3 * DAY));
+    let unsigned = named(&credentials, "claude:c:login");
+    assert_eq!((unsigned.kind, unsigned.fingerprint.as_deref(), unsigned.note.as_deref()), (Kind::HumanSession, None, Some("no claude.ai sign-in in this profile")), "a profile with no .credentials.json has no claude.ai sign-in");
     let shown = registry::lines(&credentials, NOW).join("\n") + &registry::json(&credentials, NOW).to_string();
     assert!(!shown.contains(SECRET), "{shown}");
     check_fails_on_a_human_session_an_undeclared_file_or_an_expired_machine_credential();
@@ -90,7 +95,7 @@ fn check_fails_on_a_human_session_an_undeclared_file_or_an_expired_machine_crede
         assert!(named(&credentials, name).note.as_deref().is_some_and(|note| note.contains("copied login")), "{name}");
     }
     let failing: Vec<&str> = registry::failing(&credentials, NOW).iter().map(|(credential, _)| credential.name.as_str()).collect();
-    assert_eq!(failing, ["claude:b:login", "sops:new-thing", "sops:nexus/github"]);
+    assert_eq!(failing, ["claude:b:login", "claude:c:login", "sops:new-thing", "sops:nexus/github"]);
     let machine = credentials.iter().filter(|credential| credential.kind == Kind::Machine).cloned().collect::<Vec<_>>();
     assert!(registry::failing(&machine, NOW).is_empty());
     assert_eq!(registry::failing(&machine, NOW + 400 * DAY).len(), 1);
