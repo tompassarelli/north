@@ -31,7 +31,7 @@ class = "contract"
 "#;
 
 #[test]
-fn a_contract_is_red_past_its_bound_and_debt_is_red_only_past_its_ceiling() {
+fn a_contract_is_red_past_its_bound_debt_only_past_its_ceiling_and_a_debt_over_it_refuses_only_landings_outside_its_paying_paths() {
     let goals = parse(GOALS).expect("goals parse");
     assert_eq!(judge(&goals[0], Ok(9.0)), Verdict::Green(9.0));
     assert_eq!(judge(&goals[0], Ok(10.5)), Verdict::RedContract(10.5));
@@ -40,6 +40,14 @@ fn a_contract_is_red_past_its_bound_and_debt_is_red_only_past_its_ceiling() {
     assert_eq!(judge(&goals[2], Ok(28.0)), Verdict::RedContract(28.0));
     assert!(!judge(&goals[1], Ok(12.0)).failing());
     assert!(judge(&goals[0], Err("no answer".into())).failing());
+    let root = std::path::Path::new(".");
+    let elsewhere = vec!["README.md".to_owned()];
+    let found = super::ceiling::unpaid(root, OWED, &elsewhere).expect("goals parse");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].starts_with("slow reads 90 s, over its ceiling 60 s"));
+    let paying = vec!["README.md".to_owned(), "crates/north-landing/src/lib.rs".to_owned()];
+    assert!(super::ceiling::unpaid(root, OWED, &paying).expect("goals parse").is_empty());
+    assert!(super::ceiling::unpaid(root, &OWED.replace("echo 90", "echo 50"), &elsewhere).expect("goals parse").is_empty());
 }
 
 #[test]
@@ -50,6 +58,8 @@ fn a_goal_without_a_class_rule_is_refused() {
     assert!(parse(&debt_without_owner).is_err_and(|found| found[0].contains("owner")));
     let ceiling_not_looser = GOALS.replace("ceiling = 14", "ceiling = 9");
     assert!(parse(&ceiling_not_looser).is_err());
+    let text = GOALS.replace("class = \"contract\"\n\n[[goal]]\nname = \"worst\"", "class = \"contract\"\npays = [\"src/\"]\n\n[[goal]]\nname = \"worst\"");
+    assert!(parse(&text).is_err_and(|found| found[0].contains("paying paths")));
 }
 
 fn red(set: &str, text: &str) -> Red {
@@ -82,3 +92,27 @@ fn the_tick_tells_once_when_a_goal_turns_red_again_when_the_set_changes_or_hours
         assert!(measured, "a state written in the future must not hold the oracles off");
     }
 }
+
+const OWED: &str = r#"
+[[goal]]
+name = "slow"
+source = "README.md: lands fast"
+oracle = "echo 90"
+unit = "s"
+max = 20
+class = "debt"
+ceiling = 60
+owner = "north#641"
+revisit = "a week over"
+pays = ["crates/north-landing/"]
+
+[[goal]]
+name = "load"
+source = "AGENTS.md: admission"
+oracle = "echo 99"
+max = 12
+class = "debt"
+ceiling = 24
+owner = "north#641"
+revisit = "a day over"
+"#;

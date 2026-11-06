@@ -8,6 +8,7 @@ class = "debt"
 ceiling = 60
 owner = "tompassarelli/north#641"
 revisit = "the 24 h queued_at-to-push p50 stays over 60 s for a week"
+pays = ["crates/north-landing/", "crates/north-safe-push/"]
 
 [[goal]]
 name = "landing-p90"
@@ -27,6 +28,7 @@ class = "debt"
 ceiling = 300
 owner = "tompassarelli/north#641"
 revisit = "the 24 h after-push verification median stays over 420 s for a week"
+pays = ["crates/north-landing/", "crates/north-safe-push/"]
 
 [[goal]]
 name = "laptop-load-15m"

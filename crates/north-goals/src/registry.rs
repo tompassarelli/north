@@ -59,6 +59,7 @@ pub struct Debt {
     pub ceiling: f64,
     pub owner: String,
     pub revisit: String,
+    pub pays: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -86,6 +87,7 @@ struct Raw {
     ceiling: Option<f64>,
     owner: Option<String>,
     revisit: Option<String>,
+    pays: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -108,9 +110,9 @@ impl Raw {
             return Err(fail("needs a name, the README or AGENTS.md line it comes from and an oracle command"));
         }
         let (class, debt) = match (self.class.as_str(), self.ceiling, self.owner, self.revisit) {
-            ("contract", None, None, None) => (Class::Contract, None),
-            ("contract", ..) => return Err(fail("a contract has no ceiling, owner or revisit trigger; it is never red")),
-            ("debt", Some(ceiling), Some(owner), Some(revisit)) if bound.looser(ceiling) && !owner.trim().is_empty() && !revisit.trim().is_empty() => (Class::Debt, Some(Debt { ceiling, owner, revisit })),
+            ("contract", None, None, None) if self.pays.is_none() => (Class::Contract, None),
+            ("contract", ..) => return Err(fail("a contract has no ceiling, owner, revisit trigger or paying paths; it is never red")),
+            ("debt", Some(ceiling), Some(owner), Some(revisit)) if bound.looser(ceiling) && !owner.trim().is_empty() && !revisit.trim().is_empty() => (Class::Debt, Some(Debt { ceiling, owner, revisit, pays: self.pays.unwrap_or_default() })),
             ("debt", ..) => return Err(fail("debt-allowed needs a ceiling looser than its bound, an owner and a revisit trigger")),
             (other, ..) => return Err(fail(&format!("class is contract or debt, not {other}"))),
         };

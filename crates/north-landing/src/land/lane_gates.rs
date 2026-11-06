@@ -1,6 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use north_goals::{ceiling, registry};
+
+use super::candidate;
 use super::scans::{policy, test_admission, test_integrity, tool_removal};
 use crate::runtime_floor_gate::{self, Verdict};
 
@@ -23,6 +26,7 @@ const GATES: &[(&str, Gate)] = &[
     ("test integrity", integrity),
     ("tool removal", removal),
     ("policy sweep", sweep),
+    ("debt ceiling", debt_ceiling),
 ];
 
 impl Lane<'_> {
@@ -53,6 +57,21 @@ fn integrity(lane: &Lane, out: &mut Vec<u8>) -> bool {
 fn removal(lane: &Lane, out: &mut Vec<u8>) -> bool {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     tool_removal::scan(lane.worktree, &home, &lane.range(), out) != 0
+}
+
+fn debt_ceiling(lane: &Lane, out: &mut Vec<u8>) -> bool {
+    let git = |args: &[&str]| candidate::git(lane.worktree, args);
+    let Ok(registry) = git(&["show", &format!("{}:{}", lane.base, registry::PATH)]) else { return false };
+    let Ok(changed) = git(&["diff", "--name-only", &lane.range()]) else { return false };
+    let changed: Vec<String> = changed.lines().map(str::to_owned).collect();
+    let Ok(owed) = ceiling::unpaid(lane.worktree, &registry, &changed) else { return false };
+    for line in &owed {
+        out.extend_from_slice(format!("{line}\n").as_bytes());
+    }
+    if !owed.is_empty() {
+        out.extend_from_slice(b"safe-push: a debt goal over its ceiling blocks landings that do not pay it; NOT pushed.\n");
+    }
+    !owed.is_empty()
 }
 
 fn sweep(lane: &Lane, out: &mut Vec<u8>) -> bool {

@@ -3,6 +3,7 @@
 //! debt-allowed goal may be red up to its ceiling while a `Target-debt:` record names its owner and
 //! revisit trigger (docs/rationale/targets.md). A red goal reaches the proxy through the fleet tick.
 pub mod attribute;
+pub mod ceiling;
 pub mod oracle;
 pub mod registry;
 pub mod tick;
