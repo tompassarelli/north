@@ -47,6 +47,11 @@ impl GateRequest {
     pub fn has_default(&self) -> bool {
         self.default != 0 || self.default_after_ms != 0
     }
+
+    /// Whether only Tom answers this gate: an ask-once gate carries no default, so it waits for him while every other gate applies its default at its deadline.
+    pub fn for_tom(&self) -> bool {
+        !self.has_default()
+    }
 }
 
 pub const ASKED_REPLY: &str = "North put this question to your parent session as a gate (to Tom when you have no parent). \
@@ -131,6 +136,10 @@ impl Gate {
 
     pub fn is_open(&self) -> bool {
         self.closure.is_none()
+    }
+
+    pub fn for_tom(&self) -> bool {
+        self.request.for_tom()
     }
 
     pub fn option(&self, number: usize) -> Option<&str> {
@@ -248,7 +257,7 @@ pub fn default_overdue(book: &dyn GateBook, now_ms: u64, deliver: impl Fn(&str, 
 }
 
 fn opened_notice(label: &str, request: &GateRequest) -> String {
-    let default = if request.has_default() { format!("default: {}", request.options.get(request.default.saturating_sub(1)).map_or("", String::as_str)) } else { "no default: waits for Tom's answer".to_owned() };
+    let default = if request.has_default() { format!("default: {}", request.options.get(request.default.saturating_sub(1)).map_or("", String::as_str)) } else { "for Tom: only the work this gate holds waits for his answer; keep working on everything else".to_owned() };
     format!("[gate {label} from {}] {} ({default})", request.session, request.question.replace('\n', " "))
 }
 
@@ -362,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn an_overdue_gate_defaults_exactly_once_whoever_sweeps_first() {
+    fn an_overdue_gate_defaults_exactly_once_and_only_an_ask_once_gate_opens_without_a_default() {
         let book = Book::default();
         let overdue = book.open_gate(&request(), 1_000).unwrap();
         let pending = book.open_gate(&GateRequest { default_after_ms: 90_000, ..request() }, 1_000).unwrap();
@@ -386,5 +395,14 @@ mod tests {
         assert!(default_overdue(&book, u64::MAX, |_, _| Ok(())).unwrap().is_empty());
         let routine = Ask { text: "Rename the module?".into(), options: vec!["yes".into(), "no".into()] }.gate("worker");
         assert!(routine.has_default());
+        let undefaulted = |question: &str| GateRequest { question: question.into(), options: vec!["yes".into(), "no".into()], default: 0, default_after_ms: 0, ..request() };
+        let refused = undefaulted("Rename the module?").validate().unwrap_err().user_message();
+        assert!(refused.contains("--default must name an option"), "{refused}");
+        for question in ["Pay for the GPU box?", "Create an account on the forum?", "Make the repo public?", "Vendor this code of unclear license?", "Send the email in Tom's name?", "Post the 0.3.1 announcement under your name?", "Delete the ledger?", "Give the host an ssh key, which widens access?", "Change the project direction?"] {
+            let gate = undefaulted(question);
+            assert!(gate.validate().is_ok() && gate.for_tom(), "{question} is ask-once, so it waits for Tom without a default");
+            let defaulted = GateRequest { default: 1, default_after_ms: 60_000, ..gate };
+            assert!(defaulted.validate().is_err(), "{question} must not carry a default");
+        }
     }
 }

@@ -90,10 +90,14 @@ fn implementation() -> Vec<HookInput> {
 }
 
 #[test]
-fn the_proxy_is_refused_every_implementation_action_with_the_launch_route() {
+fn the_proxy_is_refused_every_implementation_action_and_a_question_box_that_would_block_its_session() {
     for input in implementation() {
         assert!(denied(&proxy(), &input), "{:?}", input.data);
     }
+    let ask = tool("AskUserQuestion", json!({"questions": [{"question": "Give gex45 a key nexus accepts?", "options": [{"label": "yes"}, {"label": "no"}]}]}));
+    let Verdict::Deny(reason) = super::question_box::decide(&proxy(), &ask) else { panic!("a proxy's question box blocks its whole session and must be denied") };
+    assert!(reason.contains("north gate open") && reason.contains("--default-after") && reason.contains("multiple-choice question in text"), "{reason}");
+    assert_eq!(super::question_box::decide(&worker(), &ask), Verdict::Allow, "a worker's question becomes a gate through its host");
 }
 
 fn stop(active: bool) -> HookInput {

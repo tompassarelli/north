@@ -3,6 +3,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::decision_queue;
 use crate::fleet::gates::{Decision, Gate, GateRequest, due};
 use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::runtime::now_ms;
@@ -11,9 +12,10 @@ use crate::fleet::store::GateRow;
 use crate::dispatch::{IssueRef, OWNER, product_boxes};
 use crate::github_mirror::store::{Mirror, OPEN_ISSUES, key};
 
-const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate list [--json]";
+const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate list [--json] | north gate digest [--peek]";
 const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; an issue with more than one open box needs --box, and one with a single open box is held whole.";
-const DEFAULT_HELP: &str = "--default and --default-after are required, except for a question about cost, accounts, credentials or access, making something public, deleting valuable data, or core direction and dependencies (the ask-once table in harness/defaults.toml): such a gate takes neither and waits for Tom's answer.";
+const DEFAULT_HELP: &str = "--default and --default-after are required, except for a question about cost, accounts, credentials or access, making something public, deleting valuable data, sending in Tom's name, outside code of unclear license, or core direction and dependencies (the ask-once table in harness/defaults.toml): such a gate takes neither and is for Tom: only the work it holds waits for his answer. Every other gate applies its recommended default at its deadline (8h unless the brief names one).";
+const FIRST_LOOK_MS: u64 = 24 * 3_600_000;
 const WAIT_POLL: Duration = Duration::from_secs(2);
 
 pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
@@ -25,6 +27,8 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         ["answer", id, number, "--note", note, "--session", session] | ["answer", id, number, "--session", session, "--note", note] => answer(fleet, id, number, Some(note), Some(session)),
         ["list"] => list(fleet, false),
         ["list", "--json"] => list(fleet, true),
+        ["digest"] => digest(fleet, true),
+        ["digest", "--peek"] => digest(fleet, false),
         ["await", id] => await_default(fleet, id.parse().map_err(|_| usage())?),
         _ => Err(usage()),
     }
@@ -119,6 +123,18 @@ pub(crate) fn duration_ms(text: &str) -> Option<u64> {
         _ => return None,
     };
     count.parse::<u64>().ok()?.checked_mul(seconds * 1000)
+}
+
+fn digest(fleet: &Fleet, mark: bool) -> NorthResult<()> {
+    let seen = std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/state/north/gate-digest/seen"));
+    let since = seen.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|text| text.trim().parse().ok()).unwrap_or_else(|| now_ms().saturating_sub(FIRST_LOOK_MS));
+    let now = now_ms();
+    print!("{}", decision_queue::digest(&fleet.digest(since)?.gates, since, now));
+    if let Some(path) = seen.filter(|_| mark) {
+        let _ = path.parent().map(std::fs::create_dir_all);
+        std::fs::write(&path, now.to_string()).map_err(|why| NorthError::State(format!("cannot record the digest look in {}: {why}", path.display())))?;
+    }
+    Ok(())
 }
 
 fn list(fleet: &Fleet, json: bool) -> NorthResult<()> {

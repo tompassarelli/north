@@ -1489,6 +1489,14 @@ source = "tom: ask-once decisions wait for his answer; deleting hard-to-restore 
 fallback = "a gate naming none of the ask-once words keeps its default"
 consumers = ["crates/north-fleet/src/fleet/ask_once.rs"]
 
+[ask_once_tom_name]
+value = ["in tom's name", "in your name", "under your name", "under tom's name", "on tom's behalf", "send as tom", "sign as tom", "post as tom", "from tom's account"]
+allowed = { min_len = 1 }
+unit = "words and phrases that put a gate question or option in the sending-in-Tom's-name ask-once class, which carries no default"
+source = "tom: ask-once decisions wait for his answer; sending in his name is one of them (north#641, 2026-11-06)"
+fallback = "a gate naming none of the ask-once words keeps its default"
+consumers = ["crates/north-fleet/src/fleet/ask_once.rs"]
+
 [ask_once_direction]
 value = ["direction", "dependency", "dependencies", "outside contributions", "license"]
 allowed = { min_len = 1 }

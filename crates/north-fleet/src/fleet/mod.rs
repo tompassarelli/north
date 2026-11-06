@@ -6,6 +6,7 @@ pub mod claims;
 pub mod detached;
 pub mod digest_report;
 pub mod effort;
+pub mod decision_queue;
 pub mod gates;
 pub mod compaction;
 pub mod handoff;

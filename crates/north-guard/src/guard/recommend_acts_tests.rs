@@ -25,7 +25,7 @@ fn blocked(verdict: &Verdict) -> bool {
 }
 
 #[test]
-fn an_unacted_recommendation_blocks_twice_per_turn_and_an_earlier_turns_issue_does_not_count() {
+fn an_unacted_recommendation_blocks_twice_per_turn_and_one_filed_with_the_url_gh_printed_and_cited_passes() {
     let dir = state("unacted");
     let turn = read_turn(&fixture("unacted")).unwrap();
     assert_eq!((turn.id.as_str(), turn.commands.as_slice()), ("t2", ["north fleet list --json".to_owned()].as_slice()), "the turn starts at the last real prompt, past the meta Stop feedback");
@@ -35,10 +35,6 @@ fn an_unacted_recommendation_blocks_twice_per_turn_and_an_earlier_turns_issue_do
     assert!(blocked(&decide(&stop("unacted", "s1"), &dir)));
     assert_eq!(decide(&stop("unacted", "s1"), &dir), Verdict::Allow, "a third stop in the same turn passes");
     assert!(blocked(&decide(&stop("unacted", "s2"), &dir)), "another session keeps its own count");
-}
-
-#[test]
-fn a_recommendation_filed_with_the_url_gh_printed_and_cited_passes_and_an_uncited_one_names_the_citation() {
     let dir = state("acted");
     assert_eq!(decide(&stop("acted", "s1"), &dir), Verdict::Allow);
     let mut uncited = stop("acted", "s3");
@@ -56,7 +52,7 @@ fn a_recommendation_naming_an_ask_once_category_passes() {
 }
 
 #[test]
-fn a_cited_issue_is_covered_only_once_the_turn_edited_that_same_issue() {
+fn a_cited_issue_is_covered_only_once_the_turn_edited_that_same_issue_named_by_its_first_positional() {
     let dir = state("cited-box");
     let launched = decide(&stop("launched_only", "s1"), &dir);
     assert!(blocked(&launched), "{launched:?}");
@@ -65,10 +61,6 @@ fn a_cited_issue_is_covered_only_once_the_turn_edited_that_same_issue() {
     let other = decide(&stop("other_issue", "s1"), &state("other-issue"));
     assert!(blocked(&other), "{other:?}");
     assert!(matches!(&other, Verdict::Deny(reason) if reason.contains("cites north#640") && reason.contains("only created or edited north#633")));
-}
-
-#[test]
-fn the_edited_issue_is_the_first_positional_and_its_repo_may_come_before_the_issue_verb() {
     let moved = |command: &str| {
         let lines = format!("{}\n{}\n", r#"{"type":"user","uuid":"t","message":{"role":"user","content":"x"}}"#, json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"a","name":"Bash","input":{"command":command}}]}}));
         turn_in(lines.as_bytes()).unwrap().moved

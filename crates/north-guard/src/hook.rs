@@ -94,6 +94,7 @@ enum HookKind {
     PreAgent,
     PreTimer,
     PreMessage,
+    PreAsk,
     SpawnCapacity,
     NativeSpawn,
     PostTool,
@@ -114,6 +115,7 @@ impl HookKind {
             "pre-agent" => Self::PreAgent,
             "pre-timer" => Self::PreTimer,
             "pre-message" => Self::PreMessage,
+            "pre-ask" => Self::PreAsk,
             "spawn-capacity" => Self::SpawnCapacity,
             "post-tool" => Self::PostTool,
             "permission-request" => Self::PermissionRequest,
@@ -135,6 +137,7 @@ impl HookKind {
                 "Agent" | "spawn_agent" => Self::PreAgent,
                 "ScheduleWakeup" | "CronCreate" => Self::PreTimer,
                 crate::guard::subagent_message::MESSAGE_TOOL => Self::PreMessage,
+                crate::guard::question_box::QUESTION_TOOL => Self::PreAsk,
                 name if name.ends_with("spawn_agent") => Self::NativeSpawn,
                 _ => return None,
             },
@@ -150,7 +153,7 @@ impl HookKind {
 
     fn event(self) -> &'static str {
         match self {
-            Self::PreBash | Self::PreEdit | Self::PreAgent | Self::PreTimer | Self::PreMessage | Self::SpawnCapacity | Self::NativeSpawn => "PreToolUse",
+            Self::PreBash | Self::PreEdit | Self::PreAgent | Self::PreTimer | Self::PreMessage | Self::PreAsk | Self::SpawnCapacity | Self::NativeSpawn => "PreToolUse",
             Self::PostTool => "PostToolUse",
             Self::PermissionRequest => "PermissionRequest",
             Self::Stop | Self::RecommendActs => "Stop",
@@ -208,6 +211,7 @@ impl HookKind {
             Self::PreAgent => &[crate::guard::proxy_role::evaluate, crate::guard::agent_cwd::evaluate, crate::guard::worker_tier::evaluate, crate::guard::spawn_capacity::evaluate],
             Self::PreTimer => &[crate::guard::lead_timer::evaluate],
             Self::PreMessage => &[crate::guard::subagent_message::evaluate],
+            Self::PreAsk => &[crate::guard::question_box::evaluate],
             Self::SpawnCapacity => &[crate::guard::spawn_capacity::admission],
             Self::NativeSpawn => &[crate::guard::proxy_role::evaluate, crate::guard::spawn_capacity::evaluate],
             Self::PostTool => &[crate::guard::worker_handoff::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate, crate::guard::spawn_capacity::confirm_native],
@@ -215,7 +219,7 @@ impl HookKind {
             Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::recommendation_grounding::evaluate, crate::guard::recommend_acts::evaluate, crate::guard::status_not_action::evaluate, crate::guard::proxy_role::evaluate, crate::guard::correction_capture::evaluate],
             Self::RecommendActs => &[crate::guard::recommend_acts::evaluate],
             Self::SubagentStop => &[crate::guard::subagent_teardown::evaluate],
-            Self::SessionStart => &[crate::guard::unlanded_work::evaluate, crate::guard::proxy_adopt::evaluate],
+            Self::SessionStart => &[crate::guard::unlanded_work::evaluate, crate::guard::proxy_adopt::evaluate, crate::guard::gate_digest::evaluate],
             Self::UserPromptSubmit => &[crate::guard::quiet_phrase::evaluate],
             Self::CodexConduct => &[crate::guard::codex_conduct::evaluate],
         }

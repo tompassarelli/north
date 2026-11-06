@@ -43,6 +43,10 @@ south `agents/catalog-config.json`; gate rows come from `crates/north-safe-push`
 | No hand edits of generated CLAUDE.md, synced Codex files or .nix generated from .gal; edit the source | `generated_policy` in `north-hook` | Claude, Codex |
 | New structural debt in a repo with structure.toml is reported after the edit (advisory) | `north-hook` (code-health-edit) | Claude, Codex |
 | Unlanded lanes older than 24 h are surfaced at session start (advisory) | `north-hook` (unlanded-work) | Claude |
+| The proxy never opens a blocking question box: AskUserQuestion from a proxy-role session is denied with the gate-open path | `north-hook` (question-box) | Claude |
+| Tom's window starts with his decision queue (open for-Tom gates and defaults applied since the last look) when it is non-empty (advisory) | `north-hook` (gate-digest, `north gate digest`) | Claude |
+| A proxy or Tom-window reply whose closing sentence only says nothing is needed (\"no action needed\") is blocked as noise | `north-hook` (status-not-action) | Claude |
+| A gate without a default and deadline is refused unless it names an ask-once class | `north gate open` (`GateRequest::validate`) | Claude, Codex |
 | A decision, audit, review or research file written under the handoffs directory draws an advisory before the write: durable records go in the owning repository (advisory) | `handoff_record` through `north-hook` | Claude, Codex |
 
 `prompt-grounding` delivers context rather than enforcing a rule; `north-hook`
