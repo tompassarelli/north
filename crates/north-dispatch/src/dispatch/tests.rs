@@ -143,12 +143,22 @@ fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_na
     let queued = "gex45 skipped: 14.0 GiB free on the root disk, under 15";
     hosts[0] = hosts[0].clone().saturated(Some(queued.into()));
     let boxes = vec![issue("makgora", 50, "- [ ] a", &[]), issue("makgora", 51, "- [ ] b", &["needs:native-pair"])];
-    let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
+    let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test", &|_| None);
     let launched: Vec<(String, &str)> = outcome.launches.iter().map(|launch| (launch.item.to_string(), launch.host.as_str())).collect();
     assert_eq!(launched, [("makgora#50".to_owned(), "nexus")]);
     let (item, why) = outcome.skipped.last().unwrap();
     assert_eq!(item.to_string(), "makgora#51");
     assert!(why.contains(&format!("gex45 takes nothing: {queued}")), "{why}");
+    let (hosts, accounts) = fleet();
+    let boxes = vec![issue("north", 88, "- [ ] a", &[]), issue("makgora", 50, "- [ ] b", &[])];
+    let why = "refuse: staffing: north has 5 lanes queued to land, at or over the 3.0 that 6.0 landings a busy hour drain in 30 minutes; wait for the queue to drain";
+    let staffing = |proposal: &super::Proposal| (proposal.repo == "north").then(|| why.to_owned());
+    let held = decide(&survey(boxes, Cloud::Closed("no credit".into()), hosts, accounts), "test", &staffing);
+    let launched: Vec<String> = held.launches.iter().map(|launch| launch.item.to_string()).collect();
+    assert_eq!(launched, ["makgora#50"], "a staffing hold takes no slot, so the next repo's box still launches");
+    let skipped: Vec<(String, &str)> = held.skipped.iter().map(|(item, why)| (item.to_string(), why.as_str())).collect();
+    assert_eq!(skipped, [("north#88".to_owned(), "ready, not placed: staffing: north has 5 lanes queued to land, at or over the 3.0 that 6.0 landings a busy hour drain in 30 minutes; wait for the queue to drain")]);
+    assert_eq!(super::alert(&held, &[], "nexus"), None, "a staffing hold is the governor doing its work, not idle capacity for Tom to hear about");
 }
 
 #[test]
@@ -180,7 +190,7 @@ fn a_project_with_paused_true_gets_no_launch_and_each_of_its_issues_prints_as_pa
     let mut paused = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
     paused.projects = super::projects::Projects::read(&cfg).unwrap();
     assert_eq!(paused.projects.set_aside(), ["galileo", "makgora", "wisp"]);
-    let outcome = decide(&paused, "test");
+    let outcome = decide(&paused, "test", &|_| None);
     let launched: Vec<String> = outcome.launches.iter().map(|launch| launch.item.to_string()).collect();
     assert_eq!(launched, ["north#1"]);
     let skipped: Vec<(String, &str)> = outcome.skipped.iter().map(|(item, why)| (item.to_string(), why.as_str())).collect();
@@ -193,7 +203,7 @@ fn the_main_red_workflows_boxless_issue_is_neither_named_for_a_box_nor_given_a_c
     let main_red = ["bug", "priority:now", "evidence:code", crate::platform::cleanup::MAIN_RED];
     let boxes = vec![issue("makgora", 912, "Run 1 failed", &main_red), issue("makgora", 913, "Nobody boxed this", &["bug"])];
     let survey = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
-    let outcome = decide(&survey, "test");
+    let outcome = decide(&survey, "test", &|_| None);
     let named: Vec<String> = super::boxless(&survey, &outcome).iter().map(|issue| issue.reference().to_string()).collect();
     assert_eq!(named, ["makgora#913"]);
     assert!(!crate::platform::cleanup::applies(&main_red.map(str::to_owned)));

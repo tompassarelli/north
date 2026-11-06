@@ -13,6 +13,7 @@ use slots::Pools;
 use survey::Survey;
 
 pub use record::cloud_launch_times;
+pub use effects::checkout_dir;
 pub use cloud::{Launch as CloudLaunch, Login, autoland as cloud_autoland, branch as cloud_branch, current_login as cloud_login};
 pub use fleets::holder as task_holder;
 pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
@@ -70,7 +71,19 @@ mod wait_tests;
 #[cfg(test)]
 mod spread_tests;
 
+const REFUSED: &str = "refuse: ";
 const USAGE: &str = "usage: north dispatch [--dry-run] | route-replay [--days N] [--db PATH]";
+
+/// A box about to be placed, as the staffing gate reads it.
+pub struct Proposal {
+    pub name: String,
+    pub repo: String,
+    pub task: String,
+    pub brief: String,
+}
+
+/// Why the fleet's staffing gate would refuse a launch of `proposal`, the same verdict `north fleet launch` gives it.
+pub type Staffing<'a> = &'a dyn Fn(&Proposal) -> Option<String>;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
@@ -119,7 +132,7 @@ fn candidates(survey: &Survey, brief: &str) -> Vec<Candidate> {
 }
 
 /// Every ready box placed on a free slot, or skipped with its reason.
-pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
+pub fn decide(survey: &Survey, launched_by: &str, staffing: Staffing) -> Outcome {
     let mut pools = Pools::new(&survey.hosts, &survey.accounts).with_cloud(cloud::SESSIONS - survey.cloud_running);
     let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
     let planned = issues::planned_predecessors(&survey.issues);
@@ -163,6 +176,11 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             continue;
         }
         let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
+        let proposal = Proposal { name: effects::session_name(&issue.reference(), survey.at), repo: issue.repo.clone(), task: issue.reference().to_string(), brief: brief.clone() };
+        if let Some(why) = staffing(&proposal) {
+            outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", why.strip_prefix(REFUSED).unwrap_or(&why))));
+            continue;
+        }
         let ready = Ready { item: issue.reference(), brief, code_only, route };
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
             Ok(mut launch) => {
@@ -192,7 +210,11 @@ pub fn alert(outcome: &Outcome, failures: &[String], here: &str) -> Option<Strin
     if outcome.ready == 0 || outcome.free == 0 || launched > 0 {
         return None;
     }
-    let why = failures.first().cloned().or_else(|| outcome.skipped.iter().find(|(_, why)| why.starts_with("ready, not placed")).map(|(item, why)| format!("{item} {why}")));
+    let staffing_hold = |why: &str| why.starts_with("ready, not placed: staffing:");
+    let why = failures.first().cloned().or_else(|| outcome.skipped.iter().find(|(_, why)| why.starts_with("ready, not placed") && !staffing_hold(why)).map(|(item, why)| format!("{item} {why}")));
+    if why.is_none() && outcome.skipped.iter().any(|(_, why)| staffing_hold(why)) {
+        return None;
+    }
     Some(format!("north dispatch on {here}: {} ready, {} free slots, none launched: {}", outcome.ready, outcome.free, why.unwrap_or_else(|| "no reason recorded".into())))
 }
 
@@ -277,7 +299,7 @@ fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
     started.into_iter().filter_map(|(_, failure)| failure).collect()
 }
 
-pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
+pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>, staffing: fn(&Proposal) -> Option<String>) -> u8 {
     let dry_run = match arguments {
         [] => false,
         [flag] if flag == "--dry-run" => true,
@@ -295,7 +317,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         }
     };
     print_survey(&survey);
-    let outcome = decide(&survey, &format!("north dispatch on {}", survey.here));
+    let outcome = decide(&survey, &format!("north dispatch on {}", survey.here), &staffing);
     for (item, why) in &outcome.skipped {
         println!("skip {item}: {why}");
     }

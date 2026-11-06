@@ -215,6 +215,25 @@ pub(super) fn record(log: &Path, entry: &Decision) -> std::io::Result<()> {
     writeln!(OpenOptions::new().create(true).append(true).open(log)?, "{line}")
 }
 
+pub(in crate::cli) fn staffing_hold(proposal: &crate::dispatch::Proposal) -> Option<String> {
+    let cwd = crate::dispatch::checkout_dir(&proposal.repo)?;
+    let origin = origin(&cwd)?;
+    if exemption(&proposal.name, &proposal.brief, || red_issue(&origin, &proposal.task)).is_some() || remote_lander(&cwd).is_some() {
+        return None;
+    }
+    let repo = checkout(&cwd).unwrap_or_else(|| name(&origin));
+    let queue = land_queue::directory(&Places::from_env().state, &origin);
+    refused_at(&repo, &queue, &proposal.brief, crate::foundation::clock::Timestamp::now().unix_seconds_f64(), bounds())
+}
+
+fn refused_at(repo: &str, queue: &Path, brief: &str, now: f64, bounds: Bounds) -> Option<String> {
+    let assessment = assess(repo, read_lander(queue, now), read_landings(&all_queues(queue), now), Load::default(), bounds);
+    match hold(assessment.refusal.as_deref(), brief, front(queue).as_deref(), None, false) {
+        Hold::Refused(why) => Some(why),
+        _ => None,
+    }
+}
+
 pub(super) fn guard(fleet: &Fleet, request: &LaunchRequest, excuse: Option<&str>, proxy: bool) -> NorthResult<()> {
     if request.verification {
         return Ok(());

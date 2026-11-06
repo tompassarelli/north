@@ -13,11 +13,11 @@ fn a_rolling_alarm_issue_is_not_ready_because_its_body_declares_no_category_whil
     let body = crate::tune::rises::issue_body(&[rise]).unwrap();
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None, builds: None }];
     let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 } }];
-    let alarm = decide(&survey(vec![uncategorised("north", 608, &body, &[])], Cloud::Closed(String::new()), hosts.clone(), accounts.clone()), "test");
+    let alarm = decide(&survey(vec![uncategorised("north", 608, &body, &[])], Cloud::Closed(String::new()), hosts.clone(), accounts.clone()), "test", &|_| None);
     assert!(alarm.launches.is_empty() && alarm.ready == 0, "{:?}", alarm.skipped);
     assert_eq!(alarm.skipped, [(super::issues::IssueRef::parse("north#608").unwrap(), super::facets::UNCATEGORISED.to_owned())]);
 
-    let headed = decide(&survey(vec![uncategorised("north", 608, &format!("Category: tooling\n{body}"), &[])], Cloud::Closed(String::new()), hosts, accounts), "test");
+    let headed = decide(&survey(vec![uncategorised("north", 608, &format!("Category: tooling\n{body}"), &[])], Cloud::Closed(String::new()), hosts, accounts), "test", &|_| None);
     assert_eq!(headed.launches.len(), 1, "the header alone is what staffed north#608: {:?}", headed.skipped);
 }
 
@@ -65,7 +65,7 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
 
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None, builds: None }];
     let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 } }];
-    let launched = decide(&survey(vec![uncategorised("north", 636, "Category: docs-policy\n- [ ] a box", &[])], Cloud::Closed(String::new()), hosts, accounts), "test");
+    let launched = decide(&survey(vec![uncategorised("north", 636, "Category: docs-policy\n- [ ] a box", &[])], Cloud::Closed(String::new()), hosts, accounts), "test", &|_| None);
     let [launch] = launched.launches.as_slice() else { panic!("{:?}", launched.skipped) };
     let stamp = format!("Arm: {}", context_arm("north#636", "docs-policy", &History::default(), &Evidence::default()).0);
     let lines: Vec<&str> = launch.brief.lines().collect();
@@ -88,7 +88,7 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     assert!(refused.contains("`Category: bug` is no category") && refused.contains("bug-known-cause"), "{refused}");
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None, builds: None }];
     let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 } }];
-    let skipped = decide(&survey(vec![uncategorised("north", 637, "Category: bug\n- [ ] a box", &[])], Cloud::Closed(String::new()), hosts, accounts), "test");
+    let skipped = decide(&survey(vec![uncategorised("north", 637, "Category: bug\n- [ ] a box", &[])], Cloud::Closed(String::new()), hosts, accounts), "test", &|_| None);
     assert!(skipped.launches.is_empty() && skipped.skipped.iter().any(|(_, why)| why.contains(&refused)), "{:?}", skipped.skipped);
 }
 

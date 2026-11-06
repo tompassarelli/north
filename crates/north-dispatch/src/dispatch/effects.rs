@@ -2,7 +2,7 @@
 //! `north fleet launch` (on the laptop through its job queue), record the attempt, send Tom's one
 //! ntfy line, and send the triage lead, else the proxy, its daily list of issues that need a box.
 use super::{brief, cloud};
-use super::issues::Issue;
+use super::issues::{Issue, IssueRef};
 use super::plan::Launch;
 use super::revive::Revive;
 use super::record::{self, Record};
@@ -23,17 +23,26 @@ const BOXLESS_EVERY_S: f64 = 24.0 * 3600.0;
 pub const REVIVED: &str = "revived.json";
 
 /// `sc-277-d1435`: the session name `north fleet list` shows and the hold reads back.
-pub fn session_name(launch: &Launch, at: f64) -> String {
-    let short = if launch.item.repo == "makgora" { "sc" } else { launch.item.repo.as_str() };
+pub fn session_name(item: &IssueRef, at: f64) -> String {
+    let short = if item.repo == "makgora" { "sc" } else { item.repo.as_str() };
     let clock = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso_micros_utc_offset();
     let hhmm: String = clock.get(11..16).unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
-    format!("{short}-{}-d{hhmm}", launch.item.number)
+    format!("{short}-{}-d{hhmm}", item.number)
+}
+
+fn checkout_in(home: &str, repo: &str) -> String {
+    format!("{home}/code/{}/main", crate::threads::catalog::checkout(repo))
+}
+
+/// The main checkout a launch for `repo` starts in.
+pub fn checkout_dir(repo: &str) -> Option<std::path::PathBuf> {
+    std::env::var("HOME").ok().map(|home| checkout_in(&home, repo).into())
 }
 
 /// The program and arguments that start `launch`: `north fleet launch` here or on an ssh host, or
 /// a laptop job that runs it there.
 pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: &str) -> Result<(String, Vec<String>), String> {
-    let directory = format!("{home}/code/{}/main", crate::threads::catalog::checkout(&launch.item.repo));
+    let directory = checkout_in(home, &launch.item.repo);
     let remote = launch.host != survey.here && survey.laptop.as_deref() != Some(launch.host.as_str());
     let cwd = if remote { format!("{}:{directory}", launch.host) } else { directory };
     let (provider, label) = launch.account.split_once(':').unwrap_or((launch.account.as_str(), "pooled"));
@@ -56,7 +65,7 @@ pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: 
 
 pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
     let at = placement::now();
-    let name = session_name(launch, at);
+    let name = session_name(&launch.item, at);
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
     let result = if launch.cloud {
         let started = brief::standing_orders().and_then(|orders| {

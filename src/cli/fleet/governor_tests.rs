@@ -57,13 +57,18 @@ fn assessed(queue: &Path, load: Load) -> Assessment {
 }
 
 #[test]
-fn a_home_with_no_lander_record_reads_as_not_stalled_and_refuses_nothing() {
+fn a_home_with_no_lander_record_refuses_nothing_and_the_planner_holds_a_box_for_a_recorded_queue_over_the_drain_bound_with_the_launchs_own_refusal() {
     let queues = Queues::new();
     let queue = queues.repo("north", 2, 0);
     waiting(&queue, 9, 29_897_794.0);
     let assessment = assessed(&queue, Load::default());
     assert_eq!((assessment.lander.recorded, assessment.lander.queued), (false, 3));
     assert_eq!(assessment.refusal, None);
+    let crowded = queues.repo("crowded", 5, 6);
+    let held = refused_at("north", &crowded, "Item: north#88", NOW, BOUNDS).expect("5 queued lanes are over the 3.0 that 6 landings an hour drain in 30 minutes");
+    assert_eq!(held, assessed(&crowded, Load::default()).refusal.unwrap());
+    assert!(held.starts_with("refuse: staffing: north has 5 lanes queued to land, at or over the 3.0 that 6.0 landings a busy hour drain in 30 minutes"), "{held}");
+    assert_eq!(refused_at("north", &queues.repo("calm", 1, 6), "Item: north#88", NOW, BOUNDS), None);
 }
 
 #[test]

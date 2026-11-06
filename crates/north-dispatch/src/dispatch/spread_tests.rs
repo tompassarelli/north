@@ -16,7 +16,7 @@ fn reading(disk_free_gib: f64, disk_total_gib: f64, queued: u32) -> Saturation {
 
 fn placed(hosts: Vec<Host>, accounts: Vec<Account>, boxes: u64) -> (Vec<(String, String)>, Vec<String>) {
     let issues = (0..boxes).map(|number| issue("makgora", 100 + number, "- [ ] a", &[])).collect();
-    let outcome = decide(&survey(issues, Cloud::Closed("no credit".into()), hosts, accounts), "test");
+    let outcome = decide(&survey(issues, Cloud::Closed("no credit".into()), hosts, accounts), "test", &|_| None);
     let launched = outcome.launches.iter().map(|launch| (launch.host.clone(), launch.account.clone())).collect();
     (launched, outcome.skipped.into_iter().map(|(item, why)| format!("skip {item}: {why}")).collect())
 }

@@ -106,29 +106,39 @@ fn stop(active: bool) -> HookInput {
 }
 
 const PLACED: &str = "slots gex45 claude:c: 2\nskip north#525: ready, not placed: no Class: line\nwould launch north#523 on gex45 claude:c as worker (tune cell)\n";
+const DISPATCHABLE: &str = "slots gex45 claude:c: 2\nwould launch north#523 on gex45 claude:c as worker (tune cell)\n";
 const UNPLACED: &str = "slots gex45 claude:a: 0\nslots gex45 claude:c: 2\nskip north#525: ready, not placed: Category debugging-unknown-cause has no Class: line\n";
 const SATURATED: &str = "slots gex45 claude:c: 0\nskip north#525: ready, not placed: gex45 takes nothing: load 37 on 20 threads\n";
+const STAFFING_HELD: &str = "slots ccx33 claude:a: 2\nskip north#88: ready, not placed: staffing: north has 5 lanes queued to land, at or over the 3.0 that 6.0 landings a busy hour drain in 30 minutes; wait for the queue to drain\n";
 const PACE_HELD: &str = "slots gex45 claude:a: 1\nslots ccx33 claude:a: 1\nslots whiterabbit claude:c: 0\nskip north#633: ready, not placed: gex45 holds the box: claude:a is held by pace with no session left to start, claude:c is held by pace with no session left to start; ccx33 holds the box: claude:a is held by pace with no session left to start, claude:c is held by pace with no session left to start; whiterabbit takes nothing: load 31 on 24 threads\n";
 const PAUSED: &str = "slots gex45 claude:c: 2\nskip makgora#798: project makgora paused paused = true\nskip wisp#230: project wisp paused paused = true\n";
 
 #[test]
-fn the_proxy_cannot_end_a_turn_while_admitted_capacity_is_idle_and_ready_boxes_wait() {
+fn the_proxy_is_blocked_from_ending_a_turn_only_by_a_ready_box_dispatch_cannot_place_for_a_reason_it_can_fix_and_never_by_one_dispatch_places() {
     let placed = Fake { plan: Some(PLACED), ..proxy() };
     match decide(&placed, &stop(false)) {
-        Verdict::Deny(reason) => assert!(reason.contains("claude:c has a free worker slot on gex45") && reason.contains("north#523 is ready"), "{reason}"),
+        Verdict::Deny(reason) => assert!(reason.contains("claude:c has 2 free worker slots on gex45") && reason.contains("north#525 is ready but not placed: no Class: line"), "{reason}"),
         other => panic!("{other:?}"),
+    }
+    match decide(&Fake { plan: Some(DISPATCHABLE), ..proxy() }, &stop(false)) {
+        Verdict::Advise(notice) => assert!(notice.contains("north#523") && notice.contains("north-dispatch.timer launches it on its next run"), "{notice}"),
+        other => panic!("a box dispatch places launches itself and never blocks the turn: {other:?}"),
     }
     match decide(&Fake { plan: Some(UNPLACED), ..proxy() }, &stop(false)) {
         Verdict::Deny(reason) => assert!(reason.contains("claude:c has 2 free worker slots on gex45") && reason.contains("north#525 is ready but not placed: Category"), "{reason}"),
         other => panic!("{other:?}"),
     }
     assert_eq!(decide(&placed, &stop(true)), Verdict::Allow);
-    let flagged = Fake { seen: Some("claude:c has a free worker slot on gex45\nnorth#523 is ready and dispatch would place it there"), plan: Some(PLACED), ..proxy() };
+    let flagged = Fake { seen: Some("claude:c has 2 free worker slots on gex45\nnorth#525 is ready but not placed: Category debugging-unknown-cause has no Class: line"), plan: Some(UNPLACED), ..proxy() };
     assert_eq!(decide(&flagged, &stop(false)), Verdict::Allow);
     assert_eq!(decide(&Fake { plan: Some(SATURATED), ..proxy() }, &stop(false)), Verdict::Allow);
     assert_eq!(decide(&Fake { plan: Some(PAUSED), ..proxy() }, &stop(false)), Verdict::Allow);
     match decide(&Fake { plan: Some(PACE_HELD), ..proxy() }, &stop(false)) {
         Verdict::Advise(notice) => assert!(notice.contains("north#633") && notice.contains("claude:a is held by pace with no session left to start"), "{notice}"),
+        other => panic!("{other:?}"),
+    }
+    match decide(&Fake { plan: Some(STAFFING_HELD), ..proxy() }, &stop(false)) {
+        Verdict::Advise(notice) => assert!(notice.contains("north#88") && notice.contains("staffing: north has 5 lanes queued"), "{notice}"),
         other => panic!("{other:?}"),
     }
     let mixed = format!("{PACE_HELD}skip north#525: ready, not placed: no Class: line\n");

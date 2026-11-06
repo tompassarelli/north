@@ -298,9 +298,10 @@ enum Idle {
 }
 
 const CAPACITY_HOLDS: [&str; 4] = ["holds the box:", "takes nothing:", "has no free slot", "has no account with a free worker slot"];
+const STAFFING_HOLD: &str = "staffing:";
 
 fn held_by_capacity(why: &str) -> bool {
-    why.split("; ").all(|clause| CAPACITY_HOLDS.iter().any(|hold| clause.contains(hold)))
+    why.starts_with(STAFFING_HOLD) || why.split("; ").all(|clause| CAPACITY_HOLDS.iter().any(|hold| clause.contains(hold)))
 }
 
 fn idle_capacity(world: &impl World, input: &HookInput) -> Option<Idle> {
@@ -308,35 +309,27 @@ fn idle_capacity(world: &impl World, input: &HookInput) -> Option<Idle> {
         return None;
     }
     let plan = world.dispatch_plan()?;
-    let placed = plan.lines().find_map(|line| line.strip_prefix("would launch ").or_else(|| line.strip_prefix("would cloud-launch ")));
-    let (capacity, waiting) = match placed {
-        Some(launch) => {
-            let mut words = launch.split(' ');
-            let item = words.next()?;
-            let (host, account) = (words.nth(1)?, words.next()?);
-            (format!("{account} has a free worker slot on {host}"), format!("{item} is ready and dispatch would place it there"))
+    let placed = plan.lines().find_map(|line| line.strip_prefix("would launch ").or_else(|| line.strip_prefix("would cloud-launch "))).and_then(|launch| launch.split(' ').next());
+    let free = plan.lines().filter_map(|line| line.strip_prefix("slots ")).find_map(|slot| {
+        let (pair, count) = slot.rsplit_once(": ")?;
+        let (host, account) = pair.split_once(' ')?;
+        (count.trim().parse::<u32>().ok()? > 0).then(|| format!("{account} has {} free worker slots on {host}", count.trim()))
+    });
+    let unplaced: Vec<(&str, &str)> = plan.lines().filter_map(|line| line.strip_prefix("skip ")?.split_once(": ready, not placed: ")).collect();
+    if let (Some((item, why)), Some(capacity)) = (unplaced.iter().find(|(_, why)| !held_by_capacity(why)), &free) {
+        let waiting = format!("{item} is ready but not placed: {why}");
+        let own = input.data["session_id"].as_str().unwrap_or_default();
+        if world.seen(own, &format!("{capacity}\n{waiting}")) {
+            return None;
         }
-        None => {
-            let free = plan.lines().filter_map(|line| line.strip_prefix("slots ")).find_map(|slot| {
-                let (pair, count) = slot.rsplit_once(": ")?;
-                let (host, account) = pair.split_once(' ')?;
-                (count.trim().parse::<u32>().ok()? > 0).then(|| format!("{account} has {} free worker slots on {host}", count.trim()))
-            })?;
-            let unplaced: Vec<(&str, &str)> = plan.lines().filter_map(|line| line.strip_prefix("skip ")?.split_once(": ready, not placed: ")).collect();
-            let Some((item, why)) = unplaced.iter().find(|(_, why)| !held_by_capacity(why)) else {
-                let (item, why) = unplaced.first()?;
-                return Some(Idle::Held(format!("{UNIT}: not blocking the end of turn: a worker slot is free but dispatch cannot place {item} there: {why}")));
-            };
-            (free, format!("{item} is ready but not placed: {why}"))
-        }
-    };
-    let own = input.data["session_id"].as_str().unwrap_or_default();
-    if world.seen(own, &format!("{capacity}\n{waiting}")) {
-        return None;
+        return Some(Idle::Staffable(format!("{UNIT}: admitted capacity is idle while ready work waits: {capacity}, and {waiting}. Fix what keeps the box from being placed before ending the turn, or tell Tom what blocks staffing.")));
     }
-    Some(Idle::Staffable(format!(
-        "{UNIT}: admitted capacity is idle while ready work waits: {capacity}, and {waiting}. Staff it before ending the turn (`north dispatch` launches what it places, `north fleet launch --task REPO#N ...` the rest, or fix what keeps a box from being placed), or tell Tom what blocks staffing."
-    )))
+    if let Some(item) = placed {
+        return Some(Idle::Held(format!("{UNIT}: not blocking the end of turn: {item} is ready and dispatch places it; north-dispatch.timer launches it on its next run")));
+    }
+    free?;
+    let (item, why) = unplaced.first()?;
+    Some(Idle::Held(format!("{UNIT}: not blocking the end of turn: a worker slot is free but dispatch cannot place {item} there: {why}")))
 }
 
 fn wrapped(words: &[&str]) -> bool {
