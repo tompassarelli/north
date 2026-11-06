@@ -21,6 +21,7 @@ pub mod gh_broker_route;
 pub mod github_quota;
 pub mod gh_shim;
 pub mod github_app;
+pub mod gh_origin;
 pub mod gh_session;
 pub mod ssh_session;
 pub mod git_credential;

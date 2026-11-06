@@ -4,6 +4,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::gh_origin::{self, Kind};
 use super::github_app::{self, Host};
 use crate::foundation::clock::Timestamp;
 use crate::foundation::exit::NO_VERDICT;
@@ -19,6 +20,8 @@ A call past the budget is refused with exit 75 and a message naming the spend an
 Budget: ${NORTH_GH_HOURLY_BUDGET:-400} units per rolling hour, counted in
 ${XDG_RUNTIME_DIR}/north-gh-budget/SESSION. Outside a fleet session (no NORTH_FLEET_SESSION)
 REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its budget tells that session once,
+A hook (a gh call under north hook) may spend 10% of the budget, so one hook cannot starve its session; north github budget
+breaks each session's spend down by hook, tick or command, the north verb behind it and the endpoint.
 and a call refused at 100% tells the proxy at most once an hour per session (north github budget lists every session's spend and the top callers).";
 
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
@@ -31,6 +34,7 @@ const FREE_COMMANDS: [&str; 6] = ["help", "version", "config", "alias", "complet
 const SCRUBBED: [&str; 4] = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 const ALARM_PERCENTS: [u32; 2] = [50, 80];
 const PROXY: &str = "proxy";
+const HOOK_SHARE_PERCENT: u32 = 10;
 
 pub fn run(arguments: &[String]) -> u8 {
     if matches!(arguments, [word] if word == "-h" || word == "--help") {
@@ -47,7 +51,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let budget = hourly_budget();
     let ledger = ledger_path(&session);
-    let before: u32 = fresh_spend(&ledger, Timestamp::now().unix_seconds()).iter().map(|(_, cost)| cost).sum();
+    let before: u32 = fresh_spend(&ledger, Timestamp::now().unix_seconds()).iter().map(|spend| spend.cost).sum();
     let mint = || {
         let (token, note) = github_app::agent_token(&Host::from_env(), Timestamp::now().unix_seconds(), std::env::var("GH_TOKEN").ok())?;
         if let Some(note) = note {
@@ -55,7 +59,8 @@ pub fn run(arguments: &[String]) -> u8 {
         }
         Ok(token)
     };
-    match prepare(real, rest, &session, budget, &ledger, Timestamp::now().unix_seconds(), mint) {
+    let origin = gh_origin::of_parent();
+    match prepare(real, rest, &session, Share { budget, ledger: &ledger }, Timestamp::now().unix_seconds(), &origin, mint) {
         Ok(mut command) => match super::gh_broker_route::route(&mut command) {
             Ok(()) => {
                 send(budget_notices(&session, &ledger, before, cost(rest), budget, Timestamp::now().unix_seconds()));
@@ -68,7 +73,9 @@ pub fn run(arguments: &[String]) -> u8 {
         },
         Err(Refusal::Budget(message)) => {
             eprintln!("north gh-session: {message}");
-            send(budget_notices(&session, &ledger, before, cost(rest), budget, Timestamp::now().unix_seconds()));
+            if before + cost(rest) > budget {
+                send(budget_notices(&session, &ledger, before, cost(rest), budget, Timestamp::now().unix_seconds()));
+            }
             NO_VERDICT
         }
         Err(Refusal::Token(message)) => {
@@ -89,18 +96,22 @@ pub fn hourly_budget() -> u32 {
     std::env::var(BUDGET_ENV).ok().and_then(|value| value.parse().ok()).unwrap_or(DEFAULT_BUDGET)
 }
 
-pub fn session_spends(now: i64) -> Vec<(String, u32)> {
+pub fn session_spends(now: i64) -> Vec<(String, Vec<Spend>)> {
     let directory = ledger_path("");
-    let mut spends: Vec<(String, u32)> = fs::read_dir(directory)
+    let mut spends: Vec<(String, Vec<Spend>)> = fs::read_dir(directory)
         .into_iter()
         .flatten()
         .flatten()
         .filter(|entry| entry.path().extension().is_none_or(|extension| extension != "tmp" && extension != "refused"))
-        .map(|entry| (entry.file_name().to_string_lossy().into_owned(), fresh_spend(&entry.path(), now).iter().map(|(_, cost)| cost).sum()))
-        .filter(|(_, used)| *used > 0)
+        .map(|entry| (entry.file_name().to_string_lossy().into_owned(), fresh_spend(&entry.path(), now)))
+        .filter(|(_, spent)| !spent.is_empty())
         .collect();
-    spends.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    spends.sort_by(|left, right| used(&right.1).cmp(&used(&left.1)).then_with(|| left.0.cmp(&right.0)));
     spends
+}
+
+pub fn used(spent: &[Spend]) -> u32 {
+    spent.iter().map(|spend| spend.cost).sum()
 }
 
 fn alarm_crossed(before: u32, units: u32, budget: u32) -> Option<u32> {
@@ -145,20 +156,27 @@ fn ledger_path(session: &str) -> PathBuf {
     runtime.join("north-gh-budget").join(name)
 }
 
+#[derive(Clone, Copy)]
+struct Share<'a> {
+    budget: u32,
+    ledger: &'a Path,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Refusal {
     Budget(String),
     Token(String),
 }
 
-fn prepare(real: &str, arguments: &[String], session: &str, budget: u32, ledger: &Path, now: i64, mint: impl FnOnce() -> Result<String, String>) -> Result<Command, Refusal> {
+fn prepare(real: &str, arguments: &[String], session: &str, share: Share, now: i64, origin: &gh_origin::Origin, mint: impl FnOnce() -> Result<String, String>) -> Result<Command, Refusal> {
+    let Share { budget, ledger } = share;
     let units = cost(arguments);
     if units > 0 {
-        admit(&fresh_spend(ledger, now), now, units, budget, session).map_err(Refusal::Budget)?;
+        admit(&fresh_spend(ledger, now), now, units, budget, session, origin.kind).map_err(Refusal::Budget)?;
     }
     let token = mint().map_err(Refusal::Token)?;
     if units > 0 {
-        record(ledger, now, units);
+        record(ledger, Spend { at: now, cost: units, kind: origin.kind, caller: origin.caller.clone(), endpoint: gh_origin::endpoint(arguments) });
     }
     let mut command = Command::new(real);
     command.args(arguments);
@@ -188,30 +206,46 @@ fn cost(arguments: &[String]) -> u32 {
     cost
 }
 
-fn admit(spent: &[(i64, u32)], now: i64, units: u32, budget: u32, session: &str) -> Result<(), String> {
-    let used: u32 = spent.iter().map(|(_, cost)| cost).sum();
-    if used + units <= budget {
+fn admit(spent: &[Spend], now: i64, units: u32, budget: u32, session: &str, kind: Kind) -> Result<(), String> {
+    let hooks: u32 = spent.iter().filter(|spend| spend.kind == Kind::Hook).map(|spend| spend.cost).sum();
+    let hook_share = budget * HOOK_SHARE_PERCENT / 100;
+    if kind == Kind::Hook && hooks + units > hook_share {
+        return Err(format!("session {session}'s hooks have spent {hooks} of their {hook_share} GitHub API units this hour ({HOOK_SHARE_PERCENT}% of the share) and this call costs {units}; a hook is refused past that so it cannot starve the session"));
+    }
+    let total = used(spent);
+    if total + units <= budget {
         return Ok(());
     }
-    let frees = spent.iter().map(|(at, _)| at + WINDOW_SECONDS - now).min().map_or_else(String::new, |seconds| format!("; the oldest spend frees in {} min", (seconds.max(0) + 59) / 60));
-    Err(format!("session {session} has spent {used} of its {budget} GitHub API units this hour and this call costs {units}{frees} (NORTH_GH_HOURLY_BUDGET sets the share)"))
+    let frees = spent.iter().map(|spend| spend.at + WINDOW_SECONDS - now).min().map_or_else(String::new, |seconds| format!("; the oldest spend frees in {} min", (seconds.max(0) + 59) / 60));
+    Err(format!("session {session} has spent {total} of its {budget} GitHub API units this hour and this call costs {units}{frees} (NORTH_GH_HOURLY_BUDGET sets the share)"))
 }
 
-fn fresh_spend(ledger: &Path, now: i64) -> Vec<(i64, u32)> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Spend {
+    pub at: i64,
+    pub cost: u32,
+    pub kind: Kind,
+    pub caller: String,
+    pub endpoint: String,
+}
+
+fn fresh_spend(ledger: &Path, now: i64) -> Vec<Spend> {
     let text = fs::read_to_string(ledger).unwrap_or_default();
     text.lines()
         .filter_map(|line| {
-            let (at, cost) = line.split_once(' ')?;
-            Some((at.parse::<i64>().ok()?, cost.parse::<u32>().ok()?))
+            let mut fields = line.split(' ');
+            let (at, cost) = (fields.next()?.parse::<i64>().ok()?, fields.next()?.parse::<u32>().ok()?);
+            let kind = Kind::parse(fields.next().unwrap_or(""));
+            Some(Spend { at, cost, kind, caller: fields.next().unwrap_or("unknown").to_owned(), endpoint: fields.next().unwrap_or("unknown").to_owned() })
         })
-        .filter(|(at, _)| now - at < WINDOW_SECONDS)
+        .filter(|spend| now - spend.at < WINDOW_SECONDS)
         .collect()
 }
 
-fn record(ledger: &Path, now: i64, units: u32) {
-    let mut kept = fresh_spend(ledger, now);
-    kept.push((now, units));
-    let body: String = kept.iter().map(|(at, cost)| format!("{at} {cost}\n")).collect();
+fn record(ledger: &Path, spend: Spend) {
+    let mut kept = fresh_spend(ledger, spend.at);
+    kept.push(spend);
+    let body: String = kept.iter().map(|spend| format!("{} {} {} {} {}\n", spend.at, spend.cost, spend.kind.name(), spend.caller, spend.endpoint)).collect();
     let written = ledger.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| {
         let temporary = ledger.with_extension(format!("{}.tmp", std::process::id()));
         fs::File::create(&temporary)?.write_all(body.as_bytes())?;

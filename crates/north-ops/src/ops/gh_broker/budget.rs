@@ -3,18 +3,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::quota;
 use crate::platform::gh_broker_route::Place;
-use crate::platform::gh_session;
+use crate::platform::gh_session::{self, Spend};
 use crate::platform::github_app::{self, AGENT_APP, Host, Request};
 
 const USAGE: &str = "usage: north github budget
 
 Print what is left of each GitHub token's hourly limit (the user's own login and the Socrates Agent
 App installation fleet sessions use), every fleet session's spend against its hourly share
-(NORTH_GH_HOURLY_BUDGET units, see north gh-session), and the callers that cost the most GitHub
+(NORTH_GH_HOURLY_BUDGET units, see north gh-session) with its biggest spends by origin (hook, tick or command),
+the north verb behind it and the gh endpoint, and the callers that cost the most GitHub
 calls in the last hour by token (personal, app, none), personal first, from the broker's calls.log (calls GitHub answered with anything but 304,
 apart from /rate_limit). A session reaching 50% and 80% of its share tells the proxy once.";
 
 const TOP_CALLERS: usize = 10;
+const TOP_CALLS: usize = 6;
 const HOUR: u64 = 3600;
 
 pub fn github(arguments: &[String]) -> u8 {
@@ -41,14 +43,28 @@ fn budget() -> u8 {
         }
     }
     let share = gh_session::hourly_budget();
-    for (session, used) in gh_session::session_spends(i64::try_from(now).unwrap_or(i64::MAX)) {
+    for (session, spent) in gh_session::session_spends(i64::try_from(now).unwrap_or(i64::MAX)) {
+        let used = gh_session::used(&spent);
         println!("session {session}\t{used} of {share} units ({}%)", u64::from(used) * 100 / u64::from(share.max(1)));
+        for (kind, caller, endpoint, units) in breakdown(&spent).into_iter().take(TOP_CALLS) {
+            println!("  {kind}\t{caller}\t{endpoint}\t{units} units");
+        }
     }
     let log = std::fs::read_to_string(Place::from_env().calls()).unwrap_or_default();
     for (caller, calls) in top_callers(&log, now).into_iter().take(TOP_CALLERS) {
         println!("caller {caller}\t{} calls in the last hour ({} personal, {} app, {} none)", calls.total(), calls.personal, calls.app, calls.none);
     }
     0
+}
+
+fn breakdown(spent: &[Spend]) -> Vec<(&'static str, String, String, u32)> {
+    let mut units: HashMap<(&'static str, &str, &str), u32> = HashMap::new();
+    for spend in spent {
+        *units.entry((spend.kind.name(), &spend.caller, &spend.endpoint)).or_default() += spend.cost;
+    }
+    let mut rows: Vec<_> = units.into_iter().map(|((kind, caller, endpoint), units)| (kind, caller.to_owned(), endpoint.to_owned(), units)).collect();
+    rows.sort_by(|left, right| right.3.cmp(&left.3).then_with(|| left.1.cmp(&right.1)).then_with(|| left.2.cmp(&right.2)));
+    rows
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
