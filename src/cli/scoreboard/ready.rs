@@ -425,17 +425,21 @@ fn mark(text: &str, color: bool) -> String {
     }
 }
 
+/// The first line of a repository's table: its verdict, how many bars fail on the last 24 h and the days in a row.
+fn headline(repo: &Repo) -> String {
+    let failing = repo.bars.iter().zip(Bar::ALL).filter(|(cells, bar)| !counts(cells.day.1, *bar)).count();
+    let ready = repo.days_in_a_row >= NEEDED_DAYS;
+    format!("{}: {}, {failing} of {} bars fail on the last 24 h, {} of {NEEDED_DAYS} days", repo.name, if ready { "ready" } else { "not ready" }, Bar::ALL.len(), repo.days_in_a_row)
+}
+
 fn table(out: &mut String, repo: &Repo, goals: &Goals, view: View) {
     let mut rows: Vec<Vec<String>> = vec![["bar", "target", "24 h", "", "12 h", "7 d"].map(String::from).to_vec()];
-    let mut failing = 0;
     for (bar, cells) in Bar::ALL.iter().zip(&repo.bars) {
         let goal = goals.of(*bar);
         let passed = counts(cells.day.1, *bar);
-        failing += usize::from(!passed);
         rows.push(vec![bar.label().into(), threshold(goal), cell(goal, cells.day.0, view.explain), if passed { "pass" } else { "FAIL" }.into(), cell(goal, cells.half_day, view.explain), cell(goal, cells.week, view.explain)]);
     }
-    let ready = repo.days_in_a_row >= NEEDED_DAYS;
-    let _ = writeln!(out, "{}: {}, {failing} of {} bars fail on the last 24 h, {} of {NEEDED_DAYS} days", repo.name, if ready { "ready" } else { "not ready" }, Bar::ALL.len(), repo.days_in_a_row);
+    let _ = writeln!(out, "{}", headline(repo));
     let widths: Vec<usize> = (0..rows[0].len()).map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0)).collect();
     for row in &rows {
         let line: Vec<String> = row.iter().zip(&widths).enumerate().map(|(column, (text, width))| {
@@ -474,4 +478,27 @@ pub fn run(now: i64, view: View) -> Result<String, String> {
     let records = Records::read(&Sources::live(), now)?;
     let repos: Vec<Repo> = shown(view.all).into_iter().map(|repo| assess(|bar, window| records.reading(bar, repo, window), &goals, repo, now)).collect();
     Ok(render(&repos, &goals, now, view))
+}
+
+const TOLD: &str = "north/scoreboard/ready-told";
+
+/// What the proxy hears first each day: the ready verdict of every repository as one line, so Tom reads whether the harness is ready without asking.
+pub fn report(now: i64) -> Vec<String> {
+    let path = state_root().join(TOLD);
+    let last = fs::read_to_string(&path).ok().and_then(|text| text.trim().parse::<i64>().ok()).unwrap_or(0);
+    if (0..DAY_S).contains(&(now - last)) {
+        return Vec::new();
+    }
+    let line = match (Goals::read(), Records::read(&Sources::live(), now)) {
+        (Ok(goals), Ok(records)) => {
+            let heads: Vec<String> = shown(false).into_iter().map(|repo| headline(&assess(|bar, window| records.reading(bar, repo, window), &goals, repo, now))).collect();
+            format!("ready bar: {} (north scoreboard --ready prints the table)", heads.join("; "))
+        }
+        (Err(why), _) | (_, Err(why)) => format!("ready bar not read: {why}"),
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&path, now.to_string());
+    vec![line]
 }

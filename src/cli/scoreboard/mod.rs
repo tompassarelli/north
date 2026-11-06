@@ -153,7 +153,9 @@ fn measure(sources: &Sources, now: i64) -> Result<Vec<Measure>, String> {
 pub fn tick(now: i64) -> Vec<String> {
     ready::record(now);
     audit::tick(now);
-    weekly::tick(now)
+    let mut told = ready::report(now);
+    told.extend(weekly::tick(now));
+    told
 }
 
 fn rework(request: &cause::Request) -> u8 {
