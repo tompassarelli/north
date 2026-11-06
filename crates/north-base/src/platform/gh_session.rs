@@ -18,7 +18,7 @@ A call past the budget is refused with exit 75 and a message naming the spend an
 Budget: ${NORTH_GH_HOURLY_BUDGET:-400} units per rolling hour, counted in
 ${XDG_RUNTIME_DIR}/north-gh-budget/SESSION. Outside a fleet session (no NORTH_FLEET_SESSION)
 REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its budget tells that session once,
-and only a call refused at 100% tells the proxy (north github budget lists every session's spend and the top callers).";
+and only the first call refused at 100% tells the proxy, once until a call is admitted again (north github budget lists every session's spend and the top callers).";
 
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 const BUDGET_ENV: &str = "NORTH_GH_HOURLY_BUDGET";
@@ -58,7 +58,7 @@ pub fn run(arguments: &[String]) -> u8 {
     match prepare(real, rest, &session, budget, &ledger, Timestamp::now().unix_seconds(), mint) {
         Ok(mut command) => match super::gh_broker_route::route(&mut command) {
             Ok(()) => {
-                send(budget_notices(&session, before, cost(rest), budget));
+                send(budget_notices(&session, &ledger, before, cost(rest), budget));
                 exec(command)
             }
             Err(message) => {
@@ -68,7 +68,7 @@ pub fn run(arguments: &[String]) -> u8 {
         },
         Err(Refusal::Budget(message)) => {
             eprintln!("north gh-session: {message}");
-            send(budget_notices(&session, before, cost(rest), budget));
+            send(budget_notices(&session, &ledger, before, cost(rest), budget));
             REFUSED
         }
         Err(Refusal::Token(message)) => {
@@ -95,7 +95,7 @@ pub fn session_spends(now: i64) -> Vec<(String, u32)> {
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|entry| entry.path().extension().is_none_or(|extension| extension != "tmp"))
+        .filter(|entry| entry.path().extension().is_none_or(|extension| extension != "tmp" && extension != "refused"))
         .map(|entry| (entry.file_name().to_string_lossy().into_owned(), fresh_spend(&entry.path(), now).iter().map(|(_, cost)| cost).sum()))
         .filter(|(_, used)| *used > 0)
         .collect();
@@ -108,9 +108,17 @@ fn alarm_crossed(before: u32, units: u32, budget: u32) -> Option<u32> {
     ALARM_PERCENTS.into_iter().filter(|percent| !reached(*percent, before) && reached(*percent, before + units)).max()
 }
 
-fn budget_notices(session: &str, before: u32, units: u32, budget: u32) -> Vec<(String, String)> {
+fn budget_notices(session: &str, ledger: &Path, before: u32, units: u32, budget: u32) -> Vec<(String, String)> {
+    let marker = refusal_marker(ledger);
     if units > 0 && before + units > budget {
+        if marker.exists() {
+            return Vec::new();
+        }
+        let _ = marker.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(&marker, ""));
         return vec![(PROXY.to_owned(), format!("north gh-session: session {session} was refused a gh call at 100% of its GitHub budget ({before} of {budget} units this hour, the call costs {units}); its gh calls stay refused until the oldest spend frees (north github budget lists the callers)"))];
+    }
+    if units > 0 {
+        let _ = fs::remove_file(&marker);
     }
     alarm_crossed(before, units, budget)
         .map(|percent| (session.to_owned(), format!("north gh-session: you reached {percent}% of your GitHub budget ({} of {budget} units this hour); at 100% your gh calls are refused until the oldest spend frees (north github budget lists the callers)", before + units)))
@@ -125,6 +133,12 @@ fn send(notices: Vec<(String, String)>) {
     for (recipient, message) in notices {
         let _ = Command::new(&program).args(["fleet", "send", "--from", "service:north-gh-budget", &recipient, &message]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn();
     }
+}
+
+fn refusal_marker(ledger: &Path) -> PathBuf {
+    let mut name = ledger.as_os_str().to_owned();
+    name.push(".refused");
+    PathBuf::from(name)
 }
 
 fn ledger_path(session: &str) -> PathBuf {
