@@ -11,7 +11,7 @@ use crate::session::identity::{Identity, state_changed};
 use crate::session::output_log::claim;
 use crate::shell::Shell;
 use crate::shell::files::Pushed;
-use crate::shell::origin::{Push, Snapshot};
+use crate::shell::origin::{Hooks, Push, Snapshot};
 
 pub fn run(arguments: &[String], shell: &Shell) -> u8 {
     watch_for_cancel();
@@ -177,7 +177,14 @@ impl Publisher<'_> {
         }
         cancelled()?;
         let pushed_at = u64::try_from(Timestamp::now().unix_seconds()).unwrap_or(0);
-        let push = Push { url: &outgoing.identity.origin_url, refspec: &publication.refspec, lease: &publication.lease, claimed: &claims.list };
+        let push = Push {
+            source: None,
+            url: &outgoing.identity.origin_url,
+            refspec: &publication.refspec,
+            lease: Some(&publication.lease),
+            hooks: Hooks::Skip,
+            claimed: &claims.list,
+        };
         self.shell.origin.push(&push)?;
         let record = Pushed {
             at_secs: pushed_at,

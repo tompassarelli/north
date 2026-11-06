@@ -1,11 +1,12 @@
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
+
+use north_base::foundation::step::{Refused, Step, cancelled, refuse};
 
 use super::name::release_tag;
-use crate::shell::git::default_branch;
 use crate::session::identity::Identity;
-use north_landing::landing::step::{Refused, Step, cancelled, git_quiet, git_read, refuse};
 use crate::session::output_log::claim_output_log;
+use crate::shell::Shell;
+use crate::shell::origin::{Hooks, Push};
 
 pub struct DeleteRequest<'a> {
     pub tag: &'a str,
@@ -18,7 +19,11 @@ pub enum Custody {
     Mirror(PathBuf),
 }
 
-pub fn delete_tag(request: &DeleteRequest) -> Step {
+pub fn custody(default_branch: String, on_default: bool, holding_mirror: Option<PathBuf>) -> Option<Custody> {
+    if on_default { Some(Custody::DefaultBranch(default_branch)) } else { holding_mirror.map(Custody::Mirror) }
+}
+
+pub fn delete_tag(request: &DeleteRequest, shell: &Shell) -> Step {
     let claims = claim_output_log()?;
     let tag = request.tag;
     if release_tag(tag) {
@@ -27,12 +32,13 @@ pub fn delete_tag(request: &DeleteRequest) -> Step {
     let dir = std::env::current_dir().map_err(|_| Refused(1))?;
     let identity = Identity::capture(&dir)?;
     let tag_ref = format!("refs/tags/{tag}");
-    if git_quiet(&dir, &["check-ref-format", &tag_ref]).is_none() {
+    if !shell.git.valid_reference(&tag_ref) {
         return Err(refuse(format!("safe-push: '{tag}' is not a valid tag name")));
     }
-    let (tag_oid, commit) = origin_tag(&dir, &identity.origin_url, &tag_ref)?
-        .ok_or_else(|| refuse(format!("safe-push: origin has no tag '{tag}'")))?;
-    let custody = custody(&dir, &identity.origin_url, &commit)?
+    let peeled_ref = format!("{tag_ref}^{{}}");
+    let listing = shell.origin.listing(&identity.origin_url, &[&tag_ref, &peeled_ref])?;
+    let (tag_oid, commit) = origin_tag(&listing, &tag_ref).ok_or_else(|| refuse(format!("safe-push: origin has no tag '{tag}'")))?;
+    let custody = observe_custody(shell, &identity.origin_url, &commit)?
         .ok_or_else(|| refuse(format!("safe-push: commit {commit} of tag '{tag}' is neither on origin's default branch nor held in the lane-gc mirror — refusing; NOT deleted.")))?;
     cancelled()?;
     let held = match &custody {
@@ -44,24 +50,21 @@ pub fn delete_tag(request: &DeleteRequest) -> Step {
         return Ok(());
     }
     let lease = format!("--force-with-lease={tag_ref}:{tag_oid}");
-    let status = Command::new("git")
-        .current_dir(&dir)
-        .env("SAFE_PUSH_ACTIVE", "1")
-        .env("SAFE_PUSH_OUTPUT_CLAIMED", &claims.list)
-        .args(["push", "--no-follow-tags", "--no-verify", &lease, &identity.origin_url, &format!(":{tag_ref}")])
-        .status()
-        .map_err(|_| Refused(127))?;
+    let refspec = format!(":{tag_ref}");
+    let pushed = shell.origin.push(&Push { source: None, url: &identity.origin_url, refspec: &refspec, lease: Some(&lease), hooks: Hooks::Skip, claimed: &claims.list });
+    if pushed == Err(Refused(127)) {
+        return pushed;
+    }
     cancelled()?;
-    if !status.success() {
+    if pushed.is_err() {
         return Err(refuse(format!("safe-push: the push deleting tag '{tag}' failed")));
     }
     println!("safe-push: ✓ deleted tag {tag} from origin; {held}");
     Ok(())
 }
 
-fn origin_tag(dir: &Path, origin_url: &str, tag_ref: &str) -> Step<Option<(String, String)>> {
+fn origin_tag(listing: &str, tag_ref: &str) -> Option<(String, String)> {
     let peeled_ref = format!("{tag_ref}^{{}}");
-    let listing = git_read(dir, &["ls-remote", origin_url, tag_ref, &peeled_ref])?;
     let (mut direct, mut peeled) = (None, None);
     for line in listing.lines() {
         match line.split_once('\t') {
@@ -70,47 +73,23 @@ fn origin_tag(dir: &Path, origin_url: &str, tag_ref: &str) -> Step<Option<(Strin
             _ => {}
         }
     }
-    Ok(direct.map(|oid| {
+    direct.map(|oid| {
         let commit = peeled.unwrap_or_else(|| oid.clone());
         (oid, commit)
-    }))
+    })
 }
 
-fn custody(dir: &Path, origin_url: &str, commit: &str) -> Step<Option<Custody>> {
-    let branch = default_branch(dir);
+fn observe_custody(shell: &Shell, origin_url: &str, commit: &str) -> Step<Option<Custody>> {
+    let git = &*shell.git;
+    let branch = git.default_branch();
     let scratch = format!("refs/safe-push-delete/{}", std::process::id());
-    let fetched = git_quiet(dir, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", origin_url, &format!("+refs/heads/{branch}:{scratch}")]).is_some();
+    let fetched = shell.origin.fetch_scratch(origin_url, &format!("+refs/heads/{branch}:{scratch}"));
     cancelled()?;
-    let on_default = fetched && git_quiet(dir, &["cat-file", "-e", &format!("{commit}^{{commit}}")]).is_some() && Command::new("git")
-        .current_dir(dir)
-        .args(["merge-base", "--is-ancestor", commit, &scratch])
-        .status()
-        .is_ok_and(|status| status.success());
+    let on_default = fetched && git.has_commit(commit) && git.is_ancestor(commit, &scratch);
     if fetched {
-        let _ = git_quiet(dir, &["update-ref", "-d", &scratch]);
+        git.delete_ref(&scratch);
     }
-    if on_default {
-        return Ok(Some(Custody::DefaultBranch(branch)));
-    }
-    Ok(mirror_path(origin_url).filter(|mirror| mirror_holds(mirror, commit)).map(Custody::Mirror))
-}
-
-pub fn mirror_path(origin_url: &str) -> Option<PathBuf> {
-    let name = origin_url.trim_end_matches('/').rsplit(['/', ':']).next()?.trim_end_matches(".git");
-    if name.is_empty() {
-        return None;
-    }
-    let root = std::env::var_os("LANE_GC_MIRRORS")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".local/state/agents/lane-gc/mirrors")))?;
-    Some(root.join(format!("{name}.git")))
-}
-
-fn mirror_holds(mirror: &Path, commit: &str) -> bool {
-    if !mirror.is_dir() {
-        return false;
-    }
-    let held = Command::new("git").arg("--git-dir").arg(mirror).args(["for-each-ref", "--count=1", "--contains", commit, "--format=%(refname)"]).output();
-    held.is_ok_and(|output| output.status.success() && !output.stdout.is_empty())
+    let mirror = shell.settings.mirror(origin_url);
+    let holding_mirror = (!on_default && shell.files.is_directory(&mirror) && git.mirror_holds(&mirror, commit, &[])).then_some(mirror);
+    Ok(custody(branch, on_default, holding_mirror))
 }

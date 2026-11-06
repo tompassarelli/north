@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
-use crate::shell::git::default_branch;
-use crate::session::cancel::watch_for_cancel;
-use north_landing::landing::step::{Refused, Step, git_quiet, git_read, refuse};
+use north_base::foundation::step::{Refused, Step, refuse};
+
 use super::name::release_name;
 use super::publish::{self, Scanned, TagRequest};
+use crate::session::cancel::watch_for_cancel;
+use crate::shell::Shell;
+use crate::shell::git::Annotation;
+
 
 const USAGE: &str = "usage: north release VERSION [--notes FILE]
 
@@ -64,7 +66,7 @@ fn plausible_version(version: &str) -> bool {
         && version.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '+'))
 }
 
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], shell: &Shell) -> u8 {
     watch_for_cancel();
     let request = match parse(arguments) {
         Ok(Parsed::Help) => {
@@ -77,7 +79,7 @@ pub fn run(arguments: &[String]) -> u8 {
             return 2;
         }
     };
-    match release(&request) {
+    match release(&request, shell) {
         Ok(()) => {
             println!("north release: ✓ {} has its tag and its GitHub release", request.tag);
             0
@@ -89,45 +91,46 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-fn release(request: &Request) -> Step {
-    let dir = std::env::current_dir().map_err(|_| Refused(1))?;
+fn release(request: &Request, shell: &Shell) -> Step {
+    let git = &*shell.git;
     let tag = request.tag.as_str();
-    let root = git_quiet(&dir, &["rev-parse", "--show-toplevel"]).ok_or_else(|| refuse("north release: not in a git repository"))?;
-    let root = Path::new(&root);
-    if !git_read(root, &["status", "--porcelain", "--untracked-files=normal"])?.is_empty() {
+    let root = git.toplevel().ok_or_else(|| refuse("north release: not in a git repository"))?;
+    std::env::set_current_dir(Path::new(&root)).map_err(|_| Refused(1))?;
+    if git.dirty()? {
         return Err(refuse("north release: the working tree is dirty; commit or remove the changes first"));
     }
-    let default = default_branch(root);
-    let branch = git_quiet(root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).unwrap_or_default();
+    let default = git.default_branch();
+    let branch = git.current_branch().unwrap_or_default();
     if branch != default {
         return Err(refuse(format!("north release: release from the {default} branch's checkout, not '{}'", if branch.is_empty() { "detached HEAD" } else { &branch })));
     }
-    let tracking = format!("+refs/heads/{default}:refs/remotes/origin/{default}");
-    git_read(root, &["fetch", "-q", "--no-tags", "origin", &tracking])?;
-    let head = git_read(root, &["rev-parse", "HEAD"])?;
-    if git_read(root, &["rev-parse", &format!("refs/remotes/origin/{default}")])? != head {
+    shell.origin.fetch(&format!("+refs/heads/{default}:refs/remotes/origin/{default}"))?;
+    let head = git.rev_parse("HEAD")?;
+    if git.rev_parse(&format!("refs/remotes/origin/{default}"))? != head {
         return Err(refuse(format!("north release: HEAD is not origin/{default}; land or pull first")));
     }
-    let remote_tag = !git_read(root, &["ls-remote", "origin", &format!("refs/tags/{tag}")])?.is_empty();
-    let released = gh_quiet(root, &["release", "view", tag, "--json", "tagName"]);
-    match (remote_tag, released) {
+    let remote_tag = !shell.origin.listing("origin", &[&format!("refs/tags/{tag}")])?.is_empty();
+    match (remote_tag, shell.github.release_exists(tag)) {
         (true, true) => return Err(refuse(format!("north release: {tag} already exists with its GitHub release"))),
         (false, true) => return Err(refuse(format!("north release: a GitHub release named {tag} exists without its tag; resolve it by hand"))),
         (false, false) => {
-            create_tag(root, request, &head)?;
-            push_tag(root, tag)?;
+            create_tag(shell, request, &head)?;
+            match publish::publish_tag(&TagRequest { tag, dry_run: false }, shell)? {
+                Scanned::Clean => {}
+                Scanned::Refused(refused) => return Err(refused),
+            }
         }
         (true, false) => println!("north release: {tag} is on origin without its GitHub release; creating the release"),
     }
-    create_release(root, tag)
+    create_release(shell, tag)
 }
 
-fn create_tag(root: &Path, request: &Request, head: &str) -> Step {
+fn create_tag(shell: &Shell, request: &Request, head: &str) -> Step {
+    let git = &*shell.git;
     let tag = request.tag.as_str();
-    let tag_ref = format!("refs/tags/{tag}");
-    if let Some(existing) = git_quiet(root, &["rev-parse", "-q", "--verify", &tag_ref]) {
-        let annotated = git_quiet(root, &["cat-file", "-t", &existing]).as_deref() == Some("tag");
-        let target = git_quiet(root, &["rev-list", "-n1", &existing]).unwrap_or_default();
+    if let Some(existing) = git.resolve(&format!("refs/tags/{tag}")) {
+        let annotated = git.object_type(&existing).as_deref() == Some("tag");
+        let target = git.commit_of(&existing).unwrap_or_default();
         if !annotated || target != head {
             return Err(refuse(format!("north release: local tag {tag} is not an annotated tag of HEAD; it was not made by north release")));
         }
@@ -135,42 +138,14 @@ fn create_tag(root: &Path, request: &Request, head: &str) -> Step {
         return Ok(());
     }
     let message = format!("Release {tag}");
-    let mut arguments = vec!["tag", "-a", tag];
-    let notes = request.notes.as_ref().map(|notes| notes.to_string_lossy().into_owned());
-    match &notes {
-        Some(file) => arguments.extend(["-F", file.as_str()]),
-        None => arguments.extend(["-m", message.as_str()]),
-    }
-    arguments.push(head);
-    git_read(root, &arguments).map(drop)
+    let annotation = request.notes.as_deref().map_or(Annotation::Message(&message), Annotation::File);
+    git.annotate(tag, &annotation, head)
 }
 
-fn push_tag(root: &Path, tag: &str) -> Step {
-    std::env::set_current_dir(root).map_err(|_| Refused(1))?;
-    match publish::publish_tag(&TagRequest { tag, dry_run: false })? {
-        Scanned::Clean => Ok(()),
-        Scanned::Refused(refused) => Err(refused),
-    }
-}
-
-fn create_release(root: &Path, tag: &str) -> Step {
-    let created = Command::new("gh")
-        .current_dir(root)
-        .args(["release", "create", tag, "--verify-tag", "--title", tag, "--notes-from-tag"])
-        .status()
-        .map_err(|_| refuse("north release: gh is not on PATH"))?;
-    if created.success() || gh_quiet(root, &["release", "view", tag, "--json", "tagName"]) {
+fn create_release(shell: &Shell, tag: &str) -> Step {
+    let created = shell.github.create_release(tag).ok_or_else(|| refuse("north release: gh is not on PATH"))?;
+    if created || shell.github.release_exists(tag) {
         return Ok(());
     }
     Err(refuse(format!("north release: gh release create {tag} failed; rerun north release to finish it")))
-}
-
-fn gh_quiet(root: &Path, arguments: &[&str]) -> bool {
-    Command::new("gh")
-        .current_dir(root)
-        .args(arguments)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
 }

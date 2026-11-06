@@ -190,7 +190,7 @@ impl Fixture {
 }
 
 #[test]
-fn restore_refuses_what_is_not_public_or_would_move_a_branch() {
+fn restore_republishes_only_public_commits_to_missing_branches() {
     let fixture = Fixture::new();
     let private = fixture.git(&["rev-parse", "HEAD"]);
     let before = fixture.remote();
@@ -206,4 +206,14 @@ fn restore_refuses_what_is_not_public_or_would_move_a_branch() {
         assert_ne!(run.status, 0, "{row:?}: {}", run.output);
         assert_eq!(fixture.remote(), before, "{row:?} changed origin");
     }
+    let public = fixture.restore(&[fixture.base_oid.as_str(), "lost"]);
+    assert_eq!(public.status, 0, "{}", public.output);
+    assert_eq!(fixture.remote_ref("refs/heads/lost").as_deref(), Some(fixture.base_oid.as_str()), "{}", public.output);
+    let mirror = fixture.top().join("mirrors/remote.git");
+    fixture.git_at(fixture.top(), &["init", "-q", "--bare", &mirror.to_string_lossy()]);
+    fixture.git(&["push", "-q", &mirror.to_string_lossy(), "HEAD:refs/archive/lost"]);
+    let archived = fixture.restore(&[private.as_str(), "archived"]);
+    assert_eq!(archived.status, 0, "{}", archived.output);
+    assert!(archived.output.contains(&format!("from {}", mirror.display())), "{}", archived.output);
+    assert_eq!(fixture.remote_ref("refs/heads/archived").as_deref(), Some(private.as_str()), "{}", archived.output);
 }

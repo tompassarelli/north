@@ -2,11 +2,11 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use north_base::foundation::step::Step;
+use north_base::foundation::step::{Refused, Step};
 
 use super::Shell;
 use super::files::{Lock, Pushed, StateFiles};
-use super::git::Git;
+use super::git::{Annotation, Git};
 use super::github::GitHub;
 use super::origin::{Origin, Push, Snapshot};
 use super::processes::{Child, Finished, Processes};
@@ -63,6 +63,49 @@ impl Git for Unreached {
     fn push_url(&self) -> Option<String> {
         None
     }
+    fn current_branch(&self) -> Option<String> {
+        None
+    }
+    fn toplevel(&self) -> Option<String> {
+        None
+    }
+    fn common_dir(&self) -> Step<String> {
+        Err(Refused(1))
+    }
+    fn valid_reference(&self, _reference: &str) -> bool {
+        false
+    }
+    fn resolve(&self, _reference: &str) -> Option<String> {
+        None
+    }
+    fn rev_parse(&self, _revision: &str) -> Step<String> {
+        Err(Refused(1))
+    }
+    fn object_type(&self, _oid: &str) -> Option<String> {
+        None
+    }
+    fn object(&self, _oid: &str) -> Step<Vec<u8>> {
+        Err(Refused(1))
+    }
+    fn commit_of(&self, _revision: &str) -> Step<String> {
+        Err(Refused(1))
+    }
+    fn boundary(&self, _revisions: &[String]) -> Step<String> {
+        Err(Refused(1))
+    }
+    fn count(&self, _revisions: &[String]) -> Step<String> {
+        Err(Refused(1))
+    }
+    fn dirty(&self) -> Step<bool> {
+        Err(Refused(1))
+    }
+    fn annotate(&self, _tag: &str, _annotation: &Annotation, _commit: &str) -> Step {
+        Err(Refused(1))
+    }
+    fn delete_ref(&self, _reference: &str) {}
+    fn mirror_holds(&self, _mirror: &Path, _commit: &str, _patterns: &[&str]) -> bool {
+        false
+    }
 }
 
 impl Origin for Unreached {
@@ -75,14 +118,32 @@ impl Origin for Unreached {
     fn tip(&self, _url: &str, _reference: &str) -> Option<String> {
         None
     }
+    fn symref(&self, _url: &str, _reference: &str) -> Option<String> {
+        None
+    }
+    fn listing(&self, _url: &str, _references: &[&str]) -> Step<String> {
+        Err(Refused(1))
+    }
+    fn fetch(&self, _refspec: &str) -> Step {
+        Err(Refused(1))
+    }
+    fn fetch_scratch(&self, _url: &str, _refspec: &str) -> bool {
+        false
+    }
     fn push(&self, _push: &Push) -> Step {
-        Err(north_base::foundation::step::Refused(1))
+        Err(Refused(1))
     }
 }
 
 impl GitHub for Unreached {
     fn public(&self, _url: &str) -> bool {
         false
+    }
+    fn release_exists(&self, _tag: &str) -> bool {
+        false
+    }
+    fn create_release(&self, _tag: &str) -> Option<bool> {
+        None
     }
 }
 

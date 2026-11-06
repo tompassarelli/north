@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::platform::betterleaks;
 use crate::landing::step::{Refused, Step, git_read};
-pub use crate::platform::process::{exit_status, on_path};
+use crate::platform::process::{exit_status, on_path};
 
 pub mod denylist;
 pub mod email;

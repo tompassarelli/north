@@ -1,26 +1,23 @@
 use std::path::Path;
-use std::process::Command;
 
-use north_landing::land::scans::outgoing::denylist::Denylist;
-use north_landing::land::scans::outgoing::email::commit_email_scan;
-use north_landing::land::scans::outgoing::language::language_gate;
-use north_landing::land::scans::outgoing::native_ref::native_ref_scan;
-use north_landing::land::scans::outgoing::secrets::{annotation_secret_scan, history_secret_scan};
-use north_landing::land::scans::outgoing::{exit_status, instruction_limits, on_path};
+use north_base::foundation::step::{Refused, Step, cancelled, refuse};
+
 use super::delete::{DeleteRequest, delete_tag};
 use super::name::release_tag;
 use crate::request::{self, Arguments, Plan, USAGE};
 use crate::session::cancel::watch_for_cancel;
-use crate::session::output_log::claim_output_log;
 use crate::session::identity::{Identity, OriginRefs, remote_snapshot, state_changed};
-use north_landing::landing::step::{Refused, Step, cancelled, git_quiet, git_read, refuse};
+use crate::session::output_log::claim_output_log;
+use crate::gates::tag::{self as tag_scan, TagScan};
+use crate::shell::Shell;
+use crate::shell::origin::{Hooks, Push};
 
 pub struct TagRequest<'a> {
     pub tag: &'a str,
     pub dry_run: bool,
 }
 
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], shell: &Shell) -> u8 {
     watch_for_cancel();
     let outcome = match request::arguments(arguments) {
         Ok(Plan::Help) => {
@@ -31,13 +28,13 @@ pub fn run(arguments: &[String]) -> u8 {
             eprintln!("safe-push: version tag {tag} publishes only through north release, which also creates its GitHub release; NOT pushed.");
             Err(Refused(2))
         }
-        Ok(Plan::Push(Arguments { tag: Some(tag), dry_run, .. })) => match publish_tag(&TagRequest { tag: &tag, dry_run }) {
+        Ok(Plan::Push(Arguments { tag: Some(tag), dry_run, .. })) => match publish_tag(&TagRequest { tag: &tag, dry_run }, shell) {
             Ok(Scanned::Clean) => Ok(()),
             Ok(Scanned::Refused(Refused(code))) => return if cancelled().is_err() { 130 } else { code },
             Err(_) if cancelled().is_err() => Err(Refused(130)),
             Err(refused) => Err(refused),
         },
-        Ok(Plan::Push(Arguments { delete_tag: Some(tag), dry_run, .. })) => delete_tag(&DeleteRequest { tag: &tag, dry_run }),
+        Ok(Plan::Push(Arguments { delete_tag: Some(tag), dry_run, .. })) => delete_tag(&DeleteRequest { tag: &tag, dry_run }, shell),
         Ok(Plan::Push(_)) => {
             eprintln!("safe-push: north safe-push publishes tags only; land branches with bin/safe-push");
             Err(Refused(2))
@@ -47,13 +44,13 @@ pub fn run(arguments: &[String]) -> u8 {
             Err(Refused(refusal.exit_code()))
         }
     };
-    terminal(outcome)
+    terminal(outcome, shell.settings.raw_exit)
 }
 
-fn terminal(outcome: Step) -> u8 {
+fn terminal(outcome: Step, raw_exit: bool) -> u8 {
     match outcome {
         Ok(()) => 0,
-        Err(Refused(code)) if std::env::var_os("NORTH_NO_AUTOREAP").is_some_and(|value| value == "1") => code,
+        Err(Refused(code)) if raw_exit => code,
         Err(Refused(130 | 143)) => {
             println!("safe-push: cancelled");
             130
@@ -70,106 +67,102 @@ pub enum Scanned {
     Refused(Refused),
 }
 
-pub fn publish_tag(request: &TagRequest) -> Step<Scanned> {
+pub fn publish_tag(request: &TagRequest, shell: &Shell) -> Step<Scanned> {
     let claims = claim_output_log()?;
     let dir = std::env::current_dir().map_err(|_| Refused(1))?;
-    git_read(&dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+    let git = &*shell.git;
+    git.common_dir()?;
     let identity = Identity::capture(&dir)?;
-    let tag_oid = git_quiet(&dir, &["rev-parse", "-q", "--verify", &format!("refs/tags/{}", request.tag)])
-        .ok_or_else(|| refuse(format!("safe-push: no such tag '{}'", request.tag)))?;
-    if git_quiet(&dir, &["cat-file", "-t", &tag_oid]).as_deref() != Some("tag") {
+    let tag_oid = git.resolve(&format!("refs/tags/{}", request.tag)).ok_or_else(|| refuse(format!("safe-push: no such tag '{}'", request.tag)))?;
+    if git.object_type(&tag_oid).as_deref() != Some("tag") {
         return Err(refuse(format!("safe-push: tag '{}' is not annotated — refusing", request.tag)));
     }
-    let target = git_read(&dir, &["rev-list", "-n1", &tag_oid])?;
-    if !on_path("betterleaks") {
+    let target = git.commit_of(&tag_oid)?;
+    if !shell.processes.on_path("betterleaks") {
         return Err(refuse("safe-push: betterleaks not on PATH — refusing to push without a secret scan"));
     }
     cancelled()?;
-    Ok(match scan_and_push(&dir, &identity, request, &tag_oid, &target, &claims.list) {
+    let tagged = Tagged { dir: &dir, identity: &identity, request, tag_oid: &tag_oid, target: &target, claimed: &claims.list };
+    Ok(match tagged.scan_and_push(shell) {
         Ok(()) => Scanned::Clean,
         Err(refused) => Scanned::Refused(refused),
     })
 }
 
-fn scan_and_push(dir: &Path, identity: &Identity, request: &TagRequest, tag_oid: &str, target: &str, claimed: &str) -> Step {
-    let tag_ref = format!("refs/tags/{}", request.tag);
-    let origin = OriginRefs::fetch(dir, &identity.origin_url)?;
-    let fetched = origin.snapshot()?;
-    let origin_snapshot = remote_snapshot(dir, &identity.origin_url)?;
-    if origin_snapshot != fetched {
-        return Err(state_changed("origin refs changed while capturing tag scan base"));
+struct Tagged<'a> {
+    dir: &'a Path,
+    identity: &'a Identity,
+    request: &'a TagRequest<'a>,
+    tag_oid: &'a str,
+    target: &'a str,
+    claimed: &'a str,
+}
+
+impl Tagged<'_> {
+    fn scan_and_push(&self, shell: &Shell) -> Step {
+        let (dir, identity, git) = (self.dir, self.identity, &*shell.git);
+        let tag_ref = format!("refs/tags/{}", self.request.tag);
+        let origin = OriginRefs::fetch(dir, &identity.origin_url)?;
+        let fetched = origin.snapshot()?;
+        let origin_snapshot = remote_snapshot(dir, &identity.origin_url)?;
+        if origin_snapshot != fetched {
+            return Err(state_changed("origin refs changed while capturing tag scan base"));
+        }
+        let range = ScanRange::new(shell, self.target, origin.commits()?)?;
+        let annotation = git.object(self.tag_oid)?;
+        tag_scan::scan(&TagScan {
+            directory: dir,
+            root: &identity.root,
+            origin_url: &identity.origin_url,
+            tag: self.request.tag,
+            annotation: &annotation,
+            revisions: &range.revisions,
+            base: &range.base,
+            target: self.target,
+            outgoing: range.outgoing,
+        })?;
+        identity.revalidate(dir)?;
+        let current_tag = git.resolve(&tag_ref).ok_or_else(|| state_changed("tag disappeared"))?;
+        if current_tag != self.tag_oid {
+            return Err(state_changed("tag object changed"));
+        }
+        if git.commit_of(&current_tag)? != self.target {
+            return Err(state_changed("tag target changed"));
+        }
+        if remote_snapshot(dir, &identity.origin_url)? != origin_snapshot {
+            return Err(state_changed("origin refs changed"));
+        }
+        drop(origin);
+        self.push(shell, &tag_ref)
     }
-    let scan = ScanRange::new(dir, target, origin.commits()?)?;
-    scan_tag(dir, identity, request.tag, tag_oid, &scan)?;
-    identity.revalidate(dir)?;
-    let current_tag = git_quiet(dir, &["rev-parse", "-q", "--verify", &tag_ref]).ok_or_else(|| state_changed("tag disappeared"))?;
-    if current_tag != tag_oid {
-        return Err(state_changed("tag object changed"));
+
+    fn push(&self, shell: &Shell, tag_ref: &str) -> Step {
+        cancelled()?;
+        if self.request.dry_run {
+            println!("safe-push: ✓ clean (--dry-run) — would push tag {} -> origin", self.request.tag);
+            return Ok(());
+        }
+        println!("safe-push: ✓ clean — pushing tag {} -> origin", self.request.tag);
+        cancelled()?;
+        let refspec = format!("{}:{tag_ref}", self.tag_oid);
+        shell.origin.push(&Push { source: None, url: &self.identity.origin_url, refspec: &refspec, lease: None, hooks: Hooks::Run, claimed: self.claimed })?;
+        cancelled()
     }
-    if git_read(dir, &["rev-list", "-n1", &current_tag])? != target {
-        return Err(state_changed("tag target changed"));
-    }
-    if remote_snapshot(dir, &identity.origin_url)? != origin_snapshot {
-        return Err(state_changed("origin refs changed"));
-    }
-    drop(origin);
-    push(dir, &identity.origin_url, request, tag_oid, &tag_ref, claimed)
 }
 
 struct ScanRange {
     revisions: Vec<String>,
     base: String,
-    target: String,
     outgoing: bool,
 }
 
 impl ScanRange {
-    fn new(dir: &Path, target: &str, origin_commits: Vec<String>) -> Step<Self> {
+    fn new(shell: &Shell, target: &str, origin_commits: Vec<String>) -> Step<Self> {
         let mut revisions = vec![target.to_owned()];
         revisions.extend(origin_commits.into_iter().map(|oid| format!("^{oid}")));
-        let mut boundary = vec!["rev-list", "--boundary"];
-        boundary.extend(revisions.iter().map(String::as_str));
-        let listing = git_read(dir, &boundary)?;
-        let mut base = listing.lines().find_map(|line| line.strip_prefix('-')).unwrap_or("").to_owned();
-        let mut count = vec!["rev-list", "--count"];
-        count.extend(revisions.iter().map(String::as_str));
-        let outgoing = git_read(dir, &count)? != "0";
-        if !outgoing {
-            base = target.to_owned();
-        }
-        Ok(Self { revisions, base, target: target.to_owned(), outgoing })
+        let listing = shell.git.boundary(&revisions)?;
+        let outgoing = shell.git.count(&revisions)? != "0";
+        let base = if outgoing { listing.lines().find_map(|line| line.strip_prefix('-')).unwrap_or("").to_owned() } else { target.to_owned() };
+        Ok(Self { revisions, base, outgoing })
     }
-}
-
-fn scan_tag(dir: &Path, identity: &Identity, tag: &str, tag_oid: &str, scan: &ScanRange) -> Step {
-    language_gate(&identity.root, &scan.base, &scan.target)?;
-    instruction_limits(&identity.root, &scan.target)?;
-    let annotation = Command::new("git").current_dir(dir).args(["cat-file", "-p", tag_oid]).output().map_err(|_| Refused(127))?;
-    let annotation_text = String::from_utf8_lossy(&annotation.stdout);
-    native_ref_scan(dir, &[tag, annotation_text.trim_end_matches('\n')], &scan.revisions)?;
-    if scan.outgoing {
-        history_secret_scan(dir, &scan.revisions)?;
-        commit_email_scan(dir, &scan.revisions)?;
-    }
-    Denylist::from_env().scan(&identity.root, &identity.origin_url, &scan.base, &scan.target, tag)?;
-    annotation_secret_scan(dir, &annotation.stdout)
-}
-
-fn push(dir: &Path, origin_url: &str, request: &TagRequest, tag_oid: &str, tag_ref: &str, claimed: &str) -> Step {
-    cancelled()?;
-    if request.dry_run {
-        println!("safe-push: ✓ clean (--dry-run) — would push tag {} -> origin", request.tag);
-        return Ok(());
-    }
-    println!("safe-push: ✓ clean — pushing tag {} -> origin", request.tag);
-    cancelled()?;
-    let refspec = format!("{tag_oid}:{tag_ref}");
-    let status = Command::new("git")
-        .current_dir(dir)
-        .env("SAFE_PUSH_ACTIVE", "1")
-        .env("SAFE_PUSH_OUTPUT_CLAIMED", claimed)
-        .args(["push", "--no-follow-tags", origin_url, &refspec])
-        .status();
-    exit_status(status)?;
-    cancelled()
 }

@@ -1,10 +1,13 @@
 use std::path::PathBuf;
 
+use super::origin::repository;
+
 const WATCH_DEFAULT: &str = ".local/state/north/current/north";
 
 pub struct Settings {
     pub state_home: PathBuf,
     pub south: PathBuf,
+    pub mirrors: PathBuf,
     pub safe_push: String,
     pub fleet_session: String,
     pub host: String,
@@ -24,6 +27,7 @@ impl Settings {
         Self {
             state_home: std::env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from),
             south: std::env::var_os("SAFE_PUSH_SOUTH").map_or_else(|| home.join("code/south"), PathBuf::from),
+            mirrors: std::env::var_os("LANE_GC_MIRRORS").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/agents/lane-gc/mirrors"), PathBuf::from),
             safe_push: std::env::var("SAFE_PUSH_SELF").unwrap_or_default(),
             fleet_session: std::env::var("NORTH_FLEET_SESSION").unwrap_or_default(),
             host: std::fs::read_to_string("/proc/sys/kernel/hostname").map(|name| name.trim().to_owned()).unwrap_or_default(),
@@ -34,6 +38,10 @@ impl Settings {
             raw_exit: std::env::var_os("NORTH_NO_AUTOREAP").is_some_and(|value| value == "1"),
             land_offload: std::env::var_os("SAFE_PUSH_LAND_OFFLOAD").is_none_or(|value| value.is_empty() || value == "1"),
         }
+    }
+
+    pub fn mirror(&self, origin_url: &str) -> PathBuf {
+        self.mirrors.join(format!("{}.git", repository(origin_url)))
     }
 }
 

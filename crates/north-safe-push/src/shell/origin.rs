@@ -5,19 +5,31 @@ use north_base::foundation::step::Step;
 use north_base::platform::process::exit_status;
 use north_base::platform::push_ledger;
 
-use super::git::quiet;
+use super::git::{quiet, read};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Hooks {
+    Run,
+    Skip,
+}
 
 pub struct Push<'a> {
+    pub source: Option<&'a Path>,
     pub url: &'a str,
     pub refspec: &'a str,
-    pub lease: &'a str,
+    pub lease: Option<&'a str>,
+    pub hooks: Hooks,
     pub claimed: &'a str,
 }
 
 pub trait Origin {
     fn snapshot(&self, url: &str, destination_ref: &str) -> Result<Snapshot, String>;
+    fn symref(&self, url: &str, reference: &str) -> Option<String>;
     fn head(&self, url: &str) -> Option<String>;
     fn tip(&self, url: &str, reference: &str) -> Option<String>;
+    fn listing(&self, url: &str, references: &[&str]) -> Step<String>;
+    fn fetch(&self, refspec: &str) -> Step;
+    fn fetch_scratch(&self, url: &str, refspec: &str) -> bool;
     fn push(&self, push: &Push) -> Step;
 }
 
@@ -38,9 +50,12 @@ impl Live {
 
 impl Origin for Live {
     fn snapshot(&self, url: &str, destination_ref: &str) -> Result<Snapshot, String> {
-        let listing = quiet(&self.directory, &["ls-remote", "--symref", url, destination_ref])
-            .ok_or_else(|| format!("safe-push: cannot read origin destination {destination_ref}\n"))?;
+        let listing = self.symref(url, destination_ref).ok_or_else(|| format!("safe-push: cannot read origin destination {destination_ref}\n"))?;
         snapshot(&listing, destination_ref)
+    }
+
+    fn symref(&self, url: &str, reference: &str) -> Option<String> {
+        quiet(&self.directory, &["ls-remote", "--symref", url, reference])
     }
 
     fn head(&self, url: &str) -> Option<String> {
@@ -49,6 +64,20 @@ impl Origin for Live {
 
     fn tip(&self, url: &str, reference: &str) -> Option<String> {
         self.first_oid(url, reference)
+    }
+
+    fn listing(&self, url: &str, references: &[&str]) -> Step<String> {
+        let mut arguments = vec!["ls-remote", url];
+        arguments.extend(references);
+        read(&self.directory, &arguments)
+    }
+
+    fn fetch(&self, refspec: &str) -> Step {
+        read(&self.directory, &["fetch", "-q", "--no-tags", "origin", refspec]).map(drop)
+    }
+
+    fn fetch_scratch(&self, url: &str, refspec: &str) -> bool {
+        quiet(&self.directory, &["fetch", "-q", "--no-tags", "--no-write-fetch-head", url, refspec]).is_some()
     }
 
     fn push(&self, push: &Push) -> Step {
@@ -62,14 +91,11 @@ pub fn repository(url: &str) -> String {
 
 pub fn push_command(push: &Push, directory: &Path) -> Command {
     let mut command = Command::new("git");
-    command.current_dir(directory).env("SAFE_PUSH_ACTIVE", "1").env("SAFE_PUSH_OUTPUT_CLAIMED", push.claimed).args([
-        "push",
-        "--no-follow-tags",
-        "--no-verify",
-        push.lease,
-        push.url,
-        push.refspec,
-    ]);
+    command.current_dir(push.source.unwrap_or(directory)).env("SAFE_PUSH_ACTIVE", "1").env("SAFE_PUSH_OUTPUT_CLAIMED", push.claimed).args(["push", "--no-follow-tags"]);
+    if push.hooks == Hooks::Skip {
+        command.arg("--no-verify");
+    }
+    command.args(push.lease).args([push.url, push.refspec]);
     command
 }
 

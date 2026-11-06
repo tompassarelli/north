@@ -21,7 +21,7 @@ pub fn run(arguments: &[String]) -> u8 {
             eprint!("safe-push: --publication-scan needs BASE HEAD and nothing else\n{USAGE}");
             2
         }
-        _ => publish::run(arguments),
+        _ => publish::run(arguments, &Shell::live(Path::new("."))),
     }
 }
 
@@ -33,7 +33,7 @@ pub fn safe_push(arguments: &[String], host: &HostFacts) -> u8 {
 }
 
 pub fn release(arguments: &[String]) -> u8 {
-    release::run(arguments)
+    release::run(arguments, &Shell::live(Path::new(".")))
 }
 
 pub fn land(arguments: &[String]) -> Option<u8> {
@@ -41,7 +41,7 @@ pub fn land(arguments: &[String]) -> Option<u8> {
     match verb.as_str() {
         "push" => Some(publication::run(rest, &Shell::live(Path::new(".")))),
         "route" => Some(route::run(rest)),
-        "restore" => Some(restore::run(rest)),
+        "restore" => Some(restore::run(rest, &Shell::live(Path::new(".")))),
         _ => None,
     }
 }

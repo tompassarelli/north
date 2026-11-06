@@ -254,7 +254,7 @@ may_use = ["foundation", "landing.safe_push.request"]
 [[module]]
 name = "landing.safe_push.gates"
 paths = ["crates/north-safe-push/src/gates/**"]
-responsibility = "Which pre-publication gates apply, running them through north-landing's scans and land checks, and the one verdict."
+responsibility = "Which pre-publication gates apply, running them through north-landing's scans and land checks, the tag scans, and the one verdict."
 may_use = ["foundation", "landing", "landing.safe_push.report", "landing.safe_push.session", "landing.safe_push.shell"]
 
 [[module]]
@@ -267,13 +267,13 @@ may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.report", 
 name = "landing.safe_push.tags"
 paths = ["crates/north-safe-push/src/tags/**"]
 responsibility = "The one release-tag rule, --tag, --delete-tag and north release."
-may_use = ["foundation", "landing", "landing.safe_push.gates", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell"]
+may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell"]
 
 [[module]]
 name = "landing.safe_push.restore"
 paths = ["crates/north-safe-push/src/restore.rs"]
 responsibility = "--restore: the pure source decision for a reaped branch, then its push."
-may_use = ["foundation", "landing", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell"]
+may_use = ["foundation", "landing.safe_push.shell"]
 
 [[module]]
 name = "landing.safe_push.landing"
