@@ -33,10 +33,10 @@ Claims marked **(unverified)** were not found in any source opened.
 - This host repository: `rust-toolchain.toml` pins `nightly-2026-04-10` (the
   1.96 branch point) with `rustc-codegen-cranelift-preview`, and `flake.nix`
   builds it with rust-overlay (rustup's distribution); devShell = toolchain
-  plus bun. `.cargo/config.toml` sets `codegen-backend = "cranelift"` and
-  `-Zthreads=8` as profile `rustflags` (which `RUSTFLAGS` does not displace)
-  for dev and test; release stays on LLVM. Measured in the project's `docs/rationale/rust-build-times.md`
-  "Toolchain levers": 1.62x on the leaf-edit test build, 22% less CPU.
+  plus bun. `.cargo/config.toml` sets `codegen-backend = "cranelift"` for dev and test;
+  release stays on LLVM. `-Zthreads=8` was dropped on 2026-11-06 after its
+  rustc deadlocked on cargo's jobserver and hung land checks; see
+  the project's `docs/rationale/rust-build-times.md` "Toolchain levers".
 - galileo: no `rust-toolchain.toml`; `flake.nix` takes `pkgs.rustc`/`pkgs.cargo`
   from a nixpkgs pin whose `rust` is 1.89, plus `pkgs.gcc`. Rust 1.90 is the
   first stable to link with `rust-lld` by default on x86_64-linux-gnu, and that
@@ -240,7 +240,9 @@ covers `cargo test`. `dev` defaults: `opt-level = 0`, `debug = true`,
   `threads=0` (one per core) [bevy]. Under Nix: a nightly toolchain in the
   flake (rust-overlay `rust-bin.nightly`) and the flag in a profile
   `rustflags` (`[unstable] profile-rustflags = true`). Adopted in this host
-  repository on 2026-11-05: 1.45x alone on the core crate's leaf-edit test build.
+  repository on 2026-11-05 (1.45x alone on the core crate's leaf-edit test
+  build) and dropped on 2026-11-06: its rustc deadlocked intermittently, threads
+  parked on futexes and the jobserver pipe, hanging land checks.
 - **Cranelift backend.** Faster codegen, slower code, dev only; enable with
   `[unstable] codegen-backend = true` and `[profile.dev] codegen-backend =
   "cranelift"`, and Bevy keeps dependencies on LLVM with
