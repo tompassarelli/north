@@ -74,6 +74,7 @@ impl Fixture {
             .env("XDG_STATE_HOME", self.root.path().join("state"))
             .env_remove("SAFE_PUSH_LAND_BASE")
             .env_remove("SAFE_PUSH_LAND_HEAD")
+            .env_remove("SAFE_PUSH_LAND_SELECT_PATHS")
             .env_remove("NORTH_PACE_BIN")
             .stdin(Stdio::null());
         command
