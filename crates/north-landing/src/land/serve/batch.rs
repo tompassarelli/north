@@ -307,6 +307,7 @@ impl Lander {
             Judgement::Hold(reason) => {
                 let (path, ticket) = batch.lanes[0];
                 incidents::record(&self.queue, path, ticket, incidents::held(&built.head, base, &reason));
+                incidents::attribute(ticket, &reason);
                 Ok(Flow::Done(Round::Waiting(reason)))
             }
             Judgement::Paused(detail) => Ok(Flow::Done(Round::Waiting(pause::raise(&self.queue, &detail)?))),

@@ -9,6 +9,7 @@ use serde_json::Value;
 use tokio::process::Command;
 use tokio::signal::unix::{Signal as Incoming, SignalKind, signal};
 use north_base::foundation::exit::NO_VERDICT;
+use north_base::platform::attribution::{self, Cause, Harness};
 
 const USAGE: &str = "usage: north capacity deadline [--wall] LEASE_FILE|- SECONDS -- COMMAND...";
 const POLL: Duration = Duration::from_millis(250);
@@ -90,7 +91,12 @@ async fn guard(mut clock: Clock, program: &str, rest: &[String]) -> u8 {
         std::thread::spawn(move || written.send(std::io::Write::write_all(&mut std::io::stderr(), report.as_bytes())));
         let _ = done.recv_timeout(REPORT_PATIENCE);
     }
-    if waited.is_some() { NO_VERDICT } else { ended }
+    if waited.is_some() {
+        attribution::record_here("capacity", Cause::Harness(Harness::Capacity), "deadline reached while waiting for a slot (exit 75)");
+        NO_VERDICT
+    } else {
+        ended
+    }
 }
 
 async fn next(stream: &mut Option<Incoming>) {

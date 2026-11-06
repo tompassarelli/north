@@ -142,6 +142,13 @@ min = 70
 class = "ready"
 
 [[goal]]
+name = "ready-harness-loss"
+source = "north#706: at most 10% of worker first attempts over the newest 24 h end in a failure the harness caused (placement, landing refusal, false revert, capacity, compaction, waits, duplicate or gate refusal), by the shared attribution of each run's report"
+unit = "%"
+max = 10
+class = "ready"
+
+[[goal]]
 name = "ready-ask-to-landing"
 source = "north#641: the median from Tom's ask to its first landed commit is at most 1 h, over the newest 24 h"
 unit = "s"

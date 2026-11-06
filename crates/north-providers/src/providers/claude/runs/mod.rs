@@ -312,6 +312,9 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
     row.insert("skills".into(), json!(telemetry::skills(&lines)));
     row.extend(usage);
     row.insert("role".into(), json!(role));
+    if let Some(session) = session {
+        row.insert("fleet_name".into(), json!(session.name));
+    }
     if !matches!(row["status"].as_str(), Some("running" | "stale")) {
         if path.strip_prefix(&root.projects).is_ok_and(|rest| rest.to_string_lossy().starts_with("-tmp-")) {
             row.insert("role".into(), json!("probe"));

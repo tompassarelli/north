@@ -18,6 +18,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("autoland-status", autoland_status::run),
     ("check", check),
     ("land", land),
+    ("cause", |arguments| ledger_verb("cause", arguments)),
     ("incident", |arguments| ledger_verb("incident", arguments)),
     ("landed-tree", landed_tree::run),
     ("stale-revert", stale_revert::run),

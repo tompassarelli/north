@@ -18,6 +18,7 @@ use crate::fleet::registry::Fleet;
 use crate::dispatch::STAFFING_REFUSAL as REFUSE;
 use crate::ops::flow::Places;
 use crate::pacing::placement::config;
+use crate::platform::attribution::{Cause, Harness};
 use crate::platform::land_queue;
 use crate::platform::process::run_within;
 
@@ -292,6 +293,7 @@ pub(super) fn guard(fleet: &Fleet, request: &LaunchRequest, excuse: Option<&str>
             Ok(())
         }
         Hold::Refused(refused) => {
+            crate::platform::attribution::record(&request.name, "governor", Cause::Harness(Harness::GateRefusal), &refused);
             admission::tell_parent(fleet, request.parent.as_deref(), &format!("Stop: landing. {} was not launched: {refused}", request.name));
             Err(NorthError::Refused(refused))
         }

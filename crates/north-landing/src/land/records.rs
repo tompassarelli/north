@@ -97,6 +97,7 @@ pub fn write(lander: &Lander, path: &Path, ticket: &Ticket, candidate: &Candidat
     let tree = if candidate.head.is_empty() { String::new() } else { git(&lander.worktree, &["rev-parse", &format!("{}^{{tree}}", candidate.head)]).unwrap_or_default() };
     if let Decision::Refused { verdict } = decision {
         incidents::record(&lander.queue, path, ticket, incidents::decided(path, ticket, verdict));
+        incidents::attribute(ticket, verdict);
     }
     let landed = match decision {
         Decision::Landed { sha } => Some(*sha),

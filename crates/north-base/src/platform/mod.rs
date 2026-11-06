@@ -1,3 +1,4 @@
+pub mod attribution;
 pub mod follows;
 pub mod reader_stamp;
 pub mod run_roles;

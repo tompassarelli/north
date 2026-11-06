@@ -8,6 +8,7 @@ use super::build_offload;
 use crate::nix_command::{self, Inner};
 use crate::shell;
 use north_base::foundation::exit::NO_VERDICT;
+use north_base::platform::attribution::{self, Cause, Harness};
 
 const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time"];
 const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
@@ -53,6 +54,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
                     return 126;
                 }
                 eprintln!("{name}: command not found behind the north capacity gate: this host has no {name} on PATH outside the shims, so a check that needs it waits for a host that has it (infrastructure, exit 75)");
+                attribution::record_here("capacity", Cause::Harness(Harness::Capacity), &format!("{name} is not on this host (exit 75)"));
                 return NO_VERDICT;
             };
             let Some(class) = lease_class(&words(program, rest), host) else {
@@ -75,6 +77,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
 fn leased(class: Class, program: &str, rest: &[String], host: &Host) -> u8 {
     if std::env::var_os(SANDBOX).is_some_and(|sandbox| !sandbox.is_empty()) && !(host.lease_builds)() && agent_compile(&words(program, rest)) {
         eprintln!("north capacity gate: a fleet session's {} inside depbox reaches no build host, since the sandbox has no network or ssh keys; make the compile depbox's own command (depbox run -- cargo ...) so the gate sends the whole run to a build host (infrastructure, exit 75)", shell::basename(program));
+        attribution::record_here("capacity", Cause::Harness(Harness::Capacity), "sandbox reaches no build host (exit 75)");
         return NO_VERDICT;
     }
     eprintln!("north capacity gate: this host runs builds only inside a capacity lease; {} waits for a {} lease", shell::basename(program), class.name());

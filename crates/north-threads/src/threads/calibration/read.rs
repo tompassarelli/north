@@ -6,6 +6,7 @@ use rusqlite::{Connection, Row as SqlRow};
 
 use crate::router::pricing::PriceTable;
 use crate::platform::run_roles::worker_where;
+use crate::threads::attribution::{Cause, attribute, recorded_column};
 
 use super::boxes::{BoxRun, box_name, item_chains};
 use super::rework::{Rework, Sources};
@@ -30,9 +31,10 @@ pub struct Raw {
     pub api_usd: Option<f64>,
     pub started: Option<String>,
     pub ended: String,
+    pub cause: Cause,
 }
 
-const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended, model, COALESCE(input_tokens, 0), COALESCE(cache_read_tokens, 0), COALESCE(tokens, 0), active_min, wait_min";
+const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended, model, COALESCE(input_tokens, 0), COALESCE(cache_read_tokens, 0), COALESCE(tokens, 0), active_min, wait_min, report, COALESCE(compactions, 0)";
 
 static PRICES: LazyLock<PriceTable> = LazyLock::new(|| PriceTable::load().expect("router/prices.json parses"));
 
@@ -41,6 +43,8 @@ impl Raw {
         let tier: String = row.get(6)?;
         let (input, cache_read, output): (i64, i64, i64) = (row.get(18)?, row.get(19)?, row.get(20)?);
         let model: Option<String> = row.get(17)?;
+        let outcome: String = row.get(3)?;
+        let cause = attribute(&outcome, &row.get::<_, String>(23)?, row.get(24)?, row.get::<_, Option<String>>(25)?.as_deref());
         let api_usd = (input + output > 0).then(|| PRICES.run_usd(model.as_deref(), &tier, input, cache_read, output));
         let cell = |index: usize| -> rusqlite::Result<String> {
             let value: Option<String> = row.get(7 + index)?;
@@ -50,7 +54,7 @@ impl Raw {
             agent: row.get(0)?,
             follows: row.get(1)?,
             item: row.get(2)?,
-            outcome: row.get(3)?,
+            outcome,
             expects_landing: row.get::<_, Option<i64>>(4)?.is_some_and(|expects| expects != 0),
             landed: row.get(5)?,
             tier,
@@ -63,11 +67,13 @@ impl Raw {
             api_usd,
             started: row.get(15)?,
             ended: row.get::<_, Option<String>>(16)?.unwrap_or_default(),
+            cause,
         })
     }
 
+    /// Running, idle, an unclear run with no item, or an outcome the harness or Tom caused, which says nothing about the tier.
     pub fn unjudged(&self) -> bool {
-        matches!(self.outcome.as_str(), "running" | "idle") || (self.outcome == "unclear" && self.item.as_deref().is_none_or(str::is_empty))
+        matches!(self.outcome.as_str(), "running" | "idle") || (self.outcome == "unclear" && self.item.as_deref().is_none_or(str::is_empty)) || self.cause != Cause::Worker
     }
 
     /// Reported Done, not followed by a later run, and landed when it was expected to land.
@@ -83,7 +89,7 @@ impl Raw {
 
 /// Worker runs matching `condition`, in table order.
 pub fn raw_runs(db: &Connection, condition: &str, params: &[&dyn rusqlite::ToSql]) -> rusqlite::Result<Vec<Raw>> {
-    let mut statement = db.prepare(&format!("SELECT {COLUMNS} FROM runs WHERE {} AND {condition}", worker_where()))?;
+    let mut statement = db.prepare(&format!("SELECT {COLUMNS}, {} FROM runs WHERE {} AND {condition}", recorded_column(db), worker_where()))?;
     statement.query_map(params, Raw::read)?.collect()
 }
 

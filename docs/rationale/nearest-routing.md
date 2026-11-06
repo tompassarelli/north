@@ -36,11 +36,7 @@ one of three causes, in this order:
 1. **Kept**: the existing `succeeded` rule (Done, not re-run within 24 h, landed when a landing was expected).
 2. **The report's own `Stop:` word.** `reasoning` and `leash` (the worker ran out of approach or budget) are the
    worker's; `landing`, `capacity`, `client`, `host`, `wait` and `decision` are the harness's.
-3. **Phrase rules** for the reports that end with no `Stop:` line (most of them): a host that cannot do the box (laptop,
-   GPU, unreachable, a native capture or client pair), a landing refusal or queue, capacity, a collision with another
-   session, compaction, a decision from Tom, or a wait on time. A `done` that was re-run with no harness phrase is
-   reworked (worker); any other end is a missed box (worker); a split, or an unclear or handed-off end with no
-   phrase, is left out.
+3. **The shared attribution** for the reports that end with no `Stop:` line (most of them): `north_threads::threads::attribution` (docs/rationale/attribution.md, north#706) names a harness class or a halt or decision from Tom, both counted as the harness's here. A `done` that was re-run is reworked (worker); any other end is a missed box (worker); a split, or an unclear or handed-off end the attribution gives the worker, is left out.
 
 Only worker-caused outcomes enter a rung's fitness. Harness outcomes still cost: the projection charges every rung the
 same harness repeat rate, so they move no box between rungs. `leash` counts against fitness but never triggers
@@ -48,13 +44,12 @@ escalation (section 5), because the leash is a wall-clock bound that also measur
 sets. Runs on no Claude rung and unclear or handed-off ends that name no reason are unattributed; the replay prints
 their count and dollars so a rule gap shows up as a number.
 
-Known limits of the phrase rules, from the review round: they match anywhere in a report, so a worker failure whose
+Known limits of the phrase rules, from the review round (the replay first had its own list; it now reads the shared attribution, so these hold for it): they match anywhere in a report, so a worker failure whose
 report mentions a lander or a gate in passing is excused; a landing refused by the lane's own failing checks is the
 worker's, while the phrase rules call any refused landing the harness's; and dropping unclear ends favours a rung that
-produces more of them. Each error excuses worker failures, which flatters cheap rungs. The ingest does not write the
-cause yet; the build box that moves it there also matches phrases only in the `Not done:` or `Blocked:` paragraph,
-checks a missed expected landing against the lane's check output first, and is held to a hand-labelled sample of 50
-reports.
+produces more of them. Each error excuses worker failures, which flatters cheap rungs. The cause is computed when the ledger is read, not
+stored at ingest; matching only the `Not done:` or `Blocked:` paragraph, checking a missed expected landing against
+the lane's check output, and a hand-labelled sample of 50 reports are still to do.
 
 ## 2. Computed features, not declared ones
 

@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::push_ledger;
 use super::queue::{self, Ticket};
 use super::{records, telemetry};
@@ -27,6 +28,25 @@ pub fn class(verdict: &str) -> Option<&'static str> {
         Some("deferred") => Some("lander-deferred"),
         Some("withdrawn") => Some("lander-withdrawn"),
         _ => None,
+    }
+}
+
+/// The side a lander verdict belongs to: a failing check or a conflict in the lane's own lines is the worker's; a deferral, a hang, a transient error or an origin that refused the push is the harness's.
+pub fn blame(verdict: &str) -> Option<Cause> {
+    if verdict.starts_with("failed origin refused") {
+        return Some(Cause::Harness(Harness::LandingRefusal));
+    }
+    match class(verdict)? {
+        "lander-refused" | "lander-conflict" => Some(Cause::Worker),
+        "lander-transient" | "lander-deferred" | "lander-hang" => Some(Cause::Harness(Harness::LandingRefusal)),
+        _ => None,
+    }
+}
+
+/// Records the cause of a refused or held lane for the fleet session that pushed it.
+pub fn attribute(ticket: &Ticket, verdict: &str) {
+    if let (Some(session), Some(cause)) = (ticket.session.as_deref(), blame(verdict)) {
+        attribution::record(session, LANDER, cause, verdict);
     }
 }
 
@@ -68,5 +88,17 @@ pub fn record(queue: &Path, path: &Path, ticket: &Ticket, noticed: Option<Notice
     let Some(noticed) = noticed else { return };
     if let Err(error) = records::spawn(queue, &arguments(path, ticket, &noticed, telemetry::epoch())) {
         println!("north land: could not record the {} incident for {}: {error}", noticed.class, ticket.branch);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_lane_refused_for_its_own_failing_check_is_recorded_worker_caused() {
+        assert_eq!(blame("failed /tmp/land/check.log"), Some(Cause::Worker));
+        assert_eq!(blame("transient capacity"), Some(Cause::Harness(Harness::LandingRefusal)));
+        assert_eq!(blame("failed origin refused the push of abc: hook declined"), Some(Cause::Harness(Harness::LandingRefusal)));
     }
 }

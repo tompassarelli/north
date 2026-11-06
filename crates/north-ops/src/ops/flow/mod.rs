@@ -215,6 +215,7 @@ pub fn run(arguments: &[String]) -> u8 {
             Ok(lines) => println!("{}", lines.join("\n")),
             Err(why) => println!("outcome: unread: {why}"),
         }
+        println!("{}", crate::threads::attribution::pareto_line(&places.ledger, now as i64));
         if let Some(reading) = crate::threads::incidents::report::week(&places.ledger, now) {
             for line in reading.lines() {
                 println!("{line}");

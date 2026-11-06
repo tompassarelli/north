@@ -140,7 +140,16 @@ impl Ingest<'_> {
             Some(_) => {}
             None => self.record(&run)?,
         }
+        self.named(&run)?;
         self.estimates(&run)
+    }
+
+    /// The fleet session the run belongs to, which the boundary causes recorded by session name join on.
+    fn named(&self, run: &Run) -> Result<(), Failure> {
+        if let Some(name) = run.r.get("fleet_name").and_then(Value::as_str) {
+            self.db.execute("UPDATE runs SET fleet_name = coalesce(fleet_name, ?) WHERE agent = ?", params![name, run.agent()?])?;
+        }
+        Ok(())
     }
 
     /// The run's launch estimates, kept once set: the ETA's source, and E from the Budget line, else the median

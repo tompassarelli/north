@@ -15,6 +15,7 @@ use crate::foundation::clock::Timestamp;
 use crate::land::trace::profile::{Trace, percentile};
 use crate::land::trace::report::{every_queue, queue_repo};
 use crate::land::trace::Spans;
+use crate::threads::attribution::Cause;
 use crate::threads::calibration::rework::Sources as ReworkSources;
 
 mod table;
@@ -36,6 +37,7 @@ enum Bar {
     VerificationP90,
     Rework,
     FirstTry,
+    HarnessLoss,
     AskToLanding,
     Corrections,
     PriorityNow,
@@ -43,12 +45,13 @@ enum Bar {
 }
 
 impl Bar {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::LandingP90,
         Self::VerificationP50,
         Self::VerificationP90,
         Self::Rework,
         Self::FirstTry,
+        Self::HarnessLoss,
         Self::AskToLanding,
         Self::Corrections,
         Self::PriorityNow,
@@ -62,6 +65,7 @@ impl Bar {
             Self::VerificationP90 => "ready-verification-p90",
             Self::Rework => "ready-rework",
             Self::FirstTry => "ready-first-try",
+            Self::HarnessLoss => "ready-harness-loss",
             Self::AskToLanding => "ready-ask-to-landing",
             Self::Corrections => "ready-corrections",
             Self::PriorityNow => "ready-priority-now",
@@ -76,6 +80,7 @@ impl Bar {
             Self::VerificationP90 => "verification p90",
             Self::Rework => "rework in 48 h",
             Self::FirstTry => "first-try success",
+            Self::HarnessLoss => "first tries lost to the harness",
             Self::AskToLanding => "ask to landing p50",
             Self::Corrections => "corrections per h (all)",
             Self::PriorityNow => "priority:now open",
@@ -307,6 +312,10 @@ impl Records {
             Bar::FirstTry => {
                 let held: Vec<&workers::Attempt> = self.attempts.iter().filter(|attempt| window.holds(attempt.ended) && attempt.repos.contains(repo)).collect();
                 share(held.iter().filter(|attempt| attempt.succeeded).count(), held.len(), 100.0)
+            }
+            Bar::HarnessLoss => {
+                let held: Vec<&workers::Attempt> = self.attempts.iter().filter(|attempt| window.holds(attempt.ended) && attempt.repos.contains(repo)).collect();
+                share(held.iter().filter(|attempt| matches!(attempt.cause, Cause::Harness(_))).count(), held.len(), 100.0)
             }
             Bar::AskToLanding => {
                 let seconds: Vec<f64> = self.tom.asked(window, &self.firsts).iter().filter(|ask| ask.items.iter().any(|item| item.split_once('#').is_some_and(|(name, _)| name == repo))).filter_map(|ask| ask.seconds).collect();

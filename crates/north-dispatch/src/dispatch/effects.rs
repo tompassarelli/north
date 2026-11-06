@@ -9,6 +9,7 @@ use super::record::{self, Record};
 use super::survey::Survey;
 use crate::pacing::placement::{self, gate};
 use crate::fleet::runtime::PROXY;
+use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::process::run_within;
 use serde_json::json;
 use std::collections::BTreeSet;
@@ -94,6 +95,8 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
     record::append(&record::directory(), &entry)?;
     if result.is_ok() {
         predict(launch);
+    } else if entry.failed() {
+        attribution::record(&entry.name, "dispatch", Cause::Harness(Harness::Placement), &format!("{}: {}", launch.host, entry.detail));
     }
     result
 }

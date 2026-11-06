@@ -10,6 +10,7 @@ use crate::foundation::clock::Timestamp;
 use crate::ledger::outcome::attention::references;
 use crate::platform::run_roles::worker_where;
 use crate::providers::claude::runs::outcome::waits_on_time;
+use crate::threads::attribution::{Cause, attribute, recorded_column};
 
 const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running and deferred runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
 const ALL: &str = "all categories";
@@ -19,6 +20,7 @@ pub struct Attempt {
     pub ended: i64,
     pub succeeded: bool,
     pub repos: BTreeSet<String>,
+    pub cause: Cause,
 }
 
 static MISSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<!-- check \S+ missed -->").unwrap());
@@ -41,19 +43,20 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>) -> rusql
     let mut statement = db.prepare("SELECT DISTINCT follows FROM runs WHERE coalesce(follows, '') != ''")?;
     let followed: HashSet<String> = statement.query_map([], |row| row.get(0))?.filter_map(Result::ok).collect();
     let mut statement = db.prepare(&format!(
-        "SELECT agent, category, ended, outcome, coalesce(item, ''), report FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
+        "SELECT agent, category, ended, outcome, coalesce(item, ''), report, coalesce(compactions, 0), {} FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
+        recorded_column(db),
         worker_where()
     ))?;
-    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?)))?;
+    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, u32>(6)?, row.get::<_, Option<String>>(7)?)))?;
     Ok(rows
         .filter_map(Result::ok)
-        .filter_map(|(agent, category, ended, outcome, item, report)| {
+        .filter_map(|(agent, category, ended, outcome, item, report, compactions, recorded)| {
             let ended = Timestamp::parse(&ended).ok()?.unix_seconds();
             let checked_miss = || references(&item).iter().any(|issue| missed.contains(issue));
             if outcome != "done" && waits_on_time(&report) && !checked_miss() {
                 return None;
             }
-            Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item) })
+            Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item), cause: attribute(&outcome, &report, compactions, recorded.as_deref()) })
         })
         .collect())
 }

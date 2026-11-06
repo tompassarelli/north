@@ -8,6 +8,7 @@ use crate::fleet::gates::Hold;
 use crate::fleet::model::LaunchRequest;
 use crate::fleet::registry::Fleet;
 use crate::dispatch::{IssueRef, task_holder};
+use crate::platform::attribution::{self, Cause, Harness};
 
 use super::list;
 use super::placement::Overrides;
@@ -31,7 +32,10 @@ pub(super) fn noted(fleet: &Fleet, request: &LaunchRequest, overrides: &Override
     }
     let duplicate = match (held, &overrides.duplicate) {
         (None, _) => return Ok(placement),
-        (Some(_), Some(reason)) => format!("dup: {reason}"),
+        (Some(_), Some(reason)) => {
+            attribution::record(&request.name, "fleet", Cause::Harness(Harness::Duplicate), reason);
+            format!("dup: {reason}")
+        }
         (Some((item, holder)), None) => return Err(NorthError::Refused(format!("{item} is held by {holder}; staff it there, or launch beside it with --force-dup \"<reason>\""))),
     };
     Ok(Some(placement.map_or_else(|| duplicate.clone(), |placement| format!("{placement}; {duplicate}"))))

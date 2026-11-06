@@ -19,6 +19,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("brief", Brief),
     ("build-cache-gate", Diagnosis),
     ("capacity", Status),
+    ("cause", Bookkeeping),
     ("check experiments", Bookkeeping),
     ("check", Diagnosis),
     ("ci-diagnose", Diagnosis),

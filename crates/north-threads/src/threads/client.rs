@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::{board, calibration, claims, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, review_findings, runs, schema, snapshot, staffing, verb};
+use crate::threads::{board, calibration, causes, claims, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, review_findings, runs, schema, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 11] = [
@@ -20,7 +20,7 @@ const READS: [&str; 11] = [
     "routing-compare",
 ];
 /// Each family of ledger verbs and the function that runs it; `claim` and `list` run through claims.
-const PORTED: [(&[&str], verb::Verb); 9] = [
+const PORTED: [(&[&str], verb::Verb); 10] = [
     (&jobs::VERBS, jobs::run),
     (&items::VERBS, items::run),
     (&board::VERBS, board::run),
@@ -29,6 +29,7 @@ const PORTED: [(&[&str], verb::Verb); 9] = [
     (&calibration::VERBS, calibration::run),
     (&landing::VERBS, landing::run),
     (&incidents::VERBS, incidents::run),
+    (&causes::VERBS, causes::run),
     (&review_findings::VERBS, review_findings::run),
 ];
 const UNREACHABLE: i32 = 255;

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -7,6 +7,8 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::fleet::session_host::{FrameWatch, Rest, SentLog};
+
+use north_base::platform::attribution::{self, Cause, Harness};
 
 use super::books::WatchBooks;
 use super::claims::{self, Claims};
@@ -45,6 +47,7 @@ pub struct TurnWatch {
     finished: HashMap<String, bool>,
     rolled_over: bool,
     checkpoints: Checkpoints,
+    compacted: HashSet<String>,
     unaccepted: Arc<SentPrompts>,
     lanes: Arc<dyn Lanes + Send + Sync>,
     scope: Arc<dyn Scope>,
@@ -179,6 +182,7 @@ impl TurnWatch {
             finished: HashMap::new(),
             rolled_over: false,
             checkpoints: Checkpoints::default(),
+            compacted: HashSet::new(),
             unaccepted,
             lanes: Arc::new(NoLanes),
             scope: Arc::new(NoScope),
@@ -225,6 +229,7 @@ impl TurnWatch {
         match signal {
             TurnSignal::Prompt { conversation, .. } => {
                 self.quiet.remove(conversation);
+                self.compacted.remove(conversation);
                 self.finished.insert(conversation.clone(), false);
             }
             TurnSignal::Call { conversation, tokens, .. } => {
@@ -233,9 +238,13 @@ impl TurnWatch {
             }
             TurnSignal::Compacted { conversation, .. } => {
                 self.checkpoints.compacted(conversation);
+                self.compacted.insert(conversation.clone());
             }
             TurnSignal::Ended { conversation, .. } => {
                 let Some(reply) = self.views.get(conversation).and_then(|view| view.reply.clone()).filter(|reply| !reply.trim().is_empty()) else { return };
+                if self.compacted.remove(conversation) && !attribution::has_opener(&reply) && let Some(record) = find_session(&self.root, &self.host_dir, conversation) {
+                    attribution::record(&record.name, "fleet", Cause::Harness(Harness::Compaction), "the turn compacted and ended without a Done, Not done, Split or Blocked opener");
+                }
                 self.finished.insert(conversation.clone(), retires(&reply));
             }
             _ => {}

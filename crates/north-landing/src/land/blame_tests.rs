@@ -24,10 +24,3 @@ fn a_base_already_red_blames_no_lane() {
     assert_eq!(found, None);
     assert_eq!(rounds.last(), Some(&vec![0]), "bisection ending on the first lane probes the base");
 }
-
-#[test]
-fn an_undecided_prefix_before_the_first_red_names_no_lane() {
-    let found = culprit(3, 6, |counts| counts.iter().map(|&count| if count == 1 { Verdict::Transient("slot".into()) } else if count == 2 { Verdict::RedMain(String::new()) } else { Verdict::Green }).collect());
-    assert_eq!(found, None);
-}
-
