@@ -1183,12 +1183,8 @@ async fn orchestrate(arguments: Arguments) -> i32 {
             }
         }
     };
-    let mut arguments = arguments;
     if !arguments.leased && !commands.is_empty() && commands.iter().all(|command| config.is_inferred(command)) {
         say(&format!("safe-push: no land.check lines in .safe-push; running the {} land check(s) inferred from the tree", commands.len()));
-    }
-    if !arguments.leased {
-        arguments.runner_host = runner_host(&environment, &config).await;
     }
     let scope = scope_for(&root, &arguments, &commands);
     let it = it_for(&root, &arguments, &commands);
@@ -1212,14 +1208,16 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         scope,
         it,
     };
-    if !shared.arguments.leased && !commands.is_empty() {
-        shared.free_slots = shared.count_free_slots().await;
-    }
-    let shared = Arc::new(shared);
     if shared.arguments.leased {
-        return shared.run_list(&commands).await.status();
+        return Arc::new(shared).run_list(&commands).await.status();
     }
     let commands = shared.reuse(commands).await;
+    if commands.is_empty() {
+        return 0;
+    }
+    shared.arguments.runner_host = runner_host(&shared.environment, &shared.config).await;
+    shared.free_slots = shared.count_free_slots().await;
+    let shared = Arc::new(shared);
     let Some(plan) = clippy_first::plan(&commands, |command| !shared.config.is_inferred(command)).filter(|_| !shared.arguments.after) else {
         return shared.execute_sharing_build(commands).await;
     };
