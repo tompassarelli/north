@@ -1,0 +1,1 @@
+- Idle-capacity holds (north#636): the proxy Stop hook counts a free slot as idle only where dispatch could place. A ready box refused only by capacity holds (an account held by pace or burn, a host that takes nothing, no free slot) lets the turn end with a notice naming each hold; a box unplaced for any other reason still blocks the turn.
