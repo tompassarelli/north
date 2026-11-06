@@ -105,6 +105,17 @@ fn has(text: &str, pattern: &str) -> bool {
     Regex::new(&format!("(?m){pattern}")).unwrap().is_match(text)
 }
 
+fn eventually(done: impl Fn() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !done() {
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    true
+}
+
 #[test]
 fn parallel_writers_keep_every_claim() {
     let rig = Rig::new();
@@ -176,13 +187,9 @@ fn the_ledger_host_over_ssh_spools_while_down_serves_a_stale_snapshot_and_flushe
     assert_eq!((status, remote.spooled()), (255, 2), "a claim fails while the host is down and both batches wait in the spool");
     fs::remove_file(rig.root.join("down")).unwrap();
     assert_eq!(remote.run(&["claim", "wisp#7", "--by", "bob"], "").0, 0);
-    assert_eq!(remote.spooled(), 0);
+    assert!(eventually(|| remote.spooled() == 0), "the claim leaves the spool to a detached flush that sends both batches");
     let snapshot = remote.home.join(".local/state/threads/snapshot.db");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while !snapshot.exists() && std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    assert!(snapshot.exists(), "a call that finds no snapshot pulls one in the background");
+    assert!(eventually(|| snapshot.exists()), "a call that finds no snapshot pulls one in the background");
     fs::write(rig.root.join("ssh.trace"), "").unwrap();
     let goal = remote.run(&["calibrate", "--write", "--goal-row", r#"{"kind":"goal_eta","cell":"wisp","n":1,"value":5,"source":"fixture"}"#], "");
     assert_eq!((goal.0, remote.refreshes()), (0, 0), "a goal row writes without refreshing the snapshot: {}", goal.1);
