@@ -25,7 +25,7 @@ mod brief;
 mod cloud;
 mod effects;
 mod facets;
-mod fleets;
+pub(crate) mod fleets;
 mod grounds;
 mod handoff;
 mod hotspots;

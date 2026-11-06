@@ -144,7 +144,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   `interval` doubles without a ceiling. On gex45 at 5:31 PM UTC `pace-control.json` showed `providers.claude`
   `code 2, interval_s 30720` and all four Claude controls 2 h old, `held: true, over: true`. The threads `usage` table
   itself was fresh (17:21 UTC rows): only the controller froze.
-- `P/sampling.rs:401` `update_controls`: per account counts fleet nodes `working` on it and calls `control::advance`
+- `P/sampling.rs:401` `update_controls`: per account counts the sessions working on it across every host's fleet list, unknown when any list goes unread (north#672), and calls `control::advance`
   with margin 10 (`:442`) and initial 2 (`P/command.rs:115`).
 - `C/pace/control.rs:192` `advance`: burn from a 10-minute anchor (`:12`, `:76-77`) or a 60-minute trail
   (`C/pace/trail.rs:4-18`, `pace_burn_window_min`); `:185` `is_over` (a week at or over its ceiling: `plan_stop` 98

@@ -4,6 +4,7 @@ use super::{
     process, readout, storage, target,
     window::Window,
 };
+use crate::dispatch::fleets;
 use crate::platform::harness;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -36,6 +37,8 @@ pub(super) fn config() -> Result<toml_edit::DocumentMut, String> {
         .map_err(|e: toml_edit::TomlError| e.to_string())
 }
 pub(super) type Reads<'a> = BTreeMap<&'a str, (Vec<Value>, Value)>;
+
+const FLEET_READ: std::time::Duration = std::time::Duration::from_secs(10);
 
 const ADAPTERS: [&str; 2] = ["claude", "gemini"];
 
@@ -244,7 +247,7 @@ pub(super) fn recent_history(state: &Value, fresh: &[Value], window: f64) -> Vec
 struct Round<'a> {
     directory: &'a std::path::Path,
     providers: Vec<&'a str>,
-    nodes: Vec<Value>,
+    fleet: Option<Vec<(String, Value)>>,
     fresh: Vec<Value>,
     remote: bool,
     initial: i64,
@@ -262,14 +265,14 @@ fn publish(
     state["grants"] = json!(
         rows(&retained["grants"])
             .iter()
-            .filter(|g| lead_is_live(g, &round.nodes))
+            .filter(|g| round.fleet.as_deref().is_none_or(|fleet| fleet.iter().any(|(_, listing)| lead_is_live(g, listing.as_array().map_or(&[], Vec::as_slice)))))
             .collect::<Vec<_>>()
     );
     let mut deliveries = update_controls(
         state,
         gate,
         &round.providers,
-        &round.nodes,
+        round.fleet.as_deref(),
         storage::now(),
         round.initial,
         target::target_for,
@@ -323,7 +326,7 @@ pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Resu
     let round = Round {
         directory: &directory,
         providers: reads.keys().copied().collect(),
-        nodes: process::fleet(),
+        fleet: cfg.as_ref().and_then(|cfg| fleets::every_fleet(cfg, &here, at, FLEET_READ)),
         fresh,
         remote,
         initial,
@@ -399,7 +402,7 @@ pub(super) fn update_controls(
     state: &mut Value,
     gate: &mut Value,
     providers: &[&str],
-    nodes: &[Value],
+    fleet: Option<&[(String, Value)]>,
     at: f64,
     initial: i64,
     target_for: impl Fn(&str, f64) -> Result<Option<super::target::Target>, String>,
@@ -407,6 +410,10 @@ pub(super) fn update_controls(
     if !state["accounts"].is_object() {
         state["accounts"] = json!({});
     }
+    let working = fleet.map(|fleet| {
+        let sessions: Vec<_> = fleet.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
+        fleets::working_by_account(&sessions)
+    });
     let mut deliveries = Vec::new();
     for provider in providers {
         let projections = gate[provider]["projections"]
@@ -419,21 +426,12 @@ pub(super) fn update_controls(
                 serde_json::from_value(windows).map_err(|e| e.to_string())?;
             let previous: Control =
                 serde_json::from_value(state["accounts"][&account].clone()).unwrap_or_default();
-            let (p, label) = account.split_once(':').unwrap_or((&account, ""));
-            let count = nodes
-                .iter()
-                .filter(|n| {
-                    n["status"] == "working"
-                        && n["provider"] == p
-                        && (p != "claude" || n["account"] == label)
-                })
-                .count();
             let current = at;
             let control = control::advance(
                 &previous,
                 Reading {
                     windows,
-                    workers: Some(count as i64),
+                    workers: working.as_ref().map(|working| working.get(&account).copied().unwrap_or(0)),
                     at: current,
                     initial,
                     margin: 10.0,

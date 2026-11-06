@@ -286,3 +286,11 @@ pub fn everywhere(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, a
 pub fn listed(fleets: &[(String, Value)]) -> BTreeSet<String> {
     fleets.iter().flat_map(|(_, listing)| listing.as_array().into_iter().flatten()).filter_map(|session| session["name"].as_str().map(str::to_owned)).collect()
 }
+
+/// Every host's fleet list, or None when any host's list went unread, since a partial list
+/// undercounts the sessions working on an account.
+pub fn every_fleet(cfg: &DocumentMut, here: &str, at: f64, limit: Duration) -> Option<Vec<(String, Value)>> {
+    let listings = everywhere(cfg, here, &["fleet", "list", "--json"], "fleet", at, limit, &mut Vec::new());
+    let read = |host: &str| listings.iter().any(|(name, listing)| name == host && listing.is_array());
+    (read(here) && hosts(cfg).iter().all(|host| read(host))).then_some(listings)
+}
