@@ -13,4 +13,6 @@ pub struct Host {
     pub own_build_refusal: fn() -> Option<String>,
     pub reclaim_disk: fn() -> Option<f64>,
     pub tend_disk: fn(),
+    /// Warms one land-check slot toward its repository's head while no land check runs here.
+    pub tend_slots: fn(),
 }

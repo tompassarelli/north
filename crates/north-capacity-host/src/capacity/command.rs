@@ -18,6 +18,7 @@ fn route(arguments: &[String], host: &Host) -> Option<u8> {
         Some("reap-orphans") if arguments.len() == 1 => {
             let status = agent_load::reap_orphans_run();
             (host.tend_disk)();
+            (host.tend_slots)();
             status
         }
         Some("gaming") => gaming::run(&arguments[1..]),

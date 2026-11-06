@@ -214,7 +214,7 @@ fn slot_name(name: &str, index: u32) -> String {
 }
 
 /// One block of `SLOTS` sccache ports per checkout, picked by FNV-1a of its name, so the build host's script needs no hashing program.
-pub(super) fn slot_ports(name: &str) -> Vec<(String, u32)> {
+pub(crate) fn slot_ports(name: &str) -> Vec<(String, u32)> {
     let hash = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3));
     let block = u32::try_from(hash % u64::from(SCCACHE_PORTS / SLOTS)).unwrap_or(0) * SLOTS;
     (0..SLOTS).map(|index| (slot_name(name, index), SCCACHE_FIRST_PORT + block + index)).collect()

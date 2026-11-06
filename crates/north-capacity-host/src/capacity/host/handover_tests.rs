@@ -121,6 +121,7 @@ fn host() -> Host {
         own_build_refusal: || None,
         reclaim_disk: || None,
         tend_disk: || {},
+        tend_slots: || {},
     }
 }
 

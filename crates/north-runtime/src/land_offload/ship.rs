@@ -125,6 +125,7 @@ fn job_ref(head: &CommitId) -> String {
 mod beside;
 mod script;
 pub use script::{SlotClass, is_lander_slot};
+pub(crate) use script::slot_ports;
 use script::remote_script;
 #[cfg(test)]
 mod pinned;

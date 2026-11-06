@@ -4,11 +4,12 @@ use ship::CommitId;
 use std::path::Path;
 
 mod destinations;
+pub mod warm;
 pub mod verdict;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail)";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (on a build host: brings its land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there, while no land check runs) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail)";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -29,6 +30,7 @@ pub fn run(arguments: &[String]) -> u8 {
         ["verdict", rest @ ..] => verdict::run(rest),
         ["free", "--host", host] => free(host),
         ["reap", "--owner", owner] if !owner.is_empty() => reap(owner),
+        ["warm"] => warm::run(),
         ["run", "--background", rest @ ..] => run_job(rest, ship::SlotClass::Background),
         ["run", rest @ ..] => run_job(rest, ship::SlotClass::LandCheck),
         _ => usage(),

@@ -6,6 +6,7 @@
 	push-app = lander
 	remote-hosts = gex45 ccx33
 	after-runs = 3
+	warm = "CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --workspace --locked --offline && CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --workspace --locked --offline --no-run"
 [mutant]
 	class = heavy
 	run = ./bin/head-north --code crates/north-core/src/capacity/dev_shell.rs,src/cli/ dev-shell run -- bash harness/scripts/mutant-tests.sh
