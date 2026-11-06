@@ -72,12 +72,10 @@ impl Rise {
 
     fn section(&self) -> String {
         format!(
-            "## {tier} {category}\n\nMedian cost of a closed box rose from ${:.2} over {} closed boxes the week before to ${:.2} over {} this week (+{:.0}%).\n\n{boxes}",
-            self.before.0,
-            self.before.1,
-            self.after.0,
-            self.after.1,
+            "## {tier} {category}\n\nMedian cost of a closed box rose {:.0}% over {} closed boxes the week before and {} this week; `north tune` prints the amounts locally.\n\n{boxes}",
             self.percent(),
+            self.before.1,
+            self.after.1,
             tier = self.tier,
             category = self.category,
             boxes = self.boxes_paragraph(),
@@ -94,6 +92,6 @@ impl Rise {
 }
 
 fn box_line(closed: &ClosedBox) -> String {
-    let runs: Vec<String> = closed.runs.iter().map(|run| format!("{} {} {} from {} ${:.2}", run.agent, run.tier, run.category, run.started, run.usd)).collect();
-    format!("- {} ${:.2}: {}", closed.item, closed.usd, runs.join("; "))
+    let runs: Vec<String> = closed.runs.iter().map(|run| format!("{} {} {} from {}", run.agent, run.tier, run.category, run.started)).collect();
+    format!("- {}: {}", closed.item, runs.join("; "))
 }
