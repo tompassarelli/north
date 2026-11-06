@@ -3,7 +3,7 @@
 //! 15 runs and 15 closed boxes of each, then the arm with the lower cost per closed box, and Opus for
 //! the rest. An Opus box on no tier arm in a category with 15 Opus runs alternates the medium and
 //! high effort arms the same way until the tune tick or the ledger settles the cheaper one. A planner
-//! or reviewer run takes Opus high, and xhigh on a seeded tenth of its launches, until the ledger
+//! or reviewer run takes Opus high, and xhigh on a seeded half of its launches, until the ledger
 //! settles the cheaper of the two.
 use super::facets;
 use super::issues::Issue;
@@ -22,7 +22,7 @@ pub const ARMED: [&str; 6] = ["feature", "tooling", "native-check", "balance-tun
 /// Categories of planner and reviewer runs, whose effort arms are high and xhigh.
 pub const PLANNED: [&str; 2] = ["planning", "review"];
 /// The share of planner and reviewer launches drawn onto the xhigh arm, in percent.
-pub const XHIGH_PERCENT: u64 = 10;
+pub const XHIGH_PERCENT: u64 = 50;
 const ART: [&str; 3] = ["anim", "animation", "art"];
 
 /// Categories whose ledger evidence dispatch and the tune tick read: every category but mechanical

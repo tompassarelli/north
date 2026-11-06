@@ -22,7 +22,7 @@ fn a_rolling_alarm_issue_is_ready_but_never_placed_because_its_body_declares_no_
 }
 
 #[test]
-fn a_planner_or_reviewer_run_takes_opus_high_and_a_seeded_tenth_take_xhigh_stamped_as_its_arm_until_the_ledger_settles_the_cheaper() {
+fn a_planner_or_reviewer_run_takes_opus_high_and_a_seeded_half_take_xhigh_stamped_as_its_arm_until_the_ledger_settles_the_cheaper() {
     use super::tier::{Effort, Evidence, History, Tier, Trial, route_for};
     use std::collections::BTreeMap;
     let facet = |category: &'static str| move |key: &str| if key == "Category" { category.to_owned() } else { super::facets::default(key).to_owned() };
@@ -31,7 +31,7 @@ fn a_planner_or_reviewer_run_takes_opus_high_and_a_seeded_tenth_take_xhigh_stamp
     for category in ["planning", "review"] {
         let routes = draw(category);
         let xhigh = routes.iter().filter(|route| route.effort == Some(Effort::Xhigh)).count();
-        assert!((70..=130).contains(&xhigh), "{category}: {xhigh} of 1000 drew xhigh");
+        assert!((450..=550).contains(&xhigh), "{category}: {xhigh} of 1000 drew xhigh");
         assert!(routes.iter().all(|route| route.tier == Tier::Opus && matches!(route.effort, Some(Effort::High | Effort::Xhigh)) && route.stamp() == route.effort.map(Effort::arm)), "{routes:?}");
         assert_eq!(routes, draw(category), "the draw is seeded by the item and its launch count");
     }

@@ -43,7 +43,7 @@ a rule when its numbers move.
 
 ## Planner effort
 
-- Launch a planner with `Category: planning` and a reviewer with `Category: review` and no `--effort`: routing runs it at Opus high, and at xhigh on a seeded 10% draw stamped `Arm: effort-xhigh`, until the ledger settles the cheaper arm (gate 163, 2026-11-06; category does not predict effort need, docs/rationale/tier-routing.md).
+- Launch a planner with `Category: planning` and a reviewer with `Category: review` and no `--effort`: routing runs it at Opus high, and at xhigh on a seeded 50% draw stamped `Arm: effort-xhigh`, until the ledger settles the cheaper arm (gate 163, 2026-11-06; category does not predict effort need, docs/rationale/tier-routing.md).
 - Staff it for a plan, not code, when an issue gets its second Not done, a
   category's last 10 runs fall below 40% closed, or the change is
   architectural.
