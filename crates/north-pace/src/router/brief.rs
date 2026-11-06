@@ -255,6 +255,21 @@ pub fn class_refusal(text: &str) -> Option<String> {
     Some(format!("Category {category} has no Class: line; name the class of failure before the first blank line and write a Done when that covers every instance of it"))
 }
 
+static CITATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"docs/references\.md|\bn\s*=\s*\d+").unwrap());
+
+/// A planning box designs from evidence: its Spec line is `measured` with a note citing a ledger
+/// measurement (`n=40`) or a docs/references.md entry.
+pub fn grounding_refusal(text: &str) -> Option<String> {
+    let fields = brief_header(text);
+    let category = fields.get("category")?.split(|c: char| c.is_whitespace() || c == ',' || c == '·').find(|word| !word.is_empty())?.trim_matches(['.', '`']).to_lowercase();
+    if category != "planning" {
+        return None;
+    }
+    let spec = fields.get("spec").map(|spec| spec.trim().trim_matches('`')).unwrap_or("");
+    let grounded = WORD.captures(&spec.to_lowercase()).is_some_and(|captures| &captures[1] == "measured" && captures.get(2).is_some_and(|note| CITATION.is_match(note.as_str())));
+    (!grounded).then(|| format!("Category planning has Spec: {}; a design is grounded in evidence, so write `Spec: measured (...)` citing a ledger measurement with its n (n=40) or a docs/references.md entry", if spec.is_empty() { "missing" } else { spec }))
+}
+
 pub fn codex_box_refusal(text: &str, defaults: &Defaults) -> Option<String> {
     let fields = brief_header(text);
     if !fields.contains_key("category") {

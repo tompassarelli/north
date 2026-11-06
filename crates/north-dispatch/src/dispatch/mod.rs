@@ -152,7 +152,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         let route = tier::route(issue, history, &survey.ledger);
         let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route);
         let brief = brief::brief(issue, launched_by, &route, &grounds);
-        if let Some(why) = crate::router::brief::class_refusal(&brief).or_else(|| crate::platform::signin::brief_refusal(&brief)) {
+        if let Some(why) = crate::router::brief::class_refusal(&brief).or_else(|| crate::router::brief::grounding_refusal(&brief)).or_else(|| crate::platform::signin::brief_refusal(&brief)) {
             outcome.skipped.push((issue.reference(), format!("ready, not placed: {why}")));
             continue;
         }
