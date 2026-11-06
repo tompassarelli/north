@@ -120,6 +120,10 @@ pub(super) fn run(arguments: &[String]) -> Result<(), String> {
         if once && measured {
             return Ok(());
         }
+        if !once && north_base::platform::north_binary::superseded() {
+            eprintln!("north capacity watchdog: the promoted runtime moved; exiting so the service starts it");
+            return Ok(());
+        }
         std::thread::sleep(Duration::from_secs(if once { 1 } else { interval }));
     }
 }
