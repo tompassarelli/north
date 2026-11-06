@@ -50,10 +50,9 @@ fn scope_unit(session: &str, suffix: &str) -> String {
 }
 
 fn scoped(arguments: &[String], session: &str, suffix: &str) -> Vec<String> {
-    let Some(at) = command_start(arguments) else { return arguments.to_vec() };
+    let Some((destination, at)) = command_start(arguments) else { return arguments.to_vec() };
     let (options, command) = arguments.split_at(at);
-    let destination = options.last().map_or("", String::as_str);
-    let command = command.strip_prefix(&["--".to_owned()]).unwrap_or(command);
+    let destination = arguments[destination].as_str();
     let remote = command.join(" ");
     let program = program(&remote);
     let protocol = PROTOCOLS.contains(&program.as_str()) || program.starts_with("git-") || destination.split_once('@').is_some_and(|(user, _)| user == "git");
@@ -102,14 +101,22 @@ fn words(remote: &str) -> Vec<String> {
     words
 }
 
-fn command_start(arguments: &[String]) -> Option<usize> {
-    let mut at = 0;
+/// The destination's index and the remote command's first index, reading options on both sides of the destination as OpenSSH does, because nix's ssh stores pass theirs after it.
+fn command_start(arguments: &[String]) -> Option<(usize, usize)> {
+    let (mut at, mut destination) = (0, None);
     while let Some(word) = arguments.get(at) {
         if word == "--" {
-            return (at + 2 < arguments.len()).then_some(at + 2);
+            let destination = destination.unwrap_or(at + 1);
+            let command = destination.max(at) + 1;
+            return (command < arguments.len()).then_some((destination, command));
         }
         let Some(flags) = word.strip_prefix('-').filter(|flags| !flags.is_empty()) else {
-            return (at + 1 < arguments.len()).then_some(at + 1);
+            match destination {
+                Some(destination) => return Some((destination, at)),
+                None => destination = Some(at),
+            }
+            at += 1;
+            continue;
         };
         for (position, flag) in flags.bytes().enumerate() {
             if UNSCOPED.contains(&flag) {
