@@ -61,8 +61,12 @@ pub fn tend() {
     }
     let Ok(log) = OpenOptions::new().create(true).append(true).open(root.join(LOG)) else { return };
     let Ok(errors) = log.try_clone() else { return };
+    let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let inherited = env::var_os("PATH").unwrap_or_default();
+    let path = env::join_paths([home.join(".local/bin"), home.join(".nix-profile/bin")].into_iter().chain(env::split_paths(&inherited))).unwrap_or_else(|_| inherited.clone());
     let started = Command::new(north_base::platform::north_binary::north_binary())
         .args(["capacity", "offload", "warm"])
+        .env("PATH", path)
         .stdin(Stdio::null())
         .stdout(log)
         .stderr(errors)
@@ -116,7 +120,13 @@ fn slots(root: &Path) -> Vec<Slot> {
 }
 
 fn git(directory: &Path, arguments: &[&str]) -> Option<String> {
-    let output = Command::new("git").arg("-C").arg(directory).args(arguments).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    let output = match Command::new("git").arg("-C").arg(directory).args(arguments).stdin(Stdio::null()).stderr(Stdio::null()).output() {
+        Ok(output) => output,
+        Err(error) => {
+            eprintln!("north capacity: the slot warmer could not run git: {error}");
+            return None;
+        }
+    };
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|text| !text.is_empty())
 }
 
