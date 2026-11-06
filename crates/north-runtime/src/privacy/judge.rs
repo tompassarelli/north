@@ -23,7 +23,8 @@ const CHUNK_BYTES: usize = 48_000;
 const CACHE_ENV: &str = "NORTH_PRIVACY_CACHE";
 const CONFIRM_RUNS: usize = 3;
 const CONFIRM_MAJORITY: usize = 2;
-const ANCHOR_CHARS: usize = 40;
+const ANCHOR_WORDS: usize = 4;
+const SPAN_CHARS: usize = 160;
 
 pub struct Cache {
     dir: PathBuf,
@@ -75,22 +76,46 @@ fn confirmed(kinds: &Kinds, chunk: &str, cache: &Cache, ask: &Ask) -> Result<Vec
         let asked: Vec<_> = (0..CONFIRM_RUNS).map(|run| scope.spawn(move || verdict(kinds, chunk, cache, &CONFIRM, run, ask))).collect();
         asked.into_iter().map(|run| run.join().unwrap_or_else(|_| Err("a confirming judge panicked".to_owned()))).collect::<Result<_, _>>()
     })?;
-    let mut votes: BTreeMap<String, (usize, Finding)> = BTreeMap::new();
+    let lines: Vec<String> = chunk.lines().map(words).collect();
+    let mut votes: BTreeMap<Anchor, (BTreeMap<String, usize>, String)> = BTreeMap::new();
     for run in runs {
-        let anchors: BTreeMap<String, Finding> = run.into_iter().map(|finding| (anchor(chunk, &finding.span), finding)).collect();
+        let anchors: BTreeMap<Anchor, Finding> = run.into_iter().map(|finding| (anchor(&lines, &finding.span), finding)).collect();
         for (anchor, finding) in anchors {
-            votes.entry(anchor).or_insert((0, finding)).0 += 1;
+            *votes.entry(anchor).or_insert_with(|| (BTreeMap::new(), finding.span)).0.entry(finding.kind).or_default() += 1;
         }
     }
-    Ok(votes.into_values().filter(|(count, _)| *count >= CONFIRM_MAJORITY).map(|(_, finding)| finding).collect())
+    let quoted: Vec<&str> = chunk.lines().collect();
+    Ok(votes
+        .into_iter()
+        .filter(|(_, (kinds, _))| kinds.values().sum::<usize>() >= CONFIRM_MAJORITY)
+        .map(|(anchor, (kinds, first))| {
+            let kind = kinds.iter().max_by(|left, right| left.1.cmp(right.1).then(right.0.cmp(left.0))).map(|(kind, _)| kind.clone()).unwrap_or_default();
+            let span = match anchor {
+                Anchor::Line(line) => quoted[line].trim().chars().take(SPAN_CHARS).collect(),
+                Anchor::Unplaced(_) => first,
+            };
+            Finding { kind, span }
+        })
+        .collect())
 }
 
-fn anchor(chunk: &str, span: &str) -> String {
-    let words = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Anchor {
+    Line(usize),
+    Unplaced(String),
+}
+
+fn words(text: &str) -> String {
+    format!(" {} ", text.split(|c: char| !c.is_alphanumeric()).filter(|word| !word.is_empty()).collect::<Vec<_>>().join(" ").to_lowercase())
+}
+
+fn anchor(lines: &[String], span: &str) -> Anchor {
     let span = words(span);
-    let opening: String = span.chars().take(ANCHOR_CHARS).collect();
-    let lines: Vec<String> = chunk.lines().map(words).collect();
-    lines.iter().position(|line| line.contains(&span)).or_else(|| lines.iter().position(|line| !opening.is_empty() && line.contains(&opening))).map_or(span, |line| format!("line {line}"))
+    let spoken: Vec<&str> = span.split_whitespace().collect();
+    let edge = |part: &[&str]| format!(" {} ", part.join(" "));
+    let take = spoken.len().min(ANCHOR_WORDS);
+    let ends = [edge(&spoken[..take]), edge(&spoken[spoken.len() - take..])];
+    ends.iter().filter(|_| take > 0).find_map(|end| lines.iter().position(|line| line.contains(end.as_str()))).map_or_else(|| Anchor::Unplaced(span.trim().to_owned()), Anchor::Line)
 }
 
 fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, run: usize, ask: &Ask) -> Result<Vec<Finding>, String> {
@@ -99,9 +124,9 @@ fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, run: usize, a
         return Ok(held);
     }
     let asked = prompt(kinds, chunk);
-    let fresh = match parse_answer(kinds, &ask(tier, &asked)?) {
+    let fresh = match parse_answer(&ask(tier, &asked)?) {
         Ok(fresh) => fresh,
-        Err(_) => parse_answer(kinds, &ask(tier, &asked)?)?,
+        Err(_) => parse_answer(&ask(tier, &asked)?)?,
     };
     cache.write(&key, &fresh);
     Ok(fresh)
@@ -173,23 +198,27 @@ Otherwise answer one line per finding, in the form: <kind id> | <exact quoted sp
     )
 }
 
-fn parse_answer(kinds: &Kinds, answer: &str) -> Result<Vec<Finding>, String> {
+fn parse_answer(answer: &str) -> Result<Vec<Finding>, String> {
     let lines: Vec<&str> = answer.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with("```")).collect();
-    if lines == ["NONE"] {
+    if lines.last() == Some(&"NONE") && !lines.iter().any(|line| finding(line).is_some()) {
         return Ok(Vec::new());
     }
     let mut found: Vec<Finding> = Vec::new();
     for line in lines {
-        match line.split_once(" | ").or_else(|| line.split_once('\t')).map(|(kind, span)| (kind.trim(), span)).filter(|(kind, _)| !kind.contains(' ')) {
-            Some((kind, span)) if kinds.list.iter().any(|known| known.id == kind) => found.push(Finding { kind: kind.to_owned(), span: span.trim().trim_matches('"').to_owned() }),
+        match finding(line) {
+            Some((kind, span)) => found.push(Finding { kind, span: span.trim().trim_matches('"').to_owned() }),
             None if !found.is_empty() => {
                 let open = found.last_mut().expect("a finding is open");
                 open.span = format!("{} {}", open.span.trim_end_matches('"'), line.trim_matches('"'));
             }
-            _ => return Err(unreadable(answer)),
+            None => return Err(unreadable(answer)),
         }
     }
     if found.is_empty() { Err(unreadable(answer)) } else { Ok(found) }
+}
+
+fn finding(line: &str) -> Option<(String, &str)> {
+    line.split_once(" | ").or_else(|| line.split_once('\t')).map(|(kind, span)| (kind.trim().to_owned(), span)).filter(|(kind, _)| !kind.is_empty() && kind.chars().all(|c| c.is_ascii_lowercase() || c == '-'))
 }
 
 fn unreadable(answer: &str) -> String {
@@ -203,7 +232,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_a_span_wrapped_over_lines_asks_once_more_when_unreadable_and_refuses_after_a_second() {
+    fn reads_a_wrapped_span_reasoning_before_none_and_an_unlisted_kind_asks_once_more_when_unreadable_and_refuses_after_a_second() {
         let kinds = super::super::kinds::parse("[[kind]]\nid = \"fixture-kind\"\ndescription = \"a fixture\"\n".to_owned()).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let cache = Cache { dir: dir.path().to_owned() };
@@ -215,14 +244,16 @@ mod tests {
         assert!(refused.is_err_and(|reason| reason.contains("unreadable")));
         let wrapped = judge(&kinds, "third text\nwhose quoted line\nwraps\n", &cache, &|_, _| Ok("fixture-kind | whose quoted line\nwraps".to_owned()));
         assert_eq!(wrapped, Ok(vec![Finding { kind: "fixture-kind".to_owned(), span: "whose quoted line wraps".to_owned() }]));
+        assert_eq!(judge(&kinds, "fourth text\n", &cache, &|_, _| Ok("The text names a lease, which is no private kind.\n\nNONE".to_owned())), Ok(Vec::new()));
+        assert_eq!(judge(&kinds, "fifth text\n", &cache, &|_, _| Ok("cost | fifth text".to_owned())), Ok(vec![Finding { kind: "cost".to_owned(), span: "fifth text".to_owned() }]));
     }
 
     #[test]
-    fn a_confirmer_that_flips_between_lines_yields_one_verdict_kept_per_file_across_reruns() {
+    fn confirmers_that_flip_lines_and_quote_one_line_differently_yield_one_verdict_kept_per_file_across_reruns() {
         let kinds = super::super::kinds::parse("[[kind]]\nid = \"fixture-kind\"\ndescription = \"a fixture\"\n".to_owned()).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let cache = Cache { dir: dir.path().to_owned() };
-        let confirms = Mutex::new(vec!["fixture-kind | | PLAN | W% |", "fixture-kind | the box at home", "fixture-kind | the box at home"].into_iter());
+        let confirms = Mutex::new(vec!["fixture-kind | | PLAN | W% |", "fixture-kind | the box at home", "fixture-kind | `Box` at home, kept"].into_iter());
         let asked = Mutex::new(Vec::new());
         let ask = |tier: &Tier, prompt: &str| {
             asked.lock().unwrap().push(prompt.contains("first note"));
@@ -234,8 +265,8 @@ mod tests {
                 confirms.lock().unwrap().next().unwrap().to_owned()
             })
         };
-        let text = |second: &str| format!("first note\n| PLAN | W% |\nthe box at home\n{SEGMENT_BREAK}{second}\n{SEGMENT_BREAK}");
-        let stable = vec![Finding { kind: "fixture-kind".to_owned(), span: "the box at home".to_owned() }];
+        let text = |second: &str| format!("first note\n| PLAN | W% |\nthe box at home, kept by hand\n{SEGMENT_BREAK}{second}\n{SEGMENT_BREAK}");
+        let stable = vec![Finding { kind: "fixture-kind".to_owned(), span: "the box at home, kept by hand".to_owned() }];
         for _ in 0..5 {
             assert_eq!(judge(&kinds, &text("second note"), &cache, &ask), Ok(stable.clone()));
         }
