@@ -18,9 +18,13 @@ decisions, runs the survivor as a bounded live arm, and keeps it or reverts it b
    their scores and the failed runs' reports, and writes a code or config diff; its prompt and the way it learns from its own
    failures follow GEPA (reflect on trajectories, keep a Pareto set of candidates that win somewhere).
 3. **Refuse.** `scope::refusals` rejects a candidate whose diff touches the evaluator (`north-climb`, `north-replay`,
-   `north-strategy-types`), the ledger's counting and recording code (`north-core` ledger, `north-threads`, `worker_ledger`,
-   `north-goals`, the scoreboard), a scoring bar (`goals.toml`, `loops.toml`, `corrections.toml`, `experiments.toml`,
-   `structure.toml`), or any test or fixture. The refusal is a path check on the diff, made before the candidate is scored, so a
+   `north-strategy-types`), the policy that picks an arm's winner (`north-core` router), the ledger's counting and recording code
+   (`north-core` ledger, `north-threads`, `worker_ledger`, `north-goals`, the scoreboard), a scoring bar (`defaults.toml`, where replay
+   reads its shift ratio, landing p90 and quota floors, `goals.toml`, `loops.toml`, `corrections.toml`, `experiments.toml`,
+   `structure.toml`), or any test or fixture. `dispatch/tier.rs` holds both the arm table a candidate edits and the functions that
+   settle a live arm (`tiered`, `efforted`, `other_arm`) with the trial length `ARM_WINDOW`, so a path check cannot guard it:
+   `scope::diff_refusals` also refuses a diff whose changed lines name those functions, `ARM_RUNS`, `ARM_WINDOW` or a `replay_*`
+   bar, and the generator box runs it on every generated diff. The typed changes built so far edit only the arm table. The refusal is a path check on the diff, made before the candidate is scored, so a
    generator cannot buy a better score by moving the thing that scores it.
 4. **Replay.** The candidate is applied to every logged placement case it reaches and the window is decided again with
    `north strategy replay`'s machinery (`north_replay::replay` with a patched placement decider), beside a replay of the current
