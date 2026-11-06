@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::platform::betterleaks::{Finding, Scanner};
 use crate::platform::git as platform_git;
+use crate::platform::private_text;
 
 #[path = "denylist_archive.rs"]
 mod archive;
@@ -315,13 +316,29 @@ pub fn prose_range(root: &Path, base: &str, head: &str, ref_name: Option<&str>) 
     let head = commit(root, head)?;
     let base = if base.is_empty() { String::new() } else { commit(root, base)? };
     let range = if base.is_empty() { head } else { format!("{base}..{head}") };
-    let mut prose = git(root, &["log", "--format=%B", &range, "--"])?;
+    let mut segments: Vec<String> = git(root, &["log", "--format=%B%x00", &range, "--"])?.split('\0').map(str::to_owned).collect();
     let mut diff = vec!["log", "-p", "-U0", "--no-merges", "--no-renames", "--format=", range.as_str(), "--"];
     diff.extend(PROSE_PATHS);
-    let added = git(root, &diff)?;
-    prose.extend(added.lines().filter(|line| line.starts_with('+') && !line.starts_with("+++ ")).map(|line| format!("{}\n", &line[1..])));
-    prose.extend(ref_name.into_iter().flat_map(|name| ref_segments(root, name)).map(|segment| format!("{}\n", segment.text)));
-    Ok(prose)
+    let mut added: BTreeMap<String, String> = BTreeMap::new();
+    let (mut file, mut header) = (String::new(), false);
+    for line in git(root, &diff)?.lines() {
+        if line.starts_with("diff --git ") {
+            header = true;
+        } else if line.starts_with("@@") {
+            header = false;
+        } else if header {
+            if let Some(path) = line.strip_prefix("+++ ") {
+                path.clone_into(&mut file);
+            }
+        } else if let Some(text) = line.strip_prefix('+') {
+            let held = added.entry(file.clone()).or_default();
+            held.push_str(text);
+            held.push('\n');
+        }
+    }
+    segments.extend(added.into_values());
+    segments.extend(ref_name.into_iter().flat_map(|name| ref_segments(root, name)).map(|segment| segment.text));
+    Ok(segments.iter().filter(|segment| !segment.trim().is_empty()).map(|segment| format!("{}\n{}", segment.trim_end(), private_text::SEGMENT_BREAK)).collect())
 }
 
 pub fn scan_range(root: &Path, config: &Path, base: &str, head: &str, ref_name: Option<&str>) -> Result<BTreeSet<String>, String> {

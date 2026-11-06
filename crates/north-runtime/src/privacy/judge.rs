@@ -1,7 +1,8 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use north_base::platform::private_text::{Finding, parse, render};
+use north_base::platform::private_text::{Finding, SEGMENT_BREAK, parse, render};
 use sha2::{Digest, Sha256};
 
 use super::kinds::Kinds;
@@ -20,6 +21,9 @@ const CLEAN: &str = "NONE\n";
 const ATTEMPT_LIMIT: Duration = Duration::from_secs(90);
 const CHUNK_BYTES: usize = 48_000;
 const CACHE_ENV: &str = "NORTH_PRIVACY_CACHE";
+const CONFIRM_RUNS: usize = 3;
+const CONFIRM_MAJORITY: usize = 2;
+const ANCHOR_CHARS: usize = 40;
 
 pub struct Cache {
     dir: PathBuf,
@@ -52,11 +56,13 @@ impl Cache {
     }
 }
 
-pub fn judge(kinds: &Kinds, text: &str, cache: &Cache, ask: &mut dyn FnMut(&Tier, &str) -> Result<String, String>) -> Result<Vec<Finding>, String> {
+pub type Ask<'a> = dyn Fn(&Tier, &str) -> Result<String, String> + Sync + 'a;
+
+pub fn judge(kinds: &Kinds, text: &str, cache: &Cache, ask: &Ask) -> Result<Vec<Finding>, String> {
     let mut found = Vec::new();
     for chunk in chunks(text) {
-        if !verdict(kinds, &chunk, cache, &SCREEN, ask)?.is_empty() {
-            found.extend(verdict(kinds, &chunk, cache, &CONFIRM, ask)?);
+        if !verdict(kinds, &chunk, cache, &SCREEN, 0, ask)?.is_empty() {
+            found.extend(confirmed(kinds, &chunk, cache, ask)?);
         }
     }
     found.sort();
@@ -64,8 +70,31 @@ pub fn judge(kinds: &Kinds, text: &str, cache: &Cache, ask: &mut dyn FnMut(&Tier
     Ok(found)
 }
 
-fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, ask: &mut dyn FnMut(&Tier, &str) -> Result<String, String>) -> Result<Vec<Finding>, String> {
-    let key = key(kinds, tier, chunk);
+fn confirmed(kinds: &Kinds, chunk: &str, cache: &Cache, ask: &Ask) -> Result<Vec<Finding>, String> {
+    let runs: Vec<Vec<Finding>> = std::thread::scope(|scope| {
+        let asked: Vec<_> = (0..CONFIRM_RUNS).map(|run| scope.spawn(move || verdict(kinds, chunk, cache, &CONFIRM, run, ask))).collect();
+        asked.into_iter().map(|run| run.join().unwrap_or_else(|_| Err("a confirming judge panicked".to_owned()))).collect::<Result<_, _>>()
+    })?;
+    let mut votes: BTreeMap<String, (usize, Finding)> = BTreeMap::new();
+    for run in runs {
+        let anchors: BTreeMap<String, Finding> = run.into_iter().map(|finding| (anchor(chunk, &finding.span), finding)).collect();
+        for (anchor, finding) in anchors {
+            votes.entry(anchor).or_insert((0, finding)).0 += 1;
+        }
+    }
+    Ok(votes.into_values().filter(|(count, _)| *count >= CONFIRM_MAJORITY).map(|(_, finding)| finding).collect())
+}
+
+fn anchor(chunk: &str, span: &str) -> String {
+    let words = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let span = words(span);
+    let opening: String = span.chars().take(ANCHOR_CHARS).collect();
+    let lines: Vec<String> = chunk.lines().map(words).collect();
+    lines.iter().position(|line| line.contains(&span)).or_else(|| lines.iter().position(|line| !opening.is_empty() && line.contains(&opening))).map_or(span, |line| format!("line {line}"))
+}
+
+fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, run: usize, ask: &Ask) -> Result<Vec<Finding>, String> {
+    let key = key(kinds, tier, run, chunk);
     if let Some(held) = cache.read(&key) {
         return Ok(held);
     }
@@ -86,9 +115,10 @@ pub fn ask_subscription(tier: &Tier, prompt: &str, access: &RuntimeAccess) -> Re
     }
 }
 
-fn key(kinds: &Kinds, tier: &Tier, chunk: &str) -> String {
+fn key(kinds: &Kinds, tier: &Tier, run: usize, chunk: &str) -> String {
     let mut hash = Sha256::new();
-    for part in [PROMPT_VERSION, tier.model, tier.effort, &kinds.source, chunk] {
+    let run = run.to_string();
+    for part in [PROMPT_VERSION, tier.model, tier.effort, &run, &kinds.source, chunk] {
         hash.update(part.as_bytes());
         hash.update([0]);
     }
@@ -96,6 +126,10 @@ fn key(kinds: &Kinds, tier: &Tier, chunk: &str) -> String {
 }
 
 fn chunks(text: &str) -> Vec<String> {
+    text.split(SEGMENT_BREAK).flat_map(segment_chunks).collect()
+}
+
+fn segment_chunks(text: &str) -> Vec<String> {
     let mut chunks = vec![String::new()];
     for line in text.split_inclusive('\n') {
         if chunks.last().is_some_and(|open| !open.is_empty() && open.len() + line.len() > CHUNK_BYTES) && line.len() <= CHUNK_BYTES {
@@ -163,6 +197,8 @@ fn unreadable(answer: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
 
     #[test]
@@ -170,11 +206,37 @@ mod tests {
         let kinds = super::super::kinds::parse("[[kind]]\nid = \"fixture-kind\"\ndescription = \"a fixture\"\n".to_owned()).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let cache = Cache { dir: dir.path().to_owned() };
-        let mut answers = vec!["I cannot judge this.", "NONE"].into_iter();
-        let mut asked = 0;
-        assert_eq!(judge(&kinds, "first text\n", &cache, &mut |_, _| { asked += 1; Ok(answers.next().unwrap().to_owned()) }), Ok(Vec::new()));
-        assert_eq!(asked, 2);
-        let refused = judge(&kinds, "second text\n", &cache, &mut |_, _| Ok("still prose".to_owned()));
+        let answers = Mutex::new(vec!["I cannot judge this.", "NONE"].into_iter());
+        let asked = Mutex::new(0);
+        assert_eq!(judge(&kinds, "first text\n", &cache, &|_, _| { *asked.lock().unwrap() += 1; Ok(answers.lock().unwrap().next().unwrap().to_owned()) }), Ok(Vec::new()));
+        assert_eq!(*asked.lock().unwrap(), 2);
+        let refused = judge(&kinds, "second text\n", &cache, &|_, _| Ok("still prose".to_owned()));
         assert!(refused.is_err_and(|reason| reason.contains("unreadable")));
+    }
+
+    #[test]
+    fn a_confirmer_that_flips_between_lines_yields_one_verdict_kept_per_file_across_reruns() {
+        let kinds = super::super::kinds::parse("[[kind]]\nid = \"fixture-kind\"\ndescription = \"a fixture\"\n".to_owned()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache { dir: dir.path().to_owned() };
+        let confirms = Mutex::new(vec!["fixture-kind | | PLAN | W% |", "fixture-kind | the box at home", "fixture-kind | the box at home"].into_iter());
+        let asked = Mutex::new(Vec::new());
+        let ask = |tier: &Tier, prompt: &str| {
+            asked.lock().unwrap().push(prompt.contains("first note"));
+            Ok(if !prompt.contains("first note") {
+                "NONE".to_owned()
+            } else if tier.model == SCREEN.model {
+                "fixture-kind | | PLAN | W% |".to_owned()
+            } else {
+                confirms.lock().unwrap().next().unwrap().to_owned()
+            })
+        };
+        let text = |second: &str| format!("first note\n| PLAN | W% |\nthe box at home\n{SEGMENT_BREAK}{second}\n{SEGMENT_BREAK}");
+        let stable = vec![Finding { kind: "fixture-kind".to_owned(), span: "the box at home".to_owned() }];
+        for _ in 0..5 {
+            assert_eq!(judge(&kinds, &text("second note"), &cache, &ask), Ok(stable.clone()));
+        }
+        assert_eq!(judge(&kinds, &text("second note, reworded"), &cache, &ask), Ok(stable));
+        assert_eq!(*asked.lock().unwrap(), [true, true, true, true, false, false]);
     }
 }

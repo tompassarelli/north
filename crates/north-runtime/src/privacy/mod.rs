@@ -56,5 +56,5 @@ fn judged(text: &str, kinds: Option<&str>, access: &RuntimeAccess) -> Result<Vec
         return Ok(Vec::new());
     }
     let list = kinds::load(kinds)?;
-    judge::judge(&list, &text, &judge::Cache::from_env(), &mut |tier, prompt| judge::ask_subscription(tier, prompt, access))
+    judge::judge(&list, &text, &judge::Cache::from_env(), &|tier, prompt| judge::ask_subscription(tier, prompt, access))
 }

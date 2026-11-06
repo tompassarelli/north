@@ -9,6 +9,7 @@ const JUDGE_LIMIT: Duration = Duration::from_secs(300);
 const HOOK_LIMIT: Duration = Duration::from_secs(7);
 const SPAN_CHARS: usize = 160;
 pub const KINDS_ENV: &str = "NORTH_PRIVATE_KINDS";
+pub const SEGMENT_BREAK: &str = "\u{1e}\n";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Finding {
