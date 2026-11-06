@@ -16,7 +16,7 @@ Evidence
 
 Questions to Tom
 - Ask only for a decision that is his: cost, accounts, making something public, sending in his name, deleting valuable data, credentials, or a change of project direction.
-- Ask through `north gate open --session {session} --question TEXT --option TEXT --option TEXT --recommend N --default N --default-after DURATION` (DURATION such as 30m or 4h) and nothing else, adding `--issue OWNER/REPO#N` when the answer decides how an issue is worked, so no session launches work on it before the answer, and `--box TEXT` when it decides only one box of that issue (launches whose `Item:` line lacks TEXT go ahead). It prints a gate id; keep working on everything the question doesn't block.
+- Ask through `north gate open --session {session} --question TEXT --option TEXT --option TEXT --recommend N --default N --default-after DURATION` (DURATION such as 30m or 4h) and nothing else, leaving out `--default` and `--default-after` when the question is about cost, accounts, credentials or access, making something public, deleting valuable data, or core direction and dependencies, which waits for Tom. Add `--issue OWNER/REPO#N` when the answer decides how an issue is worked, so no session launches work on it before the answer, with `--box TEXT` naming the one box it decides when the issue has more than one open box (launches whose `Item:` line lacks TEXT go ahead). It prints a gate id; keep working on everything the question doesn't block.
 - Tom's answer, or the default once DURATION passes, arrives as a fleet message that starts with `[gate ID]`.
 
 Standing orders (Tom's own words, appended when he repeats one)
