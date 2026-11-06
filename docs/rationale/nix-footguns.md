@@ -195,7 +195,7 @@ program that holds the fact, and its message names the fix. Most classes here sh
 that enter a dev shell on their own (`bin/land-shell --dev`, the offload's `RUN` script in
 `crates/north-runtime/src/land_offload/ship.rs:61`, `capacity::dev_shell::enter`, three `exec nix develop` check
 scripts), each with its own idea of "already inside", none with `--offline`, and one GC
-root among them. So the first guard is architecture: one entry, `north dev-shell run`, that every other caller goes
+root among them. So the first guard is architecture: one entry, `north capacity dev-shell run`, that every other caller goes
 through (box D1). Several classes below close by moving their callers onto it.
 
 ### N1. Nested dev shells and sandboxes
@@ -208,12 +208,12 @@ shell again. The offload enters `nix develop "$slot"`, then the land check's `la
 starts cold. Two sandboxes nested inside each other exit 127 (n360-default-checks, 2026-11-05), and a namespace nested
 under `run-bounded` broke `/proc` and ssh's ownership check (north#124, north#172).
 
-Guard, earliest point: the entry itself. `north dev-shell run` marks the environment with the shell's identity (the dev
+Guard, earliest point: the entry itself. `north capacity dev-shell run` marks the environment with the shell's identity (the dev
 shell derivation path, not a file hash) and runs the command directly when the mark matches; depbox passes the mark
 through its `--setenv` list. depbox refuses to start inside a depbox, naming the outer one and saying to run the
 command directly. A lint over `harness/scripts`, `bin`, `harness/lib` and the `land.check` lines of `.safe-push`
 refuses a literal `nix develop`, `nix-shell` or `land-shell --dev` inside a script that a land check already wraps, with
-"use `north dev-shell run --` (it is a no-op inside the shell)" (boxes D1, D2, D3).
+"use `north capacity dev-shell run --` (it is a no-op inside the shell)" (boxes D1, D2, D3).
 
 ### N2. PATH, shims and the real program behind the capacity gate
 
@@ -227,7 +227,7 @@ the process, so a nested `nix develop` found no nix (nix-gate-127, every candida
 runs printed the not-found line and still reported exit 0 until 5c707090e.
 
 Guards: the gate knows the project and the shell, so when no real program exists on PATH and the working directory's
-flake has a dev shell, it runs the command through `north dev-shell run` instead of exiting 127 (box D4); this turns
+flake has a dev shell, it runs the command through `north capacity dev-shell run` instead of exiting 127 (box D4); this turns
 the largest single cost in the evidence into a working command. Shim identity becomes one constant the shim generator
 and `is_shim` share, checked against the canonical path of the `capacity-gate-shims` derivation, never prose in a
 header (box D5). The loop guard keys on program and arguments (nix-gate-127's lane, box D0). A test matrix pins exit
@@ -241,7 +241,7 @@ environment. Offloads ran bare until 602d51c9b, leases until a7ab53869 and 5c707
 landing variables until train 6c failed on them, and `capacity exec --dev-shell DIR` only sets a marker and execs from
 the current PATH, so cargo still resolves to the shim (north#546, open).
 
-Guard: every leased, offloaded and land-check run enters through `north dev-shell run`, and the variables a run carries
+Guard: every leased, offloaded and land-check run enters through `north capacity dev-shell run`, and the variables a run carries
 across a host or sandbox boundary are one list in one module that depbox, the offload `RUN` script and `capacity host
 run` all read (box D1 for `--dev-shell`, box D6 for the list). A test matrix runs the same probe (`command -v cargo`,
 `printenv SAFE_PUSH_LAND_BASE`, a missing program) through every entry and asserts identical output (box D7).
@@ -270,7 +270,7 @@ fetched. What happens: depbox `run` cuts the network, so a dev shell whose closu
 nobody fetched; `firn check`'s `--no-build` still realises stylix's base16 (firn#23). Six offload slots share one
 eval-cache SQLite file and print `error (ignored): SQLite database … is busy`, which is noise but made error greps lie.
 
-Guard: `north dev-shell run` checks for the shell's GC-root profile before entering offline and, when it is missing,
+Guard: `north capacity dev-shell run` checks for the shell's GC-root profile before entering offline and, when it is missing,
 realises it once with the network under a lease, then enters with `--offline --no-update-lock-file`; it never fails
 with a download error inside a sandbox that has no network (box D1). depbox `run` compares Cargo.lock with the lock it
 last fetched for and, when they differ, names `depbox fetch -- cargo fetch --locked` instead of letting cargo try the
@@ -287,8 +287,8 @@ fails at eval. North uses no direnv; nix-direnv is enabled host-wide but no fail
 
 Guard: a PreToolUse rule in `north hook` denies `nix shell nixpkgs#…`, `nix run nixpkgs#…` and `nix-shell -p …` when
 the working directory's flake has a dev shell, with "this project pins its tools in flake.nix's dev shell; add PKG
-there and run through `north dev-shell run --`", and the same rule runs as a lint over scripts (box D9).
-`north dev-shell run` in a flake without a dev shell says so and runs the command bare, instead of an eval error (box
+there and run through `north capacity dev-shell run --`", and the same rule runs as a lint over scripts (box D9).
+`north capacity dev-shell run` in a flake without a dev shell says so and runs the command bare, instead of an eval error (box
 D1).
 
 ### N7. Project flakes against the system closure (firn)
@@ -335,7 +335,7 @@ Guards: a PreToolUse rule denies `nix-collect-garbage`, `nix-store --gc`, `nix s
 --delete-generations` on agent hosts, naming `north nix gc`, which first roots every promoted runtime, every live
 worktree's dev shell and every rustup toolchain's store references, then collects (box D13). `north doctor nix` reports
 each live worktree's dev shell as rooted or not, enters each offline, checks every store path a rustup toolchain wrapper
-names, and flags a flake.lock with more than one nixpkgs node (box D14). depbox's root moves into `north dev-shell run`
+names, and flags a flake.lock with more than one nixpkgs node (box D14). depbox's root moves into `north capacity dev-shell run`
 and keys on the dev shell's derivation path (box D1).
 
 ### N10. shellHook side effects
@@ -344,7 +344,7 @@ What agents assume: a dev shell's hook is a pure function of the flake. What hap
 `north target-seed || true`, which fails silently wherever `north` is hidden (every depbox, 30+ sessions of cold
 builds), and computes `RUSTFLAGS` from the checkout path (N8's cost).
 
-Guard: `target-seed` moves out of the hook into `north dev-shell run`, which runs outside the sandbox and fails loudly;
+Guard: `target-seed` moves out of the hook into `north capacity dev-shell run`, which runs outside the sandbox and fails loudly;
 a lint over `flake.nix` refuses `|| true` and any program in a shellHook that the shell's own packages do not provide
 (box D2).
 
@@ -381,7 +381,7 @@ the moment of the activity, as well as the guards (2026-11-05). Three parts, one
   forms where the class has a deterministic wrong form. Examples: N1 "inside an offload slot or land check you are
   already in the dev shell; never nest `nix develop`, `land-shell --dev` or depbox; run the tool directly"; N2 "behind
   the capacity gate only the gate's PATH applies: `cargo` here is the gate shim, and the real one exists only inside
-  the project's dev shell"; N3 "a capacity run enters the dev shell only through `north dev-shell run` (`--dev-shell`
+  the project's dev shell"; N3 "a capacity run enters the dev shell only through `north capacity dev-shell run` (`--dev-shell`
   until D1)".
 - The hook: a `nix_activity` step in `north hook` (PreToolUse) matches Bash commands that name `nix develop`,
   `nix-shell`, `nix run`, `nix build`, `nix shell`, `nix-collect-garbage`, `nix-store`, `direnv`, `land-shell` or
@@ -527,12 +527,12 @@ hash of program and arguments, so the looping stub is still caught and a nested 
 with `a_check_script_that_runs_nix_develop_inside_a_dev_shell_reaches_the_real_nix_behind_the_gate`. D1 stops the same
 replay without relying on D0, by removing the nesting.
 
-### D1. One dev-shell entry: `north dev-shell run` (N1, N3)
+### D1. One dev-shell entry: `north capacity dev-shell run` (N1, N3)
 
 Category: tooling. Scope: cross-module. Surface: rust. Verify: local-test. Files: a `dev_shell` module beside
 `crates/north-core/src/capacity/dev_shell.rs` (which it absorbs), `src/cli/`, `ops/land_offload/ship.rs` (`RUN`),
 `harness/scripts/check-owners.sh`, `citation-check.sh`, `experiments-check.sh` if landed.
-`north dev-shell run [--dir D] -- CMD` finds the flake's `devShells.<system>.default`, takes its derivation path as the
+`north capacity dev-shell run [--dir D] -- CMD` finds the flake's `devShells.<system>.default`, takes its derivation path as the
 shell's identity, runs CMD directly when `NORTH_DEV_SHELL` already holds that identity, and otherwise runs
 `nix develop D --offline --no-update-lock-file -c env NORTH_DEV_SHELL=<id> CMD`, with nix found on PATH or at the
 system path. In a flake without a dev shell it says so on stderr and runs CMD bare. The offload's `RUN` and the three
@@ -542,12 +542,12 @@ Done when:
 - Replay nix-gate-127: in a gex45 offload slot, `bash harness/scripts/check-owners.sh` behind the capacity gate exits
   127 with `nix: command not found behind the north capacity gate` at f1745de2e and exits 0 at the lane head, without
   D0.
-- `north dev-shell run -- north dev-shell run -- sh -c 'echo $NORTH_DEV_SHELL'` prints one derivation path, and
+- `north capacity dev-shell run -- north capacity dev-shell run -- sh -c 'echo $NORTH_DEV_SHELL'` prints one derivation path, and
   `NORTH_DEV_SHELL_TRACE=1` shows one entry and one direct run.
-- A tests/it case runs a check script that calls `north dev-shell run` inside an entered shell behind the gate and
+- A tests/it case runs a check script that calls `north capacity dev-shell run` inside an entered shell behind the gate and
   asserts it runs once, with the real cargo.
 
-### D2. Leases enter through `north dev-shell run` (N3, north#546)
+### D2. Leases enter through `north capacity dev-shell run` (N3, north#546)
 
 Category: bug. Scope: single-module. Surface: rust. Verify: local-test. Files: `crates/north-core/src/capacity/host/run.rs`,
 `capacity/dev_shell.rs` callers, `capacity exec`.
@@ -610,7 +610,7 @@ Category: bug. Scope: cross-module. Surface: rust. Verify: local-test. Files: D1
 (drops `root_shell`).
 D1's entry roots the shell's profile under `~/.local/state/north/dev-shells/<id>` and, when the root is missing,
 realises it once with the network under a lease before entering offline. `land-shell --dev` runs
-`north dev-shell run --prepare` outside the sandbox, then enters offline inside it. The root keys on the derivation path,
+`north capacity dev-shell run --prepare` outside the sandbox, then enters offline inside it. The root keys on the derivation path,
 so an edit to `bin/cargo` gets a new root. A root lives as long as a worktree whose flake produces it exists, not for a
 fixed number of idle days, so the 30-day GC cannot collect an idle checkout's shell.
 
@@ -776,10 +776,10 @@ After D1, D2 and D5 have moved every caller, the lint refuses `nix develop`, `ni
 `harness/scripts`, `bin`, `harness/lib` and `land.check` lines, except D1's module, and refuses `nix shell nixpkgs#`,
 `nix run nixpkgs#` and `nix-shell -p` in a repository whose flake has a dev shell. D3 gains the same deny for Bash.
 Landed as `north land scan nix-entry` (2026-11-05). `bin/land-shell` is the shell face of D1's entry (depbox around
-`north dev-shell run`, with the literal fallback before any north exists), so it is exempt from the entry forms. `land-shell
+`north capacity dev-shell run`, with the literal fallback before any north exists), so it is exempt from the entry forms. `land-shell
 --dev` is refused only in `harness/scripts` and `harness/lib`, where a land check already runs inside the shell: the
 top-level check lines and `bin/head-north`'s bootstrap keep it for its depbox sandbox and its Actions passthrough, which
-`north dev-shell run` lacks.
+`north capacity dev-shell run` lacks.
 
 Done when:
 - Replay nix-gate-127's trigger: the lint refuses f1745de2e's `check-owners.sh:9` and `citation-check.sh:8`.

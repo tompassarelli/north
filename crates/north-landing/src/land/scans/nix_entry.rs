@@ -46,13 +46,13 @@ fn command_text<'a>(path: &str, line: &'a str) -> Option<&'a str> {
 
 fn reason(path: &str, command: &str, dev_shell: bool) -> Option<&'static str> {
     if dev_shell && AD_HOC.is_match(command) {
-        return Some("an ad-hoc nixpkgs toolchain beside the flake's dev shell; add the package to flake.nix's dev shell and run through `north dev-shell run --`");
+        return Some("an ad-hoc nixpkgs toolchain beside the flake's dev shell; add the package to flake.nix's dev shell and run through `north capacity dev-shell run --`");
     }
     if path != SHELL_ENTRY && (NIX_DEVELOP.is_match(command) || NIX_SHELL.is_match(command)) {
-        return Some("a literal Nix dev-shell entry, which needs nix on PATH and nests shells; run the command through `north dev-shell run --`");
+        return Some("a literal Nix dev-shell entry, which needs nix on PATH and nests shells; run the command through `north capacity dev-shell run --`");
     }
     if NESTED_DIRS.iter().any(|dir| path.starts_with(dir)) && LAND_SHELL_DEV.is_match(command) {
-        return Some("`land-shell --dev` inside a script a land check already runs in the dev shell; run the tool directly or through `north dev-shell run --`");
+        return Some("`land-shell --dev` inside a script a land check already runs in the dev shell; run the tool directly or through `north capacity dev-shell run --`");
     }
     None
 }

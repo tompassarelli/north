@@ -205,7 +205,7 @@ owner = "tompassarelli/north#259"
 
 [[experiment]]
 id = "card-nix-nested-shell"
-change = "One dev-shell entry, north dev-shell run (D1), with the N1 Nix card (nix-nested-shell: Nested dev shells and sandboxes), guards nested dev shells"
+change = "One dev-shell entry, north capacity dev-shell run (D1), with the N1 Nix card (nix-nested-shell: Nested dev shells and sandboxes), guards nested dev shells"
 landed = "b92df67c8"
 metric = "incident_rows_per_week"
 class = "nix-nested-shell"

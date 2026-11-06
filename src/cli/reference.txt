@@ -96,7 +96,7 @@ Commands:
   gate [open --session S --question Q --option O... --recommend N [--default N --default-after D] [--issue OWNER/REPO#N [--box TEXT]] | answer ID N [--note TEXT] | list [--json] | digest [--peek]]  Open or answer a decision gate; digest prints the for-Tom gates still open and the defaults applied since the last look
   digest [--since DURATION]  Print what landed, what is in flight, open gates with their recommendation and stalls from the fleet store
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
-  dev-shell run [--dir D] (--prepare | -- COMMAND...)  Run COMMAND inside the flake default dev shell, entering it once offline from its GC root; --prepare realises the root
+  capacity dev-shell run [--dir D] (--prepare | -- COMMAND...)  Run COMMAND inside the flake default dev shell, entering it once offline from its GC root; --prepare realises the root
   capacity admission < FACTS.json               Decide one machine-capacity admission
   capacity laptop-auto [--dry-run]              Stop agent game load while Tom's declared gaming hold is on, reap orphaned scopes
   capacity seat-idle-hint [--seconds N]         Set logind IdleHint from Wayland input idle, which ignores idle inhibitors
@@ -152,7 +152,7 @@ Commands:
   agent-runtime-update [VERSION]                Update the North, Claude and Agy runtimes
   claude-runtime-update [VERSION]               Install a checksum-verified Claude runtime, probe it and select it
   agy-runtime-update [VERSION]                  Install a checksum-verified Agy runtime and select it
-  nexus-run [OPTIONS] -- COMMAND...             Run a bounded CPU job on Nexus and retrieve its outputs
+  capacity nexus-run [OPTIONS] -- COMMAND...    Run a bounded CPU job on Nexus and retrieve its outputs
   warcraft-close [--list]                       Close Tom's Steam launch of Battle.net and Warcraft III completely, or list its processes
   wc3-login-field PRIVATE_RUN a|b|c|d username|password [--owner-authorized]  Type one stored Battle.net field into the verified private login window
   credentials check [--json] | renew [--dry-run] | import-cookies SITE [--from CHROME_PROFILE]  List every credential the fleet uses with its kind (machine or human-session), expiry and renewal path and exit 1 on any human-session, expired or undeclared one; renew runs machine renewals before expiry, batches what needs Tom into one notice 30 days ahead and writes the loop record (daily timer); import-cookies copies a declared site's sign-in from Tom's Chrome profile into the automation-chrome profile on the same machine and refuses an undeclared site
@@ -180,7 +180,7 @@ Commands:
   provider-capacity events|status [--minutes N]  Read provider capacity events
   report                                        Print the fleet report
   resident-cap gate claude|codex [ARG...] | status  Refuse a launch over this host's resident session cap, or print the count and cap
-  run-bounded DURATION -- COMMAND [ARGS...]     Run a command bounded in time and memory
+  capacity run-bounded DURATION -- COMMAND [ARGS...]  Run a command bounded in time and memory
   runtime-floor-gate --repo DIR --base REV --head REV [--north DIR]  Refuse a landing that needs a newer runtime than deployed
   session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND  Link a remote session unit
   session-unit SYSTEMD-RUN-ARGS...              Run systemd-run in the fleet session's scope (systemd-run's own --help passes through)

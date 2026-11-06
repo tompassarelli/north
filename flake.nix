@@ -33,7 +33,7 @@
                     pkgs.ast-grep
                     (pkgs.python3.withPackages (python: [ python.websockets ]))
                   ];
-                  # Cargo hashes workspace members by relative path, so a target outside this checkout is keyed to it lest another checkout's build read as fresh; the checkout's own target stays unkeyed so registry artifacts match its siblings', and `north dev-shell run` and depbox seed that target before the shell opens.
+                  # Cargo hashes workspace members by relative path, so a target outside this checkout is keyed to it lest another checkout's build read as fresh; the checkout's own target stays unkeyed so registry artifacts match its siblings', and `north capacity dev-shell run` and depbox seed that target before the shell opens.
                   shellHook = ''
                     checkout=$PWD
                     while [ ! -e "$checkout/.git" ] && [ "$checkout" != / ]; do checkout=$(dirname "$checkout"); done

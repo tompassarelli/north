@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 
-pub(super) const USAGE: &str = "usage: north nexus-run [--source DIR] [--cwd PATH] [--install PATH]... [--pull PATH]... [--output-dir DIR] [--timeout-seconds N] -- COMMAND...";
+pub(super) const USAGE: &str = "usage: north capacity nexus-run [--source DIR] [--cwd PATH] [--install PATH]... [--pull PATH]... [--output-dir DIR] [--timeout-seconds N] -- COMMAND...";
 
 const STOCK_CACHE: &str = "makgora-render-assets/stock/65794b789a867a5f745f0cfb3e6d089b197a7bf239fdb43cfd75e5e251015705";
 

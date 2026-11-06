@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 const MARK: &str = "NORTH_DEV_SHELL";
 const USAGE: &str = "usage: north capacity dev-shell -- COMMAND...";
 const EXEC_USAGE: &str = "usage: north capacity exec [--dev-shell DIRECTORY] -- COMMAND...";
-const RUN_USAGE: &str = "usage: north dev-shell run [--dir DIRECTORY] (--prepare | -- COMMAND...)";
+const RUN_USAGE: &str = "usage: north capacity dev-shell run [--dir DIRECTORY] (--prepare | -- COMMAND...)";
 const TRACE: &str = "NORTH_DEV_SHELL_TRACE";
 const NOT_FOUND: u8 = 127;
 const NOT_EXECUTABLE: u8 = 126;
@@ -70,7 +70,7 @@ fn inside(identity: &str) -> bool {
     std::env::var(MARK).is_ok_and(|entered| entered == identity)
 }
 
-/// `command` as a lease runs it from the current directory: inside its project's flake dev shell through `north dev-shell run`, unless it has no flake or the command is itself a `nix` invocation.
+/// `command` as a lease runs it from the current directory: inside its project's flake dev shell through `north capacity dev-shell run`, unless it has no flake or the command is itself a `nix` invocation.
 pub fn enter(north: &str, command: &[String]) -> Vec<String> {
     let directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     if runs_nix(command) || flake_root(&directory).is_none() {
@@ -117,7 +117,7 @@ pub fn run(arguments: &[String]) -> u8 {
     u8::from(printed.and_then(|()| out.flush()).is_err())
 }
 
-/// `north capacity exec [--dev-shell DIRECTORY] -- COMMAND...` becomes COMMAND, inside DIRECTORY's dev shell through `north dev-shell run` when one is named, and exits 127 naming the program when it is not found.
+/// `north capacity exec [--dev-shell DIRECTORY] -- COMMAND...` becomes COMMAND, inside DIRECTORY's dev shell through `north capacity dev-shell run` when one is named, and exits 127 naming the program when it is not found.
 pub fn exec(arguments: &[String]) -> u8 {
     if let [flag, directory, rest @ ..] = arguments
         && flag == "--dev-shell"
@@ -141,7 +141,7 @@ fn seed_target(flake: &Path) -> Result<(), String> {
 
 fn trace(line: &str) {
     if std::env::var_os(TRACE).is_some_and(|value| !value.is_empty()) {
-        eprintln!("north dev-shell: {line}");
+        eprintln!("north capacity dev-shell: {line}");
     }
 }
 
@@ -225,7 +225,7 @@ fn sweep(roots: &Path, keep: &str) {
 /// Realises the shell's environment once with the network, under a capacity lease unless this process already holds one, and roots it at `profile`.
 fn prepare(nix: &Path, flake: &Path, profile: &Path, key: &str) -> Result<(), u8> {
     std::fs::create_dir_all(profile.parent().expect("a root directory")).map_err(|error| {
-        eprintln!("north dev-shell: {}: {error}", profile.display());
+        eprintln!("north capacity dev-shell: {}: {error}", profile.display());
         1u8
     })?;
     let realise = [nix.to_string_lossy().into_owned(), "print-dev-env".to_owned(), flake.to_string_lossy().into_owned(), "--no-update-lock-file".to_owned(), "--profile".to_owned(), profile.to_string_lossy().into_owned()];
@@ -241,13 +241,13 @@ fn prepare(nix: &Path, flake: &Path, profile: &Path, key: &str) -> Result<(), u8
     };
     trace(&format!("root {key}"));
     let status = command.stdout(std::process::Stdio::null()).status().map_err(|error| {
-        eprintln!("north dev-shell: cannot realise {}: {error}", flake.display());
+        eprintln!("north capacity dev-shell: cannot realise {}: {error}", flake.display());
         1u8
     })?;
     if status.success() && profile.exists() {
         return Ok(());
     }
-    eprintln!("north dev-shell: realising the dev shell of {} with the network failed ({status}); run `north dev-shell run --prepare` outside any sandbox", flake.display());
+    eprintln!("north capacity dev-shell: realising the dev shell of {} with the network failed ({status}); run `north capacity dev-shell run --prepare` outside any sandbox", flake.display());
     Err(u8::try_from(status.code().unwrap_or(1)).ok().filter(|code| *code != 0).unwrap_or(1))
 }
 
@@ -283,7 +283,7 @@ fn parse(arguments: &[String]) -> Option<Invocation> {
     }
 }
 
-/// `north dev-shell run [--dir DIRECTORY] (--prepare | -- COMMAND...)` runs COMMAND inside the flake's default dev shell, entering it once: when `NORTH_DEV_SHELL` already holds the shell's derivation path the command runs directly, otherwise it enters offline from the shell's GC root, realising that root first with the network when it is missing. `--prepare` only realises the root. A flake without a dev shell runs COMMAND bare after saying so.
+/// `north capacity dev-shell run [--dir DIRECTORY] (--prepare | -- COMMAND...)` runs COMMAND inside the flake's default dev shell, entering it once: when `NORTH_DEV_SHELL` already holds the shell's derivation path the command runs directly, otherwise it enters offline from the shell's GC root, realising that root first with the network when it is missing. `--prepare` only realises the root. A flake without a dev shell runs COMMAND bare after saying so.
 pub fn command(arguments: &[String]) -> u8 {
     let Some(invocation) = parse(arguments) else {
         eprintln!("{RUN_USAGE}");
@@ -291,14 +291,14 @@ pub fn command(arguments: &[String]) -> u8 {
     };
     let what = invocation.command.first().map_or_else(|| "nothing".to_owned(), Clone::clone);
     let bare = |reason: String| {
-        eprintln!("north dev-shell: {reason}, so {what} runs outside a dev shell");
-        if invocation.prepare_only { 0 } else { run_directly("north dev-shell", &invocation.command) }
+        eprintln!("north capacity dev-shell: {reason}, so {what} runs outside a dev shell");
+        if invocation.prepare_only { 0 } else { run_directly("north capacity dev-shell", &invocation.command) }
     };
     let Some(flake) = flake_root(&invocation.directory) else {
         return bare(format!("{} is in no flake", invocation.directory.display()));
     };
     let Some(nix) = nix() else {
-        eprintln!("north dev-shell: nix: command not found");
+        eprintln!("north capacity dev-shell: nix: command not found");
         return NOT_FOUND;
     };
     let identity = match derivation(&nix, &flake) {
@@ -307,7 +307,7 @@ pub fn command(arguments: &[String]) -> u8 {
     };
     if !invocation.prepare_only && inside(&identity) {
         trace(&format!("direct {identity}"));
-        return run_directly("north dev-shell", &invocation.command);
+        return run_directly("north capacity dev-shell", &invocation.command);
     }
     let (roots, key) = (roots(), root_key(&identity));
     let profile = roots.join(&key).join("profile");
@@ -322,12 +322,12 @@ pub fn command(arguments: &[String]) -> u8 {
         return 0;
     }
     if let Err(reason) = seed_target(&flake) {
-        eprintln!("north dev-shell: {reason}");
+        eprintln!("north capacity dev-shell: {reason}");
         return SEED_FAILED;
     }
     trace(&format!("enter {identity}"));
     let north = north_base::platform::north_binary::north_binary().to_string_lossy().into_owned();
     let mut words = vec!["develop".to_owned(), profile.to_string_lossy().into_owned(), "--offline".to_owned(), "-c".to_owned(), "env".to_owned(), format!("{MARK}={identity}"), north, "capacity".to_owned(), "exec".to_owned(), "--".to_owned()];
     words.extend(invocation.command);
-    replace_with("north dev-shell", &nix, "nix", &words, None)
+    replace_with("north capacity dev-shell", &nix, "nix", &words, None)
 }

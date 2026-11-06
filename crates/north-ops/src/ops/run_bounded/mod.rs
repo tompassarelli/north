@@ -1,4 +1,4 @@
-//! `north run-bounded DURATION -- COMMAND...`: runs an agent-owned background command under one
+//! `north capacity run-bounded DURATION -- COMMAND...`: runs an agent-owned background command under one
 //! aggregate memory boundary. Stage one re-enters north inside a guard scope, bound to the fleet
 //! session scope, so the wrapper's death stops the service; stage two runs the command as a
 //! transient service in the shared slice under a runtime limit. The service has no user
@@ -12,7 +12,7 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 
-const USAGE: &str = "usage: north run-bounded <duration> -- <command> [args...]\nduration must be 1s..24h (suffix: s, m, h, or d)";
+const USAGE: &str = "usage: north capacity run-bounded <duration> -- <command> [args...]\nduration must be 1s..24h (suffix: s, m, h, or d)";
 const OWNER: &str = "/run/current-system/sw/bin";
 const SLICE: &str = "agent-bounded.slice";
 const MEMORY_HIGH: &str = "MemoryHigh=44G";
@@ -66,7 +66,7 @@ fn guard_arguments(request: &Request, unit: &str, scope: Option<&str>, north: &s
     }
     words.push(format!("--unit={unit}-guard"));
     words.push(format!("--slice={SLICE}"));
-    words.extend([north.to_owned(), "run-bounded".to_owned(), request.duration.clone(), "--".to_owned()]);
+    words.extend([north.to_owned(), "capacity".to_owned(), "run-bounded".to_owned(), request.duration.clone(), "--".to_owned()]);
     words.extend(request.command.iter().cloned());
     words
 }

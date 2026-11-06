@@ -6,7 +6,7 @@ fn remote_serve_refuses_the_planted_commands() {
         "sh -c id",
         "threads list; id",
         "rsync --server -e.LsfxC . x",
-        "north nexus-run -- id",
+        "north capacity nexus-run -- id",
         "internal-sftp",
         "threads record-priors",
         "env LD_PRELOAD=/x threads list",

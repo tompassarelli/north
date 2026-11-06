@@ -19,7 +19,7 @@ fn lexer_refuses_shell_metacharacters_outside_quotes() {
 #[test]
 fn verbs_off_the_allowlist_are_refused() {
     for command in [
-        "sh -c id", "rsync --server -e.LsfxC . x", "north nexus-run -- id", "internal-sftp", "threads record-priors",
+        "sh -c id", "rsync --server -e.LsfxC . x", "north capacity nexus-run -- id", "internal-sftp", "threads record-priors",
         "threads agent-event x", "threads label-runs", "threads calibrate --write", "threads annotate-runs",
         "threads routing-compare", "threads snapshot-pull", "threads", "north laptop open", "north laptop close",
         "north laptop drain", "north laptop toggle", "north laptop tick", "north runtime update", "north runtime deploy",
