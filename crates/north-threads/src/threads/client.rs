@@ -232,7 +232,7 @@ impl Client {
         let started = (self.clock)();
         let log = ledger.with_file_name("ingest.log");
         let record = |acquired: Option<Timestamp>, exit: i32| {
-            let _ = ingest_log::append(&log, &ingest_log::Ingest { started, acquired, ended: (self.clock)(), exit });
+            let _ = ingest_log::append(&log, &ingest_log::Ingest { started, acquired, ended: (self.clock)(), exit, rows: ingest_log::rows(&data) });
         };
         let Some(_lock) = ingest_lock::acquire(&ledger.with_file_name("ingest.lock"), self.ingest_wait)? else {
             writeln!(err, "NorthThreads: another ingest holds the ledger; retry")?;
