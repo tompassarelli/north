@@ -41,6 +41,8 @@ struct Entry {
     lanes: Vec<LandedLane>,
 }
 
+type Journaled = (f64, Entry);
+
 struct Followed {
     head: String,
     at: f64,
@@ -148,23 +150,53 @@ impl Watch {
         let Ok(entries) = fs::read_dir(journal(lander)) else { return watch };
         let mut paths: Vec<(f64, PathBuf)> = entries.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).map(|path| (journaled_at(&path), path)).collect();
         paths.sort_by(|left, right| left.0.total_cmp(&right.0));
-        let resumed = epoch();
+        let mut journaled: Vec<Journaled> = Vec::new();
         for (at, path) in paths {
             match read_entry(&path) {
-                Ok(Entry { base, head, lanes }) => {
-                    println!("north land: rerunning the after-landing run of {head}, which a stopped lander left without a verdict");
-                    record(lander, &[Span::new(&head, "after-landing run lost to a lander restart", Category::Lander, at, resumed).with(PHASE, AFTER)]);
-                    if !watch.pending.covers(&head) {
-                        watch.pending.add(Batch::landed(base, head, lanes, resumed));
-                    }
-                }
+                Ok(entry) => journaled.push((at, entry)),
                 Err(error) => {
                     println!("north land: dropping the unreadable after-landing journal entry {}: {error}", path.display());
                     let _ = fs::remove_file(&path);
                 }
             }
         }
+        for (_, runner) in post_land::adoptable(&lander.queue) {
+            let (mut covered, rest): (Vec<Journaled>, Vec<Journaled>) = journaled.into_iter().partition(|(_, entry)| runner.heads.contains(&entry.head));
+            journaled = rest;
+            if covered.len() == runner.heads.len() {
+                covered.sort_by_key(|(_, entry)| runner.heads.iter().position(|head| *head == entry.head));
+                watch.adopt(lander, runner, covered);
+            } else {
+                println!("north land: stopping the after-landing runner of {}, whose landings are no longer all journaled", runner.head);
+                post_land::abandon(&runner);
+                journaled.extend(covered);
+                journaled.sort_by(|left, right| left.0.total_cmp(&right.0));
+            }
+        }
+        let resumed = epoch();
+        for (at, Entry { base, head, lanes }) in journaled {
+            println!("north land: rerunning the after-landing run of {head}, which a stopped lander left without a verdict");
+            record(lander, &[Span::new(&head, "after-landing run lost to a lander restart", Category::Lander, at, resumed).with(PHASE, AFTER)]);
+            if !watch.pending.covers(&head) {
+                watch.pending.add(Batch::landed(base, head, lanes, resumed));
+            }
+        }
         watch
+    }
+
+    fn adopt(&mut self, lander: &Lander, runner: post_land::Record, covered: Vec<Journaled>) {
+        let mut batch = Batch { base: runner.base.clone(), head: runner.head.clone(), lanes: Vec::new(), heads: Vec::new(), started: Some(runner.started), retry_at: 0.0, misses: 0 };
+        for (at, entry) in covered {
+            batch.lanes.extend(entry.lanes);
+            batch.heads.push(Followed { head: entry.head, at });
+        }
+        if let Some(host) = &runner.host {
+            self.hosts.hold(host);
+        }
+        let host = runner.host.clone();
+        let cancel = Arc::default();
+        let run = post_land::adopt(lander, landed(lander, &batch), runner, Arc::clone(&cancel));
+        self.running.push(Running { batch, run, host, cancel });
     }
 
     pub fn journaled(&self) -> usize {
@@ -218,12 +250,9 @@ impl Watch {
         }
         let waits: Vec<Span> = batch.heads.iter().filter(|followed| started - followed.at >= 1.0).map(|followed| Span::new(&followed.head, "waiting for the after-landing run in flight", Category::Queue, followed.at, started).with(PHASE, AFTER)).collect();
         record(lander, &waits);
-        let heads = batch.heads.iter().map(|followed| followed.head.clone()).collect();
-        let names = batch.lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
-        let tips = batch.lanes.iter().map(|lane| lane.tip.clone()).collect();
         let host = self.hosts.claim(&lander.repo, &batch.head);
         let cancel = Arc::default();
-        let run = post_land::start(lander, post_land::Landed::on(lander, &batch.base, &batch.head, heads, names, tips), host.clone(), Arc::clone(&cancel));
+        let run = post_land::start(lander, landed(lander, &batch), host.clone(), Arc::clone(&cancel));
         self.running.push(Running { batch, run, host, cancel });
         true
     }
@@ -303,6 +332,13 @@ impl Watch {
         }
         retire(lander, &batch);
     }
+}
+
+fn landed(lander: &Lander, batch: &Batch) -> post_land::Landed {
+    let heads = batch.heads.iter().map(|followed| followed.head.clone()).collect();
+    let names = batch.lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
+    let tips = batch.lanes.iter().map(|lane| lane.tip.clone()).collect();
+    post_land::Landed::on(lander, &batch.base, &batch.head, heads, names, tips)
 }
 
 fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {

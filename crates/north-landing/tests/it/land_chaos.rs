@@ -14,7 +14,7 @@ use north_landing::land::{after, checks};
 
 const CHILD: &str = "NORTH_LAND_CHAOS_HOME";
 const LANDER_ROLE: &str = "NORTH_LAND_CHAOS_LANDER";
-const STOPPED_AFTER_RUN: &str = "land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_reruns_it_and_reverts_the_red_lane";
+const STOPPED_AFTER_RUN: &str = "land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane";
 const ROUNDS: usize = 200;
 const SCENARIO_DEADLINE: Duration = Duration::from_secs(180);
 const LANDER_LIFETIME: Duration = Duration::from_secs(120);
@@ -323,7 +323,8 @@ fn stopped_mid_after_run(world: &World) {
     let c = world.enqueue(&lander, &world.lane("c"));
     fs::write(world.root.join("stall"), "").unwrap();
     let mut first = Command::new(std::env::current_exe().unwrap()).args([STOPPED_AFTER_RUN, "--exact", "--nocapture", "--test-threads=1"]).env(LANDER_ROLE, "1").stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().unwrap();
-    wait_for("the first lander to land the batch and start its after run", || world.root.join("stalled").exists() && queue::pending(&lander.queue).unwrap().is_empty());
+    let recorded = || fs::read_dir(lander.queue.join("logs")).is_ok_and(|mut logs| logs.any(|entry| entry.is_ok_and(|entry| entry.path().extension().is_some_and(|extension| extension == "runner"))));
+    wait_for("the first lander to land the batch and record its after runner", || world.root.join("stalled").exists() && queue::pending(&lander.queue).unwrap().is_empty() && recorded());
     let group = rustix::process::Pid::from_raw(first.id().cast_signed()).unwrap();
     rustix::process::kill_process_group(group, rustix::process::Signal::Term).unwrap();
     wait_for("the first lander to exit on SIGTERM", || first.try_wait().unwrap().is_some());
@@ -336,17 +337,16 @@ fn stopped_mid_after_run(world: &World) {
     let restarted = world.lander();
     let mut watch = Watch::resume(&restarted);
     assert_eq!(watch.journaled(), 1);
-    wait_for("the restarted lander to settle the rerun and land the revert", || {
+    wait_for("the restarted lander to settle the adopted run and land the revert", || {
         let _ = restarted.round(&mut watch);
         watch.in_flight() == 0 && queue::pending(&restarted.queue).unwrap().is_empty() && world.landed_subjects().iter().any(|subject| subject.starts_with("Revert "))
     });
     assert_eq!(journaled(&restarted), 0);
-    assert_eq!(verdicts(&landed_head), ["red-main"], "the rerun after run of {landed_head} recorded no single red verdict");
+    assert_eq!(verdicts(&landed_head), ["red-main"], "the adopted after run of {landed_head} recorded no single red verdict");
     let runs = fs::read_to_string(world.root.join("after-runs")).unwrap();
-    assert!(runs.lines().any(|head| head == landed_head), "the restarted lander never reran the after run of {landed_head}: {runs}");
-    let spans: Vec<serde_json::Value> = fs::read_to_string(restarted.queue.join("logs").join("spans.jsonl")).unwrap().lines().filter_map(|line| serde_json::from_str(line).ok()).filter(|span: &serde_json::Value| span["trace"] == landed_head.as_str()).collect();
-    let lost = spans.iter().find(|span| span["name"] == "after-landing run lost to a lander restart").unwrap_or_else(|| panic!("the restart left no span naming the after run it lost: {spans:?}"));
-    assert!(spans.iter().filter(|span| span["name"] == "waiting for the after-landing run in flight").all(|wait| wait["start"].as_f64() >= lost["end"].as_f64()), "the run the stopped lander lost is counted as waiting for a run in flight: {spans:?}");
+    assert_eq!(runs.lines().filter(|head| *head == landed_head).count(), 1, "the after run of {landed_head} was rerun from scratch instead of adopted: {runs}");
+    let spans = fs::read_to_string(restarted.queue.join("logs").join("spans.jsonl")).unwrap_or_default();
+    assert!(!spans.contains("after-landing run lost to a lander restart"), "the restart lost the after run its live runner was still checking: {spans}");
     let subjects = world.landed_subjects();
     assert_eq!(subjects[0], format!("Revert {}", bad.subject), "{subjects:?}");
     assert_eq!(subjects.iter().filter(|subject| subject.starts_with("Revert ")).count(), 1, "{subjects:?}");
@@ -365,7 +365,7 @@ fn chaos_kill_mid_check_lands_each_lane_once_after_restart() {
 }
 
 #[test]
-fn chaos_lander_stopped_by_sigterm_mid_after_run_reruns_it_and_reverts_the_red_lane() {
+fn chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane() {
     isolated(STOPPED_AFTER_RUN, stopped_mid_after_run);
 }
 

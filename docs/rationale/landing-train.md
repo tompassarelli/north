@@ -1239,6 +1239,19 @@ lander did not see.
   (north#639). Before serving, it reaps the remote offload jobs the previous lander left on the
   build hosts (`north capacity offload reap --owner`), so a rerun never holds a slot beside an
   orphaned run of the same commit (north#649).
+- A lander restart no longer loses the after-landing run in flight. On 2026-11-06 twelve runtime
+  restarts between 8:00 PM and 12:25 AM each killed the run in flight and the restarted lander
+  reran it from scratch, which made the 717 s and 413 s waits. Where the unit sets
+  `NORTH_LAND_RUNNER_SLICE` (agent.slice on whiterabbit), the runner starts in its own transient
+  systemd scope in that slice with `RuntimeMaxSec` at its deadline, so it outlives the lander's
+  cgroup. A shell wrapper writes its exit status to `<queue>/logs/post-land-<head>.status`, and the
+  lander records its process group, start, deadline, covered heads and host in `.runner` beside it.
+  A restarted lander adopts each runner still alive or ended with a status: it waits for the status
+  with the original deadline, cancels by process group, and reruns only batches without one. The
+  runner's offload jobs carry the owner `<owner>-after`, which the restart reaps only when no runner
+  is adoptable. Culprit-search prefixes, sheriff probes and candidate checks still die with the
+  lander and rerun: a candidate's lanes are still queued, so nothing lands unchecked, and an adopted
+  red run starts its culprit search again from the adopted verdict (north#696).
 - An after-landing run that only waited out busy build-host slots (exit 96) reached no verdict: it
   is recorded as transient and blames no lane, and a real failure in another check still wins over
   it (north#649).

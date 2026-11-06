@@ -167,7 +167,7 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     loop {
         if retire.load(Ordering::Relaxed) {
             if watch.journaled() > 0 {
-                println!("north land: the live runtime changed; exiting now, and the restarted lander reruns the {} journaled after-landing batch(es) as one run where they follow each other on main", watch.journaled());
+                println!("north land: the live runtime changed; exiting now; the restarted lander adopts each after-landing runner still alive and reruns the rest of the {} journaled batch(es) as one run where they follow each other on main", watch.journaled());
             }
             return 0;
         }
@@ -302,9 +302,15 @@ fn targets(options: &Options) -> (Vec<PathBuf>, Vec<String>) {
 }
 
 fn reap_offloads(lander: &Lander) {
-    let status = std::process::Command::new(after::follow::program()).args(["capacity", "offload", "reap", "--owner", &lander.offload_owner]).stdin(std::process::Stdio::null()).status();
-    if !status.is_ok_and(|status| status.success()) {
-        println!("north land: could not reap the remote offload runs of a previous lander of {}", lander.repo.display());
+    let mut owners = vec![lander.offload_owner.clone()];
+    if post_land::adoptable(&lander.queue).is_empty() {
+        owners.push(post_land::after_owner(&lander.offload_owner));
+    }
+    for owner in owners {
+        let status = std::process::Command::new(after::follow::program()).args(["capacity", "offload", "reap", "--owner", &owner]).stdin(std::process::Stdio::null()).status();
+        if !status.is_ok_and(|status| status.success()) {
+            println!("north land: could not reap the remote offload runs {owner} of a previous lander of {} left", lander.repo.display());
+        }
     }
 }
 
