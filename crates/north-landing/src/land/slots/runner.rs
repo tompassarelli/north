@@ -646,7 +646,14 @@ impl Shared {
 
     async fn judge_failure(&self, command: &str, leased: bool, timeout: u64, ran: &Ran) -> i32 {
         let (status, log) = (ran.status, ran.log.display());
-        if status != INFRASTRUCTURE && let Some(first) = self.base_failure(command, leased, timeout).await {
+        if status == INFRASTRUCTURE {
+            let detail = format!("land check {command} reached no verdict (exit {INFRASTRUCTURE}: its host or connection failed before the check reported), which is not this lane's failure");
+            warn(&format!("safe-push: {detail}; log: {log}; NOT pushed."));
+            self.outcome.record(&["skip", &detail]);
+            self.outcome.record(&["event", "land check", "no verdict", &format!("{command}; log: {log}")]);
+            return INFRASTRUCTURE;
+        }
+        if let Some(first) = self.base_failure(command, leased, timeout).await {
             let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
             if self.config.is_inferred(command) {
                 let added = self.added_findings(command, &ran.log);

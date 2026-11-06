@@ -7,7 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(super) const TRANSPORT_FAILED: u8 = 255;
 const WRONG_TREE: u8 = 98;
-const BESIDE_MISSING: u8 = 75;
+const NO_VERDICT: u8 = 75;
+const BESIDE_MISSING: u8 = NO_VERDICT;
 const SLOTS_BUSY: u8 = 96;
 const WAITED: &str = "offload: waited ";
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -116,6 +117,11 @@ fn fail(why: &str) -> u8 {
     TRANSPORT_FAILED
 }
 
+fn unreached(why: &str) -> u8 {
+    eprintln!("north capacity offload: {why}");
+    NO_VERDICT
+}
+
 fn job_ref(head: &CommitId) -> String {
     static JOBS: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
@@ -184,12 +190,12 @@ fn carried(land: &Land, value: impl Fn(&str) -> Option<String>) -> String {
 pub(super) fn run(land: &Land) -> u8 {
     let (relative, name) = match checkout(land.checkout) {
         Ok(found) => found,
-        Err(why) => return fail(&why),
+        Err(why) => return unreached(&why),
     };
     let reference = job_ref(&land.head);
     let bundle = match bundle(land, &reference) {
         Ok(file) => file,
-        Err(why) => return fail(&why),
+        Err(why) => return unreached(&why),
     };
     let name = land.class.slot_name(&name);
     let script = remote_script(&name, land.class);
@@ -197,7 +203,7 @@ pub(super) fn run(land: &Land) -> u8 {
     if let Some((sha, directory)) = &own
         && let Err(why) = ensure_shipped(land.ssh, sha, || crate::runtime::staged_on(land.ssh, sha), || crate::runtime::stage_on(land.ssh, sha, directory))
     {
-        return fail(&why);
+        return unreached(&why);
     }
     let runtime = own.map_or_else(String::new, |(sha, _)| sha);
     let base = land.base.as_ref().map_or("", CommitId::as_str);
@@ -217,14 +223,14 @@ pub(super) fn run(land: &Land) -> u8 {
         .spawn();
     let mut child = match spawned {
         Ok(child) => child,
-        Err(error) => return fail(&format!("ssh: {error}")),
+        Err(error) => return unreached(&format!("ssh: {error}")),
     };
     let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker));
     let exited = match child.wait() {
         Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()),
-        Err(error) => return fail(&format!("ssh: {error}")),
+        Err(error) => return unreached(&format!("ssh: {error}")),
     };
-    verdict(exited, ran).unwrap_or_else(|why| fail(&why))
+    verdict(exited, ran).unwrap_or_else(|why| unreached(&why))
 }
 
 /// `program` set to die with this process when `setpriv` is on PATH: an ssh client orphaned by a killed caller stops relaying the remote output, so the remote job blocks writing it and holds its slot until its deadline.
@@ -263,13 +269,12 @@ fn relay(remote: impl std::io::BufRead, out: &mut impl std::io::Write, marker: &
     ran
 }
 
-/// The run's exit code: the status the remote script reported for the command it ran, or ssh's own when that is a failure; a run whose remote never reported running its command fails, even when ssh exited 0.
+/// The run's exit code: the status the remote script reported for the command it ran, else the script's own refusal before running it; a run whose remote never reported its command's exit (a dropped connection, ssh exit 255, an exit before the report) reached no verdict, never the command's failure.
 fn verdict(exited: Option<u8>, ran: Option<u8>) -> Result<u8, String> {
     match (exited, ran) {
-        (Some(0), Some(code)) => Ok(code),
-        (Some(code), _) if code != 0 => Ok(code),
-        (None, Some(code)) if code != 0 => Ok(code),
-        _ => Err("the remote host never reported finishing the command, so the run fails".to_owned()),
+        (_, Some(code)) => Ok(code),
+        (Some(code @ (WRONG_TREE | BESIDE_MISSING | SLOTS_BUSY)), None) => Ok(code),
+        (exited, None) => Err(format!("the connection ended ({}) before the remote host reported the command's exit, so the run reached no verdict", exited.map_or_else(|| "ssh was killed by a signal".to_owned(), |code| format!("ssh exit {code}")))),
     }
 }
 
