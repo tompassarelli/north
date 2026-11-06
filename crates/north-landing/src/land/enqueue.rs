@@ -15,9 +15,10 @@ use super::repositories;
 use super::setting;
 use super::scans::git::merge_base;
 use super::scans::outgoing;
-use super::scans::test_admission;
+use super::lane_gates::{self, Judging, Lane};
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
+use crate::landing::stale_revert;
 use crate::land::scans::outgoing::denylist::Denylist;
 use crate::watch::facts::slug_of;
 
@@ -187,12 +188,21 @@ fn refuse_static_gates(root: &Path, destination: &str, head: &str) -> Result<(),
     Ok(())
 }
 
-fn refuse_test_admission(root: &Path, base: &str, head: &str, state_home: &Path) -> Result<(), String> {
-    let mut text = Vec::new();
-    if test_admission::scan(root, &format!("{base}..{head}"), state_home, &mut text) == 0 {
-        return Ok(());
+fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home: &Path) -> Result<(), String> {
+    let fork = merge_base(root, base, head);
+    let lane = Lane { worktree: root, base: &fork, head, state_home };
+    let Some((failed, text)) = lane_gates::failed(&lane, Judging::Recorded) else { return Ok(()) };
+    Err(format!("{} refused it here, as the lander would after its queue wait:\n{}", failed.join(", "), String::from_utf8_lossy(&text).trim_end()))
+}
+
+fn refuse_stale_revert(root: &Path, base: &str, head: &str) -> Result<(), String> {
+    let Ok(merged) = git(root, &["merge-tree", "--write-tree", base, head]) else { return Ok(()) };
+    let Some(tree) = merged.lines().next() else { return Ok(()) };
+    let Ok(candidate) = git(root, &["commit-tree", tree, "-p", base, "-p", head, "-m", "the lane merged onto main"]) else { return Ok(()) };
+    match stale_revert::reverted(root, base, &candidate, head) {
+        Ok(found) if !found.is_empty() => Err(format!("the revert guard refused it here, as the lander would after its queue wait:\n{}", stale_revert::refusal(&found))),
+        _ => Ok(()),
     }
-    Err(format!("test admission refuses it here, as the lander would after its queue wait:\n{}", String::from_utf8_lossy(&text).trim_end()))
 }
 
 fn published(root: &Path, branch: &str, destination: &str) -> Option<String> {
@@ -234,7 +244,8 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         Shape::SeveralCommits { reason } => (Squash::Kept(format!("--several-commits: {reason}")), Some(reason.to_owned())),
     };
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-    refuse_test_admission(&root, &base, &head, environment.state_home)?;
+    refuse_lane_gates(&root, &base, &head, environment.state_home)?;
+    refuse_stale_revert(&root, &base, &head)?;
     let red_fix = red_fix(&root, &base, &destination)?;
     let urgent = if red_fix.is_some() { None } else { pays_debt(&root, &base, &head) };
     let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();

@@ -117,7 +117,8 @@ fn debt_gate(lander: &mut Lander) -> Result<String, String> {
     write(&checkout(lander).join("goals.toml"), goals)?;
     let base = commit(lander, "landing-projected.txt", "landing-projected reads 283 s, over its 60 s ceiling")?;
     let head = commit(lander, "crates/north-runtime/notes.txt", "a lane that touches only north-runtime (north#634)")?;
-    let lane = lane_gates::Lane { worktree: &checkout(lander), base: &base, head: &head };
+    let state_home = lander.home().join(".local/state");
+    let lane = lane_gates::Lane { worktree: &checkout(lander), base: &base, head: &head, state_home: &state_home };
     match lane_gates::judge(&lane, Judging::Recorded, &lander.root.join("logs"), "drill-lane")? {
         None => Ok("the lane gates admitted a lane that pays no debt while landing-projected reads over its ceiling; debt orders lanes, it refuses none".to_owned()),
         Some(refused) => Err(format!("the lane gates refused a lane that pays no debt: {}", refused.verdict)),

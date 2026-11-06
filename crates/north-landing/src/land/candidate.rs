@@ -208,7 +208,8 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     match stale_revert::reverted(worktree, &picked_onto, "HEAD", &ticket.head) {
         Ok(found) if found.is_empty() => {
             let head = git(worktree, &["rev-parse", "HEAD"])?;
-            let lane = Lane { worktree, base: &picked_onto, head: &head };
+            let state_home = crate::watch::state_home();
+            let lane = Lane { worktree, base: &picked_onto, head: &head, state_home: &state_home };
             let gate = lane_gates::judge(&lane, judging, logs, name)?;
             case.stale_reverts = Some(Vec::new());
             case.lane_gate = gate.as_ref().map(|refused| refused.verdict.clone());
