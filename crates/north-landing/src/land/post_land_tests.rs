@@ -125,31 +125,64 @@ fn a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_rec
     assert!(counter.exists());
 }
 
-// KEEP(bug): on 2026-11-06 main stayed red for over an hour with the proxy learning it only from Tom or its own watch (north#634)
+const RED: &str = "safe-push: the Rust checks cover -p north -p north-base\n        FAIL [   0.006s] ( 97/668) north-base error::tests::drill\n    test error::tests::drill ... FAILED\n";
+const NARROW: &str = "safe-push: the Rust checks cover -p north -p north-safe-push\n        PASS [   0.633s] ( 21/140) north::it land_checks::other\n";
+const FULL: &str = "safe-push: the Rust checks cover -p north -p north-base\n        PASS [   0.006s] ( 97/668) north-base error::tests::drill\n";
+
+// KEEP(bug): on 2026-11-06 main stayed red for over an hour with the proxy learning it only from Tom or its own watch (north#634), then a docs-only landing whose after-landing run skipped the failing drill test told the proxy main was green again while the test still failed on main (north#679)
 #[test]
-fn the_first_red_main_verdict_of_an_episode_messages_the_proxy_with_the_suspect_the_failing_tests_and_the_log_and_green_messages_once() {
+fn a_red_main_episode_messages_the_proxy_once_with_the_suspect_and_ends_only_on_a_green_run_that_reran_its_failing_tests_or_on_the_sheriffs_revert() {
     a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_records_a_red_main();
     let scratch = tempfile::tempdir().unwrap();
+    let repo = scratch.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    committed_repo(&repo);
+    let commit = |message: &str| {
+        let git = |arguments: &[&str]| std::process::Command::new("git").arg("-C").arg(&repo).args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
+        assert!(git(&["commit", "-q", "--allow-empty", "-m", message]).status.success());
+        String::from_utf8_lossy(&git(&["rev-parse", "HEAD"]).stdout).trim().to_owned()
+    };
     let mut episode = run();
     episode.log = scratch.path().join("post-land.log");
+    episode.outcome = scratch.path().join("post-land.outcome");
     episode.ledger = scratch.path().join("post-land.tsv");
-    std::fs::write(&episode.log, "---- land::probe::tests::capacity_agent_compile stdout ----\nthread panicked\n").unwrap();
-    let landed = landed(&["abc123"]);
     let sent = std::cell::RefCell::new(Vec::new());
     let alarm = |session: &str, message: &str| {
         sent.borrow_mut().push((session.to_owned(), message.to_owned()));
         true
     };
-    announce(&landed, &episode, &Verdict::RedMain("exit 1".to_owned()), alarm);
-    announce(&landed, &episode, &Verdict::RedMain("exit 1".to_owned()), alarm);
+    let at = |head: &str, log: &str, verdict: Verdict| {
+        let mut landed = landed(&[head]);
+        landed.repo.clone_from(&repo);
+        std::fs::write(&episode.log, log).unwrap();
+        announce(&landed, &episode, &verdict, alarm);
+    };
+    let marker = scratch.path().join("post-land-red-owner_repo");
+    let red = || Verdict::RedMain("exit 100".to_owned());
+    let green_again = |at: usize| sent.borrow()[at].1.contains("main is green again") && !marker.exists();
+
+    let culprit = commit("drill");
+    std::fs::write(&episode.outcome, "failed-step\tcargo nextest run\t/x.log\n").unwrap();
+    at(&culprit, RED, red());
+    at(&commit("also red"), RED, red());
     assert_eq!(sent.borrow().len(), 1, "a second red verdict of the episode is silent: {:?}", sent.borrow());
     let (session, message) = sent.borrow()[0].clone();
     assert_eq!(session, "proxy");
-    assert!(message.contains("land::probe::tests::capacity_agent_compile") && message.contains("suspect commit abc123") && message.contains(&episode.log.display().to_string()) && message.contains("lane-a, lane-b"), "{message}");
-    announce(&landed, &episode, &Verdict::Green, alarm);
-    announce(&landed, &episode, &Verdict::Green, alarm);
-    assert_eq!(sent.borrow().len(), 2, "green after the episode messages once: {:?}", sent.borrow());
-    assert!(sent.borrow()[1].1.contains("main is green again"), "{:?}", sent.borrow());
-    announce(&landed, &episode, &Verdict::RedMain("exit 1".to_owned()), alarm);
-    assert_eq!(sent.borrow().len(), 3, "a new episode messages again");
+    assert!(message.contains("error::tests::drill") && message.contains(&format!("suspect commit {culprit}")) && message.contains(&episode.log.display().to_string()) && message.contains("lane-a, lane-b"), "{message}");
+    at(&commit("docs"), NARROW, Verdict::Green);
+    assert_eq!(sent.borrow().len(), 1, "a green run that skipped the failing test sends no green message: {:?}", sent.borrow());
+    assert!(marker.exists(), "a narrower green keeps the red-main marker");
+    at(&commit("fix"), FULL, Verdict::Green);
+    at(&commit("more docs"), NARROW, Verdict::Green);
+    assert_eq!(sent.borrow().len(), 2, "a green run over the failing test sends one green message: {:?}", sent.borrow());
+    assert!(green_again(1), "{:?}", sent.borrow());
+
+    let culprit = commit("drill again");
+    at(&culprit, RED, red());
+    at(&commit("docs"), NARROW, Verdict::Green);
+    assert_eq!(sent.borrow().len(), 3, "a new episode messages again: {:?}", sent.borrow());
+    at(&commit(&format!("Revert drill again\n\nSheriff-Reverts: {culprit}")), NARROW, Verdict::Green);
+    at(&commit("docs"), NARROW, Verdict::Green);
+    assert_eq!(sent.borrow().len(), 4, "the sheriff's revert landing green sends exactly one green message: {:?}", sent.borrow());
+    assert!(green_again(3), "{:?}", sent.borrow());
 }

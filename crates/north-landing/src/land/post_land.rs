@@ -10,6 +10,7 @@ use crate::landing::red_check::{self, Failure};
 use crate::platform::push_ledger;
 use super::after::{deadline, follow, send};
 use super::{blame, culprit};
+use super::red_episode::Episode;
 use super::candidate::{change_worktrees_alone, git};
 use super::checks::Verdict;
 use super::lander::{Lander, state_home};
@@ -235,15 +236,20 @@ fn green_message(landed: &Landed) -> String {
 
 fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: impl Fn(&str, &str) -> bool) {
     let marker = episode_marker(run, landed);
+    let episode = Episode::read(&marker);
+    let log = fs::read_to_string(&run.log).unwrap_or_default();
     match verdict {
-        Verdict::RedMain(detail) if !marker.exists() => {
+        Verdict::RedMain(detail) if episode.is_none() => {
             if alarm(ALARMED, &red_message(landed, run, detail)) {
-                let _ = fs::write(&marker, &landed.head);
+                let _ = Episode::opened(&landed.head, &log, failing(&run.log, &run.outcome)).write(&marker);
             } else {
                 eprintln!("north land: could not alarm {ALARMED} about red main {}", landed.head);
             }
         }
-        Verdict::Green if marker.exists() => {
+        Verdict::Green if episode.as_ref().is_some_and(|episode| !episode.ended_by(&log, &landed.repo, &landed.head)) => {
+            println!("north land: the green after-landing run of {} did not rerun the checks that turned main red, so main stays red", landed.head);
+        }
+        Verdict::Green if episode.is_some() => {
             if alarm(ALARMED, &green_message(landed)) {
                 let _ = fs::remove_file(&marker);
             } else {

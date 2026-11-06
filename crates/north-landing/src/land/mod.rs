@@ -28,6 +28,7 @@ pub mod post_land;
 pub mod records;
 pub mod reuse;
 pub mod red;
+mod red_episode;
 pub mod refusal;
 pub mod replay;
 pub mod scans;
