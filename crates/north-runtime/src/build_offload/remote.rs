@@ -145,7 +145,7 @@ pub(super) fn hand_over(mut peer: UnixStream, lane: &Lane, job: &Job, sink: Opti
     let gone = |error: std::io::Error| Some(Declined::Failed(format!("the taking host left: {error}")));
     peer.set_read_timeout(Some(OFFER_REPLY_LIMIT)).map_err(gone)?;
     let sent = peer.write_all(offer(lane, job).to_line().as_bytes()).and_then(|()| peer.write_all(&lane.bundle)).and_then(|()| peer.write_all(&lane.patch)).and_then(|()| peer.flush());
-    sent.map_err(gone)?;
+    let mut write_failure = sent.err();
     let mut output: Box<dyn Write> = sink.map_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>, |file| Box::new(file));
     let mut running = false;
     loop {
@@ -164,6 +164,7 @@ pub(super) fn hand_over(mut peer: UnixStream, lane: &Lane, job: &Job, sink: Opti
             Ok(Some(Frame::Exit(code))) => return Ok(code),
             Ok(Some(Frame::NotSynced(why))) => return Err(Some(Declined::Failed(why))),
             Ok(None) | Err(_) if running => return Ok(255),
+            Ok(None) | Err(_) if write_failure.is_some() => return Err(write_failure.take().and_then(gone)),
             Ok(None) => return Err(Some(Declined::Failed("the taking host ended the connection before the lane synced".to_owned()))),
             Err(error) => return Err(Some(Declined::Failed(format!("the taking host: {error}")))),
         }
