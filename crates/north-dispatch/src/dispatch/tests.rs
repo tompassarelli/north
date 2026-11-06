@@ -49,7 +49,7 @@ effort = "medium"
 "#;
 
 pub(super) fn host(name: &str, cap: i64, running: Result<i64, &str>) -> Host {
-    Host { name: name.into(), cap: Some(cap), running: running.map_err(str::to_owned), measure: None }
+    Host { name: name.into(), cap: Some(cap), running: running.map_err(str::to_owned), measure: None, builds: None }
 }
 
 fn account(name: &str, hosts: &[&str], headroom: f64) -> Account {
@@ -127,7 +127,9 @@ fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_cont
 }
 
 #[test]
-fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_native_box_waits_for_a_native_host() {
+fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_native_box_waits_for_a_native_host_and_each_launch_takes_a_session_and_a_build_from_its_host() {
+    super::spread_tests::a_host_whose_admission_queue_is_at_its_limit_or_whose_root_disk_is_over_85_percent_takes_no_session();
+    super::spread_tests::launches_earlier_in_the_run_count_against_each_hosts_sessions_and_admission_queue();
     let (mut hosts, accounts) = fleet();
     let queued = "gex45 skipped: 14.0 GiB free on the root disk, under 15";
     hosts[0] = hosts[0].clone().saturated(Some(queued.into()));

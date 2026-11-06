@@ -91,9 +91,9 @@ fn burn_line(pools: &Pools, account: &Account, eta_h: Option<f64>) -> Option<Str
     (!windows.is_empty()).then(|| format!("{} measured burn over a {:.0} min ETA: {}", account.name, eta_h.unwrap_or_default() * 60.0, windows.join("; ")))
 }
 
-/// The accounts signed in on `host` that pace holds with no session left to start.
+/// The accounts signed in on `host` that pace's `allowed_workers` leaves no session to start.
 fn pace_held(capacity: &Capacity, pools: &Pools, host: &str) -> Vec<String> {
-    capacity.accounts.iter().filter(|account| account.open().is_ok() && account.hosts.iter().any(|name| name == host) && pools.workers(&account.name) == 0).map(|account| format!("{} is held by pace with no session left to start", account.name)).collect()
+    capacity.accounts.iter().filter(|account| account.open().is_ok() && account.hosts.iter().any(|name| name == host) && pools.workers(&account.name) == 0).map(|account| format!("{} has no session left under pace's allowed_workers", account.name)).collect()
 }
 
 /// Why the week cannot carry the box on the account after this run's charges, when it cannot.
@@ -164,7 +164,7 @@ pub fn revive(capacity: &Capacity, pools: &mut Pools, host: &str, account: &str)
     let chosen = capacity.accounts.iter().find(|candidate| candidate.name == account).ok_or_else(|| format!("{account} has no pace sample"))?;
     chosen.open()?;
     if pools.host(host) == 0 {
-        return Err(format!("{host} has no free slot"));
+        return Err(pools.full(host));
     }
     if pools.pair(host, account) == 0 {
         return Err(format!("{account} is not signed in on {host}"));
@@ -202,7 +202,7 @@ pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools
         }
         match best_account(capacity, pools, &candidate.host, ready.eta_h) {
             Some(account) => return Ok(launch(capacity, pools, ready, &candidate.host, account, local)),
-            None if pools.host(&candidate.host) == 0 => refused.push(format!("{} has no free slot", candidate.host)),
+            None if pools.host(&candidate.host) == 0 => refused.push(pools.full(&candidate.host)),
             None => {
                 let mut held = burn_held(capacity, pools, &candidate.host, ready.eta_h);
                 held.extend(pace_held(capacity, pools, &candidate.host));

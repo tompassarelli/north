@@ -36,7 +36,8 @@ fn placed_on_claude_a(working: i64) -> (Vec<plan::Launch>, Vec<String>, Account)
 }
 
 #[test]
-fn the_week_bounds_launches_by_its_last_point_and_by_pace_holding_the_2026_11_06_reading_of_claude_a() {
+fn the_week_bounds_launches_by_its_last_point_and_pace_s_allowed_workers_bounds_every_account_held_or_not() {
+    super::spread_tests::an_account_pace_does_not_hold_launches_no_more_than_its_allowed_workers_less_its_live_workers();
     let usage = |week: f64| serde_json::json!({"windows": [{"window": "5h", "used_pct": 10.0, "burn_pct_h": 1.0}, {"window": "week", "used_pct": week, "burn_pct_h": 0.0}]});
     let control = serde_json::json!({"at": 1000.0});
     let judged = |name: &str, week: f64| {
@@ -57,7 +58,7 @@ fn the_week_bounds_launches_by_its_last_point_and_by_pace_holding_the_2026_11_06
     assert_eq!(held.burn, None, "a 5h window whose reset passed measures no burn");
     assert_eq!(held.workers, Some(0));
     assert!(placed.is_empty(), "{:?}", placed.iter().map(|launch| &launch.item).collect::<Vec<_>>());
-    assert!(refused[0].contains("claude:a is held by pace with no session left to start"), "{}", refused[0]);
+    assert!(refused[0].contains("claude:a has no session left under pace's allowed_workers"), "{}", refused[0]);
     let (placed, refused, _) = placed_on_claude_a(0);
     assert_eq!((placed.len(), refused.len()), (1, 11), "pace's allowed_workers 1 with none working leaves one launch");
     let burn = placed[0].burn.as_deref().unwrap();

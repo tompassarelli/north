@@ -1,5 +1,6 @@
-//! Free worker slots: a host has its resident cap minus the sessions it runs, and an account the
-//! out-rule keeps out has none; any other account may take every free slot of a host it is signed in on.
+//! Free worker slots: a host has its resident cap minus the sessions it runs, no more than the builds
+//! its admission queue takes, and an account has no more than pace's `allowed_workers` leaves it;
+//! an account the out-rule keeps out has none.
 pub use crate::pacing::placement::room::{Charge, PlanSize, Room};
 pub use crate::pace::projection::Reading;
 use std::collections::BTreeMap;
@@ -12,6 +13,9 @@ pub struct Host {
     pub running: Result<i64, String>,
     /// Its live load, when dispatch reaches it.
     pub measure: Option<super::measure::Measure>,
+    /// Builds its capacity admission takes before its queue reaches the limit placement skips it at,
+    /// None without a backlog reading; each launch this run is expected to queue one.
+    pub builds: Option<i64>,
 }
 
 impl Host {
@@ -24,12 +28,20 @@ impl Host {
         }
     }
 
-    /// The host with the saturation refusal it reports, read when dispatch reaches it (here or over
+    /// The host with the saturation reading it reports, read when dispatch reaches it (here or over
     /// ssh); an unreadable reading refuses nothing.
     pub fn probed(self, here: &str, ssh: Option<&str>) -> Self {
         let reachable = self.name == here || ssh.is_some();
-        let why = reachable.then(|| crate::pacing::placement::saturation_refusal(&self.name).ok().flatten()).flatten();
-        self.saturated(why)
+        let reading = reachable.then(|| crate::pacing::placement::saturation_reading(&self.name).ok()).flatten();
+        self.read(reading.as_ref())
+    }
+
+    /// The host refused by the reading's memory, root disk or admission queue, with the builds its
+    /// admission queue has room for.
+    pub fn read(self, reading: Option<&crate::capacity::saturation::Saturation>) -> Self {
+        let builds = reading.and_then(|reading| reading.backlog).map(|backlog| backlog.build_room().max(0));
+        let why = reading.and_then(|reading| reading.refusal(&self.name));
+        Self { builds, ..self }.saturated(why)
     }
 
     pub fn free(&self) -> Result<i64, String> {
@@ -45,7 +57,8 @@ impl Host {
             (Ok(running), None) => format!("host {}: {running} running, no resident_cap, so 0 free", self.name),
             (Ok(running), Some(cap)) => format!("host {}: {running}/{cap} resident, {} free", self.name, (cap - running).max(0)),
         };
-        format!("{state}{measured}")
+        let builds = self.builds.map_or_else(String::new, |builds| format!("; its admission queue takes {builds} more builds"));
+        format!("{state}{builds}{measured}")
     }
 }
 
@@ -66,8 +79,8 @@ pub struct Account {
     pub burn: Option<f64>,
     /// Its five-hour and week windows as usage-gate reads them, which a launch's projection starts from.
     pub readings: Vec<Reading>,
-    /// The new sessions pace-control leaves it while it holds the account: its `allowed_workers` less
-    /// the sessions working on it; None when pace does not hold it.
+    /// The new sessions pace-control leaves it, held or not: its `allowed_workers` less the sessions
+    /// working on it; None when pace names no `allowed_workers` for it.
     pub workers: Option<i64>,
 }
 
@@ -95,7 +108,7 @@ impl Account {
             room.week,
             room.week_reset_h,
             self.hosts.join(", ")
-        ) + &self.workers.map_or_else(String::new, |free| format!("; pace holds it, leaving {free} more sessions"))
+        ) + &self.workers.map_or_else(String::new, |free| format!("; pace's allowed_workers leaves it {free} more sessions"))
     }
 }
 
@@ -103,11 +116,13 @@ impl Account {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pools {
     hosts: BTreeMap<String, i64>,
+    /// Builds each host's admission queue still takes this run, for hosts with a backlog reading.
+    builds: BTreeMap<String, i64>,
     /// The hosts each open account is signed in on.
     signed_in: BTreeMap<String, Vec<String>>,
     /// Points of its own percent each account is charged for the boxes planned on it this run.
     charged: BTreeMap<String, Charge>,
-    /// Sessions each account pace holds may still start this run.
+    /// Sessions each account may still start this run under pace's `allowed_workers`.
     workers: BTreeMap<String, i64>,
     cloud: i64,
 }
@@ -116,6 +131,7 @@ impl Pools {
     pub fn new(hosts: &[Host], accounts: &[Account]) -> Self {
         Self {
             hosts: hosts.iter().map(|host| (host.name.clone(), host.free().unwrap_or(0))).collect(),
+            builds: hosts.iter().filter_map(|host| Some((host.name.clone(), host.builds?))).collect(),
             signed_in: accounts.iter().filter(|account| account.open().is_ok()).map(|account| (account.name.clone(), account.hosts.clone())).collect(),
             charged: BTreeMap::new(),
             workers: accounts.iter().filter_map(|account| Some((account.name.clone(), account.workers?.max(0)))).collect(),
@@ -138,26 +154,35 @@ impl Pools {
     }
 
     /// The host's free slots when the account is open and signed in there, no more than the
-    /// sessions pace leaves an account it holds, else 0.
+    /// sessions pace's `allowed_workers` leaves the account, else 0.
     pub fn pair(&self, host: &str, account: &str) -> i64 {
         if self.serves(host, account) { self.host(host).min(self.workers(account)) } else { 0 }
     }
 
-    /// The sessions pace leaves the account this run, unbounded when pace does not hold it.
+    /// The sessions pace leaves the account this run, unbounded when pace names no `allowed_workers`.
     pub fn workers(&self, account: &str) -> i64 {
         self.workers.get(account).copied().unwrap_or(i64::MAX)
     }
 
+    /// The host's free session slots this run, no more than the builds its admission queue takes.
     pub fn host(&self, host: &str) -> i64 {
-        self.hosts.get(host).copied().unwrap_or(0)
+        self.hosts.get(host).copied().unwrap_or(0).min(self.builds.get(host).copied().unwrap_or(i64::MAX))
+    }
+
+    /// Why the host takes no more boxes this run, once `host` reads 0.
+    pub fn full(&self, host: &str) -> String {
+        match self.builds.get(host) {
+            Some(0) => format!("{host} admission queue has no room for another build this run"),
+            _ => format!("{host} has no free slot"),
+        }
     }
 
     pub fn total(&self) -> i64 {
-        self.hosts.iter().filter(|(host, _)| self.signed_in.keys().any(|account| self.serves(host, account))).map(|(_, free)| free).sum()
+        self.hosts.keys().filter(|host| self.signed_in.keys().any(|account| self.serves(host, account))).map(|host| self.host(host)).sum()
     }
 
     pub fn take(&mut self, host: &str, account: &str) {
-        for free in self.hosts.get_mut(host).into_iter().chain(self.workers.get_mut(account)) {
+        for free in self.hosts.get_mut(host).into_iter().chain(self.builds.get_mut(host)).chain(self.workers.get_mut(account)) {
             *free = (*free - 1).max(0);
         }
     }

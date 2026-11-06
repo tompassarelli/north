@@ -76,8 +76,12 @@ pub fn machine(name: &str) -> Option<crate::fleet::model::Machine> {
     Some(crate::fleet::model::Machine { name: machine.name, ssh: machine.ssh })
 }
 pub fn saturation_refusal(name: &str) -> Result<Option<String>, String> {
+    Ok(saturation_reading(name)?.refusal(name))
+}
+/// The host's memory, root disk and admission backlog, read here or over its ssh destination.
+pub fn saturation_reading(name: &str) -> Result<crate::capacity::saturation::Saturation, String> {
     let destination = if name == local() { String::new() } else { machine(name).map(|machine| machine.ssh).ok_or_else(|| format!("no [hosts.{name}] ssh destination to read its saturation"))? };
-    Ok(saturation(name, &destination).ok_or_else(|| format!("{name} saturation unreadable"))?.refusal(name))
+    saturation(name, &destination).ok_or_else(|| format!("{name} saturation unreadable"))
 }
 fn local() -> String {
     crate::platform::host::name()

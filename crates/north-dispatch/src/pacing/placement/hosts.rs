@@ -177,7 +177,7 @@ pub(in crate::pacing) fn saturation(name: &str, destination: &str) -> Option<Sat
     if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
         let fixture = load(Path::new(&path));
         let reading = &fixture[name]["saturation"];
-        return Some(Saturation { memory_total_mib: reading["memory_total_mib"].as_f64()?, memory_available_mib: reading["memory_available_mib"].as_f64()?, disk_free_gib: reading["disk_free_gib"].as_f64()?, backlog: serde_json::from_value(reading["backlog"].clone()).ok() });
+        return Some(Saturation { memory_total_mib: reading["memory_total_mib"].as_f64()?, memory_available_mib: reading["memory_available_mib"].as_f64()?, disk_free_gib: reading["disk_free_gib"].as_f64()?, disk_total_gib: reading["disk_total_gib"].as_f64().unwrap_or(0.0), backlog: serde_json::from_value(reading["backlog"].clone()).ok() });
     }
     let cache = storage::directory().join("saturation").join(format!("{name}.json"));
     let now = storage::now();

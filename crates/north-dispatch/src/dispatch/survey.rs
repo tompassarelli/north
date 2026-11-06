@@ -109,7 +109,7 @@ fn host(cfg: &DocumentMut, name: &str, here: &str, hosted_elsewhere: i64, laptop
     } else {
         Err("no ssh destination".into())
     };
-    Host { name: name.into(), cap, running, measure: super::measure::read(name == here, ssh) }.probed(here, ssh)
+    Host { name: name.into(), cap, running, measure: super::measure::read(name == here, ssh), builds: None }.probed(here, ssh)
 }
 
 fn account_hosts(cfg: &DocumentMut, account: &str, here: &str) -> Vec<String> {
@@ -156,10 +156,10 @@ fn five_hour_burn(usage: &Value, at: f64) -> Option<f64> {
     window["burn_pct_h"].as_f64().filter(|_| resets.is_none_or(|resets| resets > at))
 }
 
-/// The sessions pace-control leaves an account it holds: its `allowed_workers` less the `working`
-/// sessions on it; None when pace does not hold it.
+/// The sessions pace-control leaves an account, held or not: its `allowed_workers` less the
+/// `working` sessions on it; None when pace names no `allowed_workers`.
 pub fn pace_workers(control: &Value, working: i64) -> Option<i64> {
-    (control["held"] == true).then(|| (control["allowed_workers"].as_i64().unwrap_or(0) - working).max(0))
+    control["allowed_workers"].as_i64().map(|allowed| (allowed - working).max(0))
 }
 
 /// What dispatch knows of one account at `at`: its pace-control entry, its usage-gate control when

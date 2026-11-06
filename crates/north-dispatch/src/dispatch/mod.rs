@@ -67,6 +67,8 @@ mod tries_tests;
 mod wait_tests;
 #[cfg(test)]
 mod week_tests;
+#[cfg(test)]
+mod spread_tests;
 
 const USAGE: &str = "usage: north dispatch [--dry-run]";
 

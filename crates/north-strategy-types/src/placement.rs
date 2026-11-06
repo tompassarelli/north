@@ -123,6 +123,9 @@ pub struct Saturation {
     pub memory_total_mib: f64,
     pub memory_available_mib: f64,
     pub disk_free_gib: f64,
+    /// The root disk's size, 0 when the reading predates it.
+    #[serde(default)]
+    pub disk_total_gib: f64,
     pub backlog: Option<Backlog>,
 }
 
