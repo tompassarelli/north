@@ -858,6 +858,7 @@ dependencies = [
  "crossterm 0.28.1",
  "fancy-regex",
  "north-capacity-host",
+ "north-climb",
  "north-core",
  "north-coverage",
  "north-dispatch",
@@ -946,6 +947,16 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml_edit",
+]
+
+[[package]]
+name = "north-climb"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-dispatch",
+ "north-replay",
+ "north-strategy-types",
 ]
 
 [[package]]

@@ -93,6 +93,11 @@ paths = ["crates/north-replay/src/**"]
 may_use = ["north-base", "north-capacity", "north-dispatch", "north-landing"]
 
 [[crate_dag.crate]]
+name = "north-climb"
+paths = ["crates/north-climb/src/**"]
+may_use = ["north-base", "north-dispatch", "north-replay", "north-strategy-types"]
+
+[[crate_dag.crate]]
 name = "north-runtime"
 paths = ["crates/north-runtime/src/**"]
 may_use = ["north-capacity-host", "north-dispatch", "north-providers"]
@@ -154,6 +159,12 @@ name = "replay"
 paths = ["crates/north-replay/src/**"]
 responsibility = "Strategy replay: the logged decision cases decided again by the linked code, their outcome counts beside the logged ones, and the declared invariants checked over the replayed decisions."
 may_use = ["capacity", "crate-roots", "foundation", "landing", "ops", "platform", "strategy_types"]
+
+[[module]]
+name = "climb"
+paths = ["crates/north-climb/src/**"]
+responsibility = "The policy climber: the ledger's largest measured loss, one candidate policy change for it, the paths a candidate may not touch, its score from strategy replay, and the live arms."
+may_use = ["crate-roots", "foundation", "ledger", "platform", "replay", "strategy_types"]
 
 [[module]]
 name = "foundation"

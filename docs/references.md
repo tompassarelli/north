@@ -334,3 +334,54 @@ statistics come from the Wilson, Fisher and paired-bootstrap entries above, the 
 from RouteLLM, and the walk-forward scoring and adopt-only-on-measured-gain rule from north#35 and north#36.
 North#40 asks that every rule carry a source so others can repeat the evidence. Where the idea of replaying
 recorded policy scenarios came from: origin not recorded.
+
+### Self-improving agents
+
+Sources for the policy climber ([docs/rationale/policy-climber.md](rationale/policy-climber.md), north#636), found 2026-11-06 by
+web search. A figure marked (secondary) comes from a summary, not the paper.
+
+- <a id="darwin-godel-machine"></a>**Darwin Gödel Machine** (Sakana AI), https://sakana.ai/dgm/ and
+  https://iclr.cc/virtual/2026/poster/10007327, accessed 2026-11-06.
+  Informed: the climber's archive of variants with parents sampled across it, and its guards: DGM faked test logs and removed the
+  markers that detected it, so the evaluator and the ledger's counting code are outside a candidate's scope.
+  Outcome: adopted in the design (archive, parent sampling, scope guard); its cost, about USD 22,000 for one SWE-bench run
+  (secondary), is why north tries one candidate per loss per day.
+
+- <a id="gepa"></a>**GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning** (arXiv 2507.19457),
+  https://arxiv.org/abs/2507.19457, accessed 2026-11-06.
+  Informed: the generator that reads failed runs and keeps a Pareto set of candidates that win somewhere.
+  Outcome: adopted in the design; the generator box builds it.
+
+- <a id="alphaevolve"></a>**AlphaEvolve** (Google DeepMind; secondary summaries at
+  https://venturebeat.com/ai/meet-alphaevolve-the-google-ai-that-writes-its-own-code-and-just-saved-millions-in-computing-costs),
+  accessed 2026-11-06.
+  Informed: the rule that the loop runs only where the metric is machine-checkable; replay and the ledger are that check.
+  Outcome: prior only.
+
+- <a id="adas"></a>**Automated Design of Agentic Systems** (arXiv 2408.08435), https://arxiv.org/abs/2408.08435, accessed 2026-11-06.
+  Informed: a meta agent that writes a design, tests it and archives it; the paper does not discuss compute (secondary).
+  Outcome: prior only.
+
+- <a id="godel-agent"></a>**Gödel Agent** (arXiv 2410.04444), https://arxiv.org/html/2410.04444v4, accessed 2026-11-06.
+  Informed: the caution that an agent rewriting its own improver is the least controlled design; its measured gains were not verified.
+  Outcome: prior only; the scope guard exists to prevent it.
+
+- <a id="live-swe-agent"></a>**Live-SWE-agent** (arXiv 2511.13646), https://arxiv.org/html/2511.13646v3, accessed 2026-11-06.
+  Informed: a worker proposing a tool or brief fix at run time, recorded in the ledger.
+  Outcome: prior only.
+
+- <a id="voyager-reflexion"></a>**Voyager** (arXiv 2305.16291, https://arxiv.org/html/2305.16291) and **Reflexion**
+  (secondary, https://blckalpaca.at/en/knowledge-base/ai-agents/agent-architectures-overview/reflexion-pattern-agents), accessed 2026-11-06.
+  Informed: inject on a retry only lessons a later success on the same category confirmed; both depend on a reliable test signal.
+  Outcome: prior only.
+
+- <a id="swe-agent"></a>**SWE-agent** (arXiv 2405.15793), https://arxiv.org/pdf/2405.15793.pdf, accessed 2026-11-06.
+  Informed: attempt loss cut by guards that reject an edit before it is submitted, a lever outside routing.
+  Outcome: prior only.
+
+- <a id="bandit-routing"></a>**Contextual-bandit routing** (Greedy LinUCB, AAAI-26,
+  https://ojs.aaai.org/index.php/AAAI/article/view/39672/43633; NeuralUCB on RouterBench,
+  https://www.alphaxiv.org/abs/2603.30035.md) and **FrugalGPT** (arXiv 2305.05176, https://arxiv.org/abs/2305.05176; primary numbers
+  not confirmed), accessed 2026-11-06, beside [RouteLLM](#routellm).
+  Informed: adaptive arm shares by Thompson sampling on cost per kept box, a verified outcome as the reward and cost as the penalty.
+  Outcome: adopted in the design; the shares box builds it.

@@ -1,0 +1,19 @@
+[package]
+name = "north-climb"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-dispatch = { path = "../north-dispatch" }
+north-replay = { path = "../north-replay" }
+north-strategy-types = { path = "../north-strategy-types" }
+
+[lints]
+workspace = true

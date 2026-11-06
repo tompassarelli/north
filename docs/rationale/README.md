@@ -24,6 +24,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Nix and dev-shell footguns: every failure class and the guard that closes it](nix-footguns.md): Plan of 2026-11-05 (laptop time, +07) for north#553.
 - [Non-Rust inventory](non-rust-inventory.md): Every non-Rust code file left in North on 2026-11-06 for north#88 (the rows of files since ported or deleted are dropped; git history has them): shell, Python, TypeScript and JavaScript files, and shebang scripts in `bin/` and `harness/`.
 - [One landing per change](one-landing-per-change.md): A change lands on main as one commit.
+- [The policy climber: north improves its own staffing policy](policy-climber.md): Decided 2026-11-06 under north#636 after Tom asked for a self-improving harness.
 - [The proxy's role: route and judge, delegate the rest, and measure it](proxy-role.md): Tom asked on 2026-11-05 for the orchestrating session to act as one: do brief cross-cutting work itself and delegate everything that takes several steps, with a deterministic mechanism behind each rule wherever one can carry it.
 - [pstack integration rationale](pstack.md): Cold-path reasoning for which pstack practices North adopted, and which it did not (decided 2026-10-15).
 - [Worker read isolation](read-isolation.md): Measured 2026-10-30 for north#59 step 1 (north#361): which Claude Code settings stop a worker session from reading session credentials (`~/.claude/sessions`) and reaching peer session sockets (`/run/user/1000/cc-socks`), whatever command it runs.

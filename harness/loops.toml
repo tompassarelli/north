@@ -270,6 +270,14 @@ constants = [
   "crates/north-guard/src/lanes/gc/remote.rs::BOX_AFTER_H",
 ]
 
+[[loop]]
+name = "policy-climber"
+decision = "which change to routing, brief generation or dispatch rules north tries next, from the ledger's largest measured loss"
+sites = ["crates/north-climb/src/lib.rs", "crates/north-climb/src/loss.rs", "crates/north-climb/src/candidate.rs", "crates/north-climb/src/score.rs"]
+updated_by = "north climb run"
+cadence_hours = 24
+owner = "north#636 Policy climber: archive, live arm and selection"
+
 [plumbing]
 constants = [
   "crates/north-capacity-host/src/capacity/gate.rs::TOOLCHAIN_MISSING",
