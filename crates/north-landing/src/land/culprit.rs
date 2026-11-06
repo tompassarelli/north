@@ -69,7 +69,7 @@ fn belongs(file: &str, name: &str) -> bool {
     stem == name || stem.strip_prefix(name).and_then(|rest| rest.strip_prefix('-')).is_some_and(|index| !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
-fn free_slots(repo: &Path) -> Option<(usize, usize)> {
+pub fn free_slots(repo: &Path) -> Option<(usize, usize)> {
     let (root, name) = (offload_root()?, slot_name(repo)?);
     let locks: Vec<PathBuf> = fs::read_dir(root).ok()?.flatten().filter(|entry| belongs(&entry.file_name().to_string_lossy(), &name)).map(|entry| entry.path()).collect();
     if locks.is_empty() {

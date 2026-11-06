@@ -196,7 +196,7 @@ impl Watch {
             return recovered;
         }
         let Some(Running { mut batch, run }) = self.running.take() else { return false };
-        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None });
+        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None, search: None });
         let ended = epoch();
         if let Verdict::Transient(detail) = &outcome.verdict {
             println!("north land: the after-landing run of {} reached no verdict ({detail}); it runs again in {} s", batch.head, RETRY.as_secs());
@@ -210,6 +210,9 @@ impl Watch {
         let started = batch.started.unwrap_or(ended);
         let links: Vec<Span> = batch.heads.iter().filter(|followed| followed.head != batch.head).map(|followed| Span::new(&followed.head, format!("after-landing run of {}", batch.head), Category::Lander, started, ended).with(PHASE, AFTER).with(COVERED_BY, batch.head.clone())).collect();
         record(lander, &links);
+        if let Some((from, to)) = outcome.search {
+            record(lander, &[Span::new(&batch.head, format!("culprit search over {} landed lanes", batch.lanes.len()), Category::Lander, from, to).with(PHASE, AFTER)]);
+        }
         if let Verdict::RedMain(detail) = outcome.verdict {
             blame(lander, &batch.base, &batch.lanes, outcome.culprit, &detail);
         }

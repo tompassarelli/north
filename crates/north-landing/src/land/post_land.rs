@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::after::{deadline, follow, send};
-use super::blame;
+use super::{blame, culprit};
 use super::candidate::{change_worktrees_alone, git};
 use super::checks::Verdict;
 use super::lander::{Lander, state_home};
@@ -32,6 +32,7 @@ pub struct Landed {
 pub struct Outcome {
     pub verdict: Verdict,
     pub culprit: Option<usize>,
+    pub search: Option<(f64, f64)>,
 }
 
 pub struct Run {
@@ -80,35 +81,44 @@ pub fn start(lander: &Lander, base: &str, head: &str, heads: Vec<String>, lanes:
     std::thread::spawn(move || {
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
-        let culprit = if matches!(verdict, Verdict::RedMain(_)) { locate(&landed, &run) } else { None };
-        Outcome { verdict, culprit }
+        if !matches!(verdict, Verdict::RedMain(_)) {
+            return Outcome { verdict, culprit: None, search: None };
+        }
+        let started = telemetry::epoch();
+        let culprit = locate(&landed, &run);
+        Outcome { verdict, culprit, search: Some((started, telemetry::epoch())) }
     })
 }
 
 fn locate(landed: &Landed, run: &Run) -> Option<usize> {
-    let culprit = blame::culprit(landed.tips.len(), |count| {
-        let tip = &landed.tips[count - 1];
-        let verdict = check(landed, tip, &run.at(&landed.head, tip)).verdict;
-        println!("north land: post-land checks with the first {count} of {} landed lanes ended {verdict:?}", landed.tips.len());
-        verdict
-    });
-    if culprit.is_none() {
-        println!("north land: post-land checks of {} are red, but the batch search could not name a lane", landed.head);
+    let lanes = landed.tips.len();
+    let room = culprit::free_slots(&landed.repo).map_or(1, |(free, _)| free);
+    if room < lanes {
+        println!("north land: {room} offload slots are free for the {lanes} prefixes of {}, so the culprit is bisected", landed.head);
     }
-    if culprit == Some(0) && base_already_red(landed, run) {
-        return None;
+    let culprit = blame::culprit(lanes, room, |counts| prefixes(landed, run, counts));
+    match culprit {
+        Some(at) => println!("north land: {} is the first landed lane whose prefix of {} is red", landed.lanes.get(at).map_or("?", String::as_str), landed.head),
+        None => println!("north land: post-land checks of {} are red, but the prefix search names no lane: main was already red at {} or a prefix reached no verdict", landed.head, landed.base),
     }
     culprit
 }
 
-fn base_already_red(landed: &Landed, run: &Run) -> bool {
-    let verdict = check(landed, &landed.base, &run.at(&landed.head, &landed.base)).verdict;
-    println!("north land: post-land checks of the base {} before the first landed lane ended {verdict:?}", landed.base);
-    let red = matches!(verdict, Verdict::RedMain(_));
-    if red {
-        println!("north land: main was already red at {}, so no lane of {} is blamed or reverted", landed.base, landed.head);
-    }
-    red
+fn prefixes(landed: &Landed, run: &Run, counts: &[usize]) -> Vec<Verdict> {
+    let tree = |count: usize| if count == 0 { landed.base.as_str() } else { landed.tips[count - 1].as_str() };
+    let trees: std::collections::BTreeSet<&str> = counts.iter().map(|&count| tree(count)).collect();
+    let verdicts: std::collections::BTreeMap<&str, Verdict> = std::thread::scope(|scope| {
+        let checks: Vec<_> = trees.into_iter().map(|at| (at, scope.spawn(move || check(landed, at, &run.at(&landed.head, at)).verdict))).collect();
+        checks.into_iter().map(|(at, handle)| (at, handle.join().unwrap_or_else(|_| Verdict::Transient("a prefix check panicked".to_owned())))).collect()
+    });
+    counts
+        .iter()
+        .map(|&count| {
+            let verdict = verdicts[tree(count)].clone();
+            println!("north land: post-land checks with the first {count} of {} landed lanes ended {verdict:?}", landed.tips.len());
+            verdict
+        })
+        .collect()
 }
 
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
@@ -124,7 +134,7 @@ pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) ->
     verdict
 }
 
-struct Checked {
+pub(crate) struct Checked {
     verdict: Verdict,
     expired: bool,
 }
