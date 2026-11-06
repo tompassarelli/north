@@ -1200,7 +1200,7 @@ fallback = "none"
 consumers = ["crates/north-capacity/src/capacity/teardown.rs"]
 
 [capacity_teardown_grace_sec]
-value = 10
+value = 11
 allowed = { min = 0, max = 604800 }
 unit = "seconds the quiet-off teardown waits after SIGTERM before SIGKILL of what remains"
 source = "tom: close gracefully first, wait about ten seconds, then force only what remains (2026-11-04)"
