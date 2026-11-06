@@ -1,27 +1,15 @@
 use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, AFTER, Category, PHASE, Span};
 
-const USAGE: &str = "usage: north land follow --repo DIR --git-dir DIR --base SHA --head SHA --safe-push PATH";
+const USAGE: &str = "usage: north land follow --repo DIR --git-dir DIR --base SHA --head SHA";
 
 pub fn program() -> String {
     std::env::var("NORTH_LAND_NORTH").ok().filter(|value| !value.is_empty()).unwrap_or_else(|| "north".to_owned())
-}
-
-pub fn executable(name: &str) -> PathBuf {
-    if name.contains('/') {
-        return fs::canonicalize(name).unwrap_or_else(|_| PathBuf::from(name));
-    }
-    std::env::var_os("PATH")
-        .into_iter()
-        .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
-        .map(|directory| directory.join(name))
-        .find(|candidate| candidate.is_file())
-        .map_or_else(|| PathBuf::from(name), |found| fs::canonicalize(&found).unwrap_or(found))
 }
 
 pub struct Follow<'a> {
@@ -29,7 +17,6 @@ pub struct Follow<'a> {
     pub git_dir: &'a Path,
     pub base: &'a str,
     pub head: &'a str,
-    pub safe_push: &'a Path,
     pub log: &'a Path,
 }
 
@@ -46,8 +33,6 @@ pub fn spawn(follow: &Follow) -> Result<(), String> {
         .arg("--git-dir")
         .arg(follow.git_dir)
         .args(["--base", follow.base, "--head", follow.head])
-        .arg("--safe-push")
-        .arg(follow.safe_push)
         .stdin(Stdio::null())
         .stdout(log)
         .stderr(errors)
@@ -75,7 +60,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut rest = arguments.iter();
     while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next()) {
-            ("--repo" | "--git-dir" | "--base" | "--head" | "--safe-push", Some(value)) => {
+            ("--repo" | "--git-dir" | "--base" | "--head", Some(value)) => {
                 values.insert(flag.as_str(), value.as_str());
             }
             _ => {
@@ -84,7 +69,7 @@ pub fn run(arguments: &[String]) -> u8 {
             }
         }
     }
-    let (Some(repo), Some(git_dir), Some(base), Some(head), Some(safe_push)) = (values.get("--repo"), values.get("--git-dir"), values.get("--base"), values.get("--head"), values.get("--safe-push")) else {
+    let (Some(repo), Some(git_dir), Some(base), Some(head)) = (values.get("--repo"), values.get("--git-dir"), values.get("--base"), values.get("--head")) else {
         eprintln!("{USAGE}");
         return 64;
     };
@@ -97,7 +82,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Span::new(head, name, category, start, epoch()).on(&host).with(PHASE, AFTER)
     };
     let spans = [
-        timed("after-landing gates", Category::Ci, &[os("after-landing"), os("--git-dir"), os(git_dir), os("--base"), os(base), os("--head"), os(head), os("--safe-push"), os(safe_push)]),
+        timed("after-landing gates", Category::Ci, &[os("after-landing"), os("--git-dir"), os(git_dir), os("--base"), os(base), os("--head"), os(head)]),
         timed("follows-release", Category::Follow, &[os("follows-release"), os("--repo-dir"), os(repo)]),
         timed("runtime follow", Category::Follow, &[os("runtime"), os("follow"), os("--repo-dir"), os(repo)]),
         timed("graph ingest", Category::Follow, &[os("graph"), os("ingest")]),

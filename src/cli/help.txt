@@ -152,7 +152,7 @@ Commands:
   agent-capture --screen|--window ID|--region "X,Y WxH" OUT.png  Screenshot without touching Tom's clipboard
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there unless HOST runs a newer descendant
   runtime health                                Check that the running binary is the current runtime with its programs and tree
-  after-landing --git-dir DIR --base BASE --head HEAD --safe-push PATH  Run the after-landing checks on a landed range
+  after-landing --git-dir DIR --base BASE --head HEAD  Run the after-landing checks on a landed range
   build-cache-gate --repo DIR --base REV --head REV  Refuse a landing that breaks build-cache reuse
   cleanup-sweep [--dry-run] [north|makgora|wisp...]  Remove spent lanes, targets and scratch of the named projects
   convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex]  Search and read past agent transcripts

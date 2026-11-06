@@ -8,7 +8,7 @@ use crate::land::scans::{generated, git};
 use crate::landing::after_landing::Failure;
 use crate::landing::instruction_limits;
 
-const USAGE: &str = "usage: north land scan code-health|crate-lines|instruction-limits|ci-budget BASE..HEAD [--safe-push PATH]";
+const USAGE: &str = "usage: north land scan code-health|crate-lines|instruction-limits|ci-budget BASE..HEAD";
 
 #[derive(Clone, Copy)]
 enum Gate {
@@ -25,7 +25,6 @@ pub struct Landed<'a> {
     pub tree: &'a Path,
     pub base: &'a str,
     pub head: &'a str,
-    pub safe_push: &'a Path,
 }
 
 impl Gate {
@@ -75,13 +74,9 @@ pub fn run(landed: &Landed) -> Vec<Failure> {
 }
 
 pub fn scan(name: &str, arguments: &[String]) -> u8 {
-    let (range, safe_push) = match arguments {
-        [range] => (range, follow::executable("safe-push")),
-        [range, flag, path] if flag == "--safe-push" => (range, follow::executable(path)),
-        _ => {
-            eprintln!("{USAGE}");
-            return 64;
-        }
+    let [range] = arguments else {
+        eprintln!("{USAGE}");
+        return 64;
     };
     let (Some(gate), Some((base, head))) = (Gate::named(name), range.split_once("..")) else {
         eprintln!("{USAGE}");
@@ -89,13 +84,13 @@ pub fn scan(name: &str, arguments: &[String]) -> u8 {
     };
     let tree = root(Path::new("."));
     let mut out = Vec::new();
-    let passed = gate.check(&Landed { tree: &tree, base, head, safe_push: &safe_push }, &mut out);
+    let passed = gate.check(&Landed { tree: &tree, base, head }, &mut out);
     let _ = std::io::stdout().write_all(&out);
     u8::from(!passed)
 }
 
 fn code_health(landed: &Landed, out: &mut Vec<u8>) -> bool {
-    let program = std::env::var_os("SAFE_PUSH_CODE_HEALTH").filter(|path| !path.is_empty()).map_or_else(|| tools(landed.safe_push).join("north"), PathBuf::from);
+    let program = std::env::var_os("SAFE_PUSH_CODE_HEALTH").filter(|path| !path.is_empty()).map_or_else(north, PathBuf::from);
     let enrolled = git::bytes(landed.tree, &["cat-file", "-e", &format!("{}:structure.toml", landed.head)]).is_some();
     let mut command = Command::new(&program);
     command.args(["code-health", "gate", landed.base, landed.head]);
@@ -120,8 +115,7 @@ fn crate_lines(landed: &Landed, out: &mut Vec<u8>) -> bool {
     if structure.parse::<toml_edit::DocumentMut>().ok().and_then(|document| document.get("crate_lines").cloned()).is_none() {
         return true;
     }
-    let beside = tools(landed.safe_push).join("north");
-    let mut command = if is_executable(&beside) { Command::new(beside) } else { Command::new(follow::program()) };
+    let mut command = Command::new(north());
     command.args(["code-health", "crate-lines", landed.base, landed.head]);
     match captured(&mut command, &root(landed.tree), out).unwrap_or(-1) {
         0 => true,
@@ -156,8 +150,8 @@ fn captured(command: &mut Command, directory: &Path, out: &mut Vec<u8>) -> Optio
     }
 }
 
-fn tools(safe_push: &Path) -> PathBuf {
-    std::fs::canonicalize(safe_push).ok().and_then(|path| path.parent().map(Path::to_path_buf)).unwrap_or_default()
+fn north() -> PathBuf {
+    std::env::current_exe().unwrap_or_else(|_| PathBuf::from(follow::program()))
 }
 
 fn root(directory: &Path) -> PathBuf {
