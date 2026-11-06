@@ -6,7 +6,7 @@ fn mark(at: f64, line: &str) -> Mark {
 }
 
 #[test]
-fn an_offloaded_test_line_splits_into_ship_slot_wait_sync_compile_and_per_crate_test_spans() {
+fn an_offloaded_test_line_splits_into_wait_sync_compile_and_test_spans_and_a_lease_wait_ends_at_its_reservation_while_clippy_build_time_stays_lint() {
     let line = Line { trace: "c1", id: "line", category: Category::Test, start: 100.0, end: 400.0, host: "gex45" };
     let marks = [
         mark(130.0, "offload: waited 25s in line for code-north-main-3"),
@@ -32,10 +32,6 @@ fn an_offloaded_test_line_splits_into_ship_slot_wait_sync_compile_and_per_crate_
     );
     assert!(spans.iter().all(|span| span.parent.as_deref() == Some("line") && span.host == "gex45" && span.trace == "c1"));
     assert_eq!((spans[4].attribute("result"), spans[5].attribute("result")), (Some("ok. 191 passed"), Some("FAILED. 10 passed")));
-}
-
-#[test]
-fn a_capacity_lease_wait_ends_at_its_reservation_and_clippy_build_time_stays_lint() {
     let line = Line { trace: "c1", id: "line", category: Category::Lint, start: 0.0, end: 60.0, host: "laptop" };
     let marks = [mark(16.0, r#"{"decision":"RESERVED","reason":"RUN","queuedSeconds":15.9}"#), mark(40.0, "    Finished `dev` profile [unoptimized] target(s) in 20.82s")];
     let spans = children(&line, &marks);

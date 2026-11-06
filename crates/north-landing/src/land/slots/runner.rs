@@ -21,6 +21,7 @@ use super::select::{Config, OFFLOAD_SLOTS_BUSY, Placement, changed, path_class};
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use fail_fast::Plan;
 
+mod batch;
 mod fail_fast;
 mod queue_clippy;
 mod timeout_row;
@@ -36,6 +37,7 @@ use crate::landing::land_test_selection::SELECT_PATHS_ENV;
 
 const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--tree TREE] [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
 const OFFLOAD_GRACE: u64 = 900;
+const BATCH_GRACE: u64 = 30;
 const REAP: Duration = Duration::from_secs(5);
 const LOG_KEEP: Duration = Duration::from_secs(14 * 24 * 3600);
 const INFRASTRUCTURE: i32 = 75;
@@ -199,6 +201,13 @@ impl Trees {
         };
         Self { base: tree(base), head: tree(head) }
     }
+}
+
+#[derive(Clone, Copy)]
+struct Attempt {
+    leased: bool,
+    started: u64,
+    timeout: u64,
 }
 
 struct Ran {
@@ -454,6 +463,10 @@ impl Shared {
         Command::new(program()).args(arguments).current_dir(&self.root).stdin(Stdio::null()).output().await.ok()
     }
 
+    fn offload_argv(&self, host: &str, tree: &str, timeout: u64, command: &str) -> Vec<String> {
+        vec![program(), "capacity".into(), "offload".into(), "run".into(), "--host".into(), host.to_owned(), "--base".into(), self.arguments.base.clone(), "--head".into(), tree.to_owned(), "--timeout".into(), timeout.to_string(), "--".into(), command.to_owned()]
+    }
+
     async fn spawn_check(&self, command: &str, leased: bool, tree: &str, timeout: u64) -> Result<Ran, i32> {
         let environment = &self.environment;
         let argv = if let Some(host) = self.offload_host_for(command) {
@@ -461,7 +474,7 @@ impl Shared {
                 warn(&format!("safe-push: land check {command} needs this host, which is in game-reserve; NOT pushed."));
                 return Err(1);
             }
-            let offload = [program(), "capacity".into(), "offload".into(), "run".into(), "--host".into(), host.clone(), "--base".into(), self.arguments.base.clone(), "--head".into(), tree.to_owned(), "--timeout".into(), timeout.to_string(), "--".into(), command.to_owned()];
+            let offload = self.offload_argv(&host, tree, timeout, command);
             let capacity = if environment.offload_host.is_empty() { "" } else { environment.capacity.as_str() };
             let suffix = if environment.offload_host.is_empty() { "" } else { " while this host is in game-reserve" };
             say(&format!("safe-push: offloading to {host}{suffix}"));
@@ -471,6 +484,10 @@ impl Shared {
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(timeout, &local))
         };
+        self.spawn_argv(command, argv, tree, timeout).await
+    }
+
+    async fn spawn_argv(&self, command: &str, argv: Vec<String>, tree: &str, timeout: u64) -> Result<Ran, i32> {
         let Some(log) = new_log() else {
             warn("safe-push: could not create a land check log; NOT pushed.");
             return Err(1);
@@ -529,11 +546,11 @@ impl Shared {
         Span::new(&self.arguments.head, name, category, start, epoch()).under(&self.arguments.span).on(&trace::this_host())
     }
 
-    fn trace_line(&self, command: &str, ran: &Ran, cpu: Option<f64>) {
+    fn trace_line(&self, command: &str, ran: &Ran, cpu: Option<f64>, parent: Option<&str>) {
         let category = Category::of_command(command);
         let host = self.offload_host_for(command).unwrap_or_else(trace::this_host);
         let head = &self.arguments.head;
-        let line = Span::new(head, command, category, ran.started_at, ran.ended_at).under(&self.arguments.span).on(&host).cpu(cpu).with("cache", "miss").with("exit", ran.status.to_string());
+        let line = Span::new(head, command, category, ran.started_at, ran.ended_at).under(parent.unwrap_or(&self.arguments.span)).on(&host).cpu(cpu).with("cache", "miss").with("exit", ran.status.to_string());
         let mut spans = check_log::children(&Line { trace: head, id: &line.id, category, start: line.start, end: line.end, host: &host }, &ran.marks);
         spans.insert(0, line);
         trace::record(&spans);
@@ -562,9 +579,7 @@ impl Shared {
         if !self.workflow.is_empty() && self.offload_host_for(&command).is_none() && let Some(reason) = self.config.off_actions_reason(&command) {
             say(&format!("safe-push: land check runs on this host because it {reason}"));
         }
-        let timings = Timings::at(Timings::default_root());
-        let class = self.cache_class(&command);
-        let deadline = self.environment.timeout.or_else(|| self.config.deadline_seconds(&command)).map_or_else(|| timings.deadline(&command, &class), Deadline::configured);
+        let deadline = self.deadline_of(&command);
         let timeout = deadline.seconds;
         let label = if self.config.is_inferred(&command) { " (inferred)" } else { "" };
         say(&format!("safe-push: land check{label}: {command} ({deadline})"));
@@ -574,32 +589,44 @@ impl Shared {
             Ok(ran) => ran,
             Err(status) => return status,
         };
-        if self.overflows(&command, ran.status) {
+        let cpu = before.zip(children_cpu_seconds()).filter(|_| measured).map(|(before, after)| after - before);
+        self.finish_check(&command, Attempt { leased, started, timeout }, &ran, cpu, None).await
+    }
+
+    fn deadline_of(&self, command: &str) -> Deadline {
+        let timings = Timings::at(Timings::default_root());
+        self.environment.timeout.or_else(|| self.config.deadline_seconds(command)).map_or_else(|| timings.deadline(command, &self.cache_class(command)), Deadline::configured)
+    }
+
+    async fn finish_check(&self, command: &str, attempt: Attempt, ran: &Ran, cpu: Option<f64>, parent: Option<&str>) -> i32 {
+        let Attempt { leased, started, timeout } = attempt;
+        let timings = Timings::at(Timings::default_root());
+        let class = self.cache_class(command);
+        if self.overflows(command, ran.status) {
             say(&format!("safe-push: every build-host slot stayed busy, so land check {command} overflows to GitHub Actions"));
             let _ = fs::remove_file(&ran.log);
             return ran.status;
         }
-        let cpu = before.zip(children_cpu_seconds()).filter(|_| measured).map(|(before, after)| after - before);
-        self.trace_line(&command, &ran, cpu);
+        self.trace_line(command, ran, cpu, parent);
         if self.fail_fast && *self.cancel.borrow() {
             let _ = fs::remove_file(&ran.log);
-            return self.cancelled(&command, started, ran.status, ran.seconds, cpu);
+            return self.cancelled(command, started, ran.status, ran.seconds, cpu);
         }
-        self.remember(&command, started, ran.status, CheckOutcome::of(ran.status), ran.seconds, cpu);
-        let _ = timings.record(&self.trees.head, &command, &class, ran.timing());
+        self.remember(command, started, ran.status, CheckOutcome::of(ran.status), ran.seconds, cpu);
+        let _ = timings.record(&self.trees.head, command, &class, ran.timing());
         if ran.exceeded {
-            let base = timings.base(&self.trees.base, &command, &class, timeout);
+            let base = timings.base(&self.trees.base, command, &class, timeout);
             if base == Base::Exceeded {
-                let _ = timings.exceeded_on_base_too(&command, &class, timeout);
+                let _ = timings.exceeded_on_base_too(command, &class, timeout);
             }
-            self.record_timeout(&command, timeout, started);
-            return self.judge_hang(&command, timeout, base, &ran.log).await;
+            self.record_timeout(command, timeout, started);
+            return self.judge_hang(command, timeout, base, &ran.log).await;
         }
-        let commands = [command.clone()];
+        let commands = [command.to_owned()];
         if ran.status != 0 {
-            return self.judge_failure(&command, leased, timeout, &ran).await;
+            return self.judge_failure(command, leased, timeout, ran).await;
         }
-        let _ = timings.passed(&command, &class, ran.seconds);
+        let _ = timings.passed(command, &class, ran.seconds);
         self.cache_record(0, &commands).await;
         let _ = fs::remove_file(&ran.log);
         0
@@ -800,6 +827,66 @@ impl Shared {
         status
     }
 
+    async fn run_batch(self: Arc<Self>, host: String, commands: Vec<String>) -> Vec<i32> {
+        let started = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+        let tree = self.arguments.tree().to_owned();
+        let timeouts: Vec<u64> = commands.iter().map(|command| self.deadline_of(command).seconds).collect();
+        for (command, timeout) in commands.iter().zip(&timeouts) {
+            self.outcome.record(&["ran"]);
+            say(&format!("safe-push: land check: {command} ({timeout} s, in one {host} slot with {} other head-north check(s))", commands.len() - 1));
+        }
+        let checks: Vec<(&str, u64)> = commands.iter().map(String::as_str).zip(timeouts.iter().copied()).collect();
+        let outer = timeouts.iter().copied().max().unwrap_or_default() + BATCH_GRACE;
+        say(&format!("safe-push: offloading {} head-north land check(s) to {host} as one job", commands.len()));
+        let argv = shell_deadline(outer + OFFLOAD_GRACE, &self.offload_argv(&host, &tree, outer, &batch::script(&checks)));
+        let ran = match self.spawn_argv("of the head-north batch", argv, &tree, outer).await {
+            Ok(ran) => ran,
+            Err(status) => return vec![status; commands.len()],
+        };
+        if self.overflows(&commands[0], ran.status) {
+            say(&format!("safe-push: every build-host slot stayed busy, so {} head-north land check(s) overflow to GitHub Actions", commands.len()));
+            let _ = fs::remove_file(&ran.log);
+            return vec![ran.status; commands.len()];
+        }
+        let line = Span::new(&self.arguments.head, "head-north checks in one offload slot", Category::Offload, ran.started_at, ran.ended_at).under(&self.arguments.span).on(&host).with("exit", ran.status.to_string());
+        let mut spans = check_log::children(&Line { trace: &self.arguments.head, id: &line.id, category: Category::Offload, start: line.start, end: line.end, host: &host }, &ran.marks);
+        let running = spans.iter().map(|span| span.end).fold(ran.started_at, f64::max);
+        spans.insert(0, line.clone());
+        trace::record(&spans);
+        let text = fs::read_to_string(&ran.log).unwrap_or_default();
+        let mut statuses = Vec::new();
+        for ((command, timeout), part) in commands.iter().zip(timeouts).zip(batch::split(&text, commands.len())) {
+            let Some(log) = new_log() else {
+                statuses.push(1);
+                continue;
+            };
+            let part = part.unwrap_or_else(|| batch::Part { status: if ran.status == 0 { 1 } else { ran.status }, offset: 0.0, seconds: ran.ended_at - running, text: text.clone() });
+            let _ = fs::write(&log, &part.text);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let seconds = part.seconds.round() as u64;
+            let started_at = running + part.offset;
+            let checked = Ran { status: part.status, seconds, exceeded: part.status == TIMED_OUT || (part.status == KILLED && seconds >= timeout), log, started_at, ended_at: started_at + part.seconds, marks: Vec::new() };
+            statuses.push(self.finish_check(command, Attempt { leased: false, started, timeout }, &checked, None, Some(&line.id)).await);
+        }
+        let _ = fs::remove_file(&ran.log);
+        statuses
+    }
+
+    fn spawn_batch(self: &Arc<Self>, ordered: &[String], plan: &Plan, stop: &Arc<watch::Sender<bool>>, offloaded: &mut JoinSet<Vec<(usize, i32)>>) -> Vec<usize> {
+        let joined: Vec<usize> = ordered.iter().enumerate().filter(|(_, command)| self.offload_host_for(command).is_some() && !plan.is_expensive(command) && batch::joins(command)).map(|(index, _)| index).collect();
+        let Some(host) = joined.first().filter(|_| joined.len() >= 2).and_then(|first| self.offload_host_for(&ordered[*first])) else { return Vec::new() };
+        let (shared, stop, indices) = (Arc::clone(self), Arc::clone(stop), joined.clone());
+        let commands: Vec<String> = joined.iter().map(|index| ordered[*index].clone()).collect();
+        offloaded.spawn(async move {
+            let statuses = Arc::clone(&shared).run_batch(host, commands.clone()).await;
+            if commands.iter().zip(&statuses).any(|(command, status)| *status != 0 && !shared.overflows(command, *status)) {
+                stop.send_replace(true);
+            }
+            indices.into_iter().zip(statuses).collect::<Vec<_>>()
+        });
+        joined
+    }
+
     async fn run_list(self: &Arc<Self>, commands: &[String]) -> Listed {
         let plan = Plan::of(commands, &self.paths, &Records::at(Records::default_path()).read());
         if !plan.expensive.is_empty() {
@@ -812,7 +899,11 @@ impl Shared {
         let ordered: Vec<String> = plan.ordered().cloned().collect();
         let mut offloaded = JoinSet::new();
         let mut local = Vec::new();
+        let joined = self.spawn_batch(&ordered, &plan, &stop, &mut offloaded);
         for (index, command) in ordered.iter().enumerate() {
+            if joined.contains(&index) {
+                continue;
+            }
             if self.offload_host_for(command).is_some() {
                 let shared = if plan.is_expensive(command) { Arc::clone(&expensive) } else { Arc::clone(self) };
                 let (command, stop) = (command.clone(), Arc::clone(&stop));
@@ -821,7 +912,7 @@ impl Shared {
                     if status != 0 && !shared.overflows(&command, status) {
                         stop.send_replace(true);
                     }
-                    (index, status)
+                    vec![(index, status)]
                 });
             } else {
                 local.push(command.clone());
@@ -837,7 +928,7 @@ impl Shared {
         }
         let mut results = Vec::new();
         while let Some(joined) = offloaded.join_next().await {
-            results.push(joined.unwrap_or((usize::MAX, 1)));
+            results.extend(joined.unwrap_or_else(|_| vec![(usize::MAX, 1)]));
         }
         results.sort_unstable();
         let mut overflowed = Vec::new();
