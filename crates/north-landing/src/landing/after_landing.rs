@@ -5,7 +5,7 @@ use std::process::Command;
 
 use crate::platform::rolling_issue::{self, Tracker};
 
-const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD --safe-push PATH
+const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD
 
 Run the after-landing gates (code-health, crate-lines, instruction-limits, generated-rewrite, ci-budget) and each `after-landing.check = NAME :: COMMAND`
 in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then add a section for HEAD naming every gate that failed to the repository's one open After-landing gate debt issue; a gate already marked
@@ -120,7 +120,6 @@ struct Args {
     git_dir: PathBuf,
     base: String,
     head: String,
-    safe_push: PathBuf,
 }
 
 fn parse(arguments: &[String]) -> Option<Args> {
@@ -130,10 +129,10 @@ fn parse(arguments: &[String]) -> Option<Args> {
         let slot = ["--git-dir", "--base", "--head", "--safe-push"].iter().position(|name| name == flag)?;
         found[slot] = Some(rest.next()?);
     }
-    let [Some(git_dir), Some(base), Some(head), Some(safe_push)] = found else {
+    let [Some(git_dir), Some(base), Some(head), _] = found else {
         return None;
     };
-    Some(Args { git_dir: git_dir.into(), base: base.clone(), head: head.clone(), safe_push: safe_push.into() })
+    Some(Args { git_dir: git_dir.into(), base: base.clone(), head: head.clone() })
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -237,7 +236,7 @@ fn gates_in(main: &Path, tree: &Path, args: &Args) -> Result<Vec<Failure>, Strin
     let mut links = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "mutant.link"]).unwrap_or_default();
     links.push_str(&git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.link"]).unwrap_or_default());
     link_paths(main, tree, &links)?;
-    let mut failures = crate::land::after::gates::run(&crate::land::after::gates::Landed { tree, base: &args.base, head: &args.head, safe_push: &args.safe_push });
+    let mut failures = crate::land::after::gates::run(&crate::land::after::gates::Landed { tree, base: &args.base, head: &args.head });
     let checks = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.check"]).unwrap_or_default();
     failures.extend(repo_check_failures(tree, &repo_checks(&checks)));
     failures.extend(goal_failures(main, tree, args, &links));

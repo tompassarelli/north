@@ -137,7 +137,7 @@ fn follow_once(lander: &Lander, base: &str, head: &str) {
     }
     let Ok(git_dir) = git(&lander.repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"]) else { return };
     let log = lander.queue.join("logs").join(format!("follow-{}.log", &head[..head.len().min(12)]));
-    let follow = follow::Follow { repo: &lander.repo, git_dir: Path::new(&git_dir), base, head, safe_push: &follow::executable(lander.checker.first().map_or("safe-push", String::as_str)), log: &log };
+    let follow = follow::Follow { repo: &lander.repo, git_dir: Path::new(&git_dir), base, head, log: &log };
     if let Err(error) = follow::spawn(&follow) {
         println!("north land: {error}");
     }
