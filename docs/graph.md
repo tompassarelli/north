@@ -73,6 +73,15 @@ query can join a claim to the checks of the commit it names.
   to the full commit id when the ledger or push log knows it) or `:none` when the box names no commit. `:title`, `:state`,
   `:label`, `:blocked-by`, `:has-box`, `:text`, `:ticked`, `:owner` and `:claims` are replaced from the mirror: a box
   unticked or an issue closed retracts what no longer holds.
+  Waits come from the same issues: `(box:... :waits-on box:...|north#560)` for each unticked box whose text names what it
+  waits on (`waits on`, `waiting for`, `blocked by`, `depends on`, `follows`, `after`, `needs` followed by `north#N`, `#N`,
+  `box N` or a sibling box's leading label such as `B16` or `4-3`), `(north#8 :follows north#7)` from `Follows:` lines, and
+  `(box:... :unparsed-wait TEXT)` for a wait that names a box it cannot resolve. The ingest report prints each unparsed wait
+  as `mirror: cannot parse a wait of ...`. `:follows`, `:waits-on` and `:unparsed-wait` are replaced from the mirror.
+- `ranking` (writer `ranking`): `(north#633 :rank 1)` from the ranked list in `docs/rationale/backlog-ranking.md` and
+  `(north#572 :doc-waits-on box:...)` for each `prerequisite -> dependent` line of its DAG section whose ends read as
+  `north#N`, `north#N box K` or `north#N boxes K, L and M`; any other DAG line is printed as `cannot parse a wait in
+  backlog-ranking.md`. It reads the file from `~/code/north/main` and the box ids from the mirror, so it runs after `mirror`.
 - `ledger` (writers `checker` and `ledger`): `(SHA :check-passed|:check-failed COMMAND)` and `(SHA :checked-for north#634)`
   by `checker`, from the ledger's checks; `(SESSION :works-on north#634)` and `(north#634 :landed-as SHA)` by `ledger`.
 - `pushes` (writer `push-log`): per pushed commit `:repo`, `:branch`, `:pushed-at`, `(SESSION :pushed SHA)`, and for a
@@ -105,6 +114,21 @@ of the issue; `observed` is a commit `checker` passed):
      {"rel": "claim", "args": [{"var": "who"}, {"var": "box"}, {"var": "sha"}]},
      {"rel": "observed", "args": [{"var": "sha"}], "neg": true}]}]]}
 ```
+
+## Ready set
+
+`north graph ready [--db PATH] [--query ready|held]` lists the backlog as a dependency graph, read-only: each unticked box of
+an open issue with no live wait, in rank order (`ready N`, issue, rank, box), then each box held by a wait with the edge that
+holds it (`held`, issue, rank, box, `waits on` the box or issue and its text or title). A wait is live while its target box
+is unticked or its target issue is open; `:blocked-by`, `:follows` and `:doc-waits-on` on the issue hold each of its boxes.
+Boxes of issues with no rank come last. `--query ready` and `--query held` print the `north graph ask` query behind each list,
+so `north graph ask "$(north graph ready --query ready)"` prints the same rows as tab-separated terms.
+
+`north dispatch` reads the same set (`crates/north-graph-ground/src/backlog.rs`): it orders issues by priority label, then
+rank, and skips an issue whose every unticked product box is held with `no box is ready: box "..." waits on ...`. A box is
+ready for this purpose when at least one product box is ready, so a ready Clean-up box never frees an issue whose product
+boxes wait. The graph is as fresh as the last ingest, which `north land follow` runs after each landing; when the graph cannot
+be read dispatch prints a `note:` and falls back to label and age order and the issue-level waits it reads from text.
 
 ## Grounding
 

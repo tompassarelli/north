@@ -59,6 +59,8 @@ pub struct Survey {
     pub saturated: BTreeMap<String, String>,
     /// The report each session was last revived for, by `ended_ms`.
     pub revived: BTreeMap<String, u64>,
+    /// The box waits and ranks in the fact graph, absent when the graph could not be read.
+    pub backlog: Option<north_graph_ground::Backlog>,
     pub at: f64,
 }
 
@@ -419,7 +421,8 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push(why);
         Vec::new()
     });
-    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, strands, saturated, revived, at })
+    let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
+    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, strands, saturated, revived, backlog, at })
 }
 
 mod github {

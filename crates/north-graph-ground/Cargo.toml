@@ -13,6 +13,7 @@ doctest = false
 north-base = { path = "../north-base" }
 north-graph = { path = "../north-graph" }
 regex.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

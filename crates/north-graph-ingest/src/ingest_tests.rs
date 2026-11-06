@@ -39,7 +39,7 @@ fn places(directory: &Path) -> Places {
     std::fs::write(directory.join("pushes.tsv"), format!("1793926432\tnorth\tn634-hung-slots\t{FULL}\t{FULL}\tn634-hung-slots\n")).unwrap();
     std::fs::write(directory.join("corrections.jsonl"), "{\"id\":\"L1\",\"at\":\"2026-10-01T14:15:12Z\",\"kind\":\"correction\",\"quote\":\"Tom said the reply did not answer his question.\",\"source\":\"tom convo:1 session:abc\",\"superseded_by\":null,\"class\":\"unanswered\"}\n").unwrap();
     std::fs::create_dir_all(directory.join("coverage")).unwrap();
-    Places { mirror, ledger, pushes: directory.join("pushes.tsv"), code: directory.join("code"), decisions: None, corrections: directory.join("corrections.jsonl"), coverage: directory.join("coverage") }
+    Places { mirror, ledger, pushes: directory.join("pushes.tsv"), code: directory.join("code"), decisions: None, corrections: directory.join("corrections.jsonl"), coverage: directory.join("coverage"), ranking: directory.join("backlog-ranking.md") }
 }
 
 fn unobserved_claims() -> Query {
@@ -61,7 +61,7 @@ fn unobserved(graph: &Graph) -> Vec<(Term, Term)> {
 }
 
 #[test]
-fn a_done_claim_is_the_workers_quoted_triple_and_only_the_checker_can_observe_it() {
+fn a_done_claim_is_the_workers_quoted_triple_only_the_checker_can_observe_and_a_rerun_changes_nothing() {
     let directory = tempfile::tempdir().unwrap();
     let places = places(directory.path());
     let mut graph = Graph::open_in_memory().unwrap();
@@ -79,10 +79,10 @@ fn a_done_claim_is_the_workers_quoted_triple_and_only_the_checker_can_observe_it
         !told.iter().any(|fact| fact.triple.t2 == Term::keyword("done-at")),
         "the commit a box names is quoted inside the worker's claim and is never a bare fact"
     );
+    a_rerun_adds_nothing_and_a_changed_source_is_followed();
 }
 
-#[test]
-fn ingesting_twice_adds_nothing_and_a_changed_source_is_followed() {
+fn a_rerun_adds_nothing_and_a_changed_source_is_followed() {
     let directory = tempfile::tempdir().unwrap();
     let places = places(directory.path());
     let mut graph = Graph::open_in_memory().unwrap();
@@ -129,4 +129,34 @@ fn a_landed_commit_is_told_to_have_touched_the_files_it_changed() {
     let mut touched: Vec<String> = graph.mentions(&Term::string(landed.as_str()), 10).unwrap().into_iter().filter(|fact| fact.triple.t2 == Term::keyword("touched")).map(|fact| fact.triple.t3.to_string()).collect();
     touched.sort();
     assert_eq!(touched, ["\"README.md\"", "\"crates/x/lib.rs\""], "only a commit the push log landed is read, with the files that commit changed");
+}
+
+fn told_as(graph: &Graph, predicate: &str) -> Vec<(String, String)> {
+    let mut found: Vec<(String, String)> = graph.told().unwrap().iter().filter(|fact| fact.triple.t2 == Term::keyword(predicate)).map(|fact| (fact.triple.t1.to_string(), fact.triple.t3.to_string())).collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn box_waits_and_the_ranking_documents_order_and_edges_reach_the_graph_and_unreadable_waits_are_named() {
+    let directory = tempfile::tempdir().unwrap();
+    let places = places(directory.path());
+    let body = "- [ ] Ship the gateway\n- [ ] Move the callers (after north#560; waits on the broker box)\n";
+    let other = "Follows: north#7\n- [ ] Cull the tests\n";
+    let issues = [json!({"number": 7, "title": "Gateway", "body": body, "labels": {"nodes": []}, "blockedBy": {"nodes": []}}), json!({"number": 8, "title": "Cull", "body": other, "labels": {"nodes": []}, "blockedBy": {"nodes": []}})];
+    places.mirror.write("north/issues/open", &json!(issues), None, 1.0).unwrap();
+    std::fs::write(&places.ranking, "## Ranked list\n\n1. north#8 Cull first\n2. north#7 Gateway\n\n## DAG\n\n- north#7 box 1 -> north#8\n- each fix -> its observation box\n").unwrap();
+    let mut graph = Graph::open_in_memory().unwrap();
+    let report = ingest(&mut graph, &places, &[Source::Mirror, Source::Ranking]);
+    assert!(!report.failed, "{:?}", report.lines);
+    assert_eq!(told_as(&graph, "rank"), [("\"north#7\"".to_owned(), "2".to_owned()), ("\"north#8\"".to_owned(), "1".to_owned())]);
+    assert_eq!(told_as(&graph, "follows"), [("\"north#8\"".to_owned(), "\"north#7\"".to_owned())]);
+    let waits: Vec<String> = told_as(&graph, "waits-on").into_iter().map(|(_, target)| target).collect();
+    assert_eq!(waits, ["\"north#560\""], "the issue the box names is an edge; the broker box named in words is not");
+    let first_box = crate::boxes::parse(body)[0].id("north#7");
+    let doc = told_as(&graph, "doc-waits-on");
+    assert_eq!(doc, [("\"north#8\"".to_owned(), format!("\"{first_box}\""))]);
+    let named = report.lines.join("\n");
+    assert!(named.contains("mirror: cannot parse a wait of north#7:") && named.contains("the broker box"), "{named}");
+    assert!(named.contains("ranking: cannot parse a wait in backlog-ranking.md: each fix -> its observation box"), "{named}");
 }

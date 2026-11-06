@@ -1,6 +1,7 @@
 //! Which open issues are ready: unticked Done-when boxes, nobody holding them, no label or newest
 //! report handing them to Tom or the laptop, and every predecessor closed.
 use crate::platform::cleanup;
+use north_graph_ground::{Backlog, Verdict};
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -128,7 +129,7 @@ impl Issue {
         Some(self.report[start..end].trim())
     }
 
-    /// The rank `threads unowned` staffs by: priority:now, unprioritized, next, later.
+    /// The rank `threads unowned` staffs by: priority:now, unprioritized, next, later; within a priority, docs/rationale/backlog-ranking.md's order.
     pub fn priority(&self) -> usize {
         let label = PRIORITIES.iter().find(|priority| self.labels.iter().any(|label| label == *priority)).unwrap_or(&"-");
         PRIORITIES.iter().position(|priority| priority == label).unwrap_or(1)
@@ -240,6 +241,8 @@ pub struct World<'a> {
     /// The fleet sessions every reached registry lists as running or parked on a wait.
     pub live: &'a BTreeSet<String>,
     pub planned: &'a BTreeMap<IssueRef, BTreeSet<IssueRef>>,
+    /// The fact graph's box waits and ranks, when it could be read.
+    pub backlog: Option<&'a Backlog>,
     pub at: f64,
 }
 
@@ -278,6 +281,9 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     let open: Vec<String> = waiting.iter().filter(|before| world.open.contains(before)).map(ToString::to_string).collect();
     if !open.is_empty() {
         return Err(format!("waits on open {}", open.join(", ")));
+    }
+    if let Some(Verdict::Held(edge)) = world.backlog.map(|backlog| backlog.verdict(&reference.to_string())) {
+        return Err(format!("no box is ready: {edge}"));
     }
     if let Some(holder) = world.holds.get(&reference) {
         return Err(format!("held by {holder}"));

@@ -11,12 +11,16 @@ mod issues;
 mod ledger;
 mod places;
 mod pushes;
+mod ranking;
 mod run;
 mod shas;
 mod touches;
+mod waits;
 
 #[cfg(test)]
 mod ingest_tests;
+#[cfg(test)]
+mod waits_tests;
 
 pub use places::Places;
 pub use run::{Report, Source, ingest, run};

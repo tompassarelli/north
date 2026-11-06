@@ -6,6 +6,7 @@ use crate::error::NorthResult;
 use crate::fleet::roster::Roster;
 use crate::pacing::placement::{self, gate};
 use issues::Issue;
+use north_graph_ground::Backlog;
 pub use issues::{IssueRef, OWNER, product_boxes};
 use plan::{Candidate, Capacity, Launch, Ready};
 use slots::Pools;
@@ -45,6 +46,8 @@ mod tuned;
 mod tries;
 mod wait;
 #[cfg(test)]
+mod backlog_tests;
+#[cfg(test)]
 mod claim_tests;
 #[cfg(test)]
 mod threads_claim_tests;
@@ -76,10 +79,12 @@ pub struct Outcome {
     pub revival: revive::Revival,
 }
 
-fn ordered<'a>(issues: &'a [Issue], projects: &projects::Projects) -> Vec<&'a Issue> {
+fn ordered<'a>(issues: &'a [Issue], projects: &projects::Projects, backlog: Option<&Backlog>) -> Vec<&'a Issue> {
+    let rank = |issue: &Issue| backlog.and_then(|backlog| backlog.rank(&issue.reference().to_string())).unwrap_or(i64::MAX);
     let mut ordered: Vec<&Issue> = issues.iter().collect();
     ordered.sort_by(|a, b| {
         (a.priority().cmp(&b.priority()))
+            .then(rank(a).cmp(&rank(b)))
             .then(a.created.total_cmp(&b.created))
             .then_with(|| projects.position(&a.repo).cmp(&projects.position(&b.repo)))
             .then(a.number.cmp(&b.number))
@@ -121,11 +126,11 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut holds = survey.holds.clone();
     holds.extend(revival.holds.clone());
     outcome.revival = revival;
-    let world = issues::World { open: &survey.open, holds: &holds, live: &survey.live, planned: &planned, at: survey.at };
+    let world = issues::World { open: &survey.open, holds: &holds, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
     let mut history = survey.history.clone();
     let mut handoffs = survey.handoffs.clone();
     let mut claims = hotspots::Claims::default();
-    for issue in ordered(&survey.issues, &survey.projects) {
+    for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
         if let Some(why) = survey.projects.paused(&issue.repo, survey.at) {
             outcome.skipped.push((issue.reference(), why));
             continue;

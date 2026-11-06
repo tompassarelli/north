@@ -1,17 +1,19 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use north_graph::{Graph, Synced, Telling, Term, default_path};
+use north_graph::{Graph, Synced, Term, default_path};
 
 use crate::places::Places;
 use crate::shas::Shas;
-use crate::{corrections, coverage, decisions, issues, ledger, pushes, touches};
+use crate::facts::Sourced;
+use crate::{corrections, coverage, decisions, issues, ledger, pushes, ranking, touches};
 
-const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\nsources: mirror ledger pushes touches decisions corrections coverage (all when none is named)";
+const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\nsources: mirror ranking ledger pushes touches decisions corrections coverage (all when none is named)";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Source {
     Mirror,
+    Ranking,
     Ledger,
     Pushes,
     Touches,
@@ -21,11 +23,12 @@ pub enum Source {
 }
 
 impl Source {
-    pub const ALL: [Self; 7] = [Self::Mirror, Self::Ledger, Self::Pushes, Self::Touches, Self::Decisions, Self::Corrections, Self::Coverage];
+    pub const ALL: [Self; 8] = [Self::Mirror, Self::Ranking, Self::Ledger, Self::Pushes, Self::Touches, Self::Decisions, Self::Corrections, Self::Coverage];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Mirror => "mirror",
+            Self::Ranking => "ranking",
             Self::Ledger => "ledger",
             Self::Pushes => "pushes",
             Self::Touches => "touches",
@@ -35,15 +38,16 @@ impl Source {
         }
     }
 
-    fn read(self, places: &Places, shas: &Shas) -> Result<Telling, String> {
+    fn read(self, places: &Places, shas: &Shas) -> Result<Sourced, String> {
         match self {
             Self::Mirror => issues::read(places, shas),
-            Self::Ledger => ledger::read(places),
-            Self::Pushes => pushes::read(places),
-            Self::Touches => touches::read(places),
-            Self::Decisions => decisions::read(places),
-            Self::Corrections => corrections::read(places),
-            Self::Coverage => coverage::read(places),
+            Self::Ranking => ranking::read(places),
+            Self::Ledger => ledger::read(places).map(Sourced::from),
+            Self::Pushes => pushes::read(places).map(Sourced::from),
+            Self::Touches => touches::read(places).map(Sourced::from),
+            Self::Decisions => decisions::read(places).map(Sourced::from),
+            Self::Corrections => corrections::read(places).map(Sourced::from),
+            Self::Coverage => coverage::read(places).map(Sourced::from),
         }
     }
 }
@@ -59,15 +63,18 @@ pub fn ingest(graph: &mut Graph, places: &Places, sources: &[Source]) -> Report 
     let mut report = Report::default();
     let mut replaced: HashMap<Term, &'static str> = HashMap::new();
     for source in sources {
-        let outcome = source.read(places, &shas).and_then(|telling| {
+        let outcome = source.read(places, &shas).and_then(|Sourced { telling, notes }| {
             if let Some((predicate, other)) = telling.replaces.iter().find_map(|predicate| replaced.get(predicate).map(|other| (predicate, other))) {
                 return Err(format!("it replaces {predicate}, which {other} already replaces in this run"));
             }
             replaced.extend(telling.replaces.iter().map(|predicate| (predicate.clone(), source.name())));
-            graph.sync(&telling).map_err(|why| why.to_string())
+            graph.sync(&telling).map(|synced| (synced, notes)).map_err(|why| why.to_string())
         });
         match outcome {
-            Ok(Synced { asserted, retracted, unchanged }) => report.lines.push(format!("{}: {asserted} asserted, {retracted} retracted, {unchanged} unchanged", source.name())),
+            Ok((Synced { asserted, retracted, unchanged }, notes)) => {
+                report.lines.push(format!("{}: {asserted} asserted, {retracted} retracted, {unchanged} unchanged", source.name()));
+                report.lines.extend(notes.into_iter().map(|note| format!("{}: {note}", source.name())));
+            }
             Err(why) => {
                 report.failed = true;
                 report.lines.push(format!("{}: skipped: {why}", source.name()));

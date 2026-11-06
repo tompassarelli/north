@@ -863,6 +863,7 @@ dependencies = [
  "north-dispatch",
  "north-github-mirror",
  "north-goals",
+ "north-graph-ground",
  "north-graph-ingest",
  "north-guard",
  "north-landing",
@@ -994,6 +995,7 @@ dependencies = [
  "north-capacity-host",
  "north-core",
  "north-github-mirror",
+ "north-graph-ground",
  "north-strategy-types",
  "proptest",
  "regex",
@@ -1058,6 +1060,7 @@ dependencies = [
  "north-base",
  "north-graph",
  "regex",
+ "serde_json",
  "tempfile",
 ]
 

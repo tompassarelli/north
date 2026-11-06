@@ -85,7 +85,7 @@ may_use = ["north-base", "north-graph"]
 [[crate_dag.crate]]
 name = "north-dispatch"
 paths = ["crates/north-dispatch/src/**"]
-may_use = ["north-capacity", "north-fleet", "north-providers", "north-threads", "north-github-mirror"]
+may_use = ["north-capacity", "north-fleet", "north-providers", "north-threads", "north-github-mirror", "north-graph-ground"]
 
 [[crate_dag.crate]]
 name = "north-replay"
@@ -357,7 +357,7 @@ may_use = ["crate-roots", "foundation", "graph"]
 name = "ops"
 paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-core/src/health.rs", "crates/north-core/src/health/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache"]
+may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground"]
 
 [[module]]
 name = "usage"
@@ -406,7 +406,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay"]
+may_use = ["strategy_types", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground"]
 
 [[module]]
 name = "verify"

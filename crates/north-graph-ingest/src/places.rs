@@ -9,6 +9,7 @@ pub struct Places {
     pub code: PathBuf,
     pub decisions: Option<PathBuf>,
     pub corrections: PathBuf,
+    pub ranking: PathBuf,
     pub coverage: PathBuf,
 }
 
@@ -27,6 +28,7 @@ impl Places {
             code: PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code"),
             decisions: north_base::platform::decision_log::root(),
             corrections: std::env::var_os("NORTH_GROUNDING_LEDGER").map_or_else(|| north.join("grounding/ledger.jsonl"), PathBuf::from),
+            ranking: PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code/north/main/docs/rationale/backlog-ranking.md"),
             coverage: north.join("coverage"),
         }
     }

@@ -53,6 +53,7 @@ north-dispatch = { path = "crates/north-dispatch" }
 north-github-mirror = { path = "crates/north-github-mirror" }
 north-goals = { path = "crates/north-goals" }
 north-coverage = { path = "crates/north-coverage" }
+north-graph-ground = { path = "crates/north-graph-ground" }
 north-graph-ingest = { path = "crates/north-graph-ingest" }
 north-runtime = { path = "crates/north-runtime" }
 north-guard = { path = "crates/north-guard" }

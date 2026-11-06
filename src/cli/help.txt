@@ -55,7 +55,7 @@ Commands:
   doctor nix [--lock FILE [--allow FILE]]        Report each dev shell as rooted and enterable offline, missing rustup wrapper store paths and a second nixpkgs in flake.lock
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   coverage select|test|miss BASE HEAD [--map FILE] | record | refresh [--host NAME]  Pick the Rust tests that reach the functions a change touches, name the after-push failures they missed and refresh the map, or record the test-to-function coverage map on a check host
-  graph tell|retract T1 T2 T3 | show T1 | ask QUERY_JSON | ingest [SOURCE...] | validate [--db PATH] [--writer NAME] [--json]  Record, withdraw and read facts in the triple graph and run a Datalog query over them
+  graph tell|retract T1 T2 T3 | show T1 | ask QUERY_JSON | ready [--query ready|held] | ingest [SOURCE...] | validate [--db PATH] [--writer NAME] [--json]  Record, withdraw and read facts in the triple graph, run a Datalog query over them, and list the ready boxes of the backlog in rank order with each held box's blocking edge
   provenance [check|debt|audit]                  Audit grounding and target debt
   brief new --category CATEGORY [--item REPO#N]   Print a worker brief skeleton carrying every line the brief guard requires for that category, with the fact graph neighborhood of the item when given
   proxy calls TRANSCRIPT                         Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times

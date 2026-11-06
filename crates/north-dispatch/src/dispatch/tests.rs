@@ -91,6 +91,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         strands: Vec::new(),
         saturated: BTreeMap::new(),
         revived: BTreeMap::new(),
+        backlog: None,
         at: 0.0,
     }
 }
@@ -144,7 +145,7 @@ fn an_issue_whose_every_open_box_names_a_live_owner_is_skipped_and_one_with_an_u
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
     let live: BTreeSet<String> = ["n-land-first", "n-cull-it", "n-cull-landing", "lead-88"].map(str::to_owned).into();
-    let world = super::issues::World { open: &open, holds: &holds, live: &live, planned: &planned, at: 0.0 };
+    let world = super::issues::World { open: &open, holds: &holds, live: &live, planned: &planned, backlog: None, at: 0.0 };
     let ready = |body: &str| super::issues::readiness(&issue("north", 633, body, &[]), &world);
     assert_eq!(ready("- [x] done (owner: n-fast-land)\n- [ ] cores first (owner: n-land-first)"), Err("every open box has a live owner: n-land-first".into()));
     assert_eq!(ready("- [ ] cull north (owners: n-cull-it, -landing)\n  - [ ] code: delete it. Owner: lead-88."), Err("every open box has a live owner: lead-88, n-cull-it, n-cull-landing".into()));

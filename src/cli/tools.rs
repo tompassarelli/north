@@ -59,7 +59,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("experiments", crate::ops::experiments::run),
     ("goals", north_goals::run),
     ("coverage", north_coverage::run),
-    ("graph", north_graph_ingest::run),
+    ("graph", graph),
     ("tempo", crate::ops::tempo::run),
     ("report", crate::ops::report::run),
     ("agents", super::agents::run),
@@ -176,6 +176,13 @@ fn named(table: &'static [(&'static str, Run)], command: &str) -> Option<&'stati
 
 fn runner(table: &[(&str, Run)], name: &str) -> Option<Run> {
     table.iter().find(|(known, _)| *known == name).map(|(_, run)| *run)
+}
+
+fn graph(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((verb, rest)) if verb == "ready" => north_graph_ground::ready_command(rest),
+        _ => north_graph_ingest::run(arguments),
+    }
 }
 
 fn code_health(arguments: &[String]) -> u8 {

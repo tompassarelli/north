@@ -4,7 +4,9 @@ North's open issues on 2026-11-06, ranked by how much other work each one unbloc
 
 ## How dispatch reads this order
 
-`north dispatch` (crates/north-dispatch/src/dispatch/mod.rs, `ordered`) sorts ready issues by priority label (`priority:now`, then no label, then `priority:next`, then `priority:later`), then oldest first, then project, then number. It keeps an issue back while any issue it waits on is open. It finds those waits in `Follows:` lines, `Blocked by` lines and GitHub blocked-by relations (crates/north-dispatch/src/dispatch/issues.rs, `predecessors`). A `Needs:` line is a placement need such as `gex45` or `native`, which the brief copies so placement can read it. So an issue-to-issue wait goes in `Follows: north#N`, never in `Needs:`. Dispatch has no rank finer than the priority label. Within `priority:now` it staffs the oldest first, and since free slots outnumber ready `now` issues, every ready one is staffed in the same round. The rank below therefore decides the label, not a position in the queue.
+`north dispatch` (crates/north-dispatch/src/dispatch/mod.rs, `ordered`) sorts issues by priority label (`priority:now`, then no label, then `priority:next`, then `priority:later`), then by the rank below, then oldest first, then project, then number. An issue with no rank sorts after the ranked issues of its label. `north graph ingest` reads this file into north-graph as `(north#633 :rank 1)`, so the order here is the order dispatch staffs in and the order `north graph ready` prints.
+
+Dispatch keeps an issue back while any issue it waits on is open. It finds those waits in `Follows:` lines, `Blocked by` lines and GitHub blocked-by relations (crates/north-dispatch/src/dispatch/issues.rs, `predecessors`). It also keeps an issue back when the fact graph holds every unticked product box of it waiting: a box waits on what its own text names after `waits on`, `waiting for`, `blocked by`, `depends on`, `follows`, `after` or `needs`, which is an issue (`north#560`, `#560`), a box of the same issue by number (`box 3`) or by its leading label (`B16`, `4-3`, `Prune 5`), and on each edge in the DAG section below. A wait is met when the box it names is ticked or the issue it names is closed. A wait that names a reference the ingest cannot resolve, or a `box` described only in words, is not an edge: ingest prints it as `cannot parse a wait of ...`, and the box stays ready until its text names the box or issue by one of the forms above. A `Needs:` line is a placement need such as `gex45` or `native`, which the brief copies so placement can read it. So an issue-to-issue wait goes in `Follows: north#N`, never in `Needs:`. Within a priority, free slots usually outnumber ready issues, so every ready one is staffed in the same round and the rank decides the order when they do not.
 
 Dispatch refuses to place a `bug` issue that has no `Class:` line (crates/north-pace/src/router/brief.rs, `class_refusal`). It also skips an issue with no `- [ ]` box. Every open bug therefore carries a `Class:` line, except the bodies that a writer rewrites (north#560, north#572, north#627). North#630's last box makes those writers emit the fields themselves.
 
@@ -68,7 +70,7 @@ Only one wait is at the issue level. Dispatch reads it from GitHub's blocked-by 
 
 - clause#1 -> north#616
 
-Every other wait is between boxes. Dispatch cannot express a wait between boxes, so these edges are for the workers who take the boxes, written as `prerequisite -> dependent`:
+Every other wait is between boxes. `north graph ingest` reads each line below as edges when both ends are written as `north#N`, or `north#N box K` or `north#N boxes K, L and M` (the Kth box in the issue body, ticked or not), and prints each line it cannot read as `cannot parse a wait in backlog-ranking.md`. Written as `prerequisite -> dependent`:
 
 - north#630 box 4 -> north#572 (staffable by dispatch)
 - north#630 box 4 -> north#627 (staffable by dispatch)
