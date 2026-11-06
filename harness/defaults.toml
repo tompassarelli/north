@@ -887,7 +887,7 @@ consumers = ["crates/north-capacity-host/src/capacity/host/systemd.rs"]
 
 [admit_psi_unattended_low]
 value = 20
-allowed = { min = 0, max = 100 }
+allowed = { min = 0, max = 100, at_most = "admit_psi_unattended_high" }
 unit = "percent of CPU pressure (PSI some avg10), the low mark of the unattended band; heavy admission reads only the high mark since the batch slice became idle-weighted"
 source = "measured: the laptop (24 threads) held 7 to 12 queued heavy builds for up to 35 minutes at PSI some avg10 1 to 4% and 55 GB available on 2026-10-31; the watchdog samples of 2026-10-28 to 2026-10-29 (n=3406) put PSI some at p95 28 and p99 76; the controller aims for a stall below the 30% batch gate this replaces and the 50% psi-notify default (references.md#psi-notify)"
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
@@ -904,7 +904,7 @@ consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 
 [admit_psi_attended_low]
 value = 10
-allowed = { min = 0, max = 100 }
+allowed = { min = 0, max = 100, at_most = "admit_psi_attended_high" }
 unit = "percent of protected-slice CPU pressure (PSI some avg10) below which the laptop tick thaws the batch slice it froze at the attended high mark"
 source = "prior: the protected-slice gate (INTERACTIVE_PRESSURE_BASIS_POINTS in crates/north-capacity/src/capacity/admission.rs) already defers batch work from 10% while Tom is at the desktop, and the attended low mark takes the same figure"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
@@ -921,7 +921,7 @@ consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 
 [admit_psi_game_low]
 value = 5
-allowed = { min = 0, max = 100 }
+allowed = { min = 0, max = 100, at_most = "admit_psi_game_high" }
 unit = "percent of protected-slice CPU pressure (PSI some avg10) below which the laptop tick thaws the batch slice it froze at the game high mark while game reserve is on"
 source = "prior: the reserve already confines agents to their own cores, so the band drops to half the attended one; a design choice, not a measurement"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
@@ -1074,7 +1074,7 @@ consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_mode_play_cpus_min]
 value = 4
-allowed = { min = 1, max = 256 }
+allowed = { min = 1, max = 256, at_most = "capacity_mode_play_cpus_max" }
 unit = "fewest game CPUs the play reserve narrows to"
 source = "prior: two cores with their siblings keep a Warcraft III client and the compositor"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play with protectedCpuSomeAvg10 readings" }

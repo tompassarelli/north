@@ -180,6 +180,10 @@ fn field<T: serde::de::DeserializeOwned>(json: &Value, name: &str) -> Result<T, 
     decode(json[name]["value"].clone(), name)
 }
 
+pub fn validate_defaults(defaults: &str) -> Result<(), String> {
+    parse_defaults(defaults).map(drop)
+}
+
 pub fn parse_defaults(defaults: &str) -> Result<Defaults, String> {
     let defaults_doc = defaults
         .parse::<DocumentMut>()

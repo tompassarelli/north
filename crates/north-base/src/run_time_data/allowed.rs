@@ -2,7 +2,7 @@ use toml_edit::{DocumentMut, Item, Value};
 
 use super::{Finding, Node};
 
-const CONSTRAINTS: [&str; 7] = ["min", "max", "min_len", "max_len", "ascending", "one_of", "prefix"];
+const CONSTRAINTS: [&str; 9] = ["min", "max", "min_len", "max_len", "ascending", "one_of", "prefix", "at_most", "at_least"];
 
 fn number(value: &Value) -> Option<f64> {
     match value {
@@ -43,7 +43,7 @@ fn text(allowed: Node, key: &str) -> Result<Option<String>, String> {
     }
 }
 
-pub(super) fn violations(value: &Value, allowed: Node) -> Vec<String> {
+pub(super) fn violations(value: &Value, allowed: Node, peer: &dyn Fn(&str) -> Option<f64>) -> Vec<String> {
     let mut found = Vec::new();
     for (key, _) in allowed.keys() {
         if !CONSTRAINTS.contains(&key) {
@@ -53,13 +53,22 @@ pub(super) fn violations(value: &Value, allowed: Node) -> Vec<String> {
     if !found.is_empty() {
         return found;
     }
-    match check(value, allowed) {
+    match check(value, allowed, peer) {
         Ok(()) => Vec::new(),
         Err(why) => vec![why],
     }
 }
 
-fn check(value: &Value, allowed: Node) -> Result<(), String> {
+fn check(value: &Value, allowed: Node, peer: &dyn Fn(&str) -> Option<f64>) -> Result<(), String> {
+    for (key, below) in [("at_most", true), ("at_least", false)] {
+        let Some(other) = text(allowed, key)? else { continue };
+        let Some(bound) = peer(&other) else {
+            return Err(format!("allowed.{key} names {other}, which has no number"));
+        };
+        if leaves(value).into_iter().filter_map(number).any(|real| if below { real > bound } else { real < bound }) {
+            return Err(format!("must be {} {other} ({bound})", if below { "at most" } else { "at least" }));
+        }
+    }
     let (min, max) = (limit(allowed, "min")?, limit(allowed, "max")?);
     let (min_len, max_len) = (limit(allowed, "min_len")?, limit(allowed, "max_len")?);
     let (one_of, prefix) = (texts(allowed, "one_of")?, text(allowed, "prefix")?);
@@ -148,7 +157,8 @@ pub(super) fn declared(path: &str, base: Option<&DocumentMut>, head: &DocumentMu
             push("changed its allowed range, which only the Rust that reads it may widen".to_owned());
             continue;
         }
-        for why in violations(value, Node::Item(rule)) {
+        let peer = |other: &str| head.get(other).and_then(Item::as_table).and_then(|table| table.get("value")).and_then(Item::as_value).and_then(number);
+        for why in violations(value, Node::Item(rule), &peer) {
             push(format!("value {why}"));
         }
     }

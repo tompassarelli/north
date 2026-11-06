@@ -47,7 +47,6 @@ fn an_array_its_readers_had_entries_in_may_shrink_but_not_empty() {
 
 const DEFAULTS_PATH: &str = "harness/defaults.toml";
 
-
 fn defaults_reasons(base: &str, head: &str) -> Vec<String> {
     check(DEFAULTS_PATH, Some(base), Some(head)).into_iter().map(|finding| format!("{} {}", finding.key, finding.reason)).collect()
 }
@@ -145,4 +144,20 @@ fn the_scan_refuses_a_table_only_lane_that_sets_an_out_of_range_value_and_passes
     assert_eq!(super::run(refused.path(), &range), 1);
     let (accepted, range) = lane(base, "[success_threshold]\nvalue = 90\nallowed = { min = 0, max = 100 }\n");
     assert_eq!(super::run(accepted.path(), &range), 0);
+}
+
+#[test]
+fn a_pair_of_limits_is_held_to_its_order_even_when_each_sits_inside_its_own_range() {
+    let base = "[low]\nvalue = 4\nallowed = { min = 1, max = 256, at_most = 'high' }\n[high]\nvalue = 12\nallowed = { min = 1, max = 256 }\n";
+    assert!(defaults_reasons(base, base).is_empty());
+    assert_eq!(defaults_reasons(base, &base.replace("value = 12", "value = 3")), ["low value must be at most high (3)"]);
+    assert_eq!(defaults_reasons(base, &base.replace("value = 4", "value = 40")), ["low value must be at most high (12)"]);
+}
+
+#[test]
+fn a_list_may_empty_when_its_declared_range_allows_it() {
+    let base = "[tiers]\nvalue = ['codex:a']\nallowed = { prefix = 'codex:', min_len = 0 }\n";
+    assert!(defaults_reasons(base, &base.replace("['codex:a']", "[]")).is_empty());
+    let kept = "[owners]\nvalue = ['a']\nallowed = { min_len = 1 }\n";
+    assert_eq!(defaults_reasons(kept, &kept.replace("['a']", "[]")), ["owners value holds 0 entries, allowed 1..any"]);
 }

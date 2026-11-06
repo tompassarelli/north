@@ -163,6 +163,7 @@ pub fn check(path: &str, base: Option<&str>, head: Option<&str>) -> Vec<Finding>
         compare(path, "", Node::Item(was.as_item()), Node::Item(now.as_item()), &mut found);
     }
     if path == DEFAULTS {
+        found.retain(|finding| !finding.reason.starts_with("emptied"));
         found.extend(allowed::declared(path, was.as_ref(), &now));
     }
     for consumer in CONSUMERS.get().copied().unwrap_or_default().iter().filter(|consumer| consumer.path == path) {

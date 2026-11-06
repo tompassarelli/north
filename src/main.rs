@@ -17,7 +17,8 @@ use north_ops::ops;
 use north_runtime::{agent_contain, build_offload, land_offload, laptop_ntfy, laptop_runner, runtime, runtime_access, timers};
 use north_dispatch::{dispatch, laptop, loops, pacing, resident_cap, tune};
 
-static RUN_TIME_READERS: [run_time_data::Consumer; 5] = [
+static RUN_TIME_READERS: [run_time_data::Consumer; 6] = [
+    run_time_data::Consumer { path: "harness/defaults.toml", validate: router::policy::validate_defaults },
     run_time_data::Consumer { path: "harness/loops.toml", validate: loops::validate },
     run_time_data::Consumer { path: "north-data/expectations.toml", validate: north_dispatch::check::validate },
     run_time_data::Consumer { path: "north-data/private-checks.toml", validate: ops::private_check::validate },
