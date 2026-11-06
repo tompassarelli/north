@@ -77,5 +77,5 @@ fn refuses_a_deny_listed_term_and_a_private_kind_in_every_place_a_gh_write_carri
     assert!(matches!(decide("gh issue comment 5 --body 'the sandbox keeps the lane writable'", cwd, false), Verdict::Allow));
     assert!(matches!(decide(&format!("gh issue comment 5 --body 'the {KIND_TEXT} plan'"), cwd, true), Verdict::Allow));
     let Verdict::Deny(reason) = decide("gh issue comment 5 --body 'judge-down'", cwd, false) else { panic!("an unjudged text passed") };
-    assert!(reason.contains("could not check"), "{reason}");
+    assert!(reason.contains("has no verdict"), "{reason}");
 }

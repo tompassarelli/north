@@ -8,8 +8,13 @@ use super::kinds::Kinds;
 use crate::runtime_access::RuntimeAccess;
 use crate::timers::oneshot::{self, Asked};
 
-const MODEL: &str = "claude-haiku-5-5";
-const EFFORT: &str = "low";
+pub struct Tier {
+    model: &'static str,
+    effort: &'static str,
+}
+
+const SCREEN: Tier = Tier { model: "claude-haiku-5-5", effort: "low" };
+const CONFIRM: Tier = Tier { model: "claude-sonnet-5-5", effort: "low" };
 const PROMPT_VERSION: &str = "1";
 const CLEAN: &str = "NONE\n";
 const ATTEMPT_LIMIT: Duration = Duration::from_secs(90);
@@ -47,36 +52,39 @@ impl Cache {
     }
 }
 
-pub fn judge(kinds: &Kinds, text: &str, cache: &Cache, ask: &mut dyn FnMut(&str) -> Result<String, String>) -> Result<Vec<Finding>, String> {
+pub fn judge(kinds: &Kinds, text: &str, cache: &Cache, ask: &mut dyn FnMut(&Tier, &str) -> Result<String, String>) -> Result<Vec<Finding>, String> {
     let mut found = Vec::new();
     for chunk in chunks(text) {
-        let key = key(kinds, &chunk);
-        let findings = match cache.read(&key) {
-            Some(held) => held,
-            None => {
-                let fresh = parse_answer(kinds, &ask(&prompt(kinds, &chunk))?)?;
-                cache.write(&key, &fresh);
-                fresh
-            }
-        };
-        found.extend(findings);
+        if !verdict(kinds, &chunk, cache, &SCREEN, ask)?.is_empty() {
+            found.extend(verdict(kinds, &chunk, cache, &CONFIRM, ask)?);
+        }
     }
     found.sort();
     found.dedup();
     Ok(found)
 }
 
-pub fn ask_subscription(prompt: &str, access: &RuntimeAccess) -> Result<String, String> {
-    match oneshot::ask_claude(MODEL, EFFORT, ATTEMPT_LIMIT, prompt, access, &mut |line| eprintln!("privacy judge: {line}")) {
+fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, ask: &mut dyn FnMut(&Tier, &str) -> Result<String, String>) -> Result<Vec<Finding>, String> {
+    let key = key(kinds, tier, chunk);
+    if let Some(held) = cache.read(&key) {
+        return Ok(held);
+    }
+    let fresh = parse_answer(kinds, &ask(tier, &prompt(kinds, chunk))?)?;
+    cache.write(&key, &fresh);
+    Ok(fresh)
+}
+
+pub fn ask_subscription(tier: &Tier, prompt: &str, access: &RuntimeAccess) -> Result<String, String> {
+    match oneshot::ask_claude(tier.model, tier.effort, ATTEMPT_LIMIT, prompt, access, &mut |line| eprintln!("privacy judge: {line}")) {
         Asked::Answer(answer) => Ok(answer),
         Asked::AtLimit => Err("every claude subscription account is at its usage limit".to_owned()),
         Asked::Failed(reason) => Err(reason),
     }
 }
 
-fn key(kinds: &Kinds, chunk: &str) -> String {
+fn key(kinds: &Kinds, tier: &Tier, chunk: &str) -> String {
     let mut hash = Sha256::new();
-    for part in [PROMPT_VERSION, MODEL, EFFORT, &kinds.source, chunk] {
+    for part in [PROMPT_VERSION, tier.model, tier.effort, &kinds.source, chunk] {
         hash.update(part.as_bytes());
         hash.update([0]);
     }
