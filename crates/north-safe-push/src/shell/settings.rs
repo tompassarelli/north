@@ -6,6 +6,7 @@ pub struct Settings {
     pub safe_push: String,
     pub fleet_session: String,
     pub raw_exit: bool,
+    pub land_offload: bool,
 }
 
 impl Settings {
@@ -17,6 +18,7 @@ impl Settings {
             safe_push: std::env::var("SAFE_PUSH_SELF").unwrap_or_default(),
             fleet_session: std::env::var("NORTH_FLEET_SESSION").unwrap_or_default(),
             raw_exit: std::env::var_os("NORTH_NO_AUTOREAP").is_some_and(|value| value == "1"),
+            land_offload: std::env::var_os("SAFE_PUSH_LAND_OFFLOAD").is_none_or(|value| value.is_empty() || value == "1"),
         }
     }
 }

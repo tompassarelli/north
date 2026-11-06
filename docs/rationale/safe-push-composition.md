@@ -191,7 +191,7 @@ passed in, so tests are properties over the pure functions plus recorded scenari
   - `plan.rs`: `plan(&GateFacts) -> Vec<Gate>` from land checks present, destination, dry run,
     betterleaks on PATH and origin visibility. Pure.
   - `verdict.rs`: `verdict(&[(Gate, Outcome)]) -> Result<(), Refusal>` gives the "N blocking check(s)
-    failed: a; b" line. `reuse(&Scanned, &Now) -> bool` reuses the background scans only when head,
+    failed: a; b" line. `reuse(&Scanned, &Snapshot)` returns the background scans' results only when head,
     destination and range are unchanged. Pure.
   - `run.rs`: runs the in-process scans through north-landing's public entries (language, native-ref,
     secrets, deny-list, commit-email, dep-gate, tool-removal, test-integrity, policy-sweep,
@@ -359,6 +359,7 @@ the per-lane code still exists.
   frozen land check ends the dry run refused within its deadline and leaves no child behind (the lock
   half went in P2c). Done when: (1) the `reuse` property passes; (2) scenarios 10, 11 and 36-38 pass in
   the bash suite.
+  - Changed on 2026-11-06 while landing this box: P9a landed only `plan.rs` and `verdict.rs`, so this box also adds `gates/run.rs`'s in-process `scan` and `sync_dependencies`, which replace publication's `Checks` port and entry's `LandingChecks`, and wires `--publication-scan BASE HEAD` in `entry::run` for the argv[0] link. bash's `--publication-scan` keeps calling `north land scan publication`, the same function, because the lander runs it with the host's installed runtime, and a runtime older than this box would refuse the new flag and fail every publication scan until `north runtime update`. `Gates::land_checks` runs `north land checks` through `Processes::run_with_outcome`: the child gets its own process group, which is killed when the child ends or safe-push is cancelled (TERM, then KILL after 10 s), and the outcome file's `event`, `skip`, `red-main` and `ran` lines come back as a `Report` for the caller to emit. `Gates::capacity` reads `landing.capacity` and `landing.offloaded-capacity` and the offload host, and `Gates::land_checks_beside` runs the final scans on a scoped thread beside the land checks and reuses them through `verdict::reuse`. The `reuse` property is not kept: `reuse` is equality on a derived `PartialEq`, and verification is over its test budget, so the box's one new test is the outcome-file contract with the land-checks runner. The bash dry run keeps its own land-check call until P10 moves preflight onto `Gates`, so scenarios 8, 9 and 20-22 (10, 11 and 36-38 in the plan's numbering) still exercise the bash path in this box.
 - **P10 Preflight and candidate in Rust.** Covered harness change: review per the rule above. Files:
   `landing/preflight.rs`, `landing/candidate.rs`. bash execs `north safe-push` for
   `--dry-run --to DEFAULT` and for `--check-candidate`. Done when: (1) scenarios 1, 2, 7, 8, 13, 21 and

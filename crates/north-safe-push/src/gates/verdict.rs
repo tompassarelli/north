@@ -50,6 +50,22 @@ pub fn verdict(results: &[(Gate, Outcome)]) -> Result<(), Refusal> {
     if failures.is_empty() { Ok(()) } else { Err(Refusal { failures }) }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Snapshot {
+    pub head: String,
+    pub destination: Option<String>,
+    pub range: String,
+}
+
+pub struct Scanned {
+    pub at: Snapshot,
+    pub results: Vec<(Gate, Outcome)>,
+}
+
+pub fn reuse<'a>(scanned: &'a Scanned, now: &Snapshot) -> Option<&'a [(Gate, Outcome)]> {
+    (scanned.at == *now).then_some(scanned.results.as_slice())
+}
+
 #[cfg(test)]
 #[path = "verdict_tests.rs"]
 mod tests;

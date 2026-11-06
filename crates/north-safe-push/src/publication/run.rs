@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use north_base::foundation::clock::Timestamp;
 use north_base::foundation::step::{Refused, Step, cancelled, refuse};
 
+use crate::gates::run as gates;
 use crate::publication::plan;
 use crate::request::{self, Arguments, Plan, USAGE};
 use crate::session::cancel::watch_for_cancel;
@@ -12,12 +13,7 @@ use crate::shell::Shell;
 use crate::shell::files::Pushed;
 use crate::shell::origin::{Push, Snapshot};
 
-pub trait Checks {
-    fn scan(&self, arguments: &[String]) -> u8;
-    fn sync_dependencies(&self, root: &Path) -> Result<(), String>;
-}
-
-pub fn run(arguments: &[String], shell: &Shell, checks: &dyn Checks) -> u8 {
+pub fn run(arguments: &[String], shell: &Shell) -> u8 {
     watch_for_cancel();
     let request = match request::arguments(arguments) {
         Ok(Plan::Help) => {
@@ -30,7 +26,7 @@ pub fn run(arguments: &[String], shell: &Shell, checks: &dyn Checks) -> u8 {
             return refusal.exit_code();
         }
     };
-    let publisher = Publisher { directory: PathBuf::from("."), shell, checks };
+    let publisher = Publisher { directory: PathBuf::from("."), shell };
     match publisher.destination(&request) {
         Ok(to) => publisher.terminal(publisher.publish(&request, &to)),
         Err(Refused(code)) => code,
@@ -40,7 +36,6 @@ pub fn run(arguments: &[String], shell: &Shell, checks: &dyn Checks) -> u8 {
 struct Publisher<'a> {
     directory: PathBuf,
     shell: &'a Shell,
-    checks: &'a dyn Checks,
 }
 
 struct Outgoing {
@@ -149,7 +144,7 @@ impl Publisher<'_> {
             "--safe-push",
             &self.shell.settings.safe_push,
         ];
-        if self.scan(&language).is_err() {
+        if gates::scan(&language).is_err() {
             refusals.push("language gate");
         }
         if !self.shell.processes.on_path("betterleaks") {
@@ -174,7 +169,7 @@ impl Publisher<'_> {
         }
         println!("safe-push: ✓ clean — pushing {branch} -> origin as {}", publication.refspec);
         if let Some(hook) = self.shell.git.executable_hook("pre-push") {
-            self.checks.sync_dependencies(&outgoing.identity.root).map_err(|error| {
+            gates::sync_dependencies(&outgoing.identity.root).map_err(|error| {
                 eprintln!("{error}");
                 Refused(1)
             })?;
@@ -222,25 +217,16 @@ impl Publisher<'_> {
                     outgoing.destination_ref,
                     outgoing.snapshot_oid_or("absent")
                 );
-                if self.scan(&["secrets", range]).is_err() {
+                if gates::scan(&["secrets", range]).is_err() {
                     println!("safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed.");
                     failed.push("secret scan");
                 }
             }
-            if self.scan(arguments).is_err() {
+            if gates::scan(arguments).is_err() {
                 failed.push(label);
             }
         }
         failed
-    }
-
-    fn scan(&self, arguments: &[&str]) -> Step {
-        cancelled()?;
-        let arguments: Vec<String> = arguments.iter().map(|&argument| argument.to_owned()).collect();
-        match self.checks.scan(&arguments) {
-            0 => cancelled(),
-            code => Err(Refused(code)),
-        }
     }
 
     fn run_hook(&self, hook: &Path, outgoing: &Outgoing) -> Step {
