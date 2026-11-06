@@ -46,6 +46,7 @@ jobs:
         uses: ./.github/actions/cargo-test
       - name: Test
         run: |
+          echo 1000 > /proc/self/oom_score_adj
           shard=${SHARD:-1} shards=${SHARDS:-1} out=$RUNNER_TEMP/cargo-shard
           mkdir -p "$out"
           cargo test --locked --no-run --message-format=json-render-diagnostics | jq -r 'select(.reason == "compiler-artifact" and .profile.test and .executable) | [.executable, (.manifest_path | rtrimstr("Cargo.toml"))] | @tsv' | LC_ALL=C sort -u > "$out/binaries"
@@ -55,17 +56,23 @@ jobs:
           done < "$out/binaries" | LC_ALL=C sort > "$out/cases"
           awk -v shard="$shard" -v shards="$shards" '(NR - 1) % shards == shard - 1' "$out/cases" > "$out/mine"
           status=0
+          sandbox=(timeout -k 10 240 bwrap --dev-bind / / --proc /proc --unshare-pid --new-session --die-with-parent --chdir)
           while IFS=$'\t' read -r exe dir; do
             mapfile -t names < <(awk -F'\t' -v exe="$exe" '$1 == exe { print $3 }' "$out/mine")
             [ "${#names[@]}" -gt 0 ] || continue
             echo "::group::$(basename "$exe") (${#names[@]} tests)"
-            log="$out/log.$(basename "$exe")"
-            if [ -z "${names[0]}" ]; then (cd "$dir" && timeout -k 10 240 "$exe") > "$log" 2>&1 < /dev/null || status=1; else (cd "$dir" && timeout -k 10 240 "$exe" --exact "${names[@]}") > "$log" 2>&1 < /dev/null || status=1; fi
+            log="$out/log.$(basename "$exe")" started=$SECONDS code=0
+            if [ -z "${names[0]}" ]; then "${sandbox[@]}" "$dir" -- "$exe" > "$log" 2>&1 < /dev/null || code=$?; else "${sandbox[@]}" "$dir" -- "$exe" --exact "${names[@]}" > "$log" 2>&1 < /dev/null || code=$?; fi
             cat "$log"
+            echo "$(basename "$exe") exited $code after $((SECONDS - started)) s"
+            [ "$code" = 0 ] || status=1
             echo "::endgroup::"
           done < "$out/binaries"
           [ "$shard" != 1 ] || cargo test --locked --doc || status=1
           exit "$status"
+      - name: Kernel OOM kills
+        if: always()
+        run: sudo dmesg | grep -iE "out of memory|oom-kill|killed process" || echo "no OOM kill"
       - name: Record this shard's tests
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
