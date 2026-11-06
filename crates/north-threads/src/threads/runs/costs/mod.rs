@@ -17,7 +17,8 @@ const SAME_WINDOW_NANOS: i128 = 60_000_000_000;
 const DAY_SECONDS: i64 = 86_400;
 const WIDEST_LOOKBACK_DAYS: i64 = 64;
 const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS run_cost_prices(account TEXT PRIMARY KEY, usd_per_week REAL NOT NULL) STRICT; \
-                      CREATE INDEX IF NOT EXISTS run_usage_account ON run_usage(account, ts)";
+                      CREATE INDEX IF NOT EXISTS run_usage_account ON run_usage(account, ts); \
+                      CREATE INDEX IF NOT EXISTS usage_window_time ON usage(provider, kind, name, ts)";
 
 /// Where each account's priced intervals may have changed: the earliest moment an ingest's new
 /// readouts and usage samples fall at, keyed by account as run_costs keys it, and the runs it recorded.
@@ -263,15 +264,31 @@ fn readings_query(only: Option<(&str, Option<Timestamp>)>) -> (String, Vec<Sql>)
     (sql, bound)
 }
 
-/// The latest reading before `since` at another level than the last reading before it: where the
-/// plateau the scan stands on at `since` most likely began.
-fn last_change(db: &Connection, account: &str, since: Timestamp) -> Result<Option<Timestamp>, Failure> {
+/// A reading of the account from more than a second before `since`, the latest such, with its level:
+/// every reading from it on holds the last reading before `since`.
+fn latest_before(db: &Connection, account: &str, since: Timestamp) -> Result<Option<(Timestamp, f64)>, Failure> {
     let (filter, bound) = readings_filter(Some(account));
-    let before = Sql::Text(since.iso());
-    let latest: Option<f64> = db.query_row(&format!("SELECT used_pct {filter} AND ts < ? ORDER BY ts DESC LIMIT 1"), params_from_iter(bound.iter().chain([&before])), |row| row.get(0)).optional()?;
-    let Some(latest) = latest else { return Ok(None) };
-    let changed: Option<String> = db.query_row(&format!("SELECT max(ts) {filter} AND ts < ? AND used_pct IS NOT ?"), params_from_iter(bound.iter().chain([&before, &Sql::Real(latest)])), |row| row.get(0))?;
+    let before = Sql::Text(Timestamp::from_unix_nanos(since.unix_nanos() - 1_000_000_000).iso());
+    let latest: Option<(String, f64)> = db.query_row(&format!("SELECT ts, used_pct {filter} AND ts < ? ORDER BY ts DESC LIMIT 1"), params_from_iter(bound.iter().chain([&before])), |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+    latest.map(|(ts, used)| Ok((moment(&ts)?, used))).transpose()
+}
+
+/// The latest reading before `at` at another level than `used`: where the plateau the scan stands on
+/// there most likely began.
+fn last_change(db: &Connection, account: &str, at: Timestamp, used: f64) -> Result<Option<Timestamp>, Failure> {
+    let (filter, bound) = readings_filter(Some(account));
+    let before = Sql::Text(at.iso());
+    let changed: Option<String> = db.query_row(&format!("SELECT max(ts) {filter} AND ts < ? AND used_pct IS NOT ?"), params_from_iter(bound.iter().chain([&before, &Sql::Real(used)])), |row| row.get(0))?;
     changed.map(|ts| moment(&ts)).transpose()
+}
+
+fn rising(readings: &[Reading]) -> Result<bool, Failure> {
+    for pair in readings.windows(2) {
+        if matches!(step(&pair[0], &pair[1])?, Step::Rise(_)) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Each account's readings sorted by time, the last reading at a timestamp replacing earlier ones in
@@ -342,7 +359,16 @@ fn intervals(db: &Connection, prices: &BTreeMap<String, f64>, only: Option<(&str
         return Ok(fresh);
     };
     let Some(&price) = prices.get(account) else { return Ok(fresh) };
-    let changed = last_change(db, account, since)?.map(|at| Timestamp::from_unix_nanos(at.unix_nanos() - 60_000_000_000));
+    let account_readings = |cut| -> Result<Vec<Reading>, Failure> { Ok(windows(db, Some((account, cut)))?.into_iter().find(|(name, _)| name == account).map(|(_, readings)| readings).unwrap_or_default()) };
+    let latest = latest_before(db, account, since)?;
+    let near = account_readings(Some(latest.map_or(since, |(at, _)| at)))?;
+    if !rising(&near[near.partition_point(|reading| reading.at < since).saturating_sub(1)..])? {
+        return Ok(fresh);
+    }
+    let changed = match latest {
+        Some((at, used)) => last_change(db, account, at, used)?.map(|at| Timestamp::from_unix_nanos(at.unix_nanos() - 60_000_000_000)),
+        None => None,
+    };
     let mut cuts: Vec<Timestamp> = changed.into_iter().collect();
     for days in [1, 4, 16, WIDEST_LOOKBACK_DAYS] {
         let cut = days_before(since, days);
@@ -350,7 +376,6 @@ fn intervals(db: &Connection, prices: &BTreeMap<String, f64>, only: Option<(&str
             cuts.push(cut);
         }
     }
-    let account_readings = |cut| -> Result<Vec<Reading>, Failure> { Ok(windows(db, Some((account, cut)))?.into_iter().find(|(name, _)| name == account).map(|(_, readings)| readings).unwrap_or_default()) };
     let (readings, start) = 'found: {
         for cut in cuts {
             let readings = account_readings(Some(cut))?;
@@ -363,13 +388,6 @@ fn intervals(db: &Connection, prices: &BTreeMap<String, f64>, only: Option<(&str
         (readings, start)
     };
     let Some(initial) = readings.get(start) else { return Ok(fresh) };
-    let mut rising = false;
-    for pair in readings[start..].windows(2) {
-        rising |= matches!(step(&pair[0], &pair[1])?, Step::Rise(_));
-    }
-    if !rising {
-        return Ok(fresh);
-    }
     let by_account = samples(db, Some((account, initial.at)))?;
     rises(&mut fresh, account, &readings[start..], by_account.get(account).map_or(&[][..], Vec::as_slice), price)?;
     Ok(fresh)
@@ -431,54 +449,4 @@ fn split(fresh: &mut Costs, (account, started, ended): (&str, &str, &str), cost:
 }
 
 #[cfg(test)]
-mod tests {
-    use rusqlite::{Connection, params_from_iter};
-
-    use super::readings_query;
-    use crate::foundation::clock::Timestamp;
-    use crate::platform::usage_table;
-
-    #[test]
-    fn one_claude_account_s_recent_readings_are_searched_by_account_and_time_not_scanned_by_provider() {
-        let db = Connection::open_in_memory().unwrap();
-        usage_table::ensure(&db).unwrap();
-        let (sql, bound) = readings_query(Some(("claude-a", Some(Timestamp::parse("2026-11-06T10:00:00Z").unwrap()))));
-        let plan: Vec<String> = db.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap().query_map(params_from_iter(bound), |row| row.get(3)).unwrap().collect::<Result<_, _>>().unwrap();
-        assert!(plan.iter().any(|step| step.contains("usage_latest (provider=? AND account=? AND kind=? AND name=? AND ts>?)")), "{plan:?}");
-    }
-
-    #[test]
-    fn a_touch_reads_from_the_minute_before_it_and_refuses_a_timestamp_with_an_offset() {
-        let bound = super::minute_bound(Timestamp::parse("2026-11-06T10:00:30Z").unwrap());
-        for kept in ["2026-11-06T10:00:30Z", "2026-11-06T10:00:30.250Z", "2026-11-06T10:01:00Z", "2026-11-07T00:00:00Z"] {
-            assert!(kept > bound.as_str(), "{kept} sorts below {bound}");
-        }
-        assert!("2026-11-06T09:30:00Z" < bound.as_str(), "{bound} reads the half hour before the touch");
-        let mut touched = super::Touched::default();
-        assert!(touched.add("claude-a".to_owned(), "2026-11-06T10:00:30.250Z").is_ok());
-        assert!(touched.add("claude-a".to_owned(), "2026-11-06T12:00:30+02:00").is_err());
-    }
-
-    #[test]
-    fn a_level_readout_re_prices_without_reading_the_account_s_samples_and_a_rise_reads_them() {
-        let mut db = Connection::open_in_memory().unwrap();
-        db.execute_batch(crate::threads::fixtures::LEDGER_SCHEMA).unwrap();
-        usage_table::ensure(&db).unwrap();
-        let read = |db: &Connection, minute: u32, used: f64| {
-            db.execute("INSERT INTO usage(ts, provider, account, kind, name, used_pct, resets_at) VALUES (?, 'claude', 'a', 'window', 'weekly_all', ?, '2026-11-12T00:00:00Z')", rusqlite::params![format!("2026-11-06T10:{minute:02}:00Z"), used]).unwrap();
-        };
-        read(&db, 0, 50.0);
-        let prices = std::collections::BTreeMap::from([("claude-a".to_owned(), 100.0)]);
-        super::allocate(&mut db, &prices, &super::Touched::default()).unwrap();
-        db.execute("INSERT INTO run_usage(agent, request, ts, account, weight) VALUES ('run', 'request', 'unreadable', 'claude-a', 1.0)", []).unwrap();
-        let touch = |minute: u32| {
-            let mut touched = super::Touched::default();
-            touched.add("claude-a".to_owned(), &format!("2026-11-06T10:{minute:02}:00Z")).unwrap();
-            touched
-        };
-        read(&db, 1, 50.0);
-        assert!(super::allocate(&mut db, &prices, &touch(1)).is_ok());
-        read(&db, 2, 51.0);
-        assert!(super::allocate(&mut db, &prices, &touch(2)).is_err());
-    }
-}
+mod tests;
