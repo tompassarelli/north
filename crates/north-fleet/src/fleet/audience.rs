@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::model::Role;
+use super::runtime::PROXY;
 use super::sender::Sender;
 
 pub fn fleet_dir() -> PathBuf {
@@ -11,7 +12,7 @@ pub fn fleet_dir() -> PathBuf {
 
 pub fn grounded(fleet: &Path, named: Option<&str>, conversation: &str, entrypoint: Option<&str>) -> bool {
     match record(fleet, named.filter(|name| !name.is_empty()), conversation) {
-        Some(record) => role(&record) == Some(Role::Proxy) && sender(&record) == Some(Sender::Tom),
+        Some(record) => (role(&record) == Some(Role::Proxy) || record["name"] == PROXY) && sender(&record) == Some(Sender::Tom),
         None => entrypoint == Some("cli"),
     }
 }
@@ -60,5 +61,15 @@ mod tests {
             assert!(!grounded(dir.path(), None, "p1", Some("cli")), "{sender} by conversation");
             assert!(!grounded(dir.path(), Some("proxy"), "p1", Some("cli")), "{sender} by name");
         }
+    }
+
+    #[test]
+    fn the_proxy_record_from_before_roles_is_grounded_for_a_tom_message_as_lineage_reads_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("proxy")).unwrap();
+        let record = serde_json::json!({"name": "proxy", "conversation": "p1", "prompt_sender": "tom"});
+        std::fs::write(dir.path().join("proxy/session.json"), record.to_string()).unwrap();
+        assert!(grounded(dir.path(), Some("proxy"), "p1", None));
+        assert!(grounded(dir.path(), None, "p1", None));
     }
 }
