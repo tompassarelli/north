@@ -82,7 +82,7 @@ impl Issue {
     }
 
     pub fn product_unticked(&self) -> usize {
-        self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line)).count()
+        product_boxes(&self.body)
     }
 
     /// An issue with no box, ticked or not, that no label hands to Tom, its children or a running native job.
@@ -133,6 +133,11 @@ impl Issue {
         let label = PRIORITIES.iter().find(|priority| self.labels.iter().any(|label| label == *priority)).unwrap_or(&"-");
         PRIORITIES.iter().position(|priority| priority == label).unwrap_or(1)
     }
+}
+
+/// The unticked Done-when boxes in `body`, not counting the clean-up group every product issue carries.
+pub fn product_boxes(body: &str) -> usize {
+    body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line)).count()
 }
 
 /// Every issue reference in `text`; a bare `#N` belongs to `repo`.
