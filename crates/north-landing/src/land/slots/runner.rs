@@ -646,7 +646,14 @@ impl Shared {
 
     async fn judge_failure(&self, command: &str, leased: bool, timeout: u64, ran: &Ran) -> i32 {
         let (status, log) = (ran.status, ran.log.display());
-        if status != INFRASTRUCTURE && let Some(first) = self.base_failure(command, leased, timeout).await {
+        if status == INFRASTRUCTURE {
+            let detail = format!("land check {command} reached no verdict (exit {INFRASTRUCTURE}: its host or connection failed before the check reported), which is not this lane's failure");
+            warn(&format!("safe-push: {detail}; log: {log}; NOT pushed."));
+            self.outcome.record(&["skip", &detail]);
+            self.outcome.record(&["event", "land check", "no verdict", &format!("{command}; log: {log}")]);
+            return INFRASTRUCTURE;
+        }
+        if let Some(first) = self.base_failure(command, leased, timeout).await {
             let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
             if self.config.is_inferred(command) {
                 let added = self.added_findings(command, &ran.log);
@@ -1216,6 +1223,16 @@ fn scope_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<
     Some(scope)
 }
 
+fn with_unchecked(mut commands: Vec<String>) -> Vec<String> {
+    let unchecked = std::env::var(super::super::checks::UNCHECKED_ENV).unwrap_or_default();
+    let added: Vec<String> = unchecked.lines().filter(|command| !command.is_empty() && !commands.iter().any(|listed| listed == command)).map(str::to_owned).collect();
+    if !added.is_empty() {
+        say(&format!("safe-push: running {} check(s) whose run before queueing reached no verdict: {}", added.len(), added.join("; ")));
+        commands.extend(added);
+    }
+    commands
+}
+
 fn defined_on_tree(root: &Path, arguments: &Arguments, commands: Vec<String>) -> Vec<String> {
     if !arguments.pinned() {
         return commands;
@@ -1308,7 +1325,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         arguments.commands.iter().filter(|command| config.runs(command)).cloned().collect()
     } else {
         match config.commands(&root, &arguments.base, &arguments.head) {
-            Ok(commands) => defined_on_tree(&root, &arguments, commands),
+            Ok(commands) => with_unchecked(defined_on_tree(&root, &arguments, commands)),
             Err(message) => {
                 warn(&format!("safe-push: {message}; NOT pushed."));
                 return 1;

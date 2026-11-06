@@ -59,9 +59,21 @@ pub struct Ticket {
     pub decided_on: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unchecked: Vec<String>,
 }
 
 impl Ticket {
+    pub fn unchecked<'a>(tickets: impl IntoIterator<Item = &'a Self>) -> Vec<String> {
+        let mut commands: Vec<String> = Vec::new();
+        for command in tickets.into_iter().flat_map(|ticket| &ticket.unchecked) {
+            if !commands.contains(command) {
+                commands.push(command.clone());
+            }
+        }
+        commands
+    }
+
     pub fn goes_first(&self) -> bool {
         self.red_fix.is_some() || self.urgent.is_some()
     }

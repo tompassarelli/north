@@ -272,6 +272,31 @@ fn failed_check_judged_against_base() {
 }
 
 #[test]
+fn a_check_that_reaches_no_verdict_names_no_failed_step_for_the_sheriff_and_is_not_rerun_on_base() {
+    let dropped = r#"printf '%s\n' "$(git rev-parse HEAD)" >>../runs; echo "north capacity offload: the connection ended (ssh exit 255) before the remote host reported the command's exit, so the run reached no verdict" >&2; exit 75"#;
+    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {dropped}"))]);
+    let lane = lane_onto(&fixture, "lane\n");
+    let output = fixture.command_between(&fixture.head, &lane).env("NORTH_LAND_ROUND", "r1").output().unwrap();
+    assert_eq!(output.status.code(), Some(75), "{}", text(&output));
+    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
+    assert!(!outcome.lines().any(|line| line.starts_with("failed-step\t")), "a check with no verdict was named a failing step: {outcome}");
+    assert!(outcome.lines().any(|line| line.starts_with("skip\tland check ") && line.ends_with("reached no verdict (exit 75: its host or connection failed before the check reported), which is not this lane's failure")), "{outcome}");
+    assert_eq!(runs(&fixture), [lane], "a check with no verdict was rerun on the base tree");
+}
+
+#[test]
+fn a_candidate_runs_the_checks_its_lanes_could_not_run_before_queueing() {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: printf 'listed\\n' >>../runs")]);
+    let passed = fixture.command().env("SAFE_PUSH_LAND_UNCHECKED", "printf 'listed\\n' >>../runs\nprintf 'unchecked\\n' >>../runs").output().unwrap();
+    assert_eq!(passed.status.code(), Some(0), "{}", text(&passed));
+    let mut ran = runs(&fixture);
+    ran.sort();
+    assert_eq!(ran, ["listed", "unchecked"], "the listed check runs once and the unchecked one is added: {}", text(&passed));
+    let failed = fixture.command().env("SAFE_PUSH_LAND_UNCHECKED", "exit 3").output().unwrap();
+    assert_eq!(failed.status.code(), Some(3), "a failing check no build host ran before queueing must refuse the candidate: {}", text(&failed));
+}
+
+#[test]
 fn check_a_lane_adds_is_not_judged_against_base() {
     let fixture = Fixture::new(&[("land.check", "file.txt :: printf x >>../runs; exit 127")]);
     let output = fixture.command().env("NORTH_LAND_ROUND", "r1").output().unwrap();

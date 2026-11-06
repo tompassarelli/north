@@ -115,7 +115,8 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
     }
     let log = lander.queue.join("logs").join(format!("{}-speculative-{}.log", micros(), level + 2));
     let stages = Stages::start();
-    let check = match checks::start(&checks::Launch::of(lander), worktree, head, &log, true) {
+    let unchecked = Ticket::unchecked(tickets.iter().map(|(_, ticket)| ticket));
+    let check = match checks::start(&checks::Launch { unchecked: &unchecked, ..checks::Launch::of(lander) }, worktree, head, &log, true) {
         Ok(check) => check,
         Err(verdict) => {
             println!("north land: speculative candidate {} not started: {verdict:?}", built.head);
@@ -126,8 +127,8 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
     Ok(Some(Next { worktree: worktree.clone(), base: head.to_owned(), head: built.head, identity, tips, tickets, stages, check: Some(check), verdict: None }))
 }
 
-pub fn check(lander: &Lander, head: &str, base: &str, log: &Path, taken: Option<&Taken>, red_fix: bool) -> (Verdict, Vec<Next>) {
-    let mut started = match checks::start(&checks::Launch { red_fix, ..checks::Launch::of(lander) }, &lander.worktree, base, log, false) {
+pub fn check(lander: &Lander, head: &str, base: &str, log: &Path, taken: Option<&Taken>, red_fix: bool, unchecked: &[String]) -> (Verdict, Vec<Next>) {
+    let mut started = match checks::start(&checks::Launch { red_fix, unchecked, ..checks::Launch::of(lander) }, &lander.worktree, base, log, false) {
         Ok(started) => started,
         Err(verdict) => return (verdict, Vec::new()),
     };

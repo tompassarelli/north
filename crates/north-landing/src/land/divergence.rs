@@ -183,6 +183,9 @@ fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &
             At::NoVerdict(why) => return halted(runtimes, divergence, &why),
         }
     }
+    if let Some(reason) = unconfirmed(runtimes, divergence, commits, &points[bad], &points[good]) {
+        return Err(reason);
+    }
     let range = chain(runtimes.source, &points[good].sha, &points[bad].sha).unwrap_or_default();
     let suspects = suspects(runtimes.source, &range);
     let named = suspects.iter().map(|commit| short(commit)).collect::<Vec<_>>().join(", ");
@@ -194,6 +197,21 @@ fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &
     let reason = format!("{found}; {}", queued.join("; "));
     tell(runtimes, &format!("north land promote: lander link held: {reason}; the link follows once the revert lands, or the commit declares {TRAILER} land.{} <reason>", divergence.kind()));
     Err(reason)
+}
+
+fn unconfirmed(runtimes: &Runtimes, divergence: &Divergence, commits: &[String], bad: &Point, good: &Point) -> Option<String> {
+    match (diverges_at(runtimes, divergence, commits, bad), diverges_at(runtimes, divergence, commits, good)) {
+        (At::Diverges(true), At::Diverges(false)) => None,
+        (At::NoVerdict(why), _) | (_, At::NoVerdict(why)) => halted(runtimes, divergence, &why).err(),
+        (At::Unreplayable, _) | (_, At::Unreplayable) => halted(runtimes, divergence, "a runtime the bisect named could not replay the round again to confirm it").err(),
+        (bad_again, good_again) => {
+            let flipped = |at: &At, diverged: bool, sha: &str| matches!(at, At::Diverges(again) if *again != diverged).then(|| format!("runtime {} replayed it {} on the rerun", short(sha), if diverged { "as recorded" } else { "differently" }));
+            let flips: Vec<String> = [flipped(&bad_again, true, &bad.sha), flipped(&good_again, false, &good.sha)].into_iter().flatten().collect();
+            let reason = format!("{}; {}, so the replay flips between runs in the same environment: a flaky check, not a commit's replay change; no commit is reverted; file the flaky test on its owner", divergence.named(), flips.join(" and "));
+            tell(runtimes, &format!("north land promote: lander link held: {reason}"));
+            Some(reason)
+        }
+    }
 }
 
 fn halted(runtimes: &Runtimes, divergence: &Divergence, why: &str) -> Result<String, String> {

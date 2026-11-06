@@ -41,7 +41,7 @@ fn bisects_a_range_to_the_lane_that_turns_the_case_red_and_verifies_only_that_on
         },
     );
     assert_eq!(finding, Finding::Revert { lane: "l3".into(), cases: x().into_iter().collect() });
-    assert_eq!(at_probed, ["head", "l3", "l2"]);
+    assert_eq!(at_probed, ["head", "l3", "l2", "head"], "the tip reruns once more after the confirmation");
     let ledger = "1\tnorth\tg1\tgreen\t\t\t5\t\n2\tnorth\tg2\tred-main\tx\t\t5\t\n3\tother\tg3\tgreen\t\t\t5\t";
     assert_eq!(green_ancestor(ledger, "north", &["g3", "g2", "g1"]), Some("g1".to_owned()));
     assert_eq!(revert_probed, ["l3"]);
@@ -55,6 +55,34 @@ fn never_reverts_a_revert_or_a_lane_twice_and_a_run_without_cases_reverts_nothin
     assert_eq!(find(&request(), "head", &lanes, &BTreeSet::new(), red, green), Finding::Revert { lane: "older".into(), cases: x().into_iter().collect() });
     assert_eq!(find(&request(), "head", &lanes, &BTreeSet::from(["older".to_owned()]), red, green), Finding::Environment { cases: x().into_iter().collect() });
     infrastructure_reaches_no_verdict();
+}
+
+#[test]
+fn a_failure_that_passes_at_the_tip_on_the_recheck_is_flaky_and_reverts_nothing() {
+    let lanes = [lane("head", "Add e"), lane("l2", "Add b"), lane("l1", "Add a")];
+    let mut tip_runs = 0;
+    let finding = find(
+        &request(),
+        "head",
+        &lanes,
+        &BTreeSet::new(),
+        |lane| {
+            if lane.commit == "head" {
+                tip_runs += 1;
+            }
+            let passes = (lane.commit == "head" && tip_runs > 1) || lane.commit == "l1";
+            Some(if passes { BTreeSet::new() } else { x() })
+        },
+        |_| Some(BTreeSet::new()),
+    );
+    assert_eq!(finding, Finding::Flaky { lane: "l2".into(), cases: x().into_iter().collect() }, "a test that flips between runs at the same tip names no culprit");
+    assert_eq!(tip_runs, 2, "the tip reruns once after the confirmation");
+    let unreached = find(&request(), "head", &lanes, &BTreeSet::new(), |lane| {
+        let at_tip = lane.commit == "head";
+        tip_runs += usize::from(at_tip);
+        (!at_tip || tip_runs < 4).then(|| if lane.commit == "l1" { BTreeSet::new() } else { x() })
+    }, |_| Some(BTreeSet::new()));
+    assert!(matches!(unreached, Finding::NoVerdict(_)), "a recheck with no verdict never reverts: {unreached:?}");
 }
 
 #[test]
@@ -76,7 +104,7 @@ fn a_red_that_names_no_test_bisects_by_rerunning_its_failing_step_at_the_tip_and
         |lane| Some(if lane.commit == "l2" { BTreeSet::new() } else { clippy() }),
     );
     assert_eq!(finding, Finding::Revert { lane: "l2".into(), cases: clippy().into_iter().collect() });
-    assert_eq!(reran, ["red", "l2", "l1"], "the step reruns at the red head, then bisects");
+    assert_eq!(reran, ["red", "l2", "l1", "red"], "the step reruns at the red head, bisects, then rechecks the tip after the confirmation");
     main_moved_past_the_red_head();
 }
 

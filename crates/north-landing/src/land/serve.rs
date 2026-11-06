@@ -245,7 +245,8 @@ impl Lander {
             let mut stages = Stages::start();
             let taken = (limit == usize::MAX && !red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(tickets, &included));
             self.heartbeat.enter(Step::Check);
-            let (verdict, mut stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref(), included.iter().any(|(_, ticket)| ticket.red_fix.is_some()));
+            let unchecked = super::queue::Ticket::unchecked(included.iter().map(|(_, ticket)| *ticket));
+            let (verdict, mut stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref(), included.iter().any(|(_, ticket)| ticket.red_fix.is_some()), &unchecked);
             stages.checked(&built.head);
             if matches!(verdict, Verdict::Green | Verdict::Refused(_)) {
                 pause::resume(&self.queue);

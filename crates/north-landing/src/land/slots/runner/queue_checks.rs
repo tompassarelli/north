@@ -4,7 +4,7 @@ use super::{Arguments, Config, affected, block_on, clippy_first, run_added, say}
 
 const NO_VERDICT: i32 = 75;
 
-pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), String> {
+pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let config = Config::load(root, head);
     let mut landing = config.commands(root, base, head)?;
     landing.extend(config.after_set().commands(root, base, head)?);
@@ -12,17 +12,17 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), St
     let queued = config.queue_set().commands(root, base, head)?;
     let commands: Vec<String> = clippy.iter().cloned().chain(queued.into_iter().filter(|command| clippy.as_ref() != Some(command))).collect();
     if commands.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     say(&format!("safe-push: running {} check(s) before queueing the lane: {}", commands.len(), commands.join("; ")));
     let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), ..Arguments::default() };
-    let status = block_on(run_added(root.to_owned(), arguments, config, commands)).map_err(|error| error.to_string())?;
+    let status = block_on(run_added(root.to_owned(), arguments, config, commands.clone())).map_err(|error| error.to_string())?;
     if status == 0 {
-        return Ok(());
+        return Ok(Vec::new());
     }
     if status == NO_VERDICT {
-        say("safe-push: a check before queueing reached no verdict (exit 75: no build host answered), which is not the lane's fault; queueing the lane");
-        return Ok(());
+        say("safe-push: a check before queueing reached no verdict (exit 75: no build host answered), which is not the lane's fault; queueing the lane, and the lander runs them on its candidate before landing it");
+        return Ok(commands);
     }
     let rerun = match clippy {
         Some(_) => {

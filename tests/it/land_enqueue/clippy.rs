@@ -88,3 +88,20 @@ fn a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_i
     assert!(urgent("crates/pay/file").is_some_and(|why| why.starts_with("slow reads 90 s")), "the lane that pays goes first");
     assert_eq!(urgent("docs/elsewhere"), None, "any other lane keeps its place");
 }
+
+#[test]
+fn a_lane_whose_clippy_reached_no_verdict_before_queueing_carries_it_to_the_lander_as_unchecked() {
+    let fixture = Fixture::new();
+    let hostless = fixture.root.join("orchestration.toml");
+    fs::write(&hostless, "").unwrap();
+    let command = "true # cargo clippy --all-targets -- -D warnings";
+    fs::write(fixture.repo.join(".safe-push"), format!("[land]\n\trunner = build-host\n\tafter = \"** :: {command}\"\n")).unwrap();
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "Add a clippy after-landing check that runs on a build host"]);
+    let (output, _) = north_enqueue_with(&fixture, &[("AGENTS_ORCHESTRATION", &hostless)]);
+    let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(), "{log}");
+    let ticket = written(&fixture.state).into_iter().find(|path| path.extension().is_some_and(|extension| extension == "json")).expect("a ticket");
+    let ticket: serde_json::Value = serde_json::from_str(&fs::read_to_string(ticket).unwrap()).unwrap();
+    assert_eq!(ticket["unchecked"], serde_json::json!([command]), "the clippy no build host ran must reach the lander's candidate check: {log}");
+}

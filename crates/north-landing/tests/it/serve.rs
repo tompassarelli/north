@@ -113,6 +113,7 @@ impl Repository {
             verdict: None,
             keep_lane: false,
             published: None,
+            unchecked: Vec::new(),
             queued_micros: Some(micros),
         };
         queue::write(&self.queue.join(queue::file_name(micros, branch)), &ticket).unwrap();
