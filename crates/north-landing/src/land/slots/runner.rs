@@ -131,16 +131,6 @@ fn scope_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<
     Some(scope)
 }
 
-fn with_unchecked(mut commands: Vec<String>) -> Vec<String> {
-    let unchecked = std::env::var(super::super::checks::UNCHECKED_ENV).unwrap_or_default();
-    let added: Vec<String> = unchecked.lines().filter(|command| !command.is_empty() && !commands.iter().any(|listed| listed == command)).map(str::to_owned).collect();
-    if !added.is_empty() {
-        say(&format!("safe-push: running {} check(s) whose run before queueing reached no verdict: {}", added.len(), added.join("; ")));
-        commands.extend(added);
-    }
-    commands
-}
-
 fn defined_on_tree(root: &Path, arguments: &Arguments, commands: Vec<String>) -> Vec<String> {
     if !arguments.pinned() {
         return commands;
@@ -233,7 +223,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         arguments.commands.iter().filter(|command| config.runs(command)).cloned().collect()
     } else {
         match config.commands(&root, &arguments.base, &arguments.head) {
-            Ok(commands) => with_unchecked(defined_on_tree(&root, &arguments, commands)),
+            Ok(commands) => defined_on_tree(&root, &arguments, commands),
             Err(message) => {
                 warn(&format!("safe-push: {message}; NOT pushed."));
                 return 1;
@@ -391,11 +381,10 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     }
     let wanted = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
     if !wanted.is_empty() {
-        let Some(host) = build_host::chosen(&program(), &wanted, Some(&north_base::platform::host::name())).await else {
-            warn("safe-push: no build host has room, so the checks before queueing reach no verdict rather than compile on this host; the lander runs them");
-            return NO_VERDICT_STATUS;
-        };
-        arguments.runner_host = host;
+        match build_host::chosen(&program(), &wanted, Some(&north_base::platform::host::name())).await {
+            Some(host) => arguments.runner_host = host,
+            None => warn("safe-push: no build host has room, so the checks before queueing run on this host under the land-check capacity lease"),
+        }
     }
     let (_cancel_sender, cancel) = watch::channel(false);
     let scope = scope_for(&root, &arguments, &commands);

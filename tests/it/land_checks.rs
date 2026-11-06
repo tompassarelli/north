@@ -297,18 +297,6 @@ fn a_check_that_reaches_no_verdict_names_no_failed_step_for_the_sheriff_and_is_n
 }
 
 #[test]
-fn a_candidate_runs_the_checks_its_lanes_could_not_run_before_queueing() {
-    let fixture = Fixture::new(&[("land.check", "file.txt :: printf 'listed\\n' >>../runs")]);
-    let passed = fixture.command().env("SAFE_PUSH_LAND_UNCHECKED", "printf 'listed\\n' >>../runs\nprintf 'unchecked\\n' >>../runs").output().unwrap();
-    assert_eq!(passed.status.code(), Some(0), "{}", text(&passed));
-    let mut ran = runs(&fixture);
-    ran.sort();
-    assert_eq!(ran, ["listed", "unchecked"], "the listed check runs once and the unchecked one is added: {}", text(&passed));
-    let failed = fixture.command().env("SAFE_PUSH_LAND_UNCHECKED", "exit 3").output().unwrap();
-    assert_eq!(failed.status.code(), Some(3), "a failing check no build host ran before queueing must refuse the candidate: {}", text(&failed));
-}
-
-#[test]
 fn check_a_lane_adds_is_not_judged_against_base() {
     let fixture = Fixture::new(&[("land.check", "file.txt :: printf x >>../runs; exit 127")]);
     let output = fixture.command().env("NORTH_LAND_ROUND", "r1").output().unwrap();

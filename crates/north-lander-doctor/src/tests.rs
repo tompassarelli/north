@@ -179,7 +179,6 @@ fn ticket(branch: &str, verdict: Option<String>) -> Ticket {
         urgent: None,
         decided_on: None,
         published: None,
-        unchecked: Vec::new(),
     }
 }
 

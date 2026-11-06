@@ -29,6 +29,7 @@ fn remote_outbox_lands() {
     assert_eq!(fixture.subjects(), ["change from r"]);
     assert!(json_names(&outbox).is_empty(), "the remote ticket is still in the outbox");
     assert_eq!(json_names(&outbox.join("taken")), names);
+    assert!(outbox.parent().unwrap().join(queue::LANDER_LEDGER).is_file(), "the lander mirrors its post-land ledger to the build host it pulls from, so enqueue there judges test admission as it will");
     let main = fixture.main();
     let local = fixture.queue().join(&names[0]);
     assert_eq!(fixture.verdict(&local), Some(format!("landed {main}")));

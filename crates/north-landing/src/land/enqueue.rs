@@ -41,7 +41,6 @@ pub struct Environment<'a> {
     pub session: Option<&'a str>,
     pub south: &'a Path,
     pub denylist: Option<&'a Path>,
-    pub lander_ledger: &'a dyn Fn(&str) -> Option<String>,
 }
 
 pub(super) fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
@@ -139,12 +138,8 @@ fn is_other_host(lander: &str, host: &str) -> bool {
     !lander.is_empty() && lander.split('.').next() != host.split('.').next()
 }
 
-fn lander_ledger(lander: &str) -> Option<String> {
-    super::lander::ssh(lander, "tail -n 500 \"${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/post-land.tsv\"").ok()
-}
-
-fn lander_ledger_at(lander: &str, environment: &Environment) -> Option<String> {
-    is_other_host(lander, environment.host).then(|| (environment.lander_ledger)(lander)).flatten()
+fn lander_ledger_at(lander: &str, queue: &Path, environment: &Environment) -> Option<String> {
+    is_other_host(lander, environment.host).then(|| fs::read_to_string(queue.join(queue::LANDER_LEDGER)).ok()).flatten()
 }
 
 fn replace_older(directory: &Path, kept: &Path, root: &Path, branch: &str) -> io::Result<()> {
@@ -199,7 +194,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     runner::fails_first(&root, &base, &lane_head)?;
     refuse_unfetchable(&root, &base, &lane_head)?;
-    let unchecked = runner::refuse_queue_checks(&root, &base, &lane_head)?;
+    runner::refuse_queue_checks(&root, &base, &lane_head)?;
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
     let (squash, several_commits) = match shape {
         Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
@@ -207,13 +202,14 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     };
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     let lander_host = setting::landing(&root, &remote_ref, "landing.lander-host");
-    refuse_lane_gates(&root, &base, &head, environment.state_home, lander_ledger_at(&lander_host, environment))?;
+    let queue = queue::directory(environment.state_home, &origin);
+    refuse_lane_gates(&root, &base, &head, environment.state_home, lander_ledger_at(&lander_host, &queue, environment))?;
     refuse_stale_revert(&root, &base, &head)?;
     let red_fix = red_fix(&root, &base, &destination)?;
     let urgent = if red_fix.is_some() { None } else { pays_debt(&root, &base, &head) };
     let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
     let ticket = Ticket {
-        origin: origin.clone(),
+        origin,
         root: root.clone(),
         host: environment.host.to_owned(),
         branch: branch.clone(),
@@ -229,10 +225,8 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         urgent,
         decided_on: None,
         published: published(&root, &branch, &destination),
-        unchecked,
     };
     let outbox = is_other_host(&lander_host, environment.host);
-    let queue = queue::directory(environment.state_home, &origin);
     let directory = if outbox { queue.join(queue::OUTBOX) } else { queue };
     let path = directory.join(queue::file_name(queued_micros, &branch));
     queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
@@ -289,7 +283,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|name| !name.is_empty());
     let state_home = state_home();
     let sources = Denylist::from_env();
-    let environment = Environment { state_home: &state_home, host: &host, session: session.as_deref(), south: &sources.south, denylist: sources.config.as_deref(), lander_ledger: &lander_ledger };
+    let environment = Environment { state_home: &state_home, host: &host, session: session.as_deref(), south: &sources.south, denylist: sources.config.as_deref() };
     match enqueue(repo, shape, keep_lane, &environment) {
         Ok(queued) => {
             match &queued.squash {

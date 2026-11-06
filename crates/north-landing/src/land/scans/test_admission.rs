@@ -11,7 +11,6 @@ use super::test_integrity::{in_vendored, vendored_trees};
 use super::incident_guard;
 use super::test_file::is_test_file;
 use super::{Range, git};
-use crate::dep_gate::trailer_lines;
 use crate::landing::fails_first;
 use north_base::foundation::exit::NO_VERDICT;
 
@@ -247,9 +246,10 @@ pub fn scan(directory: &Path, range: &str, state_home: &Path, out: &mut impl Wri
 }
 
 fn contracts(messages: &[String]) -> Vec<limits::Claim> {
-    trailer_lines(messages)
-        .into_iter()
-        .filter_map(|line| CONTRACT.captures(line))
+    messages
+        .iter()
+        .flat_map(|message| message.lines())
+        .filter_map(|line| CONTRACT.captures(line.trim()))
         .map(|found| limits::Claim { test: found[1].trim().to_owned(), category: found[2].to_owned() })
         .collect()
 }

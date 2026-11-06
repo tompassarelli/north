@@ -13,7 +13,6 @@ use super::refusal;
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE", "NORTH_RUNTIME_LINK"];
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
 pub const BASE_FAILS: &str = "and also fails on base tree";
-pub const UNCHECKED_ENV: &str = "SAFE_PUSH_LAND_UNCHECKED";
 pub const INFRASTRUCTURE: &str = "infrastructure: the check host is unfit: ";
 const NORTH_MISSING: [&str; 4] = ["north: command not found", "north: not found", "north not on PATH", "north missing on PATH"];
 const OFFLOAD: &str = "north capacity offload: ";
@@ -108,12 +107,11 @@ pub struct Launch<'a> {
     pub round: String,
     pub red_fix: bool,
     pub lander_slot: bool,
-    pub unchecked: &'a [String],
 }
 
 impl<'a> Launch<'a> {
     pub fn of(lander: &'a Lander) -> Self {
-        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, unchecked: &[] }
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true }
     }
 }
 
@@ -137,9 +135,6 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
     }
     if launch.lander_slot {
         command.env(LANDER_SLOT_ENV, "1");
-    }
-    if !launch.unchecked.is_empty() {
-        command.env(UNCHECKED_ENV, launch.unchecked.join("\n"));
     }
     if let Some(logs) = log.parent() {
         command.env(super::trace::SPANS_ENV, super::trace::Spans::beside(logs).path());

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 use super::candidate::{self, git};
 use super::heartbeat::Heartbeat;
@@ -36,8 +37,16 @@ fn plain(text: &str) -> bool {
     !text.is_empty() && !text.starts_with('-') && text.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | '@'))
 }
 
-pub(super) fn ssh(host: &str, script: &str) -> Result<String, String> {
-    let output = Command::new("ssh").args(SSH_OPTIONS).args(["-T", host, "--", script]).output().map_err(|error| format!("ssh {host}: {error}"))?;
+fn ssh(host: &str, script: &str) -> Result<String, String> {
+    ssh_with_input(host, script, b"")
+}
+
+fn ssh_with_input(host: &str, script: &str, input: &[u8]) -> Result<String, String> {
+    let mut child = Command::new("ssh").args(SSH_OPTIONS).args(["-T", host, "--", script]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| format!("ssh {host}: {error}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(input);
+    }
+    let output = child.wait_with_output().map_err(|error| format!("ssh {host}: {error}"))?;
     if !output.status.success() {
         return Err(format!("ssh {host} exited {}: {}", output.status.code().map_or("on a signal".to_owned(), |code| code.to_string()), String::from_utf8_lossy(&output.stderr).trim()));
     }
@@ -94,8 +103,10 @@ impl Lander {
 
     fn pull_host(&self, host: &str) -> Result<usize, String> {
         let key = self.queue.file_name().and_then(|name| name.to_str()).ok_or_else(|| format!("{} has no queue key", self.queue.display()))?;
+        let home = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/land-queue/{key}\"");
         let outbox = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/land-queue/{key}/{}\"", queue::OUTBOX);
-        let listing = ssh(host, &format!("d={outbox}; [ -d \"$d\" ] || exit 0; for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done"))?;
+        let mirror = format!("q={home}; mkdir -p \"$q\" && cat >\"$q/{0}.part\" && mv -f \"$q/{0}.part\" \"$q/{0}\" || exit 1; ", queue::LANDER_LEDGER);
+        let listing = ssh_with_input(host, &format!("{mirror}d={outbox}; [ -d \"$d\" ] || exit 0; for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done"), ledger_tail().as_bytes())?;
         let mut taken = Vec::new();
         let mut failures = Vec::new();
         for record in listing.split('\0').filter(|record| !record.trim().is_empty()) {
@@ -140,4 +151,10 @@ impl Lander {
         }
         waiting
     }
+}
+
+fn ledger_tail() -> String {
+    let rows = std::fs::read_to_string(super::post_land::ledger_path()).unwrap_or_default();
+    let lines: Vec<&str> = rows.lines().collect();
+    lines[lines.len().saturating_sub(500)..].iter().map(|line| format!("{line}\n")).collect()
 }

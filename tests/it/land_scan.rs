@@ -206,7 +206,7 @@ fn added_tests_are_refused_under_an_unlisted_contract_or_over_the_verification_b
         let scan = admission_scan(&fixture);
         assert_eq!(scan.status, status, "{seconds} s: {}", scan.stdout);
     }
-    trail(&fixture, "Test-contract: retries; category: lua-determinism");
+    git(&fixture.repo, &["commit", "-q", "--amend", "-m", "add a test", "-m", "Test-contract: retries; category: lua-determinism", "-m", "Co-Authored-By: a worker <worker@example.com>"]);
     let contracted = admission_scan(&fixture);
     assert_eq!(contracted.status, 0, "{}", contracted.stdout);
     for path in ["tests/fixtures/case.json", "tests/with space/case.json", "web/retry.test.ts", "scripts/retry_test.lua", "src/testdata/snapshots/retry.txt"] {
