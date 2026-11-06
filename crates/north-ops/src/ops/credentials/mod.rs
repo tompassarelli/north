@@ -93,10 +93,10 @@ impl renew::Effects for Machine {
     }
 
     fn alert(&self, text: &str) -> Result<(), String> {
-        let args = ["normal", text, "north credentials"];
-        match north_base::platform::process::run_within("nexus-alert", &args, ALERT_WITHIN) {
+        let args = ["fleet", "send", "--from", "service:north-credentials", "proxy", text];
+        match north_base::platform::process::run_within("north", &args, ALERT_WITHIN) {
             Some(output) if output.status.success() => Ok(()),
-            _ => Err("nexus-alert failed".into()),
+            _ => Err("north fleet send to the proxy failed".into()),
         }
     }
 
