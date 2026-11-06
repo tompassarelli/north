@@ -13,7 +13,7 @@ use super::model::{Observation, Subject, censored, command_key, current_cache_st
 use crate::capacity::local_machine::host_name;
 use super::policy::batch_class;
 use super::handover::Listening;
-use super::offering::{Admitted, Declines, NO_BUILD_HOST, Waiting, accepted, offer_first, try_offload};
+use super::offering::{Admitted, Declines, NO_BUILD_HOST, Waiting, agent_session, accepted, offer_first, try_offload};
 use super::terminations::Terminations;
 use super::quiet_holds::{QuietHolds, quiet_owners};
 use super::requeue;
@@ -28,7 +28,6 @@ use crate::capacity::dev_shell;
 
 const QUEUE_POLL_MILLISECONDS: u64 = 1000;
 const BEHIND_POLL_MILLISECONDS: u64 = 10_000;
-pub(super) const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
 const FROZEN_CLASSES: [&str; 4] = ["heavy", "moderate", "exclusive", "gpu"];
 const USER_HZ: f64 = 100.0;
 
@@ -82,11 +81,6 @@ fn reason(result: &Obj) -> Option<String> {
 /// Whether this process runs inside a fleet session scope, which gets a session unit of its own for its leases.
 pub(super) fn fleet_session() -> bool {
     env("NORTH_FLEET_SCOPE").is_some_and(|scope| !scope.is_empty())
-}
-
-/// Whether this build was started by a fleet session that has no local need: its compiles belong on a build host before this one.
-pub(crate) fn agent_session() -> bool {
-    build_offload::is_agent_build(env)
 }
 
 fn wait_ticket(root: &Path, request: &Request, create: &Create, pullable: bool) -> String {

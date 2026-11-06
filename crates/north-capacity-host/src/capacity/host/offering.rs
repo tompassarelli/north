@@ -8,12 +8,12 @@ use super::json::Obj;
 use super::machine::env;
 use super::print_to;
 use super::request::{Create, Request};
-use super::run::{OFFLOAD_DEFAULT_TIMEOUT_SECONDS, agent_session};
 use super::state::dequeue;
 use super::terminations::Terminations;
 use crate::capacity::build_offload::{self, Candidate, Declined, Job};
 use crate::capacity::effects::Host;
 
+const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
 pub(super) const NO_BUILD_HOST: &str = "NO_BUILD_HOST";
 const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
 
@@ -142,4 +142,9 @@ pub(super) async fn accepted(handover: Option<&Listening>) -> std::os::unix::net
         },
         None => std::future::pending().await,
     }
+}
+
+/// Whether this build was started by a fleet session that has no local need: its compiles belong on a build host before this one.
+pub(super) fn agent_session() -> bool {
+    build_offload::is_agent_build(env)
 }
