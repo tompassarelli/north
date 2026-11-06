@@ -399,7 +399,11 @@ pub(super) fn north_session_start(north: OsString, home: PathBuf) -> Box<dyn Fn(
 
 pub(super) fn session_start_probe(north: OsString, home: PathBuf, deadline: Duration, contention: fn() -> Option<f64>) -> Box<dyn Fn(bool) -> Result<usize, String>> {
     Box::new(move |fixture| {
-        let payload = json!({"hook_event_name": "SessionStart", "source": "startup", "session_id": "budget", "cwd": home}).to_string();
+        let mut payload = json!({"hook_event_name": "SessionStart", "source": "startup", "session_id": "budget", "cwd": home});
+        if fixture {
+            payload["agent_type"] = json!("worker");
+        }
+        let payload = payload.to_string();
         let seconds = deadline.as_secs();
         let hook = |leased: bool| {
             let mut command = Command::new(&north);

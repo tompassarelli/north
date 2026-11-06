@@ -34,8 +34,8 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
     }
     let harness = harness::harness_root().map_err(crate::error::NorthError::Configuration)?;
     if !policy_gate(&repo_root("nixos-config")?, &operator) {
-        eprintln!("{NOT_PUBLISHED}");
-        return Ok(1);
+        eprintln!("{NOT_PUBLISHED}; the last published generation stays live");
+        return Ok(north_base::agents_sync::POLICY_HELD);
     }
     super::run(arguments)?;
     if !project_profiles() {

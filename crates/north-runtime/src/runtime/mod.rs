@@ -26,7 +26,7 @@ use std::path::Path;
 
 const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime follow --repo-dir DIR | north runtime covers [--head REV] [--code PATH,...]
 
-update [--sha SHA]     bring this host's current runtime to origin/main (or SHA): pull it from a peer, reuse the live binaries when no Rust build input changed, else build it under a runtime capacity lease; swap back when health or agents sync fails
+update [--sha SHA]     bring this host's current runtime to origin/main (or SHA): pull it from a peer, reuse the live binaries when no Rust build input changed, else build it under a runtime capacity lease; swap back when health or agents sync fails, but keep the code when agents sync only holds the policy generation
 settle                 on the host that settles the fleet: update here, deploy where current differs, probe every host, run one offloaded canary land check per promoted runtime per host and roll a host back when it fails, and judge each landing once by landing_live_deadline_sec
 deploy [HOST...]       build here, then ship and promote that runtime on each HOST (default: every other declared host with an ssh destination); a HOST whose live runtime descends from it keeps its own
 health                 check the live runtime

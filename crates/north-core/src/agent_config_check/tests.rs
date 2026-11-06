@@ -48,7 +48,7 @@ fn skill_programs_refuse_the_machine_capacity_line_694b2a05_ran_and_pass_once_it
 fn slow_first_session_start(dir: &Path) -> PathBuf {
     let north = dir.join("north");
     let body = format!(
-        "case \"$1\" in\ncapacity) echo leased >>'{log}'; while [ \"$1\" != -- ]; do shift; done; shift; exec \"$@\" ;;\nhook) [ -e '{marker}' ] || {{ touch '{marker}'; exec sleep 5; }}; cat >/dev/null; printf context ;;\nesac\n",
+        "case \"$1\" in\ncapacity) echo leased >>'{log}'; while [ \"$1\" != -- ]; do shift; done; shift; exec \"$@\" ;;\nhook) [ -e '{marker}' ] || {{ touch '{marker}'; exec sleep 5; }}; grep -q '\"agent_type\":\"worker\"' || printf tom-window; printf context ;;\nesac\n",
         log = dir.join("leases").display(),
         marker = dir.join("stalled-once").display(),
     );

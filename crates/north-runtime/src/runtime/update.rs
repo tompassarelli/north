@@ -2,6 +2,7 @@ use super::bounded;
 use super::cargo_build::{self, BuildLog};
 use super::host_facts;
 use super::failure::{DEFERRED, Failure, code, failed};
+use north_base::agents_sync::POLICY_HELD;
 use super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
 use super::peers;
 use super::pull;
@@ -434,13 +435,18 @@ fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
 }
 
 fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String, Failure> {
+    let steps = vec![("health check", health_check(layout)), ("agents sync", agents_sync(&layout.runtime(target).join("north")))];
+    settle(layout, previous, target, steps, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))
+}
+
+fn settle(layout: &Layout, previous: Option<&Path>, target: &str, steps: Vec<(&str, Command)>, notify: &mut dyn FnMut(&str)) -> Result<String, Failure> {
     let log = tempfile::Builder::new()
         .prefix(&format!("runtime-sync-{}.", &target[..8]))
         .suffix(".log")
         .tempfile_in(&layout.state)?;
     swap(layout, &layout::link(target))?;
-    let steps = [("health check", health_check(layout)), ("agents sync", agents_sync(&layout.runtime(target).join("north")))];
     let mut failure = None;
+    let mut held = false;
     let limit = remote::limit(STEP_LIMIT);
     let append = || fs::OpenOptions::new().append(true).open(log.path());
     let note = |line: String| {
@@ -457,6 +463,10 @@ fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String
         };
         match ran {
             Ok(status) if status.success() => continue,
+            Ok(status) if name == "agents sync" && code(status) == POLICY_HELD => {
+                held = true;
+                continue;
+            }
             Ok(status) => failure = Some((name, code(status))),
             Err(error) => {
                 note(format!("{name} did not run: {error}\n"));
@@ -467,6 +477,7 @@ fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String
     }
     let Some((step, status)) = failure else {
         let mut synced = fs::read_to_string(log.path()).unwrap_or_default();
+        policy_notice(layout, target, held.then_some(synced.as_str()), notify);
         if !synced.is_empty() && !synced.ends_with('\n') {
             synced.push('\n');
         }
@@ -485,8 +496,25 @@ fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String
         "failed step {step} on {target}; rolled back to {was}; exit status {status}; local log: {}",
         kept.display()
     );
-    alert(&message);
+    notify(&message);
     Err(failed(1, message))
+}
+
+fn policy_notice(layout: &Layout, target: &str, held: Option<&str>, notify: &mut dyn FnMut(&str)) {
+    let record = layout.state.join("policy-held");
+    let Some(logged) = held else {
+        let _ = fs::remove_file(&record);
+        return;
+    };
+    let cause = logged
+        .lines()
+        .find(|line| line.starts_with("agents sync: ") && !line.contains("generation not published"))
+        .unwrap_or("agents sync: the policy gate refused the generation");
+    if fs::read_to_string(&record).is_ok_and(|seen| seen == cause) {
+        return;
+    }
+    let _ = fs::write(&record, cause);
+    notify(&format!("runtime {} is live; the policy generation is held and the last published one stays live: {cause}", &target[..8]));
 }
 
 fn log_tail(logged: &str) -> Vec<String> {
@@ -504,10 +532,6 @@ fn agents_sync(north: &Path) -> Command {
     let mut command = Command::new("agents");
     command.arg("sync").env("NORTH_BIN", north);
     command
-}
-
-fn alert(message: &str) {
-    alert_proxy(&format!("north runtime update: {message}"));
 }
 
 pub(super) fn alert_proxy(text: &str) {
@@ -578,5 +602,42 @@ mod tests {
         collect(&layout, &shas[6], None).unwrap();
         assert!(layout.runtime(&shas[0]).is_dir());
         assert!(!layout.runtime(&shas[1]).exists());
+    }
+}
+
+#[cfg(test)]
+mod policy_hold_tests {
+    use super::*;
+
+    fn steps(sync_exit: u8) -> Vec<(&'static str, Command)> {
+        let mut sync = Command::new("sh");
+        sync.args(["-c", &format!("echo 'agents sync: startup tokens grew 3974→4525 with no measured conformance gain'; echo 'agents sync: generation not published'; exit {sync_exit}")]);
+        vec![("health check", Command::new("true")), ("agents sync", sync)]
+    }
+
+    #[test]
+    fn a_policy_hold_publishes_the_code_runtime_keeps_the_last_generation_and_notifies_the_proxy_once() {
+        let state = tempfile::tempdir().unwrap();
+        let layout = Layout { state: state.path().to_path_buf() };
+        let (old, new) = ("a".repeat(40), "b".repeat(40));
+        for sha in [&old, &new] {
+            fs::create_dir_all(layout.runtime(sha)).unwrap();
+        }
+        symlink(layout::link(&old), layout.current()).unwrap();
+        let previous = layout::link(&old);
+        let mut notices = Vec::new();
+        for _ in 0..2 {
+            assert!(settle(&layout, Some(&previous), &new, steps(POLICY_HELD), &mut |text: &str| notices.push(text.to_owned())).is_ok());
+            assert_eq!(fs::read_link(layout.current()).unwrap(), layout::link(&new));
+        }
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(notices[0].contains("startup tokens grew 3974→4525") && notices[0].contains("last published one stays live"), "{}", notices[0]);
+
+        assert!(settle(&layout, Some(&previous), &new, steps(0), &mut |text: &str| notices.push(text.to_owned())).is_ok());
+        assert!(settle(&layout, Some(&previous), &new, steps(POLICY_HELD), &mut |text: &str| notices.push(text.to_owned())).is_ok());
+        assert_eq!(notices.len(), 2, "a hold after a published generation is news again");
+
+        assert!(settle(&layout, Some(&previous), &new, steps(1), &mut |text: &str| notices.push(text.to_owned())).is_err());
+        assert_eq!(fs::read_link(layout.current()).unwrap(), previous, "any other sync failure still rolls the code back");
     }
 }

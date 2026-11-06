@@ -1,3 +1,4 @@
+pub mod agents_sync;
 pub mod autoland_status;
 pub mod build_inputs;
 pub mod error;
