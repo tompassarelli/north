@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
@@ -10,7 +10,7 @@ use toml_edit::DocumentMut;
 
 use super::detached::{self, Prior, Scope};
 use super::host::alive;
-use super::model::{Entry, EntryKind, Role, SessionRecord, Status};
+use super::model::{Ending, Entry, EntryKind, Role, SessionRecord, Status};
 use super::receipts::is_final;
 use super::registry::Fleet;
 use super::runtime::binary;
@@ -33,7 +33,13 @@ pub fn stale_after() -> Duration {
 
 pub trait Evidence: Sync {
     fn landed(&self, cwd: &Path, sha: &str) -> bool;
-    fn running(&self, records: &[&SessionRecord]) -> BTreeSet<String>;
+    fn running(&self, records: &[&SessionRecord]) -> BTreeMap<String, Work>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Work {
+    Cli,
+    Detached,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -49,12 +55,15 @@ pub struct Seen {
     pub quiet: Duration,
     pub report: Option<Report>,
     pub live: Option<String>,
+    pub background: bool,
+    pub ended: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Verdict {
     Keep,
     Finished,
+    Ended,
     Stale,
 }
 
@@ -63,19 +72,26 @@ impl Verdict {
         match self {
             Self::Keep => "kept".into(),
             Self::Finished => "its parent took its final report".into(),
+            Self::Ended => "its host ended it at its idle exit as finished".into(),
             Self::Stale => format!("quiet over {}h with nothing left to wake it", stale.as_secs() / 3600),
         }
     }
 }
 
 pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
-    if !matches!(seen.status, Status::Idle | Status::Parked) || seen.live.is_some() {
+    if seen.live.is_some() {
+        return Verdict::Keep;
+    }
+    if seen.ended {
+        return Verdict::Ended;
+    }
+    if !matches!(seen.status, Status::Idle | Status::Parked) {
         return Verdict::Keep;
     }
     if seen.report.as_ref().is_some_and(|report| report.taken && finishes(&report.text) && report.unlanded.is_empty()) {
         return Verdict::Finished;
     }
-    if seen.quiet >= stale { Verdict::Stale } else { Verdict::Keep }
+    if seen.quiet >= stale && !seen.background { Verdict::Stale } else { Verdict::Keep }
 }
 
 fn finishes(report: &str) -> bool {
@@ -148,7 +164,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
     let started = Instant::now();
     let mut reaped = Reaped { at_ms: now_ms, stale_hours: stale.as_secs() / 3600, ..Reaped::default() };
     let records = fleet.sessions().unwrap_or_default();
-    let mut candidates: Vec<(&SessionRecord, Status, Duration)> = records.iter().filter(|record| record.role() != Role::Proxy && !record.adopted() && !record.verification && !record.stopped).map(|record| (record, fleet.status(record), quiet(record))).filter(|(_, status, _)| matches!(status, Status::Idle | Status::Parked)).collect();
+    let mut candidates: Vec<(&SessionRecord, Status, Duration)> = records.iter().filter(|record| record.role() != Role::Proxy && !record.adopted() && !record.verification).map(|record| (record, fleet.status(record), quiet(record))).filter(|(record, status, _)| ended_by_host(record) || !record.stopped && matches!(status, Status::Idle | Status::Parked)).collect();
     candidates.sort_by_key(|(_, _, quiet)| std::cmp::Reverse(*quiet));
     let running = evidence.running(&candidates.iter().map(|(record, _, _)| *record).collect::<Vec<_>>());
     let gated = fleet.open_gate_sessions();
@@ -159,13 +175,15 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
         }
         let mut due: Vec<(&SessionRecord, String, Option<String>)> = Vec::new();
         for &(record, status, quiet) in batch {
-            let live = fleet.live_wait(record, &records, &gated, running.contains(&record.name));
+            let (ended, work) = (ended_by_host(record), running.get(&record.name).copied());
+            let live = if ended { fleet.live_hold(record, &records, &gated) } else { fleet.live_wait(record, &records, &gated, work == Some(Work::Detached)) };
             let entries = if live.is_some() { Vec::new() } else { fleet.follow_recent(&record.name).map(|follower| follower.transcript().entries.clone()).unwrap_or_default() };
             let report = final_report(&entries).map(|text| Report { text: text.to_owned(), taken: fleet.report_taken(record), unlanded: named_shas(text).into_iter().filter(|sha| !evidence.landed(&record.cwd, sha)).collect() });
-            let seen = Seen { status, quiet, report, live };
+            let seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended };
             let verdict = verdict(&seen, stale);
             if verdict == Verdict::Keep {
-                let why = seen.live.or_else(|| seen.report.filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).unwrap_or_else(|| "active within the stale window".into());
+                let background = seen.background.then(|| "its CLI still runs a background task".to_owned());
+                let why = seen.live.or_else(|| seen.report.filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).or(background).unwrap_or_else(|| "active within the stale window".into());
                 reaped.kept.push(Retired { name: record.name.clone(), why });
                 continue;
             }
@@ -198,6 +216,10 @@ fn leased(fleet: &Fleet, records: &[&SessionRecord]) -> Vec<bool> {
     })
 }
 
+fn ended_by_host(record: &SessionRecord) -> bool {
+    record.stopped && record.ended == Some(Ending::IdleExit)
+}
+
 fn quiet(record: &SessionRecord) -> Duration {
     let modified = |path: &Path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok();
     let last = modified(&session_stream_path(&record.host_dir, &record.name)).or_else(|| modified(&stream_path(&record.host_dir)));
@@ -211,15 +233,17 @@ impl Evidence for Here {
         cwd.is_dir() && Command::new(binary("git")).arg("-C").arg(cwd).args(["merge-base", "--is-ancestor", sha, "origin/main"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
     }
 
-    fn running(&self, records: &[&SessionRecord]) -> BTreeSet<String> {
+    fn running(&self, records: &[&SessionRecord]) -> BTreeMap<String, Work> {
         let (proc, cgroups) = (Path::new("/proc"), Path::new("/sys/fs/cgroup"));
-        let mut running = BTreeSet::new();
+        let mut running = BTreeMap::new();
         let mut units: Vec<(String, String)> = Vec::new();
         for record in records {
             if let Some(host) = record.host_pid.filter(|pid| !record.stopped && alive(*pid)) {
                 let detached = detached::Procfs::new(proc.into(), cgroups.into(), host).after(Prior::all(&record.host_dir)).detached();
-                if detached::cli_work(proc, cgroups, host) > 0 || !detached.is_empty() {
-                    running.insert(record.name.clone());
+                if !detached.is_empty() {
+                    running.insert(record.name.clone(), Work::Detached);
+                } else if detached::cli_work(proc, cgroups, host) > 0 {
+                    running.insert(record.name.clone(), Work::Cli);
                 }
                 continue;
             }
@@ -233,7 +257,7 @@ impl Evidence for Here {
         let states: Vec<String> = asked.map(|answer| String::from_utf8_lossy(&answer.stdout).lines().map(str::to_owned).collect()).unwrap_or_default();
         for (index, (name, _)) in units.into_iter().enumerate() {
             if states.get(index).is_none_or(|state| state != "inactive" && state != "failed") {
-                running.insert(name);
+                running.insert(name, Work::Detached);
             }
         }
         running

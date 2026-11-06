@@ -360,6 +360,8 @@ async fn rest_when_idle(stdin: StdinQueue, watcher: Watcher, park_after: Option<
     }
     if let Some(pid) = child.and_then(|pid| i32::try_from(pid).ok()).and_then(rustix::process::Pid::from_raw) {
         let _ = rustix::process::kill_process(pid, rustix::process::Signal::Term);
+        tokio::time::sleep(TERM_GRACE).await;
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::Kill);
     }
 }
 

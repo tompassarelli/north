@@ -436,7 +436,7 @@ impl FrameWatch for TurnWatch {
         self.register_detached();
         let finished = !self.finished.is_empty() && self.finished.values().all(|finished| *finished);
         let registered = self.registered_wait();
-        let session = idle::Session { idle, in_flight: self.turns.in_flight(), context: self.turns.context(), rolled_over: self.rolled_over, finished, registered };
+        let session = idle::Session { idle, in_flight: self.turns.in_flight(), turn_open: self.turns.turn_open(), context: self.turns.context(), rolled_over: self.rolled_over, finished, registered };
         let step = self.idle.step(session, park_after);
         match step {
             Step::Park => {

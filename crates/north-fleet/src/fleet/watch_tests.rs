@@ -133,10 +133,37 @@ fn closed_after(reply: &str, unlanded: Vec<&'static str>) -> bool {
     record.stopped
 }
 
+fn watched(reply: &str) -> (tempfile::TempDir, PathBuf, TurnWatch) {
+    let root = tempfile::tempdir().unwrap();
+    let host = root.path().join("worker");
+    std::fs::create_dir_all(&host).unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
+    write_record(&host, &record).unwrap();
+    let held = Arc::new(crate::fleet::claims::Held::default());
+    let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), held, root.path().to_path_buf(), host.clone()).reading_tickets(Arc::new(Unlanded(Vec::new())));
+    watch.views.insert("s".into(), View { reply: Some(reply.to_owned()), ..View::of("s") });
+    watch.follow(&TurnSignal::Ended { conversation: "s".into(), exit: TurnExit::Completed, totals: Default::default() });
+    watch.turns.observe(TurnSignal::TaskStarted { conversation: "s".into(), task: "landing-loop".into() }, now_ms());
+    (root, host, watch)
+}
+
 #[test]
-fn a_session_stays_listed_for_a_bare_next_a_split_a_missing_next_or_an_unlanded_ticket() {
+fn a_finished_session_retires_at_close_or_at_its_idle_limit_though_its_cli_still_runs_a_background_task_but_one_with_an_unowned_next_or_unlanded_ticket_or_still_unfinished_stays() {
     for reply in ["Done: landed abc123.\nNext: run the bench on gex45", "Split: landed the parser\nNext: none", "Not done: red\nStop: landing\nNext: none", "Done: landed abc123.", "Still waiting on the build.\nNext: none"] {
         assert!(!closed_after(reply, Vec::new()), "{reply}");
     }
     assert!(!closed_after("Done: queued the second lane\nNext: none", vec!["claude/land-second"]));
+    let limit = Some(Duration::from_secs(600));
+    let (_root, host, mut finished) = watched("Done: landed abc123.\nNext: none");
+    assert!(matches!(finished.rest(Duration::from_secs(599), limit), Rest::Wait));
+    assert!(matches!(finished.rest(Duration::from_secs(601), limit), Rest::End), "the landing loop a finished worker left running does not hold its host past --idle-exit");
+    let record = crate::fleet::records::read_record(&host).unwrap();
+    assert!(record.stopped && record.ended == Some(Ending::IdleExit), "{record:?}");
+
+    let (_root, _host, mut answering) = watched("Done: landed abc123.\nNext: none");
+    answering.turns.observe(TurnSignal::Started { conversation: "s".into() }, now_ms());
+    assert!(matches!(answering.rest(Duration::from_secs(601), limit), Rest::Wait), "a new turn on a finished session is never cut off");
+
+    let (_root, _host, mut monitoring) = watched("Not done: CI is still running; its monitor wakes me.");
+    assert!(matches!(monitoring.rest(Duration::from_secs(3 * 600), limit), Rest::Wait), "an unfinished session's own monitor still wakes it");
 }

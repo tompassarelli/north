@@ -84,6 +84,12 @@ fn alive(pid: &str) -> bool {
     fs::read_to_string(Path::new("/proc").join(pid).join("stat")).is_ok_and(|stat| stat.rsplit_once(") ").is_some_and(|(_, rest)| !rest.starts_with('Z')))
 }
 
+fn holding(held: &Path) -> Vec<String> {
+    let needle = held.to_string_lossy().into_owned();
+    let pids = fs::read_dir("/proc").into_iter().flatten().flatten().filter_map(|entry| entry.file_name().to_str().filter(|name| name.chars().all(|c| c.is_ascii_digit())).map(str::to_owned));
+    pids.filter(|pid| alive(pid) && fs::read(Path::new("/proc").join(pid).join("cmdline")).is_ok_and(|line| String::from_utf8_lossy(&line).contains(&needle))).collect()
+}
+
 fn drop_transport(shims: &Path) {
     let links = fs::read_to_string(shims.join("links")).unwrap();
     for pid in links.lines().last().unwrap().split_whitespace() {
@@ -128,5 +134,10 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(!alive(&cli_pid), "closing the host's input stops the held service");
+    let held = root.path().join(".local/state/north/held");
+    while !holding(&held).is_empty() && std::time::Instant::now() < deadline + WAIT {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(holding(&held), Vec::<String>::new(), "no process of the held service outlives its CLI, so a test run leaks none into the session that ran it");
 }
 

@@ -82,6 +82,11 @@ impl Fleet {
         if let Some(wait) = self.waits().of(name).first() {
             return Some(format!("waits on {}", wait.run));
         }
+        self.live_hold(record, all, gated).or_else(|| running.then(|| "a background job still runs".into()))
+    }
+
+    pub(crate) fn live_hold(&self, record: &SessionRecord, all: &[SessionRecord], gated: &BTreeSet<String>) -> Option<String> {
+        let name = record.name.as_str();
         if gated.contains(name) {
             return Some("has an open gate".into());
         }
@@ -91,7 +96,7 @@ impl Fleet {
         if let Some(child) = all.iter().find(|child| child.parent.as_deref() == Some(name) && self.status(child) != Status::Exited) {
             return Some(format!("has live child {}", child.name));
         }
-        running.then(|| "a background job still runs".into())
+        None
     }
 
     pub(crate) fn job_leased(&self, record: &SessionRecord) -> bool {

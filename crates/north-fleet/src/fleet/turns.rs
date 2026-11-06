@@ -179,6 +179,10 @@ impl Turns {
         self.threads.values().any(Thread::busy)
     }
 
+    pub fn turn_open(&self) -> bool {
+        self.threads.values().any(|thread| thread.open.is_some())
+    }
+
     pub fn context(&self) -> u64 {
         self.threads.values().map(|thread| thread.context).max().unwrap_or(0)
     }

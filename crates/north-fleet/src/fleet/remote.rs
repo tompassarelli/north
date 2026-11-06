@@ -39,8 +39,11 @@ cli=$!
   if read -r p b < "$d/attach" && [ "$(cut -d' ' -f22 "/proc/$p/stat")" = "$b" ]; then seen=$(date +%s)
   elif [ $(($(date +%s) - seen)) -ge "$limit" ]; then systemctl --user stop "$u"; fi
 done; } 2>/dev/null &
+watch=$!
 tail -c +1 -f --pid="$cli" "$d/in" > "$d/feed"
-wait "$cli""#;
+wait "$cli"; code=$?
+kill "$watch" 2>/dev/null
+exit "$code""#;
 
 /// `sh -c PRUNE HELD`: removes held directories untouched for three days whose service is gone.
 const PRUNE: &str = r#"for h in "$0"/*.service; do

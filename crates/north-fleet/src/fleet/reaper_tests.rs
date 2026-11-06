@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,7 +24,7 @@ const HOUR: Duration = Duration::from_secs(3600);
 #[derive(Default)]
 struct Sight {
     landed: BTreeSet<String>,
-    running: BTreeSet<String>,
+    running: BTreeMap<String, Work>,
 }
 
 impl Evidence for Sight {
@@ -32,8 +32,8 @@ impl Evidence for Sight {
         self.landed.contains(sha)
     }
 
-    fn running(&self, records: &[&SessionRecord]) -> BTreeSet<String> {
-        records.iter().map(|record| record.name.clone()).filter(|name| self.running.contains(name)).collect()
+    fn running(&self, records: &[&SessionRecord]) -> BTreeMap<String, Work> {
+        records.iter().filter_map(|record| Some((record.name.clone(), *self.running.get(&record.name)?))).collect()
     }
 }
 
@@ -115,35 +115,6 @@ fn a_not_done_or_split_retires_only_when_it_names_a_stop_its_parent_took_and_new
 }
 
 #[test]
-fn a_session_quiet_past_the_stale_window_retires_with_its_last_message_unless_a_wait_gate_lane_or_job_would_wake_it() {
-    let home = tempfile::tempdir().unwrap();
-    let (fleet, paper) = fleet(home.path());
-    for name in ["quiet", "waiting", "gated", "queued", "running"] {
-        reported(&fleet, name, None, &format!("{name}: still on it"));
-    }
-    fleet.waits().register("waiting", Run::Branch("n636-reaper".into()), Path::new("/tmp"), None).unwrap();
-    let gate = GateRequest { verification: false, issue: None, box_text: None, session: "gated".into(), question: "Which?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 1, default_after_ms: 0 };
-    paper.open_gate(&gate, now_ms()).unwrap();
-    let queue = home.path().join(".local/state/north/land-queue/560e3f31dbaa2415");
-    std::fs::create_dir_all(&queue).unwrap();
-    std::fs::write(queue.join("1-queued.json"), json!({"root": "/elsewhere", "branch": "queued-lane", "session": "queued"}).to_string()).unwrap();
-    let evidence = Sight { running: ["running".to_owned()].into(), ..Sight::default() };
-
-    let spent = reap_within(&fleet, &evidence, Duration::ZERO, now_ms(), true, Duration::ZERO);
-    let fresh = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
-    let stale = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
-
-    assert!(retired(&spent).is_empty() && spent.deferred == 5, "a reaper out of budget leaves every session to the next tick: {spent:?}");
-    assert!(retired(&fresh).is_empty(), "{fresh:?}");
-    assert_eq!(retired(&stale), ["quiet"]);
-    let why = |name: &str| stale.kept.iter().find(|kept| kept.name == name).map(|kept| kept.why.clone()).unwrap_or_default();
-    assert!(why("waiting").contains("branch:n636-reaper") && why("gated").contains("gate") && why("queued").contains("queued-lane") && why("running").contains("background job"), "{stale:?}");
-    let note: Value = serde_json::from_slice(&std::fs::read(archived_dir(&fleet, "quiet").join("retired.json")).unwrap()).unwrap();
-    assert_eq!(note["last"], "quiet: still on it");
-    assert!(note["why"].as_str().unwrap().contains("quiet over 0h"), "{note}");
-}
-
-#[test]
 fn a_message_to_a_retired_session_reaches_its_parent_as_one_turn_and_never_revives_it() {
     let home = tempfile::tempdir().unwrap();
     let (fleet, _paper) = fleet(home.path());
@@ -161,4 +132,60 @@ fn a_message_to_a_retired_session_reaches_its_parent_as_one_turn_and_never_reviv
     assert_eq!(frames.len(), 2, "{frames:?}");
     assert!(frames[0].contains("worker is retired") && frames[0].contains("are you there"), "{frames:?}");
     assert!(frames[1].contains("worker is retired") && frames[1].contains("from the far host"), "{frames:?}");
+}
+
+#[test]
+fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_when_its_host_ended_it_at_idle_exit_or_when_quiet_past_the_stale_window_unless_a_wait_gate_lane_job_or_unfinished_task_would_wake_it() {
+    {
+        let home = tempfile::tempdir().unwrap();
+        let (fleet, paper) = fleet(home.path());
+        for name in ["quiet", "waiting", "gated", "queued", "running"] {
+            reported(&fleet, name, None, &format!("{name}: still on it"));
+        }
+        fleet.waits().register("waiting", Run::Branch("n636-reaper".into()), Path::new("/tmp"), None).unwrap();
+        let gate = GateRequest { verification: false, issue: None, box_text: None, session: "gated".into(), question: "Which?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 1, default_after_ms: 0 };
+        paper.open_gate(&gate, now_ms()).unwrap();
+        let queue = home.path().join(".local/state/north/land-queue/560e3f31dbaa2415");
+        std::fs::create_dir_all(&queue).unwrap();
+        std::fs::write(queue.join("1-queued.json"), json!({"root": "/elsewhere", "branch": "queued-lane", "session": "queued"}).to_string()).unwrap();
+        let evidence = Sight { running: [("running".to_owned(), Work::Detached)].into(), ..Sight::default() };
+    
+        let spent = reap_within(&fleet, &evidence, Duration::ZERO, now_ms(), true, Duration::ZERO);
+        let fresh = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
+        let stale = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
+    
+        assert!(retired(&spent).is_empty() && spent.deferred == 5, "a reaper out of budget leaves every session to the next tick: {spent:?}");
+        assert!(retired(&fresh).is_empty(), "{fresh:?}");
+        assert_eq!(retired(&stale), ["quiet"]);
+        let why = |name: &str| stale.kept.iter().find(|kept| kept.name == name).map(|kept| kept.why.clone()).unwrap_or_default();
+        assert!(why("waiting").contains("branch:n636-reaper") && why("gated").contains("gate") && why("queued").contains("queued-lane") && why("running").contains("background job"), "{stale:?}");
+        let note: Value = serde_json::from_slice(&std::fs::read(archived_dir(&fleet, "quiet").join("retired.json")).unwrap()).unwrap();
+        assert_eq!(note["last"], "quiet: still on it");
+        assert!(note["why"].as_str().unwrap().contains("quiet over 0h"), "{note}");
+    }
+    let home = tempfile::tempdir().unwrap();
+    let (fleet, paper) = fleet(home.path());
+    let _lead = live(&fleet, "lead");
+    reported(&fleet, "finished", Some("lead"), "Done: the fix landed as 1af7168df on origin/main.");
+    reported(&fleet, "monitoring", Some("lead"), "Not done: CI is still running; its monitor wakes me.");
+    reported(&fleet, "ended", Some("lead"), "Done: the arm result landed as 2bc8279e0.");
+    for name in ["finished", "monitoring", "ended"] {
+        paper.claim_receipt(name, "turn:1", now_ms()).unwrap();
+    }
+    let dir = fleet.root.join("ended");
+    let mut record = crate::fleet::records::read_record(&dir).unwrap();
+    record.stopped = true;
+    record.ended = Some(Ending::IdleExit);
+    crate::fleet::records::write_record(&dir, &record).unwrap();
+    fleet.waits().register("ended", Run::Process { pid: 1, started: 1 }, Path::new("/tmp"), Some("sh -c d=$0 u=$1 limit=$2")).unwrap();
+    let running = ["finished", "monitoring"].map(|name| (name.to_owned(), Work::Cli)).into();
+    let evidence = Sight { landed: ["1af7168df".to_owned()].into(), running };
+
+    let reaped = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
+
+    let mut names = retired(&reaped);
+    names.sort_unstable();
+    assert_eq!(names, ["ended", "finished"], "{reaped:?}");
+    assert!(reaped.kept.iter().any(|kept| kept.name == "monitoring" && kept.why.contains("background task")), "{reaped:?}");
+    assert!(fleet.session("finished").is_err() && fleet.session("ended").is_err() && fleet.session("monitoring").is_ok());
 }

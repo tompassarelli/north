@@ -20,6 +20,7 @@ impl Default for Policy {
 pub struct Session {
     pub idle: Duration,
     pub in_flight: bool,
+    pub turn_open: bool,
     pub context: u64,
     pub rolled_over: bool,
     pub finished: bool,
@@ -38,7 +39,7 @@ impl Policy {
     pub fn step(&self, session: Session, park_after: Option<Duration>) -> Step {
         let parks = park_after.is_some_and(|limit| session.idle >= limit);
         if session.finished {
-            let done = session.idle >= self.finished_exit_after || parks && !session.in_flight;
+            let done = session.idle >= self.finished_exit_after || parks && !session.turn_open;
             return if done { Step::Exit } else { Step::Wait };
         }
         if session.in_flight {
