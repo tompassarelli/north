@@ -183,20 +183,6 @@ fn graphql_queries_are_shared_reads_and_a_mutation_passes_through_and_clears_sto
     assert_eq!(broker.calls(), 3);
 }
 
-#[test]
-fn the_session_gh_config_points_gh_at_the_broker_and_keeps_its_login() {
-    let root = tempfile::tempdir().unwrap();
-    let source = root.path().join("gh");
-    std::fs::create_dir_all(&source).unwrap();
-    std::fs::write(source.join("config.yml"), "git_protocol: https\nhttp_unix_socket: /elsewhere\n").unwrap();
-    let place = Place::at(root.path().join("broker"));
-    let directory = place.gh_config(&source).unwrap();
-    let config = std::fs::read_to_string(directory.join("config.yml")).unwrap();
-    assert_eq!(config, format!("git_protocol: https\nhttp_unix_socket: {}\n", place.socket().display()));
-    assert_eq!(std::fs::read_link(directory.join("hosts.yml")).unwrap(), source.join("hosts.yml"));
-    assert_eq!(place.gh_config(&source).unwrap(), directory);
-}
-
 fn write_request(mut stream: impl Write, request: &Request) -> std::io::Result<()> {
     let mut head = format!("{} {} HTTP/1.1\r\n", request.method, request.target);
     for (name, value) in &request.headers {
@@ -217,7 +203,7 @@ fn read_response(stream: impl Read) -> std::io::Result<Response> {
 }
 
 #[test]
-fn the_resident_broker_claims_the_users_gh_config_and_releases_only_its_own_line_while_no_broker_answers() {
+fn the_brokers_gh_config_edits_keep_the_login_and_release_only_its_own_line_while_no_broker_answers() {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("gh");
     std::fs::create_dir_all(&source).unwrap();
@@ -238,6 +224,13 @@ fn the_resident_broker_claims_the_users_gh_config_and_releases_only_its_own_line
     std::fs::write(source.join("config.yml"), elsewhere).unwrap();
     assert!(!place.release_user_gh(&source).unwrap());
     assert_eq!(std::fs::read_to_string(source.join("config.yml")).unwrap(), elsewhere);
+    let sessions = root.path().join("session-gh");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(sessions.join("config.yml"), "git_protocol: https\nhttp_unix_socket: /elsewhere\n").unwrap();
+    let directory = place.gh_config(&sessions).unwrap();
+    assert_eq!(std::fs::read_to_string(directory.join("config.yml")).unwrap(), format!("git_protocol: https\nhttp_unix_socket: {}\n", place.socket().display()));
+    assert_eq!(std::fs::read_link(directory.join("hosts.yml")).unwrap(), sessions.join("hosts.yml"));
+    assert_eq!(place.gh_config(&sessions).unwrap(), directory);
 }
 
 #[test]
