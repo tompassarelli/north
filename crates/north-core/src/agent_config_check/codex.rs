@@ -92,6 +92,9 @@ fn live_runtimes(context: &Context, report: &mut Report) -> bool {
     let interactive = path_command("codex").and_then(|path| fs::canonicalize(path).ok());
     if executable(&user_codex) {
         report.ok("Codex user runtime is installed and executable outside the NixOS system closure");
+    } else if interactive.is_none() {
+        exact = false;
+        report.soft("Codex is not installed on this host; Claude-only hosts run without it");
     } else {
         exact = false;
         report.bad("Codex user runtime is missing or non-executable; install the runtime by hand");
@@ -101,7 +104,8 @@ fn live_runtimes(context: &Context, report: &mut Report) -> bool {
             report.ok("Interactive Codex directly resolves to the promoted user runtime");
         }
         Some(_) => report.ok("Interactive Codex uses a distinct user launcher over the promoted user runtime"),
-        None => report.soft("Interactive Codex is absent from PATH; the promoted user runtime remains independently executable"),
+        None if executable(&user_codex) => report.soft("Interactive Codex is absent from PATH; the promoted user runtime remains independently executable"),
+        None => {}
     }
     exact
 }

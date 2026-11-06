@@ -25,15 +25,17 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
         &home()?,
     )?;
     let mut say = |line: String| eprintln!("{line}");
+    let nixos_config = repo_root("nixos-config")?;
     let current = current_main("south", &south, &mut say)
-        .and_then(|()| current_main("north", &north, &mut say));
+        .and_then(|()| current_main("north", &north, &mut say))
+        .and_then(|()| current_main("nixos-config", &nixos_config, &mut say));
     if let Err(line) = current {
         eprintln!("{line}");
         eprintln!("{NOT_PUBLISHED}");
         return Ok(1);
     }
     let harness = harness::harness_root().map_err(crate::error::NorthError::Configuration)?;
-    if !policy_gate(&repo_root("nixos-config")?, &operator) {
+    if !policy_gate(&nixos_config, &operator) {
         eprintln!("{NOT_PUBLISHED}; the last published generation stays live");
         return Ok(north_base::agents_sync::POLICY_HELD);
     }

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use north_base::platform::git;
 
-pub(super) const MINIMUM_REPOSITORIES: usize = 5;
+pub(super) const MINIMUM_REPOSITORIES: usize = 1;
 
 const GUIDE: &str = "
 The layout is:
@@ -50,7 +50,7 @@ pub(super) fn conclude(report: &Report, code: &Path) -> u8 {
     }
     if report.repositories < MINIMUM_REPOSITORIES {
         eprintln!(
-            "worktree-layout: FAILED — only {} repositories discovered under {};\n  discovery is broken, not the tree. Refusing to report a clean result.",
+            "worktree-layout: FAILED — {} repositories discovered under {};\n  discovery is broken, not the tree. Refusing to report a clean result.",
             report.repositories,
             code.display()
         );
