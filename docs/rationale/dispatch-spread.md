@@ -16,9 +16,10 @@ gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
   the smaller of free sessions and free builds after every earlier launch in the run.
 - **Disk was refused only under an absolute floor.** `Saturation::refusal` refused a root disk with less than
   `build_disk_free_gib` free, which a 936 GiB array at 99% still clears. The probe now also reads the disk's size
-  from `df`, and a root disk over 85% in use (`DISK_FULL_PCT`) refuses new sessions in dispatch and in
-  `north fleet launch` placement alike. Leaving 15% free keeps room for one more shared cargo target and the
-  stores `[hosts.gex45.disk_budget_gib]` caps before `north reclaim` has to run.
+  from `df`, and a root disk past the lease reaper's eviction line (`capacity::disk_line::Line::eviction`,
+  `offload_evict_free_gib` free or 20% of a smaller disk) refuses new sessions in dispatch and in
+  `north fleet launch` placement alike. A fixed 85%-used line refused the 936 GiB array at 123 GiB free while the
+  reaper, at 94 GiB, slept (north#634); one line means a refused host is always one the reaper is reclaiming.
 
 `north dispatch --dry-run` prints each host's line with its refusal or the builds its queue still takes, and a
 `skip ITEM: ready, not placed: ...` line naming the bound that stopped each box: the account's `allowed_workers`, the

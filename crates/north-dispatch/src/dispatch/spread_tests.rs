@@ -55,13 +55,13 @@ pub(super) fn launches_earlier_in_the_run_count_against_each_hosts_sessions_and_
     assert!(skipped[0].contains("gex45 admission queue has no room for another build this run"), "{}", skipped[0]);
 }
 
-pub(super) fn a_host_whose_admission_queue_is_at_its_limit_or_whose_root_disk_is_over_85_percent_takes_no_session() {
+pub(super) fn a_host_whose_admission_queue_is_at_its_limit_or_whose_root_disk_is_past_the_reapers_eviction_line_takes_no_session() {
     let accounts = vec![account("claude:a", &["nexus"], None), account("claude:b", &["gex45"], None)];
     let full_disk = host("gex45", 24, Ok(0)).read(Some(&reading(46.8, 936.0, 0)));
-    assert_eq!(full_disk.free(), Err("gex45 skipped: root disk 95% full, over 85%".to_owned()));
+    assert_eq!(full_disk.free(), Err("gex45 skipped: 46.8 GiB free on the root disk, under the 94 GiB line the lease reaper evicts offload slots below".to_owned()));
     let queue = host("gex45", 24, Ok(0)).read(Some(&reading(400.0, 936.0, 4)));
     assert_eq!(queue.free(), Err("gex45 skipped: 4 jobs queued in machine-capacity admission (limit 4)".to_owned()));
-    assert_eq!(host("gex45", 24, Ok(0)).read(Some(&reading(146.0, 936.0, 0))).free(), Ok(24));
+    assert_eq!(host("gex45", 24, Ok(0)).read(Some(&reading(123.0, 936.0, 0))).free(), Ok(24), "87% full with 123 GiB free is over the eviction line, so the reaper sleeps and placement admits");
 
     for refused in [full_disk, queue] {
         let why = refused.free().unwrap_err();

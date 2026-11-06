@@ -25,6 +25,7 @@ pub mod carry;
 mod lease_deadline;
 pub mod warcraft;
 pub mod saturation;
+pub mod disk_line;
 pub mod land_claim;
 pub mod desktop_aperture;
 pub mod effects;

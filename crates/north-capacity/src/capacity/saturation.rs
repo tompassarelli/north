@@ -4,14 +4,12 @@
 //! target (`pressure_target`). Placement skips a host with a backlog at launch so the pile does not deepen while another
 //! host idles, and alerts on a stalled fleet read the same signals through `Saturation::refusal`.
 use super::admission::{self, Class, default_mib as default};
+use super::disk_line::Line;
 
 const DISK_FLOOR: &str = "build_disk_free_gib";
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
 const KIB_PER_MIB: f64 = 1024.0;
 const BACKLOG_MARK: &str = "#backlog";
-
-/// Percent of the root disk in use past which a host takes no new session, whatever its free GiB.
-pub const DISK_FULL_PCT: f64 = 85.0;
 
 /// Jobs queued in machine-capacity admission at which a host takes no new session.
 pub const QUEUED_LIMIT: u32 = 4;
@@ -73,7 +71,7 @@ pub fn parse(text: &str) -> Option<Saturation> {
 }
 
 impl Saturation {
-    /// Why `host` takes no new session, the first of: too little available memory beyond a session's own request, a root disk under the build floor or over DISK_FULL_PCT in use, or queued jobs at the limit or load over its threads.
+    /// Why `host` takes no new session, the first of: too little available memory beyond a session's own request, a root disk under the build floor or past the eviction line the lease reaper reclaims under, or queued jobs at the limit or load over its threads.
     pub fn refusal(&self, host: &str) -> Option<String> {
         let request = admission::dispatch_request_mib(Class::Agent);
         if admission::memory_short(self.memory_total_mib, self.memory_available_mib, request) {
@@ -83,15 +81,12 @@ impl Saturation {
         if self.disk_free_gib < floor {
             return Some(format!("{host} skipped: {:.1} GiB free on the root disk, under {floor}", self.disk_free_gib));
         }
-        if let Some(used) = self.disk_used_pct().filter(|used| *used > DISK_FULL_PCT) {
-            return Some(format!("{host} skipped: root disk {used:.0}% full, over {DISK_FULL_PCT:.0}%"));
+        let line = Line::eviction();
+        if line.passed(self.disk_free_gib, self.disk_total_gib) {
+            let under = line.floor_gib(self.disk_total_gib);
+            return Some(format!("{host} skipped: {:.1} GiB free on the root disk, under the {under:.0} GiB line the lease reaper evicts offload slots below", self.disk_free_gib));
         }
         self.backlog?.refusal(host)
-    }
-
-    /// Percent of the root disk in use, None when the reading carries no disk size.
-    pub fn disk_used_pct(&self) -> Option<f64> {
-        (self.disk_total_gib > 0.0).then(|| 100.0 * (1.0 - self.disk_free_gib / self.disk_total_gib))
     }
 }
 

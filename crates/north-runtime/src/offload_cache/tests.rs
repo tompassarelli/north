@@ -143,10 +143,10 @@ fn shared_build_output_and_sccache_go_to_their_caps_before_any_land_slot_and_the
 fn a_large_disk_evicts_at_the_same_free_headroom_as_a_small_one_so_a_roomy_host_keeps_its_land_slots() {
     let disk = |size_gib: f64, used_percent: f64| Disk { used_percent, free_gib: size_gib * (100.0 - used_percent) / 100.0, size_bytes: (size_gib * GIB) as u64 };
     let line = Line::eviction();
-    assert!(!line.passed_by(disk(936.0, 81.0)), "gex45's 936 GiB disk at 81% still has 178 GiB free");
-    assert!(line.passed_by(disk(936.0, 91.0)));
-    assert!(line.passed_by(disk(224.0, 81.0)) && !line.passed_by(disk(224.0, 79.0)), "ccx33's 224 GiB disk keeps the 20% line");
-    assert!(!Line::incident().passed_by(disk(936.0, 86.0)) && Line::incident().passed_by(disk(224.0, 86.0)));
+    assert!(!disk(936.0, 81.0).past(line), "gex45's 936 GiB disk at 81% still has 178 GiB free");
+    assert!(disk(936.0, 91.0).past(line));
+    assert!(disk(224.0, 81.0).past(line) && !disk(224.0, 79.0).past(line), "ccx33's 224 GiB disk keeps the 20% line");
+    assert!(!disk(936.0, 86.0).past(Line::incident()) && disk(224.0, 86.0).past(Line::incident()));
     let home = tempfile::tempdir().unwrap();
     let land = home.path().join(".cache/land-offload");
     slot(&land, "code-north-main-3", 8, 40);

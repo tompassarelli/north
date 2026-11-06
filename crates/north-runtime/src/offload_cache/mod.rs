@@ -15,6 +15,7 @@ use rustix::fs::{FlockOperation, flock, statvfs};
 use crate::land_offload::ship::is_lander_slot;
 use crate::platform::disk_budget::{DiskBudget, Share};
 use crate::platform::shared_target::{self, allocated_tree};
+pub use crate::capacity::disk_line::Line;
 
 mod compiler_cache;
 #[cfg(test)]
@@ -22,8 +23,6 @@ mod tests;
 
 pub const INCIDENT_CLASS: &str = "host-disk";
 const BUILD_OFFLOAD_DISK_SHARE: f64 = 0.15;
-const EVICT_FREE_SHARE: f64 = 0.20;
-const INCIDENT_FREE_SHARE: f64 = 0.15;
 const GIB: f64 = (1u64 << 30) as f64;
 const EPISODE_FILE: &str = "host-disk.episode";
 const COMPANION_DIRS: [&str; 1] = ["beside"];
@@ -71,32 +70,10 @@ pub struct Disk {
     pub size_bytes: u64,
 }
 
-/// Where a disk counts as too full: free space under the smaller of a share of its size and a fixed headroom.
-#[derive(Clone, Copy)]
-pub struct Line {
-    pub free_share: f64,
-    pub free_gib: f64,
-}
-
-impl Line {
-    /// `offload_evict_free_gib` free, or 20% of a disk too small to spare it.
-    pub fn eviction() -> Self {
-        Self { free_share: EVICT_FREE_SHARE, free_gib: default_number("offload_evict_free_gib") }
+impl Disk {
+    pub fn past(self, line: Line) -> bool {
+        line.passed(self.free_gib, self.size_bytes as f64 / GIB)
     }
-
-    /// `host_disk_incident_free_gib` free, or 15% of a disk too small to spare it.
-    pub fn incident() -> Self {
-        Self { free_share: INCIDENT_FREE_SHARE, free_gib: default_number("host_disk_incident_free_gib") }
-    }
-
-    pub fn passed_by(self, disk: Disk) -> bool {
-        disk.free_gib < (disk.size_bytes as f64 / GIB * self.free_share).min(self.free_gib)
-    }
-}
-
-fn default_number(name: &str) -> f64 {
-    let value = &north_base::platform::harness::document(north_base::platform::harness::DEFAULTS)[name]["value"];
-    value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
 struct Slot {
@@ -143,7 +120,7 @@ pub fn evict(stores: &[Store], line: Line, disk: &mut dyn FnMut() -> Option<Disk
 }
 
 fn over(line: Line, disk: &mut dyn FnMut() -> Option<Disk>) -> bool {
-    disk().is_some_and(|disk| line.passed_by(disk))
+    disk().is_some_and(|disk| disk.past(line))
 }
 
 fn evict_slots(root: &Path, cap_bytes: Option<u64>, take: Take, line: Line, disk: &mut dyn FnMut() -> Option<Disk>, evicted: &mut Vec<Evicted>) {
@@ -282,7 +259,7 @@ pub fn tick() {
     let open = fs::read_to_string(&marker).ok();
     let host = crate::platform::host::name();
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    match episode(Line::incident().passed_by(fullest), open.as_deref().map(str::trim), &host, now) {
+    match episode(fullest.past(Line::incident()), open.as_deref().map(str::trim), &host, now) {
         Episode::Open(key) => {
             let detail = format!(
                 "{host} root disk at {:.0}% ({:.0} GiB free), {:.0}% ({:.0} GiB free) after evicting {} unlocked offload slots",

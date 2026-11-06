@@ -644,10 +644,10 @@ consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 [offload_evict_free_gib]
 value = 94
 allowed = { min = 0, max = 65536 }
-unit = "GiB free on a build host's root disk under which the lease reaper evicts offload slots and trims the shared cargo targets and sccache to their caps; a disk too small to spare it evicts under 20% free instead"
+unit = "GiB free on a build host's root disk under which the lease reaper evicts offload slots and trims the shared cargo targets and sccache to their caps, and under which dispatch and fleet placement send the host no new session, so a refused host is always being reclaimed; a disk too small to spare it uses 20% free instead"
 source = "measured: the 80% line was set when the GPU host had a 468 GiB disk, 94 GiB free; after the 2026-10-31 reshape to 936 GiB it fired at 187 GiB free, and on 2026-11-06 the reaper evicted land-offload slots dozens of times with sccache (30 GiB) and the shared cargo targets (20 GiB) already at their caps while the uncapped Mak'gora and wisp stores (about 220 GiB) held the disk near 80% (north#634)"
 fallback = "none: the reaper always applies it"
-consumers = ["crates/north-runtime/src/offload_cache/mod.rs"]
+consumers = ["crates/north-capacity/src/capacity/disk_line.rs", "crates/north-runtime/src/offload_cache/mod.rs", "crates/north-capacity/src/capacity/saturation.rs"]
 
 [host_disk_incident_free_gib]
 value = 70
@@ -655,7 +655,7 @@ allowed = { min = 0, max = 65536 }
 unit = "GiB free on a build host's root disk under which the lease reaper records one host-disk incident per episode; a disk too small to spare it records under 15% free instead"
 source = "measured: the 85% incident line on the GPU host's former 468 GiB disk left 70 GiB free; kept as headroom so the 936 GiB disk raises no incident with 140 GiB free (north#634)"
 fallback = "none: the reaper always applies it"
-consumers = ["crates/north-runtime/src/offload_cache/mod.rs"]
+consumers = ["crates/north-capacity/src/capacity/disk_line.rs", "crates/north-runtime/src/offload_cache/mod.rs"]
 
 [build_disk_free_gib]
 value = 15
