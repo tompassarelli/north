@@ -45,6 +45,10 @@ pub(super) fn claude_target_left() -> f64 {
     default("pace_target_left_claude")
 }
 
+pub fn claude_session_margin() -> f64 {
+    100.0 - default("claude_session_target")
+}
+
 pub(super) fn five_hour_burn_cap() -> f64 {
     default("five_hour_burn_cap_pct_h")
 }

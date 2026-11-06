@@ -111,14 +111,20 @@ fn carried_rates(previous: &Control, windows: &[Window], measured: BTreeMap<Stri
     rates
 }
 
+fn paced(windows: &[Window]) -> Vec<&Window> {
+    let short: Vec<&Window> = windows.iter().filter(|w| !w.is_week()).collect();
+    if short.is_empty() { windows.iter().collect() } else { short }
+}
+
 fn may_raise(windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Reading, allowed: i64) -> bool {
     match &reading.target {
         Some(target) => windows
             .iter()
             .all(|w| w.projected_pct.is_some_and(|p| p < target.spend_to_pct) || w.below_deadline_line(Some(target), reading.at)),
         None => {
-            rates.len() == windows.len()
-                && windows.iter().all(|w| {
+            let paced = paced(windows);
+            paced.iter().all(|w| rates.contains_key(&w.window))
+                && paced.iter().all(|w| {
                     rates.get(&w.window).is_some_and(|rate| {
                         w.used_pct + rate * 60.0 * (allowed + 1) as f64 * w.reset_h <= 100.0 - reading.margin
                     })
@@ -141,8 +147,8 @@ fn capacity(windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Reading
 }
 
 fn unmeasured(windows: &[Window], rates: &BTreeMap<String, f64>) -> bool {
-    windows
-        .iter()
+    paced(windows)
+        .into_iter()
         .all(|w| w.burn_pct_h.is_none_or(|burn| burn <= 0.0) && rates.get(&w.window).is_none_or(|rate| *rate <= 0.0))
 }
 
@@ -170,7 +176,7 @@ fn standing(previous: &Control, wanted: bool, soft: bool, target_kept: bool, at:
 }
 
 fn next_allowed(allowed: i64, windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Reading, held: bool, over: bool, recovering: bool) -> i64 {
-    let known = windows.iter().all(|w| w.projected_pct.is_some());
+    let known = if reading.target.is_some() { windows.iter().all(|w| w.projected_pct.is_some()) } else { paced(windows).iter().all(|w| w.projected_pct.is_some()) };
     if over {
         (allowed / 2).max(1)
     } else if !held && recovering && !windows.is_empty() && unmeasured(windows, rates) && let Some(count) = reading.workers.filter(|count| *count != 0) {
@@ -186,7 +192,7 @@ fn is_over(previous: &Control, windows: &[Window], reading: &Reading) -> bool {
     let target = reading.target.as_ref();
     let exhausted = windows.iter().any(|w| w.is_week() && w.used_pct >= w.ceiling(target));
     let ceiling = if previous.over == Some(true) { 100.0 - reading.margin } else { 100.0 };
-    exhausted || windows.iter().any(|w| !exhaustion::five_hour(&w.window) && w.projected_pct.is_some_and(|p| p > ceiling))
+    exhausted || windows.iter().any(|w| !exhaustion::five_hour(&w.window) && (target.is_some() || !w.is_week()) && w.projected_pct.is_some_and(|p| p > ceiling))
 }
 
 pub fn advance(previous: &Control, mut reading: Reading) -> Control {

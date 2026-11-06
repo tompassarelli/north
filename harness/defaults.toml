@@ -328,6 +328,14 @@ source = "tom: 2026-10-25 asked that a busy account spend its five-hour window i
 fallback = "without a measured burn only the five-hour 95% stop refuses"
 consumers = ["crates/north-pace/src/pace/limits.rs"]
 
+[claude_session_target]
+value = 90
+allowed = { min = 0, max = 100 }
+unit = "percent of a Claude account's five-hour window pace aims to have used at the window's reset when it raises allowed_workers; the weekly window never lowers it until the week is spent"
+source = "tom: 2026-10-15 rule that a Claude account's five-hour window ends near 90% and never above 95% (the 95 stop is FIVE_HOUR_STOP); 2026-11-06 asked that allowed_workers follow the five-hour window alone, so the remaining week is spent on ranked work and not spread to its reset (north#259)"
+fallback = "none: the controller reads no other target for a window without a pace policy entry"
+consumers = ["crates/north-pace/src/pace/limits.rs", "crates/north-dispatch/src/pacing/sampling.rs"]
+
 [codex_route_tooling]
 value = "codex"
 allowed = { one_of = ["codex", "claude"] }

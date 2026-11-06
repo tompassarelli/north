@@ -143,13 +143,14 @@ fn short_and_week(at: f64, short_used: f64, short_burn: f64, short_reset_h: f64,
     ]
 }
 
-// KEEP(mutant): a short-window projection past its ceiling caps workers without holding the account; mutant n259-short-window-projection-holds (34a3efb20)
+// KEEP(mutant): a short-window projection past its ceiling caps workers without holding the account, and the remaining week never does; mutant n259-short-window-projection-holds (34a3efb20); the 2026-11-06 11:45 AM readings held every account at 1 (north#259)
 #[test]
-fn a_short_window_projection_past_its_ceiling_caps_workers_without_holding_the_account() {
+fn a_short_window_projection_caps_workers_and_the_remaining_week_never_does() {
     let at = 1_792_000_000.0;
     let previous = step(&Control::default(), short_and_week(at - 60.0, 40.0, 50.0, 4.0, 11.0), Some(3), at - 60.0);
     let control = step(&previous, short_and_week(at, 40.5, 50.0, 4.0, 11.0), Some(3), at);
     assert_eq!((control.held, control.over), (Some(false), Some(false)));
+    allowed_workers_follow_the_five_hour_window_and_not_the_remaining_week();
 }
 
 // KEEP(mutant): a spawn is refused only at the five-hour stop or over the burn cap; mutant exhaustion-other-window-as-5h (d7da0bbe0)
@@ -182,4 +183,36 @@ fn a_spawn_is_refused_only_at_the_five_hour_stop_or_over_the_burn_cap() {
     assert_eq!(refusal("codex", &other("43200m", 99.0), at), None);
     assert_eq!(refusal("codex", &other("lim:week", 96.0), at), None);
     assert_eq!(refusal("codex", &other("lim:week", 100.0), at), Some(format!("Hold: codex exhausted: provider lim:week 100%; the lim:week window resets at {reset}.")));
+}
+
+fn weekly_reading(at: f64, five_used: f64, five_reset_h: f64, week_used: f64, week_reset_h: f64) -> Vec<Window> {
+    let stamped = |name: &str, used: f64, burn: f64, reset_h: f64, resets: &str| {
+        window(json!({"window": name, "used_pct": used, "burn_pct_h": burn, "reset_h": reset_h, "resets_at": resets,
+                      "age_s": 0, "as_of": stamp(at), "quota_ceiling": 95.0}))
+    };
+    vec![
+        stamped("5h", five_used, 2.0, five_reset_h, "five"),
+        stamped("week", week_used, 0.0, week_reset_h, "week"),
+    ]
+}
+
+fn allowed_workers_follow_the_five_hour_window_and_not_the_remaining_week() {
+    let at = 1_793_000_000.0;
+    let climb = |five_used: f64, five_reset_h: f64, week_used: f64, week_reset_h: f64, week_slope: f64| {
+        let mut previous = Control::default();
+        for tick in 0..25 {
+            let moment = at + 60.0 * f64::from(tick);
+            let windows = weekly_reading(moment, five_used, five_reset_h, week_used + week_slope * f64::from(tick), week_reset_h);
+            previous = advance(&previous, Reading { initial: 1, ..reading(windows, Some(2), moment) });
+        }
+        previous
+    };
+    let claude_c = climb(34.0, 3.0, 40.0, 151.0, 0.1);
+    assert_eq!((claude_c.held, claude_c.over), (Some(false), Some(false)));
+    assert!(claude_c.allowed_workers.unwrap() > 1, "claude:c allowed {:?}", claude_c.allowed_workers);
+    let claude_a = climb(0.0, 4.0, 84.0, 141.0, 0.1);
+    assert_eq!((claude_a.held, claude_a.over), (Some(false), Some(false)));
+    assert!(claude_a.allowed_workers.unwrap() > 1, "claude:a allowed {:?}", claude_a.allowed_workers);
+    let spent = climb(0.0, 4.0, 95.0, 141.0, 0.1);
+    assert_eq!((spent.held, spent.over), (Some(true), Some(true)));
 }

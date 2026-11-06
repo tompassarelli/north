@@ -33,6 +33,7 @@ enum Cause {
     Floor,
     WeekProjection,
     Dwell,
+    BurnCap,
     Refused,
 }
 
@@ -76,6 +77,10 @@ fn week_floor(control: &Control) -> bool {
     week_of(&control.windows).is_some_and(|w| w.used_pct >= w.quota_ceiling.unwrap_or(100.0))
 }
 
+fn burn_capped(control: &Control) -> bool {
+    control.windows.iter().any(|w| exhaustion::five_hour(&w.window) && w.used_pct < exhaustion::FIVE_HOUR_STOP && exhaustion::refusal(&w.window, w.used_pct, w.burn_pct_h).is_some())
+}
+
 fn cause(control: &Control, refused: bool) -> Option<Cause> {
     if control.held != Some(true) && !refused {
         return None;
@@ -86,6 +91,8 @@ fn cause(control: &Control, refused: bool) -> Option<Cause> {
         Cause::Floor
     } else if control.over == Some(true) {
         Cause::WeekProjection
+    } else if refused && control.held != Some(true) && burn_capped(control) {
+        Cause::BurnCap
     } else if refused {
         Cause::Refused
     } else {
@@ -111,7 +118,7 @@ fn realized_end(rows: &[Row], from: usize, short: &Window) -> f64 {
 
 fn judge(rows: &[Row], index: usize, control: &Control, cause: Cause) -> Verdict {
     match cause {
-        Cause::Stale | Cause::WeekProjection => Verdict::Unresolved,
+        Cause::Stale | Cause::WeekProjection | Cause::BurnCap => Verdict::Unresolved,
         Cause::Floor => Verdict::True,
         Cause::Dwell | Cause::Refused => {
             let Some(short) = control.windows.iter().find(|w| !w.is_week()) else {
@@ -128,7 +135,7 @@ fn replay(rows: &[Row]) -> Tally {
     let mut tally = Tally::default();
     let mut control = Control::default();
     for (index, row) in rows.iter().enumerate() {
-        let reading = Reading { windows: row.windows.clone(), workers: row.workers, at: row.at, initial: 2, margin: 10.0, target: row.target.clone() };
+        let reading = Reading { windows: row.windows.clone(), workers: row.workers, at: row.at, initial: 2, margin: crate::pace::limits::claude_session_margin(), target: row.target.clone() };
         control = advance(&control, reading);
         let refused = control.windows.iter().any(|w| exhaustion::refusal(&w.window, w.used_pct, w.burn_pct_h).is_some());
         let Some(cause) = cause(&control, refused) else { continue };

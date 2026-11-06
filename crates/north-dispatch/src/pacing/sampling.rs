@@ -434,7 +434,7 @@ pub(super) fn update_controls(
                     workers: working.as_ref().map(|working| working.get(&account).copied().unwrap_or(0)),
                     at: current,
                     initial,
-                    margin: 10.0,
+                    margin: crate::pace::limits::claude_session_margin(),
                     target: target_for(&account, current)?,
                 },
             );
