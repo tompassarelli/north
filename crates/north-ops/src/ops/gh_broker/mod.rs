@@ -91,7 +91,7 @@ fn serve(resident: bool) -> u8 {
     }
     watch(&place, Arc::clone(&activity), resident);
     drain_on_sigterm(place.socket(), Arc::clone(&activity));
-    server::serve(&listener, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls())));
+    server::serve(&listener, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls(), place.quota())));
     if !activity.finish_open_calls(DRAIN_LIMIT) {
         eprintln!("north gh-broker: {} s passed with calls still open; exiting anyway", DRAIN_LIMIT.as_secs());
     }

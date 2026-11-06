@@ -45,6 +45,7 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
         usage,
         machines,
         here: here(),
+        github: crate::platform::github_quota::seen(at),
     })
 }
 

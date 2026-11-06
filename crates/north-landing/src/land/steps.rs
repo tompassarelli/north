@@ -11,6 +11,7 @@ use super::candidate::{self, Built};
 use super::checks::Verdict;
 use super::queue::Ticket;
 use crate::platform::decision_log::{self, Entry};
+use crate::platform::github_quota;
 
 /// The lander's state in one round of `batch`, beside the queue and the candidate built from it.
 pub struct Round<'a> {
@@ -40,6 +41,7 @@ pub fn batch(round: &Round, included: &[(&PathBuf, &Ticket)], halve: Option<usiz
         spares: count(round.spares),
         rebuilds: round.rebuilds,
         bisect_depth: round.bisect_depth,
+        github: github_quota::seen(decision_log::now()),
     };
     let decision = BatchDecision { included: branches(included), halve: halve.map(count) };
     decision_log::record(Entry { kind: Kind::LandBatch, at: decision_log::now(), follows: None, case: &case, decision: &decision, decide_us: 0 })

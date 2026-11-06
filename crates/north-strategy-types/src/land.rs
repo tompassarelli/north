@@ -68,6 +68,9 @@ pub struct BatchCase {
     pub spares: u64,
     pub rebuilds: u64,
     pub bisect_depth: u64,
+    /// The lowest GitHub rate limit the broker last saw, None when it has seen none in a live window.
+    #[serde(default)]
+    pub github: Option<crate::github::Quota>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]

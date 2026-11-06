@@ -30,6 +30,10 @@ impl Place {
         self.root.join("broker.sock")
     }
 
+    pub fn quota(&self) -> PathBuf {
+        self.root.join("quota")
+    }
+
     pub fn calls(&self) -> PathBuf {
         self.root.join("calls.log")
     }

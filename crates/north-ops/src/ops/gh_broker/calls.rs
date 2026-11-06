@@ -9,19 +9,23 @@ const ROTATE_BYTES: u64 = 32 << 20;
 
 pub struct CallLog {
     path: Option<PathBuf>,
+    quota: Option<PathBuf>,
 }
 
 impl CallLog {
-    pub fn at(path: PathBuf) -> Self {
-        Self { path: Some(path) }
+    pub fn at(path: PathBuf, quota: PathBuf) -> Self {
+        Self { path: Some(path), quota: Some(quota) }
     }
 
     #[cfg(test)]
     pub fn off() -> Self {
-        Self { path: None }
+        Self { path: None, quota: None }
     }
 
     pub fn record(&self, stream: &UnixStream, request: &Request, response: &Response, source: Source) {
+        if let Some(directory) = &self.quota {
+            keep_quota(directory, request, response);
+        }
         let Some(path) = &self.path else {
             return;
         };
@@ -53,4 +57,12 @@ fn unit_of(process: &Path) -> Option<String> {
     let cgroup = std::fs::read_to_string(process.join("cgroup")).ok()?;
     let path = cgroup.lines().find_map(|line| line.strip_prefix("0::"))?;
     path.rsplit('/').find(|part| part.ends_with(".service") || part.ends_with(".scope")).map(str::to_owned)
+}
+
+fn keep_quota(directory: &Path, request: &Request, response: &Response) {
+    let number = |name: &str| response.header(name).and_then(|value| value.trim().parse::<u64>().ok());
+    let (Some(remaining), Some(resets_at), Some(resource)) = (number("x-ratelimit-remaining"), number("x-ratelimit-reset"), response.header("x-ratelimit-resource")) else {
+        return;
+    };
+    crate::platform::github_quota::record(directory, request.header("authorization").unwrap_or(""), resource, remaining, resets_at);
 }

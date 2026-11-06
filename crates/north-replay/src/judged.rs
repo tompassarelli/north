@@ -3,18 +3,26 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use north_base::platform::decision_log;
+use north_strategy_types::github::Quota;
 use north_strategy_types::land::{JudgeCase, Judgement};
 use north_strategy_types::{Envelope, Kind};
 use serde::Deserialize;
 
 use crate::Deciders;
 use crate::bounds::Bounds;
-use crate::report::{Counts, Invariant, stamp};
+use crate::report::{Counts, Invariant, github_floor, stamp};
 
 #[derive(Deserialize)]
 struct Stamp {
     id: String,
     at: f64,
+    case: Observed,
+}
+
+#[derive(Deserialize)]
+struct Observed {
+    #[serde(default)]
+    github: Option<Quota>,
 }
 
 fn label(judgement: &Judgement) -> String {
@@ -33,11 +41,11 @@ fn percentile(sorted: &[f64], share: f64) -> f64 {
 /// Replays every judgement in the window. A ticket's landing time is the check time of the rounds that
 /// carried it until the replayed judgement lands it, with the idle gaps between rounds left out; a ticket
 /// the log landed and the replay never does counts as never landing.
-pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &Bounds) -> (Counts, Invariant) {
-    let batches: HashMap<String, f64> = decision_log::lines(root, Kind::LandBatch, "jsonl", since - 3600.0, now)
+pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &Bounds) -> (Counts, Invariant, Invariant) {
+    let batches: HashMap<String, (f64, Option<Quota>)> = decision_log::lines(root, Kind::LandBatch, "jsonl", since - 3600.0, now)
         .into_iter()
         .filter_map(|(_, line)| serde_json::from_str::<Stamp>(&line).ok())
-        .map(|stamp| (stamp.id, stamp.at))
+        .map(|stamp| (stamp.id, (stamp.at, stamp.case.github)))
         .collect();
     let mut judged: Vec<Envelope<JudgeCase, Judgement>> = decision_log::lines(root, Kind::LandJudge, "jsonl", since, now)
         .into_iter()
@@ -46,6 +54,7 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &B
         .collect();
     judged.sort_by(|a, b| a.at.total_cmp(&b.at));
     let mut counts = Counts::new("land.judge");
+    let mut github = github_floor(bounds.github_floor_calls);
     let mut spent: HashMap<&str, f64> = HashMap::new();
     let mut stuck: BTreeSet<&str> = BTreeSet::new();
     let mut closed: BTreeSet<&str> = BTreeSet::new();
@@ -53,7 +62,11 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &B
     for logged in &judged {
         let replayed = (deciders.judge)(&logged.case);
         counts.record(&label(&logged.decision), Some(&label(&replayed)));
-        let wall = logged.follows.as_ref().and_then(|batch| batches.get(batch)).map_or(0.0, |started| logged.at - started);
+        let batch = logged.follows.as_ref().and_then(|batch| batches.get(batch));
+        let wall = batch.map_or(0.0, |(started, _)| logged.at - started);
+        if replayed == Judgement::Land {
+            github.check_github(batch.and_then(|(_, quota)| quota.as_ref()), bounds.github_floor_calls, logged.at, || format!("a round of {} lanes lands", logged.case.included.len()));
+        }
         for branch in logged.case.included.iter().map(String::as_str) {
             *spent.entry(branch).or_default() += wall;
             let logged_land = logged.decision == Judgement::Land;
@@ -78,7 +91,7 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &B
             }
         }
     }
-    (counts, tail(times, &stuck, bounds))
+    (counts, tail(times, &stuck, bounds), github)
 }
 
 fn tail(mut times: Vec<(f64, f64, &str)>, stuck: &BTreeSet<&str>, bounds: &Bounds) -> Invariant {

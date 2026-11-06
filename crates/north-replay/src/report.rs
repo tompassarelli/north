@@ -2,6 +2,7 @@
 use std::collections::BTreeMap;
 
 use north_base::foundation::clock::Timestamp;
+use north_strategy_types::github::Quota;
 
 use crate::bounds::Bounds;
 
@@ -103,5 +104,20 @@ impl Invariant {
             text.push_str(&format!("\n  and {} more", self.breaches.len() - 3));
         }
         text
+    }
+}
+
+pub const GITHUB_FLOOR: &str = "github-floor";
+
+/// The invariant that a launch placed or a round landed leaves the floor of GitHub calls unspent.
+pub fn github_floor(floor: f64) -> Invariant {
+    Invariant::new(GITHUB_FLOOR, format!("a launch is placed and a round lands only while the least GitHub rate limit the broker had seen keeps {floor} calls"))
+}
+
+impl Invariant {
+    /// Judges one decision against the lowest GitHub reading its case logged; a case without one does not apply.
+    pub fn check_github(&mut self, quota: Option<&Quota>, floor: f64, at: f64, what: impl FnOnce() -> String) {
+        let Some(quota) = quota else { return };
+        self.check(quota.remaining as f64 >= floor, || format!("{}: {} with {} GitHub {} calls left, under the floor of {floor}", stamp(at), what(), quota.remaining, quota.resource));
     }
 }

@@ -57,9 +57,11 @@ impl Replayed {
 
 pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &Bounds) -> Replayed {
     let (admitted, slot) = admitted::replay(root, since, now, deciders);
-    let (placed, quota) = placed::replay(root, since, now, deciders, bounds);
-    let (judged, tail) = judged::replay(root, since, now, deciders, bounds);
-    Replayed { counts: vec![admitted, placed, judged], invariants: vec![quota, slot, tail] }
+    let (placed, quota, placed_github) = placed::replay(root, since, now, deciders, bounds);
+    let (judged, tail, judged_github) = judged::replay(root, since, now, deciders, bounds);
+    let mut github = placed_github;
+    github.merge(judged_github);
+    Replayed { counts: vec![admitted, placed, judged], invariants: vec![quota, github, slot, tail] }
 }
 
 pub fn run(arguments: &[String]) -> u8 {

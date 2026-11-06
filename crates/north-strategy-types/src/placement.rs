@@ -18,6 +18,9 @@ pub struct Case {
     pub roster: BTreeMap<String, Standing>,
     pub machines: Vec<Machine>,
     pub here: Here,
+    /// The lowest GitHub rate limit the broker last saw, None when it has seen none in a live window.
+    #[serde(default)]
+    pub github: Option<crate::github::Quota>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

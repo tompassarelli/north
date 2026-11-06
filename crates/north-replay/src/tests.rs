@@ -4,6 +4,7 @@ use std::path::Path;
 
 use north_base::platform::decision_log;
 use north_strategy_types::admission::{self, Class, Profile, Reason};
+use north_strategy_types::github::Quota;
 use north_strategy_types::land::{self, BatchCase, BatchDecision, JudgeCase, Judgement, Verdict};
 use north_strategy_types::placement::{self, Outcome, Target, Window};
 use north_strategy_types::{Envelope, Kind, Snapshot};
@@ -103,7 +104,7 @@ fn log_admission(root: &Path, count: usize, slot: bool, logged: impl Fn(usize) -
 }
 
 fn bounds() -> Bounds {
-    Bounds { five_hour_floor_points: 5.0, week_floor_points: 0.0, landing_p90_seconds: 60.0, shift_ratio: 2.0, shift_min_cases: 20, budget_seconds: 5.0 }
+    Bounds { five_hour_floor_points: 5.0, week_floor_points: 0.0, github_floor_calls: 1000.0, landing_p90_seconds: 60.0, shift_ratio: 2.0, shift_min_cases: 20, budget_seconds: 5.0 }
 }
 
 fn deciders<'a>(
@@ -157,6 +158,7 @@ fn a_change_that_shifts_counts_or_places_a_launch_under_the_quota_floor_is_refus
     let quota = replayed.invariants.iter().find(|invariant| invariant.name == "quota-floor").unwrap();
     assert_eq!((code, quota.checked, quota.passed), (1, 4, 3));
     assert!(quota.breaches[0].contains("4 points of its five-hour window left"), "{:?}", quota.breaches);
+    assert_github_floor_refuses_a_launch_placed_under_1000_calls_and_skips_unread_cases();
 }
 
 fn placed_case(used_5h: f64) -> placement::Case {
@@ -173,7 +175,13 @@ fn placed_case(used_5h: f64) -> placement::Case {
         roster: BTreeMap::new(),
         machines: Vec::new(),
         here: placement::Here::default(),
+        github: None,
     }
+}
+
+fn with_github(mut case: placement::Case, remaining: u64) -> placement::Case {
+    case.github = Some(Quota { resource: "core".into(), remaining, resets_at: NOW + 600.0 });
+    case
 }
 
 fn placed_on_c() -> placement::Decision {
@@ -184,7 +192,7 @@ fn log_landings(root: &Path, walls: &[f64]) {
     for (index, wall) in walls.iter().enumerate() {
         let started = NOW - 3000.0 + index as f64 * 100.0;
         let id = format!("b{index}");
-        let batch = BatchCase { base: "m".into(), tickets: Vec::new(), picks: Vec::new(), limit: None, red_only: false, pause: None, strikes: BTreeMap::new(), spares: 0, rebuilds: 0, bisect_depth: 0 };
+        let batch = BatchCase { base: "m".into(), tickets: Vec::new(), picks: Vec::new(), limit: None, red_only: false, pause: None, strikes: BTreeMap::new(), spares: 0, rebuilds: 0, bisect_depth: 0, github: None };
         let included = vec![format!("lane{index}")];
         append(root, Kind::LandBatch, "jsonl", started, &envelope(Kind::LandBatch, &id, started, None, batch, BatchDecision { included: included.clone(), halve: None }));
         let case = JudgeCase { verdict: Verdict::Green, included, base_moved: false, streak: 0, searched: false };
@@ -213,7 +221,7 @@ fn the_landing_tail_breaches_on_slow_rounds_and_on_landings_the_replay_withholds
     for (index, logged) in [Judgement::Halve(1), Judgement::Land].into_iter().enumerate() {
         let started = NOW - 3000.0 + index as f64 * 100.0;
         let id = format!("b{index}");
-        let batch = BatchCase { base: "m".into(), tickets: Vec::new(), picks: Vec::new(), limit: None, red_only: false, pause: None, strikes: BTreeMap::new(), spares: 0, rebuilds: 0, bisect_depth: 0 };
+        let batch = BatchCase { base: "m".into(), tickets: Vec::new(), picks: Vec::new(), limit: None, red_only: false, pause: None, strikes: BTreeMap::new(), spares: 0, rebuilds: 0, bisect_depth: 0, github: None };
         append(early.path(), Kind::LandBatch, "jsonl", started, &envelope(Kind::LandBatch, &id, started, None, batch, BatchDecision { included: vec!["lane".into()], halve: None }));
         let case = JudgeCase { verdict: Verdict::Green, included: vec!["lane".into()], base_moved: false, streak: 0, searched: false };
         append(early.path(), Kind::LandJudge, "jsonl", started + 5.0, &envelope(Kind::LandJudge, &format!("j{index}"), started + 5.0, Some(&id), case, logged));
@@ -237,4 +245,18 @@ fn reapplying_the_parent_of_8d4c5d10a_to_slot_claims_exits_non_zero_naming_slot_
     let (code, replayed) = exit(root.path(), &deciders(&parent, &same_judgement, &unplaced));
     assert_eq!(code, 1);
     assert!(replayed.refusals(&bounds(), true).iter().any(|refusal| refusal.starts_with("slot-time:")), "{:?}", replayed.refusals(&bounds(), true));
+}
+
+fn assert_github_floor_refuses_a_launch_placed_under_1000_calls_and_skips_unread_cases() {
+    let root = tempfile::tempdir().unwrap();
+    for (index, remaining) in [Some(4000), Some(900), None].into_iter().enumerate() {
+        let at = NOW - 200.0 + index as f64;
+        let case = remaining.map_or_else(|| placed_case(20.0), |remaining| with_github(placed_case(20.0), remaining));
+        append(root.path(), Kind::Placement, "jsonl", at, &envelope(Kind::Placement, &format!("p{index}"), at, None, case, placed_on_c()));
+    }
+    let places = |_: &placement::Case| Some(Target::Account("claude:c".into()));
+    let (code, replayed) = exit(root.path(), &deciders(&quiet_admission, &same_judgement, &places));
+    let floor = replayed.invariants.iter().find(|invariant| invariant.name == "github-floor").unwrap();
+    assert_eq!((code, floor.checked, floor.passed), (1, 2, 1));
+    assert!(floor.breaches[0].contains("launch box is placed on claude:c with 900 GitHub core calls left"), "{:?}", floor.breaches);
 }

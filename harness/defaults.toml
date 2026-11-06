@@ -1512,3 +1512,11 @@ unit = "words and phrases that put a gate question or option in the core-directi
 source = "tom: ask-once decisions wait for his answer; a core-project call that shifts direction, scope, dependencies or outside contributions is one of them (north#670, 2026-11-06)"
 fallback = "a gate naming none of the ask-once words keeps its default"
 consumers = ["crates/north-fleet/src/fleet/ask_once.rs"]
+
+[replay_github_floor_calls]
+value = 1000
+allowed = { min = 0, max = 100000 }
+unit = "GitHub calls a launch placement or a landing round must leave unspent on the least-remaining rate limit the broker had seen; strategy replay refuses a change that places a launch or lands a round with fewer calls left"
+source = "tom: GitHub quota never under 1,000 is a declared invariant (north#643, 2026-11-06)"
+fallback = "none: strategy replay always checks the floor"
+consumers = ["crates/north-replay/src/bounds.rs"]

@@ -414,9 +414,14 @@ functions where they live through three seams (`capacity::replay::reason`, `land
 - **Quota floor.** The account placement targets keeps `replay_five_hour_floor_points` of its
   five-hour window and `replay_week_floor_points` of its week unspent. The bounds are harness
   defaults, not the constants placement itself uses, so a change to placement's own stop cannot
-  move the bound with it. The log holds Claude usage windows only: GitHub's remaining calls are read by
-  no decision the log records, so the 1,000-call GitHub floor of north#643 has no case to judge until
-  the lander's cases carry it.
+  move the bound with it.
+- **GitHub floor.** A launch placement or a landing round that lands a ticket keeps
+  `replay_github_floor_calls` (1,000) calls on the least rate limit the gh broker had seen. The broker
+  keeps the last `x-ratelimit-remaining` of each token and resource under its runtime directory's
+  `quota/`, and placement and the lander's batch line log the lowest reading of a window still open as
+  `github` (resource, remaining, reset). A case logged before that, or while the broker had seen no
+  call, carries none and is not counted, so the invariant line's checked count is the number of real
+  readings it judged.
 - **Slot time.** A lease asked from inside an offload slot (`holds_offload_slot`) is never deferred
   behind the land check that waits for that slot. Reapplying the parent of `8d4c5d10a` (the request
   without its slot flag) deferred every such lease on 2026-11-06 and held five of six gex45 slots for 60

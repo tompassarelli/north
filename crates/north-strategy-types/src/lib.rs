@@ -8,6 +8,7 @@ extern crate alloc;
 
 pub mod admission;
 pub mod envelope;
+pub mod github;
 pub mod land;
 pub mod placement;
 

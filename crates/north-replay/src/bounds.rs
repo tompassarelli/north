@@ -4,6 +4,7 @@ use toml_edit::DocumentMut;
 pub struct Bounds {
     pub five_hour_floor_points: f64,
     pub week_floor_points: f64,
+    pub github_floor_calls: f64,
     pub landing_p90_seconds: f64,
     pub shift_ratio: f64,
     pub shift_min_cases: usize,
@@ -20,6 +21,7 @@ impl Bounds {
         Self {
             five_hour_floor_points: number("replay_five_hour_floor_points"),
             week_floor_points: number("replay_week_floor_points"),
+            github_floor_calls: number("replay_github_floor_calls"),
             landing_p90_seconds: number("replay_landing_p90_seconds"),
             shift_ratio: number("replay_outcome_shift_ratio"),
             shift_min_cases: number("replay_outcome_shift_min_cases") as usize,
