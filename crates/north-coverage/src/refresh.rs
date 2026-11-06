@@ -50,6 +50,7 @@ fn enter(repository: &str) -> Result<(), String> {
 
 fn refresh(host: &str, head: &str) -> Result<Map, String> {
     let root = Path::new(".");
+    let _running = Running::claim(&map::path_for(&repository(root)).with_extension("refreshing"))?;
     let mut child = Command::new(north())
         .args(["capacity", "offload", "run", "--host", host, "--base", "", "--head", head, "--timeout", TIMEOUT, "--", RECORD])
         .stdout(Stdio::piped())
@@ -69,3 +70,46 @@ fn refresh(host: &str, head: &str) -> Result<Map, String> {
     map.save(&map::path_for(&repository(root)))?;
     Ok(map)
 }
+
+struct Running(std::path::PathBuf);
+
+impl Running {
+    fn claim(path: &Path) -> Result<Self, String> {
+        if let Some(directory) = path.parent() {
+            std::fs::create_dir_all(directory).map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
+        }
+        for _ in 0..2 {
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(path) {
+                Ok(mut file) => {
+                    std::io::Write::write_all(&mut file, std::process::id().to_string().as_bytes()).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+                    return Ok(Self(path.to_owned()));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if let Some(pid) = holder(path) {
+                        return Err(format!("a refresh is already running as pid {pid}"));
+                    }
+                    let _ = std::fs::remove_file(path);
+                }
+                Err(error) => return Err(format!("cannot create {}: {error}", path.display())),
+            }
+        }
+        Err(format!("cannot claim {}", path.display()))
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn holder(path: &Path) -> Option<u32> {
+    let pid = std::fs::read_to_string(path).ok()?.trim().parse::<u32>().ok()?;
+    let command = std::fs::read(Path::new("/proc").join(pid.to_string()).join("cmdline")).ok()?;
+    let words: Vec<&[u8]> = command.split(|byte| *byte == 0).collect();
+    words.windows(2).any(|pair| pair == [&b"coverage"[..], &b"refresh"[..]]).then_some(pid)
+}
+
+#[cfg(test)]
+#[path = "refresh_tests.rs"]
+mod tests;

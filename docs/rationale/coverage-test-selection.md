@@ -28,6 +28,12 @@ below does not trace. So the pre-push run can be the few tests that reach the ch
     build.rs, a run-time table, a file under `tests/` that is not Rust), a new file, a map over
     3 days old, or a selection of over 400 tests.
   - The full suite always runs after the push.
+- Miss: when the after-push run is red and its prefix search names a culprit lane, the lander runs
+  `north coverage miss BASE TIP --log LOG` on that lane's own landed range. A test that failed
+  in that log but that the selection did not run is a miss; the verb names each one and starts
+  `north coverage refresh` in the background, so the next selection reads a map with that reach.
+  A selection that ran nothing (an untraced input, an old map, over 400 tests) is not judged. One
+  refresh runs at a time, whether nightly or after a miss.
 
 ## Measured, 2026-11-06
 

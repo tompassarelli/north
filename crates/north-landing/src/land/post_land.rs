@@ -86,8 +86,19 @@ pub fn start(lander: &Lander, base: &str, head: &str, heads: Vec<String>, lanes:
         }
         let started = telemetry::epoch();
         let culprit = locate(&landed, &run);
+        if let Some(at) = culprit {
+            judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], &run.at(&landed.head, &landed.tips[at]).log);
+        }
         Outcome { verdict, culprit, search: Some((started, telemetry::epoch())) }
     })
+}
+
+fn judge_coverage(landed: &Landed, base: &str, tip: &str, log: &Path) {
+    let judged = Command::new(follow::program()).args(["coverage", "miss", base, tip, "--log"]).arg(log).current_dir(&landed.repo).stdin(Stdio::null()).output();
+    match judged {
+        Ok(output) => print!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)),
+        Err(error) => eprintln!("north land: north coverage miss: {error}"),
+    }
 }
 
 fn locate(landed: &Landed, run: &Run) -> Option<usize> {

@@ -9,7 +9,7 @@ use crate::map::{self, Map, Test};
 use crate::pick::{Change, Selection, select as pick};
 
 const DEFAULT_TIMEOUT: &str = "1800";
-const MOST_BEFORE_PUSH: usize = 400;
+pub const MOST_BEFORE_PUSH: usize = 400;
 const OLDEST_MAP_SECONDS: u64 = 3 * 86_400;
 
 struct Request {
@@ -35,7 +35,7 @@ fn request(arguments: &[String]) -> Option<Request> {
 
 pub fn select(arguments: &[String]) -> u8 {
     let Some(request) = request(arguments) else { return usage() };
-    match selection(&request) {
+    match selection_between(&request.base, &request.head, request.map.clone()) {
         Ok(selection) => {
             report(&selection);
             if let Selection::Tests { tests, .. } = &selection
@@ -51,7 +51,7 @@ pub fn select(arguments: &[String]) -> u8 {
 
 pub fn test(arguments: &[String]) -> u8 {
     let Some(request) = request(arguments) else { return usage() };
-    let selection = match selection(&request) {
+    let selection = match selection_between(&request.base, &request.head, request.map.clone()) {
         Ok(selection) => selection,
         Err(why) => {
             eprintln!("north coverage: {why}; no tests run before the push, the full suite runs after it");
@@ -92,19 +92,19 @@ fn report(selection: &Selection) {
     }
 }
 
-fn selection(request: &Request) -> Result<Selection, String> {
+pub fn selection_between(base: &str, head: &str, map: Option<PathBuf>) -> Result<Selection, String> {
     let root = PathBuf::from(git(Path::new("."), &["rev-parse", "--show-toplevel"])?);
-    let path = request.map.clone().unwrap_or_else(|| map::path_for(&repository(&root)));
+    let path = map.unwrap_or_else(|| map::path_for(&repository(&root)));
     let map = Map::load(&path)?;
     let age = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |now| now.as_secs()).saturating_sub(map.recorded);
     if age > OLDEST_MAP_SECONDS {
         return Ok(Selection::Unmapped(format!("the coverage map is {} h old, over the {} h a selection trusts", age / 3600, OLDEST_MAP_SECONDS / 3600)));
     }
-    let changed: Vec<String> = git(&root, &["diff", "--name-only", "--no-renames", &request.base, &request.head])?.lines().map(str::to_owned).collect();
+    let changed: Vec<String> = git(&root, &["diff", "--name-only", "--no-renames", base, head])?.lines().map(str::to_owned).collect();
     let rust: Vec<&str> = changed.iter().map(String::as_str).filter(|path| path.ends_with(".rs") && *path != "build.rs").collect();
     let other_paths: Vec<String> = changed.iter().filter(|path| !path.ends_with(".rs") || *path == "build.rs").filter(|path| rust_build_input(path) || run_time_data(path) || path.starts_with("tests/")).cloned().collect();
-    let lane = diff(&root, &request.base, &request.head, &rust)?;
-    let since_map = if rust.is_empty() { Some(Hunks::new()) } else { diff(&root, &map.commit, &request.base, &rust).ok() };
+    let lane = diff(&root, base, head, &rust)?;
+    let since_map = if rust.is_empty() { Some(Hunks::new()) } else { diff(&root, &map.commit, base, &rust).ok() };
     Ok(pick(&Change { map: &map, since_map: since_map.as_ref(), lane: &lane, other_paths: &other_paths }))
 }
 
