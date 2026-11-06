@@ -201,21 +201,31 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
     let mut cells: HashMap<(String, String), Cell> = HashMap::new();
     let mut arms = Vec::new();
     let mut spent_boxes = Vec::new();
+    let mut distinct_closed = 0;
     for (item, runs) in boxes.iter_mut().filter(|(_, runs)| runs.iter().any(|run| run.landed)) {
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
-        let key = (tier_label(&runs[0].tier), category.to_owned());
-        let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, unclosed_usd: 0.0, reworked: 0, runs: 0, boxes: Vec::new(), run_minutes: Vec::new() });
-        let priced: Vec<BoxRun> = runs.iter().map(|run| BoxRun { agent: run.agent.clone(), tier: tier_label(&run.tier), category: run.category.clone(), started: run.started.clone(), usd: run.usd(prices) }).collect();
-        let spent = priced.iter().map(|run| run.usd).sum::<f64>();
-        cell.closed += 1;
-        cell.runs += runs.len();
         let reworked = runs.iter().any(|run| run.landed && run.reworked);
-        cell.reworked += usize::from(reworked);
-        cell.usd += spent;
-        cell.boxes.push(ClosedBox { item: (*item).to_owned(), usd: spent, runs: priced });
+        let mut shares: BTreeMap<(String, String), Vec<&SpendRun>> = BTreeMap::new();
+        for run in runs.iter() {
+            let own = if run.category == "unknown" { category } else { run.category.as_str() };
+            shares.entry((tier_label(&run.tier), own.to_owned())).or_default().push(run);
+        }
+        let mut spent = 0.0;
+        for (key, share) in shares {
+            let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, unclosed_usd: 0.0, reworked: 0, runs: 0, boxes: Vec::new(), run_minutes: Vec::new() });
+            let priced: Vec<BoxRun> = share.iter().map(|run| BoxRun { agent: run.agent.clone(), tier: tier_label(&run.tier), category: run.category.clone(), started: run.started.clone(), usd: run.usd(prices) }).collect();
+            let part = priced.iter().map(|run| run.usd).sum::<f64>();
+            spent += part;
+            cell.closed += 1;
+            cell.runs += share.len();
+            cell.reworked += usize::from(reworked);
+            cell.usd += part;
+            cell.boxes.push(ClosedBox { item: (*item).to_owned(), usd: part, runs: priced });
+            cell.run_minutes.extend(share.iter().filter_map(|run| run.minutes()));
+        }
+        distinct_closed += 1;
         spent_boxes.push(SkillBox::of(item, category, spent, true, runs));
-        cell.run_minutes.extend(runs.iter().filter_map(|run| run.minutes()));
         if !runs[0].arm.is_empty() {
             arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: true, reworked });
         }
@@ -250,7 +260,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
     }
     ClosedReport {
         skipped: Vec::new(),
-        closed: cells.iter().map(|cell| cell.closed).sum(),
+        closed: distinct_closed,
         cells,
         arms,
         boxes: spent_boxes,
@@ -309,11 +319,12 @@ impl ClosedReport {
     pub fn runs_per_closed(&self) -> Vec<(String, usize, usize)> {
         let mut categories: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
         for cell in &self.cells {
-            let tally = categories.entry(&cell.category).or_default();
-            tally.0 += cell.runs;
-            tally.1 += cell.closed;
+            categories.entry(&cell.category).or_default().0 += cell.runs;
         }
-        categories.into_iter().map(|(category, (runs, closed))| (category.to_owned(), runs, closed)).collect()
+        for closed in self.boxes.iter().filter(|closed| closed.closed) {
+            categories.entry(&closed.category).or_default().1 += 1;
+        }
+        categories.into_iter().filter(|(_, (_, closed))| *closed > 0).map(|(category, (runs, closed))| (category.to_owned(), runs, closed)).collect()
     }
 
     pub fn runs_line(&self, window: &str) -> String {
