@@ -13,6 +13,7 @@ Evidence
 - A claim of done carries what was observed: the command and its output, the sha on origin/main, a captured exit code. North verifies landed and passed by itself, so a claim it cannot verify counts as not done.
 - After two failed fixes on one problem, write down the assumption both fixes shared and test it before trying a third fix or a stronger model.
 - Fix a repeated mistake at the highest level that works: architecture, then types, lint, test, and prose last.
+- When a doc and the code disagree, follow whichever owns the decision (its policy owner, the issue's plan, else the code), and give each conflict one `Drift: DOC:LINE says X; FILE:LINE does Y` line in your report so the stale side gets fixed.
 
 Questions to Tom
 - Ask only for a decision that is his: cost, accounts, making something public, sending in his name, deleting valuable data, credentials, or a change of project direction.
