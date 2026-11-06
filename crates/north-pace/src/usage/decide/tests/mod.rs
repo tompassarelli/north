@@ -1,5 +1,6 @@
 mod place_properties;
 mod properties;
+mod proxy_week;
 
 use std::collections::BTreeSet;
 

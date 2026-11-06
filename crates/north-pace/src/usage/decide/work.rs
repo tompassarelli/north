@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 
-use super::LEAD_FAILOVER_AFTER;
 use super::place::{Decision, place};
+use super::rank::rank;
+use super::{LEAD_FAILOVER_AFTER, PROXY_WEEK_CEILING};
 use super::state::{State, state};
 use super::world::{Label, ModelFamily, Name, Owner, Provider, Request, Session, Standing, Unix, World};
 
@@ -16,6 +17,13 @@ pub fn actions(world: &World) -> Vec<(Name, Action)> {
     let mut rest: Vec<(bool, Name, Action)> = Vec::new();
     for session in world.sessions.iter().filter(|session| session.owner != Owner::Tom) {
         let account_state = state(world, &session.account, session.family);
+        if session.standing == Standing::Proxy
+            && week_spent(account_state)
+            && let Some(to) = week_headroom_target(world, session)
+        {
+            failover.push((session.name.clone(), Action::HandOver { to }));
+            continue;
+        }
         if is_failover(world, session, account_state)
             && let Some(to) = hand_over_target(world, session)
         {
@@ -69,8 +77,24 @@ fn is_failover(world: &World, session: &Session, account_state: State) -> bool {
     }
 }
 
+fn week_spent(account_state: State) -> bool {
+    matches!(account_state, State::Open { week, .. } if week >= PROXY_WEEK_CEILING)
+}
+
+fn week_headroom_target(world: &World, session: &Session) -> Option<Label> {
+    let request = request_of(world, session)?;
+    rank(world, &request).placeable().find(|entry| entry.account != session.account && !week_spent(entry.state)).map(|entry| entry.account.clone())
+}
+
 fn hand_over_target(world: &World, session: &Session) -> Option<Label> {
-    let request = Request {
+    match place(world, &request_of(world, session)?) {
+        Decision::Place { account, .. } => Some(account),
+        Decision::Refuse(_) => None,
+    }
+}
+
+fn request_of(world: &World, session: &Session) -> Option<Request> {
+    Some(Request {
         provider: provider_of(world, &session.account)?,
         family: session.family,
         owner: session.owner.clone(),
@@ -78,11 +102,7 @@ fn hand_over_target(world: &World, session: &Session) -> Option<Label> {
         expected: session.expected.clone(),
         pin: None,
         host: None,
-    };
-    match place(world, &request) {
-        Decision::Place { account, .. } => Some(account),
-        Decision::Refuse(_) => None,
-    }
+    })
 }
 
 fn provider_of(world: &World, account: &Label) -> Option<Provider> {

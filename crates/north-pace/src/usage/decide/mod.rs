@@ -23,3 +23,4 @@ pub use view::{FRESH_FOR, StaleWhy, View, view};
 pub use work::Action;
 
 pub const LEAD_FAILOVER_AFTER: world::Seconds = world::Seconds(600);
+pub const PROXY_WEEK_CEILING: world::Percent = world::Percent(95.0);

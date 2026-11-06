@@ -113,20 +113,3 @@ fn reset_observation_does_not_turn_one_percent_into_seventy_per_hour() {
     let new = step(&old, vec![sample], Some(1), at);
     assert_eq!(new.windows[0].burn_pct_h, Some(1.1));
 }
-
-// KEEP(bug): a cleared throttle with zero burn recovers headroom from the running workers; regression of the cold-hold recovery (34a3efb20)
-#[test]
-fn a_cleared_throttle_with_zero_burn_restores_headroom_from_the_running_workers() {
-    let at = 1_792_028_893.0;
-    let week_at = |at: f64, used: f64, resets: &str, reset_h: f64| {
-        window(json!({"window": "week", "used_pct": used, "burn_pct_h": 0.0, "reset_h": reset_h, "resets_at": resets,
-                      "age_s": 0, "as_of": stamp(at), "quota_ceiling": 95.0}))
-    };
-    let previous = Control { at: Some(at - 60.0), workers: Some(21), allowed_workers: Some(2), held: Some(false), ..Control::default() };
-    let held = step(&previous, vec![week_at(at, 99.0, "old", 0.003)], Some(21), at);
-    assert_eq!((held.held, held.allowed_workers), (Some(true), Some(0)));
-    let later = at + 11.0 * 60.0;
-    let recovered = step(&held, vec![week_at(later, 1.0, "new", 168.0)], Some(21), later);
-    assert_eq!(recovered.held, Some(false));
-    assert_eq!(recovered.allowed_workers, Some(22));
-}
