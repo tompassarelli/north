@@ -100,7 +100,7 @@ impl Run {
             offload_owner: self.offload_owner.clone(),
             capacity: self.capacity.clone(),
             deadline: self.deadline,
-            host: None,
+            host: self.host.clone(),
         }
     }
 }

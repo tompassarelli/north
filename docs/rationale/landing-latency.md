@@ -199,3 +199,9 @@ laptop; a repository that sets nothing keeps one). Each run picks its host with 
 flight already took passed as `--taken`, so the second run of a burst goes to ccx33 instead of
 queueing behind the first on gex45. Runs cover disjoint ranges of main, so blame stays per range: a
 later run whose base is red because of an earlier landing names no lane, as before.
+
+The culprit search after a red run first chose its host again for every prefix it probed, and the
+laptop often answered as the host with the most room; the probe then queued for the laptop's heavy
+capacity lease, which defers under CPU pressure while Tom is at it (232 s for the probes of
+328e9b3a9 at 10:10 AM, the largest host wait of that hour). The probes now run on the host their run
+claimed, which holds the claim until the search ends and has the run's tree warm in its slots.
