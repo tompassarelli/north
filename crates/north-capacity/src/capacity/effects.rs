@@ -7,6 +7,7 @@ pub struct Host {
     pub bar1_margin_mib: fn() -> Option<u32>,
     pub offload: fn(&[String]) -> u8,
     pub build_offload: build_offload::Offloader,
+    pub hand_over: build_offload::HandOver,
     pub lease_builds: fn() -> bool,
     pub reclaim_disk: fn() -> Option<f64>,
     pub tend_disk: fn(),

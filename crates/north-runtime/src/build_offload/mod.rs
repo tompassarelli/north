@@ -9,6 +9,7 @@ mod claims;
 mod lane;
 mod remote;
 mod script;
+pub mod take;
 #[cfg(test)]
 mod tests;
 
@@ -53,11 +54,31 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str)) -> Res
     }
 }
 
-fn run_on(host: &str, ssh: &str, job: &Job, announce: &dyn Fn(&str)) -> Result<remote::Ran, Option<Declined>> {
+struct Prepared {
+    lane: lane::Lane,
+    command: Vec<String>,
+    sink: Option<std::fs::File>,
+}
+
+fn prepare(job: &Job) -> Result<Prepared, Option<Declined>> {
     let directory = std::env::current_dir().map_err(|error| Some(Declined::Failed(error.to_string())))?;
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or_else(|| Some(Declined::Failed("HOME is unset".to_owned())))?;
     let plan = script::plan(job.command, &directory, &home).map_err(Some)?;
     let lane = lane::capture(&plan.directory, &plan.command).map_err(Some)?;
     let sink = plan.sink.as_ref().map(script::Sink::open).transpose().map_err(|error| Some(Declined::Failed(format!("the redirect target: {error}"))))?;
-    Ok(remote::run(ssh, &lane, &Job { command: &plan.command, ..*job }, sink, &|| announce(host)))
+    Ok(Prepared { lane, command: plan.command, sink })
+}
+
+fn run_on(host: &str, ssh: &str, job: &Job, announce: &dyn Fn(&str)) -> Result<remote::Ran, Option<Declined>> {
+    let Prepared { lane, command, sink } = prepare(job)?;
+    Ok(remote::run(ssh, &lane, &Job { command: &command, ..*job }, sink, &|| announce(host)))
+}
+
+/// Ok(exit code) when the peer that opened `peer` took this queued run and ran it; Err leaves the run queued here, naming why when the peer could not take it.
+pub fn hand_over(candidate: &Candidate, job: &Job, peer: std::os::unix::net::UnixStream, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+    if let Some(refused) = refusal(candidate) {
+        return Err(Some(refused));
+    }
+    let Prepared { lane, command, sink } = prepare(job)?;
+    remote::hand_over(peer, &lane, &Job { command: &command, ..*job }, sink, announce)
 }

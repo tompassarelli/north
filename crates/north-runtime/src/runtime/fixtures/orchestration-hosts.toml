@@ -16,6 +16,7 @@ serves = ["native:wisp", "warcraft:wisp", "wc3:wisp", "client:wisp", "private:ma
 [hosts.whiterabbit]
 resident_cap = 8
 settles_fleet = true
+reaches = ["gex45", "nexus"]
 serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-state", "tui", "fleet", "live", "desktop", "laptop"]
 
 [placement]

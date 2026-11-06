@@ -3,8 +3,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::lane::{Lane, gather};
-use super::remote::invocation;
-use crate::capacity::build_offload::Job;
+use super::remote::{hand_over, invocation};
+use super::take::{Sender, Starting, refusal, run_lane};
+use crate::capacity::build_offload::{Admission, Declined, Job};
+use crate::capacity::handover::Offer;
+use crate::dispatch::measure::Measure;
+use crate::land_offload::room::Room;
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").current_dir(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(arguments).output().unwrap();
@@ -137,4 +141,77 @@ fn capacity_an_offloaded_command_naming_a_runtime_the_host_lacks_runs_the_hosts_
     let command = [present.to_str().unwrap().to_owned(), "land".to_owned()];
     let report = ran_command(&hosts, &lane, stub, &command);
     assert!(line(&report, "north")[0].ends_with(&format!("-- {} land", present.display())), "a runtime path that exists on the host stays as given: {report:?}");
+}
+
+fn laptop_room(committed: f64) -> Room {
+    let admission = Admission { limit_cpus: 14.0, committed_cpus: committed, queued_heavy_cpus: 0.0, cpu_pressure_percent: 1.0, pressure_high_percent: 25.0, land_check_waiting: false };
+    Room { measure: Measure { cores: 20.0, memory_total_mib: 64_000.0, memory_available_mib: 50_000.0, load: 1.0 }, admission, disk_free_gib: 200.0, slots: None }
+}
+
+// KEEP(contract): a queued run handed over a connection the peer opened rebuilds the lane on the peer, runs there and returns its output and exit code to the queue's host, which announces the peer; north#634
+#[test]
+fn capacity_a_queued_run_handed_to_a_taker_runs_on_the_taker_and_its_output_and_exit_come_back() {
+    let hosts = hosts();
+    let lane_dir = hosts.lane("pulled");
+    write(&lane_dir.join("b.txt"), "untracked\n");
+    let lane = gather(&lane_dir, &hosts.laptop).unwrap().ship(&[]).unwrap();
+    let stub = hosts.remote.join("north-stub");
+    crate::foundation::shim::write_script(&stub, "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n");
+    let command = ["sh".to_owned(), "-c".to_owned(), "printf 'where %s\\n' \"$(pwd)\"; cat b.txt; echo problem >&2; exit 7".to_owned()];
+    let (queued, peer) = std::os::unix::net::UnixStream::pair().unwrap();
+    let remote = hosts.remote.clone();
+    let taker = std::thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(peer.try_clone().unwrap());
+        let mut first = String::new();
+        std::io::BufRead::read_line(&mut reader, &mut first).unwrap();
+        let offer = Offer::from_line(&first).expect("the queue's host sends one offer line");
+        let sender = std::sync::Arc::new(Sender::to(peer));
+        let starting = std::sync::Arc::new(Starting { count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1)), released: std::sync::atomic::AtomicBool::new(false) });
+        let environment = |command: &mut Command| {
+            command.env("HOME", &remote).env("AGENT_CAPACITY_NORTH", remote.join("north-stub"));
+        };
+        let (status, synced) = run_lane(&offer, "ccx33", reader, &sender, &starting, &environment).expect("the script starts");
+        assert!(synced);
+        sender.send(&crate::capacity::handover::Frame::Exit(status));
+    });
+    let sink = hosts.remote.join("out.txt");
+    let announced = std::sync::Mutex::new(Vec::new());
+    let job = Job { owner: "t", timeout_seconds: 60, command: &command };
+    let code = hand_over(queued, &lane, &job, Some(std::fs::File::create(&sink).unwrap()), &|host| announced.lock().unwrap().push(host.to_owned())).expect("the taker ran it");
+    taker.join().unwrap();
+    assert_eq!(code, 7);
+    assert_eq!(*announced.lock().unwrap(), ["ccx33"]);
+    let output = std::fs::read_to_string(&sink).unwrap();
+    assert!(output.contains(&format!("where {}", hosts.remote.join(".cache/build-offload/code-proj-main-pulled").display())), "{output}");
+    assert!(output.contains("untracked"), "{output}");
+}
+
+// KEEP(contract): a queued run leaves its host only to a taker that has a free slot beyond the interactive reserve and rebuilds the lane; otherwise it stays queued; north#634
+#[test]
+fn capacity_a_run_stays_queued_when_the_taker_has_no_room_cannot_rebuild_the_lane_or_leaves_early() {
+    assert_eq!(refusal(Some(&laptop_room(2.0)), 0), None);
+    let full = refusal(Some(&laptop_room(12.0)), 0).expect("2 of 14 cores free is under the 4 a heavy run needs");
+    assert!(full.contains("cores free of 14"), "{full}");
+    assert_eq!(refusal(Some(&laptop_room(7.0)), 0), None);
+    assert!(refusal(Some(&laptop_room(7.0)), 1).is_some(), "a run taken a moment ago is not yet in the committed cores");
+    let mut waiting = laptop_room(2.0);
+    waiting.admission.land_check_waiting = true;
+    assert!(refusal(Some(&waiting), 0).is_some());
+    assert!(refusal(None, 0).is_some());
+    let hosts = hosts();
+    let lane = gather(&hosts.lane("left"), &hosts.laptop).unwrap().ship(&[]).unwrap();
+    let command = ["cargo".to_owned(), "test".to_owned()];
+    let job = Job { owner: "t", timeout_seconds: 60, command: &command };
+    let (queued, peer) = std::os::unix::net::UnixStream::pair().unwrap();
+    let refusing = std::thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(peer.try_clone().unwrap());
+        std::io::BufRead::read_line(&mut reader, &mut String::new()).unwrap();
+        Sender::to(peer).send(&crate::capacity::handover::Frame::NotSynced("the pulled lane is busy".to_owned()));
+    });
+    let refused = hand_over(queued, &lane, &job, None, &|_| panic!("a refused run never starts")).unwrap_err();
+    refusing.join().unwrap();
+    assert_eq!(refused, Some(Declined::Failed("the pulled lane is busy".to_owned())));
+    let (queued, peer) = std::os::unix::net::UnixStream::pair().unwrap();
+    drop(peer);
+    assert!(matches!(hand_over(queued, &lane, &job, None, &|_| panic!("never starts")), Err(Some(Declined::Failed(_)))));
 }

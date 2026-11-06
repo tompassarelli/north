@@ -65,7 +65,7 @@ pub(super) fn read(ssh: &str) -> Option<Room> {
     read_within(ssh, LIMIT)
 }
 
-pub(super) fn read_local() -> Option<Room> {
+pub fn read_local() -> Option<Room> {
     let output = run_within("sh", &["-c", &script()], LIMIT)?;
     output.status.success().then(|| parse(&String::from_utf8_lossy(&output.stdout))).flatten()
 }

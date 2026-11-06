@@ -18,6 +18,9 @@ mod estimate;
 mod estimate_replay_tests;
 mod fleet_pull;
 mod gpu;
+mod handover;
+#[cfg(test)]
+mod handover_tests;
 #[cfg(test)]
 mod gpu_tests;
 mod json;
@@ -51,7 +54,7 @@ mod unleased_native;
 #[cfg(test)]
 mod unleased_native_tests;
 
-const USAGE: &str = "usage: offload-cost [--last N]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|land-waiting|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
+const USAGE: &str = "usage: offload-cost [--last N]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|land-waiting|hand-over [--wait-seconds N]|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
 
 pub use actions_pull::run as actions_pull;
 pub use fleet_pull::run as pull;
@@ -397,6 +400,7 @@ pub fn run(argv: &[String], host: &Host) -> u8 {
             state::claim_land_check(&root);
             0
         }
+        "hand-over" => handover::run(&root, argv),
         "probe" => probe(&root, argv, host),
         "reserve" => reserve(&root, argv, host),
         "renew" | "release" => renew_or_release(&root, argv),

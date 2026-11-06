@@ -1,0 +1,26 @@
+# Pull hand-over of queued agent builds (north#634)
+
+gex45's admission queue held agent heavy runs (a worker's `cargo test`) while the laptop or ccx33 had free slots, because the only way off a full host was a push: the full host opened ssh to a peer, shipped the lane and ran the command there. The gex45 access plan (south `agents/decisions/harness/gex45-access-plan.md`, decision D2) gives gex45 no key to the laptop or ccx33, so the push could never leave gex45. Tom answered gate 165 on 2026-11-06 with pull; this file records the design.
+
+## Design
+
+- Direction of connection. The peer opens it, over the ssh route it already has (the laptop declares `reaches = ["gex45", "ccx33", "nexus"]` in `agents/orchestration.toml`). gex45 gains no outbound channel, no key and no listener on the network: its only new object is a Unix socket under its own capacity directory.
+- Who may push. `build_hosts()` returns only the offload hosts the local host lists in `reaches`; a host that declares none reaches only itself (the placement rule in `pacing/placement/reach.rs`), so gex45 sends nothing and its workers no longer spend probe time on hosts it cannot reach.
+- The door. An agent heavy run whose command is a toolchain program (`TOOLCHAIN_PROGRAMS`) writes `pullable: true` into its queue ticket and listens on `handover/ARRIVAL-UUID8.sock`. A shell string, a landing, a pinned local need and an already offloaded run open no door and stay queued.
+- The release. `north capacity host hand-over [--wait-seconds N]` reads the queue, orders the pullable heavy tickets by arrival, connects to the first door that answers and relays its stdin and stdout to that connection; exit 3 means nothing is queued. The oldest run is released to one caller: a door accepts one connection at a time and the run leaves the queue when its peer reports the command started.
+- The offer. The run captures its lane exactly as the push does (commit bundle, uncommitted diff, command, owner, timeout), writes one JSON offer line and then the bytes. The taker reads the line, checks it, feeds the bytes to the same lane script the push runs (`build_offload/remote.rs`) with the same per-lane checkout and `flock`, and that script ends in `north capacity host run --class heavy` on the taker, so the taker's own admission still decides when the command starts. Output returns as length-prefixed frames (stdout, stderr, started, not-synced, exit) over the same connection; a closed connection from gex45 closes the script's stdin, which kills the command as it does today.
+- The taker. `north capacity offload take` loops: read this host's room (`room::build_shortfall_reserving`: free cores under the admission limit, which already keeps Tom's interactive reserve, less four cores per run it took that has not yet shown in admission; no land check waiting; CPU pressure; memory; disk). Only with room does it ask a polled host to release a run, so a full laptop leaves the run queued. The laptop runs it as the `capacity-taker` user service (nixos-config `modules/capacity-taker`), polling every 3 s, so a queued run is taken within about 10 s.
+
+## What it accepts from gex45, and what is not closed
+
+The access plan removes every direct channel gex45 controls that becomes code or commands with authority on another host (model A, "a job queue that the laptop or Nexus polls"). Pull keeps the plan's rule that gex45 initiates nothing, but the taker is still a queue the laptop polls, and it executes what the queue offers. The residual reach, to be read with R1 and R2 of the plan:
+
+- A compromised gex45 can make the laptop run `cargo`, `rustc`, `cargo-nextest`, `bun` or `nix` with arguments of its choosing inside a checkout of gex45's choosing, as tom, under heavy admission. That is arbitrary code execution through `cargo run`, a build script or `bun run`. The lane already carries gex45-authored code to the laptop through landings (R1); the taker adds a path that skips the landing gates.
+- Narrowing in the taker (`Offer::refusal`): no shell strings, repository and lane names that are plain relative path words, a commit-id head, a timeout under four hours, a bundle under 64 MiB and a diff under 16 MiB, one run per ssh connection.
+- Not done here: a per-repository allowlist, a checksum of the lane against origin, and running the taker's commands in a sandbox with no credentials. The plan's authors should decide whether R1 covers this path or whether the taker should run inside `bwrap` without the laptop's tokens; this change leaves it to the plan.
+
+## Not chosen
+
+- Push through a key held by gex45 (the earlier design): rejected by the access plan.
+- A queue the laptop reads from a shared store (Nexus ledger): adds a second hop and a service on Nexus; pull needs only the ssh route that exists.
+- A long-lived ssh tunnel opened from the laptop to gex45: equal security, but a tunnel outlives the work and needs its own supervision; one short ssh call per poll needs none.

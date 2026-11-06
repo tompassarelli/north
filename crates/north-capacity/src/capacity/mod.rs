@@ -1,5 +1,6 @@
 pub mod admission;
 pub mod build_offload;
+pub mod handover;
 mod aperture;
 pub mod agent_load;
 pub mod gaming;
@@ -30,6 +31,7 @@ pub mod enrich;
 mod admission_record;
 mod admission_tests;
 mod build_offload_tests;
+mod handover_tests;
 mod agent_load_tests;
 mod game_reserve_tests;
 mod unleased_tests;

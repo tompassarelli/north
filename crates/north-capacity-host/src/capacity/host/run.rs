@@ -13,6 +13,7 @@ use super::measure::{Usage, measure_scope};
 use super::model::{Observation, Subject, censored, command_key, current_cache_state, update};
 use crate::capacity::local_machine::host_name;
 use super::policy::batch_class;
+use super::handover::Listening;
 use super::quiet_holds::{QuietHolds, quiet_owners};
 use super::requeue;
 use super::request::{Create, Request, class, id, is_run};
@@ -150,7 +151,7 @@ fn report_declined(why: Option<Declined>, create: &Create, declines: &mut Declin
 }
 
 /// A heavy build this host defers runs on another host with room instead of queueing here; None leaves it on the local path, printing why once per change of reason.
-async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Host, terminations: &mut Terminations) -> Option<u8> {
+async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Host, terminations: &mut Terminations, taker: Option<std::os::unix::net::UnixStream>) -> Option<u8> {
     let Waiting { root, ticket, request, create, command, declined } = waiting;
     let host = *host;
     let (root, ticket) = (root.to_path_buf(), ticket.map(str::to_owned));
@@ -169,7 +170,11 @@ async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Host, terminat
                 dequeue(&root, ticket);
             }
         };
-        (host.build_offload)(&candidate, &Job { owner: &owner, timeout_seconds, command: &command }, &announce)
+        let job = Job { owner: &owner, timeout_seconds, command: &command };
+        match taker {
+            Some(taker) => (host.hand_over)(&candidate, &job, taker, &announce),
+            None => (host.build_offload)(&candidate, &job, &announce),
+        }
     });
     tokio::select! {
         done = work => match done.ok()? {
@@ -207,7 +212,7 @@ fn no_build_host(missing: &Declined, create: &Create) -> Obj {
 async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminations: &mut Terminations) -> Option<Admitted> {
     let (root, request, create) = (waiting.root, waiting.request, waiting.create);
     if agent_session() {
-        if let Some(code) = try_offload(waiting.again(), false, host, terminations).await {
+        if let Some(code) = try_offload(waiting.again(), false, host, terminations, None).await {
             return Some(Admitted::Offloaded(code));
         }
         if !(host.lease_builds)() && build_offload::is_rust_command(waiting.command) && let Some(missing) = waiting.declined.missing_host.as_ref() {
@@ -221,10 +226,10 @@ async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminations: &mut T
     if agent_session() {
         return None;
     }
-    try_offload(waiting, true, host, terminations).await.map(Admitted::Offloaded)
+    try_offload(waiting, true, host, terminations, None).await.map(Admitted::Offloaded)
 }
 
-fn wait_ticket(root: &Path, request: &Request, create: &Create) -> String {
+fn wait_ticket(root: &Path, request: &Request, create: &Create, pullable: bool) -> String {
     enqueue(
         root,
         Obj::new()
@@ -236,7 +241,8 @@ fn wait_ticket(root: &Path, request: &Request, create: &Create) -> String {
             .put("newClients", request.new_clients)
             .put("newDesktops", request.new_desktops)
             .put_some("alone", request.alone.then_some(true))
-            .put_some("priority", request.priority),
+            .put_some("priority", request.priority)
+            .put_some("pullable", pullable.then_some(true)),
     )
 }
 
@@ -251,9 +257,11 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
     if resumed.is_none() && offer && let Some(admitted) = offer_first(Waiting { root, ticket: None, request, create, command, declined: &mut declined }, host, terminations).await {
         return admitted;
     }
+    let pullable = offer && agent_session() && request.name == "heavy" && crate::capacity::handover::pullable(command);
     let mut offered_at = now_ms();
     let follow = requeue::Follow::here();
-    let (ticket, queued_at) = resumed.map_or_else(|| (wait_ticket(root, request, create), now_ms()), |resumed| (resumed.ticket, resumed.queued_at));
+    let (ticket, queued_at) = resumed.map_or_else(|| (wait_ticket(root, request, create, pullable), now_ms()), |resumed| (resumed.ticket, resumed.queued_at));
+    let handover = pullable.then(|| Listening::open(root, &ticket)).flatten();
     let mut reported = None;
     let mut quiet = QuietHolds::default();
     loop {
@@ -276,7 +284,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
         }
         if offer && now_ms() - offered_at >= declined.retry_milliseconds {
             offered_at = now_ms();
-            if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, reason(&result).is_some_and(|reason| reason.starts_with("DEFER_")), host, terminations).await {
+            if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, reason(&result).is_some_and(|reason| reason.starts_with("DEFER_")), host, terminations, None).await {
                 dequeue(root, &ticket);
                 return Admitted::Offloaded(code);
             }
@@ -291,11 +299,29 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
         tokio::select! {
             () = state_change(root, watch(reason(&result).as_deref())) => {}
             () = tokio::time::sleep(queue_time_left(create.timeout_seconds, queued_seconds)) => {}
+            taker = accepted(handover.as_ref()) => {
+                let on_deferred = reason(&result).is_some_and(|reason| reason.starts_with("DEFER_"));
+                if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, on_deferred, host, terminations, Some(taker)).await {
+                    dequeue(root, &ticket);
+                    return Admitted::Offloaded(code);
+                }
+            }
             number = terminations.next() => {
                 dequeue(root, &ticket);
                 std::process::exit(128 + number);
             }
         }
+    }
+}
+
+/// The next peer that opened this run's door, never when it has none.
+async fn accepted(handover: Option<&Listening>) -> std::os::unix::net::UnixStream {
+    match handover {
+        Some(handover) => match handover.accept().await {
+            Some(stream) => stream,
+            None => std::future::pending().await,
+        },
+        None => std::future::pending().await,
     }
 }
 

@@ -72,11 +72,13 @@ pub(super) fn offloads_builds(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("offload_builds")).and_then(Item::as_bool) == Some(true)
 }
 
+/// The hosts this host may send a build to, or take one from: those it declares in `reaches` that offload builds. A host that declares no `reaches` list reaches only itself, so it sends nothing and is polled instead.
 pub(super) fn build_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
     let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return Vec::new() };
+    let reached = hosts.get(here).and_then(|host| host.get("reaches")?.as_array()).map(|names| names.iter().filter_map(|name| name.as_str()).collect::<Vec<_>>()).unwrap_or_default();
     hosts
         .iter()
-        .filter(|(name, _)| *name != here && offloads_builds(cfg, name))
+        .filter(|(name, _)| *name != here && reached.contains(name) && offloads_builds(cfg, name))
         .filter_map(|(name, host)| Some((name.to_owned(), ssh_destination(host.get("ssh")?.as_str()?)?.to_owned())))
         .collect()
 }

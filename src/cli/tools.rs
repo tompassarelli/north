@@ -163,7 +163,7 @@ impl Tool {
             Self::Dispatch => ExitCode::from(crate::dispatch::run(arguments, super::fleet::roster)),
             Self::DevShell => ExitCode::from(crate::capacity::dev_shell::command(arguments)),
             Self::Pace => ExitCode::from(crate::pacing::run(arguments, crate::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load }, super::token_usage::read)),
-            Self::Capacity => ExitCode::from(capacity::command::run(arguments, capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, offload: crate::land_offload::run, build_offload: crate::build_offload::offload, lease_builds: crate::pacing::placement::local_lease_builds, reclaim_disk, tend_disk: crate::offload_cache::tick })),
+            Self::Capacity => ExitCode::from(capacity::command::run(arguments, capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, offload: crate::land_offload::run, build_offload: crate::build_offload::offload, hand_over: crate::build_offload::hand_over, lease_builds: crate::pacing::placement::local_lease_builds, reclaim_disk, tend_disk: crate::offload_cache::tick })),
             Self::SessionUnit => super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::NexusRun => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(arguments).await)) }),
             Self::Timer(timer) => ExitCode::from(timer.run(arguments, &super::agents::claude_access())),

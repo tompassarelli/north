@@ -162,7 +162,7 @@ pub fn is_rust_command(command: &[String]) -> bool {
     command.first().is_some_and(|program| matches!(program.rsplit('/').next(), Some("cargo" | "rustc" | "cargo-nextest")))
 }
 
-const TOOLCHAIN_PROGRAMS: [&str; 5] = ["cargo", "rustc", "cargo-nextest", "bun", "nix"];
+pub const TOOLCHAIN_PROGRAMS: [&str; 5] = ["cargo", "rustc", "cargo-nextest", "bun", "nix"];
 
 /// The command with a toolchain program named by its laptop path (the gate runs the real program it found on PATH) named by its bare name, so the build host finds its own copy inside the lane's dev shell.
 pub fn for_build_host(command: &[String]) -> Vec<String> {
@@ -230,6 +230,9 @@ pub fn ships(changed: &[&str], diff_bytes: usize) -> Result<(), Declined> {
 
 /// Runs a candidate's job on another host and returns its exit code, calling the notifier with the host once the command starts there; Err leaves it to the local path, with the reason when an offload was declined.
 pub type Offloader = fn(&Candidate, &Job, &dyn Fn(&str)) -> Result<u8, Option<Declined>>;
+
+/// Runs a candidate's job on the peer that took it over a connection that peer opened (the pull hand-over), returning its exit code once the peer reports it; Err leaves the run queued here.
+pub type HandOver = fn(&Candidate, &Job, std::os::unix::net::UnixStream, &dyn Fn(&str)) -> Result<u8, Option<Declined>>;
 
 /// The host keeps its own trees at the lane's and the main checkout's absolute paths, so a command that names either would run there against them instead of the shipped lane.
 pub fn names_a_path_here(command: &[String], paths: &[&str]) -> Result<(), Declined> {
