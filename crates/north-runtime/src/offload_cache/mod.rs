@@ -1,8 +1,9 @@
 //! Keeps a build host's caches from filling its root disk, cheapest to lose first: build-offload slots (one lane's scratch) while they pass
 //! their byte cap or the disk passes its eviction line, then for the disk line only the shared cargo targets and sccache's store down to
 //! their caps, then land-offload slots, the lander's reserved slot of each checkout last. Within a slot store the least recently used slot
-//! whose lock no job holds goes first. The lease reaper runs it every 30 s on each build host, a disk-floor admission defer runs it before
-//! deciding again, and a disk over the incident line raises one host-disk incident per episode.
+//! whose lock no job holds goes first. The disk line is free space, not a percent, so a large disk evicts with the same headroom left as a
+//! small one. The lease reaper runs it every 30 s on each build host, a disk-floor admission defer runs it after the other reclaim sweeps
+//! before deciding again, and a disk past the incident line raises one host-disk incident per episode.
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -19,10 +20,10 @@ mod compiler_cache;
 #[cfg(test)]
 mod tests;
 
-pub const EVICT_ABOVE_PERCENT: f64 = 80.0;
-pub const INCIDENT_ABOVE_PERCENT: f64 = 85.0;
 pub const INCIDENT_CLASS: &str = "host-disk";
 const BUILD_OFFLOAD_DISK_SHARE: f64 = 0.15;
+const EVICT_FREE_SHARE: f64 = 0.20;
+const INCIDENT_FREE_SHARE: f64 = 0.15;
 const GIB: f64 = (1u64 << 30) as f64;
 const EPISODE_FILE: &str = "host-disk.episode";
 const COMPANION_DIRS: [&str; 1] = ["beside"];
@@ -70,6 +71,34 @@ pub struct Disk {
     pub size_bytes: u64,
 }
 
+/// Where a disk counts as too full: free space under the smaller of a share of its size and a fixed headroom.
+#[derive(Clone, Copy)]
+pub struct Line {
+    pub free_share: f64,
+    pub free_gib: f64,
+}
+
+impl Line {
+    /// `offload_evict_free_gib` free, or 20% of a disk too small to spare it.
+    pub fn eviction() -> Self {
+        Self { free_share: EVICT_FREE_SHARE, free_gib: default_number("offload_evict_free_gib") }
+    }
+
+    /// `host_disk_incident_free_gib` free, or 15% of a disk too small to spare it.
+    pub fn incident() -> Self {
+        Self { free_share: INCIDENT_FREE_SHARE, free_gib: default_number("host_disk_incident_free_gib") }
+    }
+
+    pub fn passed_by(self, disk: Disk) -> bool {
+        disk.free_gib < (disk.size_bytes as f64 / GIB * self.free_share).min(self.free_gib)
+    }
+}
+
+fn default_number(name: &str) -> f64 {
+    let value = &north_base::platform::harness::document(north_base::platform::harness::DEFAULTS)[name]["value"];
+    value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
+}
+
 struct Slot {
     used: SystemTime,
     bytes: u64,
@@ -91,8 +120,8 @@ pub fn stores(home: &Path, disk: Option<Disk>, budget: &DiskBudget) -> Vec<Store
     ]
 }
 
-/// Takes from each store in turn while it passes its cap or `disk` reads over `line` percent.
-pub fn evict(stores: &[Store], line: f64, disk: &mut dyn FnMut() -> Option<Disk>) -> Vec<Evicted> {
+/// Takes from each store in turn while it passes its cap or `disk` reads past `line`.
+pub fn evict(stores: &[Store], line: Line, disk: &mut dyn FnMut() -> Option<Disk>) -> Vec<Evicted> {
     let mut evicted = Vec::new();
     for store in stores {
         match store {
@@ -113,11 +142,11 @@ pub fn evict(stores: &[Store], line: f64, disk: &mut dyn FnMut() -> Option<Disk>
     evicted
 }
 
-fn over(line: f64, disk: &mut dyn FnMut() -> Option<Disk>) -> bool {
-    disk().is_some_and(|disk| disk.used_percent > line)
+fn over(line: Line, disk: &mut dyn FnMut() -> Option<Disk>) -> bool {
+    disk().is_some_and(|disk| line.passed_by(disk))
 }
 
-fn evict_slots(root: &Path, cap_bytes: Option<u64>, take: Take, line: f64, disk: &mut dyn FnMut() -> Option<Disk>, evicted: &mut Vec<Evicted>) {
+fn evict_slots(root: &Path, cap_bytes: Option<u64>, take: Take, line: Line, disk: &mut dyn FnMut() -> Option<Disk>, evicted: &mut Vec<Evicted>) {
     let mut slots: Vec<Slot> = slots(root).into_iter().filter(|slot| slot.path.file_name().is_some_and(|name| take.admits(&name.to_string_lossy()))).collect();
     slots.sort_by_key(|slot| slot.used);
     let mut held: u64 = slots.iter().map(|slot| slot.bytes).sum();
@@ -215,8 +244,8 @@ pub enum Episode {
     Hold,
 }
 
-pub fn episode(used_percent: f64, open: Option<&str>, host: &str, now_seconds: u64) -> Episode {
-    match (used_percent > INCIDENT_ABOVE_PERCENT, open) {
+pub fn episode(passed: bool, open: Option<&str>, host: &str, now_seconds: u64) -> Episode {
+    match (passed, open) {
         (true, None) => Episode::Open(format!("{INCIDENT_CLASS}:{host}@{now_seconds}")),
         (false, Some(_)) => Episode::Close,
         _ => Episode::Hold,
@@ -233,7 +262,7 @@ fn home() -> Option<PathBuf> {
 
 fn evict_here(home: &Path, disk: &mut dyn FnMut() -> Option<Disk>) -> (Vec<Evicted>, Option<Disk>) {
     let first = disk();
-    let evicted = evict(&stores(home, first, &DiskBudget::local()), EVICT_ABOVE_PERCENT, disk);
+    let evicted = evict(&stores(home, first, &DiskBudget::local()), Line::eviction(), disk);
     for gone in &evicted {
         eprintln!("north capacity: evicted {} {} ({} MiB), least recently used", gone.what, gone.path.display(), gone.bytes >> 20);
     }
@@ -248,14 +277,21 @@ pub fn tick() {
     let Some(home) = home() else { return };
     let before = disk_of(&home);
     let (evicted, Some(disk)) = evict_here(&home, &mut || disk_of(&home)) else { return };
-    let peak = before.map_or(disk.used_percent, |before| before.used_percent.max(disk.used_percent));
+    let fullest = before.filter(|before| before.free_gib < disk.free_gib).unwrap_or(disk);
     let marker = crate::capacity::agent_load::capacity_root().join(EPISODE_FILE);
     let open = fs::read_to_string(&marker).ok();
     let host = crate::platform::host::name();
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    match episode(peak, open.as_deref().map(str::trim), &host, now) {
+    match episode(Line::incident().passed_by(fullest), open.as_deref().map(str::trim), &host, now) {
         Episode::Open(key) => {
-            let detail = format!("{host} root disk at {peak:.0}%, {:.0}% ({:.0} GiB free) after evicting {} unlocked offload slots", disk.used_percent, disk.free_gib, evicted.len());
+            let detail = format!(
+                "{host} root disk at {:.0}% ({:.0} GiB free), {:.0}% ({:.0} GiB free) after evicting {} unlocked offload slots",
+                fullest.used_percent,
+                fullest.free_gib,
+                disk.used_percent,
+                disk.free_gib,
+                evicted.len()
+            );
             if record(&key, &host, &detail) {
                 let _ = marker.parent().map(fs::create_dir_all);
                 let _ = fs::write(&marker, key);
@@ -277,11 +313,12 @@ fn record(key: &str, host: &str, detail: &str) -> bool {
     recorded.is_ok_and(|status| status.success())
 }
 
-/// A disk-floor defer's reclaim: evicts offload slots to the line, then runs `rest` (the other reclaim sweeps); the free GiB afterwards,
-/// or `None` when neither freed anything.
+/// A disk-floor defer's reclaim: runs `rest` (the other reclaim sweeps), then evicts offload slots to the line if the disk still passes
+/// it; the free GiB afterwards, or `None` when neither freed anything.
 pub fn reclaim_in(home: &Path, disk: &mut dyn FnMut() -> Option<Disk>, rest: fn() -> Option<f64>) -> Option<f64> {
+    let swept = rest();
     let (evicted, after) = evict_here(home, disk);
-    rest().or_else(|| (!evicted.is_empty()).then_some(after?.free_gib))
+    if evicted.is_empty() { swept } else { after.map(|after| after.free_gib).or(swept) }
 }
 
 pub fn reclaim(rest: fn() -> Option<f64>) -> Option<f64> {

@@ -169,11 +169,13 @@ Run `command -v PROGRAM` where the command will run before relying on it.
 [[card]]
 class = "N13"
 incident = "host-disk"
-title = "A build host's root disk over 85%"
+title = "A build host's root disk past its incident line"
 commands = ["df", "du", "north reclaim"]
 text = """
 Each build host's lease reaper evicts the least recently used offload slot whose `.lock` no job holds, every 30 s,
 while ~/.cache/build-offload passes its cap (`build_offload` in the host's disk_budget_gib, else 15% of the disk) or
-the root disk passes 80%; land-offload slots go only for the disk line. Over 85% it records one host-disk incident.
+free space on the root disk falls under offload_evict_free_gib (else 20% of a smaller disk); for that line it first trims the
+shared cargo targets and sccache to their caps, then takes land-offload slots. Under host_disk_incident_free_gib (else 15%)
+it records one host-disk incident.
 Never delete a slot by hand while its lock is held, and never touch worktrees or checkouts outside those caches.
 """
