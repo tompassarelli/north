@@ -8,7 +8,7 @@ pub mod verdict;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out) | cost | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail)";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out) | cost | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail)";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -22,18 +22,26 @@ pub fn run(arguments: &[String]) -> u8 {
         ["verdict", rest @ ..] => verdict::run(rest),
         ["free", "--host", host] => free(host),
         ["reap", "--owner", owner] if !owner.is_empty() => reap(owner),
-        ["run", "--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => {
+        ["run", "--background", rest @ ..] => run_job(rest, ship::SlotClass::Background),
+        ["run", rest @ ..] => run_job(rest, ship::SlotClass::LandCheck),
+        _ => usage(),
+    }
+}
+
+fn run_job(words: &[&str], class: ship::SlotClass) -> u8 {
+    match words {
+        ["--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => {
             let Ok(timeout_seconds) = seconds.parse() else { return usage() };
             let resolved = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|checkout| commits_in(&checkout, base, head).map(|commits| (checkout, commits)));
             match resolved {
-                Ok((checkout, (base, head))) => offload(host, ship::Land { ssh: "", checkout: &checkout, base, head, timeout_seconds, command }),
+                Ok((checkout, (base, head))) => offload(host, ship::Land { ssh: "", checkout: &checkout, base, head, timeout_seconds, command, class }),
                 Err(why) => {
                     eprintln!("north capacity offload: {why}");
                     2
                 }
             }
         }
-        ["run", "--host", _, "--base", _, "--head", _, "--timeout", _, "--", _, _, ..] => {
+        ["--host", _, "--base", _, "--head", _, "--timeout", _, "--", _, _, ..] => {
             eprintln!("north capacity offload run: COMMAND after -- is one shell string, so quote it: -- 'cargo nextest run -p north'");
             2
         }

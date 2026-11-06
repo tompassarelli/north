@@ -180,7 +180,7 @@ fn run_matrix(dir: &Path, args: &SweepArgs, seed: &str) -> Result<String, Stop> 
     let command = format!("{} mutant matrix --mutants {} --seed {seed} --timeout {}", args.remote_north, args.mutants, args.timeout_seconds);
     let output = Command::new(north_base::platform::north_binary::north_binary())
         .current_dir(dir)
-        .args(["capacity", "offload", "run", "--host", &args.host, "--base", "HEAD", "--head", "HEAD", "--timeout", &(args.timeout_seconds * (args.mutants as u64 + 1) + 600).to_string(), "--", &command])
+        .args(["capacity", "offload", "run", "--background", "--host", &args.host, "--base", "HEAD", "--head", "HEAD", "--timeout", &(args.timeout_seconds * (args.mutants as u64 + 1) + 600).to_string(), "--", &command])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .output()?;

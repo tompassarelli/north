@@ -1,10 +1,11 @@
-use super::{CommitId, Land, VERIFY, WRONG_TREE, bundle, carried, job_ref, run_part};
+use super::script::{VERIFY, run_part};
+use super::{CommitId, Land, WRONG_TREE, bundle, carried, job_ref};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
 fn carried_from(caller: &[(&str, &str)]) -> String {
-    let land = Land { ssh: "", checkout: Path::new("."), base: Some(CommitId("b".to_owned())), head: CommitId("h".to_owned()), timeout_seconds: 10, command: "" };
+    let land = Land { ssh: "", checkout: Path::new("."), base: Some(CommitId("b".to_owned())), head: CommitId("h".to_owned()), timeout_seconds: 10, command: "", class: super::SlotClass::LandCheck };
     carried(&land, |name| caller.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned()))
 }
 
@@ -129,7 +130,7 @@ fn a_remote_job_runs_only_on_the_shipped_commit_and_reads_each_checkout_beside_i
     let home = tempfile::tempdir().unwrap();
     fs::create_dir_all(home.path().join("code/south")).unwrap();
     git(dir.path(), &["clone", "-q", &dir.path().display().to_string(), &home.path().join("code/south/main").display().to_string()]);
-    let script = format!("set -eu\nroot={} s=slot pins={}\n{}git -C \"$NORTH_OFFLOAD_BESIDE/south\" rev-parse HEAD\n", shell(&home.path().join("root")), super::quote(&format!("south={first}")), super::beside_part());
+    let script = format!("set -eu\nroot={} s=slot pins={}\n{}git -C \"$NORTH_OFFLOAD_BESIDE/south\" rev-parse HEAD\n", shell(&home.path().join("root")), super::quote(&format!("south={first}")), super::script::beside_part());
     let read = Command::new("sh").args(["-c", &script]).env("HOME", home.path()).output().unwrap();
     assert!(read.status.success(), "{}", String::from_utf8_lossy(&read.stderr));
     assert_eq!(String::from_utf8_lossy(&read.stdout).trim(), first);
@@ -146,7 +147,7 @@ fn two_concurrent_jobs_at_the_same_head_bundle_under_distinct_refs() {
         let jobs: Vec<_> = references
             .iter()
             .map(|reference| {
-                let land = Land { ssh: "", checkout: dir.path(), base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "" };
+                let land = Land { ssh: "", checkout: dir.path(), base: Some(base.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck };
                 let checkout = dir.path();
                 scope.spawn(move || {
                     let file = bundle(&land, reference).unwrap();
@@ -179,7 +180,7 @@ fn shipping_a_job_runs_no_git_maintenance_that_could_prune_a_worktree_while_git_
     git(&repo, &["update-ref", "-d", "refs/land-offload/job"]);
     let half_made = repo.join(".git/worktrees/half-made");
     fs::create_dir_all(&half_made).unwrap();
-    let script = super::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@SLOT_PORTS@", "");
+    let script = super::script::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@SLOT_PORTS@", "");
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
         .env("HOME", home.path())
@@ -197,7 +198,7 @@ fn a_job_whose_base_is_its_head_bundles_the_head_over_its_parent() {
     let (dir, _, _) = repository_with_two_commits();
     let head = CommitId::resolve(dir.path(), "HEAD").unwrap();
     let reference = job_ref(&head);
-    let land = Land { ssh: "", checkout: dir.path(), base: Some(head.clone()), head: head.clone(), timeout_seconds: 1, command: "" };
+    let land = Land { ssh: "", checkout: dir.path(), base: Some(head.clone()), head: head.clone(), timeout_seconds: 1, command: "", class: super::SlotClass::LandCheck };
     let file = bundle(&land, &reference).unwrap();
     let listed = Command::new("git").current_dir(dir.path()).args(["bundle", "list-heads", "-"]).stdin(file).output().unwrap();
     assert_eq!(String::from_utf8(listed.stdout).unwrap().trim(), format!("{} {reference}", head.as_str()));
@@ -226,7 +227,7 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let log = home.path().join("order.log");
-    let script = super::remote_script("code-p-main");
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let jobs: Vec<std::process::Child> = ["a", "b", "c", "d"]
         .iter()
         .map(|label| {
@@ -260,6 +261,7 @@ struct Queued {
     carried: &'static str,
     red_fix: &'static str,
     pause: u32,
+    class: super::SlotClass,
 }
 
 /// Starts each job against one host slot, 0.9 s apart so they queue in the order given, and returns the order they started and ended in.
@@ -272,10 +274,11 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
     let children: Vec<std::process::Child> = jobs
         .iter()
         .map(|job| {
-            let script = super::remote_script(job.name);
+            let name = job.class.slot_name(job.name);
+            let script = super::remote_script(&name, job.class);
             let command = format!("echo start-{label} >>{log}; sleep {pause}; echo end-{label} >>{log}", label = job.label, pause = job.pause, log = log.display());
             let child = Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", job.name, &command, "refs/land-offload/job", job.carried, "", "", "0", job.red_fix])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", &name, &command, "refs/land-offload/job", job.carried, "", "", "0", job.red_fix])
                 .env("HOME", home.path())
                 .env("PATH", &path)
                 .env("NORTH_OFFLOAD_MAX_JOBS", "1")
@@ -296,20 +299,21 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
 }
 
 #[test]
-fn a_red_fix_land_check_then_any_land_check_takes_the_first_freed_slot_ahead_of_earlier_queued_worker_builds() {
+fn a_red_fix_then_any_land_check_takes_the_first_freed_slot_ahead_of_earlier_worker_builds_while_a_background_sweep_holds_none_of_their_slots() {
     let landing = "SAFE_PUSH_LANDING='1'";
     let order = order_through_one_slot(&[
-        Queued { label: "holder", name: "code-p-main", carried: "", red_fix: "", pause: 3 },
-        Queued { label: "worker", name: "code-p-main", carried: "", red_fix: "", pause: 1 },
-        Queued { label: "land", name: "code-p-main", carried: landing, red_fix: "", pause: 1 },
-        Queued { label: "red-fix", name: "code-p-main", carried: landing, red_fix: "1", pause: 1 },
+        Queued { label: "sweep", name: "code-p-main", carried: "", red_fix: "", pause: 8, class: super::SlotClass::Background },
+        Queued { label: "holder", name: "code-p-main", carried: "", red_fix: "", pause: 3, class: super::SlotClass::LandCheck },
+        Queued { label: "worker", name: "code-p-main", carried: "", red_fix: "", pause: 1, class: super::SlotClass::LandCheck },
+        Queued { label: "land", name: "code-p-main", carried: landing, red_fix: "", pause: 1, class: super::SlotClass::LandCheck },
+        Queued { label: "red-fix", name: "code-p-main", carried: landing, red_fix: "1", pause: 1, class: super::SlotClass::LandCheck },
     ]);
-    assert_eq!(order, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-land", "end-land", "start-worker", "end-worker"], "each queued after the worker build and still took the slot first, the red fix ahead of the land check");
+    assert_eq!(order, ["start-sweep", "start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-land", "end-land", "start-worker", "end-worker", "end-sweep"], "each queued after the worker build and still took the slot first, the red fix ahead of the land check, while the sweep ran in its own slot outside the one-job cap");
 }
 
 #[test]
 fn repositories_with_jobs_queued_for_one_slot_take_it_in_turn_instead_of_one_draining_first() {
-    let job = |label, name, pause| Queued { label, name, carried: "", red_fix: "", pause };
+    let job = |label, name, pause| Queued { label, name, carried: "", red_fix: "", pause, class: super::SlotClass::LandCheck };
     let order = order_through_one_slot(&[job("p-holder", "code-p-main", 6), job("p-2", "code-p-main", 1), job("p-3", "code-p-main", 1), job("q-1", "code-q-main", 1), job("q-2", "code-q-main", 1)]);
     assert_eq!(order, ["start-p-holder", "end-p-holder", "start-q-1", "end-q-1", "start-p-2", "end-p-2", "start-q-2", "end-q-2", "start-p-3", "end-p-3"], "q queued behind both of p's jobs and still ran before p's second");
 }
@@ -320,7 +324,7 @@ fn a_dead_job_leaves_no_ticket_that_blocks_the_queue() {
     let queue = home.path().join(".cache/land-offload/queue");
     fs::create_dir_all(&queue).unwrap();
     fs::write(queue.join("1-1000000000000000000-1"), "").unwrap();
-    let script = super::remote_script("code-p-main");
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", "", "0"])
         .env("HOME", home.path())
@@ -341,7 +345,7 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     crate::foundation::shim::write_script(&bin.path().join("nproc"), "echo 4\n");
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
-    let script = super::remote_script("code-p-main");
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let job = |command: String, lander: &str| {
         Command::new("setsid")
             .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LAND_CPUS='6'", "", "", "0", "", "", "", lander])
@@ -370,7 +374,7 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     let stderr = String::from_utf8_lossy(&queued.stderr);
     assert!(stderr.lines().any(|line| line.starts_with(super::WAITED) && line.ends_with("s in line for code-p-main")), "{stderr}");
     let slot = home.path().join(".cache/land-offload/code-p-main");
-    assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0} {1} 4 4 4 4", slot.display(), super::slot_ports("code-p-main")[0].1), "a slot job builds and tests on the host's cores divided by its job cap");
+    assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0} {1} 4 4 4 4", slot.display(), super::script::slot_ports("code-p-main")[0].1), "a slot job builds and tests on the host's cores divided by its job cap");
 }
 
 fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, String) {
@@ -400,8 +404,8 @@ fn an_offload_passes_only_when_the_remote_reports_its_command_ran_and_succeeded(
 
 #[test]
 fn every_slot_of_a_checkout_serves_sccache_on_its_own_stable_port_in_range() {
-    let ports = super::slot_ports("code-north-main");
-    assert_eq!(ports, super::slot_ports("code-north-main"));
+    let ports = super::script::slot_ports("code-north-main");
+    assert_eq!(ports, super::script::slot_ports("code-north-main"));
     assert_eq!(ports.iter().map(|(slot, _)| slot.as_str()).collect::<Vec<_>>(), ["code-north-main", "code-north-main-1", "code-north-main-2", "code-north-main-3", "code-north-main-4", "code-north-main-5"]);
     let mut numbers: Vec<u32> = ports.iter().map(|(_, port)| *port).collect();
     assert!(numbers.iter().all(|port| (20000..40000).contains(port)), "{numbers:?}");

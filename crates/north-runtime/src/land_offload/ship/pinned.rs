@@ -1,4 +1,5 @@
-use super::{quote, run_part};
+use super::quote;
+use super::script::run_part;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
