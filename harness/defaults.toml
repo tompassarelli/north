@@ -1388,7 +1388,7 @@ consumers = ["crates/north-capacity/src/capacity/land_claim.rs"]
 [verification_budget_seconds]
 value = 20
 allowed = { min = 1, max = 604800 }
-unit = "seconds a repository's verification of a typical change may take, read as the median wall time of its last 10 green post-land runs once 3 are timed; over it, a lane that adds tests lands only if it deletes as many (one in, one out)"
+unit = "seconds a repository's verification of a typical change may take, read as the median wall time of its last 10 green post-land runs once 3 are timed; over it, a lane that adds tests lands only if it deletes as many (one in, one out), apart from one regression test per bug-labelled north issue it cites"
 source = "tom: north's verification should take 15 to 20 s for a typical change, and over budget a new test lands only with a deletion (north#635, 2026-11-06)"
 fallback = "a repository with no timed green post-land run on the landing host is not capped"
 consumers = ["crates/north-landing/src/land/scans/test_admission/limits.rs"]
