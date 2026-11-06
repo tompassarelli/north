@@ -28,7 +28,7 @@ impl Fleet {
 
     pub fn gates_elsewhere(&self) -> NorthResult<Vec<GateRow>> {
         let now = now_ms();
-        Ok(cached_gates(&self.root)?.into_iter().filter(|gate| gate.host != self.host && gate.default_at_ms().is_none_or(|at| now < at.saturating_add(STALE_AFTER_DEFAULT_MS))).collect())
+        Ok(cached_gates(&self.root)?.into_iter().filter(|gate| gate.host != self.host && now < gate.default_at_ms().saturating_add(STALE_AFTER_DEFAULT_MS)).collect())
     }
 
     pub fn cached_sessions(&self) -> NorthResult<Option<Vec<SessionRow>>> {

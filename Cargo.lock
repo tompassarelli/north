@@ -1018,7 +1018,6 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
- "toml_edit",
 ]
 
 [[package]]

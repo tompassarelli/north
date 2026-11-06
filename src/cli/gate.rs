@@ -8,12 +8,10 @@ use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::runtime::now_ms;
 use crate::fleet::sender::Sender;
 use crate::fleet::store::GateRow;
-use crate::dispatch::{IssueRef, OWNER, product_boxes};
-use crate::github_mirror::store::{Mirror, OPEN_ISSUES, key};
+use crate::dispatch::IssueRef;
 
-const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate list [--json]";
-const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; an issue with more than one open box needs --box, and one with a single open box is held whole.";
-const DEFAULT_HELP: &str = "--default and --default-after are required, except for a question about cost, accounts, credentials or access, making something public, deleting valuable data, or core direction and dependencies (the ask-once table in harness/defaults.toml): such a gate takes neither and waits for Tom's answer.";
+const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate list [--json]";
+const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; without --box the gate holds the whole issue.";
 const WAIT_POLL: Duration = Duration::from_secs(2);
 
 pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
@@ -49,12 +47,11 @@ fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>, session: Op
 }
 
 fn usage() -> NorthError {
-    NorthError::Usage(format!("{USAGE}\n{BOX_HELP}\n{DEFAULT_HELP}"))
+    NorthError::Usage(format!("{USAGE}\n{BOX_HELP}"))
 }
 
 fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
     let request = gate_request(flags)?;
-    scoped(&request, open_boxes)?;
     match fleet.open_or_spool_gate(&request, &Sender::typed(fleet.caller()))? {
         Opened::Here(id) => println!("{id}"),
         Opened::Spooled(row) => {
@@ -81,31 +78,11 @@ fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
             _ => return Err(usage()),
         }
     }
-    if request.session.is_empty() {
+    if request.session.is_empty() || request.default_after_ms == 0 {
         return Err(usage());
     }
     request.validate()?;
     Ok(request)
-}
-
-fn scoped(request: &GateRequest, open_boxes: impl FnOnce(&str) -> NorthResult<usize>) -> NorthResult<()> {
-    let (Some(issue), None) = (request.issue.as_deref(), request.box_text.as_deref()) else { return Ok(()) };
-    match open_boxes(issue)? {
-        0 | 1 => Ok(()),
-        count => Err(NorthError::Usage(format!("{issue} has {count} open boxes: name the one this gate decides with --box TEXT, or the gate holds the launches for all of them"))),
-    }
-}
-
-fn open_boxes(issue: &str) -> NorthResult<usize> {
-    let reference = IssueRef::parse(issue).ok_or_else(usage)?;
-    let mirrored = Mirror::local().fresh(&key(&reference.repo, OPEN_ISSUES), now_ms() as f64 / 1000.0);
-    let node = mirrored.as_ref().and_then(Value::as_array).and_then(|nodes| nodes.iter().find(|node| node["number"].as_u64() == Some(reference.number)));
-    if let Some(node) = node {
-        return Ok(product_boxes(node["body"].as_str().unwrap_or_default()));
-    }
-    let repo = format!("{OWNER}/{}", reference.repo);
-    let found = crate::platform::github::json(&["issue", "view", &reference.number.to_string(), "-R", &repo, "--json", "body"]).map_err(|why| NorthError::Usage(format!("cannot read {issue} to count its open boxes ({}); name the box this gate decides with --box TEXT", why.trim())))?;
-    Ok(product_boxes(found["body"].as_str().unwrap_or_default()))
 }
 
 pub(crate) fn duration_ms(text: &str) -> Option<u64> {
@@ -152,7 +129,7 @@ fn gate_json(gate: &Gate, host: &str) -> Value {
         "box": gate.request.box_text,
         "options": gate.request.options,
         "recommend": gate.request.recommend,
-        "default": gate.request.has_default().then_some(gate.request.default),
+        "default": gate.request.default,
         "opened_ms": gate.opened_ms,
         "default_at_ms": gate.default_at_ms(),
         "answer": gate.closure.as_ref().map(|closure| &closure.answer),
@@ -171,7 +148,7 @@ fn row_json(gate: &GateRow) -> Value {
         "box": gate.request.box_text,
         "options": gate.request.options,
         "recommend": gate.request.recommend,
-        "default": gate.request.has_default().then_some(gate.request.default),
+        "default": gate.request.default,
         "opened_ms": gate.opened_ms,
         "default_at_ms": gate.default_at_ms(),
         "answer": null,
@@ -183,7 +160,6 @@ fn row_json(gate: &GateRow) -> Value {
 fn await_default(fleet: &Fleet, id: i64) -> NorthResult<()> {
     loop {
         let Some(gate) = fleet.gate(id)?.filter(Gate::is_open) else { return Ok(()) };
-        let Some(at) = gate.default_at_ms() else { return Ok(()) };
         let now = now_ms();
         if due(&gate, now) {
             return match fleet.decide(id, Decision::Default) {
@@ -191,7 +167,7 @@ fn await_default(fleet: &Fleet, id: i64) -> NorthResult<()> {
                 outcome => outcome.map(drop),
             };
         }
-        std::thread::sleep(WAIT_POLL.min(Duration::from_millis(at - now)));
+        std::thread::sleep(WAIT_POLL.min(Duration::from_millis(gate.default_at_ms() - now)));
     }
 }
 
@@ -222,36 +198,11 @@ mod tests {
         let decided = [&flags[..], &["--issue", "tompassarelli/North#370"]].concat();
         assert_eq!(gate_request(&decided).unwrap().issue.as_deref(), Some("north#370"));
         assert!(gate_request(&[&flags[..], &["--issue", "370"]].concat()).is_err(), "an --issue without a repository must be refused");
-        let scoped_flags = [&flags[..], &["--issue", "north#370", "--box", "ring crate"]].concat();
-        assert_eq!(gate_request(&scoped_flags).unwrap().box_text.as_deref(), Some("ring crate"));
+        let scoped = [&flags[..], &["--issue", "north#370", "--box", "ring crate"]].concat();
+        assert_eq!(gate_request(&scoped).unwrap().box_text.as_deref(), Some("ring crate"));
         assert!(gate_request(&[&flags[..], &["--box", "ring crate"]].concat()).is_err(), "a --box without an --issue scopes nothing");
         assert!(gate_request(&[&flags[..], &["--issue", "north#370", "--box", " "]].concat()).is_err(), "an empty --box must be refused");
         let Err(NorthError::Usage(help)) = gate_request(&["--help"]) else { panic!("--help prints the usage") };
         assert!(help.contains("--box TEXT"), "{help}");
-        let ask = ["--session", "w", "--question", "Encrypt the GitHub App credential to one more host?", "--option", "yes", "--option", "no", "--recommend", "1"];
-        for defaults in [&["--default", "1", "--default-after", "4h"][..], &["--default", "1"], &["--default-after", "4h"]] {
-            let Err(NorthError::Usage(refusal)) = gate_request(&[&ask[..], defaults].concat()) else { panic!("an ask-once gate with {defaults:?} must be refused") };
-            assert!(refusal.contains("ask-once matter (credentials)"), "{refusal}");
-        }
-        let request = gate_request(&ask).unwrap();
-        let gate = Gate { id: 3, request, opened_ms: 1_000, closure: None };
-        let rows = listed("laptop", std::slice::from_ref(&gate), &[]);
-        assert_eq!((rows[0]["question"].as_str(), rows[0]["default"].is_null(), rows[0]["default_at_ms"].is_null()), (Some("Encrypt the GitHub App credential to one more host?"), true, true));
-        assert!(!due(&gate, u64::MAX), "a gate with no default never falls due");
-        let plain = ["--session", "w", "--question", "Rename the module?", "--option", "yes", "--option", "no", "--recommend", "1"];
-        assert!(gate_request(&plain).is_err(), "a question outside the ask-once table keeps its required default");
-        let request = |box_text: Option<&str>| GateRequest { verification: false, issue: Some("north#657".into()), box_text: box_text.map(str::to_owned), session: "w".into(), question: "Rename?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 1, default_after_ms: 60_000 };
-        let Err(NorthError::Usage(refusal)) = scoped(&request(None), |_| Ok(3)) else { panic!("a gate without --box on a 3-box issue must be refused") };
-        assert!(refusal.contains("north#657 has 3 open boxes"), "{refusal}");
-        assert!(scoped(&request(Some("scoreboard")), |_| panic!("a gate naming its box counts nothing")).is_ok());
-        assert!(scoped(&request(None), |_| Ok(1)).is_ok(), "a single-box issue is held whole");
-        let unscoped = GateRequest { issue: None, ..request(None) };
-        assert!(scoped(&unscoped, |_| panic!("a gate on no issue reads no issue")).is_ok());
-        let options = vec!["yes".to_owned(), "no".to_owned()];
-        let class = |question: &str| crate::fleet::ask_once::class(question, &options);
-        assert_eq!([class("Widen access to gex45 for the app?"), class("Delete the ledger?")], [Some("credentials"), Some("deletion")]);
-        for routine in ["Delete the dead test helper?", "Which account should the retry run on?", "Make `parse` public?", "Raise the token budget to 350k?", "Is the CPU cost acceptable?", "Is the accountant happy?"] {
-            assert_eq!(class(routine), None, "{routine} is a routine call that keeps its default");
-        }
     }
 }

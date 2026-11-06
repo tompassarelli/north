@@ -6,7 +6,7 @@ use crate::error::NorthResult;
 use crate::fleet::roster::Roster;
 use crate::pacing::placement::{self, gate};
 use issues::Issue;
-pub use issues::{IssueRef, OWNER, product_boxes};
+pub use issues::{IssueRef, OWNER};
 use plan::{Candidate, Capacity, Launch, Ready};
 use slots::Pools;
 use survey::Survey;

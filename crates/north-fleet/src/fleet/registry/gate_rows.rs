@@ -67,7 +67,7 @@ impl Fleet {
         }
         self.journaled(row, || {
             let id = self.record_gate(request)?;
-            if request.has_default() && let Err(error) = (self.arm)(id) {
+            if let Err(error) = (self.arm)(id) {
                 eprintln!("north fleet: gate {id} for {} opened but its default timer did not start: {}", request.session, error.user_message());
             }
             Ok(())
