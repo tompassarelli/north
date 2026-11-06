@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use super::ssh::{argv, OWN_CONNECTION};
+use super::ssh::OWN_CONNECTION;
 
 pub const SLOW: Duration = Duration::from_secs(3);
 const DIRECT_LIMIT: Duration = Duration::from_secs(15);
@@ -42,6 +42,15 @@ impl Health {
             Self::RecycleFailed { direct, why } => format!("{host}: the master took over 3 s while a direct connection answered in {}; recycling failed: {why}", seconds(direct)),
         }
     }
+}
+
+fn argv(program: &[OsString], env: &BTreeMap<String, String>, arguments: &[&str]) -> Vec<OsString> {
+    let mut words = program.to_vec();
+    if let Some(config) = env.get("NORTH_SSH_CONFIG") {
+        words.extend(["-F".into(), config.into()]);
+    }
+    words.extend(arguments.iter().map(OsString::from));
+    words
 }
 
 pub fn probe(program: &[OsString], env: &BTreeMap<String, String>, host: &str, master: &mut dyn Master) -> Health {

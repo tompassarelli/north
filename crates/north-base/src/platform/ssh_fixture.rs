@@ -36,8 +36,8 @@ impl Fixture {
         std::fs::write(path.join("sshd_config"), sshd_config).unwrap();
         let user = std::env::var("USER").unwrap_or_else(|_| "tom".to_owned());
         let client_config = format!(
-            "Host testhost\n  HostName 127.0.0.1\n  Port {port}\n  User {user}\n  IdentityFile {key}\n  IdentitiesOnly yes\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n",
-            key = path.join("client").display(),
+            "Host testhost\n  HostName 127.0.0.1\n  Port {port}\n  User {user}\n  IdentityFile {key}\n  IdentitiesOnly yes\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n  ControlMaster no\n  ControlPath {control}/north-ssh-%C\n",
+            key = path.join("client").display(), control = runtime.path().display(),
         );
         std::fs::write(path.join("ssh_config"), client_config).unwrap();
         let sshd = Command::new(which("sshd")).args(["-D", "-f"]).arg(path.join("sshd_config")).stderr(Stdio::null()).spawn().unwrap();

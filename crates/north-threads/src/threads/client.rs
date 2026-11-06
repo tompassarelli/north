@@ -510,7 +510,7 @@ impl Client {
     }
 
     fn pull_argv(&self, dest: &str) -> Vec<OsString> {
-        self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, snapshot::REMOTE_COMMAND])
+        self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", "-o", crate::platform::ssh::OWN_CONNECTION, dest, snapshot::REMOTE_COMMAND])
     }
 
     fn snapshot_verb(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
@@ -858,7 +858,7 @@ exit "$(cat "$ROOT/code")"
             format!("{PREFIX} north threads job-run nightly --host laptop"),
             format!("{PREFIX} north threads ingest"),
             format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads list"),
-            format!("{PREFIX} north threads snapshot-pages"),
+            format!("-o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=QUIET -o ControlPath=none ledger-host north threads snapshot-pages"),
         ]);
         assert_eq!(log(&rig, "ingest.log"), ["{\"type\": \"run\"}"]);
         let left: Vec<_> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().file_name()).collect();
