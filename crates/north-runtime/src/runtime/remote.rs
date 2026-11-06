@@ -20,12 +20,14 @@ pub(super) fn build(machine: &gate::Machine, target: &str, runtime: &Path) -> Re
     let built = format!("{}:.local/state/north/runtimes/{target}", machine.ssh);
     fs::create_dir_all(runtime)?;
     let mut copy = Command::new("rsync");
-    copy.args(["-a", "--timeout=120"]).args(PROGRAMS.map(|program| format!("{built}/{program}"))).arg(runtime);
+    copy.args(["-a", "--timeout=120", "-e", OWN_RSH]).args(PROGRAMS.map(|program| format!("{built}/{program}"))).arg(runtime);
     run(host, "rsync", &mut copy, COPY).map_err(|failure| match failure.code {
         RSYNC_SOURCE_MISSING => failed(DEFERRED, format!("{host} has not finished building {}; retrying on the next tick ({})", &target[..8], failure.message)),
         _ => failure,
     })
 }
+
+pub(super) const OWN_RSH: &str = "ssh -o ControlPath=none";
 
 pub(super) fn ssh(destination: &str) -> Command {
     let mut command = Command::new("ssh");

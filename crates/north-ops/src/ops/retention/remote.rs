@@ -31,7 +31,7 @@ pub(super) struct Ssh {
 impl Remote for Ssh {
     fn command(&self, script: &str) -> Command {
         let mut command = Command::new("ssh");
-        command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", &self.host, "--", script]);
+        command.args(["-T", "-o", "BatchMode=yes", "-o", crate::platform::ssh::OWN_CONNECTION, "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", &self.host, "--", script]);
         command
     }
 }

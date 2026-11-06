@@ -48,7 +48,7 @@ fn fetch_reported(host: &str, target: &str, runtime: &Path) -> bool {
 fn fetch(host: &str, target: &str, runtime: &Path) -> Result<(), String> {
     fs::create_dir_all(runtime).map_err(|error| error.to_string())?;
     let mut copy = Command::new("rsync");
-    copy.args(["-a", "--timeout=60", "-e", "ssh -o BatchMode=yes -o ConnectTimeout=20"])
+    copy.args(["-a", "--timeout=60", "-e", "ssh -o BatchMode=yes -o ConnectTimeout=20 -o ControlPath=none"])
         .args(PROGRAMS.map(|program| format!("{host}:.local/state/north/runtimes/{target}/{program}")))
         .arg(runtime);
     step("rsync", &mut copy, limit(COPY))?;

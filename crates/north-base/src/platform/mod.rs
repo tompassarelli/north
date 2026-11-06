@@ -33,6 +33,9 @@ pub mod sqlite;
 pub mod usage_table;
 pub mod wayland_idle;
 pub mod ssh;
+pub mod ssh_master;
+#[cfg(test)]
+mod ssh_fixture;
 pub mod south_land_limits;
 pub mod stdio;
 pub mod store_refs;

@@ -183,6 +183,7 @@ Commands:
   split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...  Move modules into a crate
   ssh-argv SSH-ARGS...                          Print the attributed ssh argv, NUL separated
   ssh-session REAL_SSH [ARGS...]                Run ssh with session attribution
+  ssh-master probe HOST...                      Recycle a shared ssh master slower than 3 s twice while a direct connection answers
   target-seed [DIR]                             Seed a lane's cargo target from the shared one
   tool-mine [--days N] [--min-sessions N] [--min-steps N] [--max N] [--owner REPO#N] [--dry-run]  Mine transcripts for repeated tool sequences
   usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | decide --dry-run BRIEF | sample  Read account usage

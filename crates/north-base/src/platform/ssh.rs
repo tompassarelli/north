@@ -3,6 +3,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 const SOCKET_LIMIT: usize = 107;
+pub const OWN_CONNECTION: &str = "ControlPath=none";
 
 pub fn argv(program: &[OsString], env: &BTreeMap<String, String>, arguments: &[&str]) -> Vec<OsString> {
     let mut argv = program.to_vec();

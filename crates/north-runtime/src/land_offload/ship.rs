@@ -210,7 +210,7 @@ pub(super) fn run(land: &Land) -> u8 {
     let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker, &beside.pins, &lander_slot].map(quote);
     let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
     let spawned = with_caller("ssh")
-        .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])
+        .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", crate::platform::ssh::OWN_CONNECTION, land.ssh, "--", &remote])
         .stdin(Stdio::from(bundle))
         .stdout(Stdio::piped())
         .spawn();

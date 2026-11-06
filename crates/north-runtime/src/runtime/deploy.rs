@@ -2,7 +2,7 @@ use super::bounded;
 use super::failure::{Failure, failed};
 use super::host_facts;
 use super::layout::{self, Layout, PROGRAMS, TREE};
-use super::remote::{limit, run, run_reporting, ssh};
+use super::remote::{OWN_RSH, limit, run, run_reporting, ssh};
 use super::store::references;
 use super::update::{DEPLOY_LOCK, built_main, checkout, lock_waiting, named_lock_waiting};
 use crate::land_offload;
@@ -73,7 +73,7 @@ fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>
     run(host, "mkdir -p", ssh(host).args(["mkdir", "-p", directory.as_str()]), PROBE)?;
     let destination = format!("{host}:{directory}/");
     let mut copy = Command::new("rsync");
-    copy.args(["-a", "--timeout=120"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(runtime.join(TREE)).arg(destination);
+    copy.args(["-a", "--timeout=120", "-e", OWN_RSH]).args(PROGRAMS.map(|program| runtime.join(program))).arg(runtime.join(TREE)).arg(destination);
     run(host, "rsync", &mut copy, COPY)?;
     run(host, "install", ssh(host).args(["sh", "-c", install_script(target).as_str()]), PROBE)
 }

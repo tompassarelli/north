@@ -166,7 +166,7 @@ async fn transfer(options: &Options, session: &mut Session) -> Result<i32, Failu
     let remote = format!("{remote_home}/.cache/nexus-run/{job}");
     let output = std::path::absolute(options.output_dir.clone().unwrap_or_else(|| home().join(".cache/nexus-run").join(&job))).map_err(|error| error.to_string())?;
     std::fs::create_dir_all(&output).map_err(|error| error.to_string())?;
-    let route = plan::shell_join(&plan::ssh_argv(&real_env, &home(), &["-o", "BatchMode=yes"]));
+    let route = plan::shell_join(&plan::ssh_argv(&real_env, &home(), &["-o", "BatchMode=yes", "-o", crate::platform::ssh::OWN_CONNECTION]));
     let listing = crate::platform::git::stdout(&source, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"], |_| "git ls-files failed".to_owned())?;
     let baseline = baseline_for(&source, &home(), &remote_home);
     let reuse = if ssh(&["test", "-d", &baseline], false).await?.code == 0 { vec!["--checksum".to_owned(), format!("--copy-dest={baseline}")] } else { Vec::new() };

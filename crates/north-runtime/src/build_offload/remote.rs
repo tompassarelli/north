@@ -100,7 +100,7 @@ pub(super) fn run(ssh: &str, lane: &Lane, job: &Job, sink: Option<File>, started
     let quoted: Vec<String> = words.iter().map(|word| quote(word)).collect();
     let remote = format!("sh -c {} offload {}", quote(&script), quoted.join(" "));
     let mut ssh_command = Command::new("ssh");
-    ssh_command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", ssh, "--", &remote]);
+    ssh_command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", crate::platform::ssh::OWN_CONNECTION, ssh, "--", &remote]);
     drive(ssh_command, lane, sink, started, &returned)
 }
 
