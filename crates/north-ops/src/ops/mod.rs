@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod credentials;
 pub mod citation_check;
 pub mod context_audit;
 pub mod convo;

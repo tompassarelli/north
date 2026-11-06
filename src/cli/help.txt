@@ -148,6 +148,7 @@ Commands:
   nexus-run [OPTIONS] -- COMMAND...             Run a bounded CPU job on Nexus and retrieve its outputs
   warcraft-close [--list]                       Close Tom's Steam launch of Battle.net and Warcraft III completely, or list its processes
   wc3-login-field PRIVATE_RUN a|b|c|d username|password [--owner-authorized]  Type one stored Battle.net field into the verified private login window
+  credentials check [--json] | renew [--dry-run]  List every credential the fleet uses with its kind (machine or human-session), expiry and renewal path and exit 1 on any human-session, expired or undeclared one; renew runs machine renewals before expiry, batches what needs Tom into one notice 30 days ahead and writes the loop record (daily timer)
   agent-capture --screen|--window ID|--region "X,Y WxH" OUT.png  Screenshot without touching Tom's clipboard
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there unless HOST runs a newer descendant
   runtime health                                Check that the running binary is the current runtime with its programs and tree

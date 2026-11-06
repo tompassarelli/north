@@ -7,6 +7,7 @@ pub mod cargo_metadata;
 pub mod land_queue;
 pub mod betterleaks;
 pub mod harness;
+pub mod signin;
 pub mod decision_log;
 pub mod wisp_payoff;
 pub mod frozen_topics;

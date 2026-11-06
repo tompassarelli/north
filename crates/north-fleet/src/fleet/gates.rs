@@ -32,6 +32,10 @@ impl GateRequest {
         if !in_range(self.recommend) {
             return Err(NorthError::Usage(format!("--recommend must name an option from 1 to {}", self.options.len())));
         }
+        let joined = std::iter::once(self.question.as_str()).chain(self.options.iter().map(String::as_str)).collect::<Vec<_>>().join("\n");
+        if let Some(phrase) = north_base::platform::signin::names(&joined) && !ask_once::names("accounts", &self.question, &self.options) {
+            return Err(NorthError::Usage(format!("this gate asks Tom to sign in (\"{phrase}\"), and no agent work waits on a human sign-in: build the machine path (a GitHub App token, a sops-held key or a setup token) as a box instead; only a new account, which nobody can create for him, may ask him to sign in")));
+        }
         match ask_once::class(&self.question, &self.options) {
             Some(class) if self.has_default() => Err(NorthError::Usage(format!("this gate decides an ask-once matter ({class}) that only Tom answers: open it without --default and --default-after, and it waits for his answer"))),
             Some(_) => Ok(()),

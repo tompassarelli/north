@@ -20,6 +20,12 @@ fn words(text: &str) -> Vec<String> {
     text.to_lowercase().split(|character: char| !character.is_alphanumeric()).filter(|word| !word.is_empty()).map(str::to_owned).collect()
 }
 
+/// Whether the gate text names a phrase of the ask-once class `class`.
+pub fn names<'a>(class: &str, question: &'a str, options: impl IntoIterator<Item = &'a String>) -> bool {
+    let text: Vec<String> = std::iter::once(question).chain(options.into_iter().map(String::as_str)).flat_map(words).collect();
+    CLASSES.iter().filter(|(name, _)| name == class).any(|(_, phrases)| phrases.iter().any(|phrase| text.windows(phrase.len()).any(|window| window == phrase.as_slice())))
+}
+
 /// The ask-once class (cost, accounts, credentials, public, deletion or direction) a gate's question or options name, which only Tom decides, so such a gate carries no default.
 pub fn class<'a>(question: &'a str, options: impl IntoIterator<Item = &'a String>) -> Option<&'static str> {
     let text: Vec<String> = std::iter::once(question).chain(options.into_iter().map(String::as_str)).flat_map(words).collect();

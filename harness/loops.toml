@@ -278,6 +278,25 @@ updated_by = "north climb run"
 cadence_hours = 24
 owner = "north#636 Policy climber: archive, live arm and selection"
 
+[[loop]]
+name = "credentials"
+decision = "which credentials the fleet may depend on and when each is renewed or announced"
+sites = [
+  "crates/north-ops/src/ops/credentials/registry.rs",
+  "crates/north-ops/src/ops/credentials/renew.rs",
+  "crates/north-base/src/platform/signin.rs",
+]
+signal = "expiry of each machine credential, and the human sessions the registry finds"
+updated_by = "north credentials renew"
+cadence_hours = 24
+record = "north/credentials/check.json"
+host = "lander"
+defaults = [
+  "credential_expiry_notice_days",
+  "human_signin_negators",
+  "human_signin_phrases",
+]
+
 [plumbing]
 constants = [
   "crates/north-capacity-host/src/capacity/gate.rs::TOOLCHAIN_MISSING",

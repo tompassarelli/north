@@ -1520,3 +1520,27 @@ unit = "GitHub calls a launch placement or a landing round must leave unspent on
 source = "tom: GitHub quota never under 1,000 is a declared invariant (north#643, 2026-11-06)"
 fallback = "none: strategy replay always checks the floor"
 consumers = ["crates/north-replay/src/bounds.rs"]
+
+[credential_expiry_notice_days]
+value = 30
+allowed = { min = 1, max = 365 }
+unit = "days before a credential's expiry that north credentials renew runs a machine renewal and batches the credentials that need a person into one notice"
+source = "tom: sign-in requests do not scale while he sleeps, so anything that needs him is told once, 30 days ahead, in one batch (north#522, 2026-11-06)"
+fallback = "a credential with no expiry date is never renewed or announced, and north credentials check still fails it when it is a human session"
+consumers = ["crates/north-ops/src/ops/credentials/mod.rs"]
+
+[human_signin_phrases]
+value = ["sign in", "signs in", "log in", "logs in", "login", "passkey", "passkeys", "password", "passwords", "keyring", "unlock", "2fa", "second factor", "two factor", "personal access token", "oauth consent", "device code", "browser auth"]
+allowed = { min_len = 1 }
+unit = "words and phrases that put a brief's Item, Box or Done when line, or a gate's question or option, in the plans-a-human-sign-in class, which launch and gate refuse"
+source = "tom: sign-in requests do not scale while he sleeps, so a plan that needs a person to sign in, type a password, confirm a passkey or unlock a keyring is turned into a box that builds the machine path (north#522, 2026-11-06)"
+fallback = "a brief or gate naming none of these words launches or opens as before"
+consumers = ["crates/north-base/src/platform/signin.rs"]
+
+[human_signin_negators]
+value = ["no", "never", "not", "without", "refuse", "refuses", "refusing", "refused", "stop", "stops", "instead", "avoid", "forbid", "forbids", "remove", "removes", "delete", "deletes"]
+allowed = { min_len = 1 }
+unit = "words that, on the same line as a sign-in phrase, show the line is describing a ban or a removal of the sign-in dependency and not planning one"
+source = "tom: the box that builds the machine path has to be able to say what it removes, so a line like 'no agent work depends on a human sign-in' must launch (north#522, 2026-11-06)"
+fallback = "no line is exempt, so a brief that merely mentions a sign-in is refused"
+consumers = ["crates/north-base/src/platform/signin.rs"]

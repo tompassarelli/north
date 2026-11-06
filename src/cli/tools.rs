@@ -70,6 +70,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("convo", crate::ops::convo::run),
     ("warcraft-close", crate::ops::warcraft_close::run),
     ("wc3-login-field", crate::ops::wc3_login_field::run),
+    ("credentials", crate::ops::credentials::run),
     ("agent-capture", crate::ops::agent_capture::run),
     ("claude-runtime-update", crate::ops::vendor_runtime::run_claude),
     ("agy-runtime-update", crate::ops::vendor_runtime::run_agy),

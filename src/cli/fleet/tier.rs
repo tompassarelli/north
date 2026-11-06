@@ -37,7 +37,9 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
 }
 
 pub(super) fn admit_class(request: &LaunchRequest) -> NorthResult<()> {
-    crate::router::brief::class_refusal(&header(request)?).map_or(Ok(()), |why| Err(NorthError::Refused(format!("brief refused: {why}"))))
+    let header = header(request)?;
+    let refusal = crate::router::brief::class_refusal(&header).or_else(|| crate::platform::signin::brief_refusal(&header));
+    refusal.map_or(Ok(()), |why| Err(NorthError::Refused(format!("brief refused: {why}"))))
 }
 
 pub(super) fn recorded(start: Option<Start>, request: &LaunchRequest, name: &str) {
