@@ -337,7 +337,8 @@ turns it off), and `.cargo/config.toml` points it into `target/` so tests never 
 parts differ from the brief above. `AGENT_CAPACITY_SETTLE_SECONDS` stays until the admission strategy
 module exists to own the settle window as a parameter, because two capacity-host journeys shorten it to
 run in seconds; each admission line records the window it used (`settle_seconds`). Retention is
-`north strategy log retain` (zstd on closed hours, days past 14 deleted) rather than a step of
+`north strategy log retain` (zstd on closed hours, days past 14 deleted), which an hourly user timer from
+firn's `north-runtime-follow` module runs on every host that installs north, rather than a step of
 `north retain`, which archives to one host, while this log stays on the host that decided. Placement's `gather`
 parses the model catalog and the harness defaults before the timer starts, so a launch process's one
 placement no longer spends most of its `decide_us` parsing them (north#666).
