@@ -4,8 +4,6 @@ use crate::hook::{HookInput, Verdict};
 use crate::shell::{blank_quotes, strip_heredocs};
 use serde_json::Value;
 use std::path::PathBuf;
-use std::process::Command;
-use std::time::Duration;
 
 const UNIT: &str = "proxy-role-guard";
 const SUBAGENTS: [&str; 2] = ["Explore", "Plan"];
@@ -19,9 +17,6 @@ const SEPARATORS: [char; 9] = ['\n', ';', '&', '|', '(', ')', '`', '{', '}'];
 const CHILD_SESSION_ENV: &str = "CLAUDE_CODE_CHILD_SESSION";
 const CLAUDE_PID_ENV: &str = "CLAUDE_PID";
 const CONFIG_ENV: &str = "CLAUDE_CONFIG_DIR";
-const PLAN_REFRESH: Duration = Duration::from_secs(120);
-const PLAN_REFRESH_LIMIT: Duration = Duration::from_secs(90);
-const PLAN_STALE: Duration = Duration::from_secs(15 * 60);
 
 pub struct Registered {
     pub conversation: Option<String>,
@@ -39,15 +34,9 @@ pub trait World {
     fn registered_proxy(&self) -> Option<Registered>;
     fn profile(&self, account: &str) -> Option<String>;
     fn claude_start(&self) -> Option<ClaudeStart>;
-    fn dispatch_plan(&self) -> Option<String>;
-    fn seen(&self, session: &str, items: &str) -> bool;
 }
 
 pub struct Live;
-
-fn north() -> PathBuf {
-    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"))
-}
 
 impl World for Live {
     fn var(&self, name: &str) -> Option<String> {
@@ -79,27 +68,6 @@ impl World for Live {
         let conversation = record.and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()).and_then(|record| record["sessionId"].as_str().map(str::to_owned));
         Some(ClaudeStart { nested, print, conversation })
     }
-
-    fn dispatch_plan(&self) -> Option<String> {
-        let dir = PathBuf::from(self.var("HOME")?).join(".local/state/north/proxy-idle");
-        let plan = dir.join("dispatch-plan");
-        let age = |path: &std::path::Path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok().and_then(|modified| modified.elapsed().ok());
-        let refreshing = age(&dir.join("dispatch-plan.part")).is_some_and(|age| age < PLAN_REFRESH_LIMIT);
-        if !refreshing && age(&plan).is_none_or(|age| age > PLAN_REFRESH) {
-            refresh_plan(&dir);
-        }
-        age(&plan).filter(|age| *age < PLAN_STALE).and_then(|_| std::fs::read_to_string(&plan).ok())
-    }
-
-    fn seen(&self, session: &str, items: &str) -> bool {
-        let Some(dir) = self.var("HOME").map(|home| PathBuf::from(home).join(".local/state/north/proxy-idle")) else { return false };
-        let file = dir.join(session.replace('/', "_"));
-        if std::fs::read_to_string(&file).is_ok_and(|seen| seen == items) {
-            return true;
-        }
-        let _ = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&file, items));
-        false
-    }
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
@@ -113,14 +81,7 @@ pub fn decide(world: &impl World, input: &HookInput) -> Verdict {
     if !is_proxy(world, input) {
         return Verdict::Allow;
     }
-    match input.data["hook_event_name"].as_str() {
-        Some("Stop") => match idle_capacity(world, input) {
-            Some(Idle::Staffable(reason)) => Verdict::Deny(reason),
-            Some(Idle::Held(notice)) => Verdict::Advise(notice),
-            None => Verdict::Allow,
-        },
-        _ => refusal(world, input).map_or(Verdict::Allow, |action| Verdict::Deny(message(&action))),
-    }
+    refusal(world, input).map_or(Verdict::Allow, |action| Verdict::Deny(message(&action)))
 }
 
 pub fn is_proxy(world: &impl World, input: &HookInput) -> bool {
@@ -280,56 +241,6 @@ fn subcommand<'a>(words: &[&'a str], valued: &[&str]) -> Option<&'a str> {
         }
     }
     None
-}
-
-fn refresh_plan(dir: &std::path::Path) {
-    use std::os::unix::process::CommandExt;
-    if std::fs::create_dir_all(dir).is_err() {
-        return;
-    }
-    let mut command = Command::new("sh");
-    command.args(["-c", "\"$0\" dispatch --dry-run > \"$1\" 2>/dev/null && mv \"$1\" \"$2\""]).arg(north()).arg(dir.join("dispatch-plan.part")).arg(dir.join("dispatch-plan"));
-    let _ = command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).process_group(0).spawn();
-}
-
-enum Idle {
-    Staffable(String),
-    Held(String),
-}
-
-const CAPACITY_HOLDS: [&str; 4] = ["holds the box:", "takes nothing:", "has no free slot", "has no account with a free worker slot"];
-const STAFFING_HOLD: &str = "staffing:";
-
-fn held_by_capacity(why: &str) -> bool {
-    why.starts_with(STAFFING_HOLD) || why.split("; ").all(|clause| CAPACITY_HOLDS.iter().any(|hold| clause.contains(hold)))
-}
-
-fn idle_capacity(world: &impl World, input: &HookInput) -> Option<Idle> {
-    if input.data["stop_hook_active"].as_bool() == Some(true) {
-        return None;
-    }
-    let plan = world.dispatch_plan()?;
-    let placed = plan.lines().find_map(|line| line.strip_prefix("would launch ").or_else(|| line.strip_prefix("would cloud-launch "))).and_then(|launch| launch.split(' ').next());
-    let free = plan.lines().filter_map(|line| line.strip_prefix("slots ")).find_map(|slot| {
-        let (pair, count) = slot.rsplit_once(": ")?;
-        let (host, account) = pair.split_once(' ')?;
-        (count.trim().parse::<u32>().ok()? > 0).then(|| format!("{account} has {} free worker slots on {host}", count.trim()))
-    });
-    let unplaced: Vec<(&str, &str)> = plan.lines().filter_map(|line| line.strip_prefix("skip ")?.split_once(": ready, not placed: ")).collect();
-    if let (Some((item, why)), Some(capacity)) = (unplaced.iter().find(|(_, why)| !held_by_capacity(why)), &free) {
-        let waiting = format!("{item} is ready but not placed: {why}");
-        let own = input.data["session_id"].as_str().unwrap_or_default();
-        if world.seen(own, &format!("{capacity}\n{waiting}")) {
-            return None;
-        }
-        return Some(Idle::Staffable(format!("{UNIT}: admitted capacity is idle while ready work waits: {capacity}, and {waiting}. Fix what keeps the box from being placed before ending the turn, or tell Tom what blocks staffing.")));
-    }
-    if let Some(item) = placed {
-        return Some(Idle::Held(format!("{UNIT}: not blocking the end of turn: {item} is ready and dispatch places it; north-dispatch.timer launches it on its next run")));
-    }
-    free?;
-    let (item, why) = unplaced.first()?;
-    Some(Idle::Held(format!("{UNIT}: not blocking the end of turn: a worker slot is free but dispatch cannot place {item} there: {why}")))
 }
 
 fn wrapped(words: &[&str]) -> bool {
