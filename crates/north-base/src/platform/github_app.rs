@@ -24,11 +24,15 @@ With --permissions, a JSON object of permission levels is added over contents wr
 read; a workflows permission is refused.
 Credentials: ${SOUTH_SECRETS:-$HOME/code/south/main/secrets}/github-app.yaml (sops).
 API base: ${GH_APP_API:-https://api.github.com}. Cache: ${XDG_RUNTIME_DIR}/gh-app-token,
-reused while more than 5 minutes remain.";
+reused while more than 5 minutes remain. A host the laptop pushes a token to
+(~/.local/state/north/gh-write-token, as on gex45 and ccx33) holds no App key: it prints that token
+while it is under 55 minutes old and never decrypts the credentials.";
 
 const REUSE_MARGIN: i64 = 300;
 const EXCHANGE_LIMIT: Duration = Duration::from_secs(30);
 const DECRYPT_LIMIT: Duration = Duration::from_secs(60);
+const PUSHED_TOKEN: &str = ".local/state/north/gh-write-token";
+const PUSHED_FRESH_SECONDS: i64 = 55 * 60;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct App {
@@ -114,6 +118,7 @@ pub type Decrypt = Box<dyn Fn(&Path) -> Option<Vec<u8>>>;
 pub struct Host {
     pub secrets: PathBuf,
     pub runtime: Option<PathBuf>,
+    pub pushed: Option<PathBuf>,
     pub api: String,
     pub decrypt: Decrypt,
 }
@@ -124,7 +129,8 @@ impl Host {
         let secrets = var("SOUTH_SECRETS").map_or_else(|| Path::new(&var("HOME").unwrap_or_default()).join("code/south/main/secrets"), PathBuf::from);
         let api = var("GH_APP_API").unwrap_or_else(|| "https://api.github.com".to_owned()).trim_end_matches('/').to_owned();
         let key_file = std::env::var("SOPS_AGE_KEY_FILE").unwrap_or_else(|_| "/var/lib/sops-nix/key.txt".to_owned());
-        Self { secrets, runtime: var("XDG_RUNTIME_DIR").map(PathBuf::from), api, decrypt: Box::new(move |file| sops_decrypt(&key_file, file)) }
+        let pushed = var("HOME").map(|home| Path::new(&home).join(PUSHED_TOKEN));
+        Self { secrets, runtime: var("XDG_RUNTIME_DIR").map(PathBuf::from), pushed, api, decrypt: Box::new(move |file| sops_decrypt(&key_file, file)) }
     }
 }
 
@@ -169,6 +175,9 @@ fn fail(message: &str) -> u8 {
 }
 
 pub fn mint(request: &Request, host: &Host, now: i64) -> Result<String, String> {
+    if let Some(pushed) = host.pushed.as_deref().filter(|path| path.exists()) {
+        return pushed_token(request, pushed, now);
+    }
     let app = request.app;
     let cache = request.repos.is_none().then(|| host.runtime.as_ref().map(|runtime| runtime.join(app.cache))).flatten();
     if let Some(token) = cache.as_deref().and_then(|path| cached(path, now)) {
@@ -260,6 +269,25 @@ fn exchange(host: &Host, installation_id: &str, jwt: &str, scope: Option<(&[Stri
         (Some(token), Some(expires_at)) if Timestamp::parse_rfc3339(expires_at).is_some() => Ok((token.to_owned(), expires_at.to_owned())),
         _ => Err("token exchange returned no token".to_owned()),
     }
+}
+
+fn pushed_token(request: &Request, pushed: &Path, now: i64) -> Result<String, String> {
+    let shown = pushed.display();
+    let agent = APPS.iter().any(|(name, app)| *name == AGENT_APP && *app == request.app);
+    if !agent || request.repos.is_some() {
+        return Err(format!("this host takes the App token the laptop pushes to {shown} and holds no App key to mint another"));
+    }
+    let written = fs::metadata(pushed).and_then(|meta| meta.modified()).map_err(|error| format!("cannot read {shown}: {error}"))?;
+    let written = written.duration_since(std::time::UNIX_EPOCH).map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(i64::MAX));
+    let age = now - written;
+    if !(0..PUSHED_FRESH_SECONDS).contains(&age) {
+        return Err(format!("the token the laptop pushes to {shown} is {} min old, outside its 55 min trust; the laptop's host-gh-token timer has not refreshed it, and this host holds no App key to mint one", age / 60));
+    }
+    let token = fs::read_to_string(pushed).map_err(|error| format!("cannot read {shown}: {error}"))?.trim().to_owned();
+    if token.is_empty() {
+        return Err(format!("{shown} is empty"));
+    }
+    Ok(token)
 }
 
 #[cfg(test)]

@@ -47,8 +47,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let mint = || {
         let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
         github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds()).or_else(|why| {
-            let home = std::env::var_os("HOME").unwrap_or_default();
-            let (source, token) = git_credential::fallback_token(Path::new(&home), None).ok_or(why.clone())?;
+            let (source, token) = git_credential::fallback_token().ok_or(why.clone())?;
             eprintln!("north gh-session: cannot mint the Socrates Agent App token ({why}); using {source}");
             Ok(token)
         })

@@ -85,7 +85,7 @@ impl Fixture {
 
     fn host(&self, server: &Server, creds: Value) -> Host {
         let decrypted = creds.to_string().into_bytes();
-        Host { secrets: self.scratch.path().join("secrets"), runtime: Some(self.run()), api: server.api.clone(), decrypt: Box::new(move |_| Some(decrypted.clone())) }
+        Host { secrets: self.scratch.path().join("secrets"), runtime: Some(self.run()), pushed: None, api: server.api.clone(), decrypt: Box::new(move |_| Some(decrypted.clone())) }
     }
 
     fn run(&self) -> PathBuf {
@@ -144,3 +144,21 @@ fn permissions_scope_the_six_repositories_and_never_grant_workflows() {
     assert_eq!(server.requests(), 1);
 }
 
+#[test]
+fn a_host_the_laptop_pushes_to_serves_the_pushed_token_while_fresh_and_never_decrypts() {
+    let server = Server::start();
+    let fixture = Fixture::new("github-app.yaml");
+    let pushed = fixture.scratch.path().join("gh-write-token");
+    fs::write(&pushed, "ghs_pushed\n").unwrap();
+    let written = fs::metadata(&pushed).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let written = i64::try_from(written).unwrap();
+    let host = Host { pushed: Some(pushed), decrypt: Box::new(|_| panic!("decrypted the App key on a host the laptop pushes to")), ..fixture.host(&server, json!({})) };
+
+    assert_eq!(mint(&request(&[]), &host, written + 60), Ok("ghs_pushed".to_owned()));
+    let stale = mint(&request(&[]), &host, written + 55 * 60).unwrap_err();
+    assert!(stale.contains("55 min old"), "{stale}");
+    for words in [&["--app", "lander"][..], &["--repos", "north"][..]] {
+        assert!(mint(&request(words), &host, written + 60).unwrap_err().contains("holds no App key"));
+    }
+    assert_eq!(server.requests(), 0);
+}

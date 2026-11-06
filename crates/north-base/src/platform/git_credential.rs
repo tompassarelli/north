@@ -1,7 +1,4 @@
-use std::fs;
 use std::io::{BufRead, Write};
-use std::path::Path;
-use std::time::{Duration, SystemTime};
 
 use super::github_app::{self, AGENT_APP, Host, Request};
 use crate::foundation::clock::Timestamp;
@@ -11,19 +8,14 @@ const USAGE: &str = "usage: north git-credential get|store|erase
 The git credential helper agent sessions push to GitHub through: for https://github.com it answers
 get with an installation token of the Socrates Agent App (north gh-app-token), so GitHub's tag
 rulesets, which only the admin role and that App's v* release path bypass, bind agent pushes.
-A host that cannot mint it (gex45 never decrypts the App key) answers with the same App's token
-the session was launched with in GH_TOKEN, else the one pushed to the host,
-~/.local/state/north/gh-write-token, while it is fresh and its repository list covers the
-request's path, and names on stderr the token it used. Other hosts, store and erase get no
+A host the laptop pushes that token to (gex45 and ccx33 hold no App key) answers with the pushed
+token while it is fresh; a host that cannot mint answers with the same App's token the session
+was launched with in GH_TOKEN and names it on stderr. Other hosts, store and erase get no
 answer. Fleet sessions set it through GIT_CONFIG_COUNT, so Tom's own git and gh login stay unchanged.";
 
 const SCOPE: &str = "credential.https://github.com.helper";
 const HELPER: &str = "!north git-credential";
 const PATH_SCOPE: &str = "credential.https://github.com.useHttpPath";
-const PUSHED_TOKEN: &str = ".local/state/north/gh-write-token";
-const PUSHED_REPOS: &str = ".local/state/north/gh-write-token.repos";
-/// The host push refreshes the token well inside its 60 min life; south's gh-write-token-covers trusts it for 55 min.
-const PUSHED_FRESH: Duration = Duration::from_secs(55 * 60);
 
 pub fn session_env() -> Vec<(String, String)> {
     let entries = [(SCOPE, ""), (SCOPE, HELPER), (PATH_SCOPE, "true")];
@@ -40,11 +32,10 @@ pub fn run(arguments: &[String]) -> u8 {
         println!("{USAGE}");
         return 0;
     }
-    let home = std::env::var_os("HOME").unwrap_or_default();
-    let token = |path: &str| {
+    let token = |_: &str| {
         let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
         github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds()).or_else(|why| {
-            let Some((source, token)) = fallback_token(Path::new(&home), Some(path)) else { return Err(why) };
+            let Some((source, token)) = fallback_token() else { return Err(why) };
             eprintln!("north git-credential: cannot mint the Socrates Agent App token ({why}); answering with {source}");
             Ok(token)
         })
@@ -62,28 +53,13 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-/// What a host that cannot mint answers with: the session's launched token, else the host's fresh pushed one (covering the path when one is asked for).
-pub(super) fn fallback_token(home: &Path, path: Option<&str>) -> Option<(&'static str, String)> {
-    if let Some(token) = session_token(std::env::var("GH_TOKEN").ok()) {
-        return Some(("the session's GH_TOKEN", token));
-    }
-    pushed_token(home, path, SystemTime::now()).map(|token| ("the host's pushed ~/.local/state/north/gh-write-token", token))
+/// What a host that cannot mint answers with: the installation token the launcher gave the session.
+pub(super) fn fallback_token() -> Option<(&'static str, String)> {
+    session_token(std::env::var("GH_TOKEN").ok()).map(|token| ("the session's GH_TOKEN", token))
 }
 
-/// The installation token the launcher gave this session, for a host that holds no sops key to mint a fresh one from.
 fn session_token(token: Option<String>) -> Option<String> {
     token.filter(|token| token.starts_with("ghs_"))
-}
-
-fn pushed_token(home: &Path, path: Option<&str>, now: SystemTime) -> Option<String> {
-    let token = home.join(PUSHED_TOKEN);
-    let age = now.duration_since(fs::metadata(&token).ok()?.modified().ok()?).unwrap_or_default();
-    let covered = path.is_none_or(|path| {
-        let repo = path.trim_end_matches('/').trim_end_matches(".git").to_lowercase();
-        !repo.is_empty() && fs::read_to_string(home.join(PUSHED_REPOS)).is_ok_and(|repos| repos.lines().any(|line| line.trim() == repo))
-    });
-    let token = fs::read_to_string(&token).ok()?.trim().to_owned();
-    (age < PUSHED_FRESH && covered && !token.is_empty()).then_some(token)
 }
 
 fn answer(arguments: &[String], input: impl BufRead, token: impl FnOnce(&str) -> Result<String, String>) -> Result<Option<String>, String> {
