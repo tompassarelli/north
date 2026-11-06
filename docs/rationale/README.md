@@ -10,6 +10,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Betterleaks: one secret scanner, tuned for the guarded secrets and fast landings](betterleaks.md): Tom asked on 2026-11-06 for betterleaks (MIT, https://github.com/betterleaks/betterleaks) in place of the previous scanner wherever a repository or host scans for secrets, configured so it adds as little time as possible to builds and landings (north#642).
 - [Build cost: where north's compiles burn cores, and what to cut first](build-cost.md): Plan of 2026-11-04 (laptop time), revised the same day after review.
 - [Capacity scheduler: elastic, learned, fleet-wide placement by predicted finish time](capacity-scheduler.md): Owner: north#259
+- [Concerns: standing judgments with history, one registry and four views](concerns.md): Design of 2026-11-07 for north#709.
 - [Conflict-free landing: no lane starves, no author round-trip for a mechanical conflict](conflict-free-landing.md): On 2026-11-05 Tom asked for a fix by construction after the lane that puts every repository on the lander (s18-integrated) lost the race to main four times in 20 minutes while its author rebased by hand.
 - [Context economics: what a worker's context costs, and where it compacts](context-economics.md): Decided 2026-11-06 under north#636.
 - [Coverage test selection: the tests a change reaches, before the push](coverage-test-selection.md): North lands first and verifies after the push, so a failing test costs a revert.
