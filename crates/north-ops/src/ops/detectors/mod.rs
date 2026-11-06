@@ -1,6 +1,6 @@
 //! The self-detectors: pure functions from recorded state to findings, run by `north flow`. A stalled
-//! plan box, a silent signal, a repeated lander refusal class and a class of Tom's corrections seen
-//! twice each become one box on the owning issue, filed once per key and left to dispatch to staff.
+//! plan box, a silent signal, a repeated lander refusal class, a class of Tom's corrections seen twice and a test over its
+//! time line in its newest after-landing runs each become one box on the owning issue, filed once per key and left to dispatch to staff.
 use std::sync::LazyLock;
 use std::time::Instant;
 
@@ -20,12 +20,20 @@ mod gather;
 mod plan;
 mod refusal;
 mod signal;
+mod slow_test;
+
+#[cfg(test)]
+mod reflex_tests;
 
 static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| north_base::platform::harness::table(north_base::platform::harness::DEFAULTS).parse().expect("harness/defaults.toml parses"));
 
 fn default_number(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
+}
+
+fn default_text(name: &str) -> String {
+    DEFAULTS[name]["value"].as_str().unwrap_or_else(|| panic!("harness/defaults.toml has no text for {name}")).to_owned()
 }
 
 pub fn issue_stall_repos() -> Vec<String> {
@@ -40,10 +48,11 @@ pub enum Detector {
     LowDisk,
     RecurringSequence,
     RepeatedCorrection,
+    SlowTest,
 }
 
 impl Detector {
-    pub const ALL: [Self; 6] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection];
+    pub const ALL: [Self; 7] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection, Self::SlowTest];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -53,6 +62,7 @@ impl Detector {
             Self::LowDisk => "low-disk",
             Self::RecurringSequence => "recurring-sequence",
             Self::RepeatedCorrection => "repeated-correction",
+            Self::SlowTest => "slow-test",
         }
     }
 }
@@ -81,6 +91,8 @@ pub struct Limits {
     pub refusal_window_s: f64,
     pub refusal_min: usize,
     pub disk_floor_gib: f64,
+    pub slow_test_seconds: f64,
+    pub slow_test_runs: usize,
 }
 
 impl Limits {
@@ -91,6 +103,8 @@ impl Limits {
             refusal_window_s: default_number("detector_refusal_window_hours") * 3600.0,
             refusal_min: default_number("detector_refusal_min") as usize,
             disk_floor_gib: default_number("build_disk_free_gib"),
+            slow_test_seconds: default_number("detector_slow_test_seconds"),
+            slow_test_runs: default_number("detector_slow_test_runs") as usize,
         }
     }
 }
@@ -114,6 +128,7 @@ pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> (Vec<Find
             Detector::LowDisk => disk::low(&gatherer.disks(), now, limits),
             Detector::RecurringSequence => continue,
             Detector::RepeatedCorrection => correction::repeated(&gatherer.corrections(), crate::threads::incidents::corrections::classes()),
+            Detector::SlowTest => slow_test::slow(&gatherer.slow_tests(limits, now), limits),
         };
         spends.push(Spend { detector, millis: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), findings: found.len() });
         findings.extend(found);
@@ -131,7 +146,7 @@ pub fn record(places: &Places, spends: &[Spend], filed: &[Finding]) -> Result<()
 }
 
 pub fn tick(places: &Places, host: &dyn super::flow::Host, now: f64, file: bool) -> Vec<String> {
-    let gatherer = Gatherer::new(places, host);
+    let gatherer = Gatherer::new(places, host).profiling(file);
     let (findings, spends) = detect_timed(&gatherer, now, &Limits::registry());
     let mut lines: Vec<String> = Vec::new();
     let mut filed = Vec::new();

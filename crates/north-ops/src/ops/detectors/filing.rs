@@ -77,6 +77,10 @@ impl<'a> Filer<'a> {
         Ok(None)
     }
 
+    pub fn filed_keys(&self) -> std::collections::BTreeSet<String> {
+        self.load().filed.into_keys().collect()
+    }
+
     pub fn file(&self, findings: &[Finding], now: f64) -> Result<Vec<Outcome>, String> {
         let directory = self.places.flow();
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
@@ -113,6 +117,7 @@ impl<'a> Filer<'a> {
                 Err(error) => outcome(false, format!("not filed: {error}")),
             }
         }
+        self.save(&state)?;
         Ok(outcomes)
     }
 }

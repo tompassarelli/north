@@ -234,6 +234,24 @@ cadence_hours = 168
 record = "north/scoreboard/week.json"
 score = "north/scoreboard/week.txt"
 
+[[loop]]
+name = "slow-test"
+decision = "which test is profiled on a build host and gets a box on its owning issue because it ran over the line in each of its newest after-landing runs"
+sites = ["crates/north-ops/src/ops/detectors/slow_test.rs"]
+signal = "per-test PASS times in the nextest output of each after-landing run's log under land-queue/*/logs, the newest runs of each test binary"
+updated_by = "north flow detect, run every 5 minutes by agents-flow-stall.timer"
+cadence_hours = 24
+record = "agents/flow/detectors.json"
+
+host = "lander"
+defaults = [
+  "detector_slow_test_owner",
+  "detector_slow_test_profile_host",
+  "detector_slow_test_profile_seconds",
+  "detector_slow_test_runs",
+  "detector_slow_test_seconds",
+]
+
 [plumbing]
 constants = [
   "crates/north-capacity-host/src/capacity/gate.rs::TOOLCHAIN_MISSING",

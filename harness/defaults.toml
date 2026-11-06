@@ -1255,6 +1255,46 @@ source = "tom: detectors file on the owning issue and never as a new issue, and 
 fallback = "no issue box is filed"
 consumers = ["crates/north-ops/src/ops/detectors/mod.rs"]
 
+[detector_slow_test_seconds]
+value = 15
+allowed = { min = 1, max = 3600 }
+unit = "seconds one test may take in each of its newest detector_slow_test_runs after-landing runs before the slow-test detector profiles it and files a box on its owning issue"
+source = "tom: a test over 15 s p95 for 3 after-landing runs gets a profiled box filed and staffed without the proxy (north#634, 2026-11-06)"
+fallback = "none"
+consumers = ["crates/north-ops/src/ops/detectors/mod.rs"]
+
+[detector_slow_test_runs]
+value = 3
+allowed = { min = 1, max = 100 }
+unit = "newest after-landing runs of a test's binary that must all run the test slower than detector_slow_test_seconds before the slow-test detector files it"
+source = "tom: a test over 15 s p95 for 3 after-landing runs gets a profiled box filed and staffed without the proxy (north#634, 2026-11-06)"
+fallback = "none"
+consumers = ["crates/north-ops/src/ops/detectors/mod.rs"]
+
+[detector_slow_test_profile_host]
+value = "ccx33"
+allowed = { one_of = ["ccx33"] }
+unit = "build host whose offload slot runs the one slow test under strace -c -w -f for the slow-test detector's profile"
+source = "measured: ccx33 ran a one-test strace profile through north capacity offload run in 15 s on 2026-11-06 and is the less loaded of the two build hosts (north#634)"
+fallback = "no profile is taken, so no box is filed that tick"
+consumers = ["crates/north-ops/src/ops/detectors/mod.rs"]
+
+[detector_slow_test_profile_seconds]
+value = 120
+allowed = { min = 30, max = 3600 }
+unit = "seconds the slow-test detector's profile run may take on the build host, slot wait included, before it is killed and retried on the next detector pass"
+source = "measured: a warm one-test profile took 15 s on ccx33 on 2026-11-06 (north#634); 120 s leaves room for a warm build of the test's crate and keeps one detector pass inside the 5-minute flow timer"
+fallback = "no profile is taken, so no box is filed that tick"
+consumers = ["crates/north-ops/src/ops/detectors/mod.rs"]
+
+[detector_slow_test_owner]
+value = "north#634"
+allowed = { prefix = "north#" }
+unit = "issue that owns a slow test whose file no docs/rationale document with an Owner line names"
+source = "tom: the slow-test reflex files on the issue that owns the test's file and never opens a new issue; north#634 owns verification speed (2026-11-06)"
+fallback = "the box is not filed"
+consumers = ["crates/north-ops/src/ops/detectors/mod.rs"]
+
 [lander_idle_alarm_minutes]
 value = 20
 allowed = { min = 1, max = 10080 }

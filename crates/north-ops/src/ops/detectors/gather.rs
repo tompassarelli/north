@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
@@ -6,9 +7,12 @@ use serde_json::Value;
 
 use super::correction;
 use super::disk;
+use super::filing::Filer;
 use super::plan::{self, Doc, IssueBox, Landed};
 use super::refusal::{self, Refusal};
 use super::signal::{self, Signal};
+use super::slow_test;
+use super::{Limits, default_number, default_text};
 use crate::health::loops::{self, Declared, Origin};
 use crate::ops::flow::{Host, Places};
 use crate::platform::sqlite::{self, Access};
@@ -23,10 +27,16 @@ const REFUSAL_DOC: &str = "landing-train";
 const DISK_DOC: &str = "capacity-scheduler";
 const OWNER_PREFIX: &str = "Owner: ";
 const GROUNDING_LEDGER: &str = "north/grounding/ledger.jsonl";
+const RUN_HISTORY: usize = 30;
+const PROFILES_PER_PASS: usize = 1;
+const PROFILE_GRACE: Duration = Duration::from_secs(30);
+const ATTEMPTS: &str = "slow-test-attempts.json";
+const DRY_RUN_PROFILE: &str = "its profile is taken only when the box is filed.";
 
 pub struct Gatherer<'a> {
     places: &'a Places,
     host: &'a dyn Host,
+    profiling: bool,
 }
 
 fn modified(path: &Path) -> Option<f64> {
@@ -65,7 +75,12 @@ fn owner_line(text: &str) -> Option<String> {
 
 impl<'a> Gatherer<'a> {
     pub fn new(places: &'a Places, host: &'a dyn Host) -> Self {
-        Self { places, host }
+        Self { places, host, profiling: false }
+    }
+
+    pub fn profiling(mut self, profiling: bool) -> Self {
+        self.profiling = profiling;
+        self
     }
 
     fn checkout(&self) -> PathBuf {
@@ -234,5 +249,86 @@ impl<'a> Gatherer<'a> {
         let mut refusals = self.ticket_refusals(since);
         refusals.extend(self.push_refusals(since));
         refusal::Facts { owner, refusals }
+    }
+}
+
+impl Gatherer<'_> {
+    fn after_landing_logs(&self) -> Vec<PathBuf> {
+        let mut logs: Vec<(f64, PathBuf)> = subdirectories(&self.places.state.join("north/land-queue"))
+            .into_iter()
+            .flat_map(|queue| files(&queue.join("logs"), "log"))
+            .filter(|path| path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with("post-land-") && !name.contains("-on-")) && path.with_extension("outcome").is_file())
+            .filter_map(|path| Some((modified(&path)?, path)))
+            .collect();
+        logs.sort_by(|a, b| a.0.total_cmp(&b.0));
+        logs.split_off(logs.len().saturating_sub(RUN_HISTORY)).into_iter().map(|(_, path)| path).collect()
+    }
+
+    fn owner_documents(&self) -> Vec<slow_test::Document> {
+        files(&self.checkout().join("docs/rationale"), "md").into_iter().filter_map(|path| slow_test::document(&fs::read_to_string(path).ok()?)).collect()
+    }
+
+    fn test_file(&self, crossing: &slow_test::Crossing) -> Option<String> {
+        let leaf = crossing.name.rsplit("::").next().filter(|leaf| !leaf.is_empty() && leaf.chars().all(|character| character.is_ascii_alphanumeric() || character == '_'))?;
+        let listed = self.git(&["grep", "-l", "-E", &format!(r"fn {leaf}\b"), "--", "*.rs"])?;
+        slow_test::pick(&listed.lines().collect::<Vec<_>>(), &crossing.binary, &crossing.name)
+    }
+
+    fn profile(&self, crossing: &slow_test::Crossing) -> Option<String> {
+        let command = slow_test::profile_command(&crossing.binary, &crossing.name)?;
+        let seconds = default_number("detector_slow_test_profile_seconds") as u64;
+        let head = self.git(&["rev-parse", "origin/main"])?.trim().to_owned();
+        let argv = ["north", "capacity", "offload", "run", "--host", &default_text("detector_slow_test_profile_host"), "--base", &head, "--head", &head, "--timeout", &seconds.to_string(), "--", &command];
+        let output = self.host.output(&argv, Some(&self.checkout()), None, Duration::from_secs(seconds) + PROFILE_GRACE)?;
+        slow_test::summarize(&format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
+    }
+
+    fn attempts_path(&self) -> PathBuf {
+        self.places.flow().join(ATTEMPTS)
+    }
+
+    fn attempts(&self) -> BTreeMap<String, f64> {
+        fs::read_to_string(self.attempts_path()).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
+    }
+
+    fn attempted(&self, attempts: &BTreeMap<String, f64>) {
+        let _ = fs::create_dir_all(self.places.flow());
+        if let Err(error) = serde_json::to_string(attempts).map_err(std::io::Error::other).and_then(|text| crate::ops::flow::write_atomic(&self.attempts_path(), &text)) {
+            eprintln!("detectors: could not record the profile attempt: {error}");
+        }
+    }
+
+    pub fn slow_tests(&self, limits: &Limits, now: f64) -> slow_test::Facts {
+        let runs: Vec<slow_test::Run> = self.after_landing_logs().iter().map(|log| slow_test::passed(&fs::read_to_string(log).unwrap_or_default())).collect();
+        let filed = Filer::new(self.places, self.host).filed_keys();
+        let documents = self.owner_documents();
+        let fallback = default_text("detector_slow_test_owner");
+        let mut found: Vec<(slow_test::Crossing, String)> = slow_test::crossing(&runs, limits)
+            .into_iter()
+            .filter(|crossing| !filed.contains(&slow_test::key(&crossing.binary, &crossing.name)))
+            .filter_map(|crossing| {
+                let file = self.test_file(&crossing)?;
+                Some((crossing, file))
+            })
+            .collect();
+        let mut attempts = self.attempts();
+        if self.profiling {
+            let tried = |crossing: &slow_test::Crossing, attempts: &BTreeMap<String, f64>| attempts.get(&slow_test::key(&crossing.binary, &crossing.name)).copied().unwrap_or_default();
+            found.sort_by(|a, b| tried(&a.0, &attempts).total_cmp(&tried(&b.0, &attempts)));
+            found.truncate(PROFILES_PER_PASS);
+        }
+        let mut slow = Vec::new();
+        for (crossing, file) in found {
+            let profile = if self.profiling {
+                attempts.insert(slow_test::key(&crossing.binary, &crossing.name), now);
+                self.attempted(&attempts);
+                let Some(profile) = self.profile(&crossing) else { continue };
+                profile
+            } else {
+                DRY_RUN_PROFILE.to_owned()
+            };
+            slow.push(slow_test::Slow { owner: slow_test::owner_of(&file, &documents, &fallback), file, profile, crossing });
+        }
+        slow_test::Facts { slow }
     }
 }
