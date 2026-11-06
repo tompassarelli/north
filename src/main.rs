@@ -1,11 +1,13 @@
 mod cli;
 #[cfg(test)]
 mod remote_serve_tests;
+#[cfg(test)]
+mod run_time_readers_tests;
 
 use north_capacity_host::capacity;
 use north_core::{
     agent_catalog, agent_config_check, agent_policy_contract, autoland_status, build_time, contract_probe, error, fleet, foundation,
-    grounding, health, ledger, platform::{self, entry_points::{self, EntryPoint}}, providers, proxy, router, split, threads, usage, work_items,
+    grounding, health, ledger, platform::{self, entry_points::{self, EntryPoint}}, providers, proxy, router, run_time_data, split, threads, usage, work_items,
 };
 use north_guard::{code_health, guard, hook, lanes, nix_explain};
 use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint, land, land_abandon, landing, language_gate, provenance, runtime_floor_gate, watch};
@@ -15,7 +17,16 @@ use north_ops::ops;
 use north_runtime::{agent_contain, build_offload, land_offload, laptop_ntfy, laptop_runner, runtime, runtime_access, timers};
 use north_dispatch::{dispatch, laptop, loops, pacing, resident_cap, tune};
 
+static RUN_TIME_READERS: [run_time_data::Consumer; 5] = [
+    run_time_data::Consumer { path: "harness/loops.toml", validate: loops::validate },
+    run_time_data::Consumer { path: "north-data/expectations.toml", validate: north_dispatch::check::validate },
+    run_time_data::Consumer { path: "north-data/private-checks.toml", validate: ops::private_check::validate },
+    run_time_data::Consumer { path: "harness/nix/cards.toml", validate: guard::nix_activity::validate },
+    run_time_data::Consumer { path: "agent-machinery/file-skills.toml", validate: guard::file_skill::validate },
+];
+
 fn main() -> std::process::ExitCode {
+    run_time_data::install(&RUN_TIME_READERS);
     pacing::spawn_gate::install(pacing::spawn_gate::SpawnGate {
         summary: || guard::spawn_capacity::gate_summary(&guard::spawn_capacity::Live { pace: pacing::answer }),
         launch_capacity: || guard::spawn_capacity::launch_capacity(&guard::spawn_capacity::Live { pace: pacing::answer }),

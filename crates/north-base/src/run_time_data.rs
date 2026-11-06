@@ -1,13 +1,29 @@
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use toml_edit::{DocumentMut, Item, Table, Value};
 
 use crate::build_inputs::{run_time_data, rust_build_input};
 use crate::platform::git;
+use crate::platform::harness::DEFAULTS;
+
+mod allowed;
 
 fn git_text(directory: &Path, arguments: &[&str]) -> Option<String> {
     git::run(directory, arguments).ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// A run-time file's own reader: `validate` is the parse and checks the running north applies to that file's text before using it.
+pub struct Consumer {
+    pub path: &'static str,
+    pub validate: fn(&str) -> Result<(), String>,
+}
+
+static CONSUMERS: OnceLock<&'static [Consumer]> = OnceLock::new();
+
+pub fn install(consumers: &'static [Consumer]) {
+    let _ = CONSUMERS.set(consumers);
 }
 
 const USAGE: &str = "usage: north land scan run-time-data BASE..HEAD";
@@ -141,11 +157,19 @@ pub fn check(path: &str, base: Option<&str>, head: Option<&str>) -> Vec<Finding>
         Ok(document) => document,
         Err(error) => return finding(format!("does not parse: {}", error.message())),
     };
-    let Some(was) = base.and_then(|text| text.parse::<DocumentMut>().ok()) else {
-        return Vec::new();
-    };
+    let was = base.and_then(|text| text.parse::<DocumentMut>().ok());
     let mut found = Vec::new();
-    compare(path, "", Node::Item(was.as_item()), Node::Item(now.as_item()), &mut found);
+    if let Some(was) = &was {
+        compare(path, "", Node::Item(was.as_item()), Node::Item(now.as_item()), &mut found);
+    }
+    if path == DEFAULTS {
+        found.extend(allowed::declared(path, was.as_ref(), &now));
+    }
+    for consumer in CONSUMERS.get().copied().unwrap_or_default().iter().filter(|consumer| consumer.path == path) {
+        if let Err(reason) = (consumer.validate)(head) {
+            found.push(Finding { path: path.to_owned(), key: String::new(), reason: format!("refused by the reader that loads it: {reason}") });
+        }
+    }
     found.sort_by(|left, right| left.key.cmp(&right.key));
     found
 }
@@ -168,10 +192,10 @@ pub fn run(directory: &Path, range: &str) -> u8 {
     let data: Vec<&str> = changed.into_iter().filter(|path| run_time_data(path)).collect();
     let found: Vec<Finding> = data.iter().flat_map(|path| check(path, blob(base, path).as_deref(), blob(head, path).as_deref())).collect();
     for finding in &found {
-        eprintln!("run-time-data: {} {}: {}; a lane that changes no Rust code may only change values and add keys", finding.path, finding.key, finding.reason);
+        eprintln!("run-time-data: {} {}: {}; a lane that changes no Rust code may only change values inside their allowed range and add keys", finding.path, finding.key, finding.reason);
     }
     if found.is_empty() {
-        println!("run-time-data: {} run-time file(s) keep every key and type the running north reads", data.len());
+        println!("run-time-data: {} run-time file(s) keep every key and type the running north reads, inside the values it accepts", data.len());
     }
     u8::from(!found.is_empty())
 }

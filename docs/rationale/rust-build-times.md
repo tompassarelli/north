@@ -380,6 +380,16 @@ parses, keeps every key the base had with the same type, and every array-of-tabl
 all earlier entries shared; a file may not be deleted. Adding keys and changing values pass. A lane that
 also changes Rust is judged by its Rust checks, which read the lane's own tables.
 
+Values are judged as well as keys (north#634). Every entry in `harness/defaults.toml` declares what its `value` may be in
+an `allowed` inline table beside it: `min` and `max` for a number (or every number in a list), `one_of` or `prefix` for a
+string (or every string in a list), `min_len`, `max_len` and `ascending` for a list. The scan checks the head value against the
+`allowed` the base declared, refuses a lane that changes an `allowed` (only the Rust that reads the key may widen what it
+accepts, and that lane is judged by Rust checks), and refuses a new key with no `allowed`. The other tables are judged by the
+running north's own reader: the binary registers each reader's parse-and-validate function with
+`north_base::run_time_data::install` at startup (`src/main.rs`: loops, expectations, private checks, nix cards, file skills), and
+the scan runs the head text through it, so a value the reader would reject is refused before the push with no cargo. A Rust lane
+is held to the same bounds by `every_default_on_main_declares_a_range_it_sits_inside`.
+
 Measured after, 2026-11-06 6:56 AM: f2ae888b5 changed one value in `harness/defaults.toml`
 (`laptop_idle_reopen_sec` 1800 to 1801, restored by the next commit). Its land log ran three checks
 through `bin/head-north`, each served by the live runtime and none invoking cargo, and

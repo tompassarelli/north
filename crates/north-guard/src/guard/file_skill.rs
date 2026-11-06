@@ -75,6 +75,15 @@ pub(super) fn decide(input: &HookInput, roots: &Roots) -> Verdict {
     }
 }
 
+pub fn validate(text: &str) -> Result<(), String> {
+    let doc: DocumentMut = text.parse().map_err(|error| format!("{error}"))?;
+    let rules = doc.get("rule").and_then(|rules| rules.as_array_of_tables()).ok_or("has no [[rule]] tables")?;
+    match rules.iter().position(|rule| rule.get("skill").and_then(|skill| skill.as_str()).is_none()) {
+        Some(index) => Err(format!("rule {index} names no skill")),
+        None => Ok(()),
+    }
+}
+
 fn rules() -> Vec<Rule> {
     let Ok(doc) = TABLE.parse::<DocumentMut>() else {
         return Vec::new();

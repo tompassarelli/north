@@ -94,6 +94,11 @@ pub fn parse(text: &str) -> Result<Vec<Loop>, String> {
     }).collect()
 }
 
+pub fn validate(text: &str) -> Result<(), String> {
+    parse(text)?;
+    plumbing(text).map(drop)
+}
+
 pub fn state_root() -> PathBuf {
     let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
     var("XDG_STATE_HOME").unwrap_or_else(|| var("HOME").unwrap_or_default().join(".local/state"))

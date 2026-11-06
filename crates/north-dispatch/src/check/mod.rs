@@ -109,6 +109,10 @@ pub fn synthetic(roster: &Roster, notify: &mut Phone) -> Tick {
     Tick { failed: breach.trouble || cleared.trouble || !breach.arrived || !cleared.arrived, lines }
 }
 
+pub fn validate(text: &str) -> Result<(), String> {
+    expectations::parse(text).map(drop)
+}
+
 fn load() -> Breaches {
     let stored = placement::pace_state(STATE);
     stored["breached"].as_object().into_iter().flatten().filter_map(|(name, since)| Some((name.clone(), since.as_f64()?))).collect()

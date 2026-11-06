@@ -148,6 +148,10 @@ fn judge_one(places: &Places, check: &Check, request: &Request) -> u8 {
     report(check, judge::judge(places, check, &request.overrides, &mut runner, statuses))
 }
 
+pub fn validate(text: &str) -> Result<(), String> {
+    config::parse(text).map(drop)
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let request = match parse(arguments) {
         Ok(request) => request,

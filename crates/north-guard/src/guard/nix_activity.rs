@@ -47,6 +47,11 @@ fn text(table: &toml_edit::Table, key: &str) -> String {
     table.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_owned()
 }
 
+pub fn validate(text: &str) -> Result<(), String> {
+    let doc: DocumentMut = text.parse().map_err(|error| format!("{error}"))?;
+    doc.get("card").and_then(|cards| cards.as_array_of_tables()).map(drop).ok_or_else(|| "has no [[card]] tables".to_owned())
+}
+
 pub fn cards() -> Vec<Card> {
     let Ok(doc) = TABLE.parse::<DocumentMut>() else {
         return Vec::new();
