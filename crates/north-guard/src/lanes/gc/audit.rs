@@ -13,7 +13,7 @@ use super::liveness::{open_pull_heads, pending_autoland};
 use super::remote::{active_runs, remote_branches};
 use super::state::write_atomically;
 use north_github_mirror::store::{self, Mirror};
-use north_github_mirror::read;
+use north_github_mirror::{audit, read};
 use north_base::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north repo audit [--repo NAME]... [--alert]";
@@ -137,15 +137,7 @@ pub(super) fn audited_branch(branch: &str, default: &str, pages: Option<&str>) -
 }
 
 fn pages_branch(repo: &str) -> Result<Option<String>, String> {
-    let ran = command(&["gh", "api", &format!("repos/{OWNER}/{repo}/pages")]);
-    if ran.ok {
-        let response: Value = serde_json::from_str(&ran.out).map_err(|error| error.to_string())?;
-        return Ok(pages_source(&response));
-    }
-    if ran.err.contains("404") || ran.err.contains("Not Found") {
-        return Ok(None);
-    }
-    Err(format!("Pages source unavailable: {}", ran.last_err_line()))
+    read::pages_site(&Mirror::local(), read::now(), repo, || audit::live_pages(repo)).map(|response| pages_source(&response))
 }
 
 fn released_tags(repo: &str) -> Result<HashSet<String>, String> {
@@ -186,20 +178,17 @@ pub(super) fn named_issues(messages: &str) -> Vec<String> {
     found
 }
 
-fn compare(repo: &Repo, branch: &str) -> Result<(bool, Vec<String>), String> {
-    let ran = command(&["gh", "api", &format!("repos/{OWNER}/{}/compare/{}...{branch}", repo.name, repo.default)]);
-    if !ran.ok {
-        return Err(format!("compare {branch} failed: {}", ran.last_err_line()));
-    }
-    let facts: Value = serde_json::from_str(&ran.out).map_err(|error| error.to_string())?;
-    let messages: String = facts["commits"].as_array().into_iter().flatten().filter_map(|commit| commit["commit"]["message"].as_str()).map(|message| format!("{message}\n")).collect();
-    Ok((facts["ahead_by"].as_u64() == Some(0), named_issues(&messages)))
+fn compare(repo: &Repo, branch: &str, base: &str, head: &str) -> Result<(bool, Vec<String>), String> {
+    let facts = read::compare(&Mirror::local(), &repo.name, branch, base, head, || audit::live_compare(&repo.name, branch))?;
+    Ok((facts["ahead_by"].as_u64() == Some(0), named_issues(facts["messages"].as_str().unwrap_or_default())))
 }
 
 fn audit_repo(repo: &Repo, workers: &HashMap<(String, String), String>, now: i64) -> Result<Audited, String> {
     let name = &repo.name;
     let pages = pages_branch(name)?;
-    let nodes: Vec<Value> = remote_branches(name)?.into_iter().filter(|node| node["name"].as_str().is_some_and(|branch| audited_branch(branch, &repo.default, pages.as_deref()))).collect();
+    let branches = remote_branches(name)?;
+    let base = branches.iter().find(|node| node["name"] == repo.default.as_str()).and_then(|node| node["target"]["oid"].as_str()).unwrap_or_default().to_owned();
+    let nodes: Vec<Value> = branches.into_iter().filter(|node| node["name"].as_str().is_some_and(|branch| audited_branch(branch, &repo.default, pages.as_deref()))).collect();
     let (pulls, active, active_tips) = if nodes.iter().any(|node| node["name"].as_str().is_some_and(|branch| branch.starts_with(LANDING))) {
         let (active, tips) = active_runs(name)?;
         (open_pull_heads(name)?, active, tips)
@@ -214,7 +203,7 @@ fn audit_repo(repo: &Repo, workers: &HashMap<(String, String), String>, now: i64
         let tip_active = target["oid"].as_str().is_some_and(|oid| active_tips.contains(oid));
         let ticket = live_ticket(branch, pulls.contains(branch), active.contains(branch) || tip_active, pending_autoland(target.get("status")), now - committed);
         let session = workers.get(&(name.clone(), branch.to_string())).cloned();
-        let (is_landed, issues) = compare(repo, branch)?;
+        let (is_landed, issues) = compare(repo, branch, &base, target["oid"].as_str().unwrap_or_default())?;
         rows.push(row(&Facts { repo: name, branch, committed_ms: committed, landed: is_landed, session, ticket, issues }, now));
     }
     let miss = || Ok(api(&format!("repos/{OWNER}/{name}/git/matching-refs/tags/"))?.as_array().into_iter().flatten().filter_map(Value::as_array).flatten().cloned().collect());
@@ -263,11 +252,10 @@ pub fn run(arguments: &[String]) -> u8 {
         return 2;
     };
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let listed = command(&["gh", "repo", "list", OWNER, "--limit", "1000", "--json", "name,isArchived,isFork,pushedAt,defaultBranchRef,parent"]);
-    let listing = Some(listed.ok).filter(|ok| *ok).and_then(|_| serde_json::from_str::<Value>(&listed.out).ok());
+    let listing = read::repo_list(&Mirror::local(), read::now(), audit::live_repo_list);
     let workers = running_workers();
-    let (Some(listing), Ok(workers)) = (listing, &workers) else {
-        let why = workers.as_ref().err().cloned().unwrap_or_else(|| format!("repository list unavailable: {}", listed.last_err_line()));
+    let (Ok(listing), Ok(workers)) = (&listing, &workers) else {
+        let why = workers.as_ref().err().cloned().unwrap_or_else(|| format!("repository list unavailable: {}", listing.as_ref().err().map_or("", String::as_str)));
         eprintln!("repo audit: {why}");
         if send {
             alert(&format!("repo audit could not gather evidence: {why}"));
@@ -275,7 +263,7 @@ pub fn run(arguments: &[String]) -> u8 {
         return 1;
     };
     let now = Timestamp::now().unix_millis();
-    let repos = select_repos(&listing, &only);
+    let repos = select_repos(listing, &only);
     let (mut rows, mut tag_lines, mut problems) = (Vec::new(), Vec::new(), Vec::new());
     for repo in &repos {
         match audit_repo(repo, workers, now) {

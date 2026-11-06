@@ -92,6 +92,18 @@ impl Mirror {
         self.writable()?.execute("UPDATE reads SET synced = ?2 WHERE key = ?1", params![key, at]).map(drop).map_err(|error| self.failure(error))
     }
 
+    pub fn forget_except(&self, prefix: &str, keep: &[String]) -> Result<(), String> {
+        let connection = self.writable()?;
+        let held: Vec<String> = connection
+            .prepare("SELECT key FROM reads WHERE substr(key, 1, length(?1)) = ?1")
+            .and_then(|mut rows| rows.query_map([prefix], |row| row.get(0)).and_then(Iterator::collect))
+            .map_err(|error| self.failure(error))?;
+        for gone in held.iter().filter(|held| !keep.contains(held)) {
+            connection.execute("DELETE FROM reads WHERE key = ?1", [gone]).map_err(|error| self.failure(error))?;
+        }
+        Ok(())
+    }
+
     fn writable(&self) -> Result<Connection, String> {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;

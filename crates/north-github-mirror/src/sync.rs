@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 
+use crate::audit;
 use crate::store::{self, BRANCHES, BRANCHES_PROBE, CLOSED_ISSUES, ISSUES_PROBE, MAIN_CHECKS, MAIN_RUNS, Mirror, OPEN_ISSUES, OPEN_PULLS, OWNER, RELEASES, RUN_STATUSES, TAGS, key, runs_kind};
 
 pub const REFETCH_S: f64 = 30.0 * 60.0;
@@ -15,6 +16,9 @@ pub trait GitHub {
     fn open_issues(&self, repo: &str) -> Result<Vec<Value>, String>;
     fn closed_issues(&self, repo: &str) -> Result<Vec<Value>, String>;
     fn branches(&self, repo: &str) -> Result<Vec<Value>, String>;
+    fn pages(&self, repo: &str) -> Result<Value, String>;
+    fn repo_list(&self) -> Result<Value, String>;
+    fn compares(&self, repo: &str, branches: &[String]) -> Result<Vec<Value>, String>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +50,18 @@ impl GitHub for Gh {
 
     fn branches(&self, repo: &str) -> Result<Vec<Value>, String> {
         store::fetch_branches(repo)
+    }
+
+    fn pages(&self, repo: &str) -> Result<Value, String> {
+        audit::fetch_pages(self, repo)
+    }
+
+    fn repo_list(&self) -> Result<Value, String> {
+        audit::fetch_repo_list()
+    }
+
+    fn compares(&self, repo: &str, branches: &[String]) -> Result<Vec<Value>, String> {
+        audit::fetch_compares(repo, branches)
     }
 }
 
@@ -149,7 +165,7 @@ pub fn issues(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Resu
 
 fn branches(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Result<Fetch, String> {
     let listing = Listing { probe: BRANCHES_PROBE, endpoint: format!("repos/{OWNER}/{repo}/git/matching-refs/heads?per_page=100"), kind: BRANCHES, also: &[] };
-    probed(github, mirror, repo, at, &listing, || github.branches(repo), |_| Ok(()))
+    probed(github, mirror, repo, at, &listing, || github.branches(repo), |nodes| audit::compares(github, mirror, repo, at, nodes))
 }
 
 pub fn repository(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Vec<(String, Result<Fetch, String>)> {
@@ -157,6 +173,7 @@ pub fn repository(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> 
     let mut rows = vec![
         (key(repo, OPEN_ISSUES), issues(github, mirror, repo, at)),
         (key(repo, BRANCHES), branches(github, mirror, repo, at)),
+        audit::pages(github, mirror, repo, at),
         listed(MAIN_RUNS, "actions/runs?branch=main&per_page=60".into()),
         listed(MAIN_CHECKS, "commits/main/check-runs?per_page=100".into()),
         listed(TAGS, "git/matching-refs/tags?per_page=100".into()),
@@ -191,7 +208,7 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let (mirror, at) = (Mirror::local(), crate::foundation::clock::Timestamp::now().unix_seconds_f64());
     let mut failed = false;
-    for (key, result) in repos.iter().flat_map(|repo| repository(&Gh, &mirror, repo, at)) {
+    for (key, result) in std::iter::once(audit::account(&Gh, &mirror, at)).chain(repos.iter().flat_map(|repo| repository(&Gh, &mirror, repo, at))) {
         match result {
             Ok(Fetch::Unchanged) => println!("{key} unchanged"),
             Ok(Fetch::Refreshed) => println!("{key} refreshed"),
