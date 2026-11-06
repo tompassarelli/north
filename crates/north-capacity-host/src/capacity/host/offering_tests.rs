@@ -1,4 +1,5 @@
-use super::offering::session_build_refusal;
+use super::json::Obj;
+use super::offering::{deferred_session_build, session_build_refusal};
 use super::request::Create;
 use crate::capacity::build_offload::{Candidate, Declined, Job};
 use crate::capacity::effects::Host;
@@ -38,4 +39,20 @@ fn a_session_compile_no_build_host_took_waits_here_when_this_host_has_room_and_i
     let detail = refused.get("detail").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
     assert!(detail.contains("gex45: land check waiting") && detail.contains("this host: 2.0 cores free of 14"), "{detail}");
     assert!(session_build_refusal(&laptop(|| Some("full".to_owned())), &cargo, None, &create).is_none(), "a build host took it or was never asked");
+}
+
+// KEEP(bug): a fleet compile the laptop took for want of a build host queued in its admission for up to the gate's hour when admission deferred it, so a check with a 300 s deadline hung past it (lander, 2026-11-06 5:55 PM); a deferral here now refuses it at once; north#634
+#[test]
+fn a_session_compile_this_host_took_is_refused_at_once_when_its_admission_defers_it_never_queued() {
+    let create = Create { kind: "run", owner: "worker".to_owned(), timeout_seconds: Some(3600) };
+    let cargo = ["cargo".to_owned(), "test".to_owned()];
+    let full = Declined::NoRoom(vec!["gex45: land check waiting".to_owned()]);
+    let deferred = Obj::new().put("decision", "DEFER").put("reason", "DEFER_QUEUED");
+    let refused = deferred_session_build(&laptop(|| None), &cargo, Some(&full), &create, &deferred).expect("a deferral refuses it");
+    assert_eq!(refused.get("decision").and_then(serde_json::Value::as_str), Some("REFUSED"));
+    let detail = refused.get("detail").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
+    assert!(detail.contains("gex45: land check waiting") && detail.contains("DEFER_QUEUED"), "{detail}");
+    let admitted = Obj::new().put("decision", "RESERVED").put("reason", "RUN");
+    assert!(deferred_session_build(&laptop(|| None), &cargo, Some(&full), &create, &admitted).is_none(), "admitted now: it runs here");
+    assert!(deferred_session_build(&laptop(|| None), &cargo, None, &create, &deferred).is_none(), "not taken for want of a build host: it queues as before");
 }

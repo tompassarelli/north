@@ -129,6 +129,15 @@ pub(super) fn session_build_refusal(host: &Host, command: &[String], missing: Op
     Some(no_build_host(missing, &here, create))
 }
 
+/// The refusal a fleet session's Rust compile gets when this host took it for want of a build host but its admission defers it: it waits in no queue, so no caller's deadline runs out behind a wait it never asked for, and is refused at once as when this host has no room.
+pub(super) fn deferred_session_build(host: &Host, command: &[String], missing: Option<&Declined>, create: &Create, first: &Obj) -> Option<Obj> {
+    if (host.lease_builds)() || !crate::capacity::gate::compiles_rust(command) || first.get("decision").and_then(Value::as_str) != Some("DEFER") {
+        return None;
+    }
+    let reason = first.get("reason").and_then(Value::as_str).unwrap_or("DEFER");
+    Some(no_build_host(missing?, &format!("its admission defers it ({reason})"), create))
+}
+
 /// A fleet session's heavy request is offered to the build hosts before this host decides on it, so a build this host would admit still runs where there is room; any other heavy request runs elsewhere only when its host defers it on the first look. None sends it to the queue.
 pub(super) async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminations: &mut Terminations) -> Option<Admitted> {
     let (root, request, create) = (waiting.root, waiting.request, waiting.create);
@@ -145,7 +154,7 @@ pub(super) async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminati
         return Some(Admitted::Here(first));
     }
     if agent_session() {
-        return None;
+        return deferred_session_build(host, waiting.command, waiting.declined.missing_host.as_ref(), create, &first).map(Admitted::Here);
     }
     try_offload(waiting, true, host, terminations, None).await.map(Admitted::Offloaded)
 }
