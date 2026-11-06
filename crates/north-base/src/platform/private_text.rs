@@ -40,7 +40,7 @@ pub fn judge(text: &str) -> Result<Vec<Finding>, String> {
 pub fn judge_in_hook(text: &str) -> Result<Vec<Finding>, String> {
     match process::run_command_or_leave(command(), text.as_bytes(), HOOK_LIMIT) {
         Ok(Some(output)) => verdict(&output),
-        Ok(None) => Err("judging, retry the same command in about 15 s and the cached verdict answers it".to_owned()),
+        Ok(None) => Err(format!("it needs more than {} s on this text and keeps running to cache its verdict, so retry the same command in a minute", HOOK_LIMIT.as_secs())),
         Err(error) => Err(format!("the private-text judge did not start: {error}")),
     }
 }
@@ -77,5 +77,5 @@ pub fn refusal(findings: &[Finding]) -> String {
 }
 
 pub fn unavailable(reason: &str) -> String {
-    format!("No. GitHub text is public and the private-kind judge has no verdict on this text, so it is refused: {reason}.")
+    format!("No. GitHub text is public and the private-kind judge could not check this text, so it is refused: {reason}.")
 }

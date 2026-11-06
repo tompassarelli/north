@@ -4,16 +4,15 @@ Tom asked on 2026-11-06 for one rule that keeps private kinds of text out of eve
 
 ## What runs
 
-- `north privacy judge --text FILE|-` reads a text, asks Haiku at low effort once per chunk with the kinds listed in south's `privacy/private-kinds.toml`, and prints one `kind<TAB>quoted span` line per finding. Exit 0 means clean, 1 means findings, 2 means the judge could not run. The kinds list lives only in south; north holds the method.
-- A chunk Haiku flags is asked again of Sonnet at low effort, and Sonnet's answer is the verdict, for every kind. On long texts Haiku at low effort reports false findings that Sonnet at low effort does not (south#73 sweep rerun, 2026-11-07). Sonnet takes 6.5 to 13.3 s a text, so a clean text keeps Haiku's speed and only a flagged one pays for Sonnet.
+- `north privacy judge --text FILE|-` reads a text, asks the cheapest Claude model once per chunk with the kinds listed in south's `privacy/private-kinds.toml`, and prints one `kind<TAB>quoted span` line per finding. Exit 0 means clean, 1 means findings, 2 means the judge could not run. The kinds list lives only in south; north holds the method.
 - The call goes through the same one-shot path as the other model timers, with every variable that routes `claude` to token billing unset. With no subscription profile it falls back to the default login only when that login is a claude.ai OAuth login with no API-key variable and no apiKeyHelper; otherwise it refuses.
-- Each model's verdict is cached by the hash of the prompt version, model, effort, kinds list and text under `~/.local/state/north/private-text-verdicts`, so a re-push or a repeated comment costs nothing and a changed kinds list asks again.
+- The verdict is cached by the hash of the prompt version, model, kinds list and text under `~/.local/state/north/private-text-verdicts`, so a re-push or a repeated comment costs nothing and a changed kinds list asks again.
 - A text with no prose never reaches the model: safe-push judges the outgoing commit messages, the tag annotation and the lines added to `.md`, `.txt`, `.rst` and `.adoc` files, so a code-only change judges its messages and nothing else.
 
 ## Where it applies
 
 - safe-push, after the deny-list scan, for a PUBLIC or UNKNOWN destination (`Denylist::verdict`). A finding refuses the push with `file it in south: <kind>`; so does a judge that cannot run. With neither a south checkout nor `NORTH_PRIVATE_KINDS`, it prints the same warning the deny-list prints and passes.
-- The `public_text` hook, after the deny-list match, for every `gh` write to a repository that is not private. A finding, or a judge that cannot run, denies the command. The hook waits 7 s, under the runtime's 10 s hook limit; a judge still running then, usually Sonnet confirming a flag, is left to finish into the cache, and the command is refused with "judging, retry the same command in about 15 s", so the retry is answered from the cache.
+- The `public_text` hook, after the deny-list match, for every `gh` write to a repository that is not private. A finding, or a judge that cannot run, denies the command.
 
 A new project needs no setup: visibility comes from GitHub, as it does for the deny-list.
 
