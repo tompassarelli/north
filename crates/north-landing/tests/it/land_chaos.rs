@@ -16,6 +16,8 @@ const CHILD: &str = "NORTH_LAND_CHAOS_HOME";
 const LANDER_ROLE: &str = "NORTH_LAND_CHAOS_LANDER";
 const STOPPED_AFTER_RUN: &str = "land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_reruns_it_and_reverts_the_red_lane";
 const ROUNDS: usize = 200;
+const SCENARIO_DEADLINE: Duration = Duration::from_secs(180);
+const LANDER_LIFETIME: Duration = Duration::from_secs(120);
 
 const CHECKER: &str = r#"plan="$1/plan"; calls="$1/calls"
 shift
@@ -47,7 +49,8 @@ fn isolated(name: &str, scenario: fn(&World)) {
     fs::write(&gitconfig, "[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n[user]\n\tname = chaos\n\temail = chaos@example.com\n").unwrap();
     let north = home.path().join("north");
     north_base::foundation::shim::write_script(&north, AFTER_RUNNER);
-    let output = Command::new(std::env::current_exe().unwrap())
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
         .args([name, "--exact", "--nocapture", "--test-threads=1"])
         .env(CHILD, home.path())
         .env("HOME", home.path())
@@ -55,9 +58,10 @@ fn isolated(name: &str, scenario: fn(&World)) {
         .env("NORTH_LAND_NORTH", &north)
         .env("NORTH_OFFLOAD_ROOT", home.path().join("offload"))
         .env("GIT_CONFIG_GLOBAL", &gitconfig)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output()
-        .unwrap();
+        .env("GIT_CONFIG_NOSYSTEM", "1");
+    let output = north_base::platform::process::try_run_group_traced_within(command, SCENARIO_DEADLINE)
+        .unwrap()
+        .unwrap_or_else(|processes| panic!("{name} ran past {SCENARIO_DEADLINE:?} in its isolated home: {processes}"));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success() && stdout.contains("1 passed"), "{name} failed in its isolated home:\n{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
 }
@@ -306,10 +310,12 @@ fn stopped_mid_after_run(world: &World) {
     if std::env::var_os(LANDER_ROLE).is_some() {
         let lander = world.lander();
         let mut watch = Watch::resume(&lander);
-        loop {
+        let started = Instant::now();
+        while started.elapsed() < LANDER_LIFETIME {
             let _ = lander.round(&mut watch);
             std::thread::sleep(Duration::from_millis(20));
         }
+        return;
     }
     let lander = world.lander();
     let a = world.enqueue(&lander, &world.lane("a"));
@@ -320,7 +326,7 @@ fn stopped_mid_after_run(world: &World) {
     wait_for("the first lander to land the batch and start its after run", || world.root.join("stalled").exists() && queue::pending(&lander.queue).unwrap().is_empty());
     let group = rustix::process::Pid::from_raw(first.id().cast_signed()).unwrap();
     rustix::process::kill_process_group(group, rustix::process::Signal::Term).unwrap();
-    first.wait().unwrap();
+    wait_for("the first lander to exit on SIGTERM", || first.try_wait().unwrap().is_some());
     let landed_head = run(&world.origin, &["rev-parse", "main"]);
     assert_eq!(journaled(&lander), 1, "the stopped lander left no journal entry for the after run of {landed_head}");
     assert!(!world.root.join("after-runs").exists(), "the after run finished before the lander was stopped");
