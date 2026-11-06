@@ -116,7 +116,7 @@ pub(super) fn reap(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         ["--dry-run"] => false,
         _ => return Err(NorthError::Usage("Usage: north fleet reap [--dry-run]".into())),
     };
-    let reaped = reaper::reap(fleet, &reaper::Here, now_ms(), apply);
+    let reaped = reaper::reap_after(fleet, &reaper::Here, reaper::stale_after(), now_ms(), apply);
     for kept in &reaped.kept {
         println!("kept {}: {}", kept.name, kept.why);
     }

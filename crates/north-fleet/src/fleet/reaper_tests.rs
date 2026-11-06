@@ -129,9 +129,11 @@ fn a_session_quiet_past_the_stale_window_retires_with_its_last_message_unless_a_
     std::fs::write(queue.join("1-queued.json"), json!({"root": "/elsewhere", "branch": "queued-lane", "session": "queued"}).to_string()).unwrap();
     let evidence = Sight { running: ["running".to_owned()].into(), ..Sight::default() };
 
+    let spent = reap_within(&fleet, &evidence, Duration::ZERO, now_ms(), true, Duration::ZERO);
     let fresh = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
     let stale = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
 
+    assert!(retired(&spent).is_empty() && spent.deferred == 5, "a reaper out of budget leaves every session to the next tick: {spent:?}");
     assert!(retired(&fresh).is_empty(), "{fresh:?}");
     assert_eq!(retired(&stale), ["quiet"]);
     let why = |name: &str| stale.kept.iter().find(|kept| kept.name == name).map(|kept| kept.why.clone()).unwrap_or_default();

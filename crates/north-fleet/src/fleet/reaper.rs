@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use regex::Regex;
 use serde::Serialize;
@@ -20,6 +20,7 @@ const STALE_KEY: &str = "fleet_stale_hours";
 pub const RECORD: &str = ".reap.json";
 const LAST_CHARS: usize = 4_000;
 const LEASE_BATCH: usize = 16;
+const BUDGET: Duration = Duration::from_secs(5);
 
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\W*Stop:").expect("stop line pattern"));
@@ -117,6 +118,7 @@ pub struct Reaped {
     pub retired: Vec<Retired>,
     pub failed: Vec<Retired>,
     pub kept: Vec<Retired>,
+    pub deferred: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -129,45 +131,58 @@ impl Reaped {
     pub fn lines(&self) -> Vec<String> {
         let retired = self.retired.iter().map(|retired| format!("retired {}: {}", retired.name, retired.why));
         let failed = self.failed.iter().map(|failed| format!("not retired {}: {}", failed.name, failed.why));
-        retired.chain(failed).collect()
+        let deferred = (self.deferred > 0).then(|| format!("deferred {} sessions to the next tick: the reaper spent its {}s", self.deferred, BUDGET.as_secs()));
+        retired.chain(failed).chain(deferred).collect()
     }
 }
 
 pub fn reap(fleet: &Fleet, evidence: &dyn Evidence, now_ms: u64, apply: bool) -> Reaped {
-    reap_after(fleet, evidence, stale_after(), now_ms, apply)
+    reap_within(fleet, evidence, stale_after(), now_ms, apply, BUDGET)
 }
 
 pub fn reap_after(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_ms: u64, apply: bool) -> Reaped {
+    reap_within(fleet, evidence, stale, now_ms, apply, Duration::MAX)
+}
+
+pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_ms: u64, apply: bool, budget: Duration) -> Reaped {
+    let started = Instant::now();
     let mut reaped = Reaped { at_ms: now_ms, stale_hours: stale.as_secs() / 3600, ..Reaped::default() };
     let records = fleet.sessions().unwrap_or_default();
-    let candidates: Vec<(&SessionRecord, Status)> = records.iter().filter(|record| record.role() != Role::Proxy && !record.adopted() && !record.verification && !record.stopped).map(|record| (record, fleet.status(record))).filter(|(_, status)| matches!(status, Status::Idle | Status::Parked)).collect();
-    let running = evidence.running(&candidates.iter().map(|(record, _)| *record).collect::<Vec<_>>());
+    let mut candidates: Vec<(&SessionRecord, Status, Duration)> = records.iter().filter(|record| record.role() != Role::Proxy && !record.adopted() && !record.verification && !record.stopped).map(|record| (record, fleet.status(record), quiet(record))).filter(|(_, status, _)| matches!(status, Status::Idle | Status::Parked)).collect();
+    candidates.sort_by_key(|(_, _, quiet)| std::cmp::Reverse(*quiet));
+    let running = evidence.running(&candidates.iter().map(|(record, _, _)| *record).collect::<Vec<_>>());
     let gated = fleet.open_gate_sessions();
-    let mut due: Vec<(&SessionRecord, String, Option<String>)> = Vec::new();
-    for (record, status) in candidates {
-        let live = fleet.live_wait(record, &records, &gated, running.contains(&record.name));
-        let entries = fleet.follow_recent(&record.name).map(|follower| follower.transcript().entries.clone()).unwrap_or_default();
-        let report = final_report(&entries).map(|text| Report { text: text.to_owned(), taken: fleet.report_taken(record), unlanded: named_shas(text).into_iter().filter(|sha| !evidence.landed(&record.cwd, sha)).collect() });
-        let seen = Seen { status, quiet: quiet(record), report, live };
-        let verdict = verdict(&seen, stale);
-        if verdict == Verdict::Keep {
-            let why = seen.live.or_else(|| seen.report.filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).unwrap_or_else(|| "active within the stale window".into());
-            reaped.kept.push(Retired { name: record.name.clone(), why });
-            continue;
+    for (done, batch) in candidates.chunks(LEASE_BATCH).enumerate() {
+        if started.elapsed() >= budget {
+            reaped.deferred = candidates.len() - done * LEASE_BATCH;
+            break;
         }
-        let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.chars().take(LAST_CHARS).collect::<String>());
-        due.push((record, verdict.why(stale), last));
-    }
-    let leased = leased(fleet, &due.iter().map(|(record, _, _)| *record).collect::<Vec<_>>());
-    for ((record, why, last), leased) in due.into_iter().zip(leased) {
-        if leased {
-            reaped.kept.push(Retired { name: record.name.clone(), why: "a job-run job still holds a lease on it".into() });
-            continue;
+        let mut due: Vec<(&SessionRecord, String, Option<String>)> = Vec::new();
+        for &(record, status, quiet) in batch {
+            let live = fleet.live_wait(record, &records, &gated, running.contains(&record.name));
+            let entries = if live.is_some() { Vec::new() } else { fleet.follow_recent(&record.name).map(|follower| follower.transcript().entries.clone()).unwrap_or_default() };
+            let report = final_report(&entries).map(|text| Report { text: text.to_owned(), taken: fleet.report_taken(record), unlanded: named_shas(text).into_iter().filter(|sha| !evidence.landed(&record.cwd, sha)).collect() });
+            let seen = Seen { status, quiet, report, live };
+            let verdict = verdict(&seen, stale);
+            if verdict == Verdict::Keep {
+                let why = seen.live.or_else(|| seen.report.filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).unwrap_or_else(|| "active within the stale window".into());
+                reaped.kept.push(Retired { name: record.name.clone(), why });
+                continue;
+            }
+            let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.chars().take(LAST_CHARS).collect::<String>());
+            due.push((record, verdict.why(stale), last));
         }
-        let retired = if apply { fleet.retire(&record.name, &why, last.as_deref()).map(drop) } else { Ok(()) };
-        match retired {
-            Ok(()) => reaped.retired.push(Retired { name: record.name.clone(), why }),
-            Err(error) => reaped.failed.push(Retired { name: record.name.clone(), why: error.user_message() }),
+        let leased = leased(fleet, &due.iter().map(|(record, _, _)| *record).collect::<Vec<_>>());
+        for ((record, why, last), leased) in due.into_iter().zip(leased) {
+            if leased {
+                reaped.kept.push(Retired { name: record.name.clone(), why: "a job-run job still holds a lease on it".into() });
+                continue;
+            }
+            let retired = if apply { fleet.retire(&record.name, &why, last.as_deref()).map(drop) } else { Ok(()) };
+            match retired {
+                Ok(()) => reaped.retired.push(Retired { name: record.name.clone(), why }),
+                Err(error) => reaped.failed.push(Retired { name: record.name.clone(), why: error.user_message() }),
+            }
         }
     }
     if apply && let Ok(text) = serde_json::to_vec_pretty(&reaped) {
@@ -177,10 +192,10 @@ pub fn reap_after(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_m
 }
 
 fn leased(fleet: &Fleet, records: &[&SessionRecord]) -> Vec<bool> {
-    records.chunks(LEASE_BATCH).flat_map(|batch| std::thread::scope(|scope| {
-        let asking: Vec<_> = batch.iter().map(|record| scope.spawn(|| fleet.job_leased(record))).collect();
-        asking.into_iter().map(|asked| asked.join().unwrap_or(true)).collect::<Vec<bool>>()
-    })).collect()
+    std::thread::scope(|scope| {
+        let asking: Vec<_> = records.iter().map(|record| scope.spawn(|| fleet.job_leased(record))).collect();
+        asking.into_iter().map(|asked| asked.join().unwrap_or(true)).collect()
+    })
 }
 
 fn quiet(record: &SessionRecord) -> Duration {
