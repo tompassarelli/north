@@ -14,6 +14,8 @@ mod cloud_reap;
 mod token_usage;
 mod fleet;
 mod gate;
+mod gate_orphan;
+mod gate_relay;
 mod hook_stats;
 mod hook_verb;
 mod ledger;

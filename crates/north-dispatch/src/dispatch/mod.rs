@@ -7,7 +7,7 @@ use crate::fleet::roster::Roster;
 use crate::pacing::placement::{self, gate};
 use issues::Issue;
 use north_graph_ground::Backlog;
-pub use issues::{IssueRef, OWNER, product_boxes};
+pub use issues::{IssueRef, OWNER, product_boxes, references};
 use plan::{Candidate, Capacity, Launch, Ready};
 use slots::Pools;
 use survey::Survey;

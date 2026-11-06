@@ -12,7 +12,7 @@ use crate::fleet::store::GateRow;
 use crate::dispatch::{IssueRef, OWNER, product_boxes};
 use crate::github_mirror::store::{Mirror, OPEN_ISSUES, key};
 
-const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate list [--json] | north gate digest [--peek]";
+const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate digest [--peek]";
 const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; an issue with more than one open box needs --box, and one with a single open box is held whole.";
 const DEFAULT_HELP: &str = "--default and --default-after are required, except for a question about cost, accounts, credentials or access, making something public, deleting valuable data, sending in Tom's name, outside code of unclear license, or core direction and dependencies (the ask-once table in harness/defaults.toml): such a gate takes neither and is for Tom: only the work it holds waits for his answer. Every other gate applies its recommended default at its deadline (8h unless the brief names one).";
 const FIRST_LOOK_MS: u64 = 24 * 3_600_000;
@@ -21,10 +21,7 @@ const WAIT_POLL: Duration = Duration::from_secs(2);
 pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     match words {
         ["open", flags @ ..] => open(fleet, flags),
-        ["answer", id, number] => answer(fleet, id, number, None, None),
-        ["answer", id, number, "--note", note] => answer(fleet, id, number, Some(note), None),
-        ["answer", id, number, "--session", session] => answer(fleet, id, number, None, Some(session)),
-        ["answer", id, number, "--note", note, "--session", session] | ["answer", id, number, "--session", session, "--note", note] => answer(fleet, id, number, Some(note), Some(session)),
+        ["answer", id, number, flags @ ..] => answer(fleet, id, number, flags),
         ["list"] => list(fleet, false),
         ["list", "--json"] => list(fleet, true),
         ["digest"] => digest(fleet, true),
@@ -34,16 +31,34 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     }
 }
 
-fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>, session: Option<&str>) -> NorthResult<()> {
+fn answer(fleet: &Fleet, id: &str, number: &str, flags: &[&str]) -> NorthResult<()> {
+    let (mut note, mut session, mut turn) = (None, None, None);
+    for pair in flags.chunks(2) {
+        let [flag, value] = pair else { return Err(usage()) };
+        match *flag {
+            "--note" => note = Some(*value),
+            "--session" => session = Some(*value),
+            "--relayed-from-turn" => turn = Some(value.parse::<i64>().map_err(|_| usage())?),
+            _ => return Err(usage()),
+        }
+    }
+    let number = number.parse().map_err(|_| usage())?;
+    if let Some(turn) = turn {
+        if id.contains(':') || session.is_some() || note.is_some() {
+            return Err(usage());
+        }
+        println!("{}", super::gate_relay::relay(fleet, id.parse().map_err(|_| usage())?, number, turn)?);
+        return Ok(());
+    }
     let caller = fleet.answerer();
     if id.contains(':') {
-        println!("{}", fleet.answer_remote_gate(id, session, number.parse().map_err(|_| usage())?, note, caller.as_deref())?);
+        println!("{}", fleet.answer_remote_gate(id, session, number, note, caller.as_deref())?);
         return Ok(());
     }
     if session.is_some() {
         return Err(usage());
     }
-    let result = fleet.answer_gate(id.parse().map_err(|_| usage())?, number.parse().map_err(|_| usage())?, note, caller.as_deref());
+    let result = fleet.answer_gate(id.parse().map_err(|_| usage())?, number, note, caller.as_deref());
     let closure = match result {
         Err(error @ NorthError::GateAnswered { .. }) => { println!("{}", error.user_message()); return Ok(()); }
         result => result?,

@@ -93,6 +93,7 @@ pub enum Answerer {
     Session(String),
     Tom,
     Default,
+    Orphaned,
 }
 
 impl Answerer {
@@ -101,6 +102,7 @@ impl Answerer {
             Answerer::Session(name) => name,
             Answerer::Tom => "tom",
             Answerer::Default => "default",
+            Answerer::Orphaned => "orphaned",
         }
     }
 
@@ -108,6 +110,7 @@ impl Answerer {
         match label {
             "tom" => Some(Answerer::Tom),
             "default" => Some(Answerer::Default),
+            "orphaned" => Some(Answerer::Orphaned),
             name if !name.is_empty() => Some(Answerer::Session(name.to_owned())),
             _ => None,
         }
@@ -194,6 +197,49 @@ pub fn answer_gate(book: &dyn GateBook, id: i64, number: usize, note: Option<&st
     authority.admit()?;
     let by = authority.caller.map_or(Answerer::Tom, |name| Answerer::Session(name.to_owned()));
     settle_as(book, id, Decision::Option(number), by, note, now_ms, deliver)
+}
+
+/// One of Tom's own typed turns, as the convo store holds it, offered as the evidence for an answer a session relays.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TomTurn {
+    pub id: i64,
+    pub at_ms: u64,
+    pub text: String,
+}
+
+pub fn relay_gate(book: &dyn GateBook, id: i64, number: usize, turn: &TomTurn, relayer: &str, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+    let gate = book.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
+    let refuse = |why: String| Err(NorthError::Rejected(format!("convo turn {} cannot close gate {id}: {why}", turn.id)));
+    if !gate.for_tom() {
+        return refuse("only a gate for Tom takes a relayed answer".into());
+    }
+    if turn.at_ms <= gate.opened_ms {
+        return refuse("it was typed before the gate opened".into());
+    }
+    match named_option(&gate, &turn.text) {
+        Some(named) if named == number => {}
+        Some(named) => return refuse(format!("it names option {named}, not {number}")),
+        None => return refuse("it names no single option of the gate".into()),
+    }
+    let note = format!("relayed by {relayer} from convo turn {}", turn.id);
+    settle_as(book, id, Decision::Option(number), Answerer::Tom, Some(&note), now_ms, deliver)
+}
+
+pub fn orphan(book: &dyn GateBook, id: i64, now_ms: u64) -> NorthResult<Closure> {
+    let gate = book.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
+    let text = format!("orphaned: its asking session {} is gone and the issue it concerns is closed, so nobody can act on an answer", gate.request.session);
+    settle_as(book, id, Decision::Text(text), Answerer::Orphaned, None, now_ms, |_, _| Ok(()))
+}
+
+fn named_option(gate: &Gate, text: &str) -> Option<usize> {
+    let text = text.trim_start();
+    let digits = text.len() - text.trim_start_matches(|character: char| character.is_ascii_digit()).len();
+    if digits > 0 && text[digits..].chars().next().is_none_or(|next| !next.is_alphanumeric()) {
+        return text[..digits].parse().ok().filter(|number| gate.option(*number).is_some());
+    }
+    let lower = text.to_lowercase();
+    let mut named = gate.request.options.iter().enumerate().filter(|(_, option)| lower.contains(&option.trim().to_lowercase())).map(|(index, _)| index + 1);
+    named.next().filter(|_| named.next().is_none())
 }
 
 fn settle_as(book: &dyn GateBook, id: i64, decision: Decision, by: Answerer, note: Option<&str>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
@@ -283,6 +329,7 @@ fn message(gate: &Gate, closure: &Closure) -> String {
         Answerer::Session(name) => format!("{name} answered: {}", closure.answer),
         Answerer::Tom => format!("Tom answered: {}", closure.answer),
         Answerer::Default => format!("No answer in time, so the default applies: {}", closure.answer),
+        Answerer::Orphaned => format!("Closed unanswered: {}", closure.answer),
     };
     format!("[gate {}] {verdict}\nYour question: {}", gate.id, gate.request.question)
 }

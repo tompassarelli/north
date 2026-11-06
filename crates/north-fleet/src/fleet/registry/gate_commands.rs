@@ -44,6 +44,16 @@ impl Fleet {
         gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref() }, now_ms(), deliver)
     }
 
+    pub fn relay_gate(&self, id: i64, number: usize, turn: &gates::TomTurn, relayer: &str) -> NorthResult<Closure> {
+        gates::relay_gate(self.ledger.as_ref(), id, number, turn, relayer, now_ms(), |session, text| self.answer_session(session, text))
+    }
+
+    /// Closes, recorded as orphaned rather than answered, each open gate whose asking session no longer exists and for which `issue_closed` holds.
+    pub fn close_orphaned_gates(&self, issue_closed: impl Fn(&Gate) -> bool) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
+        let orphaned = self.ledger.gates(u64::MAX)?.into_iter().filter(|gate| gate.is_open() && self.record(&gate.request.session).is_err() && issue_closed(gate));
+        Ok(orphaned.map(|gate| (gate.id, gates::orphan(self.ledger.as_ref(), gate.id, now_ms()))).collect())
+    }
+
     /// Each open decision gate that names an issue, here or on another host as the cached fleet table holds it.
     pub fn gate_holds(&self) -> NorthResult<Vec<Hold>> {
         let here = gates::decisions(self.ledger.gates(u64::MAX)?).into_iter().filter_map(|gate| Some(Hold { issue: gate.request.issue?, box_text: gate.request.box_text, gate: gate.id.to_string() }));

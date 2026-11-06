@@ -49,6 +49,7 @@ const DEFAULT_ASK_SECS: u64 = 120;
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let result = open_fleet_claiming(ThreadsCli::for_verb(arguments)).and_then(|fleet| {
+        crate::cli::gate_orphan::close_orphaned(&fleet);
         default_overdue_gates(&fleet);
         release_exited_claims(&fleet, arguments);
         dispatch(fleet, arguments)

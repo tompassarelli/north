@@ -26,16 +26,17 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
-fn human(row: &Value) -> bool {
-    row.get("origin").and_then(|origin| origin.get("kind")).and_then(Value::as_str) == Some("human")
+fn origin(row: &Value) -> Option<&Value> {
+    row.get("origin").filter(|origin| !origin.is_null()).or_else(|| row.get("attachment").and_then(|attachment| attachment.get("origin")))
 }
 
 fn label(row: &Value) -> Option<Label> {
-    if human(row) && row["origin"].is_object() {
+    let origin = origin(row).filter(|origin| !origin.is_null());
+    if origin.is_some_and(|origin| origin.is_object() && origin.get("kind").and_then(Value::as_str) == Some("human")) {
         return Some(Label::Exact);
     }
     let flagged = |key: &str| row.get(key).is_some_and(truthy);
-    (row.get("origin").is_none_or(Value::is_null) && !flagged("isMeta") && !flagged("isCompactSummary")).then_some(Label::Heuristic)
+    (origin.is_none() && !flagged("isMeta") && !flagged("isCompactSummary")).then_some(Label::Heuristic)
 }
 
 type TextsByFile = BTreeMap<String, BTreeMap<i64, (i64, String, String)>>;
