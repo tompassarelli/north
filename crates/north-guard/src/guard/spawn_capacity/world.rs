@@ -42,7 +42,7 @@ impl World for Live {
     }
 
     fn flow(&self, repo: &str) -> Option<String> {
-        stdout_of(north(), &["flow", "row", repo, "pending", "landed_per_hour"], Duration::from_secs(120))
+        stdout_of(north(), &["ledger", "flow", "row", repo, "pending", "landed_per_hour"], Duration::from_secs(120))
     }
 
     fn billed(&self, provider: &str) -> Option<String> {

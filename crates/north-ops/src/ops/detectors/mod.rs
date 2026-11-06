@@ -1,4 +1,4 @@
-//! The self-detectors: pure functions from recorded state to findings, run by `north flow`. A stalled
+//! The self-detectors: pure functions from recorded state to findings, run by `north ledger flow`. A stalled
 //! plan box, a silent signal, a repeated lander refusal class, a class of Tom's corrections seen twice and a test over its
 //! time line in its newest after-landing runs each become one box on the owning issue, filed once per key and left to dispatch to staff.
 use std::sync::LazyLock;

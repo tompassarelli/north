@@ -29,7 +29,7 @@ pub fn refusal(input: &HookInput, session: Option<&str>, root: &Path) -> Option<
         format!(
             "lead-timer-guard: {session} is a Fleet lead, and a lead does not wake on timers, so {tool} is refused. \
              End your turn instead: the fleet wakes you on child reports, registered waits (`north fleet wait`) and \
-             `north flow` alerts, each delivered as a message."
+             `north ledger flow` alerts, each delivered as a message."
         )
     })
 }

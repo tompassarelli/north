@@ -169,14 +169,14 @@ and run as a service.
 15. **Telemetry.** `landings` (lane, branch, tip, queued_at, candidate, tree, batch_size, bisect_depth,
     attempts, actor, landed_at, landed_sha, verdict) and `main_red`
     (sha, red_at, green_at, cause, cases, revert_sha) in the Nexus threads ledger, written first by
-    safe-push's exact train and later by the lander; `north flow` prints finished-to-landed p50/p90,
+    safe-push's exact train and later by the lander; `north ledger flow` prints finished-to-landed p50/p90,
     re-lands per lane, red-main minutes and bisect depth.
     Built 2026-11-04: the tables are created by the first `north land train` write (not bin/threads), carry a `repo`
     column, and a third table `land_checks` records each check run so the share thrown away because main moved is
     measured; `main_red` is written by `north land train red`, which the Main-red marker work calls.
     Added 2026-11-05 (north#255, estimation audit): a land check that runs past its deadline writes a
     `land_checks` row with outcome `timeout`, its `command` and `deadline_s` (the runner, through
-    `north land train check`); candidate rows keep an empty command and `north flow` counts only them. A
+    `north land train check`); candidate rows keep an empty command and `north ledger flow` counts only them. A
     timeout on a lane whose base tree also ran past the deadline doubles that command's next deadline (up
     to the 2100 s ceiling) until twenty later runs age it out, and a refused candidate's `landings.detail`
     names the land check or gate that failed before its log path.
@@ -293,7 +293,7 @@ finished-to-landed is measured.
 - **B12 Ledger tables and train records.** Category feature; files crates/north-core/src/threads
   (schema), bin/safe-push (`train_verdict` calls `north land train record`). Done when: a safe-push
   exact-mode test run leaves one `landings` row per lane with tree, batch_size, attempts and verdict.
-- **B13 Telemetry in north flow.** Follows B12. Files src/cli (flow). Done when: `north flow` on a fixture ledger prints
+- **B13 Telemetry in north ledger flow.** Follows B12. Files src/cli (flow). Done when: `north ledger flow` on a fixture ledger prints
   finished-to-landed p50 and p90, re-lands, red-main minutes today and the deepest bisect.
 - **B14 Set merge driver.** Category feature; Spec exact; files src/cli (`north merge-driver set`),
   harness/merge-sets.toml, .gitattributes, bin/safe-push (sets `merge.set.driver` in the clone).
@@ -834,12 +834,12 @@ then S2b and S2c in parallel; then S3 and S4.
   tests/it/land_serve.rs: serve_push_actor_app, serve_app_mint_failure_keeps_the_ticket,
   serve_unconfigured_repository_keeps_its_credential.
 - **S9 Landing records (B12).** Follows B12. Done when: one fixture run of serve leaves one
-  `landings` row per lane with tree, batch_size, bisect_depth, attempts and verdict, and `north flow`
+  `landings` row per lane with tree, batch_size, bisect_depth, attempts and verdict, and `north ledger flow`
   prints queued-to-landed p50 and p90 from those rows.
   Built 2026-11-04 (north#360): the lander spawns `north land train record` per lane it lands, and per
   lane it refuses with a conflict or a failed check; rows carry first_commit_at, check_started_at and
   check_finished_at. `north land enqueue` stamps the ticket's first-commit second from the lane
-  branch's reflog before the squash, because a rebase or amend resets commit dates, and `north flow`
+  branch's reflog before the squash, because a rebase or amend resets commit dates, and `north ledger flow`
   prints first-commit-to-landed p50 and p90 with the before-queue, queued and check split.
 - **S10 Sheriff through the queue (B22).** Follows S2b, B10. Files harness/scripts/main-red.ts,
   land/red.rs. Done when: (1) a fixture where main's post-push suite fails on case X enqueues a

@@ -2,6 +2,7 @@ use std::process::ExitCode;
 
 use crate::landing::{after_landing, bin_references, denylist, merge_set, landed_tree, stale_revert};
 use self::subverbs::{Run, code_health, graph, lane, land, ledger_verb, runner};
+pub(super) use self::subverbs::ledger_runner;
 use crate::timers::{self, Timer};
 use crate::{
     agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
@@ -20,7 +21,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("check", check),
     ("land", land),
     ("cause", |arguments| ledger_verb("cause", arguments)),
-    ("incident", |arguments| ledger_verb("incident", arguments)),
     ("landed-tree", landed_tree::run),
     ("stale-revert", stale_revert::run),
     ("merge-driver", merge_set::run),
@@ -62,7 +62,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("defaults-measure", crate::ops::defaults_measure::run),
     ("context", |arguments| crate::ops::context_audit::run(arguments, agent_config_check::startup_tokens)),
     ("worker-ledger", super::worker_ledger::run),
-    ("scoreboard", super::scoreboard::run),
     ("spend", super::spend::run),
     ("brief", crate::guard::brief_skeleton::run),
     ("proxy", |arguments| match arguments.first().map(String::as_str) {

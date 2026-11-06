@@ -123,7 +123,7 @@ holds the tier table. In order:
 2. **Pick the provider and account.** `agents plan` reads the signed-in providers, South's
    `orchestration.toml` and live usage, and routes each tier to an account.
 
-3. **Pick the tier and ETA.** `north worker-ledger --recommend` picks the cheapest tier whose
+3. **Pick the tier and ETA.** `north ledger worker --recommend` picks the cheapest tier whose
    measured success meets the `success_threshold` key in
    [harness/defaults.toml](../harness/defaults.toml) and prints the ETA.
 
@@ -140,7 +140,7 @@ holds the tier table. In order:
 6. **Queue what waits.** A box that waits on another lane is queued with `threads queue follow`;
    `follows-release` starts it once its predecessor lands on main.
 
-7. **Record.** Fleet receipts capture delivery and completion. `north worker-ledger` records each
+7. **Record.** Fleet receipts capture delivery and completion. `north ledger worker` records each
    run's outcome, cost and duration, and those records feed the next recommendation
    ([feedback-loop.md](feedback-loop.md)).
 

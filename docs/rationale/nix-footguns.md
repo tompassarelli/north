@@ -794,7 +794,7 @@ Each card's incident class is a class in the incidents ledger with the card's la
 entry measures that class's rows per 7 days, judged 14 days after landing.
 
 Done when:
-- Replay the 2026-11-05 night: `north incident import` of this file's N1 and N2 rows, then `north incident report`,
+- Replay the 2026-11-05 night: `north ledger incident import` of this file's N1 and N2 rows, then `north ledger incident report`,
   lists them under `nix-nested-shell` and `nix-gate-path` with D1 and D3 as their guards.
 - `north experiments check` passes with one entry per card.
 

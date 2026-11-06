@@ -1,6 +1,6 @@
-//! `north incident record|guard|import|report`: one row per failure the moment a lander verdict, a
+//! `north ledger incident record|guard|import|report`: one row per failure the moment a lander verdict, a
 //! withdrawal or a detector finding names it, the guard that closes each failure class, and the
-//! weekly reading `north flow` prints. The tables are created here, on first write; the reader in
+//! weekly reading `north ledger flow` prints. The tables are created here, on first write; the reader in
 //! `report` tolerates a ledger that has none yet.
 pub mod corrections;
 pub mod report;
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS incident_guards(
   issue TEXT NOT NULL DEFAULT ''
 ) STRICT;";
 
-const USAGE: &str = "usage: north incident record --key K --class C --noticed-by WHO [--repo R] [--subject S] [--started-at EPOCH] [--detected-at EPOCH] [--detail TEXT]\n       north incident guard --class C --guard REF --landed-at EPOCH [--issue REPO#N]\n       north incident import < ROWS.jsonl\n       north incident report [--days N] [--since EPOCH --until EPOCH]";
+const USAGE: &str = "usage: north ledger incident record --key K --class C --noticed-by WHO [--repo R] [--subject S] [--started-at EPOCH] [--detected-at EPOCH] [--detail TEXT]\n       north ledger incident guard --class C --guard REF --landed-at EPOCH [--issue REPO#N]\n       north ledger incident import < ROWS.jsonl\n       north ledger incident report [--days N] [--since EPOCH --until EPOCH]";
 
 pub struct Incident {
     pub key: String,

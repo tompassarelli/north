@@ -73,7 +73,7 @@ impl Metric {
             ("none", Some(measure)) if !measure.trim().is_empty() => Ok(Self::Unread(measure.trim().to_owned())),
             ("none", _) => Err("metric none needs a measure naming how the rule is judged".into()),
             (_, Some(_)) => Err(format!("measure is only for metric none, not {name}")),
-            (other, None) => Err(format!("unknown metric {other}; north flow's outcome metrics are {} (or none with a measure)", Self::NAMES.join(", "))),
+            (other, None) => Err(format!("unknown metric {other}; north ledger flow's outcome metrics are {} (or none with a measure)", Self::NAMES.join(", "))),
         }
     }
 

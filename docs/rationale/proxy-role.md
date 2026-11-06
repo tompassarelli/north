@@ -29,7 +29,7 @@ the order the rules try them:
 - bookkeeping: `gh issue edit|close|comment`, `threads tick|close|claim|release`, `north fleet stop|forget`, `git merge-base --is-ancestor`, worktree and branch removal, notes appended to the scratchpad
 - hands-on landing and editing: `Edit`, `Write`, `safe-push --to`, `north land enqueue`, `git commit|push|rebase|add`
 - landing logs: safe-push and land-check logs, the land queue directory, `journalctl -u north-land*`
-- status checks: `north fleet show|list|tree`, `journalctl`, `north capacity`, `north flow`, `ps`, `gh run`, usage and pace
+- status checks: `north fleet show|list|tree`, `journalctl`, `north capacity`, `north ledger flow`, `ps`, `gh run`, usage and pace
 - diagnosis: everything else (file and log reads, `rg`, `sed -n`, `git log|show|diff`, `ssh` to a host, `sqlite3`)
 
 Counts (2,753 calls):
@@ -79,7 +79,7 @@ outside the fleet with `NORTH_FLEET_SESSION` unset, so it cannot be a parent, a 
 session or an alarm's recipient. Its children report to nobody (`--parent none`) or to the idle
 fleet session that is also called `proxy`: launches with no `--parent` and no caller
 default to that name (`src/cli/fleet/lineage.rs:19`), and `north ops check`, `north ops dividend` and
-`north flow` alerts all send to it (`crates/north-dispatch/src/check/mod.rs:45`,
+`north ledger flow` alerts all send to it (`crates/north-dispatch/src/check/mod.rs:45`,
 `crates/north-ops/src/ops/flow/alerts.rs:68`). So the session Tom reads hears nothing, and the
 session that hears everything has no reader. The lander already tells a ticket's session when its
 lane lands or is refused, with the conflicting files (`crates/north-landing/src/land/bisect.rs:126`),

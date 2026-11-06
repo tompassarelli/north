@@ -227,7 +227,7 @@ sites = [
   "crates/north-ops/src/ops/detectors/correction.rs",
 ]
 signal = "Tom's corrections in the grounding ledger, classed by harness/corrections.toml and counted per class per week; the weekly count is the harness's learning score, a class seen twice gets a guard box on its owner, and a guarded class that recurs is red in the proxy's fleet tick"
-updated_by = "north grounding distill, run 15 s after each of Tom's prompts in a proxy session; north flow detect files the guard boxes"
+updated_by = "north grounding distill, run 15 s after each of Tom's prompts in a proxy session; north ledger flow detect files the guard boxes"
 cadence_hours = 24
 record = "north/grounding/ledger.jsonl"
 score = "north/grounding/corrections-week.txt"
@@ -236,8 +236,8 @@ score = "north/grounding/corrections-week.txt"
 name = "scoreboard"
 decision = "which of the harness's weekly numbers the proxy hears got worse than the week before"
 sites = ["src/cli/scoreboard/weekly.rs"]
-signal = "the scoreboard's headline figure per number (north scoreboard), this week against the week before, compared only when both weeks hold at least five observations and the move passes 10% in the worse direction; the proxy hears each recording's worse numbers once"
-updated_by = "north scoreboard --record, run by the fleet tick once a week"
+signal = "the scoreboard's headline figure per number (north ledger scoreboard), this week against the week before, compared only when both weeks hold at least five observations and the move passes 10% in the worse direction; the proxy hears each recording's worse numbers once"
+updated_by = "north ledger scoreboard --record, run by the fleet tick once a week"
 cadence_hours = 168
 record = "north/scoreboard/week.json"
 score = "north/scoreboard/week.txt"
@@ -269,7 +269,7 @@ name = "slow-test"
 decision = "which test is profiled on a build host and gets a box on its owning issue because it ran over the line in each of its newest after-landing runs"
 sites = ["crates/north-ops/src/ops/detectors/slow_test.rs"]
 signal = "per-test PASS times in the nextest output of each after-landing run's log under land-queue/*/logs, the newest runs of each test binary"
-updated_by = "north flow detect, run every 5 minutes by agents-flow-stall.timer"
+updated_by = "north ledger flow detect, run every 5 minutes by agents-flow-stall.timer"
 cadence_hours = 24
 record = "agents/flow/detectors.json"
 

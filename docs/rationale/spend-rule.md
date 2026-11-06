@@ -124,7 +124,7 @@ refusal leaves the follower waiting for the next release pass rather than failin
   reserve tiers): **deleted**. The world types and `assess`, which hand a session over once its account
   reaches the provider's limit, are **kept**; `hand_over_target` picks its account as **Handover** says.
 - Spend breaker: its start refusal for a tripped workstream (`place`'s trip check and the `tripped:` line in
-  `north worker-ledger --recommend`) is **deleted**. Its budget notices to running sessions are **kept**,
+  `north ledger worker --recommend`) is **deleted**. Its budget notices to running sessions are **kept**,
   since they stop no start.
 
 `north-dispatch`, `pacing`:

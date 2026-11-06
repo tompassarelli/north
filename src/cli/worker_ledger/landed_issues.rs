@@ -15,11 +15,11 @@ use crate::threads::runs::landed_issues::{self, Landing, Run};
 pub(super) fn run(account: &str, day: &str) -> u8 {
     let dated = day.len() == 10 && day.bytes().enumerate().all(|(at, byte)| if matches!(at, 4 | 7) { byte == b'-' } else { byte.is_ascii_digit() });
     if account.is_empty() || !dated {
-        eprintln!("north worker-ledger: --landed-issues takes an account label and --day YYYY-MM-DD");
+        eprintln!("north ledger worker: --landed-issues takes an account label and --day YYYY-MM-DD");
         return 2;
     }
     let Some(nodes) = fleet_nodes() else {
-        eprintln!("north worker-ledger: north fleet list --json --all is unreadable");
+        eprintln!("north ledger worker: north fleet list --json --all is unreadable");
         return 1;
     };
     let main = MainIndex::parse(&super::merged(day));
@@ -37,16 +37,16 @@ pub(super) fn run(account: &str, day: &str) -> u8 {
 /// The ledger's runs of these conversations, read through `north threads landed-runs`.
 fn recorded_runs(agents: &[&str]) -> Option<Vec<Run>> {
     let spawned = super::threads(&["landed-runs"]).and_then(|mut command| command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn());
-    let mut child = spawned.map_err(|error| eprintln!("north worker-ledger: cannot run north threads landed-runs: {error}")).ok()?;
+    let mut child = spawned.map_err(|error| eprintln!("north ledger worker: cannot run north threads landed-runs: {error}")).ok()?;
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(serde_json::to_string(agents).unwrap_or_default().as_bytes());
     }
-    let output = child.wait_with_output().map_err(|error| eprintln!("north worker-ledger: north threads landed-runs: {error}")).ok()?;
+    let output = child.wait_with_output().map_err(|error| eprintln!("north ledger worker: north threads landed-runs: {error}")).ok()?;
     let refusal = String::from_utf8_lossy(&output.stderr);
     match serde_json::from_slice(&output.stdout).ok().filter(|_| output.status.success()) {
         Some(runs) => Some(runs),
         None => {
-            eprintln!("north worker-ledger: the ledger host did not answer north threads landed-runs ({}): {}; if it names an unknown verb, that host's north predates this one, so run north runtime update there", output.status, refusal.trim());
+            eprintln!("north ledger worker: the ledger host did not answer north threads landed-runs ({}): {}; if it names an unknown verb, that host's north predates this one, so run north runtime update there", output.status, refusal.trim());
             None
         }
     }

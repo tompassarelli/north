@@ -1,7 +1,7 @@
 //! A lane a stopped fleet session left holding unlanded work: the session's last report stopped for
 //! capacity or ended on a pending wait, and a worktree that report names holds commits not on
 //! origin/main or uncommitted changes. Dispatch revives such a session once its host frees, and
-//! `north flow` lists it until then.
+//! `north ledger flow` lists it until then.
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 

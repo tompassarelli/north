@@ -13,6 +13,6 @@ fn promote_records_one_incident_and_messages_the_proxy_once_the_lander_link_has_
     let promoted = held_for(16);
     assert!(!promoted.status, "{}", promoted.stdout);
     let alarms: Vec<&str> = promoted.alarms.lines().collect();
-    assert_eq!(alarms.iter().filter(|call| call.starts_with("incident record --key lander-held:") && call.contains("--class lander-held")).count(), 1, "{alarms:?}");
+    assert_eq!(alarms.iter().filter(|call| call.starts_with("ledger incident record --key lander-held:") && call.contains("--class lander-held")).count(), 1, "{alarms:?}");
     assert_eq!(alarms.iter().filter(|call| call.starts_with("fleet send --from service:north-land proxy ") && call.contains("has been held for 16 minutes")).count(), 1, "{alarms:?}");
 }

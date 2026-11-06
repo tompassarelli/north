@@ -203,7 +203,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   and `thursday`.
 - `C/health.rs:92-102` check `pace` (newest `pace-control.json` history under 180 s) and `:104-106` check `usage`
   (newest usage row under 600 s).
-- `north flow` prints no account pace or projection line; `C/ops/flow/mod.rs:85-86` notes a stale
+- `north ledger flow` prints no account pace or projection line; `C/ops/flow/mod.rs:85-86` notes a stale
   `claude-web.json` (7 h).
 - Docs that state the rule: `docs/features/02-staffing-and-routing/0005-routing.md`, `0006-no-pace-hold.md`,
   `0016-pace-notices.md`, `docs/features/03-fleet-sessions/0006-placement-gate.md`, `0011-dispatch.md`,
@@ -285,7 +285,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   gives the new one its name and messages; `Follows:` briefs chain runs into one box
   (`C/guard/worker_tier.rs`, `crates/north-base/src/platform/follows.rs`).
 - Run outcome: `C/providers/claude/runs/outcome.rs:21` recognises "You've hit your ..." stops.
-- Estimates: `north worker-ledger --recommend 'FACETS'` (`src/cli/worker_ledger/usage.txt:5`); `C/ledger/closed.rs:75`
+- Estimates: `north ledger worker --recommend 'FACETS'` (`src/cli/worker_ledger/usage.txt:5`); `C/ledger/closed.rs:75`
   `Figures` (median priced box cost, p75 minutes; no dollar p90); `C/threads/calibration/recommend.rs:157` (active
   minutes p25, median, p90 by facet cell with back-off).
 - Spend: `north fleet spend --self` (`src/cli/fleet/spend.rs:12`, `C/ledger/books.rs:12`, priced by
@@ -705,7 +705,7 @@ Parts of files:
 - `C/usage/refresh/mod.rs:43-55`: the `pace-control.lock` and gate rewrite after a refresh.
 - CLI: `north pace` (all subcommands), `agents pace`, `agents usage --gate`, `north usage --write-pace-gate`,
   `north usage --fast`'s headroom rule.
-- `north flow` has no account pace or projection line (1.6); nothing to delete there.
+- `north ledger flow` has no account pace or projection line (1.6); nothing to delete there.
 - `harness/defaults.toml`: `placement_drain_margin`, `reservation_fallback_points`, `usage_stale_min`,
   `money_ceiling`, `plan_stop`, `fast_floor`, `pace_target_left_claude`, `pace_band`, `pace_state_dwell_min`,
   `pace_burn_window_min`, `five_hour_burn_cap_pct_h`, `spawn_reservation_ttl_s`, `grant_reservation_hold_s`.
@@ -770,7 +770,7 @@ updates the integration tests (`tests/it/*`, 1.11) it breaks in the same change.
    operator file when present.
 6. **Expected spend.** The ledger gains p50 and p90 priced box cost and minutes per cell with the fallback chain;
    `worker-ledger --recommend` prints E with its source; dispatched briefs' Budget lines state E.
-   Done when: `north worker-ledger --recommend 'Category: feature ...'` prints `E p50 $X p90 $Y, N min (cell ...,
+   Done when: `north ledger worker --recommend 'Category: feature ...'` prints `E p50 $X p90 $Y, N min (cell ...,
    n=K)`; a brief with no cell prints the fallback it used.
 7. **Park and revive.** `north fleet wait` gains `usage:ACCOUNT@TIME`; the tick parks a session whose account is
    `Paused` and `north fleet waits` revives it after the reset.

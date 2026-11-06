@@ -1,9 +1,9 @@
 # One entry per live policy or routing change. `north check experiments judge --file` (run by the
-# agents-flow-stall timer through `north flow --stall-alarm`) judges each entry on its review day
+# agents-flow-stall timer through `north ledger flow --stall-alarm`) judges each entry on its review day
 # and files the verdict once on its owner issue; `north check experiments` refuses a landing whose
 # rationale review rule (an `Overturned by:` paragraph or a `## Review` section) no entry quotes.
 #
-# metric: a north flow outcome metric over finished worker runs (rework_rate, first_commit_p50_minutes,
+# metric: a north ledger flow outcome metric over finished worker runs (rework_rate, first_commit_p50_minutes,
 # landed, runs), incident_rows_per_week with a class (that incidents-ledger class's rows per 7 days, every
 # card in harness/nix/cards.toml needing exactly one), or none with a measure naming how the rule is judged instead
 # (always re-measure).

@@ -50,7 +50,7 @@ pub struct Survey {
     pub frozen: Vec<crate::platform::frozen_topics::Topic>,
     /// Dispatch's earlier launches by tier, which a Haiku retry and the next arm read.
     pub history: History,
-    /// `north worker-ledger --recommend` for each armed category.
+    /// `north ledger worker --recommend` for each armed category.
     pub ledger: BTreeMap<String, Evidence>,
     /// The closed boxes and prior reports each brief grounds its ETA, budget and trace in.
     pub grounds: Ledger,
@@ -276,14 +276,14 @@ fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut
     let efforts = super::tuned::current_efforts();
     for category in categories {
         let facets = format!("Category: {category}");
-        match run_within(&north.to_string_lossy(), &["worker-ledger", "--recommend", &facets], PROBE) {
+        match run_within(&north.to_string_lossy(), &["ledger", "worker", "--recommend", &facets], PROBE) {
             Some(output) if output.status.success() => {
                 let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
                 let read = read.counted(&read_arm_runs(category, crate::ledger::arm_runs(category), notes));
                 found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)).tuned_effort(&efforts, category));
             }
             _ => {
-                notes.push(format!("{DEGRADED}: north worker-ledger --recommend {facets:?} unread, so {category} keeps drawing its effort arms unless north tune settled one"));
+                notes.push(format!("{DEGRADED}: north ledger worker --recommend {facets:?} unread, so {category} keeps drawing its effort arms unless north tune settled one"));
                 if efforts.contains_key(*category) {
                     found.insert((*category).to_owned(), Evidence::default().tuned_effort(&efforts, category));
                 }

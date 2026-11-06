@@ -1,4 +1,4 @@
-//! `north tempo`: how fast lanes reach main through a repository's lander, read from the tickets the
+//! `north ledger tempo`: how fast lanes reach main through a repository's lander, read from the tickets the
 //! lander decided (`land-queue/<origin key>/done/`, each landed at its file's modification time) and
 //! the tickets still waiting. `--record` writes the last hour and the last day into the ledger's
 //! `land_tempo` table, which the Payback line of a harness box reads (docs/feedback-loop.md).
@@ -15,7 +15,7 @@ use crate::foundation::clock::Timestamp;
 use crate::ops::flow::Places;
 use crate::threads::landing::tempo::percentiles;
 
-const USAGE: &str = "usage: north tempo [--repo NAME] [--window MINUTES] [--json] [--record]";
+const USAGE: &str = "usage: north ledger tempo [--repo NAME] [--window MINUTES] [--json] [--record]";
 const HOUR: u64 = 60;
 const DAY: u64 = 1440;
 
@@ -166,7 +166,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let queue = match queue(&places, &options.repo) {
         Ok(queue) => queue,
         Err(error) => {
-            eprintln!("north tempo: {error}");
+            eprintln!("north ledger tempo: {error}");
             return 1;
         }
     };
@@ -182,7 +182,7 @@ pub fn run(arguments: &[String]) -> u8 {
         if options.record {
             let code = crate::threads::client::run(&record_arguments(reading, now), Arc::new(crate::threads::outside::Unread));
             if code != 0 {
-                eprintln!("north tempo: recording the {}-minute reading into the ledger exited {code}", reading.window_minutes);
+                eprintln!("north ledger tempo: recording the {}-minute reading into the ledger exited {code}", reading.window_minutes);
                 return code;
             }
         }

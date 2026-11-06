@@ -78,7 +78,7 @@ pub fn message(minutes: u64, candidate: &str, reason: &str) -> String {
 
 fn record(hold: Hold, candidate: &str, reason: &str) -> bool {
     Command::new(follow::program())
-        .args(["incident", "record", "--key", &key(hold), "--class", CLASS, "--noticed-by", super::incidents::LANDER, "--subject", candidate, "--detail", reason])
+        .args(["ledger", "incident", "record", "--key", &key(hold), "--class", CLASS, "--noticed-by", super::incidents::LANDER, "--subject", candidate, "--detail", reason])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

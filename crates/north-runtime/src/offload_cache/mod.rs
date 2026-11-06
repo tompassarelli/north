@@ -284,7 +284,7 @@ pub fn tick() {
 fn record(key: &str, host: &str, detail: &str) -> bool {
     let north = north_base::platform::north_binary::north_binary();
     let recorded = Command::new(north)
-        .args(["incident", "record", "--key", key, "--class", INCIDENT_CLASS, "--noticed-by", "lease-reaper", "--subject", host, "--detail", detail])
+        .args(["ledger", "incident", "record", "--key", key, "--class", INCIDENT_CLASS, "--noticed-by", "lease-reaper", "--subject", host, "--detail", detail])
         .stdout(Stdio::null())
         .status();
     recorded.is_ok_and(|status| status.success())

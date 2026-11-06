@@ -101,16 +101,16 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut command = match built {
         Ok(command) => command,
         Err(error) => {
-            eprintln!("north worker-ledger: cannot find the running north: {error}");
+            eprintln!("north ledger worker: cannot find the running north: {error}");
             return 126;
         }
     };
-    eprintln!("north worker-ledger: cannot run north threads: {}", command.exec());
+    eprintln!("north ledger worker: cannot run north threads: {}", command.exec());
     126
 }
 
 fn run_ids(arguments: &[&str]) -> Option<String> {
-    let output = threads(arguments).and_then(|mut command| command.stderr(Stdio::inherit()).output()).map_err(|error| eprintln!("north worker-ledger: cannot run north threads: {error}")).ok()?;
+    let output = threads(arguments).and_then(|mut command| command.stderr(Stdio::inherit()).output()).map_err(|error| eprintln!("north ledger worker: cannot run north threads: {error}")).ok()?;
     match output.status.code() {
         Some(0) => Some(String::from_utf8_lossy(&output.stdout).into_owned()),
         Some(REMOTE_UNREACHABLE) => Some(String::new()),
@@ -151,7 +151,7 @@ fn settled_ids(listed: &str) -> HashMap<String, Option<String>> {
 
 fn record(options: &Options) -> u8 {
     if let Err(error) = crate::providers::ledger_rows::cutoff(&options.since) {
-        eprintln!("north worker-ledger: {}", error.user_message());
+        eprintln!("north ledger worker: {}", error.user_message());
         return 2;
     }
     let (Some(recorded), Some(settled)) = (run_ids(&["run-ids"]), run_ids(&["run-ids", "--settled", "--ended"])) else { return 1 };
@@ -171,13 +171,13 @@ fn record(options: &Options) -> u8 {
 /// `--emit`: the rows this host would record against the ledger's ids read from stdin, printed instead of ingested.
 fn emit(options: &Options) -> u8 {
     if let Err(error) = crate::providers::ledger_rows::cutoff(&options.since) {
-        eprintln!("north worker-ledger: {}", error.user_message());
+        eprintln!("north ledger worker: {}", error.user_message());
         return 2;
     }
     let ids: Ids = match serde_json::from_reader(std::io::stdin().lock()) {
         Ok(ids) => ids,
         Err(error) => {
-            eprintln!("north worker-ledger: --emit reads the ledger's ids as JSON on stdin: {error}");
+            eprintln!("north ledger worker: --emit reads the ledger's ids as JSON on stdin: {error}");
             return 2;
         }
     };
@@ -203,7 +203,7 @@ fn rows(options: &Options, ids: &Ids) -> Option<(Vec<u8>, bool)> {
     let mut unread = false;
     for (name, outcome) in [("codex", codex::runs::rows(&shared, &mut rows)), ("agy", agy::rows(&shared, &mut rows))] {
         if let Err(error) = outcome {
-            eprintln!("north worker-ledger: {name} rows unread: {}", error.user_message());
+            eprintln!("north ledger worker: {name} rows unread: {}", error.user_message());
             unread = true;
         }
     }
@@ -213,8 +213,8 @@ fn rows(options: &Options, ids: &Ids) -> Option<(Vec<u8>, bool)> {
 fn label_runs() {
     match threads(&["label-runs"]).and_then(|mut command| command.status()) {
         Ok(status) if status.success() => {}
-        Ok(status) => eprintln!("north worker-ledger: north threads label-runs exited {status}"),
-        Err(error) => eprintln!("north worker-ledger: cannot run north threads label-runs: {error}"),
+        Ok(status) => eprintln!("north ledger worker: north threads label-runs exited {status}"),
+        Err(error) => eprintln!("north ledger worker: cannot run north threads label-runs: {error}"),
     }
 }
 
@@ -223,7 +223,7 @@ fn ingest(rows: &[u8]) -> u8 {
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
-            eprintln!("north worker-ledger: cannot run north threads ingest: {error}");
+            eprintln!("north ledger worker: cannot run north threads ingest: {error}");
             return 1;
         }
     };

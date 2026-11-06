@@ -20,14 +20,14 @@ pub fn run(_arguments: &[String]) -> u8 {
 }
 
 pub(super) fn comment_body(today: &str, table: &str) -> String {
-    format!("Weekly ETA calibration ({today}, last {WINDOW}): stated ETA against measured active minutes of runs that reported Done, from `north worker-ledger --eta-calibration`.\n\n```\n{}\n```", table.trim_end())
+    format!("Weekly ETA calibration ({today}, last {WINDOW}): stated ETA against measured active minutes of runs that reported Done, from `north ledger worker --eta-calibration`.\n\n```\n{}\n```", table.trim_end())
 }
 
 fn post() -> Result<String, String> {
     let repo = std::env::var("ETA_CALIBRATION_REPO").ok().filter(|value| !value.is_empty()).unwrap_or_else(|| "tompassarelli/north".to_owned());
-    let table = Command::new(north_program()).args(["worker-ledger", "--eta-calibration", "--since", WINDOW]).output().map_err(|error| format!("cannot run north worker-ledger: {error}"))?;
+    let table = Command::new(north_program()).args(["ledger", "worker", "--eta-calibration", "--since", WINDOW]).output().map_err(|error| format!("cannot run north ledger worker: {error}"))?;
     if !table.status.success() {
-        return Err(child_failure("north worker-ledger --eta-calibration", table.status.code(), &table.stderr));
+        return Err(child_failure("north ledger worker --eta-calibration", table.status.code(), &table.stderr));
     }
     let body = comment_body(&date("-I"), &text(&table));
     let mut gh = Command::new("gh")

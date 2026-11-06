@@ -1,4 +1,4 @@
-//! `north flow`: how fast each repository's lanes land, whether landing has stalled, and which
+//! `north ledger flow`: how fast each repository's lanes land, whether landing has stalled, and which
 //! capacity is idle. With `--stall-alarm` it also tells the Fleet parent and the proxy of a stall or a
 //! saturated host every fifteen minutes while it lasts, runs `north ci-diagnose`, and runs `north red-main-notify`.
 use std::time::Duration;
@@ -40,7 +40,7 @@ mod stranded;
 mod throughput;
 pub mod typed;
 
-const USAGE: &str = "usage: north flow [--json] [--repo NAME]... [--stall-alarm] | north flow row REPO [FIELD]... | north flow detect [--dry-run]";
+const USAGE: &str = "usage: north ledger flow [--json] [--repo NAME]... [--stall-alarm] | north ledger flow row REPO [FIELD]... | north ledger flow detect [--dry-run]";
 const FIELDS: [&str; 2] = ["reuse", "closed_per_hour"];
 const DEFAULT_REPOS: [&str; 4] = ["makgora", "wisp", "north", "makgora-client"];
 const WATCH_SILENT_SECONDS: f64 = 120.0;
@@ -136,7 +136,7 @@ fn row(arguments: &[String]) -> u8 {
         return 2;
     };
     if !valid_name(repo) {
-        eprintln!("north flow: invalid repository name");
+        eprintln!("north ledger flow: invalid repository name");
         return 2;
     }
     let (places, machine) = (Places::from_env(), Machine::default());
@@ -184,7 +184,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut seen = Vec::new();
     for repo in repos {
         if !valid_name(&repo) {
-            eprintln!("north flow: invalid repository name");
+            eprintln!("north ledger flow: invalid repository name");
             return 2;
         }
         if !seen.contains(&repo) {

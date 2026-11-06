@@ -159,7 +159,7 @@ fn figure(value: &Value, digits: usize, unit: &str) -> String {
     value.as_f64().map_or_else(|| "n/a".into(), |number| format!("{number:.digits$}{unit}"))
 }
 
-/// The one line `north flow` prints for a repository's tempo.
+/// The one line `north ledger flow` prints for a repository's tempo.
 pub fn line(repo: &str, tempo: &Value) -> String {
     let share = tempo["thrown_away_share"].as_f64().map_or_else(|| "n/a".into(), |share| format!("{:.0}%", share * 100.0));
     let refused = tempo["refusal_share"].as_f64().map_or_else(|| "n/a".into(), |share| format!("{:.0}%", share * 100.0));

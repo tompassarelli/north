@@ -94,7 +94,7 @@ pub fn judge(entry: &Experiment, before: Option<Reading>, after: Option<Reading>
 fn judged(entry: &Experiment, before: Option<Reading>, after: Option<Reading>) -> Judged {
     let remeasure = |why: String| Judged { verdict: Verdict::ReMeasure(why), baseline: None, after: None, moved: None };
     if let Metric::Unread(measure) = &entry.metric {
-        return remeasure(format!("no north flow outcome metric reads this rule; it is judged by {measure}"));
+        return remeasure(format!("no north ledger flow outcome metric reads this rule; it is judged by {measure}"));
     }
     let baseline = match entry.before {
         Some(window) => match usable(entry, window, before, "before") {

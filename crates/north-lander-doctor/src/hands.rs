@@ -59,7 +59,7 @@ impl Hands for Host {
 
     fn incident(&self, class: &str, key: &str, subject: &str, detail: &str) -> bool {
         Command::new(follow::program())
-            .args(["incident", "record", "--key", key, "--class", class, "--noticed-by", NOTICED_BY, "--subject", subject, "--detail", detail])
+            .args(["ledger", "incident", "record", "--key", key, "--class", class, "--noticed-by", NOTICED_BY, "--subject", subject, "--detail", detail])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

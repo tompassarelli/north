@@ -13,7 +13,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 
 - One task per worker, and one worker per scarce client or device instance, because shared instances corrupt each other's runs. Check `north threads list` and open issues; never duplicate a held item.
 - Start a brief with `north brief new --category X`, which prints every header line the brief guard requires for that category.
-- Pick the tier with `north worker-ledger --recommend '<Category and facet lines>'` and take the ETA from its `eta` line, or write your estimate with `(uncalibrated)` on `eta n/a`. Size each box to 20 minutes or less, or name why.
+- Pick the tier with `north ledger worker --recommend '<Category and facet lines>'` and take the ETA from its `eta` line, or write your estimate with `(uncalibrated)` on `eta n/a`. Size each box to 20 minutes or less, or name why.
 
 | Provider | Tier | Model / invocation |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 
 ## Run, park and land
 
-- Read [run-and-land.md](references/run-and-land.md) when you plan a tick, wait on a long run, a report is late, you give a brief a Budget line, file a process idea, you land or own lanes, landings fail across lanes, staff native workers or get a `north flow` alert; [fleet.md](references/fleet.md) when you launch a child session, message one, wait on its report, or hand a proxy or lead to a successor.
+- Read [run-and-land.md](references/run-and-land.md) when you plan a tick, wait on a long run, a report is late, you give a brief a Budget line, file a process idea, you land or own lanes, landings fail across lanes, staff native workers or get a `north ledger flow` alert; [fleet.md](references/fleet.md) when you launch a child session, message one, wait on its report, or hand a proxy or lead to a successor.
 - Run anything that may take over about 45 seconds in the background, because a foreground wait delays every message to you.
 - Finish an issue's last unchecked box before starting new work, and after an hour with no closure start nothing new until an open box closes, because open boxes are the throughput.
 - Tell Tom only what changes his next action: a landed fix (with its build), a result, or a decision; never relay a worker's interim "still waiting".

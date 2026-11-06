@@ -152,7 +152,7 @@ fn plan_findings(doc: &Doc, facts: &Facts, now: f64, limits: &Limits) -> Vec<Fin
                 owner: owner(doc),
                 title: format!("Staff {} box {}: {}", doc.slug, plan_box.id, plan_box.title),
                 detail: format!("Every prerequisite of box {} in docs/rationale/{}.md landed {hours:.1} h ago and no worker, queued follow or lane names it.", plan_box.id, doc.slug),
-                done_when: format!("a lane for box {} of docs/rationale/{}.md lands on origin/main with a commit subject naming `{} box {}`, and `north flow detect --dry-run` no longer prints `plan:{}#{}`.", plan_box.id, doc.slug, doc.slug, plan_box.id, doc.slug, plan_box.id),
+                done_when: format!("a lane for box {} of docs/rationale/{}.md lands on origin/main with a commit subject naming `{} box {}`, and `north ledger flow detect --dry-run` no longer prints `plan:{}#{}`.", plan_box.id, doc.slug, doc.slug, plan_box.id, doc.slug, plan_box.id),
                 instances: vec![format!("{}#{}", doc.slug, plan_box.id)],
             })
         })

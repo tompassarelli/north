@@ -66,3 +66,15 @@ pub(super) fn lane(arguments: &[String]) -> u8 {
         }
     }
 }
+
+const LEDGER: &[(&str, Run)] = &[
+    ("flow", crate::ops::flow::run),
+    ("incident", |arguments| ledger_verb("incident", arguments)),
+    ("scoreboard", super::super::scoreboard::run),
+    ("tempo", crate::ops::tempo::run),
+    ("worker", super::super::worker_ledger::run),
+];
+
+pub(in crate::cli) fn ledger_runner(verb: &str) -> Option<Run> {
+    runner(LEDGER, verb)
+}

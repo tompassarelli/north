@@ -116,12 +116,12 @@ pub(super) fn red_main_incident(repo: &str, run: &Value, now: Timestamp, record:
 fn record_with_north(incident: &Incident) -> Result<bool, String> {
     let north = north_base::platform::north_binary::north_binary();
     let output = Command::new(north)
-        .args(["incident", "record", "--key", &incident.key, "--class", &incident.class, "--noticed-by", &incident.noticed_by])
+        .args(["ledger", "incident", "record", "--key", &incident.key, "--class", &incident.class, "--noticed-by", &incident.noticed_by])
         .args(["--repo", &incident.repo, "--subject", &incident.subject, "--detail", &incident.detail])
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
-        return Err(format!("north incident record: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        return Err(format!("north ledger incident record: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
     Ok(!String::from_utf8_lossy(&output.stdout).contains("already recorded"))
 }

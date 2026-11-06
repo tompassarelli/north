@@ -41,7 +41,7 @@ session quiet past twice its ETA to its parent.
 | 14 | Other fleet messages (`north fleet send` between leads, workers and the proxy) | `crates/north-core/src/fleet/registry/senders.rs:38` | 1,001 | 602 (60%) | is the message event | keep |
 | 15 | `job-run --notify`: the detached job's exit spooled to its session | `crates/north-core/src/ops/job_run/mod.rs`; lease `crates/north-core/src/fleet/jobs.rs:1` | 78 | 31 (40%) | is the process event | keep |
 | 16 | `threads queue follow`: a Follows box is sent to its parent once its predecessor lands | `crates/north-core/src/threads/jobs/queue.rs:82`; `crates/north-landing/src/follows_release.rs:114` | 1 | 0 | is the message event (a landing) | keep |
-| 17 | `north flow` stall, stranded and refused alerts to the repository's Fleet parent, repeated every 15 min while they last | `crates/north-ops/src/ops/flow/alerts.rs:136`, `:15` (`REPEAT_SECONDS`), `:93` to `:106` | 219 | 192 (88%) | the first alert is the event; each repeat restates it | cut the repeat; the first alert stays a message event |
+| 17 | `north ledger flow` stall, stranded and refused alerts to the repository's Fleet parent, repeated every 15 min while they last | `crates/north-ops/src/ops/flow/alerts.rs:136`, `:15` (`REPEAT_SECONDS`), `:93` to `:106` | 219 | 192 (88%) | the first alert is the event; each repeat restates it | cut the repeat; the first alert stays a message event |
 | 18 | Host reboot resume | `crates/north-core/src/fleet/rebooted.rs:18`, `:59` | 1 | 0 | is the process event | keep |
 | 19 | Compaction checkpoint question at 250k context and every 50k after | `crates/north-fleet/src/fleet/checkpoint.rs`; `crates/north-fleet/src/fleet/watch.rs` | 0 | n/a | is a message event (a context reading) | keep |
 
@@ -85,7 +85,7 @@ before, so the drop rests on 2 long runs and does not by itself separate the fix
   a session with a detached run parks at 30 s with its pid wait registered.
 - [x] Remove the 24-hour wait expiry message; the silence check reaches the parent first. Done when:
   `rg -n "never ended" crates/north-core/src/fleet/waits.rs` prints nothing and `cargo test -p north-core fleet::waits` passes.
-- [x] Send each `north flow` stall, stranded or refused alert once per episode instead of every 15 minutes, and
+- [x] Send each `north ledger flow` stall, stranded or refused alert once per episode instead of every 15 minutes, and
   update the workers skill line that promises the repeat. Done when: an alerts.rs test shows an unchanged stall
   across two runs 15 minutes apart sends one message, and a cleared then renewed stall sends a second.
 - [ ] Stop leads from waking on timers: the workers skill tells a lead to end its turn and wake on child reports,

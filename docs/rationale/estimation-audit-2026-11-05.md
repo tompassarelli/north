@@ -93,7 +93,7 @@ Share inside the ETA, by category:
 - research: 81%, n = 53
 - docs-policy: 81%, n = 32
 
-Against active minutes the ETA is about six times too long. The active/ETA ratio has a median of 0.17 and a p90 of 0.49 (n = 549). `north worker-ledger --eta-calibration` shows the same thing: the median |ln error| is 1.0-2.4 per cell, and 0-40% of runs fall within 0.5-2x. The ETA is a wall estimate, and wall time is mostly waiting.
+Against active minutes the ETA is about six times too long. The active/ETA ratio has a median of 0.17 and a p90 of 0.49 (n = 549). `north ledger worker --eta-calibration` shows the same thing: the median |ln error| is 1.0-2.4 per cell, and 0-40% of runs fall within 0.5-2x. The ETA is a wall estimate, and wall time is mostly waiting.
 
 **Self-correction.** Partly.
 

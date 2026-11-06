@@ -38,7 +38,7 @@ copy of it, not a second rule.
 
 Implemented: arm-stamped run counts (a box on a tier arm carries that one `Arm:` line, because the ledger records only the first), alternation, the cost per closed box decision and the Sonnet effort pin.
 Implemented 2026-11-04: the rework signal (`threads/calibration/rework.rs`). A landed run is reworked when, within 48 h of its `landed_sha` reaching main, a main commit reverts it (a `This reverts commit <sha>` body or a `Revert "<subject>"` subject), a later commit names its item or sha with fix intent (`Follows:`, `fixes`, `fix forward`) or has a subject starting `Fix` and touches at least half its files, or red-main-notify recorded it as a red issue's first failing commit. A reworked run is not kept, so it lowers `ok` and the success rate recommend uses, and `north health` fails when a repository's 7-day rework rate passes `rework_alarm_pct`. This is the quality watch the landing-gate retirement of 2026-11-04 relied on: a sustained alarm is the evidence for bringing a gate back.
-Implemented 2026-11-05: the rework term inside the cost per closed box decision. `north ledger summary` marks a closed box reworked when any of its landed runs is reworked by the rule above (`closed_source.rs` reworked_agents), and dispatch and `north tune` divide a tier's whole spend in the category (closed and unclosed boxes) by its kept boxes (an arm's boxes only, from the Arm result of 2026-11-05), the closed boxes not reworked, so a reworked box adds its spend and removes itself from the divisor; a tier whose every closed box was reworked costs infinity and loses (`a_reworked_landing_counts_against_its_tier_in_the_cost_per_closed_box_decision`). `north flow` prints the outcome loop per week, tier and arm: landed changes, rework rate, cost per surviving landing, first-commit-to-main p50 and landed changes per hour of Tom's attention (`ledger/outcome`).
+Implemented 2026-11-05: the rework term inside the cost per closed box decision. `north ledger summary` marks a closed box reworked when any of its landed runs is reworked by the rule above (`closed_source.rs` reworked_agents), and dispatch and `north tune` divide a tier's whole spend in the category (closed and unclosed boxes) by its kept boxes (an arm's boxes only, from the Arm result of 2026-11-05), the closed boxes not reworked, so a reworked box adds its spend and removes itself from the divisor; a tier whose every closed box was reworked costs infinity and loses (`a_reworked_landing_counts_against_its_tier_in_the_cost_per_closed_box_decision`). `north ledger flow` prints the outcome loop per week, tier and arm: landed changes, rework rate, cost per surviving landing, first-commit-to-main p50 and landed changes per hour of Tom's attention (`ledger/outcome`).
 
 Alternatives that lost:
 - Per-run done rate: counts a retried or reworked box as several chances and rewards cheap runs that need a follow-up.
@@ -71,7 +71,7 @@ Queries:
 - Q3, the tier-wide figure dispatch and `north tune` decided on until this change: `north ledger summary --since 7d
   --json | jq -c '.cells[] | {tier, category, closed, reworked, usd, unclosed_usd}'`, a tier's (usd + unclosed_usd) over
   its kept boxes summed across the cells whose tier names it.
-- Q4, rework per arm and by cause: `north worker-ledger --summary`, columns `rework` and `revert/fix/culprit` (`fix` is
+- Q4, rework per arm and by cause: `north ledger worker --summary`, columns `rework` and `revert/fix/culprit` (`fix` is
   a follow-up fix commit within 48 h), over worker-role runs, so its n is below Q1's.
 - Q5, closed-box rates compared with Fisher's exact test, two-sided.
 
@@ -139,14 +139,14 @@ difference, so the routing changed instead (`ops/dispatch/tier.rs`):
 Effect once this runtime reaches Nexus: the next tune tick drops the feature and tooling route cells ("no longer
 decided"), and feature, tooling and bug-known-cause boxes alternate again until their arms hold 15 closed boxes each.
 `north ledger summary --json` now lists each arm box with its category, closed and reworked flags, open boxes
-included, which Q2 reads; `north worker-ledger --summary` gains the `revert/fix/culprit` column Q4 reads.
+included, which Q2 reads; `north ledger worker --summary` gains the `revert/fix/culprit` column Q4 reads.
 
 Open question, filed as north#564 for 20 Nov: tooling closes about 0.33 arm boxes a day per arm, which a 30-day window
 cannot fill to 15, so it needs a longer window, a closed-box floor the spread supports, or the replay this page retired.
 
 ## Per-brief recommendations shrink success and price in API-equivalent dollars
 
-`north worker-ledger --recommend` (the per-cell pick dispatch reads its tier rates from) decides as follows:
+`north ledger worker --recommend` (the per-cell pick dispatch reads its tier rates from) decides as follows:
 - Dollars are API-equivalent list-price dollars from `router/prices.json`, the definition the closed-box report, dispatch
   and tune use, not the allocated plan `cost_usd`. Haiku 5.5's $0.10/$0.50 per M tokens was checked against the cited
   pricing page on 2026-11-04; it holds for prompts up to 100k tokens, and longer prompts cost 5x.

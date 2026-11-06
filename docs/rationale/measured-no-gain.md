@@ -12,7 +12,7 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
 ## Method
 
 - Measurements on record: [feedback-loop.md](../feedback-loop.md), the rationale pages, the north issue threads,
-  `north worker-ledger --summary` and `north defaults-measure --priors` against `~/.local/state/threads/threads.db`
+  `north ledger worker --summary` and `north defaults-measure --priors` against `~/.local/state/threads/threads.db`
   on gex45, read 2026-11-04. A feature is never called unused for lacking a test.
 - Use in the last 14 days: every Claude transcript under `~/.local/state/north/profiles/claude-*/projects`
   on gex45 changed since 2026-10-21 (5,843 files), counting the Bash `command` fields that run `north SUB`.
@@ -25,7 +25,7 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
 
 ## Did not clear its bar
 
-### Similar-task retrieval trigger in `north flow`
+### Similar-task retrieval trigger in `north ledger flow`
 
 - Measurement: the retrieval replay ran on 2026-10-15 over 138 targets and neither arm's waste-saving interval
   excluded zero, so routing stayed as it was ([feedback-loop.md](../feedback-loop.md#similar-task-retrieval-keep-current-routing-2026-10-15)).
@@ -34,7 +34,7 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
 - Live code: `crates/north-ops/src/ops/flow/notes.rs:9-18` and `:28-55` (`brief_coverage`),
   `crates/north-ops/src/ops/flow/mod.rs:93-94`, and its test at `crates/north-ops/src/ops/flow/tests.rs:87-106`.
   `announce` prints `tagged finished worker briefs N/300 retrieval trigger; backtest requires >500` on every
-  `north flow` and `agents flow` run, including the 5-minute `agents-flow-stall` timer (nixos-config
+  `north ledger flow` and `agents flow` run, including the 5-minute `agents-flow-stall` timer (nixos-config
   `modules/agents-flow-stall/default.nix`, enabled on whiterabbit). The trigger points at a replay that no longer
   exists, so the line changes no decision.
 - Lines: about 62.

@@ -1,4 +1,4 @@
-//! A flow row as the one line `north flow` prints per repository.
+//! A flow row as the one line `north ledger flow` prints per repository.
 use serde_json::Value;
 
 use super::host::iso;

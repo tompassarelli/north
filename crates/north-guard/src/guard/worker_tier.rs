@@ -178,7 +178,7 @@ fn unknown_facets(prompt: &str) -> Vec<String> {
                 format!("{}: {value} is a repository name, not a facet value; put it on a `Repo: {lower}` line and declare {} as one of {allowed}.{inferred}", field.name, field.name)
             } else {
                 let shown = if value.is_empty() { "(empty)" } else { value };
-                format!("{}: {shown} is not a facet value; use one of {allowed}, so north worker-ledger can group runs by it.", field.name)
+                format!("{}: {shown} is not a facet value; use one of {allowed}, so north ledger worker can group runs by it.", field.name)
             })
         })
     }).collect()

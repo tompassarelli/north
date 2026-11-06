@@ -126,7 +126,7 @@ fn minutes(samples: &[f64]) -> String {
 }
 
 impl Reading {
-    /// The lines `north flow` and `north incident report` print.
+    /// The lines `north ledger flow` and `north ledger incident report` print.
     pub fn lines(&self) -> Vec<String> {
         let label = &self.label;
         let share = if self.total == 0 { "n/a".into() } else { format!("{:.0}%", 100.0 * self.detector_first as f64 / self.total as f64) };

@@ -200,7 +200,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
 
     git(&rig.main, &["fetch", "-q", "origin"]);
     let profile = rig.root.join(".local/state/north/profiles/claude-a");
-    let recorded = rig.command(env!("CARGO_BIN_EXE_north"), &rig.root).args(["worker-ledger", "--session", &conversation, "--since", "2026-11-01"]).env("CLAUDE_CONFIG_DIR", &profile).env("LEDGER_REPOS", &rig.main).output().unwrap();
+    let recorded = rig.command(env!("CARGO_BIN_EXE_north"), &rig.root).args(["ledger", "worker", "--session", &conversation, "--since", "2026-11-01"]).env("CLAUDE_CONFIG_DIR", &profile).env("LEDGER_REPOS", &rig.main).output().unwrap();
     assert!(recorded.status.success(), "{}", text(&recorded));
     let runs = rows(&database, "SELECT agent, item, outcome, role, landed, landed_sha, category, spec, scope, verify FROM runs", 10);
     let expected: Vec<String> = [conversation.as_str(), "north#1", "done", "worker", "1", landed.as_str(), "tooling", "exact", "one-file", "local-test"].map(str::to_owned).to_vec();

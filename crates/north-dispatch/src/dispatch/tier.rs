@@ -151,7 +151,7 @@ pub struct Evidence {
 }
 
 impl Evidence {
-    /// Reads `north worker-ledger --recommend 'Category: NAME'`; a coarser cell than the category counts
+    /// Reads `north ledger worker --recommend 'Category: NAME'`; a coarser cell than the category counts
     /// as no evidence.
     pub fn parse(printed: &str, category: &str) -> Self {
         let Some((_, cell)) = printed.lines().find_map(|line| line.split_once("  cell [")) else { return Self::default() };

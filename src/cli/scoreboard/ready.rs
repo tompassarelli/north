@@ -1,4 +1,4 @@
-//! `north scoreboard --ready`: one table of the bars that say the harness is ready for production
+//! `north ledger scoreboard --ready`: one table of the bars that say the harness is ready for production
 //! work, read per repository from the same records as the weekly scoreboard. The thresholds are the
 //! `ready` class of north's goals.toml; days in a row counts the newest consecutive 24 h windows in
 //! which every bar passed (docs/rationale/scoreboard.md).
@@ -425,7 +425,7 @@ pub fn report(now: i64) -> Vec<String> {
     let line = match (Goals::read(), Records::read(&Sources::live(), now)) {
         (Ok(goals), Ok(records)) => {
             let heads: Vec<String> = shown(false).into_iter().map(|repo| table::headline(&assess(|bar, window| records.reading(bar, repo, window), &goals, repo, now))).collect();
-            format!("ready bar: {} (north scoreboard --ready prints the table)", heads.join("; "))
+            format!("ready bar: {} (north ledger scoreboard --ready prints the table)", heads.join("; "))
         }
         (Err(why), _) | (_, Err(why)) => format!("ready bar not read: {why}"),
     };

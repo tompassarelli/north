@@ -67,7 +67,7 @@ pub fn held<'a>(candidate: &str, base: &str, reason: &'a str) -> Option<Noticed<
 }
 
 pub fn arguments(path: &Path, ticket: &Ticket, noticed: &Noticed, at: f64) -> Vec<String> {
-    let mut arguments: Vec<String> = ["incident", "record", "--key", &noticed.key, "--class", noticed.class, "--noticed-by", noticed.noticed_by].iter().map(|word| (*word).to_owned()).collect();
+    let mut arguments: Vec<String> = ["ledger", "incident", "record", "--key", &noticed.key, "--class", noticed.class, "--noticed-by", noticed.noticed_by].iter().map(|word| (*word).to_owned()).collect();
     let mut flag = |name: &str, value: String| {
         arguments.push(name.to_owned());
         arguments.push(value);
@@ -83,7 +83,7 @@ pub fn arguments(path: &Path, ticket: &Ticket, noticed: &Noticed, at: f64) -> Ve
     arguments
 }
 
-/// Records the incident through `north incident record` in the background, as the landings row is.
+/// Records the incident through `north ledger incident record` in the background, as the landings row is.
 pub fn record(queue: &Path, path: &Path, ticket: &Ticket, noticed: Option<Noticed>) {
     let Some(noticed) = noticed else { return };
     if let Err(error) = records::spawn(queue, &arguments(path, ticket, &noticed, telemetry::epoch())) {

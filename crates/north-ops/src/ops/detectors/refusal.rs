@@ -82,7 +82,7 @@ pub fn repeated(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
                 owner: facts.owner.clone(),
                 title: format!("Remove the recurring lander refusal {class}"),
                 detail: format!("{} lander refusals within {:.0} h share the class {class}: {}.", refusals.len(), limits.refusal_window_s / 3600.0, instances.join("; ")),
-                done_when: format!("a lane lands on origin/main that removes the cause, and `north flow detect --dry-run` prints no `refusal:{class}` line for 24 h of new landings."),
+                done_when: format!("a lane lands on origin/main that removes the cause, and `north ledger flow detect --dry-run` prints no `refusal:{class}` line for 24 h of new landings."),
                 instances,
             }
         })

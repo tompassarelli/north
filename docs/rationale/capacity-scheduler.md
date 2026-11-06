@@ -241,7 +241,7 @@ One model, one placement function, one enforcer per host.
    CPU-seconds, anon peak, memory stall, GPU-seconds, queue wait, ship seconds, exit. Estimates are quantiles over
    the newest 20 runs at the finest key level with at least 3, each multiplied by a per-host speed factor learned
    from commands run on both hosts (today 0.97). The laptop holds the fleet copy: it pulls gex45's and Nexus's
-   rows over ssh, the way `north worker-ledger --emit` already pulls worker rows, so each host stays the owner of
+   rows over ssh, the way `north ledger worker --emit` already pulls worker rows, so each host stays the owner of
    its own records. Every row carries its host, and every sizing level (exact command down to class) filters to the
    asking host: a host sizes its own memory and wall only from its own rows. Remote rows feed placement's
    prediction for that remote host and nothing else. `cold_h` and the speed factor expire after 14 days, and once a

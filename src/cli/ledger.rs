@@ -3,10 +3,11 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::ledger::{self, Ledger};
 
-const USAGE: &str = "Usage: north ledger runs [--json] | north ledger summary [--json] [--since 24h] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
+const USAGE: &str = "Usage: north ledger (flow|incident|scoreboard|tempo|worker) ... | north ledger runs [--json] | north ledger summary [--json] [--since 24h] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let outcome = match arguments {
+        [ledger, verb, rest @ ..] if ledger == "ledger" && let Some(run) = super::tools::ledger_runner(verb) => return ExitCode::from(run(rest)),
         [ledger, verb, rest @ ..] if ledger == "ledger" && verb == "claude-runs" => {
             crate::providers::claude::runs::run(rest).map(|()| ExitCode::SUCCESS)
         }

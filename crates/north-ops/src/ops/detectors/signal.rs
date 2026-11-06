@@ -33,7 +33,7 @@ pub fn silent(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
                 owner: signal.owner.clone(),
                 title: format!("Restore the silent signal {}", signal.name),
                 detail: format!("{} last wrote {} ({:.0} min ago) against a declared cadence of {:.0} min; its writer is {}.", signal.name, clock(last), (now - last) / 60.0, signal.cadence_s / 60.0, signal.writer),
-                done_when: format!("`north flow detect --dry-run` prints no `signal:{}` line after a fresh write of {}, and the writer's next write lands within its declared cadence.", signal.name, signal.name),
+                done_when: format!("`north ledger flow detect --dry-run` prints no `signal:{}` line after a fresh write of {}, and the writer's next write lands within its declared cadence.", signal.name, signal.name),
                 instances: vec![signal.name.clone()],
             })
         })

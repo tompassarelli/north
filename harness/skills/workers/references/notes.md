@@ -5,10 +5,10 @@ Detail behind `SKILL.md`. Read a section only when its question comes up.
 ## Tier and ledger experiments
 
 These rules come from the ledger and are experiments. Recheck
-`north worker-ledger --summary` after every 10 new closures in a category, and change
+`north ledger worker --summary` after every 10 new closures in a category, and change
 a rule when its numbers move.
 
-- `north worker-ledger --recommend` uses an 80% measured success
+- `north ledger worker --recommend` uses an 80% measured success
   threshold. A run counts toward the threshold when it reported Done with
   no later `Follows:` run and, if it committed, its commit landed. The command
   names the cheapest tier that meets the threshold in the finest cell with at least 5

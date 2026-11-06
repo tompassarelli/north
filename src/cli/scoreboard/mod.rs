@@ -1,4 +1,4 @@
-//! `north scoreboard`: the harness's weekly numbers for the last 7 days and the 7 days before them,
+//! `north ledger scoreboard`: the harness's weekly numbers for the last 7 days and the 7 days before them,
 //! each read from a recorded source, so one week can be set against the last and against published
 //! figures (docs/rationale/scoreboard.md).
 use std::fmt::Write;
@@ -21,7 +21,7 @@ mod tom;
 mod weekly;
 mod workers;
 
-const USAGE: &str = "usage: north scoreboard [--record | --ready [--all] [--explain] | --rework [--since 7d] | audit [--tell]]";
+const USAGE: &str = "usage: north ledger scoreboard [--record | --ready [--all] [--explain] | --rework [--since 7d] | audit [--tell]]";
 const WEEK_S: i64 = 7 * 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,7 +102,7 @@ impl Figure {
 
 pub fn render(measures: &[Measure], now: i64) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "north scoreboard: last 7 days | the 7 days before, ending {} today", Timestamp::from_unix_seconds(now).local_twelve_hour());
+    let _ = writeln!(out, "north ledger scoreboard: last 7 days | the 7 days before, ending {} today", Timestamp::from_unix_seconds(now).local_twelve_hour());
     for (index, measure) in measures.iter().enumerate() {
         let _ = writeln!(out, "- {}: {} | {}", measure.name, measure.weeks[0].text(), measure.weeks[1].text());
         if measures.get(index + 1).is_none_or(|next| next.source != measure.source) {
@@ -175,7 +175,7 @@ fn rework(request: &cause::Request) -> u8 {
             0
         }
         Err(why) => {
-            eprintln!("north scoreboard: {why}");
+            eprintln!("north ledger scoreboard: {why}");
             1
         }
     }
@@ -199,7 +199,7 @@ fn ready_table(flags: &[String]) -> u8 {
             0
         }
         Err(why) => {
-            eprintln!("north scoreboard: {why}");
+            eprintln!("north ledger scoreboard: {why}");
             1
         }
     }
@@ -234,7 +234,7 @@ pub fn run(arguments: &[String]) -> u8 {
             0
         }
         Err(why) => {
-            eprintln!("north scoreboard: {why}");
+            eprintln!("north ledger scoreboard: {why}");
             1
         }
     }

@@ -23,7 +23,7 @@ pub fn low(facts: &Facts, now: f64, limits: &Limits) -> Vec<Finding> {
             owner: facts.owner.clone(),
             title: format!("Free disk on {}", host.name),
             detail: format!("The root disk of {} has {:.0} GiB free, under the {:.0} GiB floor where admission defers builds.", host.name, host.free_gib, limits.disk_floor_gib),
-            done_when: format!("`df -BG --output=avail /` on {} prints at least {:.0}G and `north flow detect --dry-run` prints no `disk:{}` line.", host.name, limits.disk_floor_gib, host.name),
+            done_when: format!("`df -BG --output=avail /` on {} prints at least {:.0}G and `north ledger flow detect --dry-run` prints no `disk:{}` line.", host.name, limits.disk_floor_gib, host.name),
             instances: vec![host.name.clone()],
         })
         .collect();

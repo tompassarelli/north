@@ -10,7 +10,7 @@ Operator console:
   orders                List or add the standing orders every launch carries
   digest                Print landings, work in flight, open gates and stalls
   report                Print the fleet report
-  ledger                Fleet turn records, cost and task verdicts
+  ledger                Fleet runs and cost; worker tiers, flow, tempo, incidents, scoreboard
   task                  Record a verdict, or tick boxes whose check passes
   cloud                 Launch, message, land and reap cloud sessions
   dispatch              Launch ready boxes on every free worker slot
@@ -27,7 +27,6 @@ Work and knowledge:
   grounding             Retrieve existing infrastructure and history
   graph                 Record and query facts; list the ready backlog
   review-items          Split a design review into items and route them
-  incident              Record a failure or its guard, or read incidents
   model-watch news      Show the last model watch digest or rate an item
   wisp payoff           Measure Wisp agreement and native utilization
 
@@ -61,10 +60,6 @@ System and telemetry:
   credentials check     List fleet credentials and their expiry
   github budget         Print each GitHub token's hourly limit left
   gh-app-token          Mint a GitHub App installation token
-  flow                  Show the flow of work to main and its stalls
-  tempo                 Measure how fast lanes reach main
-  scoreboard            Print the weekly harness numbers
-  worker-ledger         Record, summarize or recommend worker tiers
   context audit         Measure injected context per session by source
   proxy calls           Count a transcript's main-thread tool calls
   strategy              Check or replay the decision log

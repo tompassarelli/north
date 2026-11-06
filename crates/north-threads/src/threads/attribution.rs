@@ -1,6 +1,6 @@
 //! Which side a finished worker run's outcome belongs to: the worker, the harness that staffed, placed, landed or
 //! gated it, or Tom. Read from the cause a boundary of the harness recorded for the run's session, else from the
-//! run's final report and its compaction count, so the ready bar, `north flow` and tier learning share one
+//! run's final report and its compaction count, so the ready bar, `north ledger flow` and tier learning share one
 //! attribution (north#706, docs/rationale/attribution.md).
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -140,7 +140,7 @@ pub fn losses(db: &Connection, since: i64) -> rusqlite::Result<Reading> {
     Ok(Reading { losses, unclaimed_usd, total_usd })
 }
 
-/// The line `north flow` prints: the five costliest harness classes of the last 24 h, the order the proxy staffs harness fixes in, and the share of usage no record or rule attributes.
+/// The line `north ledger flow` prints: the five costliest harness classes of the last 24 h, the order the proxy staffs harness fixes in, and the share of usage no record or rule attributes.
 pub fn pareto_line(ledger: &Path, now: i64) -> String {
     let read = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).and_then(|db| losses(&db, now - DAY_S));
     match read {

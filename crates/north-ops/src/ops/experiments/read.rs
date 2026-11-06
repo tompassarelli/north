@@ -1,4 +1,4 @@
-//! Readings of north flow's outcome metrics and of the incidents ledger: the outcome loop's cohort
+//! Readings of north ledger flow's outcome metrics and of the incidents ledger: the outcome loop's cohort
 //! over one window for the runs in an entry's scope, or one incident class's rows per 7 days.
 use super::registry::{Metric, Scope, Window};
 use super::verdict::Reading;

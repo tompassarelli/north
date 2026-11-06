@@ -47,8 +47,8 @@ Commands:
   land scan dep-gate|tool-removal|test-integrity|test-admission|docs-owners|doc-links BASE..HEAD  Run one landing scan on an outgoing range: the dependency gate, a removed bin tool, a plan, port, migration or order doc whose owners are all closed or that names no owner or a missing path, a README, AGENTS or docs reference the lane leaves pointing at nothing, an added mutation marker or test skip, or an added test that claims an unlisted contract category or, over the repository's verification budget, deletes fewer tests than it adds (test-admission run BASE..HEAD, a land.after line, refuses after the push an added Rust test that passes on base with the lane's non-test changes reverted; test-admission kills BASE..HEAD, a land.check line, runs cargo-mutants over the lane.s diff on a build host and refuses before landing a lane whose added tests kill none of its mutants)
   land scan denylist|commit-email|native-ref|secrets|publication ARGS  Run one outgoing-change scan: the private-value deny-list, author and committer emails, native item references, betterleaks, or all publication scans
   land clean LANE_ROOT | --sweep                 Remove a lane's cargo target after its land checks, or trim the shared cargo targets under 10 GB
-  land train record|check|red ...                Record a train verdict, a check run or a red-main interval in the threads ledger (north flow shows the tempo)
-  incident record|guard|import|report ...        Record a failure the moment it happens, the guard that closes its class, or read incidents by class, detector-first rate and recurrences (north flow prints the week)
+  land train record|check|red ...                Record a train verdict, a check run or a red-main interval in the threads ledger (north ledger flow shows the tempo)
+  ledger incident record|guard|import|report ...        Record a failure the moment it happens, the guard that closes its class, or read incidents by class, detector-first rate and recurrences (north ledger flow prints the week)
   landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
   stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
   lane squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main
@@ -84,15 +84,15 @@ Commands:
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
   context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks
-  worker-ledger [--session ID] [--backfill] | --summary [--by LIST] | --recommend FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
-  scoreboard [--record | --rework [--since 7d] | audit [--tell]] Print the weekly harness numbers for the last 7 days and the 7 days before, each from a recorded source
+  ledger worker [--session ID] [--backfill] | --summary [--by LIST] | --recommend FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
+  ledger scoreboard [--record | --rework [--since 7d] | audit [--tell]] Print the weekly harness numbers for the last 7 days and the 7 days before, each from a recorded source
   policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
   private-desktop [start|control|capture|type]   Run or control an isolated private desktop
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
   orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
   task [landed REF SHA | check REF -- CMD... | check [--dry-run] (--body-file FILE | REPO#N | --repo R)]   Record a verdict north observed itself, or tick issue boxes whose Observe: command exits 0
-  tempo [--repo NAME] [--window MINUTES] [--json] [--record]   How fast lanes reach main through the lander: landed, queued->main and first commit->main p50 and p90, refused alone, queued now; --record writes the last hour and day to the ledger (hourly timer)
+  ledger tempo [--repo NAME] [--window MINUTES] [--json] [--record]   How fast lanes reach main through the lander: landed, queued->main and first commit->main p50 and p90, refused alone, queued now; --record writes the last hour and day to the ledger (hourly timer)
   gate [open --session S --question Q --option O... --recommend N [--default N --default-after D] [--issue OWNER/REPO#N [--box TEXT]] | answer ID N [--note TEXT] | list [--json] | digest [--peek]]  Open or answer a decision gate; digest prints the for-Tom gates still open and the defaults applied since the last look
   digest [--since DURATION]  Print what landed, what is in flight, open gates with their recommendation and stalls from the fleet store
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
@@ -165,7 +165,7 @@ Commands:
   convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex]  Search and read past agent transcripts
   desktop-idle-state idle|active                Record whether Tom's desktop is idle
   evidence start RUN                            Start an evidence folder for one run
-  flow [--json] [--repo NAME]... [--stall-alarm] | row REPO [FIELD]... | detect [--dry-run]  Show the flow of work to main and its stalls
+  ledger flow [--json] [--repo NAME]... [--stall-alarm] | row REPO [FIELD]... | detect [--dry-run]  Show the flow of work to main and its stalls
   gh-app-token [--app socrates|lander] [--repos NAME,NAME [--permissions JSON]]  Mint a GitHub App installation token
   gh-broker serve [--resident]|release|quota    Serve, release or read the GitHub call broker
   gh-session REAL_GH [ARGS...]                  Run gh through the GitHub broker (gh's own --help passes through)

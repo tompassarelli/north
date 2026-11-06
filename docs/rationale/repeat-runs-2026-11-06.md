@@ -4,7 +4,7 @@ Tom asked on 2026-11-06 that north's own staffing and oversight be fixed rather 
 
 ## What the ledger counted
 
-`north worker-ledger --summary` reads `attempts` and `ok` from `crates/north-threads/src/threads/calibration/read.rs`. Runs were chained by the ledger's `item` column, which holds the issue alone (`north#360` held 110 runs that week), and a run staffed within 24 hours of an earlier run's end on the same issue was the next attempt. `attempts` is the mean of each run's position in its chain, so one long chain weighs as many times as it has runs. `ok` is `done` with no later run in the chain. So the next box on the same issue counted as a repeat of the box before it, and it also marked the earlier run not ok.
+`north ledger worker --summary` reads `attempts` and `ok` from `crates/north-threads/src/threads/calibration/read.rs`. Runs were chained by the ledger's `item` column, which holds the issue alone (`north#360` held 110 runs that week), and a run staffed within 24 hours of an earlier run's end on the same issue was the next attempt. `attempts` is the mean of each run's position in its chain, so one long chain weighs as many times as it has runs. `ok` is `done` with no later run in the chain. So the next box on the same issue counted as a repeat of the box before it, and it also marked the earlier run not ok.
 
 ## Method
 

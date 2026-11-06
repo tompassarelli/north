@@ -1,5 +1,5 @@
 //! `north threads land-train record|check|red|tempo`: one row per lane a landing train decided, per
-//! check run on a candidate, per red-main interval, and per `north tempo --record` reading. The tables
+//! check run on a candidate, per red-main interval, and per `north ledger tempo --record` reading. The tables
 //! are created here, on first write; the readers in `tempo` tolerate a ledger that has none yet.
 pub mod tempo;
 

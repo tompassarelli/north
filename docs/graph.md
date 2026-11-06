@@ -120,7 +120,7 @@ of the issue; `observed` is a commit `checker` passed):
 `north graph validate --guards DIR` runs every `DIR/*.json` as an `ask` after the soundness check. A guard is a forbidden pattern: each row
 its query answers is a finding, printed as `guard NAME: ROW`, and any finding exits 1. A query that does not parse or runs out of
 budget is an error, so a guard cannot pass by breaking. `--shadow` prints each finding as `would refuse guard NAME: ROW` and
-leaves the exit code to the soundness check alone, so a new guard runs in shadow mode before it refuses. A correction class seen twice (`north flow detect` files its box) adds its
+leaves the exit code to the soundness check alone, so a new guard runs in shadow mode before it refuses. A correction class seen twice (`north ledger flow detect` files its box) adds its
 guard as a JSON file in `harness/graph-guards/`, named for the class in `harness/corrections.toml`. The lander runs
 `north graph validate --guards harness/graph-guards --shadow` as a `land.check` on its own host (`.safe-push`), so it logs each would-be refusal
 and refuses nothing until a reviewer has read those lines (north#706 shadow-first rule) and the `--shadow` flag is dropped there; it reads that host's
