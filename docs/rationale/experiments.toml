@@ -504,3 +504,39 @@ command = "journalctl --user -u fleet-tick.service --since -24h | rg -c 'start o
 expect = "0"
 review = "2026-11-07"
 owner = "tompassarelli/north#637"
+
+[[check]]
+id = "n638-mirror-main-caller"
+box = "An hour of GitHub calls attributed by caller (from the broker's call log) shows the mirror as the main caller"
+command = "f='awk -F \"\\t\" -v s=$(( $(date +%s) - 3600 )) \"\\$1>=s && \\$3==\\\"upstream\\\" && \\$4!=304 && \\$6!~/^\\\\/rate_limit/ {print \\$2}\" \"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/north-gh-broker/calls.log\"'; { sh -c \"$f\"; for h in nexus gex45 ccx33; do ssh -o BatchMode=yes -o ConnectTimeout=10 $h \"$f\" || echo \"!$h\"; done; } | sort | uniq -c | sort -rn | awk 'NR<=6{print} NR==1{top=$2} $2~/^!/{bad=1} END{exit !(top==\"north-github-mirror.service\" && !bad)}'"
+review = "2026-11-07"
+owner = "tompassarelli/north#638"
+
+[[check]]
+id = "n638-no-bypass-hour"
+box = "The measured hour: the personal token's core use is under 1,500"
+command = "f='awk -F \"\\t\" -v s=$(( $(date +%s) - 3600 )) \"\\$1>=s && \\$3==\\\"upstream\\\" && \\$4!=304 && \\$6!~/^\\\\/(graphql|rate_limit)/ && \\$2 ~ /(\\\\.service|\\\\.scope)\\$|^[0-9]+\\$/ {print \\$2}\" \"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/north-gh-broker/calls.log\"'; { sh -c \"$f\"; for h in nexus gex45 ccx33; do ssh -o BatchMode=yes -o ConnectTimeout=10 $h \"$f\" || echo \"!$h\"; done; } | sort | uniq -c | sort -rn | awk '{n+=$1} NR<=6{print} NR==1{top=$2} $2~/^!/{bad=1} END{print \"total \" n; exit !(top==\"north-github-mirror.service\" && !bad && n<1500)}'"
+review = "2026-11-07"
+owner = "tompassarelli/north#638"
+
+[[check]]
+id = "n634-evict-keeps-land-slot"
+box = "Item: disk eviction keeps the lander's warm land-offload slot"
+command = "ssh -o BatchMode=yes -o ConnectTimeout=10 gex45 'journalctl --user --since -24h -o short | awk \"/north capacity: evicted/ { p=\\$5; if (\\$0 ~ /idle build output|compiler cache/) trimmed[p]=1; else if (\\$0 ~ /land-offload/ && !trimmed[p]) { bad++; last=\\$0 } } END { print last; print bad+0 \\\" land-offload slots evicted with no cargo-target or sccache trim in the same reaper run\\\"; exit bad>0 }\"'"
+review = "2026-11-07"
+owner = "tompassarelli/north#634"
+
+[[check]]
+id = "n682-ssh-nexus-under-2s"
+box = "Live: `ssh nexus true` through the shared master stays under 2 s"
+command = "s=$(date +%s%N); ssh -o BatchMode=yes nexus true && [ $(( ($(date +%s%N) - s) / 1000000 )) -lt 2000 ] && echo pass"
+expect = "pass"
+review = "2026-11-07"
+owner = "tompassarelli/north#682"
+
+[[check]]
+id = "n634-landing-p90-60s"
+box = "The debt-ceiling gate never freezes the queue"
+command = "v=$(north land profile --since 24h --repo north --metric landing-p90); echo \"$v\"; [ \"$v\" -le 60 ]"
+review = "2026-11-07"
+owner = "tompassarelli/north#634"
