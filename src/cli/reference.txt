@@ -175,7 +175,7 @@ Commands:
   land fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
   land red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault
   loops check [--role ledger|lander|here]       Check the declared control loops and their scores
-  pace [place|sample|grant|gate PROVIDER]       Admit or place a launch against account pace
+  pace [place|sample|gate PROVIDER]            Place a launch on a machine and account, or sample account usage
   private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]  Run the private-value checks
   provider-capacity events|status [--minutes N]  Read provider capacity events
   report                                        Print the fleet report

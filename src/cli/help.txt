@@ -14,7 +14,7 @@ Operator console:
   task                  Record a verdict, or tick boxes whose check passes
   cloud                 Launch, message, land and reap cloud sessions
   dispatch              Launch ready boxes on every free worker slot
-  pace                  Admit or place a launch against account pace
+  pace                  Place a launch on a machine and account, or sample account usage
   usage                 Read account usage
   laptop                Set or read the laptop's placement availability
   private-desktop       Run or control an isolated private desktop

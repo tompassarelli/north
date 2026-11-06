@@ -118,7 +118,7 @@ fn usage(at: f64) -> (Value, Usage) {
 
 fn window(window: &Value) -> Window {
     let text = |key: &str| window[key].as_str().map(str::to_owned);
-    Window { window: text("window"), used_pct: window["used_pct"].as_f64(), resets_at: text("resets_at"), reset_h: window["reset_h"].as_f64(), burn_pct_h: window["burn_pct_h"].as_f64() }
+    Window { window: text("window"), used_pct: window["used_pct"].as_f64(), resets_at: text("resets_at"), reset_h: window["reset_h"].as_f64() }
 }
 
 fn gate_value(usage: &Usage) -> Value {
@@ -139,7 +139,6 @@ fn gate_value(usage: &Usage) -> Value {
                     put("used_pct", window.used_pct.map(Value::from));
                     put("resets_at", window.resets_at.clone().map(Value::from));
                     put("reset_h", window.reset_h.map(Value::from));
-                    put("burn_pct_h", window.burn_pct_h.map(Value::from));
                     Value::Object(fields)
                 })
                 .collect();

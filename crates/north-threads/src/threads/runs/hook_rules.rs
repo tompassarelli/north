@@ -66,7 +66,7 @@ pub const RULES: &[Rule] = &[
     rule("worker-tier.lands-before", NeedsInput, &["needs a `Lands-before:"], FACETS),
     rule("worker-tier.background", Mechanical, &["require run_in_background: true", "worker-tier-guard: repaired"], "workers: spawn every Claude worker with run_in_background: true."),
     rule("spawn-capacity.confirm", Advice, &["spawn recording boundary miss"], ""),
-    rule("spawn-capacity", TrueBlock, &["Hold: ", "CPU pressure", "warning only, nothing blocked"], "workers: staff within the pace line `north hook spawn-gate` prints."),
+    rule("spawn-capacity", TrueBlock, &["Hold: ", "CPU pressure", "warning only, nothing blocked"], "workers: staff within the spend rule `north hook spawn-gate` prints."),
     rule("desktop-action", TrueBlock, &["Tom is using the desktop", "desktop action guard:"], "private-desktop-development: drive GUI work on the private desktop."),
     rule("clipboard", TrueBlock, &["Never read, write or clear Tom's clipboard"], "private-desktop-development: capture only with north agent-capture."),
     rule("sops-decrypt", TrueBlock, &["`sops` decrypt output"], "Keep secrets out of output: pull one value with sops --extract."),

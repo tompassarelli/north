@@ -26,22 +26,16 @@ pub fn pace_lines() -> Vec<String> {
                 .map(|w| window_line(w, Timestamp::now()))
                 .collect::<Vec<_>>()
                 .join("; ");
-            lines.push(format!(
-                "- {name}: {}; allowed_workers {}{}",
-                if windows.is_empty() {
-                    "no windows"
-                } else {
-                    &windows
-                },
-                account
-                    .get("allowed_workers")
-                    .map(Value::to_string)
-                    .unwrap_or_else(|| "undefined".into()),
-                if account["held"] == true { " held" } else { "" }
-            ));
+            lines.push(format!("- {name}: {}", if windows.is_empty() { "no windows" } else { &windows }));
         }
     }
+    lines.extend(spend_line());
     lines
+}
+fn spend_line() -> Option<String> {
+    let north = std::env::var_os("NORTH_BIN").unwrap_or_else(|| "north".into());
+    let output = std::process::Command::new(north).arg("spend").output().ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).lines().next().map(str::to_owned)).flatten()
 }
 fn window_line(w: &Value, now: Timestamp) -> String {
     let as_of = Timestamp::parse_loose(&s(w, "as_of"));

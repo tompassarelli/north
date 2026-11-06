@@ -8,10 +8,10 @@ use toml_edit::DocumentMut;
 const CODE_ONLY: &str = "Item: north#12 tidy placement\nSurface: rust\nNeeds: code\n";
 const WARCRAFT: &str = "Item: makgora#4 LAN check\nSurface: rust\nNeeds: warcraft, native\n";
 
-pub(super) fn control(five: (f64, f64, &str), week: (f64, f64)) -> Value {
+pub(super) fn control(five: (f64, &str), week: f64) -> Value {
     json!([
-        {"window": "5h", "used_pct": five.0, "burn_pct_h": five.1, "resets_at": five.2},
-        {"window": "week", "used_pct": week.0, "burn_pct_h": week.1, "resets_at": "2026-10-20T00:00:00Z"},
+        {"window": "5h", "used_pct": five.0, "resets_at": five.1},
+        {"window": "week", "used_pct": week, "resets_at": "2026-10-20T00:00:00Z"},
     ])
 }
 
@@ -50,9 +50,9 @@ pub(super) fn target(decision: &super::placement::gate::Decision) -> String {
 fn placement_never_picks_a_label_logged_into_another_labels_account() {
     let cfg: DocumentMut = "[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let quota = gate(&[
-        ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
-        ("claude:b", control((5.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
-        ("claude:c", control((70.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0))),
+        ("claude:a", control((60.0, "2026-10-16T16:00:00Z"), 20.0)),
+        ("claude:b", control((5.0, "2026-10-16T16:00:00Z"), 10.0)),
+        ("claude:c", control((70.0, "2026-10-16T16:00:00Z"), 50.0)),
     ]);
     let shared = roster(&[("a", Some("one")), ("b", Some("one")), ("c", Some("two"))]);
     let decision = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &shared), (false, String::new()), &[], "here", false);
@@ -66,7 +66,7 @@ fn needs_on_separate_lines_place_like_needs_on_one_line() {
     let cfg = "[hosts.here]\nssh = \"here\"\nserves = [\"private\", \"local-state\"]\n".parse().unwrap();
     let mut signed_in = gate::machines(&cfg);
     signed_in[0].claude_ai = vec!["c".into()];
-    let gate = gate(&[("claude:c", control((10.0, 5.0, "2026-10-16T14:00:00Z"), (30.0, 1.0)))]);
+    let gate = gate(&[("claude:c", control((10.0, "2026-10-16T14:00:00Z"), 30.0))]);
     let credit = || (true, "cloud credit: unread, expires in 19 days".to_owned());
     let place = |brief: &str| {
         let decision = decide(brief, &cfg, &gate, credit(), &signed_in, "here");
@@ -87,9 +87,9 @@ fn needs_on_separate_lines_place_like_needs_on_one_line() {
 fn placement_never_pairs_a_machine_with_a_label_not_signed_in_there() {
     let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\nserves = [\"warcraft\", \"native\"]\n[hosts.laptop]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let quota = gate(&[
-        ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
-        ("claude:b", control((5.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
-        ("claude:c", control((70.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0))),
+        ("claude:a", control((60.0, "2026-10-16T16:00:00Z"), 20.0)),
+        ("claude:b", control((5.0, "2026-10-16T16:00:00Z"), 10.0)),
+        ("claude:c", control((70.0, "2026-10-16T16:00:00Z"), 50.0)),
     ]);
     let mut machines = super::placement::gate::machines(&cfg);
     machines[0].live = Some(0);
@@ -107,7 +107,7 @@ fn placement_never_pairs_a_machine_with_a_label_not_signed_in_there() {
 #[test]
 fn a_box_never_goes_to_a_host_that_cannot_push_its_repository() {
     let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\nprivate_repos = [\"north\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\npushes = [\"north\", \"wisp\"]\n[hosts.laptop]\nresident_cap = 8\n".parse().unwrap();
-    let quota = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
+    let quota = gate(&[("claude:c", control((6.0, "2026-10-16T16:00:00Z"), 13.0))]);
     let mut machines = gate::machines(&cfg);
     machines[0].live = Some(0);
     machines[0].accounts = vec!["c".into()];
@@ -129,7 +129,7 @@ fn a_box_never_goes_to_a_host_that_cannot_push_its_repository() {
 #[test]
 fn a_needs_host_launch_runs_on_that_host_and_only_a_launch_host_with_room_takes_a_box() {
     let cfg: DocumentMut = "[placement]\norder = [\"gex45\", \"ccx33\", \"nexus\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\n[hosts.ccx33]\nresident_cap = 8\nssh = \"tom@ccx33\"\nlaunches = true\n[hosts.nexus]\nresident_cap = 6\nssh = \"tom@nexus\"\n[hosts.laptop]\nresident_cap = 8\nreaches = [\"gex45\"]\n".parse().unwrap();
-    let quota = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
+    let quota = gate(&[("claude:c", control((6.0, "2026-10-16T16:00:00Z"), 13.0))]);
     let credit = (false, "cloud credit: spent".to_owned());
     let brief = "Item: north#9 gex45 build\nSurface: rust\nNeeds: gex45\n";
     let machines = |gex45_live: i64| {
@@ -160,7 +160,7 @@ fn a_needs_host_launch_runs_on_that_host_and_only_a_launch_host_with_room_takes_
     let held = decide(code, &cfg, &quota, credit, &only_nexus, "laptop");
     assert_eq!(held.machine, None, "nexus is not a launch host even with room: {:?}", held.machine_lines);
     let cfg: DocumentMut = "[placement]\norder = [\"gex45\", \"ccx33\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\nserves = [\"native:wisp\", \"client:wisp\"]\n[hosts.ccx33]\nresident_cap = 8\nssh = \"tom@ccx33\"\nlaunches = true\nserves = []\n[hosts.whiterabbit]\nresident_cap = 8\nreaches = [\"gex45\", \"ccx33\"]\nserves = [\"native\", \"sign-ins\", \"laptop\"]\n".parse().unwrap();
-    let quota = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
+    let quota = gate(&[("claude:c", control((6.0, "2026-10-16T16:00:00Z"), 13.0))]);
     let mut machines = gate::machines(&cfg);
     for machine in &mut machines {
         machine.live = Some(0);
@@ -193,7 +193,7 @@ mod properties {
             let need = if shout { need.to_uppercase() } else { need.to_owned() };
             let text = if on_surface { format!("Item: north#12 tidy\nSurface: rust, {need}\nNeeds: code\n") } else { format!("Item: north#12 tidy\nSurface: rust\nNeeds: code, {need}\n") };
             let cfg: DocumentMut = "[hosts.here]\nserves = [\"warcraft\", \"wc3\", \"client\", \"native\", \"sign-ins\", \"private\", \"local-state\", \"tui\", \"fleet\", \"live\", \"desktop\", \"laptop\"]\n".parse().unwrap();
-            let quota = gate(&[("claude:a", control((five, 1.0, "2026-10-19T03:00:00Z"), (10.0, 1.0)))]);
+            let quota = gate(&[("claude:a", control((five, "2026-10-19T03:00:00Z"), 10.0))]);
             let decision = decide(&text, &cfg, &quota, (true, "cloud credit: unread".to_owned()), &[], "here");
             prop_assert!(!decision.code_only, "{}", decision.surface);
             prop_assert!(!matches!(decision.target, Target::Cloud(_)), "{:?}", decision.target);

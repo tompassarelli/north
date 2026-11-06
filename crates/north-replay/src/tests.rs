@@ -164,7 +164,7 @@ fn a_change_that_shifts_counts_or_places_a_launch_on_an_account_at_its_provider_
 }
 
 fn placed_case(used_5h: f64) -> placement::Case {
-    let window = |name: &str, used: f64| Window { window: Some(name.into()), used_pct: Some(used), resets_at: None, reset_h: None, burn_pct_h: None };
+    let window = |name: &str, used: f64| Window { window: Some(name.into()), used_pct: Some(used), resets_at: None, reset_h: None };
     let controls = BTreeMap::from([("claude:c".to_owned(), vec![window("5h", used_5h), window("week", 10.0)])]);
     placement::Case {
         at: NOW - 100.0,
