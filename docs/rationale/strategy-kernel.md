@@ -413,6 +413,12 @@ functions where they live through three seams (`capacity::replay::reason`, `land
   `replay_outcome_shift_ratio` refuses the change and prints both counts. A planted rule that defers
   every admission on a day where 25 of 300 calls deferred is refused as `admission DEFER_QUEUED:
   logged 25, replayed 300`.
+- **Decision diff.** Each case's replayed decision is also compared in full with its logged one:
+  placement's whole target (`account claude:c`, `cloud claude:d on gex45`, or the held reason),
+  admission's reason and the lander's judgement. Per kind the replay prints `same N, changed M`, each
+  `logged -> replayed` change with its count, most frequent first, and the three earliest changes with
+  their time and subject (the launch name, the admission ticket, the lanes judged). Counts can balance
+  while decisions move, as when two launches trade accounts; the diff shows that.
 - **Quota floor.** The account placement targets keeps `replay_five_hour_floor_points` of its
   five-hour window and `replay_week_floor_points` of its week unspent. The bounds are harness
   defaults, not the constants placement itself uses, so a change to placement's own stop cannot

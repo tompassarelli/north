@@ -18,6 +18,16 @@ fn label(target: &Target) -> &'static str {
     }
 }
 
+/// The target in full, so a change of account or of why a launch is held shows in the diff.
+fn outcome(target: &Target) -> String {
+    match target {
+        Target::Cloud { account, host, .. } => format!("cloud {account} on {host}"),
+        Target::Account(account) => format!("account {account}"),
+        Target::Held(why) => format!("held: {why}"),
+        Target::Unserved(why) => format!("unserved: {why}"),
+    }
+}
+
 /// The account placement targets, keyed as the usage controls are.
 fn account(target: &Target) -> Option<&str> {
     match target {
@@ -50,6 +60,9 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &B
             }
             let replayed = (deciders.placement)(&logged.case);
             counts.record(label(&logged.decision.target), replayed.as_ref().map(label));
+            if let Some(target) = &replayed {
+                counts.compare(logged.at, &logged.case.launch.name, &outcome(&logged.decision.target), &outcome(target));
+            }
             let Some(account) = replayed.as_ref().and_then(account) else { continue };
             github.check_github(logged.case.github.as_ref(), bounds.github_floor_calls, logged.at, || format!("launch {} is placed on {account}", logged.case.launch.name));
             for window in logged.case.usage.controls.get(account).into_iter().flatten() {

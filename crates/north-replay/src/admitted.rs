@@ -44,6 +44,7 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders) -> (Counts
             let replayed = held.get(&logged.case.snapshot).and_then(|snapshot| (deciders.admission)(snapshot.get(), &logged.case.request));
             counts.record(&label(logged.decision.reason), replayed.map(|(reason, _)| label(reason)).as_deref());
             let Some((reason, claimed)) = replayed else { continue };
+            counts.compare(logged.at, logged.case.request.ticket.as_deref().unwrap_or("-"), &label(logged.decision.reason), &label(reason));
             if logged.case.request.holds_offload_slot && claimed {
                 slot.check(reason != Reason::DeferLandCheckWaiting, || {
                     format!("{}: the {:?} lease {:?} asked from inside an offload slot is deferred behind the waiting land check, so the slot stays held", stamp(logged.at), logged.case.request.class, logged.case.request.ticket)

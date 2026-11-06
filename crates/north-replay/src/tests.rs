@@ -159,6 +159,7 @@ fn a_change_that_shifts_counts_or_places_a_launch_under_the_quota_floor_is_refus
     assert_eq!((code, quota.checked, quota.passed), (1, 4, 3));
     assert!(quota.breaches[0].contains("4 points of its five-hour window left"), "{:?}", quota.breaches);
     assert_github_floor_refuses_a_launch_placed_under_1000_calls_and_skips_unread_cases();
+    assert_a_placement_change_that_moves_launches_to_another_account_prints_each_move_beside_the_unchanged_count();
 }
 
 fn placed_case(used_5h: f64) -> placement::Case {
@@ -277,4 +278,19 @@ fn assert_github_floor_refuses_a_launch_placed_under_1000_calls_and_skips_unread
     let floor = replayed.invariants.iter().find(|invariant| invariant.name == "github-floor").unwrap();
     assert_eq!((code, floor.checked, floor.passed), (1, 2, 1));
     assert!(floor.breaches[0].contains("launch box is placed on claude:c with 900 GitHub core calls left"), "{:?}", floor.breaches);
+}
+
+fn assert_a_placement_change_that_moves_launches_to_another_account_prints_each_move_beside_the_unchanged_count() {
+    let root = tempfile::tempdir().unwrap();
+    for index in 0..5 {
+        let at = NOW - 200.0 + index as f64;
+        let case = placement::Case { launch: placement::Launch { name: format!("box{index}"), ..placed_case(20.0).launch }, ..placed_case(20.0) };
+        append(root.path(), Kind::Placement, "jsonl", at, &envelope(Kind::Placement, &format!("p{index}"), at, None, case, placed_on_c()));
+    }
+    let moves_odd = |case: &placement::Case| Some(Target::Account(if case.launch.name.ends_with(['1', '3']) { "claude:a" } else { "claude:c" }.into()));
+    let (_, replayed) = exit(root.path(), &deciders(&quiet_admission, &same_judgement, &moves_odd));
+    let placed = replayed.counts.iter().find(|counts| counts.kind == "placement").unwrap();
+    let line = placed.line();
+    assert!(line.contains("same 3, changed 2\n        2  account claude:c -> account claude:a\n  first changes:\n    2026-"), "{line}");
+    assert!(line.contains("  box1  account claude:c -> account claude:a\n") && line.ends_with("  box3  account claude:c -> account claude:a"), "{line}");
 }

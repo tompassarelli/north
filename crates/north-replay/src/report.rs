@@ -17,11 +17,33 @@ pub struct Counts {
     pub unreplayable: usize,
     pub logged: BTreeMap<String, usize>,
     pub replayed: BTreeMap<String, usize>,
+    pub same: usize,
+    pub changes: BTreeMap<String, usize>,
+    pub first: Vec<(f64, String)>,
 }
+
+const FIRST_CHANGES: usize = 3;
 
 impl Counts {
     pub fn new(kind: &'static str) -> Self {
         Self { kind, ..Self::default() }
+    }
+
+    /// Compares one replayed decision with the logged one in full, keeping the earliest changes by time.
+    pub fn compare(&mut self, at: f64, subject: &str, logged: &str, replayed: &str) {
+        if logged == replayed {
+            self.same += 1;
+            return;
+        }
+        let change = format!("{logged} -> {replayed}");
+        *self.changes.entry(change.clone()).or_default() += 1;
+        self.first.push((at, format!("{}  {subject}  {change}", stamp(at))));
+        self.keep_first();
+    }
+
+    fn keep_first(&mut self) {
+        self.first.sort_by(|a, b| a.0.total_cmp(&b.0));
+        self.first.truncate(FIRST_CHANGES);
     }
 
     pub fn record(&mut self, logged: &str, replayed: Option<&str>) {
@@ -56,12 +78,34 @@ impl Counts {
         for (label, count) in other.replayed {
             *self.replayed.entry(label).or_default() += count;
         }
+        self.same += other.same;
+        for (change, count) in other.changes {
+            *self.changes.entry(change).or_default() += count;
+        }
+        self.first.extend(other.first);
+        self.keep_first();
+    }
+
+    pub fn changed(&self) -> usize {
+        self.changes.values().sum()
     }
 
     pub fn line(&self) -> String {
         let side = |counts: &BTreeMap<String, usize>| counts.iter().map(|(label, count)| format!("{label} {count}")).collect::<Vec<_>>().join(", ");
         let skipped = if self.unreplayable == 0 { String::new() } else { format!(" ({} unreplayable)", self.unreplayable) };
-        format!("{}: {} cases{skipped}\n  logged   {}\n  replayed {}", self.kind, self.cases, side(&self.logged), side(&self.replayed))
+        let mut text = format!("{}: {} cases{skipped}\n  logged   {}\n  replayed {}\n  same {}, changed {}", self.kind, self.cases, side(&self.logged), side(&self.replayed), self.same, self.changed());
+        let mut changes: Vec<(&String, &usize)> = self.changes.iter().collect();
+        changes.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+        for (change, count) in changes {
+            text.push_str(&format!("\n    {count:>5}  {change}"));
+        }
+        if !self.first.is_empty() {
+            text.push_str("\n  first changes:");
+            for (_, change) in &self.first {
+                text.push_str(&format!("\n    {change}"));
+            }
+        }
+        text
     }
 }
 
