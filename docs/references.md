@@ -122,6 +122,20 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   tested against the binary and north's own transcripts before use, and its 225k figure for 300k at 75% did not hold
   (the binary gives 210k). Informed: [rationale/context-economics.md](rationale/context-economics.md) (north#636).
 
+- <a id="claudemd-lines-thread"></a>**An r/ClaudeCode thread asking for the one CLAUDE.md line that changed an agent's behavior most**,
+  with two model reviews of it (OpenAI and Gemini), read on 2026-11-06 from a copy (no URL kept). An unverified source
+  of ideas only: every claim in it is an anecdote, and each idea was checked against north's tree, ledger and incidents
+  before a verdict. Informed: [rationale/watch/2026-11-06-claudemd-lines.md](rationale/watch/2026-11-06-claudemd-lines.md)
+  (north#636).
+
+- <a id="stale-instruction-files"></a>**Stale Instruction Files Override the Code in Coding Agents: A One-Sentence Fix** (Xu and Wu,
+  arXiv 2610.30571, v1 2026-10-22), https://arxiv.org/abs/2610.30571, abstract read 2026-11-06. Over 40 synthetic
+  Python projects and 320 runs, Claude Code noticed the stale instruction file in 79 of 80 runs and followed it anyway;
+  one sentence giving the code precedence moved code-following choices from 4.2% to 91.4%. Informed:
+  [rationale/watch/2026-11-06-claudemd-lines.md](rationale/watch/2026-11-06-claudemd-lines.md) (north#636).
+  Outcome: the report of each conflict adopted in the fleet prompt; the code-wins precedence rejected, because north's
+  policy owners and issue plans outrank code under migration.
+
 ### Delivery and harness benchmarks
 
 - <a id="google-tap"></a>**Software Engineering at Google, chapter 23: Continuous Integration** (Winters, Manshreck and Wright, O'Reilly 2020),
