@@ -31,6 +31,8 @@ pub struct Account {
     pub home: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_file: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_file: Option<PathBuf>,
 }
 
 /// Another machine a session's provider CLI runs on, reached through `ssh`; the session host and

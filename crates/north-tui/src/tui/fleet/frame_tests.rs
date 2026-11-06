@@ -26,7 +26,7 @@ fn names(screen: &Screen) -> Vec<&str> {
 }
 
 fn account() -> Account {
-    Account { provider: ProviderName::new("claude"), label: "work".into(), home: PathBuf::from("/accounts/work"), token_file: None }
+    Account { provider: ProviderName::new("claude"), label: "work".into(), home: PathBuf::from("/accounts/work"), token_file: None, api_key_file: None }
 }
 
 #[test]

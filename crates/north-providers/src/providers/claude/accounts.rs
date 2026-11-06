@@ -18,6 +18,7 @@ pub struct Profiles {
     pub keepers: BTreeMap<String, String>,
     pub homes: Vec<(String, PathBuf)>,
     pub tokens: Vec<(String, PathBuf)>,
+    pub api_keys: Vec<(String, PathBuf, PathBuf)>,
     pub elsewhere: BTreeMap<String, Vec<String>>,
     pub default_home: PathBuf,
 }
@@ -37,14 +38,14 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
         .map(|(label, home)| {
             let identity = identity(&home, &profiles.default_home);
             let token_file = declared_token(&label).cloned();
-            (Account { provider: provider.clone(), label, home, token_file }, identity)
+            (Account { provider: provider.clone(), label, home, token_file, api_key_file: None }, identity)
         })
         .collect();
     let owned_elsewhere: Vec<(Account, Option<String>)> = profiles
         .elsewhere
         .keys()
         .filter(|label| !found.iter().any(|(account, _)| &&account.label == label))
-        .map(|label| (Account { provider: provider.clone(), label: label.clone(), home: state_root.join("profiles").join(format!("{PREFIX}{label}")), token_file: None }, None))
+        .map(|label| (Account { provider: provider.clone(), label: label.clone(), home: state_root.join("profiles").join(format!("{PREFIX}{label}")), token_file: None, api_key_file: None }, None))
         .collect();
     let tokens: Vec<(Account, Option<String>)> = profiles
         .tokens
@@ -52,9 +53,11 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
         .filter(|(label, file)| !found.iter().any(|(account, _)| &account.label == label) && readable_token(file))
         .filter_map(|(label, file)| {
             let (_, home) = profiles.homes.iter().find(|(home_label, _)| home_label == label)?;
-            Some((Account { provider: provider.clone(), label: label.clone(), home: home.clone(), token_file: Some(file.clone()) }, None))
+            Some((Account { provider: provider.clone(), label: label.clone(), home: home.clone(), token_file: Some(file.clone()), api_key_file: None }, None))
         })
         .collect();
+    let api_keys = profiles.api_keys.iter().filter(|(_, _, file)| readable_token(file)).map(|(label, home, file)| (Account { provider: provider.clone(), label: label.clone(), home: home.clone(), token_file: None, api_key_file: Some(file.clone()) }, None));
+    found.extend(api_keys);
     found.extend(tokens);
     found.extend(owned_elsewhere);
     let holders = profiles
@@ -80,7 +83,7 @@ pub fn on_machine(provider: &ProviderName, policy: &Path, home: &Path, label: &s
         owners => NorthError::Refused(format!("{}:{label} is declared for {}, not {machine}; launch on {} or another --account", provider.label(), owners.join(" and "), owners.join(" or "))),
     })?;
     let path = |key: &str| entry.get(key).and_then(Item::as_str).map(|path| expand(home, path));
-    Ok(Account { provider: provider.clone(), label: label.to_owned(), home: path("path").unwrap_or_else(|| default_home(home)), token_file: path("token_file") })
+    Ok(Account { provider: provider.clone(), label: label.to_owned(), home: path("path").unwrap_or_else(|| default_home(home)), token_file: path("token_file"), api_key_file: None })
 }
 
 pub(super) fn default_home(home: &Path) -> PathBuf {
@@ -110,7 +113,12 @@ fn profiles(policy: &DocumentMut, home: &Path, here: &str) -> Profiles {
             (!owners.is_empty() && !owners.iter().any(|owner| owner == here)).then(|| (label.to_owned(), owners))
         })
         .collect();
-    Profiles { keepers, homes, tokens, elsewhere, default_home: default_home(home) }
+    let api_keys = table("api_keys").flat_map(|(label, hosts)| {
+        let entry = hosts.get(here)?;
+        let path = |key: &str| entry.get(key)?.as_str().map(|path| expand(home, path));
+        Some((label.to_owned(), path("path")?, path("key_file")?))
+    }).collect();
+    Profiles { keepers, homes, tokens, api_keys, elsewhere, default_home: default_home(home) }
 }
 
 pub(super) fn readable_token(file: &Path) -> bool {

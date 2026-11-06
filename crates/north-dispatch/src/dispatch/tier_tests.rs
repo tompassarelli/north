@@ -107,7 +107,7 @@ fn a_hand_launched_worker_brief_with_no_arm_draws_the_context_arm_dispatch_would
         start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_| super::grounds::Grounds::default()).unwrap()
     };
     let scratch = tempfile::tempdir().unwrap();
-    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None };
+    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None, api_key_file: None };
     let window = |prompt: &str| {
         let request = LaunchRequest {
             verification: false,

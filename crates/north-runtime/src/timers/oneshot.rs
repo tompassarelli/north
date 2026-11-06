@@ -98,11 +98,12 @@ fn ambient_billing_refusal() -> Option<String> {
     read(".credentials.json").is_none_or(|credentials| credentials.get("claudeAiOauth").is_none()).then(|| "the default login is not a claude.ai subscription login".to_owned())
 }
 
-/// Asks `model` once on the subscription accounts, trying each profile in turn; an API key in the environment is unset so the call can never bill by token.
+/// Asks `model` once on the subscription accounts, trying each profile in turn; an API key in the environment is unset and the api-key account is skipped, so the call can never bill by token.
 pub(crate) fn ask_claude(model: &str, effort: &str, limit: Duration, input: &str, access: &RuntimeAccess, warn: &mut dyn FnMut(String)) -> Asked {
     let profiles = env_or("NORTH_PROFILES", || home().join(".local/state/north/profiles"));
     let accounts = crate::fleet::registry::roster(&access.runtimes).map(|roster| roster.accounts).unwrap_or_default();
-    ask(&profiles, &claude_accounts(), &mut |dir| match dir.map_or_else(ambient_billing_refusal, |_| None) {
+    let subscription: Vec<String> = claude_accounts().into_iter().filter(|label| !accounts.iter().any(|account| &account.label == label && account.api_key_file.is_some())).collect();
+    ask(&profiles, &subscription, &mut |dir| match dir.map_or_else(ambient_billing_refusal, |_| None) {
         Some(why) => Reply { code: Some(1), stdout: String::new(), stderr: why },
         None => claude_once(&account_words(dir, &accounts, access.invocation), model, effort, limit, input),
     }, warn)

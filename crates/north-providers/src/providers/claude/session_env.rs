@@ -12,6 +12,8 @@ const CONFIG_ENV: &str = "CLAUDE_CONFIG_DIR";
 const TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 const COMPACT_WINDOW_ENV: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 const READ_TOKEN: &str = r#"CLAUDE_CODE_OAUTH_TOKEN=$(cat -- "$0") || exit; export CLAUDE_CODE_OAUTH_TOKEN; exec "$@""#;
+const READ_API_KEY: &str = r#"ANTHROPIC_API_KEY=$(cat -- "$0") || exit; export ANTHROPIC_API_KEY; exec "$@""#;
+const API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
 
 fn account_env(account: &Account) -> Vec<(String, OsString)> {
     (!at_default(account)).then(|| (CONFIG_ENV.into(), account.home.clone().into())).into_iter().collect()
@@ -53,14 +55,17 @@ pub(super) fn agent_args(request: &LaunchRequest) -> Vec<String> {
 
 pub(super) fn inherited_env(account: &Account) -> Vec<String> {
     let mut inherited = vec!["CLAUDE_CODE_CHILD_SESSION".into(), TOKEN_ENV.into()];
+    inherited.extend(account.api_key_file.is_none().then(|| API_KEY_ENV.into()));
     inherited.extend(at_default(account).then(|| CONFIG_ENV.into()));
     inherited
 }
 
 pub(super) fn with_credential(account: &Account, argv: Vec<String>) -> Vec<String> {
-    match &account.token_file {
-        Some(file) => ["/bin/sh".into(), "-c".into(), READ_TOKEN.into(), file.display().to_string()].into_iter().chain(argv).collect(),
-        None => argv,
+    let wrapped = |script: &str, file: &Path| ["/bin/sh".into(), "-c".into(), script.into(), file.display().to_string()].into_iter().chain(argv.clone()).collect();
+    match (&account.token_file, &account.api_key_file) {
+        (Some(file), _) => wrapped(READ_TOKEN, file),
+        (None, Some(file)) => wrapped(READ_API_KEY, file),
+        (None, None) => argv,
     }
 }
 

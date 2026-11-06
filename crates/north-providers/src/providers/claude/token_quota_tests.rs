@@ -37,7 +37,7 @@ fn one_hung_account_read_ends_on_its_deadline_while_the_others_read() {
     let account = |label: &str, token: &str| {
         let file = home.path().join(format!("{label}.token"));
         std::fs::write(&file, format!("{token}\n")).unwrap();
-        Account { provider: ProviderName::new("claude"), label: label.into(), home: home.path().into(), token_file: Some(file) }
+        Account { provider: ProviderName::new("claude"), label: label.into(), home: home.path().into(), token_file: Some(file), api_key_file: None }
     };
     let started = Instant::now();
     let reads = read_all_from(&endpoint, Duration::from_millis(300), &[account("a", "slow-token"), account("b", "fast-token"), account("c", "fast-token")]);

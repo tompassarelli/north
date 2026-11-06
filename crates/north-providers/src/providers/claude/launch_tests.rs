@@ -35,7 +35,7 @@ fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_
     let scratch = tempfile::tempdir().unwrap();
     let token = scratch.path().join("token");
     std::fs::write(&token, "sk-test-value\n").unwrap();
-    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: Some(token) };
+    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: Some(token), api_key_file: None };
 
     let spec = Claude.host(&account, &request(), Opening::Fresh(None), "").unwrap();
 
@@ -51,7 +51,7 @@ fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_
 #[test]
 fn a_brief_on_a_context_arm_launches_claude_with_that_auto_compact_window_and_an_unarmed_brief_keeps_the_settings_window() {
     let scratch = tempfile::tempdir().unwrap();
-    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None };
+    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None, api_key_file: None };
     let window = |request: &LaunchRequest| {
         let spec = Claude.host(&account, request, Opening::Fresh(None), "").unwrap();
         spec.env.into_iter().find(|(name, _)| name == "CLAUDE_CODE_AUTO_COMPACT_WINDOW").map(|(_, value)| value.to_string_lossy().into_owned())
