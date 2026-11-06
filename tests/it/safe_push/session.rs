@@ -64,7 +64,7 @@ fn a_dead_land_check_with_orphaned_children_releases_safe_push() {
 fn a_hung_land_check_times_out_and_fails_the_push() {
     let scratch = Scratch::new();
     let (_landing, lane) = lane_with_check(&scratch, "hung-check-timeout", "sleep 40");
-    let mut running = Run::new(&scratch, &lane, &["--dry-run", "--to", "main"]).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").start();
+    let mut running = Run::new(&scratch, &lane, &["--dry-run", "--to", "main"]).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "1").start();
     let status = running.exits_within(Duration::from_secs(20));
     let output = running.output();
     if status.is_none() {
@@ -72,7 +72,7 @@ fn a_hung_land_check_times_out_and_fails_the_push() {
     }
     let status = status.unwrap_or_else(|| panic!("a hung land check held safe-push past its timeout: {output}"));
     assert!(!status.success(), "a timed out land check let the push succeed: {output}");
-    assert!(output.contains("ran past its 2 s deadline"), "missing land check timeout: {output}");
+    assert!(output.contains("ran past its 1 s deadline"), "missing land check timeout: {output}");
 }
 
 #[test]
@@ -88,14 +88,14 @@ fn a_frozen_land_check_times_out_only_after_its_timeout_plus_the_time_it_was_fro
     let mut running = Run::new(&scratch, &lane, &["--dry-run", "--to", "main"])
         .env("XDG_RUNTIME_DIR", &runtime)
         .env("AGENT_CAPACITY_LEASE", "frozen")
-        .env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2")
+        .env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "1")
         .start();
-    let deadline = "ran past its 2 s deadline";
+    let deadline = "ran past its 1 s deadline";
     assert!(wait_until(Duration::from_secs(60), || started.exists()), "the frozen land check never started");
-    std::thread::sleep(Duration::from_secs(4));
+    std::thread::sleep(Duration::from_secs(2));
     assert!(!running.output().contains(deadline), "a frozen land check was ended by its wall-clock timeout: {}", running.output());
     write(&lease, "{\"expiresAt\":5000}\n");
-    std::thread::sleep(Duration::from_millis(1600));
+    std::thread::sleep(Duration::from_millis(600));
     assert!(!running.output().contains(deadline), "a frozen land check ended before its timeout plus the time it was frozen: {}", running.output());
     let ended = wait_until(Duration::from_secs(3), || running.output().contains(deadline));
     let status = running.exits_within(Duration::from_secs(10));

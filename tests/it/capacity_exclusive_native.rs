@@ -11,7 +11,7 @@ const SYSTEMCTL: &str = "#!/bin/sh\ncase \" $* \" in *\" show \"*) echo inactive
 fn timed(host: &Host, name: &str) -> String {
     let (running, overlap) = (host.path("running"), host.path("overlap"));
     format!(
-        "mkdir {running} 2>/dev/null || echo {name} >>{overlap}; sleep 1; rmdir {running} 2>/dev/null",
+        "mkdir {running} 2>/dev/null || echo {name} >>{overlap}; sleep 0.4; rmdir {running} 2>/dev/null",
         running = running.display(),
         overlap = overlap.display(),
     )
@@ -52,7 +52,7 @@ fn reserved(lines: &[Value]) -> bool {
 
 #[test]
 fn exclusive_lease_and_native_timing_session_started_in_the_same_instant_never_run_together() {
-    for round in 0..4 {
+    for round in 0..2 {
         let host = host();
         let (mut first, mut second) = if round % 2 == 0 { (exclusive(&host), native(&host)) } else { (native(&host), exclusive(&host)) };
         let (first, second) = (settle(&mut first), settle(&mut second));

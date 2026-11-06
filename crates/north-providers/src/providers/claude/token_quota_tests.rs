@@ -40,9 +40,9 @@ fn one_hung_account_read_ends_on_its_deadline_while_the_others_read() {
         Account { provider: ProviderName::new("claude"), label: label.into(), home: home.path().into(), token_file: Some(file) }
     };
     let started = Instant::now();
-    let reads = read_all_from(&endpoint, &[account("a", "slow-token"), account("b", "fast-token"), account("c", "fast-token")]);
+    let reads = read_all_from(&endpoint, Duration::from_millis(300), &[account("a", "slow-token"), account("b", "fast-token"), account("c", "fast-token")]);
     let elapsed = started.elapsed();
-    assert!(elapsed < Duration::from_secs(15), "the run took {elapsed:?}");
+    assert!(elapsed < Duration::from_secs(5), "the run took {elapsed:?}");
     let read = |label: &str| reads.iter().find(|(read, _)| read == label).unwrap().1.clone();
     assert!(read("a").unwrap_err().contains("2 attempts"));
     assert_eq!(hung.load(Ordering::SeqCst), 2);

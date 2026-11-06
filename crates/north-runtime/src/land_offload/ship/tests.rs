@@ -235,6 +235,20 @@ fn host_with_a_shipped_bundle() -> (tempfile::TempDir, String, std::path::PathBu
     (home, head, bundle)
 }
 
+/// Blocks until `jobs` of the spawned scripts have either a ticket in the host queue or a start line in the order log.
+fn wait_until_in_line(home: &Path, log: &Path, jobs: usize) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        let queued = fs::read_dir(home.join(".cache/land-offload/queue")).map(|entries| entries.count()).unwrap_or(0);
+        let started = fs::read_to_string(log).map(|text| text.lines().filter(|line| line.starts_with("start-")).count()).unwrap_or(0);
+        if queued + started >= jobs {
+            return;
+        }
+        assert!(std::time::Instant::now() < deadline, "only {queued} queued and {started} started of {jobs} jobs");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
 #[test]
 fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
@@ -245,8 +259,10 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let jobs: Vec<std::process::Child> = ["a", "b", "c", "d"]
         .iter()
-        .map(|label| {
-            let command = format!("echo start-{label} >>{log}; sleep 0.5; echo end-{label} >>{log}", log = log.display());
+        .enumerate()
+        .map(|(index, label)| {
+            let release = home.path().join("release");
+            let command = format!("echo start-{label} >>{log}; while [ ! -e {release} ]; do sleep 0.02; done; echo end-{label} >>{log}", log = log.display(), release = release.display());
             let child = Command::new("setsid")
                 .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0"])
                 .env("HOME", home.path())
@@ -258,10 +274,11 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
                 .stderr(std::process::Stdio::null())
                 .spawn()
                 .unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(900));
+            wait_until_in_line(home.path(), &log, index + 1);
             child
         })
         .collect();
+    fs::write(home.path().join("release"), "").unwrap();
     for mut job in jobs {
         assert!(job.wait().unwrap().success());
     }
@@ -275,11 +292,11 @@ struct Queued {
     name: &'static str,
     carried: &'static str,
     red_fix: &'static str,
-    pause: u32,
+    hold: bool,
     class: super::SlotClass,
 }
 
-/// Starts each job against one host slot, 0.9 s apart so they queue in the order given, and returns the order they started and ended in.
+/// Starts each job against one host slot once the one before it is in line, so they queue in the order given; a job with `hold` stays in the slot until every job queued behind it is in line (a background hold until all others have ended), and the order they started and ended in is returned.
 fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
@@ -288,10 +305,12 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
     let log = home.path().join("order.log");
     let children: Vec<std::process::Child> = jobs
         .iter()
-        .map(|job| {
+        .enumerate()
+        .map(|(index, job)| {
             let name = job.class.slot_name(job.name);
             let script = super::remote_script(&name, job.class);
-            let command = format!("echo start-{label} >>{log}; sleep {pause}; echo end-{label} >>{log}", label = job.label, pause = job.pause, log = log.display());
+            let gate = if job.hold { format!("while [ ! -e {}/release-{} ]; do sleep 0.02; done", home.path().display(), job.label) } else { ":".to_owned() };
+            let command = format!("echo start-{label} >>{log}; {gate}; echo end-{label} >>{log}", label = job.label, log = log.display());
             let child = Command::new("setsid")
                 .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", &name, &command, "refs/land-offload/job", job.carried, "", "", "0", job.red_fix])
                 .env("HOME", home.path())
@@ -303,11 +322,18 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
                 .stderr(std::process::Stdio::null())
                 .spawn()
                 .unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(900));
+            wait_until_in_line(home.path(), &log, index + 1);
             child
         })
         .collect();
-    for mut child in children {
+    let (background, foreground): (Vec<_>, Vec<_>) = children.into_iter().zip(jobs).partition(|(_, job)| matches!(job.class, super::SlotClass::Background));
+    let release = |held: &[(std::process::Child, &Queued)]| held.iter().filter(|(_, job)| job.hold).for_each(|(_, job)| fs::write(home.path().join(format!("release-{}", job.label)), "").unwrap());
+    release(&foreground);
+    for (mut child, _) in foreground {
+        assert!(child.wait().unwrap().success());
+    }
+    release(&background);
+    for (mut child, _) in background {
         assert!(child.wait().unwrap().success());
     }
     fs::read_to_string(&log).unwrap().lines().map(str::to_owned).collect()
@@ -317,19 +343,19 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
 fn a_red_fix_then_any_land_check_takes_the_first_freed_slot_ahead_of_earlier_worker_builds_while_a_background_sweep_holds_none_of_their_slots() {
     let landing = "SAFE_PUSH_LANDING='1'";
     let order = order_through_one_slot(&[
-        Queued { label: "sweep", name: "code-p-main", carried: "", red_fix: "", pause: 8, class: super::SlotClass::Background },
-        Queued { label: "holder", name: "code-p-main", carried: "", red_fix: "", pause: 3, class: super::SlotClass::LandCheck },
-        Queued { label: "worker", name: "code-p-main", carried: "", red_fix: "", pause: 1, class: super::SlotClass::LandCheck },
-        Queued { label: "land", name: "code-p-main", carried: landing, red_fix: "", pause: 1, class: super::SlotClass::LandCheck },
-        Queued { label: "red-fix", name: "code-p-main", carried: landing, red_fix: "1", pause: 1, class: super::SlotClass::LandCheck },
+        Queued { label: "sweep", name: "code-p-main", carried: "", red_fix: "", hold: true, class: super::SlotClass::Background },
+        Queued { label: "holder", name: "code-p-main", carried: "", red_fix: "", hold: true, class: super::SlotClass::LandCheck },
+        Queued { label: "worker", name: "code-p-main", carried: "", red_fix: "", hold: false, class: super::SlotClass::LandCheck },
+        Queued { label: "land", name: "code-p-main", carried: landing, red_fix: "", hold: false, class: super::SlotClass::LandCheck },
+        Queued { label: "red-fix", name: "code-p-main", carried: landing, red_fix: "1", hold: false, class: super::SlotClass::LandCheck },
     ]);
     assert_eq!(order, ["start-sweep", "start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-land", "end-land", "start-worker", "end-worker", "end-sweep"], "each queued after the worker build and still took the slot first, the red fix ahead of the land check, while the sweep ran in its own slot outside the one-job cap");
 }
 
 #[test]
 fn repositories_with_jobs_queued_for_one_slot_take_it_in_turn_instead_of_one_draining_first() {
-    let job = |label, name, pause| Queued { label, name, carried: "", red_fix: "", pause, class: super::SlotClass::LandCheck };
-    let order = order_through_one_slot(&[job("p-holder", "code-p-main", 6), job("p-2", "code-p-main", 1), job("p-3", "code-p-main", 1), job("q-1", "code-q-main", 1), job("q-2", "code-q-main", 1)]);
+    let job = |label, name, hold| Queued { label, name, carried: "", red_fix: "", hold, class: super::SlotClass::LandCheck };
+    let order = order_through_one_slot(&[job("p-holder", "code-p-main", true), job("p-2", "code-p-main", false), job("p-3", "code-p-main", false), job("q-1", "code-q-main", false), job("q-2", "code-q-main", false)]);
     assert_eq!(order, ["start-p-holder", "end-p-holder", "start-q-1", "end-q-1", "start-p-2", "end-p-2", "start-q-2", "end-q-2", "start-p-3", "end-p-3"], "q queued behind both of p's jobs and still ran before p's second");
 }
 

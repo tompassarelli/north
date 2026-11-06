@@ -32,34 +32,34 @@ pub fn token_accounts(policy: &Path, home: &Path) -> Vec<Account> {
 }
 
 pub fn read_all(accounts: &[Account]) -> Vec<Headers> {
-    read_all_from(MESSAGES, accounts)
+    read_all_from(MESSAGES, ATTEMPT, accounts)
 }
 
-fn read_all_from(endpoint: &str, accounts: &[Account]) -> Vec<Headers> {
+fn read_all_from(endpoint: &str, limit: Duration, accounts: &[Account]) -> Vec<Headers> {
     std::thread::scope(|scope| {
         let reads: Vec<_> = accounts
             .iter()
-            .map(|account| (account.label.clone(), scope.spawn(move || account.token_file.as_deref().ok_or_else(|| "account has no token file".to_owned()).and_then(|file| fetch_headers(endpoint, file)))))
+            .map(|account| (account.label.clone(), scope.spawn(move || account.token_file.as_deref().ok_or_else(|| "account has no token file".to_owned()).and_then(|file| fetch_headers(endpoint, limit, file)))))
             .collect();
         reads.into_iter().map(|(label, read)| (label, read.join().unwrap_or_else(|_| Err("header read panicked".into())))).collect()
     })
 }
 
-fn fetch_headers(endpoint: &str, token_file: &Path) -> Result<String, String> {
+fn fetch_headers(endpoint: &str, limit: Duration, token_file: &Path) -> Result<String, String> {
     let token = std::fs::read_to_string(token_file).map_err(|error| format!("token file: {error}"))?;
     let config = curl_config(token.trim())?;
     let mut failure = String::new();
     for _ in 0..ATTEMPTS {
-        match attempt(endpoint, &config, token.trim()) {
+        match attempt(endpoint, limit, &config, token.trim()) {
             Ok(headers) => return Ok(headers),
             Err(error) => failure = error,
         }
     }
-    Err(format!("{failure} ({ATTEMPTS} attempts of {}s)", ATTEMPT.as_secs()))
+    Err(format!("{failure} ({ATTEMPTS} attempts of {}s)", limit.as_secs_f64()))
 }
 
-fn attempt(endpoint: &str, config: &str, token: &str) -> Result<String, String> {
-    let limit = ATTEMPT.as_secs().to_string();
+fn attempt(endpoint: &str, limit: Duration, config: &str, token: &str) -> Result<String, String> {
+    let limit = limit.as_secs_f64().to_string();
     let mut child = Command::new("curl")
         .args(["--silent", "--show-error", "--connect-timeout", &limit, "--max-time", &limit, "--config", "-", "--request", "POST", "--dump-header", "-", "--output", "/dev/null", "--data-binary", MINIMAL_TURN, endpoint])
         .stdin(Stdio::piped())
