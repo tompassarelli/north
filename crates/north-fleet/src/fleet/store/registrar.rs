@@ -2,16 +2,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{NorthError, NorthResult};
 
-use super::{Claim, SessionRow, Store};
+use super::{Claim, SessionRow, Slots, Store};
 
 pub trait Registrar: Send + Sync {
-    fn register(&self, row: &SessionRow, claim: Claim) -> NorthResult<()>;
+    fn register(&self, row: &SessionRow, claim: Claim, slots: &Slots) -> NorthResult<()>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Registration {
     pub row: SessionRow,
     pub claim: Claim,
+    #[serde(default)]
+    pub slots: Slots,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -22,7 +24,7 @@ pub struct Registered {
 impl Store {
     pub fn serve_registration(&mut self, input: &[u8]) -> NorthResult<Registered> {
         let registration: Registration = serde_json::from_slice(input)?;
-        match self.register(&registration.row, registration.claim) {
+        match self.register(&registration.row, registration.claim, &registration.slots) {
             Ok(()) => Ok(Registered::default()),
             Err(NorthError::Refused(why)) => Ok(Registered { refused: Some(why) }),
             Err(error) => Err(error),

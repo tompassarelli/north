@@ -97,6 +97,7 @@ impl LaunchFlags {
             role: self.role,
             resume: None,
             compact_window: None,
+            slots: Default::default(),
         })
     }
 }

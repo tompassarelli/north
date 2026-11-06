@@ -44,7 +44,7 @@ impl Fleet {
         let tasks = request.tasks();
         let mut record = SessionRecord::launched(request, effort, conversation.clone(), verification, now_ms());
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
-        self.registrar.register(&row, claim)?;
+        self.registrar.register(&row, claim, &request.slots)?;
         let predecessor = self.retire_for(&request.name, claim)?;
         record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
         self.claim_before_start(request, &tasks, verification)?;

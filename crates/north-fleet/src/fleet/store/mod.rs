@@ -23,7 +23,7 @@ pub use exchange::{Addressee, Exchange, Exchanged, LedgerHost};
 pub use remote::{FarRegistry, FarSpools, Handed, HandedRow, OverSsh, Pull, Undecodable, UnknownKind, drop_with, set_aside_with, take_with};
 pub use row::{AnswerPayload, ControlVerb, FleetRow, JobPayload, RowKind};
 pub use registrar::{Registered, Registrar, Registration};
-pub use sessions::{Claim, SessionRow};
+pub use sessions::{Claim, SessionRow, Slots};
 pub use spool::{SPOOL_DIR, Spool, Spooled};
 pub use waits::{JOB_LEASE_SECS, WaitKey, WaitKind, WaitRequest, WaitRow};
 
@@ -66,9 +66,9 @@ impl Store {
         tx.commit().map_err(sql)
     }
 
-    pub fn register(&mut self, row: &SessionRow, claim: Claim) -> NorthResult<()> {
+    pub fn register(&mut self, row: &SessionRow, claim: Claim, slots: &Slots) -> NorthResult<()> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
-        sessions::register(&tx, row, claim)?;
+        sessions::register(&tx, row, claim, slots)?;
         tx.commit().map_err(sql)
     }
 

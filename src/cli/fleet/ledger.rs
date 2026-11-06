@@ -3,7 +3,7 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::jobs::JobLeases;
 use crate::fleet::model::Machine;
-use crate::fleet::store::{Claim, Exchange, Exchanged, LedgerHost, Registered, Registrar, Registration, SessionRow, Store, WaitKey};
+use crate::fleet::store::{Claim, Exchange, Exchanged, LedgerHost, Registered, Registrar, Registration, SessionRow, Slots, Store, WaitKey};
 use crate::threads::client;
 
 const EXCHANGED: &[&str] = &["north", "fleet", "row", "exchange"];
@@ -41,8 +41,8 @@ impl LedgerRegistrar {
 }
 
 impl Registrar for LedgerRegistrar {
-    fn register(&self, row: &SessionRow, claim: Claim) -> NorthResult<()> {
-        let registration = serde_json::to_vec(&Registration { row: row.clone(), claim })?;
+    fn register(&self, row: &SessionRow, claim: Claim, slots: &Slots) -> NorthResult<()> {
+        let registration = serde_json::to_vec(&Registration { row: row.clone(), claim, slots: slots.clone() })?;
         let answer = client::ask_ledger_host(REGISTER, &registration)
             .map_err(|error| NorthError::Refused(format!("a launch registers {} in the fleet store on the ledger host first, and it did not answer: {}", row.name, error.user_message())))?;
         match answer {
@@ -51,7 +51,7 @@ impl Registrar for LedgerRegistrar {
                 "{} runs only the CLIs other hosts place on it and keeps no fleet registry of its own, so it cannot register {}; launch from the host that places work here",
                 row.host, row.name
             ))),
-            None => Store::open(&client::ledger_path()?)?.register(row, claim),
+            None => Store::open(&client::ledger_path()?)?.register(row, claim, slots),
         }
     }
 }

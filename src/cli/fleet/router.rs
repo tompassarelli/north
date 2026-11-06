@@ -210,6 +210,7 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     }
     (request.placement, request.capacity_need) = (governor::noted(overlap::noted(duplicate::noted(fleet, &request, &overrides, placed.note)?, overlap_ok.as_deref()), staffing_ok.as_deref()), placed.need);
     request.machine = placed.machine.or(request.machine);
+    request.slots = placed.slots;
     if !take_over {
         governor::guard(fleet, &request, staffing_ok.as_deref(), lineage::from_proxy(fleet, caller.as_deref()))?;
     }

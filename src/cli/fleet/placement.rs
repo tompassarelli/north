@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{LaunchRequest, Machine, Role};
 use crate::fleet::registry::Fleet;
+use crate::fleet::store::Slots;
 use crate::fleet::roster::Roster;
 use crate::dispatch::{cloud_autoland, cloud_branch};
 use crate::pacing::placement::case;
@@ -58,6 +59,7 @@ pub(super) struct Placed {
     pub note: Option<String>,
     pub machine: Option<Machine>,
     pub need: Option<String>,
+    pub slots: Slots,
 }
 
 #[derive(Clone, Copy)]
@@ -114,18 +116,26 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrid
     if placed.is_err() {
         return Ok(placed);
     }
-    Ok(spend_refusal(request, &text, &fleet.roster()).map_or(placed, |why| Err(Refusal::Spend(why))))
+    let starter = if request.role == Some(Role::Proxy) || text.contains("[routine:") { Starter::Reserved } else { Starter::Worker };
+    let rules = match spend_refusal(request, starter, &fleet.roster()) {
+        Ok(rules) => rules,
+        Err(why) => return Ok(Err(Refusal::Spend(why))),
+    };
+    Ok(placed.map(|placed| if starter == Starter::Worker { Placed { slots: slots(fleet, placed.machine.as_ref().or(request.machine.as_ref()), &rules), ..placed } } else { placed }))
 }
 
 /// The spend rule on this launch: a worker meets the cap, the pooled reserve and its account's
 /// tripwire; the proxy and a scheduled routine may use the reserve, so they meet the provider's limit alone.
-fn spend_refusal(request: &LaunchRequest, text: &str, roster: &Roster) -> Option<String> {
-    let starter = if request.role == Some(Role::Proxy) || text.contains("[routine:") { Starter::Reserved } else { Starter::Worker };
-    let (view, rules) = match crate::dispatch::spend_now(roster) {
-        Ok(read) => read,
-        Err(why) => return Some(format!("spend view unread: {why}")),
-    };
-    view.admit(&rules, &format!("claude:{}", request.account), starter, spend::Placed::default()).err().map(|refusal| refusal.to_string())
+fn spend_refusal(request: &LaunchRequest, starter: Starter, roster: &Roster) -> Result<spend::Rules, String> {
+    let (view, rules) = crate::dispatch::spend_now(roster).map_err(|why| format!("spend view unread: {why}"))?;
+    view.admit(&rules, &format!("claude:{}", request.account), starter, spend::Placed::default()).map_err(|refusal| refusal.to_string())?;
+    Ok(rules)
+}
+
+fn slots(fleet: &Fleet, machine: Option<&Machine>, rules: &spend::Rules) -> Slots {
+    let machine = machine.map_or_else(|| fleet.host().to_owned(), |machine| machine.name.clone());
+    let cap = crate::pacing::placement::config().ok().and_then(|cfg| cfg.get("hosts")?.get(&machine)?.get("resident_cap")?.as_integer()).and_then(|cap| usize::try_from(cap).ok());
+    Slots { workers: Some(rules.cap), resident: cap.map(|cap| (machine, cap)) }
 }
 
 /// Runs live placement, prints one verdict line per account and machine when `report`, and returns where to run.
@@ -258,7 +268,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
     if let Some(reason) = &overrides.tier {
         notes.push(format!("tier: {reason}"));
     }
-    Ok(Placed { account: None, note: (!notes.is_empty()).then(|| notes.join("; ")), machine, need: gate::capacity_need(text) })
+    Ok(Placed { account: None, note: (!notes.is_empty()).then(|| notes.join("; ")), machine, need: gate::capacity_need(text), slots: Slots::default() })
 }
 
 fn not_signed_in(decision: &Decision, machine: &gate::Machine, account: &str) -> String {

@@ -25,7 +25,12 @@ fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit` or `no u
    fleet session in status `starting` or `working`, other than the proxy and adopted windows, counted once per
    name across every registry the caller surveys (dispatch and `north fleet launch` survey every host's
    `north fleet list --json`), plus this run's own placements. An idle or parked session spends nothing and
-   lands nothing, so it does not count. The cap is set from the hosts' resident capacity and tuned from
+   lands nothing, so it does not count. A survey is read before its run launches, so two spawners on two
+   hosts could both pass it: a worker launch therefore also carries the cap to the ledger host, which counts
+   the fleet table's starting and working rows (less the proxy and adopted windows) in the same transaction
+   that registers the name, and refuses it there with `spend cap`. The same registration counts the rows on
+   the machine the worker runs on against that machine's `resident_cap` and refuses with `resident cap`.
+   The cap is set from the hosts' resident capacity and tuned from
    measured landing contention (conflicts, slot waits, rework), never from usage.
 3. **Tripwire.** No new worker starts on an account while either holds:
    - the account's five-hour window rose more than `spend_trip_fleet_points` within `spend_trip_fleet_min`

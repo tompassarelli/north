@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{NorthError, NorthResult};
 
 use super::super::model::Status;
+use super::super::runtime::PROXY;
 use super::schema::sql;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -52,7 +53,8 @@ pub enum Claim {
     TakeOver,
 }
 
-pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim) -> NorthResult<()> {
+pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim, slots: &Slots) -> NorthResult<()> {
+    refuse_past(tx, row, slots)?;
     let guard = match claim {
         Claim::Fresh => "fleet_sessions.status = ?6 OR fleet_sessions.host = excluded.host",
         Claim::TakeOver => "1",
@@ -63,6 +65,33 @@ pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim) -> Nort
     let (host, status): (String, String) =
         tx.query_row("SELECT host, status FROM fleet_sessions WHERE name = ?1", [&row.name], |held| Ok((held.get(0)?, held.get(1)?))).map_err(sql)?;
     Err(NorthError::Refused(format!("the session name {} is held fleet-wide by a {status} session on {host}", row.name)))
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Slots {
+    pub workers: Option<usize>,
+    pub resident: Option<(String, usize)>,
+}
+
+const ACTIVE: &str = "status IN ('starting', 'working') AND name != ?1";
+
+fn refuse_past(tx: &Transaction, row: &SessionRow, slots: &Slots) -> NorthResult<()> {
+    let count = |filter: &str, value: &str| -> NorthResult<usize> {
+        tx.query_row(&format!("SELECT count(*) FROM fleet_sessions WHERE {ACTIVE} AND {filter}"), params![row.name, value], |found| found.get::<_, i64>(0)).map(|found| usize::try_from(found).unwrap_or(usize::MAX)).map_err(sql)
+    };
+    if let Some(cap) = slots.workers {
+        let working = count("name != ?2 AND COALESCE(placement, '') NOT LIKE 'adopted window%'", PROXY)?;
+        if working >= cap {
+            return Err(NorthError::Refused(format!("spend cap: {working} worker sessions are starting or working across the fleet, the cap is {cap}")));
+        }
+    }
+    if let Some((machine, cap)) = &slots.resident {
+        let resident = count("COALESCE(machine, host) = ?2", machine)?;
+        if resident >= *cap {
+            return Err(NorthError::Refused(format!("resident cap: {resident} sessions are starting or working on {machine}, its resident cap is {cap}")));
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn publish(tx: &Transaction, rows: &[SessionRow], outranks: &[String]) -> NorthResult<Vec<String>> {

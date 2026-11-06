@@ -38,18 +38,6 @@ fn a_batch_with_one_invalid_row_commits_nothing() {
 }
 
 #[test]
-fn a_launch_claims_a_new_name_and_is_refused_while_a_session_of_that_name_is_not_exited() {
-    let (_directory, path) = ledger();
-    let mut store = Store::open(&path).unwrap();
-
-    store.register(&session("sc-1", "nexus", "working"), Claim::Fresh).unwrap();
-    let Err(NorthError::Refused(why)) = store.register(&session("sc-1", "gex45", "starting"), Claim::Fresh) else { panic!("a live name was claimed twice") };
-
-    assert_eq!(why, "the session name sc-1 is held fleet-wide by a working session on nexus");
-    assert_eq!(store.sessions().unwrap(), [session("sc-1", "nexus", "working")]);
-}
-
-#[test]
 fn withdrawing_many_ids_removes_exactly_those_rows_ignores_unknown_ids_and_refuses_a_path_like_id_whole() {
     let root = tempfile::tempdir().unwrap();
     let spool = Spool::at(root.path());
@@ -99,4 +87,27 @@ fn a_stopped_session_still_receives_the_answer_to_its_open_gate_but_no_message()
     let exchanged = store.exchange(&Exchange { addressees: vec![Addressee { name: "sc-1".into(), stopped: true, ..Addressee::default() }], ..Exchange::default() }).unwrap();
 
     assert_eq!(exchanged.rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["a-1"]);
+}
+
+#[test]
+fn a_registration_is_refused_for_a_live_name_past_its_machine_resident_cap_and_past_the_fleet_spend_cap() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let worker = |name: &str, host: &str, machine: Option<&str>| SessionRow { machine: machine.map(str::to_owned), ..session(name, host, "starting") };
+    let slots = |machine: &str, cap: usize| Slots { workers: Some(12), resident: Some((machine.to_owned(), cap)) };
+    for at in 0..6 {
+        store.register(&worker(&format!("north-{at}"), "nexus", Some("ccx33")), Claim::Fresh, &slots("ccx33", 6)).unwrap();
+    }
+    store.register(&session("proxy", "whiterabbit", "working"), Claim::Fresh, &Slots::default()).unwrap();
+
+    let Err(NorthError::Refused(resident)) = store.register(&worker("north-6", "whiterabbit", Some("ccx33")), Claim::Fresh, &slots("ccx33", 6)) else { panic!("a seventh session started on a machine whose resident cap is 6") };
+    for at in 6..12 {
+        store.register(&worker(&format!("north-{at}"), "whiterabbit", None), Claim::Fresh, &slots("whiterabbit", 7)).unwrap();
+    }
+    let Err(NorthError::Refused(cap)) = store.register(&worker("north-12", "nexus", Some("gex45")), Claim::Fresh, &slots("gex45", 8)) else { panic!("a thirteenth worker started under a cap of 12") };
+    let Err(NorthError::Refused(held)) = store.register(&session("north-0", "whiterabbit", "starting"), Claim::Fresh, &Slots::default()) else { panic!("a live name was claimed twice") };
+
+    assert_eq!(resident, "resident cap: 6 sessions are starting or working on ccx33, its resident cap is 6");
+    assert_eq!(cap, "spend cap: 12 worker sessions are starting or working across the fleet, the cap is 12");
+    assert_eq!(held, "the session name north-0 is held fleet-wide by a starting session on nexus");
 }

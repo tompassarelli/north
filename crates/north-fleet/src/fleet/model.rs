@@ -6,6 +6,7 @@ use crate::error::{NorthError, NorthResult};
 
 pub use super::effort::Effort;
 use super::prompt::PromptMode;
+use super::store::Slots;
 use super::sender::Sender;
 use super::turns::{Turn, Turns};
 
@@ -69,6 +70,8 @@ pub struct LaunchRequest {
     /// The auto-compact window a relaunch keeps from the session it restarts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_window: Option<u64>,
+    #[serde(default)]
+    pub slots: Slots,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -374,6 +377,7 @@ impl SessionRecord {
             role: Some(self.role()),
             resume: None,
             compact_window: self.compact_window,
+            slots: Default::default(),
         }
     }
 }
