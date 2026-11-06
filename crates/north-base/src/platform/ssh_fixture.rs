@@ -11,6 +11,13 @@ pub fn which(program: &str) -> String {
 
 const MARKER: &str = "NORTH_SSH_TEST_UNIT";
 
+// Cranelift test builds run no destructors when a test panics, so each daemon dies with its test thread, not in Fixture::drop.
+fn daemon(program: &str) -> Command {
+    let mut command = Command::new("setpriv");
+    command.args(["--pdeathsig", "KILL", "--", program]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command
+}
+
 pub struct Fixture {
     pub dir: tempfile::TempDir,
     pub runtime: tempfile::TempDir,
@@ -40,7 +47,7 @@ impl Fixture {
             key = path.join("client").display(), control = runtime.path().display(),
         );
         std::fs::write(path.join("ssh_config"), client_config).unwrap();
-        let sshd = Command::new(which("sshd")).args(["-D", "-f"]).arg(path.join("sshd_config")).stderr(Stdio::null()).spawn().unwrap();
+        let sshd = daemon(&which("sshd")).args(["-D", "-f"]).arg(path.join("sshd_config")).spawn().unwrap();
         let fixture = Self { dir, runtime, sshd, units: Vec::new() };
         let probe = Instant::now();
         while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
@@ -67,7 +74,7 @@ impl Fixture {
 
     pub fn unit(&mut self, name: &str, words: &[String]) -> String {
         let marker = format!("{name}-{}", std::process::id());
-        let child = Command::new(&words[0]).args(&words[1..]).env(MARKER, &marker).stdout(Stdio::null()).spawn().unwrap();
+        let child = daemon(&words[0]).args(&words[1..]).env(MARKER, &marker).spawn().unwrap();
         self.units.push((marker.clone(), child));
         marker
     }
@@ -122,3 +129,6 @@ pub fn master_words(fixture: &Fixture) -> Vec<String> {
     words
 }
 
+
+#[path = "ssh_fixture_tests.rs"]
+mod tests;
