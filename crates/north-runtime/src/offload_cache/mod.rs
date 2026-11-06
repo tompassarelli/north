@@ -183,14 +183,16 @@ pub fn tick() {
         return;
     }
     let Some(home) = home() else { return };
+    let before = disk_of(&home);
     let (evicted, Some(disk)) = evict_here(&home, &mut || disk_of(&home)) else { return };
+    let peak = before.map_or(disk.used_percent, |before| before.used_percent.max(disk.used_percent));
     let marker = crate::capacity::agent_load::capacity_root().join(EPISODE_FILE);
     let open = fs::read_to_string(&marker).ok();
     let host = crate::platform::host::name();
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    match episode(disk.used_percent, open.as_deref().map(str::trim), &host, now) {
+    match episode(peak, open.as_deref().map(str::trim), &host, now) {
         Episode::Open(key) => {
-            let detail = format!("{host} root disk at {:.0}% ({:.0} GiB free) after evicting {} unlocked offload slots", disk.used_percent, disk.free_gib, evicted.len());
+            let detail = format!("{host} root disk at {peak:.0}%, {:.0}% ({:.0} GiB free) after evicting {} unlocked offload slots", disk.used_percent, disk.free_gib, evicted.len());
             if record(&key, &host, &detail) {
                 let _ = marker.parent().map(fs::create_dir_all);
                 let _ = fs::write(&marker, key);
