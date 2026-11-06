@@ -211,13 +211,9 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         governor::guard(fleet, &request, staffing_ok.as_deref(), lineage::from_proxy(fleet, caller.as_deref()))?;
     }
     let tasks = request.tasks();
-    fleet.release_exited_claims_on(&tasks).map_err(|error| {
-        let why = match error {
-            NorthError::State(why) | NorthError::Refused(why) => why,
-            other => other.user_message(),
-        };
-        NorthError::Refused(format!("{} launched nothing, because the ledger did not say who holds {}: {why}", request.name, tasks.join(" ")))
-    })?;
+    if let Err(error) = fleet.release_exited_claims_on(&tasks) {
+        eprintln!("north fleet: {} launches with its holder check left to its claim, because the ledger did not say who holds {}: {}", request.name, tasks.join(" "), error.user_message());
+    }
     let record = if take_over { fleet.take_over(&request)? } else { fleet.launch(&request)? };
     tier::recorded(started, &request, &record.name);
     println!("{}", record.name);

@@ -70,7 +70,7 @@ impl Fleet {
         self.root.join(CLAIMS_SWEEP_LOG)
     }
 
-    /// Reads who holds each of a launch's `items`, and only those, clearing any claim an exited session left on them; an unread ledger is an error before the launch makes anything.
+    /// Reads who holds each of a launch's `items`, and only those, clearing any claim an exited session left on them; an unread ledger is an error the launch reports and leaves to its claim.
     pub fn release_exited_claims_on(&self, items: &[String]) -> NorthResult<usize> {
         if items.is_empty() {
             return Ok(0);

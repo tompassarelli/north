@@ -130,3 +130,28 @@ fn a_launch_whose_provider_exits_before_the_host_registers_leaves_no_session_dir
     assert!(sent.status.success(), "{}", text(&sent.stderr));
     assert!(answered(&shown), "the relaunched session never answered the message: {shown}");
 }
+
+#[test]
+fn a_launch_starts_while_the_ledger_host_is_too_loaded_to_say_who_holds_its_task() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    fs::create_dir_all(root.join(".config/threads")).unwrap();
+    fs::write(root.join(".config/threads/remote"), "loaded-ledger-host\n").unwrap();
+    fs::create_dir_all(root.join(".local/state/threads")).unwrap();
+    fs::copy(root.join("threads.db"), root.join(".local/state/threads/snapshot.db")).unwrap();
+    executable(&root.join("bin/north"), &format!("exec {} \"$@\"\n", env!("CARGO_BIN_EXE_north")));
+    executable(&root.join("bin/ssh"), &format!("for word; do command=$word; done\ncase $command in *holder*) sleep 3;; esac\nTHREADS_DB={} exec sh -c \"$command\"\n", root.join("threads.db").display()));
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    let brief = brief.display().to_string();
+    let far_ledger = |args: &[&str]| environment(Command::new(env!("CARGO_BIN_EXE_north")), root, "here").env_remove("THREADS_DB").args(args).output().unwrap();
+
+    let launched = far_ledger(&["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--test", "--task", "makgora#4", "--system-prompt", &brief, "start the box"]);
+    let listed = text(&north(root, &["fleet", "list"]).stdout);
+    north(root, &["fleet", "forget", "narrow"]);
+
+    assert!(launched.status.success(), "{}", text(&launched.stderr));
+    assert!(text(&launched.stderr).contains("narrow launches with its holder check left to its claim, because the ledger did not say who holds makgora#4"), "{}", text(&launched.stderr));
+    assert!(listed.contains("narrow"), "{listed}");
+}
