@@ -1,6 +1,11 @@
 [unstable]
 codegen-backend = true
 profile-rustflags = true
+feature-unification = true
+
+# Every package set resolves dependency features as --workspace does, so a -p check reuses the artifacts a workspace check left in its slot.
+[resolver]
+feature-unification = "workspace"
 
 [profile.dev]
 codegen-backend = "cranelift"
