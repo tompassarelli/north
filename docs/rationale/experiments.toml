@@ -443,3 +443,42 @@ min_n = 1
 after = ["2026-11-07", "2026-12-07"]
 review = "2026-12-09"
 owner = "tompassarelli/north#636"
+
+[[experiment]]
+id = "drift-report-line"
+change = "The fleet prompt tells every session to follow the side of a doc and code conflict that owns the decision (its policy owner, the issue's plan, else the code) and to give each conflict one Drift: line in its report"
+landed = "a3ecc7a51"
+metric = "none"
+measure = "Drift: lines in fleet session reports from 2026-11-07 to 2026-11-21 and how many led to a landed fix of the stale side within 7 days: keep the line at 3 or more such fixes, drop it at none"
+direction = "up"
+bar = 3.0
+min_n = 0
+after = ["2026-11-07", "2026-11-21"]
+review = "2026-11-23"
+owner = "tompassarelli/north#636"
+
+[[experiment]]
+id = "read-batch-brief-line"
+change = "Proposed brief line: before the first edit, read the files the brief names and the tests that cover them in one batch of parallel reads; not live until it runs as a policy climber brief-generation arm"
+landed = "9b03a98ae"
+metric = "none"
+measure = "a policy climber brief-generation arm adding the line to a seeded half of dispatched feature, bug-known-cause and tooling boxes, stamped Arm: read-batch, against the other half: put the line in every brief if the arm's cost per kept box is at least 15% lower at 15 closed boxes each with a kept share no lower, else drop it"
+direction = "down"
+bar = 0.15
+min_n = 15
+after = ["2026-11-07", "2026-12-07"]
+review = "2026-12-09"
+owner = "tompassarelli/north#636"
+
+[[experiment]]
+id = "fresh-diff-reviewer"
+change = "Proposed: a fresh-context Haiku reviewer reads each lane's brief and diff before enqueue; not live until its replay passes"
+landed = "9b03a98ae"
+metric = "none"
+measure = "replay on 20 north worker runs that ended Done from 2026-10-30 to 2026-11-13 whose work a later commit redid (a revert, a lead REJECT, or a fix commit touching the same files within 7 days) and 20 kept runs of the same dates, one fresh Haiku reviewer per run given only the brief and the landed diff, blind and shuffled: add a Haiku review before enqueue if it names the redone gap in at least 30% of the redone runs and flags at most 2 of the 20 kept runs, else record the numbers and change nothing"
+direction = "up"
+bar = 0.3
+min_n = 40
+after = ["2026-11-14", "2026-11-21"]
+review = "2026-11-23"
+owner = "tompassarelli/north#636"
