@@ -3,7 +3,7 @@ use std::path::Path;
 
 use super::model::{Credential, Kind, Renewal};
 use super::renew::{Effects, tick};
-use super::{DAY, World, registry};
+use super::{DAY, World, cookies, declared, registry};
 
 const NOW: u64 = 1_800_000_000;
 const SECRET: &str = "sk-ant-oat01-NEVER-PRINT-ME";
@@ -209,4 +209,47 @@ fn dry_run_changes_nothing() {
 fn declarations_reject_a_renewal_that_is_not_never_tom_or_run() {
     let source = "[[credential]]\nsource = \"secrets/a.yaml\"\nuse = \"x\"\nkind = \"machine\"\nrenewal = \"sometimes\"\n";
     assert!(super::declared::parse(source).unwrap_err().contains("not never"));
+}
+
+#[test]
+fn import_cookies_moves_a_declared_site_re_encrypted_and_refuses_another() {
+    use aes::cipher::{BlockEncryptMut, KeyIvInit, block_padding::Pkcs7};
+    use sha2::{Digest, Sha256};
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = |name: &str| {
+        let path = directory.path().join(name).join("Default/Cookies");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection.execute_batch("CREATE TABLE meta (key TEXT, value TEXT); INSERT INTO meta VALUES ('version', '24'); CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, UNIQUE (host_key, name))").unwrap();
+        connection
+    };
+    let seal = |password: &[u8], prefix: &[u8], host: &str, value: &str| {
+        let mut key = [0u8; 16];
+        pbkdf2::pbkdf2_hmac::<sha1::Sha1>(password, b"saltysalt", 1, &mut key);
+        let mut plain = Sha256::digest(host.as_bytes()).to_vec();
+        plain.extend_from_slice(value.as_bytes());
+        let mut blob = prefix.to_vec();
+        blob.extend(cbc::Encryptor::<aes::Aes128>::new(&key.into(), &[b' '; 16].into()).encrypt_padded_vec_mut::<Pkcs7>(&plain));
+        blob
+    };
+    let from = store("tom");
+    for (host, name, value) in [(".github.com", "user_session", "session-secret"), ("tracker.example", "id", "other")] {
+        from.execute("INSERT INTO cookies VALUES (?1, ?2, '', ?3)", rusqlite::params![host, name, seal(b"keyring-secret", b"v11", host, value)]).unwrap();
+    }
+    let to = store("automation");
+    to.execute("INSERT INTO cookies VALUES ('github.com', 'stale', '', x'00')", []).unwrap();
+    drop((from, to));
+    let declarations = declared::parse("[[browser_session]]\nhost = \"github.com\"\nuse = \"settings\"\nrenewal = \"tom: sign in\"\n").unwrap();
+    let (tom, automation) = (directory.path().join("tom"), directory.path().join("automation"));
+    let request = |site| cookies::Import { site, from: &tom, to: &automation };
+
+    let refused = cookies::import(&request("tracker.example"), &declarations, || panic!("the keyring was read for an undeclared site")).unwrap_err();
+    assert!(refused.contains("not a declared browser site"), "{refused}");
+
+    let imported = cookies::import(&request("github.com"), &declarations, || Ok(b"keyring-secret".to_vec())).unwrap();
+    assert_eq!(imported, 1);
+    let connection = rusqlite::Connection::open(directory.path().join("automation/Default/Cookies")).unwrap();
+    let rows: Vec<(String, Vec<u8>)> = connection.prepare("SELECT host_key, encrypted_value FROM cookies").unwrap().query_map([], |row| Ok((row.get(0)?, row.get(1)?))).unwrap().map(Result::unwrap).collect();
+    assert_eq!(rows, [(".github.com".to_owned(), seal(b"peanuts", b"v10", ".github.com", "session-secret"))], "the stale row went, the other site stayed out, the value is sealed under the basic store");
 }

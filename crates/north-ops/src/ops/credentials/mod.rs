@@ -1,4 +1,5 @@
 mod accounts;
+mod cookies;
 mod declared;
 mod model;
 mod registry;
@@ -6,7 +7,7 @@ mod renew;
 #[cfg(test)]
 mod tests;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -14,7 +15,7 @@ pub use model::{Credential, Kind, Renewal};
 
 use north_base::platform::harness::{self, DEFAULTS};
 
-const USAGE: &str = "Usage: north credentials check [--json] | north credentials renew [--dry-run]";
+const USAGE: &str = "Usage: north credentials check [--json] | north credentials renew [--dry-run] | north credentials import-cookies SITE [--from CHROME_PROFILE]";
 const DAY: u64 = 86_400;
 const NOTICE_KEY: &str = "credential_expiry_notice_days";
 const ALERT_WITHIN: Duration = Duration::from_secs(30);
@@ -58,6 +59,8 @@ pub fn run(arguments: &[String]) -> u8 {
         ["check", "--json"] => check(&world, true),
         ["renew"] => renew(&world, false),
         ["renew", "--dry-run"] => renew(&world, true),
+        ["import-cookies", site] => import_cookies(&world, site, &world.home.join(".config/google-chrome")),
+        ["import-cookies", site, "--from", profile] => import_cookies(&world, site, Path::new(profile)),
         _ => {
             eprintln!("{USAGE}");
             2
@@ -111,4 +114,27 @@ fn renew(world: &World, dry_run: bool) -> u8 {
     let outcome = renew::tick(&credentials, &world.host, world.now, notice_days(), &record, &Machine { dry_run });
     outcome.lines.iter().for_each(|line| println!("{line}"));
     u8::from(outcome.failed)
+}
+
+fn import_cookies(world: &World, site: &str, from: &Path) -> u8 {
+    let outcome = declared::read(&world.south).and_then(|declarations| cookies::import(&cookies::Import { site, from, to: &world.chrome_profile }, &declarations, keyring_password));
+    match outcome {
+        Ok(count) => {
+            println!("imported {count} cookies for {site} into {}", world.chrome_profile.display());
+            0
+        }
+        Err(error) => {
+            eprintln!("north credentials: {error}");
+            1
+        }
+    }
+}
+
+fn keyring_password() -> Result<Vec<u8>, String> {
+    let output = Command::new("secret-tool").args(["lookup", "application", "chrome"]).output().map_err(|error| format!("secret-tool: {error}"))?;
+    if output.status.success() && !output.stdout.is_empty() {
+        Ok(output.stdout)
+    } else {
+        Err("the Chrome Safe Storage key is not in the unlocked Secret Service".into())
+    }
 }
