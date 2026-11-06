@@ -29,18 +29,22 @@ follows, skips or rechecks it again, and removes the entry.
    changed skills, docs and commit subjects. Note what the author reverted or
    flip-flopped, because a change the author undid twice is weak evidence for
    the idea.
-3. Check whether what we took last time still runs live in north, with file or
-   command evidence for each item. An adopted rule that never landed is a
-   finding, not a footnote.
+3. Report each mechanism the last cycle kept as kept, reverted or unfinished,
+   with file or command evidence, read from its issue's verdict box. One still
+   unfinished past its verdict date is a finding, not a footnote.
 4. Rank the source's mechanisms by expected effect on landing speed, quality
    and usage per closed box. Give each a measured basis (git history, ledger,
-   a count over the current tree) or a reasoned one labeled as such. Keep the
-   top three.
-5. Give each of the three an experiment with a frozen input set, one metric
+   a count over the current tree) or a reasoned one labeled as such. Keep every
+   mechanism whose effect is appreciable on its stated basis, and record why
+   each dropped one fell below that bar.
+5. Give each kept mechanism an experiment with a frozen input set, one metric
    and a keep or revert rule fixed before it runs: a policy replay A/B, a
    ledger comparison, or a landing-time comparison. Run the ones that cost
-   under about 30 minutes of worker time. File the rest as north issues with a
-   Done-when and an owner, ranked into the harness plan.
+   under about 30 minutes of worker time within the cycle. Each kept mechanism
+   becomes a north issue labelled `priority:next` or higher. Its Done when
+   ends in the measured keep or revert verdict on main, recorded in the
+   cycle's record. The cycle owns that issue through landing and verdict, and
+   needs nothing from the owner beyond the source's objective.
 6. Write the cycle's record to `docs/rationale/watch/<date>-<source>.md`: what
    we looked at, how we evaluated it, what we decided, and the dated data
    behind each decision. Add or update the source's
