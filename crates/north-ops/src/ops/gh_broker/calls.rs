@@ -31,7 +31,7 @@ impl CallLog {
         };
         let caller = caller(stream);
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-        let line = format!("{at}\t{caller}\t{}\t{}\t{}\t{}\n", source.name(), response.status, request.method, request.target);
+        let line = format!("{at}\t{caller}\t{}\t{}\t{}\t{}\t{}\n", source.name(), response.status, request.method, request.target, token_kind(request));
         if std::fs::metadata(path).is_ok_and(|meta| meta.len() > ROTATE_BYTES) {
             let _ = std::fs::rename(path, path.with_extension("log.1"));
         }
@@ -65,4 +65,13 @@ fn keep_quota(directory: &Path, request: &Request, response: &Response) {
         return;
     };
     crate::platform::github_quota::record(directory, request.header("authorization").unwrap_or(""), resource, remaining, resets_at);
+}
+
+fn token_kind(request: &Request) -> &'static str {
+    let credential = request.header("authorization").and_then(|value| value.split_whitespace().nth(1)).unwrap_or("");
+    match credential {
+        "" => "none",
+        token if token.starts_with("ghs_") => "app",
+        _ => "personal",
+    }
 }

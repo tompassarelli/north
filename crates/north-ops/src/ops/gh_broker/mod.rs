@@ -42,7 +42,8 @@ quota         print the user's own login's core and graphql rate limit left (GET
               so its hourly drop can be set against the call log
 
 Each call is logged to calls.log beside the socket as: unix time, caller (the fleet session, else
-the caller's systemd unit), served from, status, method, target.";
+the caller's systemd unit), served from, status, method, target, token (app for a GitHub App
+installation token, personal for any other, none when the call carries none).";
 
 const IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
 const TAKE_OVER_LIMIT: Duration = Duration::from_secs(30);
