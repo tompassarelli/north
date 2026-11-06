@@ -1,4 +1,5 @@
 use super::rust_text::RustFile;
+use super::test_determinism;
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -12,6 +13,8 @@ const ALLOW: &str = "or add a [[rust_habits.allow]] entry in structure.toml nami
 
 pub(super) struct Habits {
     checks: BTreeSet<String>,
+    advisory: BTreeSet<String>,
+    counts: BTreeMap<String, usize>,
     allow: Vec<Allow>,
     ignore: Vec<Regex>,
     tests: Vec<Regex>,
@@ -30,11 +33,12 @@ pub(super) struct Finding {
     pub(super) line: usize,
     pub(super) item: String,
     pub(super) text: String,
+    pub(super) advisory: bool,
 }
 
 impl Finding {
     pub(super) fn render(&self) -> String {
-        format!("{} {}:{} {}", self.rule, self.path, self.line, self.text)
+        format!("{}{} {}:{} {}", if self.advisory { "advisory " } else { "" }, self.rule, self.path, self.line, self.text)
     }
 }
 
@@ -76,9 +80,10 @@ impl Habits {
             return Ok(None);
         };
         let checks: BTreeSet<String> = strings(table.get("checks")).into_iter().collect();
-        if let Some(unknown) = checks.iter().find(|check| ![SHARED, SINGLE].contains(&check.as_str())) {
+        if let Some(unknown) = checks.iter().find(|check| ![SHARED, SINGLE, test_determinism::RULE].contains(&check.as_str())) {
             return Err(format!("structure.toml: rust_habits.checks names unknown check {unknown}"));
         }
+        let advisory = strings(table.get("advisory")).into_iter().collect();
         let mut allow = Vec::new();
         for entry in table.get("allow").and_then(Item::as_array_of_tables).into_iter().flatten() {
             let field = |key: &str| entry.get(key).and_then(Item::as_str).map(str::to_owned);
@@ -100,7 +105,7 @@ impl Habits {
             .flat_map(|module| strings(module.get("paths")))
             .map(|pattern| glob(&pattern))
             .collect();
-        Ok(Some(Self { checks, allow, ignore: ignore.iter().map(|pattern| glob(pattern)).collect(), tests }))
+        Ok(Some(Self { checks, advisory, counts: BTreeMap::new(), allow, ignore: ignore.iter().map(|pattern| glob(pattern)).collect(), tests }))
     }
 
     fn allowed(&self, finding: &Finding) -> bool {
@@ -154,6 +159,7 @@ fn shared_findings(files: &[RustFile]) -> Vec<Finding> {
                 line,
                 text: format!("{kind} in non-test code — pass &mut down, split the borrow by field, index into a Vec or arena, or move ownership to the caller; {ALLOW}"),
                 item: kind,
+                advisory: false,
             })
         })
         .collect()
@@ -182,6 +188,7 @@ fn single_findings(files: &[RustFile]) -> Vec<Finding> {
                 line,
                 item: name.clone(),
                 text: format!("trait {name} has one implementation ({at}:{at_line}) and no test double — make the code concrete until a second implementation or a test seam uses it; {ALLOW} and item = \"{name}\""),
+                advisory: false,
             });
         }
     }
@@ -196,18 +203,22 @@ pub(super) fn check(habits: &Habits, files: &[RustFile], edited: Option<&str>) -
     if habits.checks.contains(SINGLE) {
         found.extend(single_findings(files));
     }
+    if habits.checks.contains(test_determinism::RULE) {
+        found.extend(test_determinism::check(files, &habits.counts, edited.is_none()));
+    }
     let mut out: Vec<Finding> = Vec::new();
     if edited.is_none() {
         for entry in habits.allow.iter().filter(|entry| !found.iter().any(|finding| allows(entry, finding))) {
             let item = entry.item.clone().unwrap_or_default();
             let text = format!("{} {item} matches nothing now — remove the entry from structure.toml", entry.rule);
-            out.push(Finding { rule: STALE, path: entry.path.clone(), line: 0, item, text });
+            out.push(Finding { rule: STALE, path: entry.path.clone(), line: 0, item, text, advisory: false });
         }
     }
     let touches = |finding: &Finding| {
         edited.is_none_or(|path| finding.path == path || (finding.rule == SINGLE && finding.text.contains(&format!("({path}:"))))
     };
-    out.extend(found.into_iter().filter(|finding| !habits.allowed(finding) && touches(finding)));
+    let judged = found.into_iter().filter(|finding| !habits.allowed(finding) && touches(finding));
+    out.extend(judged.map(|finding| Finding { advisory: habits.advisory.contains(finding.rule), ..finding }));
     out
 }
 
@@ -224,19 +235,20 @@ fn listed(root: &Path) -> Result<Vec<String>, String> {
     Ok(String::from_utf8_lossy(&output.stdout).split('\0').filter(|path| !path.is_empty()).map(str::to_owned).collect())
 }
 
-pub fn findings(root: &Path, edited: Option<&str>) -> Result<Vec<String>, String> {
+pub(super) fn findings(root: &Path, edited: Option<&str>) -> Result<Vec<Finding>, String> {
     let Ok(config) = std::fs::read_to_string(root.join("structure.toml")) else {
         return Ok(Vec::new());
     };
-    let Some(habits) = Habits::parse(&config)? else {
+    let Some(mut habits) = Habits::parse(&config)? else {
         return Ok(Vec::new());
     };
+    habits.counts = test_determinism::load(root)?;
     let sources = listed(root)?
         .into_iter()
         .filter_map(|path| std::fs::read_to_string(root.join(&path)).ok().map(|text| (path, text)))
         .collect();
     let files = files_of(&habits, sources);
-    let mut lines: Vec<String> = check(&habits, &files, edited).iter().map(Finding::render).collect();
-    lines.dedup();
-    Ok(lines)
+    let mut found = check(&habits, &files, edited);
+    found.dedup_by(|a, b| a.render() == b.render());
+    Ok(found)
 }

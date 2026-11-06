@@ -24,6 +24,7 @@ mod signal;
 mod snapshot;
 mod source;
 mod state;
+mod test_determinism;
 mod tick;
 #[cfg(test)]
 mod tick_tests;
@@ -45,22 +46,37 @@ fn fail(message: &str) -> u8 {
 }
 
 pub fn habits(root: &std::path::Path, edited: &str) -> Vec<String> {
-    habits::findings(root, Some(edited)).unwrap_or_default()
+    habits::findings(root, Some(edited)).unwrap_or_default().iter().map(habits::Finding::render).collect()
 }
 
 fn habits_command(arguments: &[String]) -> u8 {
-    let root = match arguments {
-        [] => std::path::PathBuf::from("."),
-        [flag, dir] if flag == "--repo" => std::path::PathBuf::from(dir),
-        _ => return fail("usage: north code-health habits [--repo DIR]"),
-    };
-    match habits::findings(&root, None) {
-        Ok(lines) if lines.is_empty() => 0,
+    match arguments {
+        [] => habits_in(std::path::Path::new(".")),
+        [flag, dir] if flag == "--repo" => habits_in(std::path::Path::new(dir)),
+        [flag, dir, since, base] if flag == "--repo" && since == "--grown-since" => grown_in(std::path::Path::new(dir), base),
+        _ => fail("usage: north code-health habits [--repo DIR [--grown-since BASE]]"),
+    }
+}
+
+fn habits_in(root: &std::path::Path) -> u8 {
+    match habits::findings(root, None) {
+        Ok(found) => {
+            for finding in &found {
+                println!("{}", finding.render());
+            }
+            u8::from(found.iter().any(|finding| !finding.advisory))
+        }
+        Err(error) => fail(&error),
+    }
+}
+
+fn grown_in(root: &std::path::Path, base: &str) -> u8 {
+    match test_determinism::grown(root, base) {
         Ok(lines) => {
-            for line in lines {
+            for line in &lines {
                 println!("{line}");
             }
-            1
+            u8::from(!lines.is_empty())
         }
         Err(error) => fail(&error),
     }

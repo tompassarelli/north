@@ -15,6 +15,7 @@ static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 
 pub(super) struct RustFile {
     pub(super) path: String,
+    uncommented: String,
     code: String,
     tests: Vec<Range<usize>>,
     pub(super) whole_test: bool,
@@ -38,7 +39,7 @@ impl RustFile {
             }
             tests.push(whole.start()..item_end(code.as_bytes(), whole.end()));
         }
-        Self { path: path.to_owned(), code, tests, whole_test }
+        Self { path: path.to_owned(), uncommented: blank_literals(text, |first| first == b'/'), code, tests, whole_test }
     }
 
     fn is_test(&self, at: usize) -> bool {
@@ -55,6 +56,15 @@ impl RustFile {
             .filter(|found| !self.is_test(found.start()))
             .map(|found| (self.line(found.start()), format!("{}..>", SPACE.replace_all(found.as_str(), ""))))
             .collect()
+    }
+
+    pub(super) fn test_matches(&self, pattern: &Regex, in_strings: bool) -> Vec<(usize, String)> {
+        let text = if in_strings { &self.uncommented } else { &self.code };
+        pattern.find_iter(text).filter(|found| self.is_test(found.start())).map(|found| (self.line(found.start()), found.as_str().to_owned())).collect()
+    }
+
+    pub(super) fn mentions(&self, needle: &str) -> bool {
+        self.code.contains(needle)
     }
 
     pub(super) fn traits(&self) -> Vec<(String, usize)> {
