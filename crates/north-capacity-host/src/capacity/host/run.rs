@@ -236,7 +236,7 @@ pub(super) fn scope_command(root: &Path, request: &Request, admitted: &Obj, time
         child.arg("session-unit");
         child
     } else {
-        std::process::Command::new("systemd-run")
+        std::process::Command::new(super::systemd::program("systemd-run"))
     };
     child.args(arguments).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).env("AGENT_CAPACITY_LEASE", &lease);
     if let Some(pair) = request.pair {

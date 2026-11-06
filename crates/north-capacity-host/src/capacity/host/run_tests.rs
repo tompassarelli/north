@@ -30,3 +30,18 @@ fn the_cache_server_socket_fits_a_unix_socket_path_under_the_private_desktops_ru
     let socket = cache_server_socket(&root, &super::machine::uuid());
     assert!(socket.as_os_str().len() <= SUN_PATH_BYTES, "{} is {} bytes", socket.display(), socket.as_os_str().len());
 }
+
+// KEEP(bug): firn-delivery-liveness lists no systemd on its PATH, so the lease its nix build waits for could never set its slice limits and the unit failed three times on 2026-11-06; north#671
+#[test]
+fn a_unit_whose_path_lacks_systemctl_gets_the_system_profiles() {
+    let system = tempfile::tempdir().unwrap();
+    let own = tempfile::tempdir().unwrap();
+    for directory in [system.path(), own.path()] {
+        std::fs::write(directory.join("systemctl"), "").unwrap();
+    }
+    let onto = |path: &std::path::Path| path.to_string_lossy().into_owned();
+    assert_eq!(super::systemd::program_in("systemctl", Some("/nonexistent:/also-not"), system.path()), system.path().join("systemctl"));
+    assert_eq!(super::systemd::program_in("systemctl", None, system.path()), system.path().join("systemctl"));
+    assert_eq!(super::systemd::program_in("systemctl", Some(&onto(own.path())), system.path()), std::path::PathBuf::from("systemctl"));
+    assert_eq!(super::systemd::program_in("systemd-run", Some("/nonexistent"), system.path()), std::path::PathBuf::from("systemd-run"));
+}

@@ -17,8 +17,19 @@ pub fn client_environment(command: &mut Command) -> &mut Command {
     command
 }
 
+/// A systemd tool by the name a unit's PATH gives it, else the system profile's, since a unit that lists only its own tools (firn's job units) reaches no systemctl or systemd-run and so could never take a lease.
+pub fn program(name: &str) -> std::path::PathBuf {
+    program_in(name, env("PATH").as_deref(), std::path::Path::new("/run/current-system/sw/bin"))
+}
+
+pub(super) fn program_in(name: &str, path: Option<&str>, system: &std::path::Path) -> std::path::PathBuf {
+    let on_path = path.is_some_and(|path| path.split(':').any(|directory| !directory.is_empty() && std::path::Path::new(directory).join(name).is_file()));
+    let fallback = system.join(name);
+    if !on_path && fallback.is_file() { fallback } else { name.into() }
+}
+
 pub fn systemctl(inherit_stderr: bool, arguments: &[&str]) -> Option<Output> {
-    let mut command = Command::new("systemctl");
+    let mut command = Command::new(program("systemctl"));
     command.arg("--user").args(arguments).stdin(Stdio::null()).stdout(Stdio::piped());
     command.stderr(if inherit_stderr { Stdio::inherit() } else { Stdio::null() });
     client_environment(&mut command).output().ok()

@@ -25,7 +25,7 @@ fn named(proc: &Path, pid: i32, ppid: i32, comm: &str, cgroup: &str, args: &str,
     fs::write(dir.join("cmdline"), format!("{args}\0")).unwrap();
 }
 
-fn settings(root: &Path) -> Settings {
+pub(super) fn settings(root: &Path) -> Settings {
     let proc = root.join("proc");
     fs::create_dir_all(&proc).unwrap();
     fs::write(proc.join("uptime"), format!("{UPTIME:.2} 5000.00\n")).unwrap();
