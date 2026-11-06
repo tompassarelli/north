@@ -471,6 +471,26 @@ The landing gate for the crate refuses:
   stands in for the fuel a linked call cannot have, and bounds the stack overflow and allocation aborts
   that `catch_unwind` cannot catch.
 
+### Edit-to-result time of a rule change (measured 2026-11-06)
+
+The loop under test is: edit one admission rule, build north, replay a week of real history, and read the
+diff. The planted edit lowered `BATCH_PRESSURE_BASIS_POINTS` in `capacity/admission.rs` from 3000 to 300.
+That file is linked into north today exactly as `north-strategy` will be. The edit ran as one offloaded job
+on gex45 from a warm lane target:
+
+- incremental `cargo build --bin north`: 29.3 s
+- `north strategy replay --since 7d` over gex45's own log: 0.68 s for 22,745 admission cases
+- in all 29.9 s on gex45, and 55 s seen from the laptop, which adds capacity admission and the offload
+  sync
+- the diff named the change: `same 22722, changed 23`, `23 RUN -> DEFER_CPU_PRESSURE`, with the first
+  three tickets and their times
+
+The build is almost all of the loop, and replay is almost none of it. A rule in a leaf `north-strategy`
+crate rebuilds the same chain of dependents up to the north binary, so moving rules there does not
+shorten the build. What does shorten it is the `strategy-replay` binary described under
+[Crates, calls and versions](#crates-calls-and-versions): it links only the strategy crate. Until it
+exists, this 30 s figure is the time to beat.
+
 ## Migration order
 
 Placement and admission go first, in that order, because north#643's later boxes name them and because
