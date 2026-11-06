@@ -88,6 +88,7 @@ const UNIFORM: &[(&str, Run)] = &[
     }),
     ("ops", crate::ops::command::run),
     ("private-check", crate::ops::private_check::run),
+    ("privacy", |arguments| crate::privacy::run(arguments, &super::agents::claude_access())),
     ("watch", crate::watch::run),
     ("ssh-argv", crate::platform::ssh::run),
     ("provider-capacity", crate::capacity::provider_capacity::run),

@@ -67,7 +67,7 @@ impl Options {
             ntfy_url: present("NTFY_URL"),
             ntfy_topic: present("NTFY_URGENT_TOPIC").unwrap_or_else(|| "urgent".into()),
             ntfy_token_file: present("NTFY_TOKEN_FILE").map(PathBuf::from),
-            external_billing: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"].iter().any(|name| present(name).is_some()),
+            external_billing: crate::timers::oneshot::EXTERNAL_BILLING.iter().any(|name| present(name).is_some()),
             north: env::current_exe().map_or_else(|_| "north".into(), |path| path.to_string_lossy().into_owned()),
         }
     }

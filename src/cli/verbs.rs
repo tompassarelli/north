@@ -121,6 +121,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("pace", Status),
     ("pin-retire", Bookkeeping),
     ("policy-replay", Diagnosis),
+    ("privacy", Diagnosis),
     ("private-check", Diagnosis),
     ("private-desktop", Diagnosis),
     ("provenance", Diagnosis),

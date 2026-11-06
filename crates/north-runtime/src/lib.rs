@@ -10,6 +10,7 @@ pub mod laptop_runner;
 pub mod model_watch;
 pub mod offload_cache;
 pub mod outside_watch;
+pub mod privacy;
 pub mod runtime;
 pub mod runtime_access;
 pub mod timers;

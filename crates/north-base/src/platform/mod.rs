@@ -27,6 +27,7 @@ pub mod git_credential;
 pub mod hook_commands;
 pub mod host;
 pub mod north_binary;
+pub mod private_text;
 pub mod rolling_issue;
 pub mod process;
 pub mod push_ledger;
