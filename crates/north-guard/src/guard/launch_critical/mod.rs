@@ -1,5 +1,6 @@
 mod decide;
 mod git;
+mod heredoc;
 mod patch;
 mod shell;
 mod writes;
@@ -55,6 +56,7 @@ const READ_ONLY_COMMANDS: &[&str] = &[
 const INTERPRETERS: &[&str] = &[
     "python", "python3", "perl", "ruby", "node", "bb", "bash", "sh", "zsh",
 ];
+const SHELLS: &[&str] = &["bash", "sh", "zsh"];
 const PACKAGE_MANAGERS: &[&str] = &[
     "bun", "bunx", "npm", "npx", "pnpm", "pnpx", "yarn", "deno", "cargo", "pip", "pip3", "uv",
     "poetry", "gem", "go", "nix",
@@ -68,6 +70,10 @@ const PATCH_BEGIN: &str = "*** Begin Patch";
 static VARIABLE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))").unwrap()
 });
+static TEMPORARY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\$\(\s*mktemp(?:\s+-[A-Za-z]+)*(?:\s+(?:/tmp|/dev/shm)/\S*)?\s*\)").unwrap()
+});
+const TEMPORARY_DIRECTORY: &str = "/tmp/.mktemp";
 static ASSIGNMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)^([A-Za-z_][A-Za-z0-9_]*)=(.*)$").unwrap());
 static PATCH_HEADER: LazyLock<Regex> = LazyLock::new(|| {
@@ -258,7 +264,7 @@ impl Policy {
     }
     fn substitute(&self, word: &str, env: &Env) -> String {
         VARIABLE
-            .replace_all(&self.expanduser(word), |m: &regex::Captures<'_>| {
+            .replace_all(&self.expanduser(&TEMPORARY.replace_all(word, TEMPORARY_DIRECTORY)), |m: &regex::Captures<'_>| {
                 env.get(m.get(1).or_else(|| m.get(2)).unwrap().as_str())
                     .and_then(|s| s.as_ref())
                     .filter(|s| !s.is_empty())

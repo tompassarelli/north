@@ -1,10 +1,10 @@
-use super::git::{git_read_form, wip_destroying};
+use super::git::{git_read_form, push_deletes, wip_destroying};
 use super::patch::{excise_sanctioned, find_envelope};
 use super::shell::{record_assignments, redirect_targets, resolve, tokens, union};
 use super::writes::cargo_target_paths;
-use super::{INTERPRETERS, MUTATING_GIT, Policy};
+use super::{INTERPRETERS, MUTATING_GIT, Policy, SHELLS};
 use crate::hook::HookInput;
-use crate::shell::{basename, shell_substitutions, strip_heredoc_bodies};
+use crate::shell::{basename, heredoc_bodies, shell_substitutions, strip_heredoc_bodies};
 use regex::Regex;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -52,7 +52,6 @@ impl Policy {
         if let Some(reason) = self.patch_command(command, &effective, Some(&scan)) {
             return Some(reason);
         }
-        let words = tokens(&scan);
         let calls = self.git_invocations(&scan, cwd, &self.base_env());
         let segments = self.segments(&scan, &self.base_env(), cwd);
         let mut final_env = segments
@@ -115,7 +114,7 @@ impl Policy {
             }
             let decision = if call.verb == "worktree" {
                 self.worktree_decision(&call)
-            } else if call.verb == "fetch" || git_read_form(&call.verb, &call.args) {
+            } else if call.verb == "fetch" || git_read_form(&call.verb, &call.args) || (call.verb == "push" && push_deletes(&call.args)) {
                 None
             } else if ["merge", "pull"].contains(&call.verb.as_str()) {
                 (!call.args.iter().any(|s| s == "--ff-only")).then(|| {
@@ -155,15 +154,23 @@ impl Policy {
                 }
             }
         }
-        if let Some(hit) = self.protected(&effective)
-            && scan.contains("<<")
-            && words.iter().any(|s| INTERPRETERS.contains(&basename(s)))
-        {
-            return Some(self.deny(
-                &effective,
-                &hit,
-                "run an interpreter script with its working directory",
-            ));
+        let bodies: Vec<_> = heredoc_bodies(command_text).into_iter().map(|range| &command_text[range]).collect();
+        for segment in &segments {
+            if !segment.text.contains("<<") {
+                continue;
+            }
+            let words = tokens(&segment.text);
+            let Some(at) = words.iter().position(|s| INTERPRETERS.contains(&basename(s))) else {
+                continue;
+            };
+            let scripted = !SHELLS.contains(&basename(&words[at]));
+            for here in &segment.cwds {
+                if let Some(hit) = self.protected(here)
+                    && !(scripted && self.heredoc_confined(&bodies, &words[at + 1..], &segment.env, here))
+                {
+                    return Some(self.deny(here, &hit, "run an interpreter script with its working directory"));
+                }
+            }
         }
         None
     }

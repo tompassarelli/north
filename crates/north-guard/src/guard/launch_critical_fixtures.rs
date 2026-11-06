@@ -271,6 +271,22 @@ pub fn fixture() -> Fixture {
             cases.push((command.clone(), bash(command, &lane), false));
         }
     }
+    let lane_dir = format!("{root}/proj/worktrees/wf");
+    for (command, denied) in [
+        (format!("cd {main} && git worktree remove ../worktrees/n658-doc && git branch -D n658-doc && git push -q origin --delete n658-doc 2>&1 | tail -1"), false),
+        (format!("git -C {main} fetch -q origin; git -C {main} worktree add {lane_dir} -b wf origin/main 2>&1 | tail -1; cd {lane_dir}/ts; cat > src/game/ui/wheel.ts <<'E'\nexport class PopupWheel {{}}\nE"), false),
+        (format!("cd {main}; gh issue view 875 --json body -q .body > /tmp/sc875/body.md\npython3 -I - <<'E'\np='/tmp/sc875/body.md'\nL=open(p).read().split('\\n')\nopen(p,'w').write('\\n'.join(L))\nE"), false),
+        ("d=$(mktemp -d) && cd $d && git init -q src && cd src && git commit -q --allow-empty -m a && echo x > f && git add f && cd /tmp && rm -rf -- \"$d\"".into(), false),
+        ("sed -i -e 's/a/b/' -e 's/c/d/' /tmp/body.md".into(), false),
+        (format!("for r in proj; do cd {root}/$r/worktrees/wf && git commit -qam msg; done"), false),
+        ("cat > crates/x/src/lib.rs <<'EOF'\nfn x() {}\nEOF".into(), true),
+        ("sed -i -e 's/a/b/' -e 's/c/d/' src/kept.txt".into(), true),
+        ("git checkout -q --detach origin/main 2>&1 | tail -1".into(), true),
+        ("python3 - <<'EOF'\np='src/kept.txt'\nopen(p,'w').write('x')\nEOF".into(), true),
+        ("git push -q origin main".into(), true),
+    ] {
+        cases.push((command.clone(), bash(command, &main), denied));
+    }
     Fixture {
         directory,
         root,

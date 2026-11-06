@@ -1,4 +1,4 @@
-use super::{ASSIGNMENT, BLOCK_CLOSE, BLOCK_OPEN, CONTROL_WORDS, Env, Policy};
+use super::{ASSIGNMENT, BLOCK_CLOSE, BLOCK_OPEN, CONTROL_WORDS, Env, Policy, TEMPORARY, TEMPORARY_DIRECTORY};
 use crate::guard::paths;
 use crate::shell::{self, basename, shell_substitutions, unquoted_mask, whitespace};
 use regex::Regex;
@@ -107,6 +107,47 @@ pub(super) struct Segment {
     pub(super) cwds: Vec<String>,
 }
 impl Policy {
+    fn lane_after_variable(&self, value: &str) -> bool {
+        static AFTER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\$\{?\w+\}?/worktrees/[^/\s]+").unwrap());
+        value.find(['$', '`']).is_some_and(|cut| AFTER.is_match(&value[cut..]))
+    }
+    fn lane_scope(&self, scope: &str) -> bool {
+        let root = &self.root;
+        if scope == root || root.starts_with(&format!("{scope}/")) {
+            return false;
+        }
+        if !scope.starts_with(&format!("{root}/")) {
+            return true;
+        }
+        self.parts(scope).and_then(|parts| self.slot(&parts).map(|(_, index)| parts[index] == "worktrees")).unwrap_or(false)
+    }
+    fn created_paths(&self, words: &[String], env: &Env, cwds: &[String]) -> Vec<String> {
+        let Some(at) = words.iter().position(|s| s == "worktree" || basename(s) == "mkdir") else {
+            return Vec::new();
+        };
+        let mut named = Vec::new();
+        if words[at] == "worktree" {
+            if words.get(at + 1).is_some_and(|s| s == "add") {
+                let mut j = at + 2;
+                while j < words.len() {
+                    if ["-b", "-B", "--reason"].contains(&words[j].as_str()) {
+                        j += 2;
+                    } else if words[j].starts_with('-') {
+                        j += 1;
+                    } else {
+                        named.push(&words[j]);
+                        break;
+                    }
+                }
+            }
+        } else {
+            named.extend(words[at + 1..].iter().filter(|s| !s.starts_with('-')));
+        }
+        named
+            .into_iter()
+            .flat_map(|arg| cwds.iter().filter_map(move |here| self.target(arg, env, here).map(|(path, _)| path)))
+            .collect()
+    }
     fn cd_destinations(&self, words: &[String], env: &Env, cwds: &[String]) -> Vec<String> {
         let i = words
             .iter()
@@ -139,11 +180,15 @@ impl Policy {
             let Some((path, scope)) = self.target(arg, env, here) else {
                 return Vec::new();
             };
-            if path != scope {
+            let landed = if path == scope {
+                path
+            } else if self.lane_scope(&scope) || self.lane_after_variable(&self.substitute(arg, env)) {
+                scope
+            } else {
                 return Vec::new();
-            }
-            if !moved.contains(&path) {
-                moved.push(path);
+            };
+            if !moved.contains(&landed) {
+                moved.push(landed);
             }
         }
         moved
@@ -153,8 +198,10 @@ impl Policy {
         let mut cwds = vec![cwd.to_owned()];
         let mut stack = Vec::new();
         let mut prev_sep: Option<String> = None;
+        let mut created: Vec<String> = Vec::new();
         let mut out = Vec::new();
         for (text, sep) in shell::shell_segments_sep(text) {
+            let text = TEMPORARY.replace_all(&text, TEMPORARY_DIRECTORY).into_owned();
             let tokens = tokens(&text);
             let mask = unquoted_mask(&text);
             let lead = text.len() - text.trim_start_matches(['(', ' ']).len();
@@ -179,11 +226,12 @@ impl Policy {
                 cwds: cwds.clone(),
             });
             record_assignments(&tokens, &mut env, self);
+            created.extend(self.created_paths(&words, &env, &cwds));
             if prev_sep.as_deref() != Some("|") && !matches!(sep.as_deref(), Some("|" | "&")) {
                 let moved = self.cd_destinations(&words, &env, &cwds);
                 if !moved.is_empty() {
                     cwds = if sep.as_deref() == Some("&&")
-                        || moved.iter().all(|path| std::path::Path::new(path).is_dir())
+                        || moved.iter().all(|path| std::path::Path::new(path).is_dir() || created.iter().any(|made| path == made || path.starts_with(&format!("{made}/"))))
                     {
                         moved
                     } else {

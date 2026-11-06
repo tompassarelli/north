@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::foundation::clock::Timestamp;
-use crate::guard::hook_stats::{Fire, PRUNE_DAYS, compute, render};
+use crate::guard::hook_stats::{Fire, PRUNE_DAYS, SAMPLES, compute, render, samples};
 
 const USAGE: &str = "Usage: north hook stats [--since 7d|48h]";
 
@@ -36,6 +36,6 @@ pub fn run(rest: &[String]) -> Result<(), String> {
         .into_iter()
         .filter_map(|row| Some(Fire { at: Timestamp::parse(&row.at).ok().or_else(|| Timestamp::parse_loose(&row.at))?.unix_seconds(), session: row.session, verdict: row.verdict, rule: row.rule, turn: row.turn }))
         .collect();
-    print!("{}", render(&compute(&fires, now - span, now), &since));
+    print!("{}", render(&compute(&fires, now - span, now), &since, &samples(SAMPLES)?));
     Ok(())
 }

@@ -78,7 +78,8 @@ impl Policy {
                 .filter(|s| !s.starts_with('-') && !REDIRECT.is_match(s))
                 .collect();
             if base == "sed" && words[i + 1..].iter().any(|s| s.starts_with("-i")) {
-                for arg in args.iter().skip(1) {
+                let scripts = words[i + 1..].iter().filter(|s| matches!(s.as_str(), "-e" | "--expression" | "-f" | "--file")).count().max(1);
+                for arg in args.iter().skip(scripts) {
                     if let Some((path, _)) = self.target(arg, env, cwd)
                         && let Some(hit) = self.protected(&path)
                     {

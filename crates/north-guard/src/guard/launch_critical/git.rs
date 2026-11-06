@@ -216,3 +216,7 @@ pub(super) fn wip_destroying(verb: &str, args: &[String]) -> Option<String> {
         _ => None,
     }
 }
+pub(super) fn push_deletes(args: &[String]) -> bool {
+    let refspecs: Vec<_> = args.iter().filter(|s| !s.starts_with('-')).skip(1).collect();
+    args.iter().any(|s| s == "--delete") || short_letters(args).contains(&'d') || (!refspecs.is_empty() && refspecs.iter().all(|s| s.starts_with(':')))
+}

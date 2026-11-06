@@ -1,0 +1,626 @@
+# Fixed samples of refused tool calls and whether each refusal was right, drawn from Claude transcripts (north#715).
+# A sample is every Nth distinct refused command, sorted by command text, up to 30 rows; the first rows are 0, N, 2N and so on.
+# label: "true" the refusal stopped what the rule's policy forbids; "false" the command was what the policy allows
+# (a write outside main's tree, a wait of 30 seconds or less, a read-only script, lane cleanup); "unclear" the stored text does not settle it.
+# `north hook stats` prints each refusing rule's false share from the last sample of that rule.
+
+[[sample]]
+rule = "launch-critical"
+window = "2026-11-04 to 2026-11-07"
+
+[[sample.row]]
+command = "E=~/.local/state/makgora/evidence/tornado-975; mkdir -p $E/pads; cd $E/pads cat > rising-whirlwind.pad <<'EOF' # makgora#975: Blademaster b'"
+label = "false"
+
+[[sample.row]]
+command = "S=da8785afd && sed -i \\ -e \"7s|^- \\[ \\] \\(.*\\)$|- [x] \\1 — $S: a_fleet_sessions_compile_from_any_entry_is_refused_when_no_build_host_has_roo"
+label = "false"
+
+[[sample.row]]
+command = "cat > /tmp/661-box2.sh <<'EOF' sleep 3600 ps -u tom -o etimes=,args= | grep '[c]apacity deadline' | while read -r age rest; do limit=$(print"
+label = "false"
+
+[[sample.row]]
+command = "cat > /tmp/docs-2a-wait.sh <<'EOF' cd /home/tom/code/north/main for i in $(seq 1 120); do git fetch -q origin 2>/dev/null s=$(git log origin"
+label = "false"
+
+[[sample.row]]
+command = "cat > /tmp/n320-job.sh <<'EOF' set -u store='~/.local/share/makgora-build-inputs/store' sha=$(basename \"$(readlink -f ~/.local/state/north/c"
+label = "false"
+
+[[sample.row]]
+command = "cat > /tmp/p88-gen.pl <<'EOF' my @names = qw( batch_yields_to_the_desktops_own_cpu_wait_only_when_present declared_batch_cpus_past_the_aggre"
+label = "false"
+
+[[sample.row]]
+command = "cat > /tmp/p88o-run.sh <<'E' north capacity host run --owner p88-agents-owners --timeout-seconds 1800 -- bash /tmp/p88o.sh > /tmp/p88o.log 2"
+label = "false"
+
+[[sample.row]]
+command = "cat > /tmp/wisp187-run.sh <<'EOF' # usage: wisp187-run.sh OUT ARGS... out=$1; shift export LD_LIBRARY_PATH=$(nix build --no-link --print-out"
+label = "false"
+
+[[sample.row]]
+command = "cat > crates/north-graph/src/guards.rs <<'EOF' use std::path::Path; use crate::query::parse_query; use crate::store::Graph; use crate::term:"
+label = "true"
+
+[[sample.row]]
+command = "cat > src/fleet/wait.rs <<'EOF' use std::time::Duration; use super::receipts::is_final; pub const WAKE_MARK: &str = \"[north: your turn ended"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/nixos-config/main && git fetch -q origin && git worktree add ~/code/nixos-config/worktrees/p88-job-run -b p88-job-run orig"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main/crates/north-core/src/guard/ && sed -n 280,397p launch_critical/mod.rs; sed -n 1,165p launch_critical/decide.rs"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; python3 - <<'EOF' 2>/dev/null || echo nopy EOF cat > crates/north-replay/src/calls.rs <<'EOF' //! What the str"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/firn/main && python3 - <<'EOF' p='modules/north-runtime-follow/default.nix' s=open(p).read() s=s.replace(''' timers.north-runtime-"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main && cat > /tmp/p88-gen.pl <<'EOF' my @names = qw( batch_yields_to_the_desktops_own_cpu_wait_only_when_present declared_b"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/main && git merge-base --is-ancestor ed76d3687 origin/main && echo ancestor; git show ed76d3687 | git patch-id --stable; git"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/main; python3 - <<'E' 2>/dev/null || bun -e 'const r=require(\"./crates/north-guard/src/guard/fixtures/heavy_command.json\"); "
+label = "false"
+
+[[sample.row]]
+command = "d=$(mktemp -d) && cd $d && mkdir src && printf '[package]\\nname=\"p\"\\nversion=\"0.1.0\"\\nedition=\"2021\"\\n' > Cargo.toml && printf 'pub fn pick("
+label = "false"
+
+[[sample.row]]
+command = "gh api repos/tompassarelli/north/issues/88 --jq .body > /tmp/b88-new.md; diff /tmp/b88.md /tmp/b88-new.md && echo unchanged; sed -n 85,86p /"
+label = "false"
+
+[[sample.row]]
+command = "gh issue view 573 -R tompassarelli/north --json body -q .body > /tmp/n573-body.md && python3 -c 1 2>/dev/null; sed -i \\ -e 's|^- \\[ \\] A lau"
+label = "false"
+
+[[sample.row]]
+command = "git diff --quiet 1573dc954 0259d4b50 -- crates tests && echo same-content && git worktree remove ../worktrees/n360-enqueue-fails-first && gi"
+label = "false"
+
+[[sample.row]]
+command = "git update-ref refs/tmp/x HEAD && git bundle create -q - refs/tmp/x ^HEAD | wc -c; git update-ref -d refs/tmp/x; rg -n \"pub fn try_run_comma"
+label = "unclear"
+
+[[sample.row]]
+command = "git worktree remove /home/tom/code/north/worktrees/d15-checks-fail-closed && git branch -D d15-checks-fail-closed && git push -q origin --de"
+label = "false"
+
+[[sample.row]]
+command = "mkdir -p /home/tom/code/north/worktrees/n360-precheck/tests/it/land_serve && cat > /home/tom/code/north/worktrees/n360-precheck/tests/it/lan"
+label = "false"
+
+[[sample.row]]
+command = "mkdir -p /tmp/n612-scripts /tmp/n612-ws && cat > /tmp/n612-scripts/rlib.sh <<'E' set -eu ws=/tmp/n612-ws cd \"$ws\" printf '[workspace]\\nmembe"
+label = "false"
+
+[[sample.row]]
+command = "msg='Label the \"main is red\" issue main-red when the Main is red workflow opens or updates it, so north dispatch leaves it out of its notice"
+label = "false"
+
+[[sample.row]]
+command = "python3 - <<'EOF' import re p='crates/north-base/src/platform/rolling_issue.rs' s=open(p).read() s=s.replace('const REPO: &str = \"tompassare"
+label = "true"
+
+[[sample.row]]
+command = "python3 - <<'EOF' import re p='crates/north-core/src/ops/dispatch/manual.rs' s=open(p).read() s=s.replace('''/// The issue's body and when i"
+label = "true"
+
+[[sample.row]]
+command = "python3 - <<'EOF' p='crates/north-core/src/ledger/closed.rs' s=open(p).read() old=s[s.index(\" let category = runs.iter().map(|run| run.categ"
+label = "true"
+
+[[sample.row]]
+command = "python3 - <<'EOF' 2>/dev/null || echo nopython EOF cat > /tmp/p88_edit.sh <<'EOF' set -e f=crates/north-core/src/catalog/generation.rs perl "
+label = "unclear"
+
+[[sample]]
+rule = "claude-sleep"
+window = "2026-11-04 to 2026-11-07"
+
+[[sample.row]]
+command = "sleep 25; cat /home/tom/code/north/main/.git/worktrees/n635-cull-ops-dispatch/n635-mut/results.txt 2>/dev/null; tail -c 400 /home/tom/code/n"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; cat /tmp/claude-1000/-home-tom-code-north-main/30f8bc65-8643-47ee-8fa4-a7c626205909/tasks/btz028kka.output | cut -c1-200"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; cat /tmp/claude-1000/-home-tom-code-north-main/683580f4-feec-4517-b77c-6935f556367a/tasks/b3o3y6wop.output | head -80"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; cat /tmp/claude-1000/-home-tom-code-north-main/a4b82dfd-9297-47eb-8153-3ae6dfd80aa6/tasks/bm1rid0y0.output | cut -c1-500"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; cat /tmp/claude-1000/-home-tom-code-north-main/f860fe2b-d102-4d90-8643-0b1f2722963e/tasks/bqc8fffd3.output; ls ~/.local/state/nort"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; cat /tmp/e3-sweep.log | tail -5; ls -t ~/.local/state/agents/replay | head -2"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; cat /tmp/n612-scripts/test.txt /tmp/n612-scripts/fmt.txt 2>/dev/null | tail -20; tail -5 /tmp/claude-1000/-home-tom-code-north-mai"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; cat /tmp/north580-tune.txt | head -40"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; cat /tmp/sc234-push.summary"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; cd /home/tom/code/north/worktrees/n242-placement && git diff --stat; tail -5 /tmp/n242_test.log"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; grep -E \"^test |test result|^exit|Running\" /tmp/e7273b-73core.log /tmp/e7273b-73bin.log /tmp/e7273b-it.log /tmp/e7273b-core.log | "
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; ls ~/.local/state/makgora/evidence/credits-1109/window-frames | wc -l; cat /tmp/sc1109/window.log | cut -c1-300 | tail -5"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -15 /tmp/offload-test.log"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -3 /tmp/n360-docs-test2.log"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -30 /tmp/claude-1000/-home-tom-code-north-main/549d3053-59dd-468d-b50c-18f0b0ab2c46/tasks/b5sasojih.output | rg -v '^\\s*Compi"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -5 /tmp/claude-1000/-home-tom-code-north-main/24fc4384-2a8c-4db1-92c8-bd04cb579d3d/tasks/bbuq9jr1l.output"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -5 /tmp/d21-*.log"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -5 /tmp/n360-unit.log; tail -3 /tmp/n360-it.log"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -5 /tmp/p525-test.log; tail -5 /tmp/p525-south-push.log"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -5 ~/.local/share/makgora-scratch/illidan-stalker2/derive.log | cut -c1-300"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -c 1500 /tmp/claude-1000/-home-tom-code-north-main/70b16493-11a6-4bf8-80e0-f8e41ec59d83/tasks/bz4fkgnaj.output | cut -c1-300"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -c 200 /tmp/claude-1000/-home-tom-code-makgora-main/be779eea-9c76-4515-b579-6a375d543eb9/tasks/bpdjco4p9.output; tail -2 ~/.l"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -c 400 /tmp/claude-1000/-home-tom-code-north-main/f17ba0ec-eae3-42e6-9d70-fc6f1f917b56/tasks/biyb1rflo.output | tail -5"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -c 600 /tmp/claude-1000/-home-tom-code-north-main/b2d02b24-6296-40d7-87d5-03b5cc861bea/tasks/b5res7h9a.output"
+label = "true"
+
+[[sample.row]]
+command = "sleep 25; tail -n 1 /home/tom/code/north/worktrees/n259-codegen/.cg/profile.log | cut -c1-200"
+label = "true"
+
+[[sample.row]]
+command = "sleep 28; cd /home/tom/code/north/main && git fetch -q origin && git log origin/main --oneline -4 | cut -c1-110; ls ~/.local/state/north/lan"
+label = "true"
+
+[[sample.row]]
+command = "sleep 28; tail -1 /tmp/sc1109/window.log | cut -c1-100"
+label = "true"
+
+[[sample.row]]
+command = "sleep 28; tail -5 /tmp/g8d2-test.log | cut -c1-200"
+label = "true"
+
+[[sample.row]]
+command = "sleep 28; tail -n 3 /tmp/lua1136.log | cut -c1-300"
+label = "true"
+
+[[sample.row]]
+command = "sleep 45; cat /tmp/cull635w8/tsc.log | cut -c1-250 | head"
+label = "true"
+
+[[sample]]
+rule = "blind-stage"
+window = "2026-11-04 to 2026-11-07"
+
+[[sample.row]]
+command = "M='Drop the lib/defaults.py provider-hook entry: north#88 deletes harness/lib/defaults.py, which nothing imports' cd /home/tom/code/south/wo"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/fix-1098 && perl -0pi -e ' s#\\| roster \\| `ts/src/game/roster/kits.ts`, `menu/stageCatalog.ts` \\|#| rost"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/docs-3b-features && git add -A && git commit -q -F - <<'EOF' Cut the feature entries of sections 02 and 08 to one sh"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/lanes/n396-locked-rs && git add -A && git commit -q -F - <<'EOF' Refuse to start a command through north secrets-pro"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/attribution-706 && git add -A && git status --short && git commit -q -F - <<'EOF' Attribute each finished "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/docs-arch-3d && git add -A && git commit -q -F - <<'EOF' Fail north docs features-index --check on an entr"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/fleet-silent-timing && git add -A && git commit -q -F - <<'EOF' Wait for the watcher to handle all three s"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/lane-gc-mirror-only && git ls-remote --tags origin | rg archive/ | wc -l; git add -A && git commit -q -F -"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n255-land-timeouts && git add -A && git commit -q -F - <<'EOF' Record land-check timeouts in land_checks w"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n259-usage-place && git add -A && git commit -q -F - <<'EOF' Add usage::decide free, rank, place and expla"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n360-check-deadline && git add -A && git commit -q -F - <<'EOF' Give each land check a deadline from its m"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n360-refusal-reason && git add -A && git commit -q -F - <<'EOF' Tell a refused lane's session why: the lan"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n5-checks && git add -A && git status --short && (CARGO_INCREMENTAL=0 run-bounded 40m -- depbox run -- nix"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n616-release-verb && git rebase -q origin/main 2>&1|tail -2; sed -i '58s/\"provenance\"\\]/\"provenance\", \"rel"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n635-sweep-b && cat > /tmp/n635-b-msg.txt <<'EOF' Delete three tests of retirement-sweep group B (north-op"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n643-strategy-purity; git add -A; git commit -q -m \"Gate the strategy crates' purity and bound the replay'"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n708-split && git add -A crates/north-fleet/src/fleet/tick.rs crates/north-fleet/src/fleet/tick crates/nor"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/north-562-history-doc && git add -A && git commit -q -m \"Describe north#562's shared history reads in the "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/north-625 && sed -i '4s/Read, Seek, Write/Read, Write/' crates/north-threads/src/threads/client.rs && git "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/p88-capacity-watchdog && git add -A && git commit -q -m \"Port capacity-watchdog sample, report, replay and"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/prune-replay-staffing && ./target/debug/north threads replay-staffing; echo exit=$?; rg -n replay-staffing"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/sccache-short-uds && git add -A && git commit -q -F - <<'EOF' Name each lease's sccache server socket by t"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/usage-reader-fix && git add -A && git commit -q -F - <<'EOF' Read pace usage through north usage --rows in"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/worktrees/p88-capacity-callers && bun - <<'EOF' import { readFileSync, writeFileSync } from \"node:fs\"; let t = readFi"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/firn/worktrees/n655-log-retain && git add -A && git commit -q -m \"Run north strategy log retain hourly on every host that installs"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/nixos-config/worktrees/eta-calibration; git add -A; git commit -qm \"Add the weekly eta-calibration timer on whiterabbit: it runs n"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/gex45-ll-port-coverage && git diff HEAD --stat -- docs/features.md; ./bin/head-north docs features-index --check 2"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/n360-shadow/crates/north-landing/src/land/shadow && perl -0pi -e 's/entry\\(50, ticket\\(\"issue\", \"5\", Some\\(RedFix:"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/p88-hook-switch && git diff HEAD --binary -- AGENTS.md docs harness > /tmp/p88/lane2.patch && git checkout HEAD --"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/south && git -C main worktree add ~/code/south/worktrees/reserve-confined-note -b reserve-confined-note 2>&1 | tail -1 && cd workt"
+label = "true"
+
+[[sample]]
+rule = "worker-wait"
+window = "2026-10-24 to 2026-11-07"
+
+[[sample.row]]
+command = "D=/home/tom/.local/share/smashcraft-animation-reference/sc345/b2; cat > $D/probe.sh <<'EOF' #!/usr/bin/env bash D=/home/tom/.local/share/sma"
+label = "true"
+
+[[sample.row]]
+command = "S=/home/tom/.local/state/smashcraft/scratch/ribbon-streak; n=0; until [ -x $S/helper/target/release/wc3-journal ] || [ $n -ge 14 ]; do sleep"
+label = "false"
+
+[[sample.row]]
+command = "cat > /tmp/claude-1000/-home-tom/bc0e4f93-eb9f-45d6-886a-eb9347fe9c79/scratchpad/verdicts/E.json <<'EOF' [ {\"number\":89,\"verdict\":\"close-don"
+label = "false"
+
+[[sample.row]]
+command = "cat > /tmp/n88-ledger-run.sh <<'EOF' #!/bin/sh # usage: n88-ledger-run.sh LOG cargo-args... log=$1; shift cd /home/tom/code/north/worktrees/"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/cull-635/ts && rg -n \"GAME_MODULES\" scripts/lua-tests.ts | head -5; L=$(ls $(sed 's#^ts/##' /tmp/cull635"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/lane-312b && sed -n 112,118p bin/safe-push; n=$(wc -l < src/landing/safe_push_usage.txt); s=$(awk 'NR>112 && /^Usage"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/budget-split && north review-gate 2>&1 | head -20; safe-push --durable-harness-paths north 2>&1 | head"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/drop-codex-account && (CARGO_BUILD_JOBS=2 timeout 900 cargo test --lib prune_retired a_provider 2>&1 | tai"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/h88-teardown && (bun harness/skills/machine-capacity/scripts/machine-capacity.mjs run --owner h88-teardown"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/h88-unlanded && north review-gate id origin/main HEAD $(safe-push --durable-harness-paths north) 2>&1 | ta"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n281-names && bun test harness/code-health 2>&1 | tail -4; sed -i 's|export const reviewName = (repo: stri"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n635-cull-ops-dispatch; timeout 55 bash -c 'until rg -q \"^EXIT\" /tmp/n635/w/clippy2.log; do sleep 3; done'"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n88-laptop && python3 - <<'EOF' import re p='src/ops/agent_contain/tests.rs' s=open(p).read() s=s.replace("
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n88-safepush-plan && rg -n 'planning rows|planning property' . ; north review-gate id origin/main HEAD $(b"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n88c-timers && mkdir -p src/ops/timers/nexus_run && cat > src/ops/timers/nexus_run/plan.rs <<'EOF' use std"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/north-621-p15 && rg -n \"event::emit|emit\\(\" crates/north-safe-push/src --glob '!*tests*' | head; rg -n \"HO"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/port70b && north review-gate id origin/main HEAD $(safe-push --durable-harness-paths north)"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/worktrees/sc-34-tinker && sd -F 'const unplanted=new DrawnModel(generateMDX(model),1);' 'quietSmoke(model,recor"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/wt-360-phoenix/ts && ls test | head; ls ../ | head; rg -n 'bun test|tests.ts' ../docs/commands/testing.md | hea"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/worktrees/simple-texcoord && safe-push --to main 2>&1 | tail -20"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp/phw && cat > play.sh <<'EOF' #!/usr/bin/env bash # usage: play.sh LIBRARY LOG [env...]: one High match on the water stage in perf-hi"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/n232-art-takes && north review-gate id origin/main HEAD $(safe-push --durable-harness-paths north) 2>&1 | tail -5"
+label = "unclear"
+
+[[sample.row]]
+command = "f=/tmp/claude-1000/-home-tom-code-north-main/caff9b90-1573-48d1-9cc0-f711f710696f/tasks/bx3uqwk7i.output; timeout 55 bash -c \"until rg -q RE"
+label = "true"
+
+[[sample.row]]
+command = "ls /home/tom/code/north/worktrees/port70/harness/hooks/north-hook.sh /home/tom/code/north/worktrees/n71-guards/harness/hooks/north-hook.sh; "
+label = "unclear"
+
+[[sample.row]]
+command = "mkdir -p ~/.local/state/smashcraft/evidence/reactions-34-roster/pitlord/scratch && cat > ~/.local/state/smashcraft/evidence/reactions-34-ros"
+label = "true"
+
+[[sample.row]]
+command = "timeout 25 bash -c 'until [ -s /tmp/claude-1000/-home-tom-code-north-main/9dae76ab-d060-49b0-8055-3e384e9bbdc2/tasks/byjwapyfs.output ]; do "
+label = "false"
+
+[[sample.row]]
+command = "timeout 25 sh -c 'until grep -q \"^exit=\" /tmp/n88-full.log; do sleep 2; done'; echo rc=$?"
+label = "false"
+
+[[sample.row]]
+command = "timeout 28 bash -c 'until grep -q \"^EXIT\" /tmp/malf-derive.log; do sleep 2; done'; tail -c 400 /tmp/malf-derive.log"
+label = "false"
+
+[[sample.row]]
+command = "timeout 28 bash -c 'until grep -q \"^exit\" ~/.local/state/smashcraft/evidence/reactions-34-roster/grom/derive.log; do sleep 4; done'; tail -2"
+label = "false"
+
+[[sample.row]]
+command = "timeout 28 bash -c 'until rg -q \"^exit\" /tmp/claude-1000/-home-tom-code-smashcraft-main/181cb1e6-9cc8-4632-8c9a-f7b4005a4753/tasks/bx9qp0xjs"
+label = "false"
+
+[[sample]]
+rule = "poll-loop"
+window = "2026-11-04 to 2026-11-07"
+
+[[sample.row]]
+command = "O=/tmp/claude-1000/-home-tom-code-north-main/f478cd3b-1431-4f4a-9433-1dd0a31132d8/tasks/btcehxmi3.output; seen=0; while true; do n=$(wc -l <"
+label = "false"
+
+[[sample.row]]
+command = "f=/tmp/claude-1000/-home-tom-code-north-main/1701e2b7-2109-4071-8a57-0de7e15d6609/tasks/bb25spr3r.output; until grep -qE '\"RELEASED\"|exited "
+label = "true"
+
+[[sample.row]]
+command = "f=/tmp/claude-1000/-home-tom-code-north-main/484d13d2-cfab-4037-a62c-a4e8b6c6c0bf/tasks/b0nglvfr4.output; until grep -qE 'test result|^exit|"
+label = "true"
+
+[[sample.row]]
+command = "f=/tmp/claude-1000/-home-tom-code-north-main/9cebdcb1-be6c-43e3-a75d-80071239a975/tasks/b3qmcxz5q.output; until grep -qE \"test result|error("
+label = "true"
+
+[[sample.row]]
+command = "f=/tmp/claude-1000/-home-tom-code-north-main/dbcef93c-b26f-49ba-85da-e45ec77bc7d4/tasks/b3z22fjrm.output; until rg -q 'exit=' $f 2>/dev/null"
+label = "true"
+
+[[sample.row]]
+command = "last=\"\"; until grep -q '^exit ' /tmp/exp-test.log; do s=$(grep -o '\"decision\":\"[A-Z]*\",\"reason\":\"[A-Z_]*\"' /tmp/exp-test.log | tail -1); [ \""
+label = "unclear"
+
+[[sample.row]]
+command = "until [ \"$(wc -l < /tmp/652seen 2>/dev/null)\" = 3 ]; do sleep 30; done; echo all-three-landed"
+label = "true"
+
+[[sample.row]]
+command = "until [ -f ~/.cache/sc-996/accept-before3.log ]; do sleep 1; done; tail -n +1 -F ~/.cache/sc-996/accept-before3.log 2>/dev/null | grep -E --"
+label = "false"
+
+[[sample.row]]
+command = "until [ -s /tmp/claude-1000/-home-tom-code-north-main/3523834c-47dd-431d-ac57-df91ba28fdbb/tasks/b6n2jye8e.output ] || ! pgrep -f 'os.walk' "
+label = "true"
+
+[[sample.row]]
+command = "until [ -s /tmp/claude-1000/-home-tom-code-north-main/bc4eb780-516b-4d21-87ec-d175a7f8cc8f/tasks/bhs6shzeg.output ]; do sleep 5; done; tail "
+label = "true"
+
+[[sample.row]]
+command = "until [ -s /tmp/n634-t1.log ]; do sleep 3; done; cat /tmp/n634-t1.log"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q \"^done\" /tmp/n259w3.build 2>/dev/null; do sleep 3; done; tail -30 /tmp/n259w3.build"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q \"^exit\" /tmp/g8d-farm.log && grep -q \"^exit\" /tmp/g8d-before.log; do sleep 10; done; tail -25 /tmp/g8d-farm.log; tail -8 /tmp/"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q \"^exit=\" /tmp/p88-test.log; do sleep 2; done; grep -E \"^test result|^exit=|error\\[|FAILED|panicked\" /tmp/p88-test.log | head -"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q \"test result\\|^error\" /tmp/claude-1000/-home-tom-code-north-main/95b8808d-dfa3-486e-879c-cf5be526e991/tasks/byuvtwdoc.output; "
+label = "true"
+
+[[sample.row]]
+command = "until grep -q '^done' /tmp/p88-check.log; do sleep 10; done; tail -40 /tmp/p88-check.log | cut -c1-400"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q '^exit ' /tmp/cull635w8/tsc.log; do sleep 3; done; cut -c1-250 /tmp/cull635w8/tsc.log | head -30"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q '^exit ' /tmp/n255-nixos-push.log; do sleep 5; done; tail -6 /tmp/n255-nixos-push.log"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q '^exit ' /tmp/n567-test.log; do sleep 5; done; grep -E '^test result|FAILED|panicked|^exit |error\\[' /tmp/n567-test.log | head"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q '^exit ' /tmp/offload-test.log 2>/dev/null; do sleep 3; done; tail -30 /tmp/offload-test.log"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q '^exit' /tmp/cull635/w5/lua.out 2>/dev/null; do sleep 5; done; echo finished; grep -v '^{\"decision\"' /tmp/cull635/w5/lua.out |"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q '^exit=' /tmp/d15-test.log; do sleep 2; done; grep -E 'test result|FAILED|panicked|error|exit=' /tmp/d15-test.log | head -20"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q '^exit=' /tmp/n588.log; do sleep 5; done; grep -E '^(error|warning: unused|exit=|test result|test .*(FAILED|north_binary))' /t"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q -E '^(tool exit|end |machine-capacity:|north code-health)' /tmp/n259-before-split.log; do sleep 15; done; tail -n 40 /tmp/n259"
+label = "true"
+
+[[sample.row]]
+command = "until grep -q finished /tmp/cull635/s2/prune.out 2>/dev/null; do sleep 3; done; cat /tmp/cull635/s2/prune.out"
+label = "true"
+
+[[sample.row]]
+command = "until ls /tmp/arc1/* >/dev/null 2>&1 || rg -q \"failed|RELEASED\" /tmp/arc1.log; do sleep 10; done; echo done; tail -4 /tmp/arc1.log | cut -c1"
+label = "true"
+
+[[sample.row]]
+command = "until rg -q \"^exit=\" /tmp/n523-push1.log; do sleep 5; done; tail -5 /tmp/n523-push1.log"
+label = "true"
+
+[[sample.row]]
+command = "until rg -q \"test result|error\\[|error:|warning:\" /tmp/claude-1000/-home-tom-code-north-main/4522f41e-9989-447e-9749-269070747060/tasks/bnv2"
+label = "true"
+
+[[sample.row]]
+command = "until rg -q '^done' /tmp/tune527.out; do sleep 3; done; rg 'rose|performance' /tmp/tune527.out | cut -c1-300"
+label = "true"
+
+[[sample.row]]
+command = "until rg -q '^exit' /tmp/wt577-cold.log; do sleep 5; done; tail -3 /tmp/wt577-cold.log | cut -c1-200"
+label = "true"
+
