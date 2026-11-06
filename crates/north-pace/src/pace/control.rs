@@ -112,8 +112,9 @@ fn carried_rates(previous: &Control, windows: &[Window], measured: BTreeMap<Stri
 }
 
 fn paced(windows: &[Window]) -> Vec<&Window> {
-    let short: Vec<&Window> = windows.iter().filter(|w| !w.is_week()).collect();
-    if short.is_empty() { windows.iter().collect() } else { short }
+    let live: Vec<&Window> = windows.iter().filter(|w| w.is_week() || !w.rolled_over()).collect();
+    let short: Vec<&Window> = live.iter().copied().filter(|w| !w.is_week()).collect();
+    if short.is_empty() { live } else { short }
 }
 
 fn may_raise(windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Reading, allowed: i64) -> bool {
@@ -134,16 +135,17 @@ fn may_raise(windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Readin
 }
 
 fn capacity(windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Reading) -> Option<i64> {
+    let target = reading.target.as_ref();
     windows
         .iter()
-        .filter(|w| !w.is_week())
         .filter_map(|w| {
             let rate = rates.get(&w.window).copied().filter(|rate| *rate > 0.0)?;
-            let hours = w.horizon(reading.target.as_ref(), reading.at);
-            (hours > 0.0).then(|| ((w.quota_ceiling.unwrap_or(100.0) - w.used_pct).max(0.0) / (rate * 60.0 * hours)).floor() as i64)
+            let hours = w.horizon(target, reading.at);
+            let ceiling = if w.is_week() { w.ceiling(target) } else { w.quota_ceiling.unwrap_or(100.0) };
+            let affordable = ((ceiling - w.used_pct).max(0.0) / (rate * 60.0 * hours)).floor() as i64;
+            (hours > 0.0).then_some(if w.is_week() { affordable } else { affordable.max(1) })
         })
         .min()
-        .map(|cap| cap.max(1))
 }
 
 fn unmeasured(windows: &[Window], rates: &BTreeMap<String, f64>) -> bool {

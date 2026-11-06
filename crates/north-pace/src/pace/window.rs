@@ -49,6 +49,11 @@ impl Window {
         self.window == "week"
     }
 
+    pub fn rolled_over(&self) -> bool {
+        let stamp = |text: Option<&str>| text.and_then(seconds);
+        stamp(self.resets_at.as_deref()).zip(stamp(self.as_of.as_deref())).is_some_and(|(reset, read)| reset <= read)
+    }
+
     pub fn age(&self, at: f64) -> f64 {
         self.as_of
             .as_deref()

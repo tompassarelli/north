@@ -143,14 +143,15 @@ fn short_and_week(at: f64, short_used: f64, short_burn: f64, short_reset_h: f64,
     ]
 }
 
-// KEEP(mutant): a short-window projection past its ceiling caps workers without holding the account, and the remaining week never does; mutant n259-short-window-projection-holds (34a3efb20); the 2026-11-06 11:45 AM readings held every account at 1 (north#259)
+// KEEP(mutant): a short-window projection past its ceiling caps workers without holding the account, and the week caps them at what its headroom pays for without holding; mutant n259-short-window-projection-holds (34a3efb20); the 2026-11-06 11:45 AM readings held every account at 1, and at 1:00 PM a five-hour window claude:a no longer reports let it reach 49 workers at 88% of its week (north#259)
 #[test]
-fn a_short_window_projection_caps_workers_and_the_remaining_week_never_does() {
+fn a_short_window_projection_caps_workers_without_holding_and_the_week_caps_what_it_pays_for() {
     let at = 1_792_000_000.0;
     let previous = step(&Control::default(), short_and_week(at - 60.0, 40.0, 50.0, 4.0, 11.0), Some(3), at - 60.0);
     let control = step(&previous, short_and_week(at, 40.5, 50.0, 4.0, 11.0), Some(3), at);
     assert_eq!((control.held, control.over), (Some(false), Some(false)));
-    allowed_workers_follow_the_five_hour_window_and_not_the_remaining_week();
+    allowed_workers_follow_the_five_hour_window_within_what_the_week_pays_for();
+    a_stale_five_hour_window_never_raises_allowed_workers_past_the_week_bound();
 }
 
 // KEEP(mutant): a spawn is refused only at the five-hour stop or over the burn cap; mutant exhaustion-other-window-as-5h (d7da0bbe0)
@@ -196,7 +197,7 @@ fn weekly_reading(at: f64, five_used: f64, five_reset_h: f64, week_used: f64, we
     ]
 }
 
-fn allowed_workers_follow_the_five_hour_window_and_not_the_remaining_week() {
+fn allowed_workers_follow_the_five_hour_window_within_what_the_week_pays_for() {
     let at = 1_793_000_000.0;
     let climb = |five_used: f64, five_reset_h: f64, week_used: f64, week_reset_h: f64, week_slope: f64| {
         let mut previous = Control::default();
@@ -207,12 +208,36 @@ fn allowed_workers_follow_the_five_hour_window_and_not_the_remaining_week() {
         }
         previous
     };
-    let claude_c = climb(34.0, 3.0, 40.0, 151.0, 0.1);
+    let claude_c = climb(34.0, 3.0, 40.0, 151.0, 0.001);
     assert_eq!((claude_c.held, claude_c.over), (Some(false), Some(false)));
     assert!(claude_c.allowed_workers.unwrap() > 1, "claude:c allowed {:?}", claude_c.allowed_workers);
     let claude_a = climb(0.0, 4.0, 84.0, 141.0, 0.1);
-    assert_eq!((claude_a.held, claude_a.over), (Some(false), Some(false)));
-    assert!(claude_a.allowed_workers.unwrap() > 1, "claude:a allowed {:?}", claude_a.allowed_workers);
+    assert_eq!((claude_a.held, claude_a.over, claude_a.allowed_workers), (Some(false), Some(false), Some(0)));
     let spent = climb(0.0, 4.0, 95.0, 141.0, 0.1);
     assert_eq!((spent.held, spent.over), (Some(true), Some(true)));
+}
+
+fn a_stale_five_hour_window_never_raises_allowed_workers_past_the_week_bound() {
+    let at = 1_793_944_818.0;
+    let week_resets = "2026-11-12T02:00:00Z";
+    let tick = |moment: f64, week_used: f64| {
+        vec![
+            window(json!({"window": "5h", "used_pct": 0.0, "burn_pct_h": 0.0, "reset_h": 0.0, "resets_at": "2026-10-31T04:00:00Z",
+                          "age_s": 0, "as_of": stamp(moment), "quota_ceiling": 95.0})),
+            window(json!({"window": "week", "used_pct": week_used, "burn_pct_h": 4.0, "reset_h": 140.0 - (moment - at) / 3600.0,
+                          "resets_at": week_resets, "age_s": 0, "as_of": stamp(moment), "quota_ceiling": 95.0})),
+        ]
+    };
+    let mut control = Control { at: Some(at - 60.0), workers: Some(4), allowed_workers: Some(49), held: Some(false), ..Control::default() };
+    for minute in 0..40 {
+        let moment = at + 60.0 * f64::from(minute);
+        let week_used = 85.0 + f64::from(minute / 10);
+        control = advance(&control, Reading { initial: 1, ..reading(tick(moment, week_used), Some(4), moment) });
+        let Some(rate) = control.burn_pct_worker_min.get("week").copied() else { continue };
+        let week = control.windows.iter().find(|w| w.is_week()).unwrap();
+        let bound = (95.0 - week.used_pct) / (rate * 60.0 * week.reset_h);
+        assert!((control.allowed_workers.unwrap() as f64) <= bound.max(0.0), "minute {minute}: allowed {:?} over week bound {bound}", control.allowed_workers);
+    }
+    assert!(control.burn_pct_worker_min.contains_key("week"), "the week burn per worker was never measured");
+    assert_eq!(control.allowed_workers, Some(0));
 }
