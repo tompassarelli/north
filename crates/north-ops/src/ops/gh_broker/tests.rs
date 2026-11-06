@@ -133,7 +133,7 @@ fn a_repeat_read_is_answered_from_an_etag_304_costing_no_rate_limit() {
 }
 
 #[test]
-fn retry_after_holds_every_call_with_that_token_until_it_passes_and_no_other_token {
+fn retry_after_holds_every_call_with_that_token_until_it_passes_and_no_other_token() {
     let broker = Harness::start(Duration::from_secs(20));
     assert_eq!(broker.get("/limited/retry-after").status, 429);
     for (method, target) in [("GET", ISSUES), ("POST", "/repos/o/r/issues/1/comments")] {
@@ -207,7 +207,7 @@ fn read_response(stream: impl Read) -> std::io::Result<Response> {
 }
 
 #[test]
-fn the_resident_broker_claims_the_users_gh_config_and_releases_only_its_own_line() {
+fn the_resident_broker_claims_the_users_gh_config_and_releases_only_its_own_line_while_no_broker_answers() {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("gh");
     std::fs::create_dir_all(&source).unwrap();
@@ -217,6 +217,11 @@ fn the_resident_broker_claims_the_users_gh_config_and_releases_only_its_own_line
     place.claim_user_gh(&source).unwrap();
     let claimed = std::fs::read_to_string(source.join("config.yml")).unwrap();
     assert_eq!(claimed, format!("git_protocol: https\nprompt: enabled\nhttp_unix_socket: {}\n", place.socket().display()));
+    let serving = UnixListener::bind(place.socket()).unwrap();
+    assert!(!place.release_user_gh(&source).unwrap(), "a broker still answers on the socket");
+    assert_eq!(std::fs::read_to_string(source.join("config.yml")).unwrap(), claimed);
+    drop(serving);
+    std::fs::remove_file(place.socket()).unwrap();
     assert!(place.release_user_gh(&source).unwrap());
     assert_eq!(std::fs::read_to_string(source.join("config.yml")).unwrap(), "git_protocol: https\nprompt: enabled\n");
     let elsewhere = "git_protocol: https\nhttp_unix_socket: /elsewhere.sock\n";

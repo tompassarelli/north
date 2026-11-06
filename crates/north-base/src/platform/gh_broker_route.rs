@@ -73,7 +73,7 @@ impl Place {
             return Ok(false);
         };
         let ours = format!("http_unix_socket: {}", self.socket().display());
-        if !original.lines().any(|line| line.trim_end() == ours) {
+        if UnixStream::connect(self.socket()).is_ok() || !original.lines().any(|line| line.trim_end() == ours) {
             return Ok(false);
         }
         replace(&source.join("config.yml"), &with_socket(&original, None))?;
