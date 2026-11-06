@@ -111,7 +111,11 @@ pub fn decide(world: &impl World, input: &HookInput) -> Verdict {
         return Verdict::Allow;
     }
     match input.data["hook_event_name"].as_str() {
-        Some("Stop") => idle_capacity(world, input).map_or(Verdict::Allow, Verdict::Deny),
+        Some("Stop") => match idle_capacity(world, input) {
+            Some(Idle::Staffable(reason)) => Verdict::Deny(reason),
+            Some(Idle::Held(notice)) => Verdict::Advise(notice),
+            None => Verdict::Allow,
+        },
         _ => refusal(world, input).map_or(Verdict::Allow, |action| Verdict::Deny(message(&action))),
     }
 }
@@ -285,7 +289,18 @@ fn refresh_plan(dir: &std::path::Path) {
     let _ = command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).process_group(0).spawn();
 }
 
-fn idle_capacity(world: &impl World, input: &HookInput) -> Option<String> {
+enum Idle {
+    Staffable(String),
+    Held(String),
+}
+
+const CAPACITY_HOLDS: [&str; 4] = ["holds the box:", "takes nothing:", "has no free slot", "has no account with a free worker slot"];
+
+fn held_by_capacity(why: &str) -> bool {
+    why.split("; ").all(|clause| CAPACITY_HOLDS.iter().any(|hold| clause.contains(hold)))
+}
+
+fn idle_capacity(world: &impl World, input: &HookInput) -> Option<Idle> {
     if input.data["stop_hook_active"].as_bool() == Some(true) {
         return None;
     }
@@ -304,20 +319,21 @@ fn idle_capacity(world: &impl World, input: &HookInput) -> Option<String> {
                 let (host, account) = pair.split_once(' ')?;
                 (count.trim().parse::<u32>().ok()? > 0).then(|| format!("{account} has {} free worker slots on {host}", count.trim()))
             })?;
-            let skipped = plan.lines().filter_map(|line| line.strip_prefix("skip ")).find_map(|skip| {
-                let (item, why) = skip.split_once(": ready, not placed: ")?;
-                Some(format!("{item} is ready but not placed: {why}"))
-            })?;
-            (free, skipped)
+            let unplaced: Vec<(&str, &str)> = plan.lines().filter_map(|line| line.strip_prefix("skip ")?.split_once(": ready, not placed: ")).collect();
+            let Some((item, why)) = unplaced.iter().find(|(_, why)| !held_by_capacity(why)) else {
+                let (item, why) = unplaced.first()?;
+                return Some(Idle::Held(format!("{UNIT}: not blocking the end of turn: a worker slot is free but dispatch cannot place {item} there: {why}")));
+            };
+            (free, format!("{item} is ready but not placed: {why}"))
         }
     };
     let own = input.data["session_id"].as_str().unwrap_or_default();
     if world.seen(own, &format!("{capacity}\n{waiting}")) {
         return None;
     }
-    Some(format!(
+    Some(Idle::Staffable(format!(
         "{UNIT}: admitted capacity is idle while ready work waits: {capacity}, and {waiting}. Staff it before ending the turn (`north dispatch` launches what it places, `north fleet launch --task REPO#N ...` the rest, or fix what keeps a box from being placed), or tell Tom what blocks staffing."
-    ))
+    )))
 }
 
 fn wrapped(words: &[&str]) -> bool {

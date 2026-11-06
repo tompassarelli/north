@@ -278,6 +278,9 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
             ("reason", blocks.join("\n\n").into()),
         ]));
     }
+    if matches!(event, "Stop" | "SubagentStop") {
+        return (!context.is_empty()).then(|| Value::object([("systemMessage", context.join("\n").into())]));
+    }
     let mut output = Value::object([("hookEventName", event.into())]);
     if let Some(updated) = updated_input {
         output["permissionDecision"] = "allow".into();

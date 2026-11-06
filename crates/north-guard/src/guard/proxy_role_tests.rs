@@ -104,6 +104,7 @@ fn stop(active: bool) -> HookInput {
 const PLACED: &str = "slots gex45 claude:c: 2\nskip north#525: ready, not placed: no Class: line\nwould launch north#523 on gex45 claude:c as worker (tune cell)\n";
 const UNPLACED: &str = "slots gex45 claude:a: 0\nslots gex45 claude:c: 2\nskip north#525: ready, not placed: Category debugging-unknown-cause has no Class: line\n";
 const SATURATED: &str = "slots gex45 claude:c: 0\nskip north#525: ready, not placed: gex45 takes nothing: load 37 on 20 threads\n";
+const PACE_HELD: &str = "slots gex45 claude:a: 1\nslots ccx33 claude:a: 1\nslots whiterabbit claude:c: 0\nskip north#633: ready, not placed: gex45 holds the box: claude:a is held by pace with no session left to start, claude:c is held by pace with no session left to start; ccx33 holds the box: claude:a is held by pace with no session left to start, claude:c is held by pace with no session left to start; whiterabbit takes nothing: load 31 on 24 threads\n";
 const PAUSED: &str = "slots gex45 claude:c: 2\nskip makgora#798: project makgora paused paused = true\nskip wisp#230: project wisp paused paused = true\n";
 
 #[test]
@@ -122,6 +123,12 @@ fn the_proxy_cannot_end_a_turn_while_admitted_capacity_is_idle_and_ready_boxes_w
     assert_eq!(decide(&flagged, &stop(false)), Verdict::Allow);
     assert_eq!(decide(&Fake { plan: Some(SATURATED), ..proxy() }, &stop(false)), Verdict::Allow);
     assert_eq!(decide(&Fake { plan: Some(PAUSED), ..proxy() }, &stop(false)), Verdict::Allow);
+    match decide(&Fake { plan: Some(PACE_HELD), ..proxy() }, &stop(false)) {
+        Verdict::Advise(notice) => assert!(notice.contains("north#633") && notice.contains("claude:a is held by pace with no session left to start"), "{notice}"),
+        other => panic!("{other:?}"),
+    }
+    let mixed = format!("{PACE_HELD}skip north#525: ready, not placed: no Class: line\n");
+    assert!(matches!(decide(&Fake { plan: Some(Box::leak(mixed.into_boxed_str())), ..proxy() }, &stop(false)), Verdict::Deny(reason) if reason.contains("north#525")));
     assert_eq!(decide(&Fake { plan: None, ..proxy() }, &stop(false)), Verdict::Allow);
     assert_eq!(decide(&Fake { plan: Some(PLACED), ..worker() }, &stop(false)), Verdict::Allow);
 }
