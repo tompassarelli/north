@@ -1,7 +1,7 @@
 //! `north land scan strategy-replay BASE..HEAD`: a lane that touches a decision the decision log
 //! records replays the last day of logged cases with its own build of north before it is pushed, and
 //! is refused when a count shifts past its bound or an invariant breaks (docs/rationale/strategy-kernel.md).
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -26,6 +26,7 @@ const DECIDES: [&str; 15] = [
 ];
 const HEAD_NORTH: &str = "bin/head-north";
 const REPLAY: [&str; 6] = ["strategy", "replay", "--since", "24h", "--invariants", "--budget"];
+const TRAILER: &str = "Replay-shift:";
 
 /// The paths of `DECIDES` the range changes, or none for a repository without the replay.
 fn touched(directory: &Path, range: &Range) -> Vec<&'static str> {
@@ -66,9 +67,14 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl std::io::Write) -> u8 
         return lane.status.code().map_or(1, |code| u8::try_from(code).unwrap_or(1));
     };
     let already = refused(&String::from_utf8_lossy(&main.stdout));
-    let new = beyond(&lane_refused, &already);
+    let bodies = git::text(directory, &["log", "--format=%B", &format!("{}..{}", range.base, range.head)]).unwrap_or_default();
+    let declared = declared(&bodies);
+    let (intended, new): (Vec<String>, Vec<String>) = beyond(&lane_refused, &already).into_iter().partition(|key| declared.contains_key(key));
+    for key in &intended {
+        let _ = writeln!(out, "strategy-replay: {key} moves as the lane declares ({TRAILER} {key}: {})", declared[key]);
+    }
     if new.is_empty() {
-        let _ = writeln!(out, "strategy-replay: main's own build refuses the same ({}), so the lane breaks nothing main does not; passed", already.into_iter().collect::<Vec<_>>().join(", "));
+        let _ = writeln!(out, "strategy-replay: beyond what main's own build refuses ({}) the lane breaks nothing it does not declare; passed", already.into_iter().collect::<Vec<_>>().join(", "));
         return 0;
     }
     let _ = writeln!(out, "strategy-replay: refused the landing; the lane's build breaks {}, which main's build does not", new.join(", "));
@@ -85,6 +91,16 @@ fn refused(report: &str) -> BTreeSet<String> {
 
 fn beyond(lane: &BTreeSet<String>, main: &BTreeSet<String>) -> Vec<String> {
     lane.difference(main).cloned().collect()
+}
+
+/// Each `Replay-shift: KEY: REASON` line of the range's commit bodies, KEY being a refusal's key such as `placement cloud`.
+fn declared(bodies: &str) -> BTreeMap<String, String> {
+    bodies
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix(TRAILER)?.split_once(':'))
+        .map(|(key, reason)| (key.trim().to_owned(), reason.trim().to_owned()))
+        .filter(|(key, reason)| !key.is_empty() && !reason.is_empty())
+        .collect()
 }
 
 #[cfg(test)]

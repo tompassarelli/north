@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use super::{beyond, refused};
+use super::{beyond, declared, refused};
 
 const MAIN: &str = "landing-p90: 261 of 294 checked pass, BREACHED\nrefused: landing-p90: p90 is 65.9 s over 60 s; slowest landed north-621-p12a took 219 s\n";
 
@@ -11,5 +11,7 @@ fn a_lane_is_refused_only_for_what_its_build_breaks_beyond_main_s_own_replay() {
     assert_eq!(beyond(&same, &main), Vec::<String>::new());
     let worse = refused("refused: landing-p90: p90 is 70.0 s over 60 s\nrefused: placement account: logged 2766, replayed 9000, past the x2 bound of replay_outcome_shift_ratio\nrefused: the replay took 9.1 s, over the 5 s of replay_budget_seconds\n");
     assert_eq!(beyond(&worse, &main), ["placement account", "the replay took"]);
+    let intended = declared("Keep boxes off cloud\n\nReplay-shift: placement account: the cloud lane closes while the credit is unusable\nReplay-shift: the replay took:\n");
+    assert_eq!(beyond(&worse, &main).into_iter().filter(|key| !intended.contains_key(key)).collect::<Vec<_>>(), ["the replay took"], "an intended placement change had no way to land past the shift bound (north#690 on 2026-11-06); a declaration without a reason passes nothing");
     assert_eq!(refused("north strategy replay: 2026-11-05T09:20:55Z to 2026-11-06T09:20:55Z\n"), BTreeSet::new());
 }
