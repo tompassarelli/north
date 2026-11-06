@@ -1,4 +1,4 @@
-//! Keeps a build host's land-check slots warm between landings. While no land check runs here, the lease reaper starts one warm job: it
+//! Keeps a build host's land-check slots warm between landings. While at most `BUSY_SLOTS` land checks hold slots here, the lease reaper starts one warm job: it
 //! takes the unlocked slot furthest behind its repository's origin/main, never the lander's reserved one, checks it out at that head and
 //! runs the repository's `landing.warm` command there at the lowest CPU priority, so the next check on any slot, whichever package set it
 //! builds and whether or not the last after-landing run passed, compiles only what changed since.
@@ -19,6 +19,7 @@ const LOG: &str = "warm.log";
 const SETTING: &str = "landing.warm";
 const DEADLINE: Duration = Duration::from_secs(1800);
 const POLL: Duration = Duration::from_millis(500);
+const BUSY_SLOTS: usize = 2;
 
 struct Slot {
     name: String,
@@ -43,18 +44,19 @@ fn take(lock: &Path) -> Option<File> {
     flock(&file, FlockOperation::NonBlockingLockExclusive).ok().map(|()| file)
 }
 
-fn land_check_running(root: &Path) -> bool {
+fn too_busy(root: &Path) -> bool {
     let Ok(entries) = fs::read_dir(root) else { return false };
-    entries.flatten().map(|entry| entry.path()).any(|path| {
+    let held_slots = entries.flatten().map(|entry| entry.path()).filter(|path| {
         let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-        name.ends_with(".lock") && name != LOCK && !name.ends_with(".background.lock") && held(&path)
-    })
+        name.ends_with(".lock") && name != LOCK && !name.ends_with(".background.lock") && held(path)
+    });
+    held_slots.count() > BUSY_SLOTS
 }
 
-/// The lease reaper's step: starts a detached warm job when none is in flight and no land check holds a slot here.
+/// The lease reaper's step: starts a detached warm job when none is in flight and at most `BUSY_SLOTS` land checks hold slots here.
 pub fn tend() {
     let Some(root) = root().filter(|root| root.is_dir()) else { return };
-    if held(&root.join(LOCK)) || land_check_running(&root) {
+    if held(&root.join(LOCK)) || too_busy(&root) {
         return;
     }
     let Ok(log) = OpenOptions::new().create(true).append(true).open(root.join(LOG)) else { return };
@@ -71,11 +73,11 @@ pub fn tend() {
     }
 }
 
-/// `north capacity offload warm`: warms one slot, or does nothing when another warm job, a land check or no stale slot stands in the way.
+/// `north capacity offload warm`: warms one slot, or does nothing when another warm job, a busy host or no stale slot stands in the way.
 pub fn run() -> u8 {
     let Some(root) = root() else { return 0 };
     let Some(_warming) = take(&root.join(LOCK)) else { return 0 };
-    if land_check_running(&root) {
+    if too_busy(&root) {
         return 0;
     }
     let mut heads = BTreeMap::new();
