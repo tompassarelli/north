@@ -253,6 +253,21 @@ if [ "$tag_seen" -eq 1 ] || [ "$delete_tag_seen" -eq 1 ] || { north remote-land 
   exec north safe-push "${original_arguments[@]}"
 fi
 
+default_branch() {
+  local default
+  default=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || default=""
+  default=${default#refs/remotes/origin/}
+  printf '%s\n' "${default:-main}"
+}
+
+rust_target=$to
+[ "$to_seen" -eq 1 ] || rust_target=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || rust_target=""
+if [ -n "$check_base" ] || { [ "$dry" -eq 1 ] && [ "$rust_target" = "$(default_branch)" ]; }; then
+  safe_push_internal=1
+  command -v north >/dev/null 2>&1 || { echo "safe-push: north not on PATH; refusing to land without the language gate; NOT pushed." >&2; exit 1; }
+  SAFE_PUSH_SELF="$safe_push_self" exec north safe-push "${original_arguments[@]}"
+fi
+
 # A log file belongs to one safe-push tree: workers sharing a scratch push.log read each other's landings as their own.
 claim_output_log() {
   local fd target claimed=""
@@ -456,13 +471,6 @@ remote_destination_snapshot() {
   output=$(git ls-remote --symref "$origin_url" "$destination_ref") \
     || { echo "safe-push: cannot read origin destination $destination_ref" >&2; return 1; }
   plan_push snapshot "$output" "$destination_ref"
-}
-
-default_branch() {
-  local default
-  default=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || default=""
-  default=${default#refs/remotes/origin/}
-  printf '%s\n' "${default:-main}"
 }
 
 capture_destination_state() {

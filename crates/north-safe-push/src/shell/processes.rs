@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child as Running, Command, Stdio};
@@ -6,7 +6,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use north_base::foundation::step::{Refused, Step, cancelled};
 use north_base::platform::process::{exit_status, on_path};
+use rustix::io::dup;
 use rustix::process::{Pid, Signal, kill_process_group};
+use rustix::stdio::{dup2_stderr, dup2_stdout};
 
 const POLL: Duration = Duration::from_millis(20);
 const GRACE: Duration = Duration::from_secs(10);
@@ -31,6 +33,7 @@ pub trait Processes {
     fn succeeds(&self, program: &Path, directory: &Path, arguments: &[&str]) -> Option<String>;
     fn exit_code(&self, program: &str, arguments: &[&str]) -> Option<i32>;
     fn spawn_detached(&self, program: &Path, arguments: &[&str]);
+    fn capture_output(&self, run: &mut dyn FnMut()) -> String;
 }
 
 pub struct Live;
@@ -77,6 +80,40 @@ impl Processes for Live {
         }
         let _ = Command::new("setsid").arg("-f").arg(program).args(arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     }
+
+    fn capture_output(&self, run: &mut dyn FnMut()) -> String {
+        let Some(mut sink) = anonymous_file() else {
+            run();
+            return String::new();
+        };
+        let (Ok(out), Ok(err)) = (dup(std::io::stdout()), dup(std::io::stderr())) else {
+            run();
+            return String::new();
+        };
+        flush_output();
+        if dup2_stdout(&sink).is_err() || dup2_stderr(&sink).is_err() {
+            let _ = (dup2_stdout(&out), dup2_stderr(&err));
+            run();
+            return String::new();
+        }
+        run();
+        flush_output();
+        let _ = (dup2_stdout(&out), dup2_stderr(&err));
+        let mut bytes = Vec::new();
+        let _ = sink.seek(SeekFrom::Start(0)).and_then(|_| sink.read_to_end(&mut bytes));
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+}
+
+fn flush_output() {
+    let _ = (std::io::stdout().flush(), std::io::stderr().flush());
+}
+
+fn anonymous_file() -> Option<std::fs::File> {
+    let path = outcome_file();
+    let file = std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    Some(file)
 }
 
 fn outcome_file() -> PathBuf {

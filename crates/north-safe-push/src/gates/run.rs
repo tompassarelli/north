@@ -46,6 +46,7 @@ pub struct LandChecks<'a> {
     pub event_log: &'a Path,
     pub wait_event: &'a str,
     pub capacity: &'a Capacity,
+    pub claimed: &'a str,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -159,7 +160,8 @@ impl<'a> Gates<'a> {
         .map(str::to_owned)
         .collect();
         let program = self.shell.processes.current_exe();
-        let environment = request.capacity.environment();
+        let mut environment = request.capacity.environment();
+        environment.push(("SAFE_PUSH_OUTPUT_CLAIMED", request.claimed.to_owned()));
         let child = Child { program: &program, arguments: &arguments, directory: &self.root, environment: &environment };
         let finished = self.shell.processes.run_with_outcome(&child);
         LandChecked { step: finished.step, report: Report::read(&finished.outcome) }

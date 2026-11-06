@@ -207,6 +207,10 @@ impl Processes for Detached {
     fn succeeds(&self, _program: &Path, _directory: &Path, _arguments: &[&str]) -> Option<String> {
         None
     }
+    fn capture_output(&self, run: &mut dyn FnMut()) -> String {
+        run();
+        String::new()
+    }
     fn spawn_detached(&self, program: &Path, arguments: &[&str]) {
         self.0.borrow_mut().detached.push((
             program.to_path_buf(),

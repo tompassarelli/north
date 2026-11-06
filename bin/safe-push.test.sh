@@ -41,6 +41,7 @@ shim_main() {
       esac
       return 2
       ;;
+    north:safe-push) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:land-red-check) return "${SAFE_PUSH_TEST_RED_CHECK_STATUS:-0}" ;;
     north:capacity)
       [ "${2:-}" = offload ] || exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"

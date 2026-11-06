@@ -40,6 +40,10 @@ impl Settings {
         }
     }
 
+    pub fn events_file(&self) -> PathBuf {
+        self.state_home.join("safe-push/events.jsonl")
+    }
+
     pub fn mirror(&self, origin_url: &str) -> PathBuf {
         self.mirrors.join(format!("{}.git", repository(origin_url)))
     }

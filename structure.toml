@@ -285,7 +285,7 @@ may_use = ["foundation", "landing", "platform", "landing.safe_push.gates", "land
 name = "landing.safe_push.entry"
 paths = ["crates/north-safe-push/src/entry.rs"]
 responsibility = "safe-push's entry: parse the request, pick the mode and run it; the argv[0] and north release callers reach it here."
-may_use = ["foundation", "landing", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags"]
+may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags"]
 
 [[module]]
 name = "catalog"

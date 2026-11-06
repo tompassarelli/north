@@ -4,14 +4,15 @@ use north_base::foundation::clock::Timestamp;
 use north_base::foundation::step::{Refused, Step, cancelled, refuse};
 
 use crate::gates::run as gates;
+use crate::publication::outgoing::Outgoing;
 use crate::publication::plan;
 use crate::request::{self, Arguments, Plan, USAGE};
 use crate::session::cancel::watch_for_cancel;
-use crate::session::identity::{Identity, state_changed};
+use crate::session::identity::Identity;
 use crate::session::output_log::claim;
 use crate::shell::Shell;
 use crate::shell::files::Pushed;
-use crate::shell::origin::{Hooks, Push, Snapshot};
+use crate::shell::origin::{Hooks, Push};
 
 pub fn run(arguments: &[String], shell: &Shell) -> u8 {
     watch_for_cancel();
@@ -36,14 +37,6 @@ pub fn run(arguments: &[String], shell: &Shell) -> u8 {
 struct Publisher<'a> {
     directory: PathBuf,
     shell: &'a Shell,
-}
-
-struct Outgoing {
-    identity: Identity,
-    destination_ref: String,
-    snapshot: Snapshot,
-    base: String,
-    head: String,
 }
 
 struct Published {
@@ -85,52 +78,10 @@ impl Publisher<'_> {
         Ok(to)
     }
 
-    fn capture(&self, to: &str) -> Step<Outgoing> {
-        let git = &*self.shell.git;
-        let identity = Identity::capture(&self.directory)?;
-        let destination_ref = format!("refs/heads/{to}");
-        let snapshot = self.remote_destination(&identity.origin_url, &destination_ref)?;
-        let head = identity.head_oid().to_owned();
-        let base = match &snapshot {
-            Snapshot::Object(oid) => {
-                if !git.has_commit(oid) {
-                    eprintln!("safe-push: origin {destination_ref} is not available locally at {oid} — fetch it first");
-                    return Err(Refused(1));
-                }
-                if !git.is_ancestor(oid, &head) {
-                    eprintln!("safe-push: non-fast-forward {head} -> {destination_ref} (origin at {oid}) — refusing; rebase onto origin {to} first");
-                    return Err(Refused(1));
-                }
-                oid.clone()
-            }
-            Snapshot::Absent => self.shell.origin.head(&identity.origin_url).filter(|oid| git.has_commit(oid)).unwrap_or_default(),
-        };
-        Ok(Outgoing { identity, destination_ref, snapshot, base, head })
-    }
-
-    fn remote_destination(&self, origin_url: &str, destination_ref: &str) -> Step<Snapshot> {
-        self.shell.origin.snapshot(origin_url, destination_ref).map_err(|refusal| {
-            eprint!("{refusal}");
-            Refused(1)
-        })
-    }
-
-    fn revalidate(&self, outgoing: &Outgoing, directory: &Path) -> Step {
-        outgoing.identity.revalidate(directory)?;
-        match self.shell.origin.snapshot(&outgoing.identity.origin_url, &outgoing.destination_ref) {
-            Ok(current) if current == outgoing.snapshot => Ok(()),
-            Ok(_) => Err(state_changed(&format!("origin destination {} changed", outgoing.destination_ref))),
-            Err(refusal) => {
-                eprint!("{refusal}");
-                Err(state_changed("origin destination became unavailable, symbolic, malformed, or ambiguous"))
-            }
-        }
-    }
-
     fn publish(&self, request: &Arguments, to: &str) -> Step<Published> {
         let claims = claim(self.shell)?;
         println!("safe-push: {to} is not origin's default branch — pushing without the landing queue");
-        let outgoing = self.capture(to)?;
+        let outgoing = Outgoing::capture(self.shell, &self.directory, to)?;
         let range = outgoing.range();
         let mut refusals = Vec::new();
         let language = [
@@ -160,7 +111,7 @@ impl Publisher<'_> {
             println!("safe-push: ✗ {reason}; NOT pushed.");
             return Err(Refused(1));
         }
-        self.revalidate(&outgoing, &self.directory)?;
+        outgoing.revalidate(self.shell, &self.directory)?;
         let publication = plan::publication(&outgoing.head, &outgoing.destination_ref, outgoing.snapshot_oid_or(""));
         let branch = outgoing.identity.branch();
         if request.dry_run {
@@ -248,7 +199,7 @@ impl Publisher<'_> {
             eprintln!("safe-push: ✗ the pre-push checks failed; NOT pushed.");
             return Err(Refused(1));
         }
-        self.revalidate(outgoing, root)
+        outgoing.revalidate(self.shell, root)
     }
 
     fn attest(&self, identity: &Identity, to: &str) {
@@ -315,15 +266,3 @@ impl Publisher<'_> {
     }
 }
 
-impl Outgoing {
-    fn range(&self) -> String {
-        if self.base.is_empty() { self.head.clone() } else { format!("{}..{}", self.base, self.head) }
-    }
-
-    fn snapshot_oid_or<'a>(&'a self, absent: &'a str) -> &'a str {
-        match &self.snapshot {
-            Snapshot::Object(oid) => oid,
-            Snapshot::Absent => absent,
-        }
-    }
-}
