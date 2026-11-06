@@ -27,6 +27,8 @@ pub struct Session {
     pub machine: Option<String>,
     /// Whether it is taking a turn now, which is what a host slot and the working target count; an idle session or a parked one waiting on a registered run holds its items and no slot.
     pub working: bool,
+    /// The pace account it spends, `provider:label` for Claude and the provider otherwise.
+    pub account: Option<String>,
 }
 
 /// The issues a session's name starts with: `sc-277-d1435` holds makgora#277 and
@@ -47,6 +49,27 @@ fn holds(session: &Value) -> bool {
     HOLDING.contains(&status) || status == "parked" && session["waiting"].as_array().is_some_and(|runs| !runs.is_empty())
 }
 
+/// The pace-control account a listed session spends, as pace-control names it.
+fn account(session: &Value) -> Option<String> {
+    let provider = session["provider"].as_str()?;
+    match session["account"].as_str() {
+        Some(label) if provider == "claude" => Some(format!("{provider}:{label}")),
+        _ => Some(provider.to_owned()),
+    }
+}
+
+/// The sessions taking a turn on each account, counted once per name across registries.
+pub fn working_by_account(sessions: &[(Session, String)]) -> BTreeMap<String, i64> {
+    let mut seen = BTreeSet::new();
+    let mut working = BTreeMap::new();
+    for (session, _) in sessions.iter().filter(|(session, _)| session.working && seen.insert(session.name.clone())) {
+        if let Some(account) = &session.account {
+            *working.entry(account.clone()).or_insert(0) += 1;
+        }
+    }
+    working
+}
+
 /// The running sessions in one registry's `north fleet list --json`, each holding every item its
 /// `--task` names, else the items its name starts with.
 pub fn running_sessions(listing: &Value) -> Vec<Session> {
@@ -63,7 +86,7 @@ pub fn running_sessions(listing: &Value) -> Vec<Session> {
             };
             let tasked: Vec<IssueRef> = issues::references(&task_text, "").into_iter().filter(|item| !item.repo.is_empty()).collect();
             let items = if tasked.is_empty() { named_items(&name) } else { tasked };
-            Session { machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()) }
+            Session { machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session) }
         })
         .collect()
 }

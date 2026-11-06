@@ -66,6 +66,9 @@ pub struct Account {
     pub burn: Option<f64>,
     /// Its five-hour and week windows as usage-gate reads them, which a launch's projection starts from.
     pub readings: Vec<Reading>,
+    /// The new sessions pace-control leaves it while it holds the account: its `allowed_workers` less
+    /// the sessions working on it; None when pace does not hold it.
+    pub workers: Option<i64>,
 }
 
 impl Account {
@@ -92,7 +95,7 @@ impl Account {
             room.week,
             room.week_reset_h,
             self.hosts.join(", ")
-        )
+        ) + &self.workers.map_or_else(String::new, |free| format!("; pace holds it, leaving {free} more sessions"))
     }
 }
 
@@ -104,6 +107,8 @@ pub struct Pools {
     signed_in: BTreeMap<String, Vec<String>>,
     /// Points of its own percent each account is charged for the boxes planned on it this run.
     charged: BTreeMap<String, Charge>,
+    /// Sessions each account pace holds may still start this run.
+    workers: BTreeMap<String, i64>,
     cloud: i64,
 }
 
@@ -113,6 +118,7 @@ impl Pools {
             hosts: hosts.iter().map(|host| (host.name.clone(), host.free().unwrap_or(0))).collect(),
             signed_in: accounts.iter().filter(|account| account.open().is_ok()).map(|account| (account.name.clone(), account.hosts.clone())).collect(),
             charged: BTreeMap::new(),
+            workers: accounts.iter().filter_map(|account| Some((account.name.clone(), account.workers?.max(0)))).collect(),
             cloud: 0,
         }
     }
@@ -131,9 +137,15 @@ impl Pools {
         self.signed_in.get(account).is_some_and(|hosts| hosts.iter().any(|name| name == host))
     }
 
-    /// The host's free slots when the account is open and signed in there, else 0.
+    /// The host's free slots when the account is open and signed in there, no more than the
+    /// sessions pace leaves an account it holds, else 0.
     pub fn pair(&self, host: &str, account: &str) -> i64 {
-        if self.serves(host, account) { self.host(host) } else { 0 }
+        if self.serves(host, account) { self.host(host).min(self.workers(account)) } else { 0 }
+    }
+
+    /// The sessions pace leaves the account this run, unbounded when pace does not hold it.
+    pub fn workers(&self, account: &str) -> i64 {
+        self.workers.get(account).copied().unwrap_or(i64::MAX)
     }
 
     pub fn host(&self, host: &str) -> i64 {
@@ -144,8 +156,8 @@ impl Pools {
         self.hosts.iter().filter(|(host, _)| self.signed_in.keys().any(|account| self.serves(host, account))).map(|(_, free)| free).sum()
     }
 
-    pub fn take(&mut self, host: &str) {
-        if let Some(free) = self.hosts.get_mut(host) {
+    pub fn take(&mut self, host: &str, account: &str) {
+        for free in self.hosts.get_mut(host).into_iter().chain(self.workers.get_mut(account)) {
             *free = (*free - 1).max(0);
         }
     }

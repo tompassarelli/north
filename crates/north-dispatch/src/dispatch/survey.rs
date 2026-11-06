@@ -146,12 +146,55 @@ pub fn signed_in(cfg: &DocumentMut, roster: &Roster, account: &str, here: &str) 
     account_hosts(cfg, account, here).into_iter().filter(|host| own || host != here).collect()
 }
 
-/// The 5h window's measured burn in percent per hour, which usage-gate carries only for a trail of two readings.
-fn five_hour_burn(usage: &Value) -> Option<f64> {
-    usage["windows"].as_array()?.iter().find(|window| window["window"] == "5h")?["burn_pct_h"].as_f64()
+/// The 5h window's measured burn in percent per hour, which usage-gate carries only for a trail of
+/// two readings; a window whose reset has passed is a stale sample whose flat trail measures nothing.
+fn five_hour_burn(usage: &Value, at: f64) -> Option<f64> {
+    let window = usage["windows"].as_array()?.iter().find(|window| window["window"] == "5h")?;
+    let resets = window["resets_at"].as_str().and_then(crate::pace::target::seconds);
+    window["burn_pct_h"].as_f64().filter(|_| resets.is_none_or(|resets| resets > at))
 }
 
-fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<Account> {
+/// The sessions pace-control leaves an account it holds: its `allowed_workers` less the `working`
+/// sessions on it; None when pace does not hold it.
+pub fn pace_workers(control: &Value, working: i64) -> Option<i64> {
+    (control["held"] == true).then(|| (control["allowed_workers"].as_i64().unwrap_or(0) - working).max(0))
+}
+
+/// What dispatch knows of one account at `at`: its pace-control entry, its usage-gate control when
+/// it is a sampled Claude account, and the sessions working on it.
+pub struct Sample<'a> {
+    pub name: &'a str,
+    pub control: &'a Value,
+    pub usage: Option<&'a Value>,
+    pub working: i64,
+}
+
+pub fn account(sample: &Sample, basis: &Basis, hosts: Vec<String>, at: f64, notes: &mut Vec<String>) -> Account {
+    let Sample { name, control, usage: sampled, working } = *sample;
+    let verdict = sampled.map(|usage| gate::verdict(name, usage));
+    let plan = match sampled.map(|_| basis.plan(name)) {
+        Some(Ok(plan)) => plan,
+        Some(Err(why)) => {
+            notes.push(why);
+            PlanSize { five_hour: 1.0, week: 1.0 }
+        }
+        None => PlanSize { five_hour: 1.0, week: 1.0 },
+    };
+    let room = sampled.map_or(Room { five_hour: 0.0, week: 0.0, week_reset_h: WEEK_H }, |usage| room(usage, at));
+    Account {
+        name: name.to_owned(),
+        hosts,
+        plan,
+        spending: basis.spending(name),
+        refusal: account_refusal(name, control, verdict.as_ref(), &room, at),
+        room,
+        burn: sampled.and_then(|usage| five_hour_burn(usage, at)),
+        readings: sampled.map(projection::readings).unwrap_or_default(),
+        workers: pace_workers(control, working),
+    }
+}
+
+fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, working: &BTreeMap<String, i64>, notes: &mut Vec<String>) -> Vec<Account> {
     let pace = placement::pace_state("pace-control.json");
     let usage = placement::pace_state("usage-gate.json");
     let basis = Basis::new(cfg, pace.clone(), at);
@@ -160,27 +203,8 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
         .into_iter()
         .flatten()
         .map(|(name, control)| {
-            let sampled = usage["claude"]["controls"].get(name).filter(|_| name.starts_with("claude:"));
-            let verdict = sampled.map(|usage| gate::verdict(name, usage));
-            let plan = match sampled.map(|_| basis.plan(name)) {
-                Some(Ok(plan)) => plan,
-                Some(Err(why)) => {
-                    notes.push(why);
-                    PlanSize { five_hour: 1.0, week: 1.0 }
-                }
-                None => PlanSize { five_hour: 1.0, week: 1.0 },
-            };
-            let room = sampled.map_or(Room { five_hour: 0.0, week: 0.0, week_reset_h: WEEK_H }, |usage| room(usage, at));
-            Account {
-                name: name.clone(),
-                hosts: signed_in(cfg, roster, name, here),
-                plan,
-                spending: basis.spending(name),
-                refusal: account_refusal(name, control, verdict.as_ref(), &room, at),
-                room,
-                burn: sampled.and_then(five_hour_burn),
-                readings: sampled.map(projection::readings).unwrap_or_default(),
-            }
+            let sample = Sample { name, control, usage: usage["claude"]["controls"].get(name).filter(|_| name.starts_with("claude:")), working: working.get(name).copied().unwrap_or(0) };
+            account(&sample, &basis, signed_in(cfg, roster, name, here), at, notes)
         })
         .collect()
 }
@@ -381,7 +405,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&sessions, name, record::recent_on(&records, name, &open, at)));
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
     let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();
-    let accounts = accounts(&cfg, roster, &here, at, &mut notes);
+    let accounts = accounts(&cfg, roster, &here, at, &fleets::working_by_account(&sessions), &mut notes);
     if accounts.is_empty() {
         notes.push("pace-control.json names no account, so no slot is free".into());
     }

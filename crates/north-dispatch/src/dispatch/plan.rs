@@ -84,8 +84,16 @@ fn burned(account: &Account, eta_h: Option<f64>) -> Option<f64> {
 
 /// What the account's measured burn and the box's ETA say, for the launch log.
 fn burn_line(pools: &Pools, account: &Account, eta_h: Option<f64>) -> Option<String> {
-    let (burn, burned) = (account.burn?, burned(account, eta_h)?);
-    Some(format!("{} measured burn {burn:.1}%/h over a {:.0} min ETA spends {burned:.1} of the {:.0} points left to its 5h stop", account.name, eta_h? * 60.0, pools.room(account).five_hour))
+    let room = pools.room(account);
+    let five_hour = account.burn.zip(burned(account, eta_h)).map(|(burn, burned)| format!("5h {burn:.1}%/h spends {burned:.1} of the {:.0} points left to its 5h stop", room.five_hour));
+    let week = account.readings.iter().find(|reading| projection::week(&reading.window)).and_then(|reading| Some(format!("week {:.1}%/h spends {:.1} of the {:.0} points left in its week", reading.burn_pct_h?, reading.spends(eta_h?)?, room.week)));
+    let windows: Vec<String> = five_hour.into_iter().chain(week).collect();
+    (!windows.is_empty()).then(|| format!("{} measured burn over a {:.0} min ETA: {}", account.name, eta_h.unwrap_or_default() * 60.0, windows.join("; ")))
+}
+
+/// The accounts signed in on `host` that pace holds with no session left to start.
+fn pace_held(capacity: &Capacity, pools: &Pools, host: &str) -> Vec<String> {
+    capacity.accounts.iter().filter(|account| account.open().is_ok() && account.hosts.iter().any(|name| name == host) && pools.workers(&account.name) == 0).map(|account| format!("{} is held by pace with no session left to start", account.name)).collect()
 }
 
 /// Why the week cannot carry the box on the account after this run's charges, when it cannot.
@@ -132,7 +140,7 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
     let pin = pin(capacity, pools, host, account);
     let burn = burn_line(pools, account, ready.eta_h);
     let projection = projection::project(&account.readings, ready.eta_h);
-    pools.take(host);
+    pools.take(host, &account.name);
     pools.charge(&account.name, capacity.charge(account));
     Launch {
         item: ready.item.clone(),
@@ -165,7 +173,7 @@ pub fn revive(capacity: &Capacity, pools: &mut Pools, host: &str, account: &str)
         return Err(format!("{account} has no room for another box this run"));
     }
     let pin = pin(capacity, pools, host, chosen).map(|_| format!("north dispatch revives the session on {account}, which holds its conversation"));
-    pools.take(host);
+    pools.take(host, account);
     pools.charge(account, capacity.charge(chosen));
     Ok(pin)
 }
@@ -196,7 +204,8 @@ pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools
             Some(account) => return Ok(launch(capacity, pools, ready, &candidate.host, account, local)),
             None if pools.host(&candidate.host) == 0 => refused.push(format!("{} has no free slot", candidate.host)),
             None => {
-                let held = burn_held(capacity, pools, &candidate.host, ready.eta_h);
+                let mut held = burn_held(capacity, pools, &candidate.host, ready.eta_h);
+                held.extend(pace_held(capacity, pools, &candidate.host));
                 refused.push(if held.is_empty() { format!("{} has no account with a free worker slot", candidate.host) } else { format!("{} holds the box: {}", candidate.host, held.join(", ")) });
             }
         }
