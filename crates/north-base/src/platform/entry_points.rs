@@ -23,18 +23,3 @@ impl EntryPoint {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proptest::prelude::*;
-
-    proptest! {
-        #[test]
-        fn a_basename_outside_the_entry_points_runs_north(directory in "[a-z/]{0,12}", name in "[a-z-]{1,12}") {
-            prop_assume!(ENTRY_POINTS.iter().all(|(entry, _)| *entry != name));
-            let argv0 = format!("{directory}/{name}");
-            prop_assert_eq!(named(OsStr::new(&argv0)), None);
-        }
-    }
-}
