@@ -7,8 +7,8 @@ use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 const SKEWED_CURRENT: &str = "echo \"remote-current refuses: $*\" >&2\nexit 2\n";
-const LANDER_NORTH: &str = "if [ \"$1\" = capacity ]; then shift 6; exec \"$@\"; fi\nif [ \"$1\" = dev-shell ]; then shift 5; exec \"$@\"; fi\necho \"lander $*\"\n";
-const TREE_READING_NORTH: &str = "if [ \"$1\" = capacity ]; then shift 6; exec \"$@\"; fi\nif [ \"$1\" = dev-shell ]; then shift 5; exec \"$@\"; fi\nhere=$(dirname \"$0\")\ncat \"$here/tree/harness/defaults.toml\" || exit 101\nexit 3\n";
+const LANDER_NORTH: &str = "if [ \"$1\" = capacity ]; then shift 10; exec \"$@\"; fi\nif [ \"$1\" = dev-shell ]; then shift 5; exec \"$@\"; fi\necho \"lander $*\"\n";
+const TREE_READING_NORTH: &str = "if [ \"$1\" = capacity ]; then shift 10; exec \"$@\"; fi\nif [ \"$1\" = dev-shell ]; then shift 5; exec \"$@\"; fi\nhere=$(dirname \"$0\")\ncat \"$here/tree/harness/defaults.toml\" || exit 101\nexit 3\n";
 const LANDER_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
 fn runtimes(home: &Path) -> PathBuf {
@@ -54,7 +54,7 @@ fn every_north_the_offloaded_command_and_its_wrapper_call_is_the_landers_runtime
     let home = build_host(Some(true));
     let skewed = run_on(home.path(), "");
     assert_eq!(skewed.status.code(), Some(2), "without the pin the build host's current is what runs");
-    assert!(String::from_utf8_lossy(&skewed.stderr).contains("remote-current refuses: capacity deadline"));
+    assert!(String::from_utf8_lossy(&skewed.stderr).contains("remote-current refuses: capacity host run"));
     let pinned = run_on(home.path(), LANDER_SHA);
     assert!(pinned.status.success(), "{}", String::from_utf8_lossy(&pinned.stderr));
     assert_eq!(String::from_utf8_lossy(&pinned.stdout), "lander check\n");
