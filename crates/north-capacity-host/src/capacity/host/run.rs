@@ -219,6 +219,9 @@ pub(super) fn scope_command(root: &Path, request: &Request, admitted: &Obj, time
     if let Some(cpus) = field(&scope, "cpus").filter(|cpus| cpus.is_finite() && *cpus > 0.0 && request.name != "native" && !elastic_class(request.admitted_class())) {
         arguments.push(format!("--property=CPUQuota={}%", super::json::show(cpus * 100.0)));
     }
+    if request.name != "native" {
+        arguments.push(format!("--property=TasksMax={}", super::policy::task_cap()));
+    }
     arguments.extend([format!("--property=MemoryHigh={}M", super::json::show(field(&scope, "memoryMiB").unwrap_or(f64::NAN))), "--property=KillMode=control-group".to_owned()]);
     if FROZEN_CLASSES.contains(&request.name.as_str()) {
         arguments.extend(["--".to_owned(), north.clone(), "capacity".to_owned(), "deadline".to_owned(), exact_lease(root, &lease).to_string_lossy().into_owned(), timeout_text(timeout_seconds), "--".to_owned()]);

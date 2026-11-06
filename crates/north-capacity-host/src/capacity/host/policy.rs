@@ -158,6 +158,10 @@ pub fn memory_margin() -> f64 {
     default_number("capacity_memory_margin")
 }
 
+pub fn task_cap() -> u64 {
+    default_number("capacity_task_cap") as u64
+}
+
 pub fn sizing_runs() -> usize {
     default_number("capacity_sizing_runs") as usize
 }

@@ -6,6 +6,8 @@ fn server_socket(root: &std::path::Path, class: &str) -> Option<std::ffi::OsStri
     let request = Request { name: class.to_owned(), ..Request::default() };
     let admitted = Obj::new().put("lease", "00000000-0000-4000-8000-000000000001").put("scope", serde_json::json!({ "cpus": 6, "memoryMiB": 8192 }));
     let command = scope_command(root, &request, &admitted, Some(60), &["cargo".to_owned(), "build".to_owned()]);
+    let cap = command.as_std().get_args().any(|argument| argument == "--property=TasksMax=4096");
+    assert_eq!(cap, class != "native", "{class} task cap");
     command.as_std().get_envs().find(|(name, _)| *name == "SCCACHE_SERVER_UDS").and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
 }
 

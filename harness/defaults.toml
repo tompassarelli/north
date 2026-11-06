@@ -1532,3 +1532,11 @@ unit = "top-level entries north --help may list; each lane that folds a hyphenat
 source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07, 66 once the lane family folded under north lane, 65 once land-abandon folded under north land, 60 once citation-check, issue-box-lint, goals check, experiments, provenance and doctor nix folded under north check, 55 once flow, tempo, scoreboard, worker-ledger and incident folded under north ledger; the issue's target is 24 (north#703)"
 fallback = "none: agent-config-check refuses a help.txt over it"
 consumers = ["crates/north-core/src/agent_config_check/help_surface.rs"]
+
+[capacity_task_cap]
+value = 4096
+allowed = { min = 256, max = 1000000 }
+unit = "tasks (processes and threads) one leased scope may hold at once, set as TasksMax on every non-native lease scope; a test or check that forks past it fails at once with EAGAIN instead of filling the host's process table"
+source = "measured: bin/safe-push.test.sh ran 125k bash execs, and a leased run of 20 jobs holds well under 1,000 tasks at its peak; every test and check run carries a process cap (north#634, 2026-11-06)"
+fallback = "none: the lease scope always sets the cap"
+consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
