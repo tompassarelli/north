@@ -3,6 +3,7 @@ pub mod doc_links;
 mod doc_paths;
 pub mod docs_owners;
 pub mod dropped_commits;
+pub mod gate_shadow;
 pub mod generated;
 pub(crate) mod git;
 pub(crate) mod host_paths;
@@ -25,6 +26,7 @@ use std::path::{Path, PathBuf};
 
 const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|incident-test|test-admission|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan test-admission run BASE..HEAD\n       north land scan test-admission kills [--host NAME] [--remote-north COMMAND] [--here] BASE..HEAD\n       north land scan boxes BASE..HEAD\n       north land scan docs-owners BASE..HEAD
        north land scan doc-links BASE..HEAD
+       north land scan gate-shadow BASE..HEAD
        north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps";
 
 struct Range<'a> {
@@ -73,6 +75,7 @@ pub fn run(arguments: &[String]) -> u8 {
         [name, range] if name == "docs-owners" => {
             docs_owners::scan(&directory, range, &north_github_mirror::store::Mirror::local(), &mut std::io::stdout())
         }
+        [name, range] if name == "gate-shadow" => gate_shadow::scan(&directory, range, &crate::watch::state_home(), &mut std::io::stdout()),
         [name, range] if name == "boxes" => boxes::run(&directory, range),
         [name, range] if name == "tool-removal" => {
             let home = std::env::var_os("HOME")
