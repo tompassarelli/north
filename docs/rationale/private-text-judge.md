@@ -5,7 +5,7 @@ Tom asked on 2026-11-06 for one rule that keeps private kinds of text out of eve
 ## What runs
 
 - `north privacy judge --text FILE|-` reads a text, asks the cheapest Claude model once per chunk with the kinds listed in south's `privacy/private-kinds.toml`, and prints one `kind<TAB>quoted span` line per finding. Exit 0 means clean, 1 means findings, 2 means the judge could not run. The kinds list lives only in south; north holds the method.
-- The call goes through the same one-shot path as the other model timers: each subscription account in turn, the API-key variables unset, so it bills the plan and never a metered key.
+- The call goes through the same one-shot path as the other model timers, with every variable that routes `claude` to token billing unset. With no subscription profile it falls back to the default login only when that login is a claude.ai OAuth login with no API-key variable and no apiKeyHelper; otherwise it refuses.
 - The verdict is cached by the hash of the prompt version, model, kinds list and text under `~/.local/state/north/private-text-verdicts`, so a re-push or a repeated comment costs nothing and a changed kinds list asks again.
 - A text with no prose never reaches the model: safe-push judges the outgoing commit messages, the tag annotation and the lines added to `.md`, `.txt`, `.rst` and `.adoc` files, so a code-only change judges its messages and nothing else.
 

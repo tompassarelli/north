@@ -140,6 +140,8 @@ fn a_public_destination_runs_the_deny_list_scan_and_the_private_kind_judge_and_n
     std::fs::create_dir_all(south.join("main")).unwrap();
     shim::write_script(&fixture.bin.join("claude"), "if grep -q walnut-lantern; then echo 'fixture-kind | walnut-lantern'; else echo NONE; fi\n");
     let (profiles, cache, north) = (fixture.root.join("profiles"), fixture.root.join("verdicts"), Path::new(env!("CARGO_BIN_EXE_north")));
+    let login = fixture.root.join("home/.claude");
+    write(&login.join(".credentials.json"), "{\"claudeAiOauth\":{}}");
     let environment = [
         ("SAFE_PUSH_DENYLIST", denylist.as_path()),
         ("SAFE_PUSH_SOUTH", south.as_path()),
@@ -148,6 +150,7 @@ fn a_public_destination_runs_the_deny_list_scan_and_the_private_kind_judge_and_n
         ("NORTH_PROFILES", profiles.as_path()),
         ("NORTH_PRIVACY_CACHE", cache.as_path()),
         ("NORTH_BIN", north),
+        ("CLAUDE_CONFIG_DIR", login.as_path()),
     ];
     fixture.commit("notes.md", "the walnut-lantern plan\n", "add notes");
     let before = fixture.remote_state();
@@ -165,4 +168,10 @@ fn a_public_destination_runs_the_deny_list_scan_and_the_private_kind_judge_and_n
     fixture.commit("blank.md", "a third plan\n", "add a third note");
     shim::write_script(&fixture.bin.join("claude"), "echo\n");
     fixture.run_with(&["--dry-run"], &environment).expect(false, &["unreadable form", "NOT pushed"]);
+
+    fixture.commit("keyed.md", "a fourth plan\n", "add a fourth note");
+    shim::write_script(&fixture.bin.join("claude"), "echo NONE\n");
+    let keyed: Vec<_> = environment.iter().copied().chain([("ANTHROPIC_API_KEY", Path::new("planted"))]).collect();
+    fixture.run_with(&["--dry-run"], &keyed).expect(false, &["ANTHROPIC_API_KEY is set", "NOT pushed"]);
+    fixture.run_with(&["--dry-run"], &environment).expect(true, &[]);
 }
