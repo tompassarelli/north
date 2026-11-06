@@ -28,6 +28,7 @@ pub(super) struct Promoted {
     pub(super) stdout: String,
     pub(super) calls: String,
     pub(super) alarms: String,
+    pub(super) candidate: String,
 }
 
 fn dry_run(candidate_verdict: &str, lane_b_verdict: impl FnOnce(&Path) -> String) -> Promoted {
@@ -42,6 +43,7 @@ pub(super) struct Held<'a> {
     pub(super) script: String,
     pub(super) change: Option<&'a str>,
     pub(super) held_for: Option<u64>,
+    pub(super) ahead: bool,
 }
 
 pub(super) fn scenario(script: String, held: Option<Held>, lane_b_verdict: impl FnOnce(&Path) -> String) -> Promoted {
@@ -79,11 +81,13 @@ pub(super) fn scenario(script: String, held: Option<Held>, lane_b_verdict: impl 
     let held_for = held.as_ref().and_then(|held| held.held_for);
     let (held_name, candidate_name) = match held.as_ref().and_then(|held| held.change) {
         Some(message) => (landed, commit("fix.txt", message)),
-        None => ("held".to_owned(), "candidate".to_owned()),
+        None => ("held".to_owned(), commit("candidate.txt", "candidate")),
     };
+    let newer = commit("newer.txt", "newer");
+    let (held_name, candidate_name) = if held.as_ref().is_some_and(|held| held.ahead) { (candidate_name, held_name) } else { (held_name, candidate_name) };
     let candidate = state.join("north/runtimes").join(&candidate_name).join("tree/bin/north");
     std::fs::create_dir_all(candidate.parent().unwrap()).unwrap();
-    north_base::foundation::shim::write_executable(&candidate, script);
+    north_base::foundation::shim::write_executable(&candidate, script.replace("{NEWER}", &newer));
     std::os::unix::fs::symlink(format!("runtimes/{candidate_name}"), state.join("north/current")).unwrap();
     if let Some(held) = held {
         let binary = state.join("north/runtimes").join(&held_name).join("tree/bin/north");
@@ -117,7 +121,7 @@ pub(super) fn scenario(script: String, held: Option<Held>, lane_b_verdict: impl 
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let calls = std::fs::read_to_string(candidate.with_extension("calls")).unwrap_or_default();
-    Promoted { status: output.status.success(), stdout, calls, alarms: std::fs::read_to_string(&alarmed).unwrap_or_default() }
+    Promoted { status: output.status.success(), stdout, calls, alarms: std::fs::read_to_string(&alarmed).unwrap_or_default(), candidate: candidate_name }
 }
 
 pub(super) fn unfit_signature(log: &Path) -> String {
@@ -125,7 +129,7 @@ pub(super) fn unfit_signature(log: &Path) -> String {
 }
 
 #[test]
-fn promote_judges_each_recorded_round_against_the_candidate_and_leaves_the_link_when_it_differs_or_current_moves() {
+fn promote_judges_each_recorded_round_against_the_candidate_and_follows_the_replayed_candidate_even_when_current_moves_mid_replay() {
     promote_follows_a_candidate_that_fails_nothing_the_held_runtime_does_not_and_holds_on_a_new_failure();
     let unfit = dry_run("landed", unfit_signature);
     let stdout = &unfit.stdout;
@@ -147,10 +151,20 @@ fn promote_judges_each_recorded_round_against_the_candidate_and_leaves_the_link_
     assert!(!refused.status, "{stdout}");
     assert!(stdout.contains("north land promote: refused: round lane-a on ") && stdout.contains("recorded landed but the candidate replayed failed; the lander link is unchanged"), "{stdout}");
 
-    let moved = dry_run_while("landed", "ln -sfn runtimes/newer \"$XDG_STATE_HOME/north/current\";", unfit_signature);
-    let stdout = &moved.stdout;
-    assert!(!moved.status, "{stdout}");
-    assert!(stdout.contains("refused: ") && stdout.contains("moved from runtimes/candidate to runtimes/newer while the candidate replayed; the lander link is unchanged"), "{stdout}");
+    let forward = dry_run_while("landed", "ln -sfn runtimes/{NEWER} \"$XDG_STATE_HOME/north/current\";", unfit_signature);
+    let stdout = &forward.stdout;
+    assert!(forward.status, "{stdout}");
+    assert!(stdout.contains(&format!("would point at runtimes/{}", forward.candidate)) && !stdout.contains("refused"), "a current that moved on to a newer runtime mid-replay still gets the replayed candidate: {stdout}");
+
+    let sideways = dry_run_while("landed", "ln -sfn runtimes/elsewhere \"$XDG_STATE_HOME/north/current\";", unfit_signature);
+    let stdout = &sideways.stdout;
+    assert!(!sideways.status, "{stdout}");
+    assert!(stdout.contains(&format!("moved from runtimes/{} to runtimes/elsewhere while the candidate replayed; the lander link is unchanged", sideways.candidate)), "{stdout}");
+
+    let behind = scenario(replay_script("landed", &[]), Some(Held { script: replay_script("landed", &[]), change: Some("Make main green again\n\nMain-red: #671"), held_for: None, ahead: true }), unfit_signature);
+    let stdout = &behind.stdout;
+    assert!(behind.status, "{stdout}");
+    assert!(stdout.contains("the link is not moved back"), "a stale promote never moves the lander link back to an older runtime: {stdout}");
 }
 
 pub(super) fn replay_script(verdict: &str, failures: &[&str]) -> String {
@@ -165,7 +179,7 @@ const REVERT: &str = "Revert \"Gate the capacity agent build\"";
 const SHERIFF_FIX: &str = "Make main green again\n\nMain-red: #671";
 
 fn compared(candidate: &[&str], held: &[&str], change: Option<&str>) -> Promoted {
-    scenario(replay_script("failed", candidate), Some(Held { script: replay_script("failed", held), change, held_for: None }), unfit_signature)
+    scenario(replay_script("failed", candidate), Some(Held { script: replay_script("failed", held), change, held_for: None, ahead: false }), unfit_signature)
 }
 
 fn promote_follows_a_candidate_that_fails_nothing_the_held_runtime_does_not_and_holds_on_a_new_failure() {
@@ -190,7 +204,7 @@ fn promote_follows_a_candidate_that_fails_nothing_the_held_runtime_does_not_and_
     assert!(fix.status, "{}", fix.stdout);
     assert!(fix.stdout.contains("a revert or sheriff-fix candidate"), "{}", fix.stdout);
 
-    let regressed = scenario(replay_script("failed", &[PRE_EXISTING]), Some(Held { script: replay_script("landed", &[]), change: None, held_for: None }), unfit_signature);
+    let regressed = scenario(replay_script("failed", &[PRE_EXISTING]), Some(Held { script: replay_script("landed", &[]), change: None, held_for: None, ahead: false }), unfit_signature);
     assert!(!regressed.status, "{}", regressed.stdout);
     assert!(regressed.stdout.contains("the held runtime replayed landed"), "{}", regressed.stdout);
 }

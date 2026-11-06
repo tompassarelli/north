@@ -1,7 +1,7 @@
 use super::promote::{ELSEWHERE, Held, Promoted, replay_script, scenario, unfit_signature};
 
 fn held_for(minutes: u64) -> Promoted {
-    scenario(replay_script("failed", &[ELSEWHERE]), Some(Held { script: replay_script("failed", &[]), change: None, held_for: Some(minutes * 60) }), unfit_signature)
+    scenario(replay_script("failed", &[ELSEWHERE]), Some(Held { script: replay_script("failed", &[]), change: None, held_for: Some(minutes * 60), ahead: false }), unfit_signature)
 }
 
 #[test]
