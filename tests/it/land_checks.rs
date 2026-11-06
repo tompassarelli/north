@@ -21,13 +21,17 @@ case "$1" in
       "offload run") [ -z "${STUB_OFFLOAD_EXEC:-}" ] || exec bash -euo pipefail -c "${!#}"; exit 0 ;;
     esac
     ;;
-  land-red-check) exit "${STUB_RED_STATUS:-0}" ;;
-  land-actions)
-    if [ -n "${STUB_ACTIONS_RELEASE:-}" ]; then
-      touch "$STUB_ACTIONS_RELEASE.waiting"
-      read -r _ <"$STUB_ACTIONS_RELEASE"
-    fi
-    exit "${STUB_ACTIONS_STATUS:-0}"
+  land)
+    case "$2" in
+      red-check) exit "${STUB_RED_STATUS:-0}" ;;
+      actions)
+        if [ -n "${STUB_ACTIONS_RELEASE:-}" ]; then
+          touch "$STUB_ACTIONS_RELEASE.waiting"
+          read -r _ <"$STUB_ACTIONS_RELEASE"
+        fi
+        exit "${STUB_ACTIONS_STATUS:-0}"
+        ;;
+    esac
     ;;
 esac
 exec "$REAL_NORTH" "$@"

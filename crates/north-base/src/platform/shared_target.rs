@@ -51,9 +51,9 @@ pub fn run_sweep(cache: &Path, cap: u64) -> u8 {
     let mut status = 0;
     for target in shared_targets(cache) {
         match sweep(&target, cap, IDLE, SystemTime::now()) {
-            Ok(freed) => println!("land-clean: swept {} ({} MiB freed)", target.display(), freed >> 20),
+            Ok(freed) => println!("land clean: swept {} ({} MiB freed)", target.display(), freed >> 20),
             Err(error) => {
-                eprintln!("land-clean: could not sweep {}: {error}", target.display());
+                eprintln!("land clean: could not sweep {}: {error}", target.display());
                 status = 1;
             }
         }
@@ -226,7 +226,7 @@ fn lock_profiles(target: &Path) -> io::Result<(Vec<File>, Vec<&'static str>)> {
         if hold_build_lock(&directory, &mut locks)? {
             unlocked.push(profile);
         } else {
-            eprintln!("land-clean: skipped {profile} in {}: a build holds its {BUILD_LOCK}", target.display());
+            eprintln!("land clean: skipped {profile} in {}: a build holds its {BUILD_LOCK}", target.display());
         }
     }
     Ok((locks, unlocked))

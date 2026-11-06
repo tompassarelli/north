@@ -41,7 +41,7 @@ pub fn arguments(path: &Path, ticket: &Ticket, candidate: &Candidate, tree: &str
         return None;
     }
     let lane = ticket.root.file_name()?.to_string_lossy().into_owned();
-    let mut arguments = vec!["land-train".to_owned(), "record".to_owned()];
+    let mut arguments = vec!["land".to_owned(), "train".to_owned(), "record".to_owned()];
     flag(&mut arguments, "--repo", push_ledger::repository(&ticket.origin));
     flag(&mut arguments, "--lane", lane);
     flag(&mut arguments, "--branch", &ticket.branch);

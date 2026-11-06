@@ -167,8 +167,8 @@ Commands no timer, hook, skill or land check calls (14-day gex45 uses in bracket
 `session-host` [0] is the fleet's runtime host; `context` [0] was added on 2026-11-04 to measure the skill and hook
 slimming; `orders` [0] is the standing-orders store `north fleet` reads; `laptop-ntfy` [0] is a nixos-config
 service (`modules/nexus-laptop-ntfy`). The rest ran by hand: `agents` [138], `ops` [105], `autoland-status`
-[66], `help` [62], `provenance` [57], `land-tests` [40, also called from safe-push], `wisp` [37], `north lane rescue`
-[32], `code-health` [26], `nexus-run` [23], `citation-check` [14], `land-actions` [13], `north lane layout`
+[66], `help` [62], `provenance` [57], `land tests` [40, also called from safe-push], `wisp` [37], `north lane rescue`
+[32], `code-health` [26], `nexus-run` [23], `citation-check` [14], `land actions` [13], `north lane layout`
 [13], `archives` [6], `incident-mine`, `land-cache`, `secrets-proxy-exec` and `usage-web-read` [4 each],
 `landed-tree` [3], `task` [2], `autoland-wait` [42].
 

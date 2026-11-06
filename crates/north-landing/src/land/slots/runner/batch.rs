@@ -4,7 +4,7 @@ pub const MARK: &str = "land batch: check ";
 const KILLED: i32 = 125;
 
 pub fn joins(command: &str) -> bool {
-    runs_head_north(command) && !command.contains("land-tests") && !command.contains("cargo ")
+    runs_head_north(command) && !command.contains("land tests") && !command.contains("cargo ")
 }
 
 fn quote(word: &str) -> String {

@@ -24,22 +24,24 @@ case "$1" in
       exit 0
     fi
     ;;
-  land-clean)
-    [ -z "${SAFE_PUSH_TEST_NORTH_TRACE:-}" ] || exit 0
-    ;;
   denylist)
     if [ "$2" = attest ]; then
       printf '%s\n' "$*" >>"${SAFE_PUSH_TEST_ATTEST_TRACE:-/dev/null}"
       exit "${SAFE_PUSH_TEST_ATTEST_STATUS:-0}"
     fi
     ;;
-  land-actions)
-    printf '%s\n' "$*" >>"${SAFE_PUSH_TEST_ACTIONS_TRACE:-/dev/null}"
-    exit "${SAFE_PUSH_TEST_ACTIONS_STATUS:-0}"
-    ;;
-  land-red-check)
-    printf 'land-red-check\n' >>"${SAFE_PUSH_TEST_RED_TRACE:-/dev/null}"
-    exit "${SAFE_PUSH_TEST_RED_CHECK_STATUS:-0}"
+  land)
+    case "$2" in
+      clean) [ -z "${SAFE_PUSH_TEST_NORTH_TRACE:-}" ] || exit 0 ;;
+      actions)
+        printf '%s\n' "$*" >>"${SAFE_PUSH_TEST_ACTIONS_TRACE:-/dev/null}"
+        exit "${SAFE_PUSH_TEST_ACTIONS_STATUS:-0}"
+        ;;
+      red-check)
+        printf 'land red-check\n' >>"${SAFE_PUSH_TEST_RED_TRACE:-/dev/null}"
+        exit "${SAFE_PUSH_TEST_RED_CHECK_STATUS:-0}"
+        ;;
+    esac
     ;;
   capacity)
     if [ "$2" = offload ]; then

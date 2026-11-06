@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-const USAGE: &str = "usage: north land-red-check --main SHA --log FILE [--lane BRANCH]";
+const USAGE: &str = "usage: north land red-check --main SHA --log FILE [--lane BRANCH]";
 const GH_LIMIT: Duration = Duration::from_secs(60);
 const OFFLOAD_SECONDS: u64 = 1800;
 const RANGE_LIMIT: usize = 200;
@@ -112,7 +112,7 @@ pub fn rerun_command(failed: &BTreeSet<Failure>) -> Option<String> {
     }
     if !harness.is_empty() {
         let paths: Vec<String> = harness.iter().map(|path| quote(path)).collect();
-        steps.push(format!("env -u SAFE_PUSH_LAND_HEAD -u SAFE_PUSH_LAND_RUNTIME_HEAD ./bin/head-north land-tests {} 2>&1 || status=1", paths.join(" ")));
+        steps.push(format!("env -u SAFE_PUSH_LAND_HEAD -u SAFE_PUSH_LAND_RUNTIME_HEAD ./bin/head-north land tests {} 2>&1 || status=1", paths.join(" ")));
     }
     steps.push("exit $status".to_owned());
     Some(steps.join("; "))

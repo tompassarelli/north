@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-const NORTH: &str = "#!/bin/sh\ncase \"$1\" in after-landing|land-train) exit 2 ;; esac\nexec \"$REAL_NORTH\" \"$@\"\n";
+const NORTH: &str = "#!/bin/sh\ncase \"$1 $2\" in \"after-landing \"*|\"land train\") exit 2 ;; esac\nexec \"$REAL_NORTH\" \"$@\"\n";
 
 struct Fixture {
     root: tempfile::TempDir,

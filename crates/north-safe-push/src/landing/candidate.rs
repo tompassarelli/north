@@ -142,7 +142,7 @@ pub fn run(base: &str, shell: &Shell) -> u8 {
             println!("{}", verdict.line());
             if matches!(verdict, Verdict::Green(_)) {
                 if facts.ran {
-                    shell.processes.exit_code("north", &["land-clean", &root]);
+                    shell.processes.exit_code("north", &["land", "clean", &root]);
                 }
                 return 0;
             }

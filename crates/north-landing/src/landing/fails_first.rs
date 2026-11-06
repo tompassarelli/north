@@ -11,7 +11,7 @@ use super::mutant::{Env, Lease, Stop, git_bytes, git_text};
 use super::mutant_trees::{self, RunDir};
 use north_base::foundation::exit::NO_VERDICT;
 
-const USAGE: &str = "usage: north land-fails-first [BASE HEAD] (default: $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)";
+const USAGE: &str = "usage: north land fails-first [BASE HEAD] (default: $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)";
 pub(crate) const MARK: &str = "Behavior: unchanged";
 
 static HUNK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@").unwrap());

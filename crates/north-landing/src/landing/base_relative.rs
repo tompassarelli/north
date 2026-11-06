@@ -68,7 +68,7 @@ impl Candidate {
     }
 
     fn key(&self, tree: &str, file: &str) -> Key {
-        Key::new(tree, &format!("{} land-tests {file}", self.repository), &self.env)
+        Key::new(tree, &format!("{} land tests {file}", self.repository), &self.env)
     }
 
     fn quarantine_path(&self) -> PathBuf {

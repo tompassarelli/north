@@ -80,7 +80,7 @@ cherry-picked, runs the hook once on that exact tree, pushes it with
 
 One lander owns main. Workers queue; the lander tests the exact tree it will push, judges each test
 case against the base, lands by compare-and-swap, and tells the parent. Every piece that can is built
-into the code safe-push's exact train already calls (land-checks.sh, `north land-tests`, git merge
+into the code safe-push's exact train already calls (land-checks.sh, `north land tests`, git merge
 drivers), so it pays off before the lander exists; the lander is safe-push's train loop ported to Rust
 and run as a service.
 
@@ -171,12 +171,12 @@ and run as a service.
     (sha, red_at, green_at, cause, cases, revert_sha) in the Nexus threads ledger, written first by
     safe-push's exact train and later by the lander; `north flow` prints finished-to-landed p50/p90,
     re-lands per lane, red-main minutes and bisect depth.
-    Built 2026-11-04: the tables are created by the first `north land-train` write (not bin/threads), carry a `repo`
+    Built 2026-11-04: the tables are created by the first `north land train` write (not bin/threads), carry a `repo`
     column, and a third table `land_checks` records each check run so the share thrown away because main moved is
-    measured; `main_red` is written by `north land-train red`, which the Main-red marker work calls.
+    measured; `main_red` is written by `north land train red`, which the Main-red marker work calls.
     Added 2026-11-05 (north#255, estimation audit): a land check that runs past its deadline writes a
     `land_checks` row with outcome `timeout`, its `command` and `deadline_s` (the runner, through
-    `north land-train check`); candidate rows keep an empty command and `north flow` counts only them. A
+    `north land train check`); candidate rows keep an empty command and `north flow` counts only them. A
     timeout on a lane whose base tree also ran past the deadline doubles that command's next deadline (up
     to the 2100 s ceiling) until twenty later runs age it out, and a refused candidate's `landings.detail`
     names the land check or gate that failed before its log path.
@@ -192,7 +192,7 @@ and run as a service.
 
 | Guarantee | Target | Measured by |
 |---|---|---|
-| Every main commit's tree was a tested candidate | 100% | `north land-train audit --since 1d`: main commits with no `landings` row whose tree equals the commit's tree: 0 |
+| Every main commit's tree was a tested candidate | 100% | `north land train audit --since 1d`: main commits with no `landings` row whose tree equals the commit's tree: 0 |
 | Only the lander and Tom's admin role advance main | GitHub rule | `gh api repos/tompassarelli/north/rulesets` shows one main ruleset with bypass actors the lander App and the admin role; a push with a Socrates App token is refused |
 | Red-main minutes attributable to a landed change | 0/day | `main_red` rows with cause `landing` over 7 days |
 | A break never blocks unrelated lanes | 0 lanes refused for a case failing on the base | `landings.verdict` joined to quarantine |
@@ -271,7 +271,7 @@ never hidden by a base red in the same file, conflicts on set files and features
 finished-to-landed is measured.
 
 - **B8 Per-case outcomes.** Category feature; Spec exact; files
-  crates/north-landing/src/landing/land_test_runner.rs, its tests. Done when: `north land-tests --cases
+  crates/north-landing/src/landing/land_test_runner.rs, its tests. Done when: `north land tests --cases
   json` on fixtures prints one row per libtest case, per `PASS|FAIL` line, and one whole-file row for a
   test that prints neither, with names and outcomes matching the fixture.
 - **B9 Results store.** Category feature; files crates/north-landing/src/landing/ (new results module).
@@ -281,7 +281,7 @@ finished-to-landed is measured.
   case A plus lane red case B in the same file names only B new; a base-red case enters quarantine and
   exits on a passing later base tree; a flaky case's pass does not count; a quarantine older than 24 h
   holds a lane that selects its file.
-- **B11 Judge in the land check.** Follows B10. Delivered in Rust inside `north land-tests`
+- **B11 Judge in the land check.** Follows B10. Delivered in Rust inside `north land tests`
   (crates/north-landing/src/landing/base_relative.rs), not in bin/safe-push, since the S6a runner
   replaced the bash land-check runner. Inside a candidate check (SAFE_PUSH_LAND_BASE and
   SAFE_PUSH_LAND_HEAD set) every case is recorded in the results store under the head tree, keyed per
@@ -291,7 +291,7 @@ finished-to-landed is measured.
   `case-results/quarantine/<root>.tsv` and printed; only the lane's new red cases refuse it; a base
   with no recorded results refuses as before. tests/it/land_tests.rs shows each.
 - **B12 Ledger tables and train records.** Category feature; files crates/north-core/src/threads
-  (schema), bin/safe-push (`train_verdict` calls `north land-train record`). Done when: a safe-push
+  (schema), bin/safe-push (`train_verdict` calls `north land train record`). Done when: a safe-push
   exact-mode test run leaves one `landings` row per lane with tree, batch_size, attempts and verdict.
 - **B13 Telemetry in north flow.** Follows B12. Files src/cli (flow). Done when: `north flow` on a fixture ledger prints
   finished-to-landed p50 and p90, re-lands, red-main minutes today and the deepest bisect.
@@ -320,7 +320,7 @@ uses laptop leases or depends on the laptop being awake.
 - **B18 Train loop in Rust.** Follows B10, B12. Files crates/north-landing/src/train/ (new). Port of
   safe-push's exact train (cherry-pick stack, CAS push, already-landed, conflict verdict, halves)
   reading `claude/land-*` refs oldest first. Done when: fixture tests of the existing exact-train
-  cases from bin/safe-push.test.sh pass against `north land-train serve --once` in a local bare repo.
+  cases from bin/safe-push.test.sh pass against `north land train serve --once` in a local bare repo.
 - **B19 Suite runner.** Follows B3, B9, B18. Done when: one fixture candidate dispatches land-check.yml
   at main's ref with every portable command and the candidate SHA as input after a denylist pass, runs the
   machine-bound commands locally, stores results by key, and a second run on the same tree dispatches
@@ -401,10 +401,10 @@ the lander makes unnecessary instead of porting them. Planned at origin/main 602
   snapshot, publication plan and one-branch-main (safe_push_plan.rs); repository state and remote
   snapshot (safe_push_state.rs); language gate, native-ref, betterleaks history and annotation scans,
   email scan, deny-list and instruction limits (safe_push_guards.rs); and the whole tag path
-  (`north safe-push --tag`, safe_push_tag.rs). bash calls about 20 `north` subcommands: land-actions,
-  land-red-check, land-red-wait, land-clean, stale-revert, lane squash, dep-gate, denylist,
+  (`north safe-push --tag`, safe_push_tag.rs). bash calls about 20 `north` subcommands: land actions,
+  land red-check, land-red-wait, land clean, stale-revert, lane squash, dep-gate, denylist,
   language-gate, build-cache-gate, bin-references, review-gate, after-landing, follows-release,
-  runtime follow, capacity, lane reap, land-abandon, safe-push-result.
+  runtime follow, capacity, lane reap, land abandon, safe-push-result.
 - Still bash: the driver (main flow ~2219-2452), the landing lock and ticket queue (~1549-1665), the
   train (~1667-1918), rebase and the verdict rule (~1920-2046), land checks (~1097-1300), Autoland
   (~2048-2178), lane cleanup and reap (~1302-1466), and the bash-only scans: tool removal, test
@@ -496,7 +496,7 @@ choice. It differs in four ways:
 - It ends with one line, `safe-push: verdict <class> <detail>`, where class is one of:
   - `green`;
   - `refused` (a gate or land check failed on the candidate);
-  - `red-main` (`north land-red-check` exit 3: the failure is main's);
+  - `red-main` (`north land red-check` exit 3: the failure is main's);
   - `transient` (fetch, `bun install`, GitHub rejecting the land-check ref twice: exit 75);
   - `deferred` (capacity DEFER).
 
@@ -538,7 +538,7 @@ Rust modules live in crates/north-landing/src/land/ (new, beside landing/).
 | Verdict rule, exact mode (`keep_verdict_through_moves`, ~2009-2046) | no counterpart: the lander pushes only the tree it checked | S2a, S19b |
 | Pre-push hook on the candidate (~1970-2008) | checks.rs (hook run in the slot) | S18 (north has land.check, so Wave L0 needs no hook) |
 | Land checks, local: selection, runner, deadline, frozen, orphans, logs, lease, publish ref (~1097-1300) | slots/runner.rs, slots/select.rs | S6a |
-| Land checks on Actions (`north land-actions`) and publication scan | dropped from the gate path by S6b; land_actions.rs kept for confirm runs and repositories not on slots | S6b |
+| Land checks on Actions (`north land actions`) and publication scan | dropped from the gate path by S6b; land_actions.rs kept for confirm runs and repositories not on slots | S6b |
 | Land checks offloaded to gex45 (`north capacity offload`) | slots/runner.rs, placement rules in slots/select.rs | S6b |
 | Candidate check mode (`safe-push --check-candidate --base SHA`) | checks.rs calls it; deleted in S19b when every stage is in-process | S2a, S19b |
 | Language, build-cache and bin-reference gates (~1062-1096) | scans/language.rs on safe_push_guards::language_gate | S12 |
@@ -551,7 +551,7 @@ Rust modules live in crates/north-landing/src/land/ (new, beside landing/).
 | Stale-revert and dropped-commit checks (~1024-1057) | candidate.rs, per lane as it is picked (stale-revert and already-landed in S2a; the bash functions in S17) | S2a, S17 |
 | Dependency sync, bun (~1740-1764) | slots/deps.rs | S17 |
 | Runtime follow: follows-release, `north runtime follow` (~1459-1466) | after/follow.rs, once per landed candidate | S2c |
-| Lane cleanup, auto-reap, land-clean (~1302-1466) | after/cleanup.rs, run by the lander after the landing | S21 |
+| Lane cleanup, auto-reap, land clean (~1302-1466) | after/cleanup.rs, run by the lander after the landing | S21 |
 | Stage telemetry: stages.tsv, pushes.tsv (one row per lane, the 7 columns fleet landings reads), landings table (B12) | telemetry.rs | S2c (tsv), S9 (ledger) |
 | Terminal receipt (`safe-push-result`), NOT-landed check | enqueue receipt `Done: queued`; the lander's fleet message names the landed sha after `git cherry` shows every lane commit on main | S1, S2c |
 | Autoland queue, gap, `--direct` (~2048-2178) | wisp and makgora move to the lander, or keep Autoland (lead's call in S18); deleted in S19b | S18, S19b |
@@ -601,7 +601,7 @@ The stateright model of the landing protocol (`crates/north-landing/tests/lander
 |---|---|
 | Train with land checks (landing-train-checks, 617e2eeeb) | bash, as written. Its cases stay per-lane, and `serve-train` covers the same tree-once rule |
 | Interim verdict reuse (exact-interim, 97c052083) | no change. The lander makes `landing.exact` moot for north: it pushes only checked trees |
-| B8+B9 per-case results (case-results) | stays library code; S6a's runner keeps calling `north land-tests` |
+| B8+B9 per-case results (case-results) | stays library code; S6a's runner keeps calling `north land tests` |
 | B10-B11 judge | B11 targets the lander's checks.rs once S2a has landed, and bash `check_candidate` before then |
 | B12+B13 telemetry (landing-telemetry) | lands in bash first; S9 writes the same `landings` rows from serve.rs |
 | B14 merge driver (merge-driver) | lands in bash first; candidate.rs sets the same `merge.set.driver` config in the lander's worktree |
@@ -716,7 +716,7 @@ then S2b and S2c in parallel; then S3 and S4.
   class (`safe-push/check-timings`); a deadline exit refuses the lane, naming the command, only when
   the base tree finished the same check within the deadline, and is otherwise an infrastructure
   verdict (exit 75) that keeps the ticket. The deadline, local or on an offload slot, prints the
-  command and its process tree before it signals, and `land-tests` prints `land check: started T`
+  command and its process tree before it signals, and `land tests` prints `land check: started T`
   as each test begins, so a silent hang names its step. The first such hang, a 3-lane candidate
   carrying inferred land checks, was `bin/safe-push.test.sh`'s train-deps fixture: its inferred
   `bun test` reached a test stub that execs the dev shell's capacity-gate `bun` shim, and `north
@@ -836,7 +836,7 @@ then S2b and S2c in parallel; then S3 and S4.
 - **S9 Landing records (B12).** Follows B12. Done when: one fixture run of serve leaves one
   `landings` row per lane with tree, batch_size, bisect_depth, attempts and verdict, and `north flow`
   prints queued-to-landed p50 and p90 from those rows.
-  Built 2026-11-04 (north#360): the lander spawns `north land-train record` per lane it lands, and per
+  Built 2026-11-04 (north#360): the lander spawns `north land train record` per lane it lands, and per
   lane it refuses with a conflict or a failed check; rows carry first_commit_at, check_started_at and
   check_finished_at. `north land enqueue` stamps the ticket's first-commit second from the lane
   branch's reflog before the squash, because a rebase or amend resets commit dates, and `north flow`

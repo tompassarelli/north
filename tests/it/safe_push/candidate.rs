@@ -20,7 +20,7 @@ fn check_candidate_ends_verdict_red_main_for_a_red_main_failure_and_verdict_gree
     let red = candidate(&[("SAFE_PUSH_TEST_ACTIONS_STATUS", "1"), ("SAFE_PUSH_TEST_RED_CHECK_STATUS", "3")]);
     assert_ne!(red.status, Some(0), "a red-main candidate exited 0: {}", red.output);
     assert_eq!(red.last_line(), format!("safe-push: verdict red-main {base}"), "{}", red.output);
-    assert!(std::fs::read_to_string(scratch.path().join("red-trace")).unwrap_or_default().contains("land-red-check"), "red main was not asked for: {}", red.output);
+    assert!(std::fs::read_to_string(scratch.path().join("red-trace")).unwrap_or_default().contains("land red-check"), "red main was not asked for: {}", red.output);
 
     let green = candidate(&[]);
     assert_eq!(green.status, Some(0), "a green candidate failed: {}", green.output);

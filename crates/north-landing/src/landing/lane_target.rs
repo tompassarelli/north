@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::platform::disk_budget::DiskBudget;
 use crate::platform::shared_target;
 
-const USAGE: &str = "usage: north land-clean LANE_ROOT | --sweep";
+const USAGE: &str = "usage: north land clean LANE_ROOT | --sweep";
 const MIB: u64 = 1 << 20;
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -17,16 +17,16 @@ pub fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     match release(Path::new(lane)) {
-        Ok(Some(bytes)) => println!("land-clean: removed {lane}/target ({} MiB)", bytes / MIB),
+        Ok(Some(bytes)) => println!("land clean: removed {lane}/target ({} MiB)", bytes / MIB),
         Ok(None) => {}
-        Err(error) => eprintln!("land-clean: could not remove {lane}/target: {error}"),
+        Err(error) => eprintln!("land clean: could not remove {lane}/target: {error}"),
     }
     0
 }
 
 fn sweep_home_cache() -> u8 {
     let Some(home) = std::env::var_os("HOME") else {
-        eprintln!("land-clean: cannot sweep: HOME is not set");
+        eprintln!("land clean: cannot sweep: HOME is not set");
         return 1;
     };
     shared_target::run_sweep(&Path::new(&home).join(".cache"), shared_target::cap_bytes(&DiskBudget::local()))

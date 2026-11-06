@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 
-const USAGE: &str = "usage: north land-tests [--jobs N] [--cases json] TEST...\n       north land-tests [--jobs N] [--cases json] --select changed|all [--only portable|machine-bound]";
+const USAGE: &str = "usage: north land tests [--jobs N] [--cases json] TEST...\n       north land tests [--jobs N] [--cases json] --select changed|all [--only portable|machine-bound]";
 
 struct Outcome {
     test: String,
@@ -54,7 +54,7 @@ pub fn run(arguments: &[String]) -> u8 {
                 Ok(selected) if selected.is_empty() => return 0,
                 Ok(selected) => {
                     let north = std::env::current_exe().map(|path| path.display().to_string()).unwrap_or_else(|_| "north".to_owned());
-                    println!("land check: running {north} land-tests {}", selected.join(" "));
+                    println!("land check: running {north} land tests {}", selected.join(" "));
                     (selected, env)
                 }
                 Err(failure) => {

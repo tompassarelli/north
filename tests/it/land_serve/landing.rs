@@ -53,7 +53,7 @@ fn a_lane_failing_a_lane_gate_alone_leaves_the_batch_before_the_candidate_is_che
     let told = fixture.fleet().into_iter().find(|call| call.contains("session-lane-skipping ")).unwrap_or_default();
     assert!(told.contains(concat!("safe-push: ✗ probe_tests.rs adds a skip or focus: #[ig", "nore]")), "{told}");
     for branch in ["lane-first", "lane-last"] {
-        let record = fixture.calls("land-train record").into_iter().find(|call| call.contains(&format!("--branch {branch} "))).unwrap_or_default();
+        let record = fixture.calls("land train record").into_iter().find(|call| call.contains(&format!("--branch {branch} "))).unwrap_or_default();
         assert!(record.contains("--batch-size 2 --bisect-depth 0 "), "{record}");
     }
 }

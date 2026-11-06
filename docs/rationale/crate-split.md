@@ -185,7 +185,7 @@ the dev profile's incremental compilation. CPU-seconds are user plus sys from GN
 Wall time on a loaded host inflates; CPU-seconds move far less, so they are the figure to compare.
 
 Until 2b5675065 (2026-11-05) the land check ran `harness/scripts/cargo-tests.sh`: `cargo test --no-run`, then
-every test binary side by side through `north land-tests`. Since then the land check runs clippy and the docs
+every test binary side by side through `north land tests`. Since then the land check runs clippy and the docs
 checks, and the full suite runs once per push to main in `cargo.yml`. The suite's cost below is what a landing
 spends either way: on the lander before land-first, on the CI runner after it, and on every agent that runs
 `cargo test` locally.

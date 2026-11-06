@@ -68,7 +68,7 @@ impl Fixture {
         let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
         command
             .current_dir(&self.repo)
-            .arg("land-tests")
+            .args(["land", "tests"])
             .args(arguments)
             .env("HOME", self.root.path().join("home"))
             .env("XDG_STATE_HOME", self.root.path().join("state"))
@@ -128,7 +128,7 @@ fn indented_and_inline_importers_selected_without_ripgrep_and_git_errors_fail_cl
     command.env("PATH", &path).env("SAFE_PUSH_LAND_BASE", &base).env("SAFE_PUSH_LAND_HEAD", "HEAD");
     let run = fixture.run(command);
     assert!(run.selected("harness/lib/indented.test.py") && run.selected("harness/lib/inline.test.py"), "selection with a broken rg on PATH: {}", run.output);
-    assert!(!called.exists(), "land-tests --select ran rg, which a CI runner may not have");
+    assert!(!called.exists(), "land tests --select ran rg, which a CI runner may not have");
     let run = fixture.select("missing-ref", None);
     assert!(!run.passed && run.output.contains("land check: git diff failed"), "{}", run.output);
 }

@@ -7,7 +7,7 @@ use super::{Detector, Finding};
 const ROOT: &str = "post-land checks";
 const WAITS: [&str; 3] = ["offload sync", "offload slot wait", "capacity lease wait"];
 
-pub const FAMILIES: [(&str, &str); 5] = [("nextest", "cargo nextest run"), ("clippy", "cargo clippy"), ("land_tests", "land-tests"), ("north_build", " --build"), ("head_north", "./bin/head-north")];
+pub const FAMILIES: [(&str, &str); 5] = [("nextest", "cargo nextest run"), ("clippy", "cargo clippy"), ("land_tests", "land tests"), ("north_build", " --build"), ("head_north", "./bin/head-north")];
 
 pub fn family(command: &str) -> Option<&'static str> {
     FAMILIES.iter().find(|(_, marker)| if marker.starts_with(' ') { command.trim_end().ends_with(marker) } else { command.contains(marker) }).map(|(name, _)| *name)

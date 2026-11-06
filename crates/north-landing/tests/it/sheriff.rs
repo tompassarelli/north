@@ -11,8 +11,8 @@ use super::serve::{Repository, World, git, report};
 const CHECK: &str = "[ ! -e bad ]\n";
 const HEAD_NORTH: &str = r#"#!/usr/bin/env bash
 git rev-parse 'HEAD^{tree}' >>"LOG"
-[ "$1" = land-tests ] || exit 2
-shift
+[ "$1 $2" = "land tests" ] || exit 2
+shift 2
 status=0
 for test in "$@"; do
   if bash "$test"; then echo "land check: $test passed after 0 s"; else echo "land check: $test exited 1 after 0 s"; status=1; fi

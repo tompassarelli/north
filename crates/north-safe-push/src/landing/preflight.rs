@@ -43,7 +43,7 @@ pub fn run(arguments: &Arguments, to: &str, shell: &Shell) -> u8 {
     match preflight.clear(&mut timeline) {
         Ok(cleared) => {
             if cleared.ran_land_checks && !arguments.keep_lane {
-                shell.processes.exit_code("north", &["land-clean", &cleared.root]);
+                shell.processes.exit_code("north", &["land", "clean", &cleared.root]);
             }
             0
         }

@@ -263,7 +263,7 @@ impl Shared {
     async fn red_main_check(&self, log: &Path) {
         let lane = std::process::Command::new("git").args(["symbolic-ref", "--quiet", "--short", "HEAD"]).current_dir(&self.root).output().map(|output| String::from_utf8_lossy(&output.stdout).trim_end().to_owned()).unwrap_or_default();
         let status = Command::new(program())
-            .args(["land-red-check", "--main", &self.arguments.base, "--log"])
+            .args(["land", "red-check", "--main", &self.arguments.base, "--log"])
             .arg(log)
             .args(["--lane", &lane])
             .current_dir(&self.root)
@@ -288,7 +288,7 @@ impl Shared {
         let arguments = &self.arguments;
         let timeout = self.environment.timeout.unwrap_or(check_timings::CEILING);
         let spawned = Command::new(program())
-            .args(["land-actions", "--workflow", &self.workflow, "--base", &arguments.base, "--head", &arguments.head, "--timeout", &timeout.to_string(), "--"])
+            .args(["land", "actions", "--workflow", &self.workflow, "--base", &arguments.base, "--head", &arguments.head, "--timeout", &timeout.to_string(), "--"])
             .args(commands)
             .current_dir(&self.root)
             .env("SAFE_PUSH_LAND_FAILED_LOG", &log)
@@ -298,7 +298,7 @@ impl Shared {
         match spawned {
             Ok(child) => Ok(Some((child, log))),
             Err(error) => {
-                warn(&format!("safe-push: could not start north land-actions: {error}; NOT pushed."));
+                warn(&format!("safe-push: could not start north land actions: {error}; NOT pushed."));
                 let _ = fs::remove_file(&log);
                 Err(1)
             }

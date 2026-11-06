@@ -104,7 +104,7 @@ impl Abandon {
 
 pub fn abandon(arguments: &[String], witness: &dyn Witness) -> u8 {
     let Some(request) = Abandon::parse(arguments) else {
-        eprintln!("Usage: north land-abandon [BRANCH | scratch/NAME | --superseded BRANCH [--by COMMIT]]");
+        eprintln!("Usage: north land abandon [BRANCH | scratch/NAME | --superseded BRANCH [--by COMMIT]]");
         return 2;
     };
     let Some((branch, rule)) = request.branch() else {

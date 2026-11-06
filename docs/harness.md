@@ -171,7 +171,7 @@ lanes" entries in [features.md](features.md#landing-and-lanes) describe each gat
    (`land.check` entries; [this repository's](../.safe-push) cover the Rust host, the harness
    scripts, agent-machinery and the docs) through `safe-push --check-candidate`, sending each where
    it can run: with a `land.workflow`, every check except the `land.local-only` and
-   `land.machine-bound` ones runs as one GitHub Actions job through `north land-actions`;
+   `land.machine-bound` ones runs as one GitHub Actions job through `north land actions`;
    machine-bound checks run on the `land.runner` build host; and a host in game-reserve ships the
    candidate to another host with room (`north capacity offload`);
 

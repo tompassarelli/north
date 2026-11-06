@@ -16,19 +16,13 @@ const UNIFORM: &[(&str, Run)] = &[
     ("evidence", crate::ops::reclaim::evidence_start),
     ("denylist", denylist::run),
     ("autoland-status", autoland_status::run),
-    ("land-abandon", |arguments| land_abandon::abandon(arguments, &super::abandon_witness::FleetWitness)),
     ("land", land),
-    ("land-clean", lane_target::run),
-    ("land-train", |arguments| ledger_verb("land-train", arguments)),
     ("incident", |arguments| ledger_verb("incident", arguments)),
     ("landed-tree", landed_tree::run),
     ("stale-revert", stale_revert::run),
     ("merge-driver", merge_set::run),
     ("after-landing", after_landing::run),
     ("bin-references", bin_references::run),
-    ("land-tests", land_test_runner::run),
-    ("land-actions", land_actions::run),
-    ("land-red-check", red_check::run),
     ("safe-push-result", north_safe_push::entry::safe_push_result),
     ("watch", crate::ops::watch::run),
     ("safe-push", super::remote_land::safe_push),
@@ -49,7 +43,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("lane-gc", crate::lanes::lane_gc),
     ("pin-retire", crate::lanes::pin_retire),
     ("mutant", |arguments| mutant_cli::run(arguments, &super::mutant_issues::MirrorIssues)),
-    ("land-fails-first", fails_first::run),
     ("flow", crate::ops::flow::run),
     ("experiments", crate::ops::experiments::run),
     ("goals", north_goals::run),
@@ -211,8 +204,19 @@ pub(super) fn defines(command: &str) -> bool {
     BUILT_IN.contains(&command) || super::forwarded(command, Vec::new()).is_some()
 }
 
+const LAND: &[(&str, Run)] = &[
+    ("abandon", |arguments| land_abandon::abandon(arguments, &super::abandon_witness::FleetWitness)),
+    ("actions", land_actions::run),
+    ("clean", lane_target::run),
+    ("fails-first", fails_first::run),
+    ("red-check", red_check::run),
+    ("tests", land_test_runner::run),
+    ("train", |arguments| ledger_verb("land-train", arguments)),
+];
+
 fn land(arguments: &[String]) -> u8 {
     match arguments.split_first() {
+        Some((verb, rest)) if let Some(run) = runner(LAND, verb) => return run(rest),
         Some((verb, rest)) if verb == "doctor" => return north_lander_doctor::run(rest),
         Some((verb, rest)) if verb == "drill" => return north_lander_doctor::drill::run(rest),
         _ => {}

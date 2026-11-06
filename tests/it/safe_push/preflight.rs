@@ -95,7 +95,7 @@ fn fails_into_a_state_log_with_events_and_north_watch(fixture: &Fixture) -> Stri
     kept.sort();
     assert_eq!(kept, ["FAIL named-land-case", "PASS after", "PASS before"], "the failure log changed the check's output");
     assert_eq!(fs::read_to_string(fixture.repo.join("check-runs")).unwrap(), "ran\n", "the matching check did not run exactly once");
-    assert!(!fixture.traced().contains("<land-clean>"), "a failed land check released the lane build output its retry reuses");
+    assert!(!fixture.traced().contains("<land> <clean>"), "a failed land check released the lane build output its retry reuses");
     assert_eq!(fixture.remote_state(), before, "a failing land check published");
     let events = fs::read_to_string(fixture.state.join("safe-push/events.jsonl")).unwrap();
     for wanted in [r#""stage":"land check","status":"failed","detail":""#, &format!("log: {log}\""), r#""stage":"exit","status":"refused""#] {
@@ -122,11 +122,11 @@ fn passes_with_visible_output_and_no_log(fixture: &Fixture, failure_log: &str) {
     let ran = fixture.run(&["--dry-run", "--to", "main"]);
     ran.expect(true, &[&format!("safe-push: land check: {command}"), "PASS stdout", "PASS stderr", CLEAN]);
     assert!(!ran.output.contains("log:"), "a successful check added visible logging output: {}", ran.output);
-    assert!(fixture.traced().lines().any(|line| line == format!("north <land-clean> <{}>", fixture.repo.display())), "a passing land check left the lane build output");
+    assert!(fixture.traced().lines().any(|line| line == format!("north <land> <clean> <{}>", fixture.repo.display())), "a passing land check left the lane build output");
     for args in [&["--dry-run", "--to", "main", "--keep-lane"][..], &["--dry-run", "--to", "other"]] {
         fixture.clear_trace();
         fixture.run(args).expect(true, &[CLEAN]);
-        assert!(!fixture.traced().contains("<land-clean>"), "{args:?} released the lane build output");
+        assert!(!fixture.traced().contains("<land> <clean>"), "{args:?} released the lane build output");
     }
     assert_eq!(land_logs(fixture), [failure_log], "a successful check kept a log or removed the failure log");
     assert!(!stale.exists(), "an old failure log was not pruned");
@@ -163,7 +163,7 @@ fn runs_only_committed_matching_checks(fixture: &Fixture) {
     fixture.run(&["--dry-run", "--to", "main"]).expect(true, &[CLEAN]);
     assert!(!fixture.repo.join("uncommitted-ran").exists(), "an uncommitted land check ran");
     assert_eq!(fs::read_to_string(fixture.repo.join("check-runs")).unwrap(), "ran\n", "an unmatched or uncommitted check ran");
-    assert!(!fixture.traced().contains("<land-clean>"), "a push that ran no land check released the lane build output");
+    assert!(!fixture.traced().contains("<land> <clean>"), "a push that ran no land check released the lane build output");
     fixture.git(&["checkout", "--", ".safe-push"]);
     fixture.git(&["rm", "-q", ".safe-push"]);
     fixture.git(&["commit", "-qm", "no land.check"]);

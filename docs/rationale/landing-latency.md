@@ -65,13 +65,13 @@ transcripts:
   owner check 28 s, clippy 18 s, and 55 shell and Python tests run one after another 267 s.
   Any `src/` change selects every script that invokes north.
 
-Fix: `north land-tests` runs the selected shell and Python tests side by side, up to the CPUs
+Fix: `north land tests` runs the selected shell and Python tests side by side, up to the CPUs
 the land check's capacity lease grants, and runs every test after a red one, so one run names
 every failure instead of the first.
 
 Second fix: `cargo test` ran its 65 test binaries one after another, 223 s of a 277 s run
 on a cold build. `harness/scripts/cargo-tests.sh` builds them with `cargo test --no-run` and
-hands the binaries to `north land-tests`, so they run side by side. On the same head and a
+hands the binaries to `north land tests`, so they run side by side. On the same head and a
 warm build, the land check went from 124 s to 41 s; the unit-test binary, 29 s, is now the
 floor.
 
@@ -132,7 +132,7 @@ gex45 is the binding constraint: through the morning it ran six slot jobs at onc
 
 One after-landing run on ccx33 at 6:45 AM took 141 s from start to verdict. Its spans: the shared
 `head-north --build` 12 s (10 s of it in line for a slot), nextest 20.5 s with a 0.1 s build because
-the slot was already at main, eleven head-north checks of 0.1 to 5 s each, and `land-tests --select
+the slot was already at main, eleven head-north checks of 0.1 to 5 s each, and `land tests --select
 changed --only portable` 125 s, the critical path. The run before it, held on the laptop, spent 56 s
 building head-north and 55 s building tests. Four causes, three fixed together:
 
@@ -180,7 +180,7 @@ north and 1,500 bash runs across the suite, plus the shell's own forks. The case
 CPU, first for the Rust port: the capacity lease released for the Actions wait (10.8 s), the mixed
 train (8.9 s), the admitted land check (8.7 s), tool removal (8.5 s) and the three-lane train (8.3 s).
 
-A typical landing's six shell tests through `head-north land-tests` on origin/main 6cfd4dc37: gex45
+A typical landing's six shell tests through `head-north land tests` on origin/main 6cfd4dc37: gex45
 15.3 s at load 15 (`bin/safe-push.test.sh` 15 s, `bin/follows-release.test.sh` 10 s), ccx33 39.3 s
 at load 9.7 (39 s and 20 s). One run of the test starts about 90,000 processes, counted in a PID
 namespace of its own: about 600 per safe-push run, of which about 100 are programs and the rest

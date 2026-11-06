@@ -19,7 +19,7 @@ fn checks_run_side_by_side_and_each_keeps_its_own_exit_output_and_deadline() {
     assert!(first.seconds >= 0.9 && third.seconds >= 0.9 && third.offset < 0.5, "the checks ran one after another: {parts:?}");
     assert_eq!(split("offload: running abc in slot\nland batch: check 0 exit 0 from 10.5 to 12.0\nok\n", 2), vec![Some(Part { status: 0, offset: 0.0, seconds: 1.5, text: "ok\n".to_owned() }), None]);
     assert!(joins("CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/ citation-check --root $PWD"));
-    assert!(!joins("CARGO_TARGET_DIR=target ./bin/head-north land-tests --select changed --only portable"));
+    assert!(!joins("CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only portable"));
     assert!(!joins("CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets"));
     assert!(!joins("CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/ --no-build citation-check --root $PWD"));
 }

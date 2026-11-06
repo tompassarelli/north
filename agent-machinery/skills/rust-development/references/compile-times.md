@@ -416,7 +416,7 @@ during the runs), so each row is indicative only. Times are Cargo's own
 - Disk: a seed copies the sibling's whole `target/` (837 MB for a wisp
   `window/` debug build), so a lane costs that on ext4 and shares the blocks
   with the sibling on btrfs until they diverge **(sharing not measured)**;
-  the reclaim and `land-clean` sweeps still trim targets, so no separate cache
+  the reclaim and `land clean` sweeps still trim targets, so no separate cache
   budget exists.
 
 ## Measured: sccache against lane seed across wisp lanes (31 Oct 2026, the 20-thread build host)

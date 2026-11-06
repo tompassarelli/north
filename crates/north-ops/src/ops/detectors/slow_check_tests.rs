@@ -29,5 +29,5 @@ fn a_family_over_its_budget_in_each_newest_green_run_files_one_box_counting_only
     let findings = slow(&overs, "north#634");
     assert_eq!((findings.len(), findings[0].key.as_str(), findings[0].owner.as_deref()), (1, key("clippy").as_str(), Some("north#634")));
     assert!(findings[0].detail.contains("70 s, 80 s, 90 s") && findings[0].detail.contains(&budget_key("clippy")), "{}", findings[0].detail);
-    assert_eq!([family("x ./bin/head-north --code a/ --build"), family("x ./bin/head-north land-tests --only portable"), family("x cargo nextest run")], [Some("north_build"), Some("land_tests"), Some("nextest")]);
+    assert_eq!([family("x ./bin/head-north --code a/ --build"), family("x ./bin/head-north land tests --only portable"), family("x cargo nextest run")], [Some("north_build"), Some("land_tests"), Some("nextest")]);
 }

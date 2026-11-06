@@ -1419,7 +1419,7 @@ consumers = ["crates/north-ops/src/ops/detectors/slow_check.rs"]
 [land_check_budget_land_tests_seconds]
 value = 35
 allowed = { min = 1, max = 3600 }
-unit = "seconds of its own time, slot and lease waits excluded, the ./bin/head-north land-tests --select changed checks may take in a green after-landing run; over it in each of its newest detector_slow_test_runs runs, the slow-check detector files a box"
+unit = "seconds of its own time, slot and lease waits excluded, the ./bin/head-north land tests --select changed checks may take in a green after-landing run; over it in each of its newest detector_slow_test_runs runs, the slow-check detector files a box"
 source = "measured: p90 own time 33 s over the post-land runs of the 3 hours to 11:40 AM on 2026-11-06, read from the lander's spans; a growth guard on the way to the 20 s verification target (north#634)"
 fallback = "none; the slow-check detector reads this value"
 consumers = ["crates/north-ops/src/ops/detectors/slow_check.rs"]
@@ -1627,9 +1627,9 @@ fallback = "a session the fleet tick does not retire stays addressable until the
 consumers = ["crates/north-fleet/src/fleet/reaper.rs"]
 
 [help_visible_ceiling]
-value = 66
+value = 65
 allowed = { min = 1, max = 200 }
 unit = "top-level entries north --help may list; each lane that folds a hyphenated family under its domain noun lowers it to the new count"
-source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07, 66 once the lane family folded under north lane; the issue's target is 24 (north#703)"
+source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07, 66 once the lane family folded under north lane, 65 once land-abandon folded under north land; the issue's target is 24 (north#703)"
 fallback = "none: agent-config-check refuses a help.txt over it"
 consumers = ["crates/north-core/src/agent_config_check/help_surface.rs"]

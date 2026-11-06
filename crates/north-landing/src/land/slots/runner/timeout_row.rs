@@ -15,7 +15,7 @@ pub struct Timeout<'a> {
 }
 
 pub fn arguments(origin: &str, timeout: &Timeout) -> Vec<String> {
-    let mut words = vec!["land-train".to_owned(), "check".to_owned()];
+    let mut words = vec!["land".to_owned(), "train".to_owned(), "check".to_owned()];
     for (flag, value) in [
         ("--repo", push_ledger::repository(origin)),
         ("--candidate", timeout.candidate.to_owned()),

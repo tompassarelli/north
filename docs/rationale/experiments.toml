@@ -150,7 +150,7 @@ owner = "tompassarelli/north#264"
 
 [[experiment]]
 id = "flake-gate"
-change = "land-fails-first runs each added or changed test 8 times concurrently under load and refuses a lane whose test fails any run as flaky"
+change = "land fails-first runs each added or changed test 8 times concurrently under load and refuses a lane whose test fails any run as flaky"
 landed = "c7060fa6f"
 metric = "rework_rate"
 direction = "down"

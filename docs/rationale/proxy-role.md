@@ -259,7 +259,7 @@ the guard, the readout and P2's replay of section 1 share it.
   through landing. G1 first moves `north cloud land` to the cloud courier, since today the launching
   session runs it (`harness/skills/workers/references/cloud.md:33`).
 - Always allowed, tested in the denied state: delegate and brief verbs, child messages, `north gate`,
-  `north config agents off|on`, `north land-abandon` and ticket removal, `north fleet stop|forget`.
+  `north config agents off|on`, `north land abandon` and ticket removal, `north fleet stop|forget`.
 - Escape: `north proxy incident REASON` grants a budget of 30 calls (`proxy.incident_budget`) for an
   incident the proxy must work itself, and writes a metric row with the reason, so the escape is
   counted rather than a persistent switch-off.

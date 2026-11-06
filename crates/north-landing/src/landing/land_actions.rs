@@ -4,7 +4,7 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: north land-actions --workflow FILE --base BASE --head HEAD --timeout SECONDS -- COMMAND...";
+const USAGE: &str = "usage: north land actions --workflow FILE --base BASE --head HEAD --timeout SECONDS -- COMMAND...";
 const GH_LIMIT: Duration = Duration::from_secs(60);
 const DISPATCH_SECONDS: u64 = 180;
 const QUEUED_SECONDS: u64 = 600;
