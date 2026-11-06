@@ -53,7 +53,6 @@ pub struct Reading {
     pub initial: i64,
     pub margin: f64,
     pub target: Option<Target>,
-    pub refill_h: Option<f64>,
 }
 
 struct Measured {
@@ -142,16 +141,18 @@ fn may_raise(windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Readin
 
 fn capacity(windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Reading) -> Option<i64> {
     let target = reading.target.as_ref();
+    if windows.iter().any(|w| w.is_week() && w.used_pct >= w.ceiling(target)) {
+        return Some(0);
+    }
     windows
         .iter()
+        .filter(|w| !w.is_week())
         .filter_map(|w| {
-            let observed = || w.burn_pct_h.filter(|burn| w.is_week() && *burn > 0.0).map(|burn| burn / 60.0 / reading.workers.unwrap_or(0).max(1) as f64);
-            let rate = rates.get(&w.window).copied().filter(|rate| *rate > 0.0).or_else(observed)?;
-            let own = w.horizon(target, reading.at);
-            let hours = if w.is_week() { reading.refill_h.map_or(own, |refill| own.min(refill)) } else { own };
-            let ceiling = if w.is_week() { w.ceiling(target) } else { w.quota_ceiling.unwrap_or(100.0) };
+            let rate = rates.get(&w.window).copied().filter(|rate| *rate > 0.0)?;
+            let hours = w.horizon(target, reading.at);
+            let ceiling = w.quota_ceiling.unwrap_or(100.0);
             let affordable = ((ceiling - w.used_pct).max(0.0) / (rate * 60.0 * hours)).floor() as i64;
-            (hours > 0.0).then_some(if w.is_week() { affordable } else { affordable.max(1) })
+            (hours > 0.0).then_some(affordable.max(1))
         })
         .min()
 }

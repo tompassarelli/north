@@ -7,7 +7,6 @@ pub mod exhaustion;
 pub mod gate_order;
 pub mod limits;
 pub mod projection;
-pub mod refill;
 pub mod target;
 #[cfg(test)]
 mod replay_tests;
@@ -31,8 +30,6 @@ enum Request {
         initial: i64,
         margin: f64,
         target: Option<Target>,
-        #[serde(default)]
-        refill_h: Option<f64>,
     },
     Fresh {
         control: Control,
@@ -65,7 +62,6 @@ fn answer(request: Request) -> Result<Value, String> {
             initial,
             margin,
             target,
-            refill_h,
         } => {
             let reading = Reading {
                 windows,
@@ -74,8 +70,7 @@ fn answer(request: Request) -> Result<Value, String> {
                 initial,
                 margin,
                 target,
-                refill_h,
-            };
+                };
             serde_json::to_value(control::advance(&previous, reading))
                 .map_err(|error| error.to_string())?
         }

@@ -414,7 +414,6 @@ pub(super) fn update_controls(
         let sessions: Vec<_> = fleet.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
         fleets::working_by_account(&sessions)
     });
-    let proxies: Option<Vec<String>> = fleet.map(|fleet| fleet.iter().flat_map(|(_, listing)| fleets::proxy_accounts(listing)).collect());
     let mut deliveries = Vec::new();
     for provider in providers {
         let projections = gate[provider]["projections"]
@@ -426,16 +425,6 @@ pub(super) fn update_controls(
             .into_iter()
             .map(|(account, windows)| Ok((account, serde_json::from_value(windows).map_err(|e: serde_json::Error| e.to_string())?)))
             .collect::<Result<_, String>>()?;
-        let refills: BTreeMap<String, Option<f64>> = match &proxies {
-            Some(proxies) => {
-                let fleet = crate::pace::refill::Fleet {
-                    accounts: readings.iter().map(|(account, windows)| (account.as_str(), windows.as_slice())).collect(),
-                    protected: proxies.iter().map(String::as_str).collect(),
-                };
-                readings.iter().map(|(account, _)| (account.clone(), fleet.refill_hours(account))).collect()
-            }
-            None => BTreeMap::new(),
-        };
         for (account, windows) in readings {
             let previous: Control =
                 serde_json::from_value(state["accounts"][&account].clone()).unwrap_or_default();
@@ -449,7 +438,6 @@ pub(super) fn update_controls(
                     initial,
                     margin: crate::pace::limits::claude_session_margin(),
                     target: target_for(&account, current)?,
-                    refill_h: refills.get(&account).copied().flatten(),
                 },
             );
             deliveries.push((account.clone(), control.clone()));

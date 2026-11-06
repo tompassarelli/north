@@ -19,7 +19,7 @@ fn week(used: f64, burn: Option<f64>, reset_h: f64, resets_at: &str, at: f64) ->
 }
 
 fn reading(windows: Vec<Window>, workers: Option<i64>, at: f64) -> Reading {
-    Reading { windows, workers, at, initial: 2, margin: 10.0, target: None, refill_h: None }
+    Reading { windows, workers, at, initial: 2, margin: 10.0, target: None }
 }
 
 fn step(previous: &Control, windows: Vec<Window>, workers: Option<i64>, at: f64) -> Control {
@@ -125,7 +125,7 @@ fn a_cleared_throttle_with_zero_burn_restores_headroom_from_the_running_workers(
     };
     let previous = Control { at: Some(at - 60.0), workers: Some(21), allowed_workers: Some(2), held: Some(false), ..Control::default() };
     let held = step(&previous, vec![week_at(at, 99.0, "old", 0.003)], Some(21), at);
-    assert_eq!((held.held, held.allowed_workers), (Some(true), Some(1)));
+    assert_eq!((held.held, held.allowed_workers), (Some(true), Some(0)));
     let later = at + 11.0 * 60.0;
     let recovered = step(&held, vec![week_at(later, 1.0, "new", 168.0)], Some(21), later);
     assert_eq!(recovered.held, Some(false));
@@ -143,16 +143,22 @@ fn short_and_week(at: f64, short_used: f64, short_burn: f64, short_reset_h: f64,
     ]
 }
 
-// KEEP(mutant): a short-window projection past its ceiling caps workers without holding the account, and the week caps them at what its headroom pays for without holding; mutant n259-short-window-projection-holds (34a3efb20); the 2026-11-06 11:45 AM readings held every account at 1, and at 1:00 PM a five-hour window claude:a no longer reports let it reach 49 workers at 88% of its week (north#259)
+// KEEP(mutant): a short-window projection past its ceiling caps workers without holding the account; mutant n259-short-window-projection-holds (34a3efb20)
 #[test]
-fn a_short_window_projection_caps_workers_without_holding_and_the_week_caps_what_it_pays_for() {
+fn an_account_at_half_its_week_with_140_hours_to_reset_and_a_fresh_five_hour_window_runs_workers() {
+    let control = climb(0.0, 50.0);
+    assert_eq!((control.held, control.over), (Some(false), Some(false)));
+    assert!(control.allowed_workers.unwrap() >= 2, "allowed {:?}", control.allowed_workers);
+    let spent = climb(0.0, 95.0);
+    assert_eq!((spent.held, spent.over, spent.allowed_workers), (Some(true), Some(true), Some(0)), "a week at its ceiling still allows no workers");
+    a_short_window_projection_caps_workers_without_holding();
+}
+
+fn a_short_window_projection_caps_workers_without_holding() {
     let at = 1_792_000_000.0;
     let previous = step(&Control::default(), short_and_week(at - 60.0, 40.0, 50.0, 4.0, 11.0), Some(3), at - 60.0);
     let control = step(&previous, short_and_week(at, 40.5, 50.0, 4.0, 11.0), Some(3), at);
     assert_eq!((control.held, control.over), (Some(false), Some(false)));
-    allowed_workers_follow_the_five_hour_window_within_what_the_week_pays_for();
-    a_stale_five_hour_window_never_raises_allowed_workers_past_the_week_bound();
-    the_week_bound_spends_toward_the_next_refill_on_an_account_without_the_proxy();
 }
 
 // KEEP(mutant): a spawn is refused only at the five-hour stop or over the burn cap; mutant exhaustion-other-window-as-5h (d7da0bbe0)
@@ -194,91 +200,17 @@ fn weekly_reading(at: f64, five_used: f64, five_reset_h: f64, week_used: f64, we
     };
     vec![
         stamped("5h", five_used, 2.0, five_reset_h, "five"),
-        stamped("week", week_used, 0.0, week_reset_h, "week"),
+        stamped("week", week_used, 3.0, week_reset_h, "week"),
     ]
 }
 
-fn allowed_workers_follow_the_five_hour_window_within_what_the_week_pays_for() {
+fn climb(five_used: f64, week_used: f64) -> Control {
     let at = 1_793_000_000.0;
-    let climb = |five_used: f64, five_reset_h: f64, week_used: f64, week_reset_h: f64, week_slope: f64| {
-        let mut previous = Control::default();
-        for tick in 0..45 {
-            let moment = at + 60.0 * f64::from(tick);
-            let windows = weekly_reading(moment, five_used + 0.05 * f64::from(tick), five_reset_h, week_used + week_slope * f64::from(tick), week_reset_h);
-            previous = advance(&previous, Reading { initial: 1, ..reading(windows, Some(2), moment) });
-        }
-        previous
-    };
-    let claude_c = climb(34.0, 3.0, 40.0, 151.0, 0.001);
-    assert_eq!((claude_c.held, claude_c.over), (Some(false), Some(false)));
-    assert!(claude_c.allowed_workers.unwrap() > 1, "claude:c allowed {:?}", claude_c.allowed_workers);
-    let claude_a = climb(0.0, 4.0, 84.0, 141.0, 0.1);
-    assert_eq!((claude_a.held, claude_a.over, claude_a.allowed_workers), (Some(false), Some(false), Some(0)));
-    let spent = climb(0.0, 4.0, 95.0, 141.0, 0.1);
-    assert_eq!((spent.held, spent.over), (Some(true), Some(true)));
-}
-
-fn a_stale_five_hour_window_never_raises_allowed_workers_past_the_week_bound() {
-    let at = 1_793_944_818.0;
-    let week_resets = "2026-11-12T02:00:00Z";
-    let tick = |moment: f64, week_used: f64| {
-        vec![
-            window(json!({"window": "5h", "used_pct": 0.0, "burn_pct_h": 0.0, "reset_h": 0.0, "resets_at": "2026-10-31T04:00:00Z",
-                          "age_s": 0, "as_of": stamp(moment), "quota_ceiling": 95.0})),
-            window(json!({"window": "week", "used_pct": week_used, "burn_pct_h": 4.0, "reset_h": 140.0 - (moment - at) / 3600.0,
-                          "resets_at": week_resets, "age_s": 0, "as_of": stamp(moment), "quota_ceiling": 95.0})),
-        ]
-    };
-    let mut control = Control { at: Some(at - 60.0), workers: Some(4), allowed_workers: Some(49), held: Some(false), ..Control::default() };
-    for minute in 0..40 {
-        let moment = at + 60.0 * f64::from(minute);
-        let week_used = 85.0 + f64::from(minute / 10);
-        control = advance(&control, Reading { initial: 1, ..reading(tick(moment, week_used), Some(4), moment) });
-        let Some(rate) = control.burn_pct_worker_min.get("week").copied() else { continue };
-        let week = control.windows.iter().find(|w| w.is_week()).unwrap();
-        let bound = (95.0 - week.used_pct) / (rate * 60.0 * week.reset_h);
-        assert!((control.allowed_workers.unwrap() as f64) <= bound.max(0.0), "minute {minute}: allowed {:?} over week bound {bound}", control.allowed_workers);
+    let mut previous = Control::default();
+    for tick in 0..45 {
+        let moment = at + 60.0 * f64::from(tick);
+        let windows = weekly_reading(moment, five_used + 0.05 * f64::from(tick), 4.0, week_used, 140.0);
+        previous = advance(&previous, Reading { initial: 1, ..reading(windows, Some(2), moment) });
     }
-    assert!(control.burn_pct_worker_min.contains_key("week"), "the week burn per worker was never measured");
-    assert_eq!(control.allowed_workers, Some(0));
-    let moment = at + 60.0 * 40.0;
-    let zero = Control { allowed_workers: Some(7), burn_pct_worker_min: [("5h".to_owned(), 0.0), ("week".to_owned(), 0.0)].into(), ..control };
-    let capped = advance(&zero, Reading { initial: 1, ..reading(tick(moment, 89.0), Some(1), moment) });
-    assert_eq!(capped.allowed_workers, Some(0), "a carried zero rate does not lift the week cap while the week burns");
-}
-
-fn the_week_bound_spends_toward_the_next_refill_on_an_account_without_the_proxy() {
-    let at = 1_793_946_000.0;
-    let week_at = |moment: f64, used: f64, reset_h: f64| {
-        window(json!({"window": "week", "used_pct": used, "burn_pct_h": 1.0, "reset_h": reset_h, "resets_at": stamp(at + reset_h * 3600.0),
-                      "age_s": 0, "as_of": stamp(moment), "quota_ceiling": 95.0}))
-    };
-    let accounts = [("claude:a", vec![week_at(at, 89.0, 140.0)]), ("claude:b", vec![week_at(at, 100.0, 30.0)]), ("claude:c", vec![week_at(at, 45.0, 150.0)]), ("claude:d", vec![week_at(at, 99.0, 98.0)])];
-    let fleet = |protected: Vec<&'static str>| super::refill::Fleet { accounts: accounts.iter().map(|(name, windows)| (*name, windows.as_slice())).collect(), protected };
-    assert_eq!(fleet(vec!["claude:c"]).refill_hours("claude:c"), None, "the proxy's account keeps its own reset");
-    assert_eq!(fleet(vec!["claude:c"]).refill_hours("claude:a"), Some(30.0));
-    assert_eq!(fleet(vec!["claude:a"]).refill_hours("claude:c"), Some(30.0));
-    let measured = |workers: i64| {
-        let mut control = Control::default();
-        for minute in 0..=40 {
-            let moment = at + 60.0 * f64::from(minute);
-            let windows = vec![week_at(moment, 45.0 + f64::from(minute / 10), 150.0)];
-            control = advance(&control, Reading { initial: 1, ..reading(windows, Some(workers), moment) });
-        }
-        control.burn_pct_worker_min.get("week").copied()
-    };
-    assert_eq!(measured(1), None, "a rise over fewer than 60 worker-minutes measures no rate per worker");
-    assert!(measured(2).is_some_and(|rate| rate < 0.06), "{:?}", measured(2));
-    let previous = Control {
-        at: Some(at - 60.0),
-        workers: Some(1),
-        allowed_workers: Some(1),
-        held: Some(false),
-        windows: vec![week_at(at - 60.0, 45.0, 150.0)],
-        burn_pct_worker_min: [("week".to_owned(), 0.025)].into(),
-        ..Control::default()
-    };
-    let paced = |refill_h: Option<f64>| advance(&previous, Reading { initial: 1, refill_h, ..reading(vec![week_at(at, 45.0, 150.0)], Some(1), at) }).allowed_workers;
-    assert_eq!(paced(None), Some(0), "50 points at 1.5% per worker-hour over 150 hours pays for no continuous worker");
-    assert_eq!(paced(Some(30.0)), Some(1), "spent toward b's refill in 30 hours, the same 50 points pay for one");
+    previous
 }
