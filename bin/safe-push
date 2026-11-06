@@ -28,12 +28,8 @@ json_text() {
 safe_push_events_file() { printf '%s/safe-push/events.jsonl' "${XDG_STATE_HOME:-$HOME/.local/state}"; }
 
 safe_push_event_line() {
-  local repository="${origin_url:-${lock_url:-}}" lane="${branch:-}" sha="${head_oid:-}"
+  local repository="${origin_url:-}" lane="${branch:-}" sha="${head_oid:-}"
   repository="${repository##*/}"
-  if [ -n "${lock_url:-}" ] && [ -z "$lane" ]; then
-    lane=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-    sha=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
-  fi
   printf '{"time":%s,"repo":"%s","lane":"%s","sha":"%s","stage":"%s","status":"%s","detail":"%s","seconds":%s,"pid":%s,"session":"%s","host":"%s"}\n' \
     "$EPOCHREALTIME" "$(json_text "${repository%.git}")" "$(json_text "$lane")" "$sha" "$(json_text "$1")" "$2" "$(json_text "${3:-}")" "${4:-0}" "$self_pid" \
     "$(json_text "${NORTH_FLEET_SESSION:-}")" "$(json_text "${HOSTNAME:-}")"
@@ -50,44 +46,14 @@ safe_push_event() {
 }
 
 safe_push_terminal() {
-  local status="${1:-$?}" terminal_sha="" terminal_reason
+  local status="${1:-$?}" terminal_reason
   trap - EXIT
   if [ "$status" -eq 130 ] || [ "$status" -eq 143 ]; then
     printf 'safe-push: cancelled\n'
     exit 130
   fi
   if [ "${safe_push_internal:-0}" = 1 ] || [ "${safe_push_help:-0}" = 1 ]; then exit "$status"; fi
-  if [ "${safe_push_timed_out:-0}" -eq 1 ]; then
-    safe_push_event exit failed "timed out after ${safe_push_timeout_minutes:-180}m (run ${safe_push_run_url:-unknown})"
-    local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
-    if [ -x "$north_runtime" ] && "$north_runtime" safe-push-result timeout '' '' "${safe_push_timeout_minutes:-180}" "${safe_push_run_url:-unknown}"; then exit 2; fi
-    printf 'safe-push: timed out after %sm (run %s)\n' "${safe_push_timeout_minutes:-180}" "${safe_push_run_url:-unknown}"
-    exit 2
-  fi
   if [ "$status" -eq 0 ] && [ "${dry:-0}" -eq 1 ]; then exit 0; fi
-  if [ "$status" -eq 0 ] && [ "${dry:-0}" -eq 0 ]; then
-    terminal_sha="${safe_push_landed_sha:-}"
-    if [ -n "$terminal_sha" ] && [ "$terminal_sha" = "${safe_push_published_head:-}" ] \
-        && git --git-dir="$safe_push_common_dir" fetch -q --no-tags "$origin_url" "refs/heads/${to:-$destination_branch}"; then
-      local missing
-      missing=$(git --git-dir="$safe_push_common_dir" cherry FETCH_HEAD "$terminal_sha" | grep -c '^+') || true
-      if [ "$terminal_sha" = "${destination_oid:-}" ] && [ "${safe_push_nothing_to_push:-0}" -ne 1 ]; then missing=$((missing > 0 ? missing : 1)); fi
-      if [ "$missing" -gt 0 ]; then
-        safe_push_refusal="NOT landed: $missing lane commits missing from origin/${to:-$destination_branch}"
-        printf 'safe-push: %s\n' "$safe_push_refusal" >&2
-        terminal_sha=""
-      fi
-    else
-      terminal_sha=""
-    fi
-    if [ -n "$terminal_sha" ]; then
-      safe_push_event exit landed "$terminal_sha"
-      local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
-      if [ -x "$north_runtime" ] && "$north_runtime" safe-push-result landed "$terminal_sha" '' 0 ''; then exit 0; fi
-      printf 'safe-push: landed %s\n' "$terminal_sha"
-      exit 0
-    fi
-  fi
   terminal_reason="${safe_push_refusal:-safe-push did not land}"
   safe_push_event exit refused "$terminal_reason"
   local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
@@ -98,8 +64,6 @@ safe_push_terminal() {
 
 safe_push_exit() {
   local status=$?
-  if declare -F finish_push >/dev/null; then finish_push; fi
-  if declare -F stop_final_scans >/dev/null; then stop_final_scans; fi
   [ "$status" -ne 0 ] || [ -z "${land_check_root:-}" ] || release_land_check_build "$land_check_root"
   if [ "${NORTH_NO_AUTOREAP:-0}" = 1 ]; then exit "$status"; fi
   safe_push_terminal "$status"
@@ -110,12 +74,9 @@ safe_push_help=0
 if [ "${1:-}" = --publication-scan ]; then safe_push_internal=1; fi
 if [ "$#" -eq 1 ] && [[ "$1" = -h || "$1" = --help ]]; then safe_push_help=1; fi
 trap safe_push_exit EXIT
-drop_land_branch() { SAFE_PUSH_ACTIVE=1 git push -q --no-verify --force-with-lease="refs/heads/$1:$2" origin ":refs/heads/$1"; }
 safe_push_cancel() {
   trap - INT TERM HUP
   [ -z "${safe_push_child:-}" ] || kill -TERM $safe_push_child 2>/dev/null || true
-  [ -z "${autoland_reply:-}" ] || rm -f -- "$autoland_reply"
-  [ -z "${queue_branch:-}" ] || printf 'safe-push: stopped; %s stays queued for Autoland once pushed (safe-push --to main again waits on it without re-checking; safe-push abandon withdraws it)\n' "$queue_branch"
   exit 130
 }
 trap safe_push_cancel INT TERM HUP
@@ -130,8 +91,6 @@ fi
 if [ "${1:-}" = --enqueue ]; then
   safe_push_internal=1; north land enqueue --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land enqueue; run north runtime update; NOT queued." >&2; exit 1; }; exec north land enqueue "${@:2}"
 fi
-safe_push_common_dir=""
-
 usage() {
   north safe-push --help 2>/dev/null || echo 'safe-push: the help text is north safe-push --help, which this host lacks; run north runtime update'
 }
@@ -149,7 +108,6 @@ plan_push() {
     arguments)
       dry=0
       keep_lane=0
-      direct=0
       tag=""
       message_file=""
       several_commits=""
@@ -176,7 +134,6 @@ plan_push() {
             ;;
           --dry-run) [ "$dry" -eq 0 ] || argument_error 'duplicate --dry-run'; dry=1; shift ;;
           --keep-lane) [ "$keep_lane" -eq 0 ] || argument_error 'duplicate --keep-lane'; keep_lane=1; shift ;;
-          --direct) [ "$direct" -eq 0 ] || argument_error 'duplicate --direct'; direct=1; shift ;;
           --message)
             [ -z "$message_file" ] || argument_error 'duplicate --message'
             [ "$#" -ge 2 ] || argument_error '--message needs a file'
@@ -235,7 +192,7 @@ plan_push() {
         esac
       done
 
-      [ "$delete_tag_seen" -eq 0 ] || { [ "$tag_seen" -eq 0 ] && [ "$to_seen" -eq 0 ] && [ "$keep_lane" -eq 0 ] && [ "$direct" -eq 0 ] && [ -z "$message_file$several_commits" ]; } \
+      [ "$delete_tag_seen" -eq 0 ] || { [ "$tag_seen" -eq 0 ] && [ "$to_seen" -eq 0 ] && [ "$keep_lane" -eq 0 ] && [ -z "$message_file$several_commits" ]; } \
         || argument_error '--delete-tag cannot be combined with other arguments but --dry-run'
       [ "$tag_seen" -eq 0 ] || [ "$to_seen" -eq 0 ] \
         || argument_error '--to cannot be combined with --tag'
@@ -333,14 +290,6 @@ state_changed() {
   exit 1
 }
 
-record_push() {
-  local dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-  local repository="${origin_url##*/}"
-  repository="${repository%.git}"
-  mkdir -p "$dir" && printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$repository" "$2" "$3" "$4" "$5" >>"$dir/pushes.tsv" \
-    || printf 'safe-push: could not record push timing\n' >&2
-}
-
 capture_repository_state() {
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
     || { echo "safe-push: not in a git repo"; exit 1; }
@@ -429,25 +378,6 @@ if [ "${#publication_scan_range[@]}" -eq 2 ]; then
   exit $?
 fi
 
-# The moved gates run from the common Git directory in a user scope of their own, because the lane is removed.
-spawn_after_landing_gates() {
-  local base="$1" head="$2" dir log repository scope
-  [ -n "$base" ] && [ "$base" != "$head" ] || return 0
-  if ! north after-landing --help >/dev/null 2>&1; then
-    echo "safe-push: this host's north runtime lacks north after-landing, so the after-landing gates did not run on ${head:0:12}; run north runtime update"
-    return 0
-  fi
-  repository=${origin_url:-$(git remote get-url origin)}; repository=${repository%.git}; repository=${repository##*/}
-  dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/after-landing"
-  log="$dir/$repository-${head:0:12}.log"
-  mkdir -p "$dir" || return 0
-  scope=$(command -v systemd-run) && "$scope" --user --scope --quiet --collect true </dev/null >/dev/null 2>&1 || scope=""
-  (drop_lock_fd
-    setsid -f ${scope:+"$scope" --user --scope --quiet --collect --slice=agent.slice} north after-landing --git-dir "$safe_push_common_dir" --base "$base" --head "$head" \
-      --safe-push "$(readlink -f "${BASH_SOURCE[0]}")" </dev/null >"$log" 2>&1) || return 0
-  echo "safe-push: after-landing gates (code-health, instruction-limits, generated-rewrite, ci-budget) run in the background on ${head:0:12}; each failure files one issue; log $log"
-}
-
 lane_scan() {
   local north; north=$(command -v north) && [ -x "$north" ] || north="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
   "$north" land scan "$@"
@@ -490,7 +420,7 @@ land_checks_call() {
   local outcome status=0 kind first second third
   outcome=$(mktemp)
   land_check_skip=""
-  (drop_lock_fd; exec north land checks --base "$1" --head "$2" --dry "${dry:-0}" --safe-push "$safe_push_self" --red-fix "${red_fix:-}" --outcome "$outcome" \
+  (drop_lock_fd; exec north land checks --base "$1" --head "$2" --dry "${dry:-0}" --safe-push "$safe_push_self" --outcome "$outcome" \
     --destination "${destination_branch:-${to:-}}" --event-log "$(safe_push_events_file)" --wait-event "$(safe_push_event_line 'land checks' wait)") &
   safe_push_child=$!
   wait "$safe_push_child" || status=$?
@@ -512,9 +442,6 @@ blocked_by_red_main=""
 
 retry_after_red_main() {
   echo "safe-push: blocked by red main, not this lane; it retries once a Main-red: lane lands"
-  stop_final_scans
-  release_push_lock
-  finish_push
   north land-red-wait --main "$1" || return 0
   trap - EXIT
   exec "$safe_push_self" "${original_arguments[@]}"
@@ -532,171 +459,11 @@ remote_destination_snapshot() {
   plan_push snapshot "$output" "$destination_ref"
 }
 
-report_reap_ready() {
-  local container ready=0 wt main_branch head dirty ignored
-  [ "$(basename "$repo_root")" = main ] || return 0
-  container=$(dirname "$repo_root")
-  main_branch=$(git -C "$repo_root" symbolic-ref --quiet --short HEAD 2>/dev/null) || return 0
-  # worktrees/ only: pins/ is externally consumed and is never a reap candidate.
-  for wt in "$container"/worktrees/*; do
-    case "$(basename "$wt")" in lander | lander-*) continue ;; esac
-    [ -e "$wt/.git" ] || continue
-    dirty=$(git -C "$wt" status --porcelain 2>/dev/null) || continue
-    [ -z "$dirty" ] || continue
-    head=$(git -C "$wt" rev-parse HEAD 2>/dev/null) || continue
-    # Mirror wt-reap's ignored-file keep: ignored paths beyond disposable
-    # caches (.direnv, result symlinks) make a tree not reap-ready.
-    ignored=$(git -C "$wt" ls-files --others --ignored --exclude-standard 2>/dev/null |
-      grep -v -E '(^|/)\.direnv/' | grep -v -E '^result(-[^/]*)?$') || true
-    [ -z "$ignored" ] || continue
-    if git -C "$repo_root" merge-base --is-ancestor "$head" "$main_branch" 2>/dev/null; then
-      ready=$((ready + 1))
-    fi
-  done
-  [ "$ready" -eq 0 ] || printf '%s reap-ready worktrees — run north wt-reap\n' "$ready"
-}
-
-# A landing is the moment spent lanes become collectable, and nothing else ever
-# triggers the sweep — a printed hint accumulated 13 stale trees. Best-effort by
-# construction: the reap can never change safe-push's exit status.
-auto_reap() {
-  local container has_lanes=0 wt
-  [ "$(basename "$repo_root")" = main ] || return 0
-  container=$(dirname "$repo_root")
-  # worktrees/ only: pins/ is externally consumed and is never swept.
-  for wt in "$container"/worktrees/*; do
-    case "$(basename "$wt")" in lander | lander-*) continue ;; esac
-    [ -e "$wt/.git" ] || continue
-    has_lanes=1
-    break
-  done
-  [ "$has_lanes" -eq 1 ] || return 0
-
-  if [ "${NORTH_NO_AUTOREAP:-0}" = 1 ]; then
-    report_reap_ready
-    return 0
-  fi
-
-  if ! command -v north >/dev/null 2>&1; then
-    report_reap_ready
-    return 0
-  fi
-
-  (cd "$container" && north wt-reap 2>&1) | sed 's/^/auto-reap: /' || true
-  return 0
-}
-
 default_branch() {
   local default
   default=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || default=""
   default=${default#refs/remotes/origin/}
   printf '%s\n' "${default:-main}"
-}
-
-# A fleet session landing on the default branch is read back from this column.
-trunk_landing() {
-  [ "$1" != "$(default_branch)" ] || printf '%s' "$2"
-}
-
-# Workers land and walk away, so lanes piled up by the hundred. Landing is the
-# one moment a lane is provably spent; best-effort, never changes exit status.
-cleanup_landed_lane() {
-  local container main_checkout tracking remote_oid lane_ref dirty occupants
-  [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] || return 0
-  [ "$branch" != "$to" ] || return 0
-  [ "$(basename "$(dirname "$repo_root")")" = worktrees ] || return 0
-  container=$(dirname "$(dirname "$repo_root")")
-  main_checkout="$container/main"
-  [ -e "$main_checkout/.git" ] || return 0
-  tracking="refs/remotes/origin/$to"
-  git fetch -q "$origin_url" "+${destination_ref}:${tracking}" 2>/dev/null || return 0
-  git merge-base --is-ancestor HEAD "$tracking" 2>/dev/null || return 0
-
-  lane_ref="refs/heads/$branch"
-  remote_oid=$(git ls-remote "$origin_url" "$lane_ref" 2>/dev/null | awk 'NR==1 {print $1}') || remote_oid=""
-  if [ -n "$remote_oid" ] \
-      && git fetch -q "$origin_url" "+${lane_ref}:refs/remotes/origin/$branch" 2>/dev/null \
-      && ! git cherry "$tracking" "refs/remotes/origin/$branch" 2>/dev/null | grep -q '^+'; then
-    echo "safe-push: origin $branch is fully on $to — deleting it"
-    if SAFE_PUSH_ACTIVE=1 git push -q --no-follow-tags --force-with-lease="${lane_ref}:${remote_oid}" \
-        "$origin_url" ":${lane_ref}"; then
-      git update-ref -d "refs/remotes/origin/$branch" 2>/dev/null || true
-    else
-      echo "safe-push: could not delete origin $branch; left in place" >&2
-    fi
-  fi
-
-  if [ "$keep_lane" -eq 1 ]; then
-    echo "safe-push: --keep-lane: keeping $repo_root and branch $branch"
-    return 0
-  fi
-  dirty=$(git status --porcelain 2>/dev/null) || return 0
-  if [ -n "$dirty" ]; then
-    printf 'safe-push: lane %s has uncommitted or untracked files, so it was kept; once they are saved: git -C %s worktree remove %s && git -C %s branch -d %s\n' \
-      "$repo_root" "$main_checkout" "$repo_root" "$main_checkout" "$branch"
-    return 0
-  fi
-  # branch -d judges merged-ness against the upstream, so a stale local main
-  # in the main checkout cannot block deleting a branch origin already holds.
-  git branch -q --set-upstream-to="origin/$to" "$branch" >/dev/null 2>&1 || true
-  cd "$container" || return 0
-  occupants=$(lane_occupants "$repo_root")
-  if [ -n "$occupants" ]; then
-    printf 'safe-push: lane landed — your shell is in %s, so it and branch %s are removed once it leaves\n' "$repo_root" "$branch"
-    printf 'safe-push: cd %s when finished in the lane\n' "$main_checkout"
-    # shellcheck disable=SC2086
-    setsid -f "$BASH" -c "$(declare -f lane_occupied remove_landed_lane remove_landed_lane_when_vacant); remove_landed_lane_when_vacant \"\$@\"" \
-      safe-push-lane-reaper "$main_checkout" "$repo_root" "$branch" $occupants </dev/null >/dev/null 2>&1 || true
-    return 0
-  fi
-  printf 'safe-push: lane landed — removing worktree %s and branch %s\n' "$repo_root" "$branch"
-  remove_landed_lane "$main_checkout" "$repo_root" "$branch" || return 0
-  printf 'safe-push: your working directory %s no longer exists; cd %s\n' "$repo_root" "$main_checkout"
-}
-
-# A caller shell runs pwd after safe-push returns; deleting its cwd turns success into exit 1.
-lane_occupants() {
-  local pid=$self_pid
-  while [ "$pid" -gt 1 ] 2>/dev/null; do
-    ! lane_occupied "$1" "$pid" || printf '%s ' "$pid"
-    pid=$(awk '/^PPid:/ { print $2 }' "/proc/$pid/status" 2>/dev/null) || return 0
-  done
-}
-
-lane_occupied() {
-  local cwd
-  cwd=$(readlink "/proc/$2/cwd" 2>/dev/null) || return 1
-  [ "$cwd" = "$1" ] || [ "${cwd#"$1"/}" != "$cwd" ]
-}
-
-remove_landed_lane() {
-  if ! git -C "$1" worktree remove "$2"; then
-    echo "safe-push: could not remove $2; left in place" >&2
-    return 1
-  fi
-  git -C "$1" branch -q -d "$3" \
-    || echo "safe-push: could not delete branch $3; left in place" >&2
-}
-
-remove_landed_lane_when_vacant() {
-  local main_checkout=$1 lane=$2 branch=$3 pid waited=0
-  shift 3
-  for pid in "$@"; do
-    while lane_occupied "$lane" "$pid"; do
-      [ "$waited" -lt 21600 ] || return 0
-      sleep 1
-      waited=$((waited + 1))
-    done
-  done
-  remove_landed_lane "$main_checkout" "$lane" "$branch"
-}
-
-release_follows() {
-  [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] || return 0
-  local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
-  [ -x "$north_runtime" ] || return 0
-  "$north_runtime" follows-release --repo-dir "$repo_root" 2>&1 | sed 's/^/safe-push: /' || true
-  ( drop_lock_fd; "$north_runtime" runtime follow --repo-dir "$repo_root" ) 2>&1 | sed 's/^/safe-push: /' || true
 }
 
 capture_destination_state() {
@@ -768,431 +535,14 @@ if [ "$to_seen" -eq 0 ] || [ "$to" != "$(default_branch)" ]; then
   north land push --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land push, which publishes every branch but $(default_branch); run north runtime update; NOT pushed." >&2; exit 1; }
   SAFE_PUSH_SELF="$safe_push_self" exec north land push "${original_arguments[@]}"
 fi
-safe_push_common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
-
-# --- --to landings: serialize per origin, rebase onto the fresh destination -------
-# ~20 workers land on one busy main, so an unserialized landing loses the race to
-# non-fast-forward. A repo's pre-push hook can take minutes, so it runs before
-# the lock; holders of the lock only fetch, rebase, scan and push.
-push_lock_fd=""
-push_lock_taken=""
-push_ticket=""
-push_ticket_info=""
-solo_check_head=""; solo_check_base=""; solo_check_started=0; solo_check_finished=0
-red_fix=""
-requeued=0
-finish_push() {
-  [ -z "$push_ticket" ] || rm -f -- "$push_ticket" "$push_ticket.result"
-}
-
-live_safe_push() {
-  { tr '\0' ' ' <"/proc/$1/cmdline"; } 2>/dev/null | grep -q safe-push
-}
 
 drop_lock_fd() {
   [ "$BASHPID" != "$$" ] || return 0
-  [ -z "$push_lock_fd" ] || exec {push_lock_fd}>&-
   [ -z "${output_lock_fd:-}" ] || exec {output_lock_fd}<&-
-}
-
-# Ledger records of the landing tempo (north#255 B12): written in the background so a slow or unreachable ledger host never holds the landing lock.
-land_train() {
-  command -v north >/dev/null 2>&1 || return 0
-  (drop_lock_fd; north land-train "$@" >/dev/null 2>&1) &
-  disown 2>/dev/null || true
-}
-
-land_repo_name() {
-  local name="${origin_url:-}"; name="${name##*/}"; printf '%s\n' "${name%.git}"
-}
-
-ticket_queued_at() {
-  local name="${1##*/}"
-  name="${name%-*}"
-  [[ "$name" =~ ^[0-9]+$ ]] || { printf '%s\n' "$EPOCHSECONDS"; return 0; }
-  [ "${#name}" -le 16 ] || name="${name:1}"
-  printf '%s\n' "${name%??????}"
-}
-
-# One landings row for a lane that did not go through the train: queued when its ticket was taken, else when safe-push started.
-record_solo_lane() {
-  local queued="$((safe_push_started_ms / 1000))" landed=()
-  [ -z "$push_ticket" ] || queued=$(ticket_queued_at "$push_ticket")
-  [ "$1" != landed ] || landed=(--landed-at "$EPOCHSECONDS" --landed-sha "$2")
-  land_train record --repo "$(land_repo_name)" --lane "$(basename "$(git rev-parse --show-toplevel)")" --branch "${branch:-}" --tip "$2" \
-    --queued-at "$queued" --candidate "$2" --tree "$(git rev-parse "$2^{tree}" 2>/dev/null)" --batch-size 1 --bisect-depth 0 \
-    --attempts "${attempt:-1}" --verdict "$1" --detail "${3:-}" --by "${NORTH_FLEET_SESSION:-}" "${landed[@]}"
-}
-
-# One land_checks row for the pre-push run on a lone lane; recorded again as `moved` when origin moved and the run was thrown away.
-record_solo_check() {
-  [ -n "${solo_check_head:-}" ] || return 0
-  land_train check --repo "$(land_repo_name)" --candidate "$solo_check_head" --tree "$(git rev-parse "$solo_check_head^{tree}" 2>/dev/null)" \
-    --base "${solo_check_base:-}" --batch-size 1 --bisect-depth 0 --started-at "$solo_check_started" --finished-at "$solo_check_finished" --outcome "$1"
-}
-
-red_fix_issue() {
-  local named issue
-  [ -n "$1" ] || return 0
-  if git log --format=%B "$1..HEAD" | grep -qE '^Main-red:[[:space:]]+[^[:space:]]'; then printf 'marker\n'; return 0; fi
-  named=$({ git log --format=%s "$1..HEAD"; git log --format=%b "$1..HEAD" | grep -E '^- '; } | grep -oE '#[0-9]+') || return 0
-  issue=$(timeout 10 gh issue list --state open --search "\"$to is red\" in:title" --json number,title \
-      --jq '.[] | "\(.number)\t\(.title)"' 2>/dev/null \
-    | awk -F'\t' -v title="$to is red" '$2 == title { print $1; exit }') || return 0
-  if [ -n "$issue" ] && grep -qxF "#$issue" <<<"$named"; then printf '%s\n' "$issue"; fi
-}
-
-red_fix_waiting() {
-  local t name
-  [ -z "$red_fix" ] || return 1
-  for t in "${push_ticket%/*}"/0*; do
-    name=${t##*/}
-    [[ "$name" =~ ^[0-9]+-([0-9]+)$ ]] && [ "$t" != "$push_ticket" ] && [ ! -e "$t.result" ] || continue
-    live_safe_push "${BASH_REMATCH[1]}" && return 0
-  done
-  return 1
-}
-
-# Prints the oldest ticket in queue $1 whose safe-push is still running.
-first_ticket() {
-  local t name
-  for t in "$1"/*; do
-    name=${t##*/}
-    [[ "$name" =~ ^[0-9]+-([0-9]+)$ ]] || continue
-    if [ "$1/$name" = "$push_ticket" ] || live_safe_push "${BASH_REMATCH[1]}"; then
-      printf '%s\n' "$1/$name"
-      return 0
-    fi
-  done
-}
-
-acquire_push_lock() {
-  local url="$1" limit="${2:-600}" dir key file holder waited=0 queue
-  dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-  mkdir -p "$dir"
-  key=$(printf '%s' "$url" | sha256sum | cut -c1-16)
-  file="$dir/$key.lock"
-  if [ "${SAFE_PUSH_LOCK_HELD:-}" = "$key" ]; then
-    printf 'safe-push: the landing lock on %s is held by the safe-push whose checks started this one\n' "$url" >&2
-    return 0
-  fi
-  queue="$dir/$key.queue"
-  mkdir -p "$queue"
-  if [ -z "$push_ticket" ]; then
-    # A leading 0 sorts a red-fix lane's ticket first in every safe-push's glob, older versions included.
-    push_ticket="$queue/${red_fix:+0}${EPOCHREALTIME/./}-$self_pid"
-    printf '%s' "$push_ticket_info" >"$push_ticket"
-  fi
-  safe_push_event "landing lock queue" wait "$url"
-  exec {push_lock_fd}>>"$file"
-  while take_train_result; [ "$(first_ticket "$queue")" != "$push_ticket" ] || ! flock -n "$push_lock_fd"; do
-    if [ $((waited % 300)) -eq 0 ]; then
-      holder=$(cat "$file" 2>/dev/null) || holder=""
-      printf 'safe-push: waiting for the landing lock on %s in arrival order, held by %s (%ss/%ss)\n' \
-        "$url" "${holder:-unknown}" "$((waited / 10))" "$limit" >&2
-    fi
-    if [ "$waited" -ge $((limit * 10)) ]; then
-      printf 'safe-push: gave up after %ss waiting for the landing lock on %s, held by %s; NOT pushed.\n' \
-        "$limit" "$url" "${holder:-unknown}" >&2
-      exit 1
-    fi
-    sleep 0.1
-    waited=$((waited + 1))
-  done
-  take_train_result
-  printf 'pid %s in %s\n' "$self_pid" "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" >"$file"
-  export SAFE_PUSH_LOCK_HELD="$key"
-  push_lock_taken=$EPOCHREALTIME
-  safe_push_event "landing lock" start
-}
-
-unlock_push_lock() {
-  flock -u "$push_lock_fd" || true
-  exec {push_lock_fd}>&-
-  push_lock_fd=""
-  unset SAFE_PUSH_LOCK_HELD
-}
-
-release_push_lock() {
-  [ -n "$push_lock_fd" ] || return 0
-  unlock_push_lock
-  rm -f -- "$push_ticket"
-  push_ticket=""
-  awk -v a="$push_lock_taken" -v b="$EPOCHREALTIME" \
-    'BEGIN { printf "safe-push: held the landing lock for %.1f s\n", b - a }'
-}
-
-requeue_behind_red_fix() {
-  safe_push_event "landing lock queue" retry "behind a red-fix lane"
-  printf 'safe-push: a lane that fixes red %s is queued; this lane waits behind it\n' "$to"
-  unlock_push_lock
-  requeued=1
-}
-
-# --- landing train: the exact-landing lock holder lands the lanes queued behind it
-# Waiting lanes poll <ticket>.result: "landed <main-oid> <lane-oid>",
-# "conflict <files> <lane-oid>" or "failed <log-or-url> <lane-oid>".
-take_train_result() {
-  local result verdict detail lane_oid
-  [ -n "$push_ticket" ] || return 0
-  result="$push_ticket.result"
-  [ -s "$result" ] || return 0
-  read -r verdict detail lane_oid <"$result"
-  rm -f -- "$result" "$push_ticket"
-  push_ticket=""
-  if [ -n "$push_lock_fd" ]; then
-    flock -u "$push_lock_fd" || true
-    exec {push_lock_fd}>&-
-    push_lock_fd=""
-  fi
-  case "$verdict" in
-    landed)
-      printf 'safe-push: ✓ landed in a landing train: origin %s is at %s\n' "$to" "$detail"
-      capture_repository_state
-      destination_ref="refs/heads/$to"
-      if [ "$head_oid" != "$lane_oid" ]; then
-        printf 'safe-push: this lane moved from %s while it waited; only that commit landed, so the lane was kept\n' "$lane_oid" >&2
-        exit 1
-      fi
-      fetch_destination >/dev/null || true
-      release_follows
-      safe_push_published_head="$detail"; safe_push_landed_sha="$detail"
-      if git reset -q --keep "$detail"; then cleanup_landed_lane || true; fi
-      auto_reap || true
-      exit 0
-      ;;
-    conflict)
-      printf 'safe-push: ✗ this lane conflicts with the lanes ahead of it in the landing train in: %s\nsafe-push: rebase onto origin/%s and retry. NOT pushed.\n' \
-        "${detail//,/ }" "$to" >&2
-      ;;
-    *)
-      printf 'safe-push: ✗ the pre-push checks failed on this lane in the landing train (%s); NOT pushed.\n' "$detail" >&2
-      ;;
-  esac
-  exit 1
-}
-
-without() {
-  local drop="$1" x
-  shift
-  for x in "$@"; do [ "$x" = "$drop" ] || printf '%s\n' "$x"; done
-}
-
-collect_train() {
-  local t name branch_name
-  train_tickets=()
-  if red_fix_waiting; then
-    requeue_behind_red_fix
-    return 0
-  fi
-  for t in "${push_ticket%/*}"/*; do
-    name=${t##*/}
-    [[ "$name" =~ ^[0-9]+-([0-9]+)$ ]] || continue
-    [ "$t" != "$push_ticket" ] && [ -s "$t" ] && [ ! -e "$t.result" ] || continue
-    live_safe_push "${BASH_REMATCH[1]}" || continue
-    IFS=$'\t' read -r _ branch_name _ <"$t" || true
-    [[ "$branch_name" != safe-push-train-* ]] || continue
-    train_tickets+=("$t")
-  done
 }
 
 sync_dependencies() {
   (drop_lock_fd; lane_scan deps)
-}
-
-candidate_checks() {
-  if [ -n "$1" ]; then
-    (cd "$repo_root" && printf 'refs/heads/%s %s refs/heads/%s %s\n' "$train_branch" "$3" "$to" "$2" | "$1" origin "$lock_url")
-    return
-  fi
-  north land scan dep-gate "$2..$3" && tool_removal_scan "$2..$3" && test_integrity_scan "$2..$3" \
-    && test_admission_scan "$2..$3" && policy_sweep_scan "$2..$3" && strategy_replay_scan "$2..$3" && land_checks_call "$2" "$3"
-}
-
-# Prints "ok" or the farm URL (else the log path) of the failed check on the
-# train branch's HEAD; returns nonzero on failure.
-check_candidate() {
-  local hook="$1" base="$2" log="$3" head="$4" url
-  drop_lock_fd
-  : >"$log"
-  if [ "$(git rev-parse HEAD)" != "$head" ]; then
-    printf 'safe-push: train HEAD differs from captured candidate %s; NOT pushed.\n' "$head" | tee -a "$log" >&2
-    printf '%s\n' "$log"
-    return 1
-  fi
-  if run_language_gate "$base" "$head" 2>&1 | tee -a "$log" >&2 \
-      && sync_dependencies >>"$log" 2>&1 \
-      && scan_range_for_native=("$base..$head") && native_ref_scan >>"$log" 2>&1 \
-      && north land scan secrets "$base..$head" >>"$log" 2>&1 \
-      && denylist_scan "$base" "$head" "$to" >>"$log" 2>&1 \
-      && commit_email_scan "$base..$head" >>"$log" 2>&1 \
-      && candidate_checks "$hook" "$base" "$head" 2>&1 | tee -a "$log" >&2; then
-    return 0
-  fi
-  url=$(grep -oE 'https?://[^[:space:]()]+/actions/runs/[0-9]+' "$log" | tail -n1) || url=""
-  printf '%s\n' "${url:-$log}"
-  return 1
-}
-
-run_train() {
-  local hook="$1" own_branch own_root own_oid base cand verdict detail i n half cherry picked_onto depth=0 tree check_started
-  safe_push_event "landing train" wait
-  local -a roots=() branches=() oids=() tickets=() sessions=() pending=() group=() rest=()
-  local -a results=() queued=() attempts=() batch_of=() depth_of=() cand_of=() tree_of=()
-  own_root=$(git rev-parse --show-toplevel)
-  own_branch=$(git symbolic-ref --quiet --short HEAD)
-  own_oid=$(git rev-parse HEAD)
-  roots+=("$own_root"); branches+=("$own_branch"); oids+=("$own_oid"); tickets+=(""); sessions+=("${NORTH_FLEET_SESSION:-}")
-  queued+=("$(ticket_queued_at "${push_ticket:-}")")
-  for i in "${train_tickets[@]}"; do
-    local root branch_name oid session
-    IFS=$'\t' read -r root branch_name oid session <"$i" || true
-    tickets+=("$i"); roots+=("$root"); branches+=("$branch_name"); oids+=("$oid"); sessions+=("$session")
-    queued+=("$(ticket_queued_at "$i")")
-  done
-  n=${#oids[@]}
-  base=$(fetch_destination) || exit 1
-  install_merge_driver
-  [ -n "$base" ] || return 0
-  printf 'safe-push: landing train of %s lanes onto origin %s@%s\n' "$n" "$to" "$base"
-  capture_repository_state
-  resolve_origin_visibility "$origin_url"
-  destination_ref="refs/heads/$to"
-  train_branch="safe-push-train-$self_pid"
-  local log="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/train-$self_pid.log"
-  mkdir -p "${log%/*}"
-
-  train_verdict() {
-    results[$1]="$2 $3 ${oids[$1]}"
-    printf 'safe-push: train lane %s (%s): %s %s\n' "${branches[$1]}" "${oids[$1]}" "$2" "$3"
-    local landed=()
-    [ "$2" != landed ] || landed=(--landed-at "$EPOCHSECONDS" --landed-sha "$3")
-    land_train record --repo "$(land_repo_name)" --lane "$(basename "${roots[$1]}")" --branch "${branches[$1]}" --tip "${oids[$1]}" \
-      --queued-at "${queued[$1]}" --candidate "${cand_of[$1]:-}" --tree "${tree_of[$1]:-}" --batch-size "${batch_of[$1]:-0}" \
-      --bisect-depth "${depth_of[$1]:-0}" --attempts "${attempts[$1]:-0}" --verdict "$2" --detail "$3" --by "${sessions[$1]}" "${landed[@]}"
-    [ -z "${tickets[$1]}" ] || printf '%s\n' "${results[$1]}" >"${tickets[$1]}.result"
-  }
-
-  train_check() {
-    land_train check --repo "$(land_repo_name)" --candidate "$cand" --tree "$tree" --base "$base" --batch-size "${#group[@]}" \
-      --bisect-depth "$depth" --started-at "$check_started" --finished-at "$EPOCHSECONDS" --outcome "$1"
-  }
-
-  for ((i = 0; i < n; i++)); do
-    results+=("")
-    if ! git cat-file -e "${oids[i]}^{commit}" 2>/dev/null; then
-      git fetch -q --no-tags "${roots[i]}" "refs/heads/${branches[i]}" 2>/dev/null || true
-    fi
-    if git cat-file -e "${oids[i]}^{commit}" 2>/dev/null \
-        && cherry=$(git cherry "$base" "${oids[i]}" 2>/dev/null) && ! grep -q '^+' <<<"$cherry"; then
-      echo "safe-push: train lane ${branches[i]} is already on origin $to"
-      train_verdict "$i" landed "$base"
-    else
-      pending+=("$i")
-    fi
-  done
-
-  while [ "${#pending[@]}" -gt 0 ]; do
-    group=("${pending[@]}")
-    depth=0
-    while :; do
-      if red_fix_waiting; then break 2; fi
-      base=$(fetch_destination) || exit 1
-      git switch -q -C "$train_branch" "$base"
-      local built=1
-      for i in "${group[@]}"; do
-        picked_onto=$(git rev-parse --verify HEAD)
-        if ! git cat-file -e "${oids[i]}^{commit}" 2>/dev/null; then
-          train_verdict "$i" conflict unreadable
-        elif ! { GIT_EDITOR=true git cherry-pick "$base..${oids[i]}" || north merge-driver continue; } >/dev/null 2>&1; then
-          detail=$(git diff --name-only --diff-filter=U 2>/dev/null | paste -sd, -)
-          git cherry-pick --abort >/dev/null 2>&1 || git reset -q --hard HEAD
-          train_verdict "$i" conflict "${detail:-cherry-pick}"
-        elif command -v north >/dev/null 2>&1 && ! north stale-revert --repo "$own_root" --lane "${oids[i]}" "$picked_onto" HEAD >"$log.stale-revert-$i" 2>&1; then
-          cat "$log.stale-revert-$i" >&2
-          git reset -q --hard "$picked_onto"
-          train_verdict "$i" failed "$log.stale-revert-$i"
-        else
-          continue
-        fi
-        built=0
-        pending=($(without "$i" "${pending[@]}"))
-        group=($(without "$i" "${group[@]}"))
-        break
-      done
-      [ "$built" -eq 1 ] || { [ "${#group[@]}" -gt 0 ] && continue || break; }
-      cand=$(git rev-parse HEAD)
-      tree=$(git rev-parse "HEAD^{tree}")
-      check_started=$EPOCHSECONDS
-      for i in "${group[@]}"; do
-        attempts[i]=$(( ${attempts[i]:-0} + 1 )); batch_of[i]=${#group[@]}; depth_of[i]=$depth; cand_of[i]=$cand; tree_of[i]=$tree
-      done
-      printf 'safe-push: train candidate %s carries %s lanes; running the pre-push checks on it\n' "$cand" "${#group[@]}"
-      if detail=$(check_candidate "$hook" "$base" "$log" "$cand"); then
-        local pushed_at=$EPOCHSECONDS
-        if [ "$(remote_destination_snapshot)" = "object:$base" ] \
-            && SAFE_PUSH_ACTIVE=1 git push -q --no-verify --no-follow-tags --force-with-lease="$destination_ref:$base" \
-              "$origin_url" "$cand:$destination_ref"; then
-          train_check pass
-          for i in "${group[@]}"; do
-            record_push "$pushed_at" "${branches[i]}" "${oids[i]}" "$(trunk_landing "$to" "$cand")" "${sessions[i]}"
-            train_verdict "$i" landed "$cand"
-          done
-          spawn_after_landing_gates "$base" "$cand"
-        else
-          train_check moved
-          for i in "${group[@]}"; do train_verdict "$i" failed "origin-$to-moved"; done
-        fi
-        rest=()
-        for i in "${pending[@]}"; do printf '%s\n' "${group[@]}" | grep -qx "$i" || rest+=("$i"); done
-        pending=("${rest[@]}")
-        break
-      fi
-      train_check fail
-      if [ "${#group[@]}" -eq 1 ]; then
-        train_verdict "${group[0]}" failed "$detail"
-        pending=($(without "${group[0]}" "${pending[@]}"))
-        break
-      fi
-      half=$(( (${#group[@]} + 1) / 2 ))
-      depth=$((depth + 1))
-      group=("${group[@]:0:half}")
-      echo "safe-push: train candidate failed; re-running the checks on its first $half lanes"
-    done
-  done
-
-  git switch -q "$own_branch"
-  git branch -q -D "$train_branch" 2>/dev/null || true
-  [ "${#pending[@]}" -eq 0 ] \
-    || printf 'safe-push: handing %s undecided lanes of this train back to the queue\n' "${#pending[@]}"
-  if [ -z "${results[0]}" ]; then
-    requeue_behind_red_fix
-    return 0
-  fi
-  read -r verdict detail _ <<<"${results[0]}"
-  release_push_lock
-  if [ "$verdict" = landed ]; then
-    git reset -q --keep "$detail"
-    safe_push_published_head="$detail"; safe_push_landed_sha="$detail"
-    capture_repository_state
-    destination_ref="refs/heads/$to"
-    release_follows
-    safe_push_published_head="$detail"; safe_push_landed_sha="$detail"
-    cleanup_landed_lane || true
-    auto_reap || true
-    exit 0
-  fi
-  printf 'safe-push: ✗ this lane did not land in its landing train (%s %s); NOT pushed.\n' "$verdict" "$detail" >&2
-  [ "$verdict" = failed ] || echo "safe-push: rebase onto origin/$to and retry." >&2
-  exit 1
-}
-
-rebase_in_progress() {
-  local d
-  for d in rebase-merge rebase-apply; do
-    [ -d "$(git rev-parse --git-path "$d")" ] && return 0
-  done
-  return 1
 }
 
 # Fetches origin's destination and prints its tip; nothing when origin has no
@@ -1207,237 +557,6 @@ fetch_destination() {
     return 1
   fi
   git rev-parse -q --verify "${remote_ref}^{commit}" 2>/dev/null || true
-}
-
-install_merge_driver() {
-  command -v north >/dev/null 2>&1 || return 0
-  git config merge.set.name "order-insensitive unique-entry lists and regenerated files (harness/merge-sets.toml)"
-  git config merge.set.driver "north merge-driver set %O %A %B %P"
-}
-
-rebase_onto_destination() {
-  local upstream="$1" conflicts log
-  [ -n "$upstream" ] || return 0
-  git merge-base --is-ancestor "$upstream" HEAD 2>/dev/null && return 0
-  # Unrelated history is left to the non-fast-forward refusal.
-  git merge-base HEAD "$upstream" >/dev/null 2>&1 || return 0
-  echo "safe-push: origin $to moved to $upstream — rebasing onto it"
-  install_merge_driver
-  if log=$(GIT_EDITOR=true git rebase --no-autostash "$upstream" 2>&1) || north merge-driver continue >/dev/null 2>&1; then
-    return 0
-  fi
-  conflicts=$(git diff --name-only --diff-filter=U 2>/dev/null) || conflicts=""
-  if rebase_in_progress; then git rebase --abort >/dev/null 2>&1 || true; fi
-  if [ -n "$conflicts" ]; then
-    printf 'safe-push: ✗ rebase onto origin %s conflicts in:\n' "$to" >&2
-    sed 's/^/  /' <<<"$conflicts" >&2
-    printf 'safe-push: rebase aborted, worktree unchanged; resolve against origin/%s and retry. NOT pushed.\n' "$to" >&2
-  else
-    printf 'safe-push: ✗ rebase onto origin %s failed; NOT pushed.\n%s\n' "$to" "$log" >&2
-  fi
-  exit 1
-}
-
-sync_with_destination() {
-  local upstream
-  upstream=$(fetch_destination) || exit 1
-  rebase_onto_destination "$upstream"
-}
-
-# The pre-push hook git would run, resolved as git does (core.hooksPath
-# included); nothing when the repo has none.
-pre_push_hook() {
-  local top path
-  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
-  path=$(cd "$top" && git rev-parse --git-path hooks/pre-push 2>/dev/null) || return 0
-  case "$path" in /*) ;; *) path="$top/$path" ;; esac
-  if [ -f "$path" ] && [ -x "$path" ]; then printf '%s\n' "$path"; fi
-  return 0
-}
-
-run_pre_push_checks() {
-  safe_push_event "pre-push checks" wait
-  run_language_gate "$2" "$(git rev-parse HEAD)" || exit $?
-  run_pre_push_hook "$1" "$2"
-}
-
-# Runs the hook as git would for pushing HEAD to origin's destination at $2.
-run_pre_push_hook() {
-  local hook="$1" base="$2" head local_ref top zero
-  head=$(git rev-parse HEAD)
-  local_ref=$(git symbolic-ref --quiet HEAD)
-  top=$(git rev-parse --show-toplevel)
-  solo_check_head=$head; solo_check_base=$base; solo_check_started=$EPOCHSECONDS
-  zero=$(printf '%0*d' "${#head}" 0)
-  if [ -n "$push_lock_fd" ]; then
-    echo "safe-push: running the pre-push checks on $head under the landing lock"
-  else
-    echo "safe-push: running the pre-push checks on $head before taking the landing lock"
-  fi
-  sync_dependencies || exit 1
-  (drop_lock_fd; cd "$top" && printf '%s %s refs/heads/%s %s\n' "$local_ref" "$head" "$to" "${base:-$zero}" \
-      | "$hook" origin "$lock_url") &
-  safe_push_child=$!
-  if ! wait "$safe_push_child"; then
-    solo_check_finished=$EPOCHSECONDS
-    record_solo_check fail
-    record_solo_lane failed "$head" pre-push-checks
-    echo "safe-push: ✗ the pre-push checks failed; NOT pushed." >&2
-    exit 1
-  fi
-  solo_check_finished=$EPOCHSECONDS
-  record_solo_check pass
-  safe_push_child=""
-}
-
-# Whether origin's commits base..upstream change any file that base..head changes.
-touches_same_files() {
-  LC_ALL=C comm -12 \
-    <(git diff --no-renames --name-only "$1" "$3" | LC_ALL=C sort -u) \
-    <(git diff --no-renames --name-only "$1" "$2" | LC_ALL=C sort -u) | grep -q .
-}
-
-touches_workflows() {
-  git diff --name-only "$1" "$2" -- .github/workflows | grep -q .
-}
-
-keep_verdict_through_moves() {
-  local base="$1" checked="$2" upstream="$3" label="$4" next
-  while :; do
-    { ! exact_landing "$upstream" || touches_workflows "$base" "$checked"; } \
-      && [ -n "$base" ] && [ -n "$upstream" ] \
-      && git merge-base --is-ancestor "$base" "$upstream" 2>/dev/null \
-      && ! touches_same_files "$base" "$upstream" "$checked" || return 1
-    echo "safe-push: origin $to's new commits touch none of this change's files — keeping the $label' verdict"
-    rebase_onto_destination "$upstream"
-    next=$(fetch_destination) || exit 1
-    [ "$next" != "$upstream" ] || return 0
-    upstream="$next"
-  done
-}
-
-# hook_verified=1: the hook passed on HEAD's change against the destination it
-# will land on (or one whose new commits touch none of its files, unless the
-# repository's committed .safe-push sets landing.exact and the lane changes no
-# workflow), so the push skips it.
-hook_verified=0
-# Read from the destination too: its new commits may be what introduce the setting.
-exact_landing() {
-  local ref
-  for ref in HEAD "$1"; do
-    [ "$(git config --blob "$ref:.safe-push" --type=bool --get landing.exact 2>/dev/null)" = true ] && return 0
-  done
-  return 1
-}
-landing_queue() {
-  local queue
-  queue=$(git config --blob "$1:.safe-push" --get landing.queue 2>/dev/null) || queue=""
-  printf "%s\n" "${queue:-lander}"
-}
-# A repository whose main's committed .safe-push sets landing.queue = autoland
-# lands every change through its Autoland workflow's one batched queue: the lane
-# is checked and pushed to claude/land-<lane>-<sha> and the `autoland` commit
-# status on that SHA is the verdict. Workflow changes can't land that way.
-autoland_repo() {
-  [ -n "$1" ] || return 1
-  [ "$(landing_queue "$1")" = autoland ]
-}
-autoland_queue() {
-  autoland_repo "$1" && ! git diff --name-only "$1...HEAD" -- .github/workflows | grep -q .
-}
-# A train fixes its base when its test starts, so a workflow lane waits for no train in flight, before it queues for the lock.
-autoland_gap() {
-  local waited=0 limit="${SAFE_PUSH_AUTOLAND_GAP_SECONDS:-1800}" poll="${SAFE_PUSH_AUTOLAND_POLL_SECONDS:-30}" trains
-  [ "$direct" = 0 ] && [ "$to" = "$(default_branch)" ] && autoland_repo "refs/remotes/origin/$to" || return 0
-  while :; do
-    trains=$(gh run list --workflow autoland.yml --status in_progress --limit 50 --json displayTitle \
-      --jq '[.[] | select(.displayTitle | startswith("Autoland plan") | not)] | length' 2>/dev/null) || trains=unknown
-    [ "$trains" != 0 ] || return 0
-    if [ "$waited" -ge "$limit" ]; then
-      printf 'safe-push: Autoland trains stayed in flight for %sm; landing this workflow lane over them; a train in flight retests once\n' "$((limit / 60))"
-      return 0
-    fi
-    [ "$waited" -gt 0 ] || printf 'safe-push: %s Autoland train runs in flight; waiting for none before pushing %s (up to %sm)\n' "$trains" "$to" "$((limit / 60))"
-    sleep "$poll"
-    waited=$((waited + poll))
-  done
-}
-
-queue_branch_for() { printf 'claude/land-%s-%s' "$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-')" "${2:0:12}"; }
-
-# A re-landed lane carries its current state, so its older land branches are superseded by construction.
-withdraw_older_land_branches() {
-  local prefix ref old tip
-  prefix="claude/land-$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-')-"
-  while read -r tip ref; do
-    old=${ref#refs/heads/}
-    [ "$old" != "$2" ] && [[ "${old#"$prefix"}" =~ ^[0-9a-f]{12}$ ]] || continue
-    if drop_land_branch "$old" "$tip" 2>/dev/null; then
-      printf 'safe-push: withdrew %s: superseded by %s from the same lane\n' "$old" "$2"
-    else
-      printf 'safe-push: could not withdraw %s from origin\n' "$old" >&2
-    fi
-  done < <(git ls-remote origin "refs/heads/${prefix}*" 2>/dev/null)
-}
-
-land_through_autoland() {
-  local lane sha queue_branch autoland_reply line state description url wait_status=0 landed limit="${SAFE_PUSH_AUTOLAND_WAIT_SECONDS:-10800}"
-  safe_push_event autoland wait
-  lane=$(git symbolic-ref --quiet --short HEAD)
-  sha=$(git rev-parse HEAD)
-  if [ "$(git ls-remote origin "refs/heads/$(queue_branch_for "$lane" "$sha")" 2>/dev/null | cut -f1)" = "$sha" ]; then
-    queue_branch=$(queue_branch_for "$lane" "$sha")
-    head_oid=$sha
-    echo "safe-push: Autoland already queues $sha as $queue_branch — waiting on it without checking or pushing again"
-  else
-    rebase_onto_destination "$1"
-    head_oid=$(git rev-parse HEAD)
-    refuse_dropped_lane_commits
-    sha=$(git rev-parse HEAD)
-    queue_branch=$(queue_branch_for "$lane" "$sha")
-    echo "safe-push: $to lands through Autoland's one queue — checking and pushing $sha as $queue_branch"
-    NORTH_NO_AUTOREAP=1 "$(readlink -f "${BASH_SOURCE[0]}")" --to "$queue_branch" || exit 1
-    withdraw_older_land_branches "$lane" "$queue_branch"
-  fi
-  autoland_reply=$(mktemp)
-  "${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}" autoland-wait \
-    --sha "$sha" --branch "$queue_branch" --destination "$to" \
-    --timeout-seconds "$limit" --poll-seconds "${SAFE_PUSH_AUTOLAND_POLL_SECONDS:-10}" >"$autoland_reply" 2>/dev/null &
-  safe_push_child=$!
-  wait "$safe_push_child" || wait_status=$?
-  safe_push_child=""
-  line=$(<"$autoland_reply")
-  rm -f -- "$autoland_reply"
-  IFS=$'\t' read -r state description url <<<"$line"
-  if [ "$state" = timeout ] || [ "$wait_status" -eq 2 ]; then
-    safe_push_timed_out=1
-    safe_push_timeout_minutes=$(((limit + 59) / 60))
-    safe_push_run_url="$url"
-    exit 2
-  fi
-  if [ "$state" = error ] && [ "$description" = 'local refresh required: Classic effect record' ]; then
-    safe_push_refusal="Autoland returned this lane for local Classic record refresh: $url"
-    printf 'safe-push: Autoland returned this lane for local Classic record refresh: %s; source lane retained, queue branch %s deleted; NOT landed.\n' "$url" "$queue_branch" >&2
-    drop_land_branch "$queue_branch" "$sha" 2>/dev/null || true
-    exit 75
-  fi
-  if [ "$state" != success ]; then
-    safe_push_refusal="Autoland did not land this lane: ${description:-unknown} ${url:-unknown}"
-    printf 'safe-push: ✗ Autoland did not land this lane: %s %s; NOT landed.\n' "$description" "$url" >&2
-    drop_land_branch "$queue_branch" "$sha" 2>/dev/null || true
-    exit 1
-  fi
-  landed=${description##* }
-  printf 'safe-push: ✓ Autoland landed this lane: origin %s is at %s (%s)\n' "$to" "$landed" "$url"
-  safe_push_published_head="$landed"; safe_push_landed_sha="$landed"
-  fetch_destination >/dev/null || true
-  capture_repository_state
-  destination_ref="refs/heads/$to"
-  spawn_after_landing_gates "$1" "$sha"
-  release_follows
-  if git reset -q --keep "$landed"; then cleanup_landed_lane || true; fi
-  auto_reap || true
-  exit 0
 }
 
 lane_tip=$(git rev-parse -q --verify HEAD) || lane_tip=""
@@ -1482,23 +601,6 @@ candidate_verdict() {
 }
 [ -z "$check_base" ] || candidate_verdict "$check_base"
 
-land_as_one_commit() {
-  local base="$1"
-  [ -n "$base" ] || return 0
-  if [ -n "$several_commits" ]; then
-    mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-    printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$lock_url" "$(git rev-parse --short HEAD)" \
-      "$(git symbolic-ref --quiet --short HEAD || true)" "$several_commits" >>"${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/several-commit-landings.tsv"
-    echo "safe-push: --several-commits: landing the lane's commits as they are ($several_commits); logged in several-commit-landings.tsv"
-    return 0
-  fi
-  [ -n "$message_file" ] || [ "$(git rev-list --count "$base..HEAD")" -ge 2 ] || return 0
-  north lane-squash --help >/dev/null 2>&1 \
-    || { echo "safe-push: this host's north runtime lacks north lane-squash, which lands a lane as one commit; run north runtime update; NOT pushed." >&2; exit 1; }
-  north lane-squash --repo "$(git rev-parse --show-toplevel)" ${message_file:+--message "$message_file"} "$base" || exit 1
-  lane_tip=$(git rev-parse HEAD)
-}
-
 policy_failures=()
 policy_scans() {
   local branch="$1" destination="$2" range="$3"
@@ -1525,94 +627,14 @@ refuse_collected() {
 }
 
 if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
-  [ -n "${SAFE_PUSH_LOCK_HELD:-}" ] || case "$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" in
-    safe-push-train-*)
-      echo "safe-push: this worktree is on the branch of a landing train whose holder stopped, not on a lane; git switch back to the lane's own branch (git reflog shows it) and retry. NOT pushed." >&2
-      exit 1
-      ;;
-  esac
-  lock_url=$(git remote get-url --push origin 2>/dev/null) \
-    || { echo "safe-push: origin has no push URL"; exit 1; }
-  hook=$(pre_push_hook)
-  land_train=0
-  if [ "$to" = main ] && has_land_checks; then hook=""; hook_verified=1; land_train=1; fi
-  if [ "$to" = "$(default_branch)" ]; then
-    autoland_base=$(fetch_destination) || exit 1
-    command -v north >/dev/null 2>&1 || { echo "safe-push: north not on PATH; refusing to land without the language gate; NOT pushed." >&2; exit 1; }
-    north land route --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land route, which decides whether the lander takes this lane; run north runtime update; NOT pushed." >&2; exit 1; }
-    route_status=0; north land route "${original_arguments[@]}" || route_status=$?
-    [ "$route_status" -ne 0 ] || safe_push_internal=1
-    exit "$route_status"
-    land_as_one_commit "$autoland_base"
-    if autoland_queue "$autoland_base" && [ "$direct" = 1 ]; then
-      mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-      printf '%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$lock_url" "$(git rev-parse --short HEAD)" \
-        "$(git symbolic-ref --quiet --short HEAD || true)" >>"${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/direct-landings.tsv"
-      echo "safe-push: --direct: bypassing Autoland's queue for an emergency push to $to; logged in direct-landings.tsv"
-    elif autoland_queue "$autoland_base"; then
-      land_through_autoland "$autoland_base"
-    fi
-    autoland_gap
-    red_base=$(fetch_destination) || exit 1
-    red_fix=$(red_fix_issue "$red_base")
-    stage "destination fetch and red-fix lookup"
-  fi
-  if [ -z "$hook" ] && { [ "$land_train" = 0 ] || ! exact_landing "${autoland_base:-HEAD}"; }; then
-    land_train=0
-    acquire_push_lock "$lock_url"
-    sync_with_destination
-  else
-    queued=0
-    first_base=$(fetch_destination) || exit 1
-    if exact_landing "${first_base:-HEAD}"; then
-      [ -z "$red_fix" ] || echo "safe-push: $to is red (#$red_fix) and this lane names it — queueing it ahead of the other lanes"
-      echo "safe-push: exact landing — queueing for the landing lock before the checks, so a lane ahead can't restart them"
-      push_ticket_info=$(printf '%s\t%s\t%s\t%s\n' "$(git rev-parse --show-toplevel)" \
-        "$(git symbolic-ref --quiet --short HEAD || true)" "$(git rev-parse HEAD)" "${NORTH_FLEET_SESSION:-}")
-      queued=1
-      requeued=1
-      while [ "$requeued" -eq 1 ]; do
-        requeued=0
-        acquire_push_lock "$lock_url" 10800
-        collect_train
-        [ "${#train_tickets[@]}" -eq 0 ] || run_train "$hook"
-      done
-    fi
-    [ "$land_train" = 0 ] || { [ "$queued" -eq 1 ] || acquire_push_lock "$lock_url"; sync_with_destination; }
-    attempt=1
-    while [ "$land_train" = 0 ]; do
-      checked_base=$(fetch_destination) || exit 1
-      rebase_onto_destination "$checked_base"
-      checked_head=$(git rev-parse HEAD)
-      run_pre_push_checks "$hook" "$checked_base"
-      [ "$queued" -eq 1 ] || acquire_push_lock "$lock_url"
-      [ "$(git rev-parse HEAD)" = "$checked_head" ] \
-        || { echo "safe-push: HEAD changed while the pre-push checks ran — refusing; NOT pushed." >&2; exit 1; }
-      upstream=$(fetch_destination) || exit 1
-      if [ "$upstream" = "$checked_base" ]; then
-        hook_verified=1
-        break
-      fi
-      if keep_verdict_through_moves "$checked_base" "$checked_head" "$upstream" checks; then
-        hook_verified=1
-        break
-      fi
-      record_solo_check moved
-      if [ "$attempt" -ge 3 ]; then
-        echo "safe-push: origin $to changed this change's files during $attempt check runs — running the checks under the landing lock"
-        rebase_onto_destination "$(fetch_destination)"
-        break
-      fi
-      echo "safe-push: origin $to changed this change's files during the checks — re-running them ($attempt/3)"
-      safe_push_event "pre-push checks" retry "origin $to changed this change's files ($attempt/3)"
-      [ "$queued" -eq 1 ] || release_push_lock
-      attempt=$((attempt + 1))
-    done
-  fi
+  fetch_destination >/dev/null || exit 1
+  command -v north >/dev/null 2>&1 || { echo "safe-push: north not on PATH; refusing to land without the language gate; NOT pushed." >&2; exit 1; }
+  north land route --help >/dev/null 2>&1 || { echo "safe-push: this host's north runtime lacks north land route, which decides whether the lander takes this lane; run north runtime update; NOT pushed." >&2; exit 1; }
+  route_status=0; north land route "${original_arguments[@]}" || route_status=$?
+  [ "$route_status" -ne 0 ] || safe_push_internal=1
+  exit "$route_status"
 fi
 
-stage "rebase, pre-push checks and landing lock"
-# --- the load-bearing guard: secret scan of the commits about to be pushed -------
 capture_repository_state
 capture_destination_state
 run_language_gate "${destination_oid:-${absent_base:-}}" "$head_oid" || refusals+=("language gate")
@@ -1622,142 +644,44 @@ if has_land_checks && ! (refuse_stale_revert); then
   stale_revert_refused=1
   refusals+=("stale revert of newer main")
 fi
-# The dependency gate and the policy, secret, deny-list and email scans read only the commits being landed, so they run beside the land checks and are reused when the lane and origin are unchanged once those pass.
+# The dependency gate and the policy, secret, deny-list and email scans read only the commits being landed.
 final_scans() {
-  local -a failed=()
   if ! command -v north >/dev/null 2>&1; then
     echo "safe-push: north missing on PATH — refusing to push without the dependency gate; NOT pushed."
-    failed+=("dependency gate (no north on PATH)")
+    refusals+=("dependency gate (no north on PATH)")
   else
     echo "safe-push: north land scan dep-gate ${destination_oid:-${absent_base:-}}..$head_oid"
     north land scan dep-gate "${destination_oid:-${absent_base:-}}..$head_oid" \
-      || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; failed+=("dependency gate"); }
+      || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; refusals+=("dependency gate"); }
   fi
-  policy_scans "$branch" "$destination_branch" "$scan_range" || failed+=("${policy_failures[@]}")
+  policy_scans "$branch" "$destination_branch" "$scan_range" || refusals+=("${policy_failures[@]}")
   echo "safe-push: scanning $scan_range for secrets with betterleaks ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
   north land scan secrets "$scan_range" \
-    || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; failed+=("secret scan"); }
-  denylist_scan "${destination_oid:-${absent_base:-}}" "$head_oid" "$destination_branch" || failed+=("deny-list scan")
-  commit_email_scan "$scan_range" || failed+=("commit email")
-  [ "${#failed[@]}" -eq 0 ] || { printf '%s\n' "${failed[@]}" >"$final_scans_failures"; return 1; }
+    || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; refusals+=("secret scan"); }
+  denylist_scan "${destination_oid:-${absent_base:-}}" "$head_oid" "$destination_branch" || refusals+=("deny-list scan")
+  commit_email_scan "$scan_range" || refusals+=("commit email")
 }
-collect_final_scans() {
-  local status="$1"
-  [ "$status" -ne 0 ] || return 0
-  if [ -s "$final_scans_failures" ]; then
-    mapfile -t -O "${#refusals[@]}" refusals <"$final_scans_failures"
-  else
-    refusals+=("dependency gate and scans (exit $status)")
-  fi
-}
-stop_final_scans() {
-  [ -z "$final_scans_pid" ] || { kill "$final_scans_pid" 2>/dev/null || true; wait "$final_scans_pid" 2>/dev/null || true; rm -f -- "$final_scans_log"; final_scans_pid=""; }
-}
-final_scans_pid="" final_scans_log="" final_scans_head="" final_scans_destination="" final_scans_range="" final_scans_status=0
-final_scans_failures=$(mktemp)
-if has_land_checks && [ "$dry" = 0 ] && [ "$destination_branch" = main ] && command -v betterleaks >/dev/null 2>&1; then
-  final_scans_log=$(mktemp)
-  final_scans_head="$head_oid" final_scans_destination="${destination_oid:-}" final_scans_range="$scan_range"
-  (drop_lock_fd; final_scans) >"$final_scans_log" 2>&1 &
-  final_scans_pid=$!
+land_base="${destination_oid:-${absent_base:-}}"
+land_status=0
+land_checks_call "$land_base" "$head_oid" || land_status=$?
+stage "land checks"
+if [ "$land_status" -ne 0 ]; then
+  [ -z "$blocked_by_red_main" ] || retry_after_red_main "$blocked_by_red_main"
+  refusals+=("land checks${land_check_skip:+ $land_check_skip}")
 fi
-while :; do
-  land_base="${destination_oid:-${absent_base:-}}"
-  land_locked=0
-  if [ -n "$push_lock_fd" ] && has_land_checks && [ "$land_train" = 0 ]; then
-    land_locked=1
-    release_push_lock
-  fi
-  land_status=0
-  land_checks_call "$land_base" "$head_oid" || land_status=$?
-  stage "land checks"
-  if [ "$land_status" -ne 0 ]; then
-    [ -z "$blocked_by_red_main" ] || retry_after_red_main "$blocked_by_red_main"
-    refusals+=("land checks${land_check_skip:+ $land_check_skip}")
-    break
-  fi
-  [ "$land_locked" -eq 1 ] || break
-  acquire_push_lock "$lock_url"
-  upstream=$(fetch_destination) || exit 1
-  [ "$upstream" != "$land_base" ] || break
-  if keep_verdict_through_moves "$land_base" "$head_oid" "$upstream" "land checks"; then
-    capture_repository_state
-    capture_destination_state
-    break
-  fi
-  safe_push_event "land checks" retry "origin main changed this change's files"
-  release_push_lock
-  acquire_push_lock "$lock_url"
-  rebase_onto_destination "$(fetch_destination)"
-  capture_repository_state
-  capture_destination_state
-done
-if [ "$destination_branch" = main ] && has_land_checks; then hook_verified=1; fi
 command -v betterleaks >/dev/null 2>&1 || { echo "safe-push: betterleaks not on PATH — refusing to push without a secret scan"; exit 1; }
 (refuse_dropped_lane_commits) || refusals+=("lane commits dropped by the rebase")
 [ "$stale_revert_refused" -eq 1 ] || (refuse_stale_revert) || refusals+=("stale revert of newer main")
 if [ "${#refusals[@]}" -eq 0 ] && [ -n "$destination_oid" ] && [ "$destination_oid" = "$head_oid" ]; then
   echo "safe-push: nothing to push ($head_oid already at origin $destination_ref)"
-  safe_push_nothing_to_push=1
-  safe_push_published_head=$(git rev-parse HEAD); safe_push_landed_sha="$head_oid"
   exit 0
 fi
-
-if [ -n "$final_scans_pid" ] && [ "$final_scans_head" = "$head_oid" ] && [ "$final_scans_destination" = "${destination_oid:-}" ] && [ "$final_scans_range" = "$scan_range" ]; then
-  wait "$final_scans_pid" || final_scans_status=$?
-  final_scans_pid=""
-  cat "$final_scans_log"
-  rm -f -- "$final_scans_log"
-  collect_final_scans "$final_scans_status"
-  stage "dependency gate and scans (ran beside the land checks)"
-else
-  stop_final_scans
-  safe_push_event "dependency gate and scans" wait
-  final_scans || final_scans_status=$?
-  collect_final_scans "$final_scans_status"
-  stage "dependency gate and scans"
-fi
-rm -f -- "$final_scans_failures"
+safe_push_event "dependency gate and scans" wait
+final_scans
+stage "dependency gate and scans"
 refuse_collected
 
 revalidate_repository_state
 plan_push publication "$head_oid" "$destination_ref" "$destination_oid"
-if [ "$dry" = 1 ]; then
-  echo "safe-push: ✓ clean (--dry-run) — would push $branch -> origin as $publication"
-  exit 0
-fi
-echo "safe-push: ✓ clean — pushing $branch -> origin as $publication"
-# Marker for the north hook tripwire guard (PreToolUse deny): raw `git push` is denied
-# estate-wide; this env var identifies the sanctioned inner push as safe-push's own.
-# The source is the immutable object that was scanned, never a mutable branch/HEAD.
-# The exact lease closes the final destination race. It cannot authorize a
-# non-fast-forward update: capture_destination_state proved ancestry first.
-push_flags=()
-[ "$hook_verified" -eq 0 ] || push_flags+=(--no-verify)
-if [ "$hook_verified" -eq 0 ] && ! sync_dependencies; then
-  echo "safe-push: ✗ bun install failed before the pre-push checks; NOT pushed." >&2
-  exit 1
-fi
-pushed_at=$EPOCHSECONDS
-push_errors=$(mktemp) push_status=0
-{ (drop_lock_fd; SAFE_PUSH_ACTIVE=1 git push --no-follow-tags "${push_flags[@]}" \
-  "${publication_flags[@]}" \
-  "$origin_url" "$publication"); } 2> >(drop_lock_fd; tee "$push_errors" >&2) || push_status=$?
-wait "$!" 2>/dev/null || true
-if [ "$push_status" -ne 0 ]; then
-  safe_push_event push failed "git push exited $push_status: $(tail -c 400 "$push_errors")"
-  rm -f -- "$push_errors"
-  exit "$push_status"
-fi
-rm -f -- "$push_errors"
-record_push "$pushed_at" "$([ "$destination_branch" = main ] && printf '%s' "$branch" || printf '%s' "$destination_branch")" "$head_oid" \
-  "$(trunk_landing "$destination_branch" "$head_oid")" "${NORTH_FLEET_SESSION:-}"
-[ "$destination_branch" != "$(default_branch)" ] || record_solo_lane landed "$head_oid"
-release_push_lock
-stage "push"
-[ "$destination_branch" != "$(default_branch)" ] || spawn_after_landing_gates "$destination_oid" "$head_oid"
-release_follows
-safe_push_published_head="$head_oid"; safe_push_landed_sha="$head_oid"
-cleanup_landed_lane || true
-auto_reap || true
-stage "cleanup"
+echo "safe-push: ✓ clean (--dry-run) — would push $branch -> origin as $publication"
+exit 0

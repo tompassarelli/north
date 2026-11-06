@@ -43,9 +43,6 @@ shim_main() {
       ;;
     north:land-red-check) return "${SAFE_PUSH_TEST_RED_CHECK_STATUS:-0}" ;;
     north:land-red-wait) return 0 ;;
-    north:land-train)
-      printf '%s\n' "${*:2}" >>"${SAFE_PUSH_TEST_LAND_TRAIN_TRACE:-/dev/null}"
-      ;;
     north:capacity)
       [ "${2:-}" = offload ] || exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
       [ "${3:-}" != verdict ] || return 0
@@ -59,15 +56,9 @@ shim_main() {
       ;;
     north:land-actions)
       printf '%s\n' "${*:11}" >>"${SAFE_PUSH_TEST_ACTIONS_TRACE:-/dev/null}"
-      [ -n "${SAFE_PUSH_TEST_ACTIONS_RELEASE:-}" ] || return "${SAFE_PUSH_TEST_ACTIONS_STATUS:-0}"
-      touch "$SAFE_PUSH_TEST_ACTIONS_RELEASE.waiting"
-      read -r _ <"$SAFE_PUSH_TEST_ACTIONS_RELEASE"
+      return "${SAFE_PUSH_TEST_ACTIONS_STATUS:-0}"
       ;;
-    north:after-landing)
-      [ -n "${SAFE_PUSH_TEST_AFTER_LANDING_TRACE:-}" ] || return 2
-      [ "${2:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_AFTER_LANDING_TRACE"
-      ;;
-    north:lane-squash|north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:mutant|north:stale-revert|north:bin-references|north:build-cache-gate|north:runtime-floor-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:safe-push-result|north:capacity|north:mutant|north:stale-revert|north:bin-references|north:build-cache-gate|north:runtime-floor-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
@@ -90,29 +81,6 @@ shim_main() {
     gh:repo)
       [ "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}" != fail ] || return 1
       printf '%s\n' "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}"
-      ;;
-    gh:run)
-      [ "${2:-}" = list ] || return 2
-      if [[ " $* " == *" autoland.yml "* ]]; then
-        [ -z "${SAFE_PUSH_TEST_AUTOLAND_POLLED:-}" ] || : >>"$SAFE_PUSH_TEST_AUTOLAND_POLLED"
-        printf '%s\n' "${SAFE_PUSH_TEST_AUTOLAND_RUNS-}"
-        return 0
-      fi
-      return 2
-      ;;
-    gh:api)
-      case "${2:-}" in
-        repos/*/commits/*/status)
-          local landed_sha="${2#*/commits/}"
-          landed_sha="${landed_sha%/status}"
-          if [[ "${SAFE_PUSH_TEST_AUTOLAND_STATUS:-}" == success$'\t'* ]]; then
-            git --git-dir="${SAFE_PUSH_TEST_REMOTE:?}" update-ref refs/heads/main "$landed_sha"
-          fi
-          printf '%s\n' "${SAFE_PUSH_TEST_AUTOLAND_STATUS//@SHA@/$landed_sha}"
-          return 0
-          ;;
-        *) return 2 ;;
-      esac
       ;;
     *) return 2 ;;
   esac
@@ -709,7 +677,7 @@ for name in agents threads safe-push capacity-watchdog retired-tool helper.test.
   "$real_git" -C "$real_repo" commit -qm "retire $name" -m "Removes-tool: $name"
   HOME="$tool_home" run_real_case --dry-run
   case "$name" in
-    retired-tool|helper.test.sh) expect_status zero ;;
+    safe-push|retired-tool|helper.test.sh) expect_status zero ;;
     *) expect_status nonzero; expect_output 'blocking check(s) failed: tool removal' ;;
   esac
   [ "$(real_remote_state)" = "$remote_before" ] || fail 'tool-removal dry-run changed origin'
