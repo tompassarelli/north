@@ -1,4 +1,4 @@
 [toolchain]
 channel = "nightly-2026-04-10"
 profile = "minimal"
-components = ["clippy", "rustfmt", "rustc-codegen-cranelift-preview"]
+components = ["clippy", "rustfmt", "rustc-codegen-cranelift-preview", "llvm-tools"]

@@ -277,10 +277,11 @@ fn before_the_push() -> Vec<String> {
 fn every_check_run_before_the_push_without_a_build_has_an_after_landing_backstop() {
     let after = safe_push_entries("land.after");
     let early = before_the_push();
-    assert_eq!(early.len(), 10, "{early:?}");
+    assert_eq!(early.len(), 11, "{early:?}");
     for entry in early {
         let (patterns, command) = split_entry(&entry);
-        let backstop = after.iter().find(|candidate| verb(split_entry(candidate).1) == verb(command));
+        let selected_tests = verb(command).is_some_and(|verb| verb.starts_with("coverage test "));
+        let backstop = after.iter().find(|candidate| if selected_tests { split_entry(candidate).1.contains("cargo nextest run") } else { verb(split_entry(candidate).1) == verb(command) });
         let (after_patterns, _) = split_entry(backstop.unwrap_or_else(|| panic!("no land.after line builds and runs {command}")));
         assert_eq!(after_patterns, patterns, "a lane the check skips for want of a covering runtime must still reach its after-landing run: {command}");
     }

@@ -36,6 +36,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("context", Diagnosis),
     ("contract-probe", Diagnosis),
     ("convo", Diagnosis),
+    ("coverage", Diagnosis),
     ("cross-project-scan", Diagnosis),
     ("defaults-measure", Diagnosis),
     ("denylist", Diagnosis),

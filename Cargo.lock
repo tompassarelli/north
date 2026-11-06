@@ -859,6 +859,7 @@ dependencies = [
  "fancy-regex",
  "north-capacity-host",
  "north-core",
+ "north-coverage",
  "north-dispatch",
  "north-github-mirror",
  "north-goals",
@@ -969,6 +970,17 @@ dependencies = [
  "toml_edit",
  "tui-markdown",
  "tui-textarea-2",
+]
+
+[[package]]
+name = "north-coverage"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

@@ -63,6 +63,11 @@ paths = ["crates/north-goals/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
+name = "north-coverage"
+paths = ["crates/north-coverage/src/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
 name = "north-dispatch"
 paths = ["crates/north-dispatch/src/**"]
 may_use = ["north-capacity", "north-fleet", "north-providers", "north-threads", "north-github-mirror"]
@@ -116,7 +121,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "verdict_cache"]
+may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache"]
 
 [[module]]
 name = "strategy_types"
@@ -297,6 +302,12 @@ name = "goals"
 paths = ["crates/north-goals/src/**"]
 responsibility = "Each project's goals as named checks: the oracle commands, the bound and class judged on each measured value, and the red-goal line the fleet tick tells the proxy."
 may_use = ["crate-roots", "platform"]
+
+[[module]]
+name = "coverage"
+paths = ["crates/north-coverage/src/**"]
+responsibility = "The map from each Rust test to the functions it executes, recorded on a check host, and the pre-push selection of the tests that reach a change."
+may_use = ["crate-roots", "foundation", "platform"]
 
 [[module]]
 name = "ops"
