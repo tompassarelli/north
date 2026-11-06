@@ -1311,30 +1311,6 @@ source = "tom: a landing job running past twice its median is a stall (north#360
 fallback = "with fewer than five finished checks in 7 days no check limit applies"
 consumers = ["crates/north-ops/src/ops/flow/lander.rs"]
 
-[lander_check_slots]
-value = 4
-allowed = { min = 1, max = 256 }
-unit = "check slots the lander fills at once, the capacity north flow judges an idle slot against"
-source = "tom: the live lander runs north land serve --all --depth 4 (north#360, 2026-11-05)"
-fallback = "none"
-consumers = ["crates/north-ops/src/ops/flow/slo.rs"]
-
-[lander_idle_slot_wait_minutes]
-value = 10
-allowed = { min = 1, max = 10080 }
-unit = "minutes a lane may wait for its check while a lander check slot is idle before the wait counts as an SLO breach"
-source = "tom: no lane waits more than 10 minutes while a check slot is idle; lanes waited 15-22 minutes behind idle slots on 2026-11-05 (north#360)"
-fallback = "none"
-consumers = ["crates/north-ops/src/ops/flow/slo.rs"]
-
-[lander_idle_slot_breach_budget]
-value = 3
-allowed = { min = 0, max = 1000 }
-unit = "idle-slot wait breaches a repository's lander may spend in one UTC day before north flow --stall-alarm tells lander-lead"
-source = "tom: the lander SLO error budget is 3 breaches a day (north#360, 2026-11-05)"
-fallback = "none"
-consumers = ["crates/north-ops/src/ops/flow/slo.rs"]
-
 [staffing_drain_minutes]
 value = 30
 allowed = { min = 1, max = 10080 }
