@@ -1,11 +1,13 @@
 //! What the last dispatched worker's final report asks of the next launch: after `Stop: decision` or `Blocked:` the box
 //! stays skipped until the issue gets a comment or body edit newer than that report; after `Stop: wait until TIME` it
 //! stays skipped until that UTC time; after `Stop: host NEED` the next brief carries `Needs: NEED`, so placement sends it
-//! to a host that serves it instead of the one that could not; after `Not done:` with `Stop: reasoning` the next launch
+//! to a host that serves it instead of the one that could not. After `Not done:` with `Stop: reasoning`, or after the
+//! lander refused one of the session's lanes twice for its own failing checks without fewer errors, the next launch
 //! climbs one rung of `Rung::LADDER`, and from its top rung the box waits for a decision like `Stop: decision`.
 use super::issues::{Issue, IssueRef};
 use super::record::Record;
 use super::tier::Rung;
+use crate::platform::land_notice::Notice;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -26,17 +28,18 @@ pub struct Stop {
     pub until: Option<(String, f64)>,
     /// `Stop: host NEED`: the host or local need the next launch must be placed on.
     pub host: Option<String>,
-    /// `Not done:` with `Stop: reasoning`: the worker ran out of approach on its rung.
-    pub reasoned: Option<Reasoned>,
+    /// The worker got nowhere on its rung, so the next launch climbs one.
+    pub climb: Option<Climb>,
 }
 
-/// A launch whose worker reported `Not done:` with `Stop: reasoning`, which the next launch climbs from.
+/// A launch whose box the next launch climbs one rung from, with the evidence that it got nowhere on its own.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Reasoned {
+pub struct Climb {
     pub session: String,
     pub rung: Rung,
     pub ended: f64,
     pub report: String,
+    pub why: String,
 }
 
 /// Each item's newest launch that started a session, which holds the report dispatch last waited on.
@@ -57,27 +60,51 @@ pub fn host_need(report: &str) -> Option<String> {
 }
 
 /// Whether a final report is `Not done:` with `Stop: reasoning`: the worker ran out of approach on its rung.
-pub fn out_of_approach(report: &str) -> bool {
+fn out_of_approach(report: &str) -> bool {
     NOT_DONE.is_match(report) && REASONING.is_match(report)
+}
+
+fn final_report(session: &Value) -> Option<&str> {
+    session["entries"].as_array()?.iter().rfind(|entry| entry["kind"] == "assistant")?["text"].as_str()
+}
+
+/// Why the session in `north fleet show NAME --json` got nowhere on its rung: its final report is `Not done:` with
+/// `Stop: reasoning`, or the lander refused one of its lanes twice running for the lane's own failing checks, the
+/// second time with as many errors or more, and nothing of the session landed after.
+pub fn nowhere(session: &Value) -> Option<String> {
+    if final_report(session).is_some_and(out_of_approach) {
+        return Some("Not done with Stop: reasoning".into());
+    }
+    let delivered = session["entries"].as_array()?.iter().filter(|entry| entry["kind"] == "user" || entry["kind"] == "notice").filter_map(|entry| Notice::delivered(entry["text"].as_str()?));
+    let mut tries: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for notice in delivered {
+        match notice {
+            Notice::Landed { .. } => tries.clear(),
+            Notice::Refused { branch, errors: Some(errors), .. } => tries.entry(branch).or_default().push(errors),
+            Notice::Refused { errors: None, .. } => {}
+        }
+    }
+    tries.into_iter().find_map(|(lane, counts)| match counts[..] {
+        [.., before, after] if after >= before => Some(format!("lane {lane}, refused twice by its own landing checks without fewer errors ({before}, then {after})")),
+        _ => None,
+    })
 }
 
 /// The holds of the final report of `launch`'s session, from `north fleet show NAME --json`.
 pub fn stop(session: &Value, launch: &Record) -> Stop {
-    let Some(report) = session["entries"].as_array().and_then(|entries| entries.iter().rfind(|entry| entry["kind"] == "assistant")).and_then(|entry| entry["text"].as_str()) else {
+    let Some(report) = final_report(session) else {
         return Stop::default();
     };
     let ended = session["turns"].as_array().and_then(|turns| turns.last()).and_then(|turn| turn["ended_ms"].as_f64()).map(|ms| ms / 1000.0);
     let until = WAIT.captures(report).and_then(|found| Some((found.get(1)?.as_str().to_owned(), super::issues::not_before(&found)? as f64)));
-    let reasoned = out_of_approach(report)
-        .then(|| Some(Reasoned { session: launch.name.clone(), rung: Rung::recorded(launch)?, ended: ended?, report: report.trim().to_owned() }))
-        .flatten();
-    Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host: host_need(report), reasoned }
+    let climb = nowhere(session).and_then(|why| Some(Climb { session: launch.name.clone(), rung: Rung::recorded(launch)?, ended: ended?, report: report.trim().to_owned(), why }));
+    Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host: host_need(report), climb }
 }
 
 /// Whether the issue is unchanged since the report that stopped for a decision, or since its worker on the ladder's
-/// top rung reported `Stop: reasoning`.
+/// top rung got nowhere.
 pub fn awaits_decision(issue: &Issue) -> bool {
-    let topped = issue.stop.reasoned.as_ref().filter(|reasoned| reasoned.rung.above().is_none()).map(|reasoned| reasoned.ended);
+    let topped = issue.stop.climb.as_ref().filter(|climb| climb.rung.above().is_none()).map(|climb| climb.ended);
     issue.stop.decision.or(topped).is_some_and(|stopped| issue.touched <= stopped)
 }
 

@@ -5,8 +5,12 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::landing::check_findings;
+use crate::platform::attribution::Cause;
+use crate::platform::land_notice::Notice;
 use super::after;
 use super::checks::Verdict;
+use super::incidents;
 use super::queue::{self, Ticket};
 use super::refusal;
 
@@ -125,10 +129,17 @@ fn rejected(verdict: &str) -> bool {
     verdict.starts_with("failed ") || verdict.starts_with("conflict ")
 }
 
+/// A refusal by the lane's own failing checks, whose error count dispatch compares across the lane's tries.
+fn own_failure(verdict: &str) -> bool {
+    verdict.starts_with("failed ") && incidents::blame(verdict) == Some(Cause::Worker)
+}
+
 fn refused(ticket: &Ticket, verdict: &str, log: Option<&Path>) -> String {
-    let mut text = format!("north land: {} ({}) did not land: {verdict}", ticket.branch, ticket.head);
+    let read = log.and_then(|log| fs::read_to_string(log).ok());
+    let errors = read.as_deref().filter(|_| own_failure(verdict)).map(check_findings::errors);
+    let mut text = Notice::Refused { branch: ticket.branch.clone(), head: ticket.head.clone(), verdict: verdict.to_owned(), errors }.text();
     if let Some(log) = log {
-        let reason = refusal::reason(&fs::read_to_string(log).unwrap_or_default());
+        let reason = refusal::reason(read.as_deref().unwrap_or_default());
         if !reason.is_empty() {
             text.push('\n');
             text.push_str(&reason);
@@ -143,7 +154,7 @@ pub fn notify(ticket: &Ticket, verdict: &str, log: Option<&Path>) {
         return;
     };
     let text = match verdict.strip_prefix("landed ") {
-        Some(sha) => format!("landed {} as {sha}", ticket.branch),
+        Some(sha) => Notice::Landed { branch: ticket.branch.clone(), sha: sha.to_owned() }.text(),
         None => refused(ticket, verdict, log),
     };
     if !after::send(session, &text) {

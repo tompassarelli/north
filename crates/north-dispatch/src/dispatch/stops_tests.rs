@@ -2,12 +2,13 @@ use super::issues::{self, Issue, IssueRef, World};
 use super::record;
 use super::stops::Stop;
 use super::tier::{Effort, Tier};
+use crate::platform::land_notice::Notice;
 use super::tests::issue;
 use std::collections::{BTreeMap, BTreeSet};
 
 
 #[test]
-fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_its_time_after_a_wait_off_the_host_after_a_host_stop_and_one_rung_up_after_a_reasoning_stop() {
+fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_its_time_after_a_wait_off_the_host_after_a_host_stop_and_one_rung_up_after_a_reasoning_stop_or_a_lane_refused_twice_without_fewer_errors() {
     let session = |report: &str| serde_json::json!({
         "entries": [
             {"kind": "assistant", "text": "Working."},
@@ -62,15 +63,32 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
     let stuck = failed(reasoning, &on("sonnet-high", None));
     let route = climbed(&stuck);
     assert_eq!((route.tier, route.effort, route.follows.as_deref()), (Tier::Opus, Some(Effort::Medium), Some("n705-d0900 (sonnet-high)")), "{}", route.why);
-    let grounds = super::grounds::Grounds::default().carrying(stuck.stop.reasoned.as_ref().map(|reasoned| reasoned.report.as_str()));
+    let grounds = super::grounds::Grounds::default().carrying(stuck.stop.climb.as_ref().map(|climb| climb.report.as_str()));
     assert!(super::brief::brief(&stuck, "dispatch", &route, &grounds).contains("Prior report: Not done: both parser rewrites"), "the failed report rides along");
     assert_eq!(climbed(&failed(reasoning, &on("worker", Some("high")))).effort, Some(Effort::Xhigh));
     for kind in ["leash", "landing", "capacity", "client"] {
-        assert_eq!(failed(&format!("Not done: the box is unfinished.\nStop: {kind}"), &on("sonnet-high", None)).stop.reasoned, None, "Stop: {kind} never escalates");
+        assert_eq!(failed(&format!("Not done: the box is unfinished.\nStop: {kind}"), &on("sonnet-high", None)).stop.climb, None, "Stop: {kind} never escalates");
     }
-    assert_eq!(failed("Done: landed abc123.\nStop: reasoning", &on("sonnet-high", None)).stop.reasoned, None, "only a Not done report climbs");
+    assert_eq!(failed("Done: landed abc123.\nStop: reasoning", &on("sonnet-high", None)).stop.climb, None, "only a Not done report climbs");
     assert!(super::tries::unspent(&session(reasoning)).is_some(), "a climb is no try toward the two that hand the box to the proxy");
     let topped = failed(reasoning, &on("worker", Some("xhigh")));
     assert_eq!(issues::readiness(&topped, &world(0.0)), Err("last worker stopped for a decision".into()), "the top rung parks the box");
     assert_eq!(issues::readiness(&Issue { touched: 1001.0, ..topped }, &world(0.0)), Ok(()), "a decision on the issue relaunches it");
+
+    let lander = |notice: Notice| serde_json::json!({"kind": "user", "text": format!("[from service:north-land@whiterabbit] {}\nlast lines of the log:\nerror[E0308]: mismatched types", notice.text())});
+    let refused = |errors: usize| lander(Notice::Refused { branch: "n705-verify".into(), head: "abc".into(), verdict: "failed land check cargo nextest run exited 100; log: /tmp/check.log".into(), errors: Some(errors) });
+    let verified = |mut entries: Vec<serde_json::Value>| {
+        entries.push(serde_json::json!({"kind": "assistant", "text": "Not done: the lane still fails its checks.\nStop: landing"}));
+        Issue { stop: super::stops::stop(&serde_json::json!({"entries": entries, "turns": [{"exit": "completed", "ended_ms": 1_000_000}]}), &on("sonnet-high", None)), touched: 900.0, ..issue("north", 705, "- [ ] a", &[]) }
+    };
+    let stalled = verified(vec![refused(3), refused(3)]);
+    let route = climbed(&stalled);
+    assert_eq!((route.tier, route.effort), (Tier::Opus, Some(Effort::Medium)), "{}", route.why);
+    assert!(route.why.contains("lane n705-verify, refused twice by its own landing checks without fewer errors (3, then 3)"), "{}", route.why);
+    assert!(super::brief::brief(&stalled, "dispatch", &route, &super::grounds::Grounds::default().carrying(stalled.stop.climb.as_ref().map(|climb| climb.report.as_str()))).contains("Prior report: Not done: the lane still fails"), "the failed report rides along");
+    assert_eq!(verified(vec![refused(3), refused(2)]).stop.climb, None, "fewer errors keep the rung");
+    assert_eq!(verified(vec![refused(3)]).stop.climb, None, "one refusal is no evidence");
+    assert_eq!(verified(vec![refused(3), refused(3), lander(Notice::Landed { branch: "n705-verify".into(), sha: "def".into() })]).stop.climb, None, "a landing after clears it");
+    let unsigned = serde_json::json!({"kind": "user", "text": Notice::Refused { branch: "n705-verify".into(), head: "abc".into(), verdict: "failed".into(), errors: Some(3) }.text()});
+    assert_eq!(verified(vec![refused(3), unsigned]).stop.climb, None, "only the lander's notice counts");
 }

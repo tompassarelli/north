@@ -114,11 +114,6 @@ fn tail(text: &str, shown: &HashSet<&str>) -> String {
     if lines.is_empty() { String::new() } else { format!("{TAIL_HEADER}\n{}", lines.join("\n")) }
 }
 
-pub fn errors(text: &str) -> String {
-    let found = first_errors(text);
-    fit(&if found.is_empty() { last_lines(text) } else { found }, BOUND)
-}
-
 pub fn reason(text: &str) -> String {
     let found = first_errors(text);
     let shown: HashSet<&str> = found.iter().copied().collect();

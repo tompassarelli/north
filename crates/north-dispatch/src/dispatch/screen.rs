@@ -16,7 +16,7 @@ pub(super) fn admitted(survey: &Survey, issue: &Issue, world: &issues::World) ->
 /// The route and brief a ready box launches with, or why none may be written.
 pub(super) fn written(survey: &Survey, issue: &Issue, launched_by: &str) -> Result<(tier::Route, String), String> {
     let route = tier::route(issue, &survey.history, &survey.ledger)?;
-    let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route).carrying(issue.stop.reasoned.as_ref().map(|reasoned| reasoned.report.as_str()));
+    let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route).carrying(issue.stop.climb.as_ref().map(|climb| climb.report.as_str()));
     let brief = brief::brief(issue, launched_by, &route, &grounds);
     match crate::router::brief::class_refusal(&brief).or_else(|| crate::router::brief::grounding_refusal(&brief)).or_else(|| crate::platform::signin::brief_refusal(&brief)) {
         Some(why) => Err(why),

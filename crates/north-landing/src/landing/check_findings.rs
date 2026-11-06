@@ -4,19 +4,40 @@ use super::red_check;
 
 const NOISE: [&str; 6] = ["aborting due to", "could not compile", "build failed", "test failed", "generated", "process didn't exit"];
 
+struct Diagnostic<'a> {
+    error: bool,
+    message: &'a str,
+    place: &'a str,
+}
+
+fn diagnostics(log: &str) -> Vec<Diagnostic<'_>> {
+    let lines: Vec<&str> = log.lines().map(str::trim).collect();
+    let place = |at: usize| lines[at + 1..].iter().take(3).find_map(|next| next.strip_prefix("--> ")).unwrap_or("");
+    let mut found = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        let Some((error, rest)) = line.strip_prefix("error").map(|rest| (true, rest)).or_else(|| line.strip_prefix("warning").map(|rest| (false, rest))) else { continue };
+        let Some((_, message)) = rest.split_once(": ") else { continue };
+        if !NOISE.iter().any(|noise| message.contains(noise)) {
+            found.push(Diagnostic { error, message, place: place(at) });
+        }
+    }
+    found
+}
+
 /// The failures a check log names: failing tests and harness checks, and compiler or clippy diagnostics keyed by message and file, never by line, so a lane that shifts a finding down the file does not read as a new one.
 pub fn findings(log: &str) -> BTreeSet<String> {
     let mut found: BTreeSet<String> = red_check::failures(log).iter().map(red_check::Failure::key).collect();
-    let lines: Vec<&str> = log.lines().map(str::trim).collect();
-    for (at, line) in lines.iter().enumerate() {
-        let Some(message) = line.strip_prefix("error").or_else(|| line.strip_prefix("warning")).and_then(|rest| rest.split_once(": ")).map(|(_, message)| message) else { continue };
-        if NOISE.iter().any(|noise| message.contains(noise)) {
-            continue;
-        }
-        let place = lines[at + 1..].iter().take(3).find_map(|next| next.strip_prefix("--> ")).map_or("", |place| place.rsplitn(3, ':').last().unwrap_or(place));
-        found.insert(format!("diagnostic {message} @ {place}"));
+    for diagnostic in diagnostics(log) {
+        let file = diagnostic.place.rsplitn(3, ':').last().unwrap_or(diagnostic.place);
+        found.insert(format!("diagnostic {} @ {file}", diagnostic.message));
     }
     found
+}
+
+/// How many errors a failing check log reports, to tell whether a lane's next try fixed any: each failing test or harness check once, and each compiler or clippy error at its own line, so fixing one of two alike errors in a file counts; a failing log that names none counts one.
+pub fn errors(log: &str) -> usize {
+    let diagnosed: BTreeSet<(&str, &str)> = diagnostics(log).into_iter().filter(|diagnostic| diagnostic.error).map(|diagnostic| (diagnostic.message, diagnostic.place)).collect();
+    (red_check::failures(log).len() + diagnosed.len()).max(1)
 }
 
 /// The findings of a lane's failing log that the base tree's failing log does not have.

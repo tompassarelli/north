@@ -5,6 +5,7 @@ pub mod run_roles;
 pub mod repo_names;
 pub mod git;
 pub mod cargo_metadata;
+pub mod land_notice;
 pub mod land_queue;
 pub mod coverage_record;
 pub mod betterleaks;

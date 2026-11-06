@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::platform::land_notice::Notice;
 use crate::platform::push_ledger;
 use super::candidate::git;
 use super::queue::{self, Ticket};
@@ -84,7 +85,7 @@ fn notify(lander: &Lander, name: &str, ticket: &Ticket, head: &str) {
         println!("north land: {} ({}) is not on main yet; no landed message sent", ticket.branch, ticket.head);
         return;
     }
-    if send(session, &format!("landed {} as {head}", ticket.branch)) {
+    if send(session, &Notice::Landed { branch: ticket.branch.clone(), sha: head.to_owned() }.text()) {
         if let Some(parent) = marker.parent() {
             let _ = fs::create_dir_all(parent);
         }

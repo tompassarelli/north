@@ -109,18 +109,23 @@ Every box starts on its pick. The dispatcher, not the proxy, relaunches it one r
 Opus high, Opus xhigh) with the failed report attached as `Prior report:` when either holds:
 
 - the worker reports `Not done:` with `Stop: reasoning`; or
-- verification failed twice in the same lane without the error count falling: the second failing run of the box's
-  named check (or the landing's checks) reports as many errors or more than the first. No ledger record holds a check's
-  error count today; the escalation build box records it per lane from the landing's refusal (the failing checks and
-  their error lines) before it can read it.
+- verification failed twice in the same lane without the error count falling: the lander refused the lane twice running
+  for its own failing checks, the second time with as many errors or more, and nothing of the session landed after.
+  The landing's checks are the verification counted, because their refusal is the one record of a lane's check runs
+  that reaches dispatch: the lander's notice to the session that queued the lane (`north_base::platform::land_notice`)
+  carries `errors: N`, which `check_findings::errors` counts from the full check log (each failing test or harness
+  check once, each compiler or clippy error at its own line, at least one), and dispatch reads the notices back from
+  the session's transcript, so no host has to reach the lander host. A conflict, an origin that refused the push and a
+  persistent transient carry no count, because they are not the lane's checks. This trigger holds whatever the
+  report's `Stop:` word, since a landing refused by the lane's own checks is the worker's (section 1).
 
-`Stop: leash`, `Stop: landing`, `Stop: capacity` and `Stop: client` never escalate, as the escalation tiers already
-refuse them.
+`Stop: leash`, `Stop: landing`, `Stop: capacity` and `Stop: client` never escalate on their own word, as the escalation
+tiers already refuse them; only the lane evidence above climbs past them.
 
 A harness cause never escalates; the existing stop holds (`Stop: decision`, `wait until`, `host`) keep the box where
 it is until the cause clears, and it relaunches on the same rung. After Opus xhigh the box waits as after `Stop: decision`: dispatch skips it until the issue gets a comment or body edit newer than the report, then relaunches it on Opus xhigh.
 
-Built 2026-11-07 for the `Stop: reasoning` trigger: `dispatch::stops::stop` reads the report against the launch record, which now records the effort a launch overrode its tier with, and `dispatch::tier::Rung::LADDER` is the ladder. The twice-failing verification trigger waits on the per-lane error-count record.
+Built 2026-11-07: `dispatch::stops::nowhere` reads both triggers from the session, `dispatch::stops::stop` pairs them with the launch record, which records the effort a launch overrode its tier with, and `dispatch::tier::Rung::LADDER` is the ladder. A climb is no try toward the two a day that hand a box to the proxy, since the ladder's top bounds it.
 
 ## 6. Learning
 

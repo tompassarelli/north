@@ -285,7 +285,7 @@ fn art(category: &str, facet: &dyn Fn(&str) -> String) -> bool {
     ART.contains(&category) || judged && pictured
 }
 
-/// One rung of the ladder a box climbs when its worker reports `Not done:` with `Stop: reasoning`
+/// One rung of the ladder a box climbs when its worker gets nowhere on its own rung
 /// (docs/rationale/nearest-routing.md section 5); only Opus rungs carry an effort.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rung {
@@ -323,18 +323,18 @@ impl Rung {
     }
 }
 
-/// The route of `issue`'s next launch: one rung above its last worker's when that worker reported `Not done:` with
-/// `Stop: reasoning`, else the route its category and arms give.
+/// The route of `issue`'s next launch: one rung above its last worker's when that worker got nowhere on its rung,
+/// else the route its category and arms give.
 pub fn route(issue: &Issue, history: &History, ledger: &BTreeMap<String, Evidence>) -> Result<Route, String> {
     let facet = |key: &str| facets::facet(issue, key);
-    let Some(reasoned) = &issue.stop.reasoned else {
+    let Some(climb) = &issue.stop.climb else {
         return route_for(&issue.reference().to_string(), &facet, history, ledger);
     };
     let category = facet("Category").to_lowercase();
     known(&category)?;
-    let rung = reasoned.rung.above().unwrap_or(reasoned.rung);
-    let why = format!("escalates {}'s Not done with Stop: reasoning from {} to {}", reasoned.session, reasoned.rung.name(), rung.name());
-    Ok(Route { tier: rung.tier, category, effort: rung.effort, effort_arm: false, follows: Some(format!("{} ({})", reasoned.session, reasoned.rung.name())), why })
+    let rung = climb.rung.above().unwrap_or(climb.rung);
+    let why = format!("escalates {}'s {} from {} to {}", climb.session, climb.why, climb.rung.name(), rung.name());
+    Ok(Route { tier: rung.tier, category, effort: rung.effort, effort_arm: false, follows: Some(format!("{} ({})", climb.session, climb.rung.name())), why })
 }
 
 pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, ledger: &BTreeMap<String, Evidence>) -> Result<Route, String> {
