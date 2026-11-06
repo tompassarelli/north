@@ -8,12 +8,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub(super) const TRANSPORT_FAILED: u8 = 255;
 const WRONG_TREE: u8 = 98;
 const SLOTS_BUSY: u8 = 96;
+const WAITED: &str = "offload: waited ";
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 const LOCK_WAIT_SECONDS: u32 = 600;
 const SLOTS: u32 = 6;
-const POLL_SECONDS: &str = "2";
-const TARGET_CAP_MIB: u32 = 24 * 1024;
-const TARGET_FLOOR_MIB: u32 = 100 * 1024;
+const POLL_SECONDS: &str = "0.2";
+const TARGET_CAP_MIB: u32 = 40 * 1024;
+const TARGET_FLOOR_MIB: u32 = 30 * 1024;
 pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
@@ -103,6 +104,8 @@ while :; do
   [ "$waited" -lt "$noted" ] || { noted=$((waited + 60)); echo "offload: waiting for a slot for ${waited}s, in order, $cap jobs run at once; $(ls "$queue" | grep -c .) queued; held by: $(cat "$root/$name".holder "$root/$name"-*.holder 2>/dev/null | tr '\n' ';')" >&2; }
   sleep @POLL@
 done
+waited=$(( $(date +%s) - started ))
+[ "$waited" -eq 0 ] || echo "@WAITED@${waited}s in line for $s" >&2
 rm -f "$ticket"
 exec 8>&-
 slot=$root/$s
@@ -160,6 +163,9 @@ if [ -n "${runtime:-}" ]; then
   [ -x "$runtime_dir/north" ] || { echo "offload: the lander runtime $runtime is not on this host" >&2; exit @TRANSPORT_FAILED@; }
   PATH="$runtime_dir:$PATH"; export PATH
 fi
+@SLOT_ENV@=$slot; export @SLOT_ENV@
+# sccache keys hold absolute paths, so every slot names its own directory as the base its keys are relative to, and serves it on its own port.
+SCCACHE_BASEDIRS=$slot; SCCACHE_SERVER_PORT=$((20000 + $(printf %s "$slot" | cksum | cut -d " " -f1) % 20000)); export SCCACHE_BASEDIRS SCCACHE_SERVER_PORT
 if [ -n "${carried:-}" ]; then eval "export $carried"; fi
 limited() {
   if command -v north >/dev/null 2>&1; then north capacity deadline - "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
@@ -290,15 +296,20 @@ fn carried(land: &Land, value: impl Fn(&str) -> Option<String>) -> String {
     words.collect::<Vec<_>>().join(" ")
 }
 
-fn remote_script(poll: &str) -> String {
-    format!("{REMOTE}{VERIFY}{RUN}")
+fn run_part() -> String {
+    RUN.replace("@SLOT_ENV@", crate::capacity::land_claim::OFFLOAD_SLOT_ENV).replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
+}
+
+fn remote_script() -> String {
+    format!("{REMOTE}{VERIFY}{}", run_part())
         .replace("@ROOT@", OFFLOAD_ROOT)
         .replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string())
-        .replace("@POLL@", poll)
+        .replace("@POLL@", POLL_SECONDS)
         .replace("@SLOTS@", &SLOTS.to_string())
         .replace("@TARGET_CAP@", &TARGET_CAP_MIB.to_string())
         .replace("@TARGET_FLOOR@", &TARGET_FLOOR_MIB.to_string())
         .replace("@SLOTS_BUSY@", &SLOTS_BUSY.to_string())
+        .replace("@WAITED@", WAITED)
         .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
         .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
 }
@@ -313,7 +324,7 @@ pub(super) fn run(land: &Land) -> u8 {
         Ok(file) => file,
         Err(why) => return fail(&why),
     };
-    let script = remote_script(POLL_SECONDS);
+    let script = remote_script();
     let own = crate::runtime::own_runtime();
     if let Some((sha, directory)) = &own
         && let Err(why) = ensure_shipped(land.ssh, sha, || crate::runtime::staged_on(land.ssh, sha), || crate::runtime::stage_on(land.ssh, sha, directory))

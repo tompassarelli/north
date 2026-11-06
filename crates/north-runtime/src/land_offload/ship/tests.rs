@@ -1,4 +1,4 @@
-use super::{CommitId, Land, RUN, VERIFY, WRONG_TREE, bundle, carried, job_ref};
+use super::{CommitId, Land, VERIFY, WRONG_TREE, bundle, carried, job_ref, run_part};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -35,7 +35,7 @@ fn remote_run_flake(command: &str, flake: Option<&str>, caller: &[(&str, &str)],
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let fresh_home = tempfile::tempdir().unwrap();
     let output = Command::new("sh")
-        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h carried={}\n{RUN}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)))])
+        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h carried={}\n{}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)), run_part())])
         .env("PATH", path)
         .env_remove("SAFE_PUSH_LAND_BASE")
         .env_remove("SAFE_PUSH_LAND_HEAD")
@@ -214,7 +214,7 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let log = home.path().join("order.log");
-    let script = super::remote_script("0.2");
+    let script = super::remote_script();
     let jobs: Vec<std::process::Child> = ["a", "b", "c", "d"]
         .iter()
         .map(|label| {
@@ -249,7 +249,7 @@ fn a_red_fix_land_check_takes_the_first_freed_slot_ahead_of_an_earlier_queued_re
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let log = home.path().join("order.log");
-    let script = super::remote_script("0.2");
+    let script = super::remote_script();
     let jobs: Vec<std::process::Child> = [("holder", ""), ("regular", ""), ("red-fix", "1")]
         .iter()
         .map(|(label, red_fix)| {
@@ -283,7 +283,7 @@ fn a_dead_job_leaves_no_ticket_that_blocks_the_queue() {
     let queue = home.path().join(".cache/land-offload/queue");
     fs::create_dir_all(&queue).unwrap();
     fs::write(queue.join("1-1000000000000000000-1"), "").unwrap();
-    let script = super::remote_script("0.2");
+    let script = super::remote_script();
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", "", "0"])
         .env("HOME", home.path())
@@ -294,4 +294,38 @@ fn a_dead_job_leaves_no_ticket_that_blocks_the_queue() {
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(fs::read_dir(&queue).unwrap().count(), 0);
+}
+
+#[test]
+fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_the_sccache_base() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let seen = home.path().join("seen");
+    let script = super::remote_script();
+    let job = |command: String| {
+        Command::new("setsid")
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0"])
+            .env("HOME", home.path())
+            .env("PATH", &path)
+            .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .env_remove(crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
+            .stdin(fs::File::open(&bundle).unwrap())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let holder = job("sleep 2".to_owned());
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let queued = job(format!("printf '%s %s' \"${}\" \"$SCCACHE_BASEDIRS\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, seen.display()));
+    let queued = queued.wait_with_output().unwrap();
+    assert!(holder.wait_with_output().unwrap().status.success());
+    assert!(queued.status.success(), "{}", String::from_utf8_lossy(&queued.stderr));
+    let stderr = String::from_utf8_lossy(&queued.stderr);
+    assert!(stderr.lines().any(|line| line.starts_with(super::WAITED) && line.ends_with("s in line for code-p-main")), "{stderr}");
+    let slot = home.path().join(".cache/land-offload/code-p-main");
+    assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0}", slot.display()));
 }

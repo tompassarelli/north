@@ -38,6 +38,8 @@ pub struct Request {
     pub requester_lease: Option<String>,
     pub need: Option<String>,
     pub within_exclusive: bool,
+    #[serde(default)]
+    pub holds_offload_slot: bool,
 }
 
 /// The host part of the facts: signals, GPU, leases, queue, markers and what enrichment read.

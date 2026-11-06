@@ -18,6 +18,7 @@ pub fn gathered(facts: &Facts, queued_pairs: &[PairLease]) -> Option<Gathered> {
     let Value::Object(mut fields) = serde_json::to_value(facts).ok()? else { return None };
     fields.insert("queuedPairLeases".to_owned(), serde_json::to_value(queued_pairs).ok()?);
     fields.insert("withinExclusive".to_owned(), Value::Bool(facts.within_exclusive));
+    fields.insert("holdsOffloadSlot".to_owned(), Value::Bool(facts.holds_offload_slot));
     let fields = Value::Object(fields);
     Some(Gathered { snapshot: serde_json::from_value(fields.clone()).ok()?, request: serde_json::from_value(fields).ok()? })
 }

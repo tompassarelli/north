@@ -60,6 +60,7 @@ pub fn facts(class: Class) -> Facts {
         ticket: None,
         requester_lease: None,
         land_check_waiting: false,
+        holds_offload_slot: false,
         client_hold: Default::default(),
     }
 }

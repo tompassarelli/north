@@ -137,6 +137,8 @@ pub struct Facts {
     #[serde(default)]
     pub land_check_waiting: bool,
     #[serde(skip)]
+    pub holds_offload_slot: bool,
+    #[serde(skip)]
     pub client_hold: client_reserve::ClientHold,
 }
 
@@ -272,7 +274,7 @@ pub fn decide(facts: &Facts) -> Reason {
     if native_hold::pair_refusal(facts.pair, facts.owner.as_deref(), &facts.pair_leases).is_some() {
         return Reason::PairHeld;
     }
-    if facts.land_check_waiting && super::land_claim::yields(facts.class) {
+    if facts.land_check_waiting && super::land_claim::yields(facts.class, facts.holds_offload_slot) {
         return Reason::DeferLandCheckWaiting;
     }
     if facts.gaming && gaming_deferred(facts, facts.gaming_class.unwrap_or(facts.class)) {

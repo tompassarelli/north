@@ -13,11 +13,10 @@ fn cargo_durations_read_seconds_and_minutes() {
 }
 
 #[test]
-fn an_offloaded_test_line_splits_into_slot_wait_sync_compile_and_per_crate_test_spans() {
+fn an_offloaded_test_line_splits_into_ship_slot_wait_sync_compile_and_per_crate_test_spans() {
     let line = Line { trace: "c1", id: "line", category: Category::Test, start: 100.0, end: 400.0, host: "gex45" };
     let marks = [
-        mark(105.0, "offload: all 6 code-north-main slots busy for 0s, waiting up to 600 s; held by: x"),
-        mark(130.0, "offload: all 6 code-north-main slots busy for 25s, waiting up to 600 s; held by: x"),
+        mark(130.0, "offload: waited 25s in line for code-north-main-3"),
         mark(140.0, "offload: running abc in /home/tom/.cache/land-offload/code-north-main"),
         mark(200.0, "    Finished `test` profile [unoptimized + debuginfo] target(s) in 55.00s"),
         mark(201.0, "     Running unittests src/main.rs (target/debug/deps/north-9c945693e3974ddd)"),
@@ -30,6 +29,7 @@ fn an_offloaded_test_line_splits_into_slot_wait_sync_compile_and_per_crate_test_
     assert_eq!(
         shape,
         [
+            ("offload sync", Category::Offload, 100.0, 105.0),
             ("offload slot wait", Category::HostWait, 105.0, 130.0),
             ("offload sync", Category::Offload, 130.0, 140.0),
             ("cargo build", Category::Compile, 145.0, 200.0),
@@ -38,7 +38,7 @@ fn an_offloaded_test_line_splits_into_slot_wait_sync_compile_and_per_crate_test_
         ]
     );
     assert!(spans.iter().all(|span| span.parent.as_deref() == Some("line") && span.host == "gex45" && span.trace == "c1"));
-    assert_eq!((spans[3].attribute("result"), spans[4].attribute("result")), (Some("ok. 191 passed"), Some("FAILED. 10 passed")));
+    assert_eq!((spans[4].attribute("result"), spans[5].attribute("result")), (Some("ok. 191 passed"), Some("FAILED. 10 passed")));
 }
 
 #[test]

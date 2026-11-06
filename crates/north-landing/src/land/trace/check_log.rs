@@ -20,12 +20,12 @@ const DOC_TESTS: &str = "Doc-tests ";
 const FINISHED: &str = "Finished `";
 const TEST_RESULT: &str = "test result: ";
 const OFFLOAD_RUNNING: &str = "offload: running ";
-const SLOTS_BUSY: &str = "slots busy for ";
+const WAITED_IN_LINE: &str = "offload: waited ";
 const RESERVED: &str = "\"decision\":\"RESERVED\"";
 
 pub fn is_marker(line: &str) -> bool {
     let line = line.trim();
-    line.starts_with(RUNNING) || line.starts_with(DOC_TESTS) || line.starts_with(FINISHED) || line.starts_with(TEST_RESULT) || line.starts_with(OFFLOAD_RUNNING) || line.contains(SLOTS_BUSY) || line.contains(RESERVED)
+    line.starts_with(RUNNING) || line.starts_with(DOC_TESTS) || line.starts_with(FINISHED) || line.starts_with(TEST_RESULT) || line.starts_with(OFFLOAD_RUNNING) || line.starts_with(WAITED_IN_LINE) || line.contains(RESERVED)
 }
 
 pub fn cargo_seconds(text: &str) -> Option<f64> {
@@ -65,18 +65,15 @@ pub fn children(line: &Line<'_>, marks: &[Mark]) -> Vec<Span> {
     let clamp = |at: f64| at.clamp(line.start, line.end);
     let child = |name: &str, category: Category, start: f64, end: f64| Span::new(line.trace, name, category, clamp(start), clamp(end)).under(line.id).on(line.host);
     let mut spans = Vec::new();
-    let mut busy: Option<(f64, f64)> = None;
     let mut test: Option<(String, f64)> = None;
     for mark in marks {
         let text = mark.line.trim();
-        if text.contains(SLOTS_BUSY) {
-            busy = Some((busy.map_or(mark.at, |(since, _)| since), mark.at));
-            continue;
-        }
-        if let Some((since, last)) = busy.take() {
-            spans.push(child("offload slot wait", Category::HostWait, since, last));
-        }
-        if text.contains(RESERVED) {
+        if let Some(waited) = text.strip_prefix(WAITED_IN_LINE).and_then(|rest| rest.split_once('s')).and_then(|(seconds, _)| seconds.parse::<f64>().ok()) {
+            if mark.at - waited > line.start {
+                spans.push(child("offload sync", Category::Offload, line.start, mark.at - waited));
+            }
+            spans.push(child("offload slot wait", Category::HostWait, mark.at - waited, mark.at));
+        } else if text.contains(RESERVED) {
             if let Some(queued) = queued_seconds(text).filter(|queued| *queued > 0.0) {
                 spans.push(child("capacity lease wait", Category::HostWait, mark.at - queued, mark.at));
             }
@@ -100,9 +97,6 @@ pub fn children(line: &Line<'_>, marks: &[Mark]) -> Vec<Span> {
         {
             spans.push(child(&format!("test {binary}"), Category::Test, since, mark.at).with("crate", binary).with("result", text.trim_start_matches(TEST_RESULT).split(';').next().unwrap_or_default()));
         }
-    }
-    if let Some((since, last)) = busy {
-        spans.push(child("offload slot wait", Category::HostWait, since, last));
     }
     spans
 }

@@ -81,6 +81,7 @@ fn a_waiting_land_check_runs_ahead_of_queued_worker_builds_which_it_refuses() {
     for class in [Class::Agent, Class::Gpu, Class::Tom, Class::Runtime] {
         assert_ne!(decide(&gex45(class, true, 0)), Reason::DeferLandCheckWaiting, "{class:?} keeps its own rules");
     }
+    assert_eq!(decide(&Facts { holds_offload_slot: true, ..gex45(Class::Heavy, true, 3) }), Reason::Run, "a worker build already holding an offload slot runs, since yielding would keep that slot from the land check");
     assert_eq!(serde_json::to_value(Reason::DeferLandCheckWaiting).unwrap(), "DEFER_LAND_CHECK_WAITING");
     assert_eq!(super::land_claim::REASON, "land check waiting");
 }

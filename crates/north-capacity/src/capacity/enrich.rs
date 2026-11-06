@@ -36,6 +36,7 @@ pub fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
     let queued_pairs = native_hold::queue_pair_leases(&wisp_pair_queue(), &super::local_machine::host_name());
     facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
     facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
+    facts.holds_offload_slot = std::env::var(super::land_claim::OFFLOAD_SLOT_ENV).is_ok_and(|slot| !slot.is_empty());
     let mut gathered = admission_record::gathered(&facts, &queued_pairs);
     facts.derive_native_holds();
     facts.pair_leases.extend(queued_pairs);

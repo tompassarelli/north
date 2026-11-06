@@ -1,4 +1,4 @@
-use super::{RUN, TRANSPORT_FAILED, quote};
+use super::{quote, run_part};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -21,7 +21,7 @@ fn build_host(with_lander_runtime: bool) -> tempfile::TempDir {
 
 fn run_on(home: &Path, runtime: &str) -> Output {
     let slot = tempfile::tempdir().unwrap();
-    let script = RUN.replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string());
+    let script = run_part();
     let head = format!("set -eu\nslot={} command='north check' limit=10 base=b head=h landing= landref= runtime={}\n{script}", quote(&slot.path().display().to_string()), quote(runtime));
     Command::new("sh").args(["-c", &head]).env("HOME", home).output().unwrap()
 }

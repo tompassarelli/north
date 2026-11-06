@@ -125,3 +125,31 @@ nearest its head, the slot last built at main:
 
 gex45 is the binding constraint: through the morning it ran six slot jobs at once at load 37 to 57 on
 20 threads, and a job waited 1 to 5 minutes for a slot, longer than the verification itself.
+
+## Warm check slots (2026-11-06)
+
+One after-landing run on ccx33 at 6:45 AM took 141 s from start to verdict. Its spans: the shared
+`head-north --build` 12 s (10 s of it in line for a slot), nextest 20.5 s with a 0.1 s build because
+the slot was already at main, eleven head-north checks of 0.1 to 5 s each, and `land-tests --select
+changed --only portable` 125 s, the critical path. The run before it, held on the laptop, spent 56 s
+building head-north and 55 s building tests. Four causes, three fixed together:
+
+- gex45 deadlocked. Five of its six north slots stayed held for 60 to 80 minutes by worker jobs queued
+  in the capacity gate at load 0.7: a land check that finds no host with room claims the host, the
+  claim defers every heavy and moderate lease, and the deferred leases were the jobs holding the slots
+  the land check waited for. A lease asked from inside an offload slot (`NORTH_OFFLOAD_SLOT`, set by the
+  slot for its command) no longer yields to the claim.
+- Slot targets were wiped before most jobs on ccx33: its 224 GB disk had 102 GB free against a
+  100 GiB floor, and two slots held 22 GB against a 24 GiB cap. The floor is now 30 GiB, twice
+  admission's 15 GiB build floor, and the cap 40 GiB.
+- sccache never hit across slots: its base directory was `~/code`, so every key held the slot's
+  absolute path; the cache held 1 GB of a 30 GiB budget. Each slot now names itself as the sccache base
+  directory, on a port of its own, so a wiped or new slot rebuilds dependencies from the shared cache.
+- The in-order slot queue (110c8759b) polled every 2 s and its waits printed no line the span reader
+  knew, so a queued job's wait showed as sync, growing 2 s per job ahead of it (1.5 to 26 s across one
+  run's 14 jobs). It polls every 0.2 s and prints `offload: waited Ns in line`, booked as host wait.
+
+The remaining critical path is `bin/safe-push.test.sh`, which every Rust change selects because it
+calls the north binary: 98 s mean over 138 runs (max 1,583 s), against 54 s for `bin/threads.test.sh`
+and under 11 s for every other shell test. Its four parallel sections are unbalanced (section 3 holds
+1,250 of 2,584 lines); the 30 s target needs that test split or ported, tracked on north#634.
