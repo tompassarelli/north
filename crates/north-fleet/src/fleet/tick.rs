@@ -314,7 +314,7 @@ fn probe(fleet: &Fleet, jobs: Vec<ProbeJob>, clock: &Clock, budget: Duration) ->
         .map(|ProbeJob { name, own, run }| {
             let fleet = fleet.clone();
             let by = own.map_or(deadline, |own| (started + own).min(deadline));
-            (name, by, detach(name, move || run(fleet)))
+            (name, by, detach(name, move || (run(fleet), Instant::now())))
         })
         .collect();
     let mut probed = Probed { lines: Vec::new(), settled: Vec::new() };
@@ -329,8 +329,13 @@ fn probe(fleet: &Fleet, jobs: Vec<ProbeJob>, clock: &Clock, budget: Duration) ->
         probed.hear(name, answer, || format!("still running when probes spent their {}ms budget", budget.as_millis()));
     }
     for (name, by, running) in beside {
-        let answer = running.by(by);
-        clock.record(name, started, Instant::now());
+        let answer = running.by(by).map(|(probed, ended)| {
+            clock.record(name, started, ended);
+            probed
+        });
+        if answer.is_err() {
+            clock.record(name, started, Instant::now());
+        }
         probed.hear(name, answer, || format!("still running when it spent its own {}ms budget", by.saturating_duration_since(started).as_millis()));
     }
     probed
