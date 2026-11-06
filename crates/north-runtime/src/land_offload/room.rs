@@ -70,12 +70,9 @@ pub fn read_local() -> Option<Room> {
     output.status.success().then(|| parse(&String::from_utf8_lossy(&output.stdout))).flatten()
 }
 
-/// The cores, load, memory and disk free the host's own admission reads, the AGENT_CAPACITY_ readings when pinned, so the room it reports agrees with what its admission decides.
-const MEASURE_PROBE: &str = r#"echo "${AGENT_CAPACITY_CORES:-$(nproc)}"; cat "${AGENT_CAPACITY_LOADAVG:-/proc/loadavg}" "${AGENT_CAPACITY_MEMINFO:-/proc/meminfo}""#;
-
 fn script() -> String {
-    let disk = format!(r#"if [ -n "${{AGENT_CAPACITY_DISK_FREE_GIB:-}}" ]; then awk -v gib="$AGENT_CAPACITY_DISK_FREE_GIB" 'BEGIN {{ printf "pinned 0 0 %d 0%% /\n", gib * 1048576 }}'; else d="{OFFLOAD_ROOT}"; while [ ! -d "$d" ]; do d=$(dirname "$d"); done; df -Pk "$d"; fi"#);
-    format!("{MEASURE_PROBE}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}; echo {SLOTS_MARK}; sh -c {} offload-slots \"{OFFLOAD_ROOT}\"", quote(SLOTS_PROBE))
+    let disk = format!("d=\"{OFFLOAD_ROOT}\"; while [ ! -d \"$d\" ]; do d=$(dirname \"$d\"); done; df -Pk \"$d\"");
+    format!("{}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}; echo {SLOTS_MARK}; sh -c {} offload-slots \"{OFFLOAD_ROOT}\"", measure::PROBE, quote(SLOTS_PROBE))
 }
 
 pub fn read_within(ssh: &str, limit: Duration) -> Option<Room> {

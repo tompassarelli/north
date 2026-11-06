@@ -109,7 +109,6 @@ pub fn status(root: &Path) -> Obj {
             .put("committedBatchCpus", num(accounting.committed_batch_cpus))
             .put("committedNativeCpus", num(accounting.committed_native_cpus))
             .put("landCheckWaiting", super::state::land_check_waiting(root, now))
-            .put("heavySettlingSeconds", num(round2(heavy_settling_seconds(&active, now))))
             .put("holding", holding.iter().map(Obj::value).collect::<Vec<_>>())
             .put("queued", queued(&read_queue(root), super::priority::open(&active), &draining, now).iter().map(Obj::value).collect::<Vec<_>>())
             .put("unleasedHeavy", accounting.unleased)
@@ -122,9 +121,4 @@ pub fn status(root: &Path) -> Obj {
 pub fn backlog(root: &Path) -> String {
     let load = std::fs::read_to_string("/proc/loadavg").ok().and_then(|text| text.split_whitespace().next().map(str::to_owned)).unwrap_or_else(|| "0".to_owned());
     format!("{} {load} {}", read_queue(root).len(), read_signals().cores)
-}
-
-fn heavy_settling_seconds(active: &[Value], now: f64) -> f64 {
-    let started = active.iter().filter(|lease| matches!(class(lease), "heavy" | "runtime")).filter_map(|lease| field(lease, "createdAt"));
-    crate::capacity::pressure_target::settling_seconds(started, now)
 }
