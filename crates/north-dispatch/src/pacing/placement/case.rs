@@ -82,6 +82,7 @@ fn recorded(machine: &Machine, facts: Facts, fleet_load: &BTreeMap<String, i64>)
         name: machine.name.clone(),
         live: facts.live,
         accounts: facts.accounts,
+        claude_ai: facts.claude_ai,
         saturation: facts.saturation.map(Into::into),
         saturation_age_s: facts.saturation_age_s,
         hosted: fleet_load.get(&machine.name).copied().unwrap_or(0),
@@ -90,7 +91,7 @@ fn recorded(machine: &Machine, facts: Facts, fleet_load: &BTreeMap<String, i64>)
 }
 
 fn facts(machine: &north_strategy_types::placement::Machine) -> Facts {
-    Facts { live: machine.live, accounts: machine.accounts.clone(), saturation: machine.saturation.map(Into::into), saturation_age_s: machine.saturation_age_s, has_cwd: machine.has_cwd }
+    Facts { live: machine.live, accounts: machine.accounts.clone(), claude_ai: machine.claude_ai.clone(), saturation: machine.saturation.map(Into::into), saturation_age_s: machine.saturation_age_s, has_cwd: machine.has_cwd }
 }
 
 fn here() -> Here {

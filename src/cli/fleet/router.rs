@@ -119,7 +119,8 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["tree"] => tree::tree(&fleet),
         ["spend", rest @ ..] => spend::run(&fleet, rest),
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
-        ["accounts"] => accounts(&fleet),
+        ["accounts"] => accounts(&fleet, false),
+        ["accounts", "--claude-ai"] => accounts(&fleet, true),
         ["launch", rest @ ..] => launch(&fleet, rest),
         ["adopt", rest @ ..] => adopt::run(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),
@@ -175,9 +176,9 @@ fn forget(fleet: &Fleet, name: &str, force: Option<&str>) -> NorthResult<()> {
 }
 
 
-fn accounts(fleet: &Fleet) -> NorthResult<()> {
+fn accounts(fleet: &Fleet, claude_ai: bool) -> NorthResult<()> {
     let roster = fleet.roster();
-    for account in &roster.accounts {
+    for account in roster.accounts.iter().filter(|account| !claude_ai || account.home.join(".credentials.json").is_file()) {
         println!("{}\t{}", account.provider.label(), account.label);
     }
     for omitted in roster.omitted() {

@@ -108,6 +108,9 @@ pub struct Machine {
     /// Resident CLIs the machine reports, None when unreachable; `hosted` is added to it.
     pub live: Option<i64>,
     pub accounts: Vec<String>,
+    /// The accounts signed in through claude.ai there (ssh `north fleet accounts --claude-ai`), the only ones the cloud lane picks.
+    #[serde(default)]
+    pub claude_ai: Vec<String>,
     pub saturation: Option<Saturation>,
     pub saturation_age_s: Option<f64>,
     /// Fleet sessions this machine runs there.

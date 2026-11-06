@@ -68,6 +68,8 @@ pub struct Machine {
     pub cap: i64,
     pub live: Option<i64>,
     pub accounts: Vec<String>,
+    /// The Claude labels signed in through claude.ai there, the only ones `claude --cloud` starts under.
+    pub claude_ai: Vec<String>,
     pub saturation: Option<Saturation>,
 }
 
@@ -97,10 +99,15 @@ pub struct Decision {
 }
 
 impl Decision {
-    fn cloud_lane(&self, credit: String) -> Option<CloudLane> {
-        let best = self.best_account()?;
-        let host = best.owners.first().cloned().unwrap_or_else(|| self.here.clone());
-        Some(CloudLane { account: best.account.clone(), host, credit })
+    /// The best-ranked available account whose profile on its host is signed in through claude.ai, which `claude --cloud` needs; None leaves the box to a local account.
+    fn cloud_lane(&self, credit: String, machines: &[Machine]) -> Option<CloudLane> {
+        let host_of = |verdict: &Verdict| verdict.owners.first().cloned().unwrap_or_else(|| self.here.clone());
+        let signed_in = |label: &str| {
+            let verdict = self.verdicts.iter().find(|verdict| verdict.account.trim_start_matches("claude:") == label);
+            verdict.is_some_and(|verdict| machines.iter().any(|machine| machine.name == host_of(verdict) && machine.claude_ai.iter().any(|there| there == label)))
+        };
+        let best = self.best_where(signed_in)?;
+        Some(CloudLane { account: best.account.clone(), host: host_of(best), credit })
     }
 
     pub fn best_account(&self) -> Option<&Verdict> {
@@ -313,7 +320,7 @@ pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
             let host = hosts.get(&name)?;
             let ssh = ssh_destination(host.get("ssh")?.as_str()?)?.to_owned();
             let cap = host.get("resident_cap").and_then(Item::as_integer).unwrap_or(0);
-            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, cap, live: None, accounts: Vec::new(), saturation: None })
+            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, cap, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None })
         })
         .collect()
 }
@@ -513,7 +520,7 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
         open,
         moved: None,
     };
-    decision.target = if let Some(lane) = (code_only && credit.0).then(|| decision.cloud_lane(credit.1)).flatten() {
+    decision.target = if let Some(lane) = (code_only && credit.0).then(|| decision.cloud_lane(credit.1, machines)).flatten() {
         Target::Cloud(lane)
     } else if let Some(best) = decision.best_account().map(|best| best.account.clone()) {
         Target::Account(best)

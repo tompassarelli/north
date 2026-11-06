@@ -63,11 +63,13 @@ fn placement_never_picks_a_label_logged_into_another_labels_account() {
 
 #[test]
 fn needs_on_separate_lines_place_like_needs_on_one_line() {
-    let cfg = "[hosts.here]\nserves = [\"private\", \"local-state\"]\n".parse().unwrap();
+    let cfg = "[hosts.here]\nssh = \"here\"\nserves = [\"private\", \"local-state\"]\n".parse().unwrap();
+    let mut signed_in = gate::machines(&cfg);
+    signed_in[0].claude_ai = vec!["c".into()];
     let gate = gate(&[("claude:c", control((10.0, 5.0, "2026-10-16T14:00:00Z"), (30.0, 1.0)))]);
     let credit = || (true, "cloud credit: unread, expires in 19 days".to_owned());
     let place = |brief: &str| {
-        let decision = decide(brief, &cfg, &gate, credit(), &[], "here");
+        let decision = decide(brief, &cfg, &gate, credit(), &signed_in, "here");
         (target(&decision), super::placement::gate::summary(&decision))
     };
     let head = "Item: north#12 tidy placement\nSurface: rust\n";
@@ -75,6 +77,8 @@ fn needs_on_separate_lines_place_like_needs_on_one_line() {
     assert_eq!(lines, place(&format!("{head}Needs: code, local-state\n")));
     assert_eq!(lines.0, "claude:c");
     assert_eq!(place(CODE_ONLY).0, "anthropic-cloud");
+    let token_only = decide(CODE_ONLY, &cfg, &gate, credit(), &gate::machines(&cfg), "here");
+    assert_eq!(target(&token_only), "claude:c", "on 2026-11-06 placement sent a code-only box to anthropic-cloud under an account signed in by token alone, where claude --cloud refused it (north#691)");
     let expired = decide(CODE_ONLY, &cfg, &gate, (false, "cloud credit: expired 2026-11-05T07:59Z".to_owned()), &[], "here");
     assert_eq!((target(&expired).as_str(), super::placement::gate::summary(&expired).contains("anthropic-cloud")), ("claude:c", false), "an expired credit placed code-only boxes on anthropic-cloud on 2026-11-06, where claude --cloud refused");
 }

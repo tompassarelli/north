@@ -140,7 +140,7 @@ today, the record field that holds it, and where it comes from:
 - `roster`: the standing of each account: listed, duplicate (and why), foreign (owners) or unknown
   (`Roster::standing`).
 - `machines[]`: for each host in placement order: `live` resident CLIs, null when unreachable (ssh
-  `resident-cap status`, or the local count); `accounts` signed in (ssh `north fleet accounts`);
+  `resident-cap status`, or the local count); `accounts` signed in (ssh `north fleet accounts`); `claude_ai`, the accounts among them signed in through claude.ai, which the cloud lane alone picks from (ssh `north fleet accounts --claude-ai`);
   `saturation` (`memory_total_mib`, `memory_available_mib`, `disk_free_gib`, `backlog` load, queued and
   threads) and its age, since it can be up to 60 s old from the cache; `probed_at` for `live` and
   `accounts`, which the per-pass memo (`hosts.rs` `remembered`) can serve stale to a later launch in the

@@ -302,7 +302,7 @@ impl Drop for Lane<'_> {
 }
 
 enum Placement {
-    Elsewhere(gate::Machine),
+    Elsewhere(Box<gate::Machine>),
     Here { refused: Option<String> },
     Confined(Confinement),
     Held,
@@ -316,7 +316,7 @@ fn placement(reserved: bool, builds_only_here: bool, confinement: impl FnOnce() 
         return confinement().map_or(Placement::Held, Placement::Confined);
     }
     match other_host() {
-        Ok(machine) => Placement::Elsewhere(machine),
+        Ok(machine) => Placement::Elsewhere(Box::new(machine)),
         Err(why) => Placement::Here { refused: Some(why) },
     }
 }
