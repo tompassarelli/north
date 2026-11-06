@@ -185,6 +185,7 @@ is nearly pure, and `Facts` arrives as JSON. The inputs it does not see in `Fact
 - `disk_free_gib`'s root: `AGENT_CAPACITY_DISK_ROOT`.
 - `need`: `AGENT_CAPACITY_NEED`.
 - `within_exclusive`: `AGENT_CAPACITY_LEASE` checked against the exclusive leases.
+- `holds_offload_slot`: `NORTH_OFFLOAD_SLOT`, which an offload slot sets for the command it runs.
 - the settle window: `AGENT_CAPACITY_SETTLE_SECONDS`, read in `pressure_target::starting`. The gather
   reads it into the case, so behavior and the existing tests stay as they are while the log is built. It
   becomes a strategy parameter when admission migrates.
