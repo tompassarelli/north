@@ -88,3 +88,15 @@ fn a_spooled_row_that_does_not_parse_is_set_aside_and_the_rest_flush() {
     assert!(!root.path().join("spool/m-0.json").exists());
 }
 
+
+#[test]
+fn a_stopped_session_still_receives_the_answer_to_its_open_gate_but_no_message() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let answer = FleetRow { kind: RowKind::GateAnswer, answer: Some(AnswerPayload { gate: 22, number: 1 }), ..message("a-1", "sc-1") };
+    store.put(&[message("m-1", "sc-1"), answer]).unwrap();
+
+    let exchanged = store.exchange(&Exchange { addressees: vec![Addressee { name: "sc-1".into(), stopped: true, ..Addressee::default() }], ..Exchange::default() }).unwrap();
+
+    assert_eq!(exchanged.rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["a-1"]);
+}

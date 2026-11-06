@@ -39,10 +39,11 @@ impl Fleet {
             None => self.gates_elsewhere()?.into_iter().find(|gate| gate.host == host && gate.id == id).map(|gate| gate.request.session).ok_or_else(|| NorthError::Usage(format!("no open gate {label} in the cached fleet table; name its session: north gate answer {label} {number} --session NAME")))?,
         };
         let session = session.as_str();
-        let held = self.held_elsewhere(session)?.ok_or_else(|| NorthError::Usage(format!("no session named {session} on another host")))?;
+        let held = self.cached_sessions()?.unwrap_or_default().into_iter().find(|row| row.name == session && row.host != self.host).ok_or_else(|| NorthError::Usage(format!("no session named {session} on another host")))?;
         if held.host != host {
             return Err(NorthError::Usage(format!("{session} runs on {}, not {host}", held.host)));
         }
+        gates::Authority { caller, parent: held.parent.as_deref() }.admit()?;
         let row = self.spool_gate_answer(session, id, number, note, caller)?;
         Ok(format!("gate {label}: answer {number} spooled as {} for {session}'s host to apply", row.id))
     }
@@ -238,5 +239,26 @@ mod tests {
         assert!(matches!(far.answer_remote_gate(&format!("mars:{id}"), Some("worker"), 1, None, None), Err(NorthError::Usage(_))));
         assert!(matches!(far.answer_remote_gate(&format!("laptop:{id}"), Some("nobody"), 1, None, None), Err(NorthError::Usage(_))));
         assert_eq!(Spool::at(&far.root).pending().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn a_spooled_gate_answer_for_a_session_held_on_another_host_is_applied_there_and_one_from_a_session_that_is_not_its_parent_is_refused_before_it_is_spooled() {
+        let (far_home, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (far, laptop) = (fleet(far_home.path()), fleet(home.path()));
+        let worker = live_under(&far, "worker", Some("boss"));
+        let id = far.open_gate(&request("worker")).unwrap();
+        let held = SessionRow { name: "worker".into(), host: "far".into(), status: "exited".into(), parent: Some("boss".into()), created: "t".into(), updated: "t".into(), ..SessionRow::default() };
+        cache_sessions(&laptop.root, &[held]).unwrap();
+        let label = format!("far:{id}");
+
+        assert!(matches!(laptop.answer_remote_gate(&label, Some("worker"), 1, None, Some("intruder")), Err(NorthError::Rejected(_))));
+        assert_eq!(Spool::at(&laptop.root).pending().unwrap().len(), 0);
+        laptop.answer_remote_gate(&label, Some("worker"), 1, Some("go"), None).unwrap();
+        let row = spooled(&laptop);
+
+        assert_eq!(far.deliver_row(&row).unwrap(), HandedIn::Delivered);
+        let closure = far.gate(id).unwrap().unwrap().closure.unwrap();
+        assert_eq!((closure.by, closure.answer.as_str()), (Answerer::Tom, "yes\ngo"));
+        assert!(worker.frames.lock().unwrap().iter().any(|frame| frame.contains("Tom answered: yes")));
     }
 }

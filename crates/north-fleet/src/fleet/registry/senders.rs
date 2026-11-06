@@ -31,6 +31,10 @@ impl Fleet {
         caller_name(std::env::var(SESSION_ENV).ok(), self.runtimes.caller_conversation(), || self.sessions().unwrap_or_default())
     }
 
+    pub fn answerer(&self) -> Option<String> {
+        session_name(std::env::var(SESSION_ENV).ok(), self.runtimes.caller_conversation().as_deref(), || self.sessions().unwrap_or_default())
+    }
+
     pub fn rival(&self, from: &Sender, to: &str) -> Option<Rival> {
         let last = self.record(to).ok()?.last_sender?;
         rival(&last, from.session()?, to, now_ms())
@@ -72,12 +76,15 @@ pub(super) fn signed(from: &Sender, text: &str) -> String {
 }
 
 fn caller_name(named: Option<String>, conversation: Option<String>, sessions: impl FnOnce() -> Vec<SessionRecord>) -> Option<String> {
+    session_name(named, conversation.as_deref(), sessions).or(conversation)
+}
+
+fn session_name(named: Option<String>, conversation: Option<&str>, sessions: impl FnOnce() -> Vec<SessionRecord>) -> Option<String> {
     if let Some(named) = named.filter(|name| !name.is_empty()) {
         return Some(named);
     }
     let conversation = conversation?;
-    let registered = sessions().into_iter().find(|record| record.conversation.as_deref() == Some(conversation.as_str())).map(|record| record.name);
-    Some(registered.unwrap_or(conversation))
+    sessions().into_iter().find(|record| record.conversation.as_deref() == Some(conversation)).map(|record| record.name)
 }
 
 fn rival(last: &LastSender, from: &str, to: &str, now: u64) -> Option<Rival> {

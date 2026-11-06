@@ -157,12 +157,18 @@ pub struct Authority<'a> {
     pub parent: Option<&'a str>,
 }
 
-pub fn answer_gate(book: &dyn GateBook, id: i64, number: usize, note: Option<&str>, authority: Authority<'_>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
-    let Authority { caller, parent } = authority;
-    if caller.is_some() && caller != parent {
-        return Err(NorthError::Rejected("only Tom or the gate session's parent may answer".into()));
+impl Authority<'_> {
+    pub fn admit(&self) -> NorthResult<()> {
+        if self.caller.is_some() && self.caller != self.parent {
+            return Err(NorthError::Rejected("only Tom or the gate session's parent may answer".into()));
+        }
+        Ok(())
     }
-    let by = caller.map_or(Answerer::Tom, |name| Answerer::Session(name.to_owned()));
+}
+
+pub fn answer_gate(book: &dyn GateBook, id: i64, number: usize, note: Option<&str>, authority: Authority<'_>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+    authority.admit()?;
+    let by = authority.caller.map_or(Answerer::Tom, |name| Answerer::Session(name.to_owned()));
     settle_as(book, id, Decision::Option(number), by, note, now_ms, deliver)
 }
 

@@ -29,7 +29,7 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 }
 
 fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>, session: Option<&str>) -> NorthResult<()> {
-    let caller = fleet.caller();
+    let caller = fleet.answerer();
     if id.contains(':') {
         println!("{}", fleet.answer_remote_gate(id, session, number.parse().map_err(|_| usage())?, note, caller.as_deref())?);
         return Ok(());

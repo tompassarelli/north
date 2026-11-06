@@ -73,7 +73,7 @@ const JOB_EXIT_KEPT_MS: u64 = 24 * 60 * 60 * 1000;
 
 pub(super) const ADDRESSED: &str = "SELECT events.data FROM events JOIN json_each(?1) AS addressee \
      ON json_extract(events.data, '$.to_node') = json_extract(addressee.value, '$.name') \
-     WHERE events.kind IN (SELECT value FROM json_each(?2)) AND (events.kind = ?3 OR NOT COALESCE(json_extract(addressee.value, '$.stopped'), 0)) AND json_extract(events.data, '$.sent_at') >= CASE WHEN events.kind = ?3 THEN COALESCE(json_extract(addressee.value, '$.control_since_ms'), json_extract(addressee.value, '$.since_ms')) ELSE json_extract(addressee.value, '$.since_ms') END \
+     WHERE events.kind IN (SELECT value FROM json_each(?2)) AND (events.kind IN (?3, ?6) OR NOT COALESCE(json_extract(addressee.value, '$.stopped'), 0)) AND json_extract(events.data, '$.sent_at') >= CASE WHEN events.kind = ?3 THEN COALESCE(json_extract(addressee.value, '$.control_since_ms'), json_extract(addressee.value, '$.since_ms')) ELSE json_extract(addressee.value, '$.since_ms') END \
      AND (events.kind != ?4 OR events.ts >= ?5) \
      AND NOT EXISTS (SELECT 1 FROM json_each(addressee.value, '$.taken') AS taken WHERE taken.value = json_extract(events.data, '$.id')) \
      ORDER BY events.seq";
@@ -85,7 +85,7 @@ fn exit_floor() -> String {
 fn addressed(db: &Connection, addressees: &[Addressee]) -> NorthResult<Vec<FleetRow>> {
     let mut statement = db.prepare(ADDRESSED).map_err(sql)?;
     let data: Vec<String> = statement
-        .query_map(rusqlite::params![serde_json::to_string(addressees)?, serde_json::to_string(&RowKind::DELIVERED)?, RowKind::Control.label(), RowKind::JobExit.label(), exit_floor()], |row| row.get(0))
+        .query_map(rusqlite::params![serde_json::to_string(addressees)?, serde_json::to_string(&RowKind::DELIVERED)?, RowKind::Control.label(), RowKind::JobExit.label(), exit_floor(), RowKind::GateAnswer.label()], |row| row.get(0))
         .map_err(sql)?
         .collect::<Result<_, _>>()
         .map_err(sql)?;
