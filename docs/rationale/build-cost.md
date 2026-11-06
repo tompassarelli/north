@@ -103,7 +103,7 @@ Category: performance. Spec: measured. Scope: single-module. Surface: rust. Veri
 Method: two detached worktrees at two consecutive main commits on different `runtime-<sha8>` paths; per setting, a
 fresh `CARGO_TARGET_DIR` under a `runtime`-class lease, build the older commit, then time the newer one with
 `/usr/bin/time -f '%U %S %e' nix develop -c cargo build --release --locked`, incremental set with
-`CARGO_PROFILE_RELEASE_INCREMENTAL=true` (the build-cache gate at `crates/north-landing/src/build_cache_gate.rs:19` matches only plain `CARGO_INCREMENTAL` set to one; docs/features.md
+`CARGO_PROFILE_RELEASE_INCREMENTAL=true` (the build-cache gate at `crates/north-diff-gates/src/build_cache_gate.rs:19` matches only plain `CARGO_INCREMENTAL` set to one; docs/features.md
 names `CARGO_BUILD_INCREMENTAL=true` as the convention). If the on-row shows no reuse across paths, repeat it once
 with a stable worktree path and once with `--remap-path-prefix` before dropping candidate 2.
 
@@ -116,7 +116,7 @@ Measured 2026-11-04 on the laptop under `--class runtime` leases (4 CPUs charged
 lease's `cpuSeconds` in `machine-capacity-usage.jsonl`, since the build runs in a systemd scope outside `time`'s
 children. The flake's shellHook sets `RUSTFLAGS=-Cmetadata=checkout:<toplevel>`, so a per-commit `runtime-<sha8>`
 path changes RUSTFLAGS and every unit recompiles, with incremental on or off; the on-row was therefore run on a stable
-path only, and `--remap-path-prefix` was not needed. The build-cache gate (`crates/north-landing/src/build_cache_gate.rs:19`)
+path only, and `--remap-path-prefix` was not needed. The build-cache gate (`crates/north-diff-gates/src/build_cache_gate.rs:19`)
 matches only a plain `CARGO_INCREMENTAL` set to one, so `CARGO_PROFILE_RELEASE_INCREMENTAL=true` passes it.
 
 | B2 result: setting | crates compiled (registry) | user+sys s | wall s |
