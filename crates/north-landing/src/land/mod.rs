@@ -16,6 +16,7 @@ pub mod lane_gates;
 pub mod incidents;
 pub mod jobs;
 pub mod lander;
+pub mod link_hold;
 pub mod model_cmd;
 pub mod outcomes;
 pub mod pause;

@@ -46,18 +46,32 @@ fn served() -> Fixture {
     fixture
 }
 
+fn replaying(failing: &[&str], verdict: &str) -> String {
+    let lines: String = failing.iter().map(|test| format!("echo 'replay: failure cargo {test}'; ")).collect();
+    format!("#!/usr/bin/env bash\nif [ \"$1 $2\" = \"land replay\" ]; then {lines}echo 'replay: verdict {verdict}'; exit 0; fi\nexec {} \"$@\"\n", env!("CARGO_BIN_EXE_north"))
+}
+
 #[test]
-fn promote_refuses_a_candidate_whose_replayed_verdict_differs_and_keeps_the_lander_link() {
+fn promote_refuses_a_candidate_with_a_new_failure_and_keeps_the_lander_link_but_follows_one_with_none() {
     let fixture = served();
     let good = runtime(&fixture, "good", None);
     point(&fixture, "lander", &good);
-    let drifted = runtime(&fixture, "drifted", Some(&format!("#!/usr/bin/env bash\nif [ \"$1 $2\" = \"land replay\" ]; then echo 'replay: verdict failed drifted judgement'; exit 0; fi\nexec {} \"$@\"\n", env!("CARGO_BIN_EXE_north"))));
+
+    let drifted = runtime(&fixture, "drifted", Some(&replaying(&["lander_probe"], "failed drifted judgement")));
     point(&fixture, "current", &drifted);
     let (output, stdout) = promote(&fixture, &[]);
     assert_eq!(output.status.code(), Some(1));
-    assert!(stdout.contains("refused: round lane-") && stdout.contains("but the candidate replayed failed drifted judgement; the lander link is unchanged"), "{stdout}");
+    assert!(stdout.contains("refused: round lane-") && stdout.contains("but the candidate replayed failed drifted judgement") && stdout.contains("the held runtime replayed landed") && stdout.contains("the lander link is unchanged"), "{stdout}");
     assert!(!stdout.contains("shadow:"), "a replay mismatch refuses before the shadow");
     assert_eq!(lander_link(&fixture), Some(good));
     assert_eq!(fixture.read("systemctl"), "");
-}
 
+    let held = runtime(&fixture, "held", Some(&replaying(&["old_red"], "failed old red")));
+    let same = runtime(&fixture, "same", Some(&replaying(&["old_red"], "failed old red")));
+    point(&fixture, "lander", &held);
+    point(&fixture, "current", &same);
+    let (output, stdout) = promote(&fixture, &[]);
+    assert_eq!(output.status.code(), Some(0), "{stdout}");
+    assert!(stdout.contains("not a hold, the held runtime replays it the same way: no new failure"), "{stdout}");
+    assert_eq!(lander_link(&fixture), Some(same));
+}

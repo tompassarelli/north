@@ -15,9 +15,10 @@ use super::setting;
 use super::slots::select::OFFLOAD_SLOTS_BUSY;
 use super::telemetry;
 
-const TAIL_LINES: usize = 20;
 const ALARMED: &str = "proxy";
 const POLL: Duration = Duration::from_millis(50);
+const INFRASTRUCTURE: [&str; 2] = ["has no tree and the checkout", "is a missing but already registered worktree"];
+const EPISODE: &str = "post-land-red";
 
 #[derive(Clone)]
 pub struct Landed {
@@ -172,15 +173,55 @@ fn prefixes(landed: &Landed, run: &Run, counts: &[usize]) -> Vec<Verdict> {
 
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
     let started = std::time::Instant::now();
-    let Checked { verdict, expired } = check(landed, &landed.head, run);
-    record(run, landed, &verdict, expired, started.elapsed().as_secs());
-    if let Verdict::RedMain(detail) = &verdict {
-        let message = format!("north land: red main {} in {}: post-land check failed: {detail}; landed lanes: {}\n{}", landed.head, landed.repository, landed.lanes.join(", "), tail(&run.log));
-        if !alarm(ALARMED, &message) {
-            eprintln!("north land: could not alarm {ALARMED} about red main {}", landed.head);
-        }
+    let mut checked = check(landed, &landed.head, run);
+    if matches!(checked.verdict, Verdict::Transient(_)) && runtime_switched(&run.log) {
+        println!("north land: the runtime or its build slot broke under the post-land checks of {}; rerunning them once", landed.head);
+        checked = check(landed, &landed.head, run);
     }
+    let Checked { verdict, expired } = checked;
+    record(run, landed, &verdict, expired, started.elapsed().as_secs());
+    announce(landed, run, &verdict, alarm);
     verdict
+}
+
+fn runtime_switched(log: &Path) -> bool {
+    fs::read_to_string(log).is_ok_and(|text| INFRASTRUCTURE.iter().any(|signature| text.contains(signature)))
+}
+
+fn episode_marker(run: &Run, landed: &Landed) -> PathBuf {
+    run.ledger.with_file_name(format!("{EPISODE}-{}", landed.repository.replace('/', "_")))
+}
+
+fn red_message(landed: &Landed, log: &Path, detail: &str) -> String {
+    let text = fs::read_to_string(log).unwrap_or_default();
+    let failing: Vec<String> = crate::landing::red_check::failures(&text).iter().map(|failure| failure.label().to_owned()).collect();
+    let failing = if failing.is_empty() { detail.to_owned() } else { failing.join(", ") };
+    format!("north land: main is red in {} at {}: failing {failing}; suspect commit {} (landed lanes: {}); log: {}; the sheriff acts first, this message is for when it cannot", landed.repository, landed.head, landed.head, landed.lanes.join(", "), log.display())
+}
+
+fn green_message(landed: &Landed) -> String {
+    format!("north land: main is green again in {} at {}", landed.repository, landed.head)
+}
+
+fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: impl Fn(&str, &str) -> bool) {
+    let marker = episode_marker(run, landed);
+    match verdict {
+        Verdict::RedMain(detail) if !marker.exists() => {
+            if alarm(ALARMED, &red_message(landed, &run.log, detail)) {
+                let _ = fs::write(&marker, &landed.head);
+            } else {
+                eprintln!("north land: could not alarm {ALARMED} about red main {}", landed.head);
+            }
+        }
+        Verdict::Green if marker.exists() => {
+            if alarm(ALARMED, &green_message(landed)) {
+                let _ = fs::remove_file(&marker);
+            } else {
+                eprintln!("north land: could not tell {ALARMED} that main is green again at {}", landed.head);
+            }
+        }
+        _ => {}
+    }
 }
 
 pub(crate) struct Checked {
@@ -258,6 +299,7 @@ fn supervise(command: &mut Command, limit: Duration) -> std::io::Result<Option<s
 fn judged(status: std::process::ExitStatus, run: &Run) -> Verdict {
     match status.code() {
         _ if status.success() => Verdict::Green,
+        _ if runtime_switched(&run.log) => Verdict::Transient(format!("the runtime or its build slot broke under the post-land checks, so they reached no verdict; log: {}", run.log.display())),
         Some(126 | 127) => Verdict::Transient(format!("post-land checks could not start their command (exit {status}), so they reached no verdict; log: {}", run.log.display())),
         Some(75) => Verdict::Transient(format!("post-land checks exited 75; log: {}", run.log.display())),
         Some(OFFLOAD_SLOTS_BUSY) => Verdict::Transient(format!("every build-host slot stayed busy, so the post-land checks reached no verdict; log: {}", run.log.display())),
@@ -272,12 +314,6 @@ fn failed_check(outcome: &Path) -> Option<String> {
         (fields.first() == Some(&"event") && fields.get(2) == Some(&"failed")).then(|| fields.get(3).copied().unwrap_or_default().to_owned())
     }).collect();
     (!failed.is_empty()).then(|| failed.join("; "))
-}
-
-fn tail(log: &Path) -> String {
-    let text = fs::read_to_string(log).unwrap_or_default();
-    let lines: Vec<&str> = text.lines().collect();
-    lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n")
 }
 
 fn record(run: &Run, landed: &Landed, verdict: &Verdict, expired: bool, seconds: u64) {
