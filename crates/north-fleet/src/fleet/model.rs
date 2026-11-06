@@ -267,6 +267,8 @@ pub struct SessionRecord {
     pub budget: Option<super::budget::Stated>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub box_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adopted_ms: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -288,6 +290,10 @@ impl Ending {
 }
 
 impl SessionRecord {
+    pub fn adopted(&self) -> bool {
+        self.adopted_ms.is_some()
+    }
+
     pub fn launched(request: &LaunchRequest, effort: Option<Effort>, conversation: Option<String>, verification: bool, created_ms: u64) -> Self {
         let tasks = request.tasks();
         Self {
@@ -325,6 +331,7 @@ impl SessionRecord {
             prompt_sender: None,
             budget: request.budget(),
             box_name: request.box_name(),
+            adopted_ms: None,
         }
     }
 

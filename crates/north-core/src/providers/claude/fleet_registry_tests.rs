@@ -55,3 +55,62 @@ fn an_unreadable_registry_is_not_an_empty_fleet() {
     assert_eq!(fleet.live_owners(), None);
 }
 
+
+struct Window {
+    inbox: std::os::unix::net::UnixListener,
+    token: String,
+}
+
+fn open_window(home: &Path, pid: u32, conversation: &str) -> Window {
+    let sessions = home.join(".local/state/north/profiles/claude-a/sessions");
+    fs::create_dir_all(&sessions).unwrap();
+    let socket = home.join(format!("{pid}.sock"));
+    let token = format!("{pid:032x}");
+    let record = serde_json::json!({"pid": pid, "sessionId": conversation, "kind": "interactive", "entrypoint": "cli", "messagingSocketPath": socket});
+    fs::write(sessions.join(format!("{pid}.json")), record.to_string()).unwrap();
+    fs::write(sessions.join(format!("{pid}.{}.key", "ab".repeat(32))), serde_json::json!({"peerToken": token}).to_string()).unwrap();
+    Window { inbox: std::os::unix::net::UnixListener::bind(&socket).unwrap(), token }
+}
+
+fn received(window: &Window) -> Vec<serde_json::Value> {
+    let (stream, _) = window.inbox.accept().unwrap();
+    std::io::BufRead::lines(std::io::BufReader::new(stream)).map(|line| serde_json::from_str(&line.unwrap()).unwrap()).collect()
+}
+
+fn fleet_proxy(home: &Path, conversation: &str) {
+    let session = home.join(".local/state/north/fleet/proxy");
+    fs::create_dir_all(&session).unwrap();
+    let record = serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 5, "host_pid": null, "conversation": conversation, "host_dir": session, "role": "proxy", "stopped": false});
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+}
+
+fn proxies(fleet: &Fleet) -> Vec<String> {
+    fleet.sessions().unwrap().into_iter().filter(|record| record.role() == crate::fleet::model::Role::Proxy && fleet.status(record) != crate::fleet::model::Status::Exited).filter_map(|record| record.conversation).collect()
+}
+
+#[test]
+fn a_second_session_cannot_hold_the_proxy_name_while_the_first_is_live() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    fleet_proxy(home.path(), "fleet-proxy");
+    let first = open_window(home.path(), std::process::id(), "window-a");
+    let _second = open_window(home.path(), std::os::unix::process::parent_id(), "window-b");
+
+    fleet.adopt("proxy", "window-a", "/tmp".into()).unwrap();
+    assert_eq!(proxies(&fleet), ["window-a"], "adopt ends the fleet proxy and binds the name to the window");
+    assert!(fleet.past_sessions().iter().any(|record| record.conversation.as_deref() == Some("fleet-proxy")));
+    assert_eq!(fleet.session("proxy").unwrap().addressed_since(), 5, "the window takes every message sent since the old holder began");
+    let refused = fleet.revive("proxy", None).unwrap_err().user_message();
+    assert!(refused.contains("interactive window"), "{refused}");
+
+    let sender = std::thread::spawn(move || fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "proxy", "hello", crate::fleet::model::Delivery::Queued).map(|_| fleet));
+    let lines = received(&first);
+    let fleet = sender.join().unwrap().unwrap();
+    assert_eq!(lines[0], serde_json::json!({"type": "auth", "token": first.token}));
+    assert_eq!(lines[1]["type"], "user");
+    assert!(lines[1]["message"]["content"].as_str().unwrap().ends_with("hello"), "{}", lines[1]);
+    assert!(fleet.session("proxy").unwrap().adopted(), "the message started no host under the name");
+
+    fleet.adopt("proxy", "window-b", "/tmp".into()).unwrap();
+    assert_eq!(proxies(&fleet), ["window-b"], "a second window takes the name only by ending the first holder");
+}

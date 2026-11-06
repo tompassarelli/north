@@ -29,6 +29,7 @@ use super::store::{OverSsh, Registrar, SPOOL_DIR, Spool};
 use super::waits::Waits;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
+mod adopting;
 mod claiming;
 mod control;
 mod depth;
@@ -161,6 +162,10 @@ impl Fleet {
     }
 
     fn prompt(&self, name: &str, id: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
+        let held = self.record(name)?;
+        if held.adopted() {
+            return self.tell_window(&held, text);
+        }
         let record = self.revive(name, None)?;
         match self.prompt_live(&record, id, text, delivery) {
             Err(_) if Host::new(record.host_dir.clone()).closed() => {
@@ -181,6 +186,9 @@ impl Fleet {
 
     pub fn interrupt(&self, name: &str) -> NorthResult<()> {
         let record = self.record(name)?;
+        if record.adopted() {
+            return Err(NorthError::Usage(format!("{name} is an interactive window; interrupt it there")));
+        }
         let runtime = self.runtime(&record)?;
         let transcript = self.recent(runtime.as_ref(), &record)?;
         Host::new(record.host_dir.clone()).send(&runtime.interrupt(&transcript)?)
@@ -207,6 +215,9 @@ impl Fleet {
     }
 
     pub fn status(&self, record: &SessionRecord) -> Status {
+        if record.adopted() {
+            return self.window_status(record);
+        }
         if record.host_dir.as_os_str().is_empty() {
             return status::settled(record, Status::Starting);
         }

@@ -107,6 +107,9 @@ impl Fleet {
 
     pub(super) fn revive_held(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>) -> NorthResult<SessionRecord> {
         let mut record = self.record(name)?;
+        if record.adopted() {
+            return Err(NorthError::Refused(format!("{name} is held by an interactive window north fleet adopt bound to it, so the fleet starts no host under the name")));
+        }
         record.effort = efforts::revived(&record, self.runtime(&record)?.as_ref(), session_running(&record), effort)?;
         if system_prompt.is_some() {
             record.system_prompt = system_prompt;

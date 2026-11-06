@@ -19,6 +19,7 @@ use crate::tui;
 
 use super::placement::{self, Overrides};
 use super::usage_ingest::IngestUsage;
+use super::adopt;
 use super::admission;
 use super::digest;
 use super::duplicate;
@@ -119,6 +120,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
         ["accounts"] => accounts(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),
+        ["adopt", rest @ ..] => adopt::run(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),
         ["tick", rest @ ..] => tick::run(&fleet, rest),
         ["send", rest @ ..] => send::run(&fleet, rest),

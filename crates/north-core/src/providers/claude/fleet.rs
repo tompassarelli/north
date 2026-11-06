@@ -8,11 +8,11 @@ use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName
 use crate::fleet::attachments;
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
-use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, Opening, Runtime, new_uuid, summarize};
+use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, Opening, Runtime, WindowInbox, new_uuid, summarize};
 use crate::fleet::install;
 
 use super::session_env::{self, claude_env};
-use super::{accounts, limit, quota, turns, user_text};
+use super::{accounts, limit, quota, turns, user_text, window_inbox};
 
 const PROVIDER: &str = "claude";
 const TOOL_RESULT_CHARS: usize = 400;
@@ -167,6 +167,14 @@ impl Runtime for Claude {
 
     fn credential_failure(&self, frame: &Value) -> Option<CredentialFailure> {
         turns::credential_failure(frame)
+    }
+
+    fn window_inbox(&self, accounts: &[Account], conversation: &str) -> Option<WindowInbox> {
+        window_inbox::find(accounts, conversation)
+    }
+
+    fn tell_window(&self, inbox: &WindowInbox, text: &str) -> NorthResult<()> {
+        window_inbox::tell(inbox, text)
     }
 
     fn caller_conversation(&self) -> Option<String> {

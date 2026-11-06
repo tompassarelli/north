@@ -7,5 +7,6 @@ pub mod token_quota;
 pub mod fleet;
 mod turns;
 mod user_text;
+mod window_inbox;
 
 pub use session_env::invocation;

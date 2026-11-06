@@ -16,6 +16,11 @@ use super::{Fleet, session_running};
 impl Fleet {
     pub fn stop(&self, name: &str) -> NorthResult<()> {
         let mut record = self.record(name)?;
+        if record.adopted() {
+            record.stopped = true;
+            record.ended = Some(Ending::Stopped);
+            return write_record(&self.root.join(name), &record);
+        }
         let _start = self.start_lock(name)?;
         let host = Host::new(record.host_dir.clone());
         if session_running(&record) {

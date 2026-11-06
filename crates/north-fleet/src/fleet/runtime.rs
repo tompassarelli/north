@@ -41,6 +41,13 @@ pub enum CredentialFailure {
     Expired,
 }
 
+pub struct WindowInbox {
+    pub account: String,
+    pub pid: u32,
+    pub socket: PathBuf,
+    pub token: String,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Opening<'a> {
     Fresh(Option<&'a str>),
@@ -61,6 +68,12 @@ pub trait Runtime: Send + Sync {
     fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec>;
     fn interactive(&self, _account: &Account, _request: &LaunchRequest, _conversation: &str, _instructions: &str) -> NorthResult<HostSpec> {
         Err(NorthError::Usage(format!("{} sessions have no interactive UI to hand over to", self.provider().label())))
+    }
+    fn window_inbox(&self, _accounts: &[Account], _conversation: &str) -> Option<WindowInbox> {
+        None
+    }
+    fn tell_window(&self, _inbox: &WindowInbox, _text: &str) -> NorthResult<()> {
+        Err(NorthError::Usage(format!("{} has no window inbox to deliver into", self.provider().label())))
     }
     fn carry_conversation(&self, _from: &Account, _to: &Account, _conversation: &str) -> NorthResult<()> {
         Ok(())

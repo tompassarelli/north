@@ -180,6 +180,17 @@ Rejected, two ways to keep the interactive Claude Code window as the proxy:
   north writer into them would cross it from the other side; and because it is the vendor-UI
   workaround the standing order rules out.
 
+Revisited 2026-11-06 (north#636): after the fleet proxy ran out of its window and Tom took the role
+over in his own window, every report, red-main alarm and credential notice sent to `proxy` kept
+reviving the idle fleet session, because no take-over path existed for a window north did not start.
+The issue plan now owns this call and orders the inbox route for that case alone: `north fleet adopt
+--name NAME` binds the name to the window, and north writes the two JSON lines Claude Code itself
+logs as its injection form (an `auth` line with the peer token from `sessions/PID.PEER.key`, then a
+`user` line) into the socket `sessions/PID.json` names. The objections above still hold for it: an
+adopted window gets no account failover from the fleet (`north proxy move` moves it), a protocol
+change breaks only delivery to it and shows as a failed send naming the window, and the north binary
+reading peer keys is the boundary crossing named above, accepted for this one sender path.
+
 Receipt volume: once the proxy has a reader it is the default parent of every launch from outside the
 fleet (`src/cli/fleet/lineage.rs:19`), and each message wakes a turn at about 263 k context. Messages
 to the proxy from `Service` and `Session` senders coalesce into one digest delivered at most every 10
