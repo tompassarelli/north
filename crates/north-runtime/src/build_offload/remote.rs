@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use super::lane::Lane;
 use crate::capacity::build_offload::{Declined, Job, REMOTE_MARK, SHIP_SECONDS_ENV, SLOT_HEAD_ENV, SLOT_TARGET_ENV};
-use crate::capacity::handover::{Frame, Offer};
+use crate::capacity::handover::{Offer, Received, receive};
 use crate::land_offload::ship::quote;
 
 const SYNC_LIMIT: Duration = Duration::from_secs(180);
@@ -152,38 +152,42 @@ pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, sta
 
 const OFFER_REPLY_LIMIT: Duration = Duration::from_secs(SYNC_LIMIT.as_secs() + 30);
 
-/// Offers the lane to the peer that opened `peer`, shows what the peer sends back and returns the exit code it reports; a peer that cannot rebuild the lane, or leaves before the command starts, leaves the run queued.
+/// Offers the lane to the peer that opened `peer`, shows what the peer sends back and returns the exit code it reports; a peer that cannot rebuild the lane, or leaves before it reports an exit, gives the run back to the queue here.
 pub(super) fn hand_over(mut peer: UnixStream, lane: &Lane, job: &Job, sink: Option<File>, started: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
     let gone = |error: std::io::Error| Some(Declined::Failed(format!("the taking host left: {error}")));
     peer.set_read_timeout(Some(OFFER_REPLY_LIMIT)).map_err(gone)?;
     let returned = super::returned::marker();
-    let mut splitter = super::returned::Returned::new(&returned, &lane.top);
     let sent = peer.write_all(offer(lane, job, &returned).to_line().as_bytes()).and_then(|()| peer.write_all(&lane.bundle)).and_then(|()| peer.write_all(&lane.patch)).and_then(|()| peer.flush());
-    let mut write_failure = sent.err();
-    let mut output: Box<dyn Write> = sink.map_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>, |file| Box::new(file));
-    let mut running = false;
-    loop {
-        match Frame::read(&mut peer) {
-            Ok(Some(Frame::Started(host))) => {
-                running = true;
-                let _ = peer.set_read_timeout(None);
-                started(&host);
-            }
-            Ok(Some(Frame::Out(bytes))) => {
-                splitter.feed(&bytes, &mut output);
-            }
-            Ok(Some(Frame::Err(bytes))) => {
-                let _ = std::io::stderr().write_all(&bytes);
-            }
-            Ok(Some(Frame::Exit(code))) => {
-                splitter.finish(&mut output);
-                return Ok(code);
-            }
-            Ok(Some(Frame::NotSynced(why))) => return Err(Some(Declined::Failed(why))),
-            Ok(None) | Err(_) if running => return Ok(255),
-            Ok(None) | Err(_) if write_failure.is_some() => return Err(write_failure.take().and_then(gone)),
-            Ok(None) => return Err(Some(Declined::Failed("the taking host ended the connection before the lane synced".to_owned()))),
-            Err(error) => return Err(Some(Declined::Failed(format!("the taking host: {error}")))),
+    let output: Box<dyn Write> = sink.map_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>, |file| Box::new(file));
+    let mut splitting = Splitting { splitter: super::returned::Returned::new(&returned, &lane.top), output };
+    let timer = peer.try_clone().map_err(gone)?;
+    let mut on_start = |host: &str| {
+        let _ = timer.set_read_timeout(None);
+        started(host);
+    };
+    match receive(&mut peer, &mut splitting, &mut std::io::stderr(), &mut on_start) {
+        Received::Exit(code) => {
+            splitting.splitter.finish(&mut splitting.output);
+            Ok(code)
         }
+        Received::NotSynced(why) => Err(Some(Declined::Failed(why))),
+        Received::Lost(why) => Err(sent.err().map_or_else(|| Some(Declined::Failed(why)), gone)),
+    }
+}
+
+/// The taker's output on its way here, with the files it returns split out of the stream.
+struct Splitting {
+    splitter: super::returned::Returned,
+    output: Box<dyn Write>,
+}
+
+impl Write for Splitting {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.splitter.feed(bytes, &mut self.output);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.output.flush()
     }
 }

@@ -3,6 +3,11 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 pub(super) struct Terminations([Option<Signal>; 3]);
 
 impl Terminations {
+    #[cfg(test)]
+    pub(super) fn none() -> Self {
+        Self([None, None, None])
+    }
+
     pub(super) fn listen() -> Self {
         Self([SignalKind::interrupt(), SignalKind::terminate(), SignalKind::hangup()].map(|kind| signal(kind).ok()))
     }

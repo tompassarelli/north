@@ -3,7 +3,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::decision::decision;
-use super::handover::Listening;
+use super::handover::{self, Listening};
 use super::json::Obj;
 use super::machine::env;
 use super::print_to;
@@ -70,6 +70,7 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
     let host = *host;
     let (root, ticket) = (root.to_path_buf(), ticket.map(str::to_owned));
     let (waiting_root, waiting_ticket) = (root.clone(), ticket.clone());
+    let handed = taker.is_some();
     let landing = request.landing || env("SAFE_PUSH_LAND_HEAD").is_some_and(|head| !head.is_empty());
     let (class, owner, command) = (request.name.clone(), create.owner.clone(), build_offload::for_build_host(command));
     let timeout_seconds = create.timeout_seconds.unwrap_or(OFFLOAD_DEFAULT_TIMEOUT_SECONDS);
@@ -80,8 +81,10 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
         let candidate = Candidate { class: &class, landing, need: need.as_deref(), deferred, agent, offloaded_already };
         let announce = |target: &str| {
             print_to(&Obj::new().put("decision", "OFFLOADED").put("reason", build_offload::REASON).put("host", target).put("class", class.as_str()).put("owner", owner.as_str()), true);
-            if let Some(ticket) = &ticket {
-                dequeue(&root, ticket);
+            match &ticket {
+                Some(ticket) if handed => handover::set_aside(&root, ticket),
+                Some(ticket) => dequeue(&root, ticket),
+                None => {}
             }
         };
         let job = Job { owner: &owner, timeout_seconds, command: &command };
@@ -94,6 +97,9 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
         done = work => match done.ok()? {
             Ok(code) => Some(code),
             Err(why) => {
+                if handed && let Some(ticket) = &waiting_ticket {
+                    handover::restore(&waiting_root, ticket);
+                }
                 report_declined(why, create, declined);
                 None
             }
@@ -101,6 +107,7 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
         number = terminations.next() => {
             if let Some(ticket) = &waiting_ticket {
                 dequeue(&waiting_root, ticket);
+                handover::forget(&waiting_root, ticket);
             }
             std::process::exit(128 + number)
         }

@@ -136,3 +136,31 @@ impl Frame {
         }))
     }
 }
+
+/// How a handed-over run ended, as the queue's host reads it from the taker's frames.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Received {
+    Exit(u8),
+    NotSynced(String),
+    /// The connection ended before an exit frame: the run is the queue's again, whether or not its command had started on the taker.
+    Lost(String),
+}
+
+/// Reads the taker's frames to their end: output to `output`, errors to `errors`, `started` once with the taker's name when the command begins.
+pub fn receive(peer: &mut impl Read, output: &mut dyn Write, errors: &mut dyn Write, started: &mut dyn FnMut(&str)) -> Received {
+    loop {
+        match Frame::read(peer) {
+            Ok(Some(Frame::Started(host))) => started(&host),
+            Ok(Some(Frame::Out(bytes))) => {
+                let _ = output.write_all(&bytes).and_then(|()| output.flush());
+            }
+            Ok(Some(Frame::Err(bytes))) => {
+                let _ = errors.write_all(&bytes).and_then(|()| errors.flush());
+            }
+            Ok(Some(Frame::Exit(code))) => return Received::Exit(code),
+            Ok(Some(Frame::NotSynced(why))) => return Received::NotSynced(why),
+            Ok(None) => return Received::Lost("the taking host ended the connection before the run's exit".to_owned()),
+            Err(error) => return Received::Lost(format!("the taking host's stream broke: {error}")),
+        }
+    }
+}

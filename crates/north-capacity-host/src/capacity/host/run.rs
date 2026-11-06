@@ -119,6 +119,9 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
     let mut reported = None;
     let mut quiet = QuietHolds::default();
     loop {
+        if let Some(door) = &handover {
+            door.tend();
+        }
         let result = decision(root, request, Some(create), Some(&ticket), host);
         let queued_seconds = round2((now_ms() - queued_at) / 1000.0);
         let result = result.put("queuedSeconds", num(queued_seconds));
@@ -158,6 +161,9 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
                 if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, on_deferred, host, terminations, Some(taker)).await {
                     dequeue(root, &ticket);
                     return Admitted::Offloaded(code);
+                }
+                if let Some(door) = &handover {
+                    door.give_back();
                 }
             }
             number = terminations.next() => {

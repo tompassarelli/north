@@ -1,5 +1,6 @@
-//! The queue side of the pull hand-over: a queued agent heavy run listens on a socket beside its ticket, and `north capacity host hand-over`, which a peer runs over its own ssh connection, releases the oldest such run by relaying that connection to it. This host reaches no peer; the peer reaches it.
+//! The queue side of the pull hand-over: a queued agent heavy run publishes a door (a socket beside its ticket), and `north capacity host hand-over`, which a peer runs over its own ssh connection, claims the oldest door by renaming it and relays that connection to the run. This host reaches no peer; the peer reaches it.
 
+use std::cell::Cell;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::AsFd;
@@ -16,17 +17,50 @@ use super::fail;
 
 const POLL_MILLISECONDS: u64 = 200;
 pub(super) const NOTHING_QUEUED: u8 = 3;
+/// How long a run whose taker failed it waits before it publishes its door again, so one failing taker cannot spin on it.
+pub(super) const REPUBLISH_AFTER: Duration = Duration::from_secs(15);
+
+fn stem(ticket: &str) -> String {
+    ticket.split('-').take(2).collect::<Vec<_>>().join("-")
+}
 
 /// Where a ticket's run listens: named by the ticket's arrival time and first uuid group, since a Unix socket path holds 107 bytes.
 pub(super) fn socket_path(root: &Path, ticket: &str) -> PathBuf {
-    let stem: String = ticket.split('-').take(2).collect::<Vec<_>>().join("-");
-    root.join("handover").join(format!("{stem}.sock"))
+    root.join("handover").join(format!("{}.sock", stem(ticket)))
 }
 
-/// A queued run's open door for a taking peer, closed when the run leaves the queue.
+/// The door's name once a peer has claimed it: the rename is the claim, so two peers never take one run.
+fn claimed_path(root: &Path, ticket: &str) -> PathBuf {
+    root.join("handover").join(format!("{}.claimed", stem(ticket)))
+}
+
+/// Where a handed-over run's ticket waits while a peer runs it, out of the queue so this host neither admits it nor holds later runs behind it, and back in the queue with its place if the peer fails it.
+fn aside_path(root: &Path, ticket: &str) -> PathBuf {
+    root.join("handover").join(ticket)
+}
+
+pub(super) fn set_aside(root: &Path, ticket: &str) {
+    let _ = std::fs::create_dir_all(root.join("handover"));
+    let _ = std::fs::rename(root.join("queue").join(ticket), aside_path(root, ticket));
+}
+
+pub(super) fn restore(root: &Path, ticket: &str) {
+    let _ = std::fs::rename(aside_path(root, ticket), root.join("queue").join(ticket));
+}
+
+/// Removes every file a run's hand-over made, for a run that leaves without dropping its door.
+pub(super) fn forget(root: &Path, ticket: &str) {
+    for path in [socket_path(root, ticket), claimed_path(root, ticket), aside_path(root, ticket)] {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// A queued run's door for a taking peer, closed when the run leaves the queue.
 pub(super) struct Listening {
     listener: tokio::net::UnixListener,
-    path: PathBuf,
+    root: PathBuf,
+    ticket: String,
+    republish_at: Cell<Option<Instant>>,
 }
 
 impl Listening {
@@ -35,20 +69,47 @@ impl Listening {
         std::fs::create_dir_all(path.parent()?).ok()?;
         let _ = std::fs::remove_file(&path);
         let listener = tokio::net::UnixListener::bind(&path).ok()?;
-        Some(Self { listener, path })
+        Some(Self { listener, root: root.to_path_buf(), ticket: ticket.to_owned(), republish_at: Cell::new(None) })
     }
 
     pub(super) async fn accept(&self) -> Option<UnixStream> {
         let (stream, _) = self.listener.accept().await.ok()?;
+        self.republish_at.set(None);
         let stream = stream.into_std().ok()?;
         stream.set_nonblocking(false).ok()?;
         Some(stream)
+    }
+
+    /// The claiming peer failed this run: its door opens again after `REPUBLISH_AFTER`.
+    pub(super) fn give_back(&self) {
+        self.republish_at.set(Some(Instant::now() + REPUBLISH_AFTER));
+    }
+
+    /// Publishes the door again once a failed claim's wait is over; a claim whose peer never connected counts as failed.
+    pub(super) fn tend(&self) {
+        self.tend_at(Instant::now());
+    }
+
+    pub(super) fn tend_at(&self, now: Instant) {
+        let (open, claimed) = (socket_path(&self.root, &self.ticket), claimed_path(&self.root, &self.ticket));
+        if open.exists() || !claimed.exists() {
+            return;
+        }
+        match self.republish_at.get() {
+            None => self.give_back(),
+            Some(at) if now >= at => {
+                if std::fs::rename(&claimed, &open).is_ok() {
+                    self.republish_at.set(None);
+                }
+            }
+            Some(_) => {}
+        }
     }
 }
 
 impl Drop for Listening {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+        forget(&self.root, &self.ticket);
     }
 }
 
@@ -63,11 +124,21 @@ pub(super) fn pullable(queue: &[Value]) -> Vec<&str> {
     names
 }
 
-/// Connects to the oldest queued run that answers, so the run is released to this caller alone.
+/// Claims the oldest queued run whose door is open and connects to it, so the run is released to this caller alone; a door whose run is gone is removed.
 pub(super) fn release(root: &Path) -> Option<(String, UnixStream)> {
     ensure_state(root);
     let queue = read_queue(root);
-    pullable(&queue).into_iter().find_map(|name| UnixStream::connect(socket_path(root, name)).ok().map(|stream| (name.to_owned(), stream)))
+    pullable(&queue).into_iter().find_map(|name| {
+        let claimed = claimed_path(root, name);
+        std::fs::rename(socket_path(root, name), &claimed).ok()?;
+        match UnixStream::connect(&claimed) {
+            Ok(stream) => Some((name.to_owned(), stream)),
+            Err(_) => {
+                let _ = std::fs::remove_file(&claimed);
+                None
+            }
+        }
+    })
 }
 
 fn standard(descriptor: std::os::fd::BorrowedFd<'_>) -> Option<File> {
