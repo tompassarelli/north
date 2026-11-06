@@ -6,6 +6,7 @@ use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use super::brief::{Fields, Source};
+use super::costs::Touched;
 use crate::foundation::clock::Timestamp;
 use crate::router::brief::CATEGORIES;
 use super::row::{Row, bind, python_repr, text, truthy, value};
@@ -109,6 +110,7 @@ pub(super) struct Tally {
     pub added: usize,
     pub backfilled: usize,
     pub samples: usize,
+    pub touched: Touched,
     pub hooks: usize,
     pub unpriced: BTreeSet<String>,
 }
@@ -187,10 +189,21 @@ impl Ingest<'_> {
         }
         for sample in r.get("usage_samples").and_then(Value::as_array).unwrap_or_default() {
             let field = |key: &str| bind(Some(sample.get(key).ok_or_else(|| Failure::Refused(format!("a usage sample has no {key}")))?));
-            self.tally.samples += self.db.execute(
-                "INSERT INTO run_usage(agent, request, ts, account, weight) VALUES (?,?,?,?,?) ON CONFLICT(agent, request) DO UPDATE SET ts=excluded.ts, account=excluded.account, weight=excluded.weight WHERE ts IS NOT excluded.ts OR account IS NOT excluded.account OR weight IS NOT excluded.weight",
-                params![r.required("id")?, field("request")?, field("ts")?, r.required("account")?, field("weight")?],
-            )?;
+            let (agent, request) = (r.required("id")?, field("request")?);
+            let before: Option<(String, String)> = self.db.query_row("SELECT account, ts FROM run_usage WHERE agent = ? AND request = ?", params![agent, request], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+            let after: Option<(String, String)> = self
+                .db
+                .query_row(
+                    "INSERT INTO run_usage(agent, request, ts, account, weight) VALUES (?,?,?,?,?) ON CONFLICT(agent, request) DO UPDATE SET ts=excluded.ts, account=excluded.account, weight=excluded.weight WHERE ts IS NOT excluded.ts OR account IS NOT excluded.account OR weight IS NOT excluded.weight RETURNING account, ts",
+                    params![agent, request, field("ts")?, r.required("account")?, field("weight")?],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            let Some(after) = after else { continue };
+            self.tally.samples += 1;
+            for (account, ts) in before.into_iter().chain([after]) {
+                self.tally.touched.add(account, &ts)?;
+            }
         }
         self.db.execute(
             "UPDATE runs SET account=?, model=coalesce(?, model), effort=coalesce(?, effort), fast=?, provider=coalesce(?, provider) WHERE agent=?",
@@ -353,6 +366,7 @@ impl Ingest<'_> {
             ],
         )?;
         self.tally.added += 1;
+        self.tally.touched.run(run.agent()?);
         Ok(())
     }
 
@@ -380,6 +394,7 @@ impl Ingest<'_> {
             self.event(item, "handoff", run, Value::object([("from", prev), ("to", run.id.clone())]))?;
         }
         self.tally.added += 1;
+        self.tally.touched.run(run.agent()?);
         Ok(())
     }
 }

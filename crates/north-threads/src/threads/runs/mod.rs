@@ -113,10 +113,10 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
         }
     }
     tx.commit()?;
-    let recorded = if readouts.is_empty() { 0 } else { costs::record(&mut db, &readouts)? };
+    let recorded = if readouts.is_empty() { 0 } else { costs::record(&mut db, &readouts, &mut tally.touched)? };
     let inputs_changed = recorded + tally.added + tally.samples > 0;
     if inputs_changed && db.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage'", [], |_| Ok(())).optional()?.is_some() {
-        costs::allocate(&mut db, &context.outside.prices()?)?;
+        costs::allocate(&mut db, &context.outside.prices()?, &tally.touched)?;
     }
     let backfilled = if tally.backfilled > 0 { format!(", {} backfilled", tally.backfilled) } else { String::new() };
     let hooks = if tally.hooks > 0 { format!(", {} hook verdicts", tally.hooks) } else { String::new() };
