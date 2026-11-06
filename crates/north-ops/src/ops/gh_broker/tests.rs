@@ -86,8 +86,13 @@ impl Harness {
     }
 
     fn send_as(&self, token: &str, method: &str, target: &str, body: &str) -> Response {
+        self.send_with(token, None, method, target, body)
+    }
+
+    fn send_with(&self, token: &str, etag: Option<&str>, method: &str, target: &str, body: &str) -> Response {
         let stream = UnixStream::connect(&self.socket).unwrap();
-        let headers = vec![("Host".to_owned(), "api.github.com".to_owned()), ("Authorization".to_owned(), token.to_owned()), ("Accept-Encoding".to_owned(), "gzip".to_owned())];
+        let mut headers = vec![("Host".to_owned(), "api.github.com".to_owned()), ("Authorization".to_owned(), token.to_owned()), ("Accept-Encoding".to_owned(), "gzip".to_owned())];
+        headers.extend(etag.map(|etag| ("If-None-Match".to_owned(), etag.to_owned())));
         write_request(&stream, &Request { method: method.to_owned(), target: target.to_owned(), headers, body: body.as_bytes().to_vec() }).unwrap();
         read_response(&stream).unwrap()
     }
@@ -130,6 +135,9 @@ fn a_repeat_read_is_answered_from_an_etag_304_costing_no_rate_limit() {
     assert_eq!((again.status, source(&again), again.body.as_slice()), (200, "revalidated", first.body.as_slice()));
     assert_eq!(*broker.github.seen.lock().unwrap(), [format!("GET {ISSUES} -"), format!("GET {ISSUES} {ETAG}")]);
     assert_eq!((broker.calls(), broker.github.charged.load(Ordering::SeqCst)), (2, 1), "the 304 spends no rate limit");
+    let fresh = Harness::start(Duration::ZERO);
+    let kept = fresh.send_with("token mirror", Some(ETAG), "GET", ISSUES, "");
+    assert_eq!((kept.status, fresh.github.charged.load(Ordering::SeqCst)), (304, 0), "a caller's own ETag still revalidates when the broker holds no copy");
 }
 
 #[test]

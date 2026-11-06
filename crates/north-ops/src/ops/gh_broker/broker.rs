@@ -109,7 +109,7 @@ impl Broker {
             }
             state = self.settled.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
-        let etag = state.cache.get(&key).and_then(|entry| entry.etag.clone());
+        let etag = state.cache.get(&key).and_then(|entry| entry.etag.clone()).or_else(|| request.header("if-none-match").map(str::to_owned));
         drop(state);
         let claim = Claim { broker: self, key };
         let response = self.upstream.send(request, etag.as_deref());
