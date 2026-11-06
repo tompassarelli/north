@@ -11,7 +11,6 @@ use north_base::foundation::exit::NO_VERDICT;
 const BESIDE_MISSING: u8 = NO_VERDICT;
 const SLOTS_BUSY: u8 = 96;
 const WAITED: &str = "offload: waited ";
-const RUNNING: &str = "offload: running ";
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 const LOCK_WAIT_SECONDS: u32 = 600;
 pub const SLOTS: u32 = 6;
@@ -215,7 +214,6 @@ pub(super) fn run(land: &Land) -> u8 {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let beside = beside::pin(land.command, &relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
     let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker, &beside.pins, &lander_slot];
-    let mut waiting = crate::capacity::deadline::SlotWait::begin(&crate::capacity::local_machine::runtime_root());
     let spawned = on_host(land.ssh, &script, &words, &["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", crate::platform::ssh::OWN_CONNECTION])
         .stdin(Stdio::from(bundle))
         .stdout(Stdio::piped())
@@ -224,7 +222,7 @@ pub(super) fn run(land: &Land) -> u8 {
         Ok(child) => child,
         Err(error) => return unreached(&format!("ssh: {error}")),
     };
-    let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker, || waiting.end()));
+    let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker));
     let exited = match child.wait() {
         Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()),
         Err(error) => return unreached(&format!("ssh: {error}")),
@@ -259,15 +257,12 @@ fn ran_marker(reference: &str) -> String {
     format!("north-offload-ran:{}", reference.rsplit('/').next().unwrap_or(reference))
 }
 
-/// Copies the remote's stdout through to `out` without the status line the remote script prints after the command it ran, calls `running` once the remote holds its slot and runs, and returns that status.
-fn relay(remote: impl std::io::BufRead, out: &mut impl std::io::Write, marker: &str, mut running: impl FnMut()) -> Option<u8> {
+/// Copies the remote's stdout through to `out` without the status line the remote script prints after the command it ran, and returns that status.
+fn relay(remote: impl std::io::BufRead, out: &mut impl std::io::Write, marker: &str) -> Option<u8> {
     let tag = format!("{marker} ");
     let mut ran = None;
     for line in remote.split(b'\n') {
         let Ok(line) = line else { break };
-        if line.starts_with(RUNNING.as_bytes()) {
-            running();
-        }
         let reported = String::from_utf8_lossy(&line).rfind(&tag).and_then(|at| std::str::from_utf8(&line[at + tag.len()..]).ok()?.parse::<u8>().ok().map(|code| (at, code)));
         let shown = match reported {
             Some((at, code)) => {

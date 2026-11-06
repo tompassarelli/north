@@ -18,7 +18,6 @@ const TIMED_OUT: u8 = 124;
 const KILLED: u8 = 137;
 const ANCESTRY_LIMIT: usize = 256;
 const DRIVEN_CLOCK: &str = "NORTH_CAPACITY_DEADLINE_CLOCK";
-const SLOT_WAITS: &str = "slot-waits";
 
 pub fn run(arguments: &[String]) -> u8 {
     let (wall, arguments) = match arguments.split_first() {
@@ -194,7 +193,7 @@ impl Clock {
 }
 
 fn queued_beneath(root: &Path) -> bool {
-    beneath(&root.join("queue"), |_| true) || beneath(&root.join(SLOT_WAITS), |_| true)
+    beneath(&root.join("queue"), |_| true)
 }
 
 fn frozen_beneath(root: &Path) -> bool {
@@ -251,39 +250,6 @@ fn report(program: &str, rest: &[String], timeout: Duration, waited: Option<Dura
         None => format!("north capacity deadline: {command} exceeded its {} s deadline; still running:", timeout.as_secs()),
     };
     format!("{headline}\n{}", super::process_tree::render(Path::new("/proc"), leader))
-}
-
-/// A wait for a build host's slot that a deadline above this process counts as waiting for capacity, as it counts this host's capacity queue; it ends when dropped, and a record left by a killed process names a pid no deadline descends from.
-pub struct SlotWait(Option<PathBuf>);
-
-impl SlotWait {
-    pub fn begin(root: &Path) -> Self {
-        let directory = root.join(SLOT_WAITS);
-        if fs::create_dir_all(&directory).is_err() {
-            return Self(None);
-        }
-        for record in fs::read_dir(&directory).into_iter().flatten().flatten() {
-            let path = record.path();
-            if path.file_stem().and_then(|stem| stem.to_str()).is_some_and(|pid| !Path::new("/proc").join(pid).exists()) {
-                let _ = fs::remove_file(path);
-            }
-        }
-        let me = std::process::id();
-        let file = directory.join(format!("{me}.json"));
-        Self(fs::write(&file, serde_json::json!({ "wrapperPid": me }).to_string()).is_ok().then_some(file))
-    }
-
-    pub fn end(&mut self) {
-        if let Some(file) = self.0.take() {
-            let _ = fs::remove_file(file);
-        }
-    }
-}
-
-impl Drop for SlotWait {
-    fn drop(&mut self) {
-        self.end();
-    }
 }
 
 #[cfg(test)]
