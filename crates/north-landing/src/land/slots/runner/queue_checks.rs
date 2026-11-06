@@ -2,6 +2,8 @@ use std::path::Path;
 
 use super::{Arguments, Config, affected, block_on, clippy_first, run_added, say};
 
+const NO_VERDICT: i32 = 75;
+
 pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), String> {
     let config = Config::load(root, head);
     let mut landing = config.commands(root, base, head)?;
@@ -16,6 +18,10 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), St
     let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), ..Arguments::default() };
     let status = block_on(run_added(root.to_owned(), arguments, config, commands)).map_err(|error| error.to_string())?;
     if status == 0 {
+        return Ok(());
+    }
+    if status == NO_VERDICT {
+        say("safe-push: a check before queueing reached no verdict (exit 75: no build host answered), which is not the lane's fault; queueing the lane");
         return Ok(());
     }
     let rerun = match clippy {

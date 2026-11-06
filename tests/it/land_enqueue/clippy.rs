@@ -39,4 +39,18 @@ fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass
     let second_log = format!("{}{}", String::from_utf8_lossy(&second.stdout), String::from_utf8_lossy(&second.stderr));
     assert!(second_log.contains("reused from the verdict cache"), "{second_log}");
     assert_eq!(runs(&counter), 1, "a cached pass for the same tree runs clippy no second time: {second_log}");
+    enqueue_queues_a_lane_whose_check_before_queueing_reached_no_verdict_because_no_build_host_answered();
+}
+
+fn enqueue_queues_a_lane_whose_check_before_queueing_reached_no_verdict_because_no_build_host_answered() {
+    let fixture = Fixture::new();
+    let command = "exit 75 # cargo clippy --all-targets -- -D warnings";
+    fs::write(fixture.repo.join(".safe-push"), format!("[land]\n\tafter = \"** :: {command}\"\n")).unwrap();
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "Add a clippy after-landing check no host can run"]);
+    let (output, _) = north_enqueue_with(&fixture, &[]);
+    let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(), "{log}");
+    assert!(log.contains("reached no verdict") && log.contains("queueing the lane"), "{log}");
+    assert!(written(&fixture.state).iter().any(|path| path.extension().is_some_and(|extension| extension == "json")), "{:?}", written(&fixture.state));
 }

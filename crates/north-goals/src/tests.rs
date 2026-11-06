@@ -48,6 +48,7 @@ fn a_contract_is_red_past_its_bound_debt_only_past_its_ceiling_and_a_debt_over_i
     let paying = vec!["README.md".to_owned(), "crates/north-landing/src/lib.rs".to_owned()];
     assert!(super::ceiling::unpaid(root, OWED, &paying).expect("goals parse").is_empty());
     assert!(super::ceiling::unpaid(root, &OWED.replace("echo 90", "echo 50"), &elsewhere).expect("goals parse").is_empty());
+    the_landing_debt_goal_reads_the_projected_wait_of_the_last_few_landings_and_admits_any_lane_once_it_is_under_its_ceiling();
 }
 
 #[test]
@@ -120,3 +121,18 @@ owner = "north#641"
 revisit = "a day over"
 "#;
 
+
+fn the_landing_debt_goal_reads_the_projected_wait_of_the_last_few_landings_and_admits_any_lane_once_it_is_under_its_ceiling() {
+    let goals = parse(include_str!("../../../goals.toml")).expect("the north goals parse");
+    let landing = goals.iter().find(|goal| goal.name == "landing-projected").expect("a landing projected-wait goal");
+    assert!(landing.oracle.contains("--metric landing-projected"), "{}", landing.oracle);
+    let last: usize = landing.oracle.split("--last ").nth(1).and_then(|rest| rest.split_whitespace().next()).and_then(|count| count.parse().ok()).expect("the oracle reads a fixed number of landings");
+    assert!(last <= 5, "a trailing window of {last} landings cannot recover while the gate holds landings back");
+    let debt = landing.debt.as_ref().expect("a debt goal has a ceiling");
+    let reading = |value: f64| format!("[[goal]]\nname = \"{}\"\nsource = \"{}\"\noracle = \"echo {value}\"\nunit = \"{}\"\nmax = {}\nclass = \"debt\"\nceiling = {}\nowner = \"{}\"\nrevisit = \"{}\"\npays = {:?}\n", landing.name, landing.source, landing.unit, landing.bound.limit(), debt.ceiling, debt.owner, debt.revisit, debt.pays);
+    let root = std::path::Path::new(".");
+    let elsewhere = vec!["README.md".to_owned()];
+    assert_eq!(super::ceiling::unpaid(root, &reading(debt.ceiling + 1.0), &elsewhere).expect("goals parse").len(), 1, "a projected wait over the ceiling refuses a lane that pays nothing");
+    assert!(super::ceiling::unpaid(root, &reading(debt.ceiling), &elsewhere).expect("goals parse").is_empty(), "a projected wait at the ceiling admits it");
+    assert!(super::ceiling::unpaid(root, &reading(0.0), &elsewhere).expect("goals parse").is_empty(), "an idle queue admits any lane");
+}

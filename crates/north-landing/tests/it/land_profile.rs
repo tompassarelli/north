@@ -12,6 +12,7 @@ fn near(actual: f64, expected: f64) -> bool {
 fn the_profile_splits_a_trace_by_category_and_an_old_slow_backlog_outside_the_last_twenty_landings_does_not_refuse_a_lane() {
     a_fixture_trace_splits_queued_at_to_push_by_category_and_reports_verification_after_the_push();
     an_old_slow_backlog_outside_the_last_twenty_landings_does_not_refuse_a_lane();
+    the_projected_wait_reads_the_last_landings_service_time_times_the_queue_ahead_so_an_idle_queue_recovers_from_a_slow_hour();
 }
 
 fn a_fixture_trace_splits_queued_at_to_push_by_category_and_reports_verification_after_the_push() {
@@ -80,4 +81,34 @@ fn an_old_slow_backlog_outside_the_last_twenty_landings_does_not_refuse_a_lane()
     assert!(median(trace.latest(0.0, None)) > ceiling, "the whole day reads the backlog");
     assert_eq!(trace.latest(0.0, Some(20)).len(), 20);
     assert!(near(median(trace.latest(0.0, Some(20))), 60.0), "the last twenty landings read only the recent runs");
+}
+
+fn the_projected_wait_reads_the_last_landings_service_time_times_the_queue_ahead_so_an_idle_queue_recovers_from_a_slow_hour() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("spans.jsonl");
+    let lines: Vec<String> = (0..30)
+        .flat_map(|index| {
+            let start = 1000.0 * f64::from(index);
+            let (queued, served) = if index < 25 { (120.0, 80.0) } else { (4.0, 12.0) };
+            [
+                format!(r#"{{"trace":"t{index}","id":"landing:{index}","name":"lane-{index}","category":"landing","start":{start},"end":{},"attributes":{{"landed":"c{index}"}}}}"#, start + queued + served),
+                format!(r#"{{"trace":"t{index}","id":"queued:{index}","parent":"landing:{index}","name":"queued","category":"queue","start":{start},"end":{}}}"#, start + queued),
+            ]
+        })
+        .collect();
+    std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+    let spans = Spans::at(&path).read();
+    let trace = Trace::of(&spans);
+    let read = |metric: &str, last: usize, pending: usize| {
+        let profiles: Vec<_> = trace.latest(0.0, Some(last)).into_iter().map(|landing| trace.profile(landing)).collect();
+        Metric::parse(metric).unwrap().value_behind(&profiles, pending)
+    };
+    let ceiling = 60.0;
+    assert!(read("landing-p50", 20, 0) > ceiling, "the median of the last twenty landings still reads the slow hour");
+    assert!(near(read("landing-projected", 5, 0), 12.0), "an idle queue costs one landing's service time");
+    assert!(read("landing-projected", 5, 0) <= ceiling, "so the gate admits any lane");
+    assert!(near(read("landing-projected", 5, 3), 48.0), "three tickets ahead make four services");
+    assert!(read("landing-projected", 5, 5) > ceiling, "a queue deep enough to break the contract refuses a lane that pays nothing");
+    assert!(near(read("landing-projected", 30, 0), 80.0), "a window that keeps the slow hour still reads it");
+    assert!(near(read("landing-projected", 5, 0), Metric::parse("landing-projected").unwrap().value(&trace.latest(0.0, Some(5)).into_iter().map(|landing| trace.profile(landing)).collect::<Vec<_>>())), "value reads an empty queue");
 }

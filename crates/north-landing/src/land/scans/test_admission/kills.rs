@@ -93,23 +93,33 @@ fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, 
             return code;
         }
     }
-    let Some(host) = host.or_else(|| choose(directory)) else {
+    let hosts = hosts(directory, host);
+    if hosts.is_empty() {
         let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: no build host has room (north capacity offload choose --any) and .safe-push declares no landing.remote-hosts");
         return UNAVAILABLE;
-    };
+    }
     let command = format!("{remote} land scan test-admission kills --here {}..{}", lane.base, lane.head);
-    let _ = writeln!(out, "mutant kill: running cargo-mutants over the lane's diff on {host}, capped at {cap} s, for {}", lane.names.iter().cloned().collect::<Vec<_>>().join(", "));
-    let ran = Command::new(north_base::platform::north_binary::north_binary())
-        .current_dir(directory)
-        .args(["capacity", "offload", "run", "--host", &host, "--base", &lane.base, "--head", &lane.head, "--timeout", &(cap + SHIP_SECONDS).to_string(), "--", &command])
-        .stdin(Stdio::null())
-        .stderr(Stdio::inherit())
-        .output();
-    let Ok(output) = ran else {
-        let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: north capacity offload run did not start");
-        return UNAVAILABLE;
-    };
-    let _ = out.write_all(&output.stdout);
+    let mut attempt = None;
+    for host in &hosts {
+        let _ = writeln!(out, "mutant kill: running cargo-mutants over the lane's diff on {host}, capped at {cap} s, for {}", lane.names.iter().cloned().collect::<Vec<_>>().join(", "));
+        let ran = Command::new(north_base::platform::north_binary::north_binary())
+            .current_dir(directory)
+            .args(["capacity", "offload", "run", "--host", host, "--base", &lane.base, "--head", &lane.head, "--timeout", &(cap + SHIP_SECONDS).to_string(), "--", &command])
+            .stdin(Stdio::null())
+            .stderr(Stdio::inherit())
+            .output();
+        let Ok(output) = ran else {
+            let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: north capacity offload run did not start");
+            return UNAVAILABLE;
+        };
+        let reached = matches!(output.status.code(), Some(0 | 1));
+        let _ = out.write_all(&output.stdout);
+        attempt = Some((host, output));
+        if reached {
+            break;
+        }
+    }
+    let Some((host, output)) = attempt else { return UNAVAILABLE };
     let verdict: String = String::from_utf8_lossy(&output.stdout).lines().filter(|line| line.starts_with("mutant kill:") || line.starts_with("safe-push: ✗ mutant kill")).map(|line| format!("{line}\n")).collect();
     let code = match output.status.code() {
         Some(0) if !verdict.is_empty() => 0,
@@ -120,6 +130,21 @@ fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, 
         let _ = fs::create_dir_all(&store).and_then(|()| fs::write(store.join(key), format!("{code}\n{verdict}")));
     }
     code
+}
+
+/// The hosts to try in order: the named one alone, else the one with room followed by every other declared build host.
+fn hosts(directory: &Path, named: Option<String>) -> Vec<String> {
+    if let Some(named) = named {
+        return vec![named];
+    }
+    let mut hosts: Vec<String> = choose(directory).into_iter().collect();
+    let declared = git::text(directory, &["config", "--file", ".safe-push", "--get", "landing.remote-hosts"]).unwrap_or_default();
+    for host in declared.split_whitespace() {
+        if !hosts.iter().any(|known| known == host) {
+            hosts.push(host.to_owned());
+        }
+    }
+    hosts
 }
 
 fn choose(directory: &Path) -> Option<String> {

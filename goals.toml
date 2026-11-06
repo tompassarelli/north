@@ -1,13 +1,13 @@
 [[goal]]
-name = "landing-p50"
+name = "landing-projected"
 source = "README.md: North adds a safe landing path to main; speed targets set 2026-11-06 for north#634"
-oracle = "north land profile --since 24h --last 20 --repo north --metric landing-p50"
+oracle = "north land profile --since 24h --last 5 --repo north --metric landing-projected"
 unit = "s"
 max = 20
 class = "debt"
 ceiling = 60
 owner = "tompassarelli/north#641"
-revisit = "the queued_at-to-push p50 of the last 20 landings stays over 60 s for a week"
+revisit = "the projected wait of a lane arriving now, the median service time of the last 5 landings times the tickets queued plus one, stays over 60 s for a week"
 pays = ["crates/north-landing/", "crates/north-safe-push/"]
 
 [[goal]]
