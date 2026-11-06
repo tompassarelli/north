@@ -2,7 +2,7 @@ use std::env;
 use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
-use crate::{agent_catalog, foundation, build_cache_gate, contract_probe, grounding, guard, health, hook, language_gate, nix_explain, runtime_floor_gate, work_items};
+use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, language_gate, nix_explain, runtime_floor_gate, work_items};
 
 mod abandon_witness;
 mod mutant_issues;
@@ -15,6 +15,7 @@ mod token_usage;
 mod fleet;
 mod gate;
 mod hook_stats;
+mod hook_verb;
 mod ledger;
 mod nix;
 mod orders;
@@ -163,50 +164,13 @@ pub fn main() -> ExitCode {
     }
 }
 
-const GUARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(8);
-
-fn hook_command(arguments: Vec<String>) -> ExitCode {
-    let reported = |outcome: Result<(), String>| match outcome {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(message) => {
-            eprintln!("{message}");
-            ExitCode::from(2)
-        }
-    };
-    match arguments.first().map(String::as_str) {
-        Some("stats") => reported(hook_stats::run(&arguments[1..])),
-        Some("prompt-grounding") => {
-            grounding::prompt_hook(|| guard::activation::authoring_guards_off("prompt-grounding"), grounded_session);
-            ExitCode::SUCCESS
-        }
-        _ => {
-            guard::worker_lease::install_confirm(crate::pacing::confirm_spawn);
-            guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home });
-            let started = std::time::Instant::now();
-            match foundation::hook_deadline::within(started + GUARD_DEADLINE, move || hook::run(&arguments)) {
-                Some(outcome) => reported(outcome),
-                None => {
-                    foundation::hook_deadline::record_error(&foundation::hook_deadline::errors_file(), "north-hook", "deadline");
-                    ExitCode::SUCCESS
-                }
-            }
-        }
-    }
-}
-
-fn grounded_session(conversation: &str) -> bool {
-    let named = std::env::var("NORTH_FLEET_SESSION").ok();
-    let entrypoint = std::env::var("CLAUDE_CODE_ENTRYPOINT").ok();
-    crate::fleet::audience::grounded(&crate::fleet::audience::fleet_dir(), named.as_deref(), conversation, entrypoint.as_deref())
-}
-
 fn dispatch(command: Command) -> ExitCode {
     match command {
         Command::DesktopIdleState(state) => match state {
             Some(value) if guard::desktop_action::record_idle(value == "idle").is_ok() => ExitCode::SUCCESS,
             _ => ExitCode::from(1),
         },
-        Command::Hook(arguments) => hook_command(arguments),
+        Command::Hook(arguments) => hook_verb::run(arguments),
         Command::Nix(arguments) => match nix_explain::run(&arguments) {
             Ok(text) => {
                 println!("{text}");
@@ -259,7 +223,7 @@ fn dispatch(command: Command) -> ExitCode {
             Err(error) => failure(error),
         },
         Command::Grounding(arguments) => in_runtime(async move {
-            grounding::main(&arguments, &grounded_session).map(|code| ExitCode::from(code as u8))
+            grounding::main(&arguments, &hook_verb::grounded_session).map(|code| ExitCode::from(code as u8))
         }),
     }
 }

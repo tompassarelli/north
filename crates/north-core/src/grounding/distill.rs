@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::common::{state_dir, SQLITE_BUSY};
+use super::js_text::{js_space, squash, utf16_head, utf16_len, utf16_tail};
 use crate::threads::incidents::corrections;
 use crate::foundation::redact::redact;
 use crate::platform::sqlite::{self, Access};
@@ -252,44 +253,6 @@ fn stop_words() -> &'static HashSet<&'static str> {
     static SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
     SET.get_or_init(|| STOP.split_whitespace().collect())
 }
-
-fn js_space(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\x0B' | '\x0C' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}'
-        | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
-}
-
-fn squash(s: &str) -> String {
-    s.split(js_space).filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" ")
-}
-
-fn utf16_len(s: &str) -> usize {
-    s.encode_utf16().count()
-}
-
-fn utf16_head(s: &str, units: usize) -> String {
-    let mut out = String::new();
-    let mut used = 0;
-    for c in s.chars() {
-        used += c.len_utf16();
-        if used > units {
-            break;
-        }
-        out.push(c);
-    }
-    out
-}
-
-fn utf16_tail(s: &str, units: usize) -> &str {
-    let mut used = 0;
-    for (i, c) in s.char_indices().rev() {
-        used += c.len_utf16();
-        if used > units {
-            return &s[i + c.len_utf8()..];
-        }
-    }
-    s
-}
-
 
 pub fn parse_since(s: &str, now: f64) -> Option<f64> {
     if let Some(c) = since_re().captures(s) {

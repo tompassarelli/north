@@ -2,6 +2,7 @@ pub mod bearing;
 pub mod common;
 pub mod compose;
 pub mod distill;
+mod js_text;
 pub mod score;
 pub mod store;
 use compose as render;
