@@ -219,16 +219,27 @@ fn same_window(a: Option<&str>, b: Option<&str>) -> Result<bool, Failure> {
     }
 }
 
-/// Whether the scan's plateau stays put from `earlier` to `later`: the same window at the same level.
-fn level(earlier: &Reading, later: &Reading) -> Result<bool, Failure> {
-    Ok(same_window(earlier.resets.as_deref(), later.resets.as_deref())? && later.used - earlier.used == 0.0)
+/// What the scan does from one reading to the next: a new window or a drop starts a new plateau, the
+/// same level keeps it, and a rise ends an interval.
+enum Step {
+    Reset,
+    Level,
+    Rise(f64),
 }
 
-/// The cost-window readouts in rowid order, with `only` one account's, from the given moment on when there is one.
-fn readings_query(only: Option<(&str, Option<Timestamp>)>) -> (String, Vec<Sql>) {
-    let mut sql = "SELECT provider, account, ts, used_pct, resets_at FROM usage WHERE kind = 'window' AND used_pct IS NOT NULL AND name IN (?, ?, ?)".to_owned();
+fn step(earlier: &Reading, later: &Reading) -> Result<Step, Failure> {
+    if !same_window(earlier.resets.as_deref(), later.resets.as_deref())? || later.used < earlier.used {
+        return Ok(Step::Reset);
+    }
+    let change = later.used - earlier.used;
+    Ok(if change == 0.0 { Step::Level } else { Step::Rise(change) })
+}
+
+/// The cost-window readouts, with `account` only that account's.
+fn readings_filter(account: Option<&str>) -> (String, Vec<Sql>) {
+    let mut sql = "FROM usage WHERE kind = 'window' AND used_pct IS NOT NULL AND name IN (?, ?, ?)".to_owned();
     let mut bound: Vec<Sql> = COST_WINDOWS.iter().map(|name| Sql::Text((*name).to_owned())).collect();
-    if let Some((account, since)) = only {
+    if let Some(account) = account {
         let (provider, name) = account.strip_prefix("claude-").map_or((account, None), |name| ("claude", Some(name)));
         sql += " AND provider = ?";
         bound.push(Sql::Text(provider.to_owned()));
@@ -236,13 +247,31 @@ fn readings_query(only: Option<(&str, Option<Timestamp>)>) -> (String, Vec<Sql>)
             sql += " AND account = ?";
             bound.push(Sql::Text(name.to_owned()));
         }
-        if let Some(since) = since {
-            sql += " AND ts >= ?";
-            bound.push(Sql::Text(minute_bound(since)));
-        }
+    }
+    (sql, bound)
+}
+
+/// The cost-window readouts in rowid order, with `only` one account's, from the given moment on when there is one.
+fn readings_query(only: Option<(&str, Option<Timestamp>)>) -> (String, Vec<Sql>) {
+    let (filter, mut bound) = readings_filter(only.map(|(account, _)| account));
+    let mut sql = format!("SELECT provider, account, ts, used_pct, resets_at {filter}");
+    if let Some(since) = only.and_then(|(_, since)| since) {
+        sql += " AND ts >= ?";
+        bound.push(Sql::Text(minute_bound(since)));
     }
     sql += " ORDER BY rowid";
     (sql, bound)
+}
+
+/// The latest reading before `since` at another level than the last reading before it: where the
+/// plateau the scan stands on at `since` most likely began.
+fn last_change(db: &Connection, account: &str, since: Timestamp) -> Result<Option<Timestamp>, Failure> {
+    let (filter, bound) = readings_filter(Some(account));
+    let before = Sql::Text(since.iso());
+    let latest: Option<f64> = db.query_row(&format!("SELECT used_pct {filter} AND ts < ? ORDER BY ts DESC LIMIT 1"), params_from_iter(bound.iter().chain([&before])), |row| row.get(0)).optional()?;
+    let Some(latest) = latest else { return Ok(None) };
+    let changed: Option<String> = db.query_row(&format!("SELECT max(ts) {filter} AND ts < ? AND used_pct IS NOT ?"), params_from_iter(bound.iter().chain([&before, &Sql::Real(latest)])), |row| row.get(0))?;
+    changed.map(|ts| moment(&ts)).transpose()
 }
 
 /// Each account's readings sorted by time, the last reading at a timestamp replacing earlier ones in
@@ -313,17 +342,34 @@ fn intervals(db: &Connection, prices: &BTreeMap<String, f64>, only: Option<(&str
         return Ok(fresh);
     };
     let Some(&price) = prices.get(account) else { return Ok(fresh) };
-    let mut days = 1;
-    let (readings, start) = loop {
-        let whole = days > WIDEST_LOOKBACK_DAYS;
-        let from = Some((account, (!whole).then(|| days_before(since, days))));
-        let readings = windows(db, from)?.into_iter().find(|(name, _)| name == account).map(|(_, readings)| readings).unwrap_or_default();
-        if let Some(start) = plateau(&readings, since, whole)? {
-            break (readings, start);
+    let changed = last_change(db, account, since)?.map(|at| Timestamp::from_unix_nanos(at.unix_nanos() - 60_000_000_000));
+    let mut cuts: Vec<Timestamp> = changed.into_iter().collect();
+    for days in [1, 4, 16, WIDEST_LOOKBACK_DAYS] {
+        let cut = days_before(since, days);
+        if cuts.last().is_none_or(|last| cut < *last) {
+            cuts.push(cut);
         }
-        days *= 4;
+    }
+    let account_readings = |cut| -> Result<Vec<Reading>, Failure> { Ok(windows(db, Some((account, cut)))?.into_iter().find(|(name, _)| name == account).map(|(_, readings)| readings).unwrap_or_default()) };
+    let (readings, start) = 'found: {
+        for cut in cuts {
+            let readings = account_readings(Some(cut))?;
+            if let Some(start) = plateau(&readings, since, false)? {
+                break 'found (readings, start);
+            }
+        }
+        let readings = account_readings(None)?;
+        let start = plateau(&readings, since, true)?.unwrap_or_default();
+        (readings, start)
     };
     let Some(initial) = readings.get(start) else { return Ok(fresh) };
+    let mut rising = false;
+    for pair in readings[start..].windows(2) {
+        rising |= matches!(step(&pair[0], &pair[1])?, Step::Rise(_));
+    }
+    if !rising {
+        return Ok(fresh);
+    }
     let by_account = samples(db, Some((account, initial.at)))?;
     rises(&mut fresh, account, &readings[start..], by_account.get(account).map_or(&[][..], Vec::as_slice), price)?;
     Ok(fresh)
@@ -334,7 +380,7 @@ fn intervals(db: &Connection, prices: &BTreeMap<String, f64>, only: Option<(&str
 /// loaded reading and `whole` says the readings are not the account's whole history.
 fn plateau(readings: &[Reading], since: Timestamp, whole: bool) -> Result<Option<usize>, Failure> {
     let mut start = readings.partition_point(|reading| reading.at < since).saturating_sub(1);
-    while start > 0 && level(&readings[start - 1], &readings[start])? {
+    while start > 0 && matches!(step(&readings[start - 1], &readings[start])?, Step::Level) {
         start -= 1;
     }
     Ok((start > 0 || whole).then_some(start))
@@ -345,15 +391,15 @@ fn plateau(readings: &[Reading], since: Timestamp, whole: bool) -> Result<Option
 fn rises(fresh: &mut Costs, account: &str, readings: &[Reading], events: &[Sample], price: f64) -> Result<(), Failure> {
     let mut plateau = 0;
     for after in 1..readings.len() {
-        let (earlier, later) = (&readings[after - 1], &readings[after]);
-        if !same_window(earlier.resets.as_deref(), later.resets.as_deref())? || later.used < earlier.used {
-            plateau = after;
-            continue;
-        }
-        let change = later.used - earlier.used;
-        if change == 0.0 {
-            continue;
-        }
+        let later = &readings[after];
+        let change = match step(&readings[after - 1], later)? {
+            Step::Reset => {
+                plateau = after;
+                continue;
+            }
+            Step::Level => continue,
+            Step::Rise(change) => change,
+        };
         let initial = &readings[plateau];
         let first = events.partition_point(|sample| sample.at <= initial.at);
         let last = events.partition_point(|sample| sample.at <= later.at).max(first);
@@ -411,5 +457,28 @@ mod tests {
         let mut touched = super::Touched::default();
         assert!(touched.add("claude-a".to_owned(), "2026-11-06T10:00:30.250Z").is_ok());
         assert!(touched.add("claude-a".to_owned(), "2026-11-06T12:00:30+02:00").is_err());
+    }
+
+    #[test]
+    fn a_level_readout_re_prices_without_reading_the_account_s_samples_and_a_rise_reads_them() {
+        let mut db = Connection::open_in_memory().unwrap();
+        db.execute_batch(crate::threads::fixtures::LEDGER_SCHEMA).unwrap();
+        usage_table::ensure(&db).unwrap();
+        let read = |db: &Connection, minute: u32, used: f64| {
+            db.execute("INSERT INTO usage(ts, provider, account, kind, name, used_pct, resets_at) VALUES (?, 'claude', 'a', 'window', 'weekly_all', ?, '2026-11-12T00:00:00Z')", rusqlite::params![format!("2026-11-06T10:{minute:02}:00Z"), used]).unwrap();
+        };
+        read(&db, 0, 50.0);
+        let prices = std::collections::BTreeMap::from([("claude-a".to_owned(), 100.0)]);
+        super::allocate(&mut db, &prices, &super::Touched::default()).unwrap();
+        db.execute("INSERT INTO run_usage(agent, request, ts, account, weight) VALUES ('run', 'request', 'unreadable', 'claude-a', 1.0)", []).unwrap();
+        let touch = |minute: u32| {
+            let mut touched = super::Touched::default();
+            touched.add("claude-a".to_owned(), &format!("2026-11-06T10:{minute:02}:00Z")).unwrap();
+            touched
+        };
+        read(&db, 1, 50.0);
+        assert!(super::allocate(&mut db, &prices, &touch(1)).is_ok());
+        read(&db, 2, 51.0);
+        assert!(super::allocate(&mut db, &prices, &touch(2)).is_err());
     }
 }
