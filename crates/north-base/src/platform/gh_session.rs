@@ -17,8 +17,8 @@ A call costs 1 unit, --paginate 20, --limit N one per 100 rows; help, version an
 A call past the budget is refused with exit 75 and a message naming the spend and when it frees.
 Budget: ${NORTH_GH_HOURLY_BUDGET:-400} units per rolling hour, counted in
 ${XDG_RUNTIME_DIR}/north-gh-budget/SESSION. Outside a fleet session (no NORTH_FLEET_SESSION)
-REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its budget tells the proxy once
-(north github budget lists every session's spend and the top callers).";
+REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its budget tells that session once,
+and only a call refused at 100% tells the proxy (north github budget lists every session's spend and the top callers).";
 
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 const BUDGET_ENV: &str = "NORTH_GH_HOURLY_BUDGET";
@@ -58,9 +58,7 @@ pub fn run(arguments: &[String]) -> u8 {
     match prepare(real, rest, &session, budget, &ledger, Timestamp::now().unix_seconds(), mint) {
         Ok(mut command) => match super::gh_broker_route::route(&mut command) {
             Ok(()) => {
-                if let Some(percent) = alarm_crossed(before, cost(rest), budget) {
-                    tell_proxy(&session, percent, before + cost(rest), budget);
-                }
+                send(budget_notices(&session, before, cost(rest), budget));
                 exec(command)
             }
             Err(message) => {
@@ -70,6 +68,7 @@ pub fn run(arguments: &[String]) -> u8 {
         },
         Err(Refusal::Budget(message)) => {
             eprintln!("north gh-session: {message}");
+            send(budget_notices(&session, before, cost(rest), budget));
             REFUSED
         }
         Err(Refusal::Token(message)) => {
@@ -109,12 +108,23 @@ fn alarm_crossed(before: u32, units: u32, budget: u32) -> Option<u32> {
     ALARM_PERCENTS.into_iter().filter(|percent| !reached(*percent, before) && reached(*percent, before + units)).max()
 }
 
-fn tell_proxy(session: &str, percent: u32, used: u32, budget: u32) {
-    let message = format!("north gh-session: session {session} reached {percent}% of its GitHub budget ({used} of {budget} units this hour); at 100% its gh calls are refused until the oldest spend frees (north github budget lists the callers)");
+fn budget_notices(session: &str, before: u32, units: u32, budget: u32) -> Vec<(String, String)> {
+    if units > 0 && before + units > budget {
+        return vec![(PROXY.to_owned(), format!("north gh-session: session {session} was refused a gh call at 100% of its GitHub budget ({before} of {budget} units this hour, the call costs {units}); its gh calls stay refused until the oldest spend frees (north github budget lists the callers)"))];
+    }
+    alarm_crossed(before, units, budget)
+        .map(|percent| (session.to_owned(), format!("north gh-session: you reached {percent}% of your GitHub budget ({} of {budget} units this hour); at 100% your gh calls are refused until the oldest spend frees (north github budget lists the callers)", before + units)))
+        .into_iter()
+        .collect()
+}
+
+fn send(notices: Vec<(String, String)>) {
     let Ok(program) = std::env::current_exe() else {
         return;
     };
-    let _ = Command::new(program).args(["fleet", "send", "--from", "service:north-gh-budget", PROXY, &message]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn();
+    for (recipient, message) in notices {
+        let _ = Command::new(&program).args(["fleet", "send", "--from", "service:north-gh-budget", &recipient, &message]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn();
+    }
 }
 
 fn ledger_path(session: &str) -> PathBuf {

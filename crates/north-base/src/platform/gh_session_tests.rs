@@ -55,12 +55,15 @@ fn the_hourly_share_refuses_a_call_with_the_spend_and_when_it_frees_counts_a_rol
     assert!(prepare("gh", &words(&["issue", "view", "1"]), "worker-1", 1, &window, 1000 + WINDOW_SECONDS - 1, token).is_err());
     assert!(prepare("gh", &words(&["issue", "view", "1"]), "worker-1", 1, &window, 1000 + WINDOW_SECONDS, token).is_ok(), "spend older than an hour no longer counts");
 
-    assert_eq!(alarm_crossed(0, 1, 10), None);
-    assert_eq!(alarm_crossed(4, 1, 10), Some(50));
-    assert_eq!(alarm_crossed(5, 1, 10), None);
-    assert_eq!(alarm_crossed(7, 1, 10), Some(80));
-    assert_eq!(alarm_crossed(4, 5, 10), Some(80), "one call over both lines tells the proxy the higher one");
-    assert_eq!(alarm_crossed(8, 1, 10), None);
+    let to = |before, units| budget_notices("worker-1", before, units, 10).into_iter().map(|(recipient, _)| recipient).collect::<Vec<_>>();
+    assert!(to(0, 1).is_empty());
+    assert_eq!(to(4, 1), ["worker-1"], "50% tells the spending session, not the proxy");
+    assert!(to(5, 1).is_empty());
+    assert_eq!(to(7, 1), ["worker-1"], "80% tells the spending session, not the proxy");
+    assert!(budget_notices("worker-1", 4, 5, 10)[0].1.contains("80%"), "one call over both lines names the higher one");
+    assert!(to(8, 1).is_empty());
+    assert_eq!(to(10, 1), ["proxy"], "only a refusal at 100% reaches the proxy");
+    assert!(to(10, 0).is_empty(), "a free call is never refused");
 }
 
 #[test]
