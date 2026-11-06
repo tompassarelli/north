@@ -17,7 +17,7 @@ use north_github_mirror as github_mirror;
 use north_tui::tui;
 use north_ops::ops;
 use north_runtime::{agent_contain, build_offload, land_offload, laptop_ntfy, laptop_runner, offload_cache, privacy, runtime, runtime_access, timers};
-use north_dispatch::{dispatch, laptop, loops, pacing, resident_cap, tune};
+use north_dispatch::{dispatch, laptop, loops, pacing, resident_cap, spend, tune};
 
 static RUN_TIME_READERS: [run_time_data::Consumer; 6] = [
     run_time_data::Consumer { path: "harness/defaults.toml", validate: router::policy::validate_defaults },
@@ -31,8 +31,8 @@ static RUN_TIME_READERS: [run_time_data::Consumer; 6] = [
 fn main() -> std::process::ExitCode {
     run_time_data::install(&RUN_TIME_READERS);
     pacing::spawn_gate::install(pacing::spawn_gate::SpawnGate {
-        summary: || guard::spawn_capacity::gate_summary(&guard::spawn_capacity::Live { pace: pacing::answer }),
-        launch_capacity: || guard::spawn_capacity::launch_capacity(&guard::spawn_capacity::Live { pace: pacing::answer }),
+        summary: || guard::spawn_capacity::gate_summary(&guard::spawn_capacity::Live),
+        launch_capacity: || guard::spawn_capacity::launch_capacity(&guard::spawn_capacity::Live),
         launch_verdict: guard::spawn_capacity::launch_verdict,
     });
     platform::stdio::with_blocking_outputs(|| {

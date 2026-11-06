@@ -13,8 +13,6 @@ pub struct Case {
     pub config: Config,
     pub credit: Credit,
     pub usage: Usage,
-    /// `accounts.NAME.target.by` from pace-control.json, for each account that has one.
-    pub pace: BTreeMap<String, String>,
     pub roster: BTreeMap<String, Standing>,
     pub machines: Vec<Machine>,
     pub here: Here,
@@ -186,6 +184,6 @@ pub enum Outcome {
 #[serde(rename_all = "snake_case")]
 pub enum Refusal {
     Saturated,
-    Exhausted,
+    Spend,
     Final,
 }

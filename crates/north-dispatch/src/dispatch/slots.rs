@@ -1,8 +1,8 @@
 //! Free worker slots: a host has its resident cap minus the sessions it runs, no more than the builds
-//! its admission queue takes, and an account has no more than pace's `allowed_workers` leaves it;
-//! an account the out-rule keeps out has none.
+//! its admission queue takes. Whether an account may take a worker is the spend rule's call
+//! (`crate::spend`), which counts the workers this run has started.
 pub use crate::pacing::placement::room::{Charge, PlanSize, Room};
-pub use crate::pace::projection::Reading;
+use crate::spend::{Placed, Rules, Starter, View};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -64,43 +64,28 @@ impl Host {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Account {
-    /// `provider:label`, as pace-control names it.
+    /// `provider:label`, as the usage readings name it.
     pub name: String,
     /// Hosts the account is signed in on.
     pub hosts: Vec<String>,
     /// Plan size per window in Max 5x units (`[accounts.PROVIDER] plans`), which puts every account's percent on one scale.
     pub plan: PlanSize,
     pub room: Room,
-    /// Whether a pace spend target (`[pace."A"] spend_to_pct` by `by`) is live for the account.
-    pub spending: bool,
-    /// Why the out-rule keeps the account out, if it does.
-    pub refusal: Option<String>,
-    /// Its measured five-hour burn in its own percent per hour, when its trail spans two readings.
-    pub burn: Option<f64>,
-    /// Its five-hour and week windows as usage-gate reads them, which a launch's projection starts from.
-    pub readings: Vec<Reading>,
-    /// The new sessions pace-control leaves it, held or not: its `allowed_workers` less the sessions
-    /// working on it; None when pace names no `allowed_workers` for it.
-    pub workers: Option<i64>,
 }
 
 impl Account {
-    pub fn open(&self) -> Result<(), String> {
-        self.refusal.clone().map_or(Ok(()), Err)
-    }
-
     pub fn provider(&self) -> &str {
         self.name.split_once(':').map_or(self.name.as_str(), |(provider, _)| provider)
     }
 
-    pub fn line(&self) -> String {
-        let state = match self.open() {
-            Ok(()) => "open".to_owned(),
-            Err(why) => format!("out: {why}"),
+    pub fn line(&self, spend: &View, rules: &Rules) -> String {
+        let state = match spend.admit(rules, &self.name, Starter::Reserved, Placed::default()) {
+            Ok(()) => spend.trips.iter().find(|trip| trip.account == self.name).map_or_else(|| "open".to_owned(), |trip| format!("tripped: {}", trip.line)),
+            Err(refusal) => format!("out: {refusal}"),
         };
         let room = &self.room;
         format!(
-            "account {}: {state}; plan {} x Max 5x in the 5h window and {} x in the week; {:.0} points to the 5h stop, {:.0} left in the week, which resets in {:.0} h; signed in on {}",
+            "account {}: {state}; plan {} x Max 5x in the 5h window and {} x in the week; {:.0} points left in the 5h window, {:.0} in the week, which resets in {:.0} h; signed in on {}",
             self.name,
             self.plan.five_hour,
             self.plan.week,
@@ -108,7 +93,7 @@ impl Account {
             room.week,
             room.week_reset_h,
             self.hosts.join(", ")
-        ) + &self.workers.map_or_else(String::new, |free| format!("; pace's allowed_workers leaves it {free} more sessions"))
+        )
     }
 }
 
@@ -118,12 +103,12 @@ pub struct Pools {
     hosts: BTreeMap<String, i64>,
     /// Builds each host's admission queue still takes this run, for hosts with a backlog reading.
     builds: BTreeMap<String, i64>,
-    /// The hosts each open account is signed in on.
+    /// The hosts each account is signed in on.
     signed_in: BTreeMap<String, Vec<String>>,
-    /// Points of its own percent each account is charged for the boxes planned on it this run.
+    /// Points of its own percent each account is charged for the boxes planned on it this run, which orders the next pick.
     charged: BTreeMap<String, Charge>,
-    /// Sessions each account may still start this run under pace's `allowed_workers`.
-    workers: BTreeMap<String, i64>,
+    /// The workers this run has started, which the spend rule's cap and reserve count.
+    placed: Placed,
     cloud: i64,
 }
 
@@ -132,9 +117,9 @@ impl Pools {
         Self {
             hosts: hosts.iter().map(|host| (host.name.clone(), host.free().unwrap_or(0))).collect(),
             builds: hosts.iter().filter_map(|host| Some((host.name.clone(), host.builds?))).collect(),
-            signed_in: accounts.iter().filter(|account| account.open().is_ok()).map(|account| (account.name.clone(), account.hosts.clone())).collect(),
+            signed_in: accounts.iter().map(|account| (account.name.clone(), account.hosts.clone())).collect(),
             charged: BTreeMap::new(),
-            workers: accounts.iter().filter_map(|account| Some((account.name.clone(), account.workers?.max(0)))).collect(),
+            placed: Placed::default(),
             cloud: 0,
         }
     }
@@ -153,15 +138,14 @@ impl Pools {
         self.signed_in.get(account).is_some_and(|hosts| hosts.iter().any(|name| name == host))
     }
 
-    /// The host's free slots when the account is open and signed in there, no more than the
-    /// sessions pace's `allowed_workers` leaves the account, else 0.
+    /// The host's free slots when the account is signed in there, else 0.
     pub fn pair(&self, host: &str, account: &str) -> i64 {
-        if self.serves(host, account) { self.host(host).min(self.workers(account)) } else { 0 }
+        if self.serves(host, account) { self.host(host) } else { 0 }
     }
 
-    /// The sessions pace leaves the account this run, unbounded when pace names no `allowed_workers`.
-    pub fn workers(&self, account: &str) -> i64 {
-        self.workers.get(account).copied().unwrap_or(i64::MAX)
+    /// What this run has started so far.
+    pub fn placed(&self) -> Placed {
+        self.placed
     }
 
     /// The host's free session slots this run, no more than the builds its admission queue takes.
@@ -181,10 +165,11 @@ impl Pools {
         self.hosts.keys().filter(|host| self.signed_in.keys().any(|account| self.serves(host, account))).map(|host| self.host(host)).sum()
     }
 
-    pub fn take(&mut self, host: &str, account: &str) {
-        for free in self.hosts.get_mut(host).into_iter().chain(self.builds.get_mut(host)).chain(self.workers.get_mut(account)) {
+    pub fn take(&mut self, host: &str) {
+        for free in self.hosts.get_mut(host).into_iter().chain(self.builds.get_mut(host)) {
             *free = (*free - 1).max(0);
         }
+        self.placed.workers += 1;
     }
 
     /// The account's room less what this run has charged it.

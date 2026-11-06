@@ -27,8 +27,10 @@ pub struct Session {
     pub machine: Option<String>,
     /// Whether it is taking a turn now, which is what a host slot and the working target count; an idle session or a parked one waiting on a registered run holds its items and no slot.
     pub working: bool,
-    /// The pace account it spends, `provider:label` for Claude and the provider otherwise.
+    /// The account it spends, `provider:label` for Claude and the provider otherwise.
     pub account: Option<String>,
+    /// Whether it counts against the spend cap: every role but the proxy.
+    pub worker: bool,
 }
 
 /// The issues a session's name starts with: `sc-277-d1435` holds makgora#277 and
@@ -70,6 +72,12 @@ pub fn working_by_account(sessions: &[(Session, String)]) -> BTreeMap<String, i6
     working
 }
 
+/// The worker sessions taking a turn across every registry, counted once per name: what the spend
+/// cap counts.
+pub fn active_workers(sessions: &[(Session, String)]) -> usize {
+    sessions.iter().filter(|(session, _)| session.working && session.worker).map(|(session, _)| session.name.as_str()).collect::<BTreeSet<_>>().len()
+}
+
 /// The running sessions in one registry's `north fleet list --json`, each holding every item its
 /// `--task` names, else the items its name starts with.
 pub fn running_sessions(listing: &Value) -> Vec<Session> {
@@ -86,7 +94,7 @@ pub fn running_sessions(listing: &Value) -> Vec<Session> {
             };
             let tasked: Vec<IssueRef> = issues::references(&task_text, "").into_iter().filter(|item| !item.repo.is_empty()).collect();
             let items = if tasked.is_empty() { named_items(&name) } else { tasked };
-            Session { machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session) }
+            Session { machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session), worker: session["role"] != "proxy" }
         })
         .collect()
 }

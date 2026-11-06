@@ -419,10 +419,8 @@ functions where they live through three seams (`capacity::replay::reason`, `land
   `logged -> replayed` change with its count, most frequent first, and the three earliest changes with
   their time and subject (the launch name, the admission ticket, the lanes judged). Counts can balance
   while decisions move, as when two launches trade accounts; the diff shows that.
-- **Quota floor.** The account placement targets keeps `replay_five_hour_floor_points` of its
-  five-hour window and `replay_week_floor_points` of its week unspent. The bounds are harness
-  defaults, not the constants placement itself uses, so a change to placement's own stop cannot
-  move the bound with it.
+- **Provider limit.** No launch is placed on an account at its provider's five-hour or week limit,
+  the one usage stop besides the spend rule (docs/rationale/spend-rule.md).
 - **GitHub floor.** A launch placement or a landing round that lands a ticket keeps
   `replay_github_floor_calls` (1,000) calls on the least rate limit the gh broker had seen. The broker
   keeps the last `x-ratelimit-remaining` of each token and resource under its runtime directory's

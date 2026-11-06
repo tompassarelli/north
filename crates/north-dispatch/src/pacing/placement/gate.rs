@@ -1,8 +1,8 @@
 //! Claude-only launch placement for `north fleet launch`: Anthropic cloud on the Claude account with the most headroom for code-only public
 //! work, else the Claude account the shared rank puts first (`room::Rank`), run on the first machine in `[placement] order`
-//! that serves every local need of the box and is below its resident cap, else here. Pace lines, weekly
-//! projections and the controller's held or over never hold a launch; an account is out only by the
-//! five-hour stop, the five-hour burn cap or a provider-exhausted week (`crate::pace::exhaustion`).
+//! that serves every local need of the box and is below its resident cap, else here. An account is out
+//! only at its provider's limit; whether a worker may start at all is the spend rule's call
+//! (`crate::spend`).
 use super::super::storage::{self, load, rows};
 pub use super::repository::{anchored, repository};
 use super::needs::{LOCAL_NEEDS, words};
@@ -12,7 +12,6 @@ use super::{facets, strings};
 use crate::capacity::{agent_load, laptop_auto};
 use crate::capacity::saturation::Saturation;
 use crate::fleet::model::ProviderName;
-use crate::pace::exhaustion;
 use crate::fleet::roster::{Roster, Standing};
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -28,10 +27,10 @@ const GAMING_NEEDS: [&str; 2] = ["native", "private"];
 pub struct Verdict {
     pub account: String,
     pub available: bool,
-    /// Out by the five-hour stop, the burn cap or an exhausted week, which no `--pin` overrides.
+    /// At its provider's five-hour or week limit, which no `--pin` overrides.
     pub exhausted: bool,
     pub headroom: f64,
-    /// Zero until `verdicts` ranks it from the account's room, plan and spend target.
+    /// Zero until `verdicts` ranks it from the account's room and plan.
     pub rank: Rank,
     pub line: String,
     pub owners: Vec<String>,
@@ -198,11 +197,10 @@ fn best(verdicts: &[Verdict], allowed: impl Fn(&str) -> bool, order: impl Fn(&Ve
     verdicts.iter().filter(|v| v.available && allowed(v.account.trim_start_matches("claude:"))).max_by(|a, b| order(a, b).then(b.account.cmp(&a.account)))
 }
 
-/// The label of the Claude account that runs here with the most headroom in the gate pace-control
-/// last wrote, None when every one is out. The measured burn does not count: a probe of two short
-/// replies cannot drain a window, so only the five-hour stop and an exhausted week rule an account out.
+/// The label of the Claude account that runs here with the most headroom in the last usage sample,
+/// None when every one is at its provider's limit.
 pub fn roomiest_here(gate: &Value, roster: &Roster) -> Option<String> {
-    let here: Vec<Verdict> = standing_verdicts(gate, &standings(gate, roster), false).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
+    let here: Vec<Verdict> = standing_verdicts(gate, &standings(gate, roster)).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
     best(&here, |_| true, |a, b| a.headroom.total_cmp(&b.headroom)).map(|best| best.account.trim_start_matches("claude:").to_owned())
 }
 
@@ -214,16 +212,15 @@ pub fn live_gate_path() -> std::path::PathBuf {
     storage::directory().join("usage-gate.json")
 }
 
-fn window_refusal(window: &Value, burn_counts: bool) -> Option<String> {
+fn window_refusal(window: &Value) -> Option<String> {
     let name = window["window"].as_str().unwrap_or("window");
-    let burn = window["burn_pct_h"].as_f64().filter(|_| burn_counts);
-    exhaustion::refusal(name, window["used_pct"].as_f64()?, burn)
+    (window["used_pct"].as_f64()? >= 100.0).then(|| format!("{name} window at the provider's limit"))
 }
 
 fn headroom(windows: &[Value]) -> f64 {
     windows
         .iter()
-        .filter_map(|w| exhaustion::headroom(w["window"].as_str()?, w["used_pct"].as_f64()?))
+        .filter_map(|w| Some((100.0 - w["used_pct"].as_f64()?).max(0.0)))
         .min_by(f64::total_cmp)
         .unwrap_or(0.0)
 }
@@ -237,15 +234,11 @@ fn usage(windows: &[Value]) -> String {
 }
 
 pub fn verdict(account: &str, control: &Value) -> Verdict {
-    judged(account, control, true)
-}
-
-fn judged(account: &str, control: &Value, burn_counts: bool) -> Verdict {
     let windows = rows(&control["windows"]);
     if windows.iter().all(|w| w["used_pct"].as_f64().is_none()) {
         return unavailable(account, "no live quota sample".into());
     }
-    if let Some(reason) = windows.iter().find_map(|window| window_refusal(window, burn_counts)) {
+    if let Some(reason) = windows.iter().find_map(window_refusal) {
         return Verdict { exhausted: true, ..unavailable(account, reason) };
     }
     let room = headroom(windows);
@@ -458,7 +451,7 @@ pub fn verdicts(gate: &Value, roster: &Roster, basis: &Basis) -> Vec<Verdict> {
 
 /// The verdicts on each account given its recorded standing in the roster.
 pub fn verdicts_of(gate: &Value, standings: &BTreeMap<String, record::Standing>, basis: &Basis) -> Vec<Verdict> {
-    standing_verdicts(gate, standings, true)
+    standing_verdicts(gate, standings)
         .into_iter()
         .map(|verdict| Verdict { rank: basis.rank(verdict.available, &verdict.account, &gate["claude"]["controls"][&verdict.account]), ..verdict })
         .collect()
@@ -481,13 +474,13 @@ pub fn standings(gate: &Value, roster: &Roster) -> BTreeMap<String, record::Stan
         .collect()
 }
 
-fn standing_verdicts(gate: &Value, standings: &BTreeMap<String, record::Standing>, burn_counts: bool) -> Vec<Verdict> {
+fn standing_verdicts(gate: &Value, standings: &BTreeMap<String, record::Standing>) -> Vec<Verdict> {
     claude_controls(gate)
         .into_iter()
         .map(|(name, control)| match standings.get(&name).unwrap_or(&record::Standing::Unknown) {
-            record::Standing::Listed => judged(&name, control, burn_counts),
+            record::Standing::Listed => verdict(&name, control),
             record::Standing::Duplicate(duplicate) => unavailable(&name, duplicate.clone()),
-            record::Standing::Foreign(owners) => Verdict { owners: owners.clone(), ..judged(&name, control, burn_counts) },
+            record::Standing::Foreign(owners) => Verdict { owners: owners.clone(), ..verdict(&name, control) },
             record::Standing::Unknown => unavailable(&name, "no fleet profile".into()),
         })
         .collect()
@@ -525,9 +518,9 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
     } else if let Some(best) = decision.best_account().map(|best| best.account.clone()) {
         Target::Account(best)
     } else if decision.verdicts.is_empty() {
-        Target::Held("no live Claude quota in usage-gate.json; run pace-control".into())
+        Target::Held("no live Claude usage sample in usage-gate.json".into())
     } else {
-        Target::Held("every Claude account exhausted or over its burn cap".into())
+        Target::Held("every Claude account is at its provider's limit".into())
     };
     match decision.machine {
         Some(_) if matches!(decision.target, Target::Account(_)) => {}
@@ -551,7 +544,7 @@ pub fn summary(decision: &Decision) -> String {
     }
 }
 
-/// The live decision: South's orchestration.toml, the gate pace-control last wrote, the credit and
+/// The live decision: South's orchestration.toml, the last usage sample, the credit and
 /// each machine's load, given the fleet sessions this machine runs there by machine name.
 pub fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster, named: Option<&str>) -> Result<Decision, String> {
     let launch = record::Launch { named_machine: named.map(str::to_owned), ..record::Launch::default() };

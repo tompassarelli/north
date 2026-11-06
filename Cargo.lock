@@ -1101,7 +1101,6 @@ dependencies = [
  "fancy-regex",
  "north-base",
  "north-capacity",
- "north-dispatch",
  "north-fleet",
  "north-github-mirror",
  "north-graph-ground",

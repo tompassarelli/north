@@ -3,6 +3,7 @@ use super::plan::Cloud;
 use super::slots::{Account, Host, PlanSize, Room};
 use super::survey::Survey;
 use super::decide;
+use crate::spend::{self, Rules, View, Window};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) const CONFIG: &str = r#"
@@ -59,7 +60,20 @@ fn account(name: &str, hosts: &[&str], headroom: f64) -> Account {
 pub(super) const MAX_5X: PlanSize = PlanSize { five_hour: 1.0, week: 1.0 };
 
 pub(super) fn sized(name: &str, hosts: &[&str], plan: PlanSize, room: Room) -> Account {
-    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), plan, room, spending: false, refusal: None, burn: None, readings: Vec::new(), workers: None }
+    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), plan, room }
+}
+
+/// The spend view of `accounts`: each one's readings are its room, so an account with no five-hour
+/// room is at its provider's limit.
+pub(super) fn view(accounts: &[Account]) -> View {
+    let window = |left: f64, reset_h: f64| Some(Window { used_pct: 100.0 - left, resets_at: Some(reset_h * 3600.0) });
+    let spent = |account: &Account| spend::Account { name: account.name.clone(), plan_week: account.plan.week, five_hour: window(account.room.five_hour, 5.0), week: window(account.room.week, account.room.week_reset_h), counted: true };
+    View { at: 0.0, accounts: accounts.iter().map(spent).collect(), working: 0, trips: Vec::new() }
+}
+
+/// The shipped rules with a cap no test fleet reaches, so these tests pin slots and order alone.
+pub(super) fn rules() -> Rules {
+    Rules { cap: 1000, ..Rules::configured() }
 }
 
 pub(super) fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Issue {
@@ -73,6 +87,8 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         cfg: CONFIG.parse().unwrap(),
         projects: super::projects::Projects::read(&CONFIG.parse().unwrap()).unwrap(),
         hosts,
+        spend: view(&accounts),
+        rules: rules(),
         accounts,
         issues,
         open,
@@ -97,19 +113,9 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
 
 pub(super) fn fleet() -> (Vec<Host>, Vec<Account>) {
     let hosts = vec![host("gex45", 24, Ok(22)), host("nexus", 6, Ok(5)), host("whiterabbit", 8, Err("laptop unavailable"))];
-    let out = Account { refusal: Some("claude:c unavailable: exhausted: 5h 96% >= 95%".into()), ..account("claude:c", &["gex45"], 90.0) };
+    let out = sized("claude:c", &["gex45"], MAX_5X, Room { five_hour: 0.0, week: 90.0, week_reset_h: 100.0 });
     let accounts = vec![account("claude:a", &["nexus", "whiterabbit"], 70.0), account("claude:b", &["gex45"], 40.0), out];
     (hosts, accounts)
-}
-
-pub(super) fn chosen(hosts: Vec<Host>, accounts: Vec<Account>, boxes: u64) -> Vec<(String, Option<String>)> {
-    let boxes = (0..boxes).map(|number| issue("makgora", 20 + number, "- [ ] a", &[])).collect();
-    let unreachable = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
-    decide(&unreachable, "test").launches.into_iter().map(|launch| (launch.account, launch.pin)).collect()
-}
-
-pub(super) fn accounts_of(chosen: &[(String, Option<String>)]) -> Vec<&str> {
-    chosen.iter().map(|(account, _)| account.as_str()).collect()
 }
 
 #[test]

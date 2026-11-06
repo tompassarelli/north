@@ -1,15 +1,13 @@
-//! The dispatch-spread checks (north#259) the saturated-host and week tests run.
+//! The dispatch-spread checks (north#259) the saturated-host tests run.
 use super::decide;
 use super::plan::Cloud;
 use super::slots::{Account, Host};
-use super::survey::pace_workers;
 use super::tests::{host, issue, survey};
 use crate::capacity::saturation::{Backlog, Saturation};
-use serde_json::json;
 
-fn account(name: &str, hosts: &[&str], workers: Option<i64>) -> Account {
+fn account(name: &str, hosts: &[&str]) -> Account {
     let room = super::slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 };
-    Account { workers, ..super::tests::sized(name, hosts, super::tests::MAX_5X, room) }
+    super::tests::sized(name, hosts, super::tests::MAX_5X, room)
 }
 
 fn reading(disk_free_gib: f64, disk_total_gib: f64, queued: u32) -> Saturation {
@@ -23,25 +21,8 @@ fn placed(hosts: Vec<Host>, accounts: Vec<Account>, boxes: u64) -> (Vec<(String,
     (launched, outcome.skipped.into_iter().map(|(item, why)| format!("skip {item}: {why}")).collect())
 }
 
-pub(super) fn an_account_pace_does_not_hold_launches_no_more_than_its_allowed_workers_less_its_live_workers() {
-    let unheld = json!({"allowed_workers": 2, "held": false});
-    assert_eq!(pace_workers(&unheld, 0), Some(2));
-    assert_eq!(pace_workers(&unheld, 1), Some(1));
-    assert_eq!(pace_workers(&json!({"allowed_workers": 1, "held": true}), 4), Some(0));
-    assert_eq!(pace_workers(&json!({"held": false}), 0), None);
-
-    let gex45 = host("gex45", 24, Ok(0));
-    let (launched, skipped) = placed(vec![gex45.clone()], vec![account("claude:b", &["gex45"], pace_workers(&unheld, 0))], 17);
-    assert_eq!(launched, vec![("gex45".to_owned(), "claude:b".to_owned()); 2]);
-    assert_eq!(skipped.len(), 15);
-    assert!(skipped[0].contains("claude:b has no session left under pace's allowed_workers"), "{}", skipped[0]);
-
-    let (launched, _) = placed(vec![gex45], vec![account("claude:b", &["gex45"], pace_workers(&unheld, 1))], 17);
-    assert_eq!(launched.len(), 1);
-}
-
 pub(super) fn launches_earlier_in_the_run_count_against_each_hosts_sessions_and_admission_queue() {
-    let accounts = vec![account("claude:a", &["nexus"], None), account("claude:b", &["gex45"], None)];
+    let accounts = vec![account("claude:a", &["nexus"]), account("claude:b", &["gex45"])];
     let (launched, skipped) = placed(vec![host("gex45", 8, Ok(5)), host("nexus", 6, Ok(4))], accounts.clone(), 7);
     let hosts: Vec<&str> = launched.iter().map(|(host, _)| host.as_str()).collect();
     assert_eq!(hosts, ["gex45", "gex45", "gex45", "nexus", "nexus"]);
@@ -56,7 +37,7 @@ pub(super) fn launches_earlier_in_the_run_count_against_each_hosts_sessions_and_
 }
 
 pub(super) fn a_host_whose_admission_queue_is_at_its_limit_or_whose_root_disk_is_past_the_reapers_eviction_line_takes_no_session() {
-    let accounts = vec![account("claude:a", &["nexus"], None), account("claude:b", &["gex45"], None)];
+    let accounts = vec![account("claude:a", &["nexus"]), account("claude:b", &["gex45"])];
     let full_disk = host("gex45", 24, Ok(0)).read(Some(&reading(46.8, 936.0, 0)));
     assert_eq!(full_disk.free(), Err("gex45 skipped: 46.8 GiB free on the root disk, under the 94 GiB line the lease reaper evicts offload slots below".to_owned()));
     let queue = host("gex45", 24, Ok(0)).read(Some(&reading(400.0, 936.0, 4)));

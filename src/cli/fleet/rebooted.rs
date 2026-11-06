@@ -48,7 +48,7 @@ impl Resumer for Revival<'_> {
         }
         match revive::restart_placed(self.0, name, None, None, overrides)? {
             Ok(_) => Ok(Revived::Started),
-            Err(Refusal::Exhausted(why)) => Ok(Revived::Waiting(why)),
+            Err(Refusal::Spend(why)) => Ok(Revived::Waiting(why)),
             Err(refusal) => Err(refusal.into()),
         }
     }

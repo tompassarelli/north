@@ -1,13 +1,10 @@
 use super::World;
 use crate::platform::process::run_command_within;
-use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub struct Live {
-    pub pace: crate::guard::host::Pace,
-}
+pub struct Live;
 
 fn north() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"))
@@ -46,17 +43,6 @@ impl World for Live {
 
     fn flow(&self, repo: &str) -> Option<String> {
         stdout_of(north(), &["flow", "row", repo, "pending", "landed_per_hour"], Duration::from_secs(120))
-    }
-
-    fn refresh(&self, provider: &str) -> Option<(i32, String)> {
-        let mut command = Command::new(north());
-        command.args(["agents", "usage", "--gate", provider]);
-        let output = run_command_within(command, None, Duration::from_secs(45))?;
-        Some((output.status.code().unwrap_or(-1), String::from_utf8_lossy(&output.stdout).into_owned()))
-    }
-
-    fn pace(&self, request: &Value) -> Result<Value, String> {
-        (self.pace)(request)
     }
 
     fn billed(&self, provider: &str) -> Option<String> {

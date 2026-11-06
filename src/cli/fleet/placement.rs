@@ -4,13 +4,14 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{LaunchRequest, Machine};
+use crate::fleet::model::{LaunchRequest, Machine, Role};
 use crate::fleet::registry::Fleet;
 use crate::fleet::roster::Roster;
 use crate::dispatch::{cloud_autoland, cloud_branch};
 use crate::pacing::placement::case;
 use crate::pacing::placement::gate::{self, CloudLane, Decision, Target};
 use crate::platform::decision_log;
+use crate::spend::{self, Starter};
 use north_strategy_types::placement::{self as record, Case};
 use north_strategy_types::Kind;
 
@@ -78,19 +79,19 @@ pub(super) fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthRes
 }
 
 /// Why placement does not start a launch: a saturated host may take it once its admission queue,
-/// disk or load eases, an exhausted account once its window resets, while anything else needs a
-/// different launch.
+/// disk or load eases, and a spend refusal once sessions finish or a window resets
+/// (docs/rationale/spend-rule.md), while anything else needs a different launch.
 #[derive(Debug, PartialEq)]
 pub(super) enum Refusal {
     Saturated(String),
-    Exhausted(String),
+    Spend(String),
     Final(String),
 }
 
 impl std::fmt::Display for Refusal {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Saturated(why) | Self::Exhausted(why) | Self::Final(why) => formatter.write_str(why),
+            Self::Saturated(why) | Self::Spend(why) | Self::Final(why) => formatter.write_str(why),
         }
     }
 }
@@ -109,7 +110,22 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrid
     }
     let text = gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref());
     let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()) };
-    check(&launch, &text, overrides, &machine_load(fleet)?, &fleet.roster(), report)
+    let placed = check(&launch, &text, overrides, &machine_load(fleet)?, &fleet.roster(), report)?;
+    if placed.is_err() {
+        return Ok(placed);
+    }
+    Ok(spend_refusal(request, &text, &fleet.roster()).map_or(placed, |why| Err(Refusal::Spend(why))))
+}
+
+/// The spend rule on this launch: a worker meets the cap, the pooled reserve and its account's
+/// tripwire; the proxy and a scheduled routine may use the reserve, so they meet the provider's limit alone.
+fn spend_refusal(request: &LaunchRequest, text: &str, roster: &Roster) -> Option<String> {
+    let starter = if request.role == Some(Role::Proxy) || text.contains("[routine:") { Starter::Reserved } else { Starter::Worker };
+    let (view, rules) = match crate::dispatch::spend_now(roster) {
+        Ok(read) => read,
+        Err(why) => return Some(format!("spend view unread: {why}")),
+    };
+    view.admit(&rules, &format!("claude:{}", request.account), starter, spend::Placed::default()).err().map(|refusal| refusal.to_string())
 }
 
 /// Runs live placement, prints one verdict line per account and machine when `report`, and returns where to run.
@@ -157,7 +173,7 @@ fn recorded_decision(decision: &Decision, settled: &Result<Placed, Refusal>) -> 
         Err(refusal) => {
             let kind = match refusal {
                 Refusal::Saturated(_) => record::Refusal::Saturated,
-                Refusal::Exhausted(_) => record::Refusal::Exhausted,
+                Refusal::Spend(_) => record::Refusal::Spend,
                 Refusal::Final(_) => record::Refusal::Final,
             };
             record::Outcome::Refused { kind, why: refusal.to_string() }
@@ -225,14 +241,14 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
         _ => None,
     };
     notes.extend(decision.moved.clone().filter(|_| machine.is_some()));
-    if let Some(out) = exhausted_refusal(decision, launch.account) {
-        return Err(Refusal::Exhausted(out));
+    if let Some(out) = limit_refusal(decision, launch.account) {
+        return Err(Refusal::Spend(out));
     }
     let saturated = decision.saturated.as_ref().filter(|_| machine.is_some()).map(|why| format!("{why}; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\""));
     let hot = decision.here_saturated.as_ref().filter(|_| machine.is_none() && overrides.local.is_none()).map(|why| format!("{why}; launch from another host, or keep it here with --local \"<reason>\" or --pin \"<reason>\""));
     let cpu = decision.here_cpu_held.as_ref().filter(|_| machine.is_none()).map(|why| format!("{why} To start it here anyway, launch with --pin \"<reason>\"."));
     let on_battery = decision.here_on_battery.clone().filter(|_| overrides.local.is_some()).map(Refusal::Final);
-    let held = saturated.or(hot).or(cpu).map(Refusal::Saturated).or(on_battery).or_else(|| account_refusal(decision, launch.account).map(Refusal::Final));
+    let held = saturated.or(hot).or(cpu).map(Refusal::Saturated).or(on_battery);
     if let Some(refusal) = held {
         let Some(reason) = &overrides.pin else {
             return Err(refusal);
@@ -254,14 +270,14 @@ fn not_signed_in(decision: &Decision, machine: &gate::Machine, account: &str) ->
     format!("{} is not signed in to claude:{account} (signed in there: {there}); {instead}keep the box here with --local \"<reason>\"", machine.name)
 }
 
-/// An account that is out cannot run the box at all, so no `--pin`, recorded or given, keeps it.
-fn exhausted_refusal(decision: &Decision, account: &str) -> Option<String> {
+/// An account at its provider's limit cannot run the box at all, so no `--pin`, recorded or given, keeps it.
+fn limit_refusal(decision: &Decision, account: &str) -> Option<String> {
     let chosen = decision.verdict(&format!("claude:{account}")).filter(|verdict| verdict.exhausted)?;
     let instead = match picked(decision) {
         Some(better) => format!("placement picks {} ({}); launch with --account {}", better.account, better.line, better.account.trim_start_matches("claude:")),
         None => "no Claude account is available; wait for a window to reset".to_owned(),
     };
-    Some(format!("{}; {instead}", chosen.line))
+    Some(format!("provider limit: {}; {instead}", chosen.line))
 }
 
 fn picked(decision: &Decision) -> Option<&gate::Verdict> {
@@ -269,29 +285,6 @@ fn picked(decision: &Decision) -> Option<&gate::Verdict> {
         Target::Account(placed) => decision.verdict(placed),
         _ => decision.best_here(),
     }
-}
-
-/// Week points a named account may trail placement's pick and keep the launch, since quota samples
-/// move a point or two between tries (north#389).
-const TIE_WEEK_POINTS: f64 = 5.0;
-
-fn account_refusal(decision: &Decision, account: &str) -> Option<String> {
-    let name = format!("claude:{account}");
-    let chosen = decision.verdict(&name);
-    let best = picked(decision);
-    if chosen.is_none() && best.is_none() {
-        return None;
-    }
-    let fits = chosen.is_some_and(|v| v.available) && best.is_none_or(|b| chosen.is_some_and(|v| b.rank.order(&v.rank).is_le() || v.rank.ties(&b.rank, TIE_WEEK_POINTS)));
-    if fits {
-        return None;
-    }
-    let why = chosen.map_or_else(|| format!("{name} has no live quota sample"), |v| v.line.clone());
-    let instead = match best {
-        Some(better) => format!("placement picks {} ({}); launch with --account {}", better.account, better.line, better.account.trim_start_matches("claude:")),
-        None => "no Claude account is available".to_owned(),
-    };
-    Some(format!("{why}; {instead}, or keep {name} with --account {account} --pin \"<reason>\""))
 }
 
 /// Whether the launch directory exists on `machine`, as the per-machine probe found it.

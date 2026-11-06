@@ -33,7 +33,6 @@ pub struct Revive {
     /// The report the revive answers, which no later run revives again.
     pub ended_ms: u64,
     pub local: Option<String>,
-    pub pin: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -94,10 +93,10 @@ fn admit(strand: &Strand, inputs: &Inputs, capacity: &Capacity, pools: &mut Pool
         return Err(why.clone());
     }
     let account = format!("{}:{}", session.provider, session.account);
-    let pin = plan::revive(capacity, pools, host, &account)?;
+    plan::revive(capacity, pools, host, &account)?;
     let local = session.machine.is_none().then(|| format!("north dispatch revives {} where its conversation lives", session.name));
     let lanes = session.lanes.iter().filter(|lane| lane.unlanded()).map(|lane| lane.label()).collect();
-    Ok(Revive { name: session.name.clone(), registry: strand.registry.clone(), host: host.to_owned(), account, stop: session.stop, lanes, ended_ms: session.ended_ms, local, pin })
+    Ok(Revive { name: session.name.clone(), registry: strand.registry.clone(), host: host.to_owned(), account, stop: session.stop, lanes, ended_ms: session.ended_ms, local })
 }
 
 /// The turn a revived session gets: why it runs again and what to finish.

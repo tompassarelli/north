@@ -43,7 +43,7 @@ fn the_recorded_config_rebuilds_a_document_placement_reads_the_same_as_the_file(
     assert_eq!(gate::machines(&cfg).iter().map(|machine| machine.name.as_str()).collect::<Vec<_>>(), ["gex45", "nexus", "zeta"]);
     let brief = "Item: north#1 x\nSurface: rust\nNeeds: gex45\n";
     assert_eq!(gate::surface(brief, &rebuilt), gate::surface(brief, &cfg));
-    let basis = |cfg| Basis::new(cfg, json!({}), 0.0).plan("claude:a");
+    let basis = |cfg| Basis::new(cfg, 0.0).plan("claude:a");
     assert_eq!(basis(&rebuilt), basis(&cfg));
 }
 
@@ -58,7 +58,7 @@ fn the_recorded_usage_gives_the_gate_value_its_verdicts_read() {
     let rebuilt = gate_value(&usage);
     let roster = BTreeMap::from([("claude:a".to_owned(), north_strategy_types::placement::Standing::Listed)]);
     let cfg: DocumentMut = ORCHESTRATION.parse().unwrap();
-    let basis = Basis::new(&cfg, json!({}), 1_793_000_000.0);
+    let basis = Basis::new(&cfg, 1_793_000_000.0);
     assert_eq!(gate::verdicts_of(&rebuilt, &roster, &basis), gate::verdicts_of(&gate, &roster, &basis));
 }
 

@@ -35,18 +35,8 @@ impl Event {
         if self.raw["tool_name"] == "Agent" { "claude" } else { "codex" }
     }
 
-    pub(super) fn session(&self) -> Value {
-        if truthy(&self.raw["agent_id"]) { Value::Null } else { self.raw["session_id"].clone() }
-    }
-
     fn input(&self) -> Option<&serde_json::Map<String, Value>> {
         self.raw["tool_input"].as_object()
-    }
-
-    pub(super) fn task(&self) -> Value {
-        let Some(input) = self.input() else { return Value::Null };
-        let task = input.get("task_name").cloned().unwrap_or(Value::Null);
-        if truthy(&task) { task } else { input.get("name").cloned().unwrap_or(Value::Null) }
     }
 
     fn subagent_local(&self) -> bool {

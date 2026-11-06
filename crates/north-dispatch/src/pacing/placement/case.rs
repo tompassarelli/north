@@ -1,7 +1,7 @@
 //! Placement's case file: every input the live decision reads, gathered into one `Case` before it
 //! decides, and the decision taken from that `Case` alone, so the decision log can hold it and replay
 //! can run it again (docs/rationale/strategy-kernel.md).
-use super::super::storage::{self, load};
+use super::super::storage;
 use super::super::{sampling, target};
 use super::gate::{self, Decision, Machine};
 use super::hosts::{self, Facts};
@@ -44,7 +44,6 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
         brief: ask.brief.to_owned(),
         config: config(&cfg, crate::platform::decision_log::sha256_hex(text.as_bytes())),
         credit: hosts::credit_case(&credit_name),
-        pace: targets(&load(&storage::directory().join("pace-control.json"))),
         roster: gate::standings(&gate, ask.roster),
         usage,
         machines,
@@ -62,7 +61,7 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
         let facts = case.machines.iter().find(|probed| probed.name == machine.name).map(facts).unwrap_or_default();
         machine.probed(facts, &hosted)
     }).collect();
-    let basis = Basis::new(&cfg, pace_value(&case.pace), case.at);
+    let basis = Basis::new(&cfg, case.at);
     let credit = hosts::credit_verdict(&case.credit, case.config.cloud_credit.as_deref().unwrap_or_default(), case.at);
     let here = case.here.name.as_str();
     let mut decision = gate::decide(&case.brief, &cfg, gate::verdicts_of(&gate_value, &case.roster, &basis), credit, &machines, here, case.here.gaming);
@@ -148,16 +147,6 @@ fn gate_value(usage: &Usage) -> Value {
         })
         .collect();
     json!({ "claude": { "controls": controls } })
-}
-
-/// `accounts.NAME.target.by` for each account pace-control holds one for: the one field placement reads of that file.
-fn targets(pace: &Value) -> BTreeMap<String, String> {
-    pace["accounts"].as_object().into_iter().flatten().filter_map(|(name, account)| Some((name.clone(), account["target"]["by"].as_str()?.to_owned()))).collect()
-}
-
-fn pace_value(targets: &BTreeMap<String, String>) -> Value {
-    let accounts: Map<String, Value> = targets.iter().map(|(name, by)| (name.clone(), json!({ "target": { "by": by } }))).collect();
-    json!({ "accounts": accounts })
 }
 
 fn config(cfg: &DocumentMut, sha256: String) -> Config {

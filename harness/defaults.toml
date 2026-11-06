@@ -288,6 +288,71 @@ source = "measured: north defaults-measure box_calibration_n, snapshot 2026-10-1
 fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
 consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
 
+[spend_reserve]
+value = 10
+allowed = { min = 0, max = 100 }
+unit = "percent of the largest counted account's week that must stay unspent across all accounts together; a new worker starts only while the pooled week left after it stays above this"
+source = "tom: 2026-11-07 set one pooled reserve of 10% of one account's week for the proxy, routines and his own sessions, instead of a floor on each account (north#702)"
+fallback = "none: the reserve is a stated amount, not a measurement"
+consumers = ["crates/north-pace/src/spend/mod.rs"]
+
+[spend_reading_max_h]
+value = 2
+allowed = { min = 0, max = 168 }
+unit = "hours after which an account's week reading no longer counts toward the pooled reserve"
+source = "north#702 review, 2026-11-07: a signed-out or unsampled account must not hold the pool open; the sampler reads every few minutes, so two hours is many missed reads"
+fallback = "none: a stated bound, not a measurement"
+consumers = ["crates/north-pace/src/spend/read.rs"]
+
+[spend_worker_charge]
+value = 1.0
+allowed = { min = 0, max = 100 }
+unit = "points of one Max 5x week one new worker is expected to take from the pooled week, charged before the reserve is compared"
+source = "prior: one point per worker, the charge dispatch already placed on a box before this rule"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs with week readings before and after, to measure a worker's week points" }
+fallback = "every worker charges one point"
+consumers = ["crates/north-pace/src/spend/mod.rs"]
+
+[spend_worker_cap]
+value = 12
+allowed = { min = 1, max = 200 }
+unit = "worker sessions working at once across every host and account"
+source = "tom: 2026-11-07 set the cap at 12 from the hosts' resident capacity, tuned from measured contention: landing conflicts, slot waits and rework (north#702)"
+fallback = "none: the cap is a stated amount"
+consumers = ["crates/north-pace/src/spend/mod.rs"]
+
+[spend_trip_fleet_points]
+value = 30
+allowed = { min = 1, max = 100 }
+unit = "points of an account's five-hour window the fleet may spend within spend_trip_fleet_min before no new worker starts on it"
+source = "tom: 2026-11-07 starting threshold, tuned from a week of trips (north#702)"
+fallback = "none"
+consumers = ["crates/north-pace/src/spend/mod.rs"]
+
+[spend_trip_fleet_min]
+value = 15
+allowed = { min = 1, max = 300 }
+unit = "minutes over which the fleet's rise in an account's five-hour window is measured for the tripwire"
+source = "tom: 2026-11-07 starting span (north#702)"
+fallback = "none"
+consumers = ["crates/north-pace/src/spend/mod.rs"]
+
+[spend_trip_session_points]
+value = 10
+allowed = { min = 1, max = 100 }
+unit = "points of an account's five-hour window one session may spend within spend_trip_session_min before no new worker starts on that account"
+source = "tom: 2026-11-07 starting threshold, tuned from a week of trips (north#702)"
+fallback = "none"
+consumers = ["crates/north-pace/src/spend/mod.rs"]
+
+[spend_trip_session_min]
+value = 10
+allowed = { min = 1, max = 300 }
+unit = "minutes over which one session's spend is measured for the tripwire"
+source = "tom: 2026-11-07 starting span (north#702)"
+fallback = "none"
+consumers = ["crates/north-pace/src/spend/mod.rs"]
+
 [pace_state_dwell_min]
 value = 10
 allowed = { min = 0, max = 10080 }
@@ -1432,22 +1497,6 @@ unit = "seconds cargo-mutants may spend on a build host, baseline build included
 source = "prior: the run stops at the first caught mutant, and a warm offload slot rebuilds one north crate and its test binary per mutant in about a minute, so 15 minutes covers the baseline and about ten mutants (north#635, 2026-11-06)"
 fallback = "none; the land check reads this value"
 consumers = ["crates/north-landing/src/land/scans/test_admission/limits.rs"]
-
-[replay_five_hour_floor_points]
-value = 5
-allowed = { min = 0, max = 100 }
-unit = "percentage points of a Claude account's five-hour window a placed launch must leave unspent; strategy replay refuses a change that places a launch on an account with fewer points left"
-source = "prior: placement refuses an account at 95% of its five-hour window (crates/north-pace/src/pace/exhaustion.rs FIVE_HOUR_STOP), so 5 points is the headroom today's placement already keeps"
-fallback = "none: strategy replay always checks the floor"
-consumers = ["crates/north-replay/src/bounds.rs"]
-
-[replay_week_floor_points]
-value = 0
-allowed = { min = 0, max = 100 }
-unit = "percentage points of a Claude account's weekly window a placed launch must leave unspent; strategy replay refuses a change that places a launch on an account with fewer points left"
-source = "prior: placement refuses a week the provider reports exhausted (crates/north-pace/src/pace/exhaustion.rs WEEK_EXHAUSTED), so only a spent week is out"
-fallback = "none: strategy replay always checks the floor"
-consumers = ["crates/north-replay/src/bounds.rs"]
 
 [replay_landing_p90_seconds]
 value = 60

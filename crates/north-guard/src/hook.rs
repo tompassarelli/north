@@ -214,7 +214,7 @@ impl HookKind {
             Self::PreAsk => &[crate::guard::question_box::evaluate],
             Self::SpawnCapacity => &[crate::guard::spawn_capacity::admission],
             Self::NativeSpawn => &[crate::guard::proxy_role::evaluate, crate::guard::spawn_capacity::evaluate],
-            Self::PostTool => &[crate::guard::worker_lease::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate, crate::guard::spawn_capacity::confirm_native],
+            Self::PostTool => &[crate::guard::worker_lease::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
             Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::recommendation_grounding::evaluate, crate::guard::recommend_acts::evaluate, crate::guard::status_not_action::evaluate, crate::guard::proxy_role::evaluate, crate::guard::correction_capture::evaluate],
             Self::RecommendActs => &[crate::guard::recommend_acts::evaluate],
@@ -334,7 +334,7 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
     let kind = match arguments {
         [] => None,
         [verb] if verb == "spawn-gate" => {
-            println!("{}", crate::guard::spawn_capacity::gate_summary(&crate::guard::spawn_capacity::Live { pace: crate::guard::host::pace }));
+            println!("{}", crate::guard::spawn_capacity::gate_summary(&crate::guard::spawn_capacity::Live));
             return Ok(());
         }
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),

@@ -29,7 +29,7 @@ fn roster(identities: &[(&str, Option<&str>)]) -> Roster {
 
 fn verdicts(quota: &Value, roster: &Roster) -> Vec<Verdict> {
     let at = crate::pace::target::seconds("2026-10-19T00:00:00Z").unwrap();
-    gate::verdicts(quota, roster, &Basis::new(&DocumentMut::new(), json!({}), at))
+    gate::verdicts(quota, roster, &Basis::new(&DocumentMut::new(), at))
 }
 
 pub(super) fn decide(text: &str, cfg: &DocumentMut, quota: &Value, credit: (bool, String), machines: &[Machine], here: &str) -> Decision {

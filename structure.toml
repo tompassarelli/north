@@ -114,7 +114,7 @@ may_use = ["north-dispatch", "north-threads", "north-github-mirror"]
 
 [[crate_dag.crate]]
 name = "north-pace"
-paths = ["crates/*/src/pace.rs", "crates/*/src/pace/**", "crates/*/src/router.rs", "crates/*/src/router/**", "crates/*/src/usage.rs", "crates/*/src/usage/**"]
+paths = ["crates/*/src/pace.rs", "crates/*/src/pace/**", "crates/*/src/spend/**", "crates/*/src/router.rs", "crates/*/src/router/**", "crates/*/src/usage.rs", "crates/*/src/usage/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
@@ -206,8 +206,8 @@ may_use = ["foundation"]
 
 [[module]]
 name = "domain"
-paths = ["crates/north-core/src/domain/**", "crates/*/src/pace/**", "crates/*/src/router.rs", "crates/*/src/router/**"]
-responsibility = "Workforce members, messages, briefs, work-item refs, routing, pace and placement policy."
+paths = ["crates/north-core/src/domain/**", "crates/*/src/pace/**", "crates/*/src/spend/**", "crates/*/src/router.rs", "crates/*/src/router/**"]
+responsibility = "Workforce members, messages, briefs, work-item refs, routing, the spend rule and placement policy."
 may_use = ["foundation", "crate-roots"]
 
 [[module]]

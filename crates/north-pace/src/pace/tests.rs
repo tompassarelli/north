@@ -1,6 +1,5 @@
 use serde_json::{Value, json};
 
-use super::admission::refusal;
 use super::control::{Control, Reading, advance};
 use super::window::Window;
 use crate::foundation::clock::Timestamp;
@@ -130,87 +129,4 @@ fn a_cleared_throttle_with_zero_burn_restores_headroom_from_the_running_workers(
     let recovered = step(&held, vec![week_at(later, 1.0, "new", 168.0)], Some(21), later);
     assert_eq!(recovered.held, Some(false));
     assert_eq!(recovered.allowed_workers, Some(22));
-}
-
-fn short_and_week(at: f64, short_used: f64, short_burn: f64, short_reset_h: f64, week_used: f64) -> Vec<Window> {
-    let stamped = |name: &str, used: f64, burn: f64, reset_h: f64, resets: &str| {
-        window(json!({"window": name, "used_pct": used, "burn_pct_h": burn, "reset_h": reset_h, "resets_at": resets,
-                      "age_s": 0, "as_of": stamp(at), "quota_ceiling": 95.0}))
-    };
-    vec![
-        stamped("5h", short_used, short_burn, short_reset_h, "short"),
-        stamped("week", week_used, 0.5, 160.0, "week"),
-    ]
-}
-
-// KEEP(mutant): a short-window projection past its ceiling caps workers without holding the account; mutant n259-short-window-projection-holds (34a3efb20)
-#[test]
-fn an_account_at_half_its_week_with_140_hours_to_reset_and_a_fresh_five_hour_window_runs_workers() {
-    let control = climb(0.0, 50.0);
-    assert_eq!((control.held, control.over), (Some(false), Some(false)));
-    assert!(control.allowed_workers.unwrap() >= 2, "allowed {:?}", control.allowed_workers);
-    let spent = climb(0.0, 95.0);
-    assert_eq!((spent.held, spent.over, spent.allowed_workers), (Some(true), Some(true), Some(0)), "a week at its ceiling still allows no workers");
-    a_short_window_projection_caps_workers_without_holding();
-}
-
-fn a_short_window_projection_caps_workers_without_holding() {
-    let at = 1_792_000_000.0;
-    let previous = step(&Control::default(), short_and_week(at - 60.0, 40.0, 50.0, 4.0, 11.0), Some(3), at - 60.0);
-    let control = step(&previous, short_and_week(at, 40.5, 50.0, 4.0, 11.0), Some(3), at);
-    assert_eq!((control.held, control.over), (Some(false), Some(false)));
-}
-
-// KEEP(mutant): a spawn is refused only at the five-hour stop or over the burn cap; mutant exhaustion-other-window-as-5h (d7da0bbe0)
-#[test]
-fn a_spawn_is_refused_only_at_the_five_hour_stop_or_over_the_burn_cap() {
-    let at = now();
-    let five = |used: f64, burn: f64| {
-        window(json!({"window": "5h", "used_pct": used, "burn_pct_h": burn, "reset_h": 4.0, "age_s": 0, "as_of": stamp(at)}))
-    };
-    let held = |used: f64, burn: f64| Control {
-        at: Some(at),
-        held: Some(true),
-        workers: Some(9),
-        allowed_workers: Some(0),
-        windows: vec![five(used, burn), week(60.0, Some(1.0), 100.0, &stamp(at + 100.0 * 3600.0), at)],
-        ..Control::default()
-    };
-    assert_eq!(refusal("claude:b", &held(40.0, 30.0), at), None);
-    let reset = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at + 4.0 * 3600.0).local_twelve_hour();
-    assert_eq!(
-        refusal("claude:b", &held(20.0, 70.0), at),
-        Some(format!("Hold: claude:b burning: 5h 70.0%/h > the 50%/h cap that keeps the window two hours; the 5h window resets at {reset}."))
-    );
-    assert_eq!(refusal("claude:b", &held(96.0, 1.0), at), Some(format!("Hold: claude:b exhausted: 5h 96% >= 95%; the 5h window resets at {reset}.")));
-    let other = |name: &str, used: f64| Control {
-        at: Some(at),
-        windows: vec![window(json!({"window": name, "used_pct": used, "burn_pct_h": 80.0, "reset_h": 4.0, "age_s": 0, "as_of": stamp(at)}))],
-        ..Control::default()
-    };
-    assert_eq!(refusal("codex", &other("43200m", 99.0), at), None);
-    assert_eq!(refusal("codex", &other("lim:week", 96.0), at), None);
-    assert_eq!(refusal("codex", &other("lim:week", 100.0), at), Some(format!("Hold: codex exhausted: provider lim:week 100%; the lim:week window resets at {reset}.")));
-}
-
-fn weekly_reading(at: f64, five_used: f64, five_reset_h: f64, week_used: f64, week_reset_h: f64) -> Vec<Window> {
-    let stamped = |name: &str, used: f64, burn: f64, reset_h: f64, resets: &str| {
-        window(json!({"window": name, "used_pct": used, "burn_pct_h": burn, "reset_h": reset_h, "resets_at": resets,
-                      "age_s": 0, "as_of": stamp(at), "quota_ceiling": 95.0}))
-    };
-    vec![
-        stamped("5h", five_used, 2.0, five_reset_h, "five"),
-        stamped("week", week_used, 3.0, week_reset_h, "week"),
-    ]
-}
-
-fn climb(five_used: f64, week_used: f64) -> Control {
-    let at = 1_793_000_000.0;
-    let mut previous = Control::default();
-    for tick in 0..45 {
-        let moment = at + 60.0 * f64::from(tick);
-        let windows = weekly_reading(moment, five_used + 0.05 * f64::from(tick), 4.0, week_used, 140.0);
-        previous = advance(&previous, Reading { initial: 1, ..reading(windows, Some(2), moment) });
-    }
-    previous
 }

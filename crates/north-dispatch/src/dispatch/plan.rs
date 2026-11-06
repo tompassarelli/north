@@ -1,11 +1,12 @@
 //! Where each ready box goes: the cloud lane when it is reachable here and has a free session,
-//! else the first host in placement order that serves the box and has a free slot.
+//! else the first host in placement order that serves the box, has a free slot and signs in an
+//! account the spend rule admits (docs/rationale/spend-rule.md).
 use super::issues::IssueRef;
 use super::cloud::{HOST, SESSIONS};
 use super::slots::{Account, Charge, Pools};
-use crate::pacing::placement::room::Rank;
 use super::tier::Route;
-use crate::pace::projection::{self, Projection};
+use crate::pacing::placement::room::Rank;
+use crate::spend::{Refusal, Rules, Starter, View};
 use std::cmp::Ordering;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -24,8 +25,6 @@ pub struct Ready {
     pub brief: String,
     pub code_only: bool,
     pub route: Route,
-    /// Hours the ledger expects the box to run, when its cell has closed boxes.
-    pub eta_h: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -39,12 +38,6 @@ pub struct Launch {
     pub cloud: bool,
     /// Why the box runs here instead of the cloud lane, recorded as `--local`.
     pub local: Option<String>,
-    /// Why the account is not the one placement would pick, recorded as `--pin`.
-    pub pin: Option<String>,
-    /// The measured burn the account was placed by, when it has one.
-    pub burn: Option<String>,
-    /// The account's windows projected at the box's ETA, which `north tune` scores.
-    pub projection: Option<Projection>,
 }
 
 /// One machine a box may run on, and why it refuses this box: no slots now, or needs it does not
@@ -58,8 +51,10 @@ pub struct Capacity<'a> {
     pub here: &'a str,
     pub cloud: &'a Cloud,
     pub accounts: &'a [Account],
-    /// Expected cost of one box in Max 5x points, charged to its account before the next box is ranked.
+    /// Expected cost of one box in Max 5x points, charged to its account so the next box ranks the others first.
     pub charge: f64,
+    pub spend: &'a View,
+    pub rules: &'a Rules,
 }
 
 impl Capacity<'_> {
@@ -67,114 +62,46 @@ impl Capacity<'_> {
         Charge { five_hour: self.charge / account.plan.five_hour, week: self.charge / account.plan.week }
     }
 
-    /// Whether the account can take one more box this run without crossing a window's stop, and
-    /// without its measured burn over the box's ETA crossing the five-hour stop or exhausting the week.
-    fn takes(&self, pools: &Pools, account: &Account, eta_h: Option<f64>) -> bool {
-        let charge = self.charge(account);
-        let after = pools.room(account).less(charge);
-        pools.room(account).takes(charge) && after.five_hour > burned(account, eta_h).unwrap_or(0.0) && projection::week_refusal(&account.readings, after.week, eta_h).is_none()
+    /// The spend rule's verdict on one more worker on `account` after this run's earlier starts.
+    fn admits(&self, pools: &Pools, account: &Account) -> Result<(), Refusal> {
+        self.spend.admit(self.rules, &account.name, Starter::Worker, pools.placed())
     }
-}
-
-/// Points of its own percent the account's measured burn spends over `eta_h` hours.
-fn burned(account: &Account, eta_h: Option<f64>) -> Option<f64> {
-    Some(account.burn? * eta_h?)
-}
-
-/// What the account's measured burn and the box's ETA say, for the launch log.
-fn burn_line(pools: &Pools, account: &Account, eta_h: Option<f64>) -> Option<String> {
-    let room = pools.room(account);
-    let five_hour = account.burn.zip(burned(account, eta_h)).map(|(burn, burned)| format!("5h {burn:.1}%/h spends {burned:.1} of the {:.0} points left to its 5h stop", room.five_hour));
-    let week = account.readings.iter().find(|reading| projection::week(&reading.window)).and_then(|reading| Some(format!("week {:.1}%/h spends {:.1} of the {:.0} points left in its week", reading.burn_pct_h?, reading.spends(eta_h?)?, room.week)));
-    let windows: Vec<String> = five_hour.into_iter().chain(week).collect();
-    (!windows.is_empty()).then(|| format!("{} measured burn over a {:.0} min ETA: {}", account.name, eta_h.unwrap_or_default() * 60.0, windows.join("; ")))
-}
-
-/// The accounts signed in on `host` that pace's `allowed_workers` leaves no session to start.
-fn pace_held(capacity: &Capacity, pools: &Pools, host: &str) -> Vec<String> {
-    capacity.accounts.iter().filter(|account| account.open().is_ok() && account.hosts.iter().any(|name| name == host) && pools.workers(&account.name) == 0).map(|account| format!("{} has no session left under pace's allowed_workers", account.name)).collect()
-}
-
-/// Why the week cannot carry the box on the account after this run's charges, when it cannot.
-fn week_line(capacity: &Capacity, pools: &Pools, account: &Account, eta_h: Option<f64>) -> Option<String> {
-    let left = pools.room(account).less(capacity.charge(account)).week;
-    projection::week_refusal(&account.readings, left, eta_h).map(|why| format!("{} {why}", account.name))
-}
-
-/// The accounts signed in on `host` that would take the box but for their measured burn, each with
-/// the points that burn spends over the ETA or the week it projects past exhaustion.
-fn burn_held(capacity: &Capacity, pools: &Pools, host: &str, eta_h: Option<f64>) -> Vec<String> {
-    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0 && capacity.takes(pools, account, None) && !capacity.takes(pools, account, eta_h)).filter_map(|account| week_line(capacity, pools, account, eta_h).or_else(|| burn_line(pools, account, eta_h))).collect()
 }
 
 /// The shared rank (`room::Rank`) of each account's room less what this run has charged it.
 fn rank(pools: &Pools, a: &Account, b: &Account) -> Ordering {
-    Rank::of(pools.room(a), a.plan, a.spending).order(&Rank::of(pools.room(b), b.plan, b.spending)).then(b.name.cmp(&a.name))
+    Rank::of(pools.room(a), a.plan).order(&Rank::of(pools.room(b), b.plan)).then(b.name.cmp(&a.name))
 }
 
-/// The same rank at the room placement reads live, before this run's charges.
-fn live_rank(a: &Account, b: &Account) -> Ordering {
-    Rank::of(a.room, a.plan, a.spending).order(&Rank::of(b.room, b.plan, b.spending)).then(b.name.cmp(&a.name))
+fn best_account<'a>(capacity: &'a Capacity, pools: &Pools, host: &str) -> Option<&'a Account> {
+    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0 && capacity.admits(pools, account).is_ok()).max_by(|a, b| rank(pools, a, b))
 }
 
-fn best_account<'a>(capacity: &'a Capacity, pools: &Pools, host: &str, eta_h: Option<f64>) -> Option<&'a Account> {
-    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0 && capacity.takes(pools, account, eta_h)).max_by(|a, b| rank(pools, a, b))
-}
-
-/// A pin reason when placement, ranking the open accounts by the same rank at the room it reads
-/// live, would pick another account than the one this run's earlier launches put first.
-fn pin(capacity: &Capacity, pools: &Pools, host: &str, chosen: &Account) -> Option<String> {
-    let placed = capacity.accounts.iter().filter(|account| account.provider() == chosen.provider() && account.refusal.is_none()).max_by(|a, b| live_rank(a, b))?;
-    if placed.name == chosen.name {
-        return None;
-    }
-    Some(if pools.pair(host, &placed.name) > 0 {
-        format!("north dispatch ranks {} first on the room left after this run's earlier launches; placement ranks by the room it reads live and would pick {}", chosen.name, placed.name)
-    } else {
-        format!("north dispatch: placement order puts this box on {host}, where {} has a free worker slot and {} is not signed in", chosen.name, placed.name)
-    })
+/// Why each account signed in on `host` takes no worker, by the spend rule.
+fn refused_on(capacity: &Capacity, pools: &Pools, host: &str) -> Vec<String> {
+    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0).filter_map(|account| capacity.admits(pools, account).err()).map(|refusal| refusal.to_string()).collect()
 }
 
 fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account, local: Option<String>) -> Launch {
-    let pin = pin(capacity, pools, host, account);
-    let burn = burn_line(pools, account, ready.eta_h);
-    let projection = projection::project(&account.readings, ready.eta_h);
-    pools.take(host, &account.name);
+    pools.take(host);
     pools.charge(&account.name, capacity.charge(account));
-    Launch {
-        item: ready.item.clone(),
-        host: host.into(),
-        account: account.name.clone(),
-        brief: ready.brief.clone(),
-        route: ready.route.clone(),
-        cloud: false,
-        local,
-        pin,
-       
-        burn,
-        projection,
-    }
+    Launch { item: ready.item.clone(), host: host.into(), account: account.name.clone(), brief: ready.brief.clone(), route: ready.route.clone(), cloud: false, local }
 }
 
-/// Admits reviving a session bound to `host` and `account` by the slot and room rules a launch
-/// meets there, taking the slot and its charge, with the pin placement needs when it would rank
-/// another account first.
-pub fn revive(capacity: &Capacity, pools: &mut Pools, host: &str, account: &str) -> Result<Option<String>, String> {
-    let chosen = capacity.accounts.iter().find(|candidate| candidate.name == account).ok_or_else(|| format!("{account} has no pace sample"))?;
-    chosen.open()?;
+/// Admits reviving a session bound to `host` and `account` by the slot and spend rules a launch
+/// meets there, taking the slot and its charge.
+pub fn revive(capacity: &Capacity, pools: &mut Pools, host: &str, account: &str) -> Result<(), String> {
+    let chosen = capacity.accounts.iter().find(|candidate| candidate.name == account).ok_or_else(|| format!("{account} has no usage reading"))?;
     if pools.host(host) == 0 {
         return Err(pools.full(host));
     }
     if pools.pair(host, account) == 0 {
         return Err(format!("{account} is not signed in on {host}"));
     }
-    if !capacity.takes(pools, chosen, None) {
-        return Err(format!("{account} has no room for another box this run"));
-    }
-    let pin = pin(capacity, pools, host, chosen).map(|_| format!("north dispatch revives the session on {account}, which holds its conversation"));
-    pools.take(host, account);
+    capacity.admits(pools, chosen).map_err(|refusal| refusal.to_string())?;
+    pools.take(host);
     pools.charge(account, capacity.charge(chosen));
-    Ok(pin)
+    Ok(())
 }
 
 /// Places one ready box, taking its slot from `pools`, or says why no slot takes it.
@@ -185,7 +112,7 @@ pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools
             Cloud::Reachable(credit) => {
                 if pools.take_cloud() {
                     let account = format!("claude login on {}", capacity.here);
-                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None, pin: None, burn: None, projection: None });
+                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None });
                 }
                 local = Some(format!("north dispatch: cloud lane open ({credit}) but its {SESSIONS} sessions are out"));
             }
@@ -193,19 +120,19 @@ pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools
             Cloud::Closed(_) => {}
         }
     }
+    capacity.spend.fleet(capacity.rules, pools.placed()).map_err(|refusal| refusal.to_string())?;
     let mut refused = Vec::new();
     for candidate in candidates {
         if let Some(why) = &candidate.refusal {
             refused.push(format!("{} {why}", candidate.host));
             continue;
         }
-        match best_account(capacity, pools, &candidate.host, ready.eta_h) {
+        match best_account(capacity, pools, &candidate.host) {
             Some(account) => return Ok(launch(capacity, pools, ready, &candidate.host, account, local)),
             None if pools.host(&candidate.host) == 0 => refused.push(pools.full(&candidate.host)),
             None => {
-                let mut held = burn_held(capacity, pools, &candidate.host, ready.eta_h);
-                held.extend(pace_held(capacity, pools, &candidate.host));
-                refused.push(if held.is_empty() { format!("{} has no account with a free worker slot", candidate.host) } else { format!("{} holds the box: {}", candidate.host, held.join(", ")) });
+                let held = refused_on(capacity, pools, &candidate.host);
+                refused.push(if held.is_empty() { format!("{} has no account signed in", candidate.host) } else { format!("{} holds the box: {}", candidate.host, held.join(", ")) });
             }
         }
     }

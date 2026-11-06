@@ -31,7 +31,7 @@ decisions, runs the survivor as a bounded live arm, and keeps it or reverts it b
 4. **Replay.** The candidate is applied to every logged placement case it reaches and the window is decided again with
    `north strategy replay`'s machinery (`north_replay::replay` with a patched placement decider), beside a replay of the current
    policy. The score is what the candidate adds: outcome shifts past `replay_outcome_shift_ratio` and breached invariants
-   (quota floor, offload-slot time, landing p90) that the current policy does not already show. A candidate that adds any is
+   (provider limit, offload-slot time, landing p90) that the current policy does not already show. A candidate that adds any is
    dropped and archived as refused.
 5. **Live arm.** A candidate that passes takes a bounded share of the category's boxes (starting 10 to 20 percent, within the
    adaptive shares below) and its boxes carry `Arm: climb-ID` in the brief, so the ledger counts them with no new code.

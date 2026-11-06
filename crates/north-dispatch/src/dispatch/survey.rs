@@ -1,10 +1,10 @@
-//! The live inputs one dispatch run reads: South's orchestration, pace-control's samples and
-//! placement's quota verdicts, each host's resident sessions, fleet roster and open gates,
+//! The live inputs one dispatch run reads: South's orchestration, each account's usage sample and
+//! the spend rule's view of them, each host's resident sessions, fleet roster and open gates,
 //! NorthThreads claims, the dispatch record and the open issues of the staffed repositories.
 use super::issues::{self, Issue, IssueRef, OWNER};
 use super::plan::Cloud;
 use super::record;
-use super::slots::{Account, Host, PlanSize, Room};
+use super::slots::{Account, Host, PlanSize};
 use super::projects::Projects;
 use super::tier::{self, Evidence, History};
 use super::grounds::Ledger;
@@ -16,15 +16,14 @@ use crate::ledger::ClosedReport;
 use crate::ledger::closed::ArmBox;
 use crate::fleet::roster::{Roster, Standing};
 use crate::pacing::placement::{self, gate};
-use crate::pace::projection;
 use crate::platform::process::run_within;
+use crate::spend::{self, Rules, View};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::{DocumentMut, Item};
 
 pub(super) use crate::pacing::placement::room::room;
-use crate::pacing::placement::room::{Basis, WEEK_H};
-const PACE_FRESH_S: f64 = 15.0 * 60.0;
+use crate::pacing::placement::room::Basis;
 
 pub struct Survey {
     pub here: String,
@@ -32,6 +31,9 @@ pub struct Survey {
     pub projects: Projects,
     pub hosts: Vec<Host>,
     pub accounts: Vec<Account>,
+    /// What the spend rule reads: every account's readings, the active worker sessions and the trips.
+    pub spend: View,
+    pub rules: Rules,
     pub issues: Vec<Issue>,
     pub open: BTreeSet<IssueRef>,
     pub holds: BTreeMap<IssueRef, String>,
@@ -120,25 +122,6 @@ fn account_hosts(cfg: &DocumentMut, account: &str, here: &str) -> Vec<String> {
     }
 }
 
-/// Why dispatch gives an account no slot: a stale pace sample, the out-rule as placement's verdict
-/// applies it (`crate::pace::exhaustion`), or no usage sample to judge it by.
-pub fn refusal(name: &str, control: &Value, verdict: Option<&gate::Verdict>, at: f64) -> Option<String> {
-    let age = at - control["at"].as_f64().unwrap_or(0.0);
-    if age > PACE_FRESH_S {
-        return Some(format!("pace-control.json sampled {:.0} min ago", age / 60.0));
-    }
-    match verdict {
-        None => Some(format!("{name} has no placement verdict, so dispatch staffs it nowhere")),
-        Some(verdict) => (!verdict.available).then(|| verdict.line.clone()),
-    }
-}
-
-/// `refusal`, else the week-room rule `Room::week_short` that keeps a box off an account the
-/// provider has not yet exhausted.
-pub fn account_refusal(name: &str, control: &Value, verdict: Option<&gate::Verdict>, room: &Room, at: f64) -> Option<String> {
-    refusal(name, control, verdict, at).or_else(|| room.week_short(Room::box_reserve()).map(|why| format!("{name} unavailable: {why}")))
-}
-
 /// The hosts an account runs on: those South signs it in on, less this host when this host's
 /// roster has no login of its own for it.
 pub fn signed_in(cfg: &DocumentMut, roster: &Roster, account: &str, here: &str) -> Vec<String> {
@@ -147,67 +130,37 @@ pub fn signed_in(cfg: &DocumentMut, roster: &Roster, account: &str, here: &str) 
     account_hosts(cfg, account, here).into_iter().filter(|host| own || host != here).collect()
 }
 
-/// The 5h window's measured burn in percent per hour, which usage-gate carries only for a trail of
-/// two readings; a window whose reset has passed is a stale sample whose flat trail measures nothing.
-fn five_hour_burn(usage: &Value, at: f64) -> Option<f64> {
-    let window = usage["windows"].as_array()?.iter().find(|window| window["window"] == "5h")?;
-    let resets = window["resets_at"].as_str().and_then(crate::pace::target::seconds);
-    window["burn_pct_h"].as_f64().filter(|_| resets.is_none_or(|resets| resets > at))
+/// One account as dispatch orders it: its plan size and the room its usage sample leaves.
+pub fn account(name: &str, usage: &Value, basis: &Basis, hosts: Vec<String>, at: f64, notes: &mut Vec<String>) -> Account {
+    let plan = basis.plan(name).unwrap_or_else(|why| {
+        notes.push(why);
+        PlanSize { five_hour: 1.0, week: 1.0 }
+    });
+    Account { name: name.to_owned(), hosts, plan, room: room(usage, at) }
 }
 
-/// The sessions pace-control leaves an account, held or not: its `allowed_workers` less the
-/// `working` sessions on it; None when pace names no `allowed_workers`.
-pub fn pace_workers(control: &Value, working: i64) -> Option<i64> {
-    control["allowed_workers"].as_i64().map(|allowed| (allowed - working).max(0))
-}
-
-/// What dispatch knows of one account at `at`: its pace-control entry, its usage-gate control when
-/// it is a sampled Claude account, and the sessions working on it.
-pub struct Sample<'a> {
-    pub name: &'a str,
-    pub control: &'a Value,
-    pub usage: Option<&'a Value>,
-    pub working: i64,
-}
-
-pub fn account(sample: &Sample, basis: &Basis, hosts: Vec<String>, at: f64, notes: &mut Vec<String>) -> Account {
-    let Sample { name, control, usage: sampled, working } = *sample;
-    let verdict = sampled.map(|usage| gate::verdict(name, usage));
-    let plan = match sampled.map(|_| basis.plan(name)) {
-        Some(Ok(plan)) => plan,
-        Some(Err(why)) => {
-            notes.push(why);
-            PlanSize { five_hour: 1.0, week: 1.0 }
-        }
-        None => PlanSize { five_hour: 1.0, week: 1.0 },
-    };
-    let room = sampled.map_or(Room { five_hour: 0.0, week: 0.0, week_reset_h: WEEK_H }, |usage| room(usage, at));
-    Account {
-        name: name.to_owned(),
-        hosts,
-        plan,
-        spending: basis.spending(name),
-        refusal: account_refusal(name, control, verdict.as_ref(), &room, at),
-        room,
-        burn: sampled.and_then(|usage| five_hour_burn(usage, at)),
-        readings: sampled.map(projection::readings).unwrap_or_default(),
-        workers: pace_workers(control, working),
-    }
-}
-
-fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, working: &BTreeMap<String, i64>, notes: &mut Vec<String>) -> Vec<Account> {
-    let pace = placement::pace_state("pace-control.json");
+fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<Account> {
     let usage = placement::pace_state("usage-gate.json");
-    let basis = Basis::new(cfg, pace.clone(), at);
-    pace["accounts"]
-        .as_object()
-        .into_iter()
-        .flatten()
-        .map(|(name, control)| {
-            let sample = Sample { name, control, usage: usage["claude"]["controls"].get(name).filter(|_| name.starts_with("claude:")), working: working.get(name).copied().unwrap_or(0) };
-            account(&sample, &basis, signed_in(cfg, roster, name, here), at, notes)
-        })
-        .collect()
+    let basis = Basis::new(cfg, at);
+    let controls = usage["claude"]["controls"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
+    controls.map(|(name, control)| account(name, control, &basis, signed_in(cfg, roster, name, here), at, notes)).collect()
+}
+
+/// The spend rule's view at `at`: every account's readings, counted while some host is signed in to
+/// it, and the worker sessions active in `sessions`.
+fn spend_view(cfg: &DocumentMut, roster: &Roster, here: &str, rules: &Rules, sessions: &[(Session, String)], at: f64) -> View {
+    let catalog = crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG);
+    spend::view(&placement::pace_directory(), rules, fleets::active_workers(sessions), at, |name| spend::plan_week(cfg, catalog, name), |name| !signed_in(cfg, roster, name, here).is_empty())
+}
+
+/// The spend view as a dispatch survey reads it, for `north fleet launch`: every reached host's
+/// active worker sessions, with the rules it applies.
+pub fn spend_now(roster: &Roster) -> Result<(View, Rules), String> {
+    let cfg = placement::config()?;
+    let (here, at, rules) = (crate::platform::host::name(), placement::now(), Rules::configured());
+    let listings = fleets::everywhere(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, &mut Vec::new());
+    let sessions: Vec<(Session, String)> = listings.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
+    Ok((spend_view(&cfg, roster, &here, &rules, &sessions, at), rules))
 }
 
 /// NorthThreads claim listings from this host's ledger and every ssh host's, since a host whose
@@ -406,10 +359,12 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&sessions, name, record::recent_on(&records, name, &open, at)));
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
     let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();
-    let accounts = accounts(&cfg, roster, &here, at, &fleets::working_by_account(&sessions), &mut notes);
+    let accounts = accounts(&cfg, roster, &here, at, &mut notes);
     if accounts.is_empty() {
-        notes.push("pace-control.json names no account, so no slot is free".into());
+        notes.push("usage-gate.json names no Claude account, so no slot is free".into());
     }
+    let rules = Rules::configured();
+    let spend = spend_view(&cfg, roster, &here, &rules, &sessions, at);
     stopped(laptop.as_deref(), &records, &mut issues, &mut notes);
     let history = History::new(&records);
     let arm_boxes: Vec<ArmBox> = report.iter().flat_map(|report| report.arms.iter().cloned()).chain(remote_arms).collect();
@@ -421,7 +376,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         Vec::new()
     });
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, at })
 }
 
 mod github {

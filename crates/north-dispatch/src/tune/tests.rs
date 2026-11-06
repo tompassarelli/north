@@ -126,7 +126,7 @@ fn boxes(prefix: &str, count: usize, arm: (&str, &str), category: &str, day: &st
 fn a_cell_of_boxes_no_label_has_named_yet_files_no_rise_however_dear_this_week_is() {
     let week = boxes("1", 3, OPUS, "unknown", "2026-10-24", 9_000_000);
     let before = boxes("3", 3, OPUS, "unknown", "2026-10-17", 1_000_000);
-    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new(), projections: Ok(Vec::new()) };
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let mut issues = Issues::default();
     let (_, quiet) = two_ticks(&ledger, &mut issues);
     assert!(issues.created.is_empty(), "{:#?}", quiet.lines);
@@ -160,7 +160,7 @@ fn a_tier_that_staffed_no_run_this_week_files_no_rise_for_the_boxes_it_started_e
     assert!((was_n, now_n, was_staffed, now_staffed) == (3, 3, true, false), "{was} -> {now}");
 
     let mut issues = Issues::default();
-    let (_, quiet) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new(), projections: Ok(Vec::new()) }, &mut issues);
+    let (_, quiet) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() }, &mut issues);
     assert!(issues.created.is_empty(), "{:#?}", quiet.lines);
     assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
 }
@@ -177,7 +177,7 @@ fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise
     assert!((was_n, now_n) == (3, 4) && now > was * 1.25, "{was} -> {now}");
 
     let mut issues = Issues::default();
-    let (_, ticked) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new(), projections: Ok(Vec::new()) }, &mut issues);
+    let (_, ticked) = two_ticks(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() }, &mut issues);
     assert!(issues.created.is_empty(), "{:#?}", ticked.lines);
 }
 
@@ -186,7 +186,7 @@ fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise
 fn a_rise_files_only_while_it_holds_with_the_weeks_dearest_box_dropped() {
     let filed = |outputs: [i64; 3]| {
         let week: Vec<SpendRun> = outputs.iter().enumerate().map(|(index, output)| spent(&format!("north#5{index}"), OPUS, "tooling", "2026-10-24", *output)).collect();
-        let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&boxes("40", 3, OPUS, "tooling", "2026-10-17", 2_000_000), "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new(), projections: Ok(Vec::new()) };
+        let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&boxes("40", 3, OPUS, "tooling", "2026-10-17", 2_000_000), "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
         let mut issues = Issues::default();
         let (_, ticked) = two_ticks(&ledger, &mut issues);
         ticked.lines.iter().any(|line| line.starts_with("rose "))

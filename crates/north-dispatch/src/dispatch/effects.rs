@@ -42,10 +42,8 @@ pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: 
         .into();
     words.extend(launch.route.invocation(&survey.cfg)?);
     let held = (!remote && launch.local.is_none()).then(|| format!("north dispatch placed this box on {}", launch.host));
-    for (flag, reason) in [("--local", launch.local.as_ref().or(held.as_ref())), ("--pin", launch.pin.as_ref())] {
-        if let Some(reason) = reason {
-            words.extend([flag.to_owned(), reason.clone()]);
-        }
+    if let Some(reason) = launch.local.as_ref().or(held.as_ref()) {
+        words.extend(["--local".to_owned(), reason.clone()]);
     }
     words.push(launch.brief.clone());
     if survey.laptop.as_deref() == Some(launch.host.as_str()) {
@@ -84,7 +82,6 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         arm: launch.route.arm,
         hand: false,
         effort_arm: launch.route.effort_stamp().map(str::to_owned),
-        projection: launch.projection.clone(),
     };
     record::append(&record::directory(), &entry)?;
     if result.is_ok() {
@@ -132,10 +129,8 @@ fn launched_or_queued(name: &str, output: &std::process::Output) -> Result<Strin
 /// launch, then gives it the turn that resumes its lane, and records the report it answered.
 pub fn revive(survey: &Survey, revive: &Revive) -> Result<(), String> {
     let mut words = vec!["fleet".to_owned(), "revive".into(), revive.name.clone()];
-    for (flag, reason) in [("--local", &revive.local), ("--pin", &revive.pin)] {
-        if let Some(reason) = reason {
-            words.extend([flag.to_owned(), reason.clone()]);
-        }
+    if let Some(reason) = &revive.local {
+        words.extend(["--local".to_owned(), reason.clone()]);
     }
     north_on(survey, &revive.registry, &words)?;
     north_on(survey, &revive.registry, &["fleet".into(), "send".into(), "--from".into(), "service:north-dispatch".into(), revive.name.clone(), super::revive::prompt(revive)])?;

@@ -32,6 +32,3 @@ toml_edit.workspace = true
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-north-dispatch = { path = "../north-dispatch" }

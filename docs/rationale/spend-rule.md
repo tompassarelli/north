@@ -131,8 +131,8 @@ refusal leaves the follower waiting for the next release pass rather than failin
   rank and its reads of `exhaustion` and `controls` are **deleted**. `Rank` and `Charge` are **kept**, as
   order only, reading spend's windows with the provider's limit as the ceiling.
 - `placement/survey.rs` and `placement/tiers.rs` (`placement_drain_margin`): **deleted**.
-- The placement `Case.pace` field (in `north-strategy-types`) is **replaced** by `Case.spend`, the active
-  count and the trips.
+- The placement `Case.pace` field (in `north-strategy-types`) is **deleted**. `north fleet launch` applies the
+  spend rule beside placement, reading the same view as dispatch (`dispatch::spend_now`).
 - `north fleet launch` `account_refusal` (a named account other than placement's first pick needs `--pin`,
   `TIE_WEEK_POINTS`): **deleted**. `exhausted_refusal` is **replaced** by the spend refusal, which no
   `--pin` passes.

@@ -40,6 +40,7 @@ mod slots;
 mod stops;
 mod strands;
 mod survey;
+pub use survey::spend_now;
 mod tier;
 pub mod shares;
 mod tuned;
@@ -65,8 +66,6 @@ mod grounds_tests;
 mod tries_tests;
 #[cfg(test)]
 mod wait_tests;
-#[cfg(test)]
-mod week_tests;
 #[cfg(test)]
 mod spread_tests;
 
@@ -123,7 +122,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut pools = Pools::new(&survey.hosts, &survey.accounts).with_cloud(cloud::SESSIONS - survey.cloud_running);
     let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
     let planned = issues::planned_predecessors(&survey.issues);
-    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: slots::Room::box_reserve() };
+    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: survey.rules.charge, spend: &survey.spend, rules: &survey.rules };
     let revival = revive::plan(&revive::Inputs { strands: &survey.strands, saturated: &survey.saturated, revived: &survey.revived }, &capacity, &mut pools);
     let mut holds = survey.holds.clone();
     holds.extend(revival.holds.clone());
@@ -151,14 +150,13 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         }
         let route = tier::route(issue, history, &survey.ledger);
         let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route);
-        let eta_h = grounds.minutes().map(|minutes| minutes / 60.0);
         let brief = brief::brief(issue, launched_by, &route, &grounds);
         if let Some(why) = crate::router::brief::class_refusal(&brief).or_else(|| crate::platform::signin::brief_refusal(&brief)) {
             outcome.skipped.push((issue.reference(), format!("ready, not placed: {why}")));
             continue;
         }
         let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
-        let ready = Ready { item: issue.reference(), brief, code_only, route, eta_h };
+        let ready = Ready { item: issue.reference(), brief, code_only, route };
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
             Ok(mut launch) => {
                 if !launch.cloud && launch.route.stamp().is_none() {
@@ -195,8 +193,9 @@ fn print_survey(survey: &Survey) {
     for host in &survey.hosts {
         println!("{}", host.line());
     }
+    println!("{}", survey.spend.line(&survey.rules));
     for account in &survey.accounts {
-        println!("{}", account.line());
+        println!("{}", account.line(&survey.spend, &survey.rules));
     }
     let pools = Pools::new(&survey.hosts, &survey.accounts);
     for host in &survey.hosts {
@@ -246,7 +245,6 @@ fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool) -> Vec<Stri
 fn start(survey: &Survey, launch: &Launch, dry_run: bool) -> (String, Option<String>) {
     let verb = if launch.cloud { "cloud-launch" } else { "launch" };
     let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, launch.route.tier.name());
-    let line = launch.burn.as_ref().map_or(line.clone(), |burn| format!("{line} ({burn})"));
     if dry_run {
         let why = std::iter::once(launch.route.why.as_str()).chain(launch.local.as_deref()).collect::<Vec<_>>().join("; ");
         return (format!("would {line} ({why})"), None);

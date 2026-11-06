@@ -104,7 +104,7 @@ fn log_admission(root: &Path, count: usize, slot: bool, logged: impl Fn(usize) -
 }
 
 fn bounds() -> Bounds {
-    Bounds { five_hour_floor_points: 5.0, week_floor_points: 0.0, github_floor_calls: 1000.0, landing_p90_seconds: 60.0, shift_ratio: 2.0, shift_min_cases: 20, budget_seconds: 5.0 }
+    Bounds { github_floor_calls: 1000.0, landing_p90_seconds: 60.0, shift_ratio: 2.0, shift_min_cases: 20, budget_seconds: 5.0 }
 }
 
 fn deciders<'a>(
@@ -133,7 +133,7 @@ fn exit(root: &Path, deciders: &Deciders) -> (u8, Replayed) {
 }
 
 #[test]
-fn a_change_that_shifts_counts_or_places_a_launch_under_the_quota_floor_is_refused_and_an_unchanged_one_is_not() {
+fn a_change_that_shifts_counts_or_places_a_launch_on_an_account_at_its_provider_limit_is_refused_and_an_unchanged_one_is_not() {
     let root = tempfile::tempdir().unwrap();
     log_admission(root.path(), 300, false, |index| if index % 12 == 0 { Reason::DeferQueued } else { Reason::Run });
     let defers_everything = |_: &str, _: &admission::Request| Some((Reason::DeferQueued, false));
@@ -149,15 +149,15 @@ fn a_change_that_shifts_counts_or_places_a_launch_under_the_quota_floor_is_refus
     assert_eq!((code, &replayed.counts[0].logged), (0, &replayed.counts[0].replayed));
 
     let placed = tempfile::tempdir().unwrap();
-    for (index, used) in [20.0, 96.0].into_iter().enumerate() {
+    for (index, used) in [20.0, 100.0].into_iter().enumerate() {
         let at = NOW - 200.0 + index as f64;
         append(placed.path(), Kind::Placement, "jsonl", at, &envelope(Kind::Placement, &format!("p{index}"), at, None, placed_case(used), placed_on_c()));
     }
     let places_anyway = |_: &placement::Case| Some(Target::Account("claude:c".into()));
     let (code, replayed) = exit(placed.path(), &deciders(&quiet_admission, &same_judgement, &places_anyway));
-    let quota = replayed.invariants.iter().find(|invariant| invariant.name == "quota-floor").unwrap();
-    assert_eq!((code, quota.checked, quota.passed), (1, 4, 3));
-    assert!(quota.breaches[0].contains("4 points of its five-hour window left"), "{:?}", quota.breaches);
+    let limit = replayed.invariants.iter().find(|invariant| invariant.name == "provider-limit").unwrap();
+    assert_eq!((code, limit.checked, limit.passed), (1, 4, 3));
+    assert!(limit.breaches[0].contains("at its provider's five-hour limit"), "{:?}", limit.breaches);
     assert_github_floor_refuses_a_launch_placed_under_1000_calls_and_skips_unread_cases();
     assert_a_placement_change_that_moves_launches_to_another_account_prints_each_move_beside_the_unchanged_count();
 }
@@ -172,7 +172,6 @@ fn placed_case(used_5h: f64) -> placement::Case {
         config: placement::Config::default(),
         credit: placement::Credit::default(),
         usage: placement::Usage { controls, ..Default::default() },
-        pace: BTreeMap::new(),
         roster: BTreeMap::new(),
         machines: Vec::new(),
         here: placement::Here::default(),

@@ -49,14 +49,6 @@ impl World for Rig {
         Some(json!({"row": row, "line": line}).to_string())
     }
 
-    fn refresh(&self, _provider: &str) -> Option<(i32, String)> {
-        Some((1, String::new()))
-    }
-
-    fn pace(&self, request: &Value) -> Result<Value, String> {
-        crate::pacing::answer(request)
-    }
-
     fn billed(&self, provider: &str) -> Option<String> {
         self.billed.borrow().clone().filter(|_| provider == "claude")
     }

@@ -9,14 +9,15 @@ mod usage;
 mod world;
 
 pub use briefs::Event;
-use briefs::truthy;
+use crate::spend::{self, Placed, Rules, Starter, View};
+use toml_edit::DocumentMut;
 pub use world::Live;
 
 const PROTECTED_PRESSURE_LIMIT: f64 = 20.0;
 const LOCAL_CLAUDE_TYPES: [&str; 8] = ["worker", "worker-high", "worker-xhigh", "worker-haiku", "worker-sonnet", "general-purpose", "Explore", "fork"];
 const EXEMPT_MARKER: &str = "[routine:watchdog]";
 const UNIT: &str = "spawn-capacity-guard";
-const HOOKED: Live = Live { pace: crate::guard::host::pace };
+const HOOKED: Live = Live;
 
 pub trait World {
     fn now(&self) -> f64;
@@ -24,8 +25,6 @@ pub trait World {
     fn probe(&self) -> Option<String>;
     fn fleet(&self) -> Option<String>;
     fn flow(&self, repo: &str) -> Option<String>;
-    fn refresh(&self, provider: &str) -> Option<(i32, String)>;
-    fn pace(&self, request: &Value) -> Result<Value, String>;
     fn billed(&self, provider: &str) -> Option<String>;
     fn cpus(&self) -> f64;
     fn today(&self) -> String;
@@ -45,89 +44,46 @@ pub fn admission(input: &HookInput) -> Verdict {
     }
 }
 
-pub fn confirm_native(input: &HookInput) -> Verdict {
-    if input.data["hook_event_name"] == "PostToolUse" && input.data["tool_name"].as_str().is_some_and(|tool| tool.ends_with("spawn_agent"))
-        && let Some(event) = Event::from_hook(input)
-    {
-        let _ = HOOKED.pace(&json!({
-            "op": "confirm", "directory": state_dir(&HOOKED).join("agents"), "session": event.raw["session_id"],
-            "tool_use_id": event.raw["tool_use_id"], "launched": true,
-        }));
-    }
-    Verdict::Allow
-}
-
+/// What `north hook spawn-gate` prints: whether this host's CPUs admit a spawn, and whether the spend
+/// rule admits a subagent on each account.
 pub fn gate_summary(world: &impl World) -> Value {
     let cpu = capacity(world).is_none_or(|(provisioned, limit, protected)| provisioned < limit && protected <= PROTECTED_PRESSURE_LIMIT);
-    let verdict = usage::verdict(world, "claude", false).ok().unwrap_or(Value::Null);
-    let open = verdict["refusal"].is_null();
-    let accounts: Vec<Value> = verdict["paces"].as_object().into_iter().flatten().map(|(account, _)| json!([account, open])).collect();
-    json!({"cpu": cpu, "accounts": accounts})
+    let (view, rules) = spend_view(world);
+    let accounts: Vec<Value> = view.accounts.iter().map(|account| json!([account.name, view.admit(&rules, &account.name, Starter::Subagent, Placed::default()).is_ok()])).collect();
+    json!({"cpu": cpu, "accounts": accounts, "spend": view.line(&rules)})
 }
 
 pub fn decide(world: &impl World, event: &Event) -> Option<String> {
     let reasons = spawn(world, event).ok()?;
-    if let Some(hold) = reasons.iter().find(|reason| reason.starts_with("Hold:")) {
-        let account = world.billed(event.provider()).unwrap_or_else(|| event.provider().to_owned());
-        let _ = world.pace(&json!({
-            "op": "expired_grant_hold", "directory": state_dir(world).join("agents"), "account": account,
-            "session": event.session(), "reason": hold, "task": event.task(),
-        }));
-    }
     (!reasons.is_empty()).then(|| reasons.join("\n"))
 }
 
+/// The money refusal for the billed account, the spend rule for a subagent on it, then the landing
+/// flow and CPU capacity.
 fn spawn(world: &impl World, event: &Event) -> Result<Vec<String>, String> {
     let provider = event.provider();
-    let agents = state_dir(world).join("agents");
-    let billed = world.billed(provider);
-    let first = billed.clone().unwrap_or_else(|| provider.to_owned());
-    let grant = world.pace(&json!({"op": "grant_for", "directory": agents, "account": first, "session": event.session(), "task": event.task()}))?;
-    let granted = truthy(&grant);
-    let verdict = usage::verdict(world, provider, granted)?;
-    let mut reasons = Vec::new();
-    if truthy(&verdict["refusal"]) {
-        reasons.push(briefs::text(&verdict["refusal"]));
-    }
-    let name = match billed {
-        Some(account) => Ok(account),
-        None => usage::pace_account(&verdict, provider),
-    };
-    let paced = truthy(&verdict["pace_control"]);
-    match name.clone().and_then(|name| pace_hold(world, event, &verdict, &name, paced && !granted)) {
-        Ok(hold) => reasons.extend(hold),
-        Err(error) if reasons.is_empty() => return Err(error),
-        Err(_) => {}
+    let mut reasons: Vec<String> = usage::money_refusal(world, provider)?.into_iter().collect();
+    if let Some(account) = world.billed(provider) {
+        let (view, rules) = spend_view(world);
+        if let Err(refusal) = view.admit(&rules, &account, Starter::Subagent, Placed::default()) {
+            logs::denial(world, event, "spend", Some(&refusal.to_string()));
+            reasons.push(refusal.to_string());
+        }
     }
     if !event.texts.iter().any(|text| text.contains(EXEMPT_MARKER)) {
         reasons.extend(flow_refusal(world, event));
         reasons.extend(capacity_refusal(world, event));
     }
-    if !reasons.is_empty() || !(paced || granted) {
-        return Ok(reasons);
-    }
-    let reserved = world.pace(&json!({
-        "op": "reserve", "path": agents.join("usage-gate.json"), "provider": provider, "account": name?,
-        "session": event.session(), "task": event.task(), "tool_use_id": event.raw["tool_use_id"],
-    }))?;
-    Ok(truthy(&reserved).then(|| briefs::text(&reserved)).into_iter().collect())
+    Ok(reasons)
 }
 
-fn pace_hold(world: &impl World, event: &Event, verdict: &Value, name: &str, holds: bool) -> Result<Option<String>, String> {
-    if !holds {
-        return Ok(None);
-    }
-    let provider = event.provider();
-    let Some(control) = usage::control(verdict, name, provider)? else {
-        return Ok(Some(format!("Hold: {name} pace controller has no fresh account reading; refresh before spawning.")));
-    };
-    let hold = world.pace(&json!({"op": "refusal", "account": name, "control": control, "now": world.now()}))?;
-    if !truthy(&hold) {
-        return Ok(None);
-    }
-    let hold = briefs::text(&hold);
-    logs::denial(world, event, "projection", Some(&hold));
-    Ok(Some(hold))
+/// The spend view from this host's state as last sampled; a subagent adds no session, so the active
+/// count is not read.
+fn spend_view(world: &impl World) -> (View, Rules) {
+    let cfg = std::fs::read_to_string(crate::pace::target::policy_path()).ok().and_then(|text| text.parse::<DocumentMut>().ok()).unwrap_or_default();
+    let rules = Rules::configured();
+    let catalog = crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG);
+    (spend::view(&state_dir(world).join("agents"), &rules, 0, world.now(), |name| spend::plan_week(&cfg, catalog, name), |_| true), rules)
 }
 
 fn flow_refusal(world: &impl World, event: &Event) -> Option<String> {
