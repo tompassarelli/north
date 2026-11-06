@@ -224,7 +224,7 @@ fn the_landing_tail_breaches_on_rounds_the_replay_makes_slower_and_on_landings_i
     let (code, replayed) = exit(delayed.path(), &deciders(&quiet_admission, &second_round, &unplaced));
     let tail = replayed.invariants.iter().find(|invariant| invariant.name == "landing-p90").unwrap();
     assert_eq!((code, tail.checked, tail.passed), (1, 10, 0));
-    assert!(tail.breaches[0].contains("p90 is 95.0 s over 60 s and over the logged decisions' 5.0 s") && tail.breaches[0].contains("2026-11-05"), "{:?}", tail.breaches);
+    assert!(tail.breaches[0].contains("p90 is 95.0 s over 60 s and 90.0 s over the logged decisions' 5.0 s") && tail.breaches[0].contains("2026-11-05"), "{:?}", tail.breaches);
 
     let held = tempfile::tempdir().unwrap();
     log_landings(held.path(), &[5.0; 10]);
