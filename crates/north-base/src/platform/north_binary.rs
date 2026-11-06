@@ -21,7 +21,9 @@ fn promoted_elsewhere(home: &Path, own: &Path) -> bool {
     let Ok(promoted) = std::fs::canonicalize(state.join("current/north")) else {
         return false;
     };
-    own.starts_with(state.join("runtimes")) && !std::fs::canonicalize(own).is_ok_and(|own| own == promoted)
+    let runtimes = state.join("runtimes");
+    let within = own.starts_with(&runtimes) || std::fs::canonicalize(&runtimes).is_ok_and(|runtimes| own.starts_with(runtimes));
+    within && !std::fs::canonicalize(own).is_ok_and(|own| own == promoted)
 }
 
 fn resolve(explicit: Option<PathBuf>, home: &Path, executable: Option<PathBuf>) -> PathBuf {
@@ -70,5 +72,17 @@ mod tests {
         assert!(!promoted_elsewhere(home.path(), &checkout), "a checkout build is never superseded");
         fs::remove_file(&old).unwrap();
         assert!(promoted_elsewhere(home.path(), &old), "a runtime removed from disk is superseded");
+        let data = home.path().join("code/north-data");
+        fs::create_dir_all(data.join("runtimes/new")).unwrap();
+        fs::write(data.join("runtimes/new/north"), "new").unwrap();
+        fs::create_dir_all(data.join("runtimes/newer")).unwrap();
+        fs::write(data.join("runtimes/newer/north"), "newer").unwrap();
+        fs::remove_dir_all(state.join("runtimes")).unwrap();
+        symlink(data.join("runtimes"), state.join("runtimes")).unwrap();
+        let running = data.join("runtimes/new/north");
+        assert!(!promoted_elsewhere(home.path(), &running), "a runtime read through the link to its data directory is current");
+        fs::remove_file(state.join("current")).unwrap();
+        symlink("runtimes/newer", state.join("current")).unwrap();
+        assert!(promoted_elsewhere(home.path(), &running), "the kernel names a running binary by its resolved path, which lies under the linked runtimes directory; north#677");
     }
 }

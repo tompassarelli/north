@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 
 use super::lane::{Lane, gather};
 use super::remote::{hand_over, invocation};
-use super::take::{Sender, Starting, refusal, run_lane};
+use super::take::{Sender, Starting, Target, pick, refusal, run_lane};
 use crate::capacity::build_offload::{Admission, Declined, Job};
 use crate::capacity::handover::Offer;
 use crate::dispatch::measure::Measure;
@@ -170,7 +170,7 @@ fn capacity_a_queued_run_handed_to_a_taker_runs_on_the_taker_and_its_output_and_
         let environment = |command: &mut Command| {
             command.env("HOME", &remote).env("AGENT_CAPACITY_NORTH", remote.join("north-stub"));
         };
-        let (status, synced) = run_lane(&offer, "ccx33", reader, &sender, &starting, &environment).expect("the script starts");
+        let (status, synced) = run_lane(&offer, "ccx33", None, reader, &sender, &starting, &environment).expect("the script starts");
         assert!(synced);
         sender.send(&crate::capacity::handover::Frame::Exit(status));
     });
@@ -214,4 +214,27 @@ fn capacity_a_run_stays_queued_when_the_taker_has_no_room_cannot_rebuild_the_lan
     let (queued, peer) = std::os::unix::net::UnixStream::pair().unwrap();
     drop(peer);
     assert!(matches!(hand_over(queued, &lane, &job, None, &|_| panic!("never starts")), Err(Some(Declined::Failed(_)))));
+}
+
+fn host_room(limit: f64, committed: f64) -> Room {
+    let mut room = laptop_room(committed);
+    room.admission.limit_cpus = limit;
+    room
+}
+
+// KEEP(contract): a pulled run goes to the target with the most free cores, never to one whose interactive reserve leaves it no room, and to none while this host holds its game reserve; north#677
+#[test]
+fn capacity_a_pulled_run_goes_to_the_target_with_the_most_free_cores_and_to_none_while_the_game_reserve_holds() {
+    fn targets<'a>(laptop: &'a Room, ccx33: &'a Room, starting: usize) -> Vec<Target<'a>> {
+        vec![Target { name: "whiterabbit", ssh: None, room: Some(laptop), starting: 0 }, Target { name: "ccx33", ssh: Some("tom@ccx33"), room: Some(ccx33), starting }]
+    }
+    let (laptop, ccx33) = (host_room(14.0, 2.0), host_room(8.0, 0.0));
+    let busier = host_room(14.0, 8.0);
+    assert_eq!(pick(&targets(&busier, &ccx33, 0), false), Ok(("ccx33", Some("tom@ccx33"))), "8 free cores on ccx33 beat 6 on the laptop");
+    assert_eq!(pick(&targets(&busier, &ccx33, 1), false), Ok(("whiterabbit", None)), "a run already on its way to ccx33 counts against it");
+    let reserve_full = host_room(14.0, 12.0);
+    let only_laptop = [Target { name: "whiterabbit", ssh: None, room: Some(&reserve_full), starting: 0 }];
+    let refused = pick(&only_laptop, false).unwrap_err();
+    assert!(refused[0].starts_with("whiterabbit: 2.0 cores free of 14"), "the admission limit keeps the interactive reserve, so the laptop with 2 cores under it takes nothing: {refused:?}");
+    assert_eq!(pick(&targets(&laptop, &ccx33, 0), true), Err(vec!["this host holds its game reserve".to_owned()]));
 }
