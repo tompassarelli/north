@@ -129,6 +129,10 @@ impl Gc {
             println!("{name}: origin is not tompassarelli GitHub; remote read-only");
             return Ok(());
         };
+        if api(&format!("repos/tompassarelli/{repo}"))?.get(0).and_then(|page| page.get("archived")).and_then(Value::as_bool) == Some(true) {
+            self.say(format!("{name}: origin is archived on GitHub; remote read-only"));
+            return Ok(());
+        }
         if !git_slow(&main, &["fetch", "-q", "--prune", "origin"]).ok {
             return Err("origin fetch failed; remote read-only".into());
         }

@@ -3,7 +3,7 @@ usage: north lane-gc [--remote] [--dry-run] [--repo NAME]... [--root DIR] [--idl
 
 For every ~/code/<project> container with main/ (clients, resources and archive are
 skipped; lanes are swept only where worktrees/ exists, origin branches in every container
-whose origin is tompassarelli GitHub), lane-gc deletes a lane, branch or origin branch only
+whose origin is an unarchived tompassarelli GitHub repository), lane-gc deletes a lane, branch or origin branch only
 when it is finished, and never backs it up or pushes a tag:
   - landed: its tip is contained in origin/main, patch-equivalent there (git cherry shows no +),
     its tree already on main (north landed-tree) or it adds nothing when merged;
