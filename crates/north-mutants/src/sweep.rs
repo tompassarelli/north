@@ -6,10 +6,10 @@ use std::process::{Command, Stdio};
 
 use time::{Duration, OffsetDateTime};
 
-use super::mutant::{Env, Stop, git_bytes, git_text, repo_name};
-use super::mutant_retire::{self, Matrix};
-use super::mutant_sites;
-use super::mutant_trees::{self, Plan};
+use crate::env::{Env, Stop, git_bytes, git_text, repo_name};
+use crate::matrix::{self, Matrix};
+use crate::sites;
+use crate::trees::{self, Plan};
 
 const EVERY_TEST: &str = "*";
 
@@ -19,15 +19,15 @@ pub trait Issues {
     fn comment(&self, repo: &str, number: u64, body: &str) -> Result<String, String>;
 }
 
-pub(super) struct MatrixArgs {
-    pub(super) mutants: usize,
-    pub(super) seed: String,
-    pub(super) timeout_seconds: u64,
+pub struct MatrixArgs {
+    pub mutants: usize,
+    pub seed: String,
+    pub timeout_seconds: u64,
 }
 
-pub(super) fn matrix(cwd: &Path, args: &MatrixArgs, env: &Env, out: &mut dyn Write, progress: &mut dyn Write) -> Result<(), Stop> {
+pub fn matrix(cwd: &Path, args: &MatrixArgs, env: &Env, out: &mut dyn Write, progress: &mut dyn Write) -> Result<(), Stop> {
     let repo = repo_name(cwd)?;
-    let Some(config) = super::mutant_verify::config(cwd, "HEAD")? else {
+    let Some(config) = crate::verify::config(cwd, "HEAD")? else {
         return Err(Stop::Usage("mutant matrix: .safe-push at HEAD has no [mutant] run".to_owned()));
     };
     if config.sources.is_empty() {
@@ -40,11 +40,11 @@ pub(super) fn matrix(cwd: &Path, args: &MatrixArgs, env: &Env, out: &mut dyn Wri
     for path in String::from_utf8_lossy(&listed).split('\0').filter(|path| !path.is_empty()) {
         let Ok(bytes) = git_bytes(cwd, None, &["show", &format!("HEAD:{path}")]) else { continue };
         let text = String::from_utf8_lossy(&bytes).into_owned();
-        all.extend(mutant_sites::sites(path, &text));
+        all.extend(sites::sites(path, &text));
         texts.insert(path.to_owned(), text);
     }
     let found = all.len();
-    let chosen = mutant_sites::sample(all, &args.seed, args.mutants);
+    let chosen = sites::sample(all, &args.seed, args.mutants);
     writeln!(progress, "mutant matrix: {} of {found} sites in {} files, seed {}", chosen.len(), texts.len(), args.seed)?;
     let scratch = tempfile::tempdir()?;
     let mut patches = BTreeMap::new();
@@ -52,7 +52,7 @@ pub(super) fn matrix(cwd: &Path, args: &MatrixArgs, env: &Env, out: &mut dyn Wri
     for (index, site) in chosen.iter().enumerate() {
         let id = format!("{}-{index:03}", args.seed);
         let patch = scratch.path().join(format!("{id}.patch"));
-        fs::write(&patch, mutant_sites::patch(site, &texts[&site.path]))?;
+        fs::write(&patch, sites::patch(site, &texts[&site.path]))?;
         patches.insert(id.clone(), patch);
         labels.insert(id, site.label());
     }
@@ -65,7 +65,7 @@ pub(super) fn matrix(cwd: &Path, args: &MatrixArgs, env: &Env, out: &mut dyn Wri
         timeout_seconds: args.timeout_seconds,
         trees_per_lease: 1,
     };
-    let outcome = mutant_trees::run(cwd, &plan, env, progress)?;
+    let outcome = trees::run(cwd, &plan, env, progress)?;
     let mut result = Matrix { baseline: outcome.change, ..Matrix::default() };
     for (id, verdicts) in &outcome.mutants {
         result.mutants.insert(id.clone(), !verdicts.is_empty());
@@ -79,16 +79,16 @@ pub(super) fn matrix(cwd: &Path, args: &MatrixArgs, env: &Env, out: &mut dyn Wri
     Ok(())
 }
 
-pub(super) struct RetireArgs {
-    pub(super) repo: String,
-    pub(super) matrices: Vec<PathBuf>,
-    pub(super) evidence: PathBuf,
-    pub(super) contracts: Vec<String>,
-    pub(super) date: String,
-    pub(super) days: i64,
+pub struct RetireArgs {
+    pub repo: String,
+    pub matrices: Vec<PathBuf>,
+    pub evidence: PathBuf,
+    pub contracts: Vec<String>,
+    pub date: String,
+    pub days: i64,
 }
 
-pub(super) fn since(date: &str, days: i64) -> Result<String, Stop> {
+pub fn since(date: &str, days: i64) -> Result<String, Stop> {
     let bad = || Stop::Usage(format!("mutant: {date} is not YYYY-MM-DD"));
     let mut parts = date.splitn(3, '-').map(str::parse::<i32>);
     let (Some(Ok(year)), Some(Ok(month)), Some(Ok(day))) = (parts.next(), parts.next(), parts.next()) else { return Err(bad()) };
@@ -101,17 +101,17 @@ fn iso(day: time::Date) -> String {
     format!("{:04}-{:02}-{:02}", day.year(), u8::from(day.month()), day.day())
 }
 
-pub(super) fn retire(args: &RetireArgs) -> Result<String, Stop> {
+pub fn retire(args: &RetireArgs) -> Result<String, Stop> {
     let tsv = fs::read_to_string(&args.evidence)
         .map_err(|error| Stop::Fail(format!("mutant retire: no catch evidence at {} ({error}); NOT proposing", args.evidence.display())))?;
-    let evidence = mutant_retire::evidence(&tsv).map_err(|why| Stop::Fail(format!("mutant retire: {}: {why}", args.evidence.display())))?;
+    let evidence = matrix::evidence(&tsv).map_err(|why| Stop::Fail(format!("mutant retire: {}: {why}", args.evidence.display())))?;
     let matrices = args.matrices.iter().map(|path| fs::read_to_string(path).map(|text| Matrix::parse(&text))).collect::<Result<Vec<_>, _>>()?;
     let since = since(&args.date, args.days)?;
-    let verdict = mutant_retire::select(&matrices, &evidence, &args.contracts, &since);
-    Ok(mutant_retire::render_box(&args.repo, &args.date, &since, &verdict))
+    let verdict = matrix::select(&matrices, &evidence, &args.contracts, &since);
+    Ok(matrix::render_box(&args.repo, &args.date, &since, &verdict))
 }
 
-pub(super) fn with_box(body: &str, line: &str) -> Option<String> {
+pub fn with_box(body: &str, line: &str) -> Option<String> {
     let key = line.split(':').next().unwrap_or(line);
     if body.lines().any(|existing| existing.starts_with(key)) {
         return None;
@@ -137,13 +137,13 @@ fn chunks(list: &str) -> Vec<String> {
     chunks
 }
 
-pub(super) fn post(issues: &dyn Issues, repo: &str, number: u64, line: &str, out: &mut dyn Write) -> Result<(), Stop> {
+pub fn post(issues: &dyn Issues, repo: &str, number: u64, line: &str, out: &mut dyn Write) -> Result<(), Stop> {
     let body = issues.body(repo, number).map_err(Stop::Fail)?;
     if with_box(&body, line).is_none() {
         writeln!(out, "mutant sweep: {repo}#{number} already carries this sweep's box")?;
         return Ok(());
     }
-    let line = match line.split_once(mutant_retire::LIST_START) {
+    let line = match line.split_once(matrix::LIST_START) {
         Some((head, list)) if body.len() + line.len() >= BODY_LIMIT => {
             let parts = chunks(list);
             let mut urls = Vec::new();
@@ -151,7 +151,7 @@ pub(super) fn post(issues: &dyn Issues, repo: &str, number: u64, line: &str, out
                 let text = format!("{head} ({} of {}):\n\n{part}\n", index + 1, parts.len()).replacen("- [ ] ", "", 1);
                 urls.push(issues.comment(repo, number, &text).map_err(Stop::Fail)?);
             }
-            format!("{head}{}the list is in {}", mutant_retire::LIST_START, urls.join(", "))
+            format!("{head}{}the list is in {}", matrix::LIST_START, urls.join(", "))
         }
         _ => line.to_owned(),
     };
@@ -162,14 +162,17 @@ pub(super) fn post(issues: &dyn Issues, repo: &str, number: u64, line: &str, out
     Ok(())
 }
 
-pub(super) struct SweepArgs {
-    pub(super) repos: Vec<PathBuf>,
-    pub(super) host: String,
-    pub(super) mutants: usize,
-    pub(super) timeout_seconds: u64,
-    pub(super) days: i64,
-    pub(super) issue: Option<(String, u64)>,
-    pub(super) remote_north: String,
+pub type ContractTests = fn(&Path, &str) -> Vec<String>;
+
+pub struct SweepArgs {
+    pub contracts: ContractTests,
+    pub repos: Vec<PathBuf>,
+    pub host: String,
+    pub mutants: usize,
+    pub timeout_seconds: u64,
+    pub days: i64,
+    pub issue: Option<(String, u64)>,
+    pub remote_north: String,
 }
 
 fn sweeps(env: &Env, repo: &str) -> PathBuf {
@@ -194,7 +197,7 @@ fn run_matrix(dir: &Path, args: &SweepArgs, seed: &str) -> Result<String, Stop> 
 
 fn sweep_repo(dir: &Path, args: &SweepArgs, env: &Env, date: &str, since: &str) -> Result<String, Stop> {
     let repo = repo_name(dir)?;
-    let Some(config) = super::mutant_verify::config(dir, "HEAD")? else {
+    let Some(config) = crate::verify::config(dir, "HEAD")? else {
         return Err(Stop::Usage(format!("mutant sweep: {repo} has no [mutant] run in .safe-push")));
     };
     if config.sources.is_empty() {
@@ -215,14 +218,14 @@ fn sweep_repo(dir: &Path, args: &SweepArgs, env: &Env, date: &str, since: &str) 
         .filter(|path| path.file_stem().and_then(|stem| stem.to_str()).is_some_and(|stem| stem >= since))
         .collect();
     matrices.sort();
-    retire(&RetireArgs { repo, matrices, evidence, contracts: crate::land::scans::test_admission::contract_tests(dir, "HEAD"), date: date.to_owned(), days: args.days })
+    retire(&RetireArgs { repo, matrices, evidence, contracts: (args.contracts)(dir, "HEAD"), date: date.to_owned(), days: args.days })
 }
 
-pub(super) fn today() -> String {
+pub fn today() -> String {
     iso(OffsetDateTime::now_utc().date())
 }
 
-pub(super) fn sweep(args: &SweepArgs, env: &Env, issues: &dyn Issues, out: &mut dyn Write) -> Result<(), Stop> {
+pub fn sweep(args: &SweepArgs, env: &Env, issues: &dyn Issues, out: &mut dyn Write) -> Result<(), Stop> {
     let date = today();
     let since = since(&date, args.days)?;
     let mut failed = false;
@@ -245,5 +248,5 @@ pub(super) fn sweep(args: &SweepArgs, env: &Env, issues: &dyn Issues, out: &mut 
 }
 
 #[cfg(test)]
-#[path = "mutant_sweep_tests.rs"]
+#[path = "sweep_tests.rs"]
 mod tests;

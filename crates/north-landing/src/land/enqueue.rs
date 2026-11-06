@@ -12,14 +12,12 @@ use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
 use super::repositories;
 use super::setting;
-use super::scans::git::merge_base;
+mod refuse;
+use refuse::{refuse_archived, refuse_lane_gates, refuse_stale_revert, refuse_static_gates, refuse_unfetchable};
 use super::scans::outgoing;
-use super::lane_gates::{self, Judging, Lane};
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
-use crate::landing::stale_revert;
 use crate::land::scans::outgoing::denylist::Denylist;
-use crate::watch::facts::slug_of;
 
 const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane]";
 
@@ -160,57 +158,6 @@ fn replace_older(directory: &Path, kept: &Path, root: &Path, branch: &str) -> io
     Ok(())
 }
 
-fn refuse_archived(origin: &str) -> Result<(), String> {
-    let Some(slug) = origin.contains("github.com").then(|| slug_of(origin)).flatten() else { return Ok(()) };
-    let answer = Command::new("timeout").args(["10", "gh", "api", &format!("repos/{slug}"), "--jq", ".archived"]).stdin(Stdio::null()).stderr(Stdio::null()).output();
-    match answer {
-        Ok(output) if output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true" => Err(format!("GitHub reports {slug} as archived, so origin refuses every push; unarchive it or land elsewhere")),
-        _ => Ok(()),
-    }
-}
-
-fn refuse_static_gates(root: &Path, destination: &str, head: &str) -> Result<(), String> {
-    let base = merge_base(root, destination, head);
-    let base = base.as_str();
-    if !crate::language_gate::check(root, base, head) {
-        return Err("language gate refused the landing".to_owned());
-    }
-    if !crate::build_cache_gate::check(root, base, head) {
-        return Err("build-cache gate refused the landing".to_owned());
-    }
-    if !crate::dep_gate::check_reasons(root, base, head) {
-        return Err("dependency gate refused the landing".to_owned());
-    }
-    if !crate::stub_exec_gate::check(root, destination, base, head) {
-        return Err("stub-exec gate refused the landing".to_owned());
-    }
-    Ok(())
-}
-
-fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home: &Path) -> Result<(), String> {
-    let fork = merge_base(root, base, head);
-    let lane = Lane { worktree: root, base: &fork, head, state_home };
-    let Some((failed, text)) = lane_gates::failed(&lane, Judging::Recorded) else { return Ok(()) };
-    Err(format!("{} refused it here, as the lander would after its queue wait:\n{}", failed.join(", "), String::from_utf8_lossy(&text).trim_end()))
-}
-
-fn refuse_unfetchable(root: &Path, base: &str, head: &str) -> Result<(), String> {
-    let changed = git(root, &["diff", "--name-only", &format!("{base}..{head}"), "--", "Cargo.lock"])?;
-    if changed.is_empty() {
-        return Ok(());
-    }
-    super::slots::deps::fetch_crates(root).map_err(|error| format!("this lane changes Cargo.lock and its crates cannot be fetched: {error}"))
-}
-
-fn refuse_stale_revert(root: &Path, base: &str, head: &str) -> Result<(), String> {
-    let Ok(merged) = git(root, &["merge-tree", "--write-tree", base, head]) else { return Ok(()) };
-    let Some(tree) = merged.lines().next() else { return Ok(()) };
-    let Ok(candidate) = git(root, &["commit-tree", tree, "-p", base, "-p", head, "-m", "the lane merged onto main"]) else { return Ok(()) };
-    match stale_revert::reverted(root, base, &candidate, head) {
-        Ok(found) if !found.is_empty() => Err(format!("the revert guard refused it here, as the lander would after its queue wait:\n{}", stale_revert::refusal(&found))),
-        _ => Ok(()),
-    }
-}
 
 fn published(root: &Path, branch: &str, destination: &str) -> Option<String> {
     let upstream = git(root, &["rev-parse", "--symbolic-full-name", &format!("{branch}@{{upstream}}")]).ok()?;

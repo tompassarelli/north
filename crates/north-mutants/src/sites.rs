@@ -17,16 +17,16 @@ const SWAPS: &[(&str, &str)] = &[
 const CONTEXT: usize = 3;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct Site {
-    pub(super) path: String,
-    pub(super) line: usize,
-    pub(super) column: usize,
-    pub(super) from: &'static str,
-    pub(super) to: &'static str,
+pub struct Site {
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+    pub from: &'static str,
+    pub to: &'static str,
 }
 
 impl Site {
-    pub(super) fn label(&self) -> String {
+    pub fn label(&self) -> String {
         format!("{}:{}:{} {}->{}", self.path, self.line, self.column + 1, self.from.trim(), self.to.trim())
     }
 }
@@ -40,7 +40,7 @@ fn code_end(line: &str) -> usize {
     line.find("//").unwrap_or(line.len())
 }
 
-pub(super) fn sites(path: &str, text: &str) -> Vec<Site> {
+pub fn sites(path: &str, text: &str) -> Vec<Site> {
     if !text.ends_with('\n') {
         return Vec::new();
     }
@@ -66,14 +66,14 @@ pub(super) fn sites(path: &str, text: &str) -> Vec<Site> {
     found
 }
 
-pub(super) fn sample(mut all: Vec<Site>, seed: &str, count: usize) -> Vec<Site> {
+pub fn sample(mut all: Vec<Site>, seed: &str, count: usize) -> Vec<Site> {
     let rank = |site: &Site| Sha256::digest(format!("{seed}\0{}", site.label()));
     all.sort_by_cached_key(rank);
     all.truncate(count);
     all
 }
 
-pub(super) fn patch(site: &Site, text: &str) -> String {
+pub fn patch(site: &Site, text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let at = site.line - 1;
     let first = at.saturating_sub(CONTEXT);

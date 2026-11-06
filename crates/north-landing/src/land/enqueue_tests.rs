@@ -4,7 +4,7 @@ use std::process::Command;
 
 use serde_json::json;
 
-use super::refuse_static_gates;
+use super::refuse::refuse_static_gates;
 
 fn run(repo: &Path, args: &[&str]) -> String {
     let output = Command::new("git").arg("-C").arg(repo).args(["-c", "commit.gpgsign=false", "-c", "user.name=Gate fixture", "-c", "user.email=fixture@example.invalid"]).args(args).output().unwrap();

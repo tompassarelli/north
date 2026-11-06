@@ -929,6 +929,7 @@ dependencies = [
  "north-health",
  "north-lander-doctor",
  "north-landing",
+ "north-mutants",
  "north-ops",
  "north-providers",
  "north-replay",
@@ -1224,6 +1225,7 @@ dependencies = [
  "north-diff-gates",
  "north-github-mirror",
  "north-goals",
+ "north-mutants",
  "north-strategy-types",
  "proptest",
  "regex",
@@ -1235,6 +1237,17 @@ dependencies = [
  "time",
  "tokio",
  "toml_edit",
+]
+
+[[package]]
+name = "north-mutants"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "regex",
+ "sha2",
+ "tempfile",
+ "time",
 ]
 
 [[package]]

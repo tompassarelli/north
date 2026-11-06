@@ -1,6 +1,6 @@
 use crate::github_mirror::store::{Mirror, OPEN_ISSUES, OWNER, key};
 use crate::github_mirror::sync::{self, Gh};
-use crate::landing::mutant_sweep::Issues;
+use north_mutants::sweep::Issues;
 use north_core::foundation::clock::Timestamp;
 
 pub(super) struct MirrorIssues;

@@ -1,8 +1,7 @@
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::Duration;
 
-use crate::error::{NorthError, NorthResult};
+use crate::error::NorthResult;
 use super::claims::{self, SWEEP_VERB, ThreadsCli, release_exited_claims};
 use crate::fleet::model::{ProviderName, Role};
 use crate::fleet::registry::{self, Controlled, Fleet};
@@ -20,6 +19,7 @@ use crate::tui;
 use super::placement::{self, Overrides};
 use super::usage_ingest::IngestUsage;
 use super::adopt;
+use super::ask;
 use super::admission;
 use super::digest;
 use super::duplicate;
@@ -44,8 +44,6 @@ use super::tick;
 use super::tier;
 use super::tree;
 use crate::cli::{gate, orders, send};
-
-const DEFAULT_ASK_SECS: u64 = 120;
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let result = open_fleet_claiming(ThreadsCli::for_verb(arguments)).and_then(|fleet| {
@@ -127,7 +125,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["tick", rest @ ..] => tick::run(&fleet, rest),
         ["reap", rest @ ..] => waits::reap(&fleet, rest),
         ["send", rest @ ..] => send::run(&fleet, rest),
-        ["ask", name, rest @ ..] => ask(&fleet, name, rest),
+        ["ask", name, rest @ ..] => ask::run(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
         ["relaunch", name, rest @ ..] => relaunch::run(&fleet, name, rest),
@@ -224,28 +222,6 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
     Ok(())
-}
-
-fn ask(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
-    let (question, timeout) = match words {
-        [question @ .., "--timeout", secs] => (question, secs.parse().map_err(|_| usage())?),
-        question => (question, DEFAULT_ASK_SECS),
-    };
-    if question.is_empty() {
-        return Err(usage());
-    }
-    let (flags, question) = send::leading_flags(question)?;
-    if question.is_empty() {
-        return Err(usage());
-    }
-    let from = send::signer(fleet, flags.from, name)?;
-    match fleet.ask(&from, name, &question.join(" "), Duration::from_secs(timeout))? {
-        Some(reply) => {
-            println!("{reply}");
-            Ok(())
-        }
-        None => Err(NorthError::Rejected(format!("{name} did not answer within {timeout} s"))),
-    }
 }
 
 #[cfg(test)]

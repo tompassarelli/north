@@ -5,21 +5,21 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use super::mutant::{Config, Env, Lease, Stop, git, git_text};
+use crate::env::{Config, Env, Lease, Stop, git, git_text};
 
-pub(super) const RESULTS: &str = ".mutant-results";
+pub const RESULTS: &str = ".mutant-results";
 const TAIL_LINES: usize = 40;
 
-pub(super) type Results = BTreeMap<String, bool>;
+pub type Results = BTreeMap<String, bool>;
 
-pub(super) struct Outcome {
-    pub(super) change: Results,
-    pub(super) mutants: BTreeMap<String, Results>,
-    pub(super) seconds: f64,
-    pub(super) tail: String,
+pub struct Outcome {
+    pub change: Results,
+    pub mutants: BTreeMap<String, Results>,
+    pub seconds: f64,
+    pub tail: String,
 }
 
-pub(super) struct RunDir(pub(super) PathBuf);
+pub struct RunDir(pub PathBuf);
 
 impl Drop for RunDir {
     fn drop(&mut self) {
@@ -27,17 +27,17 @@ impl Drop for RunDir {
     }
 }
 
-pub(super) struct Plan<'a> {
-    pub(super) head: &'a str,
-    pub(super) mutants: BTreeMap<String, PathBuf>,
-    pub(super) tests: BTreeSet<String>,
-    pub(super) config: &'a Config,
-    pub(super) repo: &'a str,
-    pub(super) timeout_seconds: u64,
-    pub(super) trees_per_lease: usize,
+pub struct Plan<'a> {
+    pub head: &'a str,
+    pub mutants: BTreeMap<String, PathBuf>,
+    pub tests: BTreeSet<String>,
+    pub config: &'a Config,
+    pub repo: &'a str,
+    pub timeout_seconds: u64,
+    pub trees_per_lease: usize,
 }
 
-pub(super) fn run(cwd: &Path, plan: &Plan, env: &Env, out: &mut dyn Write) -> Result<Outcome, Stop> {
+pub fn run(cwd: &Path, plan: &Plan, env: &Env, out: &mut dyn Write) -> Result<Outcome, Stop> {
     let Plan { head, mutants, tests, config, repo, timeout_seconds, trees_per_lease } = plan;
     let top = PathBuf::from(git_text(cwd, None, &["rev-parse", "--show-toplevel"])?);
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|time| time.as_nanos()).unwrap_or_default();
@@ -79,7 +79,7 @@ pub(super) fn run(cwd: &Path, plan: &Plan, env: &Env, out: &mut dyn Write) -> Re
     Ok(Outcome { change: results(&change), mutants, seconds, tail })
 }
 
-pub(super) fn checkout(top: &Path, index: &Path, head: &str, patch: Option<&Path>, tree: &Path) -> Result<bool, Stop> {
+pub fn checkout(top: &Path, index: &Path, head: &str, patch: Option<&Path>, tree: &Path) -> Result<bool, Stop> {
     let _ = fs::remove_file(index);
     git_text(top, Some(index), &["read-tree", head])?;
     if let Some(patch) = patch {
@@ -106,7 +106,7 @@ fn copy(flags: &[&str], source: &Path, target: &Path) -> Result<(), Stop> {
     Err(Stop::Fail(format!("mutant: cannot copy {}: {}", source.display(), String::from_utf8_lossy(&output.stderr).trim())))
 }
 
-pub(super) fn share(top: &Path, shared: &Path, links: &[String]) -> Result<Vec<String>, Stop> {
+pub fn share(top: &Path, shared: &Path, links: &[String]) -> Result<Vec<String>, Stop> {
     let mut present = Vec::new();
     for path in links {
         let source = top.join(path);
@@ -118,7 +118,7 @@ pub(super) fn share(top: &Path, shared: &Path, links: &[String]) -> Result<Vec<S
     Ok(present)
 }
 
-pub(super) fn link(shared: &Path, tree: &Path, links: &[String]) -> Result<(), Stop> {
+pub fn link(shared: &Path, tree: &Path, links: &[String]) -> Result<(), Stop> {
     for path in links {
         let target = tree.join(path);
         if fs::symlink_metadata(&target).is_err() {
@@ -128,13 +128,13 @@ pub(super) fn link(shared: &Path, tree: &Path, links: &[String]) -> Result<(), S
     Ok(())
 }
 
-pub(super) struct Runner<'a> {
-    pub(super) top: &'a Path,
-    pub(super) config: &'a Config,
-    pub(super) repo: &'a str,
+pub struct Runner<'a> {
+    pub top: &'a Path,
+    pub config: &'a Config,
+    pub repo: &'a str,
 }
 
-pub(super) fn invoke(runner: &Runner, env: &Env, trees: &[PathBuf], tests: &BTreeSet<String>, timeout_seconds: u64, log: &Path) -> Result<f64, Stop> {
+pub fn invoke(runner: &Runner, env: &Env, trees: &[PathBuf], tests: &BTreeSet<String>, timeout_seconds: u64, log: &Path) -> Result<f64, Stop> {
     let Runner { top, config, repo } = *runner;
     let mut command = match &env.lease {
         Lease::Inherited => Command::new("sh"),
@@ -160,7 +160,7 @@ pub(super) fn invoke(runner: &Runner, env: &Env, trees: &[PathBuf], tests: &BTre
     Ok(started.elapsed().as_secs_f64())
 }
 
-pub(super) fn results(tree: &Path) -> Results {
+pub fn results(tree: &Path) -> Results {
     let mut verdicts = Results::new();
     for line in fs::read_to_string(tree.join(RESULTS)).unwrap_or_default().lines() {
         match line.split_once('\t') {

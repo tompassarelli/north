@@ -1,14 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Default)]
-pub(super) struct Matrix {
-    pub(super) baseline: BTreeMap<String, bool>,
-    pub(super) mutants: BTreeMap<String, bool>,
-    pub(super) kills: BTreeMap<String, BTreeSet<String>>,
+pub struct Matrix {
+    pub baseline: BTreeMap<String, bool>,
+    pub mutants: BTreeMap<String, bool>,
+    pub kills: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl Matrix {
-    pub(super) fn parse(text: &str) -> Self {
+    pub fn parse(text: &str) -> Self {
         let mut matrix = Self::default();
         for line in text.lines() {
             match line.split('\t').collect::<Vec<_>>().as_slice() {
@@ -27,7 +27,7 @@ impl Matrix {
         matrix
     }
 
-    pub(super) fn render(&self, labels: &BTreeMap<String, String>) -> String {
+    pub fn render(&self, labels: &BTreeMap<String, String>) -> String {
         let mut out = String::new();
         for (test, pass) in &self.baseline {
             out.push_str(&format!("baseline\t{test}\t{}\n", if *pass { "pass" } else { "fail" }));
@@ -45,12 +45,12 @@ impl Matrix {
     }
 }
 
-pub(super) struct Catch {
-    pub(super) catches: u32,
-    pub(super) last_seen: String,
+pub struct Catch {
+    pub catches: u32,
+    pub last_seen: String,
 }
 
-pub(super) fn evidence(tsv: &str) -> Result<BTreeMap<String, Catch>, String> {
+pub fn evidence(tsv: &str) -> Result<BTreeMap<String, Catch>, String> {
     let mut lines = tsv.lines();
     let header: Vec<&str> = lines.next().unwrap_or_default().split('\t').collect();
     let column = |name: &str| header.iter().position(|field| *field == name).ok_or_else(|| format!("evidence has no {name} column"));
@@ -68,16 +68,16 @@ fn same_test(a: &str, b: &str) -> bool {
     a == b || a.ends_with(&format!("::{b}")) || b.ends_with(&format!("::{a}"))
 }
 
-pub(super) struct Verdict {
-    pub(super) idle: Vec<String>,
-    pub(super) unmeasured: usize,
-    pub(super) caught: usize,
-    pub(super) unique: usize,
-    pub(super) contracts: usize,
-    pub(super) live_mutants: usize,
+pub struct Verdict {
+    pub idle: Vec<String>,
+    pub unmeasured: usize,
+    pub caught: usize,
+    pub unique: usize,
+    pub contracts: usize,
+    pub live_mutants: usize,
 }
 
-pub(super) fn select(matrices: &[Matrix], evidence: &BTreeMap<String, Catch>, contracts: &[String], since: &str) -> Verdict {
+pub fn select(matrices: &[Matrix], evidence: &BTreeMap<String, Catch>, contracts: &[String], since: &str) -> Verdict {
     let measured: BTreeMap<&str, bool> = matrices.last().map(|latest| latest.baseline.iter().map(|(test, pass)| (test.as_str(), *pass)).collect()).unwrap_or_default();
     let killers: BTreeSet<&str> = matrices
         .iter()
@@ -125,9 +125,9 @@ fn grouped(tests: &[String]) -> String {
         .join(", ")
 }
 
-pub(super) const LIST_START: &str = " were not judged): ";
+pub const LIST_START: &str = " were not judged): ";
 
-pub(super) fn render_box(repo: &str, date: &str, since: &str, verdict: &Verdict) -> String {
+pub fn render_box(repo: &str, date: &str, since: &str, verdict: &Verdict) -> String {
     format!(
         "- [ ] {repo} retirement sweep {date}: delete or justify the {} tests with no catch since {since}, no unique kill among {} live mutants and no listed `Test-contract:` ({} caught, {} unique killers, {} contracts kept; {} failed on the untouched tree and{LIST_START}{}",
         verdict.idle.len(),

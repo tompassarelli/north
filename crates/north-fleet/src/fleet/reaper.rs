@@ -195,29 +195,31 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
         }
         let leases = fleet.job_leases(&due.iter().map(|(record, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(started.elapsed()));
         for ((record, why, last), lease) in due.into_iter().zip(leases) {
-            match lease {
-                Lease::Held => {
-                    reaped.kept.push(Retired { name: record.name.clone(), why: "a job-run job still holds a lease on it".into() });
-                    continue;
-                }
-                Lease::Unknown => {
-                    reaped.unread += 1;
-                    reaped.kept.push(Retired { name: record.name.clone(), why: "its job lease did not answer in time; the next tick reads it again".into() });
-                    continue;
-                }
-                Lease::Free => {}
-            }
-            let retired = if apply { fleet.retire(&record.name, &why, last.as_deref()).map(drop) } else { Ok(()) };
-            match retired {
-                Ok(()) => reaped.retired.push(Retired { name: record.name.clone(), why }),
-                Err(error) => reaped.failed.push(Retired { name: record.name.clone(), why: error.user_message() }),
-            }
+            retire_unleased(fleet, &mut reaped, apply, (record, why, last), lease);
         }
     }
     if apply && let Ok(text) = serde_json::to_vec_pretty(&reaped) {
         let _ = std::fs::write(fleet.root.join(RECORD), text);
     }
     reaped
+}
+
+fn retire_unleased(fleet: &Fleet, reaped: &mut Reaped, apply: bool, (record, why, last): (&SessionRecord, String, Option<String>), lease: Lease) {
+    let name = record.name.clone();
+    match lease {
+        Lease::Held => reaped.kept.push(Retired { name, why: "a job-run job still holds a lease on it".into() }),
+        Lease::Unknown => {
+            reaped.unread += 1;
+            reaped.kept.push(Retired { name, why: "its job lease did not answer in time; the next tick reads it again".into() });
+        }
+        Lease::Free => {
+            let retired = if apply { fleet.retire(&name, &why, last.as_deref()).map(drop) } else { Ok(()) };
+            match retired {
+                Ok(()) => reaped.retired.push(Retired { name, why }),
+                Err(error) => reaped.failed.push(Retired { name, why: error.user_message() }),
+            }
+        }
+    }
 }
 
 fn ended_by_host(record: &SessionRecord) -> bool {

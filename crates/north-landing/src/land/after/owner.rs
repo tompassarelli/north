@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
-use super::{follow, send};
+use super::follow::{self, send};
 
 const LIVE: [&str; 2] = ["idle", "working"];
 const ALARMED: &str = "proxy";

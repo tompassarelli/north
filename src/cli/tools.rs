@@ -1,13 +1,14 @@
 use std::process::ExitCode;
 
-use crate::landing::{after_landing, bin_references, denylist, fails_first, land_actions, merge_set, red_check, land_test_runner, landed_tree, lane_squash, lane_target, mutant_cli, stale_revert};
+use crate::landing::{after_landing, bin_references, denylist, merge_set, landed_tree, stale_revert};
+use self::subverbs::{Run, code_health, graph, lane, land, ledger_verb, runner};
 use crate::timers::{self, Timer};
 use crate::{
     agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
-    land_abandon, provenance,
+    provenance,
 };
 
-type Run = fn(&[String]) -> u8;
+mod subverbs;
 
 const UNIFORM: &[(&str, Run)] = &[
     ("agent-config-check", agent_config_check::run),
@@ -37,7 +38,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("strategy", super::strategy::run),
     ("repo", crate::lanes::repo_verb),
     ("pin-retire", crate::lanes::pin_retire),
-    ("mutant", |arguments| mutant_cli::run(arguments, &super::mutant_issues::MirrorIssues)),
+    ("mutant", |arguments| north_mutants::cli::run(arguments, &super::mutant_issues::MirrorIssues, crate::land::scans::test_admission::contract_tests)),
     ("flow", crate::ops::flow::run),
     ("coverage", north_coverage::run),
     ("graph", graph),
@@ -160,28 +161,6 @@ fn named(table: &'static [(&'static str, Run)], command: &str) -> Option<&'stati
     table.iter().find(|(name, _)| *name == command).map(|(name, _)| *name)
 }
 
-fn runner(table: &[(&str, Run)], name: &str) -> Option<Run> {
-    table.iter().find(|(known, _)| *known == name).map(|(_, run)| *run)
-}
-
-fn graph(arguments: &[String]) -> u8 {
-    match arguments.split_first() {
-        Some((verb, rest)) if verb == "ready" => north_graph_ground::ready_command(rest),
-        _ => north_graph_ingest::run(arguments),
-    }
-}
-
-fn code_health(arguments: &[String]) -> u8 {
-    match arguments.first().map(String::as_str) {
-        Some("build-time") => crate::build_time::run(&arguments[1..]),
-        _ => crate::code_health::run(arguments),
-    }
-}
-
-fn ledger_verb(verb: &str, arguments: &[String]) -> u8 {
-    let words: Vec<String> = std::iter::once(verb.to_owned()).chain(arguments.iter().cloned()).collect();
-    crate::threads::client::run(&words, std::sync::Arc::new(crate::threads::outside::Unread))
-}
 
 fn citation_check(arguments: &[String]) -> u8 {
     crate::ops::citation_check::run(arguments, defines)
@@ -217,46 +196,6 @@ pub(super) fn defines(command: &str) -> bool {
     BUILT_IN.contains(&command) || super::forwarded(command, Vec::new()).is_some()
 }
 
-const LAND: &[(&str, Run)] = &[
-    ("abandon", |arguments| land_abandon::abandon(arguments, &super::abandon_witness::FleetWitness)),
-    ("actions", land_actions::run),
-    ("clean", lane_target::run),
-    ("fails-first", fails_first::run),
-    ("red-check", red_check::run),
-    ("tests", land_test_runner::run),
-    ("train", |arguments| ledger_verb("land-train", arguments)),
-];
-
-fn land(arguments: &[String]) -> u8 {
-    match arguments.split_first() {
-        Some((verb, rest)) if let Some(run) = runner(LAND, verb) => return run(rest),
-        Some((verb, rest)) if verb == "doctor" => return north_lander_doctor::run(rest),
-        Some((verb, rest)) if verb == "drill" => return north_lander_doctor::drill::run(rest),
-        _ => {}
-    }
-    crate::land::run(arguments)
-}
-
-const LANE: &[(&str, Run)] = &[
-    ("gc", crate::lanes::lane_gc),
-    ("layout", crate::lanes::layout_check),
-    ("reap", crate::lanes::wt_reap),
-    ("rescue", crate::lanes::wt_rescue),
-    ("seed", crate::lanes::target_seed),
-    ("squash", lane_squash::run),
-    ("sweep", crate::ops::cleanup_sweep::run),
-];
-
-fn lane(arguments: &[String]) -> u8 {
-    match arguments.split_first().and_then(|(verb, rest)| runner(LANE, verb).map(|run| run(rest))) {
-        Some(code) => code,
-        None => {
-            let verbs: Vec<&str> = LANE.iter().map(|(verb, _)| *verb).collect();
-            eprintln!("usage: north lane ({}) ...; north lane --help lists each", verbs.join("|"));
-            2
-        }
-    }
-}
 
 fn reclaim_disk() -> Option<f64> {
     crate::offload_cache::reclaim(crate::ops::reclaim::before_disk_defer_here)

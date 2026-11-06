@@ -7,19 +7,19 @@ use std::sync::LazyLock;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
-use super::mutant::{Config, Env, Stop, git, git_bytes, git_piped, git_text, repo_name, valid_id};
-use super::mutant_trees::{self, Outcome, Plan};
+use crate::env::{Config, Env, Stop, git, git_bytes, git_piped, git_text, repo_name, valid_id};
+use crate::trees::{self, Outcome, Plan};
 
 static TRAILER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^Test-kind:\s+(.+)\s+[1-5]\s+kills\s+(\S+)\s*$").unwrap());
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(super) struct Claim {
-    pub(super) test: String,
-    pub(super) mutant: String,
+pub struct Claim {
+    pub test: String,
+    pub mutant: String,
 }
 
-pub(super) fn verify(cwd: &Path, base: &str, head: &str, env: &Env, out: &mut dyn Write) -> Result<(), Stop> {
+pub fn verify(cwd: &Path, base: &str, head: &str, env: &Env, out: &mut dyn Write) -> Result<(), Stop> {
     let claims = claims(cwd, base, head)?;
     if claims.is_empty() {
         return Ok(());
@@ -52,7 +52,7 @@ pub(super) fn verify(cwd: &Path, base: &str, head: &str, env: &Env, out: &mut dy
         timeout_seconds: 1800,
         trees_per_lease: usize::MAX,
     };
-    let outcome = mutant_trees::run(cwd, &plan, env, out)?;
+    let outcome = trees::run(cwd, &plan, env, out)?;
     judge(&pending, &outcome, out)
 }
 
@@ -102,7 +102,7 @@ fn applies(cwd: &Path, index: &Path, tree: &str, patch: &Path) -> bool {
     succeeded(&["read-tree", tree]) && succeeded(&["apply", "--cached", "--check", &patch.to_string_lossy()])
 }
 
-pub(super) fn config(cwd: &Path, base: &str) -> Result<Option<Config>, Stop> {
+pub fn config(cwd: &Path, base: &str) -> Result<Option<Config>, Stop> {
     let blob = format!("{base}:.safe-push");
     if !git(cwd, None, &["cat-file", "-e", &blob])?.status.success() {
         return Ok(None);

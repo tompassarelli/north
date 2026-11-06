@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-pub(super) enum Stop {
+pub enum Stop {
     Usage(String),
     Fail(String),
     Refused,
@@ -14,35 +14,35 @@ impl From<io::Error> for Stop {
     }
 }
 
-pub(super) enum Lease {
+pub enum Lease {
     Inherited,
     Host(PathBuf),
 }
 
-pub(super) struct Config {
-    pub(super) run: String,
-    pub(super) class: String,
-    pub(super) links: Vec<String>,
-    pub(super) sources: Vec<String>,
+pub struct Config {
+    pub run: String,
+    pub class: String,
+    pub links: Vec<String>,
+    pub sources: Vec<String>,
 }
 
-pub(super) struct Env {
-    pub(super) state_home: PathBuf,
-    pub(super) cache_home: PathBuf,
-    pub(super) lease: Lease,
+pub struct Env {
+    pub state_home: PathBuf,
+    pub cache_home: PathBuf,
+    pub lease: Lease,
 }
 
 impl Env {
-    pub(super) fn mutants(&self, repo: &str) -> PathBuf {
+    pub fn mutants(&self, repo: &str) -> PathBuf {
         self.state_home.join("agents/mutants").join(repo)
     }
 
-    pub(super) fn patch(&self, repo: &str, id: &str) -> PathBuf {
+    pub fn patch(&self, repo: &str, id: &str) -> PathBuf {
         self.mutants(repo).join(format!("{id}.patch"))
     }
 }
 
-pub(super) fn valid_id(id: &str) -> bool {
+pub fn valid_id(id: &str) -> bool {
     id.chars().next().is_some_and(|first| first.is_ascii_alphanumeric())
         && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
@@ -52,7 +52,7 @@ fn bare(dir: &Path) -> Option<bool> {
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim() == "true")
 }
 
-pub(super) fn repo_name(cwd: &Path) -> Result<String, Stop> {
+pub fn repo_name(cwd: &Path) -> Result<String, Stop> {
     let mut origin = git_text(cwd, None, &["remote", "get-url", "origin"])?;
     for _ in 0..5 {
         let dir = PathBuf::from(origin.strip_prefix("file://").unwrap_or(&origin));
@@ -76,7 +76,7 @@ pub(super) fn repo_name(cwd: &Path) -> Result<String, Stop> {
     Ok(name.to_owned())
 }
 
-pub(super) fn git(cwd: &Path, index: Option<&Path>, args: &[&str]) -> io::Result<Output> {
+pub fn git(cwd: &Path, index: Option<&Path>, args: &[&str]) -> io::Result<Output> {
     let mut command = Command::new("git");
     command.current_dir(cwd).args(args).stdin(Stdio::null());
     if let Some(index) = index {
@@ -85,7 +85,7 @@ pub(super) fn git(cwd: &Path, index: Option<&Path>, args: &[&str]) -> io::Result
     command.output()
 }
 
-pub(super) fn git_piped(cwd: &Path, args: &[&str], input: &[u8]) -> io::Result<Output> {
+pub fn git_piped(cwd: &Path, args: &[&str], input: &[u8]) -> io::Result<Output> {
     let mut child = Command::new("git")
         .current_dir(cwd)
         .args(args)
@@ -99,7 +99,7 @@ pub(super) fn git_piped(cwd: &Path, args: &[&str], input: &[u8]) -> io::Result<O
     child.wait_with_output()
 }
 
-pub(super) fn git_bytes(cwd: &Path, index: Option<&Path>, args: &[&str]) -> Result<Vec<u8>, Stop> {
+pub fn git_bytes(cwd: &Path, index: Option<&Path>, args: &[&str]) -> Result<Vec<u8>, Stop> {
     let output = git(cwd, index, args)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -108,7 +108,7 @@ pub(super) fn git_bytes(cwd: &Path, index: Option<&Path>, args: &[&str]) -> Resu
     Ok(output.stdout)
 }
 
-pub(super) fn git_text(cwd: &Path, index: Option<&Path>, args: &[&str]) -> Result<String, Stop> {
+pub fn git_text(cwd: &Path, index: Option<&Path>, args: &[&str]) -> Result<String, Stop> {
     Ok(String::from_utf8_lossy(&git_bytes(cwd, index, args)?).trim().to_owned())
 }
 

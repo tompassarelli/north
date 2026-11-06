@@ -11,6 +11,7 @@ north-base = { path = "../north-base" }
 north-diff-gates = { path = "../north-diff-gates" }
 north-github-mirror = { path = "../north-github-mirror" }
 north-goals = { path = "../north-goals" }
+north-mutants = { path = "../north-mutants" }
 north-strategy-types = { path = "../north-strategy-types" }
 regex.workspace = true
 rustix.workspace = true

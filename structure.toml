@@ -30,7 +30,7 @@ may_use = ["north-base"]
 [[crate_dag.crate]]
 name = "north-landing"
 paths = ["crates/north-landing/src/**"]
-may_use = ["north-base", "north-diff-gates", "north-github-mirror", "north-goals"]
+may_use = ["north-base", "north-diff-gates", "north-github-mirror", "north-goals", "north-mutants"]
 
 [[crate_dag.crate]]
 name = "north-safe-push"
@@ -65,6 +65,11 @@ may_use = ["north-base"]
 [[crate_dag.crate]]
 name = "north-goals"
 paths = ["crates/north-goals/src/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
+name = "north-mutants"
+paths = ["crates/north-mutants/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
@@ -164,7 +169,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "crates/*/examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep"]
+may_use = ["strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep"]
 
 [[module]]
 name = "strategy_types"
@@ -254,7 +259,7 @@ may_use = ["platform", "foundation"]
 name = "landing"
 paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/build_cache_gate.rs", "crates/north-landing/src/stub_exec_gate.rs", "crates/north-landing/src/runtime_floor_gate.rs", "crates/north-landing/src/runtime_floor_gate_tests.rs", "crates/north-landing/src/land_model/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/issue_box_lint.rs", "crates/north-landing/src/land_abandon.rs", "crates/north-landing/src/land_abandon/**", "crates/north-landing/src/follows_release.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
-may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals"]
+may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants"]
 
 [[module]]
 name = "landing.safe_push.shell"
@@ -365,6 +370,12 @@ responsibility = "Each project's goals as named checks: the oracle commands, the
 may_use = ["crate-roots", "platform"]
 
 [[module]]
+name = "mutants"
+paths = ["crates/north-mutants/src/**"]
+responsibility = "Mutation testing of a repository's tests: the recorded mutants, the verify, matrix and retire runs, and the weekly sweep that files its findings."
+may_use = ["crate-roots", "platform"]
+
+[[module]]
 name = "coverage"
 paths = ["crates/north-coverage/src/**"]
 responsibility = "The map from each Rust test to the functions it executes, recorded on a check host, and the pre-push selection of the tests that reach a change."
@@ -447,7 +458,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor"]
+may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor", "mutants"]
 
 [[module]]
 name = "verify"

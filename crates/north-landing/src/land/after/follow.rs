@@ -2,10 +2,12 @@ use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, AFTER, Category, PHASE, Span};
 
+const SEND_WAIT: Duration = Duration::from_secs(60);
 const USAGE: &str = "usage: north land follow --repo DIR --git-dir DIR --base SHA --head SHA";
 
 pub fn program() -> String {
@@ -89,4 +91,22 @@ pub fn run(arguments: &[String]) -> u8 {
     ];
     trace::record(&spans);
     0
+}
+
+pub fn send(session: &str, message: &str) -> bool {
+    let Ok(mut child) = Command::new(program()).args(["fleet", "send", "--from", "service:north-land", session, message]).stdin(Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn() else {
+        return false;
+    };
+    let deadline = Instant::now() + SEND_WAIT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
 }

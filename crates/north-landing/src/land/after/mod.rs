@@ -1,6 +1,7 @@
 pub mod cleanup;
 mod ci_budget;
 pub mod follow;
+pub use follow::send;
 pub mod gates;
 pub mod goals;
 pub mod owner;
@@ -9,8 +10,6 @@ mod workflow_paths;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +22,6 @@ use super::telemetry::{self, Stages};
 use super::watch::LandedLane;
 use super::trace;
 
-const SEND_WAIT: Duration = Duration::from_secs(60);
 const INTENT: &str = "intent.json";
 const RECOVERING: &str = "recovering.json";
 const LANDED_MAIN: &str = "refs/lander/landed-main";
@@ -73,24 +71,6 @@ pub fn claim(lander: &Lander) -> Option<PathBuf> {
 
 pub fn recovering(lander: &Lander) -> Vec<String> {
     fs::read_to_string(area(lander).join(RECOVERING)).ok().and_then(|text| serde_json::from_str::<Intent>(&text).ok()).map(|intent| intent.tickets).unwrap_or_default()
-}
-
-pub fn send(session: &str, message: &str) -> bool {
-    let Ok(mut child) = Command::new(follow::program()).args(["fleet", "send", "--from", "service:north-land", session, message]).stdin(Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn() else {
-        return false;
-    };
-    let deadline = Instant::now() + SEND_WAIT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-        }
-    }
 }
 
 fn notify(lander: &Lander, name: &str, ticket: &Ticket, head: &str) {

@@ -3,17 +3,18 @@ use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::threads::{board, calibration, causes, claims, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, review_findings, runs, schema, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
+
+mod process;
+pub use process::shell_quote;
+use process::{Input, agent_event_checks, code_of, detach, execute, has_usage, python_json, spool_stem, spooled_write};
 
 const READS: [&str; 11] = [
     "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate",
@@ -67,13 +68,6 @@ enum Flush {
     Clear,
     Busy,
     Down,
-}
-
-enum Input {
-    Inherit,
-    Null,
-    Bytes(Vec<u8>),
-    File(File),
 }
 
 pub fn run(arguments: &[String], fleet: Arc<dyn outside::FleetView>) -> u8 {
@@ -626,140 +620,11 @@ impl Client {
     }
 }
 
-fn agent_event_checks(argv: &[String]) -> Result<(), String> {
-    let option = |name: &str| {
-        let mut found = None;
-        let prefix = format!("{name}=");
-        for (index, arg) in argv.iter().enumerate() {
-            if arg == name {
-                found = argv.get(index + 1).cloned();
-            } else if let Some(value) = arg.strip_prefix(&prefix) {
-                found = Some(value.to_owned());
-            }
-        }
-        found
-    };
-    if let Some(body) = option("--body") {
-        outside::betterleaks_clean(&body)?;
-    }
-    if option("--key").is_some_and(|key| key.trim().is_empty()) {
-        return Err("key must be nonempty text".into());
-    }
-    Ok(())
-}
-
-fn spooled_write(path: &Path) -> bool {
-    path.extension().is_some_and(|extension| extension == "jsonl" || extension == "argv")
-}
-
-/// Starts `program` with `arguments` in its own process group and reaps it on a thread, so the caller neither waits on it nor leaves a zombie.
-fn detach(program: &[OsString], arguments: &[&std::ffi::OsStr]) {
-    let mut command = Command::new(&program[0]);
-    command.args(&program[1..]).args(arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0);
-    if let Ok(mut child) = command.spawn() {
-        std::thread::spawn(move || child.wait());
-    }
-}
-
-fn feed(mut child: Child, bytes: Option<Vec<u8>>) -> Child {
-    if let (Some(bytes), Some(mut stdin)) = (bytes, child.stdin.take()) {
-        std::thread::spawn(move || {
-            let _ = stdin.write_all(&bytes);
-        });
-    }
-    child
-}
-
-fn execute(argv: &[OsString], input: Input, stdout: Stdio, wait: Duration) -> NorthResult<Option<ExitStatus>> {
-    let mut command = Command::new(&argv[0]);
-    command.args(&argv[1..]).stdout(stdout);
-    let bytes = match input {
-        Input::Inherit => None,
-        Input::Null => {
-            command.stdin(Stdio::null());
-            None
-        }
-        Input::File(file) => {
-            command.stdin(file);
-            None
-        }
-        Input::Bytes(bytes) => {
-            command.stdin(Stdio::piped());
-            Some(bytes)
-        }
-    };
-    let mut child = feed(command.spawn()?, bytes);
-    let deadline = Instant::now() + wait;
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Ok(None);
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    Ok(Some(status))
-}
-
-fn code_of(status: ExitStatus) -> i32 {
-    status.code().or_else(|| status.signal().map(|signal| -signal)).unwrap_or(1)
-}
-
-fn has_usage(data: &[u8]) -> NorthResult<bool> {
-    for line in data.split(|byte| *byte == b'\n') {
-        if line.trim_ascii().is_empty() {
-            continue;
-        }
-        let row: Value = serde_json::from_slice(line)?;
-        if row.get("type").and_then(Value::as_str) == Some("usage") {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn spool_stem() -> String {
-    format!("{}-{}", Timestamp::now().unix_nanos(), std::process::id())
-}
-
-pub fn shell_quote(word: &str) -> String {
-    if word.is_empty() {
-        return "''".into();
-    }
-    if word.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_@%+=:,./-".contains(&byte)) {
-        return word.into();
-    }
-    format!("'{}'", word.replace('\'', "'\"'\"'"))
-}
-
-fn python_json(items: &[String]) -> String {
-    let quoted: Vec<String> = items.iter().map(|item| {
-        let mut text = String::from("\"");
-        for unit in item.encode_utf16() {
-            match unit {
-                0x22 => text.push_str("\\\""),
-                0x5c => text.push_str("\\\\"),
-                0x0a => text.push_str("\\n"),
-                0x0d => text.push_str("\\r"),
-                0x09 => text.push_str("\\t"),
-                0x08 => text.push_str("\\b"),
-                0x0c => text.push_str("\\f"),
-                0x20..=0x7e => text.push(unit as u8 as char),
-                _ => text.push_str(&format!("\\u{unit:04x}")),
-            }
-        }
-        text.push('"');
-        text
-    }).collect();
-    format!("[{}]", quoted.join(", "))
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use std::os::unix::fs::MetadataExt;
     use std::collections::BTreeSet;
 

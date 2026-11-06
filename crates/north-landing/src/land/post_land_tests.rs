@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::time::Duration;
 
-use super::{Landed, Run, announce, execute, judged, reap_scratch, record, settle};
+use super::{Landed, Run, reap_scratch, settle};
+use super::execute::{execute, judged, record};
+use super::settle::announce;
 use crate::land::checks::Verdict;
 use crate::landing::red_check::Failure;
 
@@ -38,8 +40,8 @@ fn a_post_land_run_is_red_main_only_when_a_check_recorded_a_failing_verdict_what
     assert!(matches!(judged(ExitStatus::from_raw(101 << 8), &switched), Verdict::RedMain(_)), "a check that recorded its failing verdict is red main");
     assert_eq!(super::failing(&switched.log, &switched.outcome), std::collections::BTreeSet::from([Failure::Cargo("land::x".to_owned()), Failure::Step("cargo clippy".to_owned())]));
     let red = Verdict::RedMain("exit 101".to_owned());
-    assert_eq!(super::rerun_result(&red, &switched.outcome, &["cargo clippy".to_owned()]), Some(std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned())])), "the requested step failing is a verdict on it");
-    assert_eq!(super::rerun_result(&red, &switched.outcome, &["cargo nextest".to_owned()]), None, "a runner that ran steps the sheriff did not ask for reached no verdict on the one it asked for");
+    assert_eq!(super::settle::rerun_result(&red, &switched.outcome, &["cargo clippy".to_owned()]), Some(std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned())])), "the requested step failing is a verdict on it");
+    assert_eq!(super::settle::rerun_result(&red, &switched.outcome, &["cargo nextest".to_owned()]), None, "a runner that ran steps the sheriff did not ask for reached no verdict on the one it asked for");
     assert_eq!(judged(ExitStatus::from_raw(0), &run()), Verdict::Green);
 }
 
@@ -80,7 +82,7 @@ fn an_after_landing_run_past_its_deadline_is_killed_with_its_group_reaches_no_ve
     assert_eq!(rows.iter().map(|row| row[2]).collect::<Vec<_>>(), ["b", "c", "d"]);
     assert!(rows.iter().all(|row| row[3] == "transient" && row[5] == "lane-a,lane-b"), "{rows:?}");
     assert!(rows.iter().all(|row| row[8].is_empty()), "a run with no nextest summary records no test-run time: {rows:?}");
-    assert_eq!(super::test_run_seconds("     Summary [  12.698s] 789 tests run: 789 passed\n     Summary [   3.1s] 5 tests run: 5 passed\n"), Some(16), "the nextest summaries of a log add up as the run's test time");
+    assert_eq!(super::execute::test_run_seconds("     Summary [  12.698s] 789 tests run: 789 passed\n     Summary [   3.1s] 5 tests run: 5 passed\n"), Some(16), "the nextest summaries of a log add up as the run's test time");
 }
 
 // KEEP(bug): on 2026-11-06 the after-landing run deadline was a fixed 1,800 s while 19 runs took p90 172 s, so a stuck run held every later landing's verdict for half an hour (north#634)
@@ -241,7 +243,7 @@ fn a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the
     green.ledger = scratch.path().join("post-land.tsv");
     let marker = scratch.path().join("post-land-red-owner_repo");
     let failing = std::collections::BTreeSet::from([Failure::Cargo("drill".to_owned()), Failure::Harness("harness/a.test.sh".to_owned())]);
-    super::Episode { head: "red".to_owned(), scope: Default::default(), failing }.write(&marker).unwrap();
+    crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing }.write(&marker).unwrap();
     let mut landed = landed(&[&head]);
     landed.repo = repo;
     let sent = std::cell::RefCell::new(Vec::new());
@@ -255,7 +257,7 @@ fn a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the
         command.clone_into(&mut asked.borrow_mut());
         "test drill ... ok\nland check: harness/a.test.sh passed after 0 s\n".to_owned()
     };
-    assert_eq!(super::settle_from(&landed, &green, std::time::Instant::now(), Verdict::Green.into(), alarm, rerun), Verdict::Green);
+    assert_eq!(super::settle::settle_from(&landed, &green, std::time::Instant::now(), Verdict::Green.into(), alarm, rerun), Verdict::Green);
     assert!(asked.borrow().contains("--exact 'drill'") && asked.borrow().contains("land tests 'harness/a.test.sh'"), "{}", asked.borrow());
     assert!(!marker.exists(), "the red record outlived a green rerun of its tests: {:?}", sent.borrow());
     assert!(sent.borrow().len() == 1 && sent.borrow()[0].contains("main is green again"), "{:?}", sent.borrow());

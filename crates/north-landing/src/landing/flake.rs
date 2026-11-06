@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::mutant::{Stop, git, git_text};
+use north_mutants::env::{Stop, git, git_text};
 
 const DEFAULT_RUNS: usize = 8;
 const DEADLINE: Duration = Duration::from_secs(120);

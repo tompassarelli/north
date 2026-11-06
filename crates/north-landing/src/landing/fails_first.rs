@@ -7,8 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 
-use super::mutant::{Env, Lease, Stop, git_bytes, git_text};
-use super::mutant_trees::{self, RunDir};
+use north_mutants::env::{Env, Lease, Stop, git_bytes, git_text};
+use north_mutants::trees::{self, RunDir};
 use north_base::foundation::exit::NO_VERDICT;
 
 const USAGE: &str = "usage: north land fails-first [BASE HEAD] (default: $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)";
@@ -54,7 +54,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return NO_VERDICT;
     };
-    let env = Env { lease: Lease::Inherited, ..super::mutant_cli::process_env() };
+    let env = Env { lease: Lease::Inherited, ..north_mutants::cli::process_env() };
     let outcome = std::env::current_dir().map_err(Stop::from).and_then(|cwd| check(&cwd, &base, &head, &env, &mut io::stdout()));
     match outcome {
         Ok(()) => 0,
@@ -136,7 +136,7 @@ fn unverified(out: &mut dyn Write, reason: &str) -> Result<(), Stop> {
 fn overlay(cwd: &Path, head: &str, tests: &[&str], tree: &Path) -> Result<Option<String>, Stop> {
     for path in tests {
         let target = tree.join(path);
-        let output = super::mutant::git(cwd, None, &["cat-file", "blob", &format!("{head}:{path}")])?;
+        let output = north_mutants::env::git(cwd, None, &["cat-file", "blob", &format!("{head}:{path}")])?;
         let placed = if output.status.success() {
             target.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(&target, &output.stdout))
         } else {
@@ -162,7 +162,7 @@ fn named(cwd: &Path, base: &str, head: &str, path: &str) -> Result<BTreeSet<Stri
             count => touched.extend(start..start + count.unwrap_or(1)),
         }
     }
-    let output = super::mutant::git(cwd, None, &["show", &format!("{head}:{path}")])?;
+    let output = north_mutants::env::git(cwd, None, &["show", &format!("{head}:{path}")])?;
     if !output.status.success() {
         return Ok(BTreeSet::new());
     }
@@ -211,7 +211,7 @@ fn apply(tree: &Path, patch: &[u8]) -> Result<Option<String>, Stop> {
 }
 
 pub(crate) fn pass_on_base(cwd: &Path, base: &str, patch: &[u8], names: &BTreeSet<String>, out: &mut dyn Write) -> Result<BTreeMap<String, bool>, String> {
-    let env = Env { lease: Lease::Inherited, ..super::mutant_cli::process_env() };
+    let env = Env { lease: Lease::Inherited, ..north_mutants::cli::process_env() };
     match on_base(cwd, base, names, &env, &|tree| apply(tree, patch), out) {
         Ok(Base::Verdicts(verdicts)) => Ok(verdicts.into_iter().map(|(name, verdict)| (name, verdict == Verdict::Passes)).collect()),
         Ok(Base::Unverified(reason)) | Err(Stop::Usage(reason) | Stop::Fail(reason)) => Err(reason),
@@ -228,7 +228,7 @@ fn on_base(
     place: &dyn Fn(&Path) -> Result<Option<String>, Stop>,
     out: &mut dyn Write,
 ) -> Result<Base, Stop> {
-    let Some(config) = super::mutant_verify::config(cwd, base)? else {
+    let Some(config) = north_mutants::verify::config(cwd, base)? else {
         return Err(Stop::Fail(format!("{base}:.safe-push sets no mutant.run test runner")));
     };
     let top = PathBuf::from(git_text(cwd, None, &["rev-parse", "--show-toplevel"])?);
@@ -236,18 +236,18 @@ fn on_base(
     let dir = RunDir(env.cache_home.join("north/fails-first").join(format!("{}-{nanos}", std::process::id())));
     fs::create_dir_all(&dir.0)?;
     let tree = dir.0.join("base");
-    mutant_trees::checkout(&top, &dir.0.join("index"), base, None, &tree)?;
+    trees::checkout(&top, &dir.0.join("index"), base, None, &tree)?;
     if let Some(reason) = place(&tree)? {
         return Ok(Base::Unverified(reason));
     }
     let shared = dir.0.join("links");
-    let links = mutant_trees::share(&top, &shared, &config.links)?;
-    mutant_trees::link(&shared, &tree, &links)?;
-    let _ = fs::remove_file(tree.join(mutant_trees::RESULTS));
+    let links = trees::share(&top, &shared, &config.links)?;
+    trees::link(&shared, &tree, &links)?;
+    let _ = fs::remove_file(tree.join(trees::RESULTS));
     let log = dir.0.join("runner.log");
     writeln!(out, "fails-first: running {} test(s) on base {} with the lane's tests", names.len(), &base[..base.len().min(12)])?;
-    let seconds = mutant_trees::invoke(&mutant_trees::Runner { top: &top, config: &config, repo: "fails-first" }, env, std::slice::from_ref(&tree), names, 1800, &log)?;
-    let results = mutant_trees::results(&tree);
+    let seconds = trees::invoke(&trees::Runner { top: &top, config: &config, repo: "fails-first" }, env, std::slice::from_ref(&tree), names, 1800, &log)?;
+    let results = trees::results(&tree);
     let text = fs::read_to_string(&log).unwrap_or_default();
     writeln!(out, "fails-first: runner finished in {seconds:.1} s")?;
     let missing = if !results.is_empty() || text.contains("test result:") {

@@ -2,8 +2,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::mutant::{Env, Lease, Stop, git_bytes, repo_name, valid_id};
-use super::mutant_sweep::{self, Issues, MatrixArgs, RetireArgs, SweepArgs};
+use crate::env::{Env, Lease, Stop, git_bytes, repo_name, valid_id};
+use crate::sweep::{self, ContractTests, Issues, MatrixArgs, RetireArgs, SweepArgs};
 
 const USAGE: &str = "Usage: north mutant record <id> | north mutant verify <base> <head>
        north mutant matrix [--mutants N] [--seed TEXT] [--timeout SECONDS_PER_TREE]
@@ -14,7 +14,7 @@ Record the scratch copy diff against HEAD; verify each Test-kind kill claim on d
 and print which tests kill which mutants; propose the tests with no recent catch, no unique kill and no
 listed contract; run both on a build host for each repository and add the proposal as a box on an issue.";
 
-pub(super) fn process_env() -> Env {
+pub fn process_env() -> Env {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let base = |name: &str, fallback: &str| match std::env::var_os(name) {
         Some(value) if !value.is_empty() => PathBuf::from(value),
@@ -31,7 +31,7 @@ fn lease() -> Lease {
     Lease::Host(north_base::platform::north_binary::north_binary())
 }
 
-pub fn run(arguments: &[String], issues: &dyn Issues) -> u8 {
+pub fn run(arguments: &[String], issues: &dyn Issues, contracts: ContractTests) -> u8 {
     let env = process_env();
     let outcome = std::env::current_dir().map_err(Stop::from).and_then(|cwd| match arguments {
         [flag] if flag == "-h" || flag == "--help" => {
@@ -39,18 +39,18 @@ pub fn run(arguments: &[String], issues: &dyn Issues) -> u8 {
             Ok(())
         }
         [command, id] if command == "record" => record(&cwd, id, &env),
-        [command, base, head] if command == "verify" => super::mutant_verify::verify(&cwd, base, head, &env, &mut io::stdout()),
-        [command, rest @ ..] if command == "matrix" => matrix_args(rest).and_then(|args| mutant_sweep::matrix(&cwd, &args, &env, &mut io::stdout(), &mut io::stderr())),
+        [command, base, head] if command == "verify" => crate::verify::verify(&cwd, base, head, &env, &mut io::stdout()),
+        [command, rest @ ..] if command == "matrix" => matrix_args(rest).and_then(|args| sweep::matrix(&cwd, &args, &env, &mut io::stdout(), &mut io::stderr())),
         [command, rest @ ..] if command == "retire" => retire_args(rest).and_then(|mut args| {
-            args.contracts.extend(crate::land::scans::test_admission::contract_tests(&cwd, "HEAD"));
-            mutant_sweep::retire(&args)
+            args.contracts.extend(contracts(&cwd, "HEAD"));
+            sweep::retire(&args)
         }).map(|line| println!("{line}")),
         [command, flag, issue] if command == "post" && flag == "--issue" => issue_ref(issue).and_then(|(repo, number)| {
             let mut line = String::new();
             io::Read::read_to_string(&mut io::stdin(), &mut line)?;
-            mutant_sweep::post(issues, &repo, number, line.trim_end(), &mut io::stdout())
+            sweep::post(issues, &repo, number, line.trim_end(), &mut io::stdout())
         }),
-        [command, rest @ ..] if command == "sweep" => sweep_args(rest).and_then(|args| mutant_sweep::sweep(&args, &env, issues, &mut io::stdout())),
+        [command, rest @ ..] if command == "sweep" => sweep_args(rest, contracts).and_then(|args| sweep::sweep(&args, &env, issues, &mut io::stdout())),
         _ => Err(Stop::Usage(USAGE.to_owned())),
     });
     match outcome {
@@ -67,7 +67,7 @@ pub fn run(arguments: &[String], issues: &dyn Issues) -> u8 {
     }
 }
 
-pub(super) fn record(cwd: &Path, id: &str, env: &Env) -> Result<(), Stop> {
+pub fn record(cwd: &Path, id: &str, env: &Env) -> Result<(), Stop> {
     if !valid_id(id) {
         return Err(Stop::Usage("mutant: invalid id".to_owned()));
     }
@@ -99,7 +99,7 @@ fn number<T: std::str::FromStr>(flag: &str, value: &str) -> Result<T, Stop> {
 }
 
 fn matrix_args(rest: &[String]) -> Result<MatrixArgs, Stop> {
-    let mut args = MatrixArgs { mutants: 40, seed: mutant_sweep::today(), timeout_seconds: 3600 };
+    let mut args = MatrixArgs { mutants: 40, seed: sweep::today(), timeout_seconds: 3600 };
     for (flag, value) in pairs(rest)? {
         match flag {
             "--mutants" => args.mutants = number(flag, value)?,
@@ -112,7 +112,7 @@ fn matrix_args(rest: &[String]) -> Result<MatrixArgs, Stop> {
 }
 
 fn retire_args(rest: &[String]) -> Result<RetireArgs, Stop> {
-    let mut args = RetireArgs { repo: String::new(), matrices: Vec::new(), evidence: PathBuf::new(), contracts: Vec::new(), date: mutant_sweep::today(), days: 90 };
+    let mut args = RetireArgs { repo: String::new(), matrices: Vec::new(), evidence: PathBuf::new(), contracts: Vec::new(), date: sweep::today(), days: 90 };
     for (flag, value) in pairs(rest)? {
         match flag {
             "--repo" => args.repo = value.to_owned(),
@@ -135,8 +135,8 @@ fn issue_ref(value: &str) -> Result<(String, u64), Stop> {
     Ok((repo.to_owned(), number("--issue", issue)?))
 }
 
-fn sweep_args(rest: &[String]) -> Result<SweepArgs, Stop> {
-    let mut args = SweepArgs { repos: Vec::new(), host: "gex45".to_owned(), mutants: 40, timeout_seconds: 3600, days: 90, issue: None, remote_north: "north".to_owned() };
+fn sweep_args(rest: &[String], contracts: ContractTests) -> Result<SweepArgs, Stop> {
+    let mut args = SweepArgs { repos: Vec::new(), host: "gex45".to_owned(), mutants: 40, timeout_seconds: 3600, days: 90, issue: None, remote_north: "north".to_owned(), contracts };
     for (flag, value) in pairs(rest)? {
         match flag {
             "--repo" => args.repos.push(PathBuf::from(value)),
