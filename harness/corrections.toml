@@ -74,6 +74,7 @@ pattern = '''nothing (is )?(happening|moving|landing)|all i (ever )?(hear|here) 
 paraphrase = "Tom said the reply reported status instead of acting."
 owner = "north#641"
 guard = "The proxy's Stop hook refuses a final message whose last sentence announces a future step (I'll, I will, next I, will now) when no tool call follows it in the turn."
+guarded_at = "2026-11-06T01:49:53Z"
 
 [[class]]
 name = "pace"
