@@ -578,3 +578,17 @@ command = "run() { if [ \"$1\" = local ]; then sh -c \"$2\"; else ssh -o BatchMo
 expect = "0"
 review = "2026-11-07"
 owner = "tompassarelli/north#647"
+
+[[check]]
+id = "n634-leaf-test-run-2s"
+box = "The router's silent-child test (src/cli/fleet/silent_tests.rs) waits no 4 s of real time"
+command = "north land profile --last 12 --repo north | grep \"after push\" | grep \"test run\" | head -3 | sed -E \"s/.*test run ([0-9]+) s.*/\\1/\" | awk \"{n++; if (\\$1 >= 2) bad++} END {print n\\\" landings, \\\"bad+0\\\" with test run of 2 s or more\\\"; exit !(n == 3 && bad == 0)}\""
+review = "2026-11-07"
+owner = "tompassarelli/north#634"
+
+[[check]]
+id = "n634-leaf-clippy-10s"
+box = "Clippy on a one-crate change reuses a warm slot's check output"
+command = "north land profile --last 12 --repo north | grep \"after push\" | grep -E \"lint [0-9]+ s\" | head -3 | sed -E \"s/.*lint ([0-9]+) s.*/\\1/\" | awk \"{n++; if (\\$1 >= 10) bad++} END {print n\\\" landings, \\\"bad+0\\\" with lint of 10 s or more\\\"; exit !(n == 3 && bad == 0)}\""
+review = "2026-11-07"
+owner = "tompassarelli/north#634"
