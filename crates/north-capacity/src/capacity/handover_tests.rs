@@ -13,6 +13,7 @@ fn offer() -> Offer {
         command: ["cargo", "test", "-p", "north-capacity"].map(str::to_owned).to_vec(),
         bundle_bytes: 1000,
         patch_bytes: 20,
+        returned: "NORTH-OFFLOAD-RETURNED-41-1762400000".to_owned(),
     }
 }
 
@@ -37,6 +38,8 @@ fn capacity_a_peer_runs_only_a_toolchain_command_in_a_lane_path_it_would_make_it
     assert!(refused(&|o| o.command = vec!["/home/tom/bin/cargo".to_owned()]).is_none());
     assert!(refused(&|o| o.command.clear()).is_some());
     assert_eq!(refused(&|o| o.subdirectory.clear()), None);
+    assert!(refused(&|o| o.returned = "$(reboot)".to_owned()).is_some());
+    assert_eq!(refused(&|o| o.returned.clear()), None);
 }
 
 #[test]

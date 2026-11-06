@@ -54,7 +54,7 @@ pub(super) fn pick<'a>(targets: &[Target<'a>], game_reserved: bool) -> Result<(&
 enum Polled {
     Idle,
     Unreachable(String),
-    Offered(Box<Child>, BufReader<ChildStdout>, Offer),
+    Offered(Box<Child>, BufReader<ChildStdout>, Box<Offer>),
 }
 
 fn poll(ssh: &str) -> Polled {
@@ -74,7 +74,7 @@ fn poll(ssh: &str) -> Polled {
     let mut line = String::new();
     let read = reader.read_line(&mut line).unwrap_or(0);
     if read > 0 && let Some(offer) = Offer::from_line(&line) {
-        return Polled::Offered(Box::new(child), reader, offer);
+        return Polled::Offered(Box::new(child), reader, Box::new(offer));
     }
     let status = child.wait().ok().and_then(|status| status.code());
     match status {
@@ -335,7 +335,7 @@ pub fn run(arguments: &[String]) -> u8 {
                     let route = Route { source: source.clone(), target: target.to_owned(), ssh: ssh.map(str::to_owned) };
                     let serving = Arc::clone(&serving);
                     let handle = std::thread::spawn(move || {
-                        serve(&route, *child, reader, offer, starting);
+                        serve(&route, *child, reader, *offer, starting);
                         serving.fetch_sub(1, Ordering::SeqCst);
                     });
                     if once {

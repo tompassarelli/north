@@ -1171,17 +1171,18 @@ impl Shared {
 }
 
 async fn resolve_runner_host(value: &str) -> String {
+    chosen_build_host(value).await.unwrap_or_else(|| {
+        warn("safe-push: no build host has room; the land checks run on this host under the land-check capacity lease");
+        String::new()
+    })
+}
+
+async fn chosen_build_host(value: &str) -> Option<String> {
     if value != "build-host" {
-        return value.to_owned();
+        return Some(value.to_owned());
     }
     let chosen = Command::new(program()).args(["capacity", "offload", "choose", "--any"]).stdin(Stdio::null()).stderr(Stdio::inherit()).output().await;
-    match chosen {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim_end().to_owned(),
-        _ => {
-            warn("safe-push: no build host has room; the land checks run on this host under the land-check capacity lease");
-            String::new()
-        }
-    }
+    chosen.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim_end().to_owned()).filter(|host| !host.is_empty())
 }
 
 async fn runner_host(environment: &Environment, config: &Config) -> String {
@@ -1416,7 +1417,14 @@ pub fn fails_first(root: &Path, base: &str, head: &str) -> Result<(), String> {
     say(&format!("safe-push: running the {} land check(s) this lane adds before queueing it", commands.len()));
     let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), ..Arguments::default() };
     let status = block_on(run_added(root.to_owned(), arguments, config, commands)).map_err(|error| error.to_string())?;
-    if status == 0 { Ok(()) } else { Err(format!("a land check this lane adds exited {status}")) }
+    match status {
+        0 => Ok(()),
+        INFRASTRUCTURE => {
+            say("safe-push: a land check this lane adds reached no verdict (exit 75: no build host answered), which is not the lane's fault; queueing the lane");
+            Ok(())
+        }
+        _ => Err(format!("a land check this lane adds exited {status}")),
+    }
 }
 
 async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, commands: Vec<String>) -> i32 {
@@ -1424,7 +1432,14 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     if environment.capacity.is_empty() {
         environment.capacity = config.capacity.clone().unwrap_or_default();
     }
-    arguments.runner_host = runner_host(&environment, &config).await;
+    let wanted = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
+    if !wanted.is_empty() {
+        let Some(host) = chosen_build_host(&wanted).await else {
+            warn("safe-push: no build host has room, so the checks before queueing reach no verdict rather than compile on this host; the lander runs them");
+            return INFRASTRUCTURE;
+        };
+        arguments.runner_host = host;
+    }
     let (_cancel_sender, cancel) = watch::channel(false);
     let scope = scope_for(&root, &arguments, &commands);
     let it = it_for(&root, &arguments, &commands);

@@ -119,7 +119,7 @@ pub(super) async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminati
         if let Some(code) = try_offload(waiting.again(), false, host, terminations, None).await {
             return Some(Admitted::Offloaded(code));
         }
-        if !(host.lease_builds)() && build_offload::is_rust_command(waiting.command) && let Some(missing) = waiting.declined.missing_host.as_ref() {
+        if !(host.lease_builds)() && crate::capacity::gate::compiles_rust(waiting.command) && let Some(missing) = waiting.declined.missing_host.as_ref() {
             return Some(Admitted::Here(no_build_host(missing, create)));
         }
     }

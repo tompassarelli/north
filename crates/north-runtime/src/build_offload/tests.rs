@@ -1,9 +1,8 @@
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use super::lane::{Lane, gather};
-use super::remote::{hand_over, invocation};
+use super::remote::{Ran, drive, hand_over, invocation};
 use super::take::{Sender, Starting, Target, pick, refusal, run_lane};
 use crate::capacity::build_offload::{Admission, Declined, Job};
 use crate::capacity::handover::Offer;
@@ -72,16 +71,14 @@ fn ran_remotely_with(hosts: &Hosts, lane: &Lane, report: &str) -> Vec<String> {
 fn ran_command(hosts: &Hosts, lane: &Lane, stub_body: &str, command: &[String]) -> Vec<String> {
     let stub = hosts.remote.join("north-stub");
     crate::foundation::shim::write_script(&stub, stub_body);
-    let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command });
-    let mut child = Command::new("sh").args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    stdin.write_all(&lane.bundle).unwrap();
-    stdin.write_all(&lane.patch).unwrap();
-    let mut out = String::new();
-    child.stdout.take().unwrap().read_to_string(&mut out).unwrap();
-    drop(stdin);
-    assert!(child.wait().unwrap().success(), "{out}");
-    out.lines().skip_while(|line| *line != "NORTH-OFFLOAD-SYNCED").skip(1).map(str::to_owned).collect()
+    let returned = "NORTH-OFFLOAD-RETURNED-test";
+    let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command }, returned);
+    let mut transport = Command::new("sh");
+    transport.args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub);
+    let output = hosts.remote.join("output.log");
+    let ran = drive(transport, lane, Some(std::fs::File::create(&output).unwrap()), &|| {}, returned);
+    assert!(matches!(ran, Ran::Exit(0)));
+    std::fs::read_to_string(&output).unwrap().lines().map(str::to_owned).collect()
 }
 
 fn line<'a>(report: &'a [String], key: &str) -> Vec<&'a str> {
@@ -93,14 +90,19 @@ fn capacity_an_offloaded_lane_with_unpushed_commits_and_uncommitted_changes_runs
     let hosts = hosts();
     let lane_dir = hosts.lane("flow-alerts");
     write(&lane_dir.join("a.txt"), "committed lane\n");
+    write(&lane_dir.join("Cargo.lock"), "resolved before\n");
+    write(&lane_dir.join("crates/x/Cargo.lock"), "nested before\n");
+    git(&lane_dir, &["add", "Cargo.lock", "crates/x/Cargo.lock"]);
     git(&lane_dir, &["commit", "-q", "-am", "unpushed"]);
     write(&lane_dir.join("a.txt"), "dirty lane\n");
     write(&lane_dir.join("b.txt"), "untracked\n");
     let head = git(&lane_dir, &["rev-parse", "HEAD"]);
     assert_ne!(head, git(&lane_dir, &["rev-parse", "origin/main"]));
     let lane = gather(&lane_dir, &hosts.laptop).unwrap().ship(&[]).unwrap();
-    let report = ran_remotely(&hosts, &lane);
+    let report = ran_remotely_with(&hosts, &lane, &format!("{REPORT}; printf 'resolved after\\n' >Cargo.lock"));
     assert_eq!(line(&report, "head"), [head.as_str()]);
+    assert_eq!(std::fs::read_to_string(lane_dir.join("Cargo.lock")).unwrap(), "resolved after\n", "a lock the run changed comes back to the lane (north#671)");
+    assert_eq!(std::fs::read_to_string(lane_dir.join("crates/x/Cargo.lock")).unwrap(), "nested before\n");
     let main = hosts.remote.join("code/proj/main");
     assert_ne!(line(&report, "where"), [main.to_str().unwrap()]);
     assert_eq!(line(&report, "where"), [hosts.remote.join(".cache/build-offload/code-proj-main-flow-alerts").to_str().unwrap()]);
@@ -157,7 +159,7 @@ fn capacity_a_queued_run_handed_to_a_taker_runs_on_the_taker_and_its_output_and_
     let lane = gather(&lane_dir, &hosts.laptop).unwrap().ship(&[]).unwrap();
     let stub = hosts.remote.join("north-stub");
     crate::foundation::shim::write_script(&stub, "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n");
-    let command = ["sh".to_owned(), "-c".to_owned(), "printf 'where %s\\n' \"$(pwd)\"; cat b.txt; echo problem >&2; exit 7".to_owned()];
+    let command = ["sh".to_owned(), "-c".to_owned(), "printf 'where %s\\n' \"$(pwd)\"; cat b.txt; printf taken >Cargo.lock; echo problem >&2; exit 7".to_owned()];
     let (queued, peer) = std::os::unix::net::UnixStream::pair().unwrap();
     let remote = hosts.remote.clone();
     let taker = std::thread::spawn(move || {
@@ -184,6 +186,7 @@ fn capacity_a_queued_run_handed_to_a_taker_runs_on_the_taker_and_its_output_and_
     let output = std::fs::read_to_string(&sink).unwrap();
     assert!(output.contains(&format!("where {}", hosts.remote.join(".cache/build-offload/code-proj-main-pulled").display())), "{output}");
     assert!(output.contains("untracked"), "{output}");
+    assert_eq!(std::fs::read_to_string(lane_dir.join("Cargo.lock")).unwrap(), "taken", "a lock a handed-over run changed comes back to the lane (north#671)");
 }
 
 // KEEP(contract): a queued run leaves its host only to a taker that has a free slot beyond the interactive reserve and rebuilds the lane; otherwise it stays queued; north#634

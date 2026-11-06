@@ -40,6 +40,7 @@ fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass
     assert!(second_log.contains("reused from the verdict cache"), "{second_log}");
     assert_eq!(runs(&counter), 1, "a cached pass for the same tree runs clippy no second time: {second_log}");
     enqueue_queues_a_lane_whose_check_before_queueing_reached_no_verdict_because_no_build_host_answered();
+    enqueue_never_compiles_on_the_queueing_host_when_no_build_host_has_room();
 }
 
 fn enqueue_queues_a_lane_whose_check_before_queueing_reached_no_verdict_because_no_build_host_answered() {
@@ -53,4 +54,20 @@ fn enqueue_queues_a_lane_whose_check_before_queueing_reached_no_verdict_because_
     assert!(output.status.success(), "{log}");
     assert!(log.contains("reached no verdict") && log.contains("queueing the lane"), "{log}");
     assert!(written(&fixture.state).iter().any(|path| path.extension().is_some_and(|extension| extension == "json")), "{:?}", written(&fixture.state));
+}
+
+fn enqueue_never_compiles_on_the_queueing_host_when_no_build_host_has_room() {
+    let fixture = Fixture::new();
+    let counter = fixture.root.join("clippy-runs");
+    let hostless = fixture.root.join("orchestration.toml");
+    fs::write(&hostless, "").unwrap();
+    let command = format!("echo ran >>{} # cargo clippy --all-targets -- -D warnings", counter.display());
+    fs::write(fixture.repo.join(".safe-push"), format!("[land]\n\trunner = build-host\n\tafter = \"** :: {command}\"\n")).unwrap();
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "Add a clippy after-landing check that runs on a build host"]);
+    let (output, _) = north_enqueue_with(&fixture, &[("AGENTS_ORCHESTRATION", &hostless)]);
+    let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(), "{log}");
+    assert!(log.contains("no build host has room") && log.contains("queueing the lane"), "{log}");
+    assert_eq!(runs(&counter), 0, "{log}");
 }

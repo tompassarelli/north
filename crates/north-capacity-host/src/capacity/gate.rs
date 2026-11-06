@@ -13,6 +13,8 @@ const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
 const EXECUTED: &str = "NORTH_CAPACITY_GATE_EXECUTED";
 const RUST_PROGRAMS: [&str; 3] = ["cargo", "rustc", "cargo-nextest"];
 const TOOLCHAIN_MISSING: u8 = 75;
+const SANDBOXED: u8 = 75;
+const SANDBOX: &str = "DEPBOX";
 const SHIM_MARKER: &str = "# north capacity gate shim: the real program is the next one on PATH that is not a shim";
 const SHIMS_OUTPUT: &str = "-capacity-gate-shims/bin/";
 
@@ -72,6 +74,10 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
 
 /// Holds `program` for a capacity lease of `class`, which sends a fleet session's compile to a build host.
 fn leased(class: Class, program: &str, rest: &[String], host: &Host) -> u8 {
+    if std::env::var_os(SANDBOX).is_some_and(|sandbox| !sandbox.is_empty()) && !(host.lease_builds)() && agent_compile(&words(program, rest)) {
+        eprintln!("north capacity gate: a fleet session's {} inside depbox reaches no build host, since the sandbox has no network or ssh keys; make the compile depbox's own command (depbox run -- cargo ...) so the gate sends the whole run to a build host (infrastructure, exit 75)", shell::basename(program));
+        return SANDBOXED;
+    }
     eprintln!("north capacity gate: this host runs builds only inside a capacity lease; {} waits for a {} lease", shell::basename(program), class.name());
     let mut run = ["run", "--class", class.name(), "--owner", &owner(), "--timeout-seconds", "3600", "--"].map(str::to_owned).to_vec();
     run.push(program.to_owned());
@@ -88,16 +94,13 @@ pub fn lease_class(words: &[String], host: &Host) -> Option<Class> {
     (!in_lease() && ((host.lease_builds)() || agent_compile(words))).then_some(class)
 }
 
-/// A Rust compile a fleet session starts, which leaves any host for a build host whether or not that host leases its own builds; one that rewrites the lane's files (`fix`) or only prints help or a version stays where it is, since a build host's edits never come back.
+/// A Rust compile a fleet session starts, which leaves any host for a build host whether or not that host leases its own builds.
 fn agent_compile(words: &[String]) -> bool {
     agent_compile_in(words, build_offload::is_agent_build(|name| std::env::var(name).ok()))
 }
 
-
 pub(super) fn agent_compile_in(words: &[String], agent: bool) -> bool {
-    let before_filters = || words.iter().skip(1).take_while(|word| *word != "--");
-    let stays = before_filters().any(|word| matches!(word.as_str(), "--fix" | "--version" | "-V" | "--help" | "-h")) || before_filters().find(|word| !word.starts_with(['-', '+'])).is_some_and(|word| word == "fix");
-    agent && !stays && words.first().is_some_and(|program| RUST_PROGRAMS.contains(&shell::basename(program)))
+    agent && compiles_rust(words)
 }
 
 fn in_lease() -> bool {
@@ -163,38 +166,69 @@ pub fn is_shim(path: &Path) -> bool {
 }
 
 pub fn class_of(words: &[String], depth: usize) -> Option<Class> {
+    let mut class = None;
+    leaves(words, depth, &mut |leaf| class = class.max(leaf.map_or(Some(Class::Heavy), leaf_class)));
+    class
+}
+
+/// Whether the command, through every wrapper it names (depbox, nix, `bash -c`), runs a Rust toolchain program that compiles; one that rewrites the lane's files (`fix`) or only prints help or a version does not, since a build host's edits never come back.
+pub fn compiles_rust(words: &[String]) -> bool {
+    let mut found = false;
+    leaves(words, 0, &mut |leaf| found |= leaf.is_some_and(|leaf| RUST_PROGRAMS.contains(&shell::basename(&leaf[0])) && leaf_class(leaf).is_some() && !stays(leaf)));
+    found
+}
+
+fn stays(leaf: &[String]) -> bool {
+    let before_filters = || leaf.iter().skip(1).take_while(|word| *word != "--");
+    before_filters().any(|word| matches!(word.as_str(), "--fix" | "--version" | "-V" | "--help" | "-h")) || before_filters().find(|word| !word.starts_with(['-', '+'])).is_some_and(|word| word == "fix")
+}
+
+/// Calls `visit` with each toolchain command the words run once their wrappers are unwrapped, and with None for a Nix build.
+fn leaves(words: &[String], depth: usize, visit: &mut dyn FnMut(Option<&[String]>)) {
     if depth > 6 {
-        return None;
+        return;
     }
     let mut start = shell::command(words, PREFIXES).min(words.len());
     while words.get(start).is_some_and(|word| word.parse::<f64>().is_ok()) {
         start += shell::command(&words[start + 1..], PREFIXES) + 1;
     }
     let words = &words[start.min(words.len())..];
+    let Some(name) = words.first() else { return };
+    match shell::basename(name) {
+        "cargo" | "rustc" | "cargo-nextest" | "bun" => visit(Some(words)),
+        "depbox" => {
+            if let Some(marker) = words.iter().position(|word| word == "--") {
+                leaves(&words[marker + 1..], depth + 1, visit);
+            }
+        }
+        _ => match (nix_command::launched(words), nix_command::unwrap(words)) {
+            (Some(commands), _) => commands.into_iter().for_each(|command| leaves(command, depth + 1, visit)),
+            (None, Some(Inner::Command { words, .. })) => leaves(&words, depth + 1, visit),
+            (None, Some(Inner::Script(source))) => script(source, depth + 1, visit),
+            (None, Some(Inner::NixBuild)) => visit(None),
+            (None, None) => {}
+        },
+    }
+}
+
+fn leaf_class(words: &[String]) -> Option<Class> {
     let (name, args) = words.split_first()?;
     match shell::basename(name) {
         "cargo" => cargo(args),
         "rustc" => args.iter().any(|word| word.ends_with(".rs")).then_some(Class::Heavy),
         "cargo-nextest" => Some(Class::Heavy),
         "bun" => bun(args),
-        "depbox" => args.iter().position(|word| word == "--").and_then(|marker| class_of(&args[marker + 1..], depth + 1)),
-        _ => match (nix_command::launched(words), nix_command::unwrap(words)) {
-            (Some(commands), _) => commands.into_iter().filter_map(|command| class_of(command, depth + 1)).max(),
-            (None, Some(Inner::Command { words, .. })) => class_of(&words, depth + 1),
-            (None, Some(Inner::Script(source))) => script(source, depth + 1),
-            (None, Some(Inner::NixBuild)) => Some(Class::Heavy),
-            (None, None) => None,
-        },
+        _ => None,
     }
 }
 
-fn script(source: &str, depth: usize) -> Option<Class> {
+fn script(source: &str, depth: usize, visit: &mut dyn FnMut(Option<&[String]>)) {
     let source = shell::strip_heredocs(source);
     let tokens = shell::words(&source).unwrap_or_else(|| {
         let spaced: String = source.chars().flat_map(|c| if ";&|()\n".contains(c) { vec![' ', ';', ' '] } else if "'\"".contains(c) { vec![' '] } else { vec![c] }).collect();
         spaced.split_whitespace().map(str::to_owned).collect()
     });
-    shell::segments(&tokens).iter().filter_map(|segment| class_of(segment, depth)).max()
+    shell::segments(&tokens).iter().for_each(|segment| leaves(segment, depth, visit));
 }
 
 fn cargo(args: &[String]) -> Option<Class> {

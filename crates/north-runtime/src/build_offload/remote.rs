@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -13,8 +13,8 @@ const SYNC_LIMIT: Duration = Duration::from_secs(180);
 pub(super) const SYNCED: &str = "NORTH-OFFLOAD-SYNCED";
 
 const SCRIPT: &str = r#"set -eu
-repo=$HOME/$1 head=$2 name=$3 blen=$4 plen=$5 sub=$6 owner=$7 limit=$8
-shift 8
+repo=$HOME/$1 head=$2 name=$3 blen=$4 plen=$5 sub=$6 owner=$7 limit=$8 returned=$9
+shift 9
 root=$HOME/.cache/build-offload
 slot=$root/$name
 north=${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}
@@ -36,6 +36,8 @@ if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; els
 git -C "$slot" clean -ffdxq -e target -e node_modules
 if [ "$plen" -gt 0 ]; then git -C "$slot" apply --binary --whitespace=nowarn "$root/$name.patch"; fi
 shipped=$(awk -v a="$began" -v b="$(date +%s.%N)" 'BEGIN { printf "%.2f", b - a }')
+locks() { git -C "$slot" ls-files -co --exclude-standard -- Cargo.lock '*/Cargo.lock' | while IFS= read -r lock; do printf '%s %s\n' "$(cksum <"$slot/$lock")" "$lock"; done; }
+before=$(locks)
 cd "$slot/$sub"
 if [ "${1##*/}" = north ] && [ "${1#/}" != "$1" ] && [ ! -x "$1" ]; then shift; set -- "$north" "$@"; fi
 echo @SYNCED@
@@ -48,6 +50,9 @@ trap 'kill -TERM "$child" 2>/dev/null' HUP INT TERM
 code=0
 while :; do wait "$child" && code=0 || code=$?; kill -0 "$child" 2>/dev/null || break; done
 kill "$watcher" 2>/dev/null || true
+[ -z "$returned" ] || locks | while read -r sum size lock; do
+  printf '%s\n' "$before" | grep -Fxq -- "$sum $size $lock" || printf '\n%s %s %s\n' "$returned" "$lock" "$(base64 -w0 <"$slot/$lock")"
+done
 exit "$code"
 "#;
 
@@ -57,7 +62,7 @@ pub(super) enum Ran {
 }
 
 /// The run a lane and job make as a peer is offered it.
-pub(super) fn offer(lane: &Lane, job: &Job) -> Offer {
+pub(super) fn offer(lane: &Lane, job: &Job, returned: &str) -> Offer {
     Offer {
         repo: lane.repo.clone(),
         head: lane.head.clone(),
@@ -68,6 +73,7 @@ pub(super) fn offer(lane: &Lane, job: &Job) -> Offer {
         command: job.command.to_vec(),
         bundle_bytes: lane.bundle.len() as u64,
         patch_bytes: lane.patch.len() as u64,
+        returned: returned.to_owned(),
     }
 }
 
@@ -78,26 +84,27 @@ pub(super) fn script() -> String {
 
 /// The arguments the script takes for an offer.
 pub(super) fn words(offer: &Offer) -> Vec<String> {
-    let mut words = vec![offer.repo.clone(), offer.head.clone(), offer.name.clone(), offer.bundle_bytes.to_string(), offer.patch_bytes.to_string(), offer.subdirectory.clone(), offer.owner.clone(), offer.timeout_seconds.to_string()];
+    let mut words = vec![offer.repo.clone(), offer.head.clone(), offer.name.clone(), offer.bundle_bytes.to_string(), offer.patch_bytes.to_string(), offer.subdirectory.clone(), offer.owner.clone(), offer.timeout_seconds.to_string(), offer.returned.clone()];
     words.extend(offer.command.iter().cloned());
     words
 }
 
-pub(super) fn invocation(lane: &Lane, job: &Job) -> (String, Vec<String>) {
-    (script(), words(&offer(lane, job)))
+pub(super) fn invocation(lane: &Lane, job: &Job, returned: &str) -> (String, Vec<String>) {
+    (script(), words(&offer(lane, job, returned)))
 }
 
-/// Rebuilds the lane on the host, runs the command there under that host's own heavy admission, streams its output here and returns its exit code. A failure before the command starts is `NotSynced`.
+/// Rebuilds the lane on the host, runs the command there under that host's own heavy admission, streams its output here, writes back each Cargo.lock the run changed and returns its exit code. A failure before the command starts is `NotSynced`.
 pub(super) fn run(ssh: &str, lane: &Lane, job: &Job, sink: Option<File>, started: &dyn Fn()) -> Ran {
-    let (script, words) = invocation(lane, job);
+    let returned = super::returned::marker();
+    let (script, words) = invocation(lane, job, &returned);
     let quoted: Vec<String> = words.iter().map(|word| quote(word)).collect();
     let remote = format!("sh -c {} offload {}", quote(&script), quoted.join(" "));
     let mut ssh_command = Command::new("ssh");
     ssh_command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", ssh, "--", &remote]);
-    drive(ssh_command, lane, sink, started)
+    drive(ssh_command, lane, sink, started, &returned)
 }
 
-pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, started: &dyn Fn()) -> Ran {
+pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, started: &dyn Fn(), returned: &str) -> Ran {
     let spawned = transport
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -130,7 +137,12 @@ pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, sta
     };
     started();
     let mut output: Box<dyn Write> = sink.map_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>, |file| Box::new(file));
-    let _ = std::io::copy(&mut reader, &mut output);
+    let mut splitter = super::returned::Returned::new(returned, &lane.top);
+    let mut buffer = [0u8; 8192];
+    while let Ok(read) = reader.read(&mut buffer) && read > 0 {
+        splitter.feed(&buffer[..read], &mut output);
+    }
+    splitter.finish(&mut output);
     let _ = output.flush();
     drop(stdin);
     let status = child.wait();
@@ -144,7 +156,9 @@ const OFFER_REPLY_LIMIT: Duration = Duration::from_secs(SYNC_LIMIT.as_secs() + 3
 pub(super) fn hand_over(mut peer: UnixStream, lane: &Lane, job: &Job, sink: Option<File>, started: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
     let gone = |error: std::io::Error| Some(Declined::Failed(format!("the taking host left: {error}")));
     peer.set_read_timeout(Some(OFFER_REPLY_LIMIT)).map_err(gone)?;
-    let sent = peer.write_all(offer(lane, job).to_line().as_bytes()).and_then(|()| peer.write_all(&lane.bundle)).and_then(|()| peer.write_all(&lane.patch)).and_then(|()| peer.flush());
+    let returned = super::returned::marker();
+    let mut splitter = super::returned::Returned::new(&returned, &lane.top);
+    let sent = peer.write_all(offer(lane, job, &returned).to_line().as_bytes()).and_then(|()| peer.write_all(&lane.bundle)).and_then(|()| peer.write_all(&lane.patch)).and_then(|()| peer.flush());
     let mut write_failure = sent.err();
     let mut output: Box<dyn Write> = sink.map_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>, |file| Box::new(file));
     let mut running = false;
@@ -156,12 +170,15 @@ pub(super) fn hand_over(mut peer: UnixStream, lane: &Lane, job: &Job, sink: Opti
                 started(&host);
             }
             Ok(Some(Frame::Out(bytes))) => {
-                let _ = output.write_all(&bytes).and_then(|()| output.flush());
+                splitter.feed(&bytes, &mut output);
             }
             Ok(Some(Frame::Err(bytes))) => {
                 let _ = std::io::stderr().write_all(&bytes);
             }
-            Ok(Some(Frame::Exit(code))) => return Ok(code),
+            Ok(Some(Frame::Exit(code))) => {
+                splitter.finish(&mut output);
+                return Ok(code);
+            }
             Ok(Some(Frame::NotSynced(why))) => return Err(Some(Declined::Failed(why))),
             Ok(None) | Err(_) if running => return Ok(255),
             Ok(None) | Err(_) if write_failure.is_some() => return Err(write_failure.take().and_then(gone)),

@@ -24,6 +24,7 @@ pub struct Offer {
     pub command: Vec<String>,
     pub bundle_bytes: u64,
     pub patch_bytes: u64,
+    pub returned: String,
 }
 
 /// Whether a queued run may be handed over at all: a toolchain program, so a peer never executes a shell string the queue's host composed.
@@ -41,7 +42,7 @@ impl Offer {
     /// Why a peer must not run this offer, None when every field is one a lane's host sends.
     pub fn refusal(&self) -> Option<String> {
         let hex = |head: &str| matches!(head.len(), 40 | 64) && head.bytes().all(|byte| byte.is_ascii_hexdigit());
-        let checks: [(&str, bool); 9] = [
+        let checks: [(&str, bool); 10] = [
             ("repo", path_word(&self.repo, false)),
             ("head", hex(&self.head)),
             ("name", path_word(&self.name, false) && !self.name.contains('/')),
@@ -51,6 +52,7 @@ impl Offer {
             ("command", pullable(&self.command) && self.command.len() <= MAX_COMMAND_WORDS && self.command.iter().all(|word| word.len() <= MAX_WORD_BYTES && !word.contains('\0'))),
             ("bundle", self.bundle_bytes <= MAX_BUNDLE_BYTES),
             ("patch", self.patch_bytes <= MAX_DIFF_BYTES as u64),
+            ("returned", self.returned.is_empty() || self.returned.strip_prefix("NORTH-OFFLOAD-RETURNED-").is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit() || byte == b'-'))),
         ];
         checks.iter().find(|(_, fine)| !fine).map(|(field, _)| format!("the offer's {field} is not one a lane's host sends"))
     }
@@ -58,7 +60,7 @@ impl Offer {
     pub fn to_line(&self) -> String {
         let value = json!({
             "repo": self.repo, "head": self.head, "name": self.name, "subdirectory": self.subdirectory, "owner": self.owner,
-            "timeoutSeconds": self.timeout_seconds, "command": self.command, "bundleBytes": self.bundle_bytes, "patchBytes": self.patch_bytes,
+            "timeoutSeconds": self.timeout_seconds, "command": self.command, "bundleBytes": self.bundle_bytes, "patchBytes": self.patch_bytes, "returned": self.returned,
         });
         format!("{value}\n")
     }
@@ -78,6 +80,7 @@ impl Offer {
             command,
             bundle_bytes: number("bundleBytes")?,
             patch_bytes: number("patchBytes")?,
+            returned: text("returned").unwrap_or_default(),
         })
     }
 }

@@ -105,7 +105,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
     if !batch_class(&request.name) && request.wait_seconds.is_none() && !request.alone {
         return Admitted::Here(decision(root, request, Some(create), None, host));
     }
-    let offer = (request.name == "heavy" || request.name == "moderate" && build_offload::is_rust_command(command)) && !request.landing;
+    let offer = (request.name == "heavy" || request.name == "moderate" && crate::capacity::gate::compiles_rust(command)) && !request.landing;
     let mut declined = Declines::new();
     let resumed = requeue::resumed(root);
     if resumed.is_none() && offer && let Some(admitted) = offer_first(Waiting { root, ticket: None, request, create, command, declined: &mut declined }, host, terminations).await {
