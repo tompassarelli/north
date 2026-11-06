@@ -1,7 +1,7 @@
 use super::Refusal;
 
-const THREADS_VERBS: [&str; 26] = [
-    "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "replay-staffing", "planner-band", "box-eta",
+const THREADS_VERBS: [&str; 27] = [
+    "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "replay-staffing", "planner-band", "box-eta",
     "job-runs", "recommend-runs", "calibration-runs", "calibrate", "job-run", "queue", "claim", "release", "need", "unneed",
     "new", "note", "close", "reopen", "block", "review-finding",
 ];

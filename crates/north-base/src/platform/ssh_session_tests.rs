@@ -26,7 +26,7 @@ fn a_remote_commands_parameter_expansions_reach_the_far_shell_unexpanded() {
 // KEEP(contract): logins, control and forwarding calls, git transport and the north protocol a peer's forced-command key parses reach ssh untouched
 #[test]
 fn logins_control_calls_git_transport_and_north_protocol_pass_through_unchanged() {
-    for call in [&["gex45"][..], &["-N", "-L", "8080:localhost:80", "gex45"], &["-O", "check", "gex45"], &["git@github.com", "git-upload-pack 'tompassarelli/north'"], &["-l", "tom", "gex45"], &["nexus", "threads queue take --host nexus"], &["gex45", "/opt/north/bin/north", "remote-serve"]] {
+    for call in [&["gex45"][..], &["-N", "-L", "8080:localhost:80", "gex45"], &["-O", "check", "gex45"], &["git@github.com", "git-upload-pack 'tompassarelli/north'"], &["-l", "tom", "gex45"], &["nexus", "threads queue take --host nexus"], &["gex45", "/opt/north/bin/north", "remote-serve"], &["nexus", "env 'THREADS_ALIVE_OWNERS=[\"a\", \"b\"]' THREADS_ACTOR=w1 north threads holder 'north#562'"]] {
         let call = words(call);
         assert_eq!(scoped(&call, "n-626", "0a1b2c3d"), call);
     }

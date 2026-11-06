@@ -55,8 +55,8 @@ fn scoped(arguments: &[String], session: &str, suffix: &str) -> Vec<String> {
     let destination = options.last().map_or("", String::as_str);
     let command = command.strip_prefix(&["--".to_owned()]).unwrap_or(command);
     let remote = command.join(" ");
-    let program = remote.split_whitespace().next().unwrap_or_default().rsplit('/').next().unwrap_or_default();
-    let protocol = PROTOCOLS.contains(&program) || program.starts_with("git-") || destination.split_once('@').is_some_and(|(user, _)| user == "git");
+    let program = program(&remote);
+    let protocol = PROTOCOLS.contains(&program.as_str()) || program.starts_with("git-") || destination.split_once('@').is_some_and(|(user, _)| user == "git");
     if protocol || program.is_empty() {
         return arguments.to_vec();
     }
@@ -66,6 +66,40 @@ fn scoped(arguments: &[String], session: &str, suffix: &str) -> Vec<String> {
         "if [ -S \"$XDG_RUNTIME_DIR/bus\" ] && command -v systemd-run >/dev/null 2>&1; then exec systemd-run --user --scope --quiet --collect --expand-environment=no --unit={unit} -- \"${{SHELL:-/bin/sh}}\" -c {quoted}; else exec \"${{SHELL:-/bin/sh}}\" -c {quoted}; fi"
     );
     options.iter().cloned().chain([wrapped]).collect()
+}
+
+/// The program a remote command runs, past an `env NAME=VALUE ...` prefix, because the threads client sends its ledger calls as `env THREADS_ACTOR=... north threads ...`.
+fn program(remote: &str) -> String {
+    let words = words(remote);
+    let mut words = words.iter().map(String::as_str).peekable();
+    if words.next_if_eq(&"env").is_some() {
+        while words.next_if(|word| word.split_once('=').is_some_and(|(name, _)| !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'))).is_some() {}
+    }
+    words.next().map_or_else(String::new, |word| word.rsplit('/').next().unwrap_or_default().to_owned())
+}
+
+/// The words of a remote command whose only quoting is the single quotes `shell_quote` writes.
+fn words(remote: &str) -> Vec<String> {
+    let (mut words, mut word, mut quoted, mut started) = (Vec::new(), String::new(), false, false);
+    for character in remote.chars() {
+        match character {
+            '\'' => (quoted, started) = (!quoted, true),
+            ' ' | '\t' | '\n' if !quoted => {
+                if started {
+                    words.push(std::mem::take(&mut word));
+                }
+                started = false;
+            }
+            _ => {
+                word.push(character);
+                started = true;
+            }
+        }
+    }
+    if started {
+        words.push(word);
+    }
+    words
 }
 
 fn command_start(arguments: &[String]) -> Option<usize> {
