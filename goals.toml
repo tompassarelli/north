@@ -61,14 +61,6 @@ max = 0
 class = "contract"
 
 [[goal]]
-name = "main-green-latest-verdict"
-source = "docs/features.md: a red main is reverted within 15 minutes; north#634: the proxy learns of a red main from the lander, not from Tom"
-oracle = "awk -F'\\t' '$2==\"north\" && ($4==\"green\" || $4==\"red-main\") {last=$4} END {print (last==\"red-main\") ? 1 : 0}' \"${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/post-land.tsv\""
-unit = "red verdicts"
-max = 0
-class = "contract"
-
-[[goal]]
 name = "no-python"
 source = "AGENTS.md: the north host is typed Rust; docs/rationale/non-rust-inventory.md"
 oracle = "git ls-files '*.py' | wc -l"

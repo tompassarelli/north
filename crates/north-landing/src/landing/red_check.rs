@@ -22,19 +22,12 @@ pub enum Failure {
 }
 
 impl Failure {
-    pub fn key(&self) -> String {
+    fn key(&self) -> String {
         match self {
             Failure::Cargo(name) => format!("cargo {name}"),
             Failure::Harness(path) => format!("harness {path}"),
             Failure::Line(text) => format!("FAIL {text}"),
         }
-    }
-
-    pub fn from_key(key: &str) -> Option<Self> {
-        let key = key.trim();
-        key.strip_prefix("cargo ").map(|name| Failure::Cargo(name.to_owned()))
-            .or_else(|| key.strip_prefix("harness ").map(|path| Failure::Harness(path.to_owned())))
-            .or_else(|| key.strip_prefix("FAIL ").map(|text| Failure::Line(text.to_owned())))
     }
 
     pub fn label(&self) -> &str {

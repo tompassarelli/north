@@ -6,15 +6,13 @@ use std::time::{Duration, Instant, SystemTime};
 
 use super::candidate::{git, output};
 use super::lander::state_home;
-use super::{enqueue, link_hold, queue, replay, repositories, sheriff, telemetry};
-use crate::landing::red_check::Failure;
+use super::{queue, replay, repositories};
 
 const USAGE: &str = "usage: north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]";
 const ROUNDS: usize = 8;
 const WALK: usize = 256;
 const SHADOW_MINUTES: u64 = 15;
 const SHADOW_PAUSE: Duration = Duration::from_secs(30);
-const LANDER_PATHS: [&str; 5] = ["crates/north-landing/", "crates/north-safe-push/", "crates/north-runtime/", "bin/safe-push", "tests/it/land"];
 
 struct Options {
     dry_run: bool,
@@ -149,7 +147,7 @@ fn readable(checkout: &Path, round: &Round) -> bool {
     round.lanes.iter().all(|lane| output(checkout, &["cat-file", "-e", &format!("{}^{{commit}}", lane.head)]).is_ok_and(|output| output.status.success()))
 }
 
-fn run_replay(binary: &Path, checkout: &Path, base: &str, checker: &str, tickets: &[PathBuf]) -> Result<replay::Replayed, String> {
+fn run_replay(binary: &Path, checkout: &Path, base: &str, checker: &str, tickets: &[PathBuf]) -> Result<String, String> {
     let ran = Command::new(binary)
         .args(["land", "replay", "--repo"])
         .arg(checkout)
@@ -160,59 +158,12 @@ fn run_replay(binary: &Path, checkout: &Path, base: &str, checker: &str, tickets
         .map_err(|error| format!("{}: {error}", binary.display()))?;
     let stdout = String::from_utf8_lossy(&ran.stdout);
     match replay::verdict_of(&stdout) {
-        Some(verdict) if ran.status.success() => Ok(replay::Replayed { verdict: verdict.to_owned(), failures: replay::failures_of(&stdout) }),
+        Some(verdict) if ran.status.success() => Ok(verdict.to_owned()),
         _ => Err(format!("{} land replay exited {}: {}", binary.display(), ran.status.code().map_or("on a signal".to_owned(), |code| code.to_string()), String::from_utf8_lossy(&ran.stderr).trim().lines().last().unwrap_or(""))),
     }
 }
 
-struct Held<'a> {
-    binary: Option<&'a Path>,
-    only_fixes: bool,
-}
-
-fn first_word(verdict: &str) -> &str {
-    verdict.split_whitespace().next().unwrap_or_default()
-}
-
-fn in_lander(checkout: &Path, base: &str, failure: &Failure) -> bool {
-    let files = match failure {
-        Failure::Harness(path) => vec![path.clone()],
-        Failure::Cargo(name) => {
-            let leaf = name.rsplit("::").next().unwrap_or(name);
-            let found = git(checkout, &["grep", "-l", "-E", &format!(r"fn {leaf}\b"), base, "--", "*.rs"]).unwrap_or_default();
-            found.lines().map(|line| line.split_once(':').map_or(line, |(_, path)| path).to_owned()).collect()
-        }
-        Failure::Line(_) => Vec::new(),
-    };
-    files.is_empty() || files.iter().any(|file| LANDER_PATHS.iter().any(|prefix| file.starts_with(prefix)))
-}
-
-fn tolerated(held: &Held, repository: &Repository, checker: &str, round: &Round, base: &str, candidate: &replay::Replayed) -> Result<String, String> {
-    let binary = held.binary.ok_or("no held runtime to compare with")?;
-    let against = run_replay(binary, &repository.checkout, base, checker, &round.tickets())?;
-    if first_word(&against.verdict) != first_word(&candidate.verdict) {
-        return Err(format!("the held runtime replayed {}", first_word(&against.verdict)));
-    }
-    let new: Vec<&Failure> = candidate.failures.difference(&against.failures).collect();
-    if new.is_empty() {
-        return Ok("the held runtime replays it the same way: no new failure".to_owned());
-    }
-    let named = new.iter().map(|failure| failure.label()).collect::<Vec<_>>().join(", ");
-    if held.only_fixes && !new.iter().any(|failure| in_lander(&repository.checkout, base, failure)) {
-        return Ok(format!("a revert or sheriff-fix candidate whose new failures ({named}) lie outside the lander's crates"));
-    }
-    Err(format!("new failures the held runtime does not have: {named}"))
-}
-
-fn only_fixes(checkout: &Path, held: &Path, target: &Path) -> bool {
-    let name = |path: &Path| path.file_name().map(|name| name.to_string_lossy().into_owned());
-    let (Some(held), Some(target)) = (name(held), name(target)) else { return false };
-    let Ok(messages) = git(checkout, &["log", "--first-parent", "-z", "--format=%B", &format!("{held}..{target}")]) else { return false };
-    let messages: Vec<&str> = messages.split('\0').map(str::trim).filter(|message| !message.is_empty()).collect();
-    !messages.is_empty() && messages.iter().all(|message| sheriff::is_revert(message) || message.lines().any(enqueue::is_main_red_marker))
-}
-
-fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker: &str) -> Result<usize, String> {
+fn replay_recorded(binary: &Path, repository: &Repository, checker: &str) -> Result<usize, String> {
     let mut replayed = 0;
     for round in recorded(&repository.queue.join("done")) {
         let lanes = round.names();
@@ -229,8 +180,7 @@ fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker:
             println!("north land promote: round {lanes} recorded {class}: not replayable, the lander did not record the main it was decided on");
             continue;
         };
-        let outcome = run_replay(binary, &repository.checkout, &base, checker, &round.tickets()).unwrap_or_else(|error| replay::Replayed { verdict: format!("error {error}"), failures: Default::default() });
-        let verdict = outcome.verdict.clone();
+        let verdict = run_replay(binary, &repository.checkout, &base, checker, &round.tickets()).unwrap_or_else(|error| format!("error {error}"));
         let shown = verdict.split_whitespace().next().unwrap_or_default();
         if replay::lands_what_was_refused(&round.verdict, &verdict) {
             println!("north land promote: round {lanes} on {} recorded {class} but the candidate lands it: an improvement, not a hold", &base[..base.len().min(12)]);
@@ -238,17 +188,7 @@ fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker:
             continue;
         }
         if !replay::same(&round.verdict, &verdict) {
-            match tolerated(held, repository, checker, &round, &base, &outcome) {
-                Ok(why) => {
-                    println!("north land promote: round {lanes} on {} recorded {class} but the candidate replayed {shown}: not a hold, {why}", &base[..base.len().min(12)]);
-                    replayed += 1;
-                    continue;
-                }
-                Err(why) => {
-                    let held_note = if held.binary.is_some() { format!(" ({why})") } else { String::new() };
-                    return Err(format!("round {lanes} on {base} recorded {class} but the candidate replayed {verdict}{held_note}"));
-                }
-            }
+            return Err(format!("round {lanes} on {base} recorded {class} but the candidate replayed {verdict}"));
         }
         println!("north land promote: round {lanes} on {} recorded {class} replayed {shown}: matches", &base[..base.len().min(12)]);
         replayed += 1;
@@ -281,9 +221,9 @@ fn shadow(binary: &Path, repositories: &[Repository], checker: &str, minutes: u6
             }
             checked += 1;
             let error = match run_replay(binary, &repository.checkout, "FETCH_HEAD", checker, &tickets) {
-                Ok(replayed) => {
-                    println!("north land promote: shadow pass {passes}: {} queued lane(s) of {} replayed {}", tickets.len(), repository.checkout.display(), replayed.verdict);
-                    replayed.verdict.starts_with("transient").then_some(replayed.verdict)
+                Ok(verdict) => {
+                    println!("north land promote: shadow pass {passes}: {} queued lane(s) of {} replayed {verdict}", tickets.len(), repository.checkout.display());
+                    verdict.starts_with("transient").then_some(verdict)
                 }
                 Err(error) => Some(error),
             };
@@ -319,13 +259,9 @@ fn promote(options: &Options) -> Result<Outcome, String> {
     }
     println!("north land promote: candidate {} replays recorded rounds with {}", target.display(), binary.display());
     let repositories: Vec<Repository> = options.repos.iter().map(|repo| Repository::open(repo)).collect::<Result<_, _>>()?;
-    let held_target = fs::read_link(runtime.lander()).ok();
-    let held_binary = held_target.as_deref().map(|held| runtime.binary(held)).filter(|binary| binary.is_file());
-    let fixes = held_target.as_deref().is_some_and(|held| repositories.iter().all(|repository| only_fixes(&repository.checkout, held, &target)));
-    let held = Held { binary: held_binary.as_deref(), only_fixes: fixes };
     let mut replayed = 0;
     for repository in &repositories {
-        replayed += replay_recorded(&binary, &held, repository, &options.checker)?;
+        replayed += replay_recorded(&binary, repository, &options.checker)?;
     }
     if replayed == 0 {
         return Err("no recorded round could be replayed".to_owned());
@@ -348,7 +284,6 @@ fn settle(link: &Path, target: &Path) -> u8 {
         println!("north land promote: refused: {}: {error}; the lander link is unchanged", link.display());
         return 1;
     }
-    link_hold::clear(&Runtime::from_env().home);
     println!("north land promote: {} now points at {}; each lander whose inputs changed finishes its after-landing runs, exits and restarts on it", link.display(), target.display());
     0
 }
@@ -366,18 +301,10 @@ pub fn run(arguments: &[String]) -> u8 {
         Ok(Outcome::Swap { link, target }) => settle(&link, &target),
         Ok(Outcome::Settled(result)) => {
             println!("north land promote: {result}");
-            if !options.dry_run {
-                link_hold::clear(&Runtime::from_env().home);
-            }
             0
         }
         Err(error) => {
             println!("north land promote: refused: {error}; the lander link is unchanged");
-            if !options.dry_run {
-                let runtime = Runtime::from_env();
-                let candidate = fs::read_link(runtime.current()).ok().and_then(|target| target.file_name().map(|name| name.to_string_lossy().into_owned())).unwrap_or_default();
-                link_hold::held(&runtime.home, telemetry::seconds(), &candidate, &error);
-            }
             1
         }
     }
