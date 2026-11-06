@@ -19,7 +19,16 @@ pub const TOOLCHAINS: &[&str] = &["gcc", "binutils", "glibc", "clang", "llvm", "
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Place {
     pub name: String,
-    pub ssh: Option<String>,
+    pub reach: Reach,
+}
+
+/// How the doctor runs a script on a place: here, over ssh, or here under a scratch environment (and inside the user and mount namespace
+/// the process `namespace` holds, when one is named), which is how `north land drill` gives a scratch lander its own home and disk.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reach {
+    Here,
+    Ssh(String),
+    Scratch { env: Vec<(String, String)>, namespace: Option<u32> },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -109,7 +118,11 @@ fn link_age(path: &Path, now: u64) -> Option<u64> {
 }
 
 pub fn queue_facts(name: &str, queue: &Path, repo: &Path, now: u64) -> QueueFacts {
-    let unit = land_queue::serving_unit(repo).unwrap_or_else(|| watchdog::unit(repo));
+    served_queue_facts(name, queue, land_queue::serving_unit(repo).unwrap_or_else(|| watchdog::unit(repo)), now)
+}
+
+/// The facts of the queue at `queue`, which `unit` serves.
+pub fn served_queue_facts(name: &str, queue: &Path, unit: String, now: u64) -> QueueFacts {
     let pending = queue::pending(queue).unwrap_or_default();
     let oldest_queued = pending.iter().map(|(path, _)| u64::try_from(queue::queued_micros(path) / 1_000_000).unwrap_or(u64::MAX)).min().map(|queued| now.saturating_sub(queued));
     let decided = decided(&queue.join("done"), now);
@@ -302,9 +315,15 @@ pub fn parse_probe(text: &str) -> Result<Probe, String> {
 pub fn shell(place: &Place, script: &str, arguments: &[&str]) -> Result<String, String> {
     let mut command = Command::new("timeout");
     command.arg(PROBE_SECONDS);
-    match &place.ssh {
-        Some(ssh) => command.args(["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", "bash", "-s", "--"]),
-        None => command.args(["bash", "-s", "--"]),
+    match &place.reach {
+        Reach::Ssh(ssh) => command.args(["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", "bash", "-s", "--"]),
+        Reach::Here => command.args(["bash", "-s", "--"]),
+        Reach::Scratch { env, namespace } => {
+            if let Some(pid) = namespace {
+                command.args(["nsenter", "--preserve-credentials", "-U", "-m", "-t", &pid.to_string()]);
+            }
+            command.env_remove("NORTH_OFFLOAD_ROOT").envs(env.iter().map(|(key, value)| (key, value))).args(["bash", "-s", "--"])
+        }
     };
     let mut child = command.args(arguments).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| format!("{}: {error}", place.name))?;
     if let Some(mut stdin) = child.stdin.take() {
@@ -324,5 +343,5 @@ pub fn place_facts(place: Place) -> PlaceFacts {
 pub fn offload_places() -> Vec<Place> {
     let listed = Command::new(follow::program()).args(["capacity", "offload", "hosts"]).stdin(Stdio::null()).stderr(Stdio::null()).output();
     let text = listed.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).into_owned()).unwrap_or_default();
-    text.lines().filter_map(|line| line.split_once(' ')).map(|(name, ssh)| Place { name: name.to_owned(), ssh: Some(ssh.trim().to_owned()) }).collect()
+    text.lines().filter_map(|line| line.split_once(' ')).map(|(name, ssh)| Place { name: name.to_owned(), reach: Reach::Ssh(ssh.trim().to_owned()) }).collect()
 }

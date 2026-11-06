@@ -10,7 +10,7 @@ use north_landing::land::queue::{self, Ticket};
 
 use super::*;
 use crate::bounds::{OLDEST_QUEUED_SECS, ROUND_SILENCE_SECS, SLOT_DEADLINE_SECS};
-use crate::facts::{LinkFacts, PlaceFacts, Probe, QueueFacts, SlotHold};
+use crate::facts::{LinkFacts, PlaceFacts, Probe, QueueFacts, Reach, SlotHold};
 
 const NOW: u64 = 1_800_000_000;
 
@@ -45,11 +45,11 @@ impl Hands for Fake {
 }
 
 fn gex45() -> Place {
-    Place { name: "gex45".to_owned(), ssh: Some("gex45".to_owned()) }
+    Place { name: "gex45".to_owned(), reach: Reach::Ssh("gex45".to_owned()) }
 }
 
 fn here() -> Place {
-    Place { name: "here".to_owned(), ssh: None }
+    Place { name: "here".to_owned(), reach: Reach::Here }
 }
 
 fn at(place: Place, probe: Probe) -> Facts {

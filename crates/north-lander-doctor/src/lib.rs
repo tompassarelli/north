@@ -9,6 +9,7 @@ use north_landing::land::lander::state_home;
 use north_landing::land::{queue, repositories};
 
 pub mod book;
+pub mod drill;
 pub mod bounds;
 pub mod facts;
 pub mod hands;
@@ -18,7 +19,7 @@ mod tests;
 
 use book::Book;
 use bounds::{Finding, PATIENCE_SECS, Remedy, State, minutes};
-use facts::{Facts, Place};
+use facts::{Facts, Place, Reach};
 use hands::Hands;
 
 pub use north_landing::land::promote::REFUSED;
@@ -134,7 +135,7 @@ pub fn examine(now: u64) -> Facts {
     }
     let units = queues.iter().map(|queue| queue.unit.clone()).collect();
     let link = facts::link_facts(&state.join("north"), north.as_deref(), units, now);
-    let places = std::iter::once(Place { name: host, ssh: None }).chain(facts::offload_places()).map(facts::place_facts).collect();
+    let places = std::iter::once(Place { name: host, reach: Reach::Here }).chain(facts::offload_places()).map(facts::place_facts).collect();
     Facts { queues, link, places, unserved: discovery.unserved }
 }
 
