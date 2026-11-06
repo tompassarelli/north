@@ -566,13 +566,15 @@ owner = "tompassarelli/north#634"
 [[check]]
 id = "n631-no-claims-warning-for-a-day"
 box = "prints no `claims not cleared` warning for a day after it lands"
-command = "ssh -o BatchMode=yes -o ConnectTimeout=10 laptop 'journalctl --user -u fleet-tick.service --since \"2026-11-06 00:57:22 UTC\" --no-pager -o cat | grep -c \"claims not cleared\"; true' || exit 127"
+command = "n=$(journalctl --user -u fleet-tick.service --since '2026-11-06 00:57:22 UTC' --no-pager -o cat | grep -c 'claims not cleared'); echo $n"
+expect = "0"
 review = "2026-11-07"
 owner = "tompassarelli/north#631"
 
 [[check]]
 id = "n647-prompt-grounding-no-timeouts"
 box = "A timing check over prompts of 0.2, 2, 10, 40 and 100 KB"
-command = "n=0; for h in gex45 laptop; do out=$(ssh -o BatchMode=yes -o ConnectTimeout=10 \"$h\" 'north convo -x --json -r system --since 2026-11-05T23:07Z --until 2026-11-06T23:07Z -n 1000 \"prompt-grounding] timed out\"'); code=$?; case $out in \"no matches\"*) continue;; esac; [ $code -eq 0 ] || exit 127; list=$(printf \"%s\\n\" \"$out\" | jq -r \".[].id\") || exit 127; for id in $list; do ssh -o BatchMode=yes -o ConnectTimeout=10 \"$h\" \"north convo show $id\" | head -n 6 | grep -q \"This session is being continued\" || n=$((n+1)); done; done; echo $n"
+command = "run() { if [ \"$1\" = local ]; then sh -c \"$2\"; else ssh -o BatchMode=yes -o ConnectTimeout=10 gex45 \"$2\"; fi; }; n=0; for h in local gex45; do out=$(run $h 'north convo -x --json -r system --since 2026-11-05T23:07Z --until 2026-11-06T23:07Z -n 1000 \"prompt-grounding] timed out\"'); code=$?; case $out in \"no matches\"*) continue;; esac; [ $code -eq 0 ] || exit 127; list=$(printf '%s\\n' \"$out\" | jq -r '.[].id') || exit 127; for id in $list; do run $h \"north convo show $id\" | head -n 6 | grep -q \"This session is being continued\" || n=$((n+1)); done; done; echo $n"
+expect = "0"
 review = "2026-11-07"
 owner = "tompassarelli/north#647"
