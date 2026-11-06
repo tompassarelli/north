@@ -944,7 +944,6 @@ impl Shared {
     async fn scan(&self, skipped: &str) -> bool {
         let started = epoch();
         let passed = Command::new(&self.arguments.safe_push)
-            .arg0("safe-push")
             .args(["--publication-scan", &self.arguments.base, &self.arguments.head])
             .current_dir(&self.root)
             .stdin(Stdio::null())

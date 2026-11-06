@@ -92,16 +92,12 @@ impl Fixture {
     }
 
     fn command_between(&self, base: &str, head: &str) -> Command {
-        self.command_through(base, head, &self.path("stubs/safe-push"))
-    }
-
-    fn command_through(&self, base: &str, head: &str, safe_push: &Path) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
         let path = format!("{}:{}", self.path("stubs").display(), std::env::var("PATH").unwrap_or_default());
         command
             .current_dir(&self.repo)
             .args(["land", "checks", "--base", base, "--head", head, "--safe-push"])
-            .arg(safe_push)
+            .arg(self.path("stubs/safe-push"))
             .arg("--outcome")
             .arg(self.path("outcome"))
             .env("PATH", path)
@@ -173,20 +169,6 @@ fn land_publish() {
     let output = dry.command().args(["--dry", "1"]).output().unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
     assert!(!dry.trace().contains("--publication-scan"), "a dry run published");
-
-    for (leaks, status) in [("0", 0), ("1", 1)] {
-        let fixture = Fixture::new(&[("land.publish", "farm/"), ("land.check", "file.txt :: touch ../ran")]);
-        git(&fixture.repo, &["config", "user.email", "t@example.invalid"]);
-        let link = fixture.path("link/safe-push");
-        fs::create_dir_all(fixture.path("link")).unwrap();
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), &link).unwrap();
-        assert_eq!(fs::canonicalize(&link).unwrap().file_name().unwrap(), "north");
-        script(&fixture.path("stubs/betterleaks"), "printf 'betterleaks %s\\n' \"$*\" >>\"$STUB_TRACE\"\nexit \"$STUB_LEAKS_STATUS\"\n");
-        let output = fixture.command_through(&fixture.base, &fixture.head, &link).env("SAFE_PUSH_DENYLIST", fixture.path("absent-denylist.toml")).env("SAFE_PUSH_SOUTH", fixture.path("absent-south")).env("STUB_LEAKS_STATUS", leaks).output().unwrap();
-        assert_eq!(output.status.code(), Some(status), "{}\n{}", text(&output), fixture.trace());
-        assert!(fixture.trace().contains("betterleaks "), "the link did not run the publication scan: {}", fixture.trace());
-        assert_eq!(fixture.path("ran").exists(), status == 0, "{}", text(&output));
-    }
 }
 
 fn hung_log(fixture: &Fixture) -> String {

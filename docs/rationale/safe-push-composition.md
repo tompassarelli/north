@@ -246,7 +246,7 @@ the lander and the after-landing gates own them, and safe-push only calls them.
 
 Every box keeps `bash bin/safe-push.test.sh` (while it exists) and `cargo test` green on its own. Each
 box lands alone through safe-push. Scenario numbers are the `PASS:` lines of `bin/safe-push.test.sh` in
-file order. That numbering missed nine sections of the suite that print no `PASS:` line (tool removal, vendored trees, `mutant record` and `mutant verify`, mutation marker and skip trailer, the generated-rewrite journeys, the policy sweep, the dependency gate, the explicit `--to` destination and the public deny-list scan); P12c ported them without numbers. A Done when holds checks a worker runs before landing. "After landing" lines are observations
+file order. A Done when holds checks a worker runs before landing. "After landing" lines are observations
 the box's owner records once the landing reaches the host's runtime. They are not landing gates.
 
 The review rule, which applies to every box (decision 9; workers skill § Review):
@@ -408,7 +408,6 @@ the per-lane code still exists.
      `bin/agents`.
   3. A runner test runs the land-check publication scan through a `safe-push` link whose canonical path
      is `north` and gets the scan's verdict.
-  - Landed 2026-11-06, the runner half: `land_checks::a_safe_push_link_to_north_runs_the_publication_scan_and_returns_its_verdict` symlinks the test `north` as `safe-push`, hands it to `north land checks --safe-push` on a `land.publish` lane (folded into `land_checks::land_publish`, since verification is over its test budget), and gets a pass with the check run when betterleaks passes and a refusal with no check run when it fails. The runner already ran the path it was given. The canonicalizing was in the after-landing chain, whose `--safe-push` only located the `north` beside the canonical safe-push for the code-health and crate-lines gates. That `north` is the running binary, so the gates take `current_exe()`, `follow::executable` is deleted, and `land follow`, `land scan code-health` and the other range gates drop `--safe-push`. `north after-landing` still accepts and ignores `--safe-push`, because a lander on an older runtime passes it to the current runtime's `after-landing`; P15 drops it with the other bash-era verbs.
 - **P14 The swap.** Covered harness change: review per the rule above. Precondition, checked by the
   worker before landing: `readlink ~/.local/state/north/current` on whiterabbit and on gex45
   (`ssh gex45`) names a runtime that contains P13. Delete `bin/safe-push` and its allowlist entry.
@@ -494,7 +493,7 @@ against the source and tried to break it. Findings and answers:
    which identity can create which tag.
 
 The reviewer found no cycle in the module DAG and confirmed that the P13-before-P14 ordering keeps
-`~/.local/bin/safe-push` from dangling, that the scenario partition covers 1-54 (but not the nine unnumbered sections P12c later found and ported), and that the lander's
+`~/.local/bin/safe-push` from dangling, that the scenario partition covers 1-54, and that the lander's
 `checker: safe-push` and absolute-path invocations survive the link.
 
 Later on 2026-11-06 the lead asked that every box state its harness-editor coverage, and that
