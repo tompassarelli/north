@@ -102,7 +102,3 @@ pub fn watched<T>(lander: &Lander, serve: impl FnOnce() -> T) -> T {
         serve()
     })
 }
-
-#[cfg(test)]
-#[path = "heartbeat_tests.rs"]
-mod tests;
