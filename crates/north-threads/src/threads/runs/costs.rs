@@ -28,7 +28,12 @@ pub struct Touched {
 }
 
 impl Touched {
+    /// Refuses a timestamp not written in UTC as `YYYY-MM-DDTHH:MM:SS[.fraction]Z`, since the re-price
+    /// finds rows by comparing that text.
     pub fn add(&mut self, account: String, ts: &str) -> Result<(), Failure> {
+        if !utc(ts) {
+            return Err(Failure::Refused(format!("a usage timestamp is not written in UTC as YYYY-MM-DDTHH:MM:SSZ: {ts}")));
+        }
         let at = moment(ts)?;
         self.since.entry(account).and_modify(|earliest| *earliest = (*earliest).min(at)).or_insert(at);
         Ok(())
@@ -162,7 +167,7 @@ fn repriced(tx: &Transaction, prices: &BTreeMap<String, f64>) -> Result<bool, Fa
 /// The account's stored intervals that end at or after `since`.
 fn stored_since(tx: &Transaction, account: &str, since: Timestamp) -> Result<Vec<Key>, Failure> {
     let mut query = tx.prepare("SELECT started, ended, agent FROM run_costs WHERE account = ? AND ended >= ?")?;
-    let rows = query.query_map(params![account, date_bound(since)], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?;
+    let rows = query.query_map(params![account, minute_bound(since)], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?;
     let mut stored = Vec::new();
     for row in rows {
         let (started, ended, agent) = row?;
@@ -194,9 +199,16 @@ fn days_before(at: Timestamp, days: i64) -> Timestamp {
     Timestamp::from_unix_nanos(at.unix_nanos() - i128::from(days * DAY_SECONDS) * 1_000_000_000)
 }
 
-/// A text bound every ledger timestamp at or after `at` sorts at or above, whatever its UTC offset.
-fn date_bound(at: Timestamp) -> String {
-    days_before(at, 1).iso_date()
+fn utc(ts: &str) -> bool {
+    let bytes = ts.as_bytes();
+    let digits = |range: std::ops::Range<usize>| bytes.get(range).is_some_and(|run| run.iter().all(u8::is_ascii_digit));
+    let separators = [(4, b'-'), (7, b'-'), (10, b'T'), (13, b':'), (16, b':')].iter().all(|&(at, byte)| bytes.get(at) == Some(&byte));
+    separators && [0..4, 5..7, 8..10, 11..13, 14..16, 17..19].into_iter().all(digits) && ts.ends_with('Z')
+}
+
+/// A text bound every UTC ledger timestamp at or after `at` sorts above: the minute before it.
+fn minute_bound(at: Timestamp) -> String {
+    Timestamp::from_unix_nanos(at.unix_nanos() - 60_000_000_000).iso_minute()
 }
 
 fn same_window(a: Option<&str>, b: Option<&str>) -> Result<bool, Failure> {
@@ -226,7 +238,7 @@ fn readings_query(only: Option<(&str, Option<Timestamp>)>) -> (String, Vec<Sql>)
         }
         if let Some(since) = since {
             sql += " AND ts >= ?";
-            bound.push(Sql::Text(date_bound(since)));
+            bound.push(Sql::Text(minute_bound(since)));
         }
     }
     sql += " ORDER BY rowid";
@@ -272,7 +284,7 @@ fn windows(db: &Connection, only: Option<(&str, Option<Timestamp>)>) -> Result<V
 fn samples(db: &Connection, only: Option<(&str, Timestamp)>) -> Result<HashMap<String, Vec<Sample>>, Failure> {
     let mut by_account: HashMap<String, Vec<Sample>> = HashMap::new();
     let filter = if only.is_some() { " WHERE account = ?1 AND ts >= ?2" } else { "" };
-    let bound: Vec<Sql> = only.map_or_else(Vec::new, |(account, since)| vec![Sql::Text(account.to_owned()), Sql::Text(date_bound(since))]);
+    let bound: Vec<Sql> = only.map_or_else(Vec::new, |(account, since)| vec![Sql::Text(account.to_owned()), Sql::Text(minute_bound(since))]);
     let mut query = db.prepare(&format!("SELECT account, ts, agent, weight FROM run_usage{filter} ORDER BY rowid"))?;
     for row in query.query_map(params_from_iter(bound), |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, f64>(3)?)))? {
         let (account, ts, agent, weight) = row?;
@@ -387,5 +399,17 @@ mod tests {
         let (sql, bound) = readings_query(Some(("claude-a", Some(Timestamp::parse("2026-11-06T10:00:00Z").unwrap()))));
         let plan: Vec<String> = db.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap().query_map(params_from_iter(bound), |row| row.get(3)).unwrap().collect::<Result<_, _>>().unwrap();
         assert!(plan.iter().any(|step| step.contains("usage_latest (provider=? AND account=? AND kind=? AND name=? AND ts>?)")), "{plan:?}");
+    }
+
+    #[test]
+    fn a_touch_reads_from_the_minute_before_it_and_refuses_a_timestamp_with_an_offset() {
+        let bound = super::minute_bound(Timestamp::parse("2026-11-06T10:00:30Z").unwrap());
+        for kept in ["2026-11-06T10:00:30Z", "2026-11-06T10:00:30.250Z", "2026-11-06T10:01:00Z", "2026-11-07T00:00:00Z"] {
+            assert!(kept > bound.as_str(), "{kept} sorts below {bound}");
+        }
+        assert!("2026-11-06T09:30:00Z" < bound.as_str(), "{bound} reads the half hour before the touch");
+        let mut touched = super::Touched::default();
+        assert!(touched.add("claude-a".to_owned(), "2026-11-06T10:00:30.250Z").is_ok());
+        assert!(touched.add("claude-a".to_owned(), "2026-11-06T12:00:30+02:00").is_err());
     }
 }
