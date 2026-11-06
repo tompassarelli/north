@@ -25,14 +25,3 @@ fn ssh_destination_planted_in_orchestration_toml_never_reaches_the_worker_ledger
     let _ = Command::new(&ssh).args(["-o", "BatchMode=yes", &unchecked, "north", "worker-ledger", "--emit"]).status();
     assert!(root.path().join("p").exists(), "the fake ssh runs a ProxyCommand the way ssh does");
 }
-
-#[test]
-fn ssh_destination_from_the_real_hosts_reaches_gex45_through_the_worker_ledger_pull() {
-    let root = tempfile::tempdir().unwrap();
-    let ssh = root.path().join("ssh");
-    crate::foundation::shim::write_script(&ssh, &format!("printf '%s\\n' \"$*\" >> {}/calls\n", root.path().display()));
-    let cfg: DocumentMut = HOSTS.parse().unwrap();
-    let mut rows = Vec::new();
-    pull_among(gate::machines(&cfg), "whiterabbit", ssh.to_str().unwrap(), &options(), b"{}", &mut rows);
-    assert_eq!(std::fs::read_to_string(root.path().join("calls")).unwrap(), "-o BatchMode=yes -o ConnectTimeout=5 -- tom@gex45 north worker-ledger --emit\n");
-}

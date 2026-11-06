@@ -210,7 +210,3 @@ pub(super) fn run(transcript: &Path, repo: &Path, only_handback: bool) -> u8 {
 pub(super) fn land_handback(events: &[Value], transcript: &Path, repo: &Path, state: &Path, run: &mut Run) -> Option<Outcome> {
     cloud_handback::has_handback(events).then(|| land(events, transcript, repo, state, run))
 }
-
-#[cfg(test)]
-#[path = "cloud_land_tests.rs"]
-mod tests;

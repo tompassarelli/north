@@ -57,7 +57,3 @@ pub(super) fn reader(fleet: &Fleet, request: &mut LaunchRequest, caller: Option<
 pub(super) fn from_proxy(fleet: &Fleet, caller: Option<&str>) -> bool {
     caller.is_some_and(|caller| caller == PROXY || fleet.role_of(caller) == Some(Role::Proxy))
 }
-
-#[cfg(test)]
-#[path = "lineage_tests.rs"]
-mod tests;

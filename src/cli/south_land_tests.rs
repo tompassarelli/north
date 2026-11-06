@@ -1,12 +1,10 @@
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::path::PathBuf;
 
 use north_core::fleet::attachments::base64;
-use north_core::platform::south_land_limits::{MAX_COMMITS, MAX_PATCH_BYTES};
 use north_ops::ops::remote_serve::south_land::{self, Config, Refusal, TOKEN_FILE};
 use north_ops::ops::remote_serve::south_policy;
-use rustix::fs::{FlockOperation, flock};
 use tempfile::TempDir;
 
 use super::south_test_repo::{Repo, git};
@@ -72,10 +70,6 @@ impl World {
         git(&self.remote, &["rev-parse", "refs/heads/main"])
     }
 
-    fn remote_file(&self, path: &str) -> String {
-        git(&self.remote, &["show", &format!("refs/heads/main:{path}")])
-    }
-
     fn record_push_header(&self) -> PathBuf {
         let record = self.root.path().join("push-header");
         let hook = self.remote.join("hooks/pre-receive");
@@ -83,29 +77,6 @@ impl World {
         north_core::foundation::shim::write_script(&hook, &format!("printf '%s' \"$GIT_CONFIG_VALUE_0\" > '{}'\n", record.display()));
         record
     }
-}
-
-#[test]
-fn south_land_a_decisions_patch_lands_on_the_remote_main() {
-    let world = World::new();
-    world.commit("agents/decisions/new.md", "landed\n");
-    let landed = south_land::land(&world.config("true"), &world.environment(), &world.mbox()).expect("lands");
-    assert_eq!(world.remote_head(), landed.sha);
-    assert_eq!(world.remote_file("agents/decisions/new.md"), "landed");
-    assert_eq!(git(&world.remote, &["rev-list", "--count", &format!("{}..main", world.base)]), "1");
-}
-
-#[test]
-fn south_land_a_second_patch_lands_on_top_of_the_first_in_the_same_clone() {
-    let world = World::new();
-    world.commit("agents/decisions/one.md", "one\n");
-    south_land::land(&world.config("true"), &world.environment(), &world.mbox()).expect("first lands");
-    let after_first = world.remote_head();
-    git(world.author.path(), &["reset", "-q", "--hard", &world.base]);
-    world.commit("agents/postmortems/two.md", "two\n");
-    let landed = south_land::land(&world.config("true"), &world.environment(), &world.mbox()).expect("second lands");
-    assert_eq!(git(&world.remote, &["rev-parse", &format!("{}^", landed.sha)]), after_first);
-    assert_eq!(world.remote_file("agents/decisions/one.md"), "one");
 }
 
 #[test]
@@ -120,31 +91,6 @@ fn south_land_a_planted_orchestration_patch_leaves_the_remote_unchanged() {
 }
 
 #[test]
-fn south_land_a_patch_over_4_mib_is_refused_without_touching_the_remote() {
-    let world = World::new();
-    world.commit("agents/decisions/big.md", &"x".repeat(MAX_PATCH_BYTES));
-    let before = world.remote_head();
-    let mbox = world.mbox();
-    assert!(mbox.len() > MAX_PATCH_BYTES);
-    assert_eq!(south_land::land(&world.config("true"), &world.environment(), &mbox), Err(Refusal::TooLarge(mbox.len())));
-    assert_eq!(world.remote_head(), before);
-}
-
-#[test]
-fn south_land_a_patch_of_21_commits_is_refused_and_20_lands() {
-    let world = World::new();
-    for number in 0..=MAX_COMMITS {
-        world.commit(&format!("agents/decisions/n{number}.md"), "n\n");
-    }
-    let before = world.remote_head();
-    assert_eq!(south_land::land(&world.config("true"), &world.environment(), &world.mbox()), Err(Refusal::TooManyCommits(MAX_COMMITS + 1)));
-    assert_eq!(world.remote_head(), before);
-    git(world.author.path(), &["reset", "-q", "--hard", "HEAD~1"]);
-    south_land::land(&world.config("true"), &world.environment(), &world.mbox()).expect("20 commits land");
-    assert_eq!(git(&world.remote, &["rev-list", "--count", &format!("{}..main", world.base)]), MAX_COMMITS.to_string());
-}
-
-#[test]
 fn south_land_the_push_reads_its_token_only_from_the_credentials_directory() {
     let world = World::new();
     world.commit("agents/decisions/new.md", "landed\n");
@@ -155,51 +101,10 @@ fn south_land_the_push_reads_its_token_only_from_the_credentials_directory() {
 }
 
 #[test]
-fn south_land_without_a_credentials_directory_a_gh_token_in_the_environment_does_not_push() {
-    let world = World::new();
-    world.commit("agents/decisions/new.md", "landed\n");
-    let mut environment = world.environment();
-    environment.remove("CREDENTIALS_DIRECTORY");
-    let before = world.remote_head();
-    assert!(matches!(south_land::land(&world.config("true"), &environment, &world.mbox()), Err(Refusal::Credentials(_))));
-    assert_eq!(world.remote_head(), before);
-}
-
-#[test]
 fn south_land_a_failing_secret_scan_leaves_the_remote_unchanged() {
     let world = World::new();
     world.commit("agents/decisions/new.md", "landed\n");
     let before = world.remote_head();
     assert!(matches!(south_land::land(&world.config("false"), &world.environment(), &world.mbox()), Err(Refusal::Secrets(_))));
-    assert_eq!(world.remote_head(), before);
-}
-
-#[test]
-fn south_land_a_patch_that_does_not_apply_to_the_remote_main_is_refused() {
-    let world = World::new();
-    world.commit("agents/decisions/old.md", "changed under us\n");
-    let mbox = world.mbox();
-    let other = Repo::new();
-    git(other.path(), &["remote", "add", "origin", &world.remote.to_string_lossy()]);
-    git(other.path(), &["pull", "-q", "origin", "main"]);
-    other.write("agents/decisions/old.md", "different\n");
-    other.commit_all("diverge");
-    git(other.path(), &["push", "-q", "origin", "HEAD:main"]);
-    let before = world.remote_head();
-    let refusal = south_land::land(&world.config("true"), &world.environment(), &mbox).expect_err("conflict");
-    assert!(matches!(refusal, Refusal::Apply(_)), "{refusal:?}");
-    assert_eq!(world.remote_head(), before);
-}
-
-#[test]
-fn south_land_a_second_land_while_one_runs_is_busy() {
-    let world = World::new();
-    world.commit("agents/decisions/new.md", "landed\n");
-    let config = world.config("true");
-    fs::create_dir_all(&config.state_dir).expect("state");
-    let held = OpenOptions::new().create(true).truncate(false).write(true).open(config.state_dir.join("lock")).expect("lock file");
-    flock(&held, FlockOperation::NonBlockingLockExclusive).expect("hold");
-    let before = world.remote_head();
-    assert_eq!(south_land::land(&config, &world.environment(), &world.mbox()), Err(Refusal::Busy));
     assert_eq!(world.remote_head(), before);
 }

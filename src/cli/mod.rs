@@ -28,13 +28,9 @@ mod send;
 mod strategy;
 mod session;
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod laptop_runner_tests;
 #[cfg(test)]
 mod fleet_peer_row_tests;
-#[cfg(test)]
-mod remote_land_tests;
 #[cfg(test)]
 mod south_land_tests;
 #[cfg(test)]

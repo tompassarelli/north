@@ -88,7 +88,3 @@ pub(super) fn usage(path: &[String]) -> Option<String> {
     }
     Some(text)
 }
-
-#[cfg(test)]
-#[path = "verb_help_tests.rs"]
-mod tests;

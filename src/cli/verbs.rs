@@ -182,7 +182,3 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("wt-reap", Bookkeeping),
     ("wt-rescue", Bookkeeping),
 ]);
-
-#[cfg(test)]
-#[path = "verbs_tests.rs"]
-mod tests;

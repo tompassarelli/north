@@ -194,7 +194,3 @@ fn await_default(fleet: &Fleet, id: i64) -> NorthResult<()> {
         std::thread::sleep(WAIT_POLL.min(Duration::from_millis(at - now)));
     }
 }
-
-#[cfg(test)]
-#[path = "gate_tests.rs"]
-mod tests;

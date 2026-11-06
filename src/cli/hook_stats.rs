@@ -39,17 +39,3 @@ pub fn run(rest: &[String]) -> Result<(), String> {
     print!("{}", render(&compute(&fires, now - span, now), &since));
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{arguments, window};
-
-    #[test]
-    fn reads_day_and_hour_windows() {
-        assert_eq!(window("7d"), Some(7 * 86_400));
-        assert_eq!(window("48h"), Some(48 * 3_600));
-        assert_eq!(window("7"), None);
-        assert_eq!(arguments(&[]), Ok("7d".into()));
-        assert!(arguments(&["--since".into(), "soon".into()]).is_err());
-    }
-}

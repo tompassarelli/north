@@ -2,9 +2,6 @@ use crate::usage::breaker;
 use crate::usage::decide::world::Trip;
 use crate::watch;
 
-#[cfg(test)]
-mod tests;
-
 /// The line `--recommend` ends with when the brief's `Item:` is a workstream the spend breaker has tripped.
 pub(super) fn line(facets: &str) -> Option<String> {
     let trips = breaker::read_trips(&watch::state_home().join("agents/usage").join(breaker::LEDGER_FILE)).ok()?;

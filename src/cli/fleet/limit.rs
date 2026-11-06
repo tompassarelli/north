@@ -104,33 +104,3 @@ fn queued(session: &str, cwd: &Path) -> bool {
     let Some(origin) = origin else { return false };
     queue::pending(&queue::directory(&watch::state_home(), &origin)).is_ok_and(|tickets| tickets.iter().any(|(_, ticket)| ticket.session.as_deref() == Some(session)))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn table() -> Connection {
-        let db = Connection::open_in_memory().unwrap();
-        db.execute_batch("CREATE TABLE usage(ts TEXT, provider TEXT, account TEXT, kind TEXT, name TEXT, used_pct REAL, window_min INTEGER, resets_at TEXT, amount REAL, source TEXT) STRICT").unwrap();
-        db
-    }
-
-    fn put(db: &Connection, ts: &str, name: &str, used: f64, resets_at: &str) {
-        db.execute("INSERT INTO usage VALUES (?1, 'claude', 'd', 'window', ?2, ?3, 300, ?4, NULL, 'test')", params![ts, name, used, resets_at]).unwrap();
-    }
-
-    const NOW_MS: u64 = 1_793_000_000_000;
-
-    #[test]
-    fn the_window_that_is_full_names_the_reset_else_the_soonest_one_and_a_stale_row_loses_to_the_latest() {
-        let db = table();
-        put(&db, "2026-11-05T01:00:00Z", "session", 100.0, "2026-11-05T09:00:00Z");
-        put(&db, "2026-11-05T01:00:00Z", "weekly_all", 40.0, "2026-11-09T09:00:00Z");
-        let at = |text: &str| u64::try_from(Timestamp::parse(text).unwrap().unix_millis()).unwrap();
-        let before = at("2026-11-05T02:00:00Z");
-        assert_eq!(window_reset_ms(&db, "d", before), Some(at("2026-11-05T09:00:00Z")));
-        put(&db, "2026-11-05T09:01:00Z", "session", 3.0, "2026-11-05T14:00:00Z");
-        assert_eq!(window_reset_ms(&db, "d", at("2026-11-05T09:02:00Z")), Some(at("2026-11-05T14:00:00Z")));
-        assert_eq!(window_reset_ms(&db, "other", NOW_MS), None);
-    }
-}

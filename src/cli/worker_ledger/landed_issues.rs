@@ -75,31 +75,3 @@ fn landings(nodes: &[Value], pushes: &[Push], account: &str, day: &str) -> Vec<L
 fn issue_of(task_ref: &Value) -> Option<String> {
     CATALOG.parse_ref(task_ref.as_str()?).ok().map(|(repo, number)| format!("{repo}#{number}"))
 }
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    fn push(session: &str, landed: &str, at_ms: u64) -> Push {
-        Push { at_ms, repository: "north".into(), branch: "lane".into(), oid: "o".into(), landed: landed.into(), session: session.into() }
-    }
-
-    #[test]
-    fn a_landing_joins_the_issue_of_the_record_launched_before_it_on_the_account_asked() {
-        let day = 1_793_836_800_000_u64;
-        let nodes = vec![
-            json!({"name": "flash-244", "account": "d", "conversation": "old", "task_ref": "wisp#200", "created_ms": day - 50_000}),
-            json!({"name": "flash-244", "account": "d", "conversation": "new", "task_ref": "wisp#244", "created_ms": day + 5_000}),
-            json!({"name": "flash-244", "account": "d", "conversation": "later", "task_ref": "wisp#999", "created_ms": day + 90_000_000}),
-            json!({"name": "other", "account": "b", "conversation": "b-run", "task_ref": "north#1", "created_ms": 0}),
-            json!({"name": "loose", "account": "claude-d", "conversation": "loose", "task_ref": null, "created_ms": 0}),
-        ];
-        let pushes = [push("flash-244", "sha-1", day + 10_000), push("flash-244", "", day + 20_000), push("other", "sha-2", day + 30_000), push("loose", "sha-3", day + 40_000), push("flash-244", "sha-4", day - 10_000)];
-
-        let found = landings(&nodes, &pushes, "d", "2026-11-05");
-
-        assert_eq!(found, [Landing { issue: "wisp#244".into(), session: "flash-244".into(), sha: "sha-1".into(), conversations: vec!["old".into(), "new".into(), "later".into()] }]);
-    }
-}

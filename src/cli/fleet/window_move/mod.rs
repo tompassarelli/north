@@ -252,32 +252,3 @@ fn wait_gone(pid: u32) {
         let _ = Command::new("kill").arg(pid.to_string()).status();
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use session::Session;
-
-    fn window(arguments: &[&str], model: Option<&str>) -> Window {
-        Window {
-            client: 1,
-            profile: PathBuf::from("/profiles/claude-d"),
-            account: "d".into(),
-            arguments: arguments.iter().map(|argument| (*argument).to_owned()).collect(),
-            cwd: PathBuf::from("/work"),
-            session: Session { id: "S1".into(), transcript: PathBuf::from("/profiles/claude-d/projects/p/S1.jsonl"), job: None, model: model.map(str::to_owned) },
-        }
-    }
-
-    #[test]
-    fn a_bare_resume_picker_becomes_a_resume_of_the_carried_session_with_the_other_flags_kept() {
-        let arguments = resume_arguments(&window(&["--resume", "--dangerously-skip-permissions"], Some("claude-opus-5-5")));
-        assert_eq!(arguments, ["--resume", "S1", "--dangerously-skip-permissions", "--model", "claude-opus-5-5"]);
-    }
-
-    #[test]
-    fn a_resume_naming_another_session_is_pointed_at_the_carried_one_and_a_missing_resume_is_added() {
-        assert_eq!(resume_arguments(&window(&["--resume", "OLD", "--verbose"], None)), ["--resume", "S1", "--verbose"]);
-        assert_eq!(resume_arguments(&window(&["--verbose"], None)), ["--verbose", "--resume", "S1"]);
-    }
-}

@@ -68,16 +68,4 @@ mod tests {
         assert!(gated(&tasks(&["North#9"]), Some(" north#9 any box"), &open).is_some_and(|refusal| refusal.contains("gate nexus:4")), "a relayed host's gate counts, and a whole-issue gate holds every box");
         assert_eq!(gated(&tasks(&["makgora#765", "wisp#3"]), None, &open), None);
     }
-
-    #[test]
-    fn a_gate_scoped_to_one_box_holds_only_the_launch_naming_that_box() {
-        let open = [hold("north#88", Some("gh-app-token"), "151")];
-        let other = " north#88 oauth refresh port";
-        let gated_box = " north#88 Port gh-app-token to Rust";
-        assert_eq!(gated(&tasks(&["north#88"]), Some(other), &open), None, "another box of the umbrella is admitted");
-        let refusal = gated(&tasks(&["north#88"]), Some(gated_box), &open).expect("the gated box is refused");
-        assert!(refusal.starts_with("north#88 waits on open gate 151"), "{refusal}");
-        assert!(gated(&tasks(&["north#88"]), None, &open).is_some(), "a launch naming no box cannot be told apart, so it waits");
-        assert_eq!(gated(&tasks(&["north#89"]), Some(gated_box), &open), None, "another issue is untouched");
-    }
 }

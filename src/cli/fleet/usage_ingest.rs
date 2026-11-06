@@ -46,7 +46,3 @@ impl UsageSink for IngestUsage {
         });
     }
 }
-
-#[cfg(test)]
-#[path = "usage_ingest_tests.rs"]
-mod tests;

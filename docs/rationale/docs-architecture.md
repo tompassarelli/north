@@ -107,7 +107,7 @@ with the held `north` runtime when the lane leaves `src/cli`, the checker and `C
 runtime has them, as it runs every head-north land check, so a docs landing builds nothing;
 otherwise it runs the lane's `north`, built once per candidate beside clippy. It is
 `land.machine-bound` because the held runtime exists only on a host.
-The same scan runs in `cargo test` (`src/cli/tests.rs`) and `north health`. It fails, naming
+The same scan runs as a land check in `.safe-push` and in `north health`. It fails, naming
 `file:line`, on:
 
 - a `north SUB` in a code span or fence where the CLI does not define `SUB` (existing);
@@ -135,7 +135,7 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
 
 | Box | Files | Runs after |
 | --- | --- | --- |
-| 1 | citation_check, `src/cli/tests.rs`, `.safe-push`, `harness/scripts/citation-check.sh`, README, two living docs | landed with this note |
+| 1 | citation_check, `.safe-push`, `harness/scripts/citation-check.sh`, README, two living docs | landed with this note |
 | 2a | `AGENTS.md` `## Routers` only | 1 |
 | 2b, 4, 5 | citation_check | 1, in the order 4, 5, 2b |
 | 3a, 3b, 3c | `docs/features/` sections | features-index lane |

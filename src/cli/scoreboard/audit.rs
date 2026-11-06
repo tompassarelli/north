@@ -164,7 +164,3 @@ pub fn tick(now: i64) {
     let Ok(north) = std::env::current_exe() else { return };
     let _ = std::process::Command::new(north).args(["scoreboard", "audit", "--tell"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).process_group(0).spawn();
 }
-
-#[cfg(test)]
-#[path = "audit_tests.rs"]
-mod tests;

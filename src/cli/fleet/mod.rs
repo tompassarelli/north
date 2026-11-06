@@ -36,4 +36,4 @@ pub(super) use proxy::run as proxy;
 pub(super) use router::{account_home, host_watch, open_fleet, roster, run};
 pub(super) use view::Registry;
 #[cfg(test)]
-pub(super) use row::{admitted_exchange, admitted_put, admitted_settle, admitted_wait, entered, forwarded, served_exchange, served_registration};
+pub(super) use row::{admitted_exchange, admitted_put, entered};

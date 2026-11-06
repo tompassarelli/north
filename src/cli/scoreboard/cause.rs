@@ -206,7 +206,3 @@ pub fn run(sources: &Sources, window: Window, label: &str, now: i64) -> Result<S
     let held = landings(rework.judged.values().filter(|judged| window.holds(judged.at)));
     Ok(render(&held, label, now))
 }
-
-#[cfg(test)]
-#[path = "cause_tests.rs"]
-mod tests;

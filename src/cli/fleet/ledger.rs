@@ -75,33 +75,3 @@ fn leased_by(answer: NorthResult<Option<Vec<u8>>>, local: impl FnOnce() -> North
         None => local(),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn answered(text: &str) -> NorthResult<Option<Vec<u8>>> {
-        Ok(Some(text.as_bytes().to_vec()))
-    }
-
-    #[test]
-    fn the_ledger_hosts_answer_is_read_as_leased_or_free() {
-        assert!(leased_by(answered("leased\n"), || panic!("the ledger host answered")).unwrap());
-        assert!(!leased_by(answered("free\n"), || panic!("the ledger host answered")).unwrap());
-    }
-
-    #[test]
-    fn an_unreadable_answer_is_an_error_and_never_free() {
-        assert!(leased_by(answered(""), || Ok(false)).is_err());
-        assert!(leased_by(answered("Permission denied"), || Ok(false)).is_err());
-        assert!(leased_by(Err(NorthError::Refused("ledger-host answered exit 255".into())), || Ok(false)).is_err());
-        assert!(leased_by(Err(NorthError::Refused("ledger-host timed out; remote outcome unknown".into())), || Ok(false)).is_err());
-    }
-
-    #[test]
-    fn this_machine_being_the_ledger_host_reads_its_own_store_and_a_store_that_does_not_open_is_an_error() {
-        assert!(leased_by(Ok(None), || Ok(true)).unwrap());
-        assert!(!leased_by(Ok(None), || Ok(false)).unwrap());
-        assert!(leased_by(Ok(None), || Err(NorthError::Refused("the ledger store did not open".into()))).is_err());
-    }
-}

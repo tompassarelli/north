@@ -211,17 +211,6 @@ pub(super) fn defines(command: &str) -> bool {
     BUILT_IN.contains(&command) || super::forwarded(command, Vec::new()).is_some()
 }
 
-#[cfg(test)]
-pub(super) fn verbs() -> impl Iterator<Item = &'static str> {
-    UNIFORM.iter().map(|(name, _)| *name)
-        .chain(DIRECT.iter().map(|(name, _)| *name))
-        .chain(OPERATIONS.iter().map(|(name, _)| *name))
-        .chain(Timer::NAMES.iter().map(|(name, _)| *name))
-        .chain(super::session::NAMES.iter().map(|(name, _)| *name))
-        .chain(super::FORWARDED.iter().map(|(name, _)| *name))
-        .chain(BUILT_IN.iter().copied())
-}
-
 fn land(arguments: &[String]) -> u8 {
     north_safe_push::entry::land(arguments).unwrap_or_else(|| crate::land::run(arguments))
 }

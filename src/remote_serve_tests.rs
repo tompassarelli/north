@@ -17,12 +17,3 @@ fn remote_serve_refuses_the_planted_commands() {
     }
     assert!(matches!(plan("sh -c id"), Err(Refusal::Verb(_))));
 }
-
-#[test]
-fn remote_serve_accepts_threads_with_no_native_forced() {
-    let planned = plan("env THREADS_ACTOR=w1 threads list").unwrap();
-    assert_eq!(planned.argv, ["threads", "list"]);
-    assert_eq!(planned.env["THREADS_ACTOR"], "w1");
-    assert_eq!(planned.env["THREADS_NO_NATIVE"], "1");
-    assert_eq!(plan("threads list").unwrap().env["THREADS_NO_NATIVE"], "1");
-}

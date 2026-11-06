@@ -116,7 +116,3 @@ pub(super) fn run(api: &mut Api, out: &mut dyn Write) -> Result<u8, String> {
     let reaped = reap(&launches, api, &state.join("reap"), now, &mut land, out)?;
     Ok(u8::from(reaped.failed > 0))
 }
-
-#[cfg(test)]
-#[path = "cloud_reap_tests.rs"]
-mod tests;

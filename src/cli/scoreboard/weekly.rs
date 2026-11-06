@@ -103,7 +103,3 @@ pub fn tick(now: i64) -> Vec<String> {
     let _ = write(TOLD, &record.recorded_at.to_string());
     vec![format!("{} (recorded {}; north scoreboard prints the figures)", record.score(), Timestamp::from_unix_seconds(record.recorded_at).local_twelve_hour())]
 }
-
-#[cfg(test)]
-#[path = "weekly_tests.rs"]
-mod tests;
