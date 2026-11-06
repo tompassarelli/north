@@ -91,3 +91,11 @@ fn a_repository_is_named_by_its_checkout_not_its_origin_remote() {
     assert_eq!(checkout(scratch.path()), None);
 }
 
+
+#[test]
+fn a_brief_with_a_main_red_line_is_admitted_past_a_stalled_queue_that_its_own_fix_unblocks() {
+    let brief = "Item: clause#1 Repair clause main\nMain-red: clause main fails its clippy land check\nBox: fix it";
+    assert_eq!(exemption("n616-clause-clippy", brief, || false), Some("its brief declares a Main-red: line, so it repairs its repository's broken main or stalled queue"));
+    assert_eq!(exemption("n616-clause-clippy", "Item: clause#1 Repair clause main\nBox: fix it", || false), None);
+    assert_eq!(exemption("n616-clause-clippy", "Item: clause#1\nMain-red:   \nBox: fix it", || false), None, "an empty Main-red: line declares nothing");
+}

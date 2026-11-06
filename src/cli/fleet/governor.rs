@@ -184,6 +184,9 @@ pub(super) fn exemption(name: &str, brief: &str, red_task: impl FnOnce() -> bool
     if !lands(name, brief) {
         return Some("a lead or research launch produces no lane");
     }
+    if header(brief, "Main-red").is_some() {
+        return Some("its brief declares a Main-red: line, so it repairs its repository's broken main or stalled queue");
+    }
     (brief.to_lowercase().contains(RED) && red_task()).then_some("its task is the open main is red issue")
 }
 
