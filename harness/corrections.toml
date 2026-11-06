@@ -40,6 +40,7 @@ pattern = '''do we not have (a|any) (mechanical|determ\w*)|(is )?(that|this|it)'
 paraphrase = "Tom asked why a rule was kept by hand instead of by a deterministic guard."
 owner = "north#523"
 guard = "`north agents check` refuses a new must or never line in AGENTS.md or a skill that names no enforcing hook, gate or check and carries no prose-only owner issue."
+guarded_at = "2026-11-06T21:08:55Z"
 
 [[class]]
 name = "overbuilt"
