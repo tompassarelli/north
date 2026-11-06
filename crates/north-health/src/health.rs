@@ -438,7 +438,7 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
     };
     results.push(("land".into(), land(LandInput { now, output }, &mut state)));
     let state_file = std::env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from).join("north/unit-failures.json");
-    let started = failed_starts::check(dry_run, now, &state_file, &failed_starts::journal, &mut failed_starts::tell_proxy);
+    let started = failed_starts::check(dry_run, &state_file, &failed_starts::journal, &mut failed_starts::tell_proxy);
     println!("health: unit-failures: {}", started.as_ref().err().map_or("ok", String::as_str));
     let mut alerts = Vec::new();
     let breaching = results.iter().filter(|(_, result)| result.is_err()).map(|(check, _)| check.clone()).collect();
