@@ -62,7 +62,7 @@ fn capacity_only_a_fleet_session_without_a_local_need_counts_as_an_agent_build()
     assert!(!is_agent_build(env(&[("NORTH_FLEET_SESSION", "n"), (REMOTE_MARK, "1")])));
 }
 
-// KEEP(contract): the gate's absolute path to the laptop's real cargo reaches the build host as the bare program name, and a depbox wrapper is dropped there; north#634 north#671
+// KEEP(contract): the gate's absolute path to the laptop's real cargo reaches the build host as the bare program name; north#634
 #[test]
 fn capacity_a_laptop_toolchain_path_is_sent_to_the_build_host_as_the_program_name() {
     let words = |text: &str| text.split(' ').map(str::to_owned).collect::<Vec<_>>();
@@ -70,15 +70,16 @@ fn capacity_a_laptop_toolchain_path_is_sent_to_the_build_host_as_the_program_nam
     assert_eq!(for_build_host(&words("/nix/store/abc/bin/cargo-nextest nextest run")), words("cargo-nextest nextest run"));
     assert_eq!(for_build_host(&words("/home/tom/bin/tool run")), words("/home/tom/bin/tool run"));
     assert_eq!(for_build_host(&words("bash -c cargo")), words("bash -c cargo"));
-    assert_eq!(for_build_host(&words("/home/tom/.local/bin/depbox run -- nix develop -c cargo test")), words("nix develop -c cargo test"), "a depbox wrapper nests a sandbox in the slot's dev shell");
-    assert_eq!(for_build_host(&words("depbox run -- /nix/store/x/bin/cargo build")), words("cargo build"));
     assert!(for_build_host(&[]).is_empty());
 }
 
-// KEEP(contract): a command whose path or redirect the agent can change is refused rather than compiled on the laptop; north#634
+// KEEP(contract): a command whose path or redirect the agent can change is refused rather than compiled on the laptop, and only Rust programs are refused for want of a host; north#634
 #[test]
-fn capacity_a_fixable_command_is_kept_off_the_laptop() {
+fn capacity_a_fixable_command_is_kept_off_the_laptop_and_only_rust_programs_are_refused_for_want_of_a_host() {
     assert!(Declined::refused("absolute path", String::new()).lacks_host() && Declined::refused("laptop redirect", String::new()).lacks_host());
     assert!(!Declined::refused("private asset", String::new()).lacks_host() && !Declined::refused("oversized diff", String::new()).lacks_host());
+    let words = |text: &str| text.split(' ').map(str::to_owned).collect::<Vec<_>>();
+    assert!(is_rust_command(&words("cargo test")) && is_rust_command(&words("/nix/store/x/bin/rustc a.rs")) && is_rust_command(&words("cargo-nextest nextest run")));
+    assert!(!is_rust_command(&words("bun test")) && !is_rust_command(&words("nix build")) && !is_rust_command(&[]));
 }
 

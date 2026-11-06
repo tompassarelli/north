@@ -197,9 +197,6 @@ fn classify(words: &[String]) -> Decision {
     if name == "cargo" {
         return cargo_command(args);
     }
-    if name == "cargo-nextest" || name == "rustc" && args.iter().any(|s| s.ends_with(".rs")) {
-        return Decision::Route;
-    }
     if name == "tsc" && args.iter().any(|s| matches!(s.as_str(), "--build" | "-b")) {
         return Decision::Route;
     }

@@ -1,8 +1,9 @@
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use super::lane::{Lane, gather};
-use super::remote::{Ran, drive, invocation};
+use super::remote::invocation;
 use crate::capacity::build_offload::Job;
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
@@ -67,14 +68,16 @@ fn ran_remotely_with(hosts: &Hosts, lane: &Lane, report: &str) -> Vec<String> {
 fn ran_command(hosts: &Hosts, lane: &Lane, stub_body: &str, command: &[String]) -> Vec<String> {
     let stub = hosts.remote.join("north-stub");
     crate::foundation::shim::write_script(&stub, stub_body);
-    let returned = "NORTH-OFFLOAD-RETURNED-test";
-    let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command }, returned);
-    let mut transport = Command::new("sh");
-    transport.args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub);
-    let output = hosts.remote.join("output.log");
-    let ran = drive(transport, lane, Some(std::fs::File::create(&output).unwrap()), &|| {}, returned);
-    assert!(matches!(ran, Ran::Exit(0)));
-    std::fs::read_to_string(&output).unwrap().lines().map(str::to_owned).collect()
+    let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command });
+    let mut child = Command::new("sh").args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(&lane.bundle).unwrap();
+    stdin.write_all(&lane.patch).unwrap();
+    let mut out = String::new();
+    child.stdout.take().unwrap().read_to_string(&mut out).unwrap();
+    drop(stdin);
+    assert!(child.wait().unwrap().success(), "{out}");
+    out.lines().skip_while(|line| *line != "NORTH-OFFLOAD-SYNCED").skip(1).map(str::to_owned).collect()
 }
 
 fn line<'a>(report: &'a [String], key: &str) -> Vec<&'a str> {
@@ -86,19 +89,14 @@ fn capacity_an_offloaded_lane_with_unpushed_commits_and_uncommitted_changes_runs
     let hosts = hosts();
     let lane_dir = hosts.lane("flow-alerts");
     write(&lane_dir.join("a.txt"), "committed lane\n");
-    write(&lane_dir.join("Cargo.lock"), "resolved before\n");
-    write(&lane_dir.join("crates/x/Cargo.lock"), "nested before\n");
-    git(&lane_dir, &["add", "Cargo.lock", "crates/x/Cargo.lock"]);
     git(&lane_dir, &["commit", "-q", "-am", "unpushed"]);
     write(&lane_dir.join("a.txt"), "dirty lane\n");
     write(&lane_dir.join("b.txt"), "untracked\n");
     let head = git(&lane_dir, &["rev-parse", "HEAD"]);
     assert_ne!(head, git(&lane_dir, &["rev-parse", "origin/main"]));
     let lane = gather(&lane_dir, &hosts.laptop).unwrap().ship(&[]).unwrap();
-    let report = ran_remotely_with(&hosts, &lane, &format!("{REPORT}; printf 'resolved after\\n' >Cargo.lock"));
+    let report = ran_remotely(&hosts, &lane);
     assert_eq!(line(&report, "head"), [head.as_str()]);
-    assert_eq!(std::fs::read_to_string(lane_dir.join("Cargo.lock")).unwrap(), "resolved after\n", "a lock the run changed comes back to the lane (north#671)");
-    assert_eq!(std::fs::read_to_string(lane_dir.join("crates/x/Cargo.lock")).unwrap(), "nested before\n");
     let main = hosts.remote.join("code/proj/main");
     assert_ne!(line(&report, "where"), [main.to_str().unwrap()]);
     assert_eq!(line(&report, "where"), [hosts.remote.join(".cache/build-offload/code-proj-main-flow-alerts").to_str().unwrap()]);
@@ -140,4 +138,3 @@ fn capacity_an_offloaded_command_naming_a_runtime_the_host_lacks_runs_the_hosts_
     let report = ran_command(&hosts, &lane, stub, &command);
     assert!(line(&report, "north")[0].ends_with(&format!("-- {} land", present.display())), "a runtime path that exists on the host stays as given: {report:?}");
 }
-

@@ -51,18 +51,16 @@ fn the_gate_classes_a_direct_rustc_compile_and_nextest_but_not_a_rustc_probe() {
     assert_eq!(class("cargo metadata"), None);
 }
 
-// KEEP(contract): a fleet session's cargo that rewrites the lane or only prints help or a version is not an agent compile, so it never ships to a build host, and one depbox, nix or a shell runs is an agent compile as if typed bare; north#634 north#671
+// KEEP(contract): a fleet session's cargo that rewrites the lane or only prints help or a version is not an agent compile, so it never ships to a build host; north#634
 #[test]
 fn a_fleet_sessions_cargo_fix_help_and_version_are_not_offloaded() {
     let words = |text: &str| crate::shell::words(text).unwrap();
     for stays in ["cargo fix", "cargo clippy --fix", "cargo build --help", "cargo-nextest --version", "cargo test -h"] {
         assert!(!super::gate::agent_compile_in(&words(stays), true), "{stays}");
     }
-    for goes in ["cargo build", "cargo test fix", "cargo nextest run", "rustc a.rs", "cargo-nextest nextest run", "depbox run -- nix develop -c cargo test --locked", "bash -c 'cd x && rustc a.rs'", "nix develop -c cargo-nextest nextest run"] {
+    for goes in ["cargo build", "cargo test fix", "cargo nextest run", "rustc a.rs", "cargo-nextest nextest run"] {
         assert!(super::gate::agent_compile_in(&words(goes), true), "{goes}");
     }
     assert!(!super::gate::agent_compile_in(&words("cargo build"), false), "Tom's own shell");
-    for stays in ["bun test", "depbox run -- bun test", "bash -c 'cargo fix'", "depbox fetch -- cargo fetch"] {
-        assert!(!super::gate::agent_compile_in(&words(stays), true), "{stays}");
-    }
+    assert!(!super::gate::agent_compile_in(&words("bun test"), true));
 }

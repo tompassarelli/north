@@ -6,7 +6,6 @@ use crate::land_offload::ship::remote_checkout;
 
 /// A worktree as the remote host rebuilds it: the commit, the commits it holds beyond origin/main, and the uncommitted diff.
 pub(super) struct Lane {
-    pub(super) top: PathBuf,
     pub(super) repo: String,
     pub(super) paths: Vec<String>,
     pub(super) name: String,
@@ -86,6 +85,6 @@ pub(super) fn gather(directory: &Path, home: &Path) -> Result<Gathered, String> 
     let checkouts = container.parent().unwrap_or(&container);
     let projects = checkouts.strip_prefix(home).ok().filter(|relative| !relative.as_os_str().is_empty()).map(|relative| format!("~/{}/", relative.display()));
     let paths = [top.to_string_lossy().into_owned(), format!("{}/", checkouts.display())].into_iter().chain(projects).collect();
-    Ok(Gathered { lane: Lane { top, repo, paths, name: format!("{name}-{lane}"), head, bundle, patch, subdirectory }, changed })
+    Ok(Gathered { lane: Lane { repo, paths, name: format!("{name}-{lane}"), head, bundle, patch, subdirectory }, changed })
 }
 

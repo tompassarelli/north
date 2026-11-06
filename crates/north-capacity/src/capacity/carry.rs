@@ -22,7 +22,7 @@ pub const LANDING: &str = "SAFE_PUSH_LANDING";
 pub const LAND_BASE: &str = "SAFE_PUSH_LAND_BASE";
 pub const LAND_HEAD: &str = "SAFE_PUSH_LAND_HEAD";
 
-const CARRY: [(&str, Reach); 35] = [
+const CARRY: [(&str, Reach); 31] = [
     (LANDING, Reach::Landing),
     (LAND_BASE, Reach::Landing),
     (LAND_HEAD, Reach::Landing),
@@ -42,10 +42,6 @@ const CARRY: [(&str, Reach); 35] = [
     ("RUST_TEST_THREADS", Reach::Host),
     ("AGENT_CAPACITY_LEASE", Reach::Host),
     ("NORTH_DEV_SHELL", Reach::Host),
-    ("NORTH_FLEET_SESSION", Reach::Host),
-    ("NORTH_FLEET_SCOPE", Reach::Host),
-    ("AGENT_CAPACITY_NEED", Reach::Host),
-    (super::build_offload::REMOTE_MARK, Reach::Host),
     ("NIX_PATH", Reach::Host),
     ("SSL_CERT_FILE", Reach::Host),
     ("SSL_CERT_DIR", Reach::Host),
