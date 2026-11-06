@@ -12,6 +12,7 @@ struct Fake {
     account: Option<&'static str>,
     config: Option<&'static str>,
     start: Option<(bool, bool)>,
+    lane: Option<&'static [&'static str]>,
 }
 
 impl World for Fake {
@@ -29,6 +30,9 @@ impl World for Fake {
     }
     fn profile(&self, account: &str) -> Option<String> {
         Some(format!("/home/tom/.local/state/north/profiles/claude-{account}/"))
+    }
+    fn lane_files(&self, _cwd: &str) -> Option<Vec<String>> {
+        self.lane.map(|files| files.iter().map(|file| (*file).to_owned()).collect())
     }
     fn claude_start(&self) -> Option<ClaudeStart> {
         self.start.map(|(nested, print)| ClaudeStart { nested, print, conversation: None })
@@ -90,6 +94,7 @@ fn the_proxy_is_refused_every_implementation_action_and_a_question_box_that_woul
     let Verdict::Deny(reason) = super::question_box::decide(&proxy(), &ask) else { panic!("a proxy's question box blocks its whole session and must be denied") };
     assert!(reason.contains("north gate open") && reason.contains("--default-after") && reason.contains("multiple-choice question in text"), "{reason}");
     assert_eq!(super::question_box::decide(&worker(), &ask), Verdict::Allow, "a worker's question becomes a gate through its host");
+    a_lane_of_one_config_or_doc_file_lands_and_any_other_lane_is_refused();
 }
 
 #[test]
@@ -127,4 +132,21 @@ fn tom_resumed_window_on_another_profile_than_the_registered_proxy_is_his_window
     assert!(!is_tom_window(&fleet_worker, &input));
     let unknown = Fake { start: None, ..Fake::default() };
     assert!(!is_tom_window(&unknown, &input));
+}
+
+fn a_lane_of_one_config_or_doc_file_lands_and_any_other_lane_is_refused() {
+    let landing = [bash("git commit -m x"), bash("safe-push --to main"), bash("git add -A && git commit -m x && safe-push --to main")];
+    let lane = |files| Fake { lane: Some(files), ..proxy() };
+    for allowed in [&["harness/defaults.toml"][..], &["docs/features.md"], &["harness/skills/github/SKILL.md"], &["harness/skills/github/references/x.md"]] {
+        for input in &landing {
+            assert_eq!(decide(&lane(allowed), input), Verdict::Allow, "{allowed:?} {:?}", input.data);
+        }
+    }
+    for refused in [&["src/lib.rs"][..], &["harness/defaults.toml", "docs/a.md"], &["harness/code/x.rs"], &["harness/skills/github/agents/x.md"], &["docs/../src/a.rs"], &[]] {
+        for input in &landing {
+            assert!(denied(&lane(refused), input), "{refused:?} {:?}", input.data);
+        }
+    }
+    assert!(denied(&proxy(), &landing[0]), "an unreadable lane is refused");
+    assert!(denied(&lane(&["harness/defaults.toml"]), &bash("git commit -m x && cargo test")), "only the landing steps are allowed");
 }

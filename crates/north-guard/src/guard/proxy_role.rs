@@ -17,6 +17,9 @@ const SEPARATORS: [char; 9] = ['\n', ';', '&', '|', '(', ')', '`', '{', '}'];
 const CHILD_SESSION_ENV: &str = "CLAUDE_CODE_CHILD_SESSION";
 const CLAUDE_PID_ENV: &str = "CLAUDE_PID";
 const CONFIG_ENV: &str = "CLAUDE_CONFIG_DIR";
+const LAND_ACTION: &str = "land through safe-push";
+const COMMIT_ACTION: &str = "make a git commit";
+const LANDING: [&str; 2] = [LAND_ACTION, COMMIT_ACTION];
 
 pub struct Registered {
     pub conversation: Option<String>,
@@ -34,6 +37,7 @@ pub trait World {
     fn registered_proxy(&self) -> Option<Registered>;
     fn profile(&self, account: &str) -> Option<String>;
     fn claude_start(&self) -> Option<ClaudeStart>;
+    fn lane_files(&self, cwd: &str) -> Option<Vec<String>>;
 }
 
 pub struct Live;
@@ -67,6 +71,16 @@ impl World for Live {
         let record = own_profile(self).and_then(|profile| std::fs::read(PathBuf::from(profile).join("sessions").join(format!("{}.json", self.var(CLAUDE_PID_ENV)?))).ok());
         let conversation = record.and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()).and_then(|record| record["sessionId"].as_str().map(str::to_owned));
         Some(ClaudeStart { nested, print, conversation })
+    }
+
+    fn lane_files(&self, cwd: &str) -> Option<Vec<String>> {
+        let git = |args: &[&str]| -> Option<Vec<String>> {
+            let output = std::process::Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
+            output.status.success().then(|| String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect())
+        };
+        let mut files = git(&["diff", "--name-only", "origin/main"])?;
+        files.extend(git(&["ls-files", "--others", "--exclude-standard"])?);
+        Some(files)
     }
 }
 
@@ -135,7 +149,7 @@ fn refusal(world: &impl World, input: &HookInput) -> Option<String> {
             (!SUBAGENTS.contains(&kind)).then(|| format!("spawn a `{kind}` subagent (only Explore and Plan are open to it)"))
         }
         name if name.ends_with("spawn_agent") => Some("spawn a native subagent".into()),
-        _ if input.is_shell() => input.command().and_then(|command| shell_action(&command.lossy())),
+        _ if input.is_shell() => input.command().and_then(|command| shell_refusal(world, input, &command.lossy())),
         _ => None,
     }
 }
@@ -149,11 +163,39 @@ fn edit_under_code(world: &impl World, input: &HookInput) -> Option<String> {
     (path == code || path.starts_with(&format!("{code}/"))).then(|| format!("edit {path}"))
 }
 
-pub fn shell_action(command: &str) -> Option<String> {
-    action_in(&strip_heredocs(command), 0)
+fn shell_refusal(world: &impl World, input: &HookInput, command: &str) -> Option<String> {
+    let first = shell_action(command, false)?;
+    if LANDING.contains(&first.as_str()) && lane_is_one_doc_or_config(world, input) {
+        return shell_action(command, true);
+    }
+    Some(first)
 }
 
-fn action_in(text: &str, depth: usize) -> Option<String> {
+fn lane_is_one_doc_or_config(world: &impl World, input: &HookInput) -> bool {
+    let Some(cwd) = input.cwd() else { return false };
+    world.lane_files(cwd).is_some_and(|files| matches!(files.as_slice(), [file] if is_doc_or_config(file)))
+}
+
+fn is_doc_or_config(file: &str) -> bool {
+    if file.split('/').any(|part| part == "..") {
+        return false;
+    }
+    if let Some(rest) = file.strip_prefix("harness/") {
+        if rest.ends_with(".toml") && !rest.contains('/') {
+            return true;
+        }
+        if let Some(skill) = rest.strip_prefix("skills/") {
+            return skill.split_once('/').is_some_and(|(_, tail)| tail == "SKILL.md" || tail.starts_with("references/"));
+        }
+    }
+    file.starts_with("docs/")
+}
+
+pub fn shell_action(command: &str, lane_ok: bool) -> Option<String> {
+    action_in(&strip_heredocs(command), 0, lane_ok)
+}
+
+fn action_in(text: &str, depth: usize, lane_ok: bool) -> Option<String> {
     let raw: Vec<char> = text.chars().collect();
     let blanked: Vec<char> = blank_quotes(text).chars().collect();
     if raw.len() != blanked.len() {
@@ -166,12 +208,12 @@ fn action_in(text: &str, depth: usize) -> Option<String> {
         }
         let words: String = blanked[start..end].iter().collect();
         let words: Vec<&str> = words.split_whitespace().collect();
-        if let Some(action) = command_action(&words, depth) {
+        if let Some(action) = command_action(&words, depth, lane_ok) {
             return Some(action);
         }
         if depth < MAX_DEPTH && wrapped(&words) {
             let quoted = quoted_text(&raw[start..end], &blanked[start..end]);
-            if let Some(action) = action_in(&quoted, depth + 1) {
+            if let Some(action) = action_in(&quoted, depth + 1, lane_ok) {
                 return Some(action);
             }
         }
@@ -184,7 +226,7 @@ fn quoted_text(raw: &[char], blanked: &[char]) -> String {
     raw.iter().zip(blanked).map(|(raw, blank)| if raw != blank && *raw != '"' && *raw != '\'' { *raw } else if raw != blank { '\n' } else { ' ' }).collect()
 }
 
-fn command_action(words: &[&str], depth: usize) -> Option<String> {
+fn command_action(words: &[&str], depth: usize, lane_ok: bool) -> Option<String> {
     let mut at = 0;
     while let Some(word) = words.get(at) {
         if is_assignment(word) {
@@ -212,14 +254,14 @@ fn command_action(words: &[&str], depth: usize) -> Option<String> {
     let words = words.get(at..)?;
     let head = basename(words.first()?);
     match head {
-        "safe-push" => Some("land through safe-push".to_owned()),
-        "git" => (subcommand(&words[1..], GIT_VALUED) == Some("commit")).then(|| "make a git commit".to_owned()),
+        "safe-push" => (!lane_ok).then(|| LAND_ACTION.to_owned()),
+        "git" => (!lane_ok && subcommand(&words[1..], GIT_VALUED) == Some("commit")).then(|| COMMIT_ACTION.to_owned()),
         "cargo" => subcommand(&words[1..], CARGO_VALUED).filter(|verb| CARGO_BUILDS.contains(verb)).map(|verb| format!("run cargo {verb}")),
         "cargo-nextest" => Some("run cargo nextest".to_owned()),
         "north" if words.get(1).is_some_and(|verb| ROUTING.contains(verb)) => None,
         _ if depth < MAX_DEPTH && WRAPPERS.contains(&head) => {
             let tail = words.iter().position(|word| matches!(*word, "--" | "-c" | "--command"))?;
-            command_action(&words[tail + 1..], depth + 1)
+            command_action(&words[tail + 1..], depth + 1, lane_ok)
         }
         _ => None,
     }
