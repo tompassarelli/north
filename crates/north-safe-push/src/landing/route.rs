@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use north_base::foundation::step::{Refused, Step};
+use north_base::platform::land_queue;
 
 use crate::report::timeline::Timeline;
 use crate::request::{self, Arguments, Plan};
@@ -44,13 +45,19 @@ fn short(host: &str) -> &str {
     host.split('.').next().unwrap_or(host)
 }
 
-fn unserved(repo: &Path, to: &str, host: &str) -> bool {
+/// Why no lander would serve this repository's queue on the lander host: it declares neither `north-land@PROJECT.service` nor `north-land-rest.service`, and no lander holds the queue now.
+fn unserved(repo: &Path, to: &str, host: &str) -> Option<String> {
     let lander_host = setting::landing(repo, &format!("refs/remotes/origin/{to}"), "landing.lander-host");
     if short(lander_host.trim()) != short(host) {
-        return false;
+        return None;
     }
-    let Ok(origin) = git(repo, &["remote", "get-url", "--push", "origin"]) else { return false };
-    !hold::held(&queue::directory(&state_home(), &origin))
+    let checkout = repositories::checkout(repo).ok()?;
+    let origin = git(repo, &["remote", "get-url", "--push", "origin"]).ok()?;
+    if land_queue::serving_unit(&checkout).is_some() || hold::held(&queue::directory(&state_home(), &origin)) {
+        return None;
+    }
+    let unit = land_queue::lander_unit(&checkout);
+    Some(format!("no lander serves this repository on {}: {unit} is not declared and no north-land-rest serves the other queues here, so its lanes would wait unserved; declare a lander for it in nixos-config. NOT pushed.", short(host)))
 }
 
 pub fn decide(settings: &Settings, host: &str, to: &str, request: &Arguments) -> Route {
@@ -103,8 +110,9 @@ pub fn run(arguments: &[String]) -> u8 {
     let host = repositories::local_host();
     match decide(&settings, &host, &to, &request) {
         Route::Lander => {
-            if unserved(repo, &to, &host) {
-                eprintln!("safe-push: no lander serves this repository's queue on {} yet; the lane waits in the queue until north land serve runs", short(&host));
+            if let Some(reason) = unserved(repo, &to, &host) {
+                eprintln!("safe-push: {reason}");
+                return 1;
             }
             enqueue::run(&ticket_arguments(&request))
         }

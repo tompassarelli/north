@@ -84,9 +84,9 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
     assert_eq!(probe.prunable, [(PathBuf::from("/home/tom/code/north/main"), 3)]);
     assert!(facts::parse_probe("").is_err());
     let link = LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/a".to_owned(), lag: Some(60), ..LinkFacts::default() };
-    let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places };
+    let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places, unserved: Vec::new() };
     let text = render(&cure(&facts, &mut Book::default(), &Fake::default(), NOW));
-    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-held lander: 0 min", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0"] {
+    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-held lander: 0 min", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0"] {
         assert!(text.contains(&format!("bound {bound}")), "{bound} missing from:\n{text}");
     }
 }

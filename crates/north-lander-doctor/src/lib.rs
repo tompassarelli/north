@@ -123,7 +123,8 @@ pub fn examine(now: u64) -> Facts {
     let host = repositories::local_host();
     let mut queues = Vec::new();
     let mut north = None;
-    for checkout in repositories::discovered(&state, &host).checkouts {
+    let discovery = repositories::discovered(&state, &host);
+    for checkout in discovery.checkouts {
         let Ok(origin) = north_landing::land::candidate::git(&checkout, &["remote", "get-url", "--push", "origin"]) else { continue };
         let name = project(&checkout);
         if name == "north" {
@@ -134,7 +135,7 @@ pub fn examine(now: u64) -> Facts {
     let units = queues.iter().map(|queue| queue.unit.clone()).collect();
     let link = facts::link_facts(&state.join("north"), north.as_deref(), units, now);
     let places = std::iter::once(Place { name: host, ssh: None }).chain(facts::offload_places()).map(facts::place_facts).collect();
-    Facts { queues, link, places }
+    Facts { queues, link, places, unserved: discovery.unserved }
 }
 
 fn project(checkout: &Path) -> String {

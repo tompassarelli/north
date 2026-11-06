@@ -105,6 +105,7 @@ impl Fixture {
             .env("HOME", self.top().join("home"))
             .env("XDG_STATE_HOME", self.top().join("state"))
             .env("GIT_CONFIG_GLOBAL", self.top().join(config))
+            .env_remove("XDG_CONFIG_HOME")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("SAFE_PUSH_DENYLIST", self.top().join("absent-denylist.toml"))
             .env("SAFE_PUSH_SOUTH", self.top().join("absent-south"))
@@ -148,6 +149,7 @@ fn a_landing_the_lander_cannot_take_is_refused_naming_why_and_pushes_and_queues_
         assert!(fixture.tickets(&fixture.queue()).is_empty(), "{}", run.output);
     };
     refused(&["--to", "main", "--direct"], "--direct is refused");
+    refused(&["--to", "main"], &format!("no lander serves this repository on {host}: north-land@repo.service is not declared"));
     fixture.settle("[landing]\n\tqueue = lander\n\tlander-host = another-host\n", "another lander host");
     fixture.work("work from an unnamed host");
     refused(&["--to", "main"], &format!("{host} is neither landing.lander-host nor in landing.remote-hosts for main, so the lander cannot take this lane; add {host} to landing.remote-hosts"));

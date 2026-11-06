@@ -43,3 +43,27 @@ pub fn rfc3339_seconds(text: &str) -> Option<f64> {
     let fraction = if fraction.is_empty() { 0.0 } else { format!("0.{fraction}").parse::<f64>().ok()? };
     Some(at + fraction)
 }
+
+/// The user unit that serves a checkout's queue, `north-land@PROJECT.service`: PROJECT is the directory above a `main` checkout, else the checkout's own name.
+pub fn lander_unit(checkout: &Path) -> String {
+    let project = if checkout.file_name().is_some_and(|name| name == "main") { checkout.parent().and_then(Path::file_name) } else { checkout.file_name() };
+    format!("north-land@{}.service", project.unwrap_or_default().to_string_lossy())
+}
+
+pub const REST_UNIT: &str = "north-land-rest.service";
+
+fn unit_declared(unit: &str) -> bool {
+    let config = std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+    config.is_some_and(|config| config.join("systemd/user").join(unit).exists())
+}
+
+/// Whether this host declares the checkout's own lander: nixos-config's north-land module writes one unit file per repository it lists into the user's systemd directory.
+pub fn lander_declared(checkout: &Path) -> bool {
+    unit_declared(&lander_unit(checkout))
+}
+
+/// The declared unit that serves a checkout's queue on this host: its own lander, else `north-land-rest`, which serves every queue no own lander does.
+pub fn serving_unit(checkout: &Path) -> Option<String> {
+    let own = lander_unit(checkout);
+    if unit_declared(&own) { Some(own) } else { unit_declared(REST_UNIT).then(|| REST_UNIT.to_owned()) }
+}

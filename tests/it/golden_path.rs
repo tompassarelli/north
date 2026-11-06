@@ -69,6 +69,9 @@ impl Rig {
         git(&main, &["push", "-q", "origin", "main"]);
         git(&main, &["fetch", "-q", "origin"]);
         git(&main, &["worktree", "add", "-q", "-b", "worker", lane.to_str().unwrap(), "origin/main"]);
+        let units = root.join(".config/systemd/user");
+        fs::create_dir_all(&units).unwrap();
+        fs::write(units.join("north-land@proj.service"), "[Service]\n").unwrap();
         Rig { _scratch: scratch, root, origin, main, lane }
     }
 
@@ -81,6 +84,7 @@ impl Rig {
         command
             .current_dir(directory)
             .env("GOLDEN_CHECKS", self.root.join("checks"))
+            .env_remove("XDG_CONFIG_HOME")
             .env("NORTH_LAND_NORTH", env!("CARGO_BIN_EXE_north"))
             .env_remove("NORTH_LAND_SERVING")
             .env_remove("SAFE_PUSH_LAND_CAPACITY")

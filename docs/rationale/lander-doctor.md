@@ -14,7 +14,12 @@ Each run prints every bound with its live value and limit:
 - each held land-offload slot: the land-check ceiling plus 15 minutes, the grace the lander's own offload deadline adds; background slots hold mutant sweeps for hours and are left out;
 - free disk: 10% on the lander and each host `north capacity offload hosts` names;
 - stale worktree registrations: 0 under `~/code/*/main` on each of those hosts;
-- land checks refused in the last 2 hours whose verdict or check log names an infrastructure signature (a missing registered worktree, a runtime missing on the check host, a host lacking the commits, a full disk): 0.
+- land checks refused in the last 2 hours whose verdict or check log names an infrastructure signature (a missing registered worktree, a runtime missing on the check host, a host lacking the commits, a full disk): 0;
+- queues with waiting lanes that no checkout on the lander host can serve: 0.
+
+## Every queue has a lander
+
+nixos-config's north-land module declares one `north-land@PROJECT.service` per public repository in its `repositories` list, and `north-land-rest.service`, which runs `north land serve --all` and serves every other queue on the host while skipping the repositories with their own unit, so a private repository is served without being named in the public file and a dedicated lander stopped on purpose stays stopped. `north land route` refuses a lane on the lander host when neither its own unit nor `north-land-rest` is declared and no lander holds its queue, so a lane never waits in a queue nothing serves; on 2026-11-06 the north#616 release-on-tag lanes to clause and glide waited 21 hours in such queues. The doctor reads the same units: a queue whose unit is missing, or whose lanes no checkout on the host can serve, is an unknown state that pages the proxy.
 
 ## Remedies
 

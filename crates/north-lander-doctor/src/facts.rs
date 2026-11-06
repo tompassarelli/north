@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use north_base::platform::land_queue;
 use north_landing::land::after::follow;
 use north_landing::land::candidate::git;
 use north_landing::land::{link_hold, pause, post_land, queue, watchdog};
@@ -25,6 +26,7 @@ pub struct Facts {
     pub queues: Vec<QueueFacts>,
     pub link: Option<LinkFacts>,
     pub places: Vec<PlaceFacts>,
+    pub unserved: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -97,6 +99,7 @@ fn link_age(path: &Path, now: u64) -> Option<u64> {
 }
 
 pub fn queue_facts(name: &str, queue: &Path, repo: &Path, now: u64) -> QueueFacts {
+    let unit = land_queue::serving_unit(repo).unwrap_or_else(|| watchdog::unit(repo));
     let pending = queue::pending(queue).unwrap_or_default();
     let oldest_queued = pending.iter().map(|(path, _)| u64::try_from(queue::queued_micros(path) / 1_000_000).unwrap_or(u64::MAX)).min().map(|queued| now.saturating_sub(queued));
     let decided = decided(&queue.join("done"), now);
@@ -111,13 +114,13 @@ pub fn queue_facts(name: &str, queue: &Path, repo: &Path, now: u64) -> QueueFact
     QueueFacts {
         name: name.to_owned(),
         queue: queue.to_owned(),
-        unit: watchdog::unit(repo),
+        unit_state: unit_state(&unit),
+        unit,
         oldest_queued,
         since_landing,
         since_decision,
         round_silence: silence(queue, now),
         paused: pause::held(queue),
-        unit_state: unit_state(&watchdog::unit(repo)),
         infrastructure,
     }
 }

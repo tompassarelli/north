@@ -276,8 +276,7 @@ fn named_worktrees(problem: &str) -> Vec<PathBuf> {
 }
 
 pub fn unit(repo: &Path) -> String {
-    let project = if repo.file_name().is_some_and(|name| name == "main") { repo.parent().and_then(Path::file_name) } else { repo.file_name() };
-    format!("north-land@{}.service", project.unwrap_or_default().to_string_lossy())
+    crate::platform::land_queue::lander_unit(repo)
 }
 
 fn restart(repo: &Path, why: &str, hands: &dyn Hands, restarted: &mut BTreeSet<String>) -> Repair {

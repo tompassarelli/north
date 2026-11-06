@@ -26,6 +26,7 @@ pub enum Bound {
     DiskFree,
     StaleWorktrees,
     InfrastructureFailures,
+    UnservedQueues,
 }
 
 impl Bound {
@@ -40,6 +41,7 @@ impl Bound {
             Bound::DiskFree => "disk-free",
             Bound::StaleWorktrees => "stale-worktrees",
             Bound::InfrastructureFailures => "infrastructure-failures",
+            Bound::UnservedQueues => "unserved-queues",
         }
     }
 
@@ -52,7 +54,7 @@ impl Bound {
             Bound::Held => minutes(HELD_SECS),
             Bound::SlotHold => minutes(SLOT_DEADLINE_SECS),
             Bound::DiskFree => format!("{DISK_FREE_PERCENT:.0}% free"),
-            Bound::StaleWorktrees | Bound::InfrastructureFailures => "0".to_owned(),
+            Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues => "0".to_owned(),
         }
     }
 }
@@ -139,7 +141,11 @@ fn wait(name: &'static str, reason: impl Into<String>) -> State {
 }
 
 pub fn judge(facts: &Facts, book: &Book, now: u64) -> Vec<Finding> {
-    let mut findings = Vec::new();
+    let mut findings = vec![if facts.unserved.is_empty() {
+        Finding::healthy(Bound::UnservedQueues, "lander", "0".to_owned())
+    } else {
+        Finding::over(Bound::UnservedQueues, "lander", facts.unserved.len().to_string(), State::Unknown(format!("lanes wait in queues no checkout on this host can serve: {}", facts.unserved.join("; "))))
+    }];
     for queue in &facts.queues {
         findings.extend(judge_queue(queue, facts.link.as_ref(), book, now));
     }
