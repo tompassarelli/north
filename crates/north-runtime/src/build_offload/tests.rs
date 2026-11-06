@@ -61,10 +61,14 @@ fn ran_remotely(hosts: &Hosts, lane: &Lane) -> Vec<String> {
 }
 
 fn ran_remotely_with(hosts: &Hosts, lane: &Lane, report: &str) -> Vec<String> {
-    let stub = hosts.remote.join("north-stub");
-    crate::foundation::shim::write_script(&stub, "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n");
     let command = ["sh".to_owned(), "-c".to_owned(), report.to_owned()];
-    let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command: &command });
+    ran_command(hosts, lane, "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n", &command)
+}
+
+fn ran_command(hosts: &Hosts, lane: &Lane, stub_body: &str, command: &[String]) -> Vec<String> {
+    let stub = hosts.remote.join("north-stub");
+    crate::foundation::shim::write_script(&stub, stub_body);
+    let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command });
     let mut child = Command::new("sh").args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(&lane.bundle).unwrap();
@@ -115,4 +119,22 @@ fn capacity_an_offloaded_post_land_worktree_outside_the_project_container_rebuil
     let report = ran_remotely(&hosts, &lane);
     assert_eq!(line(&report, "head"), [head.as_str()]);
     assert_eq!(line(&report, "file"), ["a.txt landed"]);
+}
+
+// KEEP(bug): on 2026-11-06 the lander's land-check command named the laptop's runtime by absolute path, which ccx33 does not have, so the offloaded run exited 127 (north#634)
+#[test]
+fn capacity_an_offloaded_command_naming_a_runtime_the_host_lacks_runs_the_hosts_own_north() {
+    let hosts = hosts();
+    let lane = gather(&hosts.lane("host-north"), &hosts.laptop).unwrap().ship(&[]).unwrap();
+    let stub = "printf 'north %s\\n' \"$*\"\n";
+    let laptop_only = "/laptop-only/north-data/runtimes/f2ae888b5c28/north".to_owned();
+    let command = [laptop_only, "land".to_owned(), "checks".to_owned(), "--leased".to_owned()];
+    let report = ran_command(&hosts, &lane, stub, &command);
+    assert_eq!(line(&report, "north"), ["capacity host run --class heavy --owner t --timeout-seconds 60 -- ".to_owned() + hosts.remote.join("north-stub").to_str().unwrap() + " land checks --leased"]);
+    let present = hosts.remote.join("runtimes/north");
+    std::fs::create_dir_all(present.parent().unwrap()).unwrap();
+    crate::foundation::shim::write_script(&present, "true\n");
+    let command = [present.to_str().unwrap().to_owned(), "land".to_owned()];
+    let report = ran_command(&hosts, &lane, stub, &command);
+    assert!(line(&report, "north")[0].ends_with(&format!("-- {} land", present.display())), "a runtime path that exists on the host stays as given: {report:?}");
 }

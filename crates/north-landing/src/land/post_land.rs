@@ -147,12 +147,16 @@ fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &str, run: &
     for name in super::checks::SCRUBBED {
         command.env_remove(name);
     }
-    match command.status() {
-        Ok(status) if status.success() => Verdict::Green,
-        Ok(status) if status.code() == Some(75) => Verdict::Transient(format!("post-land checks exited 75; log: {}", run.log.display())),
-        Ok(status) if status.code() == Some(OFFLOAD_SLOTS_BUSY) => Verdict::Transient(format!("every build-host slot stayed busy, so the post-land checks reached no verdict; log: {}", run.log.display())),
-        Ok(status) => Verdict::RedMain(failed_check(&run.outcome).unwrap_or_else(|| format!("exit {status}; log: {}", run.log.display()))),
-        Err(error) => Verdict::Transient(format!("{program}: {error}")),
+    command.status().map_or_else(|error| Verdict::Transient(format!("{program}: {error}")), |status| judged(status, run))
+}
+
+fn judged(status: std::process::ExitStatus, run: &Run) -> Verdict {
+    match status.code() {
+        _ if status.success() => Verdict::Green,
+        Some(126 | 127) => Verdict::Transient(format!("post-land checks could not start their command (exit {status}), so they reached no verdict; log: {}", run.log.display())),
+        Some(75) => Verdict::Transient(format!("post-land checks exited 75; log: {}", run.log.display())),
+        Some(OFFLOAD_SLOTS_BUSY) => Verdict::Transient(format!("every build-host slot stayed busy, so the post-land checks reached no verdict; log: {}", run.log.display())),
+        _ => Verdict::RedMain(failed_check(&run.outcome).unwrap_or_else(|| format!("exit {status}; log: {}", run.log.display()))),
     }
 }
 
@@ -188,3 +192,7 @@ fn record(run: &Run, landed: &Landed, verdict: &Verdict, seconds: u64) {
         eprintln!("north land: could not record the post-land verdict of {}: {error}", landed.head);
     }
 }
+
+#[cfg(test)]
+#[path = "post_land_tests.rs"]
+mod tests;
