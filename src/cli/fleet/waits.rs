@@ -84,10 +84,12 @@ fn settle(fleet: &Fleet) -> NorthResult<()> {
 pub(super) struct Probes;
 
 impl WaitProbes for Probes {
-    fn prepare(&self, _: &Fleet) {
-        if let Ok(cfg) = config() {
-            gate::probed(&cfg, &std::collections::BTreeMap::new());
-        }
+    fn placement(&self) -> Option<Box<dyn FnOnce() + Send>> {
+        Some(Box::new(|| {
+            if let Ok(cfg) = config() {
+                gate::probed(&cfg, &std::collections::BTreeMap::new());
+            }
+        }))
     }
 
     fn jobs(&self) -> Vec<ProbeJob> {

@@ -1,5 +1,4 @@
-use std::sync::Mutex;
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::error::NorthResult;
@@ -7,10 +6,46 @@ use crate::error::NorthResult;
 use super::model::SessionRecord;
 use super::peer_row::{self, Refusal};
 use super::registry::{Fleet, HandedIn};
-use super::store::{Exchange, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LAUNCH_GRACE_MS, LedgerHost, RowKind, SessionRow, Undecodable, UnknownKind, WaitKey};
+use super::stage::{Late, detach, each_by};
+use super::store::{Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LAUNCH_GRACE_MS, LedgerHost, RowKind, SessionRow, Undecodable, UnknownKind, WaitKey};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
+
+pub type OpenLedger = Arc<dyn Fn() -> NorthResult<Box<dyn LedgerHost + Send>> + Send + Sync>;
+
+pub fn open_ledger<L: LedgerHost + Send + 'static>(open: impl Fn() -> NorthResult<L> + Send + Sync + 'static) -> OpenLedger {
+    Arc::new(move || Ok(Box::new(open()?) as Box<dyn LedgerHost + Send>))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Budgets {
+    pub placement: Duration,
+    pub take_far: Duration,
+    pub ledger: Duration,
+    pub hand_in: Duration,
+    pub far: Duration,
+    pub probes: Duration,
+}
+
+impl Budgets {
+    pub const TICK: Self = Self {
+        placement: Duration::from_secs(8),
+        take_far: Duration::from_secs(4),
+        ledger: Duration::from_secs(6),
+        hand_in: Duration::from_secs(4),
+        far: Duration::from_secs(4),
+        probes: Duration::from_secs(14),
+    };
+
+    pub const fn each(budget: Duration) -> Self {
+        Self { placement: budget, take_far: budget, ledger: budget, hand_in: budget, far: budget, probes: budget }
+    }
+
+    pub fn worst(&self) -> Duration {
+        self.placement.max(self.take_far + self.ledger) + self.hand_in + self.far + self.probes + self.ledger
+    }
+}
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Ticked {
@@ -28,6 +63,7 @@ pub struct Ticked {
     pub left: Vec<(String, String)>,
     pub unregistered: Vec<(String, String)>,
     pub probed: Vec<String>,
+    pub put_off: Vec<String>,
     pub unsettled: Option<String>,
     pub uncached: Vec<(String, String)>,
     pub far_failed: Vec<(String, String)>,
@@ -48,8 +84,8 @@ pub struct FarHost {
     pub ssh: String,
 }
 
-pub struct Pulls<'a> {
-    pub spools: &'a dyn FarSpools,
+pub struct Pulls {
+    pub spools: Arc<dyn FarSpools + Send>,
     pub always: Vec<FarHost>,
 }
 
@@ -64,7 +100,9 @@ pub struct ProbeJob {
 }
 
 pub trait WaitProbes: Sync {
-    fn prepare(&self, _: &Fleet) {}
+    fn placement(&self) -> Option<Box<dyn FnOnce() + Send>> {
+        None
+    }
 
     fn jobs(&self) -> Vec<ProbeJob>;
 }
@@ -88,18 +126,21 @@ impl Clock {
     }
 
     fn time<R>(&self, name: &'static str, run: impl FnOnce() -> R) -> R {
-        let began = self.origin.elapsed();
+        let began = Instant::now();
         let ran = run();
-        let took = self.origin.elapsed().saturating_sub(began);
-        if let Ok(mut steps) = self.steps.lock() {
-            steps.push(Step { name, began, took });
-        }
+        self.record(name, began, Instant::now());
         ran
+    }
+
+    fn record(&self, name: &'static str, began: Instant, ended: Instant) {
+        if let Ok(mut steps) = self.steps.lock() {
+            steps.push(Step { name, began: began.saturating_duration_since(self.origin), took: ended.saturating_duration_since(began) });
+        }
     }
 
     fn stop(self, ticked: &mut Ticked) {
         ticked.wall = self.origin.elapsed();
-        let mut steps = self.steps.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut steps = self.steps.into_inner().unwrap_or_else(PoisonError::into_inner);
         steps.sort_by_key(|step| step.began);
         ticked.steps = steps;
     }
@@ -123,6 +164,10 @@ impl Ticked {
         }
     }
 
+    fn put_off(&mut self, stage: &str, late: &Late, budget: Duration) {
+        self.put_off.push(format!("deferred {stage} to the next tick: {}", late.why(budget)));
+    }
+
     pub fn lines(&self) -> Vec<String> {
         let delivered = self.delivered.iter().map(|(id, to)| format!("delivered {id} to {to}"));
         let failed = self.failed.iter().map(|(id, why)| format!("not delivered {id}: {why}"));
@@ -136,7 +181,21 @@ impl Ticked {
         let undelivered = self.far_failed.iter().map(|(name, why)| format!("not delivered to the registry on {name}: {why}"));
         let counts = format!("flushed {}, pulled {}, delivered {}, already {}, deferred {}, pruned {}", self.flushed, self.pulled, self.delivered.len(), self.already, self.deferred, self.pruned);
         let unsettled = self.unsettled.iter().map(|why| format!("waits not settled in the store: {why}"));
-        delivered.chain(failed).chain(held).chain(unpulled).chain(undropped).chain(refused).chain(left).chain(unregistered).chain(uncached).chain(undelivered).chain(self.probed.iter().cloned()).chain(unsettled).chain([counts]).collect()
+        delivered
+            .chain(failed)
+            .chain(held)
+            .chain(unpulled)
+            .chain(undropped)
+            .chain(refused)
+            .chain(left)
+            .chain(unregistered)
+            .chain(uncached)
+            .chain(undelivered)
+            .chain(self.probed.iter().cloned())
+            .chain(self.put_off.iter().cloned())
+            .chain(unsettled)
+            .chain([counts])
+            .collect()
     }
 
     pub fn timing(&self) -> String {
@@ -146,22 +205,38 @@ impl Ticked {
     }
 }
 
-pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &dyn WaitProbes, now_ms: u64, budget: Duration) -> NorthResult<Ticked> {
+pub fn tick(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, probes: &dyn WaitProbes, now_ms: u64, budgets: Budgets) -> NorthResult<Ticked> {
     let clock = Clock::new();
     let mut ticked = Ticked::default();
-    std::thread::scope(|scope| -> NorthResult<()> {
-        let placing = scope.spawn(|| clock.time("placement", || probes.prepare(fleet)));
-        let exchanged = exchange_and_hand_in(fleet, ledger, pulls, &clock, &mut ticked, (now_ms, budget));
-        joined(placing);
-        exchanged?;
-        settle(fleet, ledger, probes, &clock, &mut ticked, budget)
-    })?;
+    let placing = probes.placement().map(|place| {
+        let began = Instant::now();
+        (began, detach("placement", move || {
+            place();
+            Instant::now()
+        }))
+    });
+    exchange_and_hand_in(fleet, ledger, pulls, &clock, &mut ticked, (now_ms, budgets))?;
+    if let Some((began, placing)) = placing {
+        match placing.by(began + budgets.placement) {
+            Ok(ended) => clock.record("placement", began, ended),
+            Err(late) => {
+                clock.record("placement", began, Instant::now());
+                ticked.put_off("placement", &late, budgets.placement);
+            }
+        }
+    }
+    settle(fleet, ledger, probes, &clock, &mut ticked, budgets)?;
     ticked.pruned = clock.time("prune", || fleet.prune_delivered(SystemTime::now() - JOURNAL_KEPT))?;
     clock.stop(&mut ticked);
     Ok(ticked)
 }
 
-fn exchange_and_hand_in(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, clock: &Clock, ticked: &mut Ticked, (now_ms, budget): (u64, Duration)) -> NorthResult<()> {
+fn exchange_by(ledger: &OpenLedger, exchange: Exchange, deadline: Instant) -> Result<NorthResult<Exchanged>, Late> {
+    let ledger = ledger.clone();
+    detach("ledger.exchange", move || ledger()?.exchange(&exchange)).by(deadline)
+}
+
+fn exchange_and_hand_in(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, clock: &Clock, ticked: &mut Ticked, (now_ms, budgets): (u64, Budgets)) -> NorthResult<()> {
     let spool = fleet.spool();
     let (rows, records, cached) = std::thread::scope(|scope| {
         let reading = scope.spawn(|| clock.time("sessions", || fleet.sessions()));
@@ -173,40 +248,54 @@ fn exchange_and_hand_in(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pull
     let spooled: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
     let (taken, registered) = std::thread::scope(|scope| {
         let building = scope.spawn(|| clock.time("registry", || registry(fleet, &records, now_ms)));
-        let taken = clock.time("take_far", || take_far(fleet, &records, cached, pulls, &mut rows, ticked, now_ms));
+        let taken = clock.time("take_far", || take_far(fleet, &records, cached, pulls, &mut rows, ticked, (now_ms, budgets.take_far)));
         (taken, joined(building))
     });
     let pulled = rows.len() - spooled.len();
     let FarRegistry { sessions, addressees, gates, .. } = registered?;
     let outranks = far_hosts(fleet, &records, pulls).into_iter().map(|host| host.name).collect();
     let exchange = Exchange { rows, host: fleet.host().to_owned(), sessions, addressees, gates, outranks };
-    let exchanged = clock.time("ledger.exchange", || ledger.exchange(&exchange))?;
+    let exchanged = match clock.time("ledger.exchange", || exchange_by(ledger, exchange, Instant::now() + budgets.ledger)) {
+        Ok(exchanged) => exchanged?,
+        Err(late) => {
+            ticked.put_off("ledger.exchange", &late, budgets.ledger);
+            return Ok(());
+        }
+    };
     clock.time("spool.withdraw", || spooled.iter().try_for_each(|id| spool.withdraw(id)))?;
     let table = FleetTable { sessions: exchanged.sessions.clone(), gates: exchanged.gates.clone() };
     clock.time("cache_table", || fleet.cache_table(&table))?;
-    let started = Instant::now();
     ticked.flushed = spooled.len();
     ticked.pulled = pulled;
     ticked.held_elsewhere = exchanged.held_elsewhere.clone();
     let here: Vec<FleetRow> = exchanged.rows.iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)).cloned().collect();
-    ticked.note(clock.time("hand_in_all", || hand_in_all(fleet, &here, started, budget)));
-    ticked.drop_failed = clock.time("drop_far", || drop_far(pulls, &taken));
-    ticked.uncached = clock.time("cache_far", || cache_far(pulls, &taken, &table));
-    clock.time("deliver_far", || deliver_far(ledger, pulls, &taken, &exchanged.sessions, ticked, (started, budget, now_ms)));
+    ticked.note(clock.time("hand_in_all", || hand_in_all(fleet, &here, Instant::now(), budgets.hand_in)));
+    let far = (Instant::now() + budgets.far, budgets.far);
+    clock.time("drop_far", || drop_far(pulls, &taken, ticked, far));
+    clock.time("cache_far", || cache_far(pulls, &taken, &table, ticked, far));
+    clock.time("deliver_far", || deliver_far(ledger, pulls, &taken, exchanged.sessions, ticked, (far, now_ms)));
     Ok(())
 }
 
-fn settle(fleet: &Fleet, ledger: &mut dyn LedgerHost, probes: &dyn WaitProbes, clock: &Clock, ticked: &mut Ticked, budget: Duration) -> NorthResult<()> {
-    let probed = probe(fleet, probes.jobs(), clock, budget);
+fn settle(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: &Clock, ticked: &mut Ticked, budgets: Budgets) -> NorthResult<()> {
+    let probed = probe(fleet, probes.jobs(), clock, budgets.probes);
     ticked.probed = probed.lines;
     let settled: Vec<WaitKey> = fleet.unsettled_waits().into_iter().chain(probed.settled).collect();
     if settled.is_empty() {
         return Ok(());
     }
-    let left = match clock.time("settle", || ledger.settle(&settled)) {
-        Ok(()) => Vec::new(),
-        Err(error) => {
+    let settling = {
+        let (ledger, settled) = (ledger.clone(), settled.clone());
+        detach("settle", move || ledger()?.settle(&settled))
+    };
+    let left = match clock.time("settle", || settling.by(Instant::now() + budgets.ledger)) {
+        Ok(Ok(())) => Vec::new(),
+        Ok(Err(error)) => {
             ticked.unsettled = Some(error.user_message());
+            settled
+        }
+        Err(late) => {
+            ticked.put_off("settle", &late, budgets.ledger);
             settled
         }
     };
@@ -217,25 +306,20 @@ fn probe(fleet: &Fleet, jobs: Vec<ProbeJob>, clock: &Clock, budget: Duration) ->
     let deadline = Instant::now() + budget;
     let mut probed = Probed { lines: Vec::new(), settled: Vec::new() };
     for ProbeJob { name, run } in jobs {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
+        if Instant::now() >= deadline {
             probed.lines.push(format!("deferred {name} to the next tick: probes spent their {}ms budget before it began", budget.as_millis()));
             continue;
         }
-        let (answer, answered) = mpsc::channel();
         let fleet = fleet.clone();
-        let spawned = std::thread::Builder::new().name(name.into()).spawn(move || answer.send(run(fleet)));
-        if let Err(error) = spawned {
-            probed.lines.push(format!("deferred {name} to the next tick: its thread did not start: {error}"));
-            continue;
-        }
-        match clock.time(name, || answered.recv_timeout(left)) {
+        let running = detach(name, move || run(fleet));
+        match clock.time(name, || running.by(deadline)) {
             Ok(Probed { lines, settled }) => {
                 probed.lines.extend(lines);
                 probed.settled.extend(settled);
             }
-            Err(RecvTimeoutError::Timeout) => probed.lines.push(format!("deferred {name} to the next tick: still running when probes spent their {}ms budget", budget.as_millis())),
-            Err(RecvTimeoutError::Disconnected) => probed.lines.push(format!("{name} failed: it panicked")),
+            Err(Late::Running) => probed.lines.push(format!("deferred {name} to the next tick: still running when probes spent their {}ms budget", budget.as_millis())),
+            Err(Late::Panicked) => probed.lines.push(format!("{name} failed: it panicked")),
+            Err(late @ Late::Unstarted(_)) => probed.lines.push(format!("deferred {name} to the next tick: {}", late.why(budget))),
         }
     }
     probed
@@ -267,39 +351,43 @@ pub fn hand_in_all(fleet: &Fleet, rows: &[FleetRow], started: Instant, budget: D
         .collect()
 }
 
-fn deliver_far(ledger: &mut dyn LedgerHost, pulls: &Pulls, taken: &[Taken], known: &[SessionRow], ticked: &mut Ticked, (started, budget, now_ms): (Instant, Duration, u64)) {
-    let registries = in_parallel(taken, |taken| pulls.spools.registry(&taken.host.ssh));
-    for (taken, registry) in taken.iter().zip(registries) {
-        let name = taken.host.name.clone();
-        if started.elapsed() >= budget {
-            ticked.far_failed.push((name, "deferred: the tick spent its budget".into()));
-            continue;
-        }
-        let delivered = registry.and_then(|FarRegistry { host, sessions, addressees, gates }| {
-            if host.is_empty() {
+fn deliver_far(ledger: &OpenLedger, pulls: &Pulls, taken: &[Taken], known: Vec<SessionRow>, ticked: &mut Ticked, ((deadline, budget), now_ms): ((Instant, Duration), u64)) {
+    let known = Arc::new(known);
+    let runs = taken.iter().map(|taken| {
+        let (ledger, spools, known, host) = (ledger.clone(), pulls.spools.clone(), known.clone(), taken.host.clone());
+        move || -> NorthResult<Vec<HandedRow>> {
+            let FarRegistry { host: registered, sessions, addressees, gates } = spools.registry(&host.ssh)?;
+            if registered.is_empty() {
                 return Ok(Vec::new());
             }
-            let admitted = peer_row::admit_exchange(Exchange { rows: Vec::new(), host, sessions, addressees, gates, outranks: Vec::new() }, &taken.host.name, known, now_ms)?;
-            let exchanged = ledger.exchange(&admitted)?;
+            let admitted = peer_row::admit_exchange(Exchange { rows: Vec::new(), host: registered, sessions, addressees, gates, outranks: Vec::new() }, &host.name, &known, now_ms)?;
+            let exchanged = ledger()?.exchange(&admitted)?;
             let rows: Vec<FleetRow> = exchanged.rows.into_iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)).collect();
-            if rows.is_empty() { Ok(Vec::new()) } else { pulls.spools.deliver(&taken.host.ssh, &rows) }
-        });
+            if rows.is_empty() { Ok(Vec::new()) } else { spools.deliver(&host.ssh, &rows) }
+        }
+    });
+    for (taken, delivered) in taken.iter().zip(each_by("deliver_far", runs, deadline)) {
         match delivered {
-            Ok(handed) => ticked.note(handed),
-            Err(error) => ticked.far_failed.push((name, error.user_message())),
+            Ok(Ok(handed)) => ticked.note(handed),
+            Ok(Err(error)) => ticked.far_failed.push((taken.host.name.clone(), error.user_message())),
+            Err(late) => ticked.put_off(&format!("deliver_far on {}", taken.host.name), &late, budget),
         }
     }
 }
 
-fn take_far(fleet: &Fleet, records: &[SessionRecord], cached: Vec<SessionRow>, pulls: &Pulls, rows: &mut Vec<FleetRow>, ticked: &mut Ticked, now_ms: u64) -> Vec<Taken> {
+fn take_far(fleet: &Fleet, records: &[SessionRecord], cached: Vec<SessionRow>, pulls: &Pulls, rows: &mut Vec<FleetRow>, ticked: &mut Ticked, (now_ms, budget): (u64, Duration)) -> Vec<Taken> {
     let hosts = far_hosts(fleet, records, pulls);
-    let answers = in_parallel(&hosts, |host| pulls.spools.take(&host.ssh));
+    let runs = hosts.iter().map(|host| {
+        let (spools, ssh) = (pulls.spools.clone(), host.ssh.clone());
+        move || spools.take(&ssh)
+    });
+    let answers = each_by("take_far", runs, Instant::now() + budget);
     let known = ledger_records(fleet, records, cached, now_ms);
     let archived: Vec<SessionRecord> = fleet.past_sessions();
     let mut taken = Vec::new();
     for (host, answer) in hosts.into_iter().zip(answers) {
         match answer {
-            Ok(found) => {
+            Ok(Ok(found)) => {
                 let (mut ids, mut refused) = (Vec::new(), Vec::new());
                 for UnknownKind { id, kind } in found.unknown_kind {
                     ticked.left.push((host.name.clone(), format!("{id}: kind {kind} is not known to this build")));
@@ -336,7 +424,8 @@ fn take_far(fleet: &Fleet, records: &[SessionRecord], cached: Vec<SessionRow>, p
                 }
                 taken.push(Taken { host, ids, refused });
             }
-            Err(error) => ticked.pull_failed.push((host.name.clone(), error.user_message())),
+            Ok(Err(error)) => ticked.pull_failed.push((host.name.clone(), error.user_message())),
+            Err(late) => ticked.put_off(&format!("take_far on {}", host.name), &late, budget),
         }
     }
     taken
@@ -352,25 +441,37 @@ fn retired_report(row: &FleetRow, peer: &str, archived: &[SessionRecord]) -> boo
     row.kind == RowKind::Message && row.sender.session().is_some_and(|sender| archived.iter().any(|record| record.name == sender && record.machine.as_ref().is_some_and(|machine| machine.name == peer)))
 }
 
-fn drop_far(pulls: &Pulls, taken: &[Taken]) -> Vec<(String, String)> {
+fn drop_far(pulls: &Pulls, taken: &[Taken], ticked: &mut Ticked, (deadline, budget): (Instant, Duration)) {
     let held: Vec<&Taken> = taken.iter().filter(|taken| !taken.ids.is_empty() || !taken.refused.is_empty()).collect();
-    let answers = in_parallel(&held, |taken| {
-        let dropped = if taken.ids.is_empty() { Ok(()) } else { pulls.spools.drop(&taken.host.ssh, &taken.ids) };
-        dropped.and_then(|()| if taken.refused.is_empty() { Ok(()) } else { pulls.spools.set_aside(&taken.host.ssh, &taken.refused) })
+    let runs = held.iter().map(|taken| {
+        let (spools, ssh, ids, refused) = (pulls.spools.clone(), taken.host.ssh.clone(), taken.ids.clone(), taken.refused.clone());
+        move || {
+            let dropped = if ids.is_empty() { Ok(()) } else { FarSpools::drop(&*spools, &ssh, &ids) };
+            dropped.and_then(|()| if refused.is_empty() { Ok(()) } else { spools.set_aside(&ssh, &refused) })
+        }
     });
-    held.iter().zip(answers).filter_map(|(taken, answer)| answer.err().map(|error| (taken.host.name.clone(), error.user_message()))).collect()
+    for (taken, answer) in held.iter().zip(each_by("drop_far", runs, deadline)) {
+        match answer {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => ticked.drop_failed.push((taken.host.name.clone(), error.user_message())),
+            Err(late) => ticked.put_off(&format!("drop_far on {}", taken.host.name), &late, budget),
+        }
+    }
 }
 
-fn cache_far(pulls: &Pulls, taken: &[Taken], table: &FleetTable) -> Vec<(String, String)> {
-    let answers = in_parallel(taken, |taken| pulls.spools.cache(&taken.host.ssh, table));
-    taken.iter().zip(answers).filter_map(|(taken, answer)| answer.err().map(|error| (taken.host.name.clone(), error.user_message()))).collect()
-}
-
-fn in_parallel<T: Sync, R: Send>(items: &[T], run: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    std::thread::scope(|scope| {
-        let running: Vec<_> = items.iter().map(|item| scope.spawn(|| run(item))).collect();
-        running.into_iter().map(joined).collect()
-    })
+fn cache_far(pulls: &Pulls, taken: &[Taken], table: &FleetTable, ticked: &mut Ticked, (deadline, budget): (Instant, Duration)) {
+    let table = Arc::new(table.clone());
+    let runs = taken.iter().map(|taken| {
+        let (spools, ssh, table) = (pulls.spools.clone(), taken.host.ssh.clone(), table.clone());
+        move || spools.cache(&ssh, &table)
+    });
+    for (taken, answer) in taken.iter().zip(each_by("cache_far", runs, deadline)) {
+        match answer {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => ticked.uncached.push((taken.host.name.clone(), error.user_message())),
+            Err(late) => ticked.put_off(&format!("cache_far on {}", taken.host.name), &late, budget),
+        }
+    }
 }
 
 fn far_hosts(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls) -> Vec<FarHost> {
@@ -383,4 +484,3 @@ fn far_hosts(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls) -> Vec<Far
     }
     hosts
 }
-

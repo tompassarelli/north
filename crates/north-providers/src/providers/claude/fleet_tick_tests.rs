@@ -20,7 +20,7 @@ use super::Claude;
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
 const CREATED_MS: u64 = 1_793_000_000_000;
 const NOW_MS: u64 = CREATED_MS + 60_000;
-const BUDGET: Duration = Duration::from_secs(20);
+const BUDGET: Budgets = Budgets::each(Duration::from_secs(20));
 
 struct Host {
     home: tempfile::TempDir,
@@ -46,12 +46,17 @@ impl Host {
         Store::open(&self.ledger).unwrap()
     }
 
-    fn pulls(&self) -> Pulls<'static> {
-        Pulls { spools: &Nobody, always: Vec::new() }
+    fn opened(&self) -> OpenLedger {
+        let path = self.ledger.clone();
+        open_ledger(move || Store::open(&path))
+    }
+
+    fn pulls(&self) -> Pulls {
+        Pulls { spools: Arc::new(Nobody), always: Vec::new() }
     }
 
     fn tick(&self) -> Ticked {
-        tick(&self.fleet, &mut self.store(), &self.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap()
+        tick(&self.fleet, &self.opened(), &self.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap()
     }
 }
 
@@ -222,13 +227,13 @@ fn far_host(name: &str) -> FarHost {
 #[test]
 fn a_row_pulled_from_a_far_spool_is_dropped_there_only_after_the_ledger_host_commits_it() {
     let host = host("nexus");
-    let far = Far::holding("tom@gex45", vec![far_message("m-far", "gex45")]);
-    let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
+    let far = Arc::new(Far::holding("tom@gex45", vec![far_message("m-far", "gex45")]));
+    let pulls = Pulls { spools: far.clone(), always: vec![far_host("gex45")] };
 
-    assert!(tick(&host.fleet, &mut Unreachable, &pulls, &NoProbes, NOW_MS, BUDGET).is_err());
+    assert!(tick(&host.fleet, &open_ledger(|| Ok(Unreachable)), &pulls, &NoProbes, NOW_MS, BUDGET).is_err());
     assert_eq!(far.left_on("tom@gex45"), ["m-far"], "a row whose commit is unknown stays on its machine");
 
-    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+    let ticked = tick(&host.fleet, &host.opened(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
 
     assert_eq!(ticked.pulled, 1);
     assert!(ticked.pull_failed.is_empty());
@@ -239,11 +244,11 @@ fn a_row_pulled_from_a_far_spool_is_dropped_there_only_after_the_ledger_host_com
 #[test]
 fn a_row_this_build_cannot_decode_is_set_aside_on_its_machine_with_a_notice_and_the_other_rows_are_still_delivered() {
     let host = host("nexus");
-    let far = Far::holding("tom@gex45", vec![far_message("m-ok", "gex45")]);
+    let far = Arc::new(Far::holding("tom@gex45", vec![far_message("m-ok", "gex45")]));
     far.undecodable.lock().unwrap().insert("tom@gex45".into(), vec!["m-old-answer".into()]);
-    let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
+    let pulls = Pulls { spools: far.clone(), always: vec![far_host("gex45")] };
 
-    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+    let ticked = tick(&host.fleet, &host.opened(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
 
     assert!(ticked.pull_failed.is_empty(), "{ticked:?}");
     assert_eq!(*far.aside.lock().unwrap(), ["m-old-answer"]);
@@ -372,9 +377,15 @@ fn north_576_with_a_and_d_reading_headroom_after_their_parks_the_lead_on_c_goes_
 }
 
 
+const HANG: Duration = Duration::from_secs(30);
+
 struct Sleepy;
 
 impl WaitProbes for Sleepy {
+    fn placement(&self) -> Option<Box<dyn FnOnce() + Send>> {
+        Some(Box::new(|| std::thread::sleep(HANG)))
+    }
+
     fn jobs(&self) -> Vec<ProbeJob> {
         let said = |line: &str| Probed { lines: vec![line.to_owned()], settled: Vec::new() };
         vec![
@@ -382,7 +393,7 @@ impl WaitProbes for Sleepy {
             ProbeJob {
                 name: "probes.slow",
                 run: Box::new(move |_| {
-                    std::thread::sleep(Duration::from_secs(30));
+                    std::thread::sleep(HANG);
                     said("slow ran")
                 }),
             },
@@ -391,18 +402,65 @@ impl WaitProbes for Sleepy {
     }
 }
 
+struct HungLedger;
+
+impl LedgerHost for HungLedger {
+    fn exchange(&mut self, _: &Exchange) -> NorthResult<Exchanged> {
+        std::thread::sleep(HANG);
+        Err(NorthError::Refused("ssh nexus: hung".into()))
+    }
+
+    fn settle(&mut self, _: &[WaitKey]) -> NorthResult<()> {
+        std::thread::sleep(HANG);
+        Err(NorthError::Refused("ssh nexus: hung".into()))
+    }
+}
+
+struct HungTake;
+
+impl FarSpools for HungTake {
+    fn take(&self, ssh: &str) -> NorthResult<Pull> {
+        std::thread::sleep(HANG);
+        Nobody.take(ssh)
+    }
+
+    fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
+        Nobody.drop(ssh, ids)
+    }
+
+    fn set_aside(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
+        Nobody.set_aside(ssh, ids)
+    }
+
+    fn cache(&self, ssh: &str, table: &FleetTable) -> NorthResult<()> {
+        Nobody.cache(ssh, table)
+    }
+
+    fn registry(&self, ssh: &str) -> NorthResult<FarRegistry> {
+        Nobody.registry(ssh)
+    }
+
+    fn deliver(&self, ssh: &str, rows: &[FleetRow]) -> NorthResult<Vec<HandedRow>> {
+        Nobody.deliver(ssh, rows)
+    }
+}
+
 #[test]
-fn a_probe_job_still_running_at_the_budget_is_deferred_to_the_next_tick_by_name_and_the_tick_times_each_job() {
+fn a_tick_whose_ledger_exchange_placement_take_far_and_a_probe_hang_past_their_budgets_finishes_naming_each_deferred_stage() {
     let host = host("nexus");
-    let budget = Duration::from_millis(300);
+    let pulls = Pulls { spools: Arc::new(HungTake), always: vec![far_host("gex45")] };
 
-    let ticked = tick(&host.fleet, &mut host.store(), &host.pulls(), &Sleepy, NOW_MS, budget).unwrap();
+    let ticked = tick(&host.fleet, &open_ledger(|| Ok(HungLedger)), &pulls, &Sleepy, NOW_MS, Budgets::each(Duration::from_millis(300))).unwrap();
 
-    assert!(ticked.wall < Duration::from_secs(5), "the sleeping job held the tick for {:?}", ticked.wall);
+    assert!(ticked.wall < Duration::from_secs(5), "the hung stages held the tick for {:?}", ticked.wall);
     let lines = ticked.lines();
-    assert!(lines.iter().any(|line| line == "quick ran"), "{lines:?}");
+    for stage in ["take_far on gex45", "ledger.exchange", "placement"] {
+        assert!(lines.contains(&format!("deferred {stage} to the next tick: still running after its 300ms budget")), "{stage}: {lines:?}");
+    }
+    assert!(lines.iter().any(|line| line == "quick ran"), "the probes still run after a deferred exchange: {lines:?}");
     assert!(lines.iter().any(|line| line == "deferred probes.slow to the next tick: still running when probes spent their 300ms budget"), "{lines:?}");
     assert!(lines.iter().any(|line| line == "deferred probes.after to the next tick: probes spent their 300ms budget before it began"), "{lines:?}");
     let timing = ticked.timing();
     assert!(timing.contains(", probes.quick ") && timing.contains(", probes.slow "), "{timing}");
+    assert!(Budgets::TICK.worst() < Duration::from_secs(40), "the tick's stage budgets sum to {:?}, past 40 s of its 50 s start timeout", Budgets::TICK.worst());
 }

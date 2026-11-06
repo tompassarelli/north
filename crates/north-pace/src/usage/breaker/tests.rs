@@ -64,9 +64,9 @@ fn twice(sessions: &[Spending]) -> Judged {
     tick(2_000, sessions, &[], &first.state)
 }
 
-// KEEP(bug): one umbrella box past its own p90 alerts though the issue is within its sum; regression of 823d9a434 (north#592)
+// KEEP(bug): one umbrella box past its own p90 alerts though the issue is within its sum, regression of 823d9a434 (north#592); an early spend under p90 reached the proxy seven times between 4:00 and 4:50 PM on 2026-11-06 (north#637)
 #[test]
-fn one_umbrella_box_past_its_own_p90_alerts_though_the_issue_is_within_its_sum() {
+fn one_umbrella_box_past_its_own_p90_alerts_and_an_early_spend_under_p90_is_told_to_its_worker_alone() {
     let warned = twice(&umbrella(40.0));
     assert_eq!(warned.alerts, ["Budget warning: north#112 Proxy role R1: role on the session record has spent $40.00 against E p50 $10.83, p90 $18.29, 2x its p90."], "{warned:?}");
     assert!(warned.events.iter().all(|event| event.scope != "workstream:north#112"), "the issue's $69.65 is within its boxes' summed p90");
@@ -74,4 +74,19 @@ fn one_umbrella_box_past_its_own_p90_alerts_though_the_issue_is_within_its_sum()
     assert_eq!(tripped.alerts.len(), 1, "{tripped:?}");
     assert!(tripped.alerts[0].starts_with("Budget tripped: north#112 Proxy role R1"));
     assert_eq!(tripped.tells.iter().map(|tell| tell.to.as_str()).collect::<Vec<_>>(), ["r1"], "only the box past its p90 is told to stop");
+    let early = twice(&fast(0.6));
+    assert_eq!(told(&early), ["n637"], "{early:?}");
+    assert!(early.tells[0].text.contains("past half of p50 in under a quarter of the expected minutes"), "{early:?}");
+    let past = twice(&fast(2.5));
+    assert_eq!(told(&past), ["n637", "lead-385"], "{past:?}");
+    assert!(past.tells[1].text.contains("past its p90"), "{past:?}");
 }
+
+fn fast(spent: f64) -> Vec<Spending> {
+    vec![Spending { minutes: 2.0, ..worker("n637", spent, 0, 2.0) }]
+}
+
+fn told(judged: &Judged) -> Vec<&str> {
+    judged.tells.iter().map(|tell| tell.to.as_str()).collect()
+}
+
