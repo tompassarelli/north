@@ -25,7 +25,7 @@ fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass
     let (output, _) = north_enqueue_with(&refused, &[]);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "{stderr}");
-    assert!(stderr.contains("clippy on the changed crates exited") && stderr.contains("rerun: cargo clippy --all-targets --workspace -- -D warnings"), "{stderr}");
+    assert!(stderr.contains("a check before queueing exited") && stderr.contains("to rerun clippy alone: cargo clippy --all-targets --workspace -- -D warnings"), "{stderr}");
     assert_eq!(runs(&counter), 1, "{stderr}");
     assert!(written(&refused.state).iter().all(|path| path.extension().is_none_or(|extension| extension != "json")), "a refused lane writes no ticket: {:?}", written(&refused.state));
 
@@ -33,7 +33,7 @@ fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass
     let counter = lane_with_clippy(&passed, true);
     let (first, _) = north_enqueue_with(&passed, &[]);
     let first_log = format!("{}{}", String::from_utf8_lossy(&first.stdout), String::from_utf8_lossy(&first.stderr));
-    assert!(!first_log.contains("clippy on the changed crates exited"), "{first_log}");
+    assert!(!first_log.contains("a check before queueing exited"), "{first_log}");
     assert_eq!(runs(&counter), 1, "{first_log}");
     let (second, _) = north_enqueue_with(&passed, &[]);
     let second_log = format!("{}{}", String::from_utf8_lossy(&second.stdout), String::from_utf8_lossy(&second.stderr));

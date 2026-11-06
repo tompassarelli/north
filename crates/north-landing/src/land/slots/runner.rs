@@ -23,10 +23,10 @@ use fail_fast::Plan;
 
 mod batch;
 mod fail_fast;
-mod queue_clippy;
+mod queue_checks;
 mod timeout_row;
 mod verdict;
-pub use queue_clippy::refuse_clippy;
+pub use queue_checks::refuse_queue_checks;
 use crate::land::after::follow::program;
 use crate::land::checks::{BROKEN_BASE, ROUND};
 use crate::land::telemetry::epoch;

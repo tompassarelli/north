@@ -10,7 +10,7 @@ use crate::build_inputs::rust_build_input_paths;
 const SEPARATOR: &str = " :: ";
 const RUST_INPUT: &str = "@rust-input";
 const TOOLCHAIN: [&str; 3] = ["flake.lock", "rust-toolchain.toml", "rust-toolchain"];
-const LINE_KEYS: [&str; 2] = ["land.check", "land.after"];
+const LINE_KEYS: [&str; 3] = ["land.check", "land.after", "land.queue"];
 const MACHINE_MARKERS: [&str; 3] = ["code/south", "code/nixos-config", "machine-bound"];
 const SCRIPT_LIMIT: usize = 1 << 20;
 const BUILDS_NORTH: [&str; 2] = ["bin/head-north", "cargo "];

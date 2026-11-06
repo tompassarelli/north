@@ -28,6 +28,27 @@ below does not trace. So the pre-push run can be the few tests that reach the ch
     build.rs, a run-time table, a file under `tests/` that is not Rust), a new file, a map over
     3 days old, or a selection of over 400 tests.
   - The full suite always runs after the push.
+- Always run: the `land.queue` lines in `.safe-push` name the tests that scan the whole tree rather
+  than one module, so no coverage map can trace a change to them. Enqueue runs them before it
+  writes the ticket, and their pass is cached by tree like clippy. Selection adds them to every
+  lane, including an unmapped one. On 2026-11-06 landings read green between red verdicts while
+  the habits test failed on main, because selection skipped north-guard (north#634).
+  - `the_north_tree_keeps_its_rust_habits` (north-guard): it reads every Rust file for the habits
+    code-health refuses.
+  - `a_build_beside_a_file_or_index_write_is_refused_and_a_read_only_one_still_offloads`
+    (north-guard): it holds the heavy-command guard's routing of the commands every agent runs.
+  - `every_default_on_main_declares_a_range_it_sits_inside` and
+    `every_entry_of_an_array_of_tables_keeps_the_keys_all_earlier_entries_had` (north-base): they
+    read every run-time table in `harness/`.
+  - `every_file_a_source_embeds_at_compile_time_counts_as_a_rust_input` and
+    `no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree` (north-runtime): they scan
+    every source and test for embedded files.
+  - `every_class_in_the_harness_table_has_a_paraphrase_an_owner_and_a_guard` (north-threads): it
+    reads the corrections table in `harness/`.
+  - `code-health layers` is a check, not a test. It runs as a `land.queue` line beside them.
+  - Left out: `every_tests_it_module_maps_to_crates_the_crate_dag_names` and the
+    `run_time_readers_tests`. They build the `north` integration and binary targets, which take
+    minutes, not seconds. The full suite after the push still runs them.
 - Miss: when the after-push run is red and its prefix search names a culprit lane, the lander runs
   `north coverage miss BASE TIP --log LOG` on that lane's own landed range. A test that failed
   in that log but that the selection did not run is a miss; the verb names each one and starts

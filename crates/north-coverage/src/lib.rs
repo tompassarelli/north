@@ -3,6 +3,7 @@
 //! reach the functions a lane changed, the tests of a whole changed file where the map is older than
 //! that code, and none where the lane changes an input the map does not trace. The full suite still
 //! runs after the push. Depends only on north-base; the lander reaches it through `north coverage`.
+pub mod always;
 pub mod exec;
 pub mod hunks;
 pub mod map;

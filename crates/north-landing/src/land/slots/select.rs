@@ -19,6 +19,7 @@ pub struct Config {
     pub capacity: Option<String>,
     checks: Vec<String>,
     after: Vec<String>,
+    queue: Vec<String>,
     local_only: Vec<String>,
     machine_bound: Vec<String>,
     deadlines: Vec<String>,
@@ -54,6 +55,7 @@ impl Config {
             capacity: first("landing.capacity").filter(|command| !command.is_empty()),
             checks,
             after: blob_values(repo, head, "land.after"),
+            queue: blob_values(repo, head, "land.queue"),
             local_only: blob_values(repo, head, "land.local-only"),
             machine_bound: blob_values(repo, head, "land.machine-bound"),
             deadlines: blob_values(repo, head, "land.deadline"),
@@ -68,6 +70,10 @@ impl Config {
 
     pub fn after_set(&self) -> Self {
         Self { checks: self.after.clone(), after: Vec::new(), inferred: Vec::new(), ..self.clone() }
+    }
+
+    pub fn queue_set(&self) -> Self {
+        Self { checks: self.queue.clone(), after: Vec::new(), queue: Vec::new(), inferred: Vec::new(), ..self.clone() }
     }
 
     pub fn local_checks(&self) -> bool {

@@ -6,7 +6,8 @@ use north_base::build_inputs::{run_time_data, rust_build_input};
 
 use crate::hunks::{self, Hunks};
 use crate::map::{self, Map, Test};
-use crate::pick::{Change, Selection, select as pick};
+use crate::always;
+use crate::pick::{Change, Selection, before_push, select as pick};
 
 const DEFAULT_TIMEOUT: &str = "1800";
 pub const MOST_BEFORE_PUSH: usize = 400;
@@ -38,10 +39,9 @@ pub fn select(arguments: &[String]) -> u8 {
     match selection_between(&request.base, &request.head, request.map.clone()) {
         Ok(selection) => {
             report(&selection);
-            if let Selection::Tests { tests, .. } = &selection
-                && !tests.is_empty()
-            {
-                println!("{}", nextest_arguments(tests).join(" "));
+            let tests = before_push(&selection, &always_run(&request.head), MOST_BEFORE_PUSH);
+            if !tests.is_empty() {
+                println!("{}", nextest_arguments(&tests).join(" "));
             }
             0
         }
@@ -51,20 +51,19 @@ pub fn select(arguments: &[String]) -> u8 {
 
 pub fn test(arguments: &[String]) -> u8 {
     let Some(request) = request(arguments) else { return usage() };
-    let selection = match selection_between(&request.base, &request.head, request.map.clone()) {
-        Ok(selection) => selection,
-        Err(why) => {
-            eprintln!("north coverage: {why}; no tests run before the push, the full suite runs after it");
-            return 0;
-        }
-    };
+    let selection = selection_between(&request.base, &request.head, request.map.clone()).unwrap_or_else(Selection::Unmapped);
     report(&selection);
-    let Selection::Tests { tests, .. } = selection else { return 0 };
-    if tests.is_empty() {
-        return 0;
-    }
-    if tests.len() > MOST_BEFORE_PUSH {
+    if let Selection::Tests { tests, .. } = &selection
+        && tests.len() > MOST_BEFORE_PUSH
+    {
         eprintln!("north coverage: {} tests is over the {MOST_BEFORE_PUSH} run before a push; the full suite runs after it", tests.len());
+    }
+    let always = always_run(&request.head);
+    if !always.is_empty() {
+        eprintln!("north coverage: {} whole-tree tests from land.queue in .safe-push run with every lane", always.len());
+    }
+    let tests = before_push(&selection, &always, MOST_BEFORE_PUSH);
+    if tests.is_empty() {
         return 0;
     }
     let command = format!("CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --locked --offline --no-tests=pass {}", nextest_arguments(&tests).join(" "));
@@ -72,6 +71,10 @@ pub fn test(arguments: &[String]) -> u8 {
     eprintln!("north coverage: running {} selected tests on {host}", tests.len());
     let status = Command::new(north()).args(["capacity", "offload", "run", "--host", &host, "--base", &request.base, "--head", &request.head, "--timeout", &request.timeout, "--", &command]).status();
     status.ok().and_then(|status| status.code()).map_or(1, |code| u8::try_from(code).unwrap_or(1))
+}
+
+fn always_run(head: &str) -> BTreeSet<Test> {
+    git(Path::new("."), &["rev-parse", "--show-toplevel"]).map_or_else(|_| BTreeSet::new(), |root| always::named(&always::queue_lines(Path::new(&root), head)))
 }
 
 fn usage() -> u8 {
@@ -88,7 +91,7 @@ fn report(selection: &Selection) {
     match selection {
         Selection::Tests { tests, file_level } if file_level.is_empty() => eprintln!("north coverage: {} tests reach the changed functions", tests.len()),
         Selection::Tests { tests, file_level } => eprintln!("north coverage: {} tests reach the changed code; the map is older than the change in {}, so those files select every test reaching them", tests.len(), file_level.join(", ")),
-        Selection::Unmapped(why) => eprintln!("north coverage: {why}; no tests run before the push, the full suite runs after it"),
+        Selection::Unmapped(why) => eprintln!("north coverage: {why}; no coverage-selected tests run before the push, the full suite runs after it"),
     }
 }
 

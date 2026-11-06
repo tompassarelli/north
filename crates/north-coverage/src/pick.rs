@@ -47,6 +47,15 @@ pub fn select(change: &Change) -> Selection {
     Selection::Tests { tests, file_level }
 }
 
+pub fn before_push(selection: &Selection, always: &BTreeSet<Test>, most: usize) -> BTreeSet<Test> {
+    let mut tests = match selection {
+        Selection::Tests { tests, .. } if tests.len() <= most => tests.clone(),
+        _ => BTreeSet::new(),
+    };
+    tests.extend(always.iter().cloned());
+    tests
+}
+
 enum Reached {
     Functions(BTreeSet<u32>),
     ChangedSinceMap,

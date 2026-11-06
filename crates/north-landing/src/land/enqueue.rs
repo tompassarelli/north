@@ -210,7 +210,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     outgoing::enqueue_gate(&root, &base, &denylist, &origin, &destination)?;
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     runner::fails_first(&root, &base, &lane_head)?;
-    runner::refuse_clippy(&root, &base, &lane_head)?;
+    runner::refuse_queue_checks(&root, &base, &lane_head)?;
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
     let (squash, several_commits) = match shape {
         Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
