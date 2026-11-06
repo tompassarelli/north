@@ -1,5 +1,5 @@
 use crate::foundation::shim::write_executable;
-use super::tick::{tick_repo, TickEnv, Verdict};
+use super::tick::{tick_repo, TickEnv, Verdict, ENROLLED};
 use std::fs;
 use std::process::Command;
 use time::OffsetDateTime;
@@ -28,6 +28,7 @@ fn scratch(signal: &str) -> (tempfile::TempDir, TickEnv) {
         north: root.join("north").display().to_string(),
         dry_run: true,
         now: OffsetDateTime::now_utc(),
+        paused: Vec::new(),
     };
     (dir, env)
 }
@@ -52,3 +53,14 @@ fn a_launch_refused_on_every_account_is_an_error_and_one_refused_for_a_saturated
     assert!(!lock(&env).exists());
 }
 
+
+#[test]
+fn every_repo_of_a_project_with_paused_true_gets_no_review_launch_while_other_enrolled_repos_still_tick() {
+    let (dir, env) = scratch("echo \"FIRE days 7\"");
+    let orchestration: toml_edit::DocumentMut = "[projects.north]\nrepos = [\"north\"]\n[projects.galileo]\npaused = true\nrepos = [\"galileo\"]\n[projects.makgora]\npaused = true\nrepos = [\"makgora\", \"makgora-client\", \"south\"]\ndispatch_repos = [\"makgora\"]\n[projects.wisp]\npaused = true\nrepos = [\"wisp\"]\n".parse().unwrap();
+    let env = TickEnv { dry_run: false, paused: north_base::platform::orchestration::set_aside_repos(&orchestration), ..env };
+    let verdicts: Vec<(&str, Verdict)> = ENROLLED.iter().map(|&repo| (repo, tick_repo(repo, &env, &mut |_| {}).verdict)).collect();
+    assert_eq!(verdicts, [("north", Verdict::Missing), ("makgora", Verdict::Paused), ("wisp", Verdict::Paused), ("padbridge", Verdict::Missing), ("makgora-client", Verdict::Paused)]);
+    assert!(!lock(&env).exists());
+    assert!(fs::read_to_string(dir.path().join("north-calls")).unwrap_or_default().is_empty());
+}

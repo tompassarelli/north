@@ -17,11 +17,13 @@ pub(super) struct TickEnv {
     pub north: String,
     pub dry_run: bool,
     pub now: OffsetDateTime,
+    pub paused: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(super) enum Verdict {
     Quiet,
+    Paused,
     Held,
     Deferred,
     Started,
@@ -33,6 +35,7 @@ impl Verdict {
     const fn word(self) -> &'static str {
         match self {
             Self::Quiet => "quiet",
+            Self::Paused => "paused",
             Self::Held => "held",
             Self::Deferred => "deferred",
             Self::Started => "started",
@@ -144,6 +147,9 @@ fn checkout_of(code_root: &Path, repo: &str) -> PathBuf {
 }
 
 pub(super) fn tick_repo(repo: &str, env: &TickEnv, print: &mut dyn FnMut(String)) -> Outcome {
+    if env.paused.iter().any(|paused| paused == repo) {
+        return Outcome { verdict: Verdict::Paused, detail: "its project has paused = true in orchestration.toml".to_owned() };
+    }
     let checkout = checkout_of(&env.code_root, repo);
     if !checkout.exists() {
         return Outcome { verdict: Verdict::Missing, detail: format!("no checkout at {}", checkout.display()) };
@@ -235,11 +241,12 @@ fn env_or(name: &str, fallback: impl FnOnce() -> String) -> String {
     std::env::var(name).ok().filter(|value| !value.is_empty()).unwrap_or_else(fallback)
 }
 
-fn default_env(dry_run: bool) -> TickEnv {
+fn default_env(dry_run: bool) -> Result<TickEnv, String> {
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
     let under_home = |rel: &str| home.join(rel).display().to_string();
     let north = || std::env::current_exe().map_or_else(|_| "north".to_owned(), |path| path.display().to_string());
-    TickEnv {
+    let paused = north_base::platform::orchestration::set_aside_repos(&north_base::platform::orchestration::read()?);
+    Ok(TickEnv {
         code_root: env_or("CODE_HEALTH_CODE_ROOT", || under_home("code")).into(),
         state_root: env_or("CODE_HEALTH_STATE", || under_home(".local/state/code-health")).into(),
         handoffs: env_or("AGENTS_HANDOFFS", || under_home(".local/state/agents/handoffs")).into(),
@@ -247,7 +254,8 @@ fn default_env(dry_run: bool) -> TickEnv {
         north: env_or("CODE_HEALTH_NORTH_BIN", north),
         dry_run,
         now: OffsetDateTime::now_utc(),
-    }
+        paused,
+    })
 }
 
 const USAGE: &str = "usage: north code-health tick [--dry-run] [--repos=a,b]";
@@ -274,7 +282,13 @@ pub(super) fn run_tick(arguments: &[String]) -> u8 {
             },
         }
     }
-    let env = default_env(dry_run);
+    let env = match default_env(dry_run) {
+        Ok(env) => env,
+        Err(error) => {
+            eprintln!("code-health tick: orchestration.toml unreadable, so no repo is reviewed: {error}");
+            return 1;
+        }
+    };
     let mut failed = false;
     let mut print = |line: String| println!("{line}");
     for repo in &repos {

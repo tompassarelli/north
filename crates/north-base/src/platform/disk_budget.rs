@@ -1,6 +1,3 @@
-use std::env;
-use std::path::PathBuf;
-
 use toml_edit::DocumentMut;
 
 const GIB: f64 = (1u64 << 30) as f64;
@@ -47,7 +44,7 @@ impl DiskBudget {
     }
 
     pub fn local() -> Self {
-        let text = std::fs::read_to_string(policy_path()).unwrap_or_default();
+        let text = std::fs::read_to_string(super::orchestration::path()).unwrap_or_default();
         Self::parse(&text, &super::host::name())
     }
 
@@ -61,12 +58,3 @@ impl DiskBudget {
     }
 }
 
-pub fn policy_path() -> PathBuf {
-    if let Some(path) = env::var_os("AGENTS_ORCHESTRATION").filter(|path| !path.is_empty()) {
-        return path.into();
-    }
-    match env::var_os("AGENTS_OPERATOR_DIR") {
-        Some(operator) => PathBuf::from(operator).join("orchestration.toml"),
-        None => PathBuf::from(env::var_os("HOME").unwrap_or_default()).join("code/south/main/agents/orchestration.toml"),
-    }
-}

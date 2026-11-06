@@ -36,7 +36,7 @@ impl World {
         let state = var("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state"));
         World {
             south: var("NORTH_SOUTH_ROOT").unwrap_or_else(|| home.join("code/south/main")),
-            orchestration: north_base::platform::disk_budget::policy_path(),
+            orchestration: north_base::platform::orchestration::path(),
             chrome_profile: var("AUTOMATION_CHROME_PROFILE").unwrap_or_else(|| state.join("automation-chrome/profile")),
             host: north_base::platform::host::name(),
             now: SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs()),
