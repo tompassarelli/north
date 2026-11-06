@@ -183,7 +183,7 @@ fn in_lander(checkout: &Path, base: &str, failure: &Failure) -> bool {
             let found = git(checkout, &["grep", "-l", "-E", &format!(r"fn {leaf}\b"), base, "--", "*.rs"]).unwrap_or_default();
             found.lines().map(|line| line.split_once(':').map_or(line, |(_, path)| path).to_owned()).collect()
         }
-        Failure::Line(_) => Vec::new(),
+        Failure::Line(_) | Failure::Step(_) => Vec::new(),
     };
     files.is_empty() || files.iter().any(|file| LANDER_PATHS.iter().any(|prefix| file.starts_with(prefix)))
 }

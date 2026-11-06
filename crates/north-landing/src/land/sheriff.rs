@@ -6,14 +6,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use time::OffsetDateTime;
 
-use super::after;
 use super::candidate::{self, git, output};
 use super::enqueue::rfc3339;
 use super::lander::Lander;
+use super::after::owner::{self, Reverted};
+use super::post_land;
 use super::queue::{self, RedFix, Ticket};
+use super::steps;
 use crate::landing::red_check::{self, Failure};
 use north_strategy_types::land::{SheriffCase, SheriffStep};
-use super::steps;
 
 pub const REQUESTS: &str = "refs/heads/claude/land-revert-";
 const PROBE_SECONDS: &str = "1800";
@@ -24,6 +25,7 @@ pub struct Request {
     pub head: String,
     pub parent: String,
     pub run: String,
+    pub log: String,
     pub failing: BTreeSet<Failure>,
 }
 
@@ -35,8 +37,8 @@ pub struct Lane {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Finding {
-    Stale(String),
-    Unnamed,
+    NoVerdict(String),
+    Fixed { cases: Vec<Failure> },
     Revert { lane: String, cases: Vec<Failure> },
     Environment { cases: Vec<Failure> },
 }
@@ -46,32 +48,34 @@ fn trailer(message: &str, key: &str) -> String {
 }
 
 pub fn parse(head: &str, message: &str) -> Request {
-    Request { head: head.to_owned(), parent: trailer(message, "Green-parent"), run: trailer(message, "Main-red-run"), failing: red_check::failures(message) }
+    Request { head: head.to_owned(), parent: trailer(message, "Green-parent"), run: trailer(message, "Main-red-run"), log: trailer(message, "Main-red-log"), failing: red_check::failures(message) }
 }
 
 pub fn is_revert(message: &str) -> bool {
     message.starts_with("Revert ") || message.lines().any(|line| line.starts_with("Sheriff-Reverts:"))
 }
 
-fn bisect(request: &Request, lanes: &[Lane], mut at: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>) -> Option<usize> {
-    let labels = |failures: &BTreeSet<Failure>| failures.iter().map(|failure| failure.label().to_owned()).collect::<Vec<_>>();
-    let mut case = SheriffCase { head: request.head.clone(), failing: labels(&request.failing), lanes: lanes.iter().map(|lane| lane.commit.clone()).collect(), probes: Vec::new() };
+fn labels(failures: &BTreeSet<Failure>) -> Vec<String> {
+    failures.iter().map(|failure| failure.label().to_owned()).collect()
+}
+
+fn bisect(case: &mut SheriffCase, failing: &BTreeSet<Failure>, lanes: &[Lane], at: &mut impl FnMut(&Lane) -> Option<BTreeSet<Failure>>) -> Option<usize> {
     let (mut culprit, mut passing) = (0, lanes.len());
     while passing - culprit > 1 {
         let middle = culprit + (passing - culprit) / 2;
-        steps::sheriff(&case, &SheriffStep::Probe(middle as u64));
+        steps::sheriff(case, &SheriffStep::Probe(middle as u64));
         let Some(found) = at(&lanes[middle]) else {
-            steps::sheriff(&case, &SheriffStep::Unprobed(middle as u64));
+            steps::sheriff(case, &SheriffStep::Unprobed(middle as u64));
             return None;
         };
         case.probes.push((middle as u64, labels(&found)));
-        if found.is_disjoint(&request.failing) {
+        if found.is_disjoint(failing) {
             passing = middle;
         } else {
             culprit = middle;
         }
     }
-    steps::sheriff(&case, &SheriffStep::Culprit(culprit as u64));
+    steps::sheriff(case, &SheriffStep::Culprit(culprit as u64));
     Some(culprit)
 }
 
@@ -80,28 +84,46 @@ pub fn find(
     tip: &str,
     lanes: &[Lane],
     reverted: &BTreeSet<String>,
-    at: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>,
+    mut at: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>,
     mut probe: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>,
 ) -> Finding {
-    if tip != request.head {
-        return Finding::Stale(format!("main moved past {} to {tip}; a later landing may already fix it, so nothing is reverted", request.head));
-    }
-    if request.failing.is_empty() {
-        return Finding::Unnamed;
-    }
-    let cases: Vec<Failure> = request.failing.iter().cloned().collect();
-    let suspects = match bisect(request, lanes, at) {
-        Some(culprit) => &lanes[culprit..=culprit],
-        None => lanes,
+    let mut case = SheriffCase { head: request.head.clone(), tip: tip.to_owned(), failing: labels(&request.failing), lanes: lanes.iter().map(|lane| lane.commit.clone()).collect(), probes: Vec::new() };
+    let no_verdict = |case: &SheriffCase, reason: String| {
+        steps::sheriff(case, &SheriffStep::NoVerdict);
+        Finding::NoVerdict(reason)
     };
-    for lane in suspects {
+    if request.failing.is_empty() {
+        return no_verdict(&case, "the red run names no failing step, so no check reached a failing verdict".to_owned());
+    }
+    let Some(newest) = lanes.first().filter(|newest| newest.commit == tip) else {
+        return no_verdict(&case, format!("no landing lies between the last green {} and the tip {}", short(&request.parent), short(tip)));
+    };
+    steps::sheriff(&case, &SheriffStep::Probe(0));
+    let Some(reproduced) = at(newest) else {
+        return no_verdict(&case, format!("rerunning {} at the tip {} reached no verdict", names(&request.failing.iter().cloned().collect::<Vec<_>>()), short(tip)));
+    };
+    case.probes.push((0, labels(&reproduced)));
+    let failing: BTreeSet<Failure> = reproduced.intersection(&request.failing).cloned().collect();
+    let cases: Vec<Failure> = if failing.is_empty() { request.failing.iter().cloned().collect() } else { failing.iter().cloned().collect() };
+    if failing.is_empty() {
+        steps::sheriff(&case, &SheriffStep::Fixed);
+        return Finding::Fixed { cases };
+    }
+    let suspects: Vec<usize> = match bisect(&mut case, &failing, lanes, &mut at) {
+        Some(culprit) => vec![culprit],
+        None => (0..lanes.len()).collect(),
+    };
+    for index in suspects {
+        let lane = &lanes[index];
         if is_revert(&lane.message) || reverted.contains(&lane.commit) {
             continue;
         }
-        if probe(lane).is_some_and(|still| still.is_disjoint(&request.failing)) {
+        if probe(lane).is_some_and(|still| still.is_disjoint(&failing)) {
+            steps::sheriff(&case, &SheriffStep::Revert(index as u64));
             return Finding::Revert { lane: lane.commit.clone(), cases };
         }
     }
+    steps::sheriff(&case, &SheriffStep::Environment);
     Finding::Environment { cases }
 }
 
@@ -122,9 +144,8 @@ fn reverted(lander: &Lander) -> BTreeSet<String> {
     entries.filter_map(Result::ok).filter_map(|entry| fs::read_to_string(entry.path()).ok()).filter_map(|text| text.strip_prefix("revert ").and_then(|rest| rest.split_whitespace().next()).map(str::to_owned)).collect()
 }
 
-fn lanes(worktree: &Path, request: &Request) -> Result<Vec<Lane>, String> {
-    let range = format!("{}..{}", request.parent, request.head);
-    let log = git(worktree, &["log", "--first-parent", "-z", "--format=%H%n%B", &range])?;
+fn lanes(worktree: &Path, parent: &str, tip: &str) -> Result<Vec<Lane>, String> {
+    let log = git(worktree, &["log", "--first-parent", "-z", "--format=%H%n%B", &format!("{parent}..{tip}")])?;
     Ok(log.split('\0').filter_map(|entry| entry.trim_start().split_once('\n')).map(|(commit, message)| Lane { commit: commit.to_owned(), message: message.trim().to_owned() }).collect())
 }
 
@@ -139,36 +160,68 @@ pub(crate) fn without(worktree: &Path, head: &str, lane: &str) -> Result<bool, S
     Ok(false)
 }
 
-fn run_cases(worktree: &Path, request: &Request, tree: &str) -> Option<BTreeSet<Failure>> {
-    let command = red_check::rerun_command(&request.failing)?;
-    println!("north land: sheriff: running {} on {tree}", names(&request.failing.iter().cloned().collect::<Vec<_>>()));
-    let run = Command::new("timeout").args([PROBE_SECONDS, "bash", "-c", &command]).current_dir(worktree).output().ok()?;
-    let log = format!("{}\n{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
-    let still = red_check::failures(&log);
-    if !run.status.success() && still.is_empty() {
-        return None;
+struct Probes<'a> {
+    lander: &'a Lander,
+    worktree: &'a Path,
+    request: &'a Request,
+    tip: &'a str,
+}
+
+impl Probes<'_> {
+    fn tests(&self) -> BTreeSet<Failure> {
+        self.request.failing.iter().filter(|failure| matches!(failure, Failure::Cargo(_) | Failure::Harness(_))).cloned().collect()
     }
-    Some(still)
-}
 
-fn probe(worktree: &Path, request: &Request, lane: &Lane) -> Option<BTreeSet<Failure>> {
-    if !without(worktree, &request.head, &lane.commit).ok()? {
-        return None;
+    fn steps(&self) -> Vec<String> {
+        self.request.failing.iter().filter_map(|failure| match failure {
+            Failure::Step(command) => Some(command.clone()),
+            _ => None,
+        }).collect()
     }
-    run_cases(worktree, request, &format!("main without {}", short(&lane.commit)))
+
+    fn rerun(&self, commit: &str, tree: &str) -> Option<BTreeSet<Failure>> {
+        let tests = self.tests();
+        if tests.is_empty() {
+            let steps = self.steps();
+            if steps.is_empty() {
+                return None;
+            }
+            println!("north land: sheriff: rerunning {} on {tree}", steps.join(", "));
+            return post_land::rerun(self.lander, &self.request.parent, commit, &steps);
+        }
+        git(self.worktree, &["reset", "-q", "--hard"]).ok()?;
+        git(self.worktree, &["checkout", "-q", "--detach", commit]).ok()?;
+        println!("north land: sheriff: running {} on {tree}", names(&tests.iter().cloned().collect::<Vec<_>>()));
+        let command = red_check::rerun_command(&tests)?;
+        let run = Command::new("timeout").args([PROBE_SECONDS, "bash", "-c", &command]).current_dir(self.worktree).output().ok()?;
+        let log = format!("{}\n{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
+        let still = red_check::failures(&log);
+        if !run.status.success() && still.is_empty() {
+            return None;
+        }
+        Some(still)
+    }
+
+    fn at(&self, lane: &Lane) -> Option<BTreeSet<Failure>> {
+        self.rerun(&lane.commit, &format!("main at {}", short(&lane.commit)))
+    }
+
+    fn without(&self, lane: &Lane) -> Option<BTreeSet<Failure>> {
+        if !without(self.worktree, self.tip, &lane.commit).ok()? {
+            return None;
+        }
+        let message = format!("sheriff probe: main {} without {}", short(self.tip), short(&lane.commit));
+        git(self.worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &message]).ok()?;
+        let probe = git(self.worktree, &["rev-parse", "HEAD"]).ok()?;
+        self.rerun(&probe, &format!("main {} without {}", short(self.tip), short(&lane.commit)))
+    }
 }
 
-fn at(worktree: &Path, request: &Request, lane: &Lane) -> Option<BTreeSet<Failure>> {
-    git(worktree, &["reset", "-q", "--hard"]).ok()?;
-    git(worktree, &["checkout", "-q", "--detach", &lane.commit]).ok()?;
-    run_cases(worktree, request, &format!("main at {}", short(&lane.commit)))
-}
-
-fn lane_ticket(lander: &Lander, request: &Request, lane: &str) -> Option<Ticket> {
+fn lane_ticket(lander: &Lander, request: &Request, tip: &str, lane: &str) -> Option<Ticket> {
     let done = fs::read_dir(lander.queue.join("done")).ok()?;
     done.filter_map(Result::ok).filter_map(|entry| queue::read(&entry.path()).ok()).find(|ticket| {
         ticket.verdict.as_deref().is_some_and(|verdict| verdict.starts_with("landed "))
-            && (ticket.head == lane || git(&lander.repo, &["cherry", &ticket.head, &request.head, &request.parent]).is_ok_and(|cherry| cherry.lines().any(|line| line == format!("- {lane}"))))
+            && (ticket.head == lane || git(&lander.repo, &["cherry", &ticket.head, tip, &request.parent]).is_ok_and(|cherry| cherry.lines().any(|line| line == format!("- {lane}"))))
     })
 }
 
@@ -187,15 +240,16 @@ pub(crate) fn queue_revert_in(repo: &Path, queue_dir: &Path, worktree: &Path, br
     Ok(head)
 }
 
-fn revert(lander: &Lander, worktree: &Path, request: &Request, lane: &str, cases: &[Failure]) -> Result<String, String> {
+fn revert(lander: &Lander, worktree: &Path, request: &Request, tip: &str, lane: &str, cases: &[Failure]) -> Result<String, String> {
     let branch = format!("sheriff-revert-{}", short(lane));
-    if !without(worktree, &request.head, lane)? {
-        return Err(format!("{} no longer reverts cleanly onto {}", short(lane), short(&request.head)));
+    if !without(worktree, tip, lane)? {
+        return Err(format!("{} no longer reverts cleanly onto {}", short(lane), short(tip)));
     }
     git(worktree, &["checkout", "-q", "-B", &branch])?;
     let subject = git(worktree, &["log", "-1", "--format=%s", lane])?;
+    let since = if tip == request.head { String::new() } else { format!(" and still at the tip {}", short(tip)) };
     let message = format!(
-        "Revert {subject}\n\nMain went red at {} ({}): {} fail there and pass on main without {}, so the sheriff reverts it through the landing queue.\n\nReverts: {lane}\nSheriff-Reverts: {lane}\nMain-red: {}",
+        "Revert {subject}\n\nMain went red at {}{since} ({}): {} fail there and pass on main without {}, so the sheriff reverts it through the landing queue.\n\nReverts: {lane}\nSheriff-Reverts: {lane}\nMain-red: {}",
         short(&request.head),
         request.run,
         names(cases),
@@ -204,26 +258,15 @@ fn revert(lander: &Lander, worktree: &Path, request: &Request, lane: &str, cases
     );
     git(worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &message])?;
     let head = queue_revert(lander, worktree, &branch)?;
-    if let Some(owner) = lane_ticket(lander, request, lane)
-        && let Some(session) = owner.session.as_deref().filter(|session| !session.is_empty())
-    {
-        let text = format!(
-            "north land: main went red at {} on {}; main without {} ({}) passes them, so the sheriff queued its revert {branch} ahead of the queue; fix the lane and queue it again with Follows: {}",
-            short(&request.head),
-            names(cases),
-            owner.branch,
-            short(lane),
-            short(lane)
-        );
-        if !after::send(session, &text) {
-            println!("north land: sheriff: could not tell session {session} that {} was reverted", owner.branch);
-        }
-    }
+    let owner = lane_ticket(lander, request, tip, lane);
+    let reverted = Reverted { branch: owner.as_ref().map_or(lane, |owner| owner.branch.as_str()), commit: lane, revert: &branch, red: &request.head, failing: &names(cases), log: Path::new(&request.log) };
+    let told = owner::tell(&owner::Cli, owner.as_ref().and_then(|owner| owner.session.as_deref()), &reverted);
+    println!("north land: sheriff: {told}");
     Ok(format!("revert {lane} {head} queued as {branch}"))
 }
 
 fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<String, String> {
-    git(worktree, &["fetch", "-q", "--no-tags", "origin", name])?;
+    git(worktree, &["fetch", "-q", "--no-tags", "origin", name, "refs/heads/main"])?;
     let main = git(&lander.repo, &["ls-remote", "origin", "refs/heads/main"])?.split_whitespace().next().unwrap_or_default().to_owned();
     let head = git(worktree, &["rev-parse", &format!("{tip}^")])?;
     if name.strip_prefix(REQUESTS) != Some(head.as_str()) {
@@ -233,12 +276,13 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
     if request.parent.is_empty() {
         return Ok(format!("malformed: {name} names no Green-parent"));
     }
-    let lanes = if main == head { lanes(worktree, &request)? } else { Vec::new() };
-    match find(&request, &main, &lanes, &reverted(lander), |lane| at(worktree, &request, lane), |lane| probe(worktree, &request, lane)) {
-        Finding::Stale(reason) => Ok(format!("stale {reason}")),
-        Finding::Unnamed => Ok("unnamed: the failing run names no test, so nothing is reverted".to_owned()),
+    let lanes = lanes(worktree, &request.parent, &main)?;
+    let probes = Probes { lander, worktree, request: &request, tip: &main };
+    match find(&request, &main, &lanes, &reverted(lander), |lane| probes.at(lane), |lane| probes.without(lane)) {
+        Finding::NoVerdict(reason) => Ok(format!("no verdict: {reason}; nothing is reverted")),
+        Finding::Fixed { cases } => Ok(format!("fixed: {} pass at the tip {}; nothing is reverted", names(&cases), short(&main))),
         Finding::Environment { cases } => Ok(format!("environment {} still fail on main without each landed lane; nothing is reverted", names(&cases))),
-        Finding::Revert { lane, cases } => revert(lander, worktree, &request, &lane, &cases),
+        Finding::Revert { lane, cases } => revert(lander, worktree, &request, &main, &lane, &cases),
     }
 }
 
@@ -252,9 +296,9 @@ pub fn requests(lander: &Lander) -> Result<Vec<(String, String)>, String> {
         .collect())
 }
 
-pub fn request_message(head: &str, parent: &str, failing: &BTreeSet<Failure>) -> String {
+pub fn request_message(head: &str, parent: &str, failing: &BTreeSet<Failure>, log: &Path) -> String {
     let lines: Vec<String> = failing.iter().map(Failure::line).collect();
-    format!("Main red at {head}\n\n{}\n\nGreen-parent: {parent}\nMain-red-run: post-land checks of {}", lines.join("\n"), short(head))
+    format!("Main red at {head}\n\n{}\n\nGreen-parent: {parent}\nMain-red-run: post-land checks of {}\nMain-red-log: {}", lines.join("\n"), short(head), log.display())
 }
 
 pub fn green_ancestor(ledger: &str, repository: &str, history: &[&str]) -> Option<String> {
@@ -268,29 +312,28 @@ pub fn green_ancestor(ledger: &str, repository: &str, history: &[&str]) -> Optio
     history.iter().find(|commit| green.contains(**commit)).map(|commit| (*commit).to_owned())
 }
 
-pub fn file(repo: &Path, head: &str, parent: &str, failing: &BTreeSet<Failure>) -> Result<(), String> {
-    let request = git(repo, &["commit-tree", &format!("{head}^{{tree}}"), "-p", head, "-m", &request_message(head, parent, failing)])?;
+pub fn file(repo: &Path, head: &str, parent: &str, failing: &BTreeSet<Failure>, log: &Path) -> Result<(), String> {
+    let request = git(repo, &["commit-tree", &format!("{head}^{{tree}}"), "-p", head, "-m", &request_message(head, parent, failing, log)])?;
     let pushed = Command::new("git").arg("-C").arg(repo).args(["push", "-q", "--no-verify", "origin", &format!("{request}:{REQUESTS}{head}")]).env("SAFE_PUSH_ACTIVE", "1").output().map_err(|error| error.to_string())?;
     if pushed.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&pushed.stderr).trim().to_owned()) }
 }
 
-pub fn chase(lander: &Lander, head: &str, log: &Path) -> Result<String, String> {
+pub fn chase(lander: &Lander, head: &str, failing: &BTreeSet<Failure>, log: &Path) -> Result<String, String> {
     if records(lander).join(queue::slug(head)).exists() {
         return Ok(format!("main red at {} was already answered", short(head)));
     }
-    let failing = red_check::failures(&fs::read_to_string(log).unwrap_or_default());
     if failing.is_empty() {
-        return Ok(format!("the red post-land run of {} names no failing test, so no revert is requested", short(head)));
+        return Ok(format!("the red post-land run of {} names no failing step, so no check reached a verdict and no revert is requested", short(head)));
     }
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
     let repository = crate::platform::push_ledger::repository(&origin);
     let history = git(&lander.repo, &["log", "--first-parent", "--format=%H", "-n", "400", &format!("{head}^")])?;
-    let ledger = fs::read_to_string(super::post_land::ledger_path()).unwrap_or_default();
+    let ledger = fs::read_to_string(post_land::ledger_path()).unwrap_or_default();
     let Some(parent) = green_ancestor(&ledger, &repository, &history.lines().collect::<Vec<_>>()) else {
         return Ok(format!("no landing within 400 of {} has a green post-land verdict, so no revert is requested", short(head)));
     };
-    file(&lander.repo, head, &parent, &failing)?;
-    Ok(format!("main was green at {} and is red at {} on {}; the sheriff bisects the landings between", short(&parent), short(head), names(&failing.into_iter().collect::<Vec<_>>())))
+    file(&lander.repo, head, &parent, failing, log)?;
+    Ok(format!("main was green at {} and is red at {} on {}; the sheriff bisects the landings between", short(&parent), short(head), names(&failing.iter().cloned().collect::<Vec<_>>())))
 }
 
 pub fn patrol(lander: &Lander) -> Result<(), String> {

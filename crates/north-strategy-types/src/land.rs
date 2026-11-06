@@ -136,8 +136,11 @@ pub struct WaveDecision {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SheriffCase {
     pub head: String,
+    /// Main's tip the search ran at, which may be past the red head.
+    #[serde(default)]
+    pub tip: String,
     pub failing: Vec<String>,
-    /// Lane commits, oldest first.
+    /// Lane commits from the tip back to the last green landing, newest first.
     pub lanes: Vec<String>,
     /// The failures each probed lane showed, by lane index, in probe order.
     pub probes: Vec<(u64, Vec<String>)>,
@@ -152,4 +155,12 @@ pub enum SheriffStep {
     Culprit(u64),
     /// The probe of the lane at this index gave no result, so the search ends without a culprit.
     Unprobed(u64),
+    /// Rerunning the failing steps at the tip reached no verdict, so nothing is reverted.
+    NoVerdict,
+    /// The failing steps pass at the tip, so nothing is reverted.
+    Fixed,
+    /// Main without the lane at this index passes the failing steps, so it is reverted.
+    Revert(u64),
+    /// The failing steps still fail without the culprit, so nothing is reverted.
+    Environment,
 }

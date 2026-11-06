@@ -651,6 +651,7 @@ impl Shared {
         warn(&format!("safe-push: land check {command} exited {status}; log: {log}; NOT pushed."));
         self.cache_record(status, &[command.to_owned()]).await;
         self.outcome.record(&["event", "land check", "failed", &format!("{command}; log: {log}")]);
+        self.outcome.record(&["failed-step", command, &log.to_string()]);
         status
     }
 
@@ -714,6 +715,7 @@ impl Shared {
                     warn(&format!("safe-push: land check {command} hung: it ran past its {timeout} s deadline on this lane, while base tree {tree} finished it in {seconds} s; log: {}; NOT pushed.", log.display()));
                     self.cache_record(TIMED_OUT, &[command.to_owned()]).await;
                     self.outcome.record(&["event", "land check", "failed", &format!("{command} hung past its {timeout} s deadline; log: {}", log.display())]);
+                    self.outcome.record(&["failed-step", command, &log.display().to_string()]);
                     return TIMED_OUT;
                 }
             },
@@ -1027,6 +1029,9 @@ impl Shared {
         } else if status != 0 {
             warn(&format!("safe-push: land checks on GitHub Actions exited {status}; NOT pushed."));
             self.outcome.record(&["event", "land checks on GitHub Actions", "failed", &format!("exit {status}")]);
+            for command in commands {
+                self.outcome.record(&["failed-step", command, ""]);
+            }
             failed = status;
             if self.arguments.red_fix.is_empty() {
                 self.red_main_check(&log).await;
@@ -1265,6 +1270,8 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     let environment = if local { Environment::local() } else { Environment::load() };
     let commands = if arguments.leased {
         arguments.commands.clone()
+    } else if !arguments.commands.is_empty() {
+        arguments.commands.iter().filter(|command| config.runs(command)).cloned().collect()
     } else {
         match config.commands(&root, &arguments.base, &arguments.head) {
             Ok(commands) => defined_on_tree(&root, &arguments, commands),
