@@ -342,9 +342,9 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
     let script = super::remote_script("code-p-main");
-    let job = |command: String| {
+    let job = |command: String, lander: &str| {
         Command::new("setsid")
-            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LAND_CPUS='6'", "", "", "0"])
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LAND_CPUS='6'", "", "", "0", "", "", "", lander])
             .env("HOME", home.path())
             .env("PATH", &path)
             .env("NORTH_OFFLOAD_MAX_JOBS", "1")
@@ -356,9 +356,14 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
             .spawn()
             .unwrap()
     };
-    let holder = job("sleep 2".to_owned());
+    let holder = job("sleep 2".to_owned(), "");
     std::thread::sleep(std::time::Duration::from_millis(500));
-    let queued = job(format!("printf '%s %s %s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" \"$CARGO_BUILD_JOBS $RUST_TEST_THREADS $NEXTEST_TEST_THREADS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, seen.display()));
+    let queued = job(format!("printf '%s %s %s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" \"$CARGO_BUILD_JOBS $RUST_TEST_THREADS $NEXTEST_TEST_THREADS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, seen.display()), "");
+    let lander_seen = home.path().join("lander-seen");
+    let lander = job(format!("printf '%s' \"${}\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, lander_seen.display()), "1").wait_with_output().unwrap();
+    assert!(lander.status.success(), "{}", String::from_utf8_lossy(&lander.stderr));
+    assert!(!String::from_utf8_lossy(&lander.stderr).contains(super::WAITED), "a lander job takes its reserved slot without waiting behind the job cap");
+    assert_eq!(fs::read_to_string(&lander_seen).unwrap(), home.path().join(".cache/land-offload/code-p-main-5").display().to_string());
     let queued = queued.wait_with_output().unwrap();
     assert!(holder.wait_with_output().unwrap().status.success());
     assert!(queued.status.success(), "{}", String::from_utf8_lossy(&queued.stderr));

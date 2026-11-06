@@ -20,6 +20,7 @@ const TARGET_CAP_MIB: u32 = 40 * 1024;
 const TARGET_FLOOR_MIB: u32 = 30 * 1024;
 pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
+pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const FREE: &str = r#"set -eu
@@ -35,7 +36,7 @@ echo "$free"
 "#;
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0} red_fix=${12:-} ran=${13:-} pins=${14:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0} red_fix=${12:-} ran=${13:-} pins=${14:-} lander_slot=${15:-}
 root=@ROOT@
 mkdir -p "$root"
 bundle=$(mktemp "$root/$name.bundle.XXXXXX")
@@ -60,6 +61,9 @@ nearest=$(
     i=$((i + 1))
   done | sort -n -s -k1,1 | cut -d ' ' -f2
 )
+reserved=$name
+[ @SLOTS@ -le 1 ] || reserved=$name-$((@SLOTS@ - 1))
+nearest=$(printf '%s\n' $nearest | { grep -vx "$reserved" || true; }; echo "$reserved")
 queue=$root/queue
 mkdir -p "$queue"
 rank=2
@@ -106,6 +110,11 @@ running_jobs() {
 started=$(date +%s)
 noted=0
 while :; do
+  if [ "$lander_slot" = 1 ]; then
+    exec 9>"$root/$reserved.lock"
+    if flock -n 9; then s=$reserved; break; fi
+    exec 9>&-
+  fi
   if first_in_line && [ "$(running_jobs)" -lt "$cap" ]; then
     for s in $nearest; do
       exec 9>"$root/$s.lock"
@@ -395,10 +404,11 @@ pub(super) fn run(land: &Land) -> u8 {
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
     let cpus = (crate::capacity::host::land_check_cpus().ceil() as u32).to_string();
     let red_fix = std::env::var(RED_FIX_ENV).unwrap_or_default();
+    let lander_slot = std::env::var(LANDER_SLOT_ENV).unwrap_or_default();
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let beside = beside::pin(land.command, &relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker, &beside.pins].map(quote);
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker, &beside.pins, &lander_slot].map(quote);
     let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
     let spawned = with_caller("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])

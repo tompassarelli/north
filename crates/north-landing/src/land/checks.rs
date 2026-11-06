@@ -106,11 +106,12 @@ pub struct Launch<'a> {
     pub offload_owner: &'a str,
     pub round: String,
     pub red_fix: bool,
+    pub lander_slot: bool,
 }
 
 impl<'a> Launch<'a> {
     pub fn of(lander: &'a Lander) -> Self {
-        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false }
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true }
     }
 }
 
@@ -131,6 +132,9 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
     command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", launch.offload_owner).env(ROUND, &launch.round);
     if launch.red_fix {
         command.env(RED_FIX, "1");
+    }
+    if launch.lander_slot {
+        command.env("NORTH_OFFLOAD_LANDER_SLOT", "1");
     }
     if let Some(logs) = log.parent() {
         command.env(super::trace::SPANS_ENV, super::trace::Spans::beside(logs).path());
