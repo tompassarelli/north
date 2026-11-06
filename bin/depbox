@@ -39,9 +39,11 @@ for dir in .bun/install/cache .cargo/registry .cargo/git .cache/nix "${cache_dir
   mkdir -p "$home/$dir"
   args+=(--bind "$home/$dir" "$home/$dir"); binds+=("$home/$dir")
 done
-for path in .cargo/bin .rustup .gitconfig .config/git .nix-profile .local/bin .local/share/north .local/state/north/current .local/state/north/runtimes .local/state/north/dev-shells .local/state/nix/profile .local/state/nix/profiles .local/lib/firn/cli code/nixos-config/pins code/north/pins; do
+for path in .cargo/bin .rustup .gitconfig .config/git .nix-profile .local/bin .local/share/north .local/state/north/runtimes .local/state/north/dev-shells .local/state/nix/profile .local/state/nix/profiles .local/lib/firn/cli code/nixos-config/pins code/north/pins; do
   if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); binds+=("$home/$path" "$(realpath -m -- "$home/$path")"); fi
 done
+live=$home/.local/state/north/current
+if [ -L "$live" ]; then args+=(--symlink "$(readlink -- "$live")" "$live"); binds+=("$live" "$(realpath -m -- "$live")"); fi
 
 visible() {
   local b; for b in "${binds[@]}"; do case "$1/" in "$b"/*) return 0 ;; esac; done
