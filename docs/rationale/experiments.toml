@@ -540,3 +540,10 @@ box = "The debt-ceiling gate never freezes the queue"
 command = "v=$(north land profile --since 24h --repo north --metric landing-p90); echo \"$v\"; [ \"$v\" -le 60 ]"
 review = "2026-11-07"
 owner = "tompassarelli/north#634"
+
+[[check]]
+id = "n643-placement-and-admission-run-as"
+box = "Placement and admission run as pure strategy over recorded inputs"
+command = "north strategy replay --since 7d --budget"
+review = "2026-11-13"
+owner = "tompassarelli/north#643"
