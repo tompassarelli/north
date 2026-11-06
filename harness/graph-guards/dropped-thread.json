@@ -1,0 +1,3 @@
+{"find": "waits_on_nothing", "rules": [
+  {"head": {"rel": "waits_on_nothing", "args": [{"var": "box"}, {"var": "text"}]},
+   "body": [{"rel": "triple", "args": [{"var": "box"}, ["keyword", "unparsed-wait"], {"var": "text"}]}]}]}

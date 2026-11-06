@@ -2,6 +2,7 @@
 //! north's fact graph. Terms are interned to integer ids in SQLite, which holds rows, indexes,
 //! durability and concurrent writers; `ask` runs a Datalog engine written in Rust over them.
 mod cli;
+mod guards;
 mod json;
 mod key;
 mod query;

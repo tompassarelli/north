@@ -26,6 +26,7 @@
 	check = "src/cli/verbs.rs :: sed -n '/VerbKinds::new(&[[]$/,/^]);$/{//!p}' src/cli/verbs.rs | LC_ALL=C sort -c -u"
 	check = "tests/it/main.rs,tests/it/crates.txt :: ! grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort | uniq -d | grep . && comm -3 <(sed -n 's/^mod //p' tests/it/main.rs | tr -d ';' | LC_ALL=C sort -u) <(grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort -u) | { ! grep .; }"
 	check = structure.toml,src/,crates/,tests/,examples/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-guard/src/code_health/ --no-build code-health layers ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}
+	check = ** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-graph/,src/cli/ graph validate --guards harness/graph-guards --shadow
 	check = harness/,agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/agent_config_check/ --no-build agent-config-check tree-policy
 	check = agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/catalog/package_check.rs --no-build config check
 	check = docs/features.md,docs/features/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/features_index/ --no-build docs features-index --check

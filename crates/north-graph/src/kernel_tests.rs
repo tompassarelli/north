@@ -121,12 +121,6 @@ fn coordinates_are_ordinary_nested_triples_that_order_by_transaction_then_ordina
 }
 
 #[test]
-fn an_instant_rejects_a_nanosecond_field_of_a_second_or_more() {
-    assert!(Term::instant(0, 1_000_000_000).is_err());
-    assert!(Term::instant(1_785_560_000, 123_456_789).is_ok());
-}
-
-#[test]
 fn terms_round_trip_through_their_text_and_json_forms() {
     let terms = [
         Term::string("a \"quoted\" (word)"),

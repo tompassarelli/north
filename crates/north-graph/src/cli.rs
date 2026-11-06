@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
+use crate::guards;
 use crate::json::term_to_json;
 use crate::query::{Answer, parse_query};
 use crate::store::{Action, ActionKind, Graph, Receipt, Report, default_path};
@@ -12,7 +13,7 @@ use crate::text::parse_arg;
 const USAGE: &str = "usage: north graph tell|retract [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)
        north graph show [--db PATH] [--json] T1
        north graph ask [--db PATH] [--json] (QUERY_JSON | --file PATH | -)
-       north graph validate [--db PATH]
+       north graph validate [--db PATH] [--guards DIR] [--shadow]
 terms: \"text\" 42 1.5 true :keyword @SECONDS.NANOS9 (T1 T2 T3); a bare word is a string";
 
 struct Options {
@@ -20,6 +21,8 @@ struct Options {
     writer: String,
     json: bool,
     file: Option<PathBuf>,
+    guards: Option<PathBuf>,
+    shadow: bool,
     positional: Vec<String>,
 }
 
@@ -29,6 +32,8 @@ fn options(arguments: &[String]) -> Result<Options, String> {
         writer: std::env::var("NORTH_GRAPH_WRITER").ok().filter(|writer| !writer.is_empty()).unwrap_or_else(|| "cli".to_string()),
         json: false,
         file: None,
+        guards: None,
+        shadow: false,
         positional: Vec::new(),
     };
     let mut rest = arguments.iter();
@@ -38,7 +43,9 @@ fn options(arguments: &[String]) -> Result<Options, String> {
             "--db" => parsed.db = PathBuf::from(value("--db")?),
             "--writer" => parsed.writer = value("--writer")?,
             "--file" => parsed.file = Some(PathBuf::from(value("--file")?)),
+            "--guards" => parsed.guards = Some(PathBuf::from(value("--guards")?)),
             "--json" => parsed.json = true,
+            "--shadow" => parsed.shadow = true,
             flag if flag.len() > 1 && flag.starts_with("--") => return Err(format!("unknown flag {flag}")),
             _ => parsed.positional.push(argument.clone()),
         }
@@ -157,12 +164,28 @@ fn print_answer(out: &mut impl Write, answer: &Answer, as_json: bool) -> std::io
 }
 
 fn validate(options: &Options) -> Result<u8, String> {
-    let report = open(options)?.validate().map_err(|why| why.to_string())?;
+    let graph = open(options)?;
+    let report = graph.validate().map_err(|why| why.to_string())?;
     println!("{}", summary(&report));
     for problem in &report.problems {
         println!("problem: {problem}");
     }
-    Ok(u8::from(!report.is_sound()))
+    let violated = match &options.guards {
+        Some(directory) => run_guards(&graph, directory, options.shadow)?,
+        None => false,
+    };
+    Ok(u8::from(!report.is_sound() || (violated && !options.shadow)))
+}
+
+fn run_guards(graph: &Graph, directory: &std::path::Path, shadow: bool) -> Result<bool, String> {
+    let verdict = guards::check(graph, directory)?;
+    println!("guards: {} queries, {} findings", verdict.guards, verdict.findings.len());
+    let label = if shadow { "would refuse guard" } else { "guard" };
+    for finding in &verdict.findings {
+        let cells: Vec<String> = finding.row.iter().map(ToString::to_string).collect();
+        println!("{label} {}: {}", finding.guard, cells.join("\t"));
+    }
+    Ok(!verdict.findings.is_empty())
 }
 
 fn summary(report: &Report) -> String {

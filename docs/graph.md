@@ -115,6 +115,17 @@ of the issue; `observed` is a commit `checker` passed):
      {"rel": "observed", "args": [{"var": "sha"}], "neg": true}]}]]}
 ```
 
+## Guards
+
+`north graph validate --guards DIR` runs every `DIR/*.json` as an `ask` after the soundness check. A guard is a forbidden pattern: each row
+its query answers is a finding, printed as `guard NAME: ROW`, and any finding exits 1. A query that does not parse or runs out of
+budget is an error, so a guard cannot pass by breaking. `--shadow` prints each finding as `would refuse guard NAME: ROW` and
+leaves the exit code to the soundness check alone, so a new guard runs in shadow mode before it refuses. A correction class seen twice (`north flow detect` files its box) adds its
+guard as a JSON file in `harness/graph-guards/`, named for the class in `harness/corrections.toml`. The lander runs
+`north graph validate --guards harness/graph-guards` as a `land.check` on its own host, so it reads that host's graph as fresh as
+its last `north graph ingest`; a host with no graph answers no rows. `dropped-thread.json` is the first: a box whose wait names
+something the ingest cannot resolve (`unparsed-wait`) refuses the push until the box names `north#N box K` or a sibling label.
+
 ## Ready set
 
 `north graph ready [--db PATH] [--query ready|held]` lists the backlog as a dependency graph, read-only: each unticked box of
