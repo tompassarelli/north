@@ -192,6 +192,13 @@ fn published(root: &Path, branch: &str, destination: &str) -> Option<String> {
     (name != destination && name != branch).then(|| name.to_owned())
 }
 
+/// Why the lane goes first: it touches a path that pays a debt goal reading over its ceiling in the base'"'"'s goals.toml.
+fn pays_debt(root: &Path, base: &str, head: &str) -> Option<String> {
+    let registry = git(root, &["show", &format!("{base}:{}", north_goals::registry::PATH)]).ok()?;
+    let changed: Vec<String> = git(root, &["diff", "--name-only", &format!("{base}..{head}")]).ok()?.lines().map(str::to_owned).collect();
+    north_goals::ceiling::paid(root, &registry, &changed).ok()?.into_iter().next()
+}
+
 pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment) -> Result<Queued, String> {
     let root = PathBuf::from(git(repo, &["rev-parse", "--show-toplevel"])?);
     let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
@@ -219,6 +226,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     };
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     let red_fix = red_fix(&root, &base, &destination)?;
+    let urgent = if red_fix.is_some() { None } else { pays_debt(&root, &base, &head) };
     let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
     let ticket = Ticket {
         origin: origin.clone(),
@@ -234,7 +242,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         red_fix,
         verdict: None,
         keep_lane,
-        urgent: None,
+        urgent,
         decided_on: None,
         published: published(&root, &branch, &destination),
     };

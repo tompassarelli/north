@@ -39,6 +39,7 @@ fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass
     let second_log = format!("{}{}", String::from_utf8_lossy(&second.stdout), String::from_utf8_lossy(&second.stderr));
     assert!(second_log.contains("reused from the verdict cache"), "{second_log}");
     assert_eq!(runs(&counter), 1, "a cached pass for the same tree runs clippy no second time: {second_log}");
+    a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_is_queued_in_order();
     enqueue_queues_a_lane_whose_check_before_queueing_reached_no_verdict_because_no_build_host_answered();
     enqueue_never_compiles_on_the_queueing_host_when_no_build_host_has_room();
 }
@@ -70,4 +71,20 @@ fn enqueue_never_compiles_on_the_queueing_host_when_no_build_host_has_room() {
     assert!(output.status.success(), "{log}");
     assert!(log.contains("no build host has room") && log.contains("queueing the lane"), "{log}");
     assert_eq!(runs(&counter), 0, "{log}");
+}
+
+fn a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_is_queued_in_order() {
+    let goals = "[[goal]]\nname = \"slow\"\nsource = \"README.md: lands fast\"\noracle = \"echo 90\"\nunit = \"s\"\nmax = 20\nclass = \"debt\"\nceiling = 60\nowner = \"north#641\"\nrevisit = \"a week over\"\npays = [\"crates/\"]\n";
+    let urgent = |path: &str| {
+        let fixture = Fixture::seeded(&[("file", "base\n"), ("goals.toml", goals)]);
+        fs::create_dir_all(fixture.repo.join(path).parent().unwrap()).unwrap();
+        fixture.commit(&fixture.repo, path, "Add a file");
+        let (output, _) = north_enqueue_with(&fixture, &[]);
+        let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(output.status.success(), "a debt over its ceiling refuses no lane: {log}");
+        let ticket = written(&fixture.state).into_iter().find(|path| path.extension().is_some_and(|extension| extension == "json")).expect("a ticket");
+        serde_json::from_str::<serde_json::Value>(&fs::read_to_string(ticket).unwrap()).unwrap()["urgent"].as_str().map(str::to_owned)
+    };
+    assert!(urgent("crates/pay/file").is_some_and(|why| why.starts_with("slow reads 90 s")), "the lane that pays goes first");
+    assert_eq!(urgent("docs/elsewhere"), None, "any other lane keeps its place");
 }

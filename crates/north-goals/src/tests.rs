@@ -31,7 +31,7 @@ class = "contract"
 "#;
 
 #[test]
-fn a_contract_is_red_past_its_bound_debt_only_past_its_ceiling_and_a_debt_over_it_refuses_only_landings_outside_its_paying_paths() {
+fn a_contract_is_red_past_its_bound_debt_only_past_its_ceiling_and_a_debt_over_it_moves_only_landings_touching_its_paying_paths_to_the_front() {
     let goals = parse(GOALS).expect("goals parse");
     assert_eq!(judge(&goals[0], Ok(9.0)), Verdict::Green(9.0));
     assert_eq!(judge(&goals[0], Ok(10.5)), Verdict::RedContract(10.5));
@@ -42,12 +42,12 @@ fn a_contract_is_red_past_its_bound_debt_only_past_its_ceiling_and_a_debt_over_i
     assert!(judge(&goals[0], Err("no answer".into())).failing());
     let root = std::path::Path::new(".");
     let elsewhere = vec!["README.md".to_owned()];
-    let found = super::ceiling::unpaid(root, OWED, &elsewhere).expect("goals parse");
+    let paying = vec!["README.md".to_owned(), "crates/north-landing/src/lib.rs".to_owned()];
+    let found = super::ceiling::paid(root, OWED, &paying).expect("goals parse");
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(found[0].starts_with("slow reads 90 s, over its ceiling 60 s"));
-    let paying = vec!["README.md".to_owned(), "crates/north-landing/src/lib.rs".to_owned()];
-    assert!(super::ceiling::unpaid(root, OWED, &paying).expect("goals parse").is_empty());
-    assert!(super::ceiling::unpaid(root, &OWED.replace("echo 90", "echo 50"), &elsewhere).expect("goals parse").is_empty());
+    assert!(super::ceiling::paid(root, OWED, &elsewhere).expect("goals parse").is_empty(), "a landing that pays nothing is not moved and not refused");
+    assert!(super::ceiling::paid(root, &OWED.replace("echo 90", "echo 50"), &paying).expect("goals parse").is_empty(), "a debt within its ceiling moves no landing");
     the_landing_debt_goal_reads_the_projected_wait_of_the_last_few_landings_and_admits_any_lane_once_it_is_under_its_ceiling();
 }
 
@@ -132,7 +132,8 @@ fn the_landing_debt_goal_reads_the_projected_wait_of_the_last_few_landings_and_a
     let reading = |value: f64| format!("[[goal]]\nname = \"{}\"\nsource = \"{}\"\noracle = \"echo {value}\"\nunit = \"{}\"\nmax = {}\nclass = \"debt\"\nceiling = {}\nowner = \"{}\"\nrevisit = \"{}\"\npays = {:?}\n", landing.name, landing.source, landing.unit, landing.bound.limit(), debt.ceiling, debt.owner, debt.revisit, debt.pays);
     let root = std::path::Path::new(".");
     let elsewhere = vec!["README.md".to_owned()];
-    assert_eq!(super::ceiling::unpaid(root, &reading(debt.ceiling + 1.0), &elsewhere).expect("goals parse").len(), 1, "a projected wait over the ceiling refuses a lane that pays nothing");
-    assert!(super::ceiling::unpaid(root, &reading(debt.ceiling), &elsewhere).expect("goals parse").is_empty(), "a projected wait at the ceiling admits it");
-    assert!(super::ceiling::unpaid(root, &reading(0.0), &elsewhere).expect("goals parse").is_empty(), "an idle queue admits any lane");
+    let paying = vec![format!("{}lib.rs", debt.pays[0])];
+    assert_eq!(super::ceiling::paid(root, &reading(debt.ceiling + 1.0), &paying).expect("goals parse").len(), 1, "a projected wait over the ceiling moves a lane that pays it to the front");
+    assert!(super::ceiling::paid(root, &reading(debt.ceiling + 1.0), &elsewhere).expect("goals parse").is_empty(), "any other lane keeps its place and is never refused");
+    assert!(super::ceiling::paid(root, &reading(debt.ceiling), &paying).expect("goals parse").is_empty(), "a projected wait at the ceiling moves no lane");
 }
