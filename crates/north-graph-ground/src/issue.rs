@@ -3,8 +3,13 @@ use north_graph::Term;
 use crate::reach::Reach;
 use crate::show::{About, corrections, cut, day, short};
 
-const BOXES_SHOWN: usize = 6;
+const OPEN_SHOWN: usize = 2;
+const DONE_SHOWN: usize = 3;
 const LANDINGS_SHOWN: usize = 3;
+
+fn box_text(text: &str) -> String {
+    cut(text.split(" (owner").next().unwrap_or(text), 60)
+}
 
 pub fn lines(reach: &Reach, issue: &str) -> Vec<String> {
     let about = About(reach.about(&Term::string(issue)));
@@ -23,38 +28,40 @@ pub fn lines(reach: &Reach, issue: &str) -> Vec<String> {
         head += &format!("; blocked by {}", blockers.join(", "));
     }
     let mut lines = vec![head + ")"];
-    let mut shown = 0;
+    let mut open: Vec<String> = Vec::new();
+    let mut done: Vec<(bool, String)> = Vec::new();
     let mut commits: Vec<String> = about.texts(issue, "landed-as").map(str::to_owned).collect();
     for node in about.texts(issue, "has-box") {
-        if shown == BOXES_SHOWN || reach.late() {
+        if reach.late() {
             break;
         }
         let tell = About(reach.about(&Term::string(node)));
-        let text = cut(tell.first_text(node, "text").unwrap_or_default(), 110);
+        let text = box_text(tell.first_text(node, "text").unwrap_or_default());
         let ticked = tell.of(node, "ticked").any(|term| *term == Term::boolean(true));
         let owner = tell.first_text(node, "owner");
         if !ticked {
-            lines.push(format!("  open box: {text}{}", owner.map_or(String::new(), |owner| format!(" (owner {owner})"))));
-            shown += 1;
+            open.push(format!("  open box: {text}{}", owner.map_or(String::new(), |owner| format!(" (owner {owner})"))));
             continue;
         }
         for (who, commit) in tell.claims(node) {
-            let verdict = commit.map_or_else(
-                || "claims done and names no commit: a claim, nothing observed".to_owned(),
-                |commit| {
+            let (observed, verdict) = match commit {
+                None => (false, "claims done and names no commit: a claim, nothing observed".to_owned()),
+                Some(commit) => {
                     commits.push(commit.to_owned());
                     let seen = About(reach.about(&Term::string(commit)));
                     match seen.observed(commit) {
-                        Some((true, command)) => format!("claims done at {}: observed, checker passed `{}`", short(commit), cut(command, 50)),
-                        Some((false, command)) => format!("claims done at {}: checker saw `{}` fail", short(commit), cut(command, 50)),
-                        None => format!("claims done at {}: a claim, no checker observation", short(commit)),
+                        Some((true, command)) => (true, format!("claims done at {}: observed, checker passed `{}`", short(commit), cut(command, 40))),
+                        Some((false, command)) => (false, format!("claims done at {}: checker saw `{}` fail", short(commit), cut(command, 40))),
+                        None => (false, format!("claims done at {}: a claim, no checker observation", short(commit))),
                     }
-                },
-            );
-            lines.push(format!("  done box: {text} — {who} {verdict}"));
-            shown += 1;
+                }
+            };
+            done.push((observed, format!("  done box: {text} — {who} {verdict}")));
         }
     }
+    done.sort_by_key(|(observed, _)| *observed);
+    lines.extend(open.into_iter().take(OPEN_SHOWN));
+    lines.extend(done.into_iter().take(DONE_SHOWN).map(|(_, line)| line));
     lines.extend(landings(reach, &mut commits));
     let sessions: Vec<&str> = about.subjects("works-on", issue).collect();
     lines.extend(corrections(reach, &sessions));

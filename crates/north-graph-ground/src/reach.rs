@@ -8,7 +8,7 @@ use crate::{file, issue};
 
 const PATIENCE: Duration = Duration::from_millis(40);
 const MENTION_LIMIT: usize = 400;
-const CHARS: usize = 1100;
+const CHARS: usize = 1500;
 
 pub struct Reach<'g> {
     graph: &'g Graph,
@@ -49,16 +49,19 @@ pub fn ground_with(db: &Path, wanted: &[Seed], until: Option<Instant>) -> Vec<St
 }
 
 fn read(reach: &Reach, wanted: &[Seed]) -> Vec<String> {
-    let mut size = 0;
+    let share = CHARS / wanted.len().max(1);
     wanted
         .iter()
-        .flat_map(|seed| match seed {
-            Seed::Issue(name) => issue::lines(reach, name),
-            Seed::File(path) => file::lines(reach, path),
-        })
-        .take_while(|line| {
-            size += line.chars().count() + 1;
-            size <= CHARS
+        .flat_map(|seed| {
+            let mut size = 0;
+            let lines = match seed {
+                Seed::Issue(name) => issue::lines(reach, name),
+                Seed::File(path) => file::lines(reach, path),
+            };
+            lines.into_iter().take_while(move |line| {
+                size += line.chars().count() + 1;
+                size <= share
+            })
         })
         .collect()
 }
