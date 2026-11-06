@@ -123,9 +123,14 @@ paths = ["crates/*/src/threads.rs", "crates/*/src/threads/**", "crates/*/src/wor
 may_use = ["north-pace"]
 
 [[crate_dag.crate]]
+name = "north-session-host"
+paths = ["crates/north-session-host/src/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
 name = "north-fleet"
 paths = ["crates/*/src/fleet.rs", "crates/*/src/fleet/**", "crates/*/src/claude_stream.rs", "crates/*/src/claude_stream/**"]
-may_use = ["north-pace"]
+may_use = ["north-pace", "north-session-host"]
 
 [[crate_dag.crate]]
 name = "north-providers"
@@ -212,7 +217,7 @@ may_use = ["foundation", "crate-roots"]
 
 [[module]]
 name = "fleet"
-paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/*/src/claude_stream.rs"]
+paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/*/src/claude_stream.rs", "crates/north-session-host/src/session_host.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
 may_use = ["domain", "platform", "foundation", "crate-roots"]
 
@@ -380,7 +385,7 @@ may_use = ["crate-roots", "foundation", "graph"]
 
 [[module]]
 name = "ops"
-paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/loops/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**", "crates/north-runtime/src/offload_cache/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**"]
+paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/loops/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**", "crates/north-runtime/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
 may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground"]
 
@@ -538,7 +543,7 @@ reason = "Test fixture, doc(hidden) and public since 895bb0e6f so north-tui's te
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
-path = "crates/north-fleet/src/fleet/session_host.rs"
+path = "crates/north-session-host/src/session_host.rs"
 reason = "Activity, the prompt counter and the frame watcher are shared between the stdin writer and stdout reader threads of one session."
 
 [[rust_habits.allow]]
@@ -575,7 +580,7 @@ reason = "Trait alias over WatchBooks and GateBook through a blanket impl; each 
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
-path = "crates/north-fleet/src/fleet/session_host.rs"
+path = "crates/north-session-host/src/session_host.rs"
 item = "SentLog"
 reason = "Keeps the process host free of the turn watcher's parsing; candidate to make concrete."
 
@@ -605,7 +610,7 @@ reason = "Port defined by north-pace and implemented by north-fleet, which north
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
-path = "crates/north-fleet/src/fleet/session_host.rs"
+path = "crates/north-session-host/src/session_host.rs"
 item = "FrameWatch"
 reason = "Keeps the process host free of the turn watcher's parsing, as SentLog does; candidate to make concrete."
 

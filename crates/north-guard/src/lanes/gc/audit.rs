@@ -13,7 +13,7 @@ use super::liveness::{open_pull_heads, pending_autoland};
 use super::remote::{active_runs, remote_branches};
 use super::state::write_atomically;
 use north_github_mirror::store::{self, Mirror};
-use north_github_mirror::{audit, read};
+use north_github_mirror::{read, sync};
 use north_base::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north repo audit [--repo NAME]... [--alert]";
@@ -137,7 +137,7 @@ pub(super) fn audited_branch(branch: &str, default: &str, pages: Option<&str>) -
 }
 
 fn pages_branch(repo: &str) -> Result<Option<String>, String> {
-    read::pages_site(&Mirror::local(), read::now(), repo, || audit::live_pages(repo)).map(|response| pages_source(&response))
+    read::pages_site(&Mirror::local(), read::now(), repo, || sync::live_pages(repo)).map(|response| pages_source(&response))
 }
 
 fn released_tags(repo: &str) -> Result<HashSet<String>, String> {
@@ -179,7 +179,7 @@ pub(super) fn named_issues(messages: &str) -> Vec<String> {
 }
 
 fn compare(repo: &Repo, branch: &str, base: &str, head: &str) -> Result<(bool, Vec<String>), String> {
-    let facts = read::compare(&Mirror::local(), &repo.name, branch, base, head, || audit::live_compare(&repo.name, branch))?;
+    let facts = read::compare(&Mirror::local(), &repo.name, branch, base, head, || sync::live_compare(&repo.name, branch))?;
     Ok((facts["ahead_by"].as_u64() == Some(0), named_issues(facts["messages"].as_str().unwrap_or_default())))
 }
 
@@ -252,7 +252,7 @@ pub fn run(arguments: &[String]) -> u8 {
         return 2;
     };
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let listing = read::repo_list(&Mirror::local(), read::now(), audit::live_repo_list);
+    let listing = read::repo_list(&Mirror::local(), read::now(), sync::live_repo_list);
     let workers = running_workers();
     let (Ok(listing), Ok(workers)) = (&listing, &workers) else {
         let why = workers.as_ref().err().cloned().unwrap_or_else(|| format!("repository list unavailable: {}", listing.as_ref().err().map_or("", String::as_str)));

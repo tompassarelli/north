@@ -1,31 +1,8 @@
 use serde_json::{Value, json};
 
 use crate::audit;
+use crate::port::{Answer, Fetch, GitHub, REFETCH_S};
 use crate::store::{self, BRANCHES, BRANCHES_PROBE, CLOSED_ISSUES, ISSUES_PROBE, MAIN_CHECKS, MAIN_RUNS, Mirror, OPEN_ISSUES, OPEN_PULLS, OWNER, RELEASES, RUN_STATUSES, TAGS, key, runs_kind};
-
-pub const REFETCH_S: f64 = 30.0 * 60.0;
-
-#[derive(Debug, PartialEq)]
-pub enum Answer {
-    Unchanged,
-    Changed { body: Value, etag: Option<String> },
-}
-
-pub trait GitHub {
-    fn get(&self, endpoint: &str, etag: Option<&str>) -> Result<Answer, String>;
-    fn open_issues(&self, repo: &str) -> Result<Vec<Value>, String>;
-    fn closed_issues(&self, repo: &str) -> Result<Vec<Value>, String>;
-    fn branches(&self, repo: &str) -> Result<Vec<Value>, String>;
-    fn pages(&self, repo: &str) -> Result<Value, String>;
-    fn repo_list(&self) -> Result<Value, String>;
-    fn compares(&self, repo: &str, branches: &[String]) -> Result<Vec<Value>, String>;
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Fetch {
-    Unchanged,
-    Refreshed,
-}
 
 pub struct Gh;
 
@@ -219,6 +196,19 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
     u8::from(failed)
+}
+
+pub fn live_pages(repo: &str) -> Result<Value, String> {
+    audit::fetch_pages(&Gh, repo)
+}
+
+pub fn live_repo_list() -> Result<Value, String> {
+    audit::fetch_repo_list()
+}
+
+pub fn live_compare(repo: &str, branch: &str) -> Result<Value, String> {
+    let answers = audit::fetch_compares(repo, &[branch.to_owned()])?;
+    answers.into_iter().next().filter(|answer| !answer.is_null()).ok_or_else(|| format!("compare {branch} failed: GitHub has no such branch"))
 }
 
 #[cfg(test)]

@@ -1027,6 +1027,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-pace",
+ "north-session-host",
  "regex",
  "rusqlite",
  "rustix 0.38.44",
@@ -1269,6 +1270,17 @@ dependencies = [
  "north-landing",
  "proptest",
  "rustix 0.38.44",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "north-session-host"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "rustix 0.38.44",
+ "serde_json",
  "tempfile",
  "tokio",
 ]

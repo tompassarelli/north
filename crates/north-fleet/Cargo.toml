@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-pace = { path = "../north-pace" }
+north-session-host = { path = "../north-session-host" }
 regex.workspace = true
 rusqlite.workspace = true
 rustix.workspace = true

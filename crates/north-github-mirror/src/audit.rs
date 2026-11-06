@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
 use crate::store::{Mirror, OWNER, key};
-use crate::sync::{Answer, Fetch, GitHub, REFETCH_S};
+use crate::port::{Answer, Fetch, GitHub, REFETCH_S};
 
 pub const PAGES: &str = "pages/source";
 pub const ACCOUNT_REPOS: &str = "account/repos";
@@ -88,18 +88,4 @@ pub fn pages(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> (Stri
     let pages = key(repo, PAGES);
     let fetched = periodic(mirror, &pages, at, || github.pages(repo));
     (pages, fetched)
-}
-
-
-pub fn live_pages(repo: &str) -> Result<Value, String> {
-    fetch_pages(&crate::sync::Gh, repo)
-}
-
-pub fn live_repo_list() -> Result<Value, String> {
-    fetch_repo_list()
-}
-
-pub fn live_compare(repo: &str, branch: &str) -> Result<Value, String> {
-    let answers = fetch_compares(repo, &[branch.to_owned()])?;
-    answers.into_iter().next().filter(|answer| !answer.is_null()).ok_or_else(|| format!("compare {branch} failed: GitHub has no such branch"))
 }

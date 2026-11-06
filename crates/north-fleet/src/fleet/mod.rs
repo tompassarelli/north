@@ -32,7 +32,7 @@ pub mod roster;
 pub mod runtime;
 pub mod runtimes;
 pub mod sender;
-pub mod session_host;
+pub use north_session_host::session_host;
 pub mod store;
 mod ssh;
 pub mod stranded;
