@@ -201,7 +201,7 @@ disappear, which only loosens holds.
   lane with an earlier position overlaps the ticket's files. The ticket stays queued and is not decided.
 - **Send back:** the pick conflicts on bare main, and nothing ahead of it on its files is in flight.
   The verdict names the files, and the lane's run grows by one, which makes its reservation live.
-- Unreadable head, dropped commits and stale revert: **send back**, as today.
+- Unreadable head, a commit lost by the pick and stale revert: **send back**, as today. A lane commit that `git cherry` finds already on main (a lane stacked on a lane that has since landed) is skipped as a rebase skips it (`cherry-pick --empty=drop`), so the lane lands without a send-back; only a commit that is not on main and still goes missing from the candidate counts as dropped (north#706).
 
 Guarantees, each with what enforces it:
 

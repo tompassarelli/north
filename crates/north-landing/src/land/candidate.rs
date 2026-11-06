@@ -159,7 +159,9 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         return Ok(Pick::Decided(format!("landed {base}")));
     }
     let picked_onto = git(worktree, &["rev-parse", "HEAD"])?;
-    let picked = output(worktree, &["cherry-pick", "--allow-empty", &format!("{base}..{}", ticket.head)])?;
+    let stack_cherry = git(worktree, &["cherry", &picked_onto, &ticket.head])?;
+    let unlanded: Vec<&str> = stack_cherry.lines().filter_map(|line| line.strip_prefix("+ ")).collect();
+    let picked = output(worktree, &["cherry-pick", "--allow-empty", "--empty=drop", &format!("{base}..{}", ticket.head)])?;
     let resolved = picked.status.success() || merge_continue::finish(worktree, &worktree.join(merge_set::DEFAULT_CONFIG)).is_ok();
     case.picked_clean = Some(resolved);
     if !resolved {
@@ -181,10 +183,10 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         (case.bare_main, case.with_main, case.queued_ahead) = (Some(bare_main), Some(with_main), queued_ahead.map(str::to_owned));
         return Ok(reservation::judge(&Judged { branch: &ticket.branch, red_fix, bare_main, queued_ahead }, &Attempt::Conflict { files, with_main }));
     }
-    let range = format!("{base}..{}", ticket.head);
-    if git(worktree, &["rev-list", "--count", &range])? != git(worktree, &["rev-list", "--count", &format!("{picked_onto}..HEAD")])? {
+    let picked_count: usize = git(worktree, &["rev-list", "--count", &format!("{picked_onto}..HEAD")])?.parse().map_err(|error| format!("rev-list --count: {error}"))?;
+    if picked_count < unlanded.len() {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
-        let commits = git(worktree, &["rev-list", "--reverse", &range])?.replace('\n', " ");
+        let commits = unlanded.join(" ");
         case.dropped = Some(commits.clone());
         return refuse(logs, name, "dropped", &dropped_refusal(base, &commits));
     }

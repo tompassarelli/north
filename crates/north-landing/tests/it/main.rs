@@ -4,6 +4,7 @@ mod land_profile;
 mod lander_never_waits;
 mod lane_adds_crates;
 mod promote;
+mod reland;
 mod serve;
 mod sheriff;
 mod watchdog;

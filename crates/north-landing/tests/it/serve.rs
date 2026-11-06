@@ -91,11 +91,16 @@ impl World {
 
 impl Repository {
     pub(super) fn lane(&self, branch: &str) -> String {
+        self.lane_with(branch, "origin/main", (&format!("{branch}.txt"), "lane\n"), (&format!("{branch} (north#360)"), None))
+    }
+
+    pub(super) fn lane_with(&self, branch: &str, from: &str, file: (&str, &str), commit: (&str, Option<&str>)) -> String {
+        let (message, session) = commit;
         let lane = self.checkout.parent().unwrap().join("worktrees").join(branch);
-        git(&self.checkout, &["worktree", "add", "-q", "-b", branch, lane.to_str().unwrap(), "origin/main"]);
-        std::fs::write(lane.join(format!("{branch}.txt")), "lane\n").unwrap();
+        git(&self.checkout, &["worktree", "add", "-q", "-b", branch, lane.to_str().unwrap(), from]);
+        std::fs::write(lane.join(file.0), file.1).unwrap();
         git(&lane, &["add", "-A"]);
-        git(&lane, &["commit", "-q", "-m", &format!("{branch} (north#360)\n\nIncident-test: none; a fixture lane the incident guard must not look up on GitHub")]);
+        git(&lane, &["commit", "-q", "-m", &format!("{message}\n\nIncident-test: none; a fixture lane the incident guard must not look up on GitHub")]);
         let micros = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros();
         let ticket = Ticket {
             origin: git(&lane, &["remote", "get-url", "--push", "origin"]),
@@ -103,7 +108,7 @@ impl Repository {
             host: std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned(),
             branch: branch.to_owned(),
             head: git(&lane, &["rev-parse", "HEAD"]),
-            session: None,
+            session: session.map(str::to_owned),
             queued_at: "2026-11-05T00:00:00Z".to_owned(),
             first_commit_secs: None,
             several_commits: None,
