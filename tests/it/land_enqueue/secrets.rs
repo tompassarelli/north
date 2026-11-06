@@ -12,7 +12,12 @@ fn deny_list(fixture: &Fixture) -> PathBuf {
 }
 
 #[test]
-fn enqueue_refuses_a_lane_carrying_a_deny_listed_value_and_writes_no_ticket() {
+fn enqueue_refuses_a_lane_a_deny_list_or_secret_scan_flags_and_writes_no_ticket() {
+    a_deny_listed_value_is_refused();
+    a_lane_the_secret_scan_flags_is_refused();
+}
+
+fn a_deny_listed_value_is_refused() {
     let fixture = Fixture::new();
     fs::write(fixture.repo.join("identity.txt"), format!("owner: {PRIVATE_TERM}\n")).unwrap();
     git(&fixture.repo, &["add", "."]);
@@ -29,8 +34,7 @@ fn enqueue_refuses_a_lane_carrying_a_deny_listed_value_and_writes_no_ticket() {
     assert!(!fixture.state.exists(), "a refused lane writes nothing to the state directory: {:?}", written(&fixture.state));
 }
 
-#[test]
-fn enqueue_refuses_a_lane_a_secret_scan_flags_and_writes_no_ticket() {
+fn a_lane_the_secret_scan_flags_is_refused() {
     let fixture = Fixture::new();
     fixture.commit(&fixture.repo, "a.txt", "Add a");
     let stub = fixture.root.join("stub-bin");

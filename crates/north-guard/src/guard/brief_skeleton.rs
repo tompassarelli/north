@@ -40,7 +40,7 @@ pub fn skeleton(category: &str, neighborhood: &[String]) -> Option<String> {
             lines.extend(neighborhood.iter().cloned());
         }
         lines.push(String::new());
-        lines.push("Build rule: run `cargo check` on the crates you touched plus the named tests in Done when, then queue the lane; the lander lands it in seconds, runs the full clippy and test suite once per landed batch afterwards, and reverts the lane and tells you if it fails, unless Done when names a full run.".into());
+        lines.push("Build rule: run `cargo clippy --all-targets -p <touched crates> -- -D warnings` plus the named tests in Done when, then queue the lane; the lander lands it in seconds, runs the full suite once per landed batch afterwards, and reverts the lane and tells you if it fails, unless Done when names a full run.".into());
         lines.join("\n") + "\n"
     })
 }
