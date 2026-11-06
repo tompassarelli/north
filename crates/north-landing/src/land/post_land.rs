@@ -120,14 +120,14 @@ pub fn start(lander: &Lander, host: Option<String>, base: &str, head: &str, head
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
         if !matches!(verdict, Verdict::RedMain(_)) {
-            return Outcome { verdict, culprit: None, search: None, log: run.log.clone() };
+            return Outcome { verdict, culprit: None, search: None, log: run.log };
         }
         let started = telemetry::epoch();
         let culprit = locate(&landed, &run);
         if let Some(at) = culprit {
             judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], &run.at(&landed.head, &landed.tips[at]).log);
         }
-        Outcome { verdict, culprit, search: Some((started, telemetry::epoch())), log: run.log.clone() }
+        Outcome { verdict, culprit, search: Some((started, telemetry::epoch())), log: run.log }
     })
 }
 
