@@ -63,7 +63,7 @@ queue=$root/queue
 mkdir -p "$queue"
 rank=1
 [ -z "$red_fix" ] || rank=0
-ticket=$queue/$rank-$(date +%s%N)-$$
+ticket=$queue/$rank-$(date +%s%N)-$$@$name
 exec 8>"$ticket"
 flock -n 8
 trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
@@ -73,9 +73,19 @@ if [ -z "$cap" ]; then
   cap=@SLOTS@
   [ "$per" -le 1 ] || { cap=$((cores / per)); [ "$cap" -ge 1 ] || cap=1; [ "$cap" -le @SLOTS@ ] || cap=@SLOTS@; }
 fi
+served=$root/served
+mkdir -p "$served"
+turn_order() {
+  for t in $(ls "$queue"); do
+    repo=; at=0
+    case $t in *@*) repo=${t#*@}; [ ! -r "$served/$repo" ] || read -r at <"$served/$repo" || at=0 ;; esac
+    rest=${t#*-}
+    printf '%s %s %s %s\n' "${t%%-*}" "$at" "${rest%%-*}" "$t"
+  done | sort -s -k1,1n -k2,2n -k3,3 | cut -d ' ' -f4
+}
 first_in_line() {
   now=$(date +%s%N)
-  for t in $(ls "$queue" | sort); do
+  for t in $(turn_order); do
     f=$queue/$t
     [ "$f" != "$ticket" ] || return 0
     stamp=${t#*-}
@@ -108,6 +118,7 @@ while :; do
 done
 waited=$(( $(date +%s) - started ))
 [ "$waited" -eq 0 ] || echo "@WAITED@${waited}s in line for $s" >&2
+date +%s%N >"$served/$name"
 rm -f "$ticket"
 exec 8>&-
 slot=$root/$s
