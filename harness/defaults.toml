@@ -288,10 +288,10 @@ fallback = "every worker charges one point"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
 [spend_worker_cap]
-value = 12
+value = 18
 allowed = { min = 1, max = 200 }
 unit = "worker sessions working at once across every host and account"
-source = "tom: 2026-11-07 set the cap at 12 from the hosts' resident capacity, tuned from measured contention: landing conflicts, slot waits and rework (north#702)"
+source = "tom: 2026-11-07 raised the cap from 12 to 18 (north#702); first set at 12 from the hosts' resident capacity, tuned from measured contention: landing conflicts, slot waits and rework"
 fallback = "none: the cap is a stated amount"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
