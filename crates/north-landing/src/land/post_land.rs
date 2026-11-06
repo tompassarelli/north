@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -6,7 +5,6 @@ use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::landing::red_check::{self, Failure};
 use crate::platform::push_ledger;
 use super::after::{deadline, follow, send};
 use super::{blame, culprit};
@@ -19,6 +17,7 @@ use super::telemetry;
 
 const ALARMED: &str = "proxy";
 const POLL: Duration = Duration::from_millis(50);
+const INFRASTRUCTURE: [&str; 2] = ["has no tree and the checkout", "is a missing but already registered worktree"];
 const EPISODE: &str = "post-land-red";
 
 #[derive(Clone)]
@@ -37,7 +36,6 @@ pub struct Outcome {
     pub culprit: Option<usize>,
     pub search: Option<(f64, f64)>,
     pub log: PathBuf,
-    pub failing: BTreeSet<Failure>,
 }
 
 pub struct Run {
@@ -123,42 +121,15 @@ pub fn start(lander: &Lander, host: Option<String>, base: &str, head: &str, head
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
         if !matches!(verdict, Verdict::RedMain(_)) {
-            return Outcome { verdict, culprit: None, search: None, failing: BTreeSet::new(), log: run.log };
+            return Outcome { verdict, culprit: None, search: None, log: run.log };
         }
-        let failing = failing(&run.log, &run.outcome);
         let started = telemetry::epoch();
         let culprit = locate(&landed, &run);
         if let Some(at) = culprit {
             judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], &run.at(&landed.head, &landed.tips[at]).log);
         }
-        Outcome { verdict, culprit, search: Some((started, telemetry::epoch())), failing, log: run.log }
+        Outcome { verdict, culprit, search: Some((started, telemetry::epoch())), log: run.log }
     })
-}
-
-pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String]) -> Option<BTreeSet<Failure>> {
-    let landed = Landed { repo: lander.repo.clone(), repository: String::new(), base: base.to_owned(), head: tree.to_owned(), heads: Vec::new(), lanes: Vec::new(), tips: Vec::new() };
-    let mut runner = vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--dry".to_owned(), "1".to_owned()];
-    for step in failing {
-        runner.extend(["--command".to_owned(), step.clone()]);
-    }
-    let logs = lander.queue.join("logs");
-    let name = format!("sheriff-{}", &tree[..tree.len().min(12)]);
-    let run = Run {
-        runner,
-        worktree: lander.queue.join("sheriff-probe"),
-        log: logs.join(format!("{name}.log")),
-        outcome: logs.join(format!("{name}.outcome")),
-        ledger: PathBuf::new(),
-        offload_owner: lander.offload_owner.clone(),
-        capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
-        deadline: deadline(&lander.repo),
-        host: None,
-    };
-    match check(&landed, tree, &run).verdict {
-        Verdict::Green => Some(BTreeSet::new()),
-        Verdict::RedMain(_) => Some(steps(&run.outcome)),
-        _ => None,
-    }
 }
 
 fn judge_coverage(landed: &Landed, base: &str, tip: &str, log: &Path) {
@@ -203,8 +174,8 @@ fn prefixes(landed: &Landed, run: &Run, counts: &[usize]) -> Vec<Verdict> {
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
     let started = std::time::Instant::now();
     let mut checked = check(landed, &landed.head, run);
-    if matches!(checked.verdict, Verdict::Transient(_)) && !checked.expired {
-        println!("north land: the post-land checks of {} reached no verdict; rerunning them once", landed.head);
+    if matches!(checked.verdict, Verdict::Transient(_)) && runtime_switched(&run.log) {
+        println!("north land: the runtime or its build slot broke under the post-land checks of {}; rerunning them once", landed.head);
         checked = check(landed, &landed.head, run);
     }
     let Checked { verdict, expired } = checked;
@@ -213,13 +184,17 @@ pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) ->
     verdict
 }
 
+fn runtime_switched(log: &Path) -> bool {
+    fs::read_to_string(log).is_ok_and(|text| INFRASTRUCTURE.iter().any(|signature| text.contains(signature)) || super::checks::unfit_host(&text).is_some())
+}
+
 fn episode_marker(run: &Run, landed: &Landed) -> PathBuf {
     run.ledger.with_file_name(format!("{EPISODE}-{}", landed.repository.replace('/', "_")))
 }
 
-fn red_message(landed: &Landed, run: &Run, detail: &str) -> String {
-    let log = &run.log;
-    let failing: Vec<String> = failing(log, &run.outcome).iter().map(|failure| failure.label().to_owned()).collect();
+fn red_message(landed: &Landed, log: &Path, detail: &str) -> String {
+    let text = fs::read_to_string(log).unwrap_or_default();
+    let failing: Vec<String> = crate::landing::red_check::failures(&text).iter().map(|failure| failure.label().to_owned()).collect();
     let failing = if failing.is_empty() { detail.to_owned() } else { failing.join(", ") };
     format!("north land: main is red in {} at {}: failing {failing}; suspect commit {} (landed lanes: {}); log: {}; the sheriff acts first, this message is for when it cannot", landed.repository, landed.head, landed.head, landed.lanes.join(", "), log.display())
 }
@@ -232,7 +207,7 @@ fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: impl Fn(&str, 
     let marker = episode_marker(run, landed);
     match verdict {
         Verdict::RedMain(detail) if !marker.exists() => {
-            if alarm(ALARMED, &red_message(landed, run, detail)) {
+            if alarm(ALARMED, &red_message(landed, &run.log, detail)) {
                 let _ = fs::write(&marker, &landed.head);
             } else {
                 eprintln!("north land: could not alarm {ALARMED} about red main {}", landed.head);
@@ -324,23 +299,12 @@ fn supervise(command: &mut Command, limit: Duration) -> std::io::Result<Option<s
 fn judged(status: std::process::ExitStatus, run: &Run) -> Verdict {
     match status.code() {
         _ if status.success() => Verdict::Green,
+        _ if runtime_switched(&run.log) => Verdict::Transient(format!("the runtime or its build slot broke under the post-land checks, so they reached no verdict; log: {}", run.log.display())),
         Some(126 | 127) => Verdict::Transient(format!("post-land checks could not start their command (exit {status}), so they reached no verdict; log: {}", run.log.display())),
         Some(75) => Verdict::Transient(format!("post-land checks exited 75; log: {}", run.log.display())),
         Some(OFFLOAD_SLOTS_BUSY) => Verdict::Transient(format!("every build-host slot stayed busy, so the post-land checks reached no verdict; log: {}", run.log.display())),
-        _ if steps(&run.outcome).is_empty() => Verdict::Transient(format!("post-land checks exited {status} with no check reaching a failing verdict, so they reached no verdict; log: {}", run.log.display())),
         _ => Verdict::RedMain(failed_check(&run.outcome).unwrap_or_else(|| format!("exit {status}; log: {}", run.log.display()))),
     }
-}
-
-pub(crate) fn steps(outcome: &Path) -> BTreeSet<Failure> {
-    let text = fs::read_to_string(outcome).unwrap_or_default();
-    text.lines().filter_map(|line| line.strip_prefix("failed-step\t")).filter_map(|rest| rest.split('\t').next()).filter(|command| !command.is_empty()).map(|command| Failure::Step(command.to_owned())).collect()
-}
-
-pub(crate) fn failing(log: &Path, outcome: &Path) -> BTreeSet<Failure> {
-    let mut failing = red_check::failures(&fs::read_to_string(log).unwrap_or_default());
-    failing.extend(steps(outcome));
-    failing
 }
 
 fn failed_check(outcome: &Path) -> Option<String> {

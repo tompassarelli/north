@@ -13,14 +13,12 @@ const OFFLOAD_SECONDS: u64 = 1800;
 const RANGE_LIMIT: usize = 200;
 pub const MAIN_RED: u8 = 3;
 const UNKNOWN: u8 = 2;
-const STEP: &str = "land step failed: ";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Failure {
     Cargo(String),
     Harness(String),
     Line(String),
-    Step(String),
 }
 
 impl Failure {
@@ -29,7 +27,6 @@ impl Failure {
             Failure::Cargo(name) => format!("cargo {name}"),
             Failure::Harness(path) => format!("harness {path}"),
             Failure::Line(text) => format!("FAIL {text}"),
-            Failure::Step(command) => format!("step {command}"),
         }
     }
 
@@ -38,12 +35,11 @@ impl Failure {
         key.strip_prefix("cargo ").map(|name| Failure::Cargo(name.to_owned()))
             .or_else(|| key.strip_prefix("harness ").map(|path| Failure::Harness(path.to_owned())))
             .or_else(|| key.strip_prefix("FAIL ").map(|text| Failure::Line(text.to_owned())))
-            .or_else(|| key.strip_prefix("step ").map(|command| Failure::Step(command.to_owned())))
     }
 
     pub fn label(&self) -> &str {
         match self {
-            Failure::Cargo(name) | Failure::Harness(name) | Failure::Line(name) | Failure::Step(name) => name,
+            Failure::Cargo(name) | Failure::Harness(name) | Failure::Line(name) => name,
         }
     }
 
@@ -52,7 +48,6 @@ impl Failure {
             Failure::Cargo(name) => format!("test {name} ... FAILED"),
             Failure::Harness(path) => format!("land check: {path} exited 1"),
             Failure::Line(text) => format!("FAIL {text}"),
-            Failure::Step(command) => format!("{STEP}{command}"),
         }
     }
 }
@@ -78,8 +73,6 @@ pub fn failures(log: &str) -> BTreeSet<Failure> {
             if (path.ends_with(".sh") || path.ends_with(".py")) && (verdict.starts_with("exited") || verdict.starts_with("was killed")) {
                 found.insert(Failure::Harness(path.to_owned()));
             }
-        } else if let Some(command) = line.strip_prefix(STEP) {
-            found.insert(Failure::Step(command.trim().to_owned()));
         } else if let Some(text) = line.strip_prefix("FAIL ").or_else(|| line.strip_prefix("FAIL: ")) {
             found.insert(Failure::Line(text.trim().to_owned()));
         }
@@ -210,7 +203,7 @@ fn test_file(failure: &Failure) -> Option<String> {
             let found = git(&["grep", "-l", "-E", &format!(r"fn {leaf}\b"), "--", "*.rs"])?;
             found.lines().next().map(str::to_owned)
         }
-        Failure::Line(_) | Failure::Step(_) => None,
+        Failure::Line(_) => None,
     }
 }
 

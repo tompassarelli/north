@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
@@ -10,7 +9,6 @@ use super::after;
 use super::candidate::{self, git, output};
 use super::checks::Verdict;
 use super::lander::Lander;
-use super::after::owner::{self, Reverted};
 use super::post_land::{self, Hosts, Outcome};
 use super::queue::{self, Ticket};
 use super::jobs::Jobs;
@@ -218,7 +216,7 @@ impl Watch {
     }
 
     fn finish(&mut self, lander: &Lander, mut batch: Batch, run: JoinHandle<Outcome>) {
-        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None, search: None, log: PathBuf::new(), failing: BTreeSet::new() });
+        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None, search: None, log: PathBuf::new() });
         let ended = epoch();
         if let Verdict::Transient(detail) = &outcome.verdict {
             println!("north land: the after-landing run of {} reached no verdict ({detail}); it runs again in {} s", batch.head, RETRY.as_secs());
@@ -238,8 +236,8 @@ impl Watch {
         if let Some((from, to)) = outcome.search {
             record(lander, &[Span::new(&batch.head, format!("culprit search over {} landed lanes", batch.lanes.len()), Category::Lander, from, to).with(PHASE, AFTER)]);
         }
-        if let Verdict::RedMain(detail) = &outcome.verdict {
-            blame(lander, &batch, outcome.culprit, detail, &outcome);
+        if let Verdict::RedMain(detail) = outcome.verdict {
+            blame(lander, &batch, outcome.culprit, &detail, &outcome.log);
         }
         for followed in &batch.heads {
             let _ = fs::remove_file(entry_path(lander, &followed.head));
@@ -257,9 +255,9 @@ fn record(lander: &Lander, spans: &[Span]) {
     }
 }
 
-fn blame(lander: &Lander, batch: &Batch, culprit: Option<usize>, detail: &str, outcome: &Outcome) {
+fn blame(lander: &Lander, batch: &Batch, culprit: Option<usize>, detail: &str, log: &Path) {
     let Some(at) = culprit else {
-        inherited(lander, &batch.head, detail, outcome);
+        inherited(lander, &batch.head, detail, log);
         return;
     };
     let (base, lanes) = (&batch.base, &batch.lanes);
@@ -271,7 +269,7 @@ fn blame(lander: &Lander, batch: &Batch, culprit: Option<usize>, detail: &str, o
         after::send("proxy", &message);
         return;
     }
-    match revert(lander, lane, since, detail, outcome) {
+    match revert(lander, lane, since, detail) {
         Ok(line) => println!("north land: {line}"),
         Err(error) => {
             let message = format!("north land: the post-land checks of {} failed ({detail}) and its revert could not be queued: {error}", lane.ticket.branch);
@@ -281,8 +279,8 @@ fn blame(lander: &Lander, batch: &Batch, culprit: Option<usize>, detail: &str, o
     }
 }
 
-fn inherited(lander: &Lander, head: &str, detail: &str, outcome: &Outcome) {
-    match sheriff::chase(lander, head, &outcome.failing, &outcome.log) {
+fn inherited(lander: &Lander, head: &str, detail: &str, log: &Path) {
+    match sheriff::chase(lander, head, log) {
         Ok(line) => println!("north land: sheriff: {line}"),
         Err(error) => {
             let message = format!("north land: the post-land checks of {head} are red ({detail}) with no culprit among the batch, and the sheriff could not be asked for the earlier one: {error}");
@@ -296,7 +294,7 @@ fn short(sha: &str) -> &str {
     &sha[..sha.len().min(9)]
 }
 
-fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str, outcome: &Outcome) -> Result<String, String> {
+fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str) -> Result<String, String> {
     let worktree: PathBuf = candidate::lander_worktree(&lander.repo, WORKTREE)?;
     let main = candidate::prepare(&lander.repo, &worktree)?;
     git(&worktree, &["reset", "-q", "--hard"])?;
@@ -315,9 +313,12 @@ fn revert(lander: &Lander, lane: &LandedLane, since: &str, detail: &str, outcome
     let message = format!("Revert {subject}\n\n{} landed and its post-land checks failed on {} ({detail}), so the lander reverts it through the landing queue.\n\n{}", lane.ticket.branch, short(&lane.tip), trailers.join("\n"));
     git(&worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &message])?;
     let head = sheriff::queue_revert(lander, &worktree, &branch)?;
-    let failing = if outcome.failing.is_empty() { detail.to_owned() } else { sheriff::names(&outcome.failing.iter().cloned().collect::<Vec<_>>()) };
-    let reverted = Reverted { branch: &lane.ticket.branch, commit: &lane.tip, revert: &branch, red: &lane.tip, failing: &failing, log: &outcome.log };
-    println!("north land: {}", owner::tell(&owner::Cli, lane.ticket.session.as_deref(), &reverted));
+    if let Some(session) = lane.ticket.session.as_deref().filter(|session| !session.is_empty()) {
+        let text = format!("north land: {} landed, but its post-land checks failed on {} ({detail}); the lander queued its revert {branch} ahead of the queue; fix the lane and queue it again with Follows: {}", lane.ticket.branch, short(&lane.tip), short(&lane.tip));
+        if !after::send(session, &text) {
+            println!("north land: could not tell session {session} that {} was reverted", lane.ticket.branch);
+        }
+    }
     Ok(format!("revert of {} {head} queued as {branch}", lane.ticket.branch))
 }
 
