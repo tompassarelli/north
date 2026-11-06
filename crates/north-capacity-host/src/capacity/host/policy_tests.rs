@@ -80,6 +80,8 @@ fn a_tom_request_with_too_few_runs_of_its_shape_is_sized_from_its_whole_class() 
     assert!(!class_wide && own.len() == 3, "three runs of its own shape size it");
     let (heavy, class_wide) = sizing_runs("heavy", vec![run(900.0)], class_runs);
     assert!(!class_wide && heavy.len() == 1, "other classes never borrow class runs");
+    let unmeasured = charged_resources("heavy", 20.0, &[f64::NAN; 3], &[f64::NAN; 3]).expect("charged");
+    assert!(unmeasured.memory_mib > 0.0 && unmeasured.cpus >= 1.0, "runs that measured nothing charge the declared class, not a negative p90 that admission refuses as INVALID");
 }
 
 // KEEP(bug): a tiny host still grants one core so the aggregate slice never gets a zero quota; regression of 417cb70da

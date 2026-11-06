@@ -173,13 +173,15 @@ pub fn high_confidence_runs() -> usize {
 /// What a declared class is charged once enough of its own runs measured it.
 pub fn charged_resources(kind: &str, cores: f64, run_cores: &[f64], run_memory_mib: &[f64]) -> Option<Resources> {
     let declared = resource_class(kind, cores)?;
+    let measured = |runs: &[f64]| runs.iter().copied().filter(|value| value.is_finite() && *value > 0.0).collect::<Vec<f64>>();
+    let (run_cores, run_memory_mib) = (measured(run_cores), measured(run_memory_mib));
     if run_cores.len() < LEARNED_MINIMUM_RUNS || run_memory_mib.len() < LEARNED_MINIMUM_RUNS {
         return Some(declared);
     }
-    let memory_mib = p90(run_memory_mib) * memory_margin();
+    let memory_mib = p90(&run_memory_mib) * memory_margin();
     match kind {
         "moderate" | "heavy" | "native" | "gpu" => {
-            let cpus = p90(run_cores).min(declared.cpus * 1.5).max(1.0);
+            let cpus = p90(&run_cores).min(declared.cpus * 1.5).max(1.0);
             Some(Resources { cpus: if kind == "heavy" { cpus.max(declared.cpus) } else { cpus }, memory_mib })
         }
         "tom" | "critical" => Some(Resources { cpus: declared.cpus, memory_mib: memory_mib.min(declared.memory_mib) }),
