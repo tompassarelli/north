@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-exec "$(dirname "$(readlink -f "$0")")/north" code-health tick "$@"

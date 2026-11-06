@@ -7,7 +7,7 @@ use north_base::platform::entry_points;
 
 use super::{Range, git};
 
-const CORE_TOOLS: [&str; 3] = ["agents", "threads", "capacity-watchdog"];
+const CORE_TOOLS: [&str; 2] = ["agents", "threads"];
 
 struct Layout {
     own: &'static str,

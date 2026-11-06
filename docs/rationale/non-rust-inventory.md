@@ -21,20 +21,15 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 | bin/bun | 14 | stay | PATH shadow that routes bun through `north capacity gate` admission, then execs the real bun; must be an executable named bun (<=80-line glue) |
 | bin/capacity-watchdog | 549 | port: north#88 box "capacity TypeScript to Rust" (family: capacity, audit C4) | Bun TS using bun:sqlite (rusqlite replaces it) and; no Bun-only API that Rust lacks |
 | bin/cargo | 14 | stay | same admission shadow for cargo |
-| bin/code-health | 3 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | shim to north code-health; deleted once no host unit names it |
-| bin/code-health-tick | 3 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | shim to north code-health tick; nixos-config modules/code-health-review/default.nix names it, so the unit change lands first |
 | bin/depbox | 88 | stay | execs bwrap/unshare sandbox around an arbitrary command (namespace setup before any runtime exists); glue under 80 code lines |
 | bin/effect-kit | 4 | stay | 4-line PATH name for agent-machinery/scripts/effect-kit.mjs |
 | bin/follows-release-gates.test.sh | 59 | port: landing-train B18 (north#76) | drive bin/safe-push against the Rust `north follows-release`; the tool itself is ported and its old script is gone; delete with safe-push.test.sh |
 | bin/follows-release.lib.sh | 58 | port: landing-train B18 (north#76) | drive bin/safe-push against the Rust `north follows-release`; the tool itself is ported and its old script is gone; delete with safe-push.test.sh |
 | bin/follows-release-staffed.test.sh | 40 | port: landing-train B18 (north#76) | drive bin/safe-push against the Rust `north follows-release`; the tool itself is ported and its old script is gone; delete with safe-push.test.sh |
 | bin/follows-release.test.sh | 33 | port: landing-train B18 (north#76) | drive bin/safe-push against the Rust `north follows-release`; the tool itself is ported and its old script is gone; delete with safe-push.test.sh |
-| bin/gh-app-token | 90 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | Bun TS signing an RS256 JWT with node:crypto; Rust has rsa/jsonwebtoken |
-| bin/gh-app-token.test.sh | 93 | port: north#88 box "tokens and ledgers to Rust" (family: tooling, audit C10) | test of gh-app-token |
 | bin/gh-as-app | 4 | stay | 4-line glue: runs gh with the token printed by gh-app-token |
 | bin/gh | 19 | stay | 19-line PATH shim: finds the real gh and runs it through `north gh-session` in a fleet session; glue |
 | bin/ssh | 15 | stay | 15-line PATH shim: finds the real ssh and runs it through `north ssh-session` in a fleet session; glue |
-| bin/job-run | 86 | port: north#88 box "run-bounded and job-run" (family: landing path, north#83) | ported as `north job-run`; the script stays until the nixos-config units switch to the verb on every host (north#88 box "run-bounded and job-run"); deployed systemd units name bin/job-run (nixos-config modules/job-run, delivery-liveness, code-health-review, worker-ledger), so the nixos-config unit change lands first; tests/job_run.rs drives it |
 | bin/land-shell | 11 | stay | workflow-free 10-line wrapper that runs a land-check command inside depbox (and nix develop with --dev); used by .safe-push, bin/head-north and red_check.rs; glue |
 | bin/mutant | 3 | stay | 3-line exec of `north mutant`; three skills document the bare `mutant record` command; delete when nixos-config provides the wrapper |
 | bin/nix | 14 | stay | same admission shadow for nix |

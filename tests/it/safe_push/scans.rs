@@ -92,7 +92,7 @@ fn a_removed_tool_needs_a_replacement_in_the_peer_or_a_removes_tool_trailer_and_
     fixture.run(&["--dry-run"]).expect(true, &[]);
 
     reset(&fixture, &first);
-    let names = ["agents", "threads", "safe-push", "capacity-watchdog", "retired-tool", "helper.test.sh"];
+    let names = ["agents", "threads", "safe-push", "retired-tool", "helper.test.sh"];
     tools(&fixture, &names);
     fixture.git(&["commit", "-qm", "all core tools"]);
     publish_main(&fixture);

@@ -105,7 +105,7 @@ pub fn bare(north: &str, command: &[String]) -> Vec<String> {
     words
 }
 
-/// `north capacity dev-shell -- COMMAND...` prints the command as it runs from the current directory, each word NUL-terminated, for a shell runner such as bin/job-run to execute.
+/// `north capacity dev-shell -- COMMAND...` prints the command as it runs from the current directory, each word NUL-terminated, for a shell runner such as `north job-run` to execute.
 pub fn run(arguments: &[String]) -> u8 {
     let Some(command) = arguments.split_first().filter(|(separator, command)| *separator == "--" && !command.is_empty()).map(|(_, command)| command) else {
         eprintln!("{USAGE}");
