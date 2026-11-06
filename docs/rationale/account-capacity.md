@@ -361,7 +361,7 @@ old; 10 minutes is the one bound past which a reading is `Stale`.
 ### 2.5 Breaker thresholds
 
 Tom set them: a velocity warning at 50% of E before 25% of expected active minutes, a warning at 2x p90, a trip at 4x
-p90, each held for two consecutive readings. Against the threads `runs` table (worker runs 2026-10-24 to
+p90, each held for two consecutive readings. The velocity warning goes to the box's own worker, which can act on it; its lead hears only once the box is past its p90 (north#637, 2026-11-06). Against the threads `runs` table (worker runs 2026-10-24 to
 2026-11-04, `cost_usd`,
 an issue's boxes grouped by tier and category, each box's expected cost the p90 of its cell with at least 5 boxes),
 the issue-level ratio spend / expected was p50 0.20, p90 0.89, p95 1.31, p99 2.51, max 5.04 over 607 issues: 2x would
