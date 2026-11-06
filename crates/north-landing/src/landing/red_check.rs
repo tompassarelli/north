@@ -110,10 +110,9 @@ pub fn rerun_command(failed: &BTreeSet<Failure>) -> Option<String> {
             cargo.join(" ")
         ));
     }
-    for path in harness {
-        let interpreter = if path.ends_with(".py") { "python3" } else { "bash" };
-        let path = quote(path);
-        steps.push(format!("{interpreter} {path} 2>&1 || {{ echo \"land check: \"{path}\" exited 1\"; status=1; }}"));
+    if !harness.is_empty() {
+        let paths: Vec<String> = harness.iter().map(|path| quote(path)).collect();
+        steps.push(format!("env -u SAFE_PUSH_LAND_HEAD -u SAFE_PUSH_LAND_RUNTIME_HEAD ./bin/head-north land-tests {} 2>&1 || status=1", paths.join(" ")));
     }
     steps.push("exit $status".to_owned());
     Some(steps.join("; "))

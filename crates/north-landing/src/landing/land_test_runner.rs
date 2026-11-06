@@ -47,7 +47,7 @@ pub fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     let (selected, env) = match request.tests {
-        Tests::Named(tests) => (tests.to_vec(), ChildEnv::default()),
+        Tests::Named(tests) => (tests.to_vec(), ChildEnv::for_selection(Path::new("."))),
         Tests::Selected(scope, only) => {
             let env = ChildEnv::for_selection(Path::new("."));
             match land_test_selection::select(Path::new("."), scope, only, &env) {
