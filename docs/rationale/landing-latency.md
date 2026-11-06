@@ -222,3 +222,20 @@ and red fixes queued for one, and its cores) and ranks hosts by how oversubscrib
 backlog per job the host runs at once (cores over a land check's, at most the slot count), or its
 committed share of its CPUs, whichever is higher. A host on an older runtime that prints no slot
 line is ranked by its committed share alone.
+
+## Clippy's warm slot and the leaf-crate test floor (2026-11-06)
+
+A one-crate clippy recompiled for about 20 s even in a slot the warmer had just built at the landing's
+base. Cargo tracks `CLIPPY_ARGS`, the arguments after `--`, in every workspace crate's clippy
+fingerprint. The warm line ran `cargo clippy --all-targets --workspace` with none, and the land check
+runs `-- -D warnings`, so each check found every workspace crate under the changed one stale. On a
+reflinked copy of whiterabbit's slot 4, warmed at 7c5707a8f, the warm command found nothing to do
+(0.34 s). `clippy -p north-guard -- -D warnings` then checked 13 workspace crates in 18.0 s,
+`stale: changed env "CLIPPY_ARGS"`, and the same command run again took 0.09 s. The warm line now
+passes `-- -D warnings` too. Dependency features already match through
+`resolver.feature-unification = "workspace"`.
+
+The router's silent-child test, which set a leaf landing's test-run time, waited 4 s of real time
+for a park (2 s in its sibling). It now parks after 400 ms with a 90 ms quiet limit (0.41 s each, 5
+of 5 runs). With its ETA minute back at 10 ms, so the quiet limit (900 ms) outlasts the park,
+the idle case fails, so the test still tells an idle note from a park.

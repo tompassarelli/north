@@ -39,7 +39,7 @@ async fn silent_run_with_jobs(reply: &str, lanes: Arc<dyn crate::fleet::stranded
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_child_that_parks_with_no_report_line_tells_its_parent_once_which_state_it_is_in() {
-    let told = silent_run("Landing now.", Arc::new(Ahead(0)), seconds(600, 600), Duration::from_secs(2)).await;
+    let told = silent_run("Landing now.", Arc::new(Ahead(0)), seconds(600, 600), Duration::from_millis(400)).await;
     assert_eq!(told.len(), 1, "{told:?}");
     assert_eq!((told[0].0.as_str(), told[0].2), ("lead", Delivery::Queued));
     assert!(told[0].1.starts_with("[from worker · parked · turn 1] its last turn ended with no Done:"), "{}", told[0].1);
@@ -48,8 +48,8 @@ async fn a_child_that_parks_with_no_report_line_tells_its_parent_once_which_stat
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_child_idle_past_the_silent_limit_is_told_as_idle_before_it_parks_and_not_told_again_when_it_does() {
-    let policy = crate::fleet::idle::Policy { eta_minute: Duration::from_millis(11), ..seconds(600, 600) };
-    let told = silent_run("Landing now.", Arc::new(Ahead(3)), policy, Duration::from_secs(4)).await;
+    let policy = crate::fleet::idle::Policy { eta_minute: Duration::from_millis(1), ..seconds(600, 600) };
+    let told = silent_run("Landing now.", Arc::new(Ahead(3)), policy, Duration::from_millis(400)).await;
     assert_eq!(told.len(), 1, "{told:?}");
     assert!(told[0].1.starts_with("[from worker · idle · turn 1]") && told[0].1.contains("its lane g1 holds 3 commits not on origin/main"), "{}", told[0].1);
 }
