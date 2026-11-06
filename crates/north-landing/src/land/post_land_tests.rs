@@ -7,7 +7,7 @@ use super::{Landed, Run, execute, judged, record};
 use crate::land::checks::Verdict;
 
 fn run() -> Run {
-    Run { runner: Vec::new(), worktree: PathBuf::new(), log: PathBuf::from("post-land.log"), outcome: PathBuf::from("absent"), ledger: PathBuf::new(), offload_owner: String::new(), capacity: String::new(), deadline: Duration::from_secs(60) }
+    Run { runner: Vec::new(), worktree: PathBuf::new(), log: PathBuf::from("post-land.log"), outcome: PathBuf::from("absent"), ledger: PathBuf::new(), offload_owner: String::new(), capacity: String::new(), deadline: Duration::from_secs(60), host: None }
 }
 
 // KEEP(bug): on 2026-11-06 a check host that could not find the laptop's runtime path ended an after-landing run with exit 127 and the run was reported as red main, putting innocent lanes up for revert (north#634)

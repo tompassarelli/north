@@ -4,9 +4,14 @@ use std::time::{Duration, Instant};
 
 use super::{Fixture, executable, git};
 
-const HOLD_FIRST_AFTER_RUN: &str = r#"#!/usr/bin/env bash
-if [ "$1 $2 $3" = "land checks --after" ] && [ ! -e "$LAND_TRACE/held" ]; then
-  touch "$LAND_TRACE/held"
+const HOLD_TWO_AFTER_RUNS_ON_SPREAD_HOSTS: &str = r#"#!/usr/bin/env bash
+if [ "$1 $2 $3 $4" = "capacity offload choose --any" ]; then
+  case " $* " in *" --taken gex45 "*) echo ccx33 ;; *) echo gex45 ;; esac
+  exit 0
+fi
+[ "$1 $2 $3" = "land checks --after" ] || exit 0
+echo "$SAFE_PUSH_LAND_RUNNER" >>"$LAND_TRACE/runners"
+if [ ! -e "$LAND_TRACE/release" ] && [ "$(wc -l <"$LAND_TRACE/runners")" -le 2 ]; then
   for _ in $(seq 1200); do [ -e "$LAND_TRACE/release" ] && exit 0; sleep 0.1; done
   exit 1
 fi
@@ -112,17 +117,25 @@ fn landed(fixture: &Fixture, ticket: &Path) -> String {
 }
 
 #[test]
-fn landings_during_an_after_landing_run_wait_as_one_run_of_the_newest_head_that_reverts_only_the_breaking_lane() {
+fn a_second_landing_runs_beside_the_first_on_another_host_and_later_landings_wait_as_one_run_that_reverts_only_the_breaking_lane() {
     let mut fixture = Fixture::new();
+    git(&fixture.repo, &["config", "landing.after-runs", "2"]);
     fs::write(fixture.trace.join("post-land-red-if"), "broken.txt").unwrap();
-    executable(&fixture.trace.join("north-hook"), HOLD_FIRST_AFTER_RUN);
+    executable(&fixture.trace.join("north-hook"), HOLD_TWO_AFTER_RUNS_ON_SPREAD_HOSTS);
     let first = fixture.lane("first", "first.txt", "first\n");
     let first = fixture.enqueue(&first, None);
     let mut serve = fixture.command().spawn().unwrap();
     let first = landed(&fixture, &first);
-    until("the first after-landing run", || fixture.trace.join("held").exists());
+    let trace = fixture.trace.join("runners");
+    let runners = || fs::read_to_string(&trace).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>();
+    until("the first after-landing run", || runners().len() == 1);
+    let second = fixture.lane("second", "second.txt", "second\n");
+    let second = fixture.enqueue(&second, None);
+    let second = landed(&fixture, &second);
+    until("the second after-landing run beside the held first", || runners().len() == 2);
+    assert_eq!(runners(), ["gex45", "ccx33"], "the second run counts the host the first took");
     let mut heads = Vec::new();
-    for (name, file) in [("second", "second.txt"), ("breaker", "broken.txt"), ("last", "last.txt")] {
+    for (name, file) in [("breaker", "broken.txt"), ("last", "last.txt")] {
         let lane = fixture.lane(name, file, &format!("{name}\n"));
         let ticket = fixture.enqueue(&lane, None);
         heads.push(landed(&fixture, &ticket));
@@ -132,15 +145,14 @@ fn landings_during_an_after_landing_run_wait_as_one_run_of_the_newest_head_that_
     assert_eq!(fixture.subjects(), ["change from first", "change from second", "change from breaker", "change from last", "Revert change from breaker"]);
     let runs = fixture.calls("land checks --after ");
     let newest = heads.last().unwrap();
-    assert_eq!(runs.iter().filter(|run| run.contains(&format!("--base {first} --head {newest} --tree {newest} "))).count(), 1, "one run covers the three landings: {runs:?}");
-    for head in &heads[..2] {
-        assert!(!runs.iter().any(|run| run.contains(&format!("--head {head} "))), "no run of the covered head {head}: {runs:?}");
-    }
+    assert_eq!(runs.iter().filter(|run| run.contains(&format!("--base {first} --head {second} --tree {second} "))).count(), 1, "the second landing runs alone from the first: {runs:?}");
+    assert_eq!(runs.iter().filter(|run| run.contains(&format!("--base {second} --head {newest} --tree {newest} "))).count(), 1, "one run covers the two later landings: {runs:?}");
+    assert!(!runs.iter().any(|run| run.contains(&format!("--head {} ", heads[0]))), "no run of the covered head {}: {runs:?}", heads[0]);
     let told: Vec<String> = fixture.fleet().into_iter().filter(|call| call.contains("post-land checks failed")).collect();
     assert_eq!(told.len(), 1, "{told:?}");
     assert!(told[0].starts_with("fleet send --from service:north-land session-lane-breaker "), "{told:?}");
     let ledger = fs::read_to_string(fixture.state.join("safe-push/post-land.tsv")).unwrap();
-    for head in std::iter::once(&first).chain(&heads) {
+    for head in [&first, &second].into_iter().chain(&heads) {
         let rows: Vec<&str> = ledger.lines().filter(|row| row.split('\t').nth(2) == Some(head.as_str())).collect();
         assert_eq!(rows.len(), 1, "one verdict row for landed head {head}: {ledger}");
     }

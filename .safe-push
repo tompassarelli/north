@@ -5,6 +5,7 @@
 	lander-host = whiterabbit
 	push-app = lander
 	remote-hosts = gex45 ccx33
+	after-runs = 3
 [mutant]
 	class = heavy
 	run = ./bin/head-north --code crates/north-core/src/capacity/dev_shell.rs,src/cli/ dev-shell run -- bash harness/scripts/mutant-tests.sh

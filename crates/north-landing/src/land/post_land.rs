@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use super::after::{deadline, follow, send};
@@ -44,6 +45,45 @@ pub struct Run {
     pub offload_owner: String,
     pub capacity: String,
     pub deadline: Duration,
+    pub host: Option<String>,
+}
+
+#[derive(Clone, Default)]
+pub struct Hosts(Arc<Mutex<Vec<String>>>);
+
+struct Claim {
+    hosts: Hosts,
+    host: Option<String>,
+}
+
+impl Hosts {
+    fn claim(&self, repo: &Path, head: &str) -> Claim {
+        let mut taken = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut command = Command::new(follow::program());
+        command.args(["capacity", "offload", "choose", "--any"]);
+        for host in taken.iter() {
+            command.args(["--taken", host]);
+        }
+        let chosen = command.current_dir(repo).stdin(Stdio::null()).stderr(Stdio::null()).output();
+        let host = chosen.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|host| !host.is_empty());
+        match &host {
+            Some(host) if taken.is_empty() => println!("north land: the after-landing run of {head} runs its checks on {host}"),
+            Some(host) => println!("north land: the after-landing run of {head} runs its checks on {host}, beside the runs in flight on {}", taken.join(", ")),
+            None => {}
+        }
+        taken.extend(host.clone());
+        Claim { hosts: self.clone(), host }
+    }
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        let Some(host) = &self.host else { return };
+        let mut taken = self.hosts.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(at) = taken.iter().position(|held| held == host) {
+            taken.remove(at);
+        }
+    }
 }
 
 impl Run {
@@ -60,11 +100,12 @@ impl Run {
             offload_owner: self.offload_owner.clone(),
             capacity: self.capacity.clone(),
             deadline: self.deadline,
+            host: None,
         }
     }
 }
 
-pub fn start(lander: &Lander, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>) -> std::thread::JoinHandle<Outcome> {
+pub fn start(lander: &Lander, hosts: &Hosts, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>) -> std::thread::JoinHandle<Outcome> {
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
     let landed = Landed { repo: lander.repo.clone(), repository: telemetry::repository(&origin), base: base.to_owned(), head: head.to_owned(), heads, lanes, tips };
     let run = Run {
@@ -76,9 +117,13 @@ pub fn start(lander: &Lander, base: &str, head: &str, heads: Vec<String>, lanes:
         offload_owner: lander.offload_owner.clone(),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
         deadline: deadline(&lander.repo),
+        host: None,
     }
     .at(head, head);
+    let hosts = hosts.clone();
     std::thread::spawn(move || {
+        let claim = hosts.claim(&landed.repo, &landed.head);
+        let run = Run { host: claim.host.clone(), ..run };
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
         if !matches!(verdict, Verdict::RedMain(_)) {
@@ -179,7 +224,11 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
         Err(error) => return Verdict::Transient(format!("{}: {error}", run.log.display())).into(),
     };
     let mut command = Command::new(program);
-    command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--tree", tree, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity).env_remove("SAFE_PUSH_LAND_RUNNER");
+    command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--tree", tree, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity);
+    match &run.host {
+        Some(host) => command.env("SAFE_PUSH_LAND_RUNNER", host),
+        None => command.env_remove("SAFE_PUSH_LAND_RUNNER"),
+    };
     if let Some(logs) = run.log.parent() {
         command.env(super::trace::SPANS_ENV, super::trace::Spans::beside(logs).path());
     }

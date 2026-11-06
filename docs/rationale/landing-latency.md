@@ -184,3 +184,18 @@ at load 9.7 (39 s and 20 s). One run of the test starts about 90,000 processes, 
 namespace of its own: about 600 per safe-push run, of which about 100 are programs and the rest
 forks of the shell inside safe-push. That per-run cost, not the section layout, now sets the wall
 time on an 8-core host, and the Rust port of the cases on north#634 removes it.
+
+## Concurrent after-landing runs (2026-11-06)
+
+Over the two hours before this change, 70 landings spent a p50 of 638 s and a p90 of 2,462 s of
+their after-push verification in queue wait, 67,860 s of 103,680 s in all, every span of it "waiting
+for the after-landing run in flight". The lander kept one after-landing run at a time and folded
+landings that arrived meanwhile into the next run, so each landing waited out the whole run ahead
+of it. Each run also chose its host alone, by most free cores, so gex45's 20 threads always beat
+ccx33's 8 and ccx33 sat at load 0.1 while gex45's slots queued.
+
+The lander now keeps up to `landing.after-runs` runs in flight (north sets 3: gex45, ccx33 and the
+laptop; a repository that sets nothing keeps one). Each run picks its host with the hosts the runs in
+flight already took passed as `--taken`, so the second run of a burst goes to ccx33 instead of
+queueing behind the first on gex45. Runs cover disjoint ranges of main, so blame stays per range: a
+later run whose base is red because of an earlier landing names no lane, as before.
