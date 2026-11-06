@@ -68,38 +68,3 @@ fn range_patch_ids(range: &str) -> Option<Vec<(String, String)>> {
     )
 }
 
-pub(super) fn landed_by_subject(candidate: &str, destination: &str) -> Option<String> {
-    let base = git_output(&["merge-base", candidate, destination])?;
-    let lane = git_output(&[
-        "log",
-        "--no-merges",
-        "--format=%s",
-        &format!("{}..{candidate}", base.trim()),
-    ])?;
-    let landed = git_output(&[
-        "log",
-        "--no-merges",
-        "--format=%H%x09%s",
-        &format!("{}..{destination}", base.trim()),
-    ])?;
-    let landed: Vec<(&str, &str)> = landed
-        .lines()
-        .filter_map(|line| line.split_once('\t'))
-        .collect();
-    let landed_for = |subject: &str| {
-        landed
-            .iter()
-            .find(|(_, other)| *other == subject)
-            .map(|(sha, _)| (*sha).to_owned())
-    };
-    let tip = landed_for(lane.lines().next()?);
-    lane.lines()
-        .all(|subject| landed_for(subject).is_some())
-        .then_some(tip)
-        .flatten()
-}
-
-pub(super) fn branch_gone_from_origin(branch: &str) -> bool {
-    git_output(&["ls-remote", "origin", &format!("refs/heads/{branch}")])
-        .is_some_and(|listing| listing.trim().is_empty())
-}

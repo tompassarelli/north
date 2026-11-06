@@ -1,12 +1,10 @@
 use crate::platform::{github, process};
 use serde_json::Value;
-use std::thread;
 use std::time::Duration;
 
 mod evidence;
 mod hold;
 pub use evidence::{git_output, landed_commit};
-use evidence::{branch_gone_from_origin, landed_by_subject};
 pub use hold::{deletion_hold, hook_deadline, origin_branches_hold};
 
 fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
@@ -124,142 +122,4 @@ pub fn run(arguments: &[String]) -> u8 {
         })
     );
     0
-}
-
-fn wait_for_landing(
-    sha: &str,
-    destination: &str,
-    timeout: u64,
-    initial_delay: u64,
-    mut read: impl FnMut() -> String,
-    mut landed: impl FnMut(&str) -> Option<String>,
-    mut pause: impl FnMut(u64),
-) -> String {
-    let mut waited = 0;
-    let mut delay = initial_delay.max(1);
-    let mut last = String::new();
-    loop {
-        let mut line = read();
-        let mut fields = line.splitn(3, '\t');
-        let state = fields.next().unwrap_or("");
-        let description = fields.next().unwrap_or("");
-        let url = fields.next().unwrap_or("");
-        let landed_sha = if state == "success" {
-            description
-                .split_whitespace()
-                .last()
-                .filter(|value| {
-                    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-                })
-                .unwrap_or(sha)
-        } else {
-            sha
-        };
-        if let Some(landed_sha) = landed(landed_sha) {
-            return format!("success\tlanded {landed_sha}\t{url}");
-        }
-        if state == "failure" || state == "error" {
-            return line;
-        }
-        if state == "success" {
-            line = format!(
-                "pending\tAutoland completed; waiting for origin/{destination} ancestry\t{url}"
-            );
-        }
-        if line != last {
-            last = line;
-        }
-        if waited >= timeout {
-            return format!(
-                "timeout\tafter {timeout} seconds\t{}",
-                last.split('\t').nth(2).unwrap_or("")
-            );
-        }
-        let sleep = delay.min(timeout - waited);
-        pause(sleep);
-        waited += sleep;
-        delay = (delay * 3 / 2).min(60);
-    }
-}
-
-struct WaitOptions {
-    sha: String,
-    branch: String,
-    destination: String,
-    timeout: u64,
-    delay: u64,
-}
-
-fn parse_wait_options(arguments: &[String]) -> Result<WaitOptions, ()> {
-    let mut sha = None;
-    let mut branch = None;
-    let mut destination = None;
-    let mut timeout = 10_800;
-    let mut delay = 10;
-    let mut index = 0;
-    while index + 1 < arguments.len() {
-        match arguments[index].as_str() {
-            "--sha" => sha = Some(arguments[index + 1].clone()),
-            "--branch" => branch = Some(arguments[index + 1].clone()),
-            "--destination" => destination = Some(arguments[index + 1].clone()),
-            "--timeout-seconds" => timeout = arguments[index + 1].parse().unwrap_or(0),
-            "--poll-seconds" => delay = arguments[index + 1].parse().unwrap_or(0),
-            _ => return Err(()),
-        }
-        index += 2;
-    }
-    match (sha, branch, destination) {
-        (Some(sha), Some(branch), Some(destination)) => Ok(WaitOptions {
-            sha,
-            branch,
-            destination,
-            timeout,
-            delay,
-        }),
-        _ => Err(()),
-    }
-}
-
-pub fn wait(arguments: &[String]) -> u8 {
-    let options = match parse_wait_options(arguments) {
-        Ok(options) => options,
-        Err(()) => {
-            eprintln!(
-                "Usage: north autoland-wait --sha SHA --branch BRANCH --destination BRANCH [--timeout-seconds N] [--poll-seconds N]"
-            );
-            return 2;
-        }
-    };
-    let result = wait_for_landing(
-        &options.sha,
-        &options.destination,
-        options.timeout,
-        options.delay,
-        || status(&options.sha, &options.branch, read_gh),
-        |candidate| {
-            let fetch = [
-                "fetch",
-                "-q",
-                "origin",
-                &format!(
-                    "+refs/heads/{0}:refs/remotes/origin/{0}",
-                    options.destination
-                ),
-            ];
-            let _ = process::run_within("git", &fetch, Duration::from_secs(30));
-            let destination = format!("refs/remotes/origin/{}", options.destination);
-            landed_commit(candidate, &destination).or_else(|| {
-                branch_gone_from_origin(&options.branch)
-                    .then(|| landed_by_subject(&options.sha, &destination))
-                    .flatten()
-            })
-        },
-        |seconds| thread::sleep(Duration::from_secs(seconds)),
-    );
-    println!("{result}");
-    if result.starts_with("timeout\t") {
-        2
-    } else {
-        0
-    }
 }

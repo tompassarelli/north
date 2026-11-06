@@ -4,7 +4,6 @@
 # One line per module, merged as a set.
 affected_modules north-landing north
 agents_plan north-ops north-pace
-autoland_rebased north-landing
 automation_chrome_service north
 capacity_exclusive_native north-capacity
 capacity_host north-capacity-host

@@ -5,10 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-const USAGE: &str = "usage: north land-red-check --main SHA --log FILE [--lane BRANCH] | north land-red-wait --main SHA [--timeout SECONDS]";
+const USAGE: &str = "usage: north land-red-check --main SHA --log FILE [--lane BRANCH]";
 const GH_LIMIT: Duration = Duration::from_secs(60);
 const OFFLOAD_SECONDS: u64 = 1800;
 const RANGE_LIMIT: usize = 200;
@@ -342,34 +341,6 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     println!("red check: {line} ({source})");
     MAIN_RED
-}
-
-pub fn fix_landed(log: &str) -> bool {
-    log.lines().any(|line| line.strip_prefix("Main-red:").is_some_and(|value| !value.trim().is_empty()))
-}
-
-pub fn wait(arguments: &[String]) -> u8 {
-    let Some(main) = flag(arguments, "--main") else {
-        eprintln!("{USAGE}");
-        return 64;
-    };
-    let limit = Duration::from_secs(flag(arguments, "--timeout").and_then(|value| value.parse().ok()).unwrap_or(21_600));
-    let poll = Duration::from_secs(std::env::var("NORTH_RED_WAIT_POLL").ok().and_then(|value| value.parse().ok()).unwrap_or(30));
-    let started = Instant::now();
-    println!("red check: waiting for a lane carrying Main-red: to land on origin main after {}", &main[..main.len().min(9)]);
-    loop {
-        let fetched = git(&["fetch", "-q", "origin", "main"]).is_some();
-        let landed = fetched && git(&["log", "--format=%B", &format!("{main}..FETCH_HEAD")]).is_some_and(|log| fix_landed(&log));
-        if landed {
-            println!("red check: a Main-red: lane landed; retrying this lane");
-            return 0;
-        }
-        if started.elapsed() >= limit {
-            eprintln!("red check: no Main-red: lane landed within {} s", limit.as_secs());
-            return 1;
-        }
-        thread::sleep(poll);
-    }
 }
 
 #[cfg(test)]

@@ -440,13 +440,6 @@ land_checks_call() {
 
 blocked_by_red_main=""
 
-retry_after_red_main() {
-  echo "safe-push: blocked by red main, not this lane; it retries once a Main-red: lane lands"
-  north land-red-wait --main "$1" || return 0
-  trap - EXIT
-  exec "$safe_push_self" "${original_arguments[@]}"
-}
-
 release_land_check_build() {
   [ "${keep_lane:-0}" -eq 0 ] || return 0
   north land-clean "$1" || true
@@ -666,7 +659,7 @@ land_status=0
 land_checks_call "$land_base" "$head_oid" || land_status=$?
 stage "land checks"
 if [ "$land_status" -ne 0 ]; then
-  [ -z "$blocked_by_red_main" ] || retry_after_red_main "$blocked_by_red_main"
+  [ -z "$blocked_by_red_main" ] || echo "safe-push: blocked by red main ($blocked_by_red_main), not this lane; it can land once a Main-red: lane lands"
   refusals+=("land checks${land_check_skip:+ $land_check_skip}")
 fi
 command -v betterleaks >/dev/null 2>&1 || { echo "safe-push: betterleaks not on PATH — refusing to push without a secret scan"; exit 1; }

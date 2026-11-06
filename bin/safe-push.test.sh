@@ -42,7 +42,6 @@ shim_main() {
       return 2
       ;;
     north:land-red-check) return "${SAFE_PUSH_TEST_RED_CHECK_STATUS:-0}" ;;
-    north:land-red-wait) return 0 ;;
     north:capacity)
       [ "${2:-}" = offload ] || exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
       [ "${3:-}" != verdict ] || return 0
@@ -1271,11 +1270,10 @@ check_base=$("$real_git" --git-dir="$landing_remote" rev-parse main)
 case_output=$(run_check_candidate env SAFE_PUSH_TEST_ACTIONS_STATUS=1 SAFE_PUSH_TEST_RED_CHECK_STATUS=3) && fail "check-candidate: a red-main candidate exited 0: $case_output"
 [ "$(tail -n1 <<<"$case_output")" = "safe-push: verdict red-main $check_base" ] || fail "check-candidate: red main did not end verdict red-main: $case_output"
 grep -q '^north <land-red-check>' "$landing_root/north.trace" || fail "check-candidate: red main was not asked for: $case_output"
-! grep -q 'land-red-wait' "$landing_root/north.trace" || fail 'check-candidate: waited on red main'
 case_output=$(run_check_candidate env) || fail "check-candidate: a green candidate failed: $case_output"
 [ "$(tail -n1 <<<"$case_output")" = "safe-push: verdict green $("$real_git" -C "$landing_root/a" rev-parse HEAD)" ] || fail "check-candidate: no green verdict: $case_output"
 [ "$("$real_git" --git-dir="$landing_remote" rev-parse main)" = "$check_base" ] || fail 'check-candidate pushed'
-printf 'PASS: check-candidate: a red-main failure ends verdict red-main without land-red-wait; a green one ends verdict green; nothing is pushed\n'
+printf 'PASS: check-candidate: a red-main failure ends verdict red-main; a green one ends verdict green; nothing is pushed\n'
 
 new_landing_origin check-candidate-broken-main
 "$real_git" -C "$landing_root/seed" config --file .safe-push --add land.check "a.txt :: echo '{\"decision\":\"QUEUED\",\"reason\":\"DEFER_MEMORY_CAPACITY\"}'; echo 'error[E0063]: missing field'; exit 101"

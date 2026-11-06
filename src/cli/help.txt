@@ -29,7 +29,6 @@ Commands:
   denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]  Scan an outgoing range, its messages, ref name and arriving files for deny-listed terms
   denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]  Post the denylist status on claude/ tips and dispatch Autoland when clean
   autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
-  autoland-wait --sha SHA --branch BRANCH --destination BRANCH  Wait for its landed result
   land-abandon [BRANCH | --superseded BRANCH]    Delete a superseded or handed-back branch from origin
   land serve [--once] [--repo DIR] [--checker PROGRAM]  Land the queued lanes of this origin: one candidate, checked once by safe-push --check-candidate, pushed to main by lease
   land promote [--dry-run] [--shadow-minutes N] [--repo DIR]  Replay recorded rounds and shadow the queue with the current runtime, then point the lander link at it
@@ -167,7 +166,6 @@ Commands:
   job-run [--path DIRS] [--user USER] [--notify] NAME -- CMD...  Run a scheduled job and record its result
   land-fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
   land-red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault
-  land-red-wait --main SHA [--timeout SECONDS]  Wait for a red main to turn green
   loops check [--role ledger|lander|here]       Check the declared control loops and their scores
   pace [place|sample|grant|gate PROVIDER]       Admit or place a launch against account pace
   private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]  Run the private-value checks
