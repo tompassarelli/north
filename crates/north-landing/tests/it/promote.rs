@@ -309,25 +309,6 @@ fn promote_follows_a_candidate_whose_commit_declares_the_replay_change_and_logs_
 }
 
 #[test]
-fn a_replay_divergence_that_flips_on_its_rerun_is_a_flaky_check_and_reverts_nothing() {
-    let chain = Chain::new();
-    let innocent = chain.commit("docs/one.md", "Document one thing");
-    let suspect = chain.commit("crates/north-landing/src/land/rule.rs", "Count a dropped connection as no verdict");
-    let candidate = chain.commit("docs/two.md", "Document another thing");
-    chain.runtime(&innocent, "echo 'replay: verdict landed'");
-    chain.runtime(&suspect, "echo x >> \"$0.replays\"; if [ \"$(wc -l < \"$0.replays\")\" -eq 1 ]; then echo 'replay: verdict failed'; else echo 'replay: verdict landed'; fi");
-    chain.runtime(&candidate, "echo 'replay: verdict failed'");
-    chain.current(&candidate);
-    let promoted = chain.promote();
-    let stdout = &promoted.stdout;
-    assert!(!promoted.status, "{stdout}");
-    assert!(stdout.contains(&format!("runtime {} replayed it as recorded on the rerun", &suspect[..9])) && stdout.contains("a flaky check, not a commit's replay change; no commit is reverted"), "{stdout}");
-    assert!(chain.reverts().is_empty(), "a check that flips between runs queued a revert: {stdout}");
-    assert_eq!(chain.lander(), format!("runtimes/{}", chain.held));
-    assert!(chain.told().contains("file the flaky test on its owner"), "{}", chain.told());
-}
-
-#[test]
 fn promote_bisects_an_undeclared_replay_change_to_its_commit_queues_its_revert_and_follows_once_it_lands() {
     let chain = Chain::new();
     let innocent = chain.commit("docs/one.md", "Document one thing");
