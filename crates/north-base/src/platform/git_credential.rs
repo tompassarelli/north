@@ -44,11 +44,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let token = |path: &str| {
         let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
         github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds()).or_else(|why| {
-            let (source, token) = match session_token(std::env::var("GH_TOKEN").ok()) {
-                Some(token) => ("the session's GH_TOKEN", Some(token)),
-                None => ("the host's pushed ~/.local/state/north/gh-write-token", pushed_token(Path::new(&home), path, SystemTime::now())),
-            };
-            let Some(token) = token else { return Err(why) };
+            let Some((source, token)) = fallback_token(Path::new(&home), Some(path)) else { return Err(why) };
             eprintln!("north git-credential: cannot mint the Socrates Agent App token ({why}); answering with {source}");
             Ok(token)
         })
@@ -66,16 +62,26 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
+/// What a host that cannot mint answers with: the session's launched token, else the host's fresh pushed one (covering the path when one is asked for).
+pub(super) fn fallback_token(home: &Path, path: Option<&str>) -> Option<(&'static str, String)> {
+    if let Some(token) = session_token(std::env::var("GH_TOKEN").ok()) {
+        return Some(("the session's GH_TOKEN", token));
+    }
+    pushed_token(home, path, SystemTime::now()).map(|token| ("the host's pushed ~/.local/state/north/gh-write-token", token))
+}
+
 /// The installation token the launcher gave this session, for a host that holds no sops key to mint a fresh one from.
 fn session_token(token: Option<String>) -> Option<String> {
     token.filter(|token| token.starts_with("ghs_"))
 }
 
-fn pushed_token(home: &Path, path: &str, now: SystemTime) -> Option<String> {
+fn pushed_token(home: &Path, path: Option<&str>, now: SystemTime) -> Option<String> {
     let token = home.join(PUSHED_TOKEN);
     let age = now.duration_since(fs::metadata(&token).ok()?.modified().ok()?).unwrap_or_default();
-    let repo = path.trim_end_matches('/').trim_end_matches(".git").to_lowercase();
-    let covered = !repo.is_empty() && fs::read_to_string(home.join(PUSHED_REPOS)).ok()?.lines().any(|line| line.trim() == repo);
+    let covered = path.is_none_or(|path| {
+        let repo = path.trim_end_matches('/').trim_end_matches(".git").to_lowercase();
+        !repo.is_empty() && fs::read_to_string(home.join(PUSHED_REPOS)).is_ok_and(|repos| repos.lines().any(|line| line.trim() == repo))
+    });
     let token = fs::read_to_string(&token).ok()?.trim().to_owned();
     (age < PUSHED_FRESH && covered && !token.is_empty()).then_some(token)
 }

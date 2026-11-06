@@ -4,6 +4,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::git_credential;
 use super::github_app::{self, AGENT_APP, Host, Request};
 use crate::foundation::clock::Timestamp;
 
@@ -45,7 +46,12 @@ pub fn run(arguments: &[String]) -> u8 {
     let ledger = ledger_path(&session);
     let mint = || {
         let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
-        github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds())
+        github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds()).or_else(|why| {
+            let home = std::env::var_os("HOME").unwrap_or_default();
+            let (source, token) = git_credential::fallback_token(Path::new(&home), None).ok_or(why.clone())?;
+            eprintln!("north gh-session: cannot mint the Socrates Agent App token ({why}); using {source}");
+            Ok(token)
+        })
     };
     match prepare(real, rest, &session, budget, &ledger, Timestamp::now().unix_seconds(), mint) {
         Ok(mut command) => match super::gh_broker_route::route(&mut command) {

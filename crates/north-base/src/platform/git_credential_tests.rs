@@ -35,9 +35,11 @@ fn a_host_that_cannot_mint_uses_its_pushed_token_only_while_it_is_fresh_and_cove
     std::fs::write(state.join("gh-write-token"), "ghs_pushed\n").unwrap();
     std::fs::write(state.join("gh-write-token.repos"), "tompassarelli/north\ntompassarelli/south\n").unwrap();
     let written = std::fs::metadata(state.join("gh-write-token")).unwrap().modified().unwrap();
-    let at = |path: &str, minutes: u64| pushed_token(home.path(), path, written + Duration::from_secs(minutes * 60));
+    let at = |path: &str, minutes: u64| pushed_token(home.path(), Some(path), written + Duration::from_secs(minutes * 60));
     assert_eq!(at("TompAssarelli/south.git", 1), Some("ghs_pushed".to_owned()));
     assert_eq!(at("tompassarelli/south.git", 56), None);
     assert_eq!(at("tompassarelli/wisp.git", 1), None);
     assert_eq!(at("", 1), None);
+    assert_eq!(pushed_token(home.path(), None, written + Duration::from_secs(60)), Some("ghs_pushed".to_owned()));
+    assert_eq!(pushed_token(home.path(), None, written + Duration::from_secs(56 * 60)), None);
 }
