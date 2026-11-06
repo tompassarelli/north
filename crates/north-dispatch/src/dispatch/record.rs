@@ -27,13 +27,11 @@ pub struct Record {
     pub cloud: bool,
     pub launched: bool,
     pub detail: String,
-    /// The tier it launched on, its category and whether it ran as an arm of the Sonnet-Opus comparison.
+    /// The tier it launched on and its category.
     #[serde(default)]
     pub tier: Option<String>,
     #[serde(default)]
     pub category: Option<String>,
-    #[serde(default)]
-    pub arm: bool,
     #[serde(default)]
     pub hand: bool,
     /// The effort arm it ran on, as its `Arm:` stamp.

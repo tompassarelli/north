@@ -38,8 +38,8 @@ pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger
     };
     let named = declared("Tier").map(|name| named_tier(&name)).transpose()?;
     let route = match named {
-        Some((tier, _)) => Route { tier, category: facet("Category").to_lowercase(), arm: false, effort: None, effort_arm: false, follows: None, why: format!("the brief names {}", tier.name()) },
-        None => tier::route_for(ask.item, &facet, history, ledger),
+        Some((tier, _)) => Route { tier, category: facet("Category").to_lowercase(), effort: None, effort_arm: false, follows: None, why: format!("the brief names {}", tier.name()) },
+        None => tier::route_for(ask.item, &facet, history, ledger)?,
     };
     let (picked, tier_effort) = route.model_effort(cfg)?;
     let effort = named.and_then(|(_, effort)| effort).map_or(tier_effort, str::to_owned);
@@ -137,10 +137,8 @@ impl Start {
             detail: self.overridden.as_ref().map_or_else(|| self.route.why.clone(), |reason| format!("tier override: {reason}")),
             tier: (!overridden).then(|| self.route.tier.name().to_owned()),
             category: Some(self.route.category.clone()),
-            arm: self.route.arm && !overridden,
-           
             hand: true,
-            effort_arm: self.route.effort_stamp().filter(|_| !overridden).map(str::to_owned),
+            effort_arm: self.route.stamp().filter(|_| !overridden).map(str::to_owned),
         };
         record::append(&record::directory(), &entry)
     }
@@ -159,7 +157,7 @@ pub fn begin(ask: &Ask) -> Result<Start, String> {
     };
     let category = facets::settled(facets::declared_in(ask.brief, "Category").unwrap_or_else(|| facets::default("Category")).to_lowercase(), &format!("{}\n{body}", ask.brief));
     let mut notes = Vec::new();
-    let ledger = if tier::ARMED.contains(&category.as_str()) || tier::PLANNED.contains(&category.as_str()) { survey::evidence(&[category.as_str()], &mut notes) } else { BTreeMap::new() };
+    let ledger = if tier::OPUS.contains(&category.as_str()) { survey::evidence(&[category.as_str()], &mut notes) } else { BTreeMap::new() };
     let grounds = grounds::Ledger::read(&mut notes);
     notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
     start(ask, &body, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, created, &body, route))

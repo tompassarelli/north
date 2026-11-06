@@ -203,3 +203,5 @@ way to compare tiers.
 
 Evidence: north#242 comment of 2026-11-01 01:55 UTC (planner-band reading); north#38 and north#54 for the original
 questions.
+
+The tier arms are deleted: since 2026-11-07 each category starts on one fixed tier (docs/rationale/spend-rule.md, Tier defaults; north#702).

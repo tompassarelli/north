@@ -273,7 +273,6 @@ pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String
 fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
     let mut found = BTreeMap::new();
     let north = crate::fleet::runtime::binary("north");
-    let routes = super::tuned::current();
     let efforts = super::tuned::current_efforts();
     for category in categories {
         let facets = format!("Category: {category}");
@@ -281,12 +280,12 @@ fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut
             Some(output) if output.status.success() => {
                 let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
                 let read = read.counted(&read_arm_runs(category, crate::ledger::arm_runs(category), notes));
-                found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)).tuned(&routes, category).tuned_effort(&efforts, category));
+                found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)).tuned_effort(&efforts, category));
             }
             _ => {
-                notes.push(format!("{DEGRADED}: north worker-ledger --recommend {facets:?} unread, so {category} keeps drawing its arms unless north tune routed it"));
-                if routes.contains_key(*category) || efforts.contains_key(*category) {
-                    found.insert((*category).to_owned(), Evidence::default().tuned(&routes, category).tuned_effort(&efforts, category));
+                notes.push(format!("{DEGRADED}: north worker-ledger --recommend {facets:?} unread, so {category} keeps drawing its effort arms unless north tune settled one"));
+                if efforts.contains_key(*category) {
+                    found.insert((*category).to_owned(), Evidence::default().tuned_effort(&efforts, category));
                 }
             }
         }

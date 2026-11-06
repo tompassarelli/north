@@ -1,5 +1,5 @@
 //! `north tune`: the daily learning tick. It reads the ledger's closed boxes of the last week and
-//! the week before, prints the dashboard line, writes the routing and effort cells whose arms decided and the
+//! the week before, prints the dashboard line, writes the effort cells whose arms decided and the
 //! ETA and budget cells to the cells file, appends each changed cell's evidence to the provenance
 //! file, keeps one rolling north issue for the cells whose cost per closed box rose more than 25%
 //! week on week, opened on the second risen tick in a row and closed on the first calm one, and prints the open north issue
@@ -13,7 +13,7 @@
 //! a category holds enough runs carrying one. It prints the share of the last day's finished runs
 //! that recorded each essential field and fails when one is under 98%. It prints each skill's
 //! closed-box rate and cost against matched boxes that did not load it, and flags the installed
-//! skills no run loaded and those whose boxes did worse. A failed read of the arms' evidence keeps the prior routing cells and fails the tick.
+//! skills no run loaded and those whose boxes did worse. A failed read of the arms' evidence keeps the prior effort cells and fails the tick.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, EstimatedRun};
 use crate::dispatch::{Evidence, LEDGER_WINDOW, arm_evidence, evidenced};
@@ -87,11 +87,11 @@ pub struct Tick {
 
 pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mut dyn Tracker, at: &str, dry_run: bool) -> Tick {
     let mut lines = vec![ledger.week.dashboard(LEDGER_WINDOW)];
-    lines.extend(ledger.notes.iter().map(|note| format!("unread: {note}; prior routing cells are kept")));
+    lines.extend(ledger.notes.iter().map(|note| format!("unread: {note}; prior effort cells are kept")));
     let scores = ledger.estimates.as_deref().map(budgets::scores).unwrap_or_default();
     let mut decided = cells::decide(&ledger.week, &ledger.evidence, &budgets::multipliers(&scores));
     if !ledger.notes.is_empty() {
-        cells::carry_routes(&prior.cells, &mut decided);
+        cells::carry_efforts(&prior.cells, &mut decided);
     }
     let changes = cells::changes(&prior.cells, &decided);
     lines.extend(changes.iter().map(Change::line));

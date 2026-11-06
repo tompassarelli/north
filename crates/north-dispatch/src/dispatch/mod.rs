@@ -18,9 +18,8 @@ pub use fleets::holder as task_holder;
 pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub use manual::{Ask, Start, begin as start_hand, picked_tier, tier_reason, untasked};
 pub use survey::evidence as arm_evidence;
-pub use tuned::current as tuned_routes;
 pub use record::{Record as LaunchRecord, STAFFING_REFUSAL, directory as launch_directory, read as launch_records};
-pub use tier::{ARM_WINDOW, ARMED, Effort, Evidence, Tier, evidenced};
+pub use tier::{ARM_WINDOW, Effort, Evidence, Tier, evidenced};
 
 mod brief;
 mod cloud;
@@ -149,7 +148,13 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", hotspots::hold_reason(&file, holder))));
             continue;
         }
-        let route = tier::route(issue, history, &survey.ledger);
+        let route = match tier::route(issue, history, &survey.ledger) {
+            Ok(route) => route,
+            Err(why) => {
+                outcome.skipped.push((issue.reference(), format!("ready, not placed: {why}")));
+                continue;
+            }
+        };
         let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route);
         let brief = brief::brief(issue, launched_by, &route, &grounds);
         if let Some(why) = crate::router::brief::class_refusal(&brief).or_else(|| crate::router::brief::grounding_refusal(&brief)).or_else(|| crate::platform::signin::brief_refusal(&brief)) {

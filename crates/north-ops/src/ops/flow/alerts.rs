@@ -16,7 +16,6 @@ use crate::platform::rolling_issue::Breaches;
 
 const GUARDS: [&str; 4] = ["actions", "wisp", "reuse", "pins"];
 const EPISODES: [&str; 4] = ["guard", "notice", "stranded", "refused"];
-pub const SUPPLY: &str = "supply";
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Record {
@@ -181,15 +180,13 @@ pub fn deliver(places: &Places, host: &dyn Host, file: &str, plan: impl FnOnce(&
     let nodes = fleet_nodes(host).unwrap_or_default();
     let (mut state, actions) = plan(&load(&path), &nodes);
     for action in actions {
-        let sent = if action.channel == SUPPLY {
-            host.run(&["supply-alert", "normal", &action.text, "Tier routing"], None, None).is_some()
-        } else if valid_name(&action.node) {
+        let sent = if valid_name(&action.node) {
             host.run(&["north", "fleet", "send", "--from", "service:north-ops-flow", &action.node, &action.text], None, None).is_some()
         } else {
             return Err("invalid Fleet session name".into());
         };
         if !sent {
-            println!("{}: notification error for {}", action.repo, if action.channel == SUPPLY { "supply-alert" } else { &action.node });
+            println!("{}: notification error for {}", action.repo, action.node);
             continue;
         }
         if let Some(record) = state.get_mut(&action.repo) {

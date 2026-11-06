@@ -193,3 +193,9 @@ The provider already enforces running out. North needs only to keep a little cap
 (rule 1), to avoid starting more work than landing can absorb (rule 2), and to notice a runaway quickly
 (rule 3). A per-account floor would strand a tenth of every account, so the reserve is pooled (Tom,
 2026-11-07).
+
+## Tier defaults (north#702, 2026-11-07)
+
+Usage is the binding constraint, so a launch starts at the cheapest tier its category allows and escalation goes through worker-high or worker-xhigh after a failed attempt. `north dispatch` and `north fleet launch` both take the tier from `dispatch::tier::route_for`: Haiku for mechanical work (its retry on Sonnet), Opus for debugging-unknown-cause, netcode-determinism, performance, planning and review, and sonnet-high for art and every other category. The Sonnet-against-Opus arm draw, north tune's `route CATEGORY` cells and the flow alert on alternating tier arms are deleted. Both paths refuse a `Category:` outside the brief vocabulary and name the valid list, because unknown words fell through to Opus.
+
+The before counts by category and tier, and the ledger cost per closed box behind this choice, are private usage figures kept in south (agents/decisions/tier-defaults-2026-11-07.md). The ledger holds no per-run share of a five-hour window, so finished boxes per percent of a window is not readable from it yet.

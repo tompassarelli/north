@@ -1,7 +1,6 @@
-//! The cells a tick decides from the ledger: each armed category's tier once its arms decided, each
-//! category's Opus effort once its effort arms decided, and the ETA and budget of each tier family and category with a closed box, each with its evidence.
+//! The cells a tick decides from the ledger: each category's Opus effort once its effort arms decided, and the ETA and budget of each tier family and category with a closed box, each with its evidence.
 use crate::ledger::ClosedReport;
-use crate::dispatch::{ARM_WINDOW, ARMED, BUDGET_TIMES, Effort, Evidence, LEDGER_WINDOW, Tier, eta_minutes};
+use crate::dispatch::{ARM_WINDOW, BUDGET_TIMES, Effort, Evidence, LEDGER_WINDOW, Tier, eta_minutes};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,8 +29,7 @@ const FAMILIES: [Tier; 3] = [Tier::Haiku, Tier::Sonnet, Tier::Opus];
 /// Decides the cells; `times` holds each category's budget multiplier and its basis where the
 /// stored Budgets' p90 set one, every other category taking `BUDGET_TIMES`.
 pub fn decide(week: &ClosedReport, evidence: &BTreeMap<String, Evidence>, times: &BTreeMap<String, (f64, String)>) -> Vec<Decided> {
-    let mut decided: Vec<Decided> = ARMED.iter().filter_map(|category| route(week, category, evidence.get(*category)?)).collect();
-    decided.extend(evidence.iter().filter_map(|(category, evidence)| effort(category, evidence)));
+    let mut decided: Vec<Decided> = evidence.iter().filter_map(|(category, evidence)| effort(category, evidence)).collect();
     let families: BTreeSet<(Tier, &str)> = week
         .cells
         .iter()
@@ -60,26 +58,6 @@ pub fn decide(week: &ClosedReport, evidence: &BTreeMap<String, Evidence>, times:
         });
     }
     decided
-}
-
-fn route(week: &ClosedReport, category: &str, evidence: &Evidence) -> Option<Decided> {
-    let tier = evidence.settled()?;
-    let figures = week.figures(tier.family(), category);
-    Some(Decided {
-        cell: format!("route {category}"),
-        value: json!(tier.name()),
-        basis: Basis {
-            rows: evidence.arm_runs(),
-            n: figures.as_ref().map_or(0, |figures| figures.closed),
-            interval: figures.map(|figures| (round_cents(figures.usd_interval.0), round_cents(figures.usd_interval.1))),
-            why: format!(
-                "lower mean cost per closed arm box over {ARM_WINDOW}: {}; {}; the interval is {}'s median box spend over {LEDGER_WINDOW}",
-                evidence.figures(Tier::Sonnet),
-                evidence.figures(Tier::Opus),
-                tier.name()
-            ),
-        },
-    })
 }
 
 fn effort(category: &str, evidence: &Evidence) -> Option<Decided> {
@@ -165,11 +143,11 @@ impl Change {
     }
 }
 
-/// Keeps each prior routing and effort cell the tick could not decide because the arms' evidence
-/// went unread, so a failed read neither drops nor re-adds a route or an effort.
-pub fn carry_routes(prior: &Cells, decided: &mut Vec<Decided>) {
+/// Keeps each prior effort cell the tick could not decide because the arms' evidence
+/// went unread, so a failed read neither drops nor re-adds an effort.
+pub fn carry_efforts(prior: &Cells, decided: &mut Vec<Decided>) {
     let held: BTreeSet<String> = decided.iter().map(|decided| decided.cell.clone()).collect();
-    decided.extend(prior.iter().filter(|(cell, _)| (cell.starts_with("route ") || cell.starts_with("effort ")) && !held.contains(*cell)).map(|(cell, value)| Decided {
+    decided.extend(prior.iter().filter(|(cell, _)| cell.starts_with("effort ") && !held.contains(*cell)).map(|(cell, value)| Decided {
         cell: cell.clone(),
         value: value.clone(),
         basis: Basis { rows: 0, n: 0, interval: None, why: "kept: the arms' evidence was unread this tick".into() },

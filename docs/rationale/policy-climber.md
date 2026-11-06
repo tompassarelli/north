@@ -78,7 +78,7 @@ cost per kept box and gives the next box to the arm with the lower draw, with a 
 (the settle rule below). A settled arm takes the whole category. `north climb run --dry-run` prints every live arm's
 category, its experiment (tier, effort, handoff, context or climb arms, each splitting the category's boxes on its own), share and how it was set (Thompson over 1,000 seeded draws with a 10% floor, or settled), boxes, closed, kept and
 dollars per kept box. A posterior draw resamples the arm's boxes with replacement, and arms tied cheapest split the draw.
-Dispatch and `north fleet launch` draw each armed launch's arm from these shares (`dispatch::shares`, seeded by the item and its launch count, so a relaunch draws again and every host draws alike), and the dry run reads the same 30-day arm window dispatch prices arms over, so the share it prints is the share launched (2026-11-06). The draw covers tier arms, effort arms on Opus and planner or reviewer boxes, and the context arm of a local box on neither; handoff and climb arms are stamped by their briefs.
+Dispatch and `north fleet launch` draw each armed launch's arm from these shares (`dispatch::shares`, seeded by the item and its launch count, so a relaunch draws again and every host draws alike), and the dry run reads the same 30-day arm window dispatch prices arms over, so the share it prints is the share launched (2026-11-06). The draw covers effort arms on Opus and planner or reviewer boxes, and the context arm of a local box on neither; handoff and climb arms are stamped by their briefs.
 
 ## An arm settles on evidence (2026-11-06)
 
