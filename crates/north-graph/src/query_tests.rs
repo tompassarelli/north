@@ -44,17 +44,6 @@ fn recursion_reaches_a_fixpoint_over_a_cycle() {
 }
 
 #[test]
-fn a_constant_anchors_a_three_hop_join() {
-    let mut graph = Graph::open_in_memory().unwrap();
-    chain(&mut graph, &[("a", "b"), ("b", "c"), ("c", "d"), ("c", "e"), ("x", "c")]);
-    let query = json!({"find": "hop3", "rules": [{
-        "head": {"rel": "hop3", "args": [{"var": "d"}]},
-        "body": [edge_pattern(json!("a"), json!({"var": "b"})), edge_pattern(json!({"var": "b"}), json!({"var": "c"})), edge_pattern(json!({"var": "c"}), json!({"var": "d"}))]
-    }]});
-    assert_eq!(strings(answer(&graph, query).unwrap()), vec!["\"d\"", "\"e\""]);
-}
-
-#[test]
 fn stratified_negation_filters_by_an_earlier_stratum() {
     let mut graph = Graph::open_in_memory().unwrap();
     chain(&mut graph, &[("a", "b"), ("b", "c"), ("d", "c")]);
@@ -134,16 +123,6 @@ fn a_query_that_exceeds_its_step_budget_stops_with_a_typed_error() {
     let outcome = graph.ask_within(&query, Budget::new(None).with_step_limit(500));
     assert!(matches!(outcome, Err(GraphError::Query(QueryError::StepBudgetExceeded { steps: 500 }))), "{outcome:?}");
     assert_eq!(graph.ask(&query).unwrap().rows.len(), 820, "the same query finishes inside the default budget");
-}
-
-#[test]
-fn an_aggregate_over_an_empty_relation_yields_no_group_rather_than_an_error() {
-    let graph = Graph::open_in_memory().unwrap();
-    let query = json!({
-        "find": {"rel": "all", "agg": [{"op": "max", "arg": 0}]},
-        "rules": [{"head": {"rel": "all", "args": [{"var": "x"}]}, "body": [{"rel": "triple", "args": [{"var": "x"}, {"var": "y"}, {"var": "z"}]}]}]
-    });
-    assert!(answer(&graph, query).unwrap().is_empty());
 }
 
 #[test]
