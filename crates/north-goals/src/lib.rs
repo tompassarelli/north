@@ -43,7 +43,7 @@ pub fn check(code: &Path, projects: &[String]) -> (Vec<Row>, Vec<String>) {
         let root = checkout(code, project);
         let path = root.join(registry::PATH);
         match std::fs::read_to_string(&path).map_err(|why| vec![format!("{}: {why}", path.display())]).and_then(|text| registry::parse(&text).map_err(|found| found.into_iter().map(|why| format!("{project}: {why}")).collect())) {
-            Ok(goals) => wanted.extend(goals.into_iter().map(|goal| (project.clone(), root.clone(), goal))),
+            Ok(goals) => wanted.extend(goals.into_iter().filter(|goal| goal.class != registry::Class::Ready).map(|goal| (project.clone(), root.clone(), goal))),
             Err(found) => problems.extend(found),
         }
     }

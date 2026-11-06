@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use rusqlite::Connection;
 
@@ -45,22 +45,35 @@ pub fn verification(weeks: [Window; 2]) -> Measure {
     Measure { name: "verification after the push".into(), better: Better::Lower, source: "each landing's after-push check spans in the land queues' spans.jsonl, as north land profile reads them", weeks: weeks.map(figure) }
 }
 
-pub fn rework(db: &Connection, sources: &Sources, weeks: [Window; 2], now: i64) -> Result<Measure, String> {
+/// One worker landing on main, judged for rework, with the repositories its run's item names.
+pub struct Judged {
+    pub at: i64,
+    pub reworked: bool,
+    pub repos: BTreeSet<String>,
+}
+
+pub fn judged_landings(db: &Connection, sources: &Sources) -> Result<Vec<Judged>, String> {
     let judged = Rework::read(db, sources).map_err(|why| format!("rework: {why}"))?.judged;
-    let mut statement = db.prepare("SELECT agent, landed_sha FROM runs WHERE coalesce(landed_sha, '') != ''").map_err(|why| why.to_string())?;
-    let shas: HashMap<String, String> = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?))).map_err(|why| why.to_string())?.filter_map(Result::ok).collect();
-    let mut landings: BTreeMap<&str, (i64, bool)> = BTreeMap::new();
+    let mut statement = db.prepare("SELECT agent, landed_sha, coalesce(item, '') FROM runs WHERE coalesce(landed_sha, '') != ''").map_err(|why| why.to_string())?;
+    let shas: HashMap<String, (String, BTreeSet<String>)> =
+        statement.query_map([], |row| Ok((row.get::<_, String>(0)?, (row.get::<_, String>(1)?, row.get::<_, String>(2)?)))).map_err(|why| why.to_string())?.filter_map(Result::ok).map(|(agent, (sha, item))| (agent, (sha, super::workers::repos(&item)))).collect();
+    let mut landings: BTreeMap<&str, Judged> = BTreeMap::new();
     for (agent, verdict) in &judged {
-        let Some(sha) = shas.get(agent) else { continue };
-        let entry = landings.entry(sha.as_str()).or_insert((verdict.at, false));
-        entry.1 |= verdict.cause.is_some();
+        let Some((sha, repos)) = shas.get(agent) else { continue };
+        let entry = landings.entry(sha.as_str()).or_insert_with(|| Judged { at: verdict.at, reworked: false, repos: repos.clone() });
+        entry.reworked |= verdict.cause.is_some();
     }
+    Ok(landings.into_values().collect())
+}
+
+pub fn rework(db: &Connection, sources: &Sources, weeks: [Window; 2], now: i64) -> Result<Measure, String> {
+    let landings = judged_landings(db, sources)?;
     let figure = |window: Window| {
-        let held: Vec<&(i64, bool)> = landings.values().filter(|(at, _)| window.holds(*at)).collect();
+        let held: Vec<&Judged> = landings.iter().filter(|landing| window.holds(landing.at)).collect();
         Figure::Share {
-            hits: held.iter().filter(|(_, reworked)| *reworked).count(),
+            hits: held.iter().filter(|landing| landing.reworked).count(),
             of: held.len(),
-            pending: held.iter().filter(|(at, reworked)| !reworked && now - at < REWORK_WINDOW_S).count(),
+            pending: held.iter().filter(|landing| !landing.reworked && now - landing.at < REWORK_WINDOW_S).count(),
             pending_label: "still inside 48 h",
         }
     };

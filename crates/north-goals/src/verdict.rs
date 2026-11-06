@@ -20,6 +20,7 @@ pub fn judge(goal: &Goal, reading: Result<f64, String>) -> Verdict {
         (false, Class::Contract, _) => Verdict::RedContract(value),
         (false, Class::Debt, Some(debt)) if !beyond(goal, debt.ceiling, value) => Verdict::RedDebt(value),
         (false, Class::Debt, _) => Verdict::RedOverCeiling(value),
+        (false, Class::Ready, _) => Verdict::Unmeasured("a ready bar is read by north scoreboard --ready".into()),
     }
 }
 

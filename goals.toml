@@ -97,3 +97,66 @@ oracle = "{ rg -l ratatui src crates --glob '*.rs' --glob '!crates/north-tui/**'
 unit = "files"
 max = 0
 class = "contract"
+
+[[goal]]
+name = "ready-landing-p90"
+source = "north#641: the harness is ready for production work when a lane's queue-to-main p90 is at most 60 s"
+unit = "s"
+max = 60
+class = "ready"
+
+[[goal]]
+name = "ready-verification-p50"
+source = "north#641: the after-push verification median is at most 60 s"
+unit = "s"
+max = 60
+class = "ready"
+
+[[goal]]
+name = "ready-verification-p90"
+source = "north#641: the after-push verification p90 is at most 5 min"
+unit = "s"
+max = 300
+class = "ready"
+
+[[goal]]
+name = "ready-rework"
+source = "north#641: at most 5% of worker landings are reverted or fixed forward within 48 h"
+unit = "%"
+max = 5
+class = "ready"
+
+[[goal]]
+name = "ready-first-try"
+source = "north#641: at least 70% of worker first attempts report Done with no follow-up run"
+unit = "%"
+min = 70
+class = "ready"
+
+[[goal]]
+name = "ready-ask-to-landing"
+source = "north#641: the median from Tom's ask to its first landed commit is at most 1 h"
+unit = "s"
+max = 3600
+class = "ready"
+
+[[goal]]
+name = "ready-corrections"
+source = "north#641: Tom corrects the fleet at most 0.05 times per active hour"
+unit = "per h"
+max = 0.05
+class = "ready"
+
+[[goal]]
+name = "ready-priority-now"
+source = "north#641: at most 5 priority:now issues stay open"
+unit = "issues"
+max = 5
+class = "ready"
+
+[[goal]]
+name = "ready-idle-account"
+source = "north#641: no Claude account sits idle for more than 30 min while priority:now work waits"
+unit = "min"
+max = 30
+class = "ready"

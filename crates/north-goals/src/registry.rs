@@ -8,6 +8,7 @@ pub const PATH: &str = "goals.toml";
 pub enum Class {
     Contract,
     Debt,
+    Ready,
 }
 
 impl Class {
@@ -15,6 +16,7 @@ impl Class {
         match self {
             Self::Contract => "contract",
             Self::Debt => "debt-allowed",
+            Self::Ready => "ready",
         }
     }
 }
@@ -78,6 +80,7 @@ pub struct Goal {
 struct Raw {
     name: String,
     source: String,
+    #[serde(default)]
     oracle: String,
     #[serde(default)]
     unit: String,
@@ -106,15 +109,18 @@ impl Raw {
             (None, Some(limit)) => Bound::Min(limit),
             _ => return Err(fail("needs exactly one of max and min")),
         };
-        if self.name.trim().is_empty() || self.source.trim().is_empty() || self.oracle.trim().is_empty() {
+        let reads_itself = self.class == "ready";
+        if self.name.trim().is_empty() || self.source.trim().is_empty() || (self.oracle.trim().is_empty() && !reads_itself) {
             return Err(fail("needs a name, the README or AGENTS.md line it comes from and an oracle command"));
         }
         let (class, debt) = match (self.class.as_str(), self.ceiling, self.owner, self.revisit) {
             ("contract", None, None, None) if self.pays.is_none() => (Class::Contract, None),
             ("contract", ..) => return Err(fail("a contract has no ceiling, owner, revisit trigger or paying paths; it is never red")),
+            ("ready", None, None, None) if self.pays.is_none() && self.oracle.trim().is_empty() => (Class::Ready, None),
+            ("ready", ..) => return Err(fail("a ready bar has only a name, source, unit and bound: the scoreboard reads it, so it has no oracle, ceiling, owner, revisit trigger or paying paths")),
             ("debt", Some(ceiling), Some(owner), Some(revisit)) if bound.looser(ceiling) && !owner.trim().is_empty() && !revisit.trim().is_empty() => (Class::Debt, Some(Debt { ceiling, owner, revisit, pays: self.pays.unwrap_or_default() })),
             ("debt", ..) => return Err(fail("debt-allowed needs a ceiling looser than its bound, an owner and a revisit trigger")),
-            (other, ..) => return Err(fail(&format!("class is contract or debt, not {other}"))),
+            (other, ..) => return Err(fail(&format!("class is contract, debt or ready, not {other}"))),
         };
         Ok(Goal { name: self.name, source: self.source, oracle: self.oracle, unit: self.unit, bound, class, debt })
     }

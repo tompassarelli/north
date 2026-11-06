@@ -406,7 +406,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground"]
+may_use = ["strategy_types", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals"]
 
 [[module]]
 name = "verify"

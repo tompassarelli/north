@@ -14,11 +14,12 @@ use crate::ledger::outcome::read::Places;
 mod audit;
 mod cause;
 mod landing;
+mod ready;
 mod tom;
 mod weekly;
 mod workers;
 
-const USAGE: &str = "usage: north scoreboard [--record | --rework [--since 7d] | audit [--tell]]";
+const USAGE: &str = "usage: north scoreboard [--record | --ready | --rework [--since 7d] | audit [--tell]]";
 const WEEK_S: i64 = 7 * 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,7 +60,7 @@ pub struct Measure {
     pub weeks: [Figure; 2],
 }
 
-fn duration(seconds: f64) -> String {
+pub(super) fn duration(seconds: f64) -> String {
     match seconds {
         value if value < 120.0 => format!("{value:.0} s"),
         value if value < 7_200.0 => format!("{:.0} min", value / 60.0),
@@ -115,7 +116,7 @@ struct Sources {
     home: PathBuf,
 }
 
-fn state_root() -> PathBuf {
+pub(super) fn state_root() -> PathBuf {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state"), PathBuf::from)
 }
@@ -129,7 +130,7 @@ impl Sources {
     }
 }
 
-fn open(path: &Path) -> Result<Connection, String> {
+pub(super) fn open(path: &Path) -> Result<Connection, String> {
     Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(|why| format!("{}: {why}", path.display()))
 }
 
@@ -149,6 +150,7 @@ fn measure(sources: &Sources, now: i64) -> Result<Vec<Measure>, String> {
 }
 
 pub fn tick(now: i64) -> Vec<String> {
+    ready::record(now);
     audit::tick(now);
     weekly::tick(now)
 }
@@ -167,11 +169,25 @@ fn rework(request: &cause::Request) -> u8 {
     }
 }
 
+fn ready_table() -> u8 {
+    match ready::run(Timestamp::now().unix_seconds()) {
+        Ok(text) => {
+            print!("{text}");
+            0
+        }
+        Err(why) => {
+            eprintln!("north scoreboard: {why}");
+            1
+        }
+    }
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let recording = match arguments {
         [] => false,
         [word, rest @ ..] if word == "audit" => return audit::run(rest),
         [flag] if flag == "--record" => true,
+        [flag] if flag == "--ready" => return ready_table(),
         _ => match cause::Request::parse(arguments) {
             Some(request) => return rework(&request),
             None => {

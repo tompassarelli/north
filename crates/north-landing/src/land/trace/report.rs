@@ -31,9 +31,17 @@ pub fn every_queue() -> Vec<PathBuf> {
     files
 }
 
+/// The repository a land queue serves, from the origin its tickets name: a done ticket's worktree is usually gone, so the checkout mapping cannot say.
+pub fn queue_repo(spans: &std::path::Path) -> Option<String> {
+    let queue = spans.parent()?.parent()?;
+    let tickets = [queue.to_path_buf(), queue.join("done")];
+    let ticket = tickets.iter().filter_map(|dir| fs::read_dir(dir).ok()).flatten().filter_map(Result::ok).map(|entry| entry.path()).find(|path| path.extension().is_some_and(|extension| extension == "json"))?;
+    let origin = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(ticket).ok()?).ok()?["origin"].as_str()?.to_owned();
+    Some(origin.trim_end_matches('/').trim_end_matches(".git").rsplit('/').next()?.to_owned())
+}
+
 fn serves(spans: &std::path::Path, repo: &str) -> bool {
-    let Some(queue) = spans.parent().and_then(std::path::Path::parent) else { return false };
-    matches!(crate::land::repositories::map(queue, &crate::land::repositories::local_host()), crate::land::repositories::Mapping::Checkout(checkout) if checkout.parent().and_then(std::path::Path::file_name).is_some_and(|name| name == repo))
+    queue_repo(spans).is_some_and(|name| name == repo)
 }
 
 fn seconds(value: f64) -> String {

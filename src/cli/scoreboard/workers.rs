@@ -1,35 +1,42 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use rusqlite::Connection;
 
 use super::{Better, Figure, Measure, Window};
 use crate::foundation::clock::Timestamp;
+use crate::ledger::outcome::attention::references;
 use crate::platform::run_roles::worker_where;
 
 const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them, split, idle and running runs left out (threads runs)";
 const ALL: &str = "all categories";
 
-struct Attempt {
-    category: String,
-    ended: i64,
-    succeeded: bool,
+pub struct Attempt {
+    pub category: String,
+    pub ended: i64,
+    pub succeeded: bool,
+    pub repos: BTreeSet<String>,
 }
 
-fn attempts(db: &Connection, since: i64) -> rusqlite::Result<Vec<Attempt>> {
+pub fn attempts(db: &Connection, since: i64) -> rusqlite::Result<Vec<Attempt>> {
     let mut statement = db.prepare("SELECT DISTINCT follows FROM runs WHERE coalesce(follows, '') != ''")?;
     let followed: HashSet<String> = statement.query_map([], |row| row.get(0))?.filter_map(Result::ok).collect();
     let mut statement = db.prepare(&format!(
-        "SELECT agent, category, ended, outcome FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
+        "SELECT agent, category, ended, outcome, coalesce(item, '') FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
         worker_where()
     ))?;
-    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?)))?;
+    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
     Ok(rows
         .filter_map(Result::ok)
-        .filter_map(|(agent, category, ended, outcome)| {
+        .filter_map(|(agent, category, ended, outcome, item)| {
             let ended = Timestamp::parse(&ended).ok()?.unix_seconds();
-            Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended })
+            Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item) })
         })
         .collect())
+}
+
+/// The repositories an item names, by `repo#N`.
+pub fn repos(item: &str) -> BTreeSet<String> {
+    references(item).iter().filter_map(|name| name.split_once('#').map(|(repo, _)| repo.to_owned())).collect()
 }
 
 pub fn first_try(db: &Connection, weeks: [Window; 2]) -> rusqlite::Result<Vec<Measure>> {

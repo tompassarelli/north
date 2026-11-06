@@ -31,6 +31,12 @@ impl ProxyTurn {
     }
 }
 
+/// One typed message that moved issues: which issues, and the seconds until the first of them landed, if one has.
+pub struct Ask {
+    pub items: BTreeSet<String>,
+    pub seconds: Option<f64>,
+}
+
 pub struct Tom {
     typed: Vec<Typed>,
     corrections: Vec<i64>,
@@ -142,8 +148,8 @@ impl Tom {
 
     pub fn corrections(&self, weeks: [Window; 2]) -> Measure {
         let figure = |window: Window| {
-            let hours: BTreeSet<i64> = self.typed.iter().filter(|typed| window.holds(typed.at)).map(|typed| typed.at.div_euclid(HOUR_S)).collect();
-            Figure::Rate { count: self.corrections.iter().filter(|at| window.holds(**at)).count(), hours: hours.len() as f64 }
+            let (count, hours) = self.correcting(window);
+            Figure::Rate { count, hours: hours as f64 }
         };
         Measure {
             name: "Tom's corrections per active hour".into(),
@@ -153,20 +159,30 @@ impl Tom {
         }
     }
 
+    pub fn asked(&self, window: Window, firsts: &HashMap<String, Vec<i64>>) -> Vec<Ask> {
+        let mut asked = Vec::new();
+        for (at, turn) in self.turns.iter().filter(|proxy| proxy.tom && window.holds(proxy.at)).filter_map(|proxy| Some((proxy.at, proxy.turn.as_ref()?))) {
+            let launched = turn.commands.iter().filter(|command| command.contains("north fleet launch") || command.contains("north fleet send")).flat_map(|command| references(command));
+            let items: BTreeSet<String> = turn.moved.iter().flat_map(|issue| references(&issue.label())).chain(launched).collect();
+            if items.is_empty() {
+                continue;
+            }
+            let landed = items.iter().filter_map(|item| firsts.get(item)?.iter().copied().find(|landed| *landed >= at)).min();
+            asked.push(Ask { items, seconds: landed.map(|landed| (landed - at) as f64) });
+        }
+        asked
+    }
+
+    pub fn correcting(&self, window: Window) -> (usize, usize) {
+        let hours: BTreeSet<i64> = self.typed.iter().filter(|typed| window.holds(typed.at)).map(|typed| typed.at.div_euclid(HOUR_S)).collect();
+        (self.corrections.iter().filter(|at| window.holds(**at)).count(), hours.len())
+    }
+
     pub fn asks(&self, weeks: [Window; 2], firsts: &HashMap<String, Vec<i64>>) -> Measure {
         let figure = |window: Window| {
-            let (mut seconds, mut open) = (Vec::new(), 0);
-            for (at, turn) in self.turns.iter().filter(|proxy| proxy.tom && window.holds(proxy.at)).filter_map(|proxy| Some((proxy.at, proxy.turn.as_ref()?))) {
-                let launched = turn.commands.iter().filter(|command| command.contains("north fleet launch") || command.contains("north fleet send")).flat_map(|command| references(command));
-                let items: BTreeSet<String> = turn.moved.iter().flat_map(|issue| references(&issue.label())).chain(launched).collect();
-                if items.is_empty() {
-                    continue;
-                }
-                match items.iter().filter_map(|item| firsts.get(item)?.iter().copied().find(|landed| *landed >= at)).min() {
-                    Some(landed) => seconds.push((landed - at) as f64),
-                    None => open += 1,
-                }
-            }
+            let asked = self.asked(window, firsts);
+            let seconds = asked.iter().filter_map(|ask| ask.seconds).collect();
+            let open = asked.iter().filter(|ask| ask.seconds.is_none()).count();
             Figure::Spread { seconds, open, open_label: "not landed yet" }
         };
         Measure {

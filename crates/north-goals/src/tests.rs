@@ -56,6 +56,9 @@ fn a_goal_without_a_class_rule_is_refused() {
     assert!(parse(&contract_with_ceiling).is_err_and(|found| found[0].contains("never red")));
     let debt_without_owner = GOALS.replace("owner = \"makgora#168\"\n", "");
     assert!(parse(&debt_without_owner).is_err_and(|found| found[0].contains("owner")));
+    let bar = "[[goal]]\nname = \"ready-landing-p90\"\nsource = \"north#641: p90 at most 60 s\"\nunit = \"s\"\nmax = 60\nclass = \"ready\"\n";
+    assert_eq!(parse(bar).expect("a ready bar needs no oracle")[0].class, super::registry::Class::Ready);
+    assert!(parse(&bar.replace("class = \"ready\"", "class = \"ready\"\noracle = \"echo 1\"")).is_err_and(|found| found[0].contains("ready bar")));
     let ceiling_not_looser = GOALS.replace("ceiling = 14", "ceiling = 9");
     assert!(parse(&ceiling_not_looser).is_err());
     let text = GOALS.replace("class = \"contract\"\n\n[[goal]]\nname = \"worst\"", "class = \"contract\"\npays = [\"src/\"]\n\n[[goal]]\nname = \"worst\"");
@@ -116,3 +119,4 @@ ceiling = 24
 owner = "north#641"
 revisit = "a day over"
 "#;
+
