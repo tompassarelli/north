@@ -191,6 +191,20 @@ impl Timings {
         fs::write(path, line)
     }
 
+    pub fn record_findings(&self, tree: &str, command: &str, class: &str, round: &str, findings: &str) -> io::Result<()> {
+        let path = self.entry(tree, command, class, "findings")?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, format!("{round}\n{findings}"))
+    }
+
+    pub fn findings(&self, tree: &str, command: &str, class: &str, round: &str) -> Option<String> {
+        let text = self.entry(tree, command, class, "findings").and_then(fs::read_to_string).ok()?;
+        let (recorded, findings) = text.split_once('\n')?;
+        (!round.is_empty() && recorded == round).then(|| findings.to_owned())
+    }
+
     pub fn result(&self, tree: &str, command: &str, class: &str, round: &str) -> Option<BaseResult> {
         let text = self.entry(tree, command, class, "result").and_then(fs::read_to_string).ok()?;
         let mut fields = text.trim_end_matches('\n').splitn(3, '\t');

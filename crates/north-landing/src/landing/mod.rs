@@ -6,6 +6,7 @@ pub(crate) mod instruction_limits;
 pub mod land_actions;
 pub mod red_check;
 pub mod base_relative;
+pub mod check_findings;
 pub mod check_timings;
 pub mod judge;
 pub mod removed_surface;
