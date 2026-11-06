@@ -27,6 +27,7 @@ policy_replay_login north-ops
 release north-landing north-safe-push north
 run_bounded north-ops north-capacity-host
 runtime_update north-runtime
+safe_push north-landing north-safe-push
 safe_push_entry north-base north-safe-push north
 safe_push_remote_land north north-safe-push
 safe_push_tag north-landing north-safe-push

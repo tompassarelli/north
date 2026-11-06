@@ -381,6 +381,7 @@ the per-lane code still exists.
     and `harness-tests.patch`) at another shell suite and drops the allowlist entry.
   - Done when (P12c): (1) `git ls-files bin/safe-push.test.sh` prints nothing; (2) `cargo test --test it
     -- --list safe_push` names each kept scenario.
+  - Changed on 2026-11-06 while landing P12b (scenarios 17, 21-23, 31-38, 49): `tests/it/safe_push/mod.rs` holds `safe_push()`, which links `CARGO_BIN_EXE_north` as `safe-push` beside a `north` shim (attest, `land-actions`, `land-red-check` and `capacity offload` answer from the test, everything else execs the real binary) and a `gh` shim, and `Run`, which scrubs the same environment the bash suite did and sends stdout and stderr to one log so a verdict's last line is the last line written. Scenario 17's twin was already gone (P2a): its enqueue receipt is pinned by `golden_path.rs`, and the terminal `safe-push: pushed SHA to BRANCH` line with no `landed` line is asserted in the attest test. The lock halves of 36 and 37 are dropped with the landing lock (P2c): nothing takes that lock in a dry run, so `flock -n` on it could not fail. Scenario 21's trace check and the remote-unmoved checks keep their assertions, though under `--dry-run` they can no longer fail. 49 became two tests, since bash had added a second case under it (a failure that main shares ends `verdict transient`). 36-38 are three tests, not one, so each guarantee names itself. The bash suite's sections 9-13 and their helpers are deleted with the scenarios.
 - **P13 The installer links entry points, and no caller canonicalizes safe-push.** Covered harness
   change: review per the rule above. Files: `crates/north-runtime/src/runtime/update.rs` (`install`),
   `land/scans/tool_removal.rs`, `land/slots/runner.rs`, `land/after/{follow,gates,mod}.rs`. Done when:
@@ -392,8 +393,10 @@ the per-lane code still exists.
      is `north` and gets the scan's verdict.
 - **P14 The swap.** Covered harness change: review per the rule above. Precondition, checked by the
   worker before landing: `readlink ~/.local/state/north/current` on whiterabbit and on gex45
-  (`ssh gex45`) names a runtime that contains P13. Delete `bin/safe-push` and its allowlist entry. Point
-  the `tests/it` callers at the helper. Update AGENTS.md, `src/cli/help.txt`, docs/features and
+  (`ssh gex45`) names a runtime that contains P13. Delete `bin/safe-push` and its allowlist entry.
+  `SAFE_PUSH_SELF` is set only by that wrapper and `Settings` reads it with no default, so `Settings` takes it from the
+  argv[0] link in the same change (the Actions land checks and `--publication-scan` run that path), and the
+  `tests/it/safe_push` helper stops setting it. Point the `tests/it` callers at the helper. Update AGENTS.md, `src/cli/help.txt`, docs/features and
   `runtime_floor_gate_tests.rs`. Done when: (1) `git ls-files bin/safe-push` prints nothing; (2)
   `cargo test --workspace` passes. After landing, on whiterabbit and gex45:
   - after `north runtime update`, `readlink -f ~/.local/bin/safe-push` ends in `/north` under

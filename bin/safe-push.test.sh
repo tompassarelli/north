@@ -23,41 +23,15 @@ shim_main() {
 
   case "$tool:${1:-}" in
     north:denylist)
-      if [ "${2:-}" = attest ]; then
-        printf '%s\n' "$*" >>"${SAFE_PUSH_TEST_ATTEST_TRACE:?}"
-        return "${SAFE_PUSH_TEST_ATTEST_STATUS:-0}"
-      fi
       exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
       ;;
     north:land)
       case "${2:-}" in
-        checks|push|route) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
-        scan)
-          "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
-          local scan_status=$?
-          if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_EMAIL_SCAN:-0}" = 1 ] && [ "${3:-}" = commit-email ]; then rm -f -- "$0"; fi
-          return "$scan_status"
-          ;;
+        checks|push|route|scan) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
       esac
       return 2
       ;;
     north:safe-push) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
-    north:land-red-check) return "${SAFE_PUSH_TEST_RED_CHECK_STATUS:-0}" ;;
-    north:capacity)
-      [ "${2:-}" = offload ] || exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
-      [ "${3:-}" != verdict ] || return 0
-      if [ "${3:-}" = choose ]; then
-        [ -n "${SAFE_PUSH_TEST_BUILD_HOST:-}" ] || { echo 'north capacity offload: no other host has room' >&2; return 1; }
-        printf '%s\n' "$SAFE_PUSH_TEST_BUILD_HOST"
-        return 0
-      fi
-      printf '%s\t%s\n' "$5" "${!#}" >>"${SAFE_PUSH_TEST_OFFLOAD_TRACE:?}"
-      bash -euo pipefail -c "${!#}"
-      ;;
-    north:land-actions)
-      printf '%s\n' "${*:11}" >>"${SAFE_PUSH_TEST_ACTIONS_TRACE:-/dev/null}"
-      return "${SAFE_PUSH_TEST_ACTIONS_STATUS:-0}"
-      ;;
     north:safe-push-result|north:capacity|north:mutant|north:stale-revert|north:bin-references|north:build-cache-gate|north:runtime-floor-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
@@ -258,117 +232,12 @@ mkdir -p "$gh_bin"
 ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$gh_bin/gh"
 
 make_real_fixture template
-code_health_case() {
-  local exit_code="$1"
-  shift
-  : >"$scratch/code-health-trace"
-  SAFE_PUSH_CODE_HEALTH="$code_health_stub" CODE_HEALTH_TEST_EXIT="$exit_code" \
-    CODE_HEALTH_TEST_TRACE="$scratch/code-health-trace" run_real_case "$@"
-}
 
 run_denylist_case() {
   PATH="$gh_bin:$PATH" SAFE_PUSH_TEST_VISIBILITY="$1" \
     SAFE_PUSH_TEST_REAL_BETTERLEAKS="$real_betterleaks" run_real_case "${@:2}"
 }
 
-run_attest_case() {
-  : >"$attest_trace"
-  printf 'clean\n' >>"$real_repo/content.txt"
-  "$real_git" -C "$real_repo" commit -qam 'attested work'
-  SAFE_PUSH_SOUTH="$scratch/attest-south" SAFE_PUSH_DENYLIST="$fixture_denylist" \
-    SAFE_PUSH_TEST_ATTEST_TRACE="$attest_trace" run_denylist_case PUBLIC "$@"
-}
-
-expect_email_refused() {
-  local role="$1" sha
-  sha=$("$real_git" -C "$real_repo" rev-parse --short HEAD)
-  expect_status nonzero
-  expect_output "safe-push: commit $sha $role email $private_email is not safe-push-test@example.invalid"
-  expect_output 'git commit --amend --reset-author (or rebase --exec) before pushing; NOT pushed.'
-  [ "$(real_remote_state)" = "$remote_before" ] || fail "private $role email refusal mutated the remote"
-}
-
-wait_for() {
-  local producers=$1 producer live
-  shift
-  until "$@"; do
-    live=''
-    for producer in $producers; do kill -0 "$producer" 2>/dev/null && live=1; done
-    [ -n "$live" ] || "$@" || fail "handshake never came and its producer exited: $*"
-    sleep 0.01
-  done
-}
-
-make_landing_clone() {
-  local dir="$1" file="$2"
-  "$real_git" clone -q "$landing_remote" "$dir"
-  "$real_git" -C "$dir" config user.name safe-push-test
-  "$real_git" -C "$dir" config user.email safe-push-test@example.invalid
-  "$real_git" -C "$dir" switch -q -c "lane-${dir##*/}"
-  printf '%s\n' "${dir##*/}" >"$dir/$file"
-  "$real_git" -C "$dir" add "$file"
-  "$real_git" -C "$dir" commit -qm "change from ${dir##*/}"
-}
-
-run_landing() {
-  printf "%s\n" run_landing >>"$scratch/cases"
-  local dir="$1"
-  (
-    cd "$dir"
-    SAFE_PUSH_TEST_SHIM=1 \
-      SAFE_PUSH_TEST_TRACE="$dir.trace" \
-      SAFE_PUSH_TEST_STATE="$dir.state" \
-      XDG_STATE_HOME="${xdg_state:?}" \
-      PATH="${SAFE_PUSH_TEST_PATH:-$real_bin:$PATH}" \
-      env --default-signal=INT "$TARGET" --dry-run --to main
-  ) >"$dir.out" 2>&1
-}
-
-new_landing_origin() {
-  landing_root="$scratch/landing-$1"
-  landing_remote="$landing_root/remote.git"
-  if [ -d "$scratch/landing-template" ]; then
-    cp -a "$scratch/landing-template" "$landing_root"
-    return
-  fi
-  mkdir -p "$landing_root"
-  "$real_git" init --bare -q -b main "$landing_remote"
-  "$real_git" init -q -b main "$landing_root/seed"
-  "$real_git" -C "$landing_root/seed" config user.name safe-push-test
-  "$real_git" -C "$landing_root/seed" config user.email safe-push-test@example.invalid
-  printf 'base\n' >"$landing_root/seed/shared.txt"
-  "$real_git" -C "$landing_root/seed" add shared.txt
-  "$real_git" -C "$landing_root/seed" commit -qm base
-  "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
-  cp -a "$landing_root" "$scratch/landing-template"
-}
-
-runner_case() {
-  new_landing_origin "$1"
-  make_landing_clone "$landing_root/a" a.txt
-  "$real_git" -C "$landing_root/a" config --file .safe-push landing.capacity 'env LAND_LEASE=held'
-  [ -z "$2" ] || "$real_git" -C "$landing_root/a" config --file .safe-push "$2" "$3"
-  shift 3
-  local check
-  for check in "$@"; do "$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: $check"; done
-  "$real_git" -C "$landing_root/a" config --file .safe-push --add land.local-only "needs this host :: touch '$landing_root/local-ran'"
-  "$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: touch '$landing_root/local-ran'"
-  "$real_git" -C "$landing_root/a" add .safe-push
-  "$real_git" -C "$landing_root/a" commit -qm "runner case $landing_root"
-  : >"$landing_root/offloaded"
-}
-
-runner_landed() {
-  case_output=$(cat "$landing_root/a.out")
-  grep -Fq "safe-push: ✓ clean (--dry-run)" <<<"$case_output"
-}
-
-run_check_candidate() {
-  (cd "$landing_root/a" && SAFE_PUSH_TEST_SHIM=1 SAFE_PUSH_TEST_TRACE="$landing_root/a.trace" SAFE_PUSH_TEST_STATE="$landing_root/a.state" \
-    SAFE_PUSH_TEST_LANGUAGE_TRACE="$landing_root/north.trace" XDG_STATE_HOME="$xdg_state" PATH="$real_bin:$PATH" "$@" "$TARGET" --check-candidate --base "$check_base") 2>&1
-}
-
-new_landing_origin seed
 sections=()
 
 { xdg_state="$scratch/xdg-state-1"; new_real_bin -1
@@ -997,16 +866,6 @@ expect_status nonzero
 expect_output 'blocking check(s) failed: dependency gate'
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'dependency refusal changed origin'
 
-code_health_stub="$scratch/code-health-stub"
-printf '#!/usr/bin/env bash\nprintf "code-health %%s\\n" "$*" >>"$CODE_HEALTH_TEST_TRACE"\nexit "${CODE_HEALTH_TEST_EXIT:-0}"\n' >"$code_health_stub"
-chmod +x "$code_health_stub"
-make_real_fixture code-health-landed
-code_health_case 1 --dry-run --to main
-expect_status zero
-expect_output "safe-push: ✓ clean (--dry-run)"
-[ ! -s "$scratch/code-health-trace" ] || fail 'code-health ran before the landing'
-printf 'PASS: a code-health refusal no longer blocks a landing\n'
-
 # Cross-branch publication is available only through --to and scans the exact
 # remote-destination..HEAD range before an object+lease-bound update.
 make_real_fixture explicit-main
@@ -1033,250 +892,7 @@ expect_output 'identity.txt'
 if grep -Fq 'zebra-quokka-7731' <<<"$case_output"; then fail 'deny-list refusal printed the matched value'; fi
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'deny-list refusal mutated the remote'
 
-# A claude/ push to a public Autoland repository asks north to attest its tip
-# from south; a main push does not, a failed attest leaves the push standing,
-# and a refusal says the tip needs a reworded push rather than a retry.
 } >"$scratch/section-8.log" 2>&1 &
-sections+=($!)
-
-{ xdg_state="$scratch/xdg-state-9"; new_real_bin -9
-make_real_fixture denylist-attest
-mkdir -p "$real_repo/.github/workflows" "$scratch/attest-south"
-printf 'on: [workflow_dispatch]\n' >"$real_repo/.github/workflows/autoland.yml"
-printf '[landing]\n\tqueue = autoland\n' >>"$real_repo/.safe-push"
-"$real_git" -C "$real_repo" add .github/workflows/autoland.yml .safe-push
-"$real_git" -C "$real_repo" commit -qm 'Autoland workflow'
-"$real_git" -C "$real_repo" push -q origin HEAD:main
-attest_trace="$scratch/attest-trace"
-NORTH_FLEET_SESSION=attest-scratch run_attest_case --to claude/attest-work
-expect_status zero
-grep -Fxq "denylist attest --south $scratch/attest-south --repo real-denylist-attest/remote --branch claude/attest-work" "$attest_trace" \
-  || fail "a claude/ push did not attest its tip: $(cat "$attest_trace")"
-expect_output "safe-push: pushed $("$real_git" --git-dir="$real_remote" rev-parse refs/heads/claude/attest-work) to claude/attest-work"
-! grep -q '^safe-push: landed ' <<<"$case_output" || fail 'a push to a scratch branch was reported as landed'
-scratch_row=$(awk -F'\t' '$6 == "attest-scratch"' "$xdg_state/safe-push/pushes.tsv" | tail -n 1)
-[ -n "$scratch_row" ] || fail 'a scratch-branch push recorded no push row'
-[ -z "$(cut -f5 <<<"$scratch_row")" ] || fail "a scratch-branch push recorded a landed sha for fleet: $scratch_row"
-SAFE_PUSH_TEST_ATTEST_STATUS=1 run_attest_case --to claude/attest-refused
-expect_status zero
-expect_output 'the deny-list attester refused claude/attest-refused, so Autoland will not test this tip; reword the deny-listed text and push again'
-! grep -q 'timer retries' <<<"$case_output" || fail 'a refused attest promised a timer retry'
-SAFE_PUSH_TEST_ATTEST_STATUS=3 run_attest_case --to claude/attest-deferred
-expect_status zero
-expect_output 'the nexus denylist-attest timer posts the status and dispatches Autoland within about five minutes, with nothing for you to run'
-! grep -q 'failed (exit' <<<"$case_output" || fail 'a deferred attest was reported as a failure'
-"$real_git" --git-dir="$real_remote" rev-parse -q --verify refs/heads/claude/attest-deferred >/dev/null || fail 'a deferred attest undid the push'
-SAFE_PUSH_TEST_ATTEST_STATUS=2 run_attest_case --to claude/attest-retry
-expect_status zero
-expect_output 'the deny-list attest for claude/attest-retry failed (exit 2); the push stands'
-"$real_git" --git-dir="$real_remote" rev-parse -q --verify refs/heads/claude/attest-retry >/dev/null || fail 'a failed attest undid the push'
-: >"$attest_trace"
-printf 'clean\n' >>"$real_repo/content.txt"
-"$real_git" -C "$real_repo" commit -qam 'unattested work'
-SAFE_PUSH_DENYLIST="$fixture_denylist" SAFE_PUSH_TEST_ATTEST_TRACE="$attest_trace" run_denylist_case PUBLIC --to claude/attest-no-south
-expect_status zero
-[ ! -s "$attest_trace" ] || fail "a push without a south checkout attested: $(cat "$attest_trace")"
-printf 'PASS: claude/ pushes to a public Autoland repository attest their tip\n'
-
-# A branch landing runs the email scan before it pushes; its cases live in
-# crates/north-landing/src/land/scans/outgoing/email_tests.rs.
-private_email=someone@private.example
-
-make_real_fixture email-to-main
-"$real_git" -C "$real_repo" commit --amend --allow-empty -qm 'private author for main' --author="safe-push-test <$private_email>"
-remote_before="$(real_remote_state)"
-run_real_case --dry-run --to main
-expect_email_refused author
-
-printf 'PASS: a branch landing refuses a private author email before push\n'
-
-} >"$scratch/section-9.log" 2>&1 &
-sections+=($!)
-
-
-
-
-{ xdg_state="$scratch/xdg-state-10"; new_real_bin -10
-
-printf '%s\n' 'touch "$PWD/../started-$1"; for i in $(seq 100); do [ -e "$PWD/../started-$2" ] && exit 0; sleep 0.1; done; exit 9' >"$scratch/meet.sh"
-runner_case runner-overlap land.runner build-host "bash '$scratch/meet.sh' one two" "bash '$scratch/meet.sh' two one"
-SAFE_PUSH_TEST_BUILD_HOST=builder SAFE_PUSH_TEST_OFFLOAD_TRACE="$landing_root/offloaded" run_landing "$landing_root/a" \
-  || fail "land.runner lane failed: $(cat "$landing_root/a.out")"
-runner_landed || fail 'land.runner lane did not pass its dry run'
-[ "$(cut -f1 "$landing_root/offloaded" | sort -u)" = builder ] || fail "land.runner did not resolve build-host to the build host with room: $(cat "$landing_root/offloaded")"
-[ "$(wc -l <"$landing_root/offloaded")" -eq 2 ] || fail "land.runner did not send both portable checks to the build host: $(cat "$landing_root/offloaded")"
-! grep -q local-ran "$landing_root/offloaded" && [ -e "$landing_root/local-ran" ] || fail 'land.runner sent a local-only check to the build host'
-stage_ms=$(awk -F'\t' '$4 == "land checks" {v=$5} END {print v}' "$xdg_state/safe-push/stages.tsv")
-expect_output 'safe-push: stage land checks:'
-[ "${stage_ms:-99999}" -lt 15000 ] || fail "land.runner checks did not overlap: land-check stage took ${stage_ms} ms"
-printf 'PASS: land.runner build-host resolves to a build host with room, runs every portable check there at once (each waits for the other to start; stage %s ms) and the local-only check here\n' "$stage_ms"
-
-runner_case actions-infra-build-host land.workflow land-check.yml "true"
-SAFE_PUSH_TEST_ACTIONS_STATUS=75 SAFE_PUSH_TEST_BUILD_HOST=builder SAFE_PUSH_TEST_OFFLOAD_TRACE="$landing_root/offloaded" SAFE_PUSH_TEST_ACTIONS_TRACE="$landing_root/actions" \
-  run_landing "$landing_root/a" || fail "Actions infrastructure fallback lane failed: $(cat "$landing_root/a.out")"
-runner_landed || fail 'Actions infrastructure fallback lane did not pass its dry run'
-[ "$(cat "$landing_root/offloaded")" = "builder	true" ] || fail "Actions infrastructure did not re-run the check on the build host: $(cat "$landing_root/offloaded")"
-expect_output 'GitHub Actions is unavailable (infrastructure, not a check failure)'
-printf 'PASS: an Actions dispatch exiting with the infrastructure code re-runs its checks on the first build host with room and takes that verdict\n'
-
-runner_case actions-infra-here land.workflow land-check.yml "touch \"\$PWD/../portable-here\""
-SAFE_PUSH_TEST_ACTIONS_STATUS=75 SAFE_PUSH_TEST_OFFLOAD_TRACE="$landing_root/offloaded" run_landing "$landing_root/a" \
-  || fail "no-room fallback lane failed: $(cat "$landing_root/a.out")"
-runner_landed || fail 'no-room fallback lane did not pass its dry run'
-[ ! -s "$landing_root/offloaded" ] && [ -e "$landing_root/portable-here" ] || fail "with no build host room the check did not run here: $(cat "$landing_root/a.out")"
-expect_output 'no build host has room'
-printf 'PASS: with Actions down and no build host with room the checks run here\n'
-
-runner_case actions-check-failure land.workflow land-check.yml "true"
-case_status=0
-SAFE_PUSH_TEST_ACTIONS_STATUS=1 SAFE_PUSH_TEST_BUILD_HOST=builder SAFE_PUSH_TEST_OFFLOAD_TRACE="$landing_root/offloaded" run_landing "$landing_root/a" || case_status=$?
-[ "$case_status" -ne 0 ] && ! runner_landed || fail 'a failed Actions check landed'
-[ ! -s "$landing_root/offloaded" ] || fail 'a failed Actions check was retried on the build host'
-runner_case runner-check-failure land.runner build-host "printf 'ran\\n' >>\"\$PWD/../runs\"; exit 7"
-case_status=0
-SAFE_PUSH_TEST_BUILD_HOST=builder SAFE_PUSH_TEST_OFFLOAD_TRACE="$landing_root/offloaded" run_landing "$landing_root/a" || case_status=$?
-[ "$case_status" -ne 0 ] && ! runner_landed || fail 'a failed build-host check landed'
-[ "$(wc -l <"$landing_root/runs")" -eq 1 ] || fail 'a failed build-host check was retried'
-grep -q 'exited 7' "$landing_root/a.out" || fail "a failed build-host check lost its report: $(cat "$landing_root/a.out")"
-printf 'PASS: a real check failure on Actions or a build host refuses the landing and is never retried elsewhere\n'
-
-new_landing_origin cancelled-check
-make_landing_clone "$landing_root/a" a.txt
-"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: printf '%s\\n' \"\$\$\" >'$landing_root/check-pid'; exec sleep 40"
-"$real_git" -C "$landing_root/a" add .safe-push
-"$real_git" -C "$landing_root/a" commit -qm 'cancel during the land check'
-run_landing "$landing_root/a" & pid_a=$!
-wait_for "$pid_a" test -s "$landing_root/check-pid"
-lane_dir=$(cd "$landing_root/a" && pwd -P) safe_push_pid=''
-for candidate in $(pgrep -f -- "$TARGET"); do [ "$(readlink "/proc/$candidate/cwd")" = "$lane_dir" ] && { safe_push_pid=$candidate; break; }; done
-[ -n "$safe_push_pid" ] || fail "no safe-push process runs in $lane_dir"
-kill -INT "$safe_push_pid"
-status_a=0; wait "$pid_a" || status_a=$?
-[ "$status_a" -eq 130 ] || fail "a dry run cancelled during its land check returned $status_a: $(cat "$landing_root/a.out")"
-grep -qx 'safe-push: cancelled' "$landing_root/a.out" || fail 'missing cancelled receipt'
-! grep -q '^safe-push: landed ' "$landing_root/a.out" || fail 'a cancelled dry run falsely reported the base as landed'
-check_pid=$(cat "$landing_root/check-pid")
-for _ in $(seq 50); do kill -0 "$check_pid" 2>/dev/null || break; sleep 0.1; done
-! kill -0 "$check_pid" 2>/dev/null || { kill "$check_pid"; fail 'a cancelled dry run left its land check running'; }
-printf 'PASS: recorded SIGINT cancels with exit 130, no false landed receipt and no land check left running\n'
-
-} >"$scratch/section-10.log" 2>&1 &
-sections+=($!)
-
-{ xdg_state="$scratch/xdg-state-11"; new_real_bin -11
-new_landing_origin dead-check-orphans
-make_landing_clone "$landing_root/a" a.txt
-"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: sleep 40 & echo \$! >'$landing_root/orphan-pid'; exit 7"
-"$real_git" -C "$landing_root/a" add .safe-push
-"$real_git" -C "$landing_root/a" commit -qm 'check leaves an orphan holding its output'
-run_landing "$landing_root/a" & pid_a=$!
-wait_for "$pid_a" test -s "$landing_root/orphan-pid"
-finished=''
-for i in $(seq 150); do
-  if ! kill -0 "$pid_a" 2>/dev/null; then finished="$i"; break; fi
-  sleep 0.1
-done
-kill "$(cat "$landing_root/orphan-pid")" 2>/dev/null || true
-status_a=0; wait "$pid_a" || status_a=$?
-[ -n "$finished" ] || fail 'a dead land check left safe-push waiting on its orphaned log children'
-[ "$status_a" -ne 0 ] || fail 'a failed land check let the push succeed'
-grep -q 'exited 7' "$landing_root/a.out" || fail "missing land check failure: $(cat "$landing_root/a.out")"
-lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
-flock -n "$xdg_state/safe-push/$lock_key.lock" true || fail 'a dead land check left the landing lock held'
-printf 'PASS: recorded dead land check with orphaned children releases safe-push and the lock\n'
-
-new_landing_origin hung-check-timeout
-make_landing_clone "$landing_root/a" a.txt
-"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: sleep 40"
-"$real_git" -C "$landing_root/a" add .safe-push
-"$real_git" -C "$landing_root/a" commit -qm 'check hangs alive'
-SAFE_PUSH_LAND_CHECK_TIMEOUT=2 run_landing "$landing_root/a" & pid_a=$!
-finished=''
-for i in $(seq 200); do
-  if ! kill -0 "$pid_a" 2>/dev/null; then finished="$i"; break; fi
-  sleep 0.1
-done
-[ -n "$finished" ] || { kill "$pid_a" 2>/dev/null || true; fail 'a hung land check held the landing queue past its timeout'; }
-status_a=0; wait "$pid_a" || status_a=$?
-[ "$status_a" -ne 0 ] || fail 'a timed out land check let the push succeed'
-grep -q 'ran past its 2 s deadline' "$landing_root/a.out" || fail "missing land check timeout: $(cat "$landing_root/a.out")"
-lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
-flock -n "$xdg_state/safe-push/$lock_key.lock" true || fail 'a timed out land check left the landing lock held'
-printf 'PASS: recorded hung land check times out, fails the push and frees the lock\n'
-
-} >"$scratch/section-11.log" 2>&1 &
-sections+=($!)
-
-{ xdg_state="$scratch/xdg-state-12"; new_real_bin -12
-new_landing_origin frozen-check-timeout
-make_landing_clone "$landing_root/a" a.txt
-"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: touch $landing_root/started; sleep 40"
-"$real_git" -C "$landing_root/a" add .safe-push
-"$real_git" -C "$landing_root/a" commit -qm 'check is frozen past its timeout'
-lease_runtime="$landing_root/runtime"
-mkdir -p "$lease_runtime/agent-capacity-v1/leases"
-printf '{"expiresAt":1000,"frozenAt":1000}\n' >"$lease_runtime/agent-capacity-v1/leases/frozen.json"
-XDG_RUNTIME_DIR="$lease_runtime" AGENT_CAPACITY_LEASE=frozen SAFE_PUSH_LAND_CHECK_TIMEOUT=2 run_landing "$landing_root/a" & pid_a=$!
-for i in $(seq 200); do [ -e "$landing_root/started" ] && break; sleep 0.05; done
-[ -e "$landing_root/started" ] || { kill "$pid_a" 2>/dev/null || true; fail 'the frozen land check never started'; }
-sleep 4
-! grep -q 'ran past its 2 s deadline' "$landing_root/a.out" || fail "a frozen land check was ended by its wall-clock timeout: $(cat "$landing_root/a.out")"
-printf '{"expiresAt":5000}\n' >"$lease_runtime/agent-capacity-v1/leases/frozen.json"
-sleep 1.6
-! grep -q 'ran past its 2 s deadline' "$landing_root/a.out" || fail "a frozen land check ended before its timeout plus the time it was frozen: $(cat "$landing_root/a.out")"
-ended=''
-for i in $(seq 30); do
-  if grep -q 'ran past its 2 s deadline' "$landing_root/a.out"; then ended="$i"; break; fi
-  sleep 0.1
-done
-[ -n "$ended" ] || { kill "$pid_a" 2>/dev/null || true; fail "a thawed land check outlived its timeout plus the time it was frozen: $(cat "$landing_root/a.out")"; }
-status_a=0; wait "$pid_a" || status_a=$?
-[ "$status_a" -ne 0 ] || fail 'a timed out frozen land check let the push succeed'
-printf 'PASS: recorded frozen land check times out only after its timeout plus the time it was frozen\n'
-
-
-} >"$scratch/section-12.log" 2>&1 &
-sections+=($!)
-
-
-
-
-
-
-
-
-
-{ xdg_state="$scratch/xdg-state-13"; new_real_bin -13
-new_landing_origin check-candidate
-make_landing_clone "$landing_root/a" a.txt
-"$real_git" -C "$landing_root/a" config --file .safe-push land.workflow land-check.yml
-"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: true"
-"$real_git" -C "$landing_root/a" add .safe-push
-"$real_git" -C "$landing_root/a" commit -qm 'a land check on Actions'
-check_base=$("$real_git" --git-dir="$landing_remote" rev-parse main)
-case_output=$(run_check_candidate env SAFE_PUSH_TEST_ACTIONS_STATUS=1 SAFE_PUSH_TEST_RED_CHECK_STATUS=3) && fail "check-candidate: a red-main candidate exited 0: $case_output"
-[ "$(tail -n1 <<<"$case_output")" = "safe-push: verdict red-main $check_base" ] || fail "check-candidate: red main did not end verdict red-main: $case_output"
-grep -q '^north <land-red-check>' "$landing_root/north.trace" || fail "check-candidate: red main was not asked for: $case_output"
-case_output=$(run_check_candidate env) || fail "check-candidate: a green candidate failed: $case_output"
-[ "$(tail -n1 <<<"$case_output")" = "safe-push: verdict green $("$real_git" -C "$landing_root/a" rev-parse HEAD)" ] || fail "check-candidate: no green verdict: $case_output"
-[ "$("$real_git" --git-dir="$landing_remote" rev-parse main)" = "$check_base" ] || fail 'check-candidate pushed'
-printf 'PASS: check-candidate: a red-main failure ends verdict red-main; a green one ends verdict green; nothing is pushed\n'
-
-new_landing_origin check-candidate-broken-main
-"$real_git" -C "$landing_root/seed" config --file .safe-push --add land.check "a.txt :: echo '{\"decision\":\"QUEUED\",\"reason\":\"DEFER_MEMORY_CAPACITY\"}'; echo 'error[E0063]: missing field'; exit 101"
-"$real_git" -C "$landing_root/seed" add .safe-push
-"$real_git" -C "$landing_root/seed" commit -qm 'a land check that fails on every tree after a queued admission'
-"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
-make_landing_clone "$landing_root/a" a.txt
-check_base=$("$real_git" --git-dir="$landing_remote" rev-parse main)
-case_output=$(run_check_candidate env NORTH_LAND_ROUND=582) && fail "check-candidate: a candidate on a main that fails its own check exited 0: $case_output"
-verdict=$(tail -n1 <<<"$case_output")
-[[ "$verdict" == "safe-push: verdict transient main's check environment is broken: "* ]] \
-  || fail "check-candidate: a failure main shares, beside a queued DEFER_ admission line, did not end verdict transient on the broken base: $verdict"
-printf 'PASS: check-candidate: a failure main shares ends verdict transient on the broken base, not deferred, though a queued admission line names DEFER_MEMORY_CAPACITY\n'
-
-
-} >"$scratch/section-13.log" 2>&1 &
 sections+=($!)
 
 status=0
