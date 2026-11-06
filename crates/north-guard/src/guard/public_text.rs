@@ -21,7 +21,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         input,
         |text| betterleaks::scan_text(&config, text).unwrap_or_default(),
         |repo, dir| is_private(repo, dir.or(cwd.as_deref())),
-        private_text::judge,
+        private_text::judge_in_hook,
     )
 }
 

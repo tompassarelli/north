@@ -1,10 +1,12 @@
-use std::process::Command;
+use std::process::{Command, Output};
 use std::time::Duration;
 
 use super::north_binary::north_binary;
 use super::process;
 
 const JUDGE_LIMIT: Duration = Duration::from_secs(300);
+// The runtime ends a PreToolUse hook at 10 s and then lets the call through (nixos-config modules/north-profile/claude-hooks.json).
+const HOOK_LIMIT: Duration = Duration::from_secs(7);
 const SPAN_CHARS: usize = 160;
 pub const KINDS_ENV: &str = "NORTH_PRIVATE_KINDS";
 
@@ -32,9 +34,24 @@ pub fn parse(stdout: &str) -> Vec<Finding> {
 
 /// Judges `text` by running `north privacy judge`: exit 0 is clean, exit 1 prints the findings, anything else means the judge could not run.
 pub fn judge(text: &str) -> Result<Vec<Finding>, String> {
+    verdict(&process::run_command_within(command(), Some(text.as_bytes()), JUDGE_LIMIT).ok_or("the private-text judge did not finish")?)
+}
+
+pub fn judge_in_hook(text: &str) -> Result<Vec<Finding>, String> {
+    match process::run_command_or_leave(command(), text.as_bytes(), HOOK_LIMIT) {
+        Ok(Some(output)) => verdict(&output),
+        Ok(None) => Err(format!("it needs more than {} s on this text and keeps running to cache its verdict, so retry the same command in a minute", HOOK_LIMIT.as_secs())),
+        Err(error) => Err(format!("the private-text judge did not start: {error}")),
+    }
+}
+
+fn command() -> Command {
     let mut command = Command::new(north_binary());
     command.args(["privacy", "judge", "--text", "-"]);
-    let output = process::run_command_within(command, Some(text.as_bytes()), JUDGE_LIMIT).ok_or("the private-text judge did not finish")?;
+    command
+}
+
+fn verdict(output: &Output) -> Result<Vec<Finding>, String> {
     match output.status.code() {
         Some(0) => Ok(Vec::new()),
         Some(1) => Some(parse(&String::from_utf8_lossy(&output.stdout)))

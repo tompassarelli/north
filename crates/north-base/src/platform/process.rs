@@ -63,26 +63,32 @@ pub fn run_command_within(command: Command, input: Option<&[u8]>, limit: Duratio
 }
 
 pub fn try_run_command_within(command: Command, input: Option<&[u8]>, limit: Duration) -> std::io::Result<Option<Output>> {
-    run_prepared(command, input, limit, false, false).map(Result::ok)
+    run_prepared(command, input, limit, false, false, false).map(Result::ok)
 }
 
 pub fn try_run_command_traced_within(command: Command, input: Option<&[u8]>, limit: Duration) -> std::io::Result<Result<Output, String>> {
-    run_prepared(command, input, limit, false, true)
+    run_prepared(command, input, limit, false, true, false)
+}
+
+pub fn run_command_or_leave(mut command: Command, input: &[u8], limit: Duration) -> std::io::Result<Option<Output>> {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+    run_prepared(command, Some(input), limit, true, false, true).map(Result::ok)
 }
 
 pub fn run_group_within(mut command: Command, limit: Duration) -> Option<Output> {
     use std::os::unix::process::CommandExt;
     command.process_group(0);
-    run_prepared(command, None, limit, true, false).ok().and_then(Result::ok)
+    run_prepared(command, None, limit, true, false, false).ok().and_then(Result::ok)
 }
 
 pub fn try_run_group_traced_within(mut command: Command, limit: Duration) -> std::io::Result<Result<Output, String>> {
     use std::os::unix::process::CommandExt;
     command.process_group(0);
-    run_prepared(command, None, limit, true, true)
+    run_prepared(command, None, limit, true, true, false)
 }
 
-fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool, traced: bool) -> std::io::Result<Result<Output, String>> {
+fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool, traced: bool, leave: bool) -> std::io::Result<Result<Output, String>> {
     let stdin = match input {
         Some(input) => {
             let mut file = tempfile::tempfile()?;
@@ -104,6 +110,9 @@ fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, gro
             break status;
         }
         if started.elapsed() >= limit {
+            if leave {
+                return Ok(Err(String::new()));
+            }
             let stalled = if traced { tree(child.id()) } else { String::new() };
             kill(&mut child, group);
             let _ = child.wait();
@@ -208,4 +217,24 @@ pub fn on_path(program: &str) -> bool {
             candidate.is_file() && std::fs::metadata(&candidate).is_ok_and(|meta| std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o111 != 0)
         })
     })
+}
+
+#[cfg(test)]
+mod leave_tests {
+    use super::*;
+
+    #[test]
+    fn a_hook_stops_waiting_at_its_limit_and_the_command_finishes_on_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let done = dir.path().join("done");
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 1; touch \"$0\"", &done.display().to_string()]);
+        let started = Instant::now();
+        assert!(run_command_or_leave(command, b"", Duration::from_millis(200)).unwrap().is_none());
+        assert!(started.elapsed() < Duration::from_millis(900));
+        while !done.exists() && started.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(done.exists());
+    }
 }
