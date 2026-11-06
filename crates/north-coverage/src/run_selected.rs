@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -7,7 +7,7 @@ use north_base::build_inputs::{run_time_data, rust_build_input};
 use crate::hunks::{self, Hunks};
 use crate::map::{self, Map, Test};
 use crate::always;
-use crate::pick::{Change, Selection, before_push, select as pick};
+use crate::pick::{Added, Change, Selection, added_before_push, before_push, select as pick};
 
 const DEFAULT_TIMEOUT: &str = "1800";
 pub const MOST_BEFORE_PUSH: usize = 400;
@@ -40,8 +40,9 @@ pub fn select(arguments: &[String]) -> u8 {
         Ok(selection) => {
             report(&selection);
             let tests = before_push(&selection, &always_run(&request.head), MOST_BEFORE_PUSH);
-            if !tests.is_empty() {
-                println!("{}", nextest_arguments(&tests).join(" "));
+            let added = added_before_push(&selection, MOST_BEFORE_PUSH);
+            if !tests.is_empty() || !added.is_empty() {
+                println!("{}", nextest_arguments(&tests, &added).join(" "));
             }
             0
         }
@@ -53,22 +54,23 @@ pub fn test(arguments: &[String]) -> u8 {
     let Some(request) = request(arguments) else { return usage() };
     let selection = selection_between(&request.base, &request.head, request.map.clone()).unwrap_or_else(Selection::Unmapped);
     report(&selection);
-    if let Selection::Tests { tests, .. } = &selection
-        && tests.len() > MOST_BEFORE_PUSH
+    if let Selection::Tests { tests, added, .. } = &selection
+        && tests.len() + added.len() > MOST_BEFORE_PUSH
     {
-        eprintln!("north coverage: {} tests is over the {MOST_BEFORE_PUSH} run before a push; the full suite runs after it", tests.len());
+        eprintln!("north coverage: {} tests is over the {MOST_BEFORE_PUSH} run before a push; the full suite runs after it", tests.len() + added.len());
     }
     let always = always_run(&request.head);
     if !always.is_empty() {
         eprintln!("north coverage: {} whole-tree tests from land.queue in .safe-push run with every lane", always.len());
     }
     let tests = before_push(&selection, &always, MOST_BEFORE_PUSH);
-    if tests.is_empty() {
+    let added = added_before_push(&selection, MOST_BEFORE_PUSH);
+    if tests.is_empty() && added.is_empty() {
         return 0;
     }
-    let command = format!("CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --locked --offline --no-tests=pass {}", nextest_arguments(&tests).join(" "));
+    let command = format!("CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --locked --offline --no-tests=pass {}", nextest_arguments(&tests, &added).join(" "));
     let host = host();
-    eprintln!("north coverage: running {} selected tests on {host}", tests.len());
+    eprintln!("north coverage: running {} selected tests on {host}", tests.len() + added.len());
     let status = Command::new(north()).args(["capacity", "offload", "run", "--host", &host, "--base", &request.base, "--head", &request.head, "--timeout", &request.timeout, "--", &command]).status();
     status.ok().and_then(|status| status.code()).map_or(1, |code| u8::try_from(code).unwrap_or(1))
 }
@@ -89,8 +91,8 @@ fn fail(why: &str) -> u8 {
 
 fn report(selection: &Selection) {
     match selection {
-        Selection::Tests { tests, file_level } if file_level.is_empty() => eprintln!("north coverage: {} tests reach the changed functions", tests.len()),
-        Selection::Tests { tests, file_level } => eprintln!("north coverage: {} tests reach the changed code; the map is older than the change in {}, so those files select every test reaching them", tests.len(), file_level.join(", ")),
+        Selection::Tests { tests, file_level, added } if file_level.is_empty() => eprintln!("north coverage: {} tests reach the changed functions, and {} tests the lane adds run too", tests.len(), added.len()),
+        Selection::Tests { tests, file_level, added } => eprintln!("north coverage: {} tests reach the changed code, and {} tests the lane adds run too; a change outside every function, newer than the map, or in a file or input the map cannot place in a function selects every test reaching the whole file ({})", tests.len(), added.len(), file_level.join(", ")),
         Selection::Unmapped(why) => eprintln!("north coverage: {why}; no coverage-selected tests run before the push, the full suite runs after it"),
     }
 }
@@ -106,18 +108,70 @@ pub fn selection_between(base: &str, head: &str, map: Option<PathBuf>) -> Result
     let changed: Vec<String> = git(&root, &["diff", "--name-only", "--no-renames", base, head])?.lines().map(str::to_owned).collect();
     let rust: Vec<&str> = changed.iter().map(String::as_str).filter(|path| path.ends_with(".rs") && *path != "build.rs").collect();
     let other_paths: Vec<String> = changed.iter().filter(|path| !path.ends_with(".rs") || *path == "build.rs").filter(|path| rust_build_input(path) || run_time_data(path) || path.starts_with("tests/")).cloned().collect();
-    let lane = diff(&root, base, head, &rust)?;
-    let since_map = if rust.is_empty() { Some(Hunks::new()) } else { diff(&root, &map.commit, base, &rust).ok() };
-    Ok(pick(&Change { map: &map, since_map: since_map.as_ref(), lane: &lane, other_paths: &other_paths }))
+    let lane_text = diff_text(&root, base, head, &rust)?;
+    let lane = hunks::parse(&lane_text);
+    let since_map = if rust.is_empty() { Some(Hunks::new()) } else { diff_text(&root, &map.commit, base, &rust).ok().map(|text| hunks::parse(&text)) };
+    let mentions = mentions(&root, head, &other_paths);
+    let mut added = Vec::new();
+    for (file, names) in hunks::added_tests(&lane_text) {
+        let Some((package, target)) = placement(&root, head, &file) else {
+            return Ok(Selection::Unmapped(format!("a test added in {file} runs in a target this selection cannot name")));
+        };
+        added.extend(names.into_iter().map(|name| Added { package: package.clone(), target: target.clone(), name }));
+    }
+    Ok(pick(&Change { map: &map, since_map: since_map.as_ref(), lane: &lane, other_paths: &other_paths, mentions: &mentions, added: &added }))
 }
 
-fn diff(root: &Path, from: &str, to: &str, paths: &[&str]) -> Result<Hunks, String> {
+fn mentions(root: &Path, head: &str, paths: &[String]) -> BTreeMap<String, Vec<String>> {
+    let prefix = format!("{head}:");
+    paths
+        .iter()
+        .map(|path| {
+            let name = path.rsplit('/').next().unwrap_or(path);
+            let found = git(root, &["grep", "-l", "-F", "--no-color", "-e", name, head, "--", "*.rs"]).unwrap_or_default();
+            (path.clone(), found.lines().filter_map(|line| line.strip_prefix(&prefix)).map(str::to_owned).collect())
+        })
+        .collect()
+}
+
+fn placement(root: &Path, head: &str, file: &str) -> Option<(String, String)> {
+    let mut directory = file;
+    while let Some((parent, _)) = directory.rsplit_once('/') {
+        directory = parent;
+        if let Some(package) = package_name(root, head, &format!("{directory}/Cargo.toml")) {
+            let inside = &file[directory.len() + 1..];
+            return target_of(directory, inside).map(|target| (package, target));
+        }
+    }
+    let package = package_name(root, head, "Cargo.toml")?;
+    target_of("", file).map(|target| (package, target))
+}
+
+fn target_of(directory: &str, inside: &str) -> Option<String> {
+    let mut parts = inside.split('/');
+    match (directory.is_empty(), parts.next(), parts.next()) {
+        (_, Some("tests"), Some(second)) => Some(format!("--test {}", second.trim_end_matches(".rs"))),
+        (true, Some("src"), Some("bin")) => (inside.starts_with("src/bin/verify_north/")).then(|| "--bin verify-north".to_owned()),
+        (true, Some("src"), _) => Some("--bin north".to_owned()),
+        (false, Some("src"), _) => Some("--lib".to_owned()),
+        _ => None,
+    }
+}
+
+fn package_name(root: &Path, head: &str, manifest: &str) -> Option<String> {
+    let text = git(root, &["show", &format!("{head}:{manifest}")]).ok()?;
+    let section = text.split("[package]").nth(1)?;
+    let line = section.lines().find(|line| line.trim_start().starts_with("name"))?;
+    Some(line.split('"').nth(1)?.to_owned())
+}
+
+fn diff_text(root: &Path, from: &str, to: &str, paths: &[&str]) -> Result<String, String> {
     if paths.is_empty() {
-        return Ok(Hunks::new());
+        return Ok(String::new());
     }
     let mut arguments = vec!["diff", "-U0", "--no-renames", "--no-color", "--no-ext-diff", from, to, "--"];
     arguments.extend(paths);
-    git(root, &arguments).map(|text| hunks::parse(&text))
+    git(root, &arguments)
 }
 
 fn git(root: &Path, arguments: &[&str]) -> Result<String, String> {
@@ -146,7 +200,7 @@ pub fn host() -> String {
     listed.split_whitespace().next().map_or(here, str::to_owned)
 }
 
-pub fn nextest_arguments(tests: &BTreeSet<Test>) -> Vec<String> {
+pub fn nextest_arguments(tests: &BTreeSet<Test>, added: &[Added]) -> Vec<String> {
     let mut packages = BTreeSet::new();
     let mut targets = BTreeSet::new();
     for test in tests {
@@ -158,7 +212,13 @@ pub fn nextest_arguments(tests: &BTreeSet<Test>) -> Vec<String> {
             integration => format!("--test {integration}"),
         });
     }
-    let filter = tests.iter().map(|test| format!("(binary_id(={}) & test(={}))", test.binary, test.name)).collect::<Vec<_>>().join(" | ");
+    for test in added {
+        packages.insert(format!("-p {}", test.package));
+        targets.insert(test.target.clone());
+    }
+    let named = tests.iter().map(|test| format!("(binary_id(={}) & test(={}))", test.binary, test.name));
+    let new = added.iter().map(|test| format!("(package(={}) & test(~{}))", test.package, test.name));
+    let filter = named.chain(new).collect::<Vec<_>>().join(" | ");
     packages.into_iter().chain(targets).chain([format!("-E '{filter}'")]).collect()
 }
 

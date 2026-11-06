@@ -42,9 +42,10 @@ fn failed_test(line: &str) -> Option<Test> {
 pub fn agreement(selection: &Selection, failed: &BTreeSet<Test>) -> Agreement {
     match selection {
         Selection::Unmapped(why) => Agreement::NotJudged(why.clone()),
-        Selection::Tests { tests, .. } if tests.len() > MOST_BEFORE_PUSH => Agreement::NotJudged(format!("{} tests is over the {MOST_BEFORE_PUSH} run before a push", tests.len())),
-        Selection::Tests { tests, .. } => {
-            let missed: Vec<Test> = failed.difference(tests).cloned().collect();
+        Selection::Tests { tests, added, .. } if tests.len() + added.len() > MOST_BEFORE_PUSH => Agreement::NotJudged(format!("{} tests is over the {MOST_BEFORE_PUSH} run before a push", tests.len() + added.len())),
+        Selection::Tests { tests, added, .. } => {
+            let ran_as_added = |test: &Test| added.iter().any(|new| test.binary.starts_with(&new.package) && test.name.contains(&new.name));
+            let missed: Vec<Test> = failed.difference(tests).filter(|test| !ran_as_added(test)).cloned().collect();
             if missed.is_empty() { Agreement::Agree { failed: failed.len() } } else { Agreement::Missed(missed) }
         }
     }
