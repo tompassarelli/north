@@ -74,12 +74,15 @@ pub fn failures(log: &str) -> BTreeSet<Failure> {
         } else if let Some(name) = line.strip_prefix("test ").and_then(|rest| rest.strip_suffix(" ... FAILED")) {
             found.insert(Failure::Cargo(name.trim().to_owned()));
         } else if let Some(rest) = line.strip_prefix("land check: ") {
+            let (held, rest) = rest.strip_prefix("held: ").map_or((false, rest), |rest| (true, rest));
             let Some((path, verdict)) = rest.split_once(' ') else { continue };
-            if (path.ends_with(".sh") || path.ends_with(".py")) && (verdict.starts_with("exited") || verdict.starts_with("was killed")) {
+            if (path.ends_with(".sh") || path.ends_with(".py")) && (held || verdict.starts_with("exited") || verdict.starts_with("was killed")) {
                 found.insert(Failure::Harness(path.to_owned()));
             }
         } else if let Some(command) = line.strip_prefix(STEP) {
             found.insert(Failure::Step(command.trim().to_owned()));
+        } else if let Some(name) = line.strip_prefix("FAIL [").and_then(|rest| rest.split_once(']')).filter(|(took, _)| took.trim().ends_with('s')).and_then(|(_, rest)| rest.split_whitespace().last()) {
+            found.insert(Failure::Cargo(name.to_owned()));
         } else if let Some(text) = line.strip_prefix("FAIL ").or_else(|| line.strip_prefix("FAIL: ")) {
             found.insert(Failure::Line(text.trim().to_owned()));
         }
