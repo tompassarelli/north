@@ -592,3 +592,10 @@ box = "Clippy on a one-crate change reuses a warm slot's check output"
 command = "north land profile --last 12 --repo north | grep \"after push\" | grep -E \"lint [0-9]+ s\" | head -3 | sed -E \"s/.*lint ([0-9]+) s.*/\\1/\" | awk \"{n++; if (\\$1 >= 10) bad++} END {print n\\\" landings, \\\"bad+0\\\" with lint of 10 s or more\\\"; exit !(n == 3 && bad == 0)}\""
 review = "2026-11-07"
 owner = "tompassarelli/north#634"
+
+[[check]]
+id = "n638-proxy-budget-hour"
+box = "The proxy name spends GitHub budget only on calls the proxy makes"
+command = "north github budget | awk '/^session proxy[[:space:]]/{seen=1; gsub(/[()%]/,\"\",$0); pct=$(NF)+0; print; next} seen && /^[[:space:]]+(hook|tick|command)[[:space:]]/{rows++; print} /^session /&&!/^session proxy[[:space:]]/{seen=0} END{exit !(rows>0 && pct<50)}'"
+review = "2026-11-07"
+owner = "tompassarelli/north#638"
