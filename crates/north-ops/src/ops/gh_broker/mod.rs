@@ -1,3 +1,4 @@
+mod batch;
 mod broker;
 mod calls;
 mod budget;
@@ -27,7 +28,9 @@ forwards each request with the caller's own credentials and: answers identical r
 GitHub call (in flight, or fetched within 20 s); revalidates older reads with If-None-Match, so a
 304 serves the stored body without spending rate limit; after a 403 or 429 with Retry-After, an
 exhausted x-ratelimit-remaining or a secondary limit, makes no GitHub call until the wait passes,
-serving stored reads and refusing the rest with 429; spaces writes 1 s apart. Socket:
+serving stored reads and refusing the rest with 429; merges GraphQL query reads from different callers
+with the same token that arrive within 25 ms into one aliased query (one call, one answer each; queries
+with fragments, directives or several operations go alone); spaces writes 1 s apart. Socket:
 ${XDG_RUNTIME_DIR}/north-gh-broker/broker.sock. It exits after 30 idle minutes.
 
 --resident    run as the host's user service: never exit idle, and once listening set

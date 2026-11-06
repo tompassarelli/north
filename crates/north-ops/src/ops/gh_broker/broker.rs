@@ -4,6 +4,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
+use super::batch::Batcher;
 use super::http::{Request, Response};
 use super::upstream::Upstream;
 
@@ -12,11 +13,12 @@ pub struct Settings {
     pub write_gap: Duration,
     pub default_hold: Duration,
     pub capacity: usize,
+    pub batch_window: Duration,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { fresh: Duration::from_secs(20), write_gap: Duration::from_secs(1), default_hold: Duration::from_secs(60), capacity: 2048 }
+        Self { fresh: Duration::from_secs(20), write_gap: Duration::from_secs(1), default_hold: Duration::from_secs(60), capacity: 2048, batch_window: Duration::from_millis(25) }
     }
 }
 
@@ -25,6 +27,7 @@ pub enum Source {
     Upstream,
     Fresh,
     Revalidated,
+    Batched,
     Stale,
     Held,
 }
@@ -35,6 +38,7 @@ impl Source {
             Self::Upstream => "upstream",
             Self::Fresh => "fresh",
             Self::Revalidated => "revalidated",
+            Self::Batched => "batched",
             Self::Stale => "stale",
             Self::Held => "held",
         }
@@ -59,6 +63,7 @@ struct State {
 
 pub struct Broker {
     upstream: Upstream,
+    batcher: Batcher,
     settings: Settings,
     state: Mutex<State>,
     settled: Condvar,
@@ -78,7 +83,7 @@ impl Drop for Claim<'_> {
 
 impl Broker {
     pub fn new(upstream: Upstream, settings: Settings) -> Self {
-        Self { upstream, settings, state: Mutex::default(), settled: Condvar::new() }
+        Self { upstream, batcher: Batcher::new(settings.batch_window), settings, state: Mutex::default(), settled: Condvar::new() }
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -112,11 +117,15 @@ impl Broker {
         let etag = state.cache.get(&key).and_then(|entry| entry.etag.clone()).or_else(|| request.header("if-none-match").map(str::to_owned));
         drop(state);
         let claim = Claim { broker: self, key };
-        let response = self.upstream.send(request, etag.as_deref());
+        let (response, shared) = match etag {
+            Some(etag) => (self.upstream.send(request, Some(&etag)), false),
+            None => self.batcher.send(bucket, request, |merged| self.upstream.send(merged, None)),
+        };
+        let upstream = if shared { Source::Batched } else { Source::Upstream };
         let mut state = self.lock();
         let now = Instant::now();
         let outcome = if self.hold(&mut state, bucket, &response, now) {
-            (response, Source::Upstream)
+            (response, upstream)
         } else if let Some(entry) = state.cache.get_mut(&key).filter(|_| response.status == 304) {
             entry.fetched = now;
             (entry.response.clone(), Source::Revalidated)
@@ -124,7 +133,7 @@ impl Broker {
             if response.status == 200 {
                 self.store(&mut state, key, &response, now);
             }
-            (response, Source::Upstream)
+            (response, upstream)
         };
         drop(state);
         drop(claim);
