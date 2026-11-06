@@ -1907,19 +1907,18 @@ landing_dry=1 XDG_RUNTIME_DIR="$lease_runtime" AGENT_CAPACITY_LEASE=frozen SAFE_
 for i in $(seq 200); do [ -e "$landing_root/started" ] && break; sleep 0.05; done
 [ -e "$landing_root/started" ] || { kill "$pid_a" 2>/dev/null || true; fail 'the frozen land check never started'; }
 sleep 4
-kill -0 "$pid_a" 2>/dev/null || fail "a frozen land check was ended by its wall-clock timeout: $(cat "$landing_root/a.out")"
+! grep -q 'ran past its 2 s deadline' "$landing_root/a.out" || fail "a frozen land check was ended by its wall-clock timeout: $(cat "$landing_root/a.out")"
 printf '{"expiresAt":5000}\n' >"$lease_runtime/agent-capacity-v1/leases/frozen.json"
 sleep 1.6
-kill -0 "$pid_a" 2>/dev/null || fail "a frozen land check ended before its timeout plus the time it was frozen: $(cat "$landing_root/a.out")"
-finished=''
+! grep -q 'ran past its 2 s deadline' "$landing_root/a.out" || fail "a frozen land check ended before its timeout plus the time it was frozen: $(cat "$landing_root/a.out")"
+ended=''
 for i in $(seq 30); do
-  if ! kill -0 "$pid_a" 2>/dev/null; then finished="$i"; break; fi
+  if grep -q 'ran past its 2 s deadline' "$landing_root/a.out"; then ended="$i"; break; fi
   sleep 0.1
 done
-[ -n "$finished" ] || { kill "$pid_a" 2>/dev/null || true; fail "a thawed land check outlived its timeout plus the time it was frozen: $(cat "$landing_root/a.out")"; }
+[ -n "$ended" ] || { kill "$pid_a" 2>/dev/null || true; fail "a thawed land check outlived its timeout plus the time it was frozen: $(cat "$landing_root/a.out")"; }
 status_a=0; wait "$pid_a" || status_a=$?
 [ "$status_a" -ne 0 ] || fail 'a timed out frozen land check let the push succeed'
-grep -q 'ran past its 2 s deadline' "$landing_root/a.out" || fail "missing frozen land check timeout: $(cat "$landing_root/a.out")"
 printf 'PASS: recorded frozen land check times out only after its timeout plus the time it was frozen\n'
 
 new_landing_origin push-without-movement
