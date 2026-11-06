@@ -55,7 +55,7 @@ An agent reads in three rings and stops at the first that answers.
 
 | Fact | Home | Docs may |
 | --- | --- | --- |
-| Commands and flags | the command's usage text (`src/cli/help.txt`, each module's usage string) | name a command or flag; checked to exist |
+| Commands and flags | the command's usage text (`src/cli/reference.txt`, each module's usage string) | name a command or flag; checked to exist |
 | Tuned numbers and thresholds | `harness/defaults.toml` (`value`, `unit`, `source`, `consumers`) | name the key, never the value |
 | Land checks | `.safe-push` | name the check; `safe-push --help` is the contract |
 | Module boundaries | `structure.toml`, then `architecture.md` for the picture | link the path |

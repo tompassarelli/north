@@ -1,7 +1,7 @@
 //! The dispatcher answers `--help` for every verb before any verb runs, so a probe such as firn's
 //! unit-flags check never starts a sampler, a post or a launch: from the contract a verb publishes
-//! when it has one, else from its help.txt lines.
-use super::CLI_HELP;
+//! when it has one, else from its reference.txt lines.
+use super::CLI_REFERENCE;
 use crate::capacity::WATCHDOG_USAGE;
 use crate::land::serve;
 use north_safe_push::entry;
@@ -49,7 +49,7 @@ struct Entry<'a> {
 }
 
 fn entries() -> Vec<Entry<'static>> {
-    let commands = CLI_HELP.split_once("Commands:\n").map_or("", |(_, rest)| rest);
+    let commands = CLI_REFERENCE.split_once("Commands:\n").map_or("", |(_, rest)| rest);
     let commands = commands.split_once("\nOptions:").map_or(commands, |(listed, _)| listed);
     let mut entries: Vec<Entry> = Vec::new();
     for line in commands.lines().filter(|line| !line.trim().is_empty()) {

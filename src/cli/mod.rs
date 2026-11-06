@@ -49,6 +49,7 @@ use tools::Tool;
 enum Command {
     Fleet(Vec<String>),
     Help,
+    HelpAll,
     DesktopIdleState(Option<String>),
     Hook(Vec<String>),
     Nix(Vec<String>),
@@ -73,6 +74,7 @@ enum Command {
 }
 
 const CLI_HELP: &str = include_str!("help.txt");
+const CLI_REFERENCE: &str = include_str!("reference.txt");
 
 fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Command> {
     let arguments = arguments.into_iter().collect::<Vec<_>>();
@@ -90,6 +92,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
     }
     if arguments.len() == 1 && matches!(arguments[0].as_str(), "-h" | "--help" | "help") {
         return Ok(Command::Help);
+    }
+    if arguments == ["--help-all"] {
+        return Ok(Command::HelpAll);
     }
     if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
         return Ok(Command::Agents(arguments[2..].to_vec()));
@@ -222,12 +227,16 @@ fn dispatch(command: Command) -> ExitCode {
                 print!("{text}");
                 ExitCode::SUCCESS
             }
-            None => failure(NorthError::Usage(format!("north {} has no line in north --help", path.join(" ")))),
+            None => failure(NorthError::Usage(format!("north {} has no line in north --help-all", path.join(" ")))),
         },
         Command::Help => in_runtime(async {
             print!("{CLI_HELP}");
             Ok(ExitCode::SUCCESS)
         }),
+        Command::HelpAll => {
+            print!("{CLI_REFERENCE}");
+            ExitCode::SUCCESS
+        }
         Command::Agents(arguments) => in_runtime(async move {
             agent_catalog::run(&arguments).map(|()| ExitCode::SUCCESS)
         }),

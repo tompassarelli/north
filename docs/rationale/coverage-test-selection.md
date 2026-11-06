@@ -27,7 +27,7 @@ below does not trace. So the pre-push run can be the few tests that reach the ch
     function, so it selects every test reaching its whole file, as an edited-since-map function
     does. A file with no function in the map selects the tests reaching its crate, and a new file
     selects nothing itself, since only the `mod` line in a changed parent compiles it.
-  - A run-time input (a harness table, `src/cli/help.txt`, `.safe-push`, a file under `tests/` that
+  - A run-time input (a harness table, `src/cli/reference.txt`, `.safe-push`, a file under `tests/` that
     is not Rust) selects every test reaching the Rust sources that name its file name
     (`git grep` at the head). Cargo.toml, Cargo.lock, build.rs and the other toolchain inputs,
     and an input no Rust source names, run nothing before the push.
