@@ -82,6 +82,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         category: Some(launch.route.category.clone()),
         hand: false,
         effort_arm: launch.route.stamp().map(str::to_owned),
+        effort: launch.route.effort.map(|effort| effort.name().to_owned()),
     };
     record::append(&record::directory(), &entry)?;
     if result.is_ok() {

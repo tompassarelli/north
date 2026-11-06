@@ -1,9 +1,11 @@
 //! What the last dispatched worker's final report asks of the next launch: after `Stop: decision` or `Blocked:` the box
 //! stays skipped until the issue gets a comment or body edit newer than that report; after `Stop: wait until TIME` it
 //! stays skipped until that UTC time; after `Stop: host NEED` the next brief carries `Needs: NEED`, so placement sends it
-//! to a host that serves it instead of the one that could not.
+//! to a host that serves it instead of the one that could not; after `Not done:` with `Stop: reasoning` the next launch
+//! climbs one rung of `Rung::LADDER`, and from its top rung the box waits for a decision like `Stop: decision`.
 use super::issues::{Issue, IssueRef};
 use super::record::Record;
+use super::tier::Rung;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -12,6 +14,8 @@ use std::sync::LazyLock;
 static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*(?:Stop:\s*decision\b|Blocked:)").expect("stop pattern"));
 static WAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*wait\s+until\s+((\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})Z)").expect("wait pattern"));
 static HOST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*host\s+([a-z][\w.-]*)").expect("host pattern"));
+static REASONING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*reasoning\b").expect("reasoning pattern"));
+static NOT_DONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\W*Not done:").expect("not done pattern"));
 
 /// The holds a final report puts on its box.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -22,6 +26,17 @@ pub struct Stop {
     pub until: Option<(String, f64)>,
     /// `Stop: host NEED`: the host or local need the next launch must be placed on.
     pub host: Option<String>,
+    /// `Not done:` with `Stop: reasoning`: the worker ran out of approach on its rung.
+    pub reasoned: Option<Reasoned>,
+}
+
+/// A launch whose worker reported `Not done:` with `Stop: reasoning`, which the next launch climbs from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reasoned {
+    pub session: String,
+    pub rung: Rung,
+    pub ended: f64,
+    pub report: String,
 }
 
 /// Each item's newest launch that started a session, which holds the report dispatch last waited on.
@@ -41,19 +56,29 @@ pub fn host_need(report: &str) -> Option<String> {
     HOST.captures(report).map(|found| found[1].to_lowercase())
 }
 
-/// The holds of the session's final report, from `north fleet show NAME --json`.
-pub fn stop(session: &Value) -> Stop {
+/// Whether a final report is `Not done:` with `Stop: reasoning`: the worker ran out of approach on its rung.
+pub fn out_of_approach(report: &str) -> bool {
+    NOT_DONE.is_match(report) && REASONING.is_match(report)
+}
+
+/// The holds of the final report of `launch`'s session, from `north fleet show NAME --json`.
+pub fn stop(session: &Value, launch: &Record) -> Stop {
     let Some(report) = session["entries"].as_array().and_then(|entries| entries.iter().rfind(|entry| entry["kind"] == "assistant")).and_then(|entry| entry["text"].as_str()) else {
         return Stop::default();
     };
     let ended = session["turns"].as_array().and_then(|turns| turns.last()).and_then(|turn| turn["ended_ms"].as_f64()).map(|ms| ms / 1000.0);
     let until = WAIT.captures(report).and_then(|found| Some((found.get(1)?.as_str().to_owned(), super::issues::not_before(&found)? as f64)));
-    Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host: host_need(report) }
+    let reasoned = out_of_approach(report)
+        .then(|| Some(Reasoned { session: launch.name.clone(), rung: Rung::recorded(launch)?, ended: ended?, report: report.trim().to_owned() }))
+        .flatten();
+    Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host: host_need(report), reasoned }
 }
 
-/// Whether the issue is unchanged since the report that stopped for a decision.
+/// Whether the issue is unchanged since the report that stopped for a decision, or since its worker on the ladder's
+/// top rung reported `Stop: reasoning`.
 pub fn awaits_decision(issue: &Issue) -> bool {
-    issue.stop.decision.is_some_and(|stopped| issue.touched <= stopped)
+    let topped = issue.stop.reasoned.as_ref().filter(|reasoned| reasoned.rung.above().is_none()).map(|reasoned| reasoned.ended);
+    issue.stop.decision.or(topped).is_some_and(|stopped| issue.touched <= stopped)
 }
 
 /// The time the last report waits until, while it is still ahead of `at`.

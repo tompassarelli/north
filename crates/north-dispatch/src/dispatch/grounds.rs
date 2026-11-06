@@ -99,6 +99,17 @@ pub struct Grounds {
 }
 
 impl Grounds {
+    /// The grounds with `report` as the first prior report, for a launch that climbs from it; the ledger may not
+    /// hold it yet.
+    pub fn carrying(mut self, report: Option<&str>) -> Self {
+        if let Some(report) = report {
+            self.prior.retain(|prior| prior.trim() != report);
+            self.prior.insert(0, report.to_owned());
+            self.prior.truncate(PRIOR_REPORTS);
+        }
+        self
+    }
+
     /// The ETA line's value: the tune cell, else the ledger's p75 with its n, either scaled by the
     /// tier's calibration, else what the issue declares, else the uncalibrated default.
     pub fn eta(&self, declared: Option<&str>, route: &Route) -> String {

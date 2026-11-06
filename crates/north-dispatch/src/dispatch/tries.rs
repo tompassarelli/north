@@ -1,6 +1,7 @@
 //! Whether a dispatched session spent a try on its item: a commit, a check run or a report other than
 //! a capacity wait spends one; a session that only waited on admission, a usage limit or a failed host
-//! did no work, so dispatch does not count it toward the two tries that hand an item to the proxy.
+//! did no work, so dispatch does not count it toward the two tries that hand an item to the proxy. A session that reported
+//! `Not done:` with `Stop: reasoning` is no try either: its box climbs one rung, and the ladder's top bounds the climb.
 use regex::Regex;
 use serde_json::Value;
 use std::sync::LazyLock;
@@ -19,6 +20,9 @@ static CAPACITY: LazyLock<Regex> = LazyLock::new(|| {
 pub fn unspent(session: &Value) -> Option<String> {
     let entries = session["entries"].as_array()?;
     let text = |kind: &'static str| entries.iter().filter(move |entry| entry["kind"] == kind).filter_map(|entry| entry["text"].as_str());
+    if text("assistant").next_back().is_some_and(super::stops::out_of_approach) {
+        return Some("reported Stop: reasoning, so its box climbs one rung".into());
+    }
     if text("tool").any(|tool| COMMIT.is_match(tool) || CHECK.is_match(tool)) {
         return None;
     }

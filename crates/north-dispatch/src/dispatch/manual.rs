@@ -139,6 +139,7 @@ impl Start {
             category: Some(self.route.category.clone()),
             hand: true,
             effort_arm: self.route.stamp().filter(|_| !overridden).map(str::to_owned),
+            effort: self.route.effort.filter(|_| !overridden).map(|effort| effort.name().to_owned()),
         };
         record::append(&record::directory(), &entry)
     }

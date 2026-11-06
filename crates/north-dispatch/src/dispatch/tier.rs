@@ -285,8 +285,56 @@ fn art(category: &str, facet: &dyn Fn(&str) -> String) -> bool {
     ART.contains(&category) || judged && pictured
 }
 
+/// One rung of the ladder a box climbs when its worker reports `Not done:` with `Stop: reasoning`
+/// (docs/rationale/nearest-routing.md section 5); only Opus rungs carry an effort.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rung {
+    pub tier: Tier,
+    pub effort: Option<Effort>,
+}
+
+impl Rung {
+    pub const LADDER: [Self; 5] = [
+        Self { tier: Tier::Haiku, effort: None },
+        Self { tier: Tier::Sonnet, effort: None },
+        Self { tier: Tier::Opus, effort: Some(Effort::Medium) },
+        Self { tier: Tier::Opus, effort: Some(Effort::High) },
+        Self { tier: Tier::Opus, effort: Some(Effort::Xhigh) },
+    ];
+
+    /// The rung `tier` runs on at `effort`; Opus with no override runs at its medium default.
+    pub fn of(tier: Tier, effort: Option<Effort>) -> Self {
+        Self { tier, effort: (tier == Tier::Opus).then(|| effort.unwrap_or(Effort::Medium)) }
+    }
+
+    /// The rung a dispatch record launched on, when it names its tier.
+    pub fn recorded(record: &Record) -> Option<Self> {
+        let tier = record.tier.as_deref().and_then(Tier::parse)?;
+        Some(Self::of(tier, record.effort.as_deref().and_then(Effort::parse)))
+    }
+
+    /// The next rung up, or none from the top.
+    pub fn above(self) -> Option<Self> {
+        Self::LADDER.iter().position(|rung| *rung == self).and_then(|at| Self::LADDER.get(at + 1)).copied()
+    }
+
+    pub fn name(self) -> String {
+        self.effort.map_or_else(|| self.tier.name().to_owned(), |effort| format!("{} at {} effort", self.tier.name(), effort.name()))
+    }
+}
+
+/// The route of `issue`'s next launch: one rung above its last worker's when that worker reported `Not done:` with
+/// `Stop: reasoning`, else the route its category and arms give.
 pub fn route(issue: &Issue, history: &History, ledger: &BTreeMap<String, Evidence>) -> Result<Route, String> {
-    route_for(&issue.reference().to_string(), &|key| facets::facet(issue, key), history, ledger)
+    let facet = |key: &str| facets::facet(issue, key);
+    let Some(reasoned) = &issue.stop.reasoned else {
+        return route_for(&issue.reference().to_string(), &facet, history, ledger);
+    };
+    let category = facet("Category").to_lowercase();
+    known(&category)?;
+    let rung = reasoned.rung.above().unwrap_or(reasoned.rung);
+    let why = format!("escalates {}'s Not done with Stop: reasoning from {} to {}", reasoned.session, reasoned.rung.name(), rung.name());
+    Ok(Route { tier: rung.tier, category, effort: rung.effort, effort_arm: false, follows: Some(format!("{} ({})", reasoned.session, reasoned.rung.name())), why })
 }
 
 pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, ledger: &BTreeMap<String, Evidence>) -> Result<Route, String> {

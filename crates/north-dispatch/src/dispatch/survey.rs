@@ -229,7 +229,7 @@ fn stopped(laptop: Option<&str>, records: &[record::Record], issues: &mut [Issue
     for issue in issues.iter_mut().filter(|issue| issue.unticked() > 0) {
         let Some(launch) = launches.get(&issue.reference()) else { continue };
         match shown(launch, laptop) {
-            Ok(session) => issue.stop = super::stops::stop(&session),
+            Ok(session) => issue.stop = super::stops::stop(&session, launch),
             Err(why) => notes.push(format!("{} report unread, so {} may relaunch: {why}", launch.name, issue.reference())),
         }
     }

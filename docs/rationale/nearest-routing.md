@@ -118,7 +118,9 @@ Opus high, Opus xhigh) with the failed report attached as `Prior report:` when e
 refuse them.
 
 A harness cause never escalates; the existing stop holds (`Stop: decision`, `wait until`, `host`) keep the box where
-it is until the cause clears, and it relaunches on the same rung. After Opus xhigh the box parks on a gate.
+it is until the cause clears, and it relaunches on the same rung. After Opus xhigh the box waits as after `Stop: decision`: dispatch skips it until the issue gets a comment or body edit newer than the report, then relaunches it on Opus xhigh.
+
+Built 2026-11-07 for the `Stop: reasoning` trigger: `dispatch::stops::stop` reads the report against the launch record, which now records the effort a launch overrode its tier with, and `dispatch::tier::Rung::LADDER` is the ladder. The twice-failing verification trigger waits on the per-lane error-count record.
 
 ## 6. Learning
 
