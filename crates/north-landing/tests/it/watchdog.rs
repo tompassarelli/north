@@ -72,8 +72,8 @@ impl Fixture {
         }
     }
 
-    fn round(&self, at: u64, slots: usize, busy: usize, waiting: usize, problem: Option<&str>) {
-        let observation = Observation { at_micros: at, repo: self.repo.clone(), worktree: self.lander(), slots, busy, waiting, paused: false, hosts_full: false, problem: problem.map(str::to_owned) };
+    fn round(&self, at: u64, waiting: usize, problem: Option<&str>) {
+        let observation = Observation { at_micros: at, repo: self.repo.clone(), worktree: self.lander(), waiting, paused: false, problem: problem.map(str::to_owned) };
         assert!(watchdog::observe(&self.queue, observation, false).unwrap());
     }
 
@@ -121,7 +121,7 @@ fn a_branch_shared_by_two_worktrees_of_people_is_paged_without_a_repair() {
     let hands = Fake::default();
     fixture.worktree(&fixture.project.join("worktrees/one"), "topic");
     fixture.worktree(&fixture.project.join("worktrees/two"), "topic");
-    fixture.round(NOW, 0, 0, 0, None);
+    fixture.round(NOW, 0, None);
     let report = fixture.patrol(NOW, &hands);
     assert_eq!(invariants(&report), vec![Invariant::SharedBranch]);
     assert!(matches!(&report.violations[0].repairs[..], [Repair::Nothing(_)]));

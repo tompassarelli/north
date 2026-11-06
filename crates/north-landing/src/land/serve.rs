@@ -404,7 +404,7 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
         }
         let round = lander.round(&mut watch);
         lander.heartbeat.enter(Step::Watchdog);
-        watchdog::after_round(lander, watch.in_flight(), &round);
+        watchdog::after_round(lander, &round);
         lander.heartbeat.enter(Step::Between);
         if matches!(round, Ok(Round::Progress | Round::Idle | Round::Checking)) {
             backoff.clear();

@@ -25,7 +25,6 @@ pub const PAGE_GAP_MICROS: u64 = 15 * 60 * 1_000_000;
 const CHECKING_EVERY_MICROS: u64 = 30 * 1_000_000;
 const KEPT: usize = 3;
 const REPEATS: usize = 3;
-const IDLE_ROUNDS: usize = 2;
 const PAGE_LIMIT: usize = 1500;
 
 static PAGING: Mutex<()> = Mutex::new(());
@@ -35,20 +34,15 @@ pub struct Observation {
     pub at_micros: u64,
     pub repo: PathBuf,
     pub worktree: PathBuf,
-    pub slots: usize,
-    pub busy: usize,
     pub waiting: usize,
     #[serde(default)]
     pub paused: bool,
-    #[serde(default)]
-    pub hosts_full: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Invariant {
-    IdleSlot,
     RepeatedError,
     StaleLane,
     SharedBranch,
@@ -57,7 +51,6 @@ pub enum Invariant {
 impl Invariant {
     pub fn key(self) -> &'static str {
         match self {
-            Invariant::IdleSlot => "idle-slot",
             Invariant::RepeatedError => "repeated-error",
             Invariant::StaleLane => "stale-lane",
             Invariant::SharedBranch => "shared-branch",
@@ -66,10 +59,9 @@ impl Invariant {
 
     pub fn statement(self) -> &'static str {
         match self {
-            Invariant::IdleSlot => "(a) no check slot idles while lanes wait for more than one round",
-            Invariant::RepeatedError => "(b) no repository repeats the same error three rounds in a row",
-            Invariant::StaleLane => "(c) no lane waits in the queue longer than 20 minutes",
-            Invariant::SharedBranch => "(d) no branch is claimed by two worktrees",
+            Invariant::RepeatedError => "(a) no repository repeats the same error three rounds in a row",
+            Invariant::StaleLane => "(b) no lane waits in the queue longer than 20 minutes",
+            Invariant::SharedBranch => "(c) no branch is claimed by two worktrees",
         }
     }
 }
@@ -223,21 +215,11 @@ fn inspect(queue: &Path, now: u64, hands: &dyn Hands) -> Result<Vec<Violation>, 
             let listed = claimants.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ");
             found.push(Violation { invariant: Invariant::SharedBranch, queue: queue.to_owned(), detail: format!("branch {branch} is claimed by {listed}"), repairs });
         }
-        let mut reset = false;
         if let Some(problem) = repeated(&rounds) {
             let detail = format!("{} repeated \"{problem}\" for {REPEATS} rounds", latest.repo.display());
             let reason = format!("quarantined by the lander watchdog: {}: {detail}", Invariant::RepeatedError.statement());
             let repairs = repair_error(queue, latest, &problem, &reason, hands, &mut restarted)?;
             found.push(Violation { invariant: Invariant::RepeatedError, queue: queue.to_owned(), detail, repairs });
-            reset = true;
-        }
-        if let Some(detail) = idle(&rounds) {
-            let detail = format!("{}: {detail}", latest.repo.display());
-            let repairs = vec![restart(&latest.repo, &format!("{}: {detail}", Invariant::IdleSlot.statement()), hands, &mut restarted)];
-            found.push(Violation { invariant: Invariant::IdleSlot, queue: queue.to_owned(), detail, repairs });
-            reset = true;
-        }
-        if reset {
             save_rounds(queue, &[])?;
         }
     }
@@ -259,15 +241,6 @@ fn repeated(rounds: &[Observation]) -> Option<String> {
     let recent = rounds.get(rounds.len().checked_sub(REPEATS)?..)?;
     let first = recent.first()?.problem.clone()?;
     recent.iter().all(|round| round.problem.as_deref() == Some(first.as_str())).then_some(first)
-}
-
-fn idle(rounds: &[Observation]) -> Option<String> {
-    let recent = rounds.get(rounds.len().checked_sub(IDLE_ROUNDS)?..)?;
-    if !recent.iter().all(|round| !round.paused && !round.hosts_full && round.busy < round.slots && round.waiting > 0) {
-        return None;
-    }
-    let last = recent.last()?;
-    Some(format!("{} of {} check slots idled while {} lanes waited for {IDLE_ROUNDS} rounds", last.slots - last.busy, last.slots, last.waiting))
 }
 
 fn repair_error(queue: &Path, latest: &Observation, problem: &str, reason: &str, hands: &dyn Hands, restarted: &mut BTreeSet<String>) -> Result<Vec<Repair>, String> {
@@ -404,7 +377,7 @@ fn page_text(invariant: Invariant, violations: &[Violation]) -> String {
     if text.chars().count() <= PAGE_LIMIT { text } else { text.chars().take(PAGE_LIMIT).collect::<String>() + "..." }
 }
 
-pub fn after_round(lander: &Lander, in_flight: usize, round: &Result<Round, String>) {
+pub fn after_round(lander: &Lander, round: &Result<Round, String>) {
     let problem = match round {
         Err(error) => Some(error.clone()),
         Ok(Round::Waiting(reason)) if reason.starts_with("transient:") => Some(reason.clone()),
@@ -415,11 +388,8 @@ pub fn after_round(lander: &Lander, in_flight: usize, round: &Result<Round, Stri
         at_micros: now_micros(),
         repo: lander.repo.clone(),
         worktree: lander.worktree.clone(),
-        slots: 0,
-        busy: in_flight,
         waiting: queued.len(),
         paused: pause::held(&lander.queue).is_some(),
-        hosts_full: false,
         problem,
     };
     let at = observation.at_micros;
