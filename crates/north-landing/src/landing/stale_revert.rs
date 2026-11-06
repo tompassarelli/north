@@ -35,6 +35,7 @@ struct FileChange {
     removed: BTreeSet<String>,
     submodule: bool,
     deleted: bool,
+    created: bool,
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
@@ -130,6 +131,8 @@ fn changes(patch: &str) -> Vec<FileChange> {
             file.hunks.extend(hunk(line));
         } else if let (true, Some(path), Some(file)) = (in_header, line.strip_prefix("--- a/"), files.last_mut()) {
             file.path = path.strip_suffix('\t').unwrap_or(path).to_owned();
+        } else if let (true, true, Some(file)) = (in_header, line == "--- /dev/null", files.last_mut()) {
+            file.created = true;
         } else if let (true, true, Some(file)) = (in_header, line == "+++ /dev/null", files.last_mut()) {
             file.deleted = true;
         } else if let (true, true, Some(file)) = (in_header, line.ends_with(" 160000"), files.last_mut()) {
@@ -182,12 +185,48 @@ fn meaningful(text: &str) -> bool {
     text.chars().any(|c| c.is_alphanumeric() || c == '_')
 }
 
+fn place_free(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    while at < chars.len() {
+        let start = at;
+        while at < chars.len() && word(chars[at]) {
+            at += 1;
+        }
+        if at > start && !chars[start].is_ascii_digit() && chars.get(at) == Some(&'.') && chars.get(at + 1).is_some_and(|&c| word(c)) {
+            at += 1;
+            continue;
+        }
+        out.extend(&chars[start..at]);
+        if at == start {
+            if chars[at] != '&' || !chars.get(at + 1).is_some_and(|&c| word(c)) {
+                out.push(chars[at]);
+            }
+            at += 1;
+        }
+    }
+    out
+}
+
 fn blame_header(line: &str) -> Option<(&str, usize)> {
     let mut fields = line.split(' ');
     let sha = fields.next()?;
     let numbers = fields.map(str::parse::<usize>).collect::<Result<Vec<_>, _>>().ok()?;
     let shaped = matches!(sha.len(), 40 | 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit());
     (shaped && matches!(numbers.len(), 2 | 3)).then(|| (sha, numbers[1]))
+}
+
+struct Kept<'a> {
+    lines: BTreeSet<&'a str>,
+    moved: BTreeSet<String>,
+}
+
+impl Kept<'_> {
+    fn holds(&self, text: &str) -> bool {
+        self.lines.contains(text) || self.moved.contains(&place_free(text))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -197,7 +236,7 @@ struct Blamed {
     hunks: BTreeSet<usize>,
 }
 
-fn blamed_commits(repo: &Path, window: &Window, change: &FileChange, kept: &BTreeSet<&str>) -> Result<BTreeMap<String, Blamed>, String> {
+fn blamed_commits(repo: &Path, window: &Window, change: &FileChange, kept: &Kept) -> Result<BTreeMap<String, Blamed>, String> {
     let mut args: Vec<String> = vec!["blame".into(), "--porcelain".into()];
     for hunk in change.hunks.iter().filter(|hunk| hunk.count > 0) {
         args.push(format!("-L{},+{}", hunk.start, hunk.count));
@@ -214,7 +253,7 @@ fn blamed_commits(repo: &Path, window: &Window, change: &FileChange, kept: &BTre
             let blamed = counts.entry(sha.to_owned()).or_default();
             blamed.removed += 1;
             blamed.hunks.insert(index);
-            if change.hunks[index].added.is_empty() && !kept.contains(text) {
+            if change.hunks[index].added.is_empty() && !kept.holds(text) {
                 blamed.gone.insert(text.to_owned());
             }
         } else if let Some(header) = blame_header(line) {
@@ -259,7 +298,10 @@ pub fn reverted(repo: &Path, base: &str, head: &str, lane: &str) -> Result<Vec<R
     }
     let patch = git(repo, &["diff", "-U0", "--no-color", "--find-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", base, head])?;
     let all = changes(&patch);
-    let kept: BTreeSet<&str> = all.iter().flat_map(|change| change.added.iter().map(String::as_str)).collect();
+    let kept = Kept {
+        lines: all.iter().flat_map(|change| change.added.iter().map(String::as_str)).collect(),
+        moved: all.iter().filter(|change| change.created).flat_map(|change| change.added.iter().map(|line| place_free(line))).collect(),
+    };
     let touched: Vec<&FileChange> = all.iter().filter(|change| !change.path.is_empty() && change.removes_lines() && !change.submodule).collect();
     let skipped = exempt(repo, head, &touched.iter().map(|change| change.path.as_str()).collect::<Vec<_>>())?;
     let checked: Vec<&FileChange> = touched.into_iter().filter(|change| !skipped.contains(&change.path)).collect();
@@ -280,7 +322,7 @@ pub fn reverted(repo: &Path, base: &str, head: &str, lane: &str) -> Result<Vec<R
         .collect()
 }
 
-fn blame_all(repo: &Path, window: &Window, changes: &[&FileChange], kept: &BTreeSet<&str>) -> Result<Vec<BTreeMap<String, Blamed>>, String> {
+fn blame_all(repo: &Path, window: &Window, changes: &[&FileChange], kept: &Kept) -> Result<Vec<BTreeMap<String, Blamed>>, String> {
     let workers = std::thread::available_parallelism().map_or(4, |count| count.get().min(BLAME_WORKERS));
     let chunk = changes.len().div_ceil(workers).max(1);
     std::thread::scope(|scope| {

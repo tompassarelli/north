@@ -91,3 +91,18 @@ fn a_stale_squash_that_deletes_a_file_main_added_is_refused() {
     assert_eq!(found[0].files.keys().collect::<Vec<_>>(), ["port.txt"]);
 }
 
+
+#[test]
+fn moving_a_recent_function_into_a_new_file_with_its_locals_as_fields_is_no_revert() {
+    let scratch = fixture();
+    let root = scratch.path();
+    let empty = "fn serve() {\n    loop {\n    }\n}\n";
+    commit_at(root, "serve.rs", empty, "serve loop", START + 100 * HOUR);
+    let body = "fn serve() {\n    loop {\n        if !red_only && let Some(reason) = pause::held(&self.queue) {\n            red_only = true;\n        }\n        bisect::decide(path, ticket, refusal, Some(&log), &base)?;\n    }\n}\n";
+    commit_at(root, "serve.rs", body, "pause holds the loop", START + 101 * HOUR);
+    git_ok(root, &["checkout", "-q", "-b", "lane"]);
+    commit_at(root, "serve.rs", empty, "move the loop out", START + 102 * HOUR);
+    let moved = "fn gate(pass: &mut Pass) {\n    if !pass.red_only && let Some(reason) = pause::held(&self.queue) {\n        pass.red_only = true;\n    }\n    bisect::decide(path, ticket, refusal, Some(&checked.log), attempt.base)?;\n}\n";
+    commit_at(root, "batch.rs", moved, "the loop as phases", START + 103 * HOUR);
+    assert_eq!(shas(&reverted(root, "main", "lane", "lane").unwrap()), Vec::<&str>::new());
+}
