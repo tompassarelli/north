@@ -32,6 +32,7 @@ pattern = '''(isn'?t|is not) (a|an) (compute|cpu|capacity|load|git|hardware) (is
 paraphrase = "Tom rejected the cause the reply gave as unproven."
 owner = "north#523"
 guard = "The proxy's Stop hook refuses a message that names a cause (because, caused by, the cause is) with no command, log line or measurement quoted in the same turn."
+guarded_at = "2026-11-06T21:00:47Z"
 
 [[class]]
 name = "manual-not-guarded"
@@ -46,6 +47,7 @@ pattern = '''isn'?t the (easiest|simplest) (pattern|way|answer|fix)|doesn'?t (re
 paraphrase = "Tom said the reply chose a heavier path than the simplest one that works."
 owner = "north#523"
 guard = "Dispatch refuses a plan or design box that adds an agent, service, crate or bake-off without a Simplest: line naming the smallest change that meets its Done when and why it falls short."
+guarded_at = "2026-11-06T21:00:47Z"
 
 [[class]]
 name = "ungrounded-design"
