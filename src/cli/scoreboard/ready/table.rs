@@ -20,7 +20,7 @@ fn threshold(goal: &Goal) -> String {
     format!("{} {}", if matches!(goal.bound, Bound::Max(_)) { "<=" } else { ">=" }, show(&goal.unit, goal.bound.limit()))
 }
 
-const MARK: usize = 3;
+const MARK: usize = 2;
 
 fn cell(goal: &Goal, reading: Option<Reading>, explain: bool) -> String {
     match reading {
@@ -32,7 +32,7 @@ fn cell(goal: &Goal, reading: Option<Reading>, explain: bool) -> String {
 
 fn mark(text: &str, color: bool) -> String {
     match (color, text.trim_end()) {
-        (true, "pass") => format!("\x1b[32m{text}\x1b[0m"),
+        (true, "PASS") => format!("\x1b[32m{text}\x1b[0m"),
         (true, "FAIL") => format!("\x1b[1;31m{text}\x1b[0m"),
         _ => text.to_owned(),
     }
@@ -46,11 +46,11 @@ pub(super) fn headline(repo: &Repo) -> String {
 }
 
 fn table(out: &mut String, repo: &Repo, goals: &Goals, view: View) {
-    let mut rows: Vec<Vec<String>> = vec![["bar", "target", "24 h", "", "1 h", "12 h", "7 d"].map(String::from).to_vec()];
+    let mut rows: Vec<Vec<String>> = vec![["bar", "target", "verdict (24 h)", "1 h", "12 h", "24 h", "7 d"].map(String::from).to_vec()];
     for (bar, cells) in Bar::ALL.iter().zip(&repo.bars) {
         let goal = goals.of(*bar);
         let passed = counts(cells.day.1, *bar);
-        rows.push(vec![bar.label().into(), threshold(goal), cell(goal, cells.day.0, view.explain), if passed { "pass" } else { "FAIL" }.into(), cell(goal, cells.hour, true), cell(goal, cells.half_day, view.explain), cell(goal, cells.week, view.explain)]);
+        rows.push(vec![bar.label().into(), threshold(goal), if passed { "PASS" } else { "FAIL" }.into(), cell(goal, cells.hour, true), cell(goal, cells.half_day, view.explain), cell(goal, cells.day.0, view.explain), cell(goal, cells.week, view.explain)]);
     }
     let _ = writeln!(out, "{}", headline(repo));
     let widths: Vec<usize> = (0..rows[0].len()).map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0)).collect();
