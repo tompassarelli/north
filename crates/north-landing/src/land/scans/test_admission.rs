@@ -13,6 +13,7 @@ use crate::land::telemetry;
 use crate::landing::fails_first;
 use crate::watch::state_home;
 
+mod kills;
 mod limits;
 
 const CONTRACT_FORMAT: &str = "Test-contract: <test name>; category: <category>";
@@ -308,6 +309,8 @@ fn claims_a_bug(directory: &Path, base: &str, head: &str, patch: &[u8]) -> bool 
     });
     code && !git::messages(directory, base, head).lines().any(|line| line.trim() == fails_first::MARK)
 }
+
+pub use kills::run as kills;
 
 pub fn fail_to_pass(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
     let Some(Range { base, head }) = Range::parse(range) else {

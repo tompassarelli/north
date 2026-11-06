@@ -16,7 +16,7 @@ pub mod tool_removal;
 
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|test-admission|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan test-admission run BASE..HEAD\n       north land scan boxes BASE..HEAD\n       north land scan docs-owners BASE..HEAD
+const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|test-admission|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan test-admission run BASE..HEAD\n       north land scan test-admission kills [--host NAME] [--remote-north COMMAND] [--here] BASE..HEAD\n       north land scan boxes BASE..HEAD\n       north land scan docs-owners BASE..HEAD
        north land scan ci-budget|code-health|instruction-limits BASE..HEAD [--safe-push PATH]\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL] [--safe-push PATH]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps";
 
 struct Range<'a> {
@@ -73,6 +73,9 @@ pub fn run(arguments: &[String]) -> u8 {
         }
         [name, range] if name == "test-integrity" => {
             test_integrity::scan(&directory, range, &mut std::io::stdout())
+        }
+        [name, kills, rest @ ..] if name == "test-admission" && kills == "kills" => {
+            test_admission::kills(&directory, rest, &mut std::io::stdout())
         }
         [name, run, range] if name == "test-admission" && run == "run" => {
             test_admission::fail_to_pass(&directory, range, &mut std::io::stdout())

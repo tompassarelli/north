@@ -1336,3 +1336,11 @@ unit = "seconds a repository's verification of a typical change may take, read a
 source = "tom: north's verification should take 15 to 20 s for a typical change, and over budget a new test lands only with a deletion (north#635, 2026-11-06)"
 fallback = "a repository with no timed green post-land run on the landing host is not capped"
 consumers = ["crates/north-landing/src/land/scans/test_admission/limits.rs"]
+
+[mutant_kill_seconds]
+value = 900
+allowed = { min = 60, max = 7200 }
+unit = "seconds cargo-mutants may spend on a build host, baseline build included, showing that a lane's added tests kill a mutant of its own diff before the land check gives up and refuses the lane"
+source = "prior: the run stops at the first caught mutant, and a warm offload slot rebuilds one north crate and its test binary per mutant in about a minute, so 15 minutes covers the baseline and about ten mutants (north#635, 2026-11-06)"
+fallback = "none; the land check reads this value"
+consumers = ["crates/north-landing/src/land/scans/test_admission/limits.rs"]

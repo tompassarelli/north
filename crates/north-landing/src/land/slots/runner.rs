@@ -564,7 +564,7 @@ impl Shared {
         }
         let timings = Timings::at(Timings::default_root());
         let class = self.cache_class(&command);
-        let deadline = self.environment.timeout.map_or_else(|| timings.deadline(&command, &class), Deadline::configured);
+        let deadline = self.environment.timeout.or_else(|| self.config.deadline_seconds(&command)).map_or_else(|| timings.deadline(&command, &class), Deadline::configured);
         let timeout = deadline.seconds;
         let label = if self.config.is_inferred(&command) { " (inferred)" } else { "" };
         say(&format!("safe-push: land check{label}: {command} ({deadline})"));

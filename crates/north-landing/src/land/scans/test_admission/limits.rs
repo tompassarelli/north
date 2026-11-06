@@ -64,3 +64,7 @@ pub(super) fn measured_seconds(state_home: &Path, repository: &str) -> Option<u6
     walls.sort_unstable();
     (walls.len() >= TIMED).then(|| walls[walls.len() / 2])
 }
+
+pub(super) fn kill_seconds() -> u64 {
+    DEFAULTS["mutant_kill_seconds"]["value"].as_integer().and_then(|seconds| u64::try_from(seconds).ok()).expect("harness/defaults.toml has mutant_kill_seconds")
+}
