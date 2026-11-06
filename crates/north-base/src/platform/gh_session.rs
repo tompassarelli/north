@@ -17,7 +17,8 @@ A call costs 1 unit, --paginate 20, --limit N one per 100 rows; help, version an
 A call past the budget is refused with exit 75 and a message naming the spend and when it frees.
 Budget: ${NORTH_GH_HOURLY_BUDGET:-400} units per rolling hour, counted in
 ${XDG_RUNTIME_DIR}/north-gh-budget/SESSION. Outside a fleet session (no NORTH_FLEET_SESSION)
-REAL_GH runs unchanged.";
+REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its budget tells the proxy once
+(north github budget lists every session's spend and the top callers).";
 
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 const BUDGET_ENV: &str = "NORTH_GH_HOURLY_BUDGET";
@@ -28,6 +29,8 @@ const ROWS_PER_UNIT: u32 = 100;
 const FREE_COMMANDS: [&str; 6] = ["help", "version", "config", "alias", "completion", "extension"];
 const SCRUBBED: [&str; 4] = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 const REFUSED: u8 = 75;
+const ALARM_PERCENTS: [u32; 2] = [50, 80];
+const PROXY: &str = "proxy";
 
 pub fn run(arguments: &[String]) -> u8 {
     if matches!(arguments, [word] if word == "-h" || word == "--help") {
@@ -42,8 +45,9 @@ pub fn run(arguments: &[String]) -> u8 {
     let Some(session) = session else {
         return exec(Command::new(real).args(rest));
     };
-    let budget = std::env::var(BUDGET_ENV).ok().and_then(|value| value.parse().ok()).unwrap_or(DEFAULT_BUDGET);
+    let budget = hourly_budget();
     let ledger = ledger_path(&session);
+    let before: u32 = fresh_spend(&ledger, Timestamp::now().unix_seconds()).iter().map(|(_, cost)| cost).sum();
     let mint = || {
         let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
         github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds()).or_else(|why| {
@@ -54,7 +58,12 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     match prepare(real, rest, &session, budget, &ledger, Timestamp::now().unix_seconds(), mint) {
         Ok(mut command) => match super::gh_broker_route::route(&mut command) {
-            Ok(()) => exec(command),
+            Ok(()) => {
+                if let Some(percent) = alarm_crossed(before, cost(rest), budget) {
+                    tell_proxy(&session, percent, before + cost(rest), budget);
+                }
+                exec(command)
+            }
             Err(message) => {
                 eprintln!("north gh-session: {message}");
                 1
@@ -76,6 +85,37 @@ fn exec(mut command: impl std::borrow::BorrowMut<Command>) -> u8 {
     let error = command.exec();
     eprintln!("north gh-session: cannot run {}: {error}", command.get_program().to_string_lossy());
     127
+}
+
+pub fn hourly_budget() -> u32 {
+    std::env::var(BUDGET_ENV).ok().and_then(|value| value.parse().ok()).unwrap_or(DEFAULT_BUDGET)
+}
+
+pub fn session_spends(now: i64) -> Vec<(String, u32)> {
+    let directory = ledger_path("");
+    let mut spends: Vec<(String, u32)> = fs::read_dir(directory)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_none_or(|extension| extension != "tmp"))
+        .map(|entry| (entry.file_name().to_string_lossy().into_owned(), fresh_spend(&entry.path(), now).iter().map(|(_, cost)| cost).sum()))
+        .filter(|(_, used)| *used > 0)
+        .collect();
+    spends.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    spends
+}
+
+fn alarm_crossed(before: u32, units: u32, budget: u32) -> Option<u32> {
+    let reached = |percent: u32, used: u32| u64::from(used) * 100 >= u64::from(percent) * u64::from(budget);
+    ALARM_PERCENTS.into_iter().filter(|percent| !reached(*percent, before) && reached(*percent, before + units)).max()
+}
+
+fn tell_proxy(session: &str, percent: u32, used: u32, budget: u32) {
+    let message = format!("north gh-session: session {session} reached {percent}% of its GitHub budget ({used} of {budget} units this hour); at 100% its gh calls are refused until the oldest spend frees (north github budget lists the callers)");
+    let Ok(program) = std::env::current_exe() else {
+        return;
+    };
+    let _ = Command::new(program).args(["fleet", "send", "--from", "service:north-gh-budget", PROXY, &message]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn();
 }
 
 fn ledger_path(session: &str) -> PathBuf {

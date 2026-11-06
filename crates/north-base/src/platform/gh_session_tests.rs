@@ -41,7 +41,7 @@ fn a_session_without_an_app_token_is_refused_rather_than_given_a_personal_login(
 }
 
 #[test]
-fn a_call_past_the_hourly_share_is_refused_with_the_spend_and_when_it_frees() {
+fn the_hourly_share_refuses_a_call_with_the_spend_and_when_it_frees_counts_a_rolling_hour_and_alarms_at_50_and_80_percent() {
     let ledger = scratch("budget");
     let unminted = || -> Result<String, String> { panic!("minted for a refused call") };
     for second in 0..3 {
@@ -49,15 +49,18 @@ fn a_call_past_the_hourly_share_is_refused_with_the_spend_and_when_it_frees() {
     }
     let Refusal::Budget(message) = prepare("gh", &words(&["issue", "view", "2"]), "worker-1", 3, &ledger, 1100, unminted).unwrap_err() else { panic!("not a budget refusal") };
     assert!(message.contains("worker-1") && message.contains("spent 3 of its 3") && message.contains("frees in 59 min"), "{message}");
-}
 
-#[test]
-fn spend_older_than_an_hour_no_longer_counts() {
-    let ledger = scratch("window");
-    prepare("gh", &words(&["issue", "view", "1"]), "worker-1", 1, &ledger, 1000, token).unwrap();
-    assert!(prepare("gh", &words(&["issue", "view", "1"]), "worker-1", 1, &ledger, 1000 + WINDOW_SECONDS - 1, token).is_err());
-    assert!(prepare("gh", &words(&["issue", "view", "1"]), "worker-1", 1, &ledger, 1000 + WINDOW_SECONDS, token).is_ok());
-    assert_eq!(fs::read_to_string(&ledger).unwrap(), format!("{} 1\n", 1000 + WINDOW_SECONDS));
+    let window = scratch("window");
+    prepare("gh", &words(&["issue", "view", "1"]), "worker-1", 1, &window, 1000, token).unwrap();
+    assert!(prepare("gh", &words(&["issue", "view", "1"]), "worker-1", 1, &window, 1000 + WINDOW_SECONDS - 1, token).is_err());
+    assert!(prepare("gh", &words(&["issue", "view", "1"]), "worker-1", 1, &window, 1000 + WINDOW_SECONDS, token).is_ok(), "spend older than an hour no longer counts");
+
+    assert_eq!(alarm_crossed(0, 1, 10), None);
+    assert_eq!(alarm_crossed(4, 1, 10), Some(50));
+    assert_eq!(alarm_crossed(5, 1, 10), None);
+    assert_eq!(alarm_crossed(7, 1, 10), Some(80));
+    assert_eq!(alarm_crossed(4, 5, 10), Some(80), "one call over both lines tells the proxy the higher one");
+    assert_eq!(alarm_crossed(8, 1, 10), None);
 }
 
 #[test]

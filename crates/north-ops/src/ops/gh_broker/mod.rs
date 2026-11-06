@@ -1,6 +1,8 @@
 mod broker;
 mod calls;
+mod budget;
 mod http;
+mod quota;
 mod server;
 mod upstream;
 
@@ -13,6 +15,8 @@ use std::time::{Duration, Instant};
 use crate::platform::gh_broker_route::{Place, source_config};
 use broker::{Broker, Settings};
 use upstream::Upstream;
+
+pub use budget::github;
 
 const USAGE: &str = "usage: north gh-broker serve [--resident] | north gh-broker release | north gh-broker quota
 
@@ -47,7 +51,7 @@ pub fn run(arguments: &[String]) -> u8 {
         ["serve"] => serve(false),
         ["serve", "--resident"] => serve(true),
         ["release"] => release(),
-        ["quota"] => quota(),
+        ["quota"] => quota::print(),
         ["-h" | "--help"] => {
             println!("{USAGE}");
             0
@@ -175,40 +179,6 @@ fn release() -> u8 {
             1
         }
     }
-}
-
-fn quota() -> u8 {
-    let Some(gh) = crate::platform::gh_shim::real_on_path(&std::env::var("PATH").unwrap_or_default()) else {
-        eprintln!("north gh-broker: no gh on PATH apart from the north shim");
-        return 1;
-    };
-    let mut command = std::process::Command::new(gh);
-    command.args(["api", "rate_limit"]);
-    for name in ["NORTH_FLEET_SESSION", "GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR"] {
-        command.env_remove(name);
-    }
-    command.env("GH_CONFIG_DIR", source_config());
-    let output = match command.output() {
-        Ok(output) if output.status.success() => output,
-        Ok(output) => {
-            eprintln!("north gh-broker: gh api rate_limit failed: {}", String::from_utf8_lossy(&output.stderr).trim());
-            return 1;
-        }
-        Err(error) => {
-            eprintln!("north gh-broker: cannot run gh: {error}");
-            return 1;
-        }
-    };
-    let Ok(answer) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
-        eprintln!("north gh-broker: gh api rate_limit printed no JSON");
-        return 1;
-    };
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    for resource in ["core", "graphql"] {
-        let field = |name: &str| answer["resources"][resource][name].as_u64().unwrap_or(0);
-        println!("{resource}\t{} of {} left\tresets in {} min", field("remaining"), field("limit"), field("reset").saturating_sub(now).div_ceil(60));
-    }
-    0
 }
 
 #[cfg(test)]

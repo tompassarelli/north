@@ -70,6 +70,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("gh-session", Bookkeeping),
     ("git-credential", Bookkeeping),
     ("git-maintenance-nightly", Bookkeeping),
+    ("github", Diagnosis),
     ("github-mirror", Bookkeeping),
     ("goals", Diagnosis),
     ("graph retract", Bookkeeping),

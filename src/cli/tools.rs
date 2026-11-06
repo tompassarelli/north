@@ -91,6 +91,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("ssh-argv", crate::platform::ssh::run),
     ("provider-capacity", crate::capacity::provider_capacity::run),
     ("gh-app-token", crate::platform::github_app::run),
+    ("github", crate::ops::gh_broker::github),
     ("github-mirror", crate::github_mirror::sync::run),
     ("gh-session", crate::platform::gh_session::run),
     ("ssh-session", crate::platform::ssh_session::run),
