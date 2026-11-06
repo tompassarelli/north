@@ -50,11 +50,15 @@ pub(super) fn settles_fleet(cfg: &DocumentMut, here: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub(super) fn offloads_builds(cfg: &DocumentMut, host: &str) -> bool {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("offload_builds")).and_then(Item::as_bool) == Some(true)
+}
+
 pub(super) fn build_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
     let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return Vec::new() };
     hosts
         .iter()
-        .filter(|(name, host)| *name != here && host.get("offload_builds").and_then(Item::as_bool) == Some(true))
+        .filter(|(name, _)| *name != here && offloads_builds(cfg, name))
         .filter_map(|(name, host)| Some((name.to_owned(), ssh_destination(host.get("ssh")?.as_str()?)?.to_owned())))
         .collect()
 }

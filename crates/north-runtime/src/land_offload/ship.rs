@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(super) const TRANSPORT_FAILED: u8 = 255;
 const WRONG_TREE: u8 = 98;
+const BESIDE_MISSING: u8 = 75;
 const SLOTS_BUSY: u8 = 96;
 const WAITED: &str = "offload: waited ";
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -34,7 +35,7 @@ echo "$free"
 "#;
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0} red_fix=${12:-} ran=${13:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0} red_fix=${12:-} ran=${13:-} pins=${14:-}
 root=@ROOT@
 mkdir -p "$root"
 bundle=$(mktemp "$root/$name.bundle.XXXXXX")
@@ -172,6 +173,21 @@ const VERIFY: &str = r#"landed=$(git -C "$slot" rev-parse HEAD)
 echo "offload: running $head in $slot"
 "#;
 
+const BESIDE: &str = r#"beside=$root/$s.beside
+for pin in $pins; do
+  project=${pin%%=*} sha=${pin#*=} source=$HOME/code/${pin%%=*}/main
+  [ -e "$source/.git" ] || { echo "offload: this host keeps no $source for the check to read" >&2; exit @BESIDE_MISSING@; }
+  git -C "$source" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$source" fetch -q --no-auto-maintenance origin 2>/dev/null || true
+  git -C "$source" cat-file -e "$sha^{commit}" 2>/dev/null || { echo "offload: $source lacks $sha, the commit the check reads on the lander" >&2; exit @BESIDE_MISSING@; }
+  if [ -e "$beside/$project/.git" ]; then
+    git -C "$beside/$project" checkout -q --detach -f "$sha" || exit @BESIDE_MISSING@
+  else
+    mkdir -p "$beside" && git -C "$source" worktree prune && git -C "$source" worktree add -q --detach "$beside/$project" "$sha" || { echo "offload: cannot pin $beside/$project to $sha" >&2; exit @BESIDE_MISSING@; }
+  fi
+done
+@BESIDE_ENV@=$beside; export @BESIDE_ENV@
+"#;
+
 const RUN: &str = r#"cd "$slot"
 if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; export PATH; fi
 if [ -n "${runtime:-}" ]; then
@@ -266,6 +282,7 @@ fn job_ref(head: &CommitId) -> String {
     format!("refs/land-offload/{}-{}-{nanos}-{}", head.as_str(), std::process::id(), JOBS.fetch_add(1, Ordering::Relaxed))
 }
 
+mod beside;
 #[cfg(test)]
 mod pinned;
 
@@ -324,6 +341,10 @@ fn run_part() -> String {
     RUN.replace("@SLOT_ENV@", crate::capacity::land_claim::OFFLOAD_SLOT_ENV).replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
 }
 
+fn beside_part() -> String {
+    BESIDE.replace("@BESIDE_MISSING@", &BESIDE_MISSING.to_string()).replace("@BESIDE_ENV@", beside::BESIDE_ENV)
+}
+
 fn slot_name(name: &str, index: u32) -> String {
     if index == 0 { name.to_owned() } else { format!("{name}-{index}") }
 }
@@ -337,7 +358,7 @@ fn slot_ports(name: &str) -> Vec<(String, u32)> {
 
 fn remote_script(name: &str) -> String {
     let ports: String = slot_ports(name).iter().map(|(slot, port)| format!("{}) SCCACHE_SERVER_PORT={port} ;; ", quote(slot))).collect();
-    format!("{REMOTE}{VERIFY}{}", run_part())
+    format!("{REMOTE}{VERIFY}{}{}", beside_part(), run_part())
         .replace("@SLOT_PORTS@", &ports)
         .replace("@ROOT@", OFFLOAD_ROOT)
         .replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string())
@@ -374,7 +395,9 @@ pub(super) fn run(land: &Land) -> u8 {
     let cpus = (crate::capacity::host::land_check_cpus().ceil() as u32).to_string();
     let red_fix = std::env::var(RED_FIX_ENV).unwrap_or_default();
     let marker = ran_marker(&reference);
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker].map(quote);
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let beside = beside::pin(land.command, &relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker, &beside.pins].map(quote);
     let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
     let spawned = with_caller("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])

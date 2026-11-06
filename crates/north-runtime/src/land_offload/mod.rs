@@ -176,17 +176,37 @@ fn choose(any: bool, placement: &Placement) -> u8 {
     }
     let here = crate::platform::host::name();
     let reserved = in_reserve || checks_confined_here() || !placement.admits(&here);
-    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && placement.admits(&machine.name)).collect();
+    let builds = |name: &str| config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, name));
+    let standing = if reserved {
+        room::Standing::Reserved
+    } else if builds(&here) {
+        room::Standing::Peer
+    } else {
+        room::Standing::Fallback
+    };
+    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && placement.admits(&machine.name) && (standing != room::Standing::Fallback || builds(&machine.name))).collect();
     let remotes = std::thread::scope(|scope| {
         let reads: Vec<_> = others.iter().map(|machine| scope.spawn(|| (machine.name.clone(), room::read(&machine.ssh)))).collect();
         reads.into_iter().filter_map(|read| read.join().ok()).collect::<Vec<_>>()
     });
-    match room::check_host(reserved, &here, room::read_local, remotes, &placement.taken, crate::capacity::host::land_check_cpus()) {
-        Ok(name) if name == here => {
+    match room::check_host(standing, &here, room::read_local, remotes, &placement.taken, crate::capacity::host::land_check_cpus()) {
+        Ok(room::Chosen::Room(name)) if name == here && standing == room::Standing::Fallback => {
+            eprintln!("north capacity offload: no build host answers, so the land check runs here on {here}");
+            0
+        }
+        Ok(room::Chosen::Room(name)) if name == here => {
             eprintln!("north capacity offload: {here} has the most room, so the land check runs here");
             0
         }
-        Ok(name) => {
+        Ok(room::Chosen::Room(name)) => {
+            println!("{name}");
+            0
+        }
+        Ok(room::Chosen::Queued(name)) => {
+            if let Some(machine) = others.iter().find(|machine| machine.name == name) {
+                room::claim(Some(&machine.ssh));
+            }
+            eprintln!("north capacity offload: no build host has room, so the land check queues on {name}, which admits no new worker build until it starts");
             println!("{name}");
             0
         }

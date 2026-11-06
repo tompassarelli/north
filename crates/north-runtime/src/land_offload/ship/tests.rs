@@ -112,7 +112,7 @@ fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
 }
 
 #[test]
-fn a_remote_checkout_that_ends_on_another_commit_is_refused_before_the_command_runs() {
+fn a_remote_job_runs_only_on_the_shipped_commit_and_reads_each_checkout_beside_it_pinned_to_the_commit_it_is_on_here() {
     let (dir, first, second) = repository_with_two_commits();
     let refused = verify(dir.path(), &first);
     assert_eq!(refused.status.code(), Some(i32::from(WRONG_TREE)));
@@ -121,6 +121,18 @@ fn a_remote_checkout_that_ends_on_another_commit_is_refused_before_the_command_r
     let ran = verify(dir.path(), &second);
     assert!(ran.status.success());
     assert_eq!(String::from_utf8(ran.stdout).unwrap().lines().next(), Some(format!("offload: running {second} in {}", dir.path().display()).as_str()));
+    let command = "check-owners --north-root $HOME/code/north/main --south-root $HOME/code/south/main --nixos-root ~/code/nixos-config/main/agents $HOME/code/gone/main $HOME/code/south/mainline";
+    let head_of = |path: &Path| path.ends_with("code/south/main").then(|| CommitId(first.clone())).or_else(|| path.ends_with("code/nixos-config/main").then(|| CommitId("b".repeat(40))));
+    let pinned = super::beside::pin(command, "code/north/main", Path::new("/h"), head_of);
+    assert_eq!(pinned.command, "check-owners --north-root $HOME/code/north/main --south-root $NORTH_OFFLOAD_BESIDE/south --nixos-root $NORTH_OFFLOAD_BESIDE/nixos-config/agents $HOME/code/gone/main $HOME/code/south/mainline");
+    assert_eq!(pinned.pins, format!("south={first} nixos-config={}", "b".repeat(40)));
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join("code/south")).unwrap();
+    git(dir.path(), &["clone", "-q", &dir.path().display().to_string(), &home.path().join("code/south/main").display().to_string()]);
+    let script = format!("set -eu\nroot={} s=slot pins={}\n{}git -C \"$NORTH_OFFLOAD_BESIDE/south\" rev-parse HEAD\n", shell(&home.path().join("root")), super::quote(&format!("south={first}")), super::beside_part());
+    let read = Command::new("sh").args(["-c", &script]).env("HOME", home.path()).output().unwrap();
+    assert!(read.status.success(), "{}", String::from_utf8_lossy(&read.stderr));
+    assert_eq!(String::from_utf8_lossy(&read.stdout).trim(), first);
 }
 
 #[test]

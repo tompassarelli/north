@@ -95,10 +95,38 @@ pub(super) fn first_with_room(hosts: impl IntoIterator<Item = (String, Option<Ro
     Err(refused)
 }
 
-/// The host a land check runs on: among `remotes` and, unless `reserved`, this host as `here`, the one with the most free cores for a land check of `cores` once each name in `taken` counts as one more land check already on its way there; a tie goes to the earlier remote.
-pub(super) fn check_host(reserved: bool, here: &str, local: impl FnOnce() -> Option<Room>, remotes: Vec<(String, Option<Room>)>, taken: &[String], cores: f64) -> Result<String, Vec<String>> {
-    let hosts: Vec<(String, Option<Room>)> = remotes.into_iter().chain((!reserved).then(|| (here.to_owned(), local()))).collect();
+/// Whether this host takes land checks: never, only when no build host answers, or beside the build hosts as one of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Standing {
+    Reserved,
+    Fallback,
+    Peer,
+}
+
+/// Where a land check runs: on a host with room, queued on a build host that has none, or nowhere.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Chosen {
+    Room(String),
+    Queued(String),
+}
+
+/// The host a land check runs on: the one with the most free cores for a land check of `cores` once each name in `taken` counts as one more land check already on its way there, among `remotes` and this host as `here` when it is a `Peer`; when this host is the `Fallback` and no remote has room, the land check queues on the readable remote with the most free cores, and runs on this host only when no remote answers; a tie goes to the earlier remote.
+pub(super) fn check_host(standing: Standing, here: &str, local: impl FnOnce() -> Option<Room>, remotes: Vec<(String, Option<Room>)>, taken: &[String], cores: f64) -> Result<Chosen, Vec<String>> {
     let mut refused = Vec::new();
+    let chosen = match standing {
+        Standing::Reserved => most_room(remotes, taken, cores, &mut refused).map(Chosen::Room),
+        Standing::Peer => most_room(remotes.into_iter().chain([(here.to_owned(), local())]), taken, cores, &mut refused).map(Chosen::Room),
+        Standing::Fallback => most_room(remotes.iter().cloned(), taken, cores, &mut refused).map(Chosen::Room).or_else(|| least_busy(&remotes, taken, cores).map(Chosen::Queued)).or_else(|| Some(Chosen::Room(here.to_owned()))),
+    };
+    chosen.ok_or(refused)
+}
+
+fn least_busy(remotes: &[(String, Option<Room>)], taken: &[String], cores: f64) -> Option<String> {
+    let free = |name: &str, room: &Room| room.admission.free_cpus() - cores * taken.iter().filter(|host| *host == name).count() as f64;
+    remotes.iter().filter_map(|(name, room)| room.as_ref().map(|room| (name, free(name, room)))).fold(None::<(&String, f64)>, |best, (name, free)| if best.is_none_or(|(_, most)| free > most) { Some((name, free)) } else { best }).map(|(name, _)| name.clone())
+}
+
+fn most_room(hosts: impl IntoIterator<Item = (String, Option<Room>)>, taken: &[String], cores: f64, refused: &mut Vec<String>) -> Option<String> {
     let mut best: Option<(String, f64)> = None;
     for (name, room) in hosts {
         let pending = cores * taken.iter().filter(|host| **host == name).count() as f64;
@@ -109,7 +137,7 @@ pub(super) fn check_host(reserved: bool, here: &str, local: impl FnOnce() -> Opt
             None => refused.push(format!("{name}: unreachable or unreadable")),
         }
     }
-    best.map(|(name, _)| name).ok_or(refused)
+    best.map(|(name, _)| name)
 }
 
 #[cfg(test)]
@@ -136,12 +164,12 @@ mod tests {
         let gib = 1024 * 1024;
         let claimed = parse(&PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", "2.0").replace("%PRESSURE%", "5").replace("\"cpuSomeAvg10\":5", "\"cpuSomeAvg10\":5,\"landCheckWaiting\":true")).unwrap();
         assert_eq!(build_shortfall_reserving(&claimed, 0.0).as_deref(), Some("land check waiting"));
-        assert_eq!(check_host(true, "laptop", || None, vec![("gex45".to_owned(), Some(claimed))], &[], 6.0), Ok("gex45".to_owned()));
+        assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("gex45".to_owned(), Some(claimed))], &[], 6.0), Ok(Chosen::Room("gex45".to_owned())));
         assert_eq!(build_shortfall_reserving(&reading(80 * gib, "3.10", "2.0", "5"), 0.0), None);
     }
 
     #[test]
-    fn a_host_with_heavy_jobs_queued_in_its_admission_loses_to_an_idle_host_with_fewer_free_cores() {
+    fn a_host_with_heavy_jobs_queued_loses_to_an_idle_one_and_the_laptop_runs_a_land_check_only_when_no_build_host_answers() {
         let gib = 1024 * 1024;
         let queued = |jobs: &str| parse(&PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", "3.0").replace("%PRESSURE%", "5").replace("\"cpuSomeAvg10\":5", &format!("\"cpuSomeAvg10\":5,\"queued\":[{jobs}]"))).unwrap();
         let heavy = |cpus: u32| format!("{{\"owner\":\"gate\",\"class\":\"heavy\",\"requestedClass\":\"heavy\",\"requestedCpus\":{cpus}}}");
@@ -152,7 +180,15 @@ mod tests {
         let mut idle = reading(80 * gib, "0.06", "0.0", "1");
         idle.admission.limit_cpus = 8.0;
         assert!(shortfall(&queued(&format!("{},{},{}", heavy(6), heavy(6), heavy(6)))).unwrap().contains("cores free of 20"));
-        assert_eq!(check_host(true, "laptop", || None, vec![("gex45".to_owned(), Some(busy)), ("ccx33".to_owned(), Some(idle))], &[], 6.0), Ok("ccx33".to_owned()));
-        assert_eq!(check_host(true, "laptop", || None, vec![("gex45".to_owned(), Some(moderate)), ("ccx33".to_owned(), Some(idle))], &[], 6.0), Ok("gex45".to_owned()));
+        assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("gex45".to_owned(), Some(busy)), ("ccx33".to_owned(), Some(idle))], &[], 6.0), Ok(Chosen::Room("ccx33".to_owned())));
+        assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("gex45".to_owned(), Some(moderate)), ("ccx33".to_owned(), Some(idle))], &[], 6.0), Ok(Chosen::Room("gex45".to_owned())));
+        let laptop = || Some(reading(80 * gib, "0.10", "0.0", "1"));
+        let gex45 = reading(80 * gib, "3.10", "10.0", "5");
+        let full = reading(80 * gib, "3.00", "17.0", "10");
+        assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), Some(gex45))], &[], 6.0), Ok(Chosen::Room("gex45".to_owned())));
+        assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(gex45))], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())));
+        assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())));
+        assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), None)], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())));
+        assert!(check_host(Standing::Reserved, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0).is_err());
     }
 }
