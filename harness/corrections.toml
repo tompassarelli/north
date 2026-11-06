@@ -55,6 +55,7 @@ pattern = '''under-?specified|not (really )?grounded (on|in)|heavier doesn'?t me
 paraphrase = "Tom said the design was not grounded in evidence."
 owner = "north#525"
 guard = "Dispatch refuses a design or plan box whose brief has no Spec: measured line citing a ledger measurement or a docs/references.md entry."
+guarded_at = "2026-11-06T21:00:46Z"
 
 [[class]]
 name = "stale-or-scaffolding"
