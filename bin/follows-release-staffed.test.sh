@@ -13,13 +13,13 @@ touch "$scratch/bin/start-fails"
 queue 30 "$sha" claude:opus-medium >/dev/null
 north follows-release >/dev/null
 rm -f "$scratch/bin/start-fails"
-printf 'CLOSED\n' >"$scratch/gh-state"
+issue 30 CLOSED
 out=$(north follows-release 2>&1)
 north follows-release >/dev/null
 check '[11] a released box whose own issue is closed is marked done and never sent again' \
   '[ "$(sent 30)" -eq 0 ] && [ "$(listed 30)" -eq 0 ] && grep -q "box 1 north#30: its issue is closed" <<<"$out"'
 
-rm -f "$scratch/gh-state"
+rm -f "$scratch/gh-state/30"
 touch "$scratch/bin/start-fails"
 id=$(queue 31 "$sha" claude:opus-medium)
 north follows-release >/dev/null

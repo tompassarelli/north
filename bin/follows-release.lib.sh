@@ -17,12 +17,15 @@ export AGENTS_ORCHESTRATION=$scratch/orchestration.toml
 export FOLLOWS_RELEASE_ROOT=$scratch/code
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 : >"$AGENTS_ORCHESTRATION"
-mkdir -p "$scratch/bin" "$SPAWN_CAPACITY_HOME/.local/state/agents"
+unset CLAUDE_CONFIG_DIR
+mkdir -p "$scratch/bin" "$scratch/gh-state" "$SPAWN_CAPACITY_HOME/.local/state/agents"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$scratch/bin/betterleaks"
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"$scratch/gh-calls"\ncat "$scratch/gh-state" 2>/dev/null && exit 0\nexit 1\n' >"$scratch/bin/gh"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"$scratch/gh-calls"\n[ "$1 $2" = "issue view" ] && cat "$scratch/gh-state/$3" 2>/dev/null && exit 0\nexit 1\n' >"$scratch/bin/gh"
 cat >"$scratch/bin/north" <<'SH'
 #!/usr/bin/env bash
-if [ "$1 $2" = "fleet send" ]; then
+if [ "$1 $2" = "agents plan" ]; then
+  printf 'target testhost claude:a\n'
+elif [ "$1 $2" = "fleet send" ]; then
   if [ -e "$scratch/bin/start-fails" ] && [[ "$*" == *"Staff this queued box now"* ]]; then exit 1; fi
 printf '%s\n' "$*" >>"$scratch/bin/fleet-sends"
   if [[ "$*" == *"Staff this queued box now"* ]]; then printf '%s %s\n' "$(date +%s.%N)" "$*" >>"$scratch/bin/started"; fi
@@ -34,6 +37,7 @@ chmod +x "$scratch/bin/north" "$scratch/bin/gh"
 export PATH=$scratch/bin:$PATH
 printf '{"claude":{"epoch":%s,"stale_min":600,"refusal":null},"codex":{"epoch":%s,"stale_min":600,"refusal":null}}\n' \
   "$(date +%s)" "$(date +%s)" >"$SPAWN_CAPACITY_HOME/.local/state/agents/usage-gate.json"
+issue() { printf '%s\n' "$2" >"$scratch/gh-state/$1"; }
 probe() { printf '{"committedBatchCpus":%s,"aggregateCpuLimit":8,"protectedCpuSomeAvg10":0}\n' "$1" >"$SPAWN_CAPACITY_STATUS"; }
 
 container=$scratch/code/north

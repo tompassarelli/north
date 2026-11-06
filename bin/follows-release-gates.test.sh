@@ -18,14 +18,15 @@ git -C "$container/main" pull -q --ff-only origin main
 git -C "$container/main" commit -q --allow-empty -m 'Unrelated change (#50)'
 git -C "$container/main" push -q origin main
 : >"$scratch/bin/started"
-printf 'OPEN\n' >"$scratch/gh-state"
+issue 50 OPEN
 north follows-release >/dev/null
 open_starts=$(grep -c "Item: north#21" "$scratch/bin/started")
-printf 'CLOSED\n' >"$scratch/gh-state"
+issue 50 CLOSED
 north follows-release >/dev/null
 check '[6] a follow box on an issue ignores an unrelated (#N) subject while the issue is open and starts once it is closed' \
   '[ "$open_starts" -eq 0 ] && [ "$(grep -c "Item: north#21" "$scratch/bin/started")" -eq 1 ]'
 
+issue 51 CLOSED
 queue 22 'wisp#51' claude:opus-medium >/dev/null
 north follows-release >/dev/null
 check '[7] a follow box whose ref names another repository reads that repository issue, not its own' \
@@ -33,10 +34,10 @@ check '[7] a follow box whose ref names another repository reads that repository
 
 queue 23 'north#240 (n240-ledger, north worker-ledger recording fix)' claude:opus-medium >/dev/null
 : >"$scratch/bin/started"
-printf 'OPEN\n' >"$scratch/gh-state"
+issue 240 OPEN
 north follows-release >/dev/null
 note_open=$(grep -c "Item: north#23" "$scratch/bin/started")
-printf 'CLOSED\n' >"$scratch/gh-state"
+issue 240 CLOSED
 north follows-release >/dev/null
 check '[8] a Follows line naming an issue then a note is released once that issue is closed, and not before' \
   '[ "$note_open" -eq 0 ] && [ "$(grep -c "Item: north#23" "$scratch/bin/started")" -eq 1 ] && grep -qE "^issue view 240 --repo [^ /]+/north " "$scratch/gh-calls"'
