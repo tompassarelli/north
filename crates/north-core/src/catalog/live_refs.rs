@@ -176,9 +176,9 @@ fn host_name() -> NorthResult<String> {
     Ok(name)
 }
 
-fn user_units() -> NorthResult<String> {
+fn user_units(program: &Path) -> NorthResult<String> {
     let systemctl = |args: &[&str]| -> NorthResult<String> {
-        let output = Command::new("systemctl").arg("--user").args(args).output()?;
+        let output = Command::new(program).arg("--user").args(args).output()?;
         if !output.status.success() {
             return configuration(format!("systemctl --user {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
         }
@@ -233,7 +233,7 @@ fn home_and_state() -> NorthResult<(PathBuf, PathBuf)> {
 
 pub fn record(directory: &Path, publish: Option<(&Path, &str)>) -> NorthResult<Recorded> {
     let (home, state) = home_and_state()?;
-    let facts = collect(&host_name()?, now_ms(), &home, &state, &user_units()?);
+    let facts = collect(&host_name()?, now_ms(), &home, &state, &user_units(Path::new("systemctl"))?);
     let path = write(directory, &facts)?;
     let published = match publish {
         Some((repo, remote)) => Some(transport::publish(repo, remote, &facts)?),

@@ -18,3 +18,15 @@ fn a_unit_whose_exec_start_runs_capacity_watchdog_blocks_deleting_it_by_name_or_
     assert!(judge(std::slice::from_ref(&facts), "watchdog", &[], 2_000, HOUR).is_clean());
 }
 
+#[test]
+fn a_dangling_user_unit_link_costs_its_own_unit_not_the_whole_unit_read() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let systemctl = scratch.path().join("systemctl");
+    crate::foundation::shim::write_script(
+        &systemctl,
+        "case \"$2\" in\nlist-unit-files) printf 'blueman-applet.service bad ignored\\nrun-p1-i2.service transient -\\ncapacity-watchdog.service linked enabled\\n' ;;\ncat) for unit in \"$@\"; do case \"$unit\" in blueman-applet.service|run-p1-i2.service) echo \"No files found for $unit.\" >&2; exit 1 ;; esac; done\n  printf '# /home/tom/.config/systemd/user/capacity-watchdog.service\\n[Service]\\nExecStart=/home/tom/.local/share/north/bin/capacity-watchdog sample\\n' ;;\nesac\n",
+    );
+    let units = user_units(&systemctl).expect("one dangling unit link fails the whole read");
+    assert_eq!(unit_exec_starts(&units), vec![UnitFact { unit: "/home/tom/.config/systemd/user/capacity-watchdog.service".into(), path: "/home/tom/.local/share/north/bin/capacity-watchdog".into() }]);
+}
+
