@@ -11,8 +11,8 @@ const SYNC_LIMIT: Duration = Duration::from_secs(180);
 const SYNCED: &str = "NORTH-OFFLOAD-SYNCED";
 
 const SCRIPT: &str = r#"set -eu
-repo=$HOME/$1 head=$2 name=$3 blen=$4 plen=$5 sub=$6 owner=$7 limit=$8
-shift 8
+repo=$HOME/$1 head=$2 name=$3 blen=$4 plen=$5 sub=$6 owner=$7 limit=$8 returned=$9
+shift 9
 root=$HOME/.cache/build-offload
 slot=$root/$name
 north=${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}
@@ -34,6 +34,8 @@ if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; els
 git -C "$slot" clean -ffdxq -e target -e node_modules
 if [ "$plen" -gt 0 ]; then git -C "$slot" apply --binary --whitespace=nowarn "$root/$name.patch"; fi
 shipped=$(awk -v a="$began" -v b="$(date +%s.%N)" 'BEGIN { printf "%.2f", b - a }')
+locks() { git -C "$slot" ls-files -co --exclude-standard -- Cargo.lock '*/Cargo.lock' | while IFS= read -r lock; do printf '%s %s\n' "$(cksum <"$slot/$lock")" "$lock"; done; }
+before=$(locks)
 cd "$slot/$sub"
 if [ "${1##*/}" = north ] && [ "${1#/}" != "$1" ] && [ ! -x "$1" ]; then shift; set -- "$north" "$@"; fi
 echo @SYNCED@
@@ -46,6 +48,9 @@ trap 'kill -TERM "$child" 2>/dev/null' HUP INT TERM
 code=0
 while :; do wait "$child" && code=0 || code=$?; kill -0 "$child" 2>/dev/null || break; done
 kill "$watcher" 2>/dev/null || true
+locks | while read -r sum size lock; do
+  printf '%s\n' "$before" | grep -Fxq -- "$sum $size $lock" || printf '%s %s %s\n' "$returned" "$lock" "$(base64 -w0 <"$slot/$lock")"
+done
 exit "$code"
 "#;
 
@@ -55,24 +60,25 @@ pub(super) enum Ran {
 }
 
 /// The script and its arguments that rebuild the lane on the host and run the job there under that host's capacity run, which enters the lane's flake dev shell.
-pub(super) fn invocation(lane: &Lane, job: &Job) -> (String, Vec<String>) {
+pub(super) fn invocation(lane: &Lane, job: &Job, returned: &str) -> (String, Vec<String>) {
     let script = SCRIPT.replace("@SYNCED@", SYNCED).replace("@MARK@", REMOTE_MARK).replace("@SHIP@", SHIP_SECONDS_ENV).replace("@TARGET@", SLOT_TARGET_ENV).replace("@HEAD@", SLOT_HEAD_ENV);
-    let mut words = vec![lane.repo.clone(), lane.head.clone(), lane.name.clone(), lane.bundle.len().to_string(), lane.patch.len().to_string(), lane.subdirectory.clone(), job.owner.to_owned(), job.timeout_seconds.to_string()];
+    let mut words = vec![lane.repo.clone(), lane.head.clone(), lane.name.clone(), lane.bundle.len().to_string(), lane.patch.len().to_string(), lane.subdirectory.clone(), job.owner.to_owned(), job.timeout_seconds.to_string(), returned.to_owned()];
     words.extend(job.command.iter().cloned());
     (script, words)
 }
 
-/// Rebuilds the lane on the host, runs the command there under that host's own heavy admission, streams its output here and returns its exit code. A failure before the command starts is `NotSynced`.
+/// Rebuilds the lane on the host, runs the command there under that host's own heavy admission, streams its output here, writes back each Cargo.lock the run changed and returns its exit code. A failure before the command starts is `NotSynced`.
 pub(super) fn run(ssh: &str, lane: &Lane, job: &Job, sink: Option<File>, started: &dyn Fn()) -> Ran {
-    let (script, words) = invocation(lane, job);
+    let returned = super::returned::marker();
+    let (script, words) = invocation(lane, job, &returned);
     let quoted: Vec<String> = words.iter().map(|word| quote(word)).collect();
     let remote = format!("sh -c {} offload {}", quote(&script), quoted.join(" "));
     let mut ssh_command = Command::new("ssh");
     ssh_command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", ssh, "--", &remote]);
-    drive(ssh_command, lane, sink, started)
+    drive(ssh_command, lane, sink, started, &returned)
 }
 
-pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, started: &dyn Fn()) -> Ran {
+pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, started: &dyn Fn(), returned: &str) -> Ran {
     let spawned = transport
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -105,7 +111,7 @@ pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, sta
     };
     started();
     let mut output: Box<dyn Write> = sink.map_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>, |file| Box::new(file));
-    let _ = std::io::copy(&mut reader, &mut output);
+    super::returned::copy(&mut reader, &mut output, returned, &lane.top);
     let _ = output.flush();
     drop(stdin);
     let status = child.wait();

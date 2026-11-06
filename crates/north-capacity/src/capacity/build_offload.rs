@@ -157,16 +157,15 @@ pub fn is_agent_build(env: impl Fn(&str) -> Option<String>) -> bool {
     (set("NORTH_FLEET_SESSION") || set("NORTH_FLEET_SCOPE")) && !set("SAFE_PUSH_LAND_HEAD") && !set("AGENT_CAPACITY_NEED") && !set(REMOTE_MARK)
 }
 
-/// Whether the command is a Rust toolchain program, the only commands a fleet session is refused for want of a build host.
-pub fn is_rust_command(command: &[String]) -> bool {
-    command.first().is_some_and(|program| matches!(program.rsplit('/').next(), Some("cargo" | "rustc" | "cargo-nextest")))
-}
-
 const TOOLCHAIN_PROGRAMS: [&str; 5] = ["cargo", "rustc", "cargo-nextest", "bun", "nix"];
 
-/// The command with a toolchain program named by its laptop path (the gate runs the real program it found on PATH) named by its bare name, so the build host finds its own copy inside the lane's dev shell.
+/// The command as a build host runs it: without a depbox wrapper, since the host's slot already runs it in the lane's dev shell and a sandbox inside that shell would nest one, and with a toolchain program named by its laptop path (the gate runs the real program it found on PATH) named by its bare name, so the host finds its own copy in that shell.
 pub fn for_build_host(command: &[String]) -> Vec<String> {
-    let mut words = command.to_vec();
+    let inner = match command {
+        [depbox, mode, marker, inner @ ..] if depbox.rsplit('/').next() == Some("depbox") && matches!(mode.as_str(), "run" | "fetch") && marker == "--" && !inner.is_empty() => inner,
+        _ => command,
+    };
+    let mut words = inner.to_vec();
     if let Some(first) = words.first_mut() {
         let name = first.rsplit('/').next().unwrap_or_default();
         if first.starts_with('/') && TOOLCHAIN_PROGRAMS.contains(&name) {

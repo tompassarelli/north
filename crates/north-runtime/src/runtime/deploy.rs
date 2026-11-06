@@ -1,7 +1,7 @@
 use super::bounded;
 use super::failure::{Failure, failed};
 use super::host_facts;
-use super::layout::{self, Layout, PROGRAMS};
+use super::layout::{self, Layout, PROGRAMS, TREE};
 use super::remote::{limit, run, run_reporting, ssh};
 use super::store::references;
 use super::update::{DEPLOY_LOCK, built_main, checkout, lock_waiting, named_lock_waiting};
@@ -54,9 +54,11 @@ pub(super) fn ship_runtime(host: &str, target: &str, runtime: &Path) -> Result<(
     ship(host, target, runtime, &references(runtime)?)
 }
 
+/// Whether the host holds the runtime's programs and its tree, without which its north finds no harness unless the host's checkout is at the same commit.
 pub(super) fn staged(host: &str, target: &str) -> bool {
-    let programs = PROGRAMS.map(|program| format!("test -x .local/state/north/runtimes/{target}/{program}")).join(" && ");
-    bounded::status(ssh(host).arg(programs).stdout(Stdio::null()), limit(PROBE)).is_ok_and(|status| status.success())
+    let directory = format!(".local/state/north/runtimes/{target}");
+    let present = PROGRAMS.map(|program| format!("test -x {directory}/{program}")).join(" && ") + &format!(" && test -f {directory}/{TREE}/{}", crate::platform::harness::DEFAULTS);
+    bounded::status(ssh(host).arg(present).stdout(Stdio::null()), limit(PROBE)).is_ok_and(|status| status.success())
 }
 
 pub(super) fn stage_runtime(host: &str, target: &str, runtime: &Path) -> Result<(), Failure> {
@@ -68,12 +70,13 @@ fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>
     let mut realise = vec!["nix-store", "--realise", "--quiet"];
     realise.extend(references.iter().map(String::as_str));
     run(host, "nix-store --realise", ssh(host).args(&realise).stdout(Stdio::null()), REALISE)?;
-    println!("north runtime deploy: {host}: copying {} to runtimes/{}", PROGRAMS.join(" and "), layout::short(target));
+    println!("north runtime deploy: {host}: copying {} and the {TREE} to runtimes/{}", PROGRAMS.join(" and "), layout::short(target));
     let directory = format!(".local/state/north/runtimes/{target}");
     run(host, "mkdir -p", ssh(host).args(["mkdir", "-p", directory.as_str()]), PROBE)?;
     let destination = format!("{host}:{directory}/");
+    let tree = Some(runtime.join(TREE)).filter(|tree| tree.is_dir());
     let mut copy = Command::new("rsync");
-    copy.args(["-a", "--timeout=120"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(destination);
+    copy.args(["-a", "--timeout=120", "--delay-updates", "--link-dest=../../current"]).args(PROGRAMS.map(|program| runtime.join(program))).args(tree).arg(destination);
     run(host, "rsync", &mut copy, COPY)
 }
 

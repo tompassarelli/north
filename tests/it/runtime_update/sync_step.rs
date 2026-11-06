@@ -7,14 +7,16 @@ fn a_deploy_whose_remote_update_fails_agents_sync_names_the_step_and_its_redacte
     let host = Host::new();
     host.built(&host.target);
     host.built(PREVIOUS);
+    fs::create_dir_all(host.runtime(&host.target).join("tree/harness")).unwrap();
+    fs::write(host.runtime(&host.target).join("tree/harness/defaults.toml"), "").unwrap();
     host.select(PREVIOUS);
-    script(&host.path("bin/rsync"), "true\n");
+    script(&host.path("bin/rsync"), "printf '%s\\n' \"$@\" >>\"$TEST_COPIED\"\n");
     script(
         &host.path("bin/ssh"),
         "while [[ $1 == -o ]]; do shift 2; done\n[[ $1 == -- ]] && shift\nshift\n[[ \"$2 $3\" == 'runtime update' ]] && AGENTS_ORCHESTRATION=\"$TEST_FAR_FLEET\" RESIDENT_CAP_HOST=plain exec \"$TEST_NORTH\" \"${@:2}\"\nexit 0\n",
     );
     let far_fleet = fleet(&host, "[hosts.plain]\nresident_cap = 1\n");
-    let output = host.run(&["runtime", "deploy", "far"], 42, 0, &[("TEST_NORTH", env!("CARGO_BIN_EXE_north")), ("TEST_FAR_FLEET", far_fleet.to_str().unwrap())]);
+    let output = host.run(&["runtime", "deploy", "far"], 42, 0, &[("TEST_NORTH", env!("CARGO_BIN_EXE_north")), ("TEST_FAR_FLEET", far_fleet.to_str().unwrap()), ("TEST_COPIED", host.path("copied").to_str().unwrap())]);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(1), "{stderr}");
     let reported = stderr.lines().find(|line| line.starts_with("north runtime deploy: north runtime update --sha")).unwrap_or_else(|| panic!("{stderr}"));
@@ -22,6 +24,10 @@ fn a_deploy_whose_remote_update_fails_agents_sync_names_the_step_and_its_redacte
     assert!(reported.contains("north runtime update: agents sync log: fixture sync error: Authorization: [redacted]"), "{reported}");
     assert!(reported.contains(&format!("failed step agents sync on {}", host.target)), "{reported}");
     assert!(!stderr.contains(SECRET), "{stderr}");
+    let copied = fs::read_to_string(host.path("copied")).unwrap();
+    for staged in ["north", "verify-north", "tree"] {
+        assert!(copied.lines().any(|line| Path::new(line) == host.runtime(&host.target).join(staged)), "{staged} not staged: {copied}");
+    }
     assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
 }
 
@@ -38,3 +44,4 @@ fn an_agents_sync_that_times_out_once_is_retried_and_the_runtime_promoted_withou
     assert!(!host.path("state/north/runtime-failed").exists() || !fs::read_to_string(host.path("state/north/runtime-failed")).unwrap().contains(&host.target));
     assert!(!host.path("alerts").exists());
 }
+
