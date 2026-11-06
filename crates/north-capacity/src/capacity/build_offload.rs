@@ -14,7 +14,6 @@ pub struct Admission {
     pub cpu_pressure_percent: f64,
     pub pressure_high_percent: f64,
     pub land_check_waiting: bool,
-    pub heavy_settling_seconds: f64,
 }
 
 impl Admission {
@@ -25,7 +24,7 @@ impl Admission {
             "unattended" => "admit_psi_unattended_high",
             _ => return None,
         };
-        Some(Self { limit_cpus: number("aggregateCpuLimit")?, committed_cpus: number("committedBatchCpus")?, queued_heavy_cpus: queued_heavy_cpus(status), cpu_pressure_percent: number("cpuSomeAvg10")?, pressure_high_percent: super::admission::default_mib(band), land_check_waiting: status.get("landCheckWaiting").and_then(serde_json::Value::as_bool).unwrap_or(false), heavy_settling_seconds: number("heavySettlingSeconds").unwrap_or(0.0) })
+        Some(Self { limit_cpus: number("aggregateCpuLimit")?, committed_cpus: number("committedBatchCpus")?, queued_heavy_cpus: queued_heavy_cpus(status), cpu_pressure_percent: number("cpuSomeAvg10")?, pressure_high_percent: super::admission::default_mib(band), land_check_waiting: status.get("landCheckWaiting").and_then(serde_json::Value::as_bool).unwrap_or(false) })
     }
 
     /// The CPUs left once the committed ones and the heavy jobs already waiting in this host's admission queue are counted as taken.
