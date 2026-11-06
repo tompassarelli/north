@@ -10,12 +10,11 @@ use serde::{Deserialize, Serialize};
 
 use super::after;
 use super::candidate::{self, git};
-use super::lander::{Lander, state_home};
+use super::lander::Lander;
 use super::pause;
 use super::queue;
 use super::serve::Round;
 
-const USAGE: &str = "usage: north land watchdog --once [--queue-root DIR]";
 pub const LEAD: &str = "lander-lead";
 pub const QUARANTINE: &str = "quarantine";
 pub const ROUNDS: &str = "watchdog/rounds.json";
@@ -411,47 +410,3 @@ fn print_report(report: &Report) {
     }
 }
 
-pub fn run(arguments: &[String]) -> u8 {
-    let mut once = false;
-    let mut root = None;
-    let mut rest = arguments.iter();
-    while let Some(argument) = rest.next() {
-        match argument.as_str() {
-            "--once" => once = true,
-            "--queue-root" => match rest.next() {
-                Some(value) => root = Some(PathBuf::from(value)),
-                None => {
-                    eprintln!("{USAGE}");
-                    return 64;
-                }
-            },
-            "-h" | "--help" => {
-                println!("{USAGE}");
-                return 0;
-            }
-            _ => {
-                eprintln!("{USAGE}");
-                return 64;
-            }
-        }
-    }
-    if !once {
-        eprintln!("{USAGE}\nthe lander runs the watchdog every round; standalone it runs --once");
-        return 64;
-    }
-    let root = root.unwrap_or_else(|| state_home().join("north/land-queue"));
-    match patrol(&root, &queues(&root), now_micros(), &Host) {
-        Ok(report) if report.clean() => {
-            println!("north land watchdog: {} queues under {} hold every invariant", queues(&root).len(), root.display());
-            0
-        }
-        Ok(report) => {
-            print_report(&report);
-            1
-        }
-        Err(error) => {
-            eprintln!("north land watchdog: {error}");
-            1
-        }
-    }
-}

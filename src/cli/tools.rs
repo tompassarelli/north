@@ -214,6 +214,11 @@ pub(super) fn defines(command: &str) -> bool {
 }
 
 fn land(arguments: &[String]) -> u8 {
+    if let Some((verb, rest)) = arguments.split_first()
+        && verb == "doctor"
+    {
+        return north_lander_doctor::run(rest);
+    }
     north_safe_push::entry::land(arguments).unwrap_or_else(|| crate::land::run(arguments))
 }
 

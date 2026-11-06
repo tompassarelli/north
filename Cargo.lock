@@ -867,6 +867,7 @@ dependencies = [
  "north-graph-ground",
  "north-graph-ingest",
  "north-guard",
+ "north-lander-doctor",
  "north-landing",
  "north-ops",
  "north-replay",
@@ -1113,6 +1114,17 @@ dependencies = [
  "tempfile",
  "time",
  "toml_edit",
+]
+
+[[package]]
+name = "north-lander-doctor"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-landing",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

@@ -11,6 +11,7 @@ use super::{enqueue, link_hold, queue, replay, repositories, sheriff, telemetry}
 use crate::landing::red_check::Failure;
 
 const USAGE: &str = "usage: north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]";
+pub const REFUSED: &str = "lander-refused";
 const ROUNDS: usize = 8;
 const WALK: usize = 256;
 const SHADOW_MINUTES: u64 = 15;
@@ -64,7 +65,7 @@ impl Runtime {
     }
 }
 
-fn swap(link: &Path, target: &Path) -> std::io::Result<()> {
+pub fn swap(link: &Path, target: &Path) -> std::io::Result<()> {
     let parent = link.parent().ok_or_else(|| std::io::Error::other(format!("{} has no parent", link.display())))?;
     fs::create_dir_all(parent)?;
     let temporary = parent.join(format!(".lander.{}.tmp", std::process::id()));
@@ -314,6 +315,9 @@ fn promote(options: &Options) -> Result<Outcome, String> {
     let target = fs::read_link(runtime.current()).map_err(|error| format!("{}: {error}", runtime.current().display()))?;
     if fs::read_link(runtime.lander()).ok().as_deref() == Some(target.as_path()) {
         return Ok(Outcome::Settled(format!("the lander already runs {}", target.display())));
+    }
+    if fs::read_to_string(runtime.home.join(REFUSED)).is_ok_and(|refused| Path::new(refused.trim()) == target) {
+        return Ok(Outcome::Settled(format!("the lander doctor rolled the lander back from {}; it stays off the lander until current moves on", target.display())));
     }
     let binary = runtime.binary(&target);
     if !binary.is_file() {

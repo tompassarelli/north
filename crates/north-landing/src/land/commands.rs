@@ -11,6 +11,5 @@ Command { name: "scan", usage: "north land scan dep-gate|tool-removal|test-integ
 Command { name: "serve", usage: "north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]", run: serve::run },
 Command { name: "shadow", usage: "north land shadow tick [--repo DIR]", run: shadow::run },
 Command { name: "urgent", usage: "north land urgent TICKET --reason TEXT [--repo DIR]", run: urgent::run },
-Command { name: "watchdog", usage: "north land watchdog --once [--queue-root DIR]", run: watchdog::run },
 Command { name: "withdraw", usage: "north land withdraw TICKET --reason TEXT [--repo DIR] [--noticed-by WHO] [--class CLASS]", run: withdraw::run },
 ]

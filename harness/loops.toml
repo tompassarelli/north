@@ -280,6 +280,38 @@ constants = [
 ]
 
 [[loop]]
+name = "lander-doctor"
+decision = "which remedy the lander doctor applies to each lander health bound over its limit: prune, release a slot, rerun, evict, restart, roll the lander link back, or page the proxy for an unknown state"
+sites = [
+  "crates/north-lander-doctor/src/bounds.rs",
+  "crates/north-lander-doctor/src/lib.rs",
+  "crates/north-lander-doctor/src/facts.rs",
+  "crates/north-lander-doctor/src/hands.rs",
+  "crates/north-lander-doctor/src/book.rs",
+]
+signal = "each bound read live every run; a remedy that leaves its bound over 5 minutes later turns the state unknown; one incident row per remedy and per unknown episode counts recurrences by class"
+updated_by = "north land doctor, run every 2 minutes before each north-land-shadow.timer tick on the lander host"
+cadence_hours = 1
+record = "north/land-doctor/book.json"
+
+host = "lander"
+constants = [
+  "crates/north-lander-doctor/src/bounds.rs::DISK_FREE_PERCENT",
+  "crates/north-lander-doctor/src/bounds.rs::HELD_SECS",
+  "crates/north-lander-doctor/src/bounds.rs::LINK_LAG_SECS",
+  "crates/north-lander-doctor/src/bounds.rs::OLDEST_QUEUED_SECS",
+  "crates/north-lander-doctor/src/bounds.rs::PATIENCE_SECS",
+  "crates/north-lander-doctor/src/bounds.rs::ROUND_SILENCE_SECS",
+  "crates/north-lander-doctor/src/bounds.rs::SINCE_LANDING_SECS",
+  "crates/north-lander-doctor/src/bounds.rs::SLOT_DEADLINE_SECS",
+  "crates/north-lander-doctor/src/bounds.rs::SLOT_GRACE_SECS",
+  "crates/north-lander-doctor/src/book.rs::GOOD_KEPT",
+  "crates/north-lander-doctor/src/facts.rs::DECIDED_WINDOW_SECS",
+  "crates/north-lander-doctor/src/facts.rs::INFRASTRUCTURE_WINDOW_SECS",
+  "crates/north-lander-doctor/src/facts.rs::PROBE_SECONDS",
+]
+
+[[loop]]
 name = "policy-climber"
 decision = "which change to routing, brief generation or dispatch rules north tries next, from the ledger's largest measured loss"
 sites = ["crates/north-climb/src/lib.rs", "crates/north-climb/src/loss.rs", "crates/north-climb/src/candidate.rs", "crates/north-climb/src/score.rs"]

@@ -37,6 +37,10 @@ fn path(home: &Path) -> PathBuf {
     home.join(FILE)
 }
 
+pub fn since(home: &Path) -> Option<u64> {
+    fs::read_to_string(path(home)).ok().as_deref().and_then(parse).map(|hold| hold.since)
+}
+
 pub fn clear(home: &Path) {
     let _ = fs::remove_file(path(home));
 }

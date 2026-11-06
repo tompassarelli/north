@@ -1,0 +1,22 @@
+[package]
+name = "north-lander-doctor"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-landing = { path = "../north-landing" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
