@@ -1,6 +1,7 @@
 pub mod files;
 pub mod git;
 pub mod github;
+pub mod ledger;
 pub mod origin;
 pub mod processes;
 #[cfg(test)]

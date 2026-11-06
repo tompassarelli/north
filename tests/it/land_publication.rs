@@ -131,7 +131,7 @@ impl Fixture {
     }
 
     fn push(&self, arguments: &[&str], environment: &[(&str, &str)]) -> Run {
-        let mut program = vec![env!("CARGO_BIN_EXE_north"), "land", "push"];
+        let mut program = vec![env!("CARGO_BIN_EXE_north"), "safe-push"];
         program.extend(arguments);
         let output = self.command(&program, environment).output().unwrap();
         let worktree = self.repo().join(".git.original");
@@ -182,7 +182,7 @@ fn non_fast_forward() {
 impl Fixture {
     fn restore(&self, arguments: &[&str]) -> Run {
         let mirrors = self.top().join("mirrors");
-        let mut program = vec![env!("CARGO_BIN_EXE_north"), "land", "restore"];
+        let mut program = vec![env!("CARGO_BIN_EXE_north"), "safe-push", "--restore"];
         program.extend(arguments);
         let output = self.command(&program, &[("LANE_GC_MIRRORS", &mirrors.to_string_lossy())]).output().unwrap();
         Run { status: output.status.code().unwrap(), output: format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)) }

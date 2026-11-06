@@ -432,6 +432,7 @@ the per-lane code still exists.
   3. `rg -n 'SAFE_PUSH_(TEST_REAL_NORTH|WATCH|SELF)' crates src tests` prints nothing.
   4. `rg -n 'bin/safe-push' crates src tests harness bin --glob '!**/fixtures/**'` prints only
      historical records (incident and staffing fixtures stay as recorded).
+  - Landed 2026-11-06: `north land push|route|restore`, `north remote-land` and `north safe-push-result` are gone (`safe-push --restore`, `--to` and the south ledger hand-off run in process; `restore`'s test now runs `north safe-push --restore`). `SAFE_PUSH_TEST_REAL_NORTH` and `SAFE_PUSH_WATCH` are gone: the watch nudge always goes to `$HOME/.local/state/north/current/north`, so the tests that exercise it set `HOME` to their scratch directory (the preflight test plants its stub there). The south ledger's git and ssh calls moved to `shell/ledger.rs`, so `Command::new` appears in `crates/north-safe-push/src` only under `shell/`.
 
 Why this order:
 - P1 is the early falsifying check. If argv[0] did not survive the symlink chain, decision 5 would fall

@@ -23,11 +23,9 @@ const UNIFORM: &[(&str, Run)] = &[
     ("merge-driver", merge_set::run),
     ("after-landing", after_landing::run),
     ("bin-references", bin_references::run),
-    ("safe-push-result", north_safe_push::entry::safe_push_result),
     ("watch", crate::ops::watch::run),
     ("safe-push", super::remote_land::safe_push),
     ("release", north_safe_push::entry::release),
-    ("remote-land", super::remote_land::run),
     ("provenance", provenance::run),
     ("issue-box-lint", issue_box_lint::run),
     ("follows-release", follows_release::run),
@@ -218,7 +216,7 @@ fn land(arguments: &[String]) -> u8 {
         Some((verb, rest)) if verb == "drill" => return north_lander_doctor::drill::run(rest),
         _ => {}
     }
-    north_safe_push::entry::land(arguments).unwrap_or_else(|| crate::land::run(arguments))
+    crate::land::run(arguments)
 }
 
 const LANE: &[(&str, Run)] = &[

@@ -3,10 +3,6 @@ use toml_edit::{DocumentMut, Item};
 use crate::pacing::placement;
 use north_safe_push::entry::{self, HostFacts};
 
-pub fn run(arguments: &[String]) -> u8 {
-    entry::remote_land(arguments, &host_facts())
-}
-
 pub fn safe_push(arguments: &[String]) -> u8 {
     entry::safe_push(arguments, &host_facts())
 }

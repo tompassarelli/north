@@ -3,7 +3,6 @@ use std::path::Path;
 use crate::gates::run as gates;
 use crate::landing::{candidate, preflight, route};
 use crate::landing::south_ledger;
-use crate::report::terminal;
 use crate::publication::run as publication;
 use crate::request::{self, Arguments, Plan};
 use crate::restore;
@@ -67,22 +66,4 @@ pub fn safe_push(arguments: &[String], host: &HostFacts) -> u8 {
 
 pub fn release(arguments: &[String]) -> u8 {
     release::run(arguments, &Shell::live(Path::new(".")))
-}
-
-pub fn land(arguments: &[String]) -> Option<u8> {
-    let (verb, rest) = arguments.split_first()?;
-    match verb.as_str() {
-        "push" => Some(publication::run(rest, &Shell::live(Path::new(".")))),
-        "route" => Some(route::run(rest)),
-        "restore" => Some(restore::run(rest, &Shell::live(Path::new(".")))),
-        _ => None,
-    }
-}
-
-pub fn remote_land(arguments: &[String], host: &HostFacts) -> u8 {
-    south_ledger::run(arguments, host)
-}
-
-pub fn safe_push_result(arguments: &[String]) -> u8 {
-    terminal::run(arguments)
 }

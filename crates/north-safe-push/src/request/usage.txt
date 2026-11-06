@@ -13,14 +13,14 @@ Move longer detail to CLI --help, help TOPIC, or indexed docs.
 Options:
   --dry-run    run all safety checks without pushing
   --to BRANCH  explicitly publish HEAD to a remote branch. On origin's default
-               branch the lander lands the lane: north land route queues it
+               branch the lander lands the lane: the lander queues it
                when this host is landing.lander-host or in landing.remote-hosts
                (the committed .safe-push first, then this host's git config),
                and refuses any other host, a landing.queue other than lander,
                and --direct; the lander checks, squashes and pushes the queued
                lane and reports the landing;
                a BRANCH other than origin's default (farm/*, scratch) publishes
-               through north land push: no lock, no queue and no rebase (an
+               directly: no lock, no queue and no rebase (an
                origin BRANCH that is not an ancestor of HEAD is refused), and
                the hook runs in its own push
                (.safe-push land.check entries replace the hook; with

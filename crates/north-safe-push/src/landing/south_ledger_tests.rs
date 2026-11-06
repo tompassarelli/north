@@ -1,4 +1,4 @@
-use super::{Host, HostFacts, Route, route, run};
+use super::{Host, Route, route};
 
 fn words(line: &str) -> Vec<String> {
     line.split_whitespace().map(str::to_owned).collect()
@@ -27,12 +27,4 @@ fn remote_land_leaves_north_other_branches_tags_and_full_hosts_to_git_push() {
     assert_eq!(route(&words("--help"), "/fixture/south.git", &client()), None);
     assert_eq!(route(&words("--to main --force"), "/fixture/south.git", &client()), None);
     assert_eq!(route(&words("--to main"), "/fixture/south.git", &full), None);
-}
-
-#[test]
-fn remote_land_answers_its_help_probe_and_refuses_an_unknown_verb() {
-    let host = HostFacts { ledger_client: true, abandon: |_| 0 };
-    assert_eq!(run(&words("--help"), &host), 0);
-    assert_eq!(run(&words("land"), &host), 2);
-    assert_eq!(run(&[], &host), 2);
 }

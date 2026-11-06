@@ -14,7 +14,7 @@ use north_landing::land::candidate::git;
 use north_landing::land::lander::state_home;
 use north_landing::land::{enqueue, hold, queue, repositories, setting};
 
-const USAGE: &str = "usage: north land route [--to BRANCH] [--message FILE | --several-commits REASON] [--keep-lane]";
+const USAGE: &str = "usage: safe-push --to BRANCH [--message FILE | --several-commits REASON] [--keep-lane]";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Settings {
@@ -88,7 +88,7 @@ fn ticket_arguments(request: &Arguments) -> Vec<String> {
     arguments
 }
 
-pub fn run(arguments: &[String]) -> u8 {
+fn run(arguments: &[String]) -> u8 {
     let request = match request::arguments(arguments) {
         Ok(Plan::Help) => {
             println!("{USAGE}");

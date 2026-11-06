@@ -112,7 +112,6 @@ impl Fixture {
             .env("SAFE_PUSH_SOUTH", self.top().join("absent-south"))
             .env("THREADS_DB", self.top().join("threads.db"))
             .env("SAFE_PUSH_LAND_OFFLOAD", "0")
-            .env_remove("SAFE_PUSH_TEST_REAL_NORTH")
             .env_remove("SAFE_PUSH_OUTPUT_CLAIMED")
             .env_remove("SAFE_PUSH_LOCK_HELD")
             .env_remove("NORTH_NO_AUTOREAP")

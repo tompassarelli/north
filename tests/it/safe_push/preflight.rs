@@ -84,9 +84,10 @@ fn fails_into_a_state_log_with_events_and_north_watch(fixture: &Fixture) -> Stri
     fixture.commit("file.txt", "changed\n", "changed input");
     let before = fixture.remote_state();
     let watch_calls = fixture.root.join("watch-calls");
-    let watch = fixture.root.join("watch-stub");
+    let watch = fixture.root.join("home/.local/state/north/current/north");
+    fs::create_dir_all(watch.parent().unwrap()).unwrap();
     shim::write_script(&watch, &format!("printf '%s\\n' \"$*\" >>'{}'\n", watch_calls.display()));
-    let ran = fixture.run_with(&["--dry-run", "--to", "main"], &[("SAFE_PUSH_WATCH", &watch)]);
+    let ran = fixture.run(&["--dry-run", "--to", "main"]);
     assert!(!ran.succeeded(), "{}", ran.output);
     let log = ran.output.split_once("exited 23; log: ").and_then(|(_, rest)| rest.split_once("; NOT pushed.")).map(|(log, _)| log.to_owned()).unwrap_or_else(|| panic!("{}", ran.output));
     ran.expect(false, &[&format!("safe-push: land check {command} exited 23; log: {log}; NOT pushed.")]);

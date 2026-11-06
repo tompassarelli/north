@@ -1,22 +1,18 @@
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use north_base::platform::south_land_limits::{MAX_COMMITS, MAX_PATCH_BYTES};
-use north_base::platform::ssh;
 
 use crate::report::terminal::{Terminal, receipt};
 use crate::request::{Destination, destination};
+use crate::shell::ledger::{self, git, patch};
 
 const SOUTH: &str = "south";
 const DESTINATION: &str = "main";
 const BASE: &str = "refs/remotes/origin/main";
 const REMOTE_COMMAND: &str = "south land";
 const LEDGER_HOST_FILE: &str = ".config/threads/remote";
-const USAGE: &str = "usage: north remote-land routes SAFE-PUSH-ARGUMENTS... (exits 0 when safe-push lands this checkout through the ledger host's south land, 1 when it pushes with git)";
 
 pub struct HostFacts {
     pub ledger_client: bool,
@@ -32,23 +28,6 @@ struct Host {
 pub struct Route {
     ledger_host: Option<String>,
     dry_run: bool,
-}
-
-pub fn run(arguments: &[String], host: &HostFacts) -> u8 {
-    match arguments.split_first() {
-        Some((verb, rest)) if verb == "routes" => match ambient_route(rest, host) {
-            Some(_) => 0,
-            None => 1,
-        },
-        Some((flag, [])) if flag == "--help" || flag == "-h" => {
-            println!("{USAGE}");
-            0
-        }
-        _ => {
-            eprintln!("{USAGE}");
-            2
-        }
-    }
 }
 
 pub fn land(route: &Route) -> u8 {
@@ -85,15 +64,6 @@ pub fn ambient_route(arguments: &[String], facts: &HostFacts) -> Option<Route> {
     let checkout = std::env::current_dir().ok()?;
     let origin_url = git(&checkout, &["remote", "get-url", "origin"]).ok()?;
     route(arguments, &origin_url, &ambient_host(facts, &environment()))
-}
-
-fn git(checkout: &Path, arguments: &[&str]) -> Result<String, String> {
-    let output = Command::new("git").current_dir(checkout).args(arguments).stdin(Stdio::null()).output().map_err(|error| format!("git {}: {error}", arguments[0]))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
-    } else {
-        Err(format!("git {} failed: {}", arguments[0], String::from_utf8_lossy(&output.stderr).trim()))
-    }
 }
 
 fn deliver(route: &Route) -> Terminal {
@@ -147,37 +117,24 @@ impl Lane {
         if commits > MAX_COMMITS {
             return Err(format!("{commits} commits is over the {MAX_COMMITS} commit limit of {REMOTE_COMMAND}; NOT pushed"));
         }
-        let output = Command::new("git").current_dir(&self.checkout).args(["format-patch", "--stdout", "--no-signature", &range]).stdin(Stdio::null()).output().map_err(|error| format!("git format-patch: {error}"))?;
-        if !output.status.success() {
-            return Err(format!("git format-patch failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        let bytes = patch(&self.checkout, &range)?;
+        if bytes.len() > MAX_PATCH_BYTES {
+            return Err(format!("the {} byte patch is over the {MAX_PATCH_BYTES} byte limit of {REMOTE_COMMAND}; NOT pushed", bytes.len()));
         }
-        if output.stdout.len() > MAX_PATCH_BYTES {
-            return Err(format!("the {} byte patch is over the {MAX_PATCH_BYTES} byte limit of {REMOTE_COMMAND}; NOT pushed", output.stdout.len()));
-        }
-        Ok(Mbox { commits, bytes: output.stdout })
+        Ok(Mbox { commits, bytes })
     }
 }
 
 fn send(destination: &str, mbox: &[u8]) -> Result<String, String> {
-    let argv: Vec<OsString> = ssh::argv(&["ssh".into()], &environment(), &["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", destination, REMOTE_COMMAND]);
-    let mut child = Command::new(&argv[0])
-        .args(&argv[1..])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|error| format!("ssh {destination} {REMOTE_COMMAND}: {error}; NOT pushed"))?;
-    let written = child.stdin.take().map(|mut pipe| pipe.write_all(mbox));
-    let output = child.wait_with_output().map_err(|error| format!("ssh {destination} {REMOTE_COMMAND}: {error}"))?;
-    let answer = String::from_utf8_lossy(&output.stdout);
-    if !output.status.success() {
-        let code = output.status.code().map_or_else(|| "a signal".to_owned(), |code| format!("exit {code}"));
-        return Err(format!("{destination} {REMOTE_COMMAND} answered {code}: {}", answer.trim()));
+    let answer = ledger::send(destination, REMOTE_COMMAND, mbox, &environment())?;
+    if !answer.success {
+        let code = answer.code.map_or_else(|| "a signal".to_owned(), |code| format!("exit {code}"));
+        return Err(format!("{destination} {REMOTE_COMMAND} answered {code}: {}", answer.stdout.trim()));
     }
-    if let Some(Err(error)) = written {
+    if let Some(error) = answer.write_error {
         return Err(format!("sending the patch to {destination}: {error}"));
     }
-    Ok(landed_line(destination, &answer))
+    Ok(landed_line(destination, &answer.stdout))
 }
 
 fn landed_line(destination: &str, answer: &str) -> String {

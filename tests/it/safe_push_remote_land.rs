@@ -81,7 +81,6 @@ impl Gex45 {
             .env("SAFE_PUSH_AUTOLAND_WAIT_SECONDS", "1")
             .env_remove("XDG_RUNTIME_DIR")
             .env_remove("NORTH_SSH_CONFIG")
-            .env_remove("SAFE_PUSH_TEST_REAL_NORTH")
             .output()
             .unwrap()
     }

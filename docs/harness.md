@@ -158,7 +158,7 @@ Agents edit in `~/code/<project>/worktrees/<slug>`, never in `main/`, and land w
 the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure). The "Landing and
 lanes" entries in [features.md](features.md#landing-and-lanes) describe each gate. In outline:
 
-1. `safe-push --to main` asks `north land route`, which refuses any host that is neither
+1. `safe-push --to main` asks its route decision, which refuses any host that is neither
    `landing.lander-host` nor in `landing.remote-hosts`, and any `landing.queue` other than the
    lander, naming the setting to add; otherwise `north land enqueue` runs the outgoing scans and
    the land checks the lane adds, squashes the lane to one commit unless `--several-commits`, and

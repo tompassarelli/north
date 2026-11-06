@@ -193,7 +193,7 @@ fn run(copy: &Path, program: &[&str], case: &Case) -> Observed {
         .env("XDG_STATE_HOME", copy.join("state"))
         .env("SAFE_PUSH_DENYLIST", &denylist)
         .env("SAFE_PUSH_SOUTH", copy.join("absent-south"))
-        .env("SAFE_PUSH_TEST_REAL_NORTH", env!("CARGO_BIN_EXE_north"))
+        .env("HOME", copy.join("home"))
         .env_remove("NORTH_NO_AUTOREAP")
         .env_remove("SAFE_PUSH_OUTPUT_CLAIMED")
         .envs(case.environment.iter().copied());

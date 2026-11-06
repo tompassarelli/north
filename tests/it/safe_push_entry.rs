@@ -38,7 +38,7 @@ fn the_entry_runs_its_children_without_codex_home_and_north_itself_does_not_scru
     shim::write_script(&bin.join("git"), &format!("printf '%s\\n' \"${{CODEX_HOME-unset}}\" >>'{}'\nexec '{}' \"$@\"\n", seen.display(), real_git()));
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
     let ran = |program: &str, arguments: &[&str]| {
-        run(Command::new(program).args(arguments).current_dir(&repo).env("PATH", &path).env("CODEX_HOME", "/pool/account").env("XDG_STATE_HOME", scratch.path().join("state")))
+        run(Command::new(program).args(arguments).current_dir(&repo).env("PATH", &path).env("CODEX_HOME", "/pool/account").env("XDG_STATE_HOME", scratch.path().join("state")).env("HOME", scratch.path().join("home")))
     };
     ran(link.to_str().unwrap(), &["--tag", "entry-test", "--dry-run"]);
     let through_link = std::fs::read_to_string(&seen).unwrap();

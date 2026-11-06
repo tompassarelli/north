@@ -48,7 +48,7 @@ struct Published {
 impl Publisher<'_> {
     fn destination(&self, request: &Arguments) -> Step<String> {
         if request.tag.is_some() {
-            eprintln!("safe-push: north land push publishes branches; push tags with north safe-push --tag");
+            eprintln!("safe-push: safe-push --to publishes branches; push tags with safe-push --tag");
             return Err(Refused(2));
         }
         let git = &*self.shell.git;

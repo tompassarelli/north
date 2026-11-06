@@ -69,8 +69,7 @@ static RUNS: AtomicUsize = AtomicUsize::new(0);
 
 const GH_SHIM: &str = "[ \"$1\" = repo ] && [ -n \"$SAFE_PUSH_TEST_VISIBILITY\" ] || exit 1\necho \"$SAFE_PUSH_TEST_VISIBILITY\"\n";
 
-const SCRUBBED: [&str; 14] = [
-    "SAFE_PUSH_WATCH",
+const SCRUBBED: [&str; 13] = [
     "SSH_CLIENT",
     "SSH2_CLIENT",
     "SSH_CONNECTION",

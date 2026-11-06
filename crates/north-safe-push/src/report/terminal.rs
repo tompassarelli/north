@@ -17,19 +17,6 @@ pub fn receipt(terminal: &Terminal) -> (String, u8) {
     }
 }
 
-pub fn run(arguments: &[String]) -> u8 {
-    let [status, _sha, reason, _minutes, _url] = arguments else {
-        eprintln!("Usage: north safe-push-result refused SHA REASON MINUTES URL");
-        return 2;
-    };
-    if status != "refused" {
-        eprintln!("north safe-push-result: only refused is a terminal result bash reports");
-        return 2;
-    }
-    println!("{}", receipt(&Terminal::Refused(reason.clone())).0);
-    0
-}
-
 #[cfg(test)]
 mod tests {
     use super::{Terminal, receipt};
