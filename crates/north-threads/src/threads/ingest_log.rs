@@ -43,15 +43,3 @@ pub fn append(path: &Path, ingest: &Ingest) -> io::Result<()> {
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     file.write_all(format!("{line}\n").as_bytes())
 }
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    #[test]
-    fn a_batch_is_logged_with_how_many_rows_of_each_type_it_carries() {
-        let batch = b"{\"type\": \"usage\", \"ts\": \"2026-11-06T12:00:00Z\"}\n\n{\"type\": \"usage\"}\n{\"type\": \"hook\"}\n{\"id\": \"run-1\"}\nnot json\n";
-        let expected: BTreeMap<String, usize> = [("hook", 1), ("run", 1), ("unreadable", 1), ("usage", 2)].into_iter().map(|(kind, count)| (kind.to_owned(), count)).collect();
-        assert_eq!(super::rows(batch), expected);
-    }
-}

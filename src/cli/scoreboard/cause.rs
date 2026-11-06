@@ -7,6 +7,7 @@ use std::fmt::Write;
 use super::{Sources, Window, open};
 use crate::foundation::clock::Timestamp;
 use crate::threads::calibration::rework::{Cause, Judged, Rework, Rule};
+use crate::threads::calibration::rework_labels;
 
 const SUBJECT_CHARS: usize = 90;
 const SHA_CHARS: usize = 9;
@@ -197,6 +198,7 @@ pub fn render(landings: &[&Judged], window: &str, now: i64) -> String {
     for (repo, held) in repos {
         out.push_str(&render_repo(repo, &held));
     }
+    let _ = writeln!(out, "{}", rework_labels::score().line());
     out
 }
 

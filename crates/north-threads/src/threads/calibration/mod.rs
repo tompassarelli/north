@@ -16,6 +16,9 @@ mod rates;
 mod read;
 mod recommend;
 pub mod rework;
+pub mod rework_labels;
+#[cfg(test)]
+mod rework_labels_tests;
 mod routing;
 mod summary;
 mod verbs;
