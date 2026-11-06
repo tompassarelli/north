@@ -400,6 +400,7 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
             .env("HOME", home.path())
             .env("PATH", &path)
             .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+            .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
             .env_remove("NORTH_OFFLOAD_ROOT")
             .env_remove(crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
             .stdin(fs::File::open(&bundle).unwrap())

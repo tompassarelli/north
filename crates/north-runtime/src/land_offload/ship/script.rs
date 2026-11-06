@@ -120,7 +120,7 @@ trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
 if [ -d "$slot/target" ]; then
   used=$(du -sm "$slot/target" | cut -f1)
-  free=$(df -Pm "$root" | awk 'NR == 2 { print $4 }')
+  if [ -n "${AGENT_CAPACITY_DISK_FREE_GIB:-}" ]; then free=$(awk -v gib="$AGENT_CAPACITY_DISK_FREE_GIB" 'BEGIN { printf "%d", gib * 1024 }'); else free=$(df -Pm "$root" | awk 'NR == 2 { print $4 }'); fi
   if [ "$used" -gt "${NORTH_OFFLOAD_TARGET_CAP_MIB:-@TARGET_CAP@}" ] || [ "$free" -lt "${NORTH_OFFLOAD_TARGET_FLOOR_MIB:-@TARGET_FLOOR@}" ]; then
     echo "offload: removing $s/target ($used MiB, $free MiB free on the host)" >&2
     rm -rf -- "$slot/target"
