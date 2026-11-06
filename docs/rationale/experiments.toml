@@ -8,7 +8,8 @@
 # card in harness/nix/cards.toml needing exactly one), or none with a measure naming how the rule is judged instead
 # (always re-measure).
 # bar: the move toward `direction`, in the metric's units, that keeps the change; a move as large
-# the other way reverts it, and anything between goes to Tom. Without `before` the baseline is 0.
+# the other way reverts it, and anything between goes to Tom, except a `climb-` entry the policy loop
+# registered, which it extends on too few samples or settles at min_n itself. Without `before` the baseline is 0.
 # Days are UTC, windows [start, end), and review falls at least 2 days after `after` ends.
 
 [[experiment]]

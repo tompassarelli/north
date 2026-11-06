@@ -1,12 +1,15 @@
 //! `north experiments`: every policy and routing change judges itself on its review date. The
 //! registry names each change, the outcome metric it should move and when it is reviewed;
 //! `check` is the land check that keeps the rationale notes' review rules in the registry, and
-//! `judge` keeps, reverts or brings each due entry to Tom with the numbers.
+//! `judge` keeps, reverts or brings each due entry to Tom with the numbers, except the policy loop's own
+//! entries, whose inconclusive verdicts it extends or settles itself.
 pub mod file;
 pub mod read;
 pub mod registry;
 pub mod rules;
 pub mod verdict;
+#[cfg(test)]
+mod verdict_tests;
 
 use std::path::{Path, PathBuf};
 
@@ -103,7 +106,7 @@ fn judge_command(options: &Options) -> u8 {
         }
     };
     let mut filed = Filed::load(state());
-    let pending: Vec<Experiment> = entries.into_iter().filter(|entry| due(entry, options.today) && !(options.file && filed.has(entry))).collect();
+    let pending: Vec<Experiment> = entries.iter().map(|entry| filed.current(entry)).filter(|entry| due(entry, options.today) && !(options.file && filed.has(entry))).collect();
     if pending.is_empty() {
         println!("experiments: nothing due unfiled on {}", options.today.text());
         return 0;

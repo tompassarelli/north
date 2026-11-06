@@ -961,6 +961,7 @@ dependencies = [
  "north-dispatch",
  "north-replay",
  "north-strategy-types",
+ "serde_json",
 ]
 
 [[package]]

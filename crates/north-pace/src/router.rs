@@ -10,6 +10,7 @@ pub mod plan;
 pub mod policy;
 pub mod pricing;
 pub mod route;
+pub mod settle;
 pub mod tier;
 
 #[cfg(test)]
@@ -20,3 +21,6 @@ mod money_tests;
 
 #[cfg(test)]
 mod admission_tests;
+
+#[cfg(test)]
+mod settle_tests;

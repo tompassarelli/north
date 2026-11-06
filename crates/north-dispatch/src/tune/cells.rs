@@ -84,7 +84,7 @@ fn route(week: &ClosedReport, category: &str, evidence: &Evidence) -> Option<Dec
 
 fn effort(category: &str, evidence: &Evidence) -> Option<Decided> {
     let effort = evidence.settled_effort()?;
-    let kept = |effort: Effort| evidence.efforts.closed.get(&effort).copied().unwrap_or(0);
+    let kept = |effort: Effort| evidence.efforts.closed(effort);
     Some(Decided {
         cell: format!("effort {category}"),
         value: json!(effort.name()),

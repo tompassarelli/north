@@ -22,8 +22,8 @@ fn a_rolling_alarm_issue_is_ready_but_never_placed_because_its_body_declares_no_
 }
 
 #[test]
-fn a_planner_or_reviewer_run_takes_opus_high_and_a_seeded_half_take_xhigh_stamped_as_its_arm_until_the_ledger_settles_the_cheaper() {
-    use super::tier::{Effort, Evidence, History, Tier, Trial, route_for};
+fn seeded_arm_draws_give_a_planner_run_high_or_xhigh_until_the_ledger_settles_the_cheaper_and_spread_an_unarmed_local_box_over_the_context_windows() {
+    use super::tier::{CONTEXT_WINDOWS, Effort, Evidence, History, Tier, Trial, context_arm, route_for};
     use std::collections::BTreeMap;
     let facet = |category: &'static str| move |key: &str| if key == "Category" { category.to_owned() } else { super::facets::default(key).to_owned() };
     let unread = BTreeMap::new();
@@ -43,21 +43,17 @@ fn a_planner_or_reviewer_run_takes_opus_high_and_a_seeded_half_take_xhigh_stampe
     assert!(drawn.1.why.contains(&format!("seeded {item}#0")) && route_for(&item, &facet("planning"), &history, &unread).why.contains(&format!("seeded {item}#1")));
 
     let full = |usd: f64| (15, 15, usd);
+    let boxes = |(_, closed, usd): (usize, usize, f64)| vec![crate::router::settle::Outcome { usd, closed: true, kept: true }; closed];
     let trial = |high: (usize, usize, f64), xhigh: (usize, usize, f64)| Trial {
         runs: BTreeMap::from([(Effort::High, high.0), (Effort::Xhigh, xhigh.0)]),
-        closed: BTreeMap::from([(Effort::High, high.1), (Effort::Xhigh, xhigh.1)]),
-        usd_per_kept: Some(BTreeMap::from([(Effort::High, high.2), (Effort::Xhigh, xhigh.2)])),
+        boxes: Some(BTreeMap::from([(Effort::High, boxes(high)), (Effort::Xhigh, boxes(xhigh))])),
     };
     let settled = |efforts| route_for("north#1", &facet("planning"), &History::default(), &BTreeMap::from([("planning".to_owned(), Evidence { efforts, ..Evidence::default() })]));
     let cheaper_xhigh = settled(trial(full(12.0), full(9.0)));
     assert_eq!((cheaper_xhigh.effort, cheaper_xhigh.stamp()), (Some(Effort::Xhigh), None));
     assert_eq!(settled(trial(full(9.0), full(12.0))).effort, Some(Effort::High));
     assert!(settled(trial(full(12.0), (14, 15, 9.0))).effort_arm, "xhigh one run short keeps drawing");
-}
 
-#[test]
-fn a_local_box_on_no_tier_or_effort_arm_draws_each_context_window_in_an_equal_seeded_share_and_is_stamped_with_it() {
-    use super::tier::{CONTEXT_WINDOWS, History, context_arm};
     let draw = || (1..=4000).map(|n| context_arm(&format!("north#{n}"), &History::default())).collect::<Vec<_>>();
     let arms = draw();
     for window in CONTEXT_WINDOWS {

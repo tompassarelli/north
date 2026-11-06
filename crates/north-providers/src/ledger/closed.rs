@@ -40,6 +40,8 @@ pub struct ArmBox {
     pub closed: bool,
     #[serde(default)]
     pub reworked: bool,
+    #[serde(default)]
+    pub verified: bool,
 }
 
 fn closed_by_default() -> bool {
@@ -170,6 +172,8 @@ pub struct ClosedReport {
     pub closed: usize,
     pub spend_usd: f64,
     pub leads_usd: f64,
+    /// The rework judge whose verdicts marked the report's boxes reworked.
+    pub judge: u32,
 }
 
 impl SpendRun {
@@ -181,6 +185,13 @@ impl SpendRun {
     fn usd(&self, prices: &PriceTable) -> f64 {
         prices.run_usd(self.model.as_deref(), &self.tier, self.input, self.cache_read, self.output)
     }
+}
+
+/// Whether a closed issue's boxes were ticked by the independent Done-when check: it has a ticked box and
+/// every ticked box carries the `Evidence:` stamp `north task check --done-when` writes for an exit of 0.
+pub fn checker_verified(body: &str) -> bool {
+    let ticked: Vec<&str> = body.lines().map(str::trim_start).filter(|line| line.starts_with("- [x]") || line.starts_with("- [X]")).collect();
+    !ticked.is_empty() && ticked.iter().all(|line| line.contains("Evidence: `") && line.contains(" exited 0 on "))
 }
 
 pub fn tier_label(tier: &str) -> String {
@@ -227,7 +238,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         distinct_closed += 1;
         spent_boxes.push(SkillBox::of(item, category, spent, true, runs));
         if !runs[0].arm.is_empty() {
-            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: true, reworked });
+            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: true, reworked, verified: false });
         }
     }
     let mut open: BTreeMap<&str, Vec<&SpendRun>> = BTreeMap::new();
@@ -248,7 +259,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
             cell.unclosed_usd += spent;
         }
         if !runs[0].arm.is_empty() {
-            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: false, reworked: false });
+            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: false, reworked: false, verified: false });
         }
     }
     let mut cells: Vec<Cell> = cells.into_values().collect();
@@ -259,6 +270,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         *loaded.entry(skill.clone()).or_default() += 1;
     }
     ClosedReport {
+        judge: crate::threads::calibration::rework::JUDGE_VERSION,
         skipped: Vec::new(),
         closed: distinct_closed,
         cells,
@@ -271,6 +283,14 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
 }
 
 impl ClosedReport {
+    /// Marks each arm box whose issue `verified` names as checker-verified.
+    pub fn verified(mut self, verified: &HashSet<String>) -> Self {
+        for arm in &mut self.arms {
+            arm.verified = arm.closed && verified.contains(&arm.item);
+        }
+        self
+    }
+
     fn per_closed(&self, usd: f64) -> Option<f64> {
         (self.closed > 0).then(|| usd / self.closed as f64)
     }

@@ -1,7 +1,7 @@
 //! Which worker tier a dispatched box starts on: Sonnet for art, Haiku for mechanical work with its
-//! retry on Sonnet, the Sonnet and Opus arms in turn on the armed categories until the ledger holds
-//! 15 runs and 15 closed boxes of each, then the arm with the lower cost per closed box, and Opus for
-//! the rest. An Opus box on no tier arm in a category with 15 Opus runs alternates the medium and
+//! retry on Sonnet, the Sonnet and Opus arms in turn on the armed categories until `router::settle`
+//! gives one on the evidence (15 runs and 15 closed boxes of each and a bootstrap that puts it ahead),
+//! and Opus for the rest. An Opus box on no tier arm in a category with 15 Opus runs alternates the medium and
 //! high effort arms the same way until the tune tick or the ledger settles the cheaper one. A planner
 //! or reviewer run takes Opus high, and xhigh on a seeded half of its launches, until the ledger
 //! settles the cheaper of the two. A local box on none of those arms draws one auto-compact window
@@ -10,6 +10,7 @@ use super::facets;
 use super::issues::Issue;
 use super::record::Record;
 use crate::ledger::closed::{ArmBox, ClosedReport};
+use crate::router::settle::{self, Outcome};
 use crate::router::policy::ARM_RUNS;
 pub use crate::router::tier::Tier;
 use std::collections::{BTreeMap, BTreeSet};
@@ -78,18 +79,17 @@ impl Effort {
     }
 }
 
-/// One arm comparison's evidence in a category: the runs stamped with each arm, each arm's closed
-/// boxes, and its cost per kept box once the closed-box report is read.
+/// One arm comparison's evidence in a category: the runs stamped with each arm and, once the
+/// closed-box report is read, the boxes each arm's first runs started.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Trial<K: Ord> {
     pub runs: BTreeMap<K, usize>,
-    pub closed: BTreeMap<K, usize>,
-    pub usd_per_kept: Option<BTreeMap<K, f64>>,
+    pub boxes: Option<BTreeMap<K, Vec<Outcome>>>,
 }
 
 impl<K: Ord> Default for Trial<K> {
     fn default() -> Self {
-        Self { runs: BTreeMap::new(), closed: BTreeMap::new(), usd_per_kept: None }
+        Self { runs: BTreeMap::new(), boxes: None }
     }
 }
 
@@ -98,40 +98,37 @@ impl<K: Ord + Copy> Trial<K> {
         arms.iter().map(|arm| (*arm, stamped.get(stamp(*arm)).copied().unwrap_or(0))).collect()
     }
 
-    /// The spend of each arm's boxes in `category`, closed or not, over its closed boxes not
-    /// reworked; an arm with no closed box has no cost.
+    /// Each arm's boxes in `category`, closed or not, from the closed-box report.
     fn priced(self, report: &ClosedReport, category: &str, arm_of: impl Fn(&str) -> Option<K>) -> Self {
-        let mut sums: BTreeMap<K, (f64, usize, usize)> = BTreeMap::new();
+        let mut boxes: BTreeMap<K, Vec<Outcome>> = BTreeMap::new();
         for armed in report.arms.iter().filter(|armed| armed.category == category) {
             if let Some(arm) = arm_of(&armed.arm) {
-                let sum = sums.entry(arm).or_default();
-                *sum = (sum.0 + armed.usd, sum.1 + usize::from(armed.closed), sum.2 + usize::from(armed.closed && !armed.reworked));
+                boxes.entry(arm).or_default().push(Outcome { usd: armed.usd, closed: armed.closed, kept: armed.closed && !armed.reworked });
             }
         }
-        let closed = sums.iter().map(|(arm, (_, closed, _))| (*arm, *closed)).collect();
-        let per_kept = |(usd, _, kept): (f64, usize, usize)| if kept == 0 { f64::INFINITY } else { usd / kept as f64 };
-        let usd_per_kept = sums.into_iter().filter(|(_, (_, closed, _))| *closed > 0).map(|(arm, sum)| (arm, per_kept(sum))).collect();
-        Self { closed, usd_per_kept: Some(usd_per_kept), ..self }
+        Self { boxes: Some(boxes), ..self }
     }
 
     fn runs(&self, arm: K) -> usize {
         self.runs.get(&arm).copied().unwrap_or(0)
     }
 
-    fn closed(&self, arm: K) -> usize {
-        self.closed.get(&arm).copied().unwrap_or(0)
+    fn arm_boxes(&self, arm: K) -> &[Outcome] {
+        self.boxes.as_ref().and_then(|boxes| boxes.get(&arm)).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn closed(&self, arm: K) -> usize {
+        settle::closed(self.arm_boxes(arm))
     }
 
     fn cost(&self, arm: K) -> Option<f64> {
-        self.usd_per_kept.as_ref()?.get(&arm).copied()
+        settle::usd_per_kept(self.arm_boxes(arm))
     }
 
-    /// The arm with the lower cost per kept box, `first` on a tie, once both arms hold `ARM_RUNS`
-    /// stamped runs and `ARM_RUNS` closed boxes and both are priced.
+    /// The arm `settle::settled` gives the comparison, `first` on a tie.
     fn settled(&self, first: K, second: K) -> Option<K> {
-        let full = |arm: K| self.runs(arm) >= ARM_RUNS && self.closed(arm) >= ARM_RUNS;
-        let cheaper = if self.cost(second)? < self.cost(first)? { second } else { first };
-        (full(first) && full(second)).then_some(cheaper)
+        let arm = |arm: K| settle::Arm { runs: self.runs(arm), boxes: self.arm_boxes(arm) };
+        settle::settled(arm(first), arm(second)).map(|side| if side == settle::Side::First { first } else { second })
     }
 
     fn figures(&self, arm: K, name: &str) -> String {
@@ -145,14 +142,11 @@ impl<K: Ord + Copy> Trial<K> {
 }
 
 /// What the ledger holds for one category: each tier's success rate and runs there from
-/// `--recommend`, the runs stamped with each tier's arm, and each arm's closed boxes and cost per
-/// closed box from `north ledger summary`.
+/// `--recommend`, and the Sonnet and Opus arms' stamped runs and boxes from `north ledger summary`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Evidence {
     pub tiers: BTreeMap<String, (f64, usize)>,
-    pub arm_runs: BTreeMap<Tier, usize>,
-    pub usd_per_closed: Option<BTreeMap<Tier, f64>>,
-    pub arm_closed: BTreeMap<Tier, usize>,
+    pub arms: Trial<Tier>,
     pub tuned: Option<Tier>,
     pub efforts: Trial<Effort>,
     pub tuned_effort: Option<Effort>,
@@ -178,24 +172,13 @@ impl Evidence {
         Self { tiers, ..Self::default() }
     }
 
-    /// Adds each arm's closed boxes and cost per closed box in this category from the boxes whose
-    /// first run carried its `Arm:` line in the ledger's closed-box report: the spend of all its boxes,
-    /// closed or not, over the closed boxes not reworked. A tier's unstamped boxes carry the earlier
-    /// routing's selection and are left out, as the arm run count leaves them out; an arm with no
-    /// closed box has no cost.
+    /// Adds the Sonnet and Opus arms' boxes in this category, those whose first run carried the arm's
+    /// `Arm:` line in the ledger's closed-box report. A tier's unstamped boxes carry the earlier
+    /// routing's selection and are left out, as the arm run count leaves them out.
     pub fn priced(self, report: &ClosedReport, category: &str) -> Self {
-        let mut sums: BTreeMap<Tier, (f64, usize, usize)> = BTreeMap::new();
-        for armed in report.arms.iter().filter(|armed| armed.category == category) {
-            if let Some(tier) = [Tier::Sonnet, Tier::Opus].into_iter().find(|tier| tier.name() == armed.arm) {
-                let sum = sums.entry(tier).or_default();
-                *sum = (sum.0 + armed.usd, sum.1 + usize::from(armed.closed), sum.2 + usize::from(armed.closed && !armed.reworked));
-            }
-        }
-        let arm_closed = sums.iter().map(|(tier, (_, closed, _))| (*tier, *closed)).collect();
-        let per_kept = |(usd, _, kept): (f64, usize, usize)| if kept == 0 { f64::INFINITY } else { usd / kept as f64 };
-        let usd_per_closed = sums.into_iter().filter(|(_, (_, closed, _))| *closed > 0).map(|(tier, sum)| (tier, per_kept(sum))).collect();
+        let arms = self.arms.clone().priced(report, category, |arm| [Tier::Sonnet, Tier::Opus].into_iter().find(|tier| tier.name() == arm));
         let efforts = self.efforts.clone().priced(report, category, Effort::parse_arm);
-        Self { usd_per_closed: Some(usd_per_closed), arm_closed, efforts, ..self }
+        Self { arms, efforts, ..self }
     }
 
     pub fn tuned(self, routes: &BTreeMap<String, Tier>, category: &str) -> Self {
@@ -209,9 +192,9 @@ impl Evidence {
     /// Adds the runs the ledger holds stamped with each tier's arm and each effort's arm in this
     /// category.
     pub fn counted(self, stamped: &BTreeMap<String, usize>) -> Self {
-        let arm_runs = Trial::counted(&[Tier::Sonnet, Tier::Opus], Tier::name, stamped);
+        let arms = Trial { runs: Trial::counted(&[Tier::Sonnet, Tier::Opus], Tier::name, stamped), ..self.arms.clone() };
         let efforts = Trial { runs: Trial::counted(&Effort::ALL, Effort::arm, stamped), ..self.efforts.clone() };
-        Self { arm_runs, efforts, ..self }
+        Self { arms, efforts, ..self }
     }
 
     /// The effort the category's Opus boxes settle on: medium on a tie.
@@ -235,7 +218,7 @@ impl Evidence {
     }
 
     fn runs(&self, tier: Tier) -> usize {
-        self.arm_runs.get(&tier).copied().unwrap_or(0)
+        self.arms.runs(tier)
     }
 
     fn all_runs(&self, tier: Tier) -> usize {
@@ -247,25 +230,17 @@ impl Evidence {
     }
 
     fn cost(&self, tier: Tier) -> Option<f64> {
-        self.usd_per_closed.as_ref()?.get(&tier).copied()
-    }
-
-    /// The arm with the lower cost per closed box, Sonnet on a tie. None until the closed-box
-    /// report is read and both arms have a closed box in it, so an arm the window forgot keeps
-    /// running rather than losing by default.
-    pub(super) fn decided(&self) -> Option<Tier> {
-        Some(if self.cost(Tier::Opus)? < self.cost(Tier::Sonnet)? { Tier::Opus } else { Tier::Sonnet })
+        self.arms.cost(tier)
     }
 
     fn closed(&self, tier: Tier) -> usize {
-        self.arm_closed.get(&tier).copied().unwrap_or(0)
+        self.arms.closed(tier)
     }
 
-    /// The arm the category routes to once both arms hold `ARM_RUNS` arm-stamped runs and `ARM_RUNS`
-    /// closed arm boxes; None while the arms still alternate.
+    /// The arm the category routes to once `settle::settled` decides between them, Sonnet on a tie;
+    /// None while the arms still alternate.
     pub fn settled(&self) -> Option<Tier> {
-        let full = |tier: Tier| self.runs(tier) >= ARM_RUNS && self.closed(tier) >= ARM_RUNS;
-        self.decided().filter(|_| full(Tier::Sonnet) && full(Tier::Opus))
+        self.arms.settled(Tier::Sonnet, Tier::Opus)
     }
 
     /// Whether both arms hold `ARM_RUNS` arm-stamped runs, the point where a category stops alternating.

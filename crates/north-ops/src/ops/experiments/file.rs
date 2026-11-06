@@ -1,10 +1,11 @@
 //! Files each due verdict once as a box on the entry's owning issue: keep as a ticked box, revert as
-//! a revert box with the numbers, decide as one line for Tom with a recommendation, and re-measure.
+//! a revert box with the numbers, decide as one line for Tom with a recommendation, re-measure, and the
+//! policy loop's extend or settle with no gate.
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
-use super::registry::{Experiment, Issue, Metric};
+use super::registry::{Day, Experiment, Issue, Metric, Window};
 use super::verdict::{Judged, Reading, Recommend, Verdict};
 
 pub fn marker(entry: &Experiment) -> String {
@@ -48,6 +49,9 @@ pub fn line(entry: &Experiment, before: Option<Reading>, after: Option<Reading>,
             format!("- [ ] Tom decides {id} ({}): {numbers}; recommend {advice}, {tail}", entry.change)
         }
         Verdict::ReMeasure(why) => format!("- [ ] Re-measure {id}: {why}; record the reading, then set a new review date in docs/rationale/experiments.toml, {tail}"),
+        Verdict::Extend { after: window, review } => format!("- [x] Extend {id}: {numbers}; under min_n {}, so the policy loop moved its after window to {} and its review to {}, with no gate, {tail}", entry.min_n, window.text(), review.text()),
+        Verdict::Settle(Recommend::Keep) => format!("- [x] Settle {id} on keep ({}): {numbers}; between the bars at min_n {}, so the policy loop keeps the arm that moved the predicted way, with no gate, {tail}", entry.change, entry.min_n),
+        Verdict::Settle(Recommend::Revert) => format!("- [ ] Revert {} ({}): {numbers}; between the bars at min_n {} without moving the predicted way, so the policy loop reverts to the parent arm, with no gate, {tail}", entry.landed, entry.change, entry.min_n),
     }
 }
 
@@ -78,6 +82,19 @@ impl Filed {
         self.keys.contains(&Self::key(entry))
     }
 
+    /// The entry with the latest extension the policy loop recorded for it applied, since an extended
+    /// entry keeps its registry dates.
+    pub fn current(&self, entry: &Experiment) -> Experiment {
+        let prefix = format!("extend {} ", entry.id);
+        let latest = self.keys.iter().filter_map(|key| key.strip_prefix(&prefix)?.split_once(' ')).filter_map(|(end, review)| Some((Day::parse(review)?, Day::parse(end)?))).max();
+        latest.filter(|(review, _)| *review > entry.review).map_or_else(|| entry.clone(), |(review, end)| Experiment { after: Window { end, ..entry.after }, review, ..entry.clone() })
+    }
+
+    fn extend(&mut self, entry: &Experiment, after: Window, review: Day) -> Result<(), String> {
+        self.keys.insert(format!("extend {} {} {}", entry.id, after.end.text(), review.text()));
+        self.record(entry)
+    }
+
     fn record(&mut self, entry: &Experiment) -> Result<(), String> {
         self.keys.insert(Self::key(entry));
         if let Some(parent) = self.path.parent() {
@@ -99,7 +116,10 @@ pub fn file(issues: &dyn Issues, filed: &mut Filed, entry: &Experiment, line: &s
         return Ok(format!("{}: already on {issue}", entry.id));
     }
     issues.set_body(&entry.owner, &format!("{}\n{line}\n", body.trim_end()))?;
-    if !open && *verdict != Verdict::Keep {
+    if let Verdict::Extend { after, review } = verdict {
+        filed.extend(entry, *after, *review)?;
+    }
+    if !open && verdict.leaves_work() {
         issues.reopen(&entry.owner)?;
     }
     filed.record(entry)?;

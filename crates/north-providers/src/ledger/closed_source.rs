@@ -15,7 +15,7 @@ use crate::threads::calibration::predictions::{self, Brier};
 use crate::threads::calibration::rework::{Rework, Sources};
 use crate::threads::catalog::{CATALOG, Catalog};
 
-use super::closed::{ClosedReport, SpendRun, summarize};
+use super::closed::{ClosedReport, SpendRun, checker_verified, summarize};
 use crate::router::pricing::PriceTable;
 
 const OWNER: &str = "tompassarelli";
@@ -114,26 +114,26 @@ fn native_namespaces(database: &std::path::Path) -> NorthResult<HashSet<String>>
     Ok(rows.iter().map(|row| text(row, "ns")).collect())
 }
 
-fn native_closed(database: &std::path::Path, since: &str, until: &str) -> NorthResult<HashSet<String>> {
+fn native_closed(database: &std::path::Path, since: &str, until: &str) -> NorthResult<HashMap<String, bool>> {
     let query = format!(
-        "SELECT ns || '#' || number AS item FROM items WHERE state = 'closed' AND closed >= '{}' AND closed < '{}'",
+        "SELECT ns || '#' || number AS item, body FROM items WHERE state = 'closed' AND closed >= '{}' AND closed < '{}'",
         since.replace('\'', ""),
         until.replace('\'', "")
     );
-    Ok(sqlite::rows(database, Access::ReadOnly, Duration::from_secs(5), &query)?.iter().map(|row| text(row, "item")).collect())
+    Ok(sqlite::rows(database, Access::ReadOnly, Duration::from_secs(5), &query)?.iter().map(|row| (text(row, "item"), checker_verified(&text(row, "body")))).collect())
 }
 
-fn github_closed(repo: &str, since: &str, until: &str) -> NorthResult<HashSet<String>> {
+fn github_closed(repo: &str, since: &str, until: &str) -> NorthResult<HashMap<String, bool>> {
     let search = format!("closed:{}..{}", &since[..10], &until[..10]);
     let repository = format!("{OWNER}/{repo}");
-    let issues = github::json(&["issue", "list", "-R", &repository, "--state", "closed", "--search", &search, "--limit", ISSUE_LIMIT, "--json", "number,closedAt"])
+    let issues = github::json(&["issue", "list", "-R", &repository, "--state", "closed", "--search", &search, "--limit", ISSUE_LIMIT, "--json", "number,closedAt,body"])
         .map_err(|error| NorthError::Configuration(format!("gh issue list {repository}: {}", error.trim())))?;
     Ok(issues
         .as_array()
         .into_iter()
         .flatten()
         .filter(|issue| issue["closedAt"].as_str().is_some_and(|at| at >= since && at < until))
-        .filter_map(|issue| Some(format!("{repo}#{}", issue["number"].as_i64()?)))
+        .filter_map(|issue| Some((format!("{repo}#{}", issue["number"].as_i64()?), checker_verified(issue["body"].as_str().unwrap_or_default()))))
         .collect())
 }
 
@@ -177,7 +177,7 @@ fn closed_report_between(since: &str, until: &str) -> NorthResult<ClosedReport> 
 struct Inputs<'a> {
     runs: Vec<SpendRun>,
     native: HashSet<String>,
-    closed: HashSet<String>,
+    closed: HashMap<String, bool>,
     catalog: &'a Catalog,
 }
 
@@ -185,7 +185,7 @@ struct Inputs<'a> {
 /// ledger does not hold. A landed run naming a repository outside the catalog (an archived or
 /// renamed one) can never match a closed issue, so it is left out of every cell and named in
 /// `skipped` rather than failing the report for the repositories that are known.
-fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&str, &str, &str) -> NorthResult<HashSet<String>>, prices: &PriceTable) -> NorthResult<ClosedReport> {
+fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&str, &str, &str) -> NorthResult<HashMap<String, bool>>, prices: &PriceTable) -> NorthResult<ClosedReport> {
     let mut landed: BTreeMap<&str, usize> = BTreeMap::new();
     for repo in sources.runs.iter().filter(|run| run.landed).filter_map(|run| run.item.as_deref()?.split_once('#').map(|(repo, _)| repo)) {
         *landed.entry(repo).or_default() += 1;
@@ -195,7 +195,9 @@ fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&s
     for repo in landed.keys().filter(|repo| known(repo) && !sources.native.contains(**repo)) {
         closed.extend(github(repo, since, until)?);
     }
-    let mut report = summarize(&sources.runs, &closed, since, prices);
+    let verified: HashSet<String> = closed.iter().filter(|(_, verified)| **verified).map(|(item, _)| item.clone()).collect();
+    let closed: HashSet<String> = closed.into_keys().collect();
+    let mut report = summarize(&sources.runs, &closed, since, prices).verified(&verified);
     report.skipped = landed.into_iter().filter(|(repo, _)| !known(repo)).map(|(repo, runs)| (repo.to_owned(), runs)).collect();
     Ok(report)
 }

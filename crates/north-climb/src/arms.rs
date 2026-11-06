@@ -1,7 +1,9 @@
 //! The arms dispatch runs live: each category's arms with the ledger boxes behind them and the share
-//! of that category's boxes each takes.
+//! of that category's boxes each should take. Shares start equal and move by Thompson sampling on cost
+//! per kept box (`settle::shares`), each arm keeping a floor until `settle::settled` decides the category.
 use std::collections::BTreeMap;
 
+use north_dispatch::router::settle::{self, Outcome};
 use north_dispatch::ledger::closed::ClosedReport;
 
 #[derive(Debug, PartialEq)]
@@ -9,10 +11,13 @@ pub struct Arm {
     pub category: String,
     pub arm: String,
     pub tier: String,
+    pub family: &'static str,
     pub share: f64,
+    pub settled: bool,
     pub boxes: usize,
     pub closed: usize,
     pub kept: usize,
+    pub verified: usize,
     pub usd: f64,
 }
 
@@ -22,21 +27,41 @@ impl Arm {
     }
 }
 
-/// Every arm the week's boxes carry. Dispatch alternates a category's arms, so each takes an equal share of its category.
-pub fn live(report: &ClosedReport) -> Vec<Arm> {
-    let mut sums: BTreeMap<(&str, &str), (usize, usize, usize, f64)> = BTreeMap::new();
-    let mut tiers: BTreeMap<(&str, &str), &str> = BTreeMap::new();
-    for arm in &report.arms {
-        tiers.entry((arm.category.as_str(), arm.arm.as_str())).or_insert(arm.tier.as_str());
-        let sum = sums.entry((arm.category.as_str(), arm.arm.as_str())).or_default();
-        sum.0 += 1;
-        sum.1 += usize::from(arm.closed);
-        sum.2 += usize::from(arm.closed && !arm.reworked);
-        sum.3 += arm.usd;
-    }
-    let mut per_category: BTreeMap<&str, usize> = BTreeMap::new();
-    for (category, _) in sums.keys() {
-        *per_category.entry(category).or_default() += 1;
-    }
-    sums.into_iter().map(|((category, arm), (boxes, closed, kept, usd))| Arm { category: category.to_owned(), arm: arm.to_owned(), tier: tiers[&(category, arm)].to_owned(), share: 1.0 / per_category[category] as f64, boxes, closed, kept, usd }).collect()
+struct Ledgered<'a> {
+    tier: &'a str,
+    outcomes: Vec<Outcome>,
+    verified: usize,
 }
+
+/// Every arm the window's boxes carry, with the share of its experiment's boxes in its category it should take.
+pub fn live(report: &ClosedReport) -> Vec<Arm> {
+    let mut categories: BTreeMap<(&str, &str), BTreeMap<&str, Ledgered>> = BTreeMap::new();
+    for armed in &report.arms {
+        let arm = categories.entry((armed.category.as_str(), settle::family(&armed.arm))).or_default().entry(armed.arm.as_str()).or_insert(Ledgered { tier: armed.tier.as_str(), outcomes: Vec::new(), verified: 0 });
+        arm.outcomes.push(Outcome { usd: armed.usd, closed: armed.closed, kept: armed.closed && !armed.reworked });
+        arm.verified += usize::from(armed.closed && !armed.reworked && armed.verified);
+    }
+    let mut live = Vec::new();
+    for ((category, family), arms) in categories {
+        let boxes: Vec<&[Outcome]> = arms.values().map(|arm| arm.outcomes.as_slice()).collect();
+        let (shares, settled) = settle::shares(&boxes, &format!("{category} {family}"));
+        for ((name, arm), share) in arms.into_iter().zip(shares) {
+            let count = |keep: fn(&Outcome) -> bool| arm.outcomes.iter().filter(|outcome| keep(outcome)).count();
+            live.push(Arm {
+                category: category.to_owned(),
+                arm: name.to_owned(),
+                tier: arm.tier.to_owned(),
+                family,
+                share,
+                settled,
+                boxes: arm.outcomes.len(),
+                closed: count(|outcome| outcome.closed),
+                kept: count(|outcome| outcome.kept),
+                verified: arm.verified,
+                usd: arm.outcomes.iter().map(|outcome| outcome.usd).sum(),
+            });
+        }
+    }
+    live
+}
+

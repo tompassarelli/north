@@ -8,7 +8,7 @@ decisions, runs the survivor as a bounded live arm, and keeps it or reverts it b
 
 ## The loop, one turn
 
-1. **Loss.** From the ledger's closed report (`north-core` `ledger::closed`, the code `north tune` and dispatch already
+1. **Loss.** From the ledger's closed report (`north-providers` `ledger::closed`, the code `north tune` and dispatch already
    read), each (tier, category) cell's loss is the dollars its closed boxes spent on runs after the first, plus the dollars of
    its boxes that never closed. The largest cell of a routable category is the turn's target. Counting stays where it is: the
    climber reads the report and adds none.
@@ -17,14 +17,17 @@ decisions, runs the survivor as a bounded live arm, and keeps it or reverts it b
    their scores and the failed runs' reports, and writes a code or config diff; its prompt and the way it learns from its own
    failures follow GEPA (reflect on trajectories, keep a Pareto set of candidates that win somewhere).
 3. **Refuse.** `scope::refusals` rejects a candidate whose diff touches the evaluator (`north-climb`, `north-replay`,
-   `north-strategy-types`), the policy that picks an arm's winner (`north-core` router), the ledger's counting and recording code
-   (`north-core` ledger, `north-threads`, `worker_ledger`, `north-goals`, the scoreboard), a scoring bar (`defaults.toml`, where replay
-   reads its shift ratio, landing p90 and quota floors, `goals.toml`, `loops.toml`, `corrections.toml`, `experiments.toml`,
-   `structure.toml`), or any test or fixture. `dispatch/tier.rs` holds both the arm table a candidate edits and the functions that
-   settle a live arm (`tiered`, `efforted`, `other_arm`) with the trial length `ARM_WINDOW`, so a path check cannot guard it:
-   `scope::diff_refusals` also refuses a diff whose changed lines name those functions, `ARM_RUNS`, `ARM_WINDOW` or a `replay_*`
-   bar, and the generator box runs it on every generated diff. The typed changes built so far edit only the arm table. The refusal is a path check on the diff, made before the candidate is scored, so a
-   generator cannot buy a better score by moving the thing that scores it.
+   `north-strategy-types`), the rule that picks an arm's winner (`router::settle` and `north tune`'s cells; `ARM_RUNS`, in the router's
+   placement policy, is refused by name below), the ledger's counting and recording code (`north-providers` ledger, `north-threads`,
+   `worker_ledger`, `north ledger`, `north-goals`, the scoreboard), a scoring bar (`goals.toml`, `loops.toml`,
+   `corrections.toml`, `experiments.toml`, `structure.toml`), or any test or fixture. `harness/defaults.toml` is judged key by
+   key: `scope::key_refusals` refuses a change to any key whose `consumers` include one of those paths (every replay bar and
+   the rework judge's thresholds), and an inventory test fails when guarded code reads a key the guard would let through, so a
+   new consumer cannot open a hole by forgetting its `consumers` entry. `dispatch/tier.rs` holds the arm table a candidate
+   edits beside the code that routes an arm (`tiered`, `efforted`, `other_arm`) and the trial length `ARM_WINDOW`, so a path
+   check cannot guard it: `scope::diff_refusals` also refuses a diff whose changed lines name those functions, `settle`,
+   `ARM_RUNS`, `ARM_WINDOW` or a `replay_*` bar, and the generator box runs it on every generated diff. The refusal is made
+   before the candidate is scored, so a generator cannot buy a better score by moving the thing that scores it.
 4. **Replay.** The candidate is applied to every logged placement case it reaches and the window is decided again with
    `north strategy replay`'s machinery (`north_replay::replay` with a patched placement decider), beside a replay of the current
    policy. The score is what the candidate adds: outcome shifts past `replay_outcome_shift_ratio` and breached invariants
@@ -32,9 +35,13 @@ decisions, runs the survivor as a bounded live arm, and keeps it or reverts it b
    dropped and archived as refused.
 5. **Live arm.** A candidate that passes takes a bounded share of the category's boxes (starting 10 to 20 percent, within the
    adaptive shares below) and its boxes carry `Arm: climb-ID` in the brief, so the ledger counts them with no new code.
-6. **Select.** Once the arm and its parent hold the sample the existing arm rule needs, the cheaper cost per kept box wins,
-   provided its first-pass rate is no lower; the winner becomes the parent and the loser's change is reverted by landing its
-   inverse diff. The reward is a box the independent Done-when check closed, never the worker's own report.
+6. **Select.** Once the arm and its parent hold the sample the arm rule needs, `reward::winner` picks the arm cheaper per
+   checker-verified kept box that is no dearer per kept box; the winner becomes the parent and the loser's change is reverted
+   by landing its inverse diff. A kept box is checker-verified when every ticked box of its issue carries the `Evidence:` stamp
+   `north task check --done-when` writes for an exit of 0, and self-ticked otherwise; a brief-generation candidate rewrites
+   the briefs of the workers who tick boxes, so a gain made only of self-ticked boxes never wins. Each reward records the
+   rework judge (`JUDGE_VERSION`) it was taken under, and `reward::comparable` judges the older of two again before they are
+   compared.
 7. **Archive.** Every candidate, kept or not, is recorded (below). Losers stay: a failed variant can parent a later success.
 
 ## What replay can and cannot score
@@ -54,7 +61,8 @@ Darwin Gödel Machine runs faked test logs and removed the markers that detected
 
 - The **evaluator** (`north-climb`, `north-replay`) and the **ledger's counting and recording code** are outside every candidate's
   scope (step 3).
-- The **reward** is a box closed by the Done-when check and kept after 48 hours, not a worker's report.
+- The **reward** is a box closed by the Done-when check and kept after 48 hours, not a worker's report: selection counts
+  only checker-verified kept boxes, and the dry run prints each arm's kept boxes split into checker-verified and self-ticked.
 - The **generator never grades itself**: the live arm's verdict comes from `ledger::closed`, which a candidate cannot edit, and a
   candidate that changes a test is refused, so passing cannot be bought by weakening the test.
 
@@ -65,9 +73,19 @@ A landed candidate still goes through `safe-push` and the full land checks like 
 Every arm dispatch runs (tier arms, effort arms, handoff arms, and the climber's own) starts at an equal share, 50-50 for two
 arms. After each closed box the loop reallocates by Thompson sampling on cost per kept box: it draws from each arm's posterior of
 cost per kept box and gives the next box to the arm with the lower draw, with a floor on every arm's share until the arm settles
-(the existing rule: 15 runs and 15 closed boxes). A settled arm takes the whole category. `north climb run --dry-run` prints every
-live arm's category, share, boxes, closed, kept and dollars per kept box; shares are `alternating` equal shares today and become
-sampled shares when the sampler lands.
+(the settle rule below). A settled arm takes the whole category. `north climb run --dry-run` prints every live arm's
+category, its experiment (tier, effort, handoff, context or climb arms, each splitting the category's boxes on its own), share and how it was set (Thompson over 1,000 seeded draws with a 10% floor, or settled), boxes, closed, kept and
+dollars per kept box. A posterior draw resamples the arm's boxes with replacement, and arms tied cheapest split the draw.
+Dispatch itself still alternates armed categories; routing its picks by these shares is the next step.
+
+## An arm settles on evidence (2026-11-06)
+
+`router::settle::settled` gives a comparison to the arm cheaper per kept box only when both arms hold `ARM_RUNS` runs and
+closed boxes, its kept share is no lower, and a seeded bootstrap over both arms' boxes puts it ahead in 90 of 100 resamples.
+Closed-box cost is heavy-tailed (the 177 closed armed boxes of the 30 days to 2026-11-06 run from $0.77 to $78.60 around a
+$4.14 median), so at 15 boxes a point difference settles a 1.5 times dearer arm in more than one draw in twenty, the winner's
+curse the 2026-10-12 policy-eval review found. The test draws 1,000 trials from those committed costs and holds the bootstrap
+at or under 5%.
 
 ## Experiments are opened and decided by the loop (Tom, 2026-11-06)
 
@@ -77,7 +95,10 @@ sampled shares when the sampler lands.
 - **Decide.** `experiments.toml` sends a verdict between the bars to Tom. For a climber experiment the loop decides: a verdict
   inside the bars with fewer than `min_n` boxes extends the window by half its length for more n; a verdict inside the bars at
   `min_n` keeps the cheaper arm and records why. The extension and the settle are both written to the experiment's record, with no
-  gate. A named test pins an inconclusive verdict being extended or settled with no Tom gate.
+  gate. `north experiments judge` does this for every entry whose id starts `climb-`: a reading under `min_n` extends the
+  after window and the review by half the window (recorded in the filed-verdict state, so the next run judges the new
+  review), and a verdict between the bars at `min_n` settles on keep or on a revert box. A missing reading still
+  re-measures. `experiments::verdict_tests` pins both with no Tom line.
 
 ## The archive in north-graph
 
@@ -117,8 +138,9 @@ Search done 2026-11-06; claims marked secondary come from summaries, not the pap
 ## Built and to build
 
 Built in the first box: `crates/north-climb` with `north climb run --dry-run` (loss, `CheapestCell` generator, scope guard, replay
-score, live arm table). Left as boxes on north#636: the adaptive Thompson shares for every arm; the experiment registration and the
-loop's own verdicts; the graph archive and the live-arm selection with automatic revert; the Claude-session generator; the loop
+score, live arm table). Built since: the evidence settle rule, the key-level scope guard, the checker-verified reward, the Thompson shares in the dry
+run and the loop's own verdicts on `climb-` experiments. Left as boxes on north#636: dispatch routing by the sampled shares;
+a passing candidate registering its experiment; the graph archive and the live-arm selection with automatic revert; the Claude-session generator; the loop
 record and cadence that close `policy-climber`.
 
 ## First loss it found

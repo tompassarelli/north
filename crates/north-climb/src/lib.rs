@@ -9,7 +9,12 @@ pub mod arms;
 pub mod candidate;
 pub mod loss;
 pub mod scope;
+pub mod reward;
 pub mod score;
+#[cfg(test)]
+mod scope_tests;
+#[cfg(test)]
+mod reward_tests;
 
 use candidate::Cheapest;
 
@@ -61,10 +66,10 @@ fn dry_run(span: f64) -> Result<(), String> {
         Some(candidate) => show(&candidate, span)?,
         None => println!("candidate: none"),
     }
-    println!("live arms:");
+    println!("live arms (kept boxes split by who ticked them, rework judge v{}; only checker-verified boxes win a selection):", report.judge);
     for arm in arms::live(&report) {
         let cost = arm.usd_per_kept().map_or("no kept box".to_owned(), |usd| format!("${usd:.2} per kept box"));
-        println!("  {} {}: share {:.0}% (alternating), {} boxes, {} closed, {} kept, {cost}", arm.category, arm.arm, 100.0 * arm.share, arm.boxes, arm.closed, arm.kept);
+        println!("  {} {}: share {:.0}% of its {} arms ({}), {} boxes, {} closed, {} kept ({} checker-verified, {} self-ticked), {cost}", arm.category, arm.arm, 100.0 * arm.share, arm.family, if arm.settled { "settled by the bootstrap rule".to_owned() } else { format!("Thompson over {} seeded draws, floor {:.0}%", north_dispatch::router::settle::DRAWS, 100.0 * north_dispatch::router::settle::FLOOR) }, arm.boxes, arm.closed, arm.kept, arm.verified, arm.kept - arm.verified);
     }
     Ok(())
 }
@@ -74,7 +79,7 @@ fn show(candidate: &candidate::Candidate, span: f64) -> Result<(), String> {
     let saving = candidate.saving_usd.map_or("projected saving unmeasured until the arm runs".to_owned(), |usd| format!("projected saving ${usd:.2}"));
     println!("  why: {}; {saving}", candidate.why);
     let touches = candidate.change.touches();
-    let refused = scope::refusals(&touches);
+    let refused = scope::refusals(&touches, None);
     if !refused.is_empty() {
         refused.iter().for_each(|reason| println!("  refused: {reason}"));
         return Ok(());
