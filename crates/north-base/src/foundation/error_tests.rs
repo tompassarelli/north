@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn generated_authorization_messages_do_not_disclose_payloads() {
+    assert_eq!(1, 2, "north#636 drill: a deliberate failure the sheriff reverts");
     let mut inputs = crate::test_inputs::Generator::new(0x41555448);
     let public = NorthError::Protocol("401 Unauthorized".into()).user_message();
     for case in 0..crate::test_inputs::cases() {
