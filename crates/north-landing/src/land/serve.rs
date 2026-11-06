@@ -4,25 +4,20 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use super::candidate::{self, Pick, git};
+use super::candidate::{self, git};
 use super::lander::{self, Lander, state_home};
 use super::after;
-use super::bisect::{self, Judgement};
-use super::culprit::{self, Found};
-use super::checks::Verdict;
 use super::credential;
 use super::post_land;
-use super::telemetry::Stages;
 use super::push_refusal::{self, Backoff, Refusal};
-use super::records::{self, Candidate, Decision};
 use super::hold::{self, Hold};
-use super::watch::{LandedLane, Watch};
+use super::watch::Watch;
 use super::heartbeat::{self, Step};
-use super::{incidents, jobs, pause, queue, red, speculate, watchdog};
+use super::watchdog;
 use super::repositories;
-use super::steps;
-use crate::platform::decision_log;
 use north_base::foundation::exit::NO_VERDICT;
+
+mod batch;
 
 pub const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
@@ -146,235 +141,6 @@ impl Lander {
             Round::Idle if watch.in_flight() > 0 => Round::Checking,
             round => round,
         })
-    }
-
-    fn batch(&self, watch: &mut Watch) -> Result<Round, String> {
-        let logs = self.queue.join("logs");
-        let mut limit = usize::MAX;
-        let mut red_only = false;
-        let mut rebuilds = 0;
-        let mut bisect_depth = 0;
-        let mut searched = None;
-        let mut paused: Option<String> = None;
-        let mut progressed = false;
-        self.round.store(u64::try_from(micros()).unwrap_or(u64::MAX), std::sync::atomic::Ordering::Relaxed);
-        self.heartbeat.enter(Step::Jobs);
-        watch.jobs.start(self);
-        let answering = watch.jobs.answering(self);
-        loop {
-            let claimed = jobs::claimed(self);
-            let mut queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
-            queued.retain(|(path, _)| !claimed.contains(path));
-            let fixes;
-            let tickets = if red_only {
-                fixes = red::fixes(&queued);
-                &fixes
-            } else {
-                &queued
-            };
-            if tickets.is_empty() {
-                return Ok(if progressed { Round::Progress } else { Round::Idle });
-            }
-            if answering && !red_only {
-                if red::fixes(&queued).is_empty() {
-                    return Ok(if progressed { Round::Progress } else { Round::Checking });
-                }
-                println!("north land: main is red and the sheriff is answering its revert request; checking the queued red fixes alone");
-                red_only = true;
-                continue;
-            }
-            if !red_only && let Some(reason) = pause::held(&self.queue) {
-                if red::fixes(&queued).is_empty() {
-                    return Ok(Round::Waiting(reason));
-                }
-                println!("north land: {reason}; checking the queued red fixes alone");
-                paused = Some(reason.clone());
-                red_only = true;
-                continue;
-            }
-            self.heartbeat.enter(Step::Prepare);
-            let base = match candidate::prepare(&self.repo, &self.worktree) {
-                Ok(base) => base,
-                Err(error) => return Ok(Round::Waiting(format!("transient: {error}"))),
-            };
-            self.heartbeat.enter(Step::Build);
-            let built = candidate::build(&self.worktree, &base, tickets, &queued, limit, &logs)?;
-            let mut included = Vec::new();
-            let mut undecided = None;
-            for ((path, ticket), pick) in tickets.iter().zip(&built.picks) {
-                match pick {
-                    Pick::Included => included.push((path, ticket)),
-                    Pick::Decided(verdict) => {
-                        if let Some(sha) = verdict.strip_prefix("landed ") {
-                            after::cleanup::report(self, ticket, sha);
-                        }
-                        records::write(self, path, ticket, &Candidate { head: "", batch_size: 0, stages: &Stages::empty() }, &Decision::Refused { verdict });
-                        bisect::decide(path, ticket, verdict.clone(), None, &base)?;
-                        progressed = true;
-                    }
-                    Pick::Refused(refused) => {
-                        records::write(self, path, ticket, &Candidate { head: "", batch_size: 0, stages: &Stages::empty() }, &Decision::Refused { verdict: &refused.verdict });
-                        bisect::decide(path, ticket, refused.verdict.clone(), Some(&refused.log), &base)?;
-                        progressed = true;
-                    }
-                    Pick::Undecided(reason) => undecided = Some(reason.clone()),
-                    Pick::Deferred(reason) => println!("north land: {reason}"),
-                }
-            }
-            if included.is_empty() {
-                let round = steps::Round { base: &base, tickets, built: &built, limit, red_only, pause: paused.as_deref(), strikes: std::collections::BTreeMap::new(), spares: self.spares.len(), rebuilds: rebuilds as u64, bisect_depth: bisect_depth as u64 };
-                steps::batch(&round, &included, None);
-                return Ok(match (progressed, undecided) {
-                    (true, _) => Round::Progress,
-                    (false, Some(reason)) => Round::Waiting(reason),
-                    (false, None) => Round::Idle,
-                });
-            }
-            let mut strikes = bisect::Strikes::load(&self.queue, &base)?;
-            let key = bisect::Strikes::key(&included);
-            let halve = (included.len() > 1 && strikes.exhausted(&key)).then(|| bisect::half(included.len()));
-            let round = steps::Round { base: &base, tickets, built: &built, limit, red_only, pause: paused.as_deref(), strikes: strikes.streaks(), spares: self.spares.len(), rebuilds: rebuilds as u64, bisect_depth: bisect_depth as u64 };
-            let batch = steps::batch(&round, &included, halve);
-            if let Some(half) = halve {
-                limit = half;
-                bisect_depth += 1;
-                println!("north land: a candidate of {} lanes kept ending without a verdict; checking its first {limit} lanes", included.len());
-                continue;
-            }
-            let identity = self.identity()?;
-            println!("north land: candidate {} carries {} lanes onto main@{base}; checking it", built.head, built.included());
-            let log = logs.join(format!("{}-candidate.log", micros()));
-            let mut stages = Stages::start();
-            let taken = (limit == usize::MAX && !red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(tickets, &included));
-            self.heartbeat.enter(Step::Check);
-            let unchecked = super::queue::Ticket::unchecked(included.iter().map(|(_, ticket)| *ticket));
-            let (verdict, mut stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref(), included.iter().any(|(_, ticket)| ticket.red_fix.is_some()), &unchecked);
-            stages.checked(&built.head);
-            if matches!(verdict, Verdict::Green | Verdict::Refused(_)) {
-                pause::resume(&self.queue);
-            }
-            stages.attempts = rebuilds + 1;
-            stages.bisect_depth = bisect_depth;
-            if (self.identity()? != identity || identity.0 != built.head) && !matches!(verdict, Verdict::Refused(_)) {
-                return Ok(Round::Waiting(format!("the lander worktree moved while candidate {} was checked; nothing pushed", built.head)));
-            }
-            let moved = match &verdict {
-                Verdict::Green => false,
-                _ => match self.base_moved(&base) {
-                    Ok(moved) => moved,
-                    Err(error) => return Ok(Round::Waiting(format!("transient: {error}"))),
-                },
-            };
-            let streak = if moved { 0 } else { strikes.record(&key, &verdict) };
-            let verdict = bisect::escalate(verdict, streak, &log);
-            strikes.save(&self.queue)?;
-            let refusal = verdict.clone();
-            let mut head = built.head.clone();
-            let (judged, decide_us) = decision_log::timed(|| bisect::judge(verdict.clone(), included.len(), moved));
-            steps::judge(&steps::Judged { verdict: &verdict, included: &included, base_moved: moved, streak, searched: searched.as_deref() == Some(base.as_str()) }, &judged, &batch, decide_us);
-            let judgement = match judged {
-                Judgement::Halve(_) if searched.as_deref() != Some(base.as_str()) => {
-                    stacked.clear();
-                    searched = Some(base.clone());
-                    let together = culprit::Checked { verdict: refusal, head: built.head.clone(), log: log.clone() };
-                    self.heartbeat.enter(Step::Culprit);
-                    match culprit::search(self, &base, &included, together, &logs, &mut strikes, &stages)? {
-                        Found::Decided => {
-                            progressed = true;
-                            limit = usize::MAX;
-                            bisect_depth += 1;
-                            continue;
-                        }
-                        Found::Interaction { lanes, head: prefix } => {
-                            included.truncate(lanes);
-                            head = prefix;
-                            Judgement::Land
-                        }
-                        Found::Moved => Judgement::Rebuild,
-                        Found::Held(reason) => Judgement::Hold(reason),
-                        Found::Paused(detail) => Judgement::Paused(detail),
-                    }
-                }
-                other => other,
-            };
-            match judgement {
-                Judgement::Land => {
-                    self.heartbeat.enter(Step::Push);
-                    let token = match self.push_token(&base) {
-                        Ok(token) => token,
-                        Err(error) => return Ok(Round::Waiting(format!("transient: no push credential: {error}"))),
-                    };
-                    after::begin(self, &head, &base, &included, &built.tips)?;
-                    stages.pushing();
-                    match self.push(&head, &base, token.as_deref())? {
-                        Pushed::Landed => {}
-                        Pushed::Moved => {
-                            after::abandon(self);
-                            println!("north land: main moved from {base} before the push; rebuilding the candidate");
-                            rebuilds += 1;
-                            if rebuilds >= ATTEMPTS {
-                                break;
-                            }
-                            continue;
-                        }
-                        Pushed::Refused(Refusal::Terminal(line)) => {
-                            after::abandon(self);
-                            let refusal = format!("failed origin refused the push of {head}: {line}");
-                            let batch_size = included.len();
-                            for (path, ticket) in included {
-                                records::write(self, path, ticket, &Candidate { head: &head, batch_size, stages: &stages }, &Decision::Refused { verdict: &refusal });
-                                bisect::decide(path, ticket, refusal.clone(), None, &base)?;
-                            }
-                            return Ok(Round::Progress);
-                        }
-                        Pushed::Refused(Refusal::Retry(line)) => {
-                            after::abandon(self);
-                            return Ok(Round::PushRefused(format!("origin refused the push of {head} although main is still {base}: {line}")));
-                        }
-                    }
-                    stages.mark("push");
-                    watch.follow(self, &base, &head, included.iter().zip(&built.tips).map(|((_, ticket), tip)| LandedLane { ticket: (*ticket).clone(), tip: tip.clone() }).collect());
-                    self.heartbeat.enter(Step::Finish);
-                    after::finish(self, &after::intent_path(self), &head, &base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
-                    self.heartbeat.enter(Step::Speculate);
-                    speculate::land(self, watch, stacked, &head)?;
-                    return Ok(Round::Progress);
-                }
-                Judgement::Rebuild => {
-                    println!("north land: main moved from {base} while candidate {} was checked; rebuilding it, no lane judged", built.head);
-                    limit = usize::MAX;
-                    rebuilds += 1;
-                    if rebuilds >= ATTEMPTS {
-                        break;
-                    }
-                }
-                Judgement::Halve(half) => {
-                    println!("north land: candidate {} refused; checking its first {half} lanes", built.head);
-                    limit = half;
-                    bisect_depth += 1;
-                }
-                Judgement::Culprit(detail) => {
-                    let (path, ticket) = included[0];
-                    let refusal = format!("failed {detail}");
-                    records::write(self, path, ticket, &Candidate { head: &built.head, batch_size: included.len(), stages: &stages }, &Decision::Refused { verdict: &refusal });
-                    bisect::decide(path, ticket, refusal, Some(&log), &base)?;
-                    return Ok(Round::Progress);
-                }
-                Judgement::RedMain(detail) if !red_only && red::narrows(&included) => {
-                    println!("north land: main is red ({detail}); checking the red-fix lanes alone first");
-                    red_only = true;
-                    limit = usize::MAX;
-                }
-                Judgement::RedMain(detail) => return Ok(Round::Waiting(red::held(&detail, included.len()))),
-                Judgement::Hold(reason) => {
-                    let (path, ticket) = included[0];
-                    incidents::record(&self.queue, path, ticket, incidents::held(&built.head, &base, &reason));
-                    return Ok(Round::Waiting(reason));
-                }
-                Judgement::Paused(detail) => return Ok(Round::Waiting(pause::raise(&self.queue, &detail)?)),
-            }
-        }
-        Ok(if progressed { Round::Progress } else { Round::Waiting(format!("no candidate settled in {ATTEMPTS} attempts")) })
     }
 }
 
