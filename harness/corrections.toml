@@ -60,6 +60,7 @@ pattern = '''still in the (readme|docs?)|barnacles|stale (doc|line|readme)'''
 paraphrase = "Tom found stale text or leftover scaffolding that the harness should have removed."
 owner = "north#635"
 guard = "A land check resolves every repository path and doc link named in README.md, AGENTS.md and docs/ and refuses a lane that leaves one pointing at nothing."
+guarded_at = "2026-11-06T03:49:20Z"
 
 [[class]]
 name = "shallow-fix"
