@@ -2,7 +2,6 @@
   "tests/it/land_serve/mod.rs": "a one-line wrapper over the shim that lanes in flight still call",
   "tests/it/safe_push_land_branch.rs": "a one-line wrapper over the shim that lanes in flight still call",
   "tests/it/fleet_launch.rs": "a one-line wrapper over the shim that lanes in flight still call",
-  "tests/it/land_offload.rs": "a one-line wrapper over the shim that lanes in flight still call",
   "tests/it/lane_gc_journeys.rs": "a one-line wrapper over the shim that lanes in flight still call",
   "crates/north-ops/src/ops/vendor_runtime/mod.rs": "production: installs a real vendor runtime",
   "crates/north-core/src/catalog/retired_hooks.rs": "production: writes real retired-hook stubs",
