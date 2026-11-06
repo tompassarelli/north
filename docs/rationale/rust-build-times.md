@@ -56,7 +56,7 @@ one module, rebuild the tests. The hub edit is recorded beside it because it sho
 buy: when hub and leaf times are close, everything sits in one crate and a split along module layers
 moves most edits out of the rebuilt set.
 
-## First measurement, 2026-11-04 6:40-6:54 AM (+07)
+## First measurement, 2026-11-04 6:40-6:54 AM (laptop time)
 
 Host gex45 (Intel i5-13500, 20 threads, 62 GiB), each run under `north capacity host run --class heavy`
 (6 CPUs, `CARGO_BUILD_JOBS=6`), the scope an offloaded agent build gets there. Measured in detached
@@ -120,7 +120,7 @@ North is over the 10 s cap, at 43.8 s; the other five are within it. North's `st
 
 ## Daily measurement and the split box
 
-gex45 runs `build-time.timer` daily at 4:00 AM (+07) (nixos-config `modules/build-time`, enabled in
+gex45 runs `build-time.timer` daily at 4:00 AM laptop time (nixos-config `modules/build-time`, enabled in
 south's gex45 host and registered as south `agents/routines/build-time.md`, placement `gex45`):
 `north code-health build-time --repo ~/code/north/main --rev origin/main --file` under
 `north capacity host run --class heavy`. `--rev` fetches origin and measures a fresh detached checkout
@@ -155,7 +155,7 @@ were measured against the stable baseline: the Cranelift codegen backend and the
 origin/main fad7445bd7, `RUSTC_WRAPPER` unset, one `CARGO_TARGET_DIR` per configuration, each warmed by a
 full `cargo build` and `cargo test --no-run` first. Each sample appends `const _: u64 = K;` to
 `crates/north-guard/src/code_health/source.rs` and times `cargo build`, then `cargo test --no-run`, with
-bash `time` (CPU is user + sys). Pass 1 (7:18-7:30 AM (+07)) ran stable, Cranelift and `-Zthreads=8` in
+bash `time` (CPU is user + sys). Pass 1 (7:18-7:30 AM laptop time) ran stable, Cranelift and `-Zthreads=8` in
 a fixed order as load fell from 18.7 to 10.3; pass 2 (7:39-8:00 AM) rotated stable, `-Zthreads=8`,
 both levers and a plain-nightly control so that each took every slot once, at loads of 7.9 to 19.4. No
 sample started or ended over the 20 threads. Medians over every sample, in seconds:
@@ -198,7 +198,7 @@ hung past their 1,800 s deadline and then passed on rerun on the same runtime. T
 north_guard, north_health, north_dispatch, north_runtime, north_landing), built incrementally with
 `-Zthreads=8`. Each had used 0 to 4 CPU seconds in 13 to 23 minutes of wall time: two of its threads were
 blocked reading cargo's jobserver pipe and the other ten sat in `futex_do_wait`, while cargo polled for
-the rustc to finish. This held for two such rustc on gex45 and four on ccx33 at 8:00 PM (+07).
+the rustc to finish. This held for two such rustc on gex45 and four on ccx33 at 8:00 PM (laptop time).
 A deadlock in the front end's thread pool is intermittent by nature, which is why every rerun passed.
 Cranelift stays, so builds keep its 18% CPU cut. They lose the front end's wall-time third, and the
 leaf `test --no-run` returns to about the Cranelift row above, against a 30-minute hang per deadlock.
@@ -206,7 +206,7 @@ leaf `test --no-run` returns to about the Cranelift row above, against a 30-minu
 
 ### Incremental on the adopted toolchain
 
-Measured on gex45 at origin/main 8a8f2296b with Cranelift and `-Zthreads=8`, 10:58-11:41 AM (+07) on
+Measured on gex45 at origin/main 8a8f2296b with Cranelift and `-Zthreads=8`, 10:58-11:41 AM (laptop time) on
 2026-11-05, in one worktree target under `north capacity host run --class heavy` (6 CPUs), `RUSTC_WRAPPER`
 as the dev shell sets it (sccache). Each sample appends `const _: u64 = K;` to
 `crates/north-core/src/agent_catalog.rs` after an unmeasured warm build in the same mode, then times a

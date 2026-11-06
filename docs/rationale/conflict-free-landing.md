@@ -7,7 +7,7 @@ staffing-time overlap. [landing-train.md](landing-train.md) owns the rest of the
 (mechanical conflicts) points here once box C9 lands. Planned at origin/main 09cb73335 and revised at
 f1745de2e against two reviews (disposition at the end).
 
-## Evidence, 2026-11-05, 2:39 to 3:22 AM (laptop clock, +07)
+## Evidence, 2026-11-05, 2:39 to 3:22 AM (laptop clock)
 
 Sources: every `north land:` line that `journalctl --user -u north-land` printed on the laptop from
 2:30 to 3:30 AM (78 lines; the lead copied them to gex45), and a replay on gex45 of each conflicted

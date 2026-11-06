@@ -2,7 +2,7 @@
 
 Owner: north#259
 
-Plan of 2026-11-04 (laptop time, +07). Tom asked for a capacity system that uses every core and GPU well, learns
+Plan of 2026-11-04 (laptop time). Tom asked for a capacity system that uses every core and GPU well, learns
 from what actually ran, updates fast and rests on measured estimates, at maximum ambition and without ceremony
 (2026-11-04). This document measures today's admission over the last 7 days, sets the design on top of the six
 boxes already in flight (Wave 0), and splits the rest into boxes. It edits no code. A reviewer of a different tier

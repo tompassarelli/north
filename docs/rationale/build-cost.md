@@ -1,6 +1,6 @@
 # Build cost: where north's compiles burn cores, and what to cut first
 
-Plan of 2026-11-04 (laptop time, +07), revised the same day after review. Tom asked for the smartest durable cut of
+Plan of 2026-11-04 (laptop time), revised the same day after review. Tom asked for the smartest durable cut of
 north's compile cost per lane, per landing and per runtime promotion, build caches included (2026-11-04). Nothing here
 is built yet; each candidate is a box below.
 
@@ -138,7 +138,7 @@ cargo's build lock let only one cargo use the target at a time. Each build start
 `release/incremental` sessions as the only state that carries over from build to build, and that is where the stale
 objects came from. Removing the workspace's release artifacts at 9:42 PM made the next build link, and no runtime build since
 has failed that way. On gex45 on 2026-11-06 the first recovery, which only removed `release/incremental` and built
-once more, failed twice (58e4d3fe at 4:28 AM and c95d9b2f at 4:59 AM, UTC+7, each about 40 s after a superseded build was
+once more, failed twice (58e4d3fe at 4:28 AM and c95d9b2f at 4:59 AM laptop time, each about 40 s after a superseded build was
 stopped): the first attempt had already compiled the broken rlib and written its fingerprint, so the retry only
 relinked it in 19 s and hit the same symbols (north#612). Now a superseded stop removes the `release/incremental` sessions of every crate whose rustc it interrupted (those
 holding a `-working` session), so the next build never reads what an interrupted rustc left behind while the crates
@@ -362,11 +362,9 @@ measurement below made gex45 and ccx33 slower, and they rejoin once the store se
 
 Shape, and why each piece is there:
 
-- Store: `rclone serve webdav` on nexus at 10.77.0.1:8379, on disk under `/var/lib/sccache-cache`, capped at 20 GiB.
+- Store: `rclone serve webdav` on nexus over wg-nexus, on disk under `/var/lib/sccache-cache`, capped at 20 GiB.
   An hourly sweep deletes the entries read longest ago. nexus is the wg-nexus hub, and the hub is the one address
-  every client reaches: it forwards nothing between clients (`net.ipv4.ip_forward = 0`), so the laptop cannot reach
-  gex45 or ccx33 over wg-nexus. The nftables rule accepts port 8379 only from 10.77.0.2, .4 and .5. WireGuard ties each
-  source address to one peer key, held in sops, so no new credential exists, and the phone (.3) is shut out.
+  every client reaches. Its network rules are recorded privately in south.
 - Client relay: a local nginx on 127.0.0.1:16380 proxies to the store with a 1 s connect timeout and a 3 s read
   timeout, and answers every upstream error as 404. That 404 is what makes an outage harmless. sccache's storage
   layer (opendal) retries a "temporary" error for tens of seconds per read, but treats a 404 as a final miss.

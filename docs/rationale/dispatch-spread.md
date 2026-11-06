@@ -1,12 +1,12 @@
 # Dispatch spread: one run bounded by pace, sessions, builds and disk on every host
 
-At 12:05 PM on 2026-11-06 (laptop time, +07) one `north dispatch` run launched 17 boxes on claude:c, all on gex45,
-while pace-control allowed claude:c 2 workers. Within 15 minutes 9 to 12 builds waited in gex45's capacity admission,
+At 12:05 PM on 2026-11-06 (laptop time) one `north dispatch` run launched 17 boxes, all on gex45,
+several times what its pace bound allowed. Within 15 minutes 9 to 12 builds waited in gex45's capacity admission,
 which ran 4 at a time, its root disk was 99% full, and the laptop sat at load 8 (north#259). Three
 gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
 
 - **The account bound read only held accounts.** d71b6206a bounded launches by `allowed_workers` less the working
-  sessions only when pace-control marked the account `held`; claude:c read `allowed_workers` 2 and `held` false, so
+  sessions only when pace-control marked the account `held`; the account was not `held`, so
   it was unbounded. `survey::pace_workers` now reads `allowed_workers` for every account and None only when pace names
   none.
 - **Free room was decided once, before the queue formed.** Sessions against `resident_cap` were already taken per

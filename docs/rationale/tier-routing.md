@@ -56,8 +56,8 @@ before the fix).
 ## Arm result, 2026-11-05
 
 The first reading of the Sonnet and Opus arms since `north dispatch` began stamping them on 27 Oct (north#242). Data:
-Nexus's ledger as the laptop's `~/.local/state/threads/snapshot.db` held it at 9:51 AM +07 on 5 Nov, copied to
-`/tmp/n242/threads.db` and read with `THREADS_DB=/tmp/n242/threads.db`; closed state from GitHub at 10:15 AM +07.
+Nexus's ledger as the laptop's `~/.local/state/threads/snapshot.db` held it at 9:51 AM laptop time on 5 Nov, copied to
+`/tmp/n242/threads.db` and read with `THREADS_DB=/tmp/n242/threads.db`; closed state from GitHub at 10:15 AM laptop time.
 
 Queries:
 - Q1, stamped runs per arm, the count dispatch compares with 15 (`ledger::arm_runs`): `sqlite3 -readonly

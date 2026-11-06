@@ -4,7 +4,7 @@ Tom asked on 2026-11-05 for an audit of the estimates north makes about work: wh
 
 ## Method and data
 
-All figures cover the 7 days to 11:50 AM +07 on 2026-11-05. They were read from read-only copies, with no builds and nothing written to live state:
+All figures cover the 7 days to 11:50 AM laptop time on 2026-11-05. They were read from read-only copies, with no builds and nothing written to live state:
 
 - **Ledger:** `~/.local/state/threads/snapshot.db`, copied to `/tmp`. Its newest run ends at 2026-11-05T04:50Z and its newest `calibration` row is at 04:12Z, because the ledger host was down after that. The window is 2,210 worker runs.
 - **Capacity:** `~/.local/state/agents/machine-capacity/capacity.db`, copied. It holds 5,405 command runs.
@@ -34,7 +34,7 @@ Each item gives the loop status, then the measured result.
 - **Capacity: cores, memory, duration:** in a loop. 79% of runs finish inside the predicted p90 wall time and 88% stay inside the predicted memory, but only 13% of runs carry a prediction (592 of 5,405 scored).
 - **Land-check deadline:** in a loop on passes. 95% of checks finish inside their pass p90 and 99.9% inside the deadline, with 4 timeouts (n = 1,416).
 - **Goal ETA:** never scored. There was 1 prediction in 7 days and no `goal_actual` row exists, ever.
-- **Placement headroom (burn):** the burn rate updates from readings but its projection is never scored. Over 1 hour it misses by 2.6 points on average and lands within ±10 points 93.5% of the time (n = 2,141). The weekly projection never refuses a launch, and all four accounts reached 100% of their week.
+- **Placement headroom (burn):** the burn rate updates from readings but its projection is never scored. Over 1 hour it misses by 2.6 points on average and lands within ±10 points 93.5% of the time (n = 2,141). The weekly projection never refuses a launch.
 
 ## Tier success per category cell
 
@@ -190,7 +190,7 @@ Against active minutes the ETA is about six times too long. The active/ETA ratio
 - 93.5% of projections within ±10 points
 - actual at or below the projection 70% of the time
 
-The 50%/h refusal never fired in the window; the highest hourly burn was under 50 points. Only account d reached 95% of a five-hour window, in 4 windows. Accounts a, b, c and d all reached 100% of their weekly window inside the 7 days.
+The 50%/h refusal never fired in the window; its figures are recorded privately in south.
 
 **Self-correction.** The burn rate is live, so it corrects itself as readings come in. The projection is never stored at launch, and so is never compared with the window it was made about.
 
