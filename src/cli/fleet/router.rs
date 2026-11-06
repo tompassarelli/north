@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
-use super::claims::{ThreadsCli, release_exited_claims};
+use super::claims::{self, SWEEP_VERB, ThreadsCli, release_exited_claims};
 use crate::fleet::model::{ProviderName, Role};
 use crate::fleet::registry::{self, Controlled, Fleet};
 use crate::fleet::store::ControlVerb;
@@ -47,7 +47,7 @@ use crate::cli::{gate, orders, send};
 const DEFAULT_ASK_SECS: u64 = 120;
 
 pub fn run(arguments: &[String]) -> ExitCode {
-    let result = open_fleet().and_then(|fleet| {
+    let result = open_fleet_claiming(ThreadsCli::for_verb(arguments)).and_then(|fleet| {
         default_overdue_gates(&fleet);
         release_exited_claims(&fleet, arguments);
         dispatch(fleet, arguments)
@@ -86,7 +86,11 @@ pub(in crate::cli) fn account_home(provider: &str, label: &str) -> Option<std::p
 }
 
 pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
-    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli::new()), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())))
+    open_fleet_claiming(ThreadsCli::new())
+}
+
+fn open_fleet_claiming(claims: ThreadsCli) -> NorthResult<Fleet> {
+    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())))
 }
 
 fn far_machine(host: &str) -> bool {
@@ -125,6 +129,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["interactive", name] => interactive::run(&fleet, name),
         ["digest", rest @ ..] => digest::run(&fleet, rest),
         ["forget", name, "--force", reason] => forget(&fleet, name, Some(reason)),
+        [SWEEP_VERB] => claims::sweep(&fleet),
         [verb, name] => session_verb(&fleet, verb, name),
         ["revive", name, rest @ ..] => revive::revive_with(&fleet, name, rest),
         ["show", name, flag] => show::run(&fleet, name, flag),

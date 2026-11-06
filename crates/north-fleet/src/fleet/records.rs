@@ -12,6 +12,8 @@ pub const ARCHIVE: &str = ".archive";
 pub const PLACED: &str = ".placed";
 /// Marks a session whose claims the exited sweep cleared, so later sweeps skip it until it starts again.
 pub const CLAIMS_RELEASED: &str = "claims.released";
+/// The fleet-wide log of the background claims sweep, which its one running sweep holds locked.
+pub const CLAIMS_SWEEP_LOG: &str = ".claims-sweep.log";
 
 static WRITES: AtomicU64 = AtomicU64::new(0);
 

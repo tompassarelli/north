@@ -1,6 +1,8 @@
 //! The `north threads` adapter behind the fleet's claims: a session holds its task in the ledger dispatch reads.
+use std::fs::{File, OpenOptions, TryLockError};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -28,24 +30,68 @@ fn moved(said: &str, item: &str, session: &str) -> Option<String> {
     (said != format!("{session} owns {}", canonical(item))).then(|| said.to_owned())
 }
 
-/// A verb that only reads leaves the sweep to the mutating verbs and the turn watch, because the sweep asks the threads ledger, which can sit across ssh, and the hooks that call `fleet list` run on every prompt.
+/// A verb that only reads leaves the sweep to the mutating verbs, because the hooks that call `fleet list` run on every prompt.
 const READ_VERBS: [&str; 6] = ["list", "stranded", "tree", "spend", "accounts", "show"];
 
 /// A launch asks the ledger only about the items it names, through [`Fleet::release_exited_claims_on`], so parallel launches never each read every claim.
 const SCOPED_VERBS: [&str; 1] = ["launch"];
 
-/// Clears what exited sessions left in the ledger before a mutating verb, so no such command reports a claim an exited owner still appears to hold.
+/// The verb a mutating verb starts in the background to clear exited sessions' claims.
+pub(super) const SWEEP_VERB: &str = "sweep-claims";
+
+/// Whether `arguments` name a verb that starts the background claims sweep.
+fn sweeps(arguments: &[String]) -> bool {
+    !arguments.first().is_some_and(|verb| READ_VERBS.contains(&verb.as_str()) || SCOPED_VERBS.contains(&verb.as_str()) || verb == SWEEP_VERB)
+}
+
+/// Starts the claims sweep in the background when a mutating verb finds exited sessions no sweep has cleared, so no verb waits on the threads ledger, which sits across ssh on a host that can be loaded, or reports its slowness.
 pub(super) fn release_exited_claims(fleet: &Fleet, arguments: &[String]) {
-    if arguments.first().is_some_and(|verb| READ_VERBS.contains(&verb.as_str()) || SCOPED_VERBS.contains(&verb.as_str())) {
+    if !sweeps(arguments) {
         return;
     }
-    if let Err(error) = fleet.release_exited_claims() {
-        eprintln!("north fleet: exited sessions' claims not cleared: {}", error.user_message());
+    let started = fleet.unswept().and_then(|unswept| if unswept.is_empty() { Ok(()) } else { start_sweep(fleet) });
+    if let Err(error) = started {
+        eprintln!("north fleet: exited sessions' claims sweep not started: {}", error.user_message());
+    }
+}
+
+fn start_sweep(fleet: &Fleet) -> NorthResult<()> {
+    let Some(log) = sweep_log_unless_running(fleet)? else {
+        return Ok(());
+    };
+    log.unlock()?;
+    let mut command = Command::new(running_north()?);
+    command.args(["fleet", SWEEP_VERB]).stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log).process_group(0);
+    let mut child = command.spawn()?;
+    std::thread::spawn(move || child.wait());
+    Ok(())
+}
+
+/// Clears every exited session's claims, one sweep per fleet at a time: a sweep that finds another holding the log leaves the backlog to it, and the one that holds it writes only its own outcome there.
+pub(super) fn sweep(fleet: &Fleet) -> NorthResult<()> {
+    let Some(log) = sweep_log_unless_running(fleet)? else {
+        return Ok(());
+    };
+    log.set_len(0)?;
+    println!("released {} claims exited sessions held", fleet.release_exited_claims()?);
+    Ok(())
+}
+
+/// The sweep log, opened for appending and locked by this process, or `None` while a running sweep holds it.
+fn sweep_log_unless_running(fleet: &Fleet) -> NorthResult<Option<File>> {
+    let log = OpenOptions::new().create(true).append(true).open(fleet.claims_sweep_log())?;
+    match log.try_lock() {
+        Ok(()) => Ok(Some(log)),
+        Err(TryLockError::WouldBlock) => Ok(None),
+        Err(TryLockError::Error(error)) => Err(error.into()),
     }
 }
 
 /// How long a fleet verb waits on one threads ledger call, because the ledger can sit across ssh behind a hung courier and a verb must not wait on it.
 const LEDGER_LIMIT: Duration = Duration::from_secs(2);
+
+/// How long the background claims sweep waits on one threads ledger call: no verb waits on it, so it outlasts the threads client's own 20 s ssh bound.
+const SWEEP_LIMIT: Duration = Duration::from_secs(30);
 
 pub struct ThreadsCli {
     program: Option<PathBuf>,
@@ -55,6 +101,12 @@ pub struct ThreadsCli {
 impl ThreadsCli {
     pub fn new() -> Self {
         Self { program: None, limit: LEDGER_LIMIT }
+    }
+
+    /// The ledger adapter for the verb `arguments` name: the background claims sweep waits longer on each call than a verb someone is waiting on.
+    pub fn for_verb(arguments: &[String]) -> Self {
+        let limit = if arguments.first().is_some_and(|verb| verb == SWEEP_VERB) { SWEEP_LIMIT } else { LEDGER_LIMIT };
+        Self { program: None, limit }
     }
 
     fn threads(&self, args: &[&str]) -> NorthResult<String> {
@@ -111,26 +163,41 @@ mod tests {
     use crate::providers::claude::fleet::Claude;
 
     #[test]
-    fn reading_the_fleet_never_asks_the_claims_ledger_while_a_mutating_verb_sweeps_exited_claims() {
+    fn reading_the_fleet_launching_and_the_sweep_itself_never_start_the_claims_sweep_while_every_other_verb_does() {
+        let words = |verb: &[&str]| verb.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+        for verb in ["list", "stranded", "tree", "spend", "accounts", "show", "launch", SWEEP_VERB] {
+            assert!(!sweeps(&words(&[verb, "x"])), "{verb} started the sweep");
+        }
+        for verb in ["send", "forget", "tick", "waits"] {
+            assert!(sweeps(&words(&[verb, "x"])), "{verb} left exited claims unswept");
+        }
+        assert_eq!(ThreadsCli::for_verb(&words(&[SWEEP_VERB])).limit, SWEEP_LIMIT);
+        assert_eq!(ThreadsCli::for_verb(&words(&["send", "x"])).limit, LEDGER_LIMIT);
+    }
+
+    #[test]
+    fn a_sweep_that_finds_another_holding_the_log_asks_the_ledger_nothing_and_leaves_its_outcome() {
         let home = tempfile::tempdir().unwrap();
         let ledger = Arc::new(Ledger::open(&home.path().join("ledger.db")).unwrap());
-        let claims = Arc::new(Held::default());
+        let claims = Arc::new(Counted(Held::default(), Default::default()));
         let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Claude)]), ledger, claims.clone()).unwrap();
         let session = home.path().join(".local/state/north/fleet/gone");
         std::fs::create_dir_all(&session).unwrap();
         let record = json!({"name": "gone", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "stopped": true});
         std::fs::write(session.join("session.json"), record.to_string()).unwrap();
         claims.hold("north#1", "gone").unwrap();
-        let words = |verb: &[&str]| verb.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+        let running = OpenOptions::new().create(true).append(true).open(fleet.claims_sweep_log()).unwrap();
+        std::io::Write::write_all(&mut &running, b"released 3 claims exited sessions held\n").unwrap();
+        running.lock().unwrap();
 
-        for verb in ["list", "stranded", "tree", "spend", "accounts", "show"] {
-            release_exited_claims(&fleet, &words(&[verb]));
-            assert_eq!(claims.holders(Rows::Items(&words(&["north#1"]))).unwrap(), [("north#1".to_owned(), "gone".to_owned())], "{verb} swept claims");
-        }
-        release_exited_claims(&fleet, &words(&["launch", "--task", "north#1"]));
-        assert_eq!(claims.holders(Rows::Items(&words(&["north#1"]))).unwrap(), [("north#1".to_owned(), "gone".to_owned())], "launch swept every claim");
-        release_exited_claims(&fleet, &words(&["waits"]));
-        assert!(claims.holders(Rows::Items(&words(&["north#1"]))).unwrap().is_empty());
+        sweep(&fleet).unwrap();
+        assert_eq!(claims.1.load(std::sync::atomic::Ordering::SeqCst), 0, "a second sweep asked the ledger");
+        assert_eq!(std::fs::read_to_string(fleet.claims_sweep_log()).unwrap(), "released 3 claims exited sessions held\n");
+        drop(running);
+
+        sweep(&fleet).unwrap();
+        assert!(claims.0.holders(Rows::Items(&["north#1".to_owned()])).unwrap().is_empty());
+        assert_eq!(fleet.unswept().unwrap(), Vec::<String>::new());
     }
 
     struct Counted(Held, std::sync::atomic::AtomicUsize);
@@ -151,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn an_exited_session_is_swept_once_and_later_verbs_never_ask_the_ledger_about_it() {
+    fn an_exited_session_is_swept_once_and_later_sweeps_never_ask_the_ledger_about_it() {
         let home = tempfile::tempdir().unwrap();
         let ledger = Arc::new(Ledger::open(&home.path().join("ledger.db")).unwrap());
         let claims = Arc::new(Counted(Held::default(), Default::default()));
@@ -172,10 +239,43 @@ mod tests {
             assert!(home.path().join(".local/state/north/fleet").join(name).join(crate::fleet::records::CLAIMS_RELEASED).exists(), "{name} unmarked");
         }
 
-        for _ in 0..3 {
-            release_exited_claims(&fleet, &["send".to_owned(), "gone".to_owned()]);
+        assert_eq!(fleet.unswept().unwrap(), Vec::<String>::new(), "a later verb would start a sweep for sessions already swept");
+        assert_eq!(fleet.release_exited_claims().unwrap(), 0);
+        assert_eq!(reads(), 1, "a later sweep asked the ledger about sessions already swept");
+    }
+
+    struct Reviving(Held, std::path::PathBuf);
+
+    impl Claims for Reviving {
+        fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
+            self.0.hold(item, session)
         }
-        assert_eq!(reads(), 1, "a later send asked the ledger about sessions already swept");
+
+        fn release(&self, item: &str, session: &str) -> NorthResult<()> {
+            self.0.release(item, session)
+        }
+
+        fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
+            let record = json!({"name": "gone", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "stopped": false});
+            std::fs::write(self.1.join("session.json"), record.to_string()).unwrap();
+            self.0.holders(rows)
+        }
+    }
+
+    #[test]
+    fn a_session_revived_while_the_sweep_reads_the_ledger_stays_unmarked_so_its_next_exit_is_swept() {
+        let home = tempfile::tempdir().unwrap();
+        let ledger = Arc::new(Ledger::open(&home.path().join("ledger.db")).unwrap());
+        let session = home.path().join(".local/state/north/fleet/gone");
+        std::fs::create_dir_all(&session).unwrap();
+        let record = json!({"name": "gone", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "stopped": true});
+        std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+        let claims = Arc::new(Reviving(Held::default(), session.clone()));
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Claude)]), ledger, claims.clone()).unwrap();
+        claims.hold("north#1", "gone").unwrap();
+
+        fleet.release_exited_claims().unwrap();
+        assert!(!session.join(crate::fleet::records::CLAIMS_RELEASED).exists(), "a revived session was marked swept");
     }
 
     struct Bounded(Held, std::sync::atomic::AtomicUsize);
@@ -199,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn six_hundred_exited_sessions_clear_in_reads_the_ledger_answers_and_a_drained_backlog_asks_nothing() {
+    fn six_hundred_exited_sessions_clear_in_one_sweep_of_reads_the_ledger_answers_and_a_drained_backlog_asks_nothing() {
         let home = tempfile::tempdir().unwrap();
         let ledger = Arc::new(Ledger::open(&home.path().join("ledger.db")).unwrap());
         let claims = Arc::new(Bounded(Held::default(), Default::default()));
@@ -214,10 +314,10 @@ mod tests {
             claims.hold(item, &name).unwrap();
         }
 
-        let released: usize = (0..5).map(|_| fleet.release_exited_claims().expect("a sweep read more owners than the ledger answers")).sum();
-        assert_eq!(released, 600);
+        assert_eq!(fleet.release_exited_claims().expect("a sweep read more owners than the ledger answers"), 600);
         assert!(claims.0.holders(Rows::Items(&items)).unwrap().is_empty());
         let reads = claims.1.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(reads, 10, "600 owners in reads of 64");
         assert_eq!(fleet.release_exited_claims().unwrap(), 0);
         assert_eq!(claims.1.load(std::sync::atomic::Ordering::SeqCst), reads, "a drained backlog still asked the ledger");
     }
@@ -229,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn a_mutating_verb_returns_within_three_seconds_while_the_threads_host_is_unreachable() {
+    fn a_ledger_call_gives_up_within_three_seconds_naming_its_read_while_the_threads_host_is_unreachable() {
         let home = tempfile::tempdir().unwrap();
         let ledger = Arc::new(Ledger::open(&home.path().join("ledger.db")).unwrap());
         let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Claude)]), ledger, Arc::new(a_hung_courier(home.path()))).unwrap();
