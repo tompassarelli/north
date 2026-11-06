@@ -482,3 +482,16 @@ min_n = 40
 after = ["2026-11-14", "2026-11-21"]
 review = "2026-11-23"
 owner = "tompassarelli/north#636"
+
+[[experiment]]
+id = "decisions-never-stop-work"
+change = "Ordinary gates apply the recommended default at a deadline, only ask-once gates wait as for-Tom gates, the proxy's question box is denied, and Tom reads the queue in north gate digest"
+landed = "848824d0a"
+metric = "none"
+measure = "over the gates closed in the window, the share closed by default that Tom reversed through the proxy within 7 days, read from the gate ledger and the proxy's transcript: keep the defaults if at most 10% were reversed, else lengthen the default deadline for the class of gate he reversed"
+direction = "down"
+bar = 0.1
+min_n = 20
+after = ["2026-11-07", "2026-11-21"]
+review = "2026-11-23"
+owner = "tompassarelli/north#641"
