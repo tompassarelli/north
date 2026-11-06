@@ -49,7 +49,7 @@ fn replay(options: &Options) -> Result<String, String> {
     let base = git(&worktree, &["rev-parse", &format!("{}^{{commit}}", options.base)])?;
     let tickets: Vec<(PathBuf, Ticket)> = options.tickets.iter().map(|path| queue::read(path).map(|ticket| (path.clone(), Ticket { verdict: None, ..ticket })).map_err(|error| error.to_string())).collect::<Result<_, _>>()?;
     let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
-    let built = candidate::build(&worktree, &base, &tickets, &[], usize::MAX, scratch.path())?;
+    let built = candidate::rebuild_recorded(&worktree, &base, &tickets, scratch.path())?;
     for pick in &built.picks {
         match pick {
             Pick::Included => {}

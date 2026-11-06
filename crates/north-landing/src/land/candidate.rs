@@ -8,7 +8,7 @@ use std::time::Duration;
 use north_base::platform::process;
 
 use super::queue::{self, Ticket};
-use super::lane_gates::{self, Lane};
+use super::lane_gates::{self, Judging, Lane};
 use super::reservation::{self, Attempt, Judged};
 use crate::landing::{merge_continue, merge_set, stale_revert};
 use crate::platform::decision_log::{self, Entry};
@@ -141,7 +141,14 @@ fn queued_ahead<'a>(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&'a
     earlier.iter().find(|ahead| queue::lane(ahead) != lane && readable(worktree, ahead) && !files(worktree, base, ahead).is_disjoint(&own)).map(|ahead| ahead.branch.as_str())
 }
 
-fn pick(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&Ticket], logs: &Path, name: &str, case: &mut PickCase) -> Result<Pick, String> {
+struct Turn<'a> {
+    ticket: &'a Ticket,
+    earlier: &'a [&'a Ticket],
+    judging: Judging,
+}
+
+fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case: &mut PickCase) -> Result<Pick, String> {
+    let (ticket, earlier, judging) = (turn.ticket, turn.earlier, turn.judging);
     case.readable = Some(readable(worktree, ticket));
     if case.readable == Some(false) {
         return Ok(Pick::Decided("conflict unreadable".to_owned()));
@@ -202,7 +209,7 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&Ticket], logs:
         Ok(found) if found.is_empty() => {
             let head = git(worktree, &["rev-parse", "HEAD"])?;
             let lane = Lane { worktree, base: &picked_onto, head: &head };
-            let gate = lane_gates::judge(&lane, logs, name)?;
+            let gate = lane_gates::judge(&lane, judging, logs, name)?;
             case.stale_reverts = Some(Vec::new());
             case.lane_gate = gate.as_ref().map(|refused| refused.verdict.clone());
             let Some(refused) = gate else { return Ok(Pick::Included) };
@@ -234,6 +241,14 @@ pub fn recorded(pick: &Pick) -> land::Pick {
 }
 
 pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
+    assemble(worktree, base, tickets, queued, limit, Judging::Live, logs)
+}
+
+pub fn rebuild_recorded(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], logs: &Path) -> Result<Built, String> {
+    assemble(worktree, base, tickets, &[], usize::MAX, Judging::Recorded, logs)
+}
+
+fn assemble(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], limit: usize, judging: Judging, logs: &Path) -> Result<Built, String> {
     git(worktree, &["reset", "-q", "--hard"])?;
     git(worktree, &["checkout", "-q", "--detach", base])?;
     let mut picks = Vec::new();
@@ -250,7 +265,7 @@ pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued:
             None => Vec::new(),
         };
         let mut case = PickCase { base: base.to_owned(), branch: ticket.branch.clone(), head: ticket.head.clone(), red_fix: ticket.red_fix.is_some(), earlier: earlier.iter().map(|ahead| ahead.branch.clone()).collect(), ..PickCase::default() };
-        let (pick, decide_us) = decision_log::timed(|| pick(worktree, base, ticket, &earlier, logs, name, &mut case));
+        let (pick, decide_us) = decision_log::timed(|| pick(worktree, base, &Turn { ticket, earlier: &earlier, judging }, logs, name, &mut case));
         let pick = pick?;
         decision_log::record(Entry { kind: Kind::LandPick, at: decision_log::now(), follows: None, case: &case, decision: &recorded(&pick), decide_us });
         included += usize::from(matches!(pick, Pick::Included));

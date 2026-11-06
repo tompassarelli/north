@@ -18,7 +18,15 @@ pub struct Refused {
     pub log: PathBuf,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Judging {
+    Live,
+    Recorded,
+}
+
 type Gate = fn(&Lane, &mut Vec<u8>) -> bool;
+
+const READS_LIVE_STATE: [&str; 2] = ["runtime-floor gate", "debt ceiling"];
 
 const GATES: &[(&str, Gate)] = &[
     ("runtime-floor gate", runtime_floor),
@@ -78,9 +86,10 @@ fn sweep(lane: &Lane, out: &mut Vec<u8>) -> bool {
     policy::scan(lane.worktree, &lane.range(), out) != 0
 }
 
-pub fn judge(lane: &Lane, logs: &Path, name: &str) -> Result<Option<Refused>, String> {
+pub fn judge(lane: &Lane, judging: Judging, logs: &Path, name: &str) -> Result<Option<Refused>, String> {
     let mut text = Vec::new();
-    let failed: Vec<&str> = GATES.iter().filter(|(_, gate)| gate(lane, &mut text)).map(|(label, _)| *label).collect();
+    let judged = GATES.iter().filter(|(label, _)| judging == Judging::Live || !READS_LIVE_STATE.contains(label));
+    let failed: Vec<&str> = judged.filter(|(_, gate)| gate(lane, &mut text)).map(|(label, _)| *label).collect();
     if failed.is_empty() {
         return Ok(None);
     }
