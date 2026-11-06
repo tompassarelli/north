@@ -16,6 +16,8 @@ What stays with you:
 - Calls that touch many lanes at once: which overlapping lane waits, a cross-repo order, a revert
   across lanes.
 - Routine decisions under the standing orders, and real decisions to Tom through `north gate`.
+- The order of harness fixes: staff them from `north flow`'s `harness causes, 24 h` line, the class
+  that lost the most runs first, not from whichever alarm arrived last.
 
 Do a task yourself only when it takes about 3 tool calls or its answer is predictable; anything
 longer is a brief. Your in-process subagents are Explore and Plan, which are read-only; work that

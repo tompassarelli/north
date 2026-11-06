@@ -30,8 +30,10 @@ what replaces the cell, what it is measured on, and the 14-day replay that decid
 
 ## 1. Outcome attribution comes first
 
-A failed run says something about a tier only when the worker caused it. `nearest::cause` puts each finished run into
-one of three causes, in this order:
+A failed run says something about a tier only when the worker caused it. The replay reads each finished run's cause from
+the shared attribution of docs/rationale/harness-attribution.md (north#706), which adds records ahead of the report
+rules below: duplicate dispatch, the lander's incident rows and the landings that overturned a refusal. The report rules,
+in this order:
 
 1. **Kept**: the existing `succeeded` rule (Done, not re-run within 24 h, landed when a landing was expected).
 2. **The report's own `Stop:` word.** `reasoning` and `leash` (the worker ran out of approach or budget) are the
@@ -48,13 +50,11 @@ escalation (section 5), because the leash is a wall-clock bound that also measur
 sets. Runs on no Claude rung and unclear or handed-off ends that name no reason are unattributed; the replay prints
 their count and dollars so a rule gap shows up as a number.
 
-Known limits of the phrase rules, from the review round: they match anywhere in a report, so a worker failure whose
-report mentions a lander or a gate in passing is excused; a landing refused by the lane's own failing checks is the
-worker's, while the phrase rules call any refused landing the harness's; and dropping unclear ends favours a rung that
-produces more of them. Each error excuses worker failures, which flatters cheap rungs. The ingest does not write the
-cause yet; the build box that moves it there also matches phrases only in the `Not done:` or `Blocked:` paragraph,
-checks a missed expected landing against the lane's check output first, and is held to a hand-labelled sample of 50
-reports.
+Known limits of the phrase rules, from the review round, and what north#706 fixed: they matched anywhere in a report,
+so a worker failure whose report mentions a lander or a gate in passing was excused, and now match only the opening
+paragraph; a landing refused by the lane's own failing checks is the worker's, and now reads so from the lander's
+incident row unless a later landing of the same tip overturned it. Dropping unclear ends still favours a rung that
+produces more of them, and the classes are not yet held to a hand-labelled sample.
 
 ## 2. Computed features, not declared ones
 

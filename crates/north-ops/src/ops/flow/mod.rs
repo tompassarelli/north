@@ -27,6 +27,7 @@ mod autoland;
 pub mod boxes;
 mod goal;
 mod guards;
+mod harness;
 mod host;
 mod jobs;
 mod lander;
@@ -219,6 +220,10 @@ pub fn run(arguments: &[String]) -> u8 {
             for line in reading.lines() {
                 println!("{line}");
             }
+        }
+        match harness::read(&places.ledger, now) {
+            Ok(line) => println!("{line}"),
+            Err(why) => println!("harness causes: unread: {why}"),
         }
     }
     announce(&places, now, &options);

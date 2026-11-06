@@ -142,6 +142,13 @@ min = 70
 class = "ready"
 
 [[goal]]
+name = "ready-harness-loss"
+source = "north#706: at most 10% of the worker first attempts whose outcome has a cause, over the newest 24 h, were lost to the harness (placement, landing, false revert, overturned gate refusal, capacity, compaction, wait, duplicate dispatch), by calibration::attribution; a box waiting on a decision from Tom is left out"
+unit = "%"
+max = 10
+class = "ready"
+
+[[goal]]
 name = "ready-ask-to-landing"
 source = "north#641: the median from Tom's ask to its first landed commit is at most 1 h, over the newest 24 h"
 unit = "s"

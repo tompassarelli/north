@@ -1,6 +1,6 @@
 //! The k finished boxes most like a new one and the cheapest rung whose worker-caused outcomes over them
 //! clear the success bar.
-use super::cause::Cause;
+use north_threads::threads::calibration::attribution::Cause;
 use super::shape::Shape;
 use std::collections::BTreeMap;
 

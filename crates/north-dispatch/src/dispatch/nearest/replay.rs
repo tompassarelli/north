@@ -4,10 +4,10 @@
 //! escalation ladder, each rung's keep chance and cost read from the box's next K nearest boxes, disjoint from the K
 //! that picked, so the ratio of usage per finished box compares rules, not luck or the pick's own evidence. Boxes whose tier was drawn by the Sonnet and Opus arms are
 //! also scored by the replay method: where the new pick matches the drawn arm, the logged outcome stands.
-use super::cause::{Cause, cause};
+use north_threads::threads::calibration::attribution::{Cause, attribute};
 use super::pick::{FLOOR, Finished, Fit, Index, K, Rung, fits, pick};
 use super::shape::{Reach, Shape};
-use north_threads::threads::calibration::{Knobs, Raw, escalated, raw_runs, recommend, tier_key};
+use north_threads::threads::calibration::{Knobs, Raw, raw_runs, recommend, tier_key};
 use rusqlite::{Connection, OpenFlags};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -66,24 +66,23 @@ fn seconds(stamp: &str) -> f64 {
 fn read(db: &std::path::Path) -> Result<Vec<Ran>, String> {
     let connection = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|error| format!("{}: {error}", db.display()))?;
     let failed = |error: rusqlite::Error| error.to_string();
-    let followed = escalated(&connection).map_err(failed)?;
+    let causes: BTreeMap<String, Option<Cause>> = attribute(&connection, f64::NEG_INFINITY, f64::INFINITY).map_err(failed)?.into_iter().map(|run| (run.raw.agent, run.cause)).collect();
     let raws = raw_runs(&connection, "outcome NOT IN ('running','idle') AND ended IS NOT NULL", &[]).map_err(failed)?;
-    let mut statement = connection.prepare("SELECT agent, report, coalesce(brief_text, ''), arm FROM runs").map_err(failed)?;
-    let texts: BTreeMap<String, (String, String, Option<String>)> = statement.query_map([], |row| Ok((row.get(0)?, (row.get(1)?, row.get(2)?, row.get(3)?)))).map_err(failed)?.collect::<Result<_, _>>().map_err(failed)?;
+    let mut statement = connection.prepare("SELECT agent, coalesce(brief_text, ''), arm FROM runs").map_err(failed)?;
+    let texts: BTreeMap<String, (String, Option<String>)> = statement.query_map([], |row| Ok((row.get(0)?, (row.get(1)?, row.get(2)?)))).map_err(failed)?.collect::<Result<_, _>>().map_err(failed)?;
     let items: Vec<String> = raws.iter().filter_map(|raw| raw.item.clone()).filter(|item| item.contains('#')).collect::<BTreeSet<_>>().into_iter().collect();
     let footprints = north_graph_ground::footprints(&north_graph_ground::graph_path(), &items).unwrap_or_default();
     Ok(raws
         .into_iter()
         .map(|raw| {
-            let (report, brief, arm) = texts.get(&raw.agent).cloned().unwrap_or_default();
+            let (brief, arm) = texts.get(&raw.agent).cloned().unwrap_or_default();
             let item = raw.item.clone().unwrap_or_default();
             let footprint = footprints.get(&item);
             let text = if brief.is_empty() { footprint.map(|found| format!("{}\n{}", found.title, found.boxes.join("\n"))).unwrap_or_default() } else { brief };
             let repo = item.split_once('#').map(|(repo, _)| repo.rsplit('/').next().unwrap_or(repo));
             let query = Shape::read(&text, repo);
             let rung = Rung::of_key(&tier_key(&raw.tier));
-            let succeeded = raw.succeeded(followed.contains(&raw.agent));
-            let finished = rung.zip(cause(&raw.outcome, succeeded, &report)).map(|(rung, cause)| Finished { shape: footprint.map_or_else(|| query.clone(), |found| query.clone().touched(&found.touched)), rung, cause, usd: raw.api_usd });
+            let finished = rung.zip(causes.get(&raw.agent).copied().flatten()).map(|(rung, cause)| Finished { shape: footprint.map_or_else(|| query.clone(), |found| query.clone().touched(&found.touched)), rung, cause, usd: raw.api_usd });
             let ended = seconds(&raw.ended);
             let started = raw.started.as_deref().map_or(ended - raw.minutes.unwrap_or(0.0) * 60.0, seconds);
             Ran { raw, started, ended, rung, arm: arm.filter(|arm| !arm.is_empty()), query, finished }
