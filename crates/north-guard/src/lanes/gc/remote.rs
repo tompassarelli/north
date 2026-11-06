@@ -17,7 +17,6 @@ const BASE: &str = "refs/remotes/origin/main";
 const LANDING: &str = "claude/land-";
 const HOUR_MS: i64 = 3_600_000;
 const BOX_AFTER_H: i64 = 24;
-const RUN_STATUSES: [&str; 5] = ["queued", "in_progress", "waiting", "pending", "requested"];
 
 struct Evidence {
     repo: String,
@@ -60,8 +59,8 @@ fn run_pages_complete(pages: &[Value]) -> bool {
 
 pub(super) fn active_runs(repo: &str) -> Result<(HashSet<String>, HashSet<String>), String> {
     let (mut branches, mut tips) = (HashSet::new(), HashSet::new());
-    for status in RUN_STATUSES {
-        let listed = api(&format!("repos/tompassarelli/{repo}/actions/runs?status={status}&per_page=100"))?;
+    for status in store::RUN_STATUSES {
+        let listed = read::pages(&Mirror::local(), read::now(), repo, &store::runs_kind(status), || api(&format!("repos/tompassarelli/{repo}/actions/runs?status={status}&per_page=100")))?;
         let pages = listed.as_array().filter(|pages| run_pages_complete(pages)).ok_or("Actions eligibility incomplete")?;
         for run in pages.iter().filter_map(|page| page.get("workflow_runs")?.as_array()).flatten() {
             let (Some(branch), Some(tip)) = (run.get("head_branch").and_then(Value::as_str), run.get("head_sha").and_then(Value::as_str)) else {

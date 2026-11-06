@@ -7,9 +7,9 @@ use serde_json::Value;
 use super::Gc;
 use super::evidence::{item_ref, named_issues, origin_repo};
 use super::exec::{api, command, git, real, text, truthy, verified};
+use north_github_mirror::read;
+use north_github_mirror::store::{self, Mirror};
 use north_core::foundation::clock::Timestamp;
-
-const RUN_STATUSES: [&str; 5] = ["queued", "in_progress", "waiting", "pending", "requested"];
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(super) struct Trees {
@@ -129,8 +129,9 @@ impl Gc {
         if !self.github.contains_key(repo) {
             let prs = open_pull_heads(repo)?;
             let mut runs = Vec::new();
-            for status in RUN_STATUSES {
-                for page in pages(&api(&format!("repos/tompassarelli/{repo}/actions/runs?status={status}&per_page=100"))?)? {
+            for status in store::RUN_STATUSES {
+                let listed = read::pages(&Mirror::local(), read::now(), repo, &store::runs_kind(status), || api(&format!("repos/tompassarelli/{repo}/actions/runs?status={status}&per_page=100")))?;
+                for page in pages(&listed)? {
                     let Some(Value::Array(found)) = page.get("workflow_runs") else {
                         return Err("Actions eligibility incomplete".into());
                     };
@@ -194,7 +195,7 @@ pub(super) fn pages(value: &Value) -> Result<&[Value], String> {
 }
 
 pub(super) fn open_pull_heads(repo: &str) -> Result<HashSet<String>, String> {
-    let listed = api(&format!("repos/tompassarelli/{repo}/pulls?state=open&per_page=100"))?;
+    let listed = read::pages(&Mirror::local(), read::now(), repo, store::OPEN_PULLS, || api(&format!("repos/tompassarelli/{repo}/pulls?state=open&per_page=100")))?;
     let mut heads = HashSet::new();
     for page in pages(&listed)? {
         for pull in page.as_array().map_or(std::slice::from_ref(page), Vec::as_slice) {

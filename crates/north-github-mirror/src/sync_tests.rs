@@ -65,12 +65,12 @@ fn outcomes(fake: &Fake, mirror: &Mirror, at: f64) -> Vec<Result<Fetch, String>>
 fn an_unchanged_repository_costs_only_conditional_reads_and_an_edited_one_refetches_its_open_issues() {
     let root = tempfile::tempdir().unwrap();
     let (fake, mirror) = (Fake::new(), Mirror::at(root.path().join("github-mirror.db")));
-    assert_eq!(outcomes(&fake, &mirror, 100.0), vec![Ok(Fetch::Refreshed); 6]);
+    assert_eq!(outcomes(&fake, &mirror, 100.0), vec![Ok(Fetch::Refreshed); 12]);
     assert_eq!(fake.graphql_reads.get(), 1);
     fake.sent_etags.borrow_mut().clear();
-    assert_eq!(outcomes(&fake, &mirror, 200.0), vec![Ok(Fetch::Unchanged); 6]);
+    assert_eq!(outcomes(&fake, &mirror, 200.0), vec![Ok(Fetch::Unchanged); 12]);
     assert_eq!(fake.graphql_reads.get(), 1);
-    assert_eq!(*fake.sent_etags.borrow(), [Some("\"p1\"")].into_iter().chain([Some("\"r1\""); 5]).map(|etag| etag.map(str::to_owned)).collect::<Vec<_>>());
+    assert_eq!(*fake.sent_etags.borrow(), [Some("\"p1\"")].into_iter().chain([Some("\"r1\""); 11]).map(|etag| etag.map(str::to_owned)).collect::<Vec<_>>());
     assert_eq!(mirror.fresh(&key("north", OPEN_ISSUES), 200.0 + store::FRESH_S), Some(json!([{"number": 638, "title": "a local GitHub mirror", "edited": false}, {"number": 9}])));
     fake.issues_edited.set(true);
     assert_eq!(outcomes(&fake, &mirror, 300.0)[0], Ok(Fetch::Refreshed));
@@ -115,6 +115,12 @@ fn a_fresh_mirror_answers_branches_tags_releases_and_issue_states_without_callin
     assert_eq!(read::listed(&mirror, at + 1.0, "north", store::BRANCHES, || Ok(vec![json!("live")])).unwrap(), vec![json!("live")]);
     assert_eq!(read::listed(&mirror, at, "padbridge", store::BRANCHES, || Ok(vec![json!("live")])).unwrap(), vec![json!("live")]);
     assert_eq!(read::listed(&mirror, at, "firn", store::BRANCHES, || Ok(vec![json!("live")])).unwrap(), vec![json!("live")]);
+    let never = || -> Result<Value, String> { panic!("a mirror hit must not call GitHub") };
+    assert_eq!(read::pages(&mirror, at, "north", store::OPEN_PULLS, never).unwrap().as_array().map(Vec::len), Some(1));
+    assert_eq!(read::pages(&mirror, at, "north", &store::runs_kind("queued"), never).unwrap().as_array().map(Vec::len), Some(1));
+    mirror.write(&key("north", &store::runs_kind("waiting")), &json!({"total_count": 150, "workflow_runs": [{"head_branch": "a"}]}), None, 100.0).unwrap();
+    assert_eq!(read::pages(&mirror, at, "north", &store::runs_kind("waiting"), || Ok(json!("live"))).unwrap(), json!("live"), "a run list GitHub holds more of than one page is read from GitHub");
+    assert_eq!(read::pages(&mirror, at + 1.0, "north", store::OPEN_PULLS, || Ok(json!("live"))).unwrap(), json!("live"));
 }
 
 #[test]
@@ -134,3 +140,4 @@ fn closed_issue_numbers_are_refetched_only_when_the_open_set_changes_and_stay_fr
     assert_eq!(read::issue_state(&mirror, 400.0, "north", 638), Some(Seen::Closed));
     assert_eq!(fake.branch_reads.get(), 1);
 }
+

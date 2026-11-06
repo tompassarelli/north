@@ -15,6 +15,12 @@ pub const BRANCHES_PROBE: &str = "branches/probe";
 pub const TAGS: &str = "tags/list";
 pub const RELEASES: &str = "releases/list";
 pub const CLOSED_ISSUES: &str = "issues/closed";
+pub const OPEN_PULLS: &str = "pulls/open";
+pub const RUN_STATUSES: [&str; 5] = ["queued", "in_progress", "waiting", "pending", "requested"];
+
+pub fn runs_kind(status: &str) -> String {
+    format!("runs/{status}")
+}
 
 pub const OPEN_ISSUES_QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body createdAt labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 10) { nodes { body createdAt updatedAt } } } } } }";
 

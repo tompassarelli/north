@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::store::{self, BRANCHES, BRANCHES_PROBE, CLOSED_ISSUES, ISSUES_PROBE, MAIN_CHECKS, MAIN_RUNS, Mirror, OPEN_ISSUES, OWNER, RELEASES, TAGS, key};
+use crate::store::{self, BRANCHES, BRANCHES_PROBE, CLOSED_ISSUES, ISSUES_PROBE, MAIN_CHECKS, MAIN_RUNS, Mirror, OPEN_ISSUES, OPEN_PULLS, OWNER, RELEASES, RUN_STATUSES, TAGS, key, runs_kind};
 
 pub const REFETCH_S: f64 = 30.0 * 60.0;
 
@@ -154,14 +154,18 @@ fn branches(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Result
 
 pub fn repository(github: &dyn GitHub, mirror: &Mirror, repo: &str, at: f64) -> Vec<(String, Result<Fetch, String>)> {
     let listed = |kind: &str, endpoint: String| (key(repo, kind), conditional(github, mirror, &key(repo, kind), &format!("repos/{OWNER}/{repo}/{endpoint}"), at));
-    vec![
+    let mut rows = vec![
         (key(repo, OPEN_ISSUES), issues(github, mirror, repo, at)),
         (key(repo, BRANCHES), branches(github, mirror, repo, at)),
         listed(MAIN_RUNS, "actions/runs?branch=main&per_page=60".into()),
         listed(MAIN_CHECKS, "commits/main/check-runs?per_page=100".into()),
         listed(TAGS, "git/matching-refs/tags?per_page=100".into()),
         listed(RELEASES, "releases?per_page=100".into()),
-    ]
+        listed(OPEN_PULLS, "pulls?state=open&per_page=100".into()),
+    ];
+    let statuses = RUN_STATUSES.iter().map(|status| listed(&runs_kind(status), format!("actions/runs?status={status}&per_page=100")));
+    rows.extend(statuses);
+    rows
 }
 
 const USAGE: &str = "usage: north github-mirror sync [--repo NAME]...";
