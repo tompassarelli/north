@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use crate::error::NorthResult;
 use crate::providers::claude::runs::landing::{tally, utc};
 use crate::providers::claude::runs::row::{FLAWS, SPACE, eta, prefix};
+use crate::providers::claude::runs::telemetry::Tokens;
 use crate::providers::ledger_rows::{self as rows, Shared};
 
 static PRINT_MODE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"Print mode: starting \([^)]*model="([^"]+)""#).unwrap());
@@ -93,8 +94,9 @@ fn samples(shared: &Shared, answers: &[&Value], model: &str) -> Vec<Value> {
         .enumerate()
         .filter(|(_, answer)| answer["created_at"].as_str().is_some_and(|at| !at.is_empty()))
         .map(|(n, answer)| {
-            let tokens = ["input_tokens", "cache_write_tokens", "cache_read_tokens", "output_tokens"].map(|name| count(answer, name) as f64);
-            json!({"request": n.to_string(), "ts": answer["created_at"], "weight": shared.prices.weight(Some(model), tokens).0})
+            let [input, short_write, read, output] = ["input_tokens", "cache_write_tokens", "cache_read_tokens", "output_tokens"].map(|name| count(answer, name) as f64);
+            let tokens = Tokens { input, short_write, long_write: 0.0, read, output };
+            json!({"request": n.to_string(), "ts": answer["created_at"], "weight": shared.prices.weight(Some(model), &tokens).0})
         })
         .collect()
 }

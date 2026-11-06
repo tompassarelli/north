@@ -111,8 +111,8 @@ ignored.
   That tilted the Sonnet-against-Opus tier arms toward Sonnet. Corrected in this change.
 - `Prices::weight` in `crates/north-providers/src/providers/claude/runs/telemetry.rs`, which splits an account's plan dollars
   across concurrent runs, prices writes at 1.25 times input and reads at 0.1 times. Claude Code writes at 2 times, and
-  Opus 5.5 reads at 0.05 times. Over the window its formula gives $19,082 against the list price of $13,589. Left as a
-  box.
+  Opus 5.5 reads at 0.05 times. Over the window its formula gives $19,082 against the list price of $13,589. Now it
+  prices five-minute and one-hour writes from `usage.cache_creation` and reads at each model's catalog rate.
 
 ## Replay: what a lower window would save mechanically
 

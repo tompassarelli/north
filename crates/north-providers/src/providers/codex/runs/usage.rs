@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use serde_json::{Map, Value, json};
 
 use crate::providers::claude::runs::int;
-use crate::providers::claude::runs::telemetry::{Prices, Request, hook_fire, idle_gap_misses};
+use crate::providers::claude::runs::telemetry::{Prices, Request, Tokens, hook_fire, idle_gap_misses};
 
 fn quoted(text: &str, out: &mut String) {
     out.push('"');
@@ -101,11 +101,12 @@ pub(super) fn context_metrics(records: &[Value]) -> Map<String, Value> {
         match requests.get_mut(&id) {
             None => {
                 order.push(id.clone());
-                requests.insert(id, Request { at, total, cache });
+                requests.insert(id, Request { at, total, cache, write: total - cache });
             }
             Some(previous) if total > previous.total => {
                 previous.total = total;
                 previous.cache = cache;
+                previous.write = total - cache;
             }
             Some(_) => {}
         }
@@ -176,7 +177,7 @@ pub(super) fn run_usage(records: &[Value], prices: &Prices) -> Map<String, Value
         let input = (usage.get("input_tokens").copied().unwrap_or(0) - read).max(0);
         let output = usage.get("output_tokens").copied().unwrap_or(0);
         let Some(at) = record["timestamp"].as_str().filter(|at| !at.is_empty()) else { continue };
-        let (weight, priced) = prices.weight(model.as_deref(), [input as f64, 0.0, read as f64, output as f64]);
+        let (weight, priced) = prices.weight(model.as_deref(), &Tokens { input: input as f64, read: read as f64, output: output as f64, ..Tokens::default() });
         if weight != 0.0 && !priced && prices.by_price() {
             unpriced.insert(model.clone().unwrap_or_else(|| "unknown".into()));
         }

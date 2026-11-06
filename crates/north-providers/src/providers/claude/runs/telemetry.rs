@@ -18,9 +18,44 @@ static FILE_SKILL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"file-skill: e
 const SYNTHETIC: &str = "<synthetic>";
 
 pub struct Prices {
-    rates: HashMap<String, (f64, f64)>,
+    rates: HashMap<String, Rates>,
     by_price: bool,
     efforts: Vec<(String, Value)>,
+}
+
+struct Rates {
+    input: f64,
+    read: f64,
+    output: f64,
+}
+
+const SHORT_WRITE: f64 = 1.25;
+const LONG_WRITE: f64 = 2.0;
+
+/// One request's tokens by price class: uncached input, five-minute and one-hour cache writes,
+/// cache reads and output.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Tokens {
+    pub input: f64,
+    pub short_write: f64,
+    pub long_write: f64,
+    pub read: f64,
+    pub output: f64,
+}
+
+impl Tokens {
+    /// A Claude `usage` object's tokens; a write `cache_creation` leaves unsplit is one-hour, Claude Code's TTL.
+    pub fn claude(usage: &Value) -> Self {
+        let write = int(&usage["cache_creation_input_tokens"]);
+        let short_write = int(&usage["cache_creation"]["ephemeral_5m_input_tokens"]).min(write);
+        Self {
+            input: int(&usage["input_tokens"]) as f64,
+            short_write: short_write as f64,
+            long_write: (write - short_write) as f64,
+            read: int(&usage["cache_read_input_tokens"]) as f64,
+            output: int(&usage["output_tokens"]) as f64,
+        }
+    }
 }
 
 impl Prices {
@@ -36,19 +71,19 @@ impl Prices {
             let api = row.get("value").and_then(|value| value.get("api"));
             let rate = |key: &str| api.and_then(|api| api.get(key)).and_then(|price| price.as_float().or_else(|| price.as_integer().map(|price| price as f64)));
             if let (Some(input), Some(output)) = (rate("input_per_million"), rate("output_per_million")) {
-                rates.insert(model.to_owned(), (input, output));
+                rates.insert(model.to_owned(), Rates { input, read: rate("cached_input_per_million").unwrap_or(input * 0.1), output });
             }
         }
         Self { rates, by_price, efforts }
     }
 
-    pub fn weight(&self, model: Option<&str>, tokens: [f64; 4]) -> (f64, bool) {
-        let [input, write, read, output] = tokens;
+    pub fn weight(&self, model: Option<&str>, tokens: &Tokens) -> (f64, bool) {
+        let written = |input: f64| tokens.short_write * input * SHORT_WRITE + tokens.long_write * input * LONG_WRITE;
         match model.and_then(|model| self.rates.get(model)).filter(|_| self.by_price) {
-            Some((rate_in, rate_out)) => (input * rate_in + write * rate_in * 1.25 + read * rate_in * 0.1 + output * rate_out, true),
+            Some(rates) => (tokens.input * rates.input + written(rates.input) + tokens.read * rates.read + tokens.output * rates.output, true),
             None => {
                 let read_share = if model.unwrap_or("").to_lowercase().contains("opus") { 0.05 } else { 0.1 };
-                (input + write * 1.25 + read * read_share + output * 5.0, false)
+                (tokens.input + written(1.0) + tokens.read * read_share + tokens.output * 5.0, false)
             }
         }
     }
@@ -132,6 +167,7 @@ pub struct Request {
     pub at: Option<String>,
     pub total: i64,
     pub cache: i64,
+    pub write: i64,
 }
 
 pub(super) fn context_metrics(records: &[Value]) -> Map<String, Value> {
@@ -150,18 +186,19 @@ pub(super) fn context_metrics(records: &[Value]) -> Map<String, Value> {
         if kind != "assistant" || usage.is_null() {
             continue;
         }
-        let cache = int(&usage["cache_read_input_tokens"]);
-        let total = int(&usage["input_tokens"]) + cache + int(&usage["cache_creation_input_tokens"]);
+        let (cache, write) = (int(&usage["cache_read_input_tokens"]), int(&usage["cache_creation_input_tokens"]));
+        let total = int(&usage["input_tokens"]) + cache + write;
         let at = record["timestamp"].as_str().map(str::to_owned);
         let key = request_key(record, index);
         match requests.get_mut(&key) {
             None => {
                 order.push(key.clone());
-                requests.insert(key, Request { at, total, cache });
+                requests.insert(key, Request { at, total, cache, write });
             }
             Some(previous) if total > previous.total => {
                 previous.total = total;
                 previous.cache = cache;
+                previous.write = write;
             }
             Some(_) => {}
         }
@@ -184,7 +221,7 @@ pub fn idle_gap_misses(values: &[&Request]) -> usize {
     for value in values {
         let Some(at) = value.at.as_deref().filter(|at| !at.is_empty()).and_then(|at| Timestamp::parse(at).ok()) else { continue };
         let at = at.unix_seconds_f64();
-        if previous.is_some_and(|before: f64| at - before > 3600.0) && value.total > 0 && value.cache as f64 / value.total as f64 <= 0.05 {
+        if previous.is_some_and(|before: f64| at - before > 3600.0) && value.total > 0 && value.write * 2 >= value.total {
             misses += 1;
         }
         previous = Some(at);
@@ -232,8 +269,7 @@ pub(super) fn run_usage(records: &[Value], account: &str, prices: &Prices) -> Ma
             Key::Index(index) => index.to_string(),
         };
         let Some(at) = record["timestamp"].as_str().filter(|at| !at.is_empty()) else { continue };
-        let tokens = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"].map(|name| int(&usage[name]) as f64);
-        let (weight, priced) = prices.weight(model, tokens);
+        let (weight, priced) = prices.weight(model, &Tokens::claude(usage));
         if weight != 0.0 && !priced && prices.by_price {
             unpriced.insert(model.unwrap_or("unknown").to_owned());
         }

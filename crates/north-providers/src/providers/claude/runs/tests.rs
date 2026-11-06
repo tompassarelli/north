@@ -55,3 +55,37 @@ fn a_lane_landed_in_a_batch_takes_its_own_commit_not_the_batch_tip_safe_push_log
     assert_eq!(landed, [own, other, batch.clone(), batch]);
 }
 
+
+#[test]
+fn a_request_is_weighted_at_list_price_with_its_one_hour_and_five_minute_writes_split_from_cache_creation() {
+    let prices = super::telemetry::Prices::parse(&super::CATALOG, &super::DEFAULTS);
+    let request = |id: &str, model: &str, short: i64, long: i64, read: i64| {
+        let usage = json!({"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": read, "cache_creation_input_tokens": short + long, "cache_creation": {"ephemeral_5m_input_tokens": short, "ephemeral_1h_input_tokens": long}});
+        json!({"type": "assistant", "requestId": id, "timestamp": "2026-11-06T12:00:00Z", "message": {"model": model, "usage": usage}})
+    };
+    let weights = |records: &[Value]| -> Vec<f64> {
+        let usage = super::telemetry::run_usage(records, "c", &prices);
+        usage["usage_samples"].as_array().unwrap().iter().map(|sample| (sample["weight"].as_f64().unwrap() / 1000.0).round() / 1000.0).collect()
+    };
+    let million = 1_000_000;
+    assert_eq!(weights(&[request("a", "claude-opus-5-5", 0, million, 0), request("b", "claude-opus-5-5", million, 0, 0), request("c", "claude-opus-5-5", 0, 0, million)]), [8.0, 5.0, 0.2]);
+    assert_eq!(weights(&[request("d", "claude-sonnet-5-5", 0, million, million)]), [4.2]);
+    assert_eq!(weights(&[request("e", "claude-haiku-5-5", 0, million, million)]), [0.21]);
+}
+
+#[test]
+fn a_resume_past_the_cache_ttl_counts_as_a_miss_when_it_rewrites_at_least_half_its_context_though_the_system_prefix_stays_cached() {
+    let request = |id: &str, at: &str, write: i64, read: i64| {
+        let usage = json!({"input_tokens": 10, "output_tokens": 100, "cache_read_input_tokens": read, "cache_creation_input_tokens": write, "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": write}});
+        json!({"type": "assistant", "requestId": id, "timestamp": at, "message": {"model": "claude-opus-5-5", "usage": usage}})
+    };
+    let records = [
+        request("a", "2026-11-06T10:00:00Z", 100_000, 0),
+        request("b", "2026-11-06T10:05:00Z", 2_000, 100_000),
+        request("c", "2026-11-06T11:30:00Z", 80_000, 22_000),
+        request("d", "2026-11-06T13:00:00Z", 5_000, 97_000),
+        request("e", "2026-11-06T13:10:00Z", 60_000, 50_000),
+        request("f", "2026-11-06T15:00:00Z", 110_000, 0),
+    ];
+    assert_eq!(super::telemetry::context_metrics(&records)["idle_gap_misses"], json!(2));
+}
