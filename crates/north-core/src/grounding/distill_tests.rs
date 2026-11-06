@@ -13,11 +13,14 @@ fn a_fleet_message_relayed_into_a_session_is_never_read_as_tom_typing() {
     assert!(is_skip_message("[from proxy] Fact, no order: the lane is innocent."));
     assert!(is_skip_message("[from service:north-land] landed w230"));
     assert!(is_skip_message("Another Claude session sent a message: [from n634-lander-doctor] three updates"));
+    assert!(is_skip_message("Item: north#656 a box\nCategory: feature") && is_brief_session("Item: north#656 a box\nCategory: feature"));
     assert!(!is_skip_message("from now on file every plan as an issue"));
 }
 
 #[test]
 fn a_line_tom_quotes_from_the_reply_before_is_not_read_as_his_words() {
+    let pasted = "<pasted_content id=\"70dc\">\nthe report he pasted\n</pasted_content id=\"70dc\">\n\nwhy did you let this slip";
+    assert_eq!(typed_text(&own_words(pasted, None)), "why did you let this slip");
     let reply = "The alternative is staying here: you keep every feature, but get no resume.";
     let typed = "The alternative is staying here: you keep every feature, but get no resume.\n\nis this ready yet?";
     assert_eq!(typed_text(&own_words(typed, Some(reply))), "is this ready yet?");

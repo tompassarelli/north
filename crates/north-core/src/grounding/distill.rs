@@ -42,8 +42,8 @@ class from harness/corrections.toml (pace, status-not-action, unproven-cause, ..
 the tail of the reply it corrected and a digest of the typed text, and its quote is the class's
 neutral paraphrase, never Tom's words; source starts with who said it (`tom`, `proxy` or the status file's lead) and
 names the convo message and session or the file and line. A message seen in two copies of one
-session's transcript counts once, and so does a burst of Tom's corrections in one session
-within two minutes (a retyped or split message); lines Tom copies from the reply before his
+session's transcript counts once, and so does a burst of Tom's corrections of one class in one
+session within two minutes (a retyped or split message); lines Tom copies from the reply before his
 message are not read as his words. Each run also writes corrections-week.txt beside the ledger:
 the last seven days' corrections counted per class, which `north loops check` prints as the
 corrections loop's score. The prompt-grounding hook starts `run --after-prompt` on each of Tom's
@@ -150,13 +150,13 @@ const W: &str = "[^A-Za-z0-9_]";
 const S: &str = r"[\t\n\x0B\x0C\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]";
 
 pattern!(brief_session, format!(
-    r"(?i)^{S}*(Delegation:|Category:|Parent:|You are (the|a|an) [^\n]{{0,60}}{B}(lead|worker|agent|reviewer){B})"
+    r"(?i)^{S}*(Delegation:|Item:|Category:|Parent:|You are (the|a|an) [^\n]{{0,60}}{B}(lead|worker|agent|reviewer){B})"
 ));
 pattern!(brief_read, format!(r"(?i)^{S}*Read [^\s]*handoffs/([^\s]+) and (follow|take over)"));
 pattern!(skip_message, format!(
-    r"(?i)^{S}*(/[a-z-]+{S}*$|/compact|\[from [^\]\n]+\]|Another Claude session sent a message|\[Your previous response|Delegation:|Category:|Parent:|Caveat:|\[Request interrupted|This session is being continued|Base directory for this skill|Read [^\s]*handoffs/[^\s]*brief)"
+    r"(?i)^{S}*(/[a-z-]+{S}*$|/compact|\[from [^\]\n]+\]|Another Claude session sent a message|\[Your previous response|Delegation:|Item:|Category:|Parent:|Caveat:|\[Request interrupted|This session is being continued|Base directory for this skill|Read [^\s]*handoffs/[^\s]*brief)"
 ));
-pattern!(pasted, r"(?s)<pasted_content[^>]*>.*?(</pasted_content>|\z)");
+pattern!(pasted, r"(?s)<pasted_content[^>]*>.*?(</pasted_content[^>]*>|\z)");
 pattern!(line_record, format!(r"^{S}*(?:[-*]{S}+)?(DECIDED|APPROVED){B}[:{}]*([^\n\r\u{{2028}}\u{{2029}}]*)$", &S[1..S.len() - 1]));
 pattern!(status_time, format!(r"^([0-9]{{1,2}}):([0-9]{{2}})Z?{B}"));
 pattern!(about_keep, format!(r"(?i)^{W}*why (did|do|does|would|are|were|is) (you|u){B}"));
@@ -899,7 +899,7 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool, afte
             rows.iter().filter(|r| speaker(r) == "tom").flat_map(|r| [said_key(r), (session_of(r), r.at.clone())]).collect();
         let millis = |r: &Row| Timestamp::parse_loose(&r.at).map_or(f64::NAN, |t| t.unix_millis() as f64);
         let tom_correction = |r: &Row| speaker(r) == "tom" && r.kind == Kind::Correction.name();
-        let mut bursts: Vec<(Option<String>, f64)> = rows.iter().filter(|r| tom_correction(r)).map(|r| (session_of(r), millis(r))).collect();
+        let mut bursts: Vec<(Option<String>, f64, Option<String>)> = rows.iter().filter(|r| tom_correction(r)).map(|r| (session_of(r), millis(r), r.class.clone())).collect();
         let mut unique: Vec<Row> = Vec::new();
         let mut unique_ids: HashSet<String> = HashSet::new();
         let found = convo_records(&read_convo(&p.db, since)?).into_iter().chain(status_records(&p.handoffs, since));
@@ -909,11 +909,11 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool, afte
                 continue;
             }
             if tom_correction(&r) {
-                let (session, at) = (session_of(&r), millis(&r));
-                if bursts.iter().any(|(s, t)| *s == session && (at - t).abs() <= BURST) {
+                let (session, at, class) = (session_of(&r), millis(&r), r.class.clone());
+                if bursts.iter().any(|(s, t, c)| *s == session && *c == class && (at - t).abs() <= BURST) {
                     continue;
                 }
-                bursts.push((session, at));
+                bursts.push((session, at, class));
             }
             if speaker(&r) == "tom" {
                 said.insert(moment);
