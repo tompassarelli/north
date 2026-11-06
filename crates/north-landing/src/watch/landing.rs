@@ -7,7 +7,6 @@ pub const STALL_SECONDS: f64 = 120.0;
 const CHECK_STAGES: [&str; 4] = ["land checks", "pre-push checks", "dependency gate and scans", "landing train"];
 const TERMINAL: [&str; 4] = ["landed", "refused", "failed", "cancelled"];
 const MIN_SAMPLES: usize = 5;
-const QUEUE_FLOOR: f64 = 600.0;
 const RECENT: f64 = 3600.0;
 const PUSH_ERROR_WINDOW: f64 = 900.0;
 const SETTLE_FRESH: u64 = 1800;
@@ -16,7 +15,6 @@ pub(super) fn probe(context: &WatchContext) -> Vec<Alert> {
     let mut alerts = Vec::new();
     alerts.extend(stalls(context));
     alerts.extend(requeues(context));
-    alerts.extend(queues(context));
     alerts.extend(push_errors(context));
     alerts.extend(shared_failures(context));
     alerts.extend(runtime(context));
@@ -83,28 +81,6 @@ fn requeues(context: &WatchContext) -> Vec<Alert> {
             Some(alert(format!("land:{}:requeue:{}", last.repo, last.lane), Severity::Warn, last, summary, third.time))
         })
         .collect()
-}
-
-fn queues(context: &WatchContext) -> Vec<Alert> {
-    let mut queues: BTreeMap<&str, Vec<_>> = BTreeMap::new();
-    for ticket in context.tickets.iter().filter(|ticket| context.live.contains(&ticket.pid)) {
-        queues.entry(ticket.queue.as_str()).or_default().push(ticket);
-    }
-    let mut alerts = Vec::new();
-    for tickets in queues.values() {
-        let Some(oldest) = tickets.iter().min_by(|a, b| a.time.total_cmp(&b.time)) else { continue };
-        let repo = oldest.repo.as_str();
-        let landed = context.events.iter().filter(|event| event.repo == repo && event.status == "landed").map(|event| event.time).fold(0.0, f64::max);
-        let totals: Vec<f64> = context.stages.iter().filter(|sample| sample.repo == repo && sample.stage == "cleanup").map(|sample| sample.total).collect();
-        let limit = (tickets.len() as f64 * percentile(&totals, 0.5).unwrap_or(0.0)).max(QUEUE_FLOOR);
-        let since = oldest.time.max(landed);
-        if context.now as f64 - since > limit {
-            let summary = format!("{repo}: {} lane(s) queued to land and none has landed for {:.0} min (expected within {:.0} min); first in queue {}", tickets.len(), (context.now as f64 - since) / 60.0, limit / 60.0, oldest.lane);
-            let owner = (!oldest.session.is_empty()).then(|| oldest.session.clone());
-            alerts.push(Alert { key: format!("land:{repo}:queue-stalled"), severity: Severity::Page, repo: Some(repo.to_owned()), owner, summary, since: (since + limit) as u64 });
-        }
-    }
-    alerts
 }
 
 fn push_errors(context: &WatchContext) -> Vec<Alert> {

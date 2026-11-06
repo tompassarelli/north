@@ -12,7 +12,7 @@ pub(crate) mod github;
 mod landing;
 pub mod sink;
 
-pub use facts::{Event, RepoFacts, Run, StageSample, Ticket};
+pub use facts::{Event, RepoFacts, Run, StageSample};
 
 const USAGE: &str = "usage: north watch --once [--quiet]";
 pub const HEARTBEAT: &str = "north/watch/heartbeat";
@@ -40,7 +40,6 @@ pub struct WatchContext {
     pub state: PathBuf,
     pub events: Vec<Event>,
     pub stages: Vec<StageSample>,
-    pub tickets: Vec<Ticket>,
     pub live: BTreeSet<u32>,
     pub repos: Vec<RepoFacts>,
     pub settle: Option<Value>,

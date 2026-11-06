@@ -38,16 +38,6 @@ pub struct StageSample {
     pub total: f64,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Ticket {
-    pub queue: String,
-    pub time: f64,
-    pub pid: u32,
-    pub repo: String,
-    pub lane: String,
-    pub session: String,
-}
-
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Run {
@@ -84,7 +74,6 @@ pub fn gather(state: &Path) -> WatchContext {
         state: state.to_path_buf(),
         events,
         stages: read_stages(&state.join("safe-push/stages.tsv")),
-        tickets: read_tickets(&state.join("safe-push")),
         live: live_safe_pushes(),
         repos,
         settle: fs::read_to_string(state.join("north/runtime-settle.json")).ok().and_then(|text| serde_json::from_str(&text).ok()),
@@ -183,37 +172,6 @@ fn read_stages(path: &Path) -> Vec<StageSample> {
     let text = fs::read_to_string(path).unwrap_or_default();
     let tail: Vec<&str> = text.lines().rev().take(5000).collect();
     parse_stages(&tail.into_iter().rev().collect::<Vec<_>>().join("\n"))
-}
-
-pub fn parse_ticket(queue: &str, name: &str, body: &str) -> Option<Ticket> {
-    let (stamp, pid) = name.split_once('-')?;
-    if stamp.is_empty() || !stamp.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    let fields: Vec<&str> = body.trim_end_matches('\n').split('\t').collect();
-    let root = fields.first().copied().unwrap_or_default();
-    let repo = root.split("/code/").nth(1).and_then(|rest| rest.split('/').next()).unwrap_or_default();
-    Some(Ticket {
-        queue: queue.to_owned(),
-        time: stamp.parse::<f64>().ok()? / 1_000_000.0,
-        pid: pid.parse().ok()?,
-        repo: repo.to_owned(),
-        lane: fields.get(1).copied().unwrap_or_default().to_owned(),
-        session: fields.get(3).copied().unwrap_or_default().to_owned(),
-    })
-}
-
-fn read_tickets(dir: &Path) -> Vec<Ticket> {
-    let mut tickets = Vec::new();
-    for queue in fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| entry.file_name().to_string_lossy().ends_with(".queue")) {
-        let queue_name = queue.file_name().to_string_lossy().into_owned();
-        for entry in fs::read_dir(queue.path()).into_iter().flatten().flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let body = fs::read_to_string(entry.path()).unwrap_or_default();
-            tickets.extend(parse_ticket(&queue_name, &name, &body));
-        }
-    }
-    tickets
 }
 
 fn live_safe_pushes() -> BTreeSet<u32> {
