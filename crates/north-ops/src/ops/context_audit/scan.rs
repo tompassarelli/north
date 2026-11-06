@@ -98,9 +98,6 @@ impl Audit {
 struct Line {
     #[serde(rename = "type")]
     kind: Option<String>,
-    uuid: Option<String>,
-    #[serde(rename = "parentUuid")]
-    parent: Option<String>,
     #[serde(rename = "isMeta")]
     meta: Option<bool>,
     message: Option<Value>,
@@ -115,7 +112,7 @@ enum Pending {
 #[derive(Default)]
 struct State {
     pending: HashMap<String, Pending>,
-    notifications: HashSet<String>,
+    awaiting: usize,
     injections: Vec<(usize, Vec<String>)>,
     accesses: Vec<(usize, String)>,
     step: usize,
@@ -157,12 +154,12 @@ fn visit(audit: &mut Audit, state: &mut State, line: Line) {
     match line.kind.as_deref() {
         Some("attachment") => {
             if let Some(attachment) = &line.attachment {
-                attachment_record(audit, state, attachment, line.uuid.as_deref(), line.parent.as_deref());
+                attachment_record(audit, state, attachment);
             }
         }
         Some("user") => {
             if let Some(message) = &line.message {
-                user_record(audit, state, message, line.uuid.as_deref(), line.meta.unwrap_or(false));
+                user_record(audit, state, message, line.meta.unwrap_or(false));
             }
         }
         Some("assistant") => {
@@ -191,15 +188,10 @@ fn add_skill(audit: &mut Audit, name: &str, chars: usize) {
     *audit.skills.entry(name.to_owned()).or_default() += chars;
 }
 
-fn attachment_record(audit: &mut Audit, state: &mut State, attachment: &Value, uuid: Option<&str>, parent: Option<&str>) {
+fn attachment_record(audit: &mut Audit, state: &mut State, attachment: &Value) {
     match attachment.get("type").and_then(Value::as_str) {
         Some("queued_command") => {
-            let prompt = joined(attachment.get("prompt"));
-            if prompt.trim_start().starts_with(NOTIFICATION)
-                && let Some(uuid) = uuid
-            {
-                state.notifications.insert(uuid.to_owned());
-            }
+            prompt_record(audit, state, &joined(attachment.get("prompt")));
         }
         Some("hook_additional_context") => {
             let text = joined(attachment.get("content"));
@@ -207,9 +199,7 @@ fn attachment_record(audit: &mut Audit, state: &mut State, attachment: &Value, u
             if text.starts_with(GROUNDING) {
                 *audit.chars.entry(Kind::Grounding).or_default() += chars;
                 audit.grounding.injections += 1;
-                if parent.is_some_and(|parent| state.notifications.contains(parent)) {
-                    audit.grounding.notification_injections += 1;
-                }
+                state.awaiting += 1;
                 state.injections.push((state.step, named_paths(&text)));
             } else if let Some(name) = text.starts_with(FILE_SKILL).then(|| FILE_SKILL_NAME.captures(&text)).flatten() {
                 let name = name[1].to_owned();
@@ -222,17 +212,25 @@ fn attachment_record(audit: &mut Audit, state: &mut State, attachment: &Value, u
     }
 }
 
-fn user_record(audit: &mut Audit, state: &mut State, message: &Value, uuid: Option<&str>, meta: bool) {
+fn prompt_record(audit: &mut Audit, state: &mut State, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    if text.trim_start().starts_with(NOTIFICATION) {
+        audit.grounding.notification_injections += state.awaiting;
+    }
+    state.awaiting = 0;
+}
+
+fn user_record(audit: &mut Audit, state: &mut State, message: &Value, meta: bool) {
     let content = message.get("content");
     let items: &[Value] = match content {
         Some(Value::Array(items)) => items,
         _ => &[],
     };
     let text = joined(content);
-    if text.trim_start().starts_with(NOTIFICATION)
-        && let Some(uuid) = uuid
-    {
-        state.notifications.insert(uuid.to_owned());
+    if !meta {
+        prompt_record(audit, state, &text);
     }
     if meta && let Some(rest) = text.strip_prefix(SKILL_BASE) {
         let dir = rest.lines().next().unwrap_or("").trim().trim_end_matches('/');
@@ -324,3 +322,7 @@ fn settle_precision(audit: &mut Audit, state: &State) {
             .count();
     }
 }
+
+#[cfg(test)]
+#[path = "scan_tests.rs"]
+mod tests;
