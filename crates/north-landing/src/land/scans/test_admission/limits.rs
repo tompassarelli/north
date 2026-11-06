@@ -57,7 +57,7 @@ pub(super) fn measured_seconds(state_home: &Path, repository: &str) -> Option<u6
         .lines()
         .filter_map(|line| {
             let fields: Vec<&str> = line.split('\t').collect();
-            (fields.get(1) == Some(&repository) && fields.get(3) == Some(&"green")).then(|| fields.get(6)?.trim().parse().ok())?
+            (fields.get(1) == Some(&repository) && fields.get(3) == Some(&"green") && fields.get(7).is_none_or(|covered_by| covered_by.is_empty())).then(|| fields.get(6)?.trim().parse().ok())?
         })
         .collect();
     walls.drain(..walls.len().saturating_sub(WINDOW));

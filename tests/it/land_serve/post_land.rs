@@ -139,6 +139,11 @@ fn landings_during_an_after_landing_run_wait_as_one_run_of_the_newest_head_that_
     let told: Vec<String> = fixture.fleet().into_iter().filter(|call| call.contains("post-land checks failed")).collect();
     assert_eq!(told.len(), 1, "{told:?}");
     assert!(told[0].starts_with("fleet send --from service:north-land session-lane-breaker "), "{told:?}");
+    let ledger = fs::read_to_string(fixture.state.join("safe-push/post-land.tsv")).unwrap();
+    for head in std::iter::once(&first).chain(&heads) {
+        let rows: Vec<&str> = ledger.lines().filter(|row| row.split('\t').nth(2) == Some(head.as_str())).collect();
+        assert_eq!(rows.len(), 1, "one verdict row for landed head {head}: {ledger}");
+    }
 }
 
 const HOLD_THEN_HANG_NEXT_AFTER_RUN: &str = r#"#!/usr/bin/env bash

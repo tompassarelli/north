@@ -14,7 +14,7 @@ use super::queue::{self, Ticket};
 use super::jobs::Jobs;
 use super::sheriff;
 use super::telemetry::epoch;
-use super::trace::{self, AFTER, COVERED_BY, Category, PHASE, Span};
+use super::trace::{self, AFTER, COVERED_BY, Category, PHASE, Span, VERDICT};
 
 const WORKTREE: &str = "lander-revert";
 const JOURNAL: &str = "following";
@@ -210,6 +210,9 @@ impl Watch {
         let started = batch.started.unwrap_or(ended);
         let links: Vec<Span> = batch.heads.iter().filter(|followed| followed.head != batch.head).map(|followed| Span::new(&followed.head, format!("after-landing run of {}", batch.head), Category::Lander, started, ended).with(PHASE, AFTER).with(COVERED_BY, batch.head.clone())).collect();
         record(lander, &links);
+        let (class, _) = outcome.verdict.class();
+        let verdicts: Vec<Span> = batch.heads.iter().map(|followed| Span::new(&followed.head, format!("verdict {class}"), Category::Lander, ended, ended).with(PHASE, AFTER).with(VERDICT, class)).collect();
+        record(lander, &verdicts);
         if let Some((from, to)) = outcome.search {
             record(lander, &[Span::new(&batch.head, format!("culprit search over {} landed lanes", batch.lanes.len()), Category::Lander, from, to).with(PHASE, AFTER)]);
         }

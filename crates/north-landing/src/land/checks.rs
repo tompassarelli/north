@@ -28,6 +28,19 @@ pub enum Verdict {
     Deferred(String),
 }
 
+impl Verdict {
+    pub fn class(&self) -> (&'static str, &str) {
+        match self {
+            Self::Green => ("green", ""),
+            Self::RedMain(detail) => ("red-main", detail),
+            Self::Transient(detail) => ("transient", detail),
+            Self::Refused(detail) => ("refused", detail),
+            Self::Deferred(detail) => ("deferred", detail),
+            Self::BrokenBase(detail) => ("broken-base", detail),
+        }
+    }
+}
+
 pub fn parse(text: &str) -> Option<Verdict> {
     let line = text.lines().rev().find_map(|line| line.trim_end().strip_prefix("safe-push: verdict "))?;
     let (class, detail) = line.split_once(' ').unwrap_or((line, ""));

@@ -9,15 +9,21 @@ use serde_json::Value;
 use tokio::process::Command;
 use tokio::signal::unix::{Signal as Incoming, SignalKind, signal};
 
-const USAGE: &str = "usage: north capacity deadline LEASE_FILE|- SECONDS -- COMMAND...";
+const USAGE: &str = "usage: north capacity deadline [--wall] LEASE_FILE|- SECONDS -- COMMAND...";
 const POLL: Duration = Duration::from_millis(250);
 const KILL_AFTER: Duration = Duration::from_secs(5);
+const REPORT_PATIENCE: Duration = Duration::from_secs(2);
 const TIMED_OUT: u8 = 124;
 const KILLED: u8 = 137;
+const NO_VERDICT: u8 = 75;
 const ANCESTRY_LIMIT: usize = 256;
 const DRIVEN_CLOCK: &str = "NORTH_CAPACITY_DEADLINE_CLOCK";
 
 pub fn run(arguments: &[String]) -> u8 {
+    let (wall, arguments) = match arguments.split_first() {
+        Some((flag, rest)) if flag == "--wall" => (true, rest),
+        _ => (false, arguments),
+    };
     let [lease, seconds, separator, program, rest @ ..] = arguments else {
         eprintln!("{USAGE}");
         return 2;
@@ -34,7 +40,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     };
     match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-        Ok(runtime) => runtime.block_on(guard(Clock::start(lease, timeout), program, rest)),
+        Ok(runtime) => runtime.block_on(guard(Clock::start(lease, timeout, wall), program, rest)),
         Err(error) => {
             eprintln!("north capacity deadline: {error}");
             1
@@ -68,16 +74,22 @@ async fn guard(mut clock: Clock, program: &str, rest: &[String]) -> u8 {
             }
         }
     }
-    if let Some(group) = group {
-        report(program, rest, clock.timeout, group.as_raw_nonzero().get());
-    }
+    let waited = clock.waited();
+    let report = group.map(|group| report(program, rest, clock.timeout, waited, group.as_raw_nonzero().get()));
     let _ = send(Signal::Term);
-    if tokio::time::timeout(KILL_AFTER, child.wait()).await.is_ok() {
-        return TIMED_OUT;
+    let ended = if tokio::time::timeout(KILL_AFTER, child.wait()).await.is_ok() {
+        TIMED_OUT
+    } else {
+        let _ = send(Signal::Kill);
+        let _ = child.wait().await;
+        KILLED
+    };
+    if let Some(report) = report {
+        let (written, done) = std::sync::mpsc::channel();
+        std::thread::spawn(move || written.send(std::io::Write::write_all(&mut std::io::stderr(), report.as_bytes())));
+        let _ = done.recv_timeout(REPORT_PATIENCE);
     }
-    let _ = send(Signal::Kill);
-    let _ = child.wait().await;
-    KILLED
+    if waited.is_some() { NO_VERDICT } else { ended }
 }
 
 async fn next(stream: &mut Option<Incoming>) {
@@ -111,6 +123,7 @@ impl Lease {
 struct Clock {
     lease: Lease,
     timeout: Duration,
+    wall: bool,
     started: Instant,
     driven: Option<PathBuf>,
     first: Option<Expiry>,
@@ -128,10 +141,10 @@ impl Drop for Clock {
 }
 
 impl Clock {
-    fn start(lease: Lease, timeout: Duration) -> Self {
+    fn start(lease: Lease, timeout: Duration, wall: bool) -> Self {
         let driven = std::env::var_os(DRIVEN_CLOCK).filter(|directory| !directory.is_empty()).map(PathBuf::from);
         let first = lease.file.as_deref().and_then(Expiry::read);
-        Self { lease, timeout, started: Instant::now(), driven, first, paused: Duration::ZERO, queued: Duration::ZERO, queued_since: None }
+        Self { lease, timeout, wall, started: Instant::now(), driven, first, paused: Duration::ZERO, queued: Duration::ZERO, queued_since: None }
     }
 
     fn elapsed(&self) -> Duration {
@@ -167,9 +180,15 @@ impl Clock {
             self.paused = Duration::from_millis(lease.expires_at.saturating_sub(first.expires_at));
         }
         let waiting = self.waiting(elapsed);
-        let expired = lease.is_none_or(|lease| !lease.frozen) && elapsed >= self.timeout + self.paused + waiting;
+        let expired = if self.wall { elapsed >= self.timeout } else { lease.is_none_or(|lease| !lease.frozen) && elapsed >= self.timeout + self.paused + waiting };
         self.acknowledge(elapsed);
         expired
+    }
+
+    fn waited(&mut self) -> Option<Duration> {
+        let now = self.elapsed();
+        let waited = self.paused + self.waiting(now);
+        (self.wall && !waited.is_zero()).then_some(waited)
     }
 }
 
@@ -224,8 +243,15 @@ fn exit_code(status: ExitStatus) -> u8 {
     status.code().or_else(|| status.signal().map(|signal| 128 + signal)).and_then(|code| u8::try_from(code).ok()).unwrap_or(1)
 }
 
-fn report(program: &str, rest: &[String], timeout: Duration, leader: i32) {
+fn report(program: &str, rest: &[String], timeout: Duration, waited: Option<Duration>, leader: i32) -> String {
     let command = std::iter::once(program).chain(rest.iter().map(String::as_str)).collect::<Vec<_>>().join(" ");
-    eprintln!("north capacity deadline: {command} exceeded its {} s deadline; still running:", timeout.as_secs());
-    eprint!("{}", super::process_tree::render(Path::new("/proc"), leader));
+    let headline = match waited {
+        Some(waited) => format!("north capacity deadline: {command} held its slot past its {} s deadline, {} s of it waiting for capacity, so it ends with no verdict (exit {NO_VERDICT}); still running:", timeout.as_secs(), waited.as_secs()),
+        None => format!("north capacity deadline: {command} exceeded its {} s deadline; still running:", timeout.as_secs()),
+    };
+    format!("{headline}\n{}", super::process_tree::render(Path::new("/proc"), leader))
 }
+
+#[cfg(test)]
+#[path = "deadline_tests.rs"]
+mod tests;

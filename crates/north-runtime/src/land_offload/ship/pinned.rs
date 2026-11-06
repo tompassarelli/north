@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 const SKEWED_CURRENT: &str = "echo \"remote-current refuses: $*\" >&2\nexit 2\n";
-const LANDER_NORTH: &str = "if [ \"$1\" = capacity ]; then shift 5; exec \"$@\"; fi\nif [ \"$1\" = dev-shell ]; then shift 5; exec \"$@\"; fi\necho \"lander $*\"\n";
+const LANDER_NORTH: &str = "if [ \"$1\" = capacity ]; then shift 6; exec \"$@\"; fi\nif [ \"$1\" = dev-shell ]; then shift 5; exec \"$@\"; fi\necho \"lander $*\"\n";
 const LANDER_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
 fn build_host(with_lander_runtime: bool) -> tempfile::TempDir {

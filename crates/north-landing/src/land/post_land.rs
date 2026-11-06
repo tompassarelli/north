@@ -228,19 +228,15 @@ fn tail(log: &Path) -> String {
 }
 
 fn record(run: &Run, landed: &Landed, verdict: &Verdict, expired: bool, seconds: u64) {
-    let (class, detail) = match verdict {
-        Verdict::Green => ("green", String::new()),
-        Verdict::RedMain(detail) => ("red-main", detail.clone()),
-        Verdict::Transient(detail) => ("transient", detail.clone()),
-        Verdict::Refused(detail) => ("refused", detail.clone()),
-        Verdict::Deferred(detail) => ("deferred", detail.clone()),
-        Verdict::BrokenBase(detail) => ("broken-base", detail.clone()),
-    };
+    if matches!(verdict, Verdict::Transient(_)) && !expired {
+        return;
+    }
+    let (class, detail) = verdict.class();
     if let Some(parent) = run.ledger.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let covered = if expired { landed.heads.clone() } else { vec![landed.head.clone()] };
-    let lines: String = covered.iter().map(|head| format!("{}\t{}\t{head}\t{class}\t{}\t{}\t{seconds}\n", telemetry::seconds(), landed.repository, detail.replace(['\t', '\n'], " "), landed.lanes.join(","))).collect();
+    let covered_by = |head: &str| if head == landed.head { "" } else { landed.head.as_str() };
+    let lines: String = landed.heads.iter().map(|head| format!("{}\t{}\t{head}\t{class}\t{}\t{}\t{seconds}\t{}\n", telemetry::seconds(), landed.repository, detail.replace(['\t', '\n'], " "), landed.lanes.join(","), covered_by(head))).collect();
     if let Err(error) = OpenOptions::new().create(true).append(true).open(&run.ledger).and_then(|mut file| file.write_all(lines.as_bytes())) {
         eprintln!("north land: could not record the post-land verdict of {}: {error}", landed.head);
     }

@@ -731,6 +731,19 @@ then S2b and S2c in parallel; then S3 and S4.
   and `-` otherwise; an empty lease name is a named error, because the old `leases/.json` watched
   no lease and never paused for a freeze. Under `-` the clock pauses while one of the command's
   own processes is queued for capacity or holds a frozen lease.
+  Slot deadline (2026-11-06): a job on a build host's offload slot runs under `north capacity
+  deadline --wall`, whose clock counts queued and frozen time, because the slot stays held while
+  its gate waits. At 7:34 AM four code-north-main slots on gex45 had been held for 6,300 to 7,000
+  s by jobs with 900 to 1,800 s deadlines, all behind one gate ticket that never left the queue.
+  A wall deadline that expires with any wait in it ends exit 75, a no-verdict that requeues the
+  after-landing batch instead of blaming a lane; one that expires with none is still the hang
+  judged against the base tree. The deadline renders the process tree before it signals and
+  writes it after the group is gone, waiting at most 2 s for stderr, so a pipe nobody drains holds
+  neither the kill nor the exit.
+  Verdict rows (2026-11-06): an after-landing run that covers several landings writes one
+  `safe-push/post-land.tsv` row and one `verdict` span per covered head, naming the run's head
+  in an eighth column; a run with no verdict writes neither and reruns. `north land profile`
+  prints each landing's verdict and how many landings have one, none or more than one.
   Failure verdict (2026-11-05): a check that exits nonzero inside a lander round reruns once on
   the base tree, on the same host and through the same wrapper, with `SAFE_PUSH_LAND_HEAD` naming
   the tree it runs on and `SAFE_PUSH_LAND_RUNTIME_HEAD` still naming the lane, so `bin/head-north`

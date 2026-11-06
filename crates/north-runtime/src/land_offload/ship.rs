@@ -113,7 +113,7 @@ printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$
 printf '%s\n' "$owner" >"$root/$s.owner"
 printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
-  rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid"
+  rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder"
   git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
   if [ -e "$slot/.git" ]; then git -C "$slot" clean -ffdxq -e /target 2>/dev/null || true; fi
 }
@@ -167,8 +167,10 @@ fi
 # sccache keys hold absolute paths, so every slot names its own directory as the base its keys are relative to, and serves it on its own port.
 SCCACHE_BASEDIRS=$slot; SCCACHE_SERVER_PORT=$((20000 + $(printf %s "$slot" | cksum | cut -d " " -f1) % 20000)); export SCCACHE_BASEDIRS SCCACHE_SERVER_PORT
 if [ -n "${carried:-}" ]; then eval "export $carried"; fi
+wall=--wall
+north capacity deadline --wall - 5 -- true 2>/dev/null || wall=
 limited() {
-  if command -v north >/dev/null 2>&1; then north capacity deadline - "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
+  if command -v north >/dev/null 2>&1; then north capacity deadline ${wall:+"$wall"} - "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
 rc=0
 if [ "${command#nix develop}" = "$command" ] && command -v north >/dev/null 2>&1; then

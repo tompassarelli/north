@@ -76,6 +76,9 @@ pub fn render(profiles: &[Profile<'_>], since: f64) -> String {
     if !verified.is_empty() {
         let _ = writeln!(out, "verification after the push: p50 {}, p90 {} over {} landing{}", seconds(percentile(&verified, 0.5)), seconds(percentile(&verified, 0.9)), verified.len(), if verified.len() == 1 { "" } else { "s" });
     }
+    let counted = |verdicts: usize| profiles.iter().filter(|profile| profile.verdicts.len() == verdicts).count();
+    let many = profiles.len() - counted(0) - counted(1);
+    let _ = writeln!(out, "verification verdicts: {} landing{} with one, {} with none yet, {many} with more than one", counted(1), if counted(1) == 1 { "" } else { "s" }, counted(0));
     let _ = writeln!(out, "\neach landing, queued_at to push:");
     for profile in profiles {
         let landing = profile.landing;
@@ -87,6 +90,8 @@ pub fn render(profiles: &[Profile<'_>], since: f64) -> String {
         if profile.after_wall > 0.0 {
             let _ = writeln!(out, "  after push, {} of verification: {}", seconds(profile.after_wall), categories(&profile.after, profile.after.total()));
         }
+        let verdict = if profile.verdicts.is_empty() { "none yet".to_owned() } else { profile.verdicts.join(", ") };
+        let _ = writeln!(out, "  verdict: {verdict}");
     }
     let mut summed = Split::default();
     let mut after = Split::default();
