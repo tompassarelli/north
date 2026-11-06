@@ -1,10 +1,9 @@
-use crate::capacity::carry;
-use std::fs::File;
-use std::io::Seek;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use bundle::{bundle, carried};
+use relay::{relay, verdict};
 pub(super) use north_base::foundation::exit::TRANSPORT_FAILED;
 const WRONG_TREE: u8 = 98;
 use north_base::foundation::exit::NO_VERDICT;
@@ -146,58 +145,16 @@ pub(super) use script::jobs_part;
 pub use script::{SlotClass, is_lander_slot};
 pub(crate) use script::slot_ports;
 use script::remote_script;
+mod bundle;
 #[cfg(test)]
 mod pinned;
+mod relay;
 
 fn ensure_shipped(host: &str, sha: &str, present: impl FnOnce() -> bool, ship: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
     if present() {
         return Ok(());
     }
     ship().map_err(|why| format!("shipping the lander runtime {sha} to {host}: {why}"))
-}
-
-fn bundle(land: &Land, reference: &str) -> Result<File, String> {
-    let git = || {
-        let mut command = Command::new("git");
-        command.current_dir(land.checkout);
-        command
-    };
-    let file = tempfile::tempfile().map_err(|error| format!("bundle file: {error}"))?;
-    let made = git().args(["update-ref", reference, land.head.as_str()]).status().is_ok_and(|status| status.success());
-    if !made {
-        return Err(format!("cannot name {} for the bundle", land.head.as_str()));
-    }
-    let mut command = git();
-    command.args(["bundle", "create", "-q", "-", reference]);
-    match &land.base {
-        Some(base) if *base == land.head => command.arg(format!("^{}^", base.as_str())),
-        Some(base) => command.arg(format!("^{}", base.as_str())),
-        None => &mut command,
-    };
-    let bundled = command.stdout(file.try_clone().map_err(|error| error.to_string())?).status().is_ok_and(|status| status.success());
-    let _ = git().args(["update-ref", "-d", reference]).status();
-    if !bundled {
-        return Err("git bundle failed".to_owned());
-    }
-    let mut file = file;
-    file.rewind().map_err(|error| error.to_string())?;
-    Ok(file)
-}
-
-/// The landing context a land check carries to the offload host as `NAME='value'` words, naming the shipped base and head; empty for any other run.
-fn carried(land: &Land, value: impl Fn(&str) -> Option<String>) -> String {
-    if value(carry::LANDING).as_deref() != Some("1") {
-        return String::new();
-    }
-    let words = carry::names(carry::Boundary::Offload).filter_map(|name| {
-        let value = match name {
-            carry::LAND_BASE => Some(land.base.as_ref().map_or("", CommitId::as_str).to_owned()),
-            carry::LAND_HEAD => Some(land.head.as_str().to_owned()),
-            _ => value(name),
-        };
-        value.map(|value| format!("{name}={}", quote(&value)))
-    });
-    words.collect::<Vec<_>>().join(" ")
 }
 
 pub(super) fn run(land: &Land) -> u8 {
@@ -271,39 +228,6 @@ fn with_caller(program: &str) -> Command {
 
 fn ran_marker(reference: &str) -> String {
     format!("north-offload-ran:{}", reference.rsplit('/').next().unwrap_or(reference))
-}
-
-/// Copies the remote's stdout through to `out` without the status line the remote script prints after the command it ran, calls `running` once the remote holds its slot and runs, and returns that status.
-fn relay(remote: impl std::io::BufRead, out: &mut impl std::io::Write, marker: &str, mut running: impl FnMut()) -> Option<u8> {
-    let tag = format!("{marker} ");
-    let mut ran = None;
-    for line in remote.split(b'\n') {
-        let Ok(line) = line else { break };
-        if line.starts_with(RUNNING.as_bytes()) {
-            running();
-        }
-        let reported = String::from_utf8_lossy(&line).rfind(&tag).and_then(|at| std::str::from_utf8(&line[at + tag.len()..]).ok()?.parse::<u8>().ok().map(|code| (at, code)));
-        let shown = match reported {
-            Some((at, code)) => {
-                ran = Some(code);
-                &line[..at]
-            }
-            None => &line[..],
-        };
-        if reported.is_none() || !shown.is_empty() {
-            let _ = out.write_all(shown).and_then(|()| out.write_all(b"\n")).and_then(|()| out.flush());
-        }
-    }
-    ran
-}
-
-/// The run's exit code: the status the remote script reported for the command it ran, else the script's own refusal before running it; a run whose remote never reported its command's exit (a dropped connection, ssh exit 255, an exit before the report) reached no verdict, never the command's failure.
-fn verdict(exited: Option<u8>, ran: Option<u8>) -> Result<u8, String> {
-    match (exited, ran) {
-        (_, Some(code)) => Ok(code),
-        (Some(code @ (WRONG_TREE | BESIDE_MISSING | SLOTS_BUSY)), None) => Ok(code),
-        (exited, None) => Err(format!("the connection ended ({}) before the remote host reported the command's exit, so the run reached no verdict", exited.map_or_else(|| "ssh was killed by a signal".to_owned(), |code| format!("ssh exit {code}")))),
-    }
 }
 
 pub(super) fn free_slots(ssh: &str, directory: &Path) -> Result<u32, String> {

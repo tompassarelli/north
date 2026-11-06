@@ -10,14 +10,14 @@ const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head
 Run the after-landing gates (code-health, crate-lines, instruction-limits, generated-rewrite, ci-budget) and each `after-landing.check = NAME :: COMMAND`
 in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then add a section for HEAD naming every gate that failed to the repository's one open After-landing gate debt issue; a gate already marked
 for HEAD is not added again.";
+mod body;
+
+use body::{dropped_before, kept_boxes, render, split_sections};
+
 const MARKER: &str = "<!-- after-landing-gate: ";
 const TAIL_LINES: usize = 15;
 const BODY_LIMIT: usize = 60_000;
 const TITLE: &str = "After-landing gate debt";
-const FIELDS: &str = "Category: bug-known-cause\nClass: a gate that runs after landing failed on a landed commit: every section below.\n";
-const HEADER: &str = "Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit.";
-const DROPPED: &str = "Older sections dropped: ";
-const DONE_WHEN: &str = "\n## Done when\n- [ ] No section remains below: each failed gate is fixed forward on main and its section deleted.\n";
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Failure {
@@ -46,12 +46,12 @@ pub fn filing(head: &str, date: &str, existing: Option<&Filed>, failures: &[Fail
     }
     let mut sections = split_sections(current);
     sections.insert(0, section(sha, date, &new));
-    let mut dropped = dropped_before(current);
-    while sections.len() > 1 && render(dropped, &sections).chars().count() > BODY_LIMIT {
+    let (mut dropped, kept) = (dropped_before(current), kept_boxes(current));
+    while sections.len() > 1 && render(dropped, &kept, &sections).chars().count() > BODY_LIMIT {
         sections.pop();
         dropped += 1;
     }
-    let body = render(dropped, &sections);
+    let body = render(dropped, &kept, &sections);
     match existing {
         Some(filed) => Filing::Edit { number: filed.number, body },
         None => Filing::Create { title: TITLE.to_owned(), body },
@@ -80,40 +80,6 @@ fn section(sha: &str, date: &str, failures: &[&Failure]) -> String {
         text.push_str(&format!("\n{}\n```\n{tail}\n```\n", failure.gate));
     }
     text
-}
-
-fn split_sections(body: &str) -> Vec<String> {
-    let mut sections: Vec<String> = Vec::new();
-    let mut after_marker = false;
-    for line in body.lines() {
-        let is_marker = line.starts_with(MARKER);
-        if is_marker && !after_marker {
-            sections.push(String::new());
-        }
-        if let Some(last) = sections.last_mut() {
-            last.push_str(line);
-            last.push('\n');
-        }
-        after_marker = is_marker;
-    }
-    sections
-}
-
-fn dropped_before(body: &str) -> usize {
-    body.lines().find_map(|line| line.strip_prefix(DROPPED)?.trim_end_matches('.').parse().ok()).unwrap_or(0)
-}
-
-fn render(dropped: usize, sections: &[String]) -> String {
-    let mut body = format!("{FIELDS}{HEADER}\n");
-    if dropped > 0 {
-        body.push_str(&format!("{DROPPED}{dropped}.\n"));
-    }
-    body.push_str(DONE_WHEN);
-    for section in sections {
-        body.push('\n');
-        body.push_str(section);
-    }
-    body
 }
 
 struct Args {

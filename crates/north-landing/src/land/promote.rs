@@ -1,14 +1,15 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use super::candidate::{git, output};
 use super::divergence::{self, Divergence};
 use super::lander::state_home;
-use super::{enqueue, link_hold, queue, replay, repositories, sheriff, telemetry};
-use crate::landing::red_check::Failure;
+use super::{link_hold, queue, replay, repositories, telemetry};
+use shadow::shadow;
+use tolerance::{Held, only_fixes, tolerated};
 use north_base::foundation::exit::NO_VERDICT;
 
 mod arrival;
@@ -24,6 +25,9 @@ const WALK: usize = 256;
 const SHADOW_MINUTES: u64 = 15;
 const SHADOW_PAUSE: Duration = Duration::from_secs(30);
 const LANDER_PATHS: [&str; 4] = ["crates/north-landing/", "crates/north-safe-push/", "crates/north-runtime/", "tests/it/land"];
+
+mod shadow;
+mod tolerance;
 
 struct Options {
     dry_run: bool,
@@ -174,53 +178,6 @@ fn run_replay(binary: &Path, checkout: &Path, base: &str, checker: &str, tickets
     }
 }
 
-struct Held<'a> {
-    binary: Option<&'a Path>,
-    only_fixes: bool,
-}
-
-fn first_word(verdict: &str) -> &str {
-    verdict.split_whitespace().next().unwrap_or_default()
-}
-
-fn in_lander(checkout: &Path, base: &str, failure: &Failure) -> bool {
-    let files = match failure {
-        Failure::Harness(path) => vec![path.clone()],
-        Failure::Cargo(name) => {
-            let leaf = name.rsplit("::").next().unwrap_or(name);
-            let found = git(checkout, &["grep", "-l", "-E", &format!(r"fn {leaf}\b"), base, "--", "*.rs"]).unwrap_or_default();
-            found.lines().map(|line| line.split_once(':').map_or(line, |(_, path)| path).to_owned()).collect()
-        }
-        Failure::Line(_) | Failure::Step(_) => Vec::new(),
-    };
-    files.is_empty() || files.iter().any(|file| LANDER_PATHS.iter().any(|prefix| file.starts_with(prefix)))
-}
-
-fn tolerated(held: &Held, repository: &Repository, checker: &str, round: &Round, base: &str, candidate: &replay::Replayed) -> Result<String, String> {
-    let binary = held.binary.ok_or("no held runtime to compare with")?;
-    let against = run_replay(binary, &repository.checkout, base, checker, &round.tickets())?;
-    if first_word(&against.verdict) != first_word(&candidate.verdict) {
-        return Err(format!("the held runtime replayed {}", first_word(&against.verdict)));
-    }
-    let new: Vec<&Failure> = candidate.failures.difference(&against.failures).collect();
-    if new.is_empty() {
-        return Ok("the held runtime replays it the same way: no new failure".to_owned());
-    }
-    let named = new.iter().map(|failure| failure.label()).collect::<Vec<_>>().join(", ");
-    if held.only_fixes && !new.iter().any(|failure| in_lander(&repository.checkout, base, failure)) {
-        return Ok(format!("a revert or sheriff-fix candidate whose new failures ({named}) lie outside the lander's crates"));
-    }
-    Err(format!("new failures the held runtime does not have: {named}"))
-}
-
-fn only_fixes(checkout: &Path, held: &Path, target: &Path) -> bool {
-    let name = |path: &Path| path.file_name().map(|name| name.to_string_lossy().into_owned());
-    let (Some(held), Some(target)) = (name(held), name(target)) else { return false };
-    let Ok(messages) = git(checkout, &["log", "--first-parent", "-z", "--format=%B", &format!("{held}..{target}")]) else { return false };
-    let messages: Vec<&str> = messages.split('\0').map(str::trim).filter(|message| !message.is_empty()).collect();
-    !messages.is_empty() && messages.iter().all(|message| sheriff::is_revert(message) || message.lines().any(enqueue::is_main_red_marker))
-}
-
 fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker: &str, divergences: &mut Vec<Divergence>, unreached: &mut Vec<String>) -> usize {
     let mut replayed = 0;
     for round in recorded(&repository.queue.join("done")) {
@@ -269,52 +226,6 @@ fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker:
         replayed += 1;
     }
     replayed
-}
-
-fn shadow_copy(queue: &Path, scratch: &Path) -> Result<Vec<PathBuf>, String> {
-    let pending = queue::pending(queue).map_err(|error| format!("{}: {error}", queue.display()))?;
-    pending
-        .into_iter()
-        .map(|(path, ticket)| {
-            let copy = scratch.join(path.file_name().unwrap_or_default());
-            queue::write(&copy, &ticket).map(|()| copy).map_err(|error| error.to_string())
-        })
-        .collect()
-}
-
-fn shadow(binary: &Path, repositories: &[Repository], checker: &str, minutes: u64) -> Result<String, String> {
-    let deadline = Instant::now() + Duration::from_secs(minutes * 60);
-    let mut errors: HashSet<String> = HashSet::new();
-    let (mut passes, mut checked) = (0, 0);
-    loop {
-        passes += 1;
-        for repository in repositories {
-            let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
-            let tickets = shadow_copy(&repository.queue, scratch.path())?;
-            if tickets.is_empty() {
-                continue;
-            }
-            checked += 1;
-            let error = match run_replay(binary, &repository.checkout, "FETCH_HEAD", checker, &tickets) {
-                Ok(replayed) => {
-                    println!("north land promote: shadow pass {passes}: {} queued lane(s) of {} replayed {}", tickets.len(), repository.checkout.display(), replayed.verdict);
-                    replayed.verdict.starts_with("transient").then_some(replayed.verdict)
-                }
-                Err(error) => Some(error),
-            };
-            if let Some(error) = error {
-                println!("north land promote: shadow pass {passes}: error {error}");
-                if !errors.insert(error.clone()) {
-                    return Err(format!("the shadow lander repeated an error: {error}"));
-                }
-            }
-        }
-        if Instant::now() + SHADOW_PAUSE >= deadline {
-            break;
-        }
-        std::thread::sleep(SHADOW_PAUSE);
-    }
-    Ok(format!("{passes} pass(es), {checked} candidate(s) checked, {} error(s), none repeated", errors.len()))
 }
 
 enum Outcome {
