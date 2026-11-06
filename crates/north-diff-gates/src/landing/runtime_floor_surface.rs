@@ -148,7 +148,7 @@ impl Surface {
     }
 
     fn owners(&self, invocation: &Invocation) -> BTreeSet<&str> {
-        let named = invocation.command().into_iter().flat_map(|command| self.files.iter().filter(move |path| in_module(path, command)));
+        let named = invocation.words.iter().take(2).flat_map(|word| self.files.iter().filter(move |path| in_module(path, word)));
         let reached = invocation.words.iter().rev().find_map(|word| self.scopes.get(word)).into_iter().flatten();
         named.chain(reached).map(String::as_str).collect()
     }
