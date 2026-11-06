@@ -27,6 +27,8 @@ const DECIDES: [&str; 15] = [
 const HEAD_NORTH: &str = "bin/head-north";
 const REPLAY: [&str; 6] = ["strategy", "replay", "--since", "24h", "--invariants", "--budget"];
 const TRAILER: &str = "Replay-shift:";
+const BUDGET_KEY: &str = "the replay took";
+const SLOWER_THAN_MAIN: f64 = 1.5;
 
 /// The paths of `DECIDES` the range changes, or none for a repository without the replay.
 fn touched(directory: &Path, range: &Range) -> Vec<&'static str> {
@@ -66,7 +68,13 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl std::io::Write) -> u8 
         let _ = writeln!(out, "strategy-replay: refused the landing; the replay above names the count or invariant it broke");
         return lane.status.code().map_or(1, |code| u8::try_from(code).unwrap_or(1));
     };
-    let already = refused(&String::from_utf8_lossy(&main.stdout));
+    let main_report = String::from_utf8_lossy(&main.stdout);
+    let already = refused(&main_report);
+    let mut lane_refused = lane_refused;
+    if lane_refused.contains(BUDGET_KEY) && !slower_than_main(&report, &main_report) {
+        lane_refused.remove(BUDGET_KEY);
+        let _ = writeln!(out, "strategy-replay: the lane's replay is over its time budget but not slower than main's replay of the same build profile on this host; the budget is not held against the lane");
+    }
     let bodies = git::text(directory, &["log", "--format=%B", &format!("{}..{}", range.base, range.head)]).unwrap_or_default();
     let declared = declared(&bodies);
     let (intended, new): (Vec<String>, Vec<String>) = beyond(&lane_refused, &already).into_iter().partition(|key| declared.contains_key(key));
@@ -87,6 +95,22 @@ fn refused(report: &str) -> BTreeSet<String> {
         .filter_map(|line| line.strip_prefix("refused: "))
         .map(|refusal| refusal.split_once(':').map_or_else(|| refusal.split(|character: char| character.is_ascii_digit()).next().unwrap_or(refusal).trim_end().to_owned(), |(key, _)| key.to_owned()))
         .collect()
+}
+
+/// The seconds and build profile a replay report ends with, on its `replayed N cases in X s (PROFILE build)` line.
+fn timing(report: &str) -> Option<(f64, &str)> {
+    let line = report.lines().find(|line| line.starts_with("replayed "))?;
+    let (_, rest) = line.split_once(" cases in ")?;
+    let (seconds, rest) = rest.split_once(" s (")?;
+    Some((seconds.parse().ok()?, rest.strip_suffix(" build)")?))
+}
+
+/// Whether the lane's replay is slower than main's with the same build profile; a lane and a main built differently cannot be compared, so the lane is not named.
+fn slower_than_main(lane: &str, main: &str) -> bool {
+    match (timing(lane), timing(main)) {
+        (Some((lane_seconds, lane_profile)), Some((main_seconds, main_profile))) => lane_profile == main_profile && lane_seconds > main_seconds * SLOWER_THAN_MAIN,
+        _ => false,
+    }
 }
 
 fn beyond(lane: &BTreeSet<String>, main: &BTreeSet<String>) -> Vec<String> {

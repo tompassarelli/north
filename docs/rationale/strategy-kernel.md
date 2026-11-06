@@ -453,7 +453,7 @@ or the lander's judgement, builds the lane's north through `bin/head-north` and 
 `--since 24h --invariants --budget`. When the lane's build refuses, the scan runs the same replay with
 the host's own north and refuses only for a count, invariant or budget the lane's build breaks and
 main's does not, so a breach already in recorded history (on 2026-11-06 landing-p90 at 65.9 s over 60 s)
-does not refuse every lane that touches a decision file (north#684). A count the lane moves on purpose passes when a commit in its range declares it with `Replay-shift: KEY: REASON`, KEY being the refusal's key such as `placement cloud`, and the scan prints each declared shift with its reason (north#690). A host whose north runtime predates the scan skips it with a
+does not refuse every lane that touches a decision file (north#684). The budget is judged like with like (2026-11-06): the report ends with the build profile, and the replay time names a lane only when it is over `replay_budget_seconds` and more than 1.5 times main's replay of the same profile on the same host, so a lane built in debug is not held to a release run of main and an unchanged lane under host load passes. A count the lane moves on purpose passes when a commit in its range declares it with `Replay-shift: KEY: REASON`, KEY being the refusal's key such as `placement cloud`, and the scan prints each declared shift with its reason (north#690). A host whose north runtime predates the scan skips it with a
 printed line until `north runtime update`.
 
 ## Loading

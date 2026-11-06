@@ -131,7 +131,7 @@ fn print_report(replayed: &Replayed, invariants: bool, since: f64, now: f64, sec
             println!("{}", invariant.line());
         }
     }
-    println!("replayed {} cases in {seconds:.2} s", replayed.counts.iter().map(|counts| counts.cases).sum::<usize>());
+    println!("replayed {} cases in {seconds:.2} s ({} build)", replayed.counts.iter().map(|counts| counts.cases).sum::<usize>(), if cfg!(debug_assertions) { "debug" } else { "release" });
 }
 
 #[cfg(test)]
