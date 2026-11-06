@@ -4,13 +4,14 @@ use crate::dispatch::measure::{self, Measure};
 use crate::platform::process::run_within;
 use std::time::Duration;
 
-use super::ship::{OFFLOAD_ROOT, job_cap, quote};
+use super::ship::{OFFLOAD_ROOT, host_job_cap, jobs_part, quote};
 
 const LIMIT: Duration = Duration::from_secs(15);
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
 const STATUS_MARK: &str = "@ADMISSION@";
 const SLOTS_MARK: &str = "@SLOTS@";
-const SLOTS_PROBE: &str = r#"root=$1; n=0; for l in "$root"/*.lock; do [ -e "$l" ] || continue; case $l in *.background.lock) continue ;; esac; (exec 7>>"$l"; flock -n 7) 2>/dev/null || n=$((n + 1)); done; q=$(ls "$root/queue" 2>/dev/null | grep -c "^[01]-" || true); echo "$n $q $(nproc)""#;
+const SLOTS_PROBE: &str = r#"root=$1
+@JOBS@n=$(host_jobs); q=$(ls "$root/queue" 2>/dev/null | grep -c "^[01]-" || true); echo "$n $q $(nproc)""#;
 const STATUS_PROBE: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host status"#;
 const CLAIM: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host land-waiting"#;
 
@@ -48,7 +49,7 @@ impl Room {
     fn busy(&self, cores: f64, taken: usize) -> f64 {
         let limit = self.admission.limit_cpus.max(1.0);
         let committed = (limit - self.admission.free_cpus() + cores * taken as f64) / limit;
-        self.slots.map_or(committed, |slots| slots.backlog(job_cap(slots.cores, cores.ceil() as u32, self.measure.memory_total_mib as u32), taken).max(committed))
+        self.slots.map_or(committed, |slots| slots.backlog(host_job_cap(slots.cores, cores.ceil() as u32, self.measure.memory_total_mib as u32), taken).max(committed))
     }
 }
 
@@ -74,7 +75,7 @@ const MEASURE_PROBE: &str = r#"echo "${AGENT_CAPACITY_CORES:-$(nproc)}"; cat "${
 
 fn script() -> String {
     let disk = format!(r#"if [ -n "${{AGENT_CAPACITY_DISK_FREE_GIB:-}}" ]; then awk -v gib="$AGENT_CAPACITY_DISK_FREE_GIB" 'BEGIN {{ printf "pinned 0 0 %d 0%% /\n", gib * 1048576 }}'; else d="{OFFLOAD_ROOT}"; while [ ! -d "$d" ]; do d=$(dirname "$d"); done; df -Pk "$d"; fi"#);
-    format!("{MEASURE_PROBE}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}; echo {SLOTS_MARK}; sh -c {} offload-slots \"{OFFLOAD_ROOT}\"", quote(SLOTS_PROBE))
+    format!("{MEASURE_PROBE}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}; echo {SLOTS_MARK}; sh -c {} offload-slots \"{OFFLOAD_ROOT}\"", quote(&SLOTS_PROBE.replace("@JOBS@", &jobs_part())))
 }
 
 pub fn read_within(ssh: &str, limit: Duration) -> Option<Room> {

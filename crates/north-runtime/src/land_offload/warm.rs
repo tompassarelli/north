@@ -19,7 +19,7 @@ use rustix::fs::{FlockOperation, flock};
 use super::ship::{SLOTS, is_lander_slot, slot_ports};
 use crate::offload_cache::{Disk, Line, disk_of};
 
-const LOCK: &str = "warm.lock";
+pub(super) const LOCK: &str = "warm.lock";
 const LOG: &str = "warm.log";
 const WARMED: &str = ".warmed";
 const UNIT: &str = "north-slot-warm";

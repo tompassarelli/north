@@ -27,33 +27,23 @@ pub(super) fn job_mib() -> u32 {
     crate::capacity::admission::dispatch_request_mib(crate::capacity::admission::Class::Heavy) as u32
 }
 
-pub(super) fn job_cap(cores: u32, per_check: u32, memory_mib: u32) -> u32 {
-    let by_cores = if per_check <= 1 { SLOTS } else { cores / per_check };
+pub(super) fn host_job_cap(cores: u32, per_check: u32, memory_mib: u32) -> u32 {
+    let by_cores = if per_check <= 1 { cores } else { cores / per_check };
     let by_memory = match job_mib() {
         0 => by_cores,
         job if memory_mib < job => by_cores,
         job => memory_mib / job,
     };
-    by_cores.min(by_memory).clamp(1, SLOTS)
+    by_cores.min(by_memory).max(1)
 }
 
 const FREE: &str = r#"set -eu
-root=@ROOT@ name=$1 free=0 i=0
+root=@ROOT@ name=$1 per=${2:-0}
 mkdir -p "$root"
-while [ "$i" -lt @SLOTS@ ]; do
-  s=$name
-  [ "$i" -eq 0 ] || s=$name-$i
-  if (exec 9>"$root/$s.lock"; flock -n 9); then free=$((free + 1)); fi
-  i=$((i + 1))
-done
-per=${2:-0}
-@CAP@running=0
-for l in "$root"/*.lock; do
-  [ -e "$l" ] || continue
-  case $l in *.background.lock) continue ;; esac
-  (exec 7>>"$l"; flock -n 7) 2>/dev/null || running=$((running + 1))
-done
-room=$((cap - running))
+@JOBS@@CAP@own=$(slot_jobs "$name")
+free=$((@SLOTS@ - own))
+room=$((cap - own)) host_room=$((host_cap - $(host_jobs)))
+[ "$room" -le "$host_room" ] || room=$host_room
 [ "$room" -ge 0 ] || room=0
 [ "$free" -le "$room" ] || free=$room
 echo "$free"
@@ -152,6 +142,7 @@ fn job_ref(head: &CommitId) -> String {
 
 mod beside;
 mod script;
+pub(super) use script::jobs_part;
 pub use script::{SlotClass, is_lander_slot};
 pub(crate) use script::slot_ports;
 use script::remote_script;
@@ -317,7 +308,7 @@ fn verdict(exited: Option<u8>, ran: Option<u8>) -> Result<u8, String> {
 
 pub(super) fn free_slots(ssh: &str, directory: &Path) -> Result<u32, String> {
     let (_, name) = checkout(directory)?;
-    let script = FREE.replace("@CAP@", script::CAP).replace("@ROOT@", OFFLOAD_ROOT).replace("@SLOTS@", &SLOTS.to_string()).replace("@JOB_MIB@", &job_mib().to_string());
+    let script = FREE.replace("@JOBS@", &script::jobs_part()).replace("@CAP@", script::CAP).replace("@ROOT@", OFFLOAD_ROOT).replace("@SLOTS@", &SLOTS.to_string()).replace("@JOB_MIB@", &job_mib().to_string());
     let per = (crate::capacity::host::land_check_cpus().ceil() as u32).to_string();
     let remote = format!("sh -c {} offload-free {} {per}", quote(&script), quote(&name));
     let (counted, host) = if ssh.is_empty() {

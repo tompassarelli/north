@@ -124,14 +124,14 @@ fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
     let (_, stderr) = remote_run("true", None, &[], None, "");
     assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-offload --timeout-seconds 10"), "{stderr}");
     let job = super::job_mib();
-    let cases = [(8, 4, 31_000, 2, "ccx33 at 4 cores a land check: its heavy leases keep the CPU headroom, so no 4/5 cut leaves it one job"), (20, 4, 64_000, 5, "gex45"), (8, 1, 3 * job, 3, "memory caps a host whose land checks charge one core"), (2, 4, 64_000, 1, "a host smaller than one land check still runs one")];
-    for (cores, per, memory, expected, why) in cases {
+    let cases = [(8, 4, 31_000, 2, 2, "ccx33 at 4 cores a land check: its heavy leases keep the CPU headroom, so no 4/5 cut leaves it one job"), (20, 3, 64_000, 6, 6, "gex45 at 3 cores a land check"), (48, 4, 192_000, 12, super::SLOTS, "a host with room for more jobs than one checkout has slots runs that many across its checkouts"), (8, 1, 3 * job, 3, 3, "memory caps a host whose land checks charge one core"), (2, 4, 64_000, 1, 1, "a host smaller than one land check still runs one")];
+    for (cores, per, memory, host, expected, why) in cases {
         let meminfo = tempfile::NamedTempFile::new().unwrap();
         fs::write(meminfo.path(), format!("MemTotal:       {} kB\n", memory * 1024)).unwrap();
-        let script = format!("per={per}\n{}echo \"$cap\"", super::script::CAP.replace("@SLOTS@", &super::SLOTS.to_string()).replace("@JOB_MIB@", &job.to_string()));
+        let script = format!("per={per}\n{}echo \"$host_cap $cap\"", super::script::CAP.replace("@SLOTS@", &super::SLOTS.to_string()).replace("@JOB_MIB@", &job.to_string()));
         let output = Command::new("sh").args(["-c", &script]).env("AGENT_CAPACITY_CORES", cores.to_string()).env("AGENT_CAPACITY_MEMINFO", meminfo.path()).env_remove("NORTH_OFFLOAD_MAX_JOBS").output().unwrap();
-        let shell: u32 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap();
-        assert_eq!((shell, super::job_cap(cores, per, memory)), (expected, expected), "{why}");
+        let shell: Vec<u32> = String::from_utf8_lossy(&output.stdout).split_whitespace().map(|word| word.parse().unwrap()).collect();
+        assert_eq!((shell, super::host_job_cap(cores, per, memory)), (vec![host, expected], host), "{why}");
     }
 }
 
@@ -209,7 +209,7 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     let slot = home.path().join(".cache/land-offload/code-p-main");
     git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap(), &head]);
     fs::remove_dir_all(&slot).unwrap();
-    let script = super::script::REMOTE.replace("@CAP@", super::script::CAP).replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@JOB_MIB@", "0").replace("@SLOT_PORTS@", "");
+    let script = super::script::REMOTE.replace("@JOBS@", &super::script::jobs_part()).replace("@CAP@", super::script::CAP).replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@JOB_MIB@", "0").replace("@SLOT_PORTS@", "");
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
         .env("HOME", home.path())
@@ -266,6 +266,10 @@ fn wait_until_in_line(home: &Path, log: &Path, jobs: usize) {
 #[test]
 fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
+    let root = home.path().join(".cache/land-offload");
+    fs::create_dir_all(&root).unwrap();
+    let warming = fs::File::create(root.join(super::super::warm::LOCK)).unwrap();
+    rustix::fs::flock(&warming, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
@@ -285,10 +289,13 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
                 .env_remove("NORTH_OFFLOAD_ROOT")
                 .stdin(fs::File::open(&bundle).unwrap())
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stderr(fs::File::create(home.path().join(format!("{label}.err"))).unwrap())
                 .spawn()
                 .unwrap();
             wait_until_in_line(home.path(), &log, index + 1);
+            while index == 0 && !fs::read_to_string(&log).is_ok_and(|text| text.contains("start-a")) {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
             child
         })
         .collect();
@@ -298,6 +305,10 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
     }
     let order: Vec<String> = fs::read_to_string(&log).unwrap().lines().map(str::to_owned).collect();
     assert_eq!(order, ["start-a", "end-a", "start-b", "end-b", "start-c", "end-c", "start-d", "end-d"]);
+    let waiting = fs::read_to_string(home.path().join("b.err")).unwrap();
+    let line = waiting.lines().find(|line| line.starts_with("offload: waiting for a slot")).unwrap_or_else(|| panic!("{waiting}"));
+    let held = line.split_once("held by: ").map_or("", |(_, held)| held);
+    assert!(line.contains("code-p-main runs 1 of 1 jobs at once, the host 1 of 1;") && held.starts_with(&format!("code-p-main.lock {} since ", &head[..12])) && held.matches(';').count() == 1, "the warm job's lock counts as no job, and the line names the one job the cap counts: {line}");
     assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "every job left the queue");
 }
 
