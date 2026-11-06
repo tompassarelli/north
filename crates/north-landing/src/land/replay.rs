@@ -75,17 +75,28 @@ fn replay(options: &Options) -> Result<Replayed, String> {
     if built.picks.len() != tickets.len() {
         return Ok(Replayed::of("undecided not every lane was picked"));
     }
-    let log = scratch.path().join("replay-check.log");
+    let log = kept_log(&checkout, &base)?;
     let verdict = match checks::start(&checks::Launch { checker: &options.checker, offload_owner: "north-land-replay", round: "replay".to_owned(), red_fix: false, lander_slot: false, unchecked: &[] }, &worktree, &base, &log, false) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     };
+    if verdict == Verdict::Green {
+        let _ = fs::remove_file(&log);
+    }
     let class = class(&verdict);
     let failures = match verdict {
         Verdict::Refused(_) | Verdict::RedMain(_) => named_failures(&log, &class),
         _ => BTreeSet::new(),
     };
     Ok(Replayed { verdict: class, failures })
+}
+
+fn kept_log(checkout: &Path, base: &str) -> Result<PathBuf, String> {
+    let origin = git(checkout, &["remote", "get-url", "--push", "origin"])?;
+    let logs = queue::directory(&super::lander::state_home(), &origin).join("logs");
+    fs::create_dir_all(&logs).map_err(|error| format!("{}: {error}", logs.display()))?;
+    let micros = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_micros());
+    Ok(logs.join(format!("{micros}-replay-{}.log", &base[..base.len().min(12)])))
 }
 
 fn named_failures(log: &Path, class: &str) -> BTreeSet<Failure> {

@@ -75,3 +75,28 @@ fn promote_refuses_a_candidate_with_a_new_failure_and_keeps_the_lander_link_but_
     assert!(stdout.contains("not a hold, the held runtime replays it the same way: no new failure"), "{stdout}");
     assert_eq!(lander_link(&fixture), Some(same));
 }
+
+#[test]
+fn a_replay_that_fails_keeps_its_check_log_in_the_queue_logs_and_a_green_replay_leaves_none() {
+    let fixture = served();
+    let mut decided: Vec<PathBuf> = fs::read_dir(fixture.queue().join("done")).unwrap().flatten().map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).collect();
+    decided.sort();
+    let ticket = decided.first().expect("a decided ticket").clone();
+    let base = fixture.base.clone();
+    let logs = fixture.queue().join("logs");
+    let replay_logs = || fs::read_dir(&logs).unwrap().flatten().filter(|entry| entry.file_name().to_string_lossy().contains("-replay-")).count();
+    let replay = || {
+        let output = fixture.north().args(["land", "replay", "--base", &base, "--repo", fixture.repo.to_str().unwrap(), "--checker", fixture.trace.join("checker").to_str().unwrap(), ticket.to_str().unwrap()]).output().unwrap();
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    fs::write(fixture.trace.join("verdict"), "refused\nsafe-push: land check cargo nextest run exited 100; log: elsewhere").unwrap();
+    let failed = replay();
+    let cited = failed.lines().find_map(|line| line.strip_prefix("replay: verdict failed ")).and_then(|detail| detail.rsplit_once("log: ")).map(|(_, log)| PathBuf::from(log.trim())).unwrap_or_else(|| panic!("a failed replay cites its log: {failed}"));
+    assert!(cited.starts_with(&logs), "a failed replay's log sits in the queue logs, not a deleted temporary directory: {}", cited.display());
+    assert!(cited.is_file(), "the cited replay log is still there after the replay: {}", cited.display());
+    fs::remove_file(fixture.trace.join("verdict")).unwrap();
+    let before = replay_logs();
+    let green = replay();
+    assert!(green.contains("replay: verdict landed"), "{green}");
+    assert_eq!(replay_logs(), before, "a green replay keeps no log");
+}
