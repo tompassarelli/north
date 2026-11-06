@@ -65,6 +65,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("context", |arguments| crate::ops::context_audit::run(arguments, agent_config_check::startup_tokens)),
     ("worker-ledger", super::worker_ledger::run),
     ("scoreboard", super::scoreboard::run),
+    ("spend", super::spend::run),
     ("brief", crate::guard::brief_skeleton::run),
     ("proxy", |arguments| match arguments.first().map(String::as_str) {
         Some("calls") => crate::proxy::run(arguments, &super::verbs::VERB_KINDS),

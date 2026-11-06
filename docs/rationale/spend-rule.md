@@ -74,12 +74,15 @@ The spawn hook applies the reserve and the tripwire to the account the parent bi
 **Handover.** A running session whose account reaches the provider's limit is handed to the account in room
 order that spend admits as a reserved starter. It adds no session, so the cap and reserve do not hold it.
 
-**Where the tripwire runs.** In `north fleet tick` on the host whose usage sampler fills the usage table,
-beside the spend breaker. The fleet burst reads the table's five-hour readings. The session burst reads each
-session's spend so far, which the tick records per session in `agents/spend/spenders.json`, priced in the
-account's five-hour points by the calibrated points per dollar. Current trips go to `agents/spend/trips.json`
-there, where dispatch, fleet launch and the spawn hook on that host read them; `north spend --json` prints
-the view for anything else.
+**Where the tripwire runs.** In `north fleet tick` on every host whose copy of the usage table holds a
+five-hour reading from the last 30 minutes, beside the spend breaker, so each host's spawners read trips
+judged on that host. The fleet burst reads the table's five-hour readings, which every host shares. The
+session burst reads the spend so far of each session that host runs, which the tick records per session in
+`agents/spend/spenders.json`, priced in the account's five-hour points by the calibrated points per dollar
+(a session burst is not judged on an account with no calibrated rate). Current trips go to
+`agents/spend/trips.json` there, where dispatch, fleet launch and the spawn hook on that host read them, and
+each new one is appended to `agents/spend/trips.jsonl`. Only the host that holds the proxy tells it, so a
+fleet burst every host sees reaches the proxy once. `north spend [--json]` prints the view.
 
 **Follows-release.** A released follower is a new worker, so release asks `spend::admit`. A cap or tripwire
 refusal leaves the follower waiting for the next release pass rather than failing it.

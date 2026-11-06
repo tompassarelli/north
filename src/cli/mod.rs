@@ -28,6 +28,7 @@ pub(crate) mod scoreboard;
 mod send;
 mod strategy;
 mod session;
+mod spend;
 #[cfg(test)]
 mod laptop_runner_tests;
 #[cfg(test)]

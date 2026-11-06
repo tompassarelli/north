@@ -22,6 +22,7 @@ mod router;
 mod row;
 mod show;
 mod spend;
+mod trips;
 mod spool;
 mod tick;
 mod tier;

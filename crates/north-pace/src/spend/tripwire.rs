@@ -21,7 +21,7 @@ pub struct Sample {
 }
 
 /// One session's settled spend: its cumulative dollars at each tick that read it.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Spender {
     pub session: String,
     pub account: String,
@@ -76,3 +76,43 @@ pub fn trip(rules: &Rules, account: &str, samples: &[Sample], spenders: &[Spende
     let line = if named.is_empty() { why } else { format!("{why}; top spenders in points: {}", named.join(", ")) };
     Some(Trip { account: account.to_owned(), line, at: now })
 }
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct Spenders {
+    pub sessions: Vec<Spender>,
+}
+
+impl Spenders {
+    pub fn record(&self, read: &[(String, String, f64)], now: f64, span: f64) -> Self {
+        let since = now - span;
+        let sessions = read
+            .iter()
+            .map(|(session, account, usd)| {
+                let earlier = self.sessions.iter().find(|spender| spender.session == *session && spender.account == *account).map_or(&[][..], |spender| spender.spent.as_slice());
+                let start = earlier.iter().filter(|(at, _)| *at <= since).map(|(at, _)| *at).fold(f64::NEG_INFINITY, f64::max);
+                let mut spent: Vec<(f64, f64)> = earlier.iter().copied().filter(|(at, _)| *at >= start && *at < now).collect();
+                spent.push((now, *usd));
+                Spender { session: session.clone(), account: account.clone(), spent }
+            })
+            .collect();
+        Self { sessions }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Judged {
+    pub current: Vec<Trip>,
+    pub new: Vec<Trip>,
+}
+
+pub fn judge(previous: &[Trip], confirmed: Vec<Trip>, now: f64, span: f64) -> Judged {
+    let live: Vec<&Trip> = previous.iter().filter(|trip| now - trip.at <= span).collect();
+    let new = confirmed.iter().filter(|trip| !live.iter().any(|earlier| earlier.account == trip.account)).cloned().collect();
+    let kept: Vec<Trip> = live.into_iter().filter(|earlier| !confirmed.iter().any(|trip| trip.account == earlier.account)).cloned().collect();
+    let mut current = confirmed;
+    current.extend(kept);
+    Judged { current, new }
+}
+
+pub const SPENDERS: &str = "spend/spenders.json";
+pub const TRIP_LOG: &str = "spend/trips.jsonl";
