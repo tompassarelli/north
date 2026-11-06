@@ -9,6 +9,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Build cost: where north's compiles burn cores, and what to cut first](build-cost.md): Plan of 2026-11-04 (laptop time, +07), revised the same day after review.
 - [Capacity scheduler: elastic, learned, fleet-wide placement by predicted finish time](capacity-scheduler.md): Owner: north#259
 - [Conflict-free landing: no lane starves, no author round-trip for a mechanical conflict](conflict-free-landing.md): On 2026-11-05 Tom asked for a fix by construction after the lane that puts every repository on the lander (s18-integrated) lost the race to main four times in 20 minutes while its author rebased by hand.
+- [Context economics: what a worker's context costs, and where it compacts](context-economics.md): Decided 2026-11-06 under north#636.
 - [Coverage test selection: the tests a change reaches, before the push](coverage-test-selection.md): North lands first and verifies after the push, so a failing test costs a revert.
 - [Crate split: why a leaf edit rebuilt 141k lines](crate-split.md): Measured 2026-10-31 on the laptop, heavy class (6 CPUs, 8 GiB), warm cache: appending a blank line to `src/provenance.rs` cost 10.5 s for `cargo build` and 15.6 s for `cargo test --no-run`.
 - [Credentials registry: no agent work depends on a human sign-in](credentials-registry.md): Decided 2026-11-06 under north#522.

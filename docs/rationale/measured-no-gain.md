@@ -195,7 +195,11 @@ arm loses. Each box is at most 45 minutes, lands alone through safe-push, and le
 5. Handoff Done-rate term. `Arms::winner` keeps handoff-150k on a tier only when its cost per closed box is lower
    and its Done rate is no more than 10 points below no-handoff, with a test for each side. Done when: that test
    passes on origin/main and `north dispatch --dry-run` on Nexus prints the winner per tier with both rates.
-6. Handoff nudge, not before 2026-11-18 and only when no tier keeps handoff-150k under box 5. Delete
+6. Handoff nudge, not before 2026-11-18 and only when no tier keeps handoff-150k under box 5. Superseded on 2026-11-06 by
+   [context-economics.md](context-economics.md): on the 30-day closed-box report handoff-150k cost $13.85 per kept box
+   against no-handoff's $9.23 with a like kept share, so dispatch stopped assigning either and draws the context arms
+   instead, and the dispatch arm pick and `handoff_arm_ctx` are deleted; the session threshold and the nudge stay until
+   the checkpoint box on north#636 rebuilds them, and box 5 is moot. Delete
    `crates/north-core/src/fleet/handoff.rs`, the nudge in `crates/north-core/src/fleet/watch.rs`, the arm pick in
    `crates/north-dispatch/src/dispatch/handoff.rs` and `mod.rs`, the session threshold and `handoff_arm_ctx`.
    Done when: `rg -n 'handoff_arm_ctx|handoff-150k' crates harness` prints nothing; when a tier keeps it,

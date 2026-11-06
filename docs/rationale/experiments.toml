@@ -383,3 +383,63 @@ before = ["2026-10-09", "2026-11-06"]
 after = ["2026-11-06", "2026-11-20"]
 review = "2026-11-22"
 owner = "tompassarelli/north#634"
+
+[[experiment]]
+id = "context-arm-200k"
+change = "A dispatched local Claude box on no tier or effort arm launches with an auto-compact window drawn from 200k, 300k, 400k and 500k in equal seeded shares, stamped Arm: context-NNNk; this entry counts the 200k arm"
+landed = "580ccb4ef"
+note = "docs/rationale/context-economics.md"
+rule = "Overturned by: a context arm whose cost per kept box, among boxes whose peak crossed 167k, is lower than the 500k arm's with a kept share no lower, under the settle rule the adaptive-shares and settle-on-evidence boxes of north#636 define; or every arm short of 15 closed boxes by 2026-12-07, which means dispatch reaches too few boxes and hand launches must draw the arm too."
+metric = "runs"
+arm = "context-200k"
+direction = "up"
+bar = 15.0
+min_n = 1
+after = ["2026-11-07", "2026-12-07"]
+review = "2026-12-09"
+owner = "tompassarelli/north#636"
+
+[[experiment]]
+id = "context-arm-300k"
+change = "A dispatched local Claude box on no tier or effort arm launches with an auto-compact window drawn from 200k, 300k, 400k and 500k in equal seeded shares, stamped Arm: context-NNNk; this entry counts the 300k arm"
+landed = "580ccb4ef"
+note = "docs/rationale/context-economics.md"
+rule = "Overturned by: a context arm whose cost per kept box, among boxes whose peak crossed 167k, is lower than the 500k arm's with a kept share no lower, under the settle rule the adaptive-shares and settle-on-evidence boxes of north#636 define; or every arm short of 15 closed boxes by 2026-12-07, which means dispatch reaches too few boxes and hand launches must draw the arm too."
+metric = "runs"
+arm = "context-300k"
+direction = "up"
+bar = 15.0
+min_n = 1
+after = ["2026-11-07", "2026-12-07"]
+review = "2026-12-09"
+owner = "tompassarelli/north#636"
+
+[[experiment]]
+id = "context-arm-400k"
+change = "A dispatched local Claude box on no tier or effort arm launches with an auto-compact window drawn from 200k, 300k, 400k and 500k in equal seeded shares, stamped Arm: context-NNNk; this entry counts the 400k arm"
+landed = "580ccb4ef"
+note = "docs/rationale/context-economics.md"
+rule = "Overturned by: a context arm whose cost per kept box, among boxes whose peak crossed 167k, is lower than the 500k arm's with a kept share no lower, under the settle rule the adaptive-shares and settle-on-evidence boxes of north#636 define; or every arm short of 15 closed boxes by 2026-12-07, which means dispatch reaches too few boxes and hand launches must draw the arm too."
+metric = "runs"
+arm = "context-400k"
+direction = "up"
+bar = 15.0
+min_n = 1
+after = ["2026-11-07", "2026-12-07"]
+review = "2026-12-09"
+owner = "tompassarelli/north#636"
+
+[[experiment]]
+id = "context-arm-500k"
+change = "A dispatched local Claude box on no tier or effort arm launches with an auto-compact window drawn from 200k, 300k, 400k and 500k in equal seeded shares, stamped Arm: context-NNNk; this entry counts the 500k arm"
+landed = "580ccb4ef"
+note = "docs/rationale/context-economics.md"
+rule = "Overturned by: a context arm whose cost per kept box, among boxes whose peak crossed 167k, is lower than the 500k arm's with a kept share no lower, under the settle rule the adaptive-shares and settle-on-evidence boxes of north#636 define; or every arm short of 15 closed boxes by 2026-12-07, which means dispatch reaches too few boxes and hand launches must draw the arm too."
+metric = "runs"
+arm = "context-500k"
+direction = "up"
+bar = 15.0
+min_n = 1
+after = ["2026-11-07", "2026-12-07"]
+review = "2026-12-09"
+owner = "tompassarelli/north#636"
