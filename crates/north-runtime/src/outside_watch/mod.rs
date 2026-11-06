@@ -53,7 +53,7 @@ impl Config {
         Ok(Self {
             owner: env::var("OUTSIDE_WATCH_OWNER").unwrap_or_else(|_| "tompassarelli".to_owned()),
             own: env::var("OUTSIDE_WATCH_OWN")
-                .unwrap_or_else(|_| "tompassarelli,github-actions[bot],dependabot[bot]".to_owned())
+                .unwrap_or_else(|_| "tompassarelli,socrates-agent[bot],github-actions[bot],dependabot[bot]".to_owned())
                 .split(',')
                 .map(str::to_owned)
                 .collect(),

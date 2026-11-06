@@ -249,7 +249,7 @@ fn thread_context(config: &Config, post: &Post) -> Result<String, Failure> {
 }
 
 pub(super) fn classify(config: &Config, post: &Post, at: Timestamp, profiles: &mut BTreeMap<String, Value>) -> Result<Class, Failure> {
-    if post.kind == "pr" || !NO_STANDING.contains(&post.association.as_str()) || domains(&post.body).is_empty() {
+    if post.kind == "pr" || !post.is_user || !NO_STANDING.contains(&post.association.as_str()) || domains(&post.body).is_empty() {
         return Ok(Class::Real);
     }
     if !profiles.contains_key(&post.actor) {
