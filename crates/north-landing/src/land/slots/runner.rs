@@ -642,6 +642,11 @@ impl Shared {
         let (status, log) = (ran.status, ran.log.display());
         if status != INFRASTRUCTURE && let Some(first) = self.base_failure(command, leased, timeout).await {
             let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
+            if self.config.is_inferred(command) {
+                say(&format!("safe-push: land check (inferred) {command} exited {status} on this lane and also fails on base tree {tree} ({first}); the repository never declared it and main does not meet it, so it does not gate this lane; log: {log}"));
+                self.outcome.record(&["event", "land check", "not gating", &format!("{command}: main fails it too; log: {log}")]);
+                return 0;
+            }
             let detail = format!("{BROKEN_BASE}{command} on {}: {first}", host_name(&self.cache_class(command)));
             warn(&format!("safe-push: land check {command} exited {status} on this lane and also failed on base tree {tree}, so the failure is the check environment, not this lane; log: {log}; NOT pushed."));
             self.outcome.record(&["skip", &detail]);
