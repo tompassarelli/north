@@ -199,6 +199,7 @@ fn added_tests_are_refused_under_an_unlisted_contract_or_over_the_verification_b
         let scan = admission_scan(&fixture);
         assert_eq!(scan.status, status, "{claim}: {}", scan.stdout);
     }
+    trail(&fixture, "No contract claimed.");
     for (seconds, status) in [(20, 0), (21, 1)] {
         verification_takes(&fixture, seconds);
         let scan = admission_scan(&fixture);

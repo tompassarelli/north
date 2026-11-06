@@ -17,7 +17,7 @@ const FAKE_SSH: &str = r#"while [ $# -gt 0 ]; do
 done
 printf '%s\n' "$destination" >>"$FAKE_SSH_LOG"
 case "$*" in
-  *nproc*) [ -f "$FAKE_ROOMS/$destination" ] || exit 255; cat "$FAKE_ROOMS/$destination"; exit 0 ;;
+  *@ADMISSION@*) [ -f "$FAKE_ROOMS/$destination" ] || exit 255; cat "$FAKE_ROOMS/$destination"; exit 0 ;;
 esac
 [ -d "$FAKE_REMOTE_HOMES/$destination" ] || exit 255
 HOME=$FAKE_REMOTE_HOMES/$destination exec sh -c "$*"
