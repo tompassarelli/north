@@ -51,7 +51,7 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held, budget: &Budg
     let linked = match (inputs.open_issue_text)() {
         Ok(text) => linked_runs(&text),
         Err(error) => {
-            eprintln!("north reclaim: evidence holds {} MiB over its {} MiB budget, but open issues are unreadable ({}), so no run is deleted", total >> 20, budget.bytes >> 20, error.trim());
+            eprintln!("north lane reclaim: evidence holds {} MiB over its {} MiB budget, but open issues are unreadable ({}), so no run is deleted", total >> 20, budget.bytes >> 20, error.trim());
             return Ok(Vec::new());
         }
     };

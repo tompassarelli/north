@@ -55,7 +55,7 @@ A sample of 20 of the 171, drawn with `shuf --random-source=<(yes 657) -n 20` ov
 
 - a0b83f6f8 (fence native leases, north#259) by b3d1886b6 (crate split box 4-12, north#259): not rework; no shared file, its "Fixes after the verb" are its own moved paths.
 - f4771806c (fleet store, north#429 box 1a) by 930ad18df (fleet tick, the next box): not rework; of 9 shared files it changes 4 of the landing's lines, a usage string and imports it extends.
-- 6aec1fadd (lane-gc moves idle lanes, north#523) by 53cdfd58a (refuse the proxy implementation work, north#523): not rework; no shared file.
+- 6aec1fadd (lane gc moves idle lanes, north#523) by 53cdfd58a (refuse the proxy implementation work, north#523): not rework; no shared file.
 - 7151960a3 (skip the install build in land checks, north#360) by d380ce323 (workers queue on infrastructure refusals, north#360): not rework; no shared file.
 - 975af79c4 (prompt-grounding recall, north#523) by 53cdfd58a: not rework; no shared file.
 - 8424e2772 (fleet waits in the store, north#429 box 3a) by eaeb7a955 (fleet invariant in the tick, box 3b): not rework; 4 of the landing's lines changed are re-exports and a signature the next box widens, and "a round of fixes" is the trigger's own review.

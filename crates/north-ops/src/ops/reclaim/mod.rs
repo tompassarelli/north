@@ -32,7 +32,7 @@ pub(super) fn setting(name: &str) -> f64 {
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
-const USAGE: &str = "usage: north reclaim [--dry-run] [--idle-hours H]";
+const USAGE: &str = "usage: north lane reclaim [--dry-run] [--idle-hours H]";
 const DEFAULT_IDLE_HOURS: u64 = 24;
 const KEPT_PAIRS: [u32; 2] = [0, 1];
 
@@ -96,7 +96,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let removals = match reclaim(&inputs, &policy) {
         Ok(removals) => removals,
         Err(error) => {
-            eprintln!("north reclaim: {error}");
+            eprintln!("north lane reclaim: {error}");
             return 1;
         }
     };
@@ -208,7 +208,7 @@ fn newest_change(path: &Path) -> io::Result<SystemTime> {
 pub(super) fn removed(path: &Path) -> bool {
     let removal = fs::symlink_metadata(path).and_then(|metadata| if metadata.is_dir() { fs::remove_dir_all(path) } else { fs::remove_file(path) });
     if let Err(error) = &removal {
-        eprintln!("north reclaim: remove {}: {error}", path.display());
+        eprintln!("north lane reclaim: remove {}: {error}", path.display());
     }
     removal.is_ok()
 }

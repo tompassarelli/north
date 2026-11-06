@@ -142,7 +142,7 @@ fn print_unlanded(home: &Path, state: &Path) -> u8 {
             0
         }
         Err(_) => {
-            eprintln!("lane-gc: no report yet at {}; run lane-gc --dry-run", tilde(home, state));
+            eprintln!("lane gc: no report yet at {}; run north lane gc --dry-run", tilde(home, state));
             1
         }
     }
@@ -169,7 +169,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let containers = match containers(&options.root, &options.repos) {
         Ok(containers) => containers,
         Err(error) => {
-            eprintln!("lane-gc: {}: {error}", options.root.display());
+            eprintln!("lane gc: {}: {error}", options.root.display());
             return 1;
         }
     };
@@ -225,11 +225,11 @@ impl Gc {
     fn finish(&mut self) -> u8 {
         let stale = serde_json::to_string_pretty(&self.stale).unwrap_or_default() + "\n";
         if let Err(error) = write_atomically(&self.stale_path, &stale) {
-            eprintln!("lane-gc: {}: {error}", self.stale_path.display());
+            eprintln!("lane gc: {}: {error}", self.stale_path.display());
             return 1;
         }
         let header = format!(
-            "# lane-gc {}: unlanded worktrees and branches (age of last commit, container, path, branch, ahead, dirty, first subject, refs, class)\n",
+            "# lane gc {}: unlanded worktrees and branches (age of last commit, container, path, branch, ahead, dirty, first subject, refs, class)\n",
             Timestamp::now().iso_millis()
         );
         let body = report::sorted(&self.rows).join("\n");
@@ -237,13 +237,13 @@ impl Gc {
         if !self.options.dry_run && self.options.repos.is_empty() {
             let text = format!("{header}{body}{}", if body.is_empty() { "" } else { "\n" });
             if let Err(error) = write_atomically(&self.options.state, &text) {
-                eprintln!("lane-gc: {}: {error}", self.options.state.display());
+                eprintln!("lane gc: {}: {error}", self.options.state.display());
                 return 1;
             }
             let remote = self.options.state.with_file_name(REMOTE_RECORD);
-            let text = format!("# lane-gc {}: origin branch decisions\n{}\n", Timestamp::now().iso_millis(), self.remote_rows.join("\n"));
+            let text = format!("# lane gc {}: origin branch decisions\n{}\n", Timestamp::now().iso_millis(), self.remote_rows.join("\n"));
             if let Err(error) = write_atomically(&remote, &text) {
-                eprintln!("lane-gc: {}: {error}", remote.display());
+                eprintln!("lane gc: {}: {error}", remote.display());
                 return 1;
             }
         } else if self.options.dry_run {
@@ -254,7 +254,7 @@ impl Gc {
         }
         let c = &self.counts;
         println!(
-            "lane-gc{}: retired {} worktrees, {} local branches, {} origin branches; kept {} ({} unlanded); dropped {} build targets ({})",
+            "lane gc{}: retired {} worktrees, {} local branches, {} origin branches; kept {} ({} unlanded); dropped {} build targets ({})",
             if self.options.dry_run { " (dry run)" } else { "" },
             c.retired_worktrees,
             c.deleted_branches,

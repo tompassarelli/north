@@ -221,7 +221,7 @@ saving is ordering checks to fail fast (W3-3).
 | Placement by predicted finish time | keep if W2-0 still finds waiting to move, starting from a deterministic rule | 86 laptop tickets (14.2 h) and up to 1,115 gex45 tickets (266.6 h) waited while the other host had room, measured on the CPU accounting elastic-cpu removes |
 | Reservation backfill from predicted durations | keep, on memory and slots only | with CPU elastic, the 0.1-core head-of-line case disappears; memory, exclusive drains, GPU slots and native client caps still block |
 | Result cache by tree hash, runtime reuse | keep (Wave 0) | 32 to 33% of core-hours went to failing runs; most land checks fail |
-| Shared sccache on gex45 | drop as a new item | each host already shares one disk cache across leases (96854b985); sharing it with the laptop breaks D2/B24; build-cost.md measured `target-seed` ahead of sccache (31 Oct) |
+| Shared sccache on gex45 | drop as a new item | each host already shares one disk cache across leases (96854b985); sharing it with the laptop breaks D2/B24; build-cost.md measured `north lane seed` ahead of sccache (31 Oct) |
 | Calibration report with drift alarms | keep, with aggregate alarms that switch placement and backfill off, and a retune proposal report instead of tuned state | thresholds in defaults.toml are mostly priors waiting on counts; per-key alarms over hundreds of keys would misfire about 4% of the time each |
 | GPU on the same model, batch GPU on gex45 | keep, measurement first; never on the attended laptop | gex45 records 0 GPU-seconds; the laptop's gpu class is 8% busy |
 
@@ -283,7 +283,7 @@ One model, one placement function, one enforcer per host.
    passing stops, which wastes backfill for a head whose reservation is far off and bounds nothing for one that is
    near. This is EASY backfill with system predictions instead of user estimates.
 5. **Never twice (Wave 0 plus W3).** Land-check verdicts by tree and tool identity per host; runtime binary reuse;
-   lane `target-seed` plus the per-host sccache disk cache; skip a queued runtime build only while a newer queued
+   lane `north lane seed` plus the per-host sccache disk cache; skip a queued runtime build only while a newer queued
    build of the same key is queued or running and has not failed, and build the skipped predecessor if the newer
    one fails; cheap land checks keep running in parallel, and only the expensive ones (predicted over 120 CPU-s) are
    ordered by predicted fail probability per CPU-second and cancelled at the landing's first failure. Estimates are

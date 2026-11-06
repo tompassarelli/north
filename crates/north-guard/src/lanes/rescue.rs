@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use super::repo::{find_container, git_checked, git_ok, git_out};
 use north_base::platform::process;
 
-const USAGE: &str = "Usage: wt-rescue [path] [--dry-run]
+const USAGE: &str = "Usage: north lane rescue [path] [--dry-run]
 
 Relocate a dirty main checkout's tracked + untracked (non-ignored) changes
 into a new worktree/branch under <container>/worktrees/, verify it byte-for-byte,
@@ -58,14 +58,14 @@ pub fn run(arguments: &[String]) -> u8 {
             return 0;
         }
         Err(message) => {
-            eprintln!("wt-rescue: {message}\n{USAGE}");
+            eprintln!("lane rescue: {message}\n{USAGE}");
             return 2;
         }
     };
     let rescue = Rescue { now: SystemTime::now(), apply_diff };
     let start = parsed.path.map_or_else(|| std::env::current_dir().unwrap_or_default(), PathBuf::from);
     let Ok(start) = start.canonicalize().and_then(|dir| if dir.is_dir() { Ok(dir) } else { Err(std::io::ErrorKind::NotFound.into()) }) else {
-        eprintln!("wt-rescue: no such directory '{}'\n{USAGE}", start.display());
+        eprintln!("lane rescue: no such directory '{}'\n{USAGE}", start.display());
         return 2;
     };
     match rescue.rescue(&start, parsed.dry_run) {
@@ -112,16 +112,16 @@ pub(super) fn apply_diff(rescue_dir: &Path, diff: &[u8]) -> bool {
 impl Rescue {
     pub(super) fn rescue(&self, start: &Path, dry_run: bool) -> Finished {
         let Some(container) = find_container(start) else {
-            return Finished::Failed(vec![format!("wt-rescue: no container found above {} (no <dir>/main/.git)", start.display())]);
+            return Finished::Failed(vec![format!("lane rescue: no container found above {} (no <dir>/main/.git)", start.display())]);
         };
         let main_dir = container.join("main");
         match git_out(&main_dir, &["--no-optional-locks", "status", "--porcelain"]) {
-            None => return Finished::Failed(vec![format!("wt-rescue: could not read the status of {}", main_dir.display())]),
+            None => return Finished::Failed(vec![format!("lane rescue: could not read the status of {}", main_dir.display())]),
             Some(status) if status.is_empty() => return Finished::Clean,
             Some(_) => {}
         }
         let Some(changes) = gather(&main_dir) else {
-            return Finished::Failed(vec!["wt-rescue: could not read main's changes".into()]);
+            return Finished::Failed(vec!["lane rescue: could not read main's changes".into()]);
         };
         let destination = self.destination(&container, &main_dir);
         if dry_run {
@@ -157,7 +157,7 @@ impl Rescue {
         fs::create_dir_all(container.join("worktrees")).map_err(|error| failed(error.to_string()))?;
         git_checked(main_dir, &["worktree", "add", "-q", "-b", branch, &rescue_dir.to_string_lossy(), "HEAD"]).map_err(failed)?;
         if !changes.diff.is_empty() && !(self.apply_diff)(rescue_dir, &changes.diff) {
-            return Err(failed("wt-rescue: git apply failed".into()));
+            return Err(failed("lane rescue: git apply failed".into()));
         }
         for file in &changes.untracked {
             copy_preserving(&main_dir.join(file), &rescue_dir.join(file)).map_err(|error| failed(error.to_string()))?;
@@ -165,14 +165,14 @@ impl Rescue {
         let mismatches = verify(main_dir, rescue_dir, changes);
         if !mismatches.is_empty() {
             let mut lines = mismatches;
-            lines.push(format!("wt-rescue: ABORTING — verification failed; main is UNTOUCHED; rescue worktree left at {} for inspection", rescue_dir.display()));
+            lines.push(format!("lane rescue: ABORTING — verification failed; main is UNTOUCHED; rescue worktree left at {} for inspection", rescue_dir.display()));
             return Err(lines);
         }
         commit(destination)?;
         restore(main_dir, changes);
         match git_out(main_dir, &["--no-optional-locks", "status", "--porcelain"]).filter(|status| !status.is_empty()) {
             Some(status) => Err(vec![
-                format!("wt-rescue: main did NOT end clean after restore — rescue worktree ({}, branch {branch}) still holds the verified copy", rescue_dir.display()),
+                format!("lane rescue: main did NOT end clean after restore — rescue worktree ({}, branch {branch}) still holds the verified copy", rescue_dir.display()),
                 status,
             ]),
             None => Ok(()),
@@ -200,7 +200,7 @@ fn gather(main_dir: &Path) -> Option<Changes> {
 
 fn plan(destination: &Destination, changes: &Changes) -> Vec<String> {
     let mut lines = vec![
-        "wt-rescue: DRY RUN — no changes made".to_string(),
+        "lane rescue: DRY RUN — no changes made".to_string(),
         format!("container:   {}", destination.container.display()),
         format!("destination: {} (branch {})", destination.rescue_dir.display(), destination.branch),
         "tracked changes to rescue:".to_string(),
@@ -224,8 +224,8 @@ fn verify(main_dir: &Path, rescue_dir: &Path, changes: &Changes) -> Vec<String> 
     for path in changes.tracked.iter().chain(&changes.untracked) {
         let (here, there) = (main_dir.join(path), rescue_dir.join(path));
         match (here.exists(), there.exists()) {
-            (true, true) if !matches!((fs::read(&here), fs::read(&there)), (Ok(ours), Ok(theirs)) if ours == theirs) => mismatches.push(format!("wt-rescue: VERIFY MISMATCH: {path}")),
-            (true, false) | (false, true) => mismatches.push(format!("wt-rescue: VERIFY MISMATCH (presence): {path}")),
+            (true, true) if !matches!((fs::read(&here), fs::read(&there)), (Ok(ours), Ok(theirs)) if ours == theirs) => mismatches.push(format!("lane rescue: VERIFY MISMATCH: {path}")),
+            (true, false) | (false, true) => mismatches.push(format!("lane rescue: VERIFY MISMATCH (presence): {path}")),
             _ => {}
         }
     }
@@ -234,19 +234,19 @@ fn verify(main_dir: &Path, rescue_dir: &Path, changes: &Changes) -> Vec<String> 
 
 fn commit(destination: &Destination) -> Result<(), Vec<String>> {
     let Destination { container, rescue_dir, branch, timestamp, .. } = destination;
-    let left_for_inspection = format!("wt-rescue: rescue worktree left at {} (branch {branch}) for inspection", rescue_dir.display());
+    let left_for_inspection = format!("lane rescue: rescue worktree left at {} (branch {branch}) for inspection", rescue_dir.display());
     git_checked(rescue_dir, &["add", "-A"]).map_err(|message| vec![message])?;
     if git_ok(rescue_dir, &["diff", "--cached", "--quiet"]) {
         return Err(vec![
-            "wt-rescue: nothing differs from HEAD after relocation — main's changes are already committed content; main is UNTOUCHED".into(),
+            "lane rescue: nothing differs from HEAD after relocation — main's changes are already committed content; main is UNTOUCHED".into(),
             left_for_inspection,
         ]);
     }
     let message = format!("rescued dirty state from {} main, {timestamp}", container.display());
     if git_checked(rescue_dir, &["commit", "-q", "--no-verify", "-m", &message]).is_err() {
         return Err(vec![
-            "wt-rescue: ABORTING — could not commit the relocated copy; main is UNTOUCHED".into(),
-            format!("wt-rescue: rescue worktree left at {} (branch {branch}) holding the verified copy", rescue_dir.display()),
+            "lane rescue: ABORTING — could not commit the relocated copy; main is UNTOUCHED".into(),
+            format!("lane rescue: rescue worktree left at {} (branch {branch}) holding the verified copy", rescue_dir.display()),
         ]);
     }
     Ok(())

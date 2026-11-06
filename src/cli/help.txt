@@ -39,11 +39,7 @@ Engineering and landing:
   safe-push             Check and land a lane, or publish a tag
   land                  Serve the landing queue, run one scan or withdraw
   land-abandon          Delete a superseded or handed-back branch
-  lane-squash           Fold a lane's unpublished commits into one
-  lane-gc               Delete landed lanes and report unlanded work
-  wt-reap               Remove spent lanes
-  wt-rescue             Move a dirty main checkout's changes to a lane
-  cleanup-sweep         Remove spent lanes, targets and scratch
+  lane                  Collect, reap, rescue, seed and squash lanes
   release               Tag and publish a release from a clean main
   code-health           Measure structure debt, crate lines and build time
   coverage              Pick the tests a change reaches; record the map

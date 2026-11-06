@@ -29,7 +29,7 @@ Dispatch refuses to place a `bug` issue that has no `Class:` line (crates/north-
 
 11. north#630 Dispatch's false launch failures, plus machine-written issues it cannot staff: the noise trips ops-check and hides real failures.
 12. north#637 fleet-tick timeouts: spooled cross-host messages and park and revive decisions wait while the tick runs long.
-13. north#589 lane-gc keeps worktree targets: gex45's disk falls under the admission floor, and admission then defers every build.
+13. north#589 lane gc keeps worktree targets: gex45's disk falls under the admission floor, and admission then defers every build.
 14. north#593 Session-start probe timeouts: these fail runtime promotes, so hosts fall behind main. The fix landed (e38064279), and the remaining boxes are observations.
 15. north#612 Release link failures: box 1 landed (9feb36e44), and 10 clean builds remain to observe.
 16. north#627 Agent configuration check on whiterabbit: a rolling alarm that closes itself.

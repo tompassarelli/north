@@ -42,7 +42,7 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 | bin/pace-control | 3 | stay | 3-line exec of `north pace sample`; nixos-config modules/pace-enforcement/default.nix:39 names ${northBin}/pace-control, so the nixos-config change lands before deletion |
 | bin/safe-push | 2452 | port: landing-train B18 (north#76, north#88 land-check loop box) | a planner is decomposing it; do not edit |
 | bin/safe-push.test.sh | 2844 | port: landing-train B18 (north#76) | shell tests of the shell landing path; they move to cargo test with the train loop |
-| bin/supply-alert | 7 | stay | 7-line glue: one ssh exec to the nexus alert host; callers in Rust (supply_chain.rs, lane-gc) and the nixos-config supply-chain-scan unit |
+| bin/supply-alert | 7 | stay | 7-line glue: one ssh exec to the nexus alert host; callers in Rust (supply_chain.rs, lane gc) and the nixos-config supply-chain-scan unit |
 | bin/verify-north | 9 | stay | launcher: execs the promoted verify-north runtime binary |
 | harness/hooks/firn-system-policy | 42 | stay | 42-line hook owned by Firn and installed from this tree; belongs in nixos-config, move there rather than port |
 | harness/hooks/language-guard.sh | 10 | stay | 10-line hook wrapper that execs `north guard language`; same condition |

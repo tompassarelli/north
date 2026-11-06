@@ -36,7 +36,7 @@ commits since the crate split on 2026-10-31).
   `remove_var`; `set_current_dir` appears only in `crates/north-guard/src/lanes/gc/mod.rs:146`, which no test reaches.
   Two static mutexes: `FORK_GATE` (`tests/job_run.rs:21`) and `EXEC` (`tests/capacity_host/mod.rs:12`).
 
-Timed lane build (whiterabbit, origin/main f9aed891e, fresh lane seeded by `north target-seed`, heavy lease of
+Timed lane build (whiterabbit, origin/main f9aed891e, fresh lane seeded by `north lane seed`, heavy lease of
 6 CPUs, `cargo test --no-run --timings`, one run):
 
 - 80.2 s cargo wall; 928 s including 14 min queued behind 3 heavy leases.
@@ -52,7 +52,7 @@ Core-minutes are per day. Laptop minutes count first: gex45 sits mostly idle, th
 
 | # | Candidate | Laptop | gex45 | Disk | Wall per landing/lane | Cost | Risk | Reverse |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `north target-seed` skips `incremental/` (superseded 2026-11-05: Warm worktree builds) | 0 | 0 | ~2.2 GiB per lane (measured) | seed copy shorter | 1 box | none: sessions keyed to other lanes' hashes are never read | copy it again |
+| 1 | `north lane seed` skips `incremental/` (superseded 2026-11-05: Warm worktree builds) | 0 | 0 | ~2.2 GiB per lane (measured) | seed copy shorter | 1 box | none: sessions keyed to other lanes' hashes are never read | copy it again |
 | 2 | Runtime release builds incremental | ~200 (est. 50% of 401, unmeasured) | 0 once gex45 stops building | +1-2 GB in `~/.cache/cargo-target/north` (est.) | promotion ~100 s sooner (est.) | 2 boxes | no reuse: each build is a fresh `runtime-<sha8>` worktree path | drop the env |
 | 3 | The laptop is the only runtime builder | 0 | 289 freed headroom | 0 | +0-2 min on gex45 (settle deploy) | 1 config box | none | one config line |
 | 4 | Drop north-core's `test-support` feature | ~60 (est., one north-core debug compile per lane build/test pair) | ~10 | 0.4-1.4 GB per lane (measured) | one north-core compile fewer per build/test pair | 1 box | ~60 lines of test doubles become unconditionally `pub` in the binary | re-add the feature |
@@ -72,7 +72,7 @@ on whiterabbit, the laptop deploys to a gex45 set to `builds_runtime = false`
 Rejected, one line each:
 
 - A faster linker: rust-lld is already in use.
-- sccache: measured slower than `target-seed` on 31 Oct
+- sccache: measured slower than `north lane seed` on 31 Oct
   (`agent-machinery/skills/rust-development/references/compile-times.md`, both tables).
 - Shared `CARGO_TARGET_DIR` for lanes: every lane waits on Cargo's build-directory lock.
 - An Actions-built runtime: the runner is Ubuntu, so the binary links FHS glibc while promotion realises Nix store
@@ -85,13 +85,13 @@ Rejected, one line each:
 
 Independent boxes first; each runs alone in its own lane. Times are budgets.
 
-### B1. `north target-seed` skips `incremental/` (candidate 1)
+### B1. `north lane seed` skips `incremental/` (candidate 1)
 
 Category: performance. Spec: measured. Scope: single-module. Surface: rust. Verify: local-test. Files: the
-`target-seed` command under `crates/north-core/src/`, `docs/features.md` (Lane target seed).
+`north lane seed` command under `crates/north-core/src/`, `docs/features.md` (Lane target seed).
 
 Done when:
-- In a fresh lane after `north target-seed`, `test -e target/debug/incremental && fd -d1 . target/debug/incremental`
+- In a fresh lane after `north lane seed`, `test -e target/debug/incremental && fd -d1 . target/debug/incremental`
   prints nothing.
 - `du -sb target` in that lane is at least 2 GiB below the seed lane's.
 - `cargo test --locked --offline` in that lane passes.
@@ -156,7 +156,7 @@ Done when:
 - `rg -n 'INCREMENTAL' crates/north-runtime/src/runtime/update.rs` prints the line on the build command.
 - `cargo test --locked --offline --test runtime_update` passes.
 - After landing, the median `cpuSeconds` of the next 5 exit-0 `north-runtime` runs in the laptop's
-  `~/.local/state/agents/machine-capacity-usage.jsonl`, skipping any run that follows a `north reclaim` sweep of
+  `~/.local/state/agents/machine-capacity-usage.jsonl`, skipping any run that follows a `north lane reclaim` sweep of
   `~/.cache/cargo-target/north` (a cold target), is at most 460 (70% of the 659 s baseline).
 
 ### B4. Drop the `test-support` feature (candidate 4)
@@ -186,7 +186,7 @@ Done when:
   local check per commit, splitting check-owners' `cargo run` compile from its check and machine-bound's build from
   its tests.
 
-B5 result (2026-11-04, lane seeded by `north target-seed`, built at 12da0de8a, then stepped through the three
+B5 result (2026-11-04, lane seeded by `north lane seed`, built at 12da0de8a, then stepped through the three
 commits in order under one moderate lease; user+sys core-seconds / wall seconds; dev-shell was selected for none):
 
 | Commit | Changes | check-owners compile | check-owners check | machine-bound build | machine-bound tests |
@@ -295,10 +295,10 @@ Done when:
 ### Shared registry artifacts for land checks (north#360)
 
 Cause: the dev shell set `RUSTFLAGS=-Cmetadata=checkout:<toplevel>` whenever `CARGO_TARGET_DIR` was set (54143fd25,
-north#161, against another checkout's build into a shared target reading as fresh), and `north target-seed` skipped
+north#161, against another checkout's build into a shared target reading as fresh), and `north lane seed` skipped
 any checkout with it set. The land checks set `CARGO_TARGET_DIR=target`, the lane's own target, so each fresh lane
 compiled all 146 registry crates and its land checks, keyed to its path, never matched its own unkeyed builds. Now the
-key applies only to a target outside the checkout, and target-seed seeds a checkout's own target.
+key applies only to a target outside the checkout, and lane seed seeds a checkout's own target.
 
 Shared-registry result (2026-11-04, laptop under 25 to 30 load, cargo `Finished` seconds, queue time excluded):
 
@@ -318,10 +318,10 @@ Shared-registry result (2026-11-04, laptop under 25 to 30 load, cargo `Finished`
 ### Warm worktree builds (north#360, 2026-11-05)
 
 Cause: fleet workers build with `depbox run -- nix develop -c cargo ...` (AGENTS.md). depbox hides `~/.local` and the
-sibling checkouts, so the shellHook's `north target-seed` found no `north` and every new lane compiled all 158 crates;
+sibling checkouts, so the shellHook's `north lane seed` found no `north` and every new lane compiled all 158 crates;
 and B1's seed dropped `incremental/`, so even a seeded lane recompiled north-core from scratch. Copying a sibling's
 `incremental/` did not help on its own: rustc keeps a session only when the build runs at the same checkout path.
-Now depbox runs `north target-seed` before its sandbox and lease, the seed keeps `incremental/`, and depbox mounts the
+Now depbox runs `north lane seed` before its sandbox and lease, the seed keeps `incremental/`, and depbox mounts the
 checkout a second time at `~/code/<project>/sandbox` and builds there, so every lane of a project compiles at one
 path. B1 is superseded.
 
@@ -412,7 +412,7 @@ What the cache can and cannot save, from `cargo build --locked --offline -p nort
 | `CARGO_INCREMENTAL=0`, the same edit | 44.6, 42.9 | |
 
 - sccache passes incremental crates through, and north's four workspace crates are incremental by default. A full
-  cache hit therefore cuts a fresh lane's build only to 74% of cold. The rest is north-core, where `target-seed`
+  cache hit therefore cuts a fresh lane's build only to 74% of cold. The rest is north-core, where `north lane seed`
   (warm worktree builds, above) is the lever on one host.
 - Turning incremental off makes north-core cacheable (12.6 s, 19% of cold) but adds about 30 s to every north-core
   edit build. Lanes keep incremental for that reason.
@@ -422,7 +422,7 @@ What the cache can and cannot save, from `cargo build --locked --offline -p nort
   outside the basedir enter the key.
 
 Cross-host result (2026-11-05, north 86618706c, `cargo build --locked --offline -p north` in a fresh worktree with a
-pre-created `target/` so target-seed copies nothing, an empty local disk level, one run each):
+pre-created `target/` so lane seed copies nothing, an empty local disk level, one run each):
 
 | Host, run | Wall s | Rust hits | Average cache read hit | Average compile |
 | --- | --- | --- | --- | --- |

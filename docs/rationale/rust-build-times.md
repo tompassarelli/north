@@ -238,7 +238,7 @@ slot held 39 GiB of `incremental/`). The new cost falls on interactive worktree 
 203 GiB; 23 of the 31 listed before this run already carried `incremental/` state that the off setting left unused, and the other 8
 grow by about 4.5 GiB each when next built, at most 36 GiB. The root disk had 122 GiB (13%) free before
 the change, so no lander override was added (it would forfeit the CPU cut where builds queue most), and
-lane-gc found one retirable worktree. The disk budget in south's `orchestration.toml` covers the shared
+lane gc found one retirable worktree. The disk budget in south's `orchestration.toml` covers the shared
 cargo target, not worktree targets, so it does not move.
 Lane-gc bounds worktree targets instead: since 2026-11-05 it deletes the git-ignored `target/` of every
 worktree it keeps whose branch is landed or which has been idle for `--idle-hours`, unless a process holds

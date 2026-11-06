@@ -8,7 +8,7 @@ use super::verdict::{Facts, Verdict, retirement_verdict};
 
 const MINIMUM_AGE_SECONDS: i64 = 7200;
 const DETACHED: &str = "(detached)";
-const USAGE: &str = "Usage: wt-reap [--all] [--dry-run]
+const USAGE: &str = "Usage: north lane reap [--all] [--dry-run]
 
 Sweep spent lanes out of a container's worktrees/ directory.
 
@@ -88,7 +88,7 @@ pub fn run(arguments: &[String]) -> u8 {
             "--all" => all = true,
             "--dry-run" => dry_run = true,
             other => {
-                eprintln!("wt-reap: unknown argument '{other}'\n{USAGE}");
+                eprintln!("lane reap: unknown argument '{other}'\n{USAGE}");
                 return 2;
             }
         }
@@ -126,7 +126,7 @@ fn current_container() -> Result<Vec<PathBuf>, String> {
     let cwd = std::env::current_dir().unwrap_or_default();
     find_container(&cwd)
         .map(|container| vec![container])
-        .ok_or_else(|| format!("wt-reap: no container found above {} (no <dir>/main/.git)", cwd.display()))
+        .ok_or_else(|| format!("lane reap: no container found above {} (no <dir>/main/.git)", cwd.display()))
 }
 
 fn summary(counts: &Counts, dry_run: bool) -> String {

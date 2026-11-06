@@ -230,7 +230,7 @@ pub(super) fn leads_with(segment: &str, name: &str) -> bool {
 }
 pub(super) fn leads_with_rescue(segment: &str) -> bool {
     let words = leading_words(segment);
-    words.first().is_some_and(|word| basename(word) == "north") && words.get(1).is_some_and(|word| word == "wt-rescue")
+    words.first().is_some_and(|word| basename(word) == "north") && words.get(1).is_some_and(|word| word == "lane") && words.get(2).is_some_and(|word| word == "rescue")
 }
 pub(super) fn shell_c_script(words: &[String], executable: usize) -> Option<&str> {
     let mut i = executable + 1;

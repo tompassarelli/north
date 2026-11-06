@@ -402,9 +402,9 @@ the lander makes unnecessary instead of porting them. Planned at origin/main 602
   snapshot (safe_push_state.rs); language gate, native-ref, betterleaks history and annotation scans,
   email scan, deny-list and instruction limits (safe_push_guards.rs); and the whole tag path
   (`north safe-push --tag`, safe_push_tag.rs). bash calls about 20 `north` subcommands: land-actions,
-  land-red-check, land-red-wait, land-clean, stale-revert, lane-squash, dep-gate, denylist,
+  land-red-check, land-red-wait, land-clean, stale-revert, lane squash, dep-gate, denylist,
   language-gate, build-cache-gate, bin-references, review-gate, after-landing, follows-release,
-  runtime follow, capacity, wt-reap, land-abandon, safe-push-result.
+  runtime follow, capacity, lane reap, land-abandon, safe-push-result.
 - Still bash: the driver (main flow ~2219-2452), the landing lock and ticket queue (~1549-1665), the
   train (~1667-1918), rebase and the verdict rule (~1920-2046), land checks (~1097-1300), Autoland
   (~2048-2178), lane cleanup and reap (~1302-1466), and the bash-only scans: tool removal, test
@@ -418,7 +418,7 @@ the lander makes unnecessary instead of porting them. Planned at origin/main 602
 ### Target: five properties
 
 1. **Workers enqueue and end their turn.** `safe-push --enqueue` (and, once a repository opts in,
-   plain `safe-push --to main`) folds the lane to one commit (`north lane-squash`, as today), writes a
+   plain `safe-push --to main`) folds the lane to one commit (`north lane squash`, as today), writes a
    ticket naming the lane, its head and its author session, prints
    `Done: queued <worktree> <branch> <sha>` and exits 0. No worker waits on a landing.
 2. **One lander owns landing.** `north land serve` runs as a user service on the laptop. It owns the
@@ -588,7 +588,7 @@ suite until S20 ports it to `cargo test --test it land_`, under the same name.
 | CI budget | ci-budget, ci-unconfigured, ci-filtered | per-lane, then S16 |
 | Dependency installs match the tree | fresh-north-worktree, the two sync_dependencies blocks, train-deps | `serve-deps`, S17 |
 | Workers never wait | none today | `enqueue-returns` (exits 0 within 5 s with a ticket on disk, nothing pushed) |
-| Lander worktrees survive reapers; lane-controlled check commands never see the push token | none today | `serve-worktree-not-reaped` (lane-gc, wt-reap and auto-reap skip `worktrees/lander*`), `serve-token-scoped` (check env has no `GH_TOKEN`/App token; only the push step does) |
+| Lander worktrees survive reapers; lane-controlled check commands never see the push token | none today | `serve-worktree-not-reaped` (lane gc, lane reap and auto-reap skip `worktrees/lander*`), `serve-token-scoped` (check env has no `GH_TOKEN`/App token; only the push step does) |
 | GitHub traffic per candidate is bounded | none today | `serve-github-writes` (the gh/git shim trace for a 3-lane candidate shows 1 main push plus, in Wave L0, 1 land-check ref push, 1 dispatch and 1 ref delete; 0 dispatches after S6b) |
 
 ### The protocol model
@@ -672,7 +672,7 @@ then S2b and S2c in parallel; then S3 and S4.
   touches crates/north-landing/, crates/north-base/, Cargo.lock, Cargo.toml or rust-toolchain.toml,
   or cannot be read; a follow that changes only docs or other crates keeps it serving and its
   speculative stack intact (north#360).
-  lane-gc, wt-reap and auto-reap skip `worktrees/lander*`. Done when: (1) `systemctl --user is-active
+  lane gc, lane reap and auto-reap skip `worktrees/lander*`. Done when: (1) `systemctl --user is-active
   north-land` prints active; (2) after `kill -9` of its pid mid-check, a new pid lands the same
   candidate once within 10 s; (3) `serve-worktree-not-reaped` passes.
 - **S4 North switches to the lander on the laptop.** Follows S1, S3. Files bin/safe-push

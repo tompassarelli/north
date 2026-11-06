@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::platform::{cleanup, github};
 
 const REPOSITORIES: [&str; 3] = ["north", "makgora", "wisp"];
-const USAGE: &str = "usage: north cleanup-sweep [--dry-run] [north|makgora|wisp...]";
+const USAGE: &str = "usage: north lane sweep [--dry-run] [north|makgora|wisp...]";
 
 #[derive(Debug, Default, Eq, PartialEq)]
 struct Sweep {

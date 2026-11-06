@@ -16,7 +16,7 @@ pub(super) fn scan(root: &Path, now_ms: i64) -> Trees {
 }
 
 pub(super) fn scan_remote(now_ms: i64) -> Trees {
-    let ran = command(&["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "nexus", "~/.local/state/north/current/north", "lane-gc", "--scan-trees", "~/code", &now_ms.to_string()]);
+    let ran = command(&["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "nexus", "~/.local/state/north/current/north", "lane", "gc", "--scan-trees", "~/code", &now_ms.to_string()]);
     ran.ok.then(|| serde_json::from_str(&ran.out).ok()).flatten().unwrap_or_default()
 }
 

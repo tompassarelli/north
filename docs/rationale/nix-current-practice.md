@@ -120,7 +120,7 @@ trust).
   adopted, and it keeps the weekly `nix.gc` of `modules/nix-settings/default.nix:11-15` from deleting the shell.
   Risky edge: roots unused for 7 days are deleted (`bin/depbox:46`), and the 30-day GC can then collect an idle
   checkout's shell, which on an offline host means a failed build (observed on gex45 before depbox rooted shells).
-- north `flake.nix:18` and wisp `window/flake.nix:22` run `north target-seed` in `shellHook`. Outdated against the
+- north `flake.nix:18` and wisp `window/flake.nix:22` run `north lane seed` in `shellHook`. Outdated against the
   skill's minimal-hook rule: every `nix develop -c` pays it and a failing seed is hidden by `|| true`.
 - makgora `flake.nix:13-18`: `shellHook` runs `exit 1` when the pinned addon is missing, so every
   `nix develop -c CMD`, including commands that never use Blender, fails on a host without the build-input store.

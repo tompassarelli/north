@@ -209,7 +209,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     let stopped = rig.north(&["fleet", "stop", "worker"]);
     assert!(stopped.status.success(), "{}", text(&stopped));
     eventually("every process of the run to end", || lingering(&rig.root).is_empty().then_some(()));
-    let retired = rig.command(env!("CARGO_BIN_EXE_north"), &rig.root).args(["lane-gc", "--root"]).arg(&rig.root).args(["--idle-hours", "0", "--state"]).arg(rig.root.join("gc.json")).output().unwrap();
+    let retired = rig.command(env!("CARGO_BIN_EXE_north"), &rig.root).args(["lane", "gc", "--root"]).arg(&rig.root).args(["--idle-hours", "0", "--state"]).arg(rig.root.join("gc.json")).output().unwrap();
     assert!(retired.status.success(), "{}", text(&retired));
     assert!(text(&retired).contains("retired 1 worktrees, 1 local branches"), "{}", text(&retired));
     assert!(!rig.lane.exists(), "the landed lane is gone");

@@ -140,9 +140,9 @@ incident = "nix-shellhook"
 title = "shellHook side effects"
 path_suffixes = [".nix"]
 text = """
-A dev shell's shellHook must be a pure function of the flake. `north target-seed || true` fails silently
+A dev shell's shellHook must be a pure function of the flake. `north lane seed || true` fails silently
 wherever `north` is hidden (every depbox), and a RUSTFLAGS computed from the checkout path costs a full
-recompile per checkout. Add no `|| true`, no `exit` and no program the shell's own packages do not provide; `north land scan shell-hook` refuses all three in a changed flake.nix, and `north dev-shell run` and depbox run `north target-seed` before the shell opens.
+recompile per checkout. Add no `|| true`, no `exit` and no program the shell's own packages do not provide; `north land scan shell-hook` refuses all three in a changed flake.nix, and `north dev-shell run` and depbox run `north lane seed` before the shell opens.
 """
 
 [[card]]
@@ -170,7 +170,7 @@ Run `command -v PROGRAM` where the command will run before relying on it.
 class = "N13"
 incident = "host-disk"
 title = "A build host's root disk past its incident line"
-commands = ["df", "du", "north reclaim"]
+commands = ["df", "du", "north lane reclaim"]
 text = """
 Each build host's lease reaper evicts the least recently used offload slot whose `.lock` no job holds, every 30 s,
 while ~/.cache/build-offload passes its cap (`build_offload` in the host's disk_budget_gib, else 15% of the disk) or

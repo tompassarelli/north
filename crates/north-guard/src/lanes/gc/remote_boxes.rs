@@ -43,7 +43,7 @@ pub(super) fn superseding(main: &Path, base: &str, tip: &str) -> Result<Option<V
 
 pub(super) fn box_line(branch: &str, tip: &str, age_h: i64) -> String {
     format!(
-        "- [ ] Unlanded origin branch `{branch}` ({}, {age_h} h old) is on main by no commit: land it through safe-push, rebuild it, or delete it with `safe-push abandon --superseded {branch} --by COMMIT` naming the commit on main that supersedes it. (lane-gc --remote)",
+        "- [ ] Unlanded origin branch `{branch}` ({}, {age_h} h old) is on main by no commit: land it through safe-push, rebuild it, or delete it with `safe-push abandon --superseded {branch} --by COMMIT` naming the commit on main that supersedes it. (lane gc --remote)",
         &tip[..tip.len().min(12)]
     )
 }

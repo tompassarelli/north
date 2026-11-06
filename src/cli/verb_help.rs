@@ -23,7 +23,7 @@ const CONTRACTS: [(&[&str], &str); 6] = [
     (&["cloud"], super::cloud::USAGE),
     (&["fleet"], super::fleet::usage::USAGE),
     (&["land", "serve"], serve::USAGE),
-    (&["lane-gc"], GC_USAGE),
+    (&["lane", "gc"], GC_USAGE),
     (&["safe-push"], entry::USAGE),
 ];
 

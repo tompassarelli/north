@@ -115,13 +115,13 @@ pub(super) fn open_table(rows: &[Row], states: &HashMap<String, IssueState>) -> 
 pub(super) fn gc_problems(unit_results: &[(&str, String)], state_age_ms: Option<i64>, rows: &[Row]) -> Vec<String> {
     let mut problems: Vec<String> = unit_results.iter().filter(|(_, result)| result != "success").map(|(unit, result)| format!("{unit} last result: {result}")).collect();
     match state_age_ms {
-        None => problems.push("lane-gc has no state file".into()),
-        Some(age) if age > STALE_STATE_MS => problems.push(format!("lane-gc has not run for {}", age_text(age))),
+        None => problems.push("lane gc has no state file".into()),
+        Some(age) if age > STALE_STATE_MS => problems.push(format!("lane gc has not run for {}", age_text(age))),
         Some(_) => {}
     }
     let stuck = rows.iter().filter(|row| row.leftover && row.age_ms > STUCK_MS).count();
     if stuck > 0 {
-        problems.push(format!("lane-gc retired nothing for a day while {stuck} landed branches still exist"));
+        problems.push(format!("lane gc retired nothing for a day while {stuck} landed branches still exist"));
     }
     problems
 }

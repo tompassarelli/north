@@ -80,7 +80,7 @@ pub(super) fn stale_lanes_notice(report: &Path, scope: &Scope, item: impl FnOnce
         _ => shown.into_owned(),
     };
     let mut notice = format!(
-        "{} unlanded {container} lanes older than 24 h are listed in {shown} (north lane-gc --unlanded). Before starting an issue, continue an existing lane that references it instead of starting over.\n",
+        "{} unlanded {container} lanes older than 24 h are listed in {shown} (north lane gc --unlanded). Before starting an issue, continue an existing lane that references it instead of starting over.\n",
         lanes.len()
     );
     if let Some((repo, number)) = item() {

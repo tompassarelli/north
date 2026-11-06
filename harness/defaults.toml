@@ -727,7 +727,7 @@ consumers = ["crates/north-ops/src/ops/retention/family.rs"]
 [evidence_budget_gib]
 value = 15
 allowed = { min = 0, max = 65536 }
-unit = "GiB of allocated disk the GPU host's Mak'gora evidence store may hold; north reclaim, north evidence start and a disk-floor admission delete its oldest runs past it"
+unit = "GiB of allocated disk the GPU host's Mak'gora evidence store may hold; north lane reclaim, north evidence start and a disk-floor admission delete its oldest runs past it"
 source = "measured: on the GPU host at 2:35 AM on 2026-10-30 evidence held 30 GB of a 468 GB root disk at 95% full with 26 GB free; Tom set 15 GB for blocker 5 of the landing-blockers audit (2026-10-30)"
 fallback = "an unreadable setting panics; the value is compiled in from this file"
 consumers = ["crates/north-ops/src/ops/reclaim/evidence_budget.rs"]
@@ -1578,9 +1578,9 @@ fallback = "a session the fleet tick does not retire stays addressable until the
 consumers = ["crates/north-fleet/src/fleet/reaper.rs"]
 
 [help_visible_ceiling]
-value = 70
+value = 66
 allowed = { min = 1, max = 200 }
 unit = "top-level entries north --help may list; each lane that folds a hyphenated family under its domain noun lowers it to the new count"
-source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07; the issue's target is 24 (north#703)"
+source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07, 66 once the lane family folded under north lane; the issue's target is 24 (north#703)"
 fallback = "none: agent-config-check refuses a help.txt over it"
 consumers = ["crates/north-core/src/agent_config_check/help_surface.rs"]

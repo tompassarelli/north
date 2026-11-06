@@ -84,7 +84,7 @@ fn delete_held_remote_branch(lander: &Lander, branch: &str, holder: &str) {
     let merged = on_main(&lander.repo, holder, &scratch) || landed_tree::landed(&lander.repo, holder, &scratch).is_some();
     let _ = git(&lander.repo, &["update-ref", "-d", &scratch]);
     if !merged {
-        println!("north land: origin {branch} holds work {holder} lacks; left for lane-gc --remote");
+        println!("north land: origin {branch} holds work {holder} lacks; left for north lane gc --remote");
         return;
     }
     let pushed = Command::new("git")
@@ -95,7 +95,7 @@ fn delete_held_remote_branch(lander: &Lander, branch: &str, holder: &str) {
         .output();
     match pushed {
         Ok(result) if result.status.success() => println!("north land: origin {branch} is fully in {holder}; deleted it"),
-        _ => println!("north land: could not delete origin {branch}; left for lane-gc --remote"),
+        _ => println!("north land: could not delete origin {branch}; left for north lane gc --remote"),
     }
 }
 

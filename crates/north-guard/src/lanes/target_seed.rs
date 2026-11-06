@@ -5,7 +5,7 @@ use std::process::Command;
 
 use toml_edit::DocumentMut;
 
-const USAGE: &str = "usage: north target-seed [DIR]";
+const USAGE: &str = "usage: north lane seed [DIR]";
 const HASH_LEN: usize = 16;
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -21,10 +21,10 @@ pub fn run(arguments: &[String]) -> u8 {
         return 0;
     }
     match seed(&here) {
-        Ok(Some(from)) => eprintln!("target-seed: copied {} into this checkout's target", from.display()),
+        Ok(Some(from)) => eprintln!("lane seed: copied {} into this checkout's target", from.display()),
         Ok(None) => {}
         Err(error) => {
-            eprintln!("target-seed: {error}");
+            eprintln!("lane seed: {error}");
             return 1;
         }
     }

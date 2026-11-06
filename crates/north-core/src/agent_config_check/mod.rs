@@ -298,10 +298,10 @@ fn routines(context: &Context, report: &mut Report) {
 }
 
 fn worktree_layout(context: &Context, report: &mut Report) {
-    match Command::new(&context.north_bin).arg("worktree-layout-check").output() {
+    match Command::new(&context.north_bin).args(["lane", "layout"]).output() {
         Ok(output) if output.status.success() => println!("\u{2713} {}", combined(&output)),
         Ok(output) => {
-            report.bad("worktree layout drift — run north worktree-layout-check for the list");
+            report.bad("worktree layout drift — run north lane layout for the list");
             eprintln!("{}", combined(&output));
         }
         Err(error) => report.bad(error),

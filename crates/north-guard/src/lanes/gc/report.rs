@@ -86,7 +86,7 @@ impl Gc {
                 continue;
             };
             let text = format!(
-                "{parent}: {} owned unlanded lanes, oldest {}h ({} {}); continue, land or archive each (north lane-gc --unlanded)",
+                "{parent}: {} owned unlanded lanes, oldest {}h ({} {}); continue, land or archive each (north lane gc --unlanded)",
                 rows.len(),
                 oldest.age_h,
                 oldest.place,
@@ -101,11 +101,11 @@ impl Gc {
                 continue;
             }
             if !command(&["supply-alert", "normal", &text, "Unlanded lanes"]).ok {
-                println!("lane-gc: supply-alert failed for {parent}");
+                println!("lane gc: supply-alert failed for {parent}");
                 continue;
             }
             alerts.insert(parent, Timestamp::from_unix_millis(self.now_ms).iso_millis());
-            println!("lane-gc: alerted {text}");
+            println!("lane gc: alerted {text}");
         }
     }
 }

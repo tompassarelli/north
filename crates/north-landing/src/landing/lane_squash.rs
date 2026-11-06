@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-const USAGE: &str = "usage: north lane-squash [--repo DIR] [--message FILE] DESTINATION_TIP";
+const USAGE: &str = "usage: north lane squash [--repo DIR] [--message FILE] DESTINATION_TIP";
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Squash {

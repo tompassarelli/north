@@ -228,7 +228,7 @@ covers `cargo test`. `dev` defaults: `opt-level = 0`, `debug = true`,
   target/ inside the lane". `build.build-dir` (stable since 1.91) moves
   intermediates elsewhere with templates such as `{workspace-path-hash}`
   [config] [cache]; that relocates lane-local state, it does not share it.
-- Adopted 2026-10-31: a lane-local `target/` seeded by the host repository's `target-seed` command
+- Adopted 2026-10-31: a lane-local `target/` seeded by the host repository's `lane seed` command
   (reflink copy of the newest sibling checkout's `target/` built from the same
   `Cargo.lock`), not sccache; see "Measured: a new lane's first build".
 
@@ -387,10 +387,10 @@ during the runs), so each row is indicative only. Times are Cargo's own
 | wisp, no cache | 101 s | |
 | wisp, sccache, `-Cmetadata=checkout:` key kept | | 98 s wall: no gain |
 | wisp, sccache, key removed | 110 s wall, 176 misses | 84 s wall, 157 hits, 19 misses |
-| wisp, the host repository's `target-seed` command | | 13.5 s (copy 0.08 s); Cargo recompiled the five `-sys`/input crates and `wisp-window` after the shell gained libraries |
-| wisp window/ shell, `target-seed`, `-j4` | 5 m 02 s, 182 units: its seed came from an unrelated lane and reused nothing | 4.9 s, 1 unit: `wisp-window` |
+| wisp, the host repository's `lane seed` command | | 13.5 s (copy 0.08 s); Cargo recompiled the five `-sys`/input crates and `wisp-window` after the shell gained libraries |
+| wisp window/ shell, `lane seed`, `-j4` | 5 m 02 s, 182 units: its seed came from an unrelated lane and reused nothing | 4.9 s, 1 unit: `wisp-window` |
 | host repository, no seed | 118 s, 147 units | |
-| host repository, `target-seed` | | 71 s, 1 unit: the host crate itself, the only workspace crate |
+| host repository, `lane seed` | | 71 s, 1 unit: the host crate itself, the only workspace crate |
 
 - With the per-checkout key kept, the second worktree gained nothing; with the
   key removed it hit 157 of 176. The key goes into every crate's rustc
@@ -399,7 +399,7 @@ during the runs), so each row is indicative only. Times are Cargo's own
 - sccache refuses 51 compilations of this graph by `crate-type`
   (build scripts, proc-macros and binaries, per [sccache]), so even with 157 hits
   the next lane still spent 84 s **(cause not isolated)**. A seeded `target/` carries those units too.
-- the host repository's `target-seed` command runs from the devShell `shellHook`: when the lane has no
+- the host repository's `lane seed` command runs from the devShell `shellHook`: when the lane has no
   `target/` and `CARGO_TARGET_DIR` is unset, it copies (`cp -a --reflink=auto`;
   a full copy on ext4) the newest idle sibling checkout's `target/`, a sibling
   being the same container's `main` or `worktrees/*` with a byte-identical
@@ -419,7 +419,7 @@ during the runs), so each row is indicative only. Times are Cargo's own
   the reclaim and `land-clean` sweeps still trim targets, so no separate cache
   budget exists.
 
-## Measured: sccache against target-seed across wisp lanes (31 Oct 2026, the 20-thread build host)
+## Measured: sccache against lane seed across wisp lanes (31 Oct 2026, the 20-thread build host)
 
 Source: `cargo build -p wisp-window --locked` in `window/` of wisp worktrees on
 the 20-thread build host, one run per row, each inside a heavy capacity lease sized by
@@ -433,7 +433,7 @@ server per host, its statistics zeroed before each row. Rows are indicative only
 | no wrapper, fresh `CARGO_TARGET_DIR`, no lease | 106.9 s | |
 | sccache, first lane, own `target/` | 304.4 s | 0 of 196 Rust, 11 of 659 C/C++ hits |
 | sccache, second lane, own `target/` | 361.9 s | 168 of 196 Rust, 11 of 659 C/C++ hits |
-| `target-seed` from `main/window/target` | 9.9 s | 1 unit rebuilt: `wisp-window` |
+| `lane seed` from `main/window/target` | 9.9 s | 1 unit rebuilt: `wisp-window` |
 
 - A fresh `CARGO_TARGET_DIR` per run gave 0 Rust hits on a warm cache, because
   sccache probably hashes `CARGO_TARGET_DIR` with the other `CARGO_*` variables
@@ -444,5 +444,5 @@ server per host, its statistics zeroed before each row. Rows are indicative only
   under the lane's `OUT_DIR` **(not isolated)**; with
   them, 168 Rust hits still left the second lane slower than the first.
 - Adopted: the wisp `window/` and makgora-client shells now run
-  the host repository's `target-seed` command as its own shell does; before this the two shells never
+  the host repository's `lane seed` command as its own shell does; before this the two shells never
   seeded, so every lane there compiled from scratch. sccache is not adopted.

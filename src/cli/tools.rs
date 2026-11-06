@@ -23,7 +23,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("incident", |arguments| ledger_verb("incident", arguments)),
     ("landed-tree", landed_tree::run),
     ("stale-revert", stale_revert::run),
-    ("lane-squash", lane_squash::run),
     ("merge-driver", merge_set::run),
     ("after-landing", after_landing::run),
     ("bin-references", bin_references::run),
@@ -42,17 +41,13 @@ const UNIFORM: &[(&str, Run)] = &[
     ("job-run", crate::ops::job_run::run),
     ("run-bounded", crate::ops::run_bounded::run),
     ("review-items", review_items),
-    ("cleanup-sweep", crate::ops::cleanup_sweep::run),
     ("cloud", super::cloud::run),
-    ("worktree-layout-check", crate::lanes::layout_check),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
-    ("lane-gc", crate::lanes::lane_gc),
     ("strategy", super::strategy::run),
     ("repo", crate::lanes::repo_verb),
     ("target-seed", crate::lanes::target_seed),
+    ("lane-gc", crate::lanes::lane_gc),
     ("pin-retire", crate::lanes::pin_retire),
-    ("wt-reap", crate::lanes::wt_reap),
-    ("wt-rescue", crate::lanes::wt_rescue),
     ("mutant", |arguments| mutant_cli::run(arguments, &super::mutant_issues::MirrorIssues)),
     ("land-fails-first", fails_first::run),
     ("flow", crate::ops::flow::run),
@@ -113,6 +108,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("agent-contain", crate::agent_contain::run),
     ("reclaim", crate::ops::reclaim::run),
     ("retain", crate::ops::retention::run),
+    ("lane", lane),
     ("runtime", crate::runtime::run),
     ("tune", crate::tune::run),
     ("loops", crate::loops::run),
@@ -222,6 +218,28 @@ fn land(arguments: &[String]) -> u8 {
         _ => {}
     }
     north_safe_push::entry::land(arguments).unwrap_or_else(|| crate::land::run(arguments))
+}
+
+const LANE: &[(&str, Run)] = &[
+    ("gc", crate::lanes::lane_gc),
+    ("layout", crate::lanes::layout_check),
+    ("reap", crate::lanes::wt_reap),
+    ("reclaim", crate::ops::reclaim::run),
+    ("rescue", crate::lanes::wt_rescue),
+    ("seed", crate::lanes::target_seed),
+    ("squash", lane_squash::run),
+    ("sweep", crate::ops::cleanup_sweep::run),
+];
+
+fn lane(arguments: &[String]) -> u8 {
+    match arguments.split_first().and_then(|(verb, rest)| runner(LANE, verb).map(|run| run(rest))) {
+        Some(code) => code,
+        None => {
+            let verbs: Vec<&str> = LANE.iter().map(|(verb, _)| *verb).collect();
+            eprintln!("usage: north lane ({}) ...; north lane --help lists each", verbs.join("|"));
+            2
+        }
+    }
 }
 
 fn reclaim_disk() -> Option<f64> {

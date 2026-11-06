@@ -41,7 +41,7 @@ Commands:
   incident record|guard|import|report ...        Record a failure the moment it happens, the guard that closes its class, or read incidents by class, detector-first rate and recurrences (north flow prints the week)
   landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
   stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
-  lane-squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main
+  lane squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main
   merge-driver set [--config FILE] BASE OURS THEIRS PATH  Git merge driver: merge the order-insensitive unique-entry lists named in harness/merge-sets.toml, refusing duplicates and remove-versus-edit; leave its regenerated files conflicted
   merge-driver continue [--config FILE]         Finish a rebase or cherry-pick stopped only on regenerated files: run each generator on the merged sources, stage and continue
   bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]  Refuse a landing that deletes a bin/ entry or removes a north subcommand or flag a deployed nixos-config or south unit, or this host's user units, still run
@@ -116,20 +116,20 @@ Commands:
   model-watch news [--days N] [--noise ID|--more ID]  Show the last delivered watch digest or record feedback on an item
   outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the proxy inbox, mark our own notifications read
   outside-watch status                          Show the last run and its log line
-  reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
+  lane reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
   retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Mak'gora evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry
-  worktree-layout-check                         List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
+  lane layout                                   List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
   hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
   docs features-index [--check] [--root DIR]    Regenerate docs/features.md from the one-file-per-feature tree under docs/features/, or with --check fail when it is stale
   docs rationale-index [--check] [--root DIR]   Regenerate docs/rationale/README.md, one line per note: title, link, first sentence; --check fails when it is stale
-  lane-gc [--remote] [--dry-run] [--repo NAME]... | --unlanded  Delete landed and issue-closed lanes and origin branches, keep the rest and report unlanded work by issue (hourly and daily timers)
+  lane gc [--remote] [--dry-run] [--repo NAME]... | --unlanded  Delete landed and issue-closed lanes and origin branches, keep the rest and report unlanded work by issue (hourly and daily timers)
   strategy log check [--since 1h|30m|7d] | log retain [--days 14]  Parse every decision-log line (placement, admission and the lander's steps) back into its north-strategy-types record and report lines per kind, unparsed lines and decide_us; retain compresses closed hours with zstd and deletes days past 14
   strategy replay [--since 24h] [--invariants] [--budget]  Decide the window's logged placement, admission and lander cases again with this binary's code and print each kind's outcome counts beside the logged ones; exits 1 when a count shifts past replay_outcome_shift_ratio, and with --invariants also when a placed launch crosses the quota floor, a lease asked from inside an offload slot is deferred behind the land check waiting for it, or the replayed landing p90 passes replay_landing_p90_seconds
   climb run --dry-run [--since 7d]  Print the week's largest measured loss from the worker ledger (repeat-run and unclosed-box dollars per tier and category), the one candidate policy change the generator writes for it, the candidate's score from strategy replay against the current policy, and every live arm's share with the ledger boxes behind it
-  repo audit [--repo NAME]... [--alert]         For every unarchived tompassarelli GitHub repo pushed in 2026 (own forks only): list branches already on the default branch but still present (a repository's GitHub Pages source branch is expected and left out), group unlanded branches as open work under the issue they name with its state, owner and age (oldest first), then the tags that are not v* releases and the v* tags without a GitHub release; writes ~/.local/state/agents/repo-audit/latest.txt; exits 1 on a landed branch older than an hour, an unowned branch whose issues are all closed or that names no issue, a bad tag, or a lane-gc that failed or retires nothing, and --alert sends supply-alert (nightly timer)
+  repo audit [--repo NAME]... [--alert]         For every unarchived tompassarelli GitHub repo pushed in 2026 (own forks only): list branches already on the default branch but still present (a repository's GitHub Pages source branch is expected and left out), group unlanded branches as open work under the issue they name with its state, owner and age (oldest first), then the tags that are not v* releases and the v* tags without a GitHub release; writes ~/.local/state/agents/repo-audit/latest.txt; exits 1 on a landed branch older than an hour, an unowned branch whose issues are all closed or that names no issue, a bad tag, or a lane gc that failed or retires nothing, and --alert sends supply-alert (nightly timer)
   pin-retire [--dry-run] (--consumer-main PATH... | --unconsumed) -- PIN  Retire one verified-unused content-addressed pin and its sidecar
-  wt-reap [--all] [--dry-run]                   Remove spent lanes: clean, two hours old, merged into main or patch-equivalent to it
-  wt-rescue [path] [--dry-run]                  Move a dirty main checkout's changes into a new rescue lane and clean main
+  lane reap [--all] [--dry-run]                    Remove spent lanes: clean, two hours old, merged into main or patch-equivalent to it
+  lane rescue [path] [--dry-run]                   Move a dirty main checkout's changes into a new rescue lane and clean main
   usage-web-read                                Read the Claude reset counts from the automation browser into the usage cache (6 h timer)
   runtime update                                Promote origin/main as this host's north runtime with its own tree
   supply-chain-scan                             Scan origin/main lockfiles with osv-scanner and alert on new advisories (daily timer)
@@ -141,7 +141,7 @@ Commands:
   eta-calibration                               Post the last 7 days of stated ETA against measured active minutes, per category and tier, to north#255 (weekly timer)
   skill-review-queue                            Open, update or close the Skill review queue issue
   git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
-  github-mirror sync [--repo NAME]...            Copy north's, makgora's, wisp's and firn's issues, branch tips, tags, releases, main CI runs and main check results into ~/.local/state/north/github-mirror.db with conditional reads (an unchanged read answers 304), so dispatch, the CI watch, lane-gc --remote and repo audit read the copy instead of GitHub (timer every two minutes)
+  github-mirror sync [--repo NAME]...            Copy north's, makgora's, wisp's and firn's issues, branch tips, tags, releases, main CI runs and main check results into ~/.local/state/north/github-mirror.db with conditional reads (an unchanged read answers 304), so dispatch, the CI watch, lane gc --remote and repo audit read the copy instead of GitHub (timer every two minutes)
   github budget                                  Print each GitHub token's hourly limit left, every fleet session's spend against its hourly share and the costliest callers of the last hour from the broker's calls.log
   agent-runtime-update [VERSION]                Update the North, Claude and Agy runtimes
   claude-runtime-update [VERSION]               Install a checksum-verified Claude runtime, probe it and select it
@@ -155,7 +155,7 @@ Commands:
   runtime health                                Check that the running binary is the current runtime with its programs and tree
   after-landing --git-dir DIR --base BASE --head HEAD  Run the after-landing checks on a landed range
   build-cache-gate --repo DIR --base REV --head REV  Refuse a landing that breaks build-cache reuse
-  cleanup-sweep [--dry-run] [north|makgora|wisp...]  Remove spent lanes, targets and scratch of the named projects
+  lane sweep [--dry-run] [north|makgora|wisp...]  Remove spent lanes, targets and scratch of the named projects
   convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex]  Search and read past agent transcripts
   desktop-idle-state idle|active                Record whether Tom's desktop is idle
   evidence start RUN                            Start an evidence folder for one run
@@ -185,7 +185,7 @@ Commands:
   ssh-argv SSH-ARGS...                          Print the attributed ssh argv, NUL separated
   ssh-session REAL_SSH [ARGS...]                Run ssh with session attribution
   ssh-master probe HOST...                      Recycle a shared ssh master slower than 3 s twice while a direct connection answers
-  target-seed [DIR]                             Seed a lane's cargo target from the shared one
+  lane seed [DIR]                               Seed a lane's cargo target from the shared one
   tool-mine [--days N] [--min-sessions N] [--min-steps N] [--max N] [--owner REPO#N] [--dry-run]  Mine transcripts for repeated tool sequences
   usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | decide --dry-run BRIEF | sample  Read account usage
   help                                          Show the operator and agent commands

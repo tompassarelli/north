@@ -135,8 +135,8 @@ pub fn exec(arguments: &[String]) -> u8 {
 
 fn seed_target(flake: &Path) -> Result<(), String> {
     let north = north_base::platform::north_binary::north_binary();
-    let status = std::process::Command::new(&north).arg("target-seed").arg(flake).status().map_err(|error| format!("{}: {error}", north.display()))?;
-    if status.success() { Ok(()) } else { Err(format!("north target-seed {} failed ({status}), so this shell would compile cold", flake.display())) }
+    let status = std::process::Command::new(&north).args(["lane", "seed"]).arg(flake).status().map_err(|error| format!("{}: {error}", north.display()))?;
+    if status.success() { Ok(()) } else { Err(format!("north lane seed {} failed ({status}), so this shell would compile cold", flake.display())) }
 }
 
 fn trace(line: &str) {
