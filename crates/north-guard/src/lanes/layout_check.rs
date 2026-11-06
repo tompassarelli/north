@@ -152,7 +152,13 @@ pub fn exempt(code: &Path, home: &Path, worktree: &Path) -> bool {
     under("/store-runtime/deployments/")
         || under("/experiments/")
         || worktree.strip_prefix(code.join("resources")).is_ok_and(|rest| !rest.as_os_str().is_empty())
-        || [home.join(".cache"), home.join(".local/state")].iter().any(|owned| worktree.strip_prefix(owned).is_ok_and(|rest| !rest.as_os_str().is_empty()))
+        || owned_state(home).iter().any(|owned| worktree.strip_prefix(owned).is_ok_and(|rest| !rest.as_os_str().is_empty()))
+}
+
+fn owned_state(home: &Path) -> Vec<PathBuf> {
+    let named = [home.join(".cache"), home.join(".local/state"), home.join(".local/state/north")];
+    let resolved = named.iter().filter_map(|path| fs::canonicalize(path).ok()).collect::<Vec<_>>();
+    named.into_iter().chain(resolved).collect()
 }
 
 fn pin_problem(container: &Path, worktree: &Path, leaf: &str) -> Option<String> {
@@ -185,5 +191,19 @@ fn display(path: &Path, home: &Path) -> String {
     match text.strip_prefix(home.as_ref()) {
         Some(rest) if !home.is_empty() => format!("~{rest}"),
         _ => text.into_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_lander_worktree_under_the_state_symlink_target_is_owned_state_not_a_stray() {
+        let scratch = tempfile::tempdir().unwrap();
+        let (home, code) = (scratch.path().join("home"), scratch.path().join("home/code"));
+        std::fs::create_dir_all(code.join("north-data/land-queue/q/post-land-4c43bc5c465d")).unwrap();
+        std::fs::create_dir_all(home.join(".local/state")).unwrap();
+        std::os::unix::fs::symlink(code.join("north-data"), home.join(".local/state/north")).unwrap();
+        assert!(super::exempt(&code, &home, &code.join("north-data/land-queue/q/post-land-4c43bc5c465d")));
+        assert!(!super::exempt(&code, &home, &code.join("north/elsewhere")));
     }
 }
