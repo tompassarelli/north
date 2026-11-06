@@ -201,6 +201,7 @@ pub(super) fn run(land: &Land) -> u8 {
     let script = remote_script(&name, land.class);
     let own = crate::runtime::own_runtime();
     if let Some((sha, directory)) = &own
+        && !land.ssh.is_empty()
         && let Err(why) = ensure_shipped(land.ssh, sha, || crate::runtime::staged_on(land.ssh, sha), || crate::runtime::stage_on(land.ssh, sha, directory))
     {
         return unreached(&why);
@@ -214,10 +215,8 @@ pub(super) fn run(land: &Land) -> u8 {
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let beside = beside::pin(land.command, &relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker, &beside.pins, &lander_slot].map(quote);
-    let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
-    let spawned = with_caller("ssh")
-        .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", crate::platform::ssh::OWN_CONNECTION, land.ssh, "--", &remote])
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker, &beside.pins, &lander_slot];
+    let spawned = on_host(land.ssh, &script, &words, &["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", crate::platform::ssh::OWN_CONNECTION])
         .stdin(Stdio::from(bundle))
         .stdout(Stdio::piped())
         .spawn();
@@ -231,6 +230,18 @@ pub(super) fn run(land: &Land) -> u8 {
         Err(error) => return unreached(&format!("ssh: {error}")),
     };
     verdict(exited, ran).unwrap_or_else(|why| unreached(&why))
+}
+
+fn on_host(ssh: &str, script: &str, words: &[&str], options: &[&str]) -> Command {
+    if ssh.is_empty() {
+        let mut command = with_caller("setsid");
+        command.args(["-w", "sh", "-c", script, "offload"]).args(words);
+        return command;
+    }
+    let remote = format!("setsid -w sh -c {} offload {}", quote(script), words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));
+    let mut command = with_caller("ssh");
+    command.args(["-T", "-o", "BatchMode=yes"]).args(options).args([ssh, "--", &remote]);
+    command
 }
 
 /// `program` set to die with this process when `setpriv` is on PATH: an ssh client orphaned by a killed caller stops relaying the remote output, so the remote job blocks writing it and holds its slot until its deadline.
@@ -282,12 +293,17 @@ pub(super) fn free_slots(ssh: &str, directory: &Path) -> Result<u32, String> {
     let (_, name) = checkout(directory)?;
     let script = FREE.replace("@ROOT@", OFFLOAD_ROOT).replace("@SLOTS@", &SLOTS.to_string());
     let remote = format!("sh -c {} offload-free {}", quote(&script), quote(&name));
-    let output = crate::platform::process::run_within("ssh", &["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &remote], FREE_LIMIT).ok_or_else(|| format!("{ssh} did not count its slots within {} s", FREE_LIMIT.as_secs()))?;
+    let (counted, host) = if ssh.is_empty() {
+        (crate::platform::process::run_within("sh", &["-c", &script, "offload-free", &name], FREE_LIMIT), "this host")
+    } else {
+        (crate::platform::process::run_within("ssh", &["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &remote], FREE_LIMIT), ssh)
+    };
+    let output = counted.ok_or_else(|| format!("{host} did not count its slots within {} s", FREE_LIMIT.as_secs()))?;
     if !output.status.success() {
-        return Err(format!("{ssh} could not count its slots: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        return Err(format!("{host} could not count its slots: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    text.trim().parse().map_err(|_| format!("{ssh} counted its slots as {:?}", text.trim()))
+    text.trim().parse().map_err(|_| format!("{host} counted its slots as {:?}", text.trim()))
 }
 
 pub(super) fn reap(ssh: &str, owner: &str) -> u8 {

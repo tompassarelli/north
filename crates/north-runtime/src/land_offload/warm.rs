@@ -1,7 +1,8 @@
-//! Keeps a build host's land-check slots warm between landings. While at most `BUSY_SLOTS` land checks hold slots here, the lease reaper starts one warm job: it
-//! takes the unlocked slot furthest behind its repository's origin/main, never the lander's reserved one, checks it out at that head and
-//! runs the repository's `landing.warm` command there at the lowest CPU priority, so the next check on any slot, whichever package set it
-//! builds and whether or not the last after-landing run passed, compiles only what changed since.
+//! Keeps a host's land-check slots warm between landings: a build host's, and the lander host's own, which its after-landing runs use when no
+//! build host has room. While at most `BUSY_SLOTS` land checks hold slots here, the lease reaper (the laptop-auto tick on the laptop) starts
+//! one warm job: it takes the unlocked slot furthest behind its repository's origin/main, never the lander's reserved one, checks it out at
+//! that head and runs the repository's `landing.warm` command there under a heavy lease at the lowest CPU priority, so the next check on any
+//! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since.
 use std::collections::BTreeMap;
 use std::env;
 use std::fs::{self, File, OpenOptions};
@@ -155,8 +156,10 @@ fn warm(root: &Path, slot: &Slot, head: &str) -> u8 {
     let _ = fs::write(&holder, format!("{} warming\n", &head[..head.len().min(12)]));
     let port = slot_ports(&slot.checkout).into_iter().find(|(name, _)| *name == slot.name).map(|(_, port)| port.to_string());
     let share = std::thread::available_parallelism().map_or(1, |cores| (cores.get() / 2).max(1)).to_string();
+    let north = north_base::platform::north_binary::north_binary();
     let mut child = Command::new("nice");
-    child.args(["-n", "19"]).arg(north_base::platform::north_binary::north_binary()).args(["dev-shell", "run", "--dir"]).arg(&path).args(["--", "bash", "-euo", "pipefail", "-c", &command]);
+    child.args(["-n", "19"]).arg(&north).args(["capacity", "host", "run", "--class", "heavy", "--owner", "land-offload", "--timeout-seconds", &DEADLINE.as_secs().to_string(), "--"]);
+    child.arg(&north).args(["dev-shell", "run", "--dir"]).arg(&path).args(["--", "bash", "-euo", "pipefail", "-c", &command]);
     child.current_dir(&path).env("SCCACHE_BASEDIRS", &path).env("CARGO_BUILD_JOBS", &share).stdin(Stdio::null()).process_group(0);
     if let Some(port) = port {
         child.env("SCCACHE_SERVER_PORT", port);

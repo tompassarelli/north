@@ -388,12 +388,12 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     crate::foundation::shim::write_script(&bin.path().join("nproc"), "echo ${NPROC:-4}\n");
+    crate::foundation::shim::write_script(&bin.path().join("ssh"), &format!("echo \"$*\" >>{}\nexit 255\n", home.path().join("ssh-calls").display()));
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let job = |command: String, lander: &str| {
-        Command::new("setsid")
-            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LAND_CPUS='6'", "", "", "0", "", "", "", lander])
+        super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LAND_CPUS='6'", "", "", "0", "", "", "", lander], &[])
             .env("HOME", home.path())
             .env("PATH", &path)
             .env("NORTH_OFFLOAD_MAX_JOBS", "1")
@@ -405,9 +405,9 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
             .spawn()
             .unwrap()
     };
-    let holder = job("sleep 2".to_owned(), "");
+    let holder = job("mkdir -p target && echo built >target/marker && sleep 2".to_owned(), "");
     std::thread::sleep(std::time::Duration::from_millis(500));
-    let queued = job(format!("printf '%s %s %s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" \"$CARGO_BUILD_JOBS $RUST_TEST_THREADS $NEXTEST_TEST_THREADS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, seen.display()), "");
+    let queued = job(format!("cat target/marker >>{} && printf '%s %s %s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" \"$CARGO_BUILD_JOBS $RUST_TEST_THREADS $NEXTEST_TEST_THREADS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", home.path().join("marker").display(), crate::capacity::land_claim::OFFLOAD_SLOT_ENV, seen.display()), "");
     let lander_seen = home.path().join("lander-seen");
     let lander = job(format!("printf '%s' \"${}\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, lander_seen.display()), "1").wait_with_output().unwrap();
     assert!(lander.status.success(), "{}", String::from_utf8_lossy(&lander.stderr));
@@ -420,6 +420,8 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     assert!(stderr.lines().any(|line| line.starts_with(super::WAITED) && line.ends_with("s in line for code-p-main")), "{stderr}");
     let slot = home.path().join(".cache/land-offload/code-p-main");
     assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0} {1} 4 4 4 4", slot.display(), super::script::slot_ports("code-p-main")[0].1), "a slot job builds and tests on the host's cores divided by its job cap");
+    assert_eq!(fs::read_to_string(home.path().join("marker")).unwrap(), "built\n", "a later job in the slot builds on the target the job before it left");
+    assert!(!home.path().join("ssh-calls").exists(), "a job for this host runs the slot script here and never reaches ssh");
     let sized = home.path().join("sized");
     let command = format!("printf '%s %s' \"$CARGO_BUILD_JOBS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", sized.display());
     let thirty = Command::new("setsid")

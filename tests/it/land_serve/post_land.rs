@@ -19,6 +19,7 @@ fi
 
 const RED_WHEN_WIDE_SELECTED: &str = r#"#!/usr/bin/env bash
 [ "$1 $2" = "land checks" ] || exit 0
+echo "${SAFE_PUSH_LAND_RUNNER:-none} ${POST_LAND_LEASE:-unleased}" >>"$LAND_TRACE/runners"
 while [ $# -gt 0 ]; do case $1 in --base) base=$2; shift ;; --head) head=$2; shift ;; --outcome) outcome=$2; shift ;; esac; shift; done
 if [ -e broken.txt ] && git diff --name-only "$base" "$head" | grep -qx wide.txt; then echo "test wide_selection ... FAILED"; [ -z "${outcome:-}" ] || printf 'failed-step\twide_selection\t\n' >>"$outcome"; exit 1; fi
 "#;
@@ -91,13 +92,17 @@ fn a_base_that_fails_only_the_wide_selection_of_the_red_run_blames_and_reverts_n
 #[test]
 fn a_bisection_prefix_runs_with_the_red_run_selection_so_the_lane_that_carries_the_break_is_reverted() {
     let mut fixture = Fixture::new();
+    git(&fixture.repo, &["config", "landing.capacity", "env POST_LAND_LEASE=one"]);
+    git(&fixture.repo, &["config", "land.runner", "build-host"]);
     executable(&fixture.trace.join("north-hook"), RED_WHEN_WIDE_SELECTED);
     let breaker = fixture.lane("breaker", "broken.txt", "breaks a test only a wide selection runs\n");
     let wide = fixture.lane("wide", "wide.txt", "wide\n");
     for lane in [breaker, wide] {
         fixture.enqueue(&lane, None);
     }
-    assert!(fixture.serve().status.success());
+    assert!(fixture.command().env("RESIDENT_CAP_HOST", "lander-host").status().unwrap().success());
+    let runners = fs::read_to_string(fixture.trace.join("runners")).unwrap();
+    assert!(runners.lines().count() >= 2 && runners.lines().all(|run| run == "lander-host one"), "with no build host free, every after-landing run and bisection probe runs in this host's own slots inside one landing capacity lease: {runners}");
     assert_eq!(fixture.subjects(), ["change from breaker", "change from wide", "Revert change from breaker"]);
     let tree = files(&fixture);
     assert!(tree.iter().any(|file| file == "wide.txt") && !tree.iter().any(|file| file == "broken.txt"), "{tree:?}");

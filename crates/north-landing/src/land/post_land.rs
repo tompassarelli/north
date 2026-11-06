@@ -168,7 +168,7 @@ pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Arc<
         offload_owner: lander.offload_owner.clone(),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
         deadline: deadline(&lander.repo, &ledger_path(), &landed.repository, head),
-        host,
+        host: host.or_else(|| (setting::landing(&lander.repo, "refs/remotes/origin/main", "land.runner") == "build-host").then(north_base::platform::host::name)),
         cancel,
     }
     .at(head, head);
@@ -362,7 +362,11 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
         Ok(files) => files,
         Err(error) => return Verdict::Transient(format!("{}: {error}", run.log.display())).into(),
     };
-    let mut command = Command::new(program);
+    let here = run.host.as_deref() == Some(north_base::platform::host::name().as_str()) && !run.capacity.is_empty();
+    let mut command = Command::new(if here { "bash" } else { program });
+    if here {
+        command.args(["-euo", "pipefail", "-c", &format!("exec {} \"$@\"", run.capacity), "post-land-capacity", program]);
+    }
     command.args(prefix).args(["--base", &landed.base, "--head", &landed.head, "--tree", tree, "--outcome"]).arg(&run.outcome).current_dir(&run.worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_OFFLOAD_OWNER", &run.offload_owner).env("SAFE_PUSH_LAND_CAPACITY", &run.capacity);
     match &run.host {
         Some(host) => command.env("SAFE_PUSH_LAND_RUNNER", host),

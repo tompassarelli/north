@@ -9,7 +9,7 @@ pub mod verdict;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (on a build host: brings its land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there, while no land check runs) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail)";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]...] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail)";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -251,12 +251,20 @@ fn choose(any: bool, placement: &Placement) -> u8 {
     }
 }
 
-fn free(host: &str) -> u8 {
-    let Some(machine) = machines().into_iter().find(|machine| machine.name == host) else {
+fn destination(host: &str) -> Option<String> {
+    if host == crate::platform::host::name() {
+        return Some(String::new());
+    }
+    let found = machines().into_iter().find(|machine| machine.name == host).map(|machine| machine.ssh);
+    if found.is_none() {
         eprintln!("north capacity offload: no [hosts.{host}] with an ssh destination");
-        return 1;
-    };
-    match std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|directory| ship::free_slots(&machine.ssh, &directory)) {
+    }
+    found
+}
+
+fn free(host: &str) -> u8 {
+    let Some(ssh) = destination(host) else { return 1 };
+    match std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|directory| ship::free_slots(&ssh, &directory)) {
         Ok(free) => {
             println!("{free}");
             0
@@ -269,10 +277,7 @@ fn free(host: &str) -> u8 {
 }
 
 fn offload(host: &str, land: ship::Land) -> u8 {
-    let Some(machine) = machines().into_iter().find(|machine| machine.name == host) else {
-        eprintln!("north capacity offload: no [hosts.{host}] with an ssh destination");
-        return ship::TRANSPORT_FAILED;
-    };
-    ship::run(&ship::Land { ssh: &machine.ssh, ..land })
+    let Some(ssh) = destination(host) else { return ship::TRANSPORT_FAILED };
+    ship::run(&ship::Land { ssh: &ssh, ..land })
 }
 

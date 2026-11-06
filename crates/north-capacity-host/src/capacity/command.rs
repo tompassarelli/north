@@ -10,7 +10,13 @@ use super::{agent_load, carry, deadline, dev_shell, game_reserve, gaming, gate, 
 fn route(arguments: &[String], host: &Host) -> Option<u8> {
     let status = match arguments.first().map(String::as_str) {
         Some("admission") if arguments.len() == 1 => return None,
-        Some("laptop-auto") => laptop_auto::run(&arguments[1..]),
+        Some("laptop-auto") => {
+            let status = laptop_auto::run(&arguments[1..]);
+            if arguments.len() == 1 {
+                (host.tend_slots)();
+            }
+            status
+        }
         Some("seat-idle-hint") => seat_idle::run(&arguments[1..]),
         Some("offload") => (host.offload)(&arguments[1..]),
         Some("pull") => host::pull(&arguments[1..]),
