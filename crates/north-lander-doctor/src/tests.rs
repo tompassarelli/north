@@ -134,7 +134,7 @@ impl SlotJob {
 
 impl Drop for SlotJob {
     fn drop(&mut self) {
-        let _ = Command::new("kill").args(["-KILL", &format!("-{}", self.pgid())]).stderr(Stdio::null()).status();
+        let _ = Command::new("kill").args(["-KILL", "--", &format!("-{}", self.pgid())]).stderr(Stdio::null()).status();
         let _ = self.child.wait();
     }
 }

@@ -110,7 +110,8 @@ fn reaping_an_owner_kills_its_remote_runs_and_leaves_every_other_run_alone() {
     assert!(other.try_wait().unwrap().is_none(), "another owner's run is still running");
     assert!(!root.path().join("north.owner").exists() && !root.path().join("north.pgid").exists() && !root.path().join("north.holder").exists());
     assert!(root.path().join("north-1.owner").exists());
-    assert!(Command::new("kill").args(["-KILL", &format!("-{}", other.id())]).status().unwrap().success());
+    let group = rustix::process::Pid::from_raw(other.id() as i32).unwrap();
+    rustix::process::kill_process_group(group, rustix::process::Signal::Kill).unwrap();
     other.wait().unwrap();
 }
 

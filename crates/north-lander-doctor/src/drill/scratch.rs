@@ -136,7 +136,7 @@ impl Drop for Lander {
             let _ = Command::new("systemctl").args(["--user", "stop", unit]).stdin(Stdio::null()).stderr(Stdio::null()).status();
         }
         for child in self.jobs.iter_mut() {
-            let _ = Command::new("kill").args(["-KILL", &format!("-{}", child.id())]).stderr(Stdio::null()).status();
+            let _ = Command::new("kill").args(["-KILL", "--", &format!("-{}", child.id())]).stderr(Stdio::null()).status();
             let _ = child.wait();
         }
     }
