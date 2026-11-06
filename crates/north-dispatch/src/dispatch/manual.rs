@@ -16,6 +16,7 @@ pub struct Ask<'a> {
     pub prompt: &'a str,
     pub model: Option<&'a str>,
     pub reason: Option<&'a str>,
+    pub worker: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -59,7 +60,19 @@ pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger
     };
     let stamp = (named.is_none() && overridden.is_none()).then(|| declared("Category").is_none_or(|category| !category.eq_ignore_ascii_case(&route.category)));
     let prompt = stamped(ask.prompt, &route, stamp, overridden.is_none(), &grounds(&route));
+    let (prompt, route) = context_armed(ask, prompt, route, history, ledger);
     Ok(Start { item: ask.item.to_owned(), route, model, effort, prompt, overridden, routed: named.is_some() })
+}
+
+/// A worker brief on no arm draws the context arm dispatch draws for an unarmed local box.
+fn context_armed(ask: &Ask, prompt: String, route: Route, history: &History, ledger: &BTreeMap<String, Evidence>) -> (String, Route) {
+    let declared = [ask.brief, prompt.as_str()].iter().any(|text| text.lines().any(|line| line.trim_start().starts_with("Arm:")));
+    if !ask.worker || declared || route.stamp().is_some() {
+        return (prompt, route);
+    }
+    let evidence = ledger.get(&route.category).cloned().unwrap_or_default();
+    let (arm, drawn) = tier::context_arm(ask.item, &route.category, history, &evidence);
+    (super::brief::armed(&prompt, &arm), Route { why: format!("{}, context arm {arm} {drawn}", route.why), ..route })
 }
 
 fn named_tier(name: &str) -> Result<(Tier, Option<&'static str>), String> {
@@ -156,7 +169,7 @@ pub fn begin(ask: &Ask) -> Result<Start, String> {
 /// The tier route() picks for a worker brief, for a spawn guard that compares it with the tier asked for.
 pub fn picked_tier(brief: &str) -> Result<Tier, String> {
     let item = facets::declared_in(brief, "Item").unwrap_or("agent spawn");
-    begin(&Ask { item, brief, prompt: brief, model: None, reason: None }).map(|start| start.route.tier)
+    begin(&Ask { item, brief, prompt: brief, model: None, reason: None, worker: false }).map(|start| start.route.tier)
 }
 
 /// The issue's body and when it was opened, as unix seconds.

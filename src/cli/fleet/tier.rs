@@ -20,7 +20,8 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
             return Ok(None);
         }
     };
-    let ask = Ask { item: &item, brief: &brief, prompt: &request.prompt, model: request.model.as_deref(), reason: reason.as_deref() };
+    let worker = request.role() == crate::fleet::model::Role::Worker;
+    let ask = Ask { item: &item, brief: &brief, prompt: &request.prompt, model: request.model.as_deref(), reason: reason.as_deref(), worker };
     let start = start_hand(&ask).map_err(NorthError::Refused)?;
     request.model = Some(start.model.clone());
     if request.effort.is_none() {

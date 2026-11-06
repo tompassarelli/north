@@ -91,9 +91,66 @@ fn every_armed_launch_draws_its_arm_from_the_share_the_climber_prints_in_dispatc
     }
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
     [Tier::Sonnet, Tier::Opus].into_iter().for_each(|tier| assert!(routes.iter().any(|route| route.tier == tier)));
-    let ask = Ask { item: "north#7", brief: "Item: north#7\nCategory: tooling", prompt: "Item: north#7\nCategory: tooling\n\nDo the box.", model: None, reason: None };
+    let ask = Ask { item: "north#7", brief: "Item: north#7\nCategory: tooling", prompt: "Item: north#7\nCategory: tooling\n\nDo the box.", model: None, reason: None, worker: true };
     let hand = start(&ask, "", &cfg, &History::default(), &ledger, &|_| super::grounds::Grounds::default()).unwrap();
     assert_eq!(hand.route, route_for("north#7", &facet, &History::default(), &ledger), "a hand launch draws as dispatch does");
     let share = printed.arms.iter().find(|(arm, _)| arm == hand.route.tier.name()).unwrap().1;
     assert!(hand.prompt.contains(&format!("Arm: {}", hand.route.tier.name())) && hand.route.why.contains(&format!("drawn at its {:.0}% share of the tooling tier arms", 100.0 * share)), "{}\n{}", hand.prompt, hand.route.why);
+}
+
+#[test]
+fn a_hand_launched_worker_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_launches_claude_with_its_auto_compact_window() {
+    use super::manual::{Ask, start};
+    use super::tier::{Evidence, History, context_arm};
+    use crate::fleet::model::{Account, LaunchRequest};
+    use crate::fleet::prompt::PromptMode;
+    use crate::fleet::runtime::{Opening, Runtime};
+    use north_providers::providers::claude::fleet::Claude;
+    use std::collections::BTreeMap;
+    let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
+    let launch = |brief: &str, worker: bool| {
+        let ask = Ask { item: "north#636", brief, prompt: brief, model: None, reason: None, worker };
+        start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_| super::grounds::Grounds::default()).unwrap()
+    };
+    let scratch = tempfile::tempdir().unwrap();
+    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None };
+    let window = |prompt: &str| {
+        let request = LaunchRequest {
+            verification: false,
+            name: "n636-arm".into(),
+            provider: Claude.provider(),
+            account: "a".into(),
+            cwd: scratch.path().to_path_buf(),
+            model: None,
+            effort: None,
+            prompt: prompt.to_owned(),
+            system_prompt: None,
+            foreground_cap_secs: None,
+            prompt_mode: PromptMode::North,
+            idle_exit_minutes: None,
+            parent: Some("proxy".into()),
+            task_ref: Some("north#636".into()),
+            placement: None,
+            machine: None,
+            capacity_need: None,
+            role: None,
+            resume: None,
+            compact_window: None,
+        };
+        let spec = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
+        spec.env.into_iter().find(|(name, _)| name == "CLAUDE_CODE_AUTO_COMPACT_WINDOW").map(|(_, value)| value.to_string_lossy().into_owned())
+    };
+
+    let unarmed = launch("Item: north#636\nCategory: debugging-known-cause\nTier: worker\n\nGoal: price the cache.", true);
+    let (arm, _) = context_arm("north#636", &unarmed.route.category, &History::default(), &Evidence::default());
+    let lines: Vec<&str> = unarmed.prompt.lines().collect();
+    let tier = lines.iter().position(|line| line.starts_with("Tier: ")).unwrap();
+    assert_eq!(lines[tier + 1], format!("Arm: {arm}"), "{}", unarmed.prompt);
+    assert!(unarmed.route.why.contains(&format!("context arm {arm} drawn at")), "{}", unarmed.route.why);
+    assert_eq!(window(&unarmed.prompt), crate::fleet::compaction::window(&format!("Arm: {arm}")).map(|tokens| tokens.to_string()));
+
+    let armed = launch("Item: north#636\nCategory: debugging-known-cause\nTier: worker\nArm: context-400k\n\nGoal: x", true);
+    assert_eq!((armed.prompt.matches("Arm: ").count(), window(&armed.prompt).as_deref()), (1, Some("400000")));
+    let lead = launch("Item: north#636\nCategory: debugging-known-cause\nTier: worker\n\nGoal: x", false);
+    assert_eq!((lead.prompt.matches("Arm: ").count(), window(&lead.prompt)), (0, None));
 }
