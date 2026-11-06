@@ -207,3 +207,44 @@ fn an_after_landing_run_past_its_deadline_reaches_no_verdict_stays_journaled_and
     serve.kill().unwrap();
     let _ = serve.wait();
 }
+
+const HOLD_FIRST_AFTER_RUN: &str = r#"#!/usr/bin/env bash
+[ "$1 $2 $3" = "land checks --after" ] || exit 0
+while [ $# -gt 0 ]; do case $1 in --head) head=$2; shift ;; esac; shift; done
+echo "$head" >>"$LAND_TRACE/after-heads"
+if [ ! -e "$LAND_TRACE/held" ]; then
+  echo $$ >"$LAND_TRACE/held"
+  sleep 600
+  exit 1
+fi
+"#;
+
+// KEEP(bug): on 2026-11-06 a 50-minute rerun of a firn check line that be08ad55 had replaced held firn's after-landing verdict (north#634)
+#[test]
+fn an_after_landing_run_whose_check_line_a_later_landing_changed_is_cancelled_with_no_verdict_and_its_landings_are_checked_on_the_newest_head() {
+    let mut fixture = Fixture::new();
+    fixture.commit(&fixture.repo, ".safe-push", "[land]\n\tafter = old-check\n", "check after landing with the old line");
+    git(&fixture.repo, &["push", "-q", "origin", "main"]);
+    fixture.base = fixture.main();
+    executable(&fixture.trace.join("north-hook"), HOLD_FIRST_AFTER_RUN);
+    let first = fixture.lane("first", "first.txt", "first\n");
+    let first = fixture.enqueue(&first, None);
+    let mut serve = fixture.command().spawn().unwrap();
+    let first = landed(&fixture, &first);
+    until("the first after-landing run", || fs::read_to_string(fixture.trace.join("held")).is_ok_and(|pid| pid.ends_with('\n')));
+    let held: i32 = fs::read_to_string(fixture.trace.join("held")).unwrap().trim().parse().unwrap();
+    let rewrite = fixture.lane("rewrite", ".safe-push", "[land]\n\tafter = new-check\n");
+    let rewrite = fixture.enqueue(&rewrite, None);
+    let rewrite = landed(&fixture, &rewrite);
+    let ledger = fixture.state.join("safe-push/post-land.tsv");
+    let rows = || fs::read_to_string(&ledger).unwrap_or_default().lines().map(|row| row.split('\t').map(str::to_owned).collect::<Vec<_>>()).collect::<Vec<_>>();
+    until("the newest head's verdict", || rows().len() >= 2);
+    assert!(!Path::new(&format!("/proc/{held}")).exists(), "the superseded run was killed");
+    let rows = rows();
+    assert_eq!(rows.iter().map(|row| (row[2].as_str(), row[3].as_str(), row[7].as_str())).collect::<Vec<_>>(), [(first.as_str(), "green", rewrite.as_str()), (rewrite.as_str(), "green", "")], "one verdict per landing, both from the newest head's run, none from the superseded run");
+    let heads = fs::read_to_string(fixture.trace.join("after-heads")).unwrap();
+    assert_eq!(heads.lines().collect::<Vec<_>>(), [first.as_str(), rewrite.as_str()], "the superseded run is not retried on its own head");
+    assert!(fixture.fleet().iter().all(|call| !call.contains("main is red") && !call.contains("post-land checks failed")), "{:?}", fixture.fleet());
+    serve.kill().unwrap();
+    let _ = serve.wait();
+}

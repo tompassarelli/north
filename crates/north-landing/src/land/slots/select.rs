@@ -68,6 +68,10 @@ impl Config {
         Self { checks: self.checks.iter().filter(|entry| !earlier.checks.contains(entry)).cloned().collect(), inferred: Vec::new(), ..self.clone() }
     }
 
+    pub fn after_lines(repo: &Path, head: &str) -> Vec<String> {
+        blob_values(repo, head, "land.after")
+    }
+
     pub fn after_set(&self) -> Self {
         Self { checks: self.after.clone(), after: Vec::new(), inferred: Vec::new(), ..self.clone() }
     }

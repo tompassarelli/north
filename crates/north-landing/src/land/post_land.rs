@@ -3,12 +3,15 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::landing::red_check::{self, Failure};
 use crate::platform::push_ledger;
-use super::after::{deadline, follow, send};
+use crate::landing::check_timings::Deadline;
+use super::after::{follow, send};
 use super::{blame, culprit};
 use super::red_episode::Episode;
 use super::candidate::{change_worktrees_alone, git};
@@ -21,6 +24,7 @@ use super::telemetry;
 const ALARMED: &str = "proxy";
 const POLL: Duration = Duration::from_millis(50);
 const EPISODE: &str = "post-land-red";
+const DEADLINE_SETTING: &str = "landing.after-deadline-sec";
 
 #[derive(Clone)]
 pub struct Landed {
@@ -39,6 +43,7 @@ pub struct Outcome {
     pub search: Option<(f64, f64)>,
     pub log: PathBuf,
     pub failing: BTreeSet<Failure>,
+    pub superseded: bool,
 }
 
 pub struct Run {
@@ -51,6 +56,7 @@ pub struct Run {
     pub capacity: String,
     pub deadline: Duration,
     pub host: Option<String>,
+    pub cancel: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -97,17 +103,52 @@ impl Run {
             capacity: self.capacity.clone(),
             deadline: self.deadline,
             host: self.host.clone(),
+            cancel: Arc::clone(&self.cancel),
         }
     }
+}
+
+impl Run {
+    fn superseded(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
+}
+
+fn superseded(landed: &Landed) -> Verdict {
+    Verdict::Transient(format!("a later landing changed the check lines of the after-landing run of {}, so it was cancelled as superseded and reached no verdict", landed.head))
 }
 
 pub fn ledger_path() -> PathBuf {
     state_home().join("safe-push").join("post-land.tsv")
 }
 
-pub fn start(lander: &Lander, host: Option<String>, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>) -> std::thread::JoinHandle<Outcome> {
-    let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
-    let landed = Landed { repo: lander.repo.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: head.to_owned(), heads, lanes, tips };
+pub(crate) fn deadline(repo: &Path, ledger: &Path, repository: &str, head: &str) -> Duration {
+    let set = setting::landing(repo, "refs/remotes/origin/main", DEADLINE_SETTING).trim().parse().ok().filter(|seconds| *seconds > 0);
+    let seconds = set.unwrap_or_else(|| {
+        let deadline = measured_deadline(ledger, repository);
+        println!("north land: the after-landing run of {head} has a {deadline}");
+        deadline.seconds
+    });
+    Duration::from_secs(seconds)
+}
+
+fn measured_deadline(ledger: &Path, repository: &str) -> Deadline {
+    let text = fs::read_to_string(ledger).unwrap_or_default();
+    let runs: Vec<(&str, u64)> = text.lines().map(|row| row.split('\t').collect::<Vec<_>>()).filter(|fields| fields.get(1) == Some(&repository) && fields.get(7).is_none_or(|covering| covering.is_empty())).filter_map(|fields| Some((*fields.get(3)?, fields.get(6)?.parse().ok()?))).collect();
+    let walls: Vec<u64> = runs.iter().filter(|(class, _)| matches!(*class, "green" | "red-main")).map(|(_, seconds)| *seconds).collect();
+    let exceeded = runs.last().filter(|(class, _)| *class == "transient").map(|(_, seconds)| *seconds);
+    Deadline::after_landing(&walls, exceeded)
+}
+
+impl Landed {
+    pub fn on(lander: &Lander, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>) -> Self {
+        let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
+        Self { repo: lander.repo.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: head.to_owned(), heads, lanes, tips }
+    }
+}
+
+pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Arc<AtomicBool>) -> std::thread::JoinHandle<Outcome> {
+    let head = landed.head.as_str();
     let run = Run {
         runner: vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--dry".to_owned(), "1".to_owned()],
         worktree: lander.queue.join("post-land"),
@@ -116,28 +157,34 @@ pub fn start(lander: &Lander, host: Option<String>, base: &str, head: &str, head
         ledger: ledger_path(),
         offload_owner: lander.offload_owner.clone(),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
-        deadline: deadline(&lander.repo),
+        deadline: deadline(&lander.repo, &ledger_path(), &landed.repository, head),
         host,
+        cancel,
     }
     .at(head, head);
     std::thread::spawn(move || {
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
         if !matches!(verdict, Verdict::RedMain(_)) {
-            return Outcome { verdict, culprit: None, search: None, failing: BTreeSet::new(), log: run.log };
+            return Outcome { verdict, culprit: None, search: None, failing: BTreeSet::new(), superseded: run.superseded(), log: run.log };
         }
         let failing = failing(&run.log, &run.outcome);
         let started = telemetry::epoch();
         let culprit = locate(&landed, &run);
+        if run.superseded() {
+            println!("north land: the culprit search of {} stopped because a later landing changed its check lines", landed.head);
+            return Outcome { verdict, culprit: None, search: Some((started, telemetry::epoch())), failing, log: run.log, superseded: true };
+        }
         if let Some(at) = culprit {
             judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], &run.at(&landed.head, &landed.tips[at]).log);
         }
-        Outcome { verdict, culprit, search: Some((started, telemetry::epoch())), failing, log: run.log }
+        Outcome { verdict, culprit, search: Some((started, telemetry::epoch())), failing, log: run.log, superseded: false }
     })
 }
 
 pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String]) -> Option<BTreeSet<Failure>> {
-    let landed = Landed { repo: lander.repo.clone(), repository: String::new(), base: base.to_owned(), head: tree.to_owned(), heads: Vec::new(), lanes: Vec::new(), tips: Vec::new() };
+    let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
+    let landed = Landed { repo: lander.repo.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: tree.to_owned(), heads: Vec::new(), lanes: Vec::new(), tips: Vec::new() };
     let mut runner = vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--dry".to_owned(), "1".to_owned()];
     for step in failing {
         runner.extend(["--command".to_owned(), step.clone()]);
@@ -152,8 +199,9 @@ pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String])
         ledger: PathBuf::new(),
         offload_owner: lander.offload_owner.clone(),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
-        deadline: deadline(&lander.repo),
+        deadline: deadline(&lander.repo, &ledger_path(), &landed.repository, tree),
         host: None,
+        cancel: Arc::default(),
     };
     rerun_result(&check(&landed, tree, &run).verdict, &run.outcome, failing)
 }
@@ -209,7 +257,7 @@ fn prefixes(landed: &Landed, run: &Run, counts: &[usize]) -> Vec<Verdict> {
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {
     let started = std::time::Instant::now();
     let mut checked = check(landed, &landed.head, run);
-    if matches!(checked.verdict, Verdict::Transient(_)) && !checked.expired {
+    if matches!(checked.verdict, Verdict::Transient(_)) && !checked.expired && !run.superseded() {
         println!("north land: the post-land checks of {} reached no verdict; rerunning them once", landed.head);
         checked = check(landed, &landed.head, run);
     }
@@ -272,6 +320,9 @@ impl From<Verdict> for Checked {
 }
 
 fn check(landed: &Landed, tree: &str, run: &Run) -> Checked {
+    if run.superseded() {
+        return superseded(landed).into();
+    }
     let Some((program, prefix)) = run.runner.split_first() else { return Verdict::Transient("no post-land runner".to_owned()).into() };
     let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
     if let Err(error) = change_worktrees_alone(&landed.repo, &["worktree", "add", "--detach", &run.worktree.to_string_lossy(), tree]) {
@@ -306,33 +357,41 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
         command.env_remove(name);
     }
     command.process_group(0);
-    match supervise(&mut command, run.deadline) {
-        Ok(Some(status)) => judged(status, run).into(),
-        Ok(None) => Checked { verdict: Verdict::Transient(format!("post-land checks passed their {} s deadline and were killed with their process group, so they reached no verdict; log: {}", run.deadline.as_secs(), run.log.display())), expired: true },
+    match supervise(&mut command, run.deadline, &run.cancel) {
+        Ok(Ended::Exited(status)) => judged(status, run).into(),
+        Ok(Ended::Cancelled) => superseded(landed).into(),
+        Ok(Ended::Expired) => Checked { verdict: Verdict::Transient(format!("post-land checks passed their {} s deadline and were killed with their process group, so they reached no verdict; log: {}", run.deadline.as_secs(), run.log.display())), expired: true },
         Err(error) => Verdict::Transient(format!("{program}: {error}")).into(),
     }
 }
 
-fn supervise(command: &mut Command, limit: Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+enum Ended {
+    Exited(ExitStatus),
+    Expired,
+    Cancelled,
+}
+
+fn supervise(command: &mut Command, limit: Duration, cancel: &AtomicBool) -> std::io::Result<Ended> {
     let mut child = command.spawn()?;
     let deadline = Instant::now() + limit;
     loop {
         if let Some(status) = child.try_wait()? {
-            return Ok(Some(status));
+            return Ok(Ended::Exited(status));
         }
-        if Instant::now() >= deadline {
+        let cancelled = cancel.load(Ordering::Relaxed);
+        if cancelled || Instant::now() >= deadline {
             if let Some(pid) = rustix::process::Pid::from_raw(child.id().cast_signed()) {
                 let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::Kill);
             }
             let _ = child.kill();
             let _ = child.wait();
-            return Ok(None);
+            return Ok(if cancelled { Ended::Cancelled } else { Ended::Expired });
         }
         std::thread::sleep(POLL);
     }
 }
 
-fn judged(status: std::process::ExitStatus, run: &Run) -> Verdict {
+fn judged(status: ExitStatus, run: &Run) -> Verdict {
     match status.code() {
         _ if status.success() => Verdict::Green,
         Some(126 | 127) => Verdict::Transient(format!("post-land checks could not start their command (exit {status}), so they reached no verdict; log: {}", run.log.display())),

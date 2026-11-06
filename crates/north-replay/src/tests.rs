@@ -201,13 +201,30 @@ fn log_landings(root: &Path, walls: &[f64]) {
 }
 
 #[test]
-fn the_landing_tail_breaches_on_slow_rounds_and_on_landings_the_replay_withholds_and_times_each_ticket_once() {
+fn the_landing_tail_breaches_on_rounds_the_replay_makes_slower_and_on_landings_it_withholds_but_not_on_slow_rounds_it_judges_alike_and_times_each_ticket_once() {
     let slow = tempfile::tempdir().unwrap();
     log_landings(slow.path(), &[5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 90.0, 95.0, 100.0]);
     let (code, replayed) = exit(slow.path(), &deciders(&quiet_admission, &same_judgement, &unplaced));
     let tail = replayed.invariants.iter().find(|invariant| invariant.name == "landing-p90").unwrap();
-    assert_eq!((code, tail.checked, tail.passed), (1, 10, 7));
-    assert!(tail.breaches[0].contains("p90 is 95.0 s over 60 s") && tail.breaches[0].contains("2026-11-05"), "{:?}", tail.breaches);
+    assert_eq!((code, tail.checked, tail.passed, tail.breaches.len()), (0, 10, 7, 0), "slow rounds the replay judges as the log did are not the change's: {:?}", tail.breaches);
+
+    let delayed = tempfile::tempdir().unwrap();
+    for index in 0..10 {
+        let started = NOW - 3000.0 + index as f64 * 200.0;
+        let lane = vec![format!("lane{index}")];
+        for (round, (offset, wall, logged)) in [(0.0, 5.0, Judgement::Land), (50.0, 90.0, Judgement::Hold("logged later".into()))].into_iter().enumerate() {
+            let id = format!("b{index}-{round}");
+            let batch = BatchCase { base: "m".into(), tickets: Vec::new(), picks: Vec::new(), limit: None, red_only: false, pause: None, strikes: BTreeMap::new(), spares: 0, rebuilds: 0, bisect_depth: 0, github: None };
+            append(delayed.path(), Kind::LandBatch, "jsonl", started + offset, &envelope(Kind::LandBatch, &id, started + offset, None, batch, BatchDecision { included: lane.clone(), halve: None }));
+            let case = JudgeCase { verdict: Verdict::Green, included: lane.clone(), base_moved: false, streak: u32::try_from(round).unwrap(), searched: false };
+            append(delayed.path(), Kind::LandJudge, "jsonl", started + offset + wall, &envelope(Kind::LandJudge, &format!("j{index}-{round}"), started + offset + wall, Some(&id), case, logged));
+        }
+    }
+    let second_round = |case: &JudgeCase| if case.streak == 0 { Judgement::Hold("new rule".into()) } else { Judgement::Land };
+    let (code, replayed) = exit(delayed.path(), &deciders(&quiet_admission, &second_round, &unplaced));
+    let tail = replayed.invariants.iter().find(|invariant| invariant.name == "landing-p90").unwrap();
+    assert_eq!((code, tail.checked, tail.passed), (1, 10, 0));
+    assert!(tail.breaches[0].contains("p90 is 95.0 s over 60 s and over the logged decisions' 5.0 s") && tail.breaches[0].contains("2026-11-05"), "{:?}", tail.breaches);
 
     let held = tempfile::tempdir().unwrap();
     log_landings(held.path(), &[5.0; 10]);

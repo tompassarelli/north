@@ -57,6 +57,8 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &B
     let mut github = github_floor(bounds.github_floor_calls);
     let mut spent: HashMap<&str, f64> = HashMap::new();
     let mut stuck: BTreeSet<&str> = BTreeSet::new();
+    let mut logged_spent: HashMap<&str, f64> = HashMap::new();
+    let mut logged_times: Vec<f64> = Vec::new();
     let mut closed: BTreeSet<&str> = BTreeSet::new();
     let mut times: Vec<(f64, f64, &str)> = Vec::new();
     for logged in &judged {
@@ -70,6 +72,10 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &B
         for branch in logged.case.included.iter().map(String::as_str) {
             *spent.entry(branch).or_default() += wall;
             let logged_land = logged.decision == Judgement::Land;
+            *logged_spent.entry(branch).or_default() += wall;
+            if logged_land {
+                logged_times.extend(logged_spent.remove(branch));
+            }
             match (logged_land, replayed == Judgement::Land) {
                 (_, true) if closed.contains(branch) => {
                     spent.remove(branch);
@@ -91,12 +97,12 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &B
             }
         }
     }
-    (counts, tail(times, &stuck, bounds), github)
+    (counts, tail(times, &stuck, logged_times, bounds), github)
 }
 
-fn tail(mut times: Vec<(f64, f64, &str)>, stuck: &BTreeSet<&str>, bounds: &Bounds) -> Invariant {
+fn tail(mut times: Vec<(f64, f64, &str)>, stuck: &BTreeSet<&str>, mut logged: Vec<f64>, bounds: &Bounds) -> Invariant {
     let bound = bounds.landing_p90_seconds;
-    let mut tail = Invariant::new("landing-p90", format!("replayed tickets land within {bound} s of check time at the 90th percentile"));
+    let mut tail = Invariant::new("landing-p90", format!("replayed tickets land within {bound} s of check time at the 90th percentile, or no slower than the logged decisions did"));
     times.sort_by(|a, b| a.0.total_cmp(&b.0));
     let samples: Vec<f64> = times.iter().map(|(seconds, _, _)| *seconds).chain(stuck.iter().map(|_| f64::INFINITY)).collect();
     let mut sorted = samples.clone();
@@ -107,10 +113,12 @@ fn tail(mut times: Vec<(f64, f64, &str)>, stuck: &BTreeSet<&str>, bounds: &Bound
         return tail;
     }
     let p90 = percentile(&sorted, 0.9);
-    if p90 > bound {
+    logged.sort_by(f64::total_cmp);
+    let logged_p90 = if logged.is_empty() { 0.0 } else { percentile(&logged, 0.9) };
+    if p90 > bound && p90 > logged_p90 {
         let worst = times.last().map_or_else(String::new, |(seconds, at, branch)| format!("; slowest landed {branch} took {seconds:.0} s, landed at {}", stamp(*at)));
         let never: Vec<&&str> = stuck.iter().take(3).collect();
-        tail.breaches.push(format!("p90 is {p90:.1} s over {bound} s{worst}; never landed under replay: {} {never:?}", stuck.len()));
+        tail.breaches.push(format!("p90 is {p90:.1} s over {bound} s and over the logged decisions' {logged_p90:.1} s{worst}; never landed under replay: {} {never:?}", stuck.len()));
     }
     tail
 }

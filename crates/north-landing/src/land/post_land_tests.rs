@@ -10,7 +10,7 @@ use crate::landing::red_check::Failure;
 const SWITCHED: &str = "thread 'main' panicked at crates/north-base/src/platform/harness.rs:16:\nnorth: runtime 3c5a1869 has no tree and the checkout ~/code/north/main is at a3ecc7a51; run north runtime update\n";
 
 fn run() -> Run {
-    Run { runner: Vec::new(), worktree: PathBuf::new(), log: PathBuf::from("post-land.log"), outcome: PathBuf::from("absent"), ledger: PathBuf::new(), offload_owner: String::new(), capacity: String::new(), deadline: Duration::from_secs(60), host: None }
+    Run { runner: Vec::new(), worktree: PathBuf::new(), log: PathBuf::from("post-land.log"), outcome: PathBuf::from("absent"), ledger: PathBuf::new(), offload_owner: String::new(), capacity: String::new(), deadline: Duration::from_secs(60), host: None, cancel: Default::default() }
 }
 
 // KEEP(bug): on 2026-11-06 a check host that could not find the laptop's runtime path ended an after-landing run with exit 127 and the run was reported as red main, putting innocent lanes up for revert (north#662)
@@ -79,6 +79,27 @@ fn an_after_landing_run_past_its_deadline_is_killed_with_its_group_reaches_no_ve
     let rows: Vec<Vec<&str>> = rows.lines().map(|row| row.split('\t').collect()).collect();
     assert_eq!(rows.iter().map(|row| row[2]).collect::<Vec<_>>(), ["b", "c", "d"]);
     assert!(rows.iter().all(|row| row[3] == "transient" && row[5] == "lane-a,lane-b"), "{rows:?}");
+}
+
+// KEEP(bug): on 2026-11-06 the after-landing run deadline was a fixed 1,800 s while 19 runs took p90 172 s, so a stuck run held every later landing's verdict for half an hour (north#634)
+#[test]
+fn an_after_landing_run_deadline_is_three_times_the_p90_of_its_repository_s_recorded_runs_and_doubles_after_an_expiry() {
+    let scratch = tempfile::tempdir().unwrap();
+    let ledger = scratch.path().join("post-land.tsv");
+    let row = |repository: &str, class: &str, seconds: u64, covering: &str| format!("1\t{repository}\thead\t{class}\t\tlane\t{seconds}\t{covering}\n");
+    let mut rows: String = (1..=10).map(|run| row("owner/repo", if run == 4 { "red-main" } else { "green" }, run * 20, "")).collect();
+    rows.push_str(&row("owner/repo", "green", 5_000, "newer"));
+    rows.push_str(&row("owner/other", "green", 5_000, ""));
+    std::fs::write(&ledger, &rows).unwrap();
+    let measured = super::measured_deadline(&ledger, "owner/repo");
+    assert_eq!(measured.seconds, 540, "p90 180 s of the repository's own uncovered runs, times 3: {measured}");
+    rows.push_str(&row("owner/repo", "transient", 540, ""));
+    std::fs::write(&ledger, &rows).unwrap();
+    assert_eq!(super::measured_deadline(&ledger, "owner/repo").seconds, 1_080, "a run that expired doubles the next deadline");
+    rows.push_str(&row("owner/repo", "green", 100, ""));
+    std::fs::write(&ledger, &rows).unwrap();
+    assert_eq!(super::measured_deadline(&ledger, "owner/repo").seconds, 540, "a later run that reached a verdict returns the deadline to its measure");
+    assert_eq!(super::measured_deadline(&scratch.path().join("absent.tsv"), "owner/repo").seconds, crate::landing::check_timings::CEILING, "an unmeasured repository gets the ceiling");
 }
 
 fn process_ended(pid: i32) -> bool {

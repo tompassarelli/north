@@ -433,7 +433,10 @@ functions where they live through three seams (`capacity::replay::reason`, `land
 - **Landing tail.** A ticket's landing time is the check time of the rounds that carried it (batch line
   to judge line) until the replayed judgement lands it, so idle gaps between rounds and pauses on a
   broken main stay out, and a ticket the log landed but the replay holds counts as never landing. The
-  90th percentile must stay within `replay_landing_p90_seconds`.
+  90th percentile must stay within `replay_landing_p90_seconds`. A tail over that bound that is no slower than the
+  logged decisions' own p90 is not a breach (2026-11-06): the logged history held a 63 s p90 for a day, so
+  every lane that touched a decide function or `harness/defaults.toml` was refused while its replay
+  matched the log case for case.
 
 `--invariants` adds the invariant lines and their refusals to the counts and the shift check, which
 always run. `--budget` also refuses a replay slower than `replay_budget_seconds`. Exit is 0 when nothing

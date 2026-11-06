@@ -137,8 +137,8 @@ defaults = [
 
 [[loop]]
 name = "check-deadline"
-decision = "the deadline the lander gives each land check"
-sites = ["crates/north-landing/src/landing/check_timings.rs", "crates/north-landing/src/land/slots/runner.rs"]
+decision = "the deadline the lander gives each land check and each after-landing run"
+sites = ["crates/north-landing/src/landing/check_timings.rs", "crates/north-landing/src/land/slots/runner.rs", "crates/north-landing/src/land/post_land.rs"]
 signal = "p90 wall of the last passing runs of each check, doubled after a timeout on lane and base"
 updated_by = "north land"
 cadence_hours = 24

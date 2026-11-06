@@ -744,6 +744,21 @@ then S2b and S2c in parallel; then S3 and S4.
   `safe-push/post-land.tsv` row and one `verdict` span per covered head, naming the run's head
   in an eighth column; a run with no verdict writes neither and reruns. `north land profile`
   prints each landing's verdict and how many landings have one, none or more than one.
+  Run deadline (2026-11-06): the whole `north land checks --after` run gets the same measured
+  deadline as a land check, three times the p90 wall of its repository's last 20 runs that reached
+  a verdict (rows of `safe-push/post-land.tsv` with no covering head), at least 300 s and at most
+  2,100 s, and 2,100 s until 5 runs are recorded; a run that expired doubles the next one's, up to
+  the ceiling, until a run reaches a verdict. It replaced a flat 1,800 s that let one stuck run hold
+  every later landing's verdict for half an hour while runs took p90 172 s. `landing.after-deadline-sec`
+  in `.safe-push` still overrides it.
+  Superseded run (2026-11-06): when a landing's `.safe-push` drops or rewrites a `land.after` line
+  that the after-landing run in flight is running, the lander cancels that run: its process group
+  is killed and it ends with no verdict, so it writes no `post-land.tsv` row, sends no red-main
+  message and starts no culprit search or sheriff action. Its landings merge into the newest
+  landing's run at once, with no 30 s retry delay and no missed-verdict count, so the current lines
+  check all of them on the newest head. A run cancelled during its culprit search keeps its red
+  verdict and blames no lane. On 2026-11-06 a 50-minute rerun of a firn check line that be08ad55
+  had replaced built gcc from source on ccx33 and held firn's verdict.
   Failure verdict (2026-11-05): a check that exits nonzero inside a lander round reruns once on
   the base tree, on the same host and through the same wrapper, with `SAFE_PUSH_LAND_HEAD` naming
   the tree it runs on and `SAFE_PUSH_LAND_RUNTIME_HEAD` still naming the lane, so `bin/head-north`

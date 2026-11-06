@@ -43,6 +43,10 @@ impl Deadline {
         Deadline { seconds: p90.saturating_mul(MARGIN).clamp(FLOOR, CEILING), basis: Basis::Measured { p90, passes: recent.len() } }
     }
 
+    pub fn after_landing(runs: &[u64], exceeded: Option<u64>) -> Self {
+        Self::from_passes(runs).raised(exceeded)
+    }
+
     fn raised(self, exceeded: Option<u64>) -> Self {
         match exceeded.map(|exceeded| (exceeded, exceeded.saturating_mul(2).min(CEILING))) {
             Some((exceeded, seconds)) if seconds > self.seconds => Deadline { seconds, basis: Basis::Raised { exceeded } },

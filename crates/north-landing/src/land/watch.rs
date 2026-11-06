@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -15,6 +17,7 @@ use super::post_land::{self, Hosts, Outcome};
 use super::queue::{self, Ticket};
 use super::jobs::Jobs;
 use super::setting;
+use super::slots::select::Config;
 use super::sheriff;
 use super::telemetry::epoch;
 use super::trace::{self, AFTER, COVERED_BY, Category, PHASE, Span, VERDICT};
@@ -73,6 +76,7 @@ struct Running {
     batch: Batch,
     run: JoinHandle<Outcome>,
     host: Option<String>,
+    cancel: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -170,8 +174,19 @@ impl Watch {
             println!("north land: could not journal the after-landing run of {head}, so a lander restart before its verdict loses it: {error}");
         }
         let Entry { base, head, lanes } = entry;
+        self.supersede(lander, &head);
         self.pending.add(Batch::landed(base, head, lanes, epoch()));
         self.start_next(lander);
+    }
+
+    fn supersede(&self, lander: &Lander, newest: &str) {
+        let current = Config::after_lines(&lander.repo, newest);
+        for running in &self.running {
+            if !running.cancel.load(Ordering::Relaxed) && superseded(&Config::after_lines(&lander.repo, &running.batch.head), &current) {
+                println!("north land: {newest} changed the check lines of the after-landing run of {} in flight, so that run is cancelled as superseded and its landings are checked with {newest}", running.batch.head);
+                running.cancel.store(true, Ordering::Relaxed);
+            }
+        }
     }
 
     fn start_next(&mut self, lander: &Lander) {
@@ -195,8 +210,9 @@ impl Watch {
         let names = batch.lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
         let tips = batch.lanes.iter().map(|lane| lane.tip.clone()).collect();
         let host = self.hosts.claim(&lander.repo, &batch.head);
-        let run = post_land::start(lander, host.clone(), &batch.base, &batch.head, heads, names, tips);
-        self.running.push(Running { batch, run, host });
+        let cancel = Arc::default();
+        let run = post_land::start(lander, post_land::Landed::on(lander, &batch.base, &batch.head, heads, names, tips), host.clone(), Arc::clone(&cancel));
+        self.running.push(Running { batch, run, host, cancel });
         true
     }
 
@@ -208,7 +224,7 @@ impl Watch {
         }
         let mut settled = recovered;
         while let Some(at) = self.running.iter().position(|running| running.run.is_finished()) {
-            let Running { batch, run, host } = self.running.remove(at);
+            let Running { batch, run, host, .. } = self.running.remove(at);
             if let Some(host) = host {
                 self.hosts.release(&host);
             }
@@ -220,8 +236,17 @@ impl Watch {
     }
 
     fn finish(&mut self, lander: &Lander, mut batch: Batch, run: JoinHandle<Outcome>) {
-        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None, search: None, log: PathBuf::new(), failing: BTreeSet::new() });
+        let outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), culprit: None, search: None, log: PathBuf::new(), failing: BTreeSet::new(), superseded: false });
         let ended = epoch();
+        if outcome.superseded && matches!(outcome.verdict, Verdict::Transient(_)) {
+            println!("north land: the after-landing run of {} was superseded; its landings run again now with the newest landing", batch.head);
+            for followed in &mut batch.heads {
+                followed.at = ended;
+            }
+            batch.retry_at = ended;
+            self.pending.retry(batch);
+            return;
+        }
         if let Verdict::Transient(detail) = &outcome.verdict {
             println!("north land: the after-landing run of {} reached no verdict ({detail}); it runs again in {} s", batch.head, RETRY.as_secs());
             batch.retry_at = ended + RETRY.as_secs_f64();
@@ -244,13 +269,19 @@ impl Watch {
         if let Some((from, to)) = outcome.search {
             record(lander, &[Span::new(&batch.head, format!("culprit search over {} landed lanes", batch.lanes.len()), Category::Lander, from, to).with(PHASE, AFTER)]);
         }
-        if let Verdict::RedMain(detail) = &outcome.verdict {
+        if outcome.superseded && matches!(outcome.verdict, Verdict::RedMain(_)) {
+            println!("north land: the after-landing run of {} is red, but a later landing changed its check lines during the culprit search, so no lane is blamed and the newest landing's run checks the current lines", batch.head);
+        } else if let Verdict::RedMain(detail) = &outcome.verdict {
             blame(lander, &batch, outcome.culprit, detail, &outcome);
         }
         for followed in &batch.heads {
             let _ = fs::remove_file(entry_path(lander, &followed.head));
         }
     }
+}
+
+fn superseded(running: &[String], current: &[String]) -> bool {
+    running.iter().any(|line| !current.contains(line))
 }
 
 fn after_runs(lander: &Lander) -> usize {
