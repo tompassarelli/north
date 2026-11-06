@@ -152,7 +152,7 @@ impl Publisher<'_> {
     fn final_scans(&self, outgoing: &Outgoing, to: &str, range: &str) -> Vec<&'static str> {
         let branch = outgoing.identity.branch();
         let mut failed = Vec::new();
-        let checks: [(&[&str], &'static str); 11] = [
+        let checks: [(&[&str], &'static str); 12] = [
             (&["dep-gate", &format!("{}..{}", outgoing.base, outgoing.head)], "dependency gate"),
             (&["native-ref", "--range", range, "--", branch, to], "native item reference"),
             (&["tool-removal", range], "tool removal"),
@@ -164,6 +164,7 @@ impl Publisher<'_> {
             (&["test-admission", range], "test admission"),
             (&["docs-owners", range], "document owners"),
             (&["doc-links", range], "document links"),
+            (&["gate-shadow", range], "gate shadow record"),
         ];
         for (index, (arguments, label)) in checks.into_iter().enumerate() {
             if index == 5 {

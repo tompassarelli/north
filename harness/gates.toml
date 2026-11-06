@@ -1,0 +1,12 @@
+# Every gate added since north#706 that can refuse a launch, a push, a landing or a GitHub write. A new gate lands
+# with mode = "shadow": north_base::gates::decide logs each of its decisions and what it would refuse to
+# $XDG_STATE_HOME/north/gates/ID.jsonl and lets the action through. It may switch to mode = "enforce" only in a lane
+# that adds its [gate.review]: a named reviewer who read its would-be refusals over at least 24 h or 20 decisions
+# (from and to in UTC, decisions, would_refuse, wrong = 0). `north land scan gate-shadow` refuses a lane that adds a
+# file under a gate directory without an entry here, or makes a gate enforce without that review
+# (docs/rationale/shadow-first-gates.md).
+
+[[gate]]
+id = "gate-shadow"
+files = ["crates/north-landing/src/land/scans/gate_shadow.rs"]
+mode = "shadow"

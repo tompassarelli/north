@@ -3,6 +3,7 @@ pub mod autoland_status;
 pub mod build_inputs;
 pub mod error;
 pub mod foundation;
+pub mod gates;
 pub mod nix_command;
 pub mod platform;
 pub mod run_time_data;

@@ -102,6 +102,7 @@ fn range_scan(gate: Gate) -> &'static str {
         Gate::PolicySweep => "policy-sweep",
         Gate::DocsOwners => "docs-owners",
         Gate::DocLinks => "doc-links",
+        Gate::GateShadow => "gate-shadow",
         Gate::StrategyReplay => "strategy-replay",
         Gate::ShellHook => "shell-hook",
         _ => "commit-email",

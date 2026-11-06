@@ -250,6 +250,12 @@ responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, rem
 may_use = ["domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
+name = "gates"
+paths = ["crates/north-base/src/gates.rs"]
+responsibility = "The gate registry and shadow mode: which registered gates enforce, and the log of what a gate in shadow would refuse."
+may_use = ["foundation"]
+
+[[module]]
 name = "autoland_status"
 paths = ["crates/north-base/src/autoland_status.rs", "crates/north-base/src/autoland_status/**"]
 responsibility = "Autoland run evidence and lane holds read by landing and the guards."
@@ -259,7 +265,7 @@ may_use = ["platform", "foundation"]
 name = "landing"
 paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/build_cache_gate.rs", "crates/north-landing/src/stub_exec_gate.rs", "crates/north-landing/src/runtime_floor_gate.rs", "crates/north-landing/src/runtime_floor_gate_tests.rs", "crates/north-landing/src/land_model/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/issue_box_lint.rs", "crates/north-landing/src/land_abandon.rs", "crates/north-landing/src/land_abandon/**", "crates/north-landing/src/follows_release.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
-may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants"]
+may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants", "gates"]
 
 [[module]]
 name = "landing.safe_push.shell"
