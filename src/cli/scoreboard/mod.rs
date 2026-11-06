@@ -2,6 +2,7 @@
 //! each read from a recorded source, so one week can be set against the last and against published
 //! figures (docs/rationale/scoreboard.md).
 use std::fmt::Write;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
@@ -19,7 +20,7 @@ mod tom;
 mod weekly;
 mod workers;
 
-const USAGE: &str = "usage: north scoreboard [--record | --ready | --rework [--since 7d] | audit [--tell]]";
+const USAGE: &str = "usage: north scoreboard [--record | --ready [--all] [--explain] | --rework [--since 7d] | audit [--tell]]";
 const WEEK_S: i64 = 7 * 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,8 +170,19 @@ fn rework(request: &cause::Request) -> u8 {
     }
 }
 
-fn ready_table() -> u8 {
-    match ready::run(Timestamp::now().unix_seconds()) {
+fn ready_table(flags: &[String]) -> u8 {
+    let mut view = ready::View { color: std::io::stdout().is_terminal(), ..ready::View::default() };
+    for flag in flags {
+        match flag.as_str() {
+            "--all" => view.all = true,
+            "--explain" => view.explain = true,
+            _ => {
+                eprintln!("{USAGE}");
+                return 64;
+            }
+        }
+    }
+    match ready::run(Timestamp::now().unix_seconds(), view) {
         Ok(text) => {
             print!("{text}");
             0
@@ -187,7 +199,7 @@ pub fn run(arguments: &[String]) -> u8 {
         [] => false,
         [word, rest @ ..] if word == "audit" => return audit::run(rest),
         [flag] if flag == "--record" => true,
-        [flag] if flag == "--ready" => return ready_table(),
+        [flag, rest @ ..] if flag == "--ready" => return ready_table(rest),
         _ => match cause::Request::parse(arguments) {
             Some(request) => return rework(&request),
             None => {

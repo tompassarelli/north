@@ -70,15 +70,15 @@ impl Bar {
 
     fn label(self) -> &'static str {
         match self {
-            Self::LandingP90 => "landing queue to main, p90",
-            Self::VerificationP50 => "verification after the push, p50",
-            Self::VerificationP90 => "verification after the push, p90",
-            Self::Rework => "rework within 48 h",
-            Self::FirstTry => "worker first-try success",
-            Self::AskToLanding => "Tom's ask to first landed commit, median",
-            Self::Corrections => "Tom's corrections per active hour (all repos)",
-            Self::PriorityNow => "priority:now issues open",
-            Self::IdleAccount => "longest account idle while work waits (all repos)",
+            Self::LandingP90 => "landing queue p90",
+            Self::VerificationP50 => "verification p50",
+            Self::VerificationP90 => "verification p90",
+            Self::Rework => "rework in 48 h",
+            Self::FirstTry => "first-try success",
+            Self::AskToLanding => "ask to landing p50",
+            Self::Corrections => "corrections per h (all)",
+            Self::PriorityNow => "priority:now open",
+            Self::IdleAccount => "longest idle account (all)",
         }
     }
 
@@ -107,14 +107,6 @@ impl Standing {
             Some(reading) if bound.holds(reading.value) => Self::Pass,
             Some(_) => Self::Fail,
             None => Self::NoRecord,
-        }
-    }
-
-    fn word(self) -> &'static str {
-        match self {
-            Self::Pass => "pass",
-            Self::Fail => "FAIL",
-            Self::NoRecord => "no record",
         }
     }
 }
@@ -407,42 +399,79 @@ fn assess(reading: impl Fn(Bar, Window) -> Option<Reading>, goals: &Goals, repo:
     Repo { name: repo, bars, days_in_a_row }
 }
 
-fn cell(goal: &Goal, reading: Option<Reading>, standing: Option<Standing>) -> String {
-    let word = standing.map(|standing| format!(" {}", standing.word())).unwrap_or_default();
+/// How the ready tables print: `explain` adds each cell's sample and the sources, `color` marks the verdict on a terminal.
+#[derive(Clone, Copy, Default)]
+pub struct View {
+    pub all: bool,
+    pub explain: bool,
+    pub color: bool,
+}
+
+const MARK: usize = 3;
+
+fn cell(goal: &Goal, reading: Option<Reading>, explain: bool) -> String {
     match reading {
-        Some(reading) => format!("{}{word} (n={})", show(&goal.unit, reading.value), reading.sample),
-        None => standing.map_or("none", Standing::word).into(),
+        Some(reading) if explain => format!("{} (n={})", show(&goal.unit, reading.value), reading.sample),
+        Some(reading) => show(&goal.unit, reading.value),
+        None => "none".into(),
     }
 }
 
-fn render(repos: &[Repo], goals: &Goals, now: i64) -> String {
-    let mut rows: Vec<Vec<String>> = vec![["bar".into(), "ready threshold".into()].into_iter().chain(repos.iter().flat_map(|repo| ["12 h", "24 h", "7 d"].map(|span| format!("{} {span}", repo.name)))).collect()];
-    for (index, bar) in Bar::ALL.iter().enumerate() {
-        let goal = goals.of(*bar);
-        let cells = repos.iter().flat_map(|repo| {
-            let cells = &repo.bars[index];
-            [cell(goal, cells.half_day, None), cell(goal, cells.day.0, Some(cells.day.1)), cell(goal, cells.week, None)]
-        });
-        rows.push([bar.label().to_owned(), threshold(goal)].into_iter().chain(cells).collect());
+fn mark(text: &str, color: bool) -> String {
+    match (color, text.trim_end()) {
+        (true, "pass") => format!("\x1b[32m{text}\x1b[0m"),
+        (true, "FAIL") => format!("\x1b[1;31m{text}\x1b[0m"),
+        _ => text.to_owned(),
     }
-    let streaks = repos.iter().flat_map(|repo| [String::new(), format!("{} {}", repo.days_in_a_row, if repo.days_in_a_row >= NEEDED_DAYS { "pass" } else { "FAIL" }), String::new()]);
-    rows.push(["days in a row all bars pass".into(), format!(">= {NEEDED_DAYS}")].into_iter().chain(streaks).collect());
+}
+
+fn table(out: &mut String, repo: &Repo, goals: &Goals, view: View) {
+    let mut rows: Vec<Vec<String>> = vec![["bar", "target", "24 h", "", "12 h", "7 d"].map(String::from).to_vec()];
+    let mut failing = 0;
+    for (bar, cells) in Bar::ALL.iter().zip(&repo.bars) {
+        let goal = goals.of(*bar);
+        let passed = counts(cells.day.1, *bar);
+        failing += usize::from(!passed);
+        rows.push(vec![bar.label().into(), threshold(goal), cell(goal, cells.day.0, view.explain), if passed { "pass" } else { "FAIL" }.into(), cell(goal, cells.half_day, view.explain), cell(goal, cells.week, view.explain)]);
+    }
+    let ready = repo.days_in_a_row >= NEEDED_DAYS;
+    let _ = writeln!(out, "{}: {}, {failing} of {} bars fail on the last 24 h, {} of {NEEDED_DAYS} days", repo.name, if ready { "ready" } else { "not ready" }, Bar::ALL.len(), repo.days_in_a_row);
     let widths: Vec<usize> = (0..rows[0].len()).map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0)).collect();
-    let mut out = String::new();
-    let _ = writeln!(out, "north scoreboard --ready at {}: each bar passes or fails on its last 24 h; the 12 h and 7 d columns are context with no verdict; days in a row counts the newest 24 h windows in which every bar passed", Timestamp::from_unix_seconds(now).local_twelve_hour());
     for row in &rows {
-        let line: Vec<String> = row.iter().zip(&widths).map(|(text, width)| format!("{text:<width$}")).collect();
+        let line: Vec<String> = row.iter().zip(&widths).enumerate().map(|(column, (text, width))| {
+            let padded = format!("{text:<width$}");
+            if column == MARK { mark(&padded, view.color) } else { padded }
+        }).collect();
         let _ = writeln!(out, "{}", line.join("  ").trim_end());
     }
-    let ready = repos.iter().all(|repo| repo.days_in_a_row >= NEEDED_DAYS);
-    let _ = writeln!(out, "ready for production work: {}", if ready { "yes" } else { "no" });
-    let _ = writeln!(out, "thresholds: goals.toml, ready class. from the landings ledger and land-queue spans, the worker ledger, Tom's transcripts, the GitHub mirror and pace-control history");
+}
+
+fn render(repos: &[Repo], goals: &Goals, now: i64, view: View) -> String {
+    let mut out = String::new();
+    for (index, repo) in repos.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        table(&mut out, repo, goals, view);
+    }
+    if view.explain {
+        let _ = writeln!(out, "\nat {}: each bar passes or fails on its last 24 h; 12 h and 7 d are context with no verdict", Timestamp::from_unix_seconds(now).local_twelve_hour());
+        let _ = writeln!(out, "days: the newest 24 h windows in a row in which every bar passed; n: each cell's sample");
+        let _ = writeln!(out, "targets: goals.toml, ready class");
+        let _ = writeln!(out, "sources: landings ledger, land-queue spans, worker ledger, Tom's transcripts, GitHub mirror, pace-control history");
+    }
     out
 }
 
-pub fn run(now: i64) -> Result<String, String> {
+/// The repositories whose projects are not paused in orchestration.toml, or every one with `--all`.
+fn shown(all: bool) -> Vec<&'static str> {
+    let paused = if all { Vec::new() } else { crate::platform::orchestration::read().map(|cfg| crate::platform::orchestration::set_aside_repos(&cfg)).unwrap_or_default() };
+    REPOS.into_iter().filter(|repo| !paused.iter().any(|name| name == repo)).collect()
+}
+
+pub fn run(now: i64, view: View) -> Result<String, String> {
     let goals = Goals::read()?;
     let records = Records::read(&Sources::live(), now)?;
-    let repos: Vec<Repo> = REPOS.iter().map(|repo| assess(|bar, window| records.reading(bar, repo, window), &goals, repo, now)).collect();
-    Ok(render(&repos, &goals, now))
+    let repos: Vec<Repo> = shown(view.all).into_iter().map(|repo| assess(|bar, window| records.reading(bar, repo, window), &goals, repo, now)).collect();
+    Ok(render(&repos, &goals, now, view))
 }
