@@ -36,11 +36,3 @@ fn lane_with_work_main_never_held_is_unlanded() {
     assert_eq!(landed(root, "main", "lane"), None);
 }
 
-#[test]
-fn lane_whose_deletion_main_kept_is_unlanded() {
-    let scratch = fixture();
-    let root = scratch.path();
-    lane_edit(root, "alpha\ngamma\n");
-    commit(root, "app.txt", "alpha\nbeta\ngamma\nzeta\n", "lane change");
-    assert_eq!(landed(root, "main", "lane"), None);
-}

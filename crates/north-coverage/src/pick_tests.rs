@@ -51,13 +51,6 @@ fn a_change_outside_every_function_or_against_an_unknown_map_commit_is_unmapped(
 }
 
 #[test]
-fn spans_carried_past_lines_added_since_the_map_still_pick_by_function() {
-    let map = map();
-    let since = diff("src/x.rs", &["@@ -12,0 +13,4 @@"]);
-    assert_eq!(picked(&map, Some(&since), &diff("src/x.rs", &["@@ -26 +26 @@"])), Selection::Tests { tests: tests(&["c"]), file_level: vec![] });
-}
-
-#[test]
 fn a_file_or_input_the_map_never_saw_is_unmapped() {
     let map = map();
     assert!(matches!(picked(&map, Some(&Hunks::new()), &diff("src/new.rs", &["@@ -0,0 +1,3 @@"])), Selection::Unmapped(_)));

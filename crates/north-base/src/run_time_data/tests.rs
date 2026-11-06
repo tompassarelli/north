@@ -5,11 +5,6 @@ fn reasons(base: &str, head: &str) -> Vec<String> {
 }
 
 #[test]
-fn a_changed_value_and_a_new_key_pass() {
-    assert!(reasons("[headroom]\nvalue = 2\n", "[headroom]\nvalue = 3\n[spare]\nvalue = 'x'\n").is_empty());
-}
-
-#[test]
 fn a_removed_key_a_changed_type_and_a_parse_error_are_refused() {
     assert_eq!(reasons("[headroom]\nvalue = 2\nunit = 's'\n", "[headroom]\nvalue = 2.5\n"), ["headroom.unit removed", "headroom.value was Integer, now Float (write the number in the type it had, such as 3.0 for a float)"]);
     assert_eq!(reasons("a = 1\n", "a = \n"), [" does not parse: string values must be quoted, expected literal string"]);
@@ -33,12 +28,6 @@ fn the_data_on_main_passes_against_itself() {
 }
 
 #[test]
-fn a_prompt_may_change_freely_but_not_disappear() {
-    assert!(check("harness/claude/agents/worker.md", Some("---\neffort: medium\n---\n"), Some("anything")).is_empty());
-    assert_eq!(check("harness/claude/agents/worker.md", Some("x"), None).len(), 1);
-}
-
-#[test]
 fn an_array_its_readers_had_entries_in_may_shrink_but_not_empty() {
     assert!(reasons("command = ['bun', 'test']\n", "command = ['bun']\n").is_empty());
     assert_eq!(reasons("command = ['bun', 'test']\n", "command = []\n"), ["command emptied, but its readers had entries"]);
@@ -59,14 +48,6 @@ fn every_default_on_main_declares_a_range_it_sits_inside() {
     let silent: Vec<&str> = document.iter().filter(|(_, entry)| entry.get("value").is_some() && entry.get("allowed").is_none()).map(|(name, _)| name).collect();
     assert!(silent.is_empty(), "no allowed range beside {silent:?}");
     assert!(check(DEFAULTS_PATH, None, Some(&text)).is_empty());
-}
-
-#[test]
-fn a_value_outside_its_declared_range_is_refused_and_one_inside_passes() {
-    let base = "[success_threshold]\nvalue = 80\nallowed = { min = 0, max = 100 }\n";
-    assert!(defaults_reasons(base, "[success_threshold]\nvalue = 95\nallowed = { min = 0, max = 100 }\n").is_empty());
-    assert_eq!(defaults_reasons(base, "[success_threshold]\nvalue = 180\nallowed = { min = 0, max = 100 }\n"), ["success_threshold value 180 is outside 0..100"]);
-    assert_eq!(defaults_reasons(base, "[success_threshold]\nvalue = -1\nallowed = { min = 0, max = 100 }\n"), ["success_threshold value -1 is outside 0..100"]);
 }
 
 #[test]

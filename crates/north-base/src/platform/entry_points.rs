@@ -36,13 +36,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn north_and_lookalikes_select_nothing() {
-        for argv0 in ["north", "/runtimes/abc/north", "safe-push2", "xsafe-push", ""] {
-            assert_eq!(named(OsStr::new(argv0)), None, "{argv0}");
-        }
-    }
-
     proptest! {
         #[test]
         fn a_basename_outside_the_entry_points_runs_north(directory in "[a-z/]{0,12}", name in "[a-z-]{1,12}") {

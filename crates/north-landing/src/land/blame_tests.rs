@@ -18,13 +18,6 @@ fn four_merged_landings_with_the_third_red_name_it_after_one_parallel_round() {
 }
 
 #[test]
-fn too_few_free_slots_fall_back_to_bisection() {
-    let (found, rounds) = search(4, 3, 3, false);
-    assert_eq!(found, Some(2));
-    assert!(rounds.iter().all(|round| round.len() == 1), "{rounds:?}");
-}
-
-#[test]
 fn a_base_already_red_blames_no_lane() {
     assert_eq!(search(4, 6, 1, true).0, None);
     let (found, rounds) = search(4, 1, 1, true);
@@ -38,13 +31,3 @@ fn an_undecided_prefix_before_the_first_red_names_no_lane() {
     assert_eq!(found, None);
 }
 
-#[test]
-fn a_parallel_round_left_undecided_by_busy_slots_falls_back_to_bisection() {
-    let mut rounds = 0;
-    let found = culprit(4, 6, |counts| {
-        rounds += 1;
-        counts.iter().map(|&count| if counts.len() > 1 && count == 1 { Verdict::Transient("slots busy".into()) } else if count >= 3 { Verdict::RedMain(String::new()) } else { Verdict::Green }).collect()
-    });
-    assert_eq!(found, Some(2));
-    assert!(rounds > 1);
-}

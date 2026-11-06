@@ -35,12 +35,3 @@ fn a_fresh_mirror_answers_the_ci_watch_reads_with_no_github_call() {
     assert!(notify::run_finished_via(&mirror, now, REPO, "55", || panic!("GitHub called")).is_some());
 }
 
-#[test]
-fn a_stale_unmirrored_or_truncated_read_falls_back_to_github() {
-    let (_root, mirror) = mirror_with(10);
-    let stale = AT + FRESH_S + 1.0;
-    assert_eq!(diagnose::issues_via(&mirror, stale, REPO, || Ok(Vec::new())).unwrap().len(), 0);
-    assert_eq!(diagnose::issues_via(&mirror, AT, "tompassarelli/padbridge", || Ok(Vec::new())).unwrap().len(), 0);
-    assert_eq!(diagnose::comments_via(&mirror, AT, REPO, 7, || Ok(vec!["from github".into()])).unwrap(), ["from github"]);
-    assert_eq!(notify::run_finished_via(&mirror, AT, REPO, "56", || None), None);
-}

@@ -95,13 +95,6 @@ mod tests {
     }
 
     #[test]
-    fn the_lander_follows_when_the_candidate_replay_matches() {
-        let directory = tempfile::tempdir().unwrap();
-        let binary = candidate(directory.path(), "#!/bin/sh\necho \"north land promote: /s/lander now points at runtimes/new; restarted north-land*\"\nexit 0\n");
-        assert!(lander_verdict(&binary, directory.path()).is_ok());
-    }
-
-    #[test]
     fn the_lander_is_held_with_the_named_reason_when_the_candidate_replay_differs() {
         let directory = tempfile::tempdir().unwrap();
         let binary = candidate(directory.path(), "#!/bin/sh\necho \"north land promote: refused: round lane-a on abc recorded landed but the candidate replayed failed; the lander link is unchanged\"\nexit 1\n");

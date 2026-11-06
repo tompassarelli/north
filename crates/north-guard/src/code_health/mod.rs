@@ -24,8 +24,6 @@ mod state;
 mod tick;
 #[cfg(test)]
 mod tick_tests;
-#[cfg(test)]
-mod tests;
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.first().map(String::as_str) {

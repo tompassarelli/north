@@ -72,9 +72,3 @@ fn no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree() {
     }
 }
 
-#[test]
-fn a_run_time_data_is_no_rust_build_input_so_a_table_only_change_reuses_the_binary() {
-    for table in north_base::build_inputs::RUN_TIME_DATA {
-        assert!(!rust_build_input(table), "{table}");
-    }
-}

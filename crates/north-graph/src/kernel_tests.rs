@@ -121,6 +121,12 @@ fn coordinates_are_ordinary_nested_triples_that_order_by_transaction_then_ordina
 }
 
 #[test]
+fn an_instant_rejects_a_nanosecond_field_of_a_second_or_more() {
+    assert!(Term::instant(0, 1_000_000_000).is_err());
+    assert!(Term::instant(1_785_560_000, 123_456_789).is_ok());
+}
+
+#[test]
 fn terms_round_trip_through_their_text_and_json_forms() {
     let terms = [
         Term::string("a \"quoted\" (word)"),
@@ -139,4 +145,28 @@ fn terms_round_trip_through_their_text_and_json_forms() {
     }
     assert_eq!(parse_arg("north#669").unwrap(), Term::string("north#669"));
     assert!(parse_arg("(a b").is_err());
+}
+
+#[test]
+fn a_user_term_shaped_like_a_future_coordinate_does_not_block_later_writes() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    graph.tell("test", proposition()).unwrap();
+    let squatter = Term::triple(Term::triple("graph", Term::keyword("kernel/tx-sequence"), 2), Term::keyword("kernel/op-ordinal"), 0);
+    graph.tell("test", Triple::new(squatter, Term::keyword("note"), "x")).unwrap();
+    let receipt = graph.tell("test", proposition()).unwrap();
+    assert_eq!(receipt.coordinate, Term::triple(Term::triple("graph", Term::keyword("kernel/tx-sequence"), 3), Term::keyword("kernel/op-ordinal"), 0));
+    assert!(graph.validate().unwrap().is_sound());
+}
+
+#[test]
+fn terms_nested_beyond_the_depth_limit_are_refused_before_they_are_stored() {
+    let deep = format!("{}x{}", "(".repeat(300), " y z)".repeat(300));
+    assert!(parse_arg(&deep).is_err());
+    let mut term = Term::int(0);
+    for _ in 0..300 {
+        term = Term::triple(term, Term::keyword("k"), 1);
+    }
+    let mut graph = Graph::open_in_memory().unwrap();
+    assert!(graph.tell("test", term.as_triple().unwrap().clone()).is_err());
+    assert_eq!(graph.validate().unwrap().occurrences, 0);
 }

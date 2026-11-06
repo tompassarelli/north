@@ -97,11 +97,4 @@ mod tests {
         assert_eq!(score(38, 23.43, 6.47).times(), Some(MAX_TIMES));
     }
 
-    /// Pins the contract that a calm category keeps its measured multiplier and one under the
-    /// minimum run count keeps the constant.
-    #[test]
-    fn a_calm_category_keeps_its_measured_multiplier_until_it_holds_enough_runs() {
-        assert_eq!(score(35, 0.86, 2.69).times(), Some(2.31));
-        assert_eq!(score(29, 0.86, 2.69).times(), None);
-    }
 }

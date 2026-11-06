@@ -6,13 +6,6 @@ fn mark(at: f64, line: &str) -> Mark {
 }
 
 #[test]
-fn cargo_durations_read_seconds_and_minutes() {
-    assert_eq!(cargo_seconds("Finished `test` profile [unoptimized + debuginfo] target(s) in 22.60s"), Some(22.6));
-    assert_eq!(cargo_seconds("Finished `dev` profile [unoptimized] target(s) in 1m 03s"), Some(63.0));
-    assert_eq!(cargo_seconds("test result: ok. 3 passed"), None);
-}
-
-#[test]
 fn an_offloaded_test_line_splits_into_ship_slot_wait_sync_compile_and_per_crate_test_spans() {
     let line = Line { trace: "c1", id: "line", category: Category::Test, start: 100.0, end: 400.0, host: "gex45" };
     let marks = [

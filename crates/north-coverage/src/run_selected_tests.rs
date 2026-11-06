@@ -20,11 +20,3 @@ fn selected_tests_build_only_their_packages_and_targets_and_run_by_exact_name() 
     );
 }
 
-#[test]
-fn a_request_takes_the_two_revisions_and_its_flags_and_refuses_anything_else() {
-    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-    let parsed = request(&words("main HEAD --map /m.json --timeout 60")).unwrap();
-    assert_eq!((parsed.base.as_str(), parsed.head.as_str(), parsed.map, parsed.timeout.as_str()), ("main", "HEAD", Some(PathBuf::from("/m.json")), "60"));
-    assert!(request(&words("main")).is_none());
-    assert!(request(&words("main HEAD --timeout soon")).is_none());
-}

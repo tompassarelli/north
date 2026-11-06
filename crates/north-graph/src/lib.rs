@@ -10,7 +10,11 @@ mod term;
 mod text;
 
 #[cfg(test)]
+mod cli_tests;
+#[cfg(test)]
 mod kernel_tests;
+#[cfg(test)]
+mod query_tests;
 #[cfg(test)]
 mod store_tests;
 

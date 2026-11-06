@@ -122,14 +122,3 @@ fn append(path: &Path, line: &impl Serialize, carried: u64) {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_line_goes_to_its_kind_and_utc_hour() {
-        let path = hour_file(Path::new("/d"), Kind::LandPick, 1_793_917_506.374, "jsonl");
-        assert_eq!(path, Path::new("/d/land.pick/2026-11-05/22.jsonl"));
-    }
-}

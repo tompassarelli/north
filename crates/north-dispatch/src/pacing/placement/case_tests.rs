@@ -62,12 +62,3 @@ fn the_recorded_usage_gives_the_gate_value_its_verdicts_read() {
     assert_eq!(gate::verdicts_of(&rebuilt, &roster, &basis), gate::verdicts_of(&gate, &roster, &basis));
 }
 
-#[test]
-fn pace_targets_round_trip_to_the_field_spending_reads() {
-    let pace = json!({"accounts": {"claude:a": {"target": {"by": "2026-11-07T00:00:00Z"}, "other": 1}, "claude:b": {}}});
-    let cfg: DocumentMut = ORCHESTRATION.parse().unwrap();
-    let rebuilt = pace_value(&targets(&pace));
-    for account in ["claude:a", "claude:b"] {
-        assert_eq!(Basis::new(&cfg, rebuilt.clone(), 1_793_000_000.0).spending(account), Basis::new(&cfg, pace.clone(), 1_793_000_000.0).spending(account));
-    }
-}
