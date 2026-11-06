@@ -19,6 +19,8 @@ const REFUSED_PAUSE: Duration = Duration::from_secs(2);
 const SETTLE: Duration = Duration::from_secs(5);
 const ROOM_FRESH: Duration = Duration::from_secs(10);
 const ROOM_READ_LIMIT: Duration = Duration::from_secs(8);
+/// The taker opens its own ssh connections: the shared host master also carries bulk transfers, and one tar stream through it held every new session past 25 s (north#682).
+const OWN_CONNECTION: [&str; 11] = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "-o", "ControlPath=none"];
 const CHUNK: usize = 32 * 1024;
 const NOTHING_QUEUED: i32 = 3;
 const USAGE: &str = "usage: north capacity offload take [--once]";
@@ -57,10 +59,20 @@ enum Polled {
     Offered(Box<Child>, BufReader<ChildStdout>, Box<Offer>),
 }
 
+/// An ssh command to `ssh` on a connection of the taker's own.
+fn ssh_to(ssh: &str, remote: &str) -> Command {
+    let mut command = Command::new("ssh");
+    command.args(OWN_CONNECTION).args([ssh, "--", remote]);
+    command
+}
+
+/// The hand-over call that asks `ssh` to release its oldest queued run.
+pub(super) fn release_command(ssh: &str) -> Command {
+    ssh_to(ssh, &format!("sh -c {}", quote(&format!("{RELEASE} {WAIT_SECONDS}"))))
+}
+
 fn poll(ssh: &str) -> Polled {
-    let remote = format!("sh -c {}", quote(&format!("{RELEASE} {WAIT_SECONDS}")));
-    let spawned = Command::new("ssh")
-        .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", ssh, "--", &remote])
+    let spawned = release_command(ssh)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -185,7 +197,7 @@ pub(super) fn run_lane(offer: &Offer, host: &str, ssh: Option<&str>, reader: imp
 }
 
 /// The lane script and its words, run here or on the build host `ssh` names.
-fn transport(offer: &Offer, ssh: Option<&str>) -> Command {
+pub(super) fn transport(offer: &Offer, ssh: Option<&str>) -> Command {
     match ssh {
         None => {
             let mut command = Command::new("sh");
@@ -194,9 +206,7 @@ fn transport(offer: &Offer, ssh: Option<&str>) -> Command {
         }
         Some(ssh) => {
             let quoted: Vec<String> = words(offer).iter().map(|word| quote(word)).collect();
-            let mut command = Command::new("ssh");
-            command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", ssh, "--", &format!("sh -c {} offload {}", quote(&script()), quoted.join(" "))]);
-            command
+            ssh_to(ssh, &format!("sh -c {} offload {}", quote(&script()), quoted.join(" ")))
         }
     }
 }

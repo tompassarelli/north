@@ -3,7 +3,7 @@ use std::process::Command;
 
 use super::lane::{Lane, gather};
 use super::remote::{Ran, drive, hand_over, invocation};
-use super::take::{Sender, Starting, Target, pick, refusal, run_lane};
+use super::take::{Sender, Starting, Target, pick, refusal, release_command, run_lane, transport};
 use crate::capacity::build_offload::{Admission, Declined, Job};
 use crate::capacity::handover::Offer;
 use crate::dispatch::measure::Measure;
@@ -240,4 +240,26 @@ fn capacity_a_pulled_run_goes_to_the_target_with_the_most_free_cores_and_to_none
     let refused = pick(&only_laptop, false).unwrap_err();
     assert!(refused[0].starts_with("whiterabbit: 2.0 cores free of 14"), "the admission limit keeps the interactive reserve, so the laptop with 2 cores under it takes nothing: {refused:?}");
     assert_eq!(pick(&targets(&laptop, &ccx33, 0), true), Err(vec!["this host holds its game reserve".to_owned()]));
+}
+
+// KEEP(bug): the taker's polls and the lane it runs on a build host open their own ssh connection, since the shared host master also carries bulk transfers and a tar stream through it held a pullable gex45 run 69 s; north#682
+#[test]
+fn capacity_the_taker_never_rides_the_shared_ssh_master() {
+    let offer = Offer {
+        repo: "code/north/main".to_owned(),
+        head: "a".repeat(40),
+        name: "code-north-main-lane".to_owned(),
+        subdirectory: String::new(),
+        owner: "worker".to_owned(),
+        timeout_seconds: 60,
+        command: vec!["cargo".to_owned(), "test".to_owned()],
+        bundle_bytes: 1,
+        patch_bytes: 0,
+        returned: "marker".to_owned(),
+    };
+    for command in [release_command("tom@gex45"), transport(&offer, Some("tom@ccx33"))] {
+        let words: Vec<String> = command.get_args().map(|word| word.to_string_lossy().into_owned()).collect();
+        assert_eq!(command.get_program(), "ssh");
+        assert!(words.windows(2).any(|pair| pair == ["-o", "ControlPath=none"]), "{words:?}");
+    }
 }
