@@ -1,4 +1,3 @@
-use crate::pace::target;
 use crate::error::NorthResult;
 use crate::fleet::roster::Roster;
 use std::collections::BTreeMap;
@@ -68,7 +67,7 @@ pub fn answer(value: &serde_json::Value) -> Result<serde_json::Value, String> {
     if let Some(answer) = crate::router::ops::answer(value) {
         return answer;
     }
-    crate::pace::answer_value(value.clone())
+    Err(format!("unknown op {}", value["op"].as_str().unwrap_or_default()))
 }
 fn request() -> u8 {
     let outcome = command::input().and_then(|value| answer(&value));

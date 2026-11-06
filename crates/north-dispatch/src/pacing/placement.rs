@@ -1,4 +1,4 @@
-use super::{sampling, storage, target};
+use super::{sampling, storage};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -96,13 +96,13 @@ fn stamp(at: f64) -> String {
         .replace("+00:00", "Z")
 }
 fn moment(value: &Value) -> Option<f64> {
-    value.as_str().and_then(target::seconds)
+    value.as_str().and_then(storage::seconds)
 }
 pub(super) fn cli(args: &[String], fleet: super::FleetFacts) -> Result<(), String> {
     let cfg = sampling::config()?;
     let at = std::env::var("PLACEMENT_NOW")
         .ok()
-        .and_then(|s| target::seconds(&s))
+        .and_then(|s| storage::seconds(&s))
         .unwrap_or_else(storage::now);
     if args == ["credit"] {
         println!("{}", credit(&cfg, at).1);

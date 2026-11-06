@@ -1,5 +1,5 @@
 use super::super::storage::load;
-use super::super::{process, storage, target};
+use super::super::{process, storage};
 use super::{local, moment, operator, stamp};
 use crate::capacity::saturation::{self, Saturation};
 use serde_json::{Value, json};
@@ -68,7 +68,7 @@ fn credit_expiry(service: &toml_edit::Table) -> Option<f64> {
                 .map(str::to_owned)
                 .or_else(|| v.as_datetime().map(ToString::to_string))
         })
-        .and_then(|s| target::seconds(&s))
+        .and_then(|s| storage::seconds(&s))
 }
 fn modified_at(path: &Path) -> Option<f64> {
     std::fs::metadata(path)

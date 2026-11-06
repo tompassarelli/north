@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 pub(super) fn now() -> f64 {
     Timestamp::now().unix_seconds_f64()
 }
+pub(super) fn seconds(text: &str) -> Option<f64> {
+    Timestamp::parse_rfc3339(text).map(Timestamp::unix_seconds_f64)
+}
 pub(super) fn directory() -> PathBuf {
     std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)

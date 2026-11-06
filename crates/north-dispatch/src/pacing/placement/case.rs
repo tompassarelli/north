@@ -2,7 +2,6 @@
 //! decides, and the decision taken from that `Case` alone, so the decision log can hold it and replay
 //! can run it again (docs/rationale/strategy-kernel.md).
 use super::super::storage;
-use super::super::target;
 use super::gate::{self, Decision, Machine};
 use super::hosts::{self, Facts};
 use super::room::Basis;
@@ -32,7 +31,7 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
     }
     let text = std::fs::read_to_string(crate::platform::orchestration::path()).map_err(|error| error.to_string())?;
     let cfg: DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
-    let at = std::env::var("PLACEMENT_NOW").ok().and_then(|s| target::seconds(&s)).unwrap_or_else(storage::now);
+    let at = std::env::var("PLACEMENT_NOW").ok().and_then(|s| storage::seconds(&s)).unwrap_or_else(storage::now);
     let (gate, usage) = usage(at);
     let unprobed = gate::machines(&cfg);
     let surveyed = hosts::surveyed(&unprobed, ask.launch.cwd.as_deref());

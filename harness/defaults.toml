@@ -84,7 +84,7 @@ allowed = { min = 1, max = 10080 }
 unit = "minutes a worker runs before the leash nudge and OVERTIME flag"
 source = "measured: runs.minutes of done worker runs, 7d to 2026-10-12, n=1191, p75 20, p90 40, p95 69, 8.5% over 45"
 fallback = "applies to every worker whatever its ETA"
-consumers = ["crates/north-pace/src/pace/limits.rs"]
+consumers = ["crates/north-guard/src/guard/worker_lease.rs"]
 
 [usage_stale_min]
 value = 30
@@ -101,14 +101,6 @@ unit = "percent of an account's window used before overflow may cost money"
 source = "measured: rise in a window's used_pct within usage_stale_min (30 min) of each readout, 2026-10-10 to 10-12, n=1317 readouts, p99 8, p99.9 15, max 16 points (claude session p99 12); a rise past 100 from the ceiling: 29 (2.2%) at 95, 9 (0.68%) at 92; was 95 (delta -3)"
 fallback = "an account with no readout is priced as unknown"
 consumers = ["crates/north-pace/src/router/ctx.rs"]
-
-[plan_stop]
-value = 98
-allowed = { min = 0, max = 100 }
-unit = "percent of an account's window used before plan-only worker admission stops"
-source = "tom: 2026-10-13 02:25 Taipei, '99% or something or 98%': Claude runs to about 98% and the proxy moves leads to Codex; revisit the cutover after observing plan exhaustion"
-fallback = "accounts whose overflow can bill money use money_ceiling instead"
-consumers = ["crates/north-pace/src/pace/limits.rs"]
 
 [fast_floor]
 value = 10
@@ -229,14 +221,6 @@ source = "measured: the last 40 land-check heavy runs on the laptop (2026-11-05)
 fallback = "fewer runs, or any run without a measured peak, keep the declared heavy size"
 consumers = ["crates/north-capacity-host/src/capacity/host/policy.rs"]
 
-[pace_target_left_claude]
-value = 5
-allowed = { min = 0, max = 100 }
-unit = "percent a Claude account keeps at its weekly reset when orchestration.toml sets none"
-source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): Claude accounts drain steadily to about 5% at reset"
-fallback = "orchestration.toml accounts.claude.target_left overrides it"
-consumers = ["crates/north-pace/src/pace/limits.rs"]
-
 [plan_meter_weighting]
 value = "price"
 allowed = { one_of = ["price", "tokens"] }
@@ -326,38 +310,6 @@ unit = "minutes over which one session's spend is measured for the tripwire"
 source = "tom: 2026-11-07 starting span (north#702)"
 fallback = "none"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
-
-[pace_state_dwell_min]
-value = 10
-allowed = { min = 0, max = 10080 }
-unit = "minutes between soft pace HOLD and RESUME changes; a hard quota crossing holds immediately"
-source = "tom: proxy 2026-10-14 item D reports seven HOLD/RESUME flips within minutes and requests a minimum ten-minute state duration except a hard cap"
-fallback = "stale usage and hard quota ceilings still refuse immediately"
-consumers = ["crates/north-pace/src/pace/limits.rs"]
-
-[pace_burn_window_min]
-value = 60
-allowed = { min = 1, max = 10080 }
-unit = "minutes of usage samples a window's burn is measured over once that much history exists, instead of between adjacent samples"
-source = "tom: proxy 2026-10-16 fleet-bugs item 18 reports claude:a HOLD/RESUME about every 5 minutes as the weekly burn estimate jumped between 0.0%/h and 6%/h"
-fallback = "before the window has that much history the 10-minute anchor burn applies"
-consumers = ["crates/north-pace/src/pace/limits.rs"]
-
-[five_hour_burn_cap_pct_h]
-value = 50
-allowed = { min = 0, max = 100 }
-unit = "percent of an account's five-hour window used per hour, as measured, above which new launches on that account are refused"
-source = "tom: 2026-10-25 asked that a busy account spend its five-hour window in an hour or two rather than evenly, with one guardrail: the window lasts at least two hours"
-fallback = "without a measured burn only the five-hour 95% stop refuses"
-consumers = ["crates/north-pace/src/pace/limits.rs"]
-
-[claude_session_target]
-value = 90
-allowed = { min = 0, max = 100 }
-unit = "percent of a Claude account's five-hour window pace aims to have used at the window's reset when it raises allowed_workers; the weekly window never lowers it until the week is spent"
-source = "tom: 2026-10-15 rule that a Claude account's five-hour window ends near 90% and never above 95% (the 95 stop is FIVE_HOUR_STOP); 2026-11-06 asked that allowed_workers follow the five-hour window alone, so the remaining week is spent on ranked work and not spread to its reset (north#259)"
-fallback = "none: the controller reads no other target for a window without a pace policy entry"
-consumers = ["crates/north-pace/src/pace/limits.rs", "crates/north-dispatch/src/pacing/sampling.rs"]
 
 [codex_route_tooling]
 value = "codex"
