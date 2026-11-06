@@ -62,7 +62,8 @@ nearest=$(
 )
 queue=$root/queue
 mkdir -p "$queue"
-rank=1
+rank=2
+case " $carried " in *" SAFE_PUSH_LANDING='1' "*) rank=1 ;; esac
 [ -z "$red_fix" ] || rank=0
 ticket=$queue/$rank-$(date +%s%N)-$$@$name
 exec 8>"$ticket"

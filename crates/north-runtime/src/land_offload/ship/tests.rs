@@ -257,6 +257,7 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
 struct Queued {
     label: &'static str,
     name: &'static str,
+    carried: &'static str,
     red_fix: &'static str,
     pause: u32,
 }
@@ -274,7 +275,7 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
             let script = super::remote_script(job.name);
             let command = format!("echo start-{label} >>{log}; sleep {pause}; echo end-{label} >>{log}", label = job.label, pause = job.pause, log = log.display());
             let child = Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", job.name, &command, "refs/land-offload/job", "", "", "", "0", job.red_fix])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", job.name, &command, "refs/land-offload/job", job.carried, "", "", "0", job.red_fix])
                 .env("HOME", home.path())
                 .env("PATH", &path)
                 .env("NORTH_OFFLOAD_MAX_JOBS", "1")
@@ -295,14 +296,20 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
 }
 
 #[test]
-fn a_red_fix_land_check_takes_the_first_freed_slot_ahead_of_an_earlier_queued_regular_lane() {
-    let order = order_through_one_slot(&[Queued { label: "holder", name: "code-p-main", red_fix: "", pause: 3 }, Queued { label: "regular", name: "code-p-main", red_fix: "", pause: 1 }, Queued { label: "red-fix", name: "code-p-main", red_fix: "1", pause: 1 }]);
-    assert_eq!(order, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-regular", "end-regular"], "the red fix queued after the regular lane and still took the slot the holder freed");
+fn a_red_fix_land_check_then_any_land_check_takes_the_first_freed_slot_ahead_of_earlier_queued_worker_builds() {
+    let landing = "SAFE_PUSH_LANDING='1'";
+    let order = order_through_one_slot(&[
+        Queued { label: "holder", name: "code-p-main", carried: "", red_fix: "", pause: 3 },
+        Queued { label: "worker", name: "code-p-main", carried: "", red_fix: "", pause: 1 },
+        Queued { label: "land", name: "code-p-main", carried: landing, red_fix: "", pause: 1 },
+        Queued { label: "red-fix", name: "code-p-main", carried: landing, red_fix: "1", pause: 1 },
+    ]);
+    assert_eq!(order, ["start-holder", "end-holder", "start-red-fix", "end-red-fix", "start-land", "end-land", "start-worker", "end-worker"], "each queued after the worker build and still took the slot first, the red fix ahead of the land check");
 }
 
 #[test]
 fn repositories_with_jobs_queued_for_one_slot_take_it_in_turn_instead_of_one_draining_first() {
-    let job = |label, name, pause| Queued { label, name, red_fix: "", pause };
+    let job = |label, name, pause| Queued { label, name, carried: "", red_fix: "", pause };
     let order = order_through_one_slot(&[job("p-holder", "code-p-main", 6), job("p-2", "code-p-main", 1), job("p-3", "code-p-main", 1), job("q-1", "code-q-main", 1), job("q-2", "code-q-main", 1)]);
     assert_eq!(order, ["start-p-holder", "end-p-holder", "start-q-1", "end-q-1", "start-p-2", "end-p-2", "start-q-2", "end-q-2", "start-p-3", "end-p-3"], "q queued behind both of p's jobs and still ran before p's second");
 }
