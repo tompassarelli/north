@@ -68,7 +68,7 @@ Read in three rings and stop at the first one that answers:
 
 ## Keeping the docs true
 
-Each fact lives in one place and the docs link to it. `north citation-check` refuses a landing whose
+Each fact lives in one place and the docs link to it. `north check citations` refuses a landing whose
 docs, skills or hooks name a `north` subcommand the CLI does not define, a repository path that no
 longer exists or a relative link that does not resolve. Rationale notes are dated records and keep
 the paths of their day. The layout and the work still open are in

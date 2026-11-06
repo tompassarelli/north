@@ -26,16 +26,13 @@ Work and knowledge:
   brief new             Print a worker brief skeleton for a category
   grounding             Retrieve existing infrastructure and history
   graph                 Record and query facts; list the ready backlog
-  provenance            Audit grounding and target debt
   review-items          Split a design review into items and route them
-  issue-box-lint        Check issue acceptance boxes
-  experiments           Check or judge experiments, or defer a box
-  goals check           Check each project's declared goals
   incident              Record a failure or its guard, or read incidents
   model-watch news      Show the last model watch digest or rate an item
   wisp payoff           Measure Wisp agreement and native utilization
 
 Engineering and landing:
+  check                 Check citations, goals, experiments, issue boxes, nix, provenance
   safe-push             Check and land a lane, or publish a tag
   land                  Serve the landing queue, run its checks or abandon a branch
   lane                  Collect, reap, rescue, seed and squash lanes
@@ -44,13 +41,11 @@ Engineering and landing:
   coverage              Pick the tests a change reaches; record the map
   mutant                Run a mutation sweep or verify kill claims
   privacy judge         Judge a text for private kinds
-  citation-check        Fail on a doc that cites an undefined subcommand
   docs                  Regenerate or check the docs indexes
   split move-module     Move modules into a crate
   dev-shell run         Run a command inside the flake dev shell
   run-bounded           Run a command bounded in time and memory
   nix                   Explain a Nix footgun, or root and collect the store
-  doctor nix            Check dev shells are rooted and enterable offline
 
 System and telemetry:
   health                Check harness invariants

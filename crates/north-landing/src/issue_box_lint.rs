@@ -171,20 +171,20 @@ fn lint(args: &[String]) -> Result<u8, String> {
         }
     }
     eprintln!(
-        "issue-box-lint: {count} boxes hand Tom a mechanical check (agents verify them on VM pairs and native capture) or name a bar without an origin or soft"
+        "check issue-boxes: {count} boxes hand Tom a mechanical check (agents verify them on VM pairs and native capture) or name a bar without an origin or soft"
     );
     Ok(u8::from(count > 0))
 }
 fn usage_text(message: &str) -> String {
-    format!("{}\nissue-box-lint: error: {message}\n", HELP.lines().next().unwrap())
+    format!("{}\ncheck issue-boxes: error: {message}\n", HELP.lines().next().unwrap())
 }
 fn usage_error(message: &str) -> u8 {
     eprint!("{}", usage_text(message));
     2
 }
-const HELP: &str = r#"usage: issue-box-lint [-h] [--repo REPO] [issues ...]
+const HELP: &str = r#"usage: north check issue-boxes [-h] [--repo REPO] [issues ...]
 
-issue-box-lint: flag unchecked Done when boxes that hand Tom a mechanical
+check issue-boxes: flag unchecked Done when boxes that hand Tom a mechanical
 check or a bar without provenance.
 
 positional arguments:

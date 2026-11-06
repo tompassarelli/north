@@ -115,12 +115,12 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
         }
         None => println!("agents flow: north red-main-notify error"),
     }
-    match host.output(&["north", "experiments", "judge", "--file"], None, None, Duration::from_secs(300)) {
+    match host.output(&["north", "check", "experiments", "judge", "--file"], None, None, Duration::from_secs(300)) {
         Some(output) => {
             print!("{}", String::from_utf8_lossy(&output.stdout));
             eprint!("{}", String::from_utf8_lossy(&output.stderr));
         }
-        None => println!("agents flow: north experiments judge error"),
+        None => println!("agents flow: north check experiments judge error"),
     }
 }
 

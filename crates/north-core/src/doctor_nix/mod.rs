@@ -1,10 +1,10 @@
-//! `north doctor nix`: what a Nix footgun would break on this host, before an agent finds it.
+//! `north check nix`: what a Nix footgun would break on this host, before an agent finds it.
 mod lock;
 
 use crate::nix_gc::{Env, Host, live_shells, missing_rustup, offline_args, rustup_references};
 use std::fs;
 const HASH: usize = 32;
-const USAGE: &str = "usage: north doctor nix [--lock FILE [--allow FILE]]";
+const USAGE: &str = "usage: north check nix [--lock FILE [--allow FILE]]";
 
 pub use lock::{Allow, Second, allowlist, check as lock_refusals, refusals, second_nixpkgs};
 
@@ -16,12 +16,12 @@ fn lock_command(file: &str, allow: Option<&str>) -> u8 {
     };
     match read(file).and_then(|text| lock::check(&text, allow_text.as_deref())) {
         Ok(refused) if refused.is_empty() => {
-            println!("doctor nix: {file} brings no second nixpkgs");
+            println!("check nix: {file} brings no second nixpkgs");
             0
         }
         Ok(refused) => {
             for line in refused {
-                eprintln!("doctor nix: {file}: {line}; make the input follow the flake's nixpkgs, or add an [[allow]] entry with its reason");
+                eprintln!("check nix: {file}: {line}; make the input follow the flake's nixpkgs, or add an [[allow]] entry with its reason");
             }
             1
         }
@@ -30,7 +30,7 @@ fn lock_command(file: &str, allow: Option<&str>) -> u8 {
 }
 
 fn fail(message: &str) -> u8 {
-    eprintln!("doctor nix: {message}");
+    eprintln!("check nix: {message}");
     2
 }
 
@@ -93,7 +93,7 @@ fn print_probe(env: &Env, host: &dyn Host) -> u8 {
         println!("{} {}", if finding.ok { "ok  " } else { "FAIL" }, finding.text);
     }
     let problems = findings.iter().filter(|finding| !finding.ok).count();
-    println!("doctor nix: {problems} problems");
+    println!("check nix: {problems} problems");
     u8::from(problems > 0)
 }
 

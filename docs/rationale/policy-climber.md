@@ -97,7 +97,7 @@ at or under 5%.
 - **Decide.** `experiments.toml` sends a verdict between the bars to Tom. For a climber experiment the loop decides: a verdict
   inside the bars with fewer than `min_n` boxes extends the window by half its length for more n; a verdict inside the bars at
   `min_n` keeps the cheaper arm and records why. The extension and the settle are both written to the experiment's record, with no
-  gate. `north experiments judge` does this for every entry whose id starts `climb-`: a reading under `min_n` extends the
+  gate. `north check experiments judge` does this for every entry whose id starts `climb-`: a reading under `min_n` extends the
   after window and the review by half the window (recorded in the filed-verdict state, so the next run judges the new
   review), and a verdict between the bars at `min_n` settles on keep or on a revert box. A missing reading still
   re-measures. `experiments::verdict_tests` pins both with no Tom line.

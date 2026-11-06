@@ -6,12 +6,6 @@ pub fn gc(arguments: &[String]) -> ExitCode {
     ExitCode::from(nix_gc::run(arguments, &Env::from_env(), &System))
 }
 
-pub fn doctor(arguments: &[String]) -> ExitCode {
-    match arguments {
-        [target, rest @ ..] if target == "nix" => ExitCode::from(doctor_nix::run(rest, &Env::from_env(), &System)),
-        _ => {
-            eprintln!("usage: north doctor nix [--lock FILE [--allow FILE]]");
-            ExitCode::from(2)
-        }
-    }
+pub fn doctor(arguments: &[String]) -> u8 {
+    doctor_nix::run(arguments, &Env::from_env(), &System)
 }

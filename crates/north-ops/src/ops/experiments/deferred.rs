@@ -168,7 +168,7 @@ pub fn settle_due(checks: &[Check], today: Day, root: &Path, runner: &dyn Fn(&Ch
     (lines, failed)
 }
 
-pub const DEFER_USAGE: &str = "usage: north experiments defer ISSUE BOX --check CMD --by YYYY-MM-DD [--id ID] [--expect TEXT] [--root DIR]";
+pub const DEFER_USAGE: &str = "usage: north check experiments defer ISSUE BOX --check CMD --by YYYY-MM-DD [--id ID] [--expect TEXT] [--root DIR]";
 
 struct Deferral {
     check: Check,
@@ -227,7 +227,7 @@ fn entry_text(check: &Check) -> String {
     format!("\n\n[[check]]\nid = {}\nbox = {}\ncommand = {}\n{expect}review = {}\nowner = {}\n", quoted(&check.id), quoted(&check.text), quoted(&check.command), quoted(&check.review.text()), quoted(&check.owner.text()))
 }
 
-/// `north experiments defer`: writes the entry into the registry under `--root` (the lane that will
+/// `north check experiments defer`: writes the entry into the registry under `--root` (the lane that will
 /// land it) and marks the box deferred on its issue, closing the issue when only deferred boxes remain.
 pub fn defer(arguments: &[String], today: Day, issues: &dyn Issues) -> Result<String, String> {
     let Deferral { check, root } = deferral(arguments, today)?;

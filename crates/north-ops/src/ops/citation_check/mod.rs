@@ -381,7 +381,7 @@ pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> u8 {
         [flag, root] if flag == "--root" => (PathBuf::from(root), false),
         [flag, root, list] if flag == "--root" && list == "--list" => (PathBuf::from(root), true),
         _ => {
-            eprintln!("Usage: north citation-check [--root DIR] [--list]");
+            eprintln!("Usage: north check citations [--root DIR] [--list]");
             return 2;
         }
     };
@@ -392,7 +392,7 @@ pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> u8 {
     };
     match found {
         Err(error) => {
-            eprintln!("citation-check: {error}");
+            eprintln!("check citations: {error}");
             1
         }
         Ok(found) => {

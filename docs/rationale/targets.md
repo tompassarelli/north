@@ -1,7 +1,7 @@
 # Targets rationale
 
 Cold-path reasoning behind numeric performance, time and size targets. Agents do not load this file with rules;
-a bar's box or `north provenance check` output points at an entry here.
+a bar's box or `north check provenance check` output points at an entry here.
 
 The `Provenance:` landing gate is retired. Tom approved retiring the test-kind and provenance gates and narrowing review to policy prose and hooks (2026-11-04): their after-landing failures were fixed by editing a trailer, a record or the runner, never landed code, so a rework signal (reverts, follow-up fixes and red-main culprits within 48 h of a landing) now watches quality and can bring a gate back on evidence.
 
@@ -20,7 +20,7 @@ Alternatives that lost:
 - A separate debt store: it duplicates git history, which already carries every landing and its trailers.
 
 Trade-off accepted: agents can land over a soft target. The debt stays in `Target-debt` trailers on main and
-`north provenance debt --due` surfaces it in the tick once its trigger fires.
+`north check provenance debt --due` surfaces it in the tick once its trigger fires.
 
 Overturned by: debt entries piling up unpaid past their triggers, or a soft-target miss reaching users.
 
@@ -29,7 +29,7 @@ https://www.nngroup.com/articles/response-times-3-important-limits/.
 
 ## Goals as checks
 
-Reasoning: a project's goals sat in prose in its README and AGENTS.md, so nothing said whether one was met, and "how much debt may this goal carry" was decided afresh by whoever noticed a miss. Tom (6 Nov 2026) suggested treating a goal as an essential test that may be red for a period, with the amount of debt it may carry left to stewardship judgment. Each project now keeps `goals.toml`: every goal names the README or AGENTS.md line it comes from, an oracle command that prints one number, a bound and a class. A contract is never red, and a landing that turns it red is reverted, like the game answering input inside its frame budget. A debt-allowed goal is a soft target above: red up to a ceiling, with an owner and a revisit trigger standing for the `Target-debt:` record. `north goals check` measures them all and the fleet tick tells the proxy about every red one. A debt-allowed goal may name the paths that pay it (`pays`); once it reads over its ceiling, `north land enqueue` marks every lane that touches one of them urgent so it goes to the front of the landing queue, and no lane is refused for the debt, since refusing finished work shortens no wait (Tom, 2026-11-06); the fleet tick tells the proxy once per change of the red set. A goal naming no paths (the machine's load) is environmental and orders nothing.
+Reasoning: a project's goals sat in prose in its README and AGENTS.md, so nothing said whether one was met, and "how much debt may this goal carry" was decided afresh by whoever noticed a miss. Tom (6 Nov 2026) suggested treating a goal as an essential test that may be red for a period, with the amount of debt it may carry left to stewardship judgment. Each project now keeps `goals.toml`: every goal names the README or AGENTS.md line it comes from, an oracle command that prints one number, a bound and a class. A contract is never red, and a landing that turns it red is reverted, like the game answering input inside its frame budget. A debt-allowed goal is a soft target above: red up to a ceiling, with an owner and a revisit trigger standing for the `Target-debt:` record. `north check goals` measures them all and the fleet tick tells the proxy about every red one. A debt-allowed goal may name the paths that pay it (`pays`); once it reads over its ceiling, `north land enqueue` marks every lane that touches one of them urgent so it goes to the front of the landing queue, and no lane is refused for the debt, since refusing finished work shortens no wait (Tom, 2026-11-06); the fleet tick tells the proxy once per change of the red set. A goal naming no paths (the machine's load) is environmental and orders nothing.
 
 The classes are drafted by agents from the goals themselves; the per-project contract list goes to Tom as a recommendation he can overrule, and the file changes when he does.
 

@@ -16,6 +16,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("evidence", crate::ops::reclaim::evidence_start),
     ("denylist", denylist::run),
     ("autoland-status", autoland_status::run),
+    ("check", check),
     ("land", land),
     ("incident", |arguments| ledger_verb("incident", arguments)),
     ("landed-tree", landed_tree::run),
@@ -26,10 +27,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("watch", crate::ops::watch::run),
     ("safe-push", super::remote_land::safe_push),
     ("release", north_safe_push::entry::release),
-    ("provenance", provenance::run),
-    ("issue-box-lint", issue_box_lint::run),
     ("follows-release", follows_release::run),
-    ("citation-check", citation_check),
     ("job-run", crate::ops::job_run::run),
     ("run-bounded", crate::ops::run_bounded::run),
     ("review-items", review_items),
@@ -40,8 +38,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("pin-retire", crate::lanes::pin_retire),
     ("mutant", |arguments| mutant_cli::run(arguments, &super::mutant_issues::MirrorIssues)),
     ("flow", crate::ops::flow::run),
-    ("experiments", crate::ops::experiments::run),
-    ("goals", north_goals::run),
     ("coverage", north_coverage::run),
     ("graph", graph),
     ("tempo", crate::ops::tempo::run),
@@ -188,6 +184,26 @@ fn ledger_verb(verb: &str, arguments: &[String]) -> u8 {
 
 fn citation_check(arguments: &[String]) -> u8 {
     crate::ops::citation_check::run(arguments, defines)
+}
+
+const CHECK: &[(&str, Run)] = &[
+    ("citations", citation_check),
+    ("experiments", crate::ops::experiments::run),
+    ("goals", north_goals::run),
+    ("issue-boxes", issue_box_lint::run),
+    ("nix", super::nix::doctor),
+    ("provenance", provenance::run),
+];
+
+fn check(arguments: &[String]) -> u8 {
+    match arguments.split_first().and_then(|(verb, rest)| runner(CHECK, verb).map(|run| run(rest))) {
+        Some(code) => code,
+        None => {
+            let verbs: Vec<&str> = CHECK.iter().map(|(verb, _)| *verb).collect();
+            eprintln!("usage: north check ({}) ...; north check --help lists each", verbs.join("|"));
+            2
+        }
+    }
 }
 
 fn review_items(arguments: &[String]) -> u8 {

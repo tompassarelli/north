@@ -83,7 +83,7 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
     ]
 });
 
-/// Whether a report stops on a box deferred to a dated check (`north experiments defer`) or waiting on stated elapsed time or live traffic.
+/// Whether a report stops on a box deferred to a dated check (`north check experiments defer`) or waiting on stated elapsed time or live traffic.
 pub fn waits_on_time(report: &str) -> bool {
     WAITS.is_match(report)
 }

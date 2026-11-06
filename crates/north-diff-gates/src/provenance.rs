@@ -851,7 +851,7 @@ fn audit(paths: &[String], db: &str, events: &[String]) -> Result<(), String> {
     }
     Ok(())
 }
-const HELP: &str = r#"usage: provenance [-h] {check,debt,audit,inventory} ...
+const HELP: &str = r#"usage: north check provenance [-h] {check,debt,audit,inventory} ...
 
 provenance: audit recorded grounding, refuse new steering without provenance,
 and list Target-debt.
@@ -870,7 +870,7 @@ positional arguments:
 options:
   -h, --help          show this help message and exit
 "#;
-const HELP_CHECK: &str = r#"usage: provenance check [-h] base head
+const HELP_CHECK: &str = r#"usage: north check provenance check [-h] base head
 
 positional arguments:
   base
@@ -879,7 +879,7 @@ positional arguments:
 options:
   -h, --help  show this help message and exit
 "#;
-const HELP_DEBT: &str = r#"usage: provenance debt [-h] [--due] [--repo REPO]
+const HELP_DEBT: &str = r#"usage: north check provenance debt [-h] [--due] [--repo REPO]
 
 options:
   -h, --help   show this help message and exit
@@ -887,7 +887,7 @@ options:
                event text
   --repo REPO  repository path (default ~/code/*/main)
 "#;
-const HELP_AUDIT: &str = r#"usage: provenance audit [-h] [--repo REPO] [--db DB] [--event EVENT]
+const HELP_AUDIT: &str = r#"usage: north check provenance audit [-h] [--repo REPO] [--db DB] [--event EVENT]
 
 options:
   -h, --help     show this help message and exit
@@ -895,7 +895,7 @@ options:
   --db DB        read-only model_events store
   --event EVENT  exact recorded event trigger that fired
 "#;
-const HELP_INVENTORY: &str = r#"usage: provenance inventory [-h] [--repo REPO] [--rev REV] [--stubs]
+const HELP_INVENTORY: &str = r#"usage: north check provenance inventory [-h] [--repo REPO] [--rev REV] [--stubs]
 
 options:
   -h, --help   show this help message and exit

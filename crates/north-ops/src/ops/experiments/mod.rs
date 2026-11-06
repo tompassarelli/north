@@ -1,4 +1,4 @@
-//! `north experiments`: every policy and routing change judges itself on its review date. The
+//! `north check experiments`: every policy and routing change judges itself on its review date. The
 //! registry names each change, the outcome metric it should move and when it is reviewed;
 //! `check` is the land check that keeps the rationale notes' review rules in the registry, and
 //! `judge` keeps, reverts or brings each due entry to Tom with the numbers, except the policy loop's own
@@ -26,7 +26,7 @@ use registry::{Day, Experiment, Registry};
 use crate::threads::incidents::report::detected;
 use verdict::{due, judge};
 
-const USAGE: &str = "usage: north experiments check [--root DIR] | north experiments judge [--root DIR] [--today YYYY-MM-DD] [--file] | north experiments defer ISSUE BOX --check CMD --by YYYY-MM-DD [--id ID] [--expect TEXT] [--root DIR]";
+const USAGE: &str = "usage: north check experiments [--root DIR] | north check experiments judge [--root DIR] [--today YYYY-MM-DD] [--file] | north check experiments defer ISSUE BOX --check CMD --by YYYY-MM-DD [--id ID] [--expect TEXT] [--root DIR]";
 
 struct Options {
     root: PathBuf,
@@ -103,7 +103,7 @@ fn judge_command(options: &Options) -> u8 {
     let registry = match load(&options.root) {
         Ok(registry) => registry,
         Err(problems) => {
-            problems.iter().for_each(|problem| eprintln!("north experiments: {problem}"));
+            problems.iter().for_each(|problem| eprintln!("north check experiments: {problem}"));
             return 1;
         }
     };
@@ -122,7 +122,7 @@ fn judge_experiments(entries: Vec<Experiment>, options: &Options, filed: &mut Fi
     let (outcomes, incidents) = match recorded() {
         Ok(recorded) => recorded,
         Err(why) => {
-            eprintln!("north experiments: {why}");
+            eprintln!("north check experiments: {why}");
             return 1;
         }
     };
@@ -134,11 +134,11 @@ fn judge_experiments(entries: Vec<Experiment>, options: &Options, filed: &mut Fi
 fn defer_command(arguments: &[String]) -> u8 {
     match deferred::defer(arguments, Day::of_unix(Timestamp::now().unix_seconds()), &GitHub) {
         Ok(done) => {
-            println!("north experiments: {done}");
+            println!("north check experiments: {done}");
             0
         }
         Err(why) => {
-            eprintln!("north experiments defer: {why}\n{}", deferred::DEFER_USAGE);
+            eprintln!("north check experiments defer: {why}\n{}", deferred::DEFER_USAGE);
             1
         }
     }
@@ -146,13 +146,13 @@ fn defer_command(arguments: &[String]) -> u8 {
 
 pub fn run(arguments: &[String]) -> u8 {
     let (verb, rest) = match arguments.split_first() {
-        Some((verb, rest)) => (verb.as_str(), rest),
-        None => ("", arguments),
+        Some((verb, rest)) if ["judge", "defer"].contains(&verb.as_str()) => (verb.as_str(), rest),
+        _ => ("check", arguments),
     };
     if verb == "defer" {
         return defer_command(rest);
     }
-    let Some(options) = parse(rest).filter(|_| ["check", "judge"].contains(&verb)) else {
+    let Some(options) = parse(rest) else {
         eprintln!("{USAGE}");
         return 2;
     };
@@ -160,9 +160,9 @@ pub fn run(arguments: &[String]) -> u8 {
         return judge_command(&options);
     }
     let problems = rules::check(&options.root);
-    problems.iter().for_each(|problem| eprintln!("north experiments check: {problem}"));
+    problems.iter().for_each(|problem| eprintln!("north check experiments: {problem}"));
     if problems.is_empty() {
-        println!("north experiments check: every review rule in {} and every card in {} has a registry entry", rules::NOTES, rules::CARDS);
+        println!("north check experiments: every review rule in {} and every card in {} has a registry entry", rules::NOTES, rules::CARDS);
     }
     u8::from(!problems.is_empty())
 }

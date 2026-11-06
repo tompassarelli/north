@@ -1,4 +1,4 @@
-//! `north goals check`: each project's goals, written as named checks with a measured oracle, a
+//! `north check goals`: each project's goals, written as named checks with a measured oracle, a
 //! bound and a class. A contract is never red, and a landing that turns it red is reverted. A
 //! debt-allowed goal may be red up to its ceiling while a `Target-debt:` record names its owner and
 //! revisit trigger (docs/rationale/targets.md). A red goal reaches the proxy through the fleet tick.
@@ -19,7 +19,7 @@ use std::time::Instant;
 use registry::Goal;
 use verdict::{Verdict, judge};
 
-const USAGE: &str = "usage: north goals check [--root DIR] [PROJECT...]";
+const USAGE: &str = "usage: north check goals [--root DIR] [PROJECT...]";
 pub const PROJECTS: [&str; 3] = ["north", "makgora", "wisp"];
 
 pub struct Row {
@@ -76,7 +76,7 @@ pub fn line(row: &Row) -> String {
 
 pub fn render(rows: &[Row], problems: &[String], seconds: f64) -> String {
     let red = rows.iter().filter(|row| !row.verdict.green()).count();
-    let mut out = format!("north goals check: {} goals, {} green, {red} red, in {seconds:.1} s\n", rows.len(), rows.len() - red);
+    let mut out = format!("north check goals: {} goals, {} green, {red} red, in {seconds:.1} s\n", rows.len(), rows.len() - red);
     let mut project = "";
     for row in rows {
         if row.project != project {
@@ -98,13 +98,9 @@ pub fn failing(rows: &[Row], problems: &[String]) -> bool {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    let Some(rest) = arguments.split_first().filter(|(verb, _)| verb.as_str() == "check").map(|(_, rest)| rest) else {
-        eprintln!("{USAGE}");
-        return 2;
-    };
     let mut code = code_root();
     let mut projects: Vec<String> = Vec::new();
-    let mut rest = rest.iter();
+    let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match argument.as_str() {
             "--root" => match rest.next() {

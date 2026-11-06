@@ -32,7 +32,7 @@ holds; add a row when you add an enforcer.
 A policy or routing change lands with its entry in `docs/rationale/experiments.toml`
 (metric, direction and bar, windows, review date, owner issue), because a rule
 nobody reviews stays forever whether or not it paid off. A lesson becomes policy
-only through such an entry, which `north experiments judge` keeps, reverts or
+only through such an entry, which `north check experiments judge` keeps, reverts or
 brings to Tom with the numbers on its review date.
 
 ## SKILL.md and references

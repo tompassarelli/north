@@ -3,7 +3,7 @@
 One `Provenance:` record per hook, `AGENTS.md` policy line, Claude tier and gating bar on main, in the
 format of the [planning skill's stewardship notes](../agent-machinery/skills/planning/references/stewardship.md#provenance-records).
 An origin nobody recorded reads `none recorded`, with the commit `git log -S --follow` finds first adding
-the text as its pointer. `north provenance inventory` counts the items no record names here or in a
+the text as its pointer. `north check provenance inventory` counts the items no record names here or in a
 commit trailer on main.
 
 Provenance: hook harness/hooks/codex-conduct.sh; origin none recorded; pointer git log -S first adds it in 0b66f33b 2026-10-15; rationale not recorded; revisit when this hook next changes

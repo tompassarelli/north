@@ -1,6 +1,6 @@
-# One entry per live policy or routing change. `north experiments judge --file` (run by the
+# One entry per live policy or routing change. `north check experiments judge --file` (run by the
 # agents-flow-stall timer through `north flow --stall-alarm`) judges each entry on its review day
-# and files the verdict once on its owner issue; `north experiments check` refuses a landing whose
+# and files the verdict once on its owner issue; `north check experiments` refuses a landing whose
 # rationale review rule (an `Overturned by:` paragraph or a `## Review` section) no entry quotes.
 #
 # metric: a north flow outcome metric over finished worker runs (rework_rate, first_commit_p50_minutes,
@@ -110,7 +110,7 @@ landed = "4a3ecaec9"
 note = "docs/rationale/targets.md"
 rule = "Overturned by: debt entries piling up unpaid past their triggers, or a soft-target miss reaching users."
 metric = "none"
-measure = "north provenance debt --due: debt entries unpaid past their triggers, and soft-target misses that reached users"
+measure = "north check provenance debt --due: debt entries unpaid past their triggers, and soft-target misses that reached users"
 direction = "down"
 bar = 0.0
 min_n = 0
@@ -120,12 +120,12 @@ owner = "tompassarelli/north#40"
 
 [[experiment]]
 id = "goals-as-checks"
-change = "Each project keeps its goals as named checks in goals.toml, measured by north goals check, with a class saying how long a goal may stay red"
+change = "Each project keeps its goals as named checks in goals.toml, measured by north check goals, with a class saying how long a goal may stay red"
 landed = "2ecdd5a66"
 note = "docs/rationale/targets.md"
 rule = "Overturned by: goals that stay red past their revisit triggers with no landing aimed at them, or oracles whose values disagree with the project's own CI."
 metric = "none"
-measure = "north goals check: goals red past their revisit triggers with no landing aimed at them, and oracle values that disagree with the project's own CI"
+measure = "north check goals: goals red past their revisit triggers with no landing aimed at them, and oracle values that disagree with the project's own CI"
 direction = "down"
 bar = 0.0
 min_n = 0

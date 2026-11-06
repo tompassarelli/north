@@ -56,7 +56,6 @@ enum Command {
     Hook(Vec<String>),
     Nix(Vec<String>),
     NixGc(Vec<String>),
-    Doctor(Vec<String>),
     Threads(Vec<String>),
     Ledger(Vec<String>),
     Agents(Vec<String>),
@@ -126,7 +125,6 @@ const FORWARDED: &[(&str, Forward)] = &[
         Some((verb, tail)) if verb == "gc" => Command::NixGc(tail.to_vec()),
         _ => Command::Nix(rest),
     }),
-    ("doctor", |_, rest| Command::Doctor(rest)),
     ("threads", |_, rest| Command::Threads(rest)),
     ("fleet", |_, rest| Command::Fleet(rest)),
     ("ledger", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
@@ -183,7 +181,6 @@ fn dispatch(command: Command) -> ExitCode {
             }
         },
         Command::NixGc(arguments) => nix::gc(&arguments),
-        Command::Doctor(arguments) => nix::doctor(&arguments),
         Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet::Registry))),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),

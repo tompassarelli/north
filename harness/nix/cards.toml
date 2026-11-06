@@ -13,7 +13,7 @@ text = """
 Inside an offload slot, a land check or any dev shell you are already in the project's dev shell.
 Never nest `nix develop`, `land-shell --dev` or `depbox run`: depbox clears the environment, so every layer
 re-enters the shell, the shellHook finds no `north` and starts cold, and two sandboxes nested exit 127.
-Run the tool directly (`cargo test`, `./bin/head-north citation-check`).
+Run the tool directly (`cargo test`, `./bin/head-north check citations`).
 A land-check runner (`north land checks`, `safe-push`) is never wrapped in `land-shell` or depbox.
 """
 
@@ -125,7 +125,7 @@ explain = ["store"]
 text = """
 Never collect the store by hand: GC removed the glibc loader every `north` call needs (north#227), depbox's dev
 shell, StormLib and the linker rustup bakes in. Run `north nix gc [--dry-run] [--max-freed SIZE]`: it roots every
-promoted runtime, live worktree dev shell and rustup wrapper store path, then collects. `north doctor nix` reports
+promoted runtime, live worktree dev shell and rustup wrapper store path, then collects. `north check nix` reports
 what a collection would break.
 A flake.lock with a second nixpkgs node gives CI different tools: check `nix flake metadata` after an update.
 """

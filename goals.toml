@@ -44,7 +44,7 @@ revisit = "the 15-minute load average stays over 24, the laptop's thread count, 
 [[goal]]
 name = "target-debt-due"
 source = "docs/rationale/targets.md: overturned by debt entries piling up unpaid past their triggers"
-oracle = "north provenance debt --due | awk -F'\\t' '$1==\"north\"' | wc -l"
+oracle = "north check provenance debt --due | awk -F'\\t' '$1==\"north\"' | wc -l"
 unit = "records"
 max = 0
 class = "debt"
