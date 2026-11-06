@@ -25,8 +25,8 @@ pub const TRIGGERS: [&str; 10] = [
     "do you want",
 ];
 
-pub const ASK_ONCE: [&str; 16] = [
-    "cost", "costs", "money", "spend", "billing", "paid", "account", "accounts", "public", "publish", "credential", "credentials", "password", "delete", "deleting", "deletion",
+pub const ASK_ONCE: [&str; 19] = [
+    "cost", "costs", "money", "spend", "billing", "paid", "account", "accounts", "public", "publish", "credential", "credentials", "password", "delete", "deleting", "deletion", "token", "tokens", "north gate",
 ];
 
 static GH_EDIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bgh\b([^\n;&|]*?)\bissue\s+edit\b([^\n;&|]*)").unwrap());
@@ -150,17 +150,17 @@ fn names_ask_once(sentence: &str) -> bool {
     ASK_ONCE.iter().any(|word| words.contains(&format!(" {word} ")))
 }
 
-fn sentences(text: &str) -> Vec<&str> {
+pub(super) fn sentences(text: &str) -> Vec<&str> {
     text.split_inclusive(['.', '!', '?', '\n']).map(str::trim).filter(|sentence| !sentence.is_empty()).collect()
 }
 
-fn words(text: &str) -> String {
+pub(super) fn words(text: &str) -> String {
     let lower = text.to_lowercase();
     let words: Vec<&str> = lower.split(|character: char| !(character.is_alphanumeric() || character == '\'')).filter(|word| !word.is_empty()).collect();
     format!(" {} ", words.join(" "))
 }
 
-fn count_block(file: &Path, turn: &str) -> bool {
+pub(super) fn count_block(file: &Path, turn: &str) -> bool {
     let recorded = std::fs::read_to_string(file).ok();
     let blocks = recorded.as_deref().and_then(|text| text.split_once('\t')).filter(|(id, _)| *id == turn).and_then(|(_, count)| count.trim().parse::<u32>().ok()).unwrap_or(0);
     if blocks >= MAX_BLOCKS {
