@@ -107,9 +107,19 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
     }
 }
 
-/// The decision that ends a fleet session's compile on a host that does not compile for sessions, once no build host took it.
-fn no_build_host(missing: &Declined, create: &Create) -> Obj {
-    Obj::new().put("decision", "REFUSED").put("reason", NO_BUILD_HOST).put("detail", format!("{}: {}", missing.reason(), missing.detail())).put("owner", create.owner.as_str())
+/// The decision that ends a fleet session's compile on a host that does not compile for sessions, once no build host took it and this host has no room beyond its reserves either; with room, the compile waits in this host's own heavy admission instead.
+fn no_build_host(missing: &Declined, here: &str, create: &Create) -> Obj {
+    Obj::new().put("decision", "REFUSED").put("reason", NO_BUILD_HOST).put("detail", format!("{}: {}; this host: {here}", missing.reason(), missing.detail())).put("owner", create.owner.as_str())
+}
+
+/// The refusal a fleet session's Rust compile gets on a host that does not compile for sessions: only once every build host declined it for want of a host and this host has no room beyond its reserves either.
+pub(super) fn session_build_refusal(host: &Host, command: &[String], missing: Option<&Declined>, create: &Create) -> Option<Obj> {
+    if (host.lease_builds)() || !crate::capacity::gate::compiles_rust(command) {
+        return None;
+    }
+    let missing = missing?;
+    let here = (host.own_build_refusal)()?;
+    Some(no_build_host(missing, &here, create))
 }
 
 /// A fleet session's heavy request is offered to the build hosts before this host decides on it, so a build this host would admit still runs where there is room; any other heavy request runs elsewhere only when its host defers it on the first look. None sends it to the queue.
@@ -119,8 +129,8 @@ pub(super) async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminati
         if let Some(code) = try_offload(waiting.again(), false, host, terminations, None).await {
             return Some(Admitted::Offloaded(code));
         }
-        if !(host.lease_builds)() && crate::capacity::gate::compiles_rust(waiting.command) && let Some(missing) = waiting.declined.missing_host.as_ref() {
-            return Some(Admitted::Here(no_build_host(missing, create)));
+        if let Some(refused) = session_build_refusal(host, waiting.command, waiting.declined.missing_host.as_ref(), create) {
+            return Some(Admitted::Here(refused));
         }
     }
     let first = decision(root, request, Some(create), None, host);

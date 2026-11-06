@@ -24,6 +24,8 @@ mod terminations;
 #[cfg(test)]
 mod handover_tests;
 #[cfg(test)]
+mod offering_tests;
+#[cfg(test)]
 mod gpu_tests;
 mod json;
 mod machine;
