@@ -146,7 +146,7 @@ fn capacity_an_offloaded_command_naming_a_runtime_the_host_lacks_runs_the_hosts_
 }
 
 fn laptop_room(committed: f64) -> Room {
-    let admission = Admission { limit_cpus: 14.0, committed_cpus: committed, queued_heavy_cpus: 0.0, cpu_pressure_percent: 1.0, pressure_high_percent: 25.0, land_check_waiting: false };
+    let admission = Admission { limit_cpus: 14.0, committed_cpus: committed, queued_heavy_cpus: 0.0, cpu_pressure_percent: 1.0, pressure_high_percent: 25.0, land_check_waiting: false, heavy_settling_seconds: 0.0 };
     Room { measure: Measure { cores: 20.0, memory_total_mib: 64_000.0, memory_available_mib: 50_000.0, load: 1.0 }, admission, disk_free_gib: 200.0, slots: None }
 }
 
@@ -189,7 +189,7 @@ fn capacity_a_queued_run_handed_to_a_taker_runs_on_the_taker_and_its_output_and_
     assert_eq!(std::fs::read_to_string(lane_dir.join("Cargo.lock")).unwrap(), "taken", "a lock a handed-over run changed comes back to the lane (north#671)");
 }
 
-// KEEP(contract): a queued run leaves its host only to a taker that has a free slot beyond the interactive reserve and rebuilds the lane; otherwise it stays queued; north#634
+// KEEP(contract): a queued run leaves its host only to a taker that has a free slot beyond the interactive reserve, whose admission is not still settling a heavy build it started, and rebuilds the lane; otherwise it stays queued; north#634
 #[test]
 fn capacity_a_run_stays_queued_when_the_taker_has_no_room_cannot_rebuild_the_lane_or_leaves_early() {
     assert_eq!(refusal(Some(&laptop_room(2.0)), 0), None);
@@ -200,6 +200,10 @@ fn capacity_a_run_stays_queued_when_the_taker_has_no_room_cannot_rebuild_the_lan
     let mut waiting = laptop_room(2.0);
     waiting.admission.land_check_waiting = true;
     assert!(refusal(Some(&waiting), 0).is_some());
+    let status = serde_json::json!({ "profile": "unattended", "aggregateCpuLimit": 14.0, "committedBatchCpus": 2.0, "cpuSomeAvg10": 1.0, "heavySettlingSeconds": 11.0 });
+    let settling = Room { admission: Admission::from_status(&status).expect("a status the taker reads"), ..laptop_room(2.0) };
+    let why = refusal(Some(&settling), 0).expect("its admission defers a heavy run until the settle window ends");
+    assert!(why.contains("settles for 11 s"), "{why}");
     assert!(refusal(None, 0).is_some());
     let hosts = hosts();
     let lane = gather(&hosts.lane("left"), &hosts.laptop).unwrap().ship(&[]).unwrap();

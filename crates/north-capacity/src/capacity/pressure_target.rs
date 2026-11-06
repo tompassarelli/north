@@ -45,8 +45,13 @@ pub(super) fn settle_seconds() -> f64 {
 }
 
 fn starting(facts: &Facts) -> bool {
+    settling_seconds(heavy_leases(facts).map(|lease| lease.created_at), facts.now) > 0.0
+}
+
+/// The seconds until the youngest of the heavy builds started at `started_ms` leaves its settle window, when admission starts the next; 0 when none is settling.
+pub fn settling_seconds(started_ms: impl IntoIterator<Item = f64>, now_ms: f64) -> f64 {
     let settle = settle_seconds();
-    heavy_leases(facts).any(|lease| age_seconds(facts, lease.created_at) < settle)
+    started_ms.into_iter().map(|started| settle - (now_ms - started) / 1000.0).fold(0.0, f64::max)
 }
 
 /// The MiB of heavy leases that started within the ramp and have not yet reached MemAvailable.
