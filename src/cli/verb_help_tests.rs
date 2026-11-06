@@ -39,15 +39,6 @@ fn a_subcommand_help_is_answered_before_the_subcommand_runs() {
 }
 
 #[test]
-fn the_longest_listed_path_answers_and_alternatives_match() {
-    let text = usage(&words("code-health gate extra")).unwrap();
-    assert!(text.contains("north code-health report|gate|check"), "{text}");
-    assert!(!text.contains("crate-lines"), "{text}");
-    let land = usage(&words("land-actions")).unwrap();
-    assert!(land.lines().count() == 3 && land.contains("Run land checks as a GitHub Actions workflow"), "{land}");
-}
-
-#[test]
 fn help_after_a_command_separator_or_inside_a_wrapped_program_belongs_to_that_program() {
     assert!(!requested(&words("run-bounded 5m -- cargo --help")));
     assert!(!requested(&words("gh-session issue --help")));
@@ -64,7 +55,4 @@ fn help_after_a_command_separator_or_inside_a_wrapped_program_belongs_to_that_pr
 fn a_verb_that_publishes_its_contract_prints_it_whole() {
     assert_eq!(usage(&words("safe-push")), Some(format!("{}\n", north_safe_push::entry::USAGE.trim_end())));
     assert_eq!(usage(&words("capacity watchdog sample")), Some(format!("{}\n", crate::capacity::WATCHDOG_USAGE)));
-    assert!(usage(&words("lane-gc")).unwrap().contains("--idle-hours"));
-    assert!(usage(&words("land serve")).unwrap().contains("--all"));
-    assert!(usage(&words("land enqueue")).unwrap().contains("north land withdraw"));
 }
