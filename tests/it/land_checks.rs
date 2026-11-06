@@ -270,8 +270,12 @@ fn verb(command: &str) -> Option<&str> {
     Some(rest.strip_prefix("--no-build ").unwrap_or(rest))
 }
 
+fn builds_on_the_remote(entry: &str) -> bool {
+    entry.split_once(" --remote-north \"").is_some_and(|(_, remote)| remote.split('"').next().is_some_and(|north| !north.contains(" --no-build")))
+}
+
 fn before_the_push() -> Vec<String> {
-    safe_push_entries("land.check").into_iter().filter(|entry| entry.contains(" --no-build ") && entry.contains("./bin/head-north --code ")).collect()
+    safe_push_entries("land.check").into_iter().filter(|entry| entry.contains(" --no-build ") && entry.contains("./bin/head-north --code ") && !builds_on_the_remote(entry)).collect()
 }
 
 #[test]
