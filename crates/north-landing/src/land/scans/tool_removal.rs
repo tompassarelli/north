@@ -1,9 +1,13 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use std::ffi::OsStr;
+
+use north_base::platform::entry_points;
+
 use super::{Range, git};
 
-const CORE_TOOLS: [&str; 4] = ["agents", "threads", "safe-push", "capacity-watchdog"];
+const CORE_TOOLS: [&str; 3] = ["agents", "threads", "capacity-watchdog"];
 
 struct Layout {
     own: &'static str,
@@ -102,6 +106,9 @@ pub fn scan(directory: &Path, home: &Path, range: &str, out: &mut impl Write) ->
                 &format!("{peer_bin}/{name}"),
             )
         {
+            continue;
+        }
+        if entry_points::named(OsStr::new(name)).is_some() {
             continue;
         }
         let line = if CORE_TOOLS.contains(&name) {

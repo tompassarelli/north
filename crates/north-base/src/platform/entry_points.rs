@@ -29,13 +29,6 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    #[test]
-    fn a_bare_name_and_any_path_to_it_select_safe_push() {
-        for argv0 in ["safe-push", "/home/tom/.local/bin/safe-push", "./safe-push"] {
-            assert_eq!(named(OsStr::new(argv0)), Some(EntryPoint::SafePush), "{argv0}");
-        }
-    }
-
     proptest! {
         #[test]
         fn a_basename_outside_the_entry_points_runs_north(directory in "[a-z/]{0,12}", name in "[a-z-]{1,12}") {

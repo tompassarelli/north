@@ -2,6 +2,7 @@ mod bounded;
 mod cargo_build;
 mod canary;
 mod deploy;
+mod entry_links;
 mod failure;
 mod follow;
 mod health;

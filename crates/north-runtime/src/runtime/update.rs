@@ -189,6 +189,7 @@ fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previ
     if !runtime.join(TREE).is_dir() {
         export_tree(checkout, target, runtime)?;
     }
+    super::entry_links::link(runtime)?;
     store::root(runtime)?;
     sync(layout, previous, target)
 }
