@@ -242,7 +242,7 @@ fn capacity_a_pulled_run_goes_to_the_target_with_the_most_free_cores_and_to_none
     assert_eq!(pick(&targets(&laptop, &ccx33, 0), true), Err(vec!["this host holds its game reserve".to_owned()]));
 }
 
-// KEEP(bug): the taker's polls and the lane it runs on a build host open their own ssh connection, since the shared host master also carries bulk transfers and a tar stream through it held a pullable gex45 run 69 s; north#682
+// KEEP(bug): the taker's polls and the lane it runs on a build host use a master connection of the taker's own, reused across polls: the shared host master also carries bulk transfers and a tar stream through it held a pullable gex45 run 69 s (north#682), and a fresh connection per poll paid a 5.7 s handshake that held a pull past 10 s (north#677)
 #[test]
 fn capacity_the_taker_never_rides_the_shared_ssh_master() {
     let offer = Offer {
@@ -260,7 +260,9 @@ fn capacity_the_taker_never_rides_the_shared_ssh_master() {
     for command in [release_command("tom@gex45"), transport(&offer, Some("tom@ccx33"))] {
         let words: Vec<String> = command.get_args().map(|word| word.to_string_lossy().into_owned()).collect();
         assert_eq!(command.get_program(), "ssh");
-        assert!(words.windows(2).any(|pair| pair == ["-o", "ControlPath=none"]), "{words:?}");
+        let control = words.iter().find_map(|word| word.strip_prefix("ControlPath=")).unwrap_or_default();
+        assert!(control.ends_with("/north-taker-%C") && !control.contains("north-ssh-"), "{words:?}");
+        assert!(words.windows(2).any(|pair| pair == ["-o", "ControlMaster=auto"]), "{words:?}");
     }
 }
 

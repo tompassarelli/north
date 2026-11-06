@@ -19,8 +19,19 @@ const REFUSED_PAUSE: Duration = Duration::from_secs(2);
 const SETTLE: Duration = Duration::from_secs(5);
 const ROOM_FRESH: Duration = Duration::from_secs(10);
 const ROOM_READ_LIMIT: Duration = Duration::from_secs(8);
-/// The taker opens its own ssh connections: the shared host master also carries bulk transfers, and one tar stream through it held every new session past 25 s (north#682).
-const OWN_CONNECTION: [&str; 11] = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "-o", "ControlPath=none"];
+/// The taker keeps its own ssh master per host, apart from the shared host master that also carries bulk transfers (one tar stream through it held every new session past 25 s, north#682), and reuses it so a poll pays no fresh handshake (5.7 s to ccx33 on 2026-11-06, which held a pull past 10 s).
+pub(super) fn own_connection(runtime: &str) -> Vec<String> {
+    let options = ["BatchMode=yes", "ConnectTimeout=5", "ServerAliveInterval=15", "ServerAliveCountMax=4", "ControlMaster=auto", "ControlPersist=120"];
+    let mut words = vec!["-T".to_owned()];
+    for option in options.iter().map(|option| (*option).to_owned()).chain([format!("ControlPath={runtime}/north-taker-%C")]) {
+        words.extend(["-o".to_owned(), option]);
+    }
+    words
+}
+
+fn runtime_directory() -> String {
+    std::env::var("XDG_RUNTIME_DIR").ok().filter(|directory| !directory.is_empty()).unwrap_or_else(|| format!("/run/user/{}", rustix::process::getuid().as_raw()))
+}
 const CLOSE_LIMIT: Duration = Duration::from_secs(15);
 const CHUNK: usize = 32 * 1024;
 const NOTHING_QUEUED: i32 = 3;
@@ -63,7 +74,7 @@ enum Polled {
 /// An ssh command to `ssh` on a connection of the taker's own.
 fn ssh_to(ssh: &str, remote: &str) -> Command {
     let mut command = Command::new("ssh");
-    command.args(OWN_CONNECTION).args([ssh, "--", remote]);
+    command.args(own_connection(&runtime_directory())).args([ssh, "--", remote]);
     command
 }
 
@@ -274,20 +285,37 @@ fn game_reserved() -> bool {
     crate::capacity::mode::confined_agent_cpus(&crate::capacity::agent_load::Host::from_env()).is_some()
 }
 
-/// The build hosts' rooms, read over ssh at most every `ROOM_FRESH`, since each read is a round trip.
-struct RemoteRooms(HashMap<String, (Instant, Option<Room>)>);
+/// The build hosts' rooms, read over ssh every `ROOM_FRESH` by a thread of their own, so a slow or unreachable host never holds up a poll.
+struct RemoteRooms {
+    readings: std::sync::mpsc::Receiver<(String, Option<Room>)>,
+    rooms: HashMap<String, Room>,
+}
 
 impl RemoteRooms {
-    fn refresh(&mut self, hosts: &[(String, String)]) {
-        for (name, ssh) in hosts {
-            if self.0.get(name).is_none_or(|(read, _)| read.elapsed() >= ROOM_FRESH) {
-                self.0.insert(name.clone(), (Instant::now(), room::read_within(ssh, ROOM_READ_LIMIT)));
+    fn read_from(hosts: Vec<(String, String)>) -> Self {
+        let (send, readings) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            loop {
+                for (name, ssh) in &hosts {
+                    if send.send((name.clone(), room::read_within(ssh, ROOM_READ_LIMIT))).is_err() {
+                        return;
+                    }
+                }
+                std::thread::sleep(ROOM_FRESH);
             }
-        }
+        });
+        Self { readings, rooms: HashMap::new() }
     }
 
-    fn room(&self, name: &str) -> Option<&Room> {
-        self.0.get(name).and_then(|(_, room)| room.as_ref())
+    /// The latest room read for each host; a host whose last read failed has none.
+    fn now(&mut self) -> &HashMap<String, Room> {
+        for (name, room) in self.readings.try_iter() {
+            match room {
+                Some(room) => self.rooms.insert(name, room),
+                None => self.rooms.remove(&name),
+            };
+        }
+        &self.rooms
     }
 }
 
@@ -308,7 +336,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let here = crate::platform::host::name();
     let starting: HashMap<String, Arc<AtomicUsize>> = std::iter::once(here.clone()).chain(hosts.iter().map(|(name, _)| name.clone())).map(|name| (name, Arc::new(AtomicUsize::new(0)))).collect();
     let serving = Arc::new(AtomicUsize::new(0));
-    let mut remote_rooms = RemoteRooms(HashMap::new());
+    let mut remote_rooms = RemoteRooms::read_from(hosts.clone());
     let mut printed: HashMap<String, String> = HashMap::new();
     let mut taken = false;
     loop {
@@ -318,15 +346,13 @@ pub fn run(arguments: &[String]) -> u8 {
         }
         let reserved = game_reserved();
         let here_room = if reserved { None } else { room::read_local() };
-        if !reserved {
-            remote_rooms.refresh(&hosts);
-        }
+        let rooms = remote_rooms.now();
         let mut backoff = false;
         let mut polled = false;
         for (source, source_ssh) in &hosts {
             let count = |name: &str| starting.get(name).map_or(0, |count| count.load(Ordering::SeqCst));
             let mut targets = vec![Target { name: &here, ssh: None, room: here_room.as_ref(), starting: count(&here) }];
-            targets.extend(hosts.iter().filter(|(name, _)| name != source).map(|(name, ssh)| Target { name, ssh: Some(ssh), room: remote_rooms.room(name), starting: count(name) }));
+            targets.extend(hosts.iter().filter(|(name, _)| name != source).map(|(name, ssh)| Target { name, ssh: Some(ssh), room: rooms.get(name), starting: count(name) }));
             let (target, ssh) = match pick(&targets, reserved) {
                 Ok(chosen) => chosen,
                 Err(reasons) => {
