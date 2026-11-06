@@ -1,4 +1,5 @@
 pub mod entry;
+pub mod gates;
 pub mod landing;
 pub mod publication;
 pub mod report;
