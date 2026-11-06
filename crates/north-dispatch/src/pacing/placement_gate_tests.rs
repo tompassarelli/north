@@ -140,6 +140,9 @@ fn a_needs_host_launch_runs_on_that_host_and_only_a_launch_host_with_room_takes_
     assert_eq!(placed.machine.as_ref().map(|machine| machine.name.as_str()), Some("gex45"), "{:?}", placed.machine_lines);
     assert!(placed.machine_lines.contains(&"ccx33 skipped: cannot reach gex45".to_owned()), "{:?}", placed.machine_lines);
     assert!(placed.machine_lines.contains(&"nexus skipped: not a launch host".to_owned()), "{:?}", placed.machine_lines);
+    assert_eq!(gate::lacks(&cfg, "ccx33", brief).as_deref(), Some("reach to gex45"), "north dispatch refuses the same host fleet placement skips (north#654 ran twice on gex45 under Needs: whiterabbit)");
+    assert_eq!(gate::lacks(&cfg, "gex45", brief), None);
+    assert_eq!(gate::lacks(&cfg, "laptop", brief), None);
 
     let full = decide(brief, &cfg, &quota, credit.clone(), &machines(24), "laptop");
     assert_eq!(full.machine, None, "a host at its cap is never chosen: {:?}", full.machine_lines);

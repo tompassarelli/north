@@ -361,13 +361,17 @@ pub fn capacity_need(text: &str) -> Option<String> {
     (!needs.is_empty()).then(|| needs.join(","))
 }
 
-/// The first local need of the box that `[hosts.HOST] serves` does not cover.
-pub fn lacks(cfg: &DocumentMut, host: &str, text: &str) -> Option<String> {
-    let host = cfg.get("hosts").and_then(|hosts| hosts.get(host));
+/// The first local need of the box that `[hosts.HOST] serves` does not cover, including a `Needs:`
+/// host it does not reach.
+pub fn lacks(cfg: &DocumentMut, name: &str, text: &str) -> Option<String> {
+    let host = cfg.get("hosts").and_then(|hosts| hosts.get(name));
     let serves = strings(host.and_then(|host| host.get("serves")));
     let repo = repository(text);
     if !can_push(host.and_then(pushes).as_deref(), &repo) {
         return Some(format!("push to {repo}"));
+    }
+    if let Some(named) = Reach::of(text, cfg, name).unreached_here() {
+        return Some(format!("reach to {named}"));
     }
     local_needs(text).into_iter().find(|need| !covers(&serves, need, &repo))
 }
