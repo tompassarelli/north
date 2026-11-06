@@ -118,7 +118,7 @@ fn a_failed_fetch_of_the_destination_is_refused_before_any_check_runs() {
     let before = fixture.remote_state();
     let ran = fixture.run(&["--to", "main"]);
     ran.expect(false, &["safe-push: could not fetch origin/main; NOT pushed."]);
-    assert!(!ran.output.contains("R1"), "a failed fetch was reported as a language refusal: {}", ran.output);
+    assert!(!ran.output.contains("blocking check(s) failed") && !ran.output.contains("language gate"), "a failed fetch was reported as a gate refusal: {}", ran.output);
     assert!(!fixture.traced().contains("<language-gate>"), "a failed fetch reached the language gate");
     assert_eq!(fixture.remote_state(), before, "a failed fetch published");
 }
