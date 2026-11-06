@@ -215,7 +215,7 @@ impl HookKind {
             Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::recommendation_grounding::evaluate, crate::guard::recommend_acts::evaluate, crate::guard::status_not_action::evaluate, crate::guard::proxy_role::evaluate],
             Self::RecommendActs => &[crate::guard::recommend_acts::evaluate],
             Self::SubagentStop => &[crate::guard::subagent_teardown::evaluate],
-            Self::SessionStart => &[crate::guard::unlanded_work::evaluate],
+            Self::SessionStart => &[crate::guard::unlanded_work::evaluate, crate::guard::proxy_adopt::evaluate],
             Self::UserPromptSubmit => &[crate::guard::quiet_phrase::evaluate],
             Self::CodexConduct => &[crate::guard::codex_conduct::evaluate],
         }

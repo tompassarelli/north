@@ -8,7 +8,7 @@ use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName
 use crate::fleet::attachments;
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
-use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, Opening, Runtime, WindowInbox, new_uuid, summarize};
+use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, LiveWindow, Opening, Runtime, WindowInbox, new_uuid, summarize};
 use crate::fleet::install;
 
 use super::session_env::{self, claude_env};
@@ -171,6 +171,10 @@ impl Runtime for Claude {
 
     fn window_inbox(&self, accounts: &[Account], conversation: &str) -> Option<WindowInbox> {
         window_inbox::find(accounts, conversation)
+    }
+
+    fn windows(&self, accounts: &[Account]) -> Vec<LiveWindow> {
+        window_inbox::live(accounts)
     }
 
     fn tell_window(&self, inbox: &WindowInbox, text: &str) -> NorthResult<()> {

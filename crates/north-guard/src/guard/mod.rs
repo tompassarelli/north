@@ -50,6 +50,7 @@ mod spawn_state;
 pub mod code_health_edit;
 pub mod hook_stats;
 pub mod unlanded_work;
+pub mod proxy_adopt;
 pub mod worker_handoff;
 pub mod quiet_phrase;
 pub mod permission_offer;

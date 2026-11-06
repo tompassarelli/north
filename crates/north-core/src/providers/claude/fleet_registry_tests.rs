@@ -61,12 +61,12 @@ struct Window {
     token: String,
 }
 
-fn open_window(home: &Path, pid: u32, conversation: &str) -> Window {
+fn open_window(home: &Path, pid: u32, conversation: &str, started: u64) -> Window {
     let sessions = home.join(".local/state/north/profiles/claude-a/sessions");
     fs::create_dir_all(&sessions).unwrap();
     let socket = home.join(format!("{pid}.sock"));
     let token = format!("{pid:032x}");
-    let record = serde_json::json!({"pid": pid, "sessionId": conversation, "kind": "interactive", "entrypoint": "cli", "messagingSocketPath": socket});
+    let record = serde_json::json!({"pid": pid, "sessionId": conversation, "kind": "interactive", "entrypoint": "cli", "startedAt": started, "cwd": "/tmp", "messagingSocketPath": socket});
     fs::write(sessions.join(format!("{pid}.json")), record.to_string()).unwrap();
     fs::write(sessions.join(format!("{pid}.{}.key", "ab".repeat(32))), serde_json::json!({"peerToken": token}).to_string()).unwrap();
     Window { inbox: std::os::unix::net::UnixListener::bind(&socket).unwrap(), token }
@@ -93,8 +93,8 @@ fn a_second_session_cannot_hold_the_proxy_name_while_the_first_is_live() {
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path(), "");
     fleet_proxy(home.path(), "fleet-proxy");
-    let first = open_window(home.path(), std::process::id(), "window-a");
-    let _second = open_window(home.path(), std::os::unix::process::parent_id(), "window-b");
+    let first = open_window(home.path(), std::process::id(), "window-a", 1);
+    let _second = open_window(home.path(), std::os::unix::process::parent_id(), "window-b", 2);
 
     fleet.adopt("proxy", "window-a", "/tmp".into()).unwrap();
     assert_eq!(proxies(&fleet), ["window-a"], "adopt ends the fleet proxy and binds the name to the window");
@@ -113,4 +113,45 @@ fn a_second_session_cannot_hold_the_proxy_name_while_the_first_is_live() {
 
     fleet.adopt("proxy", "window-b", "/tmp".into()).unwrap();
     assert_eq!(proxies(&fleet), ["window-b"], "a second window takes the name only by ending the first holder");
+}
+
+#[test]
+fn the_session_start_adoption_takes_a_free_name_and_leaves_a_name_a_live_session_holds() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    fleet_proxy(home.path(), "fleet-proxy");
+    let _first = open_window(home.path(), std::process::id(), "window-a", 1);
+    let _second = open_window(home.path(), std::os::unix::process::parent_id(), "window-b", 2);
+
+    assert!(fleet.adopt_if_free("proxy", "not-a-window", "/tmp".into()).unwrap().is_none(), "a conversation that is no interactive window adopts nothing");
+    assert!(fleet.adopt_if_free("proxy", "window-a", "/tmp".into()).unwrap().is_some(), "no live session held the name");
+    assert_eq!(proxies(&fleet), ["window-a"]);
+
+    assert!(fleet.adopt_if_free("proxy", "window-b", "/tmp".into()).unwrap().is_none(), "window-a is live and holds the name");
+    assert_eq!(proxies(&fleet), ["window-a"]);
+    assert!(fleet.adopt_if_free("proxy", "window-a", "/tmp".into()).unwrap().is_some(), "the holder's own start again keeps the name");
+}
+
+#[test]
+fn a_message_to_the_name_whose_holder_died_reaches_the_newest_live_window_and_revives_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    fleet_proxy(home.path(), "fleet-proxy");
+    let mut holder = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    let _held = open_window(home.path(), holder.id(), "window-held", 5);
+    let _older = open_window(home.path(), std::os::unix::process::parent_id(), "window-older", 6);
+    let newest = open_window(home.path(), std::process::id(), "window-newest", 9);
+    fleet.adopt("proxy", "window-held", "/tmp".into()).unwrap();
+    holder.kill().unwrap();
+    holder.wait().unwrap();
+    assert!(proxies(&fleet).is_empty(), "the holder's window is gone");
+
+    let sender = std::thread::spawn(move || fleet.send_message(&crate::fleet::sender::Sender::Session("lead".into()), "proxy", "main is red", crate::fleet::model::Delivery::Queued).map(|_| fleet));
+    let lines = received(&newest);
+    let fleet = sender.join().unwrap().unwrap();
+
+    assert_eq!(lines[0], serde_json::json!({"type": "auth", "token": newest.token}));
+    assert!(lines[1]["message"]["content"].as_str().unwrap().ends_with("main is red"), "{}", lines[1]);
+    assert_eq!(proxies(&fleet), ["window-newest"]);
+    assert!(fleet.session("proxy").unwrap().adopted(), "no host was started under the name");
 }

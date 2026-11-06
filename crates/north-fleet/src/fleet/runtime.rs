@@ -48,6 +48,13 @@ pub struct WindowInbox {
     pub token: String,
 }
 
+pub struct LiveWindow {
+    pub conversation: String,
+    pub started_ms: u64,
+    pub cwd: PathBuf,
+    pub inbox: WindowInbox,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Opening<'a> {
     Fresh(Option<&'a str>),
@@ -71,6 +78,9 @@ pub trait Runtime: Send + Sync {
     }
     fn window_inbox(&self, _accounts: &[Account], _conversation: &str) -> Option<WindowInbox> {
         None
+    }
+    fn windows(&self, _accounts: &[Account]) -> Vec<LiveWindow> {
+        Vec::new()
     }
     fn tell_window(&self, _inbox: &WindowInbox, _text: &str) -> NorthResult<()> {
         Err(NorthError::Usage(format!("{} has no window inbox to deliver into", self.provider().label())))

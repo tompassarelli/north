@@ -6,7 +6,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{LaunchRequest, Role, SessionRecord, Status};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::records::write_record;
-use crate::fleet::runtime::{PROXY, Runtime, WindowInbox, now_ms};
+use crate::fleet::runtime::{LiveWindow, PROXY, Runtime, WindowInbox, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
 use super::takeover::Predecessor;
@@ -85,5 +85,51 @@ impl Fleet {
         }
         let (runtime, inbox) = record.conversation.as_deref().and_then(|conversation| self.window_of(conversation)).ok_or_else(gone)?;
         runtime.tell_window(&inbox, text)
+    }
+}
+
+impl Fleet {
+    pub fn adopt_if_free(&self, name: &str, conversation: &str, cwd: PathBuf) -> NorthResult<Option<SessionRecord>> {
+        if !self.live_windows().iter().any(|window| window.conversation == conversation) {
+            return Ok(None);
+        }
+        if let Ok(held) = self.record(name)
+            && held.conversation.as_deref() != Some(conversation)
+            && self.holds(&held)
+        {
+            return Ok(None);
+        }
+        self.adopt(name, conversation, cwd).map(Some)
+    }
+
+    pub(super) fn rebind_dead_proxy(&self, name: &str) -> NorthResult<()> {
+        let held = self.record(name)?;
+        if held.role() != Role::Proxy || self.holds(&held) {
+            return Ok(());
+        }
+        let bound: Vec<String> = self.sessions()?.into_iter().filter(|record| record.adopted() && self.holds(record)).filter_map(|record| record.conversation).collect();
+        match self.live_windows().into_iter().find(|window| !bound.contains(&window.conversation)) {
+            Some(window) => self.adopt(name, &window.conversation, window.cwd).map(drop),
+            None => Ok(()),
+        }
+    }
+
+    fn live_windows(&self) -> Vec<LiveWindow> {
+        let accounts = self.accounts();
+        let mut windows: Vec<LiveWindow> = self
+            .providers()
+            .into_iter()
+            .filter_map(|provider| self.runtimes.get(&provider).ok())
+            .flat_map(|runtime| {
+                let own: Vec<_> = accounts.iter().filter(|account| account.provider == runtime.provider()).cloned().collect();
+                runtime.windows(&own)
+            })
+            .collect();
+        windows.sort_by_key(|window| std::cmp::Reverse(window.started_ms));
+        windows
+    }
+
+    fn holds(&self, record: &SessionRecord) -> bool {
+        !matches!(self.status(record), Status::Exited | Status::Parked)
     }
 }

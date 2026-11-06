@@ -27,6 +27,7 @@ impl Fleet {
     pub fn hand_in(&self, row: &FleetRow) -> NorthResult<HandedIn> {
         row.validate()?;
         self.record(&row.to)?;
+        self.rebind_dead_proxy(&row.to)?;
         let (journal, _lock) = self.journal_lock(&row.to)?;
         let entry = journal.join(&row.id);
         let handing = journal.join(format!("{}.{HANDING}", row.id));
