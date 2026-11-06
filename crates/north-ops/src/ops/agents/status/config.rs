@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use toml_edit::DocumentMut;
 
 use crate::router::policy::json_value;
@@ -38,9 +38,5 @@ impl Config {
     pub(super) fn projects(&self) -> impl Iterator<Item = (&str, Value)> {
         let table = self.document.get("projects").and_then(|projects| projects.as_table_like());
         table.into_iter().flat_map(|table| table.iter().map(|(name, item)| (name, json_value(item))))
-    }
-
-    pub(super) fn pace(&self) -> Value {
-        self.value.get("pace").cloned().unwrap_or_else(|| json!({}))
     }
 }

@@ -1,26 +1,15 @@
 use super::brief::codex_box_refusal;
-use super::ctx::{Ctx, Knobs, Project, provider, used};
-use super::moment::Moment;
+use super::ctx::{Ctx, Knobs};
 use super::plan::divergence;
-use super::route::drain_open;
 use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Request {
-    Drain {
-        project: Project,
-        account: String,
-        now: Option<Moment>,
-    },
     MoneyRefusal {
         ctx: Ctx,
         account: String,
-    },
-    Gate {
-        ctx: Ctx,
-        provider: String,
     },
     Fast {
         ctx: Ctx,
@@ -46,10 +35,8 @@ enum Request {
     },
 }
 
-const OPS: [&str; 9] = [
-    "drain",
+const OPS: [&str; 7] = [
     "money_refusal",
-    "gate",
     "fast",
     "route",
     "plan",
@@ -58,40 +45,11 @@ const OPS: [&str; 9] = [
     "codex_box",
 ];
 
-fn gate(ctx: &Ctx, p: &str) -> Value {
-    let names: Vec<&String> = ctx.accounts.keys().filter(|n| provider(n) == p).collect();
-    let accounts: Map<String, Value> = names
-        .iter()
-        .map(|n| {
-            (
-                (*n).clone(),
-                json!({"used_pct": used(&ctx.accounts[n.as_str()])}),
-            )
-        })
-        .collect();
-    let paces: Map<String, Value> = names
-        .iter()
-        .map(|n| ((*n).clone(), json!(ctx.pace_reading(p, Some(n)))))
-        .collect();
-    json!({"pace": ctx.pace_reading(p, None), "paces": paces, "accounts": accounts})
-}
-
 fn respond(request: Request) -> Result<Value, String> {
     Ok(match request {
-        Request::Drain {
-            project,
-            account,
-            now,
-        } => {
-            let now = now.unwrap_or_else(Moment::now);
-            let target = project.target.clone().unwrap_or(Value::Null);
-            json!({"drain_open": drain_open(&project, &account, now), "target_open": super::moment::target_open(&target, now)})
-        }
         Request::MoneyRefusal { ctx, account } => json!(ctx.money_refusal(&account)),
-        Request::Gate { ctx, provider } => gate(&ctx, &provider),
         Request::Fast { ctx, account } => json!(ctx.fast(&account)),
         Request::Route { ctx, provider } => json!({
-            "under_pace": ctx.route_account(&provider),
             "route": ctx.route(&provider),
             "fallback": ctx.provider_account(&provider),
         }),

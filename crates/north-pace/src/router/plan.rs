@@ -52,7 +52,6 @@ pub struct Plan {
     pub held: Vec<String>,
     pub needs: Vec<String>,
     pub routes: BTreeMap<String, Option<String>>,
-    pub warnings: Vec<String>,
     pub capacity: BTreeMap<String, Capacity>,
 }
 
@@ -83,10 +82,7 @@ impl Ctx {
                 continue;
             }
             let name = self.provider_account(p);
-            let left = self.accounts.get(&name).and_then(|acct| {
-                let m = self.metrics(acct);
-                m.projected_left.or(m.used_pct.map(|used| 100.0 - used))
-            });
+            let left = self.accounts.get(&name).and_then(|acct| self.metrics(acct).used_pct).map(|used| 100.0 - used);
             let floor = self.knobs.codex_floor.as_f64().unwrap_or(f64::INFINITY);
             let astra = p == "codex"
                 && hit.model.as_deref() != Some(ASTRA_MODEL)
@@ -118,35 +114,6 @@ impl Ctx {
                 }
             })
             .collect()
-    }
-
-    pub fn projection_lines(&self) -> Vec<String> {
-        let mut out = Vec::new();
-        for (name, acct) in self
-            .accounts
-            .iter()
-            .filter(|(_, a)| a.provider.as_deref() == Some("codex"))
-        {
-            let m = self.metrics(acct);
-            let band = acct
-                .band
-                .clone()
-                .unwrap_or_else(|| self.knobs.pace_band.clone());
-            let edge = |i: usize| band.get(i).map_or_else(String::new, python_str);
-            let left = m.projected_left.map_or_else(
-                || "unknown (need two readings in last 3h)".to_owned(),
-                |p| format!("{p:.1}%"),
-            );
-            out.push(format!(
-                "{name}: projected {left} left at Fri 23:59 ET (band {}-{})",
-                edge(0),
-                edge(1)
-            ));
-            if m.drain_behind {
-                out.push("FLAG codex drain behind".into());
-            }
-        }
-        out
     }
 
     fn with_capacity(&self, cap: &BTreeMap<String, Capacity>) -> Ctx {
@@ -203,13 +170,10 @@ impl Ctx {
     }
 
     pub fn plan(&self) -> Result<Plan, String> {
-        if let Some((name, acct)) = self.accounts.iter().find(|(_, a)| self.stale(a)) {
-            return Err(self.stale_warning(name, acct));
-        }
         let cap = self.capacity();
         let ctx = self.with_capacity(&cap);
         let accounts = ctx.priced_accounts();
-        let (mut boxes, mut needs, mut warnings) = (BTreeMap::new(), Vec::new(), Vec::new());
+        let (mut boxes, mut needs) = (BTreeMap::new(), Vec::new());
         for (slot, item) in ctx.boxes.iter().enumerate() {
             let choice = ctx.choose(item, slot % ctx.knobs.explore_every.max(1) == 0);
             let tier = choice.tier.as_ref();
@@ -227,7 +191,6 @@ impl Ctx {
                 },
             );
             push_new(&mut needs, choice.needs);
-            push_new(&mut warnings, choice.warn);
         }
         let keys = |keep: &dyn Fn(&Tier) -> bool| {
             ctx.tiers
@@ -249,7 +212,6 @@ impl Ctx {
                 .iter()
                 .map(|t| (t.key.clone(), ctx.route(provider(&t.key))))
                 .collect(),
-            warnings,
             capacity: cap,
         })
     }
@@ -275,10 +237,8 @@ impl Ctx {
         let m = self.metrics(&self.accounts[name]);
         let pct = |v: Option<f64>| v.map_or_else(|| "unknown".to_owned(), |v| format!("{v:.1}%"));
         format!(
-            "account {name}: state {}, used {}, pace {}, available ${:.2}, resets_at {}, fast {}",
-            m.state,
+            "account {name}: used {}, available ${:.2}, resets_at {}, fast {}",
             pct(m.used_pct),
-            pct(m.pace_pct),
             m.available_usd,
             m.resets_at.as_deref().unwrap_or("unknown"),
             if self.fast(name) { "on" } else { "off" }
@@ -287,7 +247,6 @@ impl Ctx {
 
     pub fn head_lines(&self) -> Vec<String> {
         let mut out: Vec<String> = self.accounts.keys().map(|n| self.account_line(n)).collect();
-        out.extend(self.projection_lines());
         out.extend(self.capacity_lines(&self.capacity()));
         out.extend(
             self.tiers
@@ -371,16 +330,6 @@ fn shown(value: &Value) -> String {
 
 pub fn divergence(result: &Value, expect: &Value) -> Option<String> {
     let entries = |key: &str| expect[key].as_object().cloned().unwrap_or_default();
-    for (n, s) in entries("states") {
-        let got = &result["accounts"][&n]["state"];
-        if got != &s {
-            return Some(format!(
-                "account {n}: state {}, expected {}",
-                shown(got),
-                shown(&s)
-            ));
-        }
-    }
     for (key, label) in [("tiers", "tier"), ("accounts", "account"), ("fast", "fast")] {
         for (b, want) in entries(key) {
             let got = &result["boxes"][&b][label];
@@ -406,7 +355,7 @@ pub fn divergence(result: &Value, expect: &Value) -> Option<String> {
             ));
         }
     }
-    for key in ["explore", "held", "needs", "routes", "warnings"] {
+    for key in ["explore", "held", "needs", "routes"] {
         if let Some(want) = expect.get(key)
             && &result[key] != want
         {

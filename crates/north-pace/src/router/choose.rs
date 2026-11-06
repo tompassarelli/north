@@ -1,9 +1,8 @@
 use super::brief::{
     brief_header, codex_class, codex_explore_qualifies, codex_qualifies, header_word,
 };
-use super::ctx::{Ctx, Project, Tier, UNDER, WorkBox, account_of, provider, truthy};
+use super::ctx::{Ctx, Project, Tier, WorkBox, account_of, provider, truthy};
 use super::moment::{python_g, python_str};
-use super::route::drain_open;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -16,7 +15,6 @@ pub struct Choice {
     pub explore: bool,
     pub wait: Option<String>,
     pub needs: Option<String>,
-    pub warn: Option<String>,
 }
 
 fn eligible(tier: &Tier, item: &WorkBox) -> bool {
@@ -158,7 +156,7 @@ impl Ctx {
     pub fn explorable(&self, tier: &Tier, item: &WorkBox) -> bool {
         !self.successor_soon(tier)
             && eligible(tier, item)
-            && self.account_state(&account_of(tier)) == Some(UNDER)
+            && self.provider_limit(&account_of(tier)).is_none()
             && if provider(&tier.key) == "codex" {
                 self.codex_explorable(tier, item)
             } else {
@@ -213,10 +211,8 @@ impl Ctx {
             .iter()
             .filter(|(_, _, t)| self.admit(t, item, &bands))
             .collect();
-        let open = admitted.iter().filter(|(p, _, t)| {
-            *p != f64::INFINITY && self.launch_refusal(&account_of(t)).is_none()
-        });
-        let Some((_, _, tier)) = open.min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)))
+        let open = admitted.iter().filter(|(p, _, t)| *p != f64::INFINITY && self.provider_limit(&account_of(t)).is_none());
+        let Some((_, _, tier)) = open.min_by(|a, b| a.1.total_cmp(&b.1))
         else {
             return self.closed(
                 item,
@@ -227,7 +223,6 @@ impl Ctx {
         let name = account_of(tier);
         let mut out = Choice {
             tier: Some((*tier).clone()),
-            warn: self.pace_warning(item, project, &name),
             ..Choice::default()
         };
         if admitted.len() == 1
@@ -247,7 +242,7 @@ impl Ctx {
         if !priced {
             return Choice {
                 needs: Some(format!(
-                    "Blocked: decision for Tom: no under-pace plan-billed tier admits {} ({}, {} d{}); bill usage credits for it?",
+                    "Blocked: decision for Tom: no plan-billed tier admits {} ({}, {} d{}); bill usage credits for it?",
                     item.id,
                     item.project,
                     item.category,
@@ -266,24 +261,5 @@ impl Ctx {
                 ..Choice::default()
             },
         }
-    }
-
-    fn pace_warning(&self, item: &WorkBox, project: &Project, name: &str) -> Option<String> {
-        if self.account_state(name) == Some(UNDER) {
-            return None;
-        }
-        let why = if self.enforced(name) && drain_open(project, name, self.now) {
-            format!(
-                "{} drains it under Tom's grant until {}",
-                project.name.as_deref().unwrap_or(&item.project),
-                project.target.as_ref().map_or_else(String::new, python_str)
-            )
-        } else {
-            let start = self
-                .enforce_from(name)
-                .map_or_else(|| "unset".to_owned(), |s| s.iso());
-            format!("pace enforced from {start}")
-        };
-        Some(format!("account {name} at or over pace; admitted, {why}"))
     }
 }

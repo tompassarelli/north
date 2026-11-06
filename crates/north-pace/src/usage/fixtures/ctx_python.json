@@ -4,10 +4,6 @@
    "claude:a": {
     "age_min": 30.0,
     "auto_route": true,
-    "band": [
-     10,
-     20
-    ],
     "extra_usage": false,
     "grants": [],
     "hasCredits": false,
@@ -19,8 +15,6 @@
      "week": "2026-10-30T00:00:00Z"
     },
     "spend": false,
-    "target_left": 5,
-    "thursday": false,
     "usd_per_week": 0.0,
     "windows": {
      "5h": {
@@ -44,10 +38,6 @@
    "claude:b": {
     "age_min": 40.0,
     "auto_route": true,
-    "band": [
-     10,
-     20
-    ],
     "extra_usage": true,
     "grants": [],
     "hasCredits": false,
@@ -58,8 +48,6 @@
      "week": "2026-10-30T06:00:00Z"
     },
     "spend": false,
-    "target_left": 5,
-    "thursday": false,
     "usd_per_week": 0.0,
     "windows": {
      "5h": {
@@ -95,20 +83,8 @@
   },
   "boxes": [],
   "lease": false,
-  "pace": {
-   "claude:a": {
-    "by": "2026-10-22T10:00:00Z",
-    "spend_to_pct": 95
-   },
-   "enforce_from": {
-    "claude:a": "2026-10-15T10:00:00Z"
-   }
-  },
   "projects": {
    "north": {
-    "drain": {
-     "codex": "fixture grant"
-    },
     "target": "2026-10-16T10:00:00Z",
     "u": 1.0,
     "unmeasured": true
@@ -218,10 +194,6 @@
    "gemini": {
     "age_min": 1.0,
     "auto_route": true,
-    "band": [
-     10,
-     20
-    ],
     "extra_usage": false,
     "grants": [],
     "hasCredits": true,
@@ -232,8 +204,6 @@
      "week": "2026-11-01T00:00:00Z"
     },
     "spend": false,
-    "target_left": 5,
-    "thursday": false,
     "usd_per_week": 0.0,
     "windows": {
      "day": {
@@ -269,20 +239,8 @@
   },
   "boxes": [],
   "lease": false,
-  "pace": {
-   "claude:a": {
-    "by": "2026-10-22T10:00:00Z",
-    "spend_to_pct": 95
-   },
-   "enforce_from": {
-    "claude:a": "2026-10-15T10:00:00Z"
-   }
-  },
   "projects": {
    "north": {
-    "drain": {
-     "codex": "fixture grant"
-    },
     "target": "2026-10-16T10:00:00Z",
     "u": 1.0,
     "unmeasured": true

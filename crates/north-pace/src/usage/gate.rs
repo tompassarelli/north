@@ -28,11 +28,7 @@ impl Inputs {
             cfg: policy::json_value(document.as_item()),
             catalog: settings::catalog_json(),
             tiers: tiers(&document),
-            defaults: Defaults {
-                min_runs: settings::default_value("min_runs").as_u64().unwrap_or_default() as usize,
-                target_left_claude: settings::default_value("pace_target_left_claude"),
-                pace_band: settings::default_value("pace_band"),
-            },
+            defaults: Defaults { min_runs: settings::default_value("min_runs").as_u64().unwrap_or_default() as usize },
         })
     }
 
@@ -57,16 +53,11 @@ pub(super) fn write(db: &Connection, providers: &[&str], places: &Places, now: T
         let named: Vec<&String> = context["accounts"].as_object().into_iter().flatten().map(|(name, _)| name).filter(|name| name.split(':').next() == Some(provider)).collect();
         let refusals: Map<String, Value> = named.iter().map(|name| ((*name).clone(), refusal(Some(name)))).collect();
         let projections: Map<String, Value> = named.iter().map(|name| projection(&context, name, provider, now).map(|found| (found.0, found.1))).collect::<Result<_, _>>()?;
-        let mut verdict = json!({
+        let verdict = json!({
             "ts": py::second(now), "epoch": now.unix_seconds_f64(), "stale_min": settings::default_value("usage_stale_min"), "pace_control": true,
             "controls": verdicts.get(*provider).and_then(|previous| previous.get("controls")).cloned().unwrap_or_else(|| json!({})),
             "refusal": refusal(None), "refusals": refusals, "projections": projections,
         });
-        if let Some(Ok(pace)) = ops::answer(&json!({"op": "gate", "ctx": context, "provider": provider})) {
-            for (key, value) in pace.as_object().into_iter().flatten() {
-                verdict[key] = value.clone();
-            }
-        }
         verdicts.insert((*provider).to_owned(), verdict);
     }
     if let Some(parent) = path.parent() {

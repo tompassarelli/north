@@ -78,7 +78,6 @@
 ["accounts"]
 
 ["accounts"."claude"]
-"target_left" = 5
 
 ["accounts"."claude"."auto_route_requires"]
 
@@ -99,24 +98,11 @@
 ["accounts"."claude"."profiles"."b"."laptop"]
 
 ["accounts"."codex"]
-"target_left" = 15
-
-["pace"]
-
-["pace"."enforce_from"]
-"claude:a" = "2026-10-15T10:00:00Z"
-
-["pace"."claude:a"]
-"spend_to_pct" = 95
-"by" = "2026-10-22T10:00:00Z"
 
 ["projects"]
 
 ["projects"."north"]
 "target" = "2026-10-16T10:00:00Z"
-
-["projects"."north"."drain"]
-"codex" = "fixture grant"
 
 ["hosts"]
 

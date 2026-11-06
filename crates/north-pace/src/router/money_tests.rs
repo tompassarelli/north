@@ -29,7 +29,7 @@ fn catalog_tiers() -> Vec<Value> {
 fn bills_money(ctx: &Ctx, name: &str, billing: &serde_json::Map<String, Value>) -> bool {
     let acct = &ctx.accounts[name];
     let standard_is_plan = billing.get("standard").and_then(Value::as_str) == Some("plan");
-    if acct.age_min.as_f64().unwrap() > ctx.knobs.stale_min || !standard_is_plan {
+    if !standard_is_plan {
         return true;
     }
     let overflow_free = matches!(billing.get("overflow").and_then(Value::as_str), Some("plan" | "blocked"))
@@ -38,7 +38,7 @@ fn bills_money(ctx: &Ctx, name: &str, billing: &serde_json::Map<String, Value>) 
     used >= ctx.knobs.money_ceiling.as_f64().unwrap() && !overflow_free
 }
 
-// KEEP(mutant): no choice over the catalog tiers ever bills money across billing, credit, staleness and usage combinations
+// KEEP(mutant): no choice over the catalog tiers ever bills money across billing, credit and usage combinations
 #[test]
 fn no_choice_over_the_catalog_tiers_ever_bills_money() {
     let tiers = catalog_tiers();
@@ -89,36 +89,33 @@ fn no_choice_over_the_catalog_tiers_ever_bills_money() {
             .filter_map(|(mode, value)| value.map(|v| ((*mode).to_owned(), json!(v))))
             .collect();
         for credits in [false, true] {
-            for stale in [false, true] {
-                for pct in [0.0, 94.0, 95.0, 100.0] {
-                    let account = |name: &str| {
-                        json!({"windows": {"5h": {"headroom": 100.0 - pct, "reset_in": 2, "beta": 1},
-                                           "week": {"headroom": 100.0 - pct, "reset_in": 20, "beta": 0.5, "window_h": 168,
-                                                    "resets_at": "2026-10-12T08:00Z", "as_of": "2026-10-11T12:00Z"}},
-                               "hasCredits": credits, "extra_usage": false, "spend": false,
-                               "age_min": if stale { 45 } else { 5 }, "provider": name,
-                               "target_left": if name == "codex" { 15 } else { 5 }, "usd_per_week": 50})
-                    };
-                    let ctx: Ctx = serde_json::from_value(json!({
-                        "now": "2026-10-11T12:00Z", "tiers": tiers, "success": success, "lease": true,
-                        "projects": projects,
-                        "accounts": accounts.iter().map(|n| (n.clone(), account(n))).collect::<serde_json::Map<_, _>>(),
-                        "billing": accounts.iter().map(|n| (n.clone(), json!(billing))).collect::<serde_json::Map<_, _>>(),
-                    }))
-                    .unwrap();
-                    for item in &boxes {
-                        let item = serde_json::from_value(item.clone()).unwrap();
-                        for slot in [false, true] {
-                            decisions += 1;
-                            let Some(tier) = ctx.choose(&item, slot).tier else { continue };
-                            picks += 1;
-                            let name = account_of(&tier);
-                            assert!(
-                                !bills_money(&ctx, &name, &billing),
-                                "picked money: {} box {} billing {billing:?} credits {credits} stale {stale} used {pct}",
-                                tier.key, item.id
-                            );
-                        }
+            for pct in [0.0, 94.0, 95.0, 100.0] {
+                let account = |name: &str| {
+                    json!({"windows": {"5h": {"headroom": 100.0 - pct, "reset_in": 2, "beta": 1},
+                                       "week": {"headroom": 100.0 - pct, "reset_in": 20, "beta": 0.5, "window_h": 168,
+                                                "resets_at": "2026-10-12T08:00Z", "as_of": "2026-10-11T12:00Z"}},
+                           "hasCredits": credits, "extra_usage": false, "spend": false,
+                           "provider": name, "usd_per_week": 50})
+                };
+                let ctx: Ctx = serde_json::from_value(json!({
+                    "now": "2026-10-11T12:00Z", "tiers": tiers, "success": success, "lease": true,
+                    "projects": projects,
+                    "accounts": accounts.iter().map(|n| (n.clone(), account(n))).collect::<serde_json::Map<_, _>>(),
+                    "billing": accounts.iter().map(|n| (n.clone(), json!(billing))).collect::<serde_json::Map<_, _>>(),
+                }))
+                .unwrap();
+                for item in &boxes {
+                    let item = serde_json::from_value(item.clone()).unwrap();
+                    for slot in [false, true] {
+                        decisions += 1;
+                        let Some(tier) = ctx.choose(&item, slot).tier else { continue };
+                        picks += 1;
+                        let name = account_of(&tier);
+                        assert!(
+                            !bills_money(&ctx, &name, &billing),
+                            "picked money: {} box {} billing {billing:?} credits {credits} used {pct}",
+                            tier.key, item.id
+                        );
                     }
                 }
             }

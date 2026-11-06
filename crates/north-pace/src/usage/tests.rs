@@ -170,22 +170,3 @@ fn a_window_a_newer_reading_of_the_account_postdates_the_reset_of_reads_zero_use
     let unseen = window("2026-10-28T09:30:00Z");
     assert_eq!((unseen["used_pct"].as_f64(), unseen["as_of"].as_str()), (Some(30.0), Some("2026-10-28T09:00:00Z")), "{unseen}");
 }
-
-// KEEP(bug): a window a refresh did not reread cannot hold a freshly read account stale at the spawn gate; regression of d24e1dccd (north#299)
-#[test]
-fn one_window_a_refresh_did_not_reread_cannot_hold_a_freshly_read_account_stale_at_the_spawn_gate() {
-    let refusal = |fable_ts: &str, fresh_ts: &str| {
-        let rows = serde_json::json!([
-            [fresh_ts, "claude", "a", "window", "session", 20.0, 300, "2026-10-28T14:00:00Z", null, "headers"],
-            [fresh_ts, "claude", "a", "window", "weekly_all", 10.0, 10080, "2026-11-03T00:00:00Z", null, "headers"],
-            [fable_ts, "claude", "a", "window", "weekly_scoped/Fable", 0.0, 10080, "2026-11-03T00:00:00Z", null, "web"],
-            [fable_ts, "claude", "a", "billing", "extra_usage", null, null, null, 0.0, "web"],
-        ]);
-        let scratch = Scratch::new(&serde_json::json!({"rows": rows, "orchestration": include_str!("../router/fixtures/policy/orchestration.toml")}));
-        let gate = super::gate::write(&scratch.open(), &["claude"], &scratch.places(), frozen()).unwrap();
-        gate["claude"]["refusals"]["claude"].clone()
-    };
-    assert_eq!(refusal("2026-10-28T10:39:00Z", "2026-10-28T11:59:00Z"), Value::Null);
-    let held = refusal("2026-10-28T10:39:00Z", "2026-10-28T10:39:00Z");
-    assert!(held.as_str().is_some_and(|why| why.contains("usage snapshot is 81 minutes old even after a refresh")), "{held}");
-}

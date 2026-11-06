@@ -32,8 +32,6 @@ pub(super) struct Tier {
 
 pub(super) struct Defaults {
     pub min_runs: usize,
-    pub target_left_claude: Value,
-    pub pace_band: Value,
 }
 
 pub(super) fn live_ctx(cfg: &Value, tiers: &[Tier], catalog: &Value, rows: &[&Row], db: &Connection, now: Timestamp, defaults: &Defaults) -> Result<Value, String> {
@@ -69,10 +67,10 @@ pub(super) fn live_ctx(cfg: &Value, tiers: &[Tier], catalog: &Value, rows: &[&Ro
         })
         .collect();
     let mut accounts = accounts_from(rows, db, now)?;
-    configure_accounts(&mut accounts, cfg, defaults);
+    configure_accounts(&mut accounts, cfg);
     Ok(json!({
         "now": py::second(now), "tiers": listed, "billing": billing, "lease": false, "success": success,
-        "accounts": accounts, "projects": projects, "boxes": [], "pace": cfg.get("pace").cloned().unwrap_or_else(|| json!({})),
+        "accounts": accounts, "projects": projects, "boxes": [],
         "services": [],
     }))
 }
@@ -155,7 +153,7 @@ fn roll_over_expired(account: &mut Value, read_at: Timestamp) -> Result<(), Stri
     Ok(())
 }
 
-fn configure_accounts(accounts: &mut Map<String, Value>, cfg: &Value, defaults: &Defaults) {
+fn configure_accounts(accounts: &mut Map<String, Value>, cfg: &Value) {
     for (name, account) in accounts.iter_mut() {
         let provider = name.split(':').next().unwrap_or_default().to_owned();
         let settings = &cfg["accounts"][&provider];
@@ -165,9 +163,6 @@ fn configure_accounts(accounts: &mut Map<String, Value>, cfg: &Value, defaults: 
         account["auto_route"] = json!(auto_route);
         account["provider"] = json!(provider);
         account["usd_per_week"] = json!(0.0);
-        account["target_left"] = settings.get("target_left").cloned().unwrap_or_else(|| defaults.target_left_claude.clone());
-        account["band"] = settings.get("band").cloned().unwrap_or_else(|| defaults.pace_band.clone());
-        account["thursday"] = settings.get("thursday").cloned().unwrap_or(json!(false));
     }
 }
 

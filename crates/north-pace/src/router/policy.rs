@@ -38,7 +38,6 @@ pub enum Mode {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct AccountPolicy {
-    pub target_left: Option<f64>,
     #[serde(default)]
     pub auto_route_requires: BTreeMap<String, String>,
     #[serde(default)]
@@ -47,8 +46,6 @@ pub struct AccountPolicy {
     pub plans: BTreeMap<String, String>,
     #[serde(default)]
     pub labels: BTreeMap<String, String>,
-    pub band: Option<Vec<f64>>,
-    pub thursday: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -57,25 +54,8 @@ pub struct Profile {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct PacePolicy {
-    pub source: Option<String>,
-    #[serde(default)]
-    pub enforce_from: BTreeMap<String, String>,
-    #[serde(flatten)]
-    pub targets: BTreeMap<String, PaceTarget>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct PaceTarget {
-    pub spend_to_pct: f64,
-    pub by: String,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ProjectPolicy {
     pub target: Option<String>,
-    #[serde(default)]
-    pub drain: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -113,7 +93,6 @@ pub struct Policy {
     pub router: RouterPolicy,
     pub mode: Mode,
     pub accounts: BTreeMap<String, AccountPolicy>,
-    pub pace: PacePolicy,
     pub projects: BTreeMap<String, ProjectPolicy>,
     pub tiers: Vec<Tier>,
     pub on_request: Vec<Tier>,
@@ -245,13 +224,6 @@ pub fn parse(orchestration: &str, catalog: &str, defaults: &str) -> Result<Polic
         router,
         mode: decode(config["mode"].clone(), "mode")?,
         accounts: decode(config["accounts"].clone(), "accounts")?,
-        pace: decode(
-            config
-                .get("pace")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({})),
-            "pace",
-        )?,
         projects: decode(config["projects"].clone(), "projects")?,
         tiers: tiers(&document, "tiers")?,
         on_request: tiers(&document, "on_request")?,

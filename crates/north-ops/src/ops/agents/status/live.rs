@@ -134,7 +134,7 @@ fn prices(costs: &Value) -> BTreeMap<String, f64> {
     costs.as_object().into_iter().flatten().filter_map(|(id, price)| Some((id.clone(), price.as_f64()?))).collect()
 }
 
-fn account_json(name: &str, account: Account, config: &Config, prices: &BTreeMap<String, f64>, knobs: &Knobs) -> Value {
+fn account_json(name: &str, account: Account, config: &Config, prices: &BTreeMap<String, f64>) -> Value {
     let provider = provider(name);
     let settings = config.account_settings(provider);
     let cost_id = if provider == "claude" && !account.id.is_empty() { format!("claude-{}", account.id) } else { provider.to_owned() };
@@ -145,9 +145,6 @@ fn account_json(name: &str, account: Account, config: &Config, prices: &BTreeMap
         "id": account.id, "windows": account.windows, "grants": [], "hasCredits": flag("hasCredits"),
         "extra_usage": flag("extra_usage"), "spend": flag("spend"), "age_min": account.age_min,
         "auto_route": auto_route, "provider": provider, "usd_per_week": prices.get(&cost_id).copied().unwrap_or(0.0),
-        "target_left": settings.get("target_left").cloned().unwrap_or_else(|| json!(knobs.pace_target_left_claude)),
-        "band": settings.get("band").cloned().unwrap_or_else(|| json!(knobs.pace_band)),
-        "thursday": settings.get("thursday").cloned().unwrap_or(json!(false)),
         "plan": account.plan,
     })
 }
@@ -187,10 +184,10 @@ pub(super) fn context(config: &Config, catalog: &Value, rows: &[Reading], ledger
         .collect();
     let prices = prices(costs);
     let accounts: Map<String, Value> =
-        accounts_from(rows, ledger, now).into_iter().map(|(name, account)| { let value = account_json(&name, account, config, &prices, &knobs); (name, value) }).collect();
+        accounts_from(rows, ledger, now).into_iter().map(|(name, account)| { let value = account_json(&name, account, config, &prices); (name, value) }).collect();
     json!({
         "now": now.iso_micros_utc_offset(), "tiers": tier_values, "billing": billing, "lease": false, "success": success,
-        "accounts": accounts, "projects": projects, "boxes": [], "pace": config.pace(),
+        "accounts": accounts, "projects": projects, "boxes": [],
         "services": costs.get("service").cloned().unwrap_or_else(|| json!([])),
     })
 }
