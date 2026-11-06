@@ -138,7 +138,7 @@ pub struct Issue {
 }
 
 impl Issue {
-    fn parse(text: &str) -> Option<Self> {
+    pub fn parse(text: &str) -> Option<Self> {
         let (repo, number) = text.split_once('#')?;
         let (owner, name) = repo.split_once('/')?;
         let valid = |part: &str| !part.is_empty() && part.chars().all(|character| character.is_ascii_alphanumeric() || "-_.".contains(character));
@@ -175,10 +175,43 @@ pub struct Experiment {
     pub owner: Issue,
 }
 
+/// A box whose code landed and whose only remaining check is a measurement over time: the loop runs
+/// `command` on `review` and ticks the box on a pass or reopens it with the output on a miss.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Check {
+    pub id: String,
+    pub text: String,
+    pub command: String,
+    pub expect: Option<String>,
+    pub review: Day,
+    pub owner: Issue,
+}
+
+#[derive(Debug)]
+pub struct Registry {
+    pub experiments: Vec<Experiment>,
+    pub checks: Vec<Check>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawFile {
+    #[serde(default)]
     experiment: Vec<Raw>,
+    #[serde(default)]
+    check: Vec<RawCheck>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCheck {
+    id: String,
+    #[serde(rename = "box")]
+    text: String,
+    command: String,
+    expect: Option<String>,
+    review: String,
+    owner: String,
 }
 
 #[derive(Deserialize)]
@@ -217,11 +250,16 @@ fn sha(text: &str) -> bool {
     (7..=40).contains(&text.len()) && text.chars().all(|character| character.is_ascii_hexdigit() && !character.is_ascii_uppercase())
 }
 
-fn named(raw: &Raw) -> Result<(), String> {
-    let id = &raw.id;
+fn well_named(id: &str) -> Result<(), String> {
     if id.is_empty() || !id.chars().all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-') {
         return Err(format!("id {id:?} must be lowercase words joined by -"));
     }
+    Ok(())
+}
+
+fn named(raw: &Raw) -> Result<(), String> {
+    let id = &raw.id;
+    well_named(id)?;
     if collapse(&raw.change).is_empty() {
         return Err(format!("{id}: change is empty"));
     }
@@ -265,18 +303,42 @@ fn entry(raw: Raw) -> Result<Experiment, String> {
     Ok(Experiment { id, change: collapse(&raw.change), landed: raw.landed, cited, metric, scope, direction, bar: raw.bar, min_n: raw.min_n, before, after, review, owner })
 }
 
-/// Parses and validates the registry, naming every invalid entry.
-pub fn parse(text: &str) -> Result<Vec<Experiment>, Vec<String>> {
-    let value = toml_json::parse(text).map_err(|why| vec![format!("{PATH}: {why}")])?;
-    let raw: RawFile = serde_json::from_value(value).map_err(|why| vec![format!("{PATH}: {why}")])?;
-    let mut problems = Vec::new();
-    let mut entries: Vec<Experiment> = Vec::new();
-    for raw in raw.experiment {
-        match entry(raw) {
-            Ok(entry) if entries.iter().any(|seen| seen.id == entry.id) => problems.push(format!("{}: id appears twice", entry.id)),
+fn check(raw: RawCheck) -> Result<Check, String> {
+    well_named(&raw.id)?;
+    let id = raw.id;
+    let text = collapse(&raw.text);
+    if text.is_empty() {
+        return Err(format!("{id}: box is empty"));
+    }
+    if raw.command.trim().is_empty() {
+        return Err(format!("{id}: command is empty"));
+    }
+    let review = Day::parse(&raw.review).ok_or_else(|| format!("{id}: review {} is not YYYY-MM-DD", raw.review))?;
+    let owner = Issue::parse(&raw.owner).ok_or_else(|| format!("{id}: owner {} is not owner/repo#N", raw.owner))?;
+    Ok(Check { id, text, command: raw.command.trim().to_owned(), expect: raw.expect, review, owner })
+}
+
+fn collect<Raw, Entry>(raws: Vec<Raw>, build: impl Fn(Raw) -> Result<Entry, String>, id: impl Fn(&Entry) -> &str, problems: &mut Vec<String>) -> Vec<Entry> {
+    let mut entries: Vec<Entry> = Vec::new();
+    for raw in raws {
+        match build(raw) {
+            Ok(entry) if entries.iter().any(|seen| id(seen) == id(&entry)) => problems.push(format!("{}: id appears twice", id(&entry))),
             Ok(entry) => entries.push(entry),
             Err(why) => problems.push(why),
         }
     }
-    if problems.is_empty() { Ok(entries) } else { Err(problems) }
+    entries
+}
+
+/// Parses and validates the registry, naming every invalid entry.
+pub fn parse(text: &str) -> Result<Registry, Vec<String>> {
+    let value = toml_json::parse(text).map_err(|why| vec![format!("{PATH}: {why}")])?;
+    let raw: RawFile = serde_json::from_value(value).map_err(|why| vec![format!("{PATH}: {why}")])?;
+    let mut problems = Vec::new();
+    let experiments = collect(raw.experiment, entry, |entry| &entry.id, &mut problems);
+    let checks = collect(raw.check, check, |entry| &entry.id, &mut problems);
+    if let Some(shared) = checks.iter().find(|check| experiments.iter().any(|experiment| experiment.id == check.id)) {
+        problems.push(format!("{}: id appears in both [[experiment]] and [[check]]", shared.id));
+    }
+    if problems.is_empty() { Ok(Registry { experiments, checks }) } else { Err(problems) }
 }

@@ -60,6 +60,7 @@ pub trait Issues {
     fn body(&self, issue: &Issue) -> Result<(String, bool), String>;
     fn set_body(&self, issue: &Issue, body: &str) -> Result<(), String>;
     fn reopen(&self, issue: &Issue) -> Result<(), String>;
+    fn close(&self, issue: &Issue) -> Result<(), String>;
 }
 
 /// The verdict keys already filed on this host, so a filed verdict is never read or filed again.
@@ -82,6 +83,10 @@ impl Filed {
         self.keys.contains(&Self::key(entry))
     }
 
+    pub fn has_key(&self, key: &str) -> bool {
+        self.keys.contains(key)
+    }
+
     /// The entry with the latest extension the policy loop recorded for it applied, since an extended
     /// entry keeps its registry dates.
     pub fn current(&self, entry: &Experiment) -> Experiment {
@@ -96,7 +101,11 @@ impl Filed {
     }
 
     fn record(&mut self, entry: &Experiment) -> Result<(), String> {
-        self.keys.insert(Self::key(entry));
+        self.record_key(Self::key(entry))
+    }
+
+    pub fn record_key(&mut self, key: String) -> Result<(), String> {
+        self.keys.insert(key);
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent).map_err(|why| format!("{}: {why}", parent.display()))?;
         }
@@ -151,5 +160,9 @@ impl Issues for GitHub {
 
     fn reopen(&self, issue: &Issue) -> Result<(), String> {
         gh(&["issue", "reopen", &issue.number.to_string(), "-R", &issue.repo]).map(drop)
+    }
+
+    fn close(&self, issue: &Issue) -> Result<(), String> {
+        gh(&["issue", "close", &issue.number.to_string(), "-R", &issue.repo]).map(drop)
     }
 }

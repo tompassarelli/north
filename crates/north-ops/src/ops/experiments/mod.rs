@@ -2,7 +2,9 @@
 //! registry names each change, the outcome metric it should move and when it is reviewed;
 //! `check` is the land check that keeps the rationale notes' review rules in the registry, and
 //! `judge` keeps, reverts or brings each due entry to Tom with the numbers, except the policy loop's own
-//! entries, whose inconclusive verdicts it extends or settles itself.
+//! entries, whose inconclusive verdicts it extends or settles itself. It also runs each due `[[check]]`,
+//! which `defer` writes for a box that waits only on a measurement over time.
+pub mod deferred;
 pub mod file;
 pub mod read;
 pub mod registry;
@@ -20,11 +22,11 @@ use crate::threads::calibration::rework::Sources;
 use file::{Filed, GitHub, Issues};
 use crate::ledger::outcome::{Outcome, read::outcomes};
 use read::{Detected, Recorded};
-use registry::{Day, Experiment};
+use registry::{Day, Experiment, Registry};
 use crate::threads::incidents::report::detected;
 use verdict::{due, judge};
 
-const USAGE: &str = "usage: north experiments check [--root DIR] | north experiments judge [--root DIR] [--today YYYY-MM-DD] [--file]";
+const USAGE: &str = "usage: north experiments check [--root DIR] | north experiments judge [--root DIR] [--today YYYY-MM-DD] [--file] | north experiments defer ISSUE BOX --check CMD --by YYYY-MM-DD [--id ID] [--expect TEXT] [--root DIR]";
 
 struct Options {
     root: PathBuf,
@@ -59,7 +61,7 @@ fn ledger() -> PathBuf {
     std::env::var_os("THREADS_DB").map_or_else(|| home().join(".local/state/threads/threads.db"), PathBuf::from)
 }
 
-fn load(root: &Path) -> Result<Vec<Experiment>, Vec<String>> {
+fn load(root: &Path) -> Result<Registry, Vec<String>> {
     let path = root.join(registry::PATH);
     let text = std::fs::read_to_string(&path).map_err(|why| vec![format!("{}: {why}", path.display())])?;
     registry::parse(&text)
@@ -98,14 +100,20 @@ pub fn judge_due(entries: &[Experiment], today: Day, recorded: Recorded, mut fil
 }
 
 fn judge_command(options: &Options) -> u8 {
-    let entries = match load(&options.root) {
-        Ok(entries) => entries,
+    let registry = match load(&options.root) {
+        Ok(registry) => registry,
         Err(problems) => {
             problems.iter().for_each(|problem| eprintln!("north experiments: {problem}"));
             return 1;
         }
     };
     let mut filed = Filed::load(state());
+    let (lines, checks_failed) = deferred::settle_due(&registry.checks, options.today, &options.root, &deferred::run, options.file.then_some((&GitHub as &dyn Issues, &mut filed)));
+    lines.iter().for_each(|line| println!("experiments: {line}"));
+    u8::from(checks_failed) | judge_experiments(registry.experiments, options, &mut filed)
+}
+
+fn judge_experiments(entries: Vec<Experiment>, options: &Options, filed: &mut Filed) -> u8 {
     let pending: Vec<Experiment> = entries.iter().map(|entry| filed.current(entry)).filter(|entry| due(entry, options.today) && !(options.file && filed.has(entry))).collect();
     if pending.is_empty() {
         println!("experiments: nothing due unfiled on {}", options.today.text());
@@ -118,9 +126,22 @@ fn judge_command(options: &Options) -> u8 {
             return 1;
         }
     };
-    let (lines, failed) = judge_due(&pending, options.today, Recorded { outcomes: &outcomes, incidents: &incidents }, options.file.then_some((&GitHub as &dyn Issues, &mut filed)));
+    let (lines, failed) = judge_due(&pending, options.today, Recorded { outcomes: &outcomes, incidents: &incidents }, options.file.then_some((&GitHub as &dyn Issues, filed)));
     lines.iter().for_each(|line| println!("experiments: {line}"));
     u8::from(failed)
+}
+
+fn defer_command(arguments: &[String]) -> u8 {
+    match deferred::defer(arguments, Day::of_unix(Timestamp::now().unix_seconds()), &GitHub) {
+        Ok(done) => {
+            println!("north experiments: {done}");
+            0
+        }
+        Err(why) => {
+            eprintln!("north experiments defer: {why}\n{}", deferred::DEFER_USAGE);
+            1
+        }
+    }
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -128,6 +149,9 @@ pub fn run(arguments: &[String]) -> u8 {
         Some((verb, rest)) => (verb.as_str(), rest),
         None => ("", arguments),
     };
+    if verb == "defer" {
+        return defer_command(rest);
+    }
     let Some(options) = parse(rest).filter(|_| ["check", "judge"].contains(&verb)) else {
         eprintln!("{USAGE}");
         return 2;

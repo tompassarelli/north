@@ -24,7 +24,7 @@ pub use host::{Host, Machine, Places, write_atomic};
 mod alerts;
 mod capacity;
 mod autoland;
-mod boxes;
+pub mod boxes;
 mod goal;
 mod guards;
 mod host;

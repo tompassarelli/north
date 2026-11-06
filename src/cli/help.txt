@@ -158,7 +158,7 @@ Commands:
   convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex]  Search and read past agent transcripts
   desktop-idle-state idle|active                Record whether Tom's desktop is idle
   evidence start RUN                            Start an evidence folder for one run
-  experiments check|judge [--root DIR] [--today YYYY-MM-DD] [--file]  Check or judge the declared experiments
+  experiments check|judge [--root DIR] [--today YYYY-MM-DD] [--file] | defer ISSUE BOX --check CMD --by DATE  Check or judge the declared experiments, or defer a box to a dated check
   flow [--json] [--repo NAME]... [--stall-alarm] | row REPO [FIELD]... | detect [--dry-run]  Show the flow of work to main and its stalls
   gh-app-token [--app socrates|lander] [--repos NAME,NAME [--permissions JSON]]  Mint a GitHub App installation token
   gh-broker serve [--resident]|release|quota    Serve, release or read the GitHub call broker

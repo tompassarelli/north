@@ -8,7 +8,7 @@ fn entry(id: &str) -> Experiment {
     let text = format!(
         "[[experiment]]\nid = \"{id}\"\nchange = \"route tooling onto arm worker\"\nlanded = \"203518cf6\"\nmetric = \"rework_rate\"\ndirection = \"down\"\nbar = 0.05\nmin_n = 15\nbefore = [\"2026-10-21\", \"2026-11-04\"]\nafter = [\"2026-11-04\", \"2026-11-16\"]\nreview = \"2026-11-18\"\nowner = \"tompassarelli/north#636\"\n"
     );
-    registry::parse(&text).unwrap().remove(0)
+    registry::parse(&text).unwrap().experiments.remove(0)
 }
 
 fn reading(value: f64, n: usize) -> Option<Reading> {
@@ -30,6 +30,10 @@ impl Issues for Owner {
     }
 
     fn reopen(&self, _: &Issue) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn close(&self, _: &Issue) -> Result<(), String> {
         Ok(())
     }
 }

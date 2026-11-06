@@ -93,7 +93,7 @@ pub fn unmeasured(classes: &[String], entries: &[Experiment]) -> Vec<String> {
 pub fn check(root: &Path) -> Vec<String> {
     let path = root.join(registry::PATH);
     let entries = match fs::read_to_string(&path).map_err(|why| vec![format!("{}: {why}", path.display())]).and_then(|text| registry::parse(&text)) {
-        Ok(entries) => entries,
+        Ok(registry) => registry.experiments,
         Err(problems) => return problems,
     };
     let mut problems = match read(root) {
