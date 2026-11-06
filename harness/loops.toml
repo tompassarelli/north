@@ -66,6 +66,15 @@ cadence_hours = 24
 owner = "north#112 Effort is an arm"
 
 [[loop]]
+name = "context-window"
+decision = "the auto-compact window a dispatched Claude box with no tier or effort arm launches with"
+sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-fleet/src/fleet/compaction.rs", "crates/north-core/src/providers/claude/session_env.rs"]
+signal = "ledger cost per kept box and closed boxes per context arm stamp"
+updated_by = "north dispatch draws the arms in equal seeded shares"
+cadence_hours = 24
+owner = "north#636 The policy loop owns experiment design end to end"
+
+[[loop]]
 name = "capacity-estimate"
 decision = "the cores and memory a capacity lease charges for a command, which admission weighs"
 sites = [
@@ -404,8 +413,6 @@ constants = [
   "crates/north-dispatch/src/dispatch/effects.rs::REPEAT_ALERT_S",
   "crates/north-dispatch/src/dispatch/fleets.rs::MIRROR_FRESH_S",
   "crates/north-dispatch/src/dispatch/fleets.rs::PROBE",
-  "crates/north-dispatch/src/dispatch/handoff.rs::ARM_RUNS",
-  "crates/north-dispatch/src/dispatch/handoff.rs::DONE_RATE_SLACK",
   "crates/north-dispatch/src/dispatch/measure.rs::LIMIT",
   "crates/north-dispatch/src/dispatch/record.rs::CLOUD_HOLD_S",
   "crates/north-dispatch/src/dispatch/record.rs::FAILED_HOLD_S",

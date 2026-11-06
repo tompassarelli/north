@@ -33,10 +33,6 @@ pub fn overtime_min() -> u64 {
     default("overtime_min") as u64
 }
 
-pub fn handoff_arm_ctx() -> u64 {
-    default("handoff_arm_ctx") as u64
-}
-
 pub(super) fn claude_target_left() -> f64 {
     default("pace_target_left_claude")
 }

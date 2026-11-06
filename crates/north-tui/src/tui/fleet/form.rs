@@ -203,6 +203,7 @@ impl LaunchForm {
             capacity_need: None,
             role: None,
             resume: None,
+            compact_window: None,
         })
     }
 }

@@ -85,3 +85,12 @@ pub fn cloud(brief: &str, repo: &str, branch: &str, orders: &str) -> String {
 pub fn standing_orders() -> Result<String, String> {
     crate::fleet::registry::orders_here().and_then(|orders| orders.read()).map_err(|error| error.to_string())
 }
+
+/// `brief` with an `Arm: ARM` line after its `Tier:` line, for an arm drawn after placement.
+pub fn armed(brief: &str, arm: &str) -> String {
+    let line = format!("Arm: {arm}");
+    let mut lines: Vec<&str> = brief.lines().collect();
+    let at = lines.iter().position(|line| line.starts_with("Tier: ")).map_or(0, |tier| tier + 1);
+    lines.insert(at, &line);
+    lines.join("\n")
+}

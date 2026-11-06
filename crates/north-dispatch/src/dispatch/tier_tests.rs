@@ -54,3 +54,26 @@ fn a_planner_or_reviewer_run_takes_opus_high_and_a_seeded_half_take_xhigh_stampe
     assert_eq!(settled(trial(full(9.0), full(12.0))).effort, Some(Effort::High));
     assert!(settled(trial(full(12.0), (14, 15, 9.0))).effort_arm, "xhigh one run short keeps drawing");
 }
+
+#[test]
+fn a_local_box_on_no_tier_or_effort_arm_draws_each_context_window_in_an_equal_seeded_share_and_is_stamped_with_it() {
+    use super::tier::{CONTEXT_WINDOWS, History, context_arm};
+    let draw = || (1..=4000).map(|n| context_arm(&format!("north#{n}"), &History::default())).collect::<Vec<_>>();
+    let arms = draw();
+    for window in CONTEXT_WINDOWS {
+        let arm = crate::fleet::compaction::arm(window);
+        let share = arms.iter().filter(|drawn| **drawn == arm).count();
+        assert!((850..=1150).contains(&share), "{arm}: {share} of 4000");
+    }
+    assert_eq!(arms, draw(), "the draw is seeded by the item and its launch count");
+
+    let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None, builds: None }];
+    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None, readings: Vec::new(), workers: None }];
+    let launched = decide(&survey(vec![uncategorised("north", 636, "Category: docs-policy\n- [ ] a box", &[])], Cloud::Closed(String::new()), hosts, accounts), "test");
+    let [launch] = launched.launches.as_slice() else { panic!("{:?}", launched.skipped) };
+    let stamp = format!("Arm: {}", context_arm("north#636", &History::default()));
+    let lines: Vec<&str> = launch.brief.lines().collect();
+    let tier = lines.iter().position(|line| line.starts_with("Tier: ")).unwrap();
+    assert_eq!(lines[tier + 1], stamp, "{}", launch.brief);
+    assert_eq!(crate::fleet::compaction::window(&launch.brief).map(crate::fleet::compaction::arm), Some(stamp.trim_start_matches("Arm: ").to_owned()));
+}

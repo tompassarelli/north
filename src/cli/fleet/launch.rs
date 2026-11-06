@@ -96,6 +96,7 @@ impl LaunchFlags {
             capacity_need: None,
             role: self.role,
             resume: None,
+            compact_window: None,
         })
     }
 }

@@ -7,13 +7,13 @@ use super::record;
 use super::slots::{Account, Host, PlanSize, Room};
 use super::projects::Projects;
 use super::tier::{self, Evidence, History};
-use super::handoff::{self, Arms};
 use super::grounds::Ledger;
 use super::fleets::{self, PROBE, Session, remote_json};
 use super::revive::Strand;
 use crate::error::NorthResult;
 use crate::fleet::model::ProviderName;
 use crate::ledger::ClosedReport;
+use crate::ledger::closed::ArmBox;
 use crate::fleet::roster::{Roster, Standing};
 use crate::pacing::placement::{self, gate};
 use crate::pace::projection;
@@ -48,7 +48,6 @@ pub struct Survey {
     pub frozen: Vec<crate::platform::frozen_topics::Topic>,
     /// Dispatch's earlier launches by tier, which a Haiku retry and the next arm read.
     pub history: History,
-    pub handoffs: Arms,
     /// `north worker-ledger --recommend` for each armed category.
     pub ledger: BTreeMap<String, Evidence>,
     /// The closed boxes and prior reports each brief grounds its ETA, budget and trace in.
@@ -373,7 +372,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
             let ledger = evidence_from(&tier::evidenced(), report.as_ref(), notes);
             (report, ledger)
         });
-        let remote_arms = read(scope, |notes| handoff::remote(cfg_ref, here_ref, notes));
+        let remote_arms = read(scope, |notes| remote_arm_boxes(cfg_ref, here_ref, notes));
         let grounds = read(scope, Ledger::read);
         let cloud = read(scope, |_| cloud(cfg_ref, here_ref, at));
         let strands = read(scope, |notes| super::strands::read(cfg_ref, here_ref, at, notes));
@@ -413,8 +412,8 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     }
     stopped(laptop.as_deref(), &records, &mut issues, &mut notes);
     let history = History::new(&records);
-    let handoffs = Arms::new(&records).priced(&handoff::boxes(report.as_ref(), remote_arms));
-    notes.extend(handoffs.recommendations());
+    let arm_boxes: Vec<ArmBox> = report.iter().flat_map(|report| report.arms.iter().cloned()).chain(remote_arms).collect();
+    notes.extend(tier::context_figures(&arm_boxes));
     let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
     let super::strands::Read { strands, saturated, revived } = strands;
     let frozen = crate::platform::frozen_topics::load().map(crate::threads::catalog::canonical_topics).unwrap_or_else(|why| {
@@ -422,7 +421,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         Vec::new()
     });
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, strands, saturated, revived, backlog, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, at })
 }
 
 mod github {
@@ -521,3 +520,9 @@ mod github {
 #[cfg(test)]
 #[path = "survey_tests.rs"]
 mod tests;
+
+/// The arm boxes in every other host's ledger summary.
+fn remote_arm_boxes(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<ArmBox> {
+    let remote = fleets::reached(cfg, here, &["ledger", "summary", "--since", tier::ARM_WINDOW, "--json"], PROBE, notes);
+    remote.into_iter().flat_map(|(_, listing)| serde_json::from_value::<Vec<ArmBox>>(listing["arms"].clone()).unwrap_or_default()).collect()
+}

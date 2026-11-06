@@ -125,7 +125,7 @@ impl Start {
             tier: (!overridden).then(|| self.route.tier.name().to_owned()),
             category: Some(self.route.category.clone()),
             arm: self.route.arm && !overridden,
-            handoff: None,
+           
             hand: true,
             effort_arm: self.route.effort_stamp().filter(|_| !overridden).map(str::to_owned),
             projection: None,

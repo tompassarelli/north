@@ -85,7 +85,6 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         notes: Vec::new(),
         frozen: Vec::new(),
         history: super::tier::History::default(),
-        handoffs: super::handoff::Arms::default(),
         ledger: BTreeMap::new(),
         grounds: super::grounds::Ledger::default(),
         strands: Vec::new(),

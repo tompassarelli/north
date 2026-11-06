@@ -10,6 +10,7 @@ use super::accounts::default_home;
 const CONVERSATION_ENV: &str = "CLAUDE_CODE_SESSION_ID";
 const CONFIG_ENV: &str = "CLAUDE_CONFIG_DIR";
 const TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+const COMPACT_WINDOW_ENV: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 const READ_TOKEN: &str = r#"CLAUDE_CODE_OAUTH_TOKEN=$(cat -- "$0") || exit; export CLAUDE_CODE_OAUTH_TOKEN; exec "$@""#;
 
 fn account_env(account: &Account) -> Vec<(String, OsString)> {
@@ -33,6 +34,7 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
         (ACTOR_ENV.into(), request.name.clone().into()),
     ]);
     env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
+    env.extend(request.window().map(|window| (COMPACT_WINDOW_ENV.into(), window.to_string().into())));
     env.extend(git_credential::session_env().into_iter().map(|(name, value)| (name, value.into())));
     env
 }

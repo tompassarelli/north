@@ -4,14 +4,15 @@
 //! the rest. An Opus box on no tier arm in a category with 15 Opus runs alternates the medium and
 //! high effort arms the same way until the tune tick or the ledger settles the cheaper one. A planner
 //! or reviewer run takes Opus high, and xhigh on a seeded half of its launches, until the ledger
-//! settles the cheaper of the two.
+//! settles the cheaper of the two. A local box on none of those arms draws one auto-compact window
+//! of `CONTEXT_WINDOWS` in equal seeded shares.
 use super::facets;
 use super::issues::Issue;
 use super::record::Record;
-use crate::ledger::closed::ClosedReport;
+use crate::ledger::closed::{ArmBox, ClosedReport};
 use crate::router::policy::ARM_RUNS;
 pub use crate::router::tier::Tier;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::DocumentMut;
 
 /// Window of the ledger's arm boxes whose cost per closed box decides an armed category; it spans the
@@ -23,6 +24,9 @@ pub const ARMED: [&str; 6] = ["feature", "tooling", "native-check", "balance-tun
 pub const PLANNED: [&str; 2] = ["planning", "review"];
 /// The share of planner and reviewer launches drawn onto the xhigh arm, in percent.
 pub const XHIGH_PERCENT: u64 = 50;
+/// The auto-compact windows a local Claude box on no tier or effort arm launches with, one equal seeded
+/// share each, stamped `Arm: context-NNNk` (docs/rationale/context-economics.md).
+pub const CONTEXT_WINDOWS: [u64; 4] = [200_000, 300_000, 400_000, 500_000];
 const ART: [&str; 3] = ["anim", "animation", "art"];
 
 /// Categories whose ledger evidence dispatch and the tune tick read: every category but mechanical
@@ -451,9 +455,37 @@ fn planned(route: Route, item: &str, history: &History, evidence: &Evidence) -> 
     Route { tier: Tier::Opus, effort: Some(effort), effort_arm: arm, why: format!("{}, {why}", route.why), ..route }
 }
 
-/// Whether `seed` draws the xhigh arm: its FNV-1a hash modulo 100 under `XHIGH_PERCENT`, so a launch
-/// draws the same arm on every host and rerun.
+/// Whether `seed` draws the xhigh arm: its hash modulo 100 under `XHIGH_PERCENT`.
 pub fn xhigh_drawn(seed: &str) -> bool {
-    let hash = seed.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3));
-    hash % 100 < XHIGH_PERCENT
+    seeded(seed) % 100 < XHIGH_PERCENT
+}
+
+/// The context arm this item's next launch draws from `CONTEXT_WINDOWS` by its seeded hash.
+pub fn context_arm(item: &str, history: &History) -> String {
+    let draw = seeded(&format!("context:{item}#{}", history.launches(item))) % CONTEXT_WINDOWS.len() as u64;
+    crate::fleet::compaction::arm(CONTEXT_WINDOWS[draw as usize])
+}
+
+/// Each context arm's boxes, closed boxes, kept boxes and cost per kept box among the fleet's arm
+/// boxes, each item counted once.
+pub fn context_figures(arm_boxes: &[ArmBox]) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    let unique: Vec<&ArmBox> = arm_boxes.iter().filter(|armed| seen.insert(armed.item.as_str())).collect();
+    CONTEXT_WINDOWS
+        .map(crate::fleet::compaction::arm)
+        .into_iter()
+        .map(|arm| {
+            let boxes: Vec<_> = unique.iter().filter(|armed| armed.arm == arm).collect();
+            let closed = boxes.iter().filter(|armed| armed.closed).count();
+            let kept = boxes.iter().filter(|armed| armed.closed && !armed.reworked).count();
+            let usd: f64 = boxes.iter().map(|armed| armed.usd).sum();
+            let cost = if kept == 0 { "no kept box".to_owned() } else { format!("${:.2} per kept box", usd / kept as f64) };
+            format!("context arm {arm}: {} boxes, {closed} closed, {kept} kept, {cost} over {ARM_WINDOW}", boxes.len())
+        })
+        .collect()
+}
+
+/// The FNV-1a hash of `seed`, so a launch draws the same arm on every host and rerun.
+fn seeded(seed: &str) -> u64 {
+    seed.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3))
 }

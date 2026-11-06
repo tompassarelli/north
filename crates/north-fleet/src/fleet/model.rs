@@ -66,6 +66,9 @@ pub struct LaunchRequest {
     pub role: Option<Role>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume: Option<String>,
+    /// The auto-compact window a relaunch keeps from the session it restarts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_window: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -130,6 +133,11 @@ impl LaunchRequest {
     /// The box the brief names, in the prompt or else in the brief it points at: see [`box_name`].
     pub fn box_name(&self) -> Option<String> {
         box_name(&self.prompt).or_else(|| self.named_brief().and_then(|brief| box_name(&brief)))
+    }
+
+    /// The auto-compact window the session runs with: the one a relaunch keeps, else the `Arm: context-NNNk` stamp in the prompt or the brief it points at.
+    pub fn window(&self) -> Option<u64> {
+        self.compact_window.or_else(|| super::compaction::window(&self.prompt)).or_else(|| self.named_brief().and_then(|brief| super::compaction::window(&brief)))
     }
 
     /// The `Budget:` line's E, in the prompt or else in the brief it points at.
@@ -244,6 +252,8 @@ pub struct SessionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handoff_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_window: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eta_min: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended: Option<Ending>,
@@ -308,6 +318,7 @@ impl SessionRecord {
             capacity_need: request.capacity_need.clone(),
             last_sender: None,
             handoff_at: super::handoff::threshold(&request.prompt),
+            compact_window: request.window(),
             eta_min: request.eta_min(),
             addressed_since_ms: None,
             role: Some(request.role()),
@@ -356,6 +367,7 @@ impl SessionRecord {
             capacity_need: self.capacity_need.clone(),
             role: Some(self.role()),
             resume: None,
+            compact_window: self.compact_window,
         }
     }
 }

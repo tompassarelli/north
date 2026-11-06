@@ -41,7 +41,6 @@ pub struct Launch {
     pub local: Option<String>,
     /// Why the account is not the one placement would pick, recorded as `--pin`.
     pub pin: Option<String>,
-    pub handoff: Option<String>,
     /// The measured burn the account was placed by, when it has one.
     pub burn: Option<String>,
     /// The account's windows projected at the box's ETA, which `north tune` scores.
@@ -151,7 +150,7 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
         cloud: false,
         local,
         pin,
-        handoff: None,
+       
         burn,
         projection,
     }
@@ -186,7 +185,7 @@ pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools
             Cloud::Reachable(credit) => {
                 if pools.take_cloud() {
                     let account = format!("claude login on {}", capacity.here);
-                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None, pin: None, handoff: None, burn: None, projection: None });
+                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None, pin: None, burn: None, projection: None });
                 }
                 local = Some(format!("north dispatch: cloud lane open ({credit}) but its {SESSIONS} sessions are out"));
             }

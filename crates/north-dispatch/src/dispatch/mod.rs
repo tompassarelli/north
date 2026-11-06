@@ -28,7 +28,6 @@ mod effects;
 mod facets;
 pub(crate) mod fleets;
 mod grounds;
-mod handoff;
 mod hotspots;
 mod issues;
 mod manual;
@@ -130,7 +129,6 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     outcome.revival = revival;
     let world = issues::World { open: &survey.open, holds: &holds, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
     let mut history = survey.history.clone();
-    let mut handoffs = survey.handoffs.clone();
     let mut claims = hotspots::Claims::default();
     for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
         if let Some(why) = survey.projects.paused(&issue.repo, survey.at) {
@@ -166,12 +164,11 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         let ready = Ready { item: issue.reference(), brief, code_only, route, eta_h };
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
             Ok(mut launch) => {
+                if !launch.cloud && launch.route.stamp().is_none() {
+                    launch.brief = brief::armed(&launch.brief, &tier::context_arm(&launch.item.to_string(), &history));
+                }
                 history.chose(&launch.route);
                 claims.take(issue);
-                if let Some(arm) = (!launch.cloud && launch.route.stamp().is_none()).then(|| handoffs.pick(launch.route.tier)).flatten() {
-                    launch.brief = handoff::armed(&launch.brief, &arm);
-                    launch.handoff = Some(arm);
-                }
                 outcome.launches.push(launch);
             }
             Err(why) => outcome.skipped.push((ready.item, format!("ready, not placed: {why}"))),

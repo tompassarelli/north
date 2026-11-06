@@ -82,7 +82,6 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         tier: Some(launch.route.tier.name().to_owned()),
         category: Some(launch.route.category.clone()),
         arm: launch.route.arm,
-        handoff: launch.handoff.clone(),
         hand: false,
         effort_arm: launch.route.effort_stamp().map(str::to_owned),
         projection: launch.projection.clone(),

@@ -25,6 +25,7 @@ fn request() -> LaunchRequest {
         capacity_need: None,
         role: None,
         resume: None,
+        compact_window: None,
     }
 }
 
@@ -45,3 +46,19 @@ fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "sk-test-value");
 }
 
+
+#[test]
+fn a_brief_on_a_context_arm_launches_claude_with_that_auto_compact_window_and_an_unarmed_brief_keeps_the_settings_window() {
+    let scratch = tempfile::tempdir().unwrap();
+    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None };
+    let window = |request: &LaunchRequest| {
+        let spec = Claude.host(&account, request, Opening::Fresh(None), "").unwrap();
+        spec.env.into_iter().find(|(name, _)| name == "CLAUDE_CODE_AUTO_COMPACT_WINDOW").map(|(_, value)| value.to_string_lossy().into_owned())
+    };
+    let armed = LaunchRequest { prompt: "Item: north#636\nTier: worker\nArm: context-300k\nGoal: x".into(), ..request() };
+    let relaunched = LaunchRequest { compact_window: Some(200_000), ..request() };
+
+    assert_eq!(window(&armed).as_deref(), Some("300000"));
+    assert_eq!(window(&relaunched).as_deref(), Some("200000"));
+    assert_eq!(window(&LaunchRequest { prompt: "Arm: effort-high".into(), ..request() }), None);
+}
