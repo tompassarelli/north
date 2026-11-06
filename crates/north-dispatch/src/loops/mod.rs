@@ -148,3 +148,12 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_repo_loops_registry_validates_so_north_loops_and_the_tempo_unit_can_read_it() {
+        let registry = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../harness/loops.toml")).unwrap();
+        assert_eq!(super::validate(&registry), Ok(()));
+    }
+}
