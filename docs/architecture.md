@@ -23,10 +23,11 @@ digest. `crates/north-core/src/providers/` adapts provider protocols behind the 
 `src/cli/` wires commands and provider implementations. The run ledger records
 session outcomes and task verdicts; it is not a second session authority.
 
-The Cargo workspace has four packages: `crates/north-base` (error, foundation, platform, shell),
-`crates/north-core` (fleet, ledger, guard, threads, ops, providers, tui and the rest), `crates/north-landing`
-(landing and its gates) and the root `north` package (CLI, binaries, integration tests). A leaf edit rebuilds
-only its package and the root; see [crate split](rationale/crate-split.md).
+The Cargo workspace is the root `north` package (CLI, binaries, integration tests) and the crates its
+`Cargo.toml` lists as `members`; each crate's `Cargo.toml` names the crates it depends on, and
+`structure.toml` declares which module may use which. A leaf edit rebuilds only its crate, the crates above
+it and the root; [crate split](rationale/crate-split.md) records why the code was split and what each move
+saved.
 
 The fleet screen keeps session selection stable while state changes, shows
 transcripts and live token totals, and presents open decisions, usage and

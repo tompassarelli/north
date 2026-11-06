@@ -76,15 +76,6 @@ tests reach into `#[doc(hidden)]`, always compiled: a `test-support` feature onl
 false under the new crate's tests; the caller in the new crate picks its own (`ops::defaults_measure`
 passes `Sources::default()` to the `_with` calibration readers). To rebase a move, reset
 to the new main and run it again rather than merging by hand.
-`harness/split/move-module.sh MODULE CRATE` moves `crates/north-core/src/MODULE` into a new sibling crate
-`crates/CRATE`. It `git mv`s the module to `crates/CRATE/src/MODULE`, so every relative path stays valid
-and the files stay byte-identical; writes the crate's `Cargo.toml` with `north-core` and only the
-workspace dependencies the module names (those named only in tests become dev-dependencies) and its
-`lib.rs` with `pub mod MODULE;` and `pub use north_core::{...}` for each `crate::` root the module
-reaches; adds the crate to the workspace and the root package; rewrites the root `main.rs` import and
-the repo's path mentions; lets the `crate-roots` module of `structure.toml` use what the re-exports
-point at; and widens to `pub` only the items `cargo check` reports as private. To rebase a move, reset
-to the new main and run it again rather than merging by hand.
 `north split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... MODULE...`
 moves each `MODULE` (a path such as `tui` or `ops/tempo`) out of `crates/FROM/src` (default
 `north-core`) into the sibling crate `crates/CRATE/src/NAME`, all in one run. It refuses when any file
