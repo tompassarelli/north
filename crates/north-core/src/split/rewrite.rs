@@ -40,7 +40,7 @@ pub fn refuse_back_edges(plan: &Plan, pending: &[Module]) -> Result<(), String> 
     if edges.is_empty() {
         return Ok(());
     }
-    Err(format!("these files still reach the modules being moved; cut the edges first:\n  {}", edges.join("\n  ")))
+    Err(format!("these files still reach the modules being moved; cut the edges first (a sibling crate's lib.rs re-export is an edge too: point it at the crate that will own the module):\n  {}", edges.join("\n  ")))
 }
 
 pub fn drop_declaration(plan: &Plan, module: &Module) -> Result<(), String> {
