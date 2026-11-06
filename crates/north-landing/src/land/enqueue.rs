@@ -205,6 +205,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
     let base = git(&root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
     refuse_static_gates(&root, &base, "HEAD")?;
+    super::divergence::refuse_malformed(&git(&root, &["log", "--format=%B", &format!("{base}..HEAD")])?)?;
     check_coverage::refuse_lost_coverage(&root, &base, "HEAD")?;
     let denylist = Denylist { south: environment.south.to_path_buf(), config: environment.denylist.map(Path::to_path_buf) };
     outgoing::enqueue_gate(&root, &base, &denylist, &origin, &destination)?;

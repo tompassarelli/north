@@ -8,6 +8,7 @@ pub mod check_coverage;
 pub mod checks;
 pub mod credential;
 pub mod culprit;
+pub mod divergence;
 pub mod enqueue;
 pub mod first_commit;
 pub mod heartbeat;

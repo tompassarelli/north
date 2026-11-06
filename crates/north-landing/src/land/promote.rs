@@ -5,6 +5,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
 use super::candidate::{git, output};
+use super::divergence::{self, Divergence};
 use super::lander::state_home;
 use super::{enqueue, link_hold, queue, replay, repositories, sheriff, telemetry};
 use crate::landing::red_check::Failure;
@@ -212,7 +213,7 @@ fn only_fixes(checkout: &Path, held: &Path, target: &Path) -> bool {
     !messages.is_empty() && messages.iter().all(|message| sheriff::is_revert(message) || message.lines().any(enqueue::is_main_red_marker))
 }
 
-fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker: &str) -> Result<usize, String> {
+fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker: &str, divergences: &mut Vec<Divergence>) -> usize {
     let mut replayed = 0;
     for round in recorded(&repository.queue.join("done")) {
         let lanes = round.names();
@@ -246,14 +247,15 @@ fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker:
                 }
                 Err(why) => {
                     let held_note = if held.binary.is_some() { format!(" ({why})") } else { String::new() };
-                    return Err(format!("round {lanes} on {base} recorded {class} but the candidate replayed {verdict}{held_note}"));
+                    divergences.push(Divergence { checkout: repository.checkout.clone(), tickets: round.tickets(), lanes, base, recorded: round.verdict.clone(), replayed: format!("{verdict}{held_note}") });
+                    continue;
                 }
             }
         }
         println!("north land promote: round {lanes} on {} recorded {class} replayed {shown}: matches", &base[..base.len().min(12)]);
         replayed += 1;
     }
-    Ok(replayed)
+    replayed
 }
 
 fn shadow_copy(queue: &Path, scratch: &Path) -> Result<Vec<PathBuf>, String> {
@@ -323,9 +325,19 @@ fn promote(options: &Options) -> Result<Outcome, String> {
     let held_binary = held_target.as_deref().map(|held| runtime.binary(held)).filter(|binary| binary.is_file());
     let fixes = held_target.as_deref().is_some_and(|held| repositories.iter().all(|repository| only_fixes(&repository.checkout, held, &target)));
     let held = Held { binary: held_binary.as_deref(), only_fixes: fixes };
+    let mut divergences = Vec::new();
     let mut replayed = 0;
     for repository in &repositories {
-        replayed += replay_recorded(&binary, &held, repository, &options.checker)?;
+        replayed += replay_recorded(&binary, &held, repository, &options.checker, &mut divergences);
+    }
+    if !divergences.is_empty() {
+        let replay = |binary: &Path, divergence: &Divergence| run_replay(binary, &divergence.checkout, &divergence.base, &options.checker, &divergence.tickets).map(|replayed| replayed.verdict);
+        let sha = target.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        let source = repositories.iter().find(|repository| output(&repository.checkout, &["cat-file", "-e", &format!("{sha}^{{commit}}")]).is_ok_and(|output| output.status.success())).unwrap_or(&repositories[0]);
+        let runtimes = divergence::Runtimes { home: &runtime.home, source: &source.checkout, queue: &source.queue, held: held_target.as_deref(), candidate: &target, dry_run: options.dry_run, replay: &replay };
+        let declared = divergence::judge(&runtimes, &divergences)?;
+        println!("north land promote: {declared}");
+        replayed += divergences.len();
     }
     if replayed == 0 {
         return Err("no recorded round could be replayed".to_owned());

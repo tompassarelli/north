@@ -149,7 +149,7 @@ fn promote_judges_each_recorded_round_against_the_candidate_and_follows_the_repl
     let refused = dry_run("failed", unfit_signature);
     let stdout = &refused.stdout;
     assert!(!refused.status, "{stdout}");
-    assert!(stdout.contains("north land promote: refused: round lane-a on ") && stdout.contains("recorded landed but the candidate replayed failed; the lander link is unchanged"), "{stdout}");
+    assert!(stdout.contains("north land promote: refused: round lane-a on ") && stdout.contains("recorded landed but the candidate replayed failed; no held runtime to bisect from; the lander link is unchanged"), "{stdout}");
 
     let forward = dry_run_while("landed", "ln -sfn runtimes/{NEWER} \"$XDG_STATE_HOME/north/current\";", unfit_signature);
     let stdout = &forward.stdout;
@@ -207,4 +207,155 @@ fn promote_follows_a_candidate_that_fails_nothing_the_held_runtime_does_not_and_
     let regressed = scenario(replay_script("failed", &[PRE_EXISTING]), Some(Held { script: replay_script("landed", &[]), change: None, held_for: None, ahead: false }), unfit_signature);
     assert!(!regressed.status, "{}", regressed.stdout);
     assert!(regressed.stdout.contains("the held runtime replayed landed"), "{}", regressed.stdout);
+}
+
+struct Chain {
+    root: tempfile::TempDir,
+    checkout: PathBuf,
+    state: PathBuf,
+    queue: PathBuf,
+    held: String,
+}
+
+impl Chain {
+    fn new() -> Self {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path();
+        std::fs::write(path.join("gitconfig"), "[user]\n\tname = t\n\temail = t@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n").unwrap();
+        let origin = path.join("origin.git");
+        std::fs::create_dir_all(&origin).unwrap();
+        git(&origin, &["init", "-q", "--bare", "-b", "main"]);
+        git(path, &["clone", "-q", origin.to_str().unwrap(), "main"]);
+        let checkout = path.join("main");
+        let state = path.join("state");
+        let mut chain = Self { checkout, queue: PathBuf::new(), state, held: String::new(), root };
+        let base = chain.commit("README", "start");
+        let landed = chain.commit("a.txt", "lane a (north#360)");
+        chain.queue = queue::directory(&chain.state, &git(&chain.checkout, &["remote", "get-url", "--push", "origin"]));
+        let ticket = Ticket { origin: origin.display().to_string(), root: chain.checkout.clone(), branch: "lane-a".to_owned(), head: landed.clone(), decided_on: Some(base), verdict: Some(format!("landed {landed}")), ..Default::default() };
+        decided(&chain.queue.join("done"), 1, &ticket);
+        chain.runtime(&landed, "echo 'replay: verdict landed'");
+        std::os::unix::fs::symlink(format!("runtimes/{landed}"), chain.state.join("north/lander")).unwrap();
+        chain.held = landed;
+        chain
+    }
+
+    fn commit(&self, file: &str, message: &str) -> String {
+        let path = self.checkout.join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, format!("{message}\n")).unwrap();
+        git(&self.checkout, &["add", "-A"]);
+        git(&self.checkout, &["commit", "-q", "-m", message]);
+        git(&self.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+        git(&self.checkout, &["rev-parse", "HEAD"])
+    }
+
+    fn runtime(&self, sha: &str, on_replay: &str) {
+        let binary = self.state.join(format!("north/runtimes/{sha}/tree/bin/north"));
+        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        north_base::foundation::shim::write_executable(&binary, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n[ \"$1 $2\" = \"land replay\" ] && {{ {on_replay}; }}\nexit 0\n"));
+    }
+
+    fn current(&self, sha: &str) {
+        let link = self.state.join("north/current");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(format!("runtimes/{sha}"), link).unwrap();
+    }
+
+    fn lander(&self) -> String {
+        std::fs::read_link(self.state.join("north/lander")).unwrap().display().to_string()
+    }
+
+    fn told(&self) -> String {
+        std::fs::read_to_string(self.root.path().join("fleet.calls")).unwrap_or_default()
+    }
+
+    fn promote(&self) -> Promoted {
+        let fleet = self.root.path().join("fleet");
+        north_base::foundation::shim::write_executable(&fleet, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n");
+        let arguments = ["promote", "--shadow-minutes", "0", "--repo", self.checkout.to_str().unwrap()].join("\n");
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "serve::lander_process", "--nocapture", "--test-threads", "1"])
+            .env(ARGUMENTS, arguments)
+            .env("XDG_STATE_HOME", &self.state)
+            .env("HOME", self.root.path())
+            .env("NORTH_LAND_NORTH", &fleet)
+            .env("GIT_CONFIG_GLOBAL", self.root.path().join("gitconfig"))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        Promoted { status: output.status.success(), stdout: String::from_utf8_lossy(&output.stdout).into_owned(), calls: String::new(), alarms: String::new(), candidate: String::new() }
+    }
+
+    fn reverts(&self) -> Vec<Ticket> {
+        queue::pending(&self.queue).unwrap().into_iter().map(|(_, ticket)| ticket).collect()
+    }
+}
+
+#[test]
+fn promote_follows_a_candidate_whose_commit_declares_the_replay_change_and_logs_the_divergence() {
+    let chain = Chain::new();
+    let candidate = chain.commit("crates/north-landing/src/land/clippy.rs", "Make lanes need a cached clippy verdict\n\nReplay-change: land.failed lanes need a cached clippy verdict");
+    chain.runtime(&candidate, "echo 'replay: verdict failed'");
+    chain.current(&candidate);
+    let promoted = chain.promote();
+    let stdout = &promoted.stdout;
+    assert!(promoted.status, "{stdout}");
+    assert!(stdout.contains("recorded landed but the candidate replayed failed (the held runtime replayed landed): declared by ") && stdout.contains("(Replay-change: land.failed lanes need a cached clippy verdict)"), "{stdout}");
+    assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
+    assert!(chain.told().contains("proxy") && chain.told().contains("1 declared replay change(s)"), "{}", chain.told());
+    assert!(chain.reverts().is_empty());
+}
+
+#[test]
+fn promote_bisects_an_undeclared_replay_change_to_its_commit_queues_its_revert_and_follows_once_it_lands() {
+    let chain = Chain::new();
+    let innocent = chain.commit("docs/one.md", "Document one thing");
+    let culprit = chain.commit("crates/north-landing/src/land/rule.rs", "Change a landing rule without saying so");
+    let candidate = chain.commit("docs/two.md", "Document another thing");
+    chain.runtime(&innocent, "echo 'replay: verdict landed'");
+    chain.runtime(&culprit, "echo 'replay: verdict failed'");
+    chain.runtime(&candidate, "echo 'replay: verdict failed'");
+    chain.current(&candidate);
+    let promoted = chain.promote();
+    let stdout = &promoted.stdout;
+    assert!(!promoted.status, "{stdout}");
+    assert!(stdout.contains(&format!("bisected between runtimes {} and {} to {}", &innocent[..9], &culprit[..9], &culprit[..9])), "{stdout}");
+    assert_eq!(chain.lander(), format!("runtimes/{}", chain.held));
+    let reverts = chain.reverts();
+    assert_eq!(reverts.len(), 1, "{stdout}");
+    let revert = &reverts[0];
+    assert_eq!(revert.branch, format!("sheriff-revert-{}", &culprit[..9]));
+    assert!(git(&chain.checkout, &["log", "-1", "--format=%B", &revert.head]).contains(&format!("Sheriff-Reverts: {culprit}")));
+    assert!(chain.told().contains("lander link held") && chain.told().contains(&culprit[..9]), "{}", chain.told());
+
+    let again = chain.promote();
+    assert!(again.stdout.contains("already queued"), "{}", again.stdout);
+    assert_eq!(chain.reverts().len(), 1, "a second promotion queues no second revert: {}", again.stdout);
+
+    git(&chain.checkout, &["push", "-q", "origin", &format!("{}:refs/heads/main", revert.head)]);
+    chain.runtime(&revert.head, "echo 'replay: verdict landed'");
+    chain.current(&revert.head);
+    let next = chain.promote();
+    assert!(next.status, "{}", next.stdout);
+    assert_eq!(chain.lander(), format!("runtimes/{}", revert.head));
+    reaches_the_revert_in_the_same_run_when_a_runtime_between_cannot_replay();
+}
+
+fn reaches_the_revert_in_the_same_run_when_a_runtime_between_cannot_replay() {
+    let chain = Chain::new();
+    let broken = chain.commit("docs/one.md", "Document one thing");
+    let culprit = chain.commit("crates/north-landing/src/land/rule.rs", "Change a landing rule without saying so");
+    let candidate = chain.commit("docs/two.md", "Document another thing");
+    chain.runtime(&broken, "exit 1");
+    chain.runtime(&culprit, "echo 'replay: verdict failed'");
+    chain.runtime(&candidate, "echo 'replay: verdict failed'");
+    chain.current(&candidate);
+    let promoted = chain.promote();
+    let stdout = &promoted.stdout;
+    assert!(!promoted.status, "{stdout}");
+    assert!(stdout.contains(&format!("runtime {} cannot replay round lane-a", &broken[..9])), "{stdout}");
+    assert!(stdout.contains(&format!("to {}; revert {culprit} ", &culprit[..9])), "{stdout}");
+    assert_eq!(chain.reverts().len(), 1, "{stdout}");
 }
