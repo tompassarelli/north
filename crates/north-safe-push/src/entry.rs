@@ -14,37 +14,41 @@ pub use crate::landing::south_ledger::HostFacts;
 
 pub const USAGE: &str = request::USAGE;
 
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], host: &HostFacts) -> u8 {
+    let shell = Shell::live(Path::new("."));
     match arguments {
+        [verb, rest @ ..] if verb == "abandon" => (host.abandon)(rest),
+        [flag, rest @ ..] if flag == "--restore" => restore::run(rest, &shell),
+        [flag, rest @ ..] if flag == "--enqueue" => route::ticket(rest),
         [flag, base, head] if flag == "--publication-scan" => gates::publication_scan(base, head),
         [flag, ..] if flag == "--publication-scan" => {
             eprint!("safe-push: --publication-scan needs BASE HEAD and nothing else\n{USAGE}");
             2
         }
         [flag, base_flag, base] if flag == "--check-candidate" && base_flag == "--base" && is_object_id(base) => {
-            candidate::run(base, &Shell::live(Path::new(".")))
+            candidate::run(base, &shell)
         }
         [flag, ..] if flag == "--check-candidate" => {
             eprint!("safe-push: --check-candidate needs --base SHA and nothing else\n{USAGE}");
             2
         }
-        _ => dispatch(arguments, &Shell::live(Path::new("."))),
+        _ => dispatch(arguments, &shell),
     }
 }
 
 fn dispatch(arguments: &[String], shell: &Shell) -> u8 {
-    if let Ok(Plan::Push(request)) = request::arguments(arguments)
-        && let Some(to) = preflight_destination(&request, shell)
-    {
-        return preflight::run(&request, &to, shell);
+    let Ok(Plan::Push(request)) = request::arguments(arguments) else { return publish::run(arguments, shell) };
+    if request.tag.is_some() || request.delete_tag.is_some() {
+        return publish::run(arguments, shell);
     }
-    publish::run(arguments, shell)
+    match default_destination(&request, shell) {
+        Some(to) if request.dry_run => preflight::run(&request, &to, shell),
+        Some(to) => route::land(arguments, &to, shell),
+        None => publication::run(arguments, shell),
+    }
 }
 
-fn preflight_destination(request: &Arguments, shell: &Shell) -> Option<String> {
-    if !request.dry_run || request.tag.is_some() || request.delete_tag.is_some() {
-        return None;
-    }
+fn default_destination(request: &Arguments, shell: &Shell) -> Option<String> {
     let default = shell.git.default_branch();
     let to = request.to.clone().or_else(|| shell.git.current_branch())?;
     (to == default).then_some(to)
@@ -57,7 +61,7 @@ fn is_object_id(value: &str) -> bool {
 pub fn safe_push(arguments: &[String], host: &HostFacts) -> u8 {
     match south_ledger::ambient_route(arguments, host) {
         Some(route) => south_ledger::land(&route),
-        None => run(arguments),
+        None => run(arguments, host),
     }
 }
 

@@ -22,5 +22,9 @@ pub fn ledger_client(config: &DocumentMut, here: &str) -> bool {
 }
 
 fn host_facts() -> HostFacts {
-    HostFacts { ledger_client: placement::config().is_ok_and(|config| ledger_client(&config, &crate::platform::host::name())) }
+    HostFacts { ledger_client: placement::config().is_ok_and(|config| ledger_client(&config, &crate::platform::host::name())), abandon }
+}
+
+fn abandon(arguments: &[String]) -> u8 {
+    north_landing::land_abandon::abandon(arguments, &super::abandon_witness::FleetWitness)
 }

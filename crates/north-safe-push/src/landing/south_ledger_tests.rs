@@ -31,7 +31,7 @@ fn remote_land_leaves_north_other_branches_tags_and_full_hosts_to_git_push() {
 
 #[test]
 fn remote_land_answers_its_help_probe_and_refuses_an_unknown_verb() {
-    let host = HostFacts { ledger_client: true };
+    let host = HostFacts { ledger_client: true, abandon: |_| 0 };
     assert_eq!(run(&words("--help"), &host), 0);
     assert_eq!(run(&words("land"), &host), 2);
     assert_eq!(run(&[], &host), 2);

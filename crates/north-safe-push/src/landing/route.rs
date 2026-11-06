@@ -1,6 +1,12 @@
 use std::path::Path;
 
+use north_base::foundation::step::{Refused, Step};
+
+use crate::report::timeline::Timeline;
 use crate::request::{self, Arguments, Plan};
+use crate::session::cancel::watch_for_cancel;
+use crate::session::output_log::claim;
+use crate::shell::Shell;
 use crate::shell::git::default_branch;
 
 use north_landing::land::candidate::git;
@@ -107,4 +113,49 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
     }
+}
+
+pub fn land(arguments: &[String], to: &str, shell: &Shell) -> u8 {
+    watch_for_cancel();
+    let timeline = Timeline::start(shell);
+    let code = match claim(shell) {
+        Ok(_claims) => {
+            timeline.announce();
+            match fetch_destination(shell, to) {
+                Ok(()) => run(arguments),
+                Err(Refused(code)) => code,
+            }
+        }
+        Err(Refused(code)) => code,
+    };
+    match code {
+        _ if code == 0 || shell.settings.raw_exit => code,
+        130 | 143 => {
+            println!("safe-push: cancelled");
+            130
+        }
+        _ => {
+            timeline.event("exit", "refused", "safe-push did not land");
+            println!("safe-push: refused safe-push did not land");
+            1
+        }
+    }
+}
+
+fn fetch_destination(shell: &Shell, to: &str) -> Step {
+    let reference = format!("refs/heads/{to}");
+    if shell.origin.fetch(&format!("+{reference}:refs/remotes/origin/{to}")).is_ok() {
+        return Ok(());
+    }
+    match shell.origin.listing("origin", &[&reference]) {
+        Ok(listing) if listing.trim().is_empty() => Ok(()),
+        _ => {
+            eprintln!("safe-push: could not fetch origin/{to}; NOT pushed.");
+            Err(Refused(1))
+        }
+    }
+}
+
+pub fn ticket(arguments: &[String]) -> u8 {
+    enqueue::run(arguments)
 }

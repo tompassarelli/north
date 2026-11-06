@@ -20,6 +20,7 @@ const USAGE: &str = "usage: north remote-land routes SAFE-PUSH-ARGUMENTS... (exi
 
 pub struct HostFacts {
     pub ledger_client: bool,
+    pub abandon: fn(&[String]) -> u8,
 }
 
 struct Host {

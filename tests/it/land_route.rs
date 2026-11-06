@@ -154,8 +154,4 @@ fn a_landing_the_lander_cannot_take_is_refused_naming_why_and_pushes_and_queues_
     fixture.settle(&format!("[landing]\n\tqueue = lock\n\tlander-host = {host}\n"), "a lock queue");
     fixture.work("work under the lock queue");
     refused(&["--to", "main"], "landing.queue = lock in .safe-push is no longer served: the lander lands every change to main");
-    fixture.settle(&format!("[landing]\n\tqueue = lander\n\tlander-host = {host}\n"), "this host is the lander");
-    fixture.work("work without north");
-    fs::remove_file(fixture.top().join("bin/north")).unwrap();
-    refused(&["--to", "main"], "north not on PATH; refusing to land without the language gate");
 }

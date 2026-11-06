@@ -391,13 +391,6 @@ expect_status zero
 printf 'PASS: language gate pass publishes\n'
 
 
-missing_north_bin="$scratch/missing-north-bin"
-mkdir -p "$missing_north_bin"
-ln -s "$real_git" "$missing_north_bin/git"
-ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$missing_north_bin/betterleaks"
-missing_north_path="$missing_north_bin:/run/current-system/sw/bin:/usr/bin:/bin"
-! PATH="$missing_north_path" command -v north >/dev/null || fail 'missing north fixture contains north'
-
 make_real_fixture language-initial
 while read -r ref _; do
   "$real_git" --git-dir="$real_remote" update-ref -d "$ref"
@@ -405,17 +398,12 @@ done < <(real_remote_state)
 language_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 language_empty_tree=$("$real_git" -C "$real_repo" hash-object -t tree /dev/null)
 language_trace="$real_fixture/language-trace"
-SAFE_PUSH_TEST_PATH="$missing_north_path" run_real_case --dry-run --to main
-expect_status nonzero
-expect_output 'north not on PATH; refusing to land without the language gate'
-! grep -Fq 'agent-instruction-check:' <<<"$case_output" || fail 'initial missing north reached later checks'
-[ -z "$(real_remote_state)" ] || fail 'initial push without north published'
 SAFE_PUSH_TEST_LANGUAGE_TRACE="$language_trace" SAFE_PUSH_TEST_LANGUAGE_DENY='initial push denied by language gate' run_real_case --dry-run --to main
 expect_status nonzero
 expect_output 'initial push denied by language gate'
 grep -Fxq "north <language-gate> <--repo> <$real_repo> <--base> <$language_empty_tree> <--head> <$language_head>" "$language_trace" || fail 'initial push did not use the empty-tree base'
 [ -z "$(real_remote_state)" ] || fail 'initial language refusal published'
-printf 'PASS: initial push uses empty tree and fails closed without north\n'
+printf 'PASS: initial push uses the empty tree as the language gate base\n'
 
 make_real_fixture unreachable-fetch
 printf '#!/bin/sh\ncat >/dev/null\n' >"$real_repo/.git/hooks/pre-push"
@@ -688,7 +676,6 @@ done
 HOME="$tool_home" run_real_case --dry-run
 expect_status zero
 
-eval "$(sed -n '/^tool_removal_scan() {/,/^}$/p' "$TARGET")"
 "$real_git" -C "$real_repo" reset -q --hard "$tool_base"
 printf '#!/bin/sh\n' >"$real_repo/dotfiles/bin/origin-only"
 chmod +x "$real_repo/dotfiles/bin/origin-only"
@@ -699,8 +686,7 @@ remote_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 "$real_git" -C "$real_repo" rm -q dotfiles/bin/helper.test.sh
 "$real_git" -C "$real_repo" commit -qm 'local test helper removal'
 local_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
-printf "%s\n" tool_removal_scan >>"$scratch/cases"
-(cd "$real_repo"; HOME="$tool_home" PATH="$(dirname "$real_north"):$PATH" tool_removal_scan "$remote_tool_head..$local_tool_head") || fail 'tool scan compared with destination instead of merge base'
+(cd "$real_repo"; HOME="$tool_home" "$real_north" land scan tool-removal "$remote_tool_head..$local_tool_head") || fail 'tool scan compared with destination instead of merge base'
 
 } >"$scratch/section-4.log" 2>&1 &
 sections+=($!)
@@ -1291,18 +1277,6 @@ printf 'PASS: check-candidate: a failure main shares ends verdict transient on t
 
 
 } >"$scratch/section-13.log" 2>&1 &
-sections+=($!)
-
-{ xdg_state="$scratch/xdg-state-14"; new_real_bin -14
-
-make_real_fixture enqueue-without-land
-run_real_case --enqueue
-expect_status nonzero
-expect_output 'run north runtime update'
-expect_output 'NOT queued'
-printf 'PASS: --enqueue names north runtime update when the runtime lacks land\n'
-
-} >"$scratch/section-14.log" 2>&1 &
 sections+=($!)
 
 status=0
