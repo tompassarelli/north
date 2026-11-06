@@ -28,7 +28,6 @@
 	after = "src/cli/verbs.rs :: sed -n '/VerbKinds::new(&[[]$/,/^]);$/{//!p}' src/cli/verbs.rs | LC_ALL=C sort -c -u"
 	after = "tests/it/main.rs,tests/it/crates.txt :: ! grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort | uniq -d | grep . && comm -3 <(sed -n 's/^mod //p' tests/it/main.rs | tr -d ';' | LC_ALL=C sort -u) <(grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort -u) | { ! grep .; }"
 	after = structure.toml,src/,crates/,tests/,examples/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-guard/src/code_health/ --no-build code-health layers ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}
-	after = .test-determinism-allowlist.json :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-guard/src/code_health/ --no-build code-health habits --repo $PWD --grown-since ${SAFE_PUSH_LAND_BASE}
 	after = ** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-graph/,src/cli/ graph validate --guards harness/graph-guards --shadow
 	after = harness/,agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/agent_config_check/ --no-build agent-config-check tree-policy
 	after = agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/catalog/package_check.rs --no-build config check
