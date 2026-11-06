@@ -547,3 +547,11 @@ box = "Placement and admission run as pure strategy over recorded inputs"
 command = "north strategy replay --since 7d --budget"
 review = "2026-11-13"
 owner = "tompassarelli/north#643"
+
+[[check]]
+id = "n636-checkpoint-live"
+box = "A compaction keeps the brief, lane, boxes and running jobs by construction"
+command = "for f in $(find \"$HOME/.local/state/north/fleet\" -path '*/g*/stream.jsonl' -newermt '2026-11-06 21:51' 2>/dev/null); do grep -q 'Turns left: N\\. Focus: TEXT' \"$f\" && grep -q 'SessionStart:compact' \"$f\" && grep -q 'You were compacted' \"$f\" && grep -q '\"trigger\":\"manual\"' \"$f\" && { echo pass; break; }; done"
+expect = "pass"
+review = "2026-11-08"
+owner = "tompassarelli/north#636"
