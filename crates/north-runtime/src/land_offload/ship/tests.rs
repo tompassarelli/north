@@ -339,10 +339,14 @@ fn a_dead_job_leaves_no_ticket_that_blocks_the_queue() {
     let queue = home.path().join(".cache/land-offload/queue");
     fs::create_dir_all(&queue).unwrap();
     fs::write(queue.join("1-1000000000000000000-1"), "").unwrap();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", "", "0"])
         .env("HOME", home.path())
+        .env("PATH", &path)
         .env("NORTH_OFFLOAD_MAX_JOBS", "1")
         .env_remove("NORTH_OFFLOAD_ROOT")
         .stdin(fs::File::open(&bundle).unwrap())
