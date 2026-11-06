@@ -3,7 +3,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::platform::push_ledger;
@@ -49,17 +48,12 @@ pub struct Run {
     pub host: Option<String>,
 }
 
-#[derive(Clone, Default)]
-pub struct Hosts(Arc<Mutex<Vec<String>>>);
-
-struct Claim {
-    hosts: Hosts,
-    host: Option<String>,
-}
+#[derive(Default)]
+pub struct Hosts(Vec<String>);
 
 impl Hosts {
-    fn claim(&self, repo: &Path, head: &str) -> Claim {
-        let mut taken = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+    pub fn claim(&mut self, repo: &Path, head: &str) -> Option<String> {
+        let taken = &mut self.0;
         let mut command = Command::new(follow::program());
         command.args(["capacity", "offload", "choose", "--any"]);
         for host in taken.iter() {
@@ -73,16 +67,12 @@ impl Hosts {
             None => {}
         }
         taken.extend(host.clone());
-        Claim { hosts: self.clone(), host }
+        host
     }
-}
 
-impl Drop for Claim {
-    fn drop(&mut self) {
-        let Some(host) = &self.host else { return };
-        let mut taken = self.hosts.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(at) = taken.iter().position(|held| held == host) {
-            taken.remove(at);
+    pub fn release(&mut self, host: &str) {
+        if let Some(at) = self.0.iter().position(|held| held == host) {
+            self.0.remove(at);
         }
     }
 }
@@ -106,7 +96,7 @@ impl Run {
     }
 }
 
-pub fn start(lander: &Lander, hosts: &Hosts, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>) -> std::thread::JoinHandle<Outcome> {
+pub fn start(lander: &Lander, host: Option<String>, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>) -> std::thread::JoinHandle<Outcome> {
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
     let landed = Landed { repo: lander.repo.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: head.to_owned(), heads, lanes, tips };
     let run = Run {
@@ -118,13 +108,10 @@ pub fn start(lander: &Lander, hosts: &Hosts, base: &str, head: &str, heads: Vec<
         offload_owner: lander.offload_owner.clone(),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
         deadline: deadline(&lander.repo),
-        host: None,
+        host,
     }
     .at(head, head);
-    let hosts = hosts.clone();
     std::thread::spawn(move || {
-        let claim = hosts.claim(&landed.repo, &landed.head);
-        let run = Run { host: claim.host.clone(), ..run };
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
         if !matches!(verdict, Verdict::RedMain(_)) {

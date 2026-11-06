@@ -12,8 +12,7 @@ decisions, runs the survivor as a bounded live arm, and keeps it or reverts it b
    read), each (tier, category) cell's loss is the dollars its closed boxes spent on runs after the first, plus the dollars of
    its boxes that never closed. The largest cell of a routable category is the turn's target. Counting stays where it is: the
    climber reads the report and adds none.
-2. **Generate.** A generator writes one candidate change from the loss, the archive and the failed runs of that cell. Two
-   generators sit behind one `Generator` trait. `Cheapest` (built) routes the category to the tier that closed at least
+2. **Generate.** A generator writes one candidate change from the loss, the archive and the failed runs of that cell. `Cheapest` is the generator built so far; a `Generator` trait arrives with the second one, because a trait with one implementation and no test double is a rust-habits finding. `Cheapest` routes the category to the tier that closed at least
    five boxes cheaper with no lower kept share, else off its dearest arm onto the category's cheapest arm, else opens a `split` or `escalate` arm on it. A Claude session (a later box) gets the loss, the archive's variants with
    their scores and the failed runs' reports, and writes a code or config diff; its prompt and the way it learns from its own
    failures follow GEPA (reflect on trajectories, keep a Pareto set of candidates that win somewhere).

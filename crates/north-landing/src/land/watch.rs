@@ -68,6 +68,7 @@ impl Batch {
 struct Running {
     batch: Batch,
     run: JoinHandle<Outcome>,
+    host: Option<String>,
 }
 
 #[derive(Default)]
@@ -189,8 +190,9 @@ impl Watch {
         let heads = batch.heads.iter().map(|followed| followed.head.clone()).collect();
         let names = batch.lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
         let tips = batch.lanes.iter().map(|lane| lane.tip.clone()).collect();
-        let run = post_land::start(lander, &self.hosts, &batch.base, &batch.head, heads, names, tips);
-        self.running.push(Running { batch, run });
+        let host = self.hosts.claim(&lander.repo, &batch.head);
+        let run = post_land::start(lander, host.clone(), &batch.base, &batch.head, heads, names, tips);
+        self.running.push(Running { batch, run, host });
         true
     }
 
@@ -202,7 +204,10 @@ impl Watch {
         }
         let mut settled = recovered;
         while let Some(at) = self.running.iter().position(|running| running.run.is_finished()) {
-            let Running { batch, run } = self.running.remove(at);
+            let Running { batch, run, host } = self.running.remove(at);
+            if let Some(host) = host {
+                self.hosts.release(&host);
+            }
             self.finish(lander, batch, run);
             settled = true;
         }

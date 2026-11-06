@@ -20,6 +20,10 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     if crate::guard::activation::authoring_guards_off("heavy-command-guard") {
         return Verdict::Allow;
     }
+    judge(input)
+}
+
+pub(super) fn judge(input: &HookInput) -> Verdict {
     let Some(command) = input.command().and_then(|s| s.as_str()) else {
         return Verdict::Allow;
     };

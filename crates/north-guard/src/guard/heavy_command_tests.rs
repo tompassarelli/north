@@ -1,12 +1,12 @@
 #![cfg(test)]
 
-use super::heavy_command::evaluate;
+use super::heavy_command::judge;
 use crate::hook::{HookInput, Verdict};
 use serde_json::json;
 
 fn verdict(command: &str) -> Verdict {
     let payload = json!({"tool_name": "Bash", "cwd": "/", "tool_input": {"command": command}});
-    evaluate(&HookInput::parse(payload.to_string().as_bytes()).unwrap())
+    judge(&HookInput::parse(payload.to_string().as_bytes()).unwrap())
 }
 
 // KEEP(bug): an offloaded `sed -i f && git add f && cargo clippy` edited and staged f on gex45 while the local worktree stayed unchanged; north#674

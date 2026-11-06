@@ -582,3 +582,15 @@ rule = "single-impl-trait"
 path = "crates/north-pace/src/usage/shell/mod.rs"
 item = "Registry"
 reason = "Port defined by north-pace and implemented by north-fleet, which north-pace cannot depend on; the cull removed its only test double."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-fleet/src/fleet/session_host.rs"
+item = "FrameWatch"
+reason = "Keeps the process host free of the turn watcher's parsing, as SentLog does; candidate to make concrete."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-fleet/src/fleet/waits.rs"
+item = "Probe"
+reason = "A north-fleet seam the north binary implements over its job, farm and branch readers; the crate cannot depend on the binary."

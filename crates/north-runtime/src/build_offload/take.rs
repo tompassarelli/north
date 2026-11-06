@@ -83,34 +83,6 @@ impl Sender {
     }
 }
 
-/// The script's stdin, which stays open for the whole run because its watcher reads the end of it as the order to stop; closed once the run ends, since the watcher's `cat` keeps the script's stderr open until then.
-#[derive(Clone)]
-struct Lane(Arc<Mutex<Option<ChildStdin>>>);
-
-impl Lane {
-    fn close(&self) {
-        if let Ok(mut stdin) = self.0.lock() {
-            drop(stdin.take());
-        }
-    }
-}
-
-impl Write for Lane {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        match self.0.lock().map_err(|_| std::io::ErrorKind::BrokenPipe)?.as_mut() {
-            Some(stdin) => stdin.write(bytes),
-            None => Err(std::io::ErrorKind::BrokenPipe.into()),
-        }
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        match self.0.lock().map_err(|_| std::io::ErrorKind::BrokenPipe)?.as_mut() {
-            Some(stdin) => stdin.flush(),
-            None => Ok(()),
-        }
-    }
-}
-
 /// Counts a taken run as starting until its command has begun and its lease shows in this host's own admission.
 pub(super) struct Starting {
     pub(super) count: Arc<AtomicUsize>,
@@ -158,17 +130,13 @@ pub(super) fn run_lane(offer: &Offer, host: &str, reader: impl Read + Send + 'st
         }
     };
     let (output, errors) = (child.stdout.take()?, child.stderr.take()?);
-    let lane = Lane(Arc::new(Mutex::new(child.stdin.take())));
+    let stdin = child.stdin.take()?;
     let payload = offer.bundle_bytes + offer.patch_bytes;
-    let feeder = {
-        let mut lane = lane.clone();
-        std::thread::spawn(move || {
-            let mut reader = reader;
-            let _ = std::io::copy(&mut (&mut reader).take(payload), &mut lane);
-            let _ = std::io::copy(&mut reader, &mut std::io::sink());
-            lane.close();
-        })
-    };
+    let feeder = std::thread::spawn(move || {
+        let (mut reader, mut stdin) = (reader, stdin);
+        let _ = std::io::copy(&mut (&mut reader).take(payload), &mut stdin);
+        (reader, stdin)
+    });
     let synced = Arc::new(AtomicBool::new(false));
     let relay_output = {
         let (sender, synced, starting, host) = (Arc::clone(sender), Arc::clone(&synced), Arc::clone(starting), host.to_owned());
@@ -178,11 +146,17 @@ pub(super) fn run_lane(offer: &Offer, host: &str, reader: impl Read + Send + 'st
         let sender = Arc::clone(sender);
         std::thread::spawn(move || sender.pipe(errors, Frame::Err))
     };
+    // the script's watcher reads the end of its stdin as the order to stop, and its `cat` holds stderr open until then
+    let held = feeder.join().ok().map(|(mut reader, stdin)| {
+        std::thread::spawn(move || {
+            let _ = std::io::copy(&mut reader, &mut std::io::sink());
+        });
+        stdin
+    });
     let status = child.wait().map(exit_code).unwrap_or(255);
-    lane.close();
+    drop(held);
     let _ = relay_output.join();
     let _ = relay_errors.join();
-    drop(feeder);
     Some((status, synced.load(Ordering::SeqCst)))
 }
 

@@ -11,7 +11,7 @@ pub mod loss;
 pub mod scope;
 pub mod score;
 
-use candidate::{Cheapest, Generator};
+use candidate::Cheapest;
 
 const USAGE: &str = "usage: north climb run --dry-run [--since 7d]   the week's largest measured loss, one candidate for it, its replay score and the live arms";
 const DEFAULT_REPLAY: &str = "7d";

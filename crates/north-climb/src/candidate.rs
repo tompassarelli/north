@@ -68,10 +68,6 @@ fn reach(case: &mut placement::Case, category: &str, arm: Option<&str>, tier: &s
     named
 }
 
-pub trait Generator {
-    fn propose(&self, report: &ClosedReport, loss: &Loss) -> Option<Candidate>;
-}
-
 /// Routes the loss's category to the cell of the same category that closed boxes cheaper, with no
 /// lower share of its boxes kept, once that cell has closed `min_closed` boxes.
 pub struct Cheapest {
@@ -82,13 +78,11 @@ fn kept_share(cell: &Cell) -> f64 {
     cell.kept() as f64 / cell.closed as f64
 }
 
-impl Generator for Cheapest {
-    fn propose(&self, report: &ClosedReport, loss: &Loss) -> Option<Candidate> {
+impl Cheapest {
+    pub fn propose(&self, report: &ClosedReport, loss: &Loss) -> Option<Candidate> {
         self.tier(report, loss).or_else(|| self.arm(report, loss)).or_else(|| Some(open(loss)))
     }
-}
 
-impl Cheapest {
     fn tier(&self, report: &ClosedReport, loss: &Loss) -> Option<Candidate> {
         let here = report.cells.iter().find(|cell| cell.tier == loss.tier && cell.category == loss.category)?;
         let better = report
