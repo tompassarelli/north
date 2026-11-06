@@ -1,7 +1,7 @@
 use super::bounded;
 use super::failure::{Failure, failed};
 use super::host_facts;
-use super::layout::{self, Layout, PROGRAMS};
+use super::layout::{self, Layout, PROGRAMS, TREE};
 use super::remote::{limit, run, run_reporting, ssh};
 use super::store::references;
 use super::update::{DEPLOY_LOCK, built_main, checkout, lock_waiting, named_lock_waiting};
@@ -55,7 +55,7 @@ pub(super) fn ship_runtime(host: &str, target: &str, runtime: &Path) -> Result<(
 }
 
 pub(super) fn staged(host: &str, target: &str) -> bool {
-    let programs = PROGRAMS.map(|program| format!("test -x .local/state/north/runtimes/{target}/{program}")).join(" && ");
+    let programs = PROGRAMS.map(|program| format!("test -x .local/state/north/runtimes/{target}/{program}")).into_iter().chain([format!("test -d .local/state/north/runtimes/{target}/{TREE}")]).collect::<Vec<_>>().join(" && ");
     bounded::status(ssh(host).arg(programs).stdout(Stdio::null()), limit(PROBE)).is_ok_and(|status| status.success())
 }
 
@@ -68,13 +68,19 @@ fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>
     let mut realise = vec!["nix-store", "--realise", "--quiet"];
     realise.extend(references.iter().map(String::as_str));
     run(host, "nix-store --realise", ssh(host).args(&realise).stdout(Stdio::null()), REALISE)?;
-    println!("north runtime deploy: {host}: copying {} to runtimes/{}", PROGRAMS.join(" and "), layout::short(target));
-    let directory = format!(".local/state/north/runtimes/{target}");
+    println!("north runtime deploy: {host}: copying {} and its {TREE} to runtimes/{}", PROGRAMS.join(" and "), layout::short(target));
+    let directory = format!(".local/state/north/runtimes/{target}.staging");
     run(host, "mkdir -p", ssh(host).args(["mkdir", "-p", directory.as_str()]), PROBE)?;
     let destination = format!("{host}:{directory}/");
     let mut copy = Command::new("rsync");
-    copy.args(["-a", "--timeout=120"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(destination);
-    run(host, "rsync", &mut copy, COPY)
+    copy.args(["-a", "--timeout=120"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(runtime.join(TREE)).arg(destination);
+    run(host, "rsync", &mut copy, COPY)?;
+    run(host, "install", ssh(host).args(["sh", "-c", install_script(target).as_str()]), PROBE)
+}
+
+/// Moves the staged runtime into place only whole, so `runtimes/SHA` never holds a north without its tree: the offloaded land checks resolve their harness tables from it.
+pub(super) fn install_script(target: &str) -> String {
+    format!("set -e; t=.local/state/north/runtimes/{target}; if [ -d \"$t/{TREE}\" ] && [ -x \"$t/north\" ]; then rm -rf \"$t.staging\"; exit 0; fi; rm -rf \"$t.old\"; if [ -e \"$t\" ]; then mv \"$t\" \"$t.old\"; fi; mv \"$t.staging\" \"$t\"; rm -rf \"$t.old\"")
 }
 
 fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
@@ -103,3 +109,7 @@ pub(super) fn stage_for_lander(layout: &Layout, target: &str, runtime: &Path) {
         }
     });
 }
+
+#[cfg(test)]
+#[path = "deploy_tests.rs"]
+mod tests;

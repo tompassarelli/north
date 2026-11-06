@@ -77,7 +77,7 @@ pub(super) fn rfc3339(now: OffsetDateTime) -> String {
     )
 }
 
-fn is_main_red_marker(line: &str) -> bool {
+pub(crate) fn is_main_red_marker(line: &str) -> bool {
     line.strip_prefix("Main-red:").is_some_and(|rest| rest.starts_with(char::is_whitespace) && !rest.trim().is_empty())
 }
 

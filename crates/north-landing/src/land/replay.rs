@@ -1,13 +1,16 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::candidate::{self, Pick, git};
 use super::checks::{self, Verdict};
 use super::queue::{self, Ticket};
+use crate::landing::red_check::{self, Failure};
 
 const USAGE: &str = "usage: north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...";
 pub const WORKTREE: &str = "lander-replay";
 pub const PREFIX: &str = "replay: verdict ";
+const FAILURE: &str = "replay: failure ";
 
 struct Options {
     repo: PathBuf,
@@ -41,7 +44,18 @@ pub fn class(verdict: &Verdict) -> String {
     }
 }
 
-fn replay(options: &Options) -> Result<String, String> {
+pub struct Replayed {
+    pub verdict: String,
+    pub failures: BTreeSet<Failure>,
+}
+
+impl Replayed {
+    fn of(verdict: impl Into<String>) -> Self {
+        Self { verdict: verdict.into(), failures: BTreeSet::new() }
+    }
+}
+
+fn replay(options: &Options) -> Result<Replayed, String> {
     let checkout = super::repositories::checkout(&options.repo)?;
     let worktree = candidate::lander_worktree(&checkout, WORKTREE)?;
     candidate::ensure(&checkout, &worktree)?;
@@ -53,20 +67,34 @@ fn replay(options: &Options) -> Result<String, String> {
     for pick in &built.picks {
         match pick {
             Pick::Included => {}
-            Pick::Decided(verdict) => return Ok(verdict.split_whitespace().next().unwrap_or("undecided").to_owned()),
-            Pick::Refused(_) => return Ok("failed".to_owned()),
-            Pick::Undecided(reason) | Pick::Deferred(reason) => return Ok(format!("undecided {reason}")),
+            Pick::Decided(verdict) => return Ok(Replayed::of(verdict.split_whitespace().next().unwrap_or("undecided"))),
+            Pick::Refused(refused) => return Ok(Replayed { verdict: "failed".to_owned(), failures: BTreeSet::from([Failure::Line(refused.verdict.split("; log:").next().unwrap_or_default().trim().to_owned())]) }),
+            Pick::Undecided(reason) | Pick::Deferred(reason) => return Ok(Replayed::of(format!("undecided {reason}"))),
         }
     }
     if built.picks.len() != tickets.len() {
-        return Ok("undecided not every lane was picked".to_owned());
+        return Ok(Replayed::of("undecided not every lane was picked"));
     }
     let log = scratch.path().join("replay-check.log");
     let verdict = match checks::start(&checks::Launch { checker: &options.checker, offload_owner: "north-land-replay", round: "replay".to_owned(), red_fix: false, lander_slot: false }, &worktree, &base, &log, false) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     };
-    Ok(class(&verdict))
+    let class = class(&verdict);
+    let failures = match verdict {
+        Verdict::Refused(_) | Verdict::RedMain(_) => named_failures(&log, &class),
+        _ => BTreeSet::new(),
+    };
+    Ok(Replayed { verdict: class, failures })
+}
+
+fn named_failures(log: &Path, class: &str) -> BTreeSet<Failure> {
+    let found = red_check::failures(&fs::read_to_string(log).unwrap_or_default());
+    if !found.is_empty() {
+        return found;
+    }
+    let check = class.split("; log:").next().unwrap_or(class).trim();
+    BTreeSet::from([Failure::Line(check.to_owned())])
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -75,8 +103,11 @@ pub fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     match replay(&options) {
-        Ok(verdict) => {
-            println!("{PREFIX}{verdict}");
+        Ok(replayed) => {
+            for failure in &replayed.failures {
+                println!("{FAILURE}{}", failure.key());
+            }
+            println!("{PREFIX}{}", replayed.verdict);
             0
         }
         Err(error) => {
@@ -88,6 +119,10 @@ pub fn run(arguments: &[String]) -> u8 {
 
 pub fn verdict_of(output: &str) -> Option<&str> {
     output.lines().rev().find_map(|line| line.strip_prefix(PREFIX)).map(str::trim)
+}
+
+pub fn failures_of(output: &str) -> BTreeSet<Failure> {
+    output.lines().filter_map(|line| line.strip_prefix(FAILURE)).filter_map(Failure::from_key).collect()
 }
 
 pub fn recorded_class(verdict: &str) -> Option<&str> {
