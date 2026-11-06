@@ -1,6 +1,6 @@
 //! `threads queue`: add queues a job for a placement, take claims the oldest for some placements,
 //! take also records that its --by poller polled for those placements, so the list can name why a job still waits;
-//! msg records its result on the job's issue, drop retires a queued one; follows boxes wait here
+//! msg records its result and posts its status line, without the output, on the job's issue, drop retires a queued one; follows boxes wait here
 //! for follows-release.
 use std::io::Read;
 use std::sync::LazyLock;
@@ -216,7 +216,8 @@ fn msg(argv: &[String], context: &Context, by: &str) -> Outcome {
         let (repo, number) = item_ref(item, context)?;
         let (number, full) = (number.to_string(), format!("{}/{repo}", crate::threads::catalog::CATALOG.owner));
         if status != "done" {
-            context.gh(&["issue", "comment", &number, "-R", &full, "--body", &format!("Job {id} {status}:\n\n{text}")])?;
+            let head = text.lines().next().unwrap_or_default();
+            context.gh(&["issue", "comment", &number, "-R", &full, "--body", &format!("Job {id} {status}: {head}\n\nIts output stays in the job's log and the queue's result, off this issue.")])?;
         }
     }
     Ok(format!("job {id} {status}\n"))
