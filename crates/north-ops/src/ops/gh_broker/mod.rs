@@ -39,6 +39,7 @@ the caller's systemd unit), served from, status, method, target.";
 
 const IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
 const TAKE_OVER_LIMIT: Duration = Duration::from_secs(30);
+const DRAIN_LIMIT: Duration = Duration::from_secs(60);
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -82,9 +83,27 @@ fn serve(resident: bool) -> u8 {
         notify_ready();
     }
     watch(&place, Arc::clone(&activity), resident);
+    drain_on_sigterm(place.socket(), Arc::clone(&activity));
     server::serve(&listener, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls())));
+    if !activity.finish_open_calls(DRAIN_LIMIT) {
+        eprintln!("north gh-broker: {} s passed with calls still open; exiting anyway", DRAIN_LIMIT.as_secs());
+    }
     drop(lock);
     0
+}
+
+fn drain_on_sigterm(socket: std::path::PathBuf, activity: Arc<server::Activity>) {
+    std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+            return;
+        };
+        runtime.block_on(async {
+            if let Ok(mut term) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                term.recv().await;
+            }
+        });
+        activity.drain(&socket);
+    });
 }
 
 fn take_over(place: &Place) -> Option<std::fs::File> {
@@ -193,9 +212,10 @@ fn quota() -> u8 {
 }
 
 #[cfg(test)]
-fn spawn_server(listener: UnixListener, broker: Broker) {
+fn spawn_server(listener: UnixListener, broker: Broker) -> (Arc<server::Activity>, std::thread::JoinHandle<()>) {
     let (broker, activity) = (Arc::new(broker), Arc::new(server::Activity::default()));
-    std::thread::spawn(move || server::serve(&listener, &broker, &activity, &Arc::new(calls::CallLog::off())));
+    let served = Arc::clone(&activity);
+    (activity, std::thread::spawn(move || server::serve(&listener, &broker, &served, &Arc::new(calls::CallLog::off()))))
 }
 
 #[cfg(test)]

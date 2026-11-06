@@ -67,6 +67,8 @@ fn fake_github() -> (String, Arc<Ledger>) {
 struct Harness {
     socket: PathBuf,
     github: Arc<Ledger>,
+    activity: Arc<super::server::Activity>,
+    served: Option<std::thread::JoinHandle<()>>,
     _root: tempfile::TempDir,
 }
 
@@ -77,8 +79,8 @@ impl Harness {
         let socket = root.path().join("broker.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         let settings = Settings { fresh, write_gap: Duration::from_millis(10), ..Settings::default() };
-        super::spawn_server(listener, Broker::new(Upstream::new(&api), settings));
-        Self { socket, github, _root: root }
+        let (activity, served) = super::spawn_server(listener, Broker::new(Upstream::new(&api), settings));
+        Self { socket, github, activity, served: Some(served), _root: root }
     }
 
     fn send(&self, method: &str, target: &str, body: &str) -> Response {
@@ -236,4 +238,27 @@ fn the_resident_broker_claims_the_users_gh_config_and_releases_only_its_own_line
     std::fs::write(source.join("config.yml"), elsewhere).unwrap();
     assert!(!place.release_user_gh(&source).unwrap());
     assert_eq!(std::fs::read_to_string(source.join("config.yml")).unwrap(), elsewhere);
+}
+
+#[test]
+fn a_draining_broker_answers_the_call_it_holds_then_stops_accepting() {
+    let mut broker = Harness::start(Duration::from_secs(20));
+    let socket = broker.socket.clone();
+    let held = {
+        let socket = socket.clone();
+        std::thread::spawn(move || {
+            let stream = UnixStream::connect(&socket).unwrap();
+            let headers = vec![("Host".to_owned(), "api.github.com".to_owned()), ("Authorization".to_owned(), "token session".to_owned())];
+            write_request(&stream, &Request { method: "GET".to_owned(), target: ISSUES.to_owned(), headers, body: Vec::new() }).unwrap();
+            read_response(&stream).unwrap()
+        })
+    };
+    while broker.activity.idle_for().is_some() {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    broker.activity.drain(&socket);
+    broker.served.take().unwrap().join().unwrap();
+    assert!(!held.is_finished(), "the held call is still running when the server loop has stopped");
+    assert!(broker.activity.finish_open_calls(Duration::from_secs(5)));
+    assert_eq!(held.join().unwrap().status, 200, "the call in flight when the drain began is answered, not cut");
 }
