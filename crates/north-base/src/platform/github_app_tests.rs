@@ -162,3 +162,33 @@ fn a_host_the_laptop_pushes_to_serves_the_pushed_token_while_fresh_and_never_dec
     }
     assert_eq!(server.requests(), 0);
 }
+
+#[test]
+fn the_agent_token_comes_from_the_pushed_token_then_a_mint_then_the_launched_one_and_else_is_refused() {
+    let server = Server::start();
+    let fixture = Fixture::new("github-app.yaml");
+    let pushed = fixture.scratch.path().join("gh-write-token");
+    fs::write(&pushed, "ghs_pushed\n").unwrap();
+    let written = fs::metadata(&pushed).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let written = i64::try_from(written).unwrap();
+    let launched = || Some("ghs_launched".to_owned());
+    let on_gex45 = Host { pushed: Some(pushed.clone()), decrypt: Box::new(|_| panic!("decrypted the App key on a host the laptop pushes to")), ..fixture.host(&server, json!({})) };
+
+    let (token, note) = agent_token(&on_gex45, written + 60, launched()).unwrap();
+    assert_eq!(token, "ghs_pushed");
+    assert!(note.unwrap().contains(&pushed.display().to_string()));
+
+    let minted = fixture.host(&server, json!({ "app_id": 123, "installation_id": 42, "private_key": fixture.pem }));
+    assert_eq!(agent_token(&minted, NOW, launched()), Ok(("ghs_test_1".to_owned(), None)));
+
+    let (token, note) = agent_token(&on_gex45, written + 55 * 60, launched()).unwrap();
+    assert_eq!(token, "ghs_launched");
+    assert!(note.unwrap().contains("55 min old"));
+    let undecryptable = Host { runtime: None, decrypt: Box::new(|_| None), ..fixture.host(&server, json!({})) };
+    assert_eq!(agent_token(&undecryptable, NOW, launched()).unwrap().0, "ghs_launched");
+
+    for personal in [Some("ghp_personal".to_owned()), None] {
+        assert_eq!(agent_token(&undecryptable, NOW, personal), Err("could not decrypt github-app.yaml".to_owned()));
+    }
+    assert_eq!(server.requests(), 1);
+}

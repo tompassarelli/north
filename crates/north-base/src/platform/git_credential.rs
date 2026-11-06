@@ -1,6 +1,6 @@
 use std::io::{BufRead, Write};
 
-use super::github_app::{self, AGENT_APP, Host, Request};
+use super::github_app::{self, Host};
 use crate::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north git-credential get|store|erase
@@ -33,12 +33,11 @@ pub fn run(arguments: &[String]) -> u8 {
         return 0;
     }
     let token = |_: &str| {
-        let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
-        github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds()).or_else(|why| {
-            let Some((source, token)) = fallback_token() else { return Err(why) };
-            eprintln!("north git-credential: cannot mint the Socrates Agent App token ({why}); answering with {source}");
-            Ok(token)
-        })
+        let (token, note) = github_app::agent_token(&Host::from_env(), Timestamp::now().unix_seconds(), std::env::var("GH_TOKEN").ok())?;
+        if let Some(note) = note {
+            eprintln!("north git-credential: {note}");
+        }
+        Ok(token)
     };
     match answer(arguments, std::io::stdin().lock(), token) {
         Ok(Some(reply)) => match std::io::stdout().write_all(reply.as_bytes()) {
@@ -51,15 +50,6 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
     }
-}
-
-/// What a host that cannot mint answers with: the installation token the launcher gave the session.
-pub(super) fn fallback_token() -> Option<(&'static str, String)> {
-    session_token(std::env::var("GH_TOKEN").ok()).map(|token| ("the session's GH_TOKEN", token))
-}
-
-fn session_token(token: Option<String>) -> Option<String> {
-    token.filter(|token| token.starts_with("ghs_"))
 }
 
 fn answer(arguments: &[String], input: impl BufRead, token: impl FnOnce(&str) -> Result<String, String>) -> Result<Option<String>, String> {

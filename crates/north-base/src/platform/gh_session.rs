@@ -4,8 +4,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::git_credential;
-use super::github_app::{self, AGENT_APP, Host, Request};
+use super::github_app::{self, Host};
 use crate::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north gh-session REAL_GH [ARGS...]
@@ -50,7 +49,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let ledger = ledger_path(&session);
     let before: u32 = fresh_spend(&ledger, Timestamp::now().unix_seconds()).iter().map(|(_, cost)| cost).sum();
     let mint = || {
-        let (token, note) = session_token(&Host::from_env(), Timestamp::now().unix_seconds(), git_credential::fallback_token())?;
+        let (token, note) = github_app::agent_token(&Host::from_env(), Timestamp::now().unix_seconds(), std::env::var("GH_TOKEN").ok())?;
         if let Some(note) = note {
             eprintln!("north gh-session: {note}");
         }
@@ -76,17 +75,6 @@ pub fn run(arguments: &[String]) -> u8 {
         Err(Refusal::Token(message)) => {
             eprintln!("north gh-session: no Socrates Agent App token ({message}); not falling back to a personal login");
             1
-        }
-    }
-}
-
-fn session_token(host: &Host, now: i64, launched: Option<(&str, String)>) -> Result<(String, Option<String>), String> {
-    let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
-    match github_app::mint(&request, host, now) {
-        Ok(token) => Ok((token, host.pushed_file().map(|pushed| format!("using the Socrates Agent App token the laptop pushed to {}", pushed.display())))),
-        Err(why) => {
-            let (source, token) = launched.ok_or(why.clone())?;
-            Ok((token, Some(format!("cannot mint the Socrates Agent App token ({why}); using {source}"))))
         }
     }
 }

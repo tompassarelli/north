@@ -212,6 +212,17 @@ pub fn mint(request: &Request, host: &Host, now: i64) -> Result<String, String> 
     Ok(token)
 }
 
+pub fn agent_token(host: &Host, now: i64, launched: Option<String>) -> Result<(String, Option<String>), String> {
+    let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
+    match mint(&request, host, now) {
+        Ok(token) => Ok((token, host.pushed_file().map(|pushed| format!("using the Socrates Agent App token the laptop pushed to {}", pushed.display())))),
+        Err(why) => {
+            let token = launched.filter(|token| token.starts_with("ghs_")).ok_or_else(|| why.clone())?;
+            Ok((token, Some(format!("cannot mint the Socrates Agent App token ({why}); using the session's GH_TOKEN"))))
+        }
+    }
+}
+
 fn cached(path: &Path, now: i64) -> Option<String> {
     let entry: Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
     let expires = Timestamp::parse_rfc3339(entry["expires_at"].as_str()?)?.unix_seconds();
