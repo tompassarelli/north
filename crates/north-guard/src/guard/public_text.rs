@@ -1,6 +1,7 @@
 use super::gh_write;
 use crate::hook::{HookInput, Verdict};
 use crate::platform::betterleaks;
+use crate::platform::private_text::{self, Finding};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::Command;
@@ -20,6 +21,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         input,
         |text| betterleaks::scan_text(&config, text).unwrap_or_default(),
         |repo, dir| is_private(repo, dir.or(cwd.as_deref())),
+        private_text::judge,
     )
 }
 
@@ -48,6 +50,7 @@ pub(super) fn decide_with(
     input: &HookInput,
     mut scan: impl FnMut(&str) -> BTreeSet<String>,
     mut private: impl FnMut(Option<&str>, Option<&str>) -> bool,
+    mut judge: impl FnMut(&str) -> Result<Vec<Finding>, String>,
 ) -> Verdict {
     if !input.is_shell() || !input.raw.windows(2).any(|bytes| bytes == b"gh") {
         return Verdict::Allow;
@@ -63,13 +66,23 @@ pub(super) fn decide_with(
         if bodies.is_empty() {
             continue;
         }
-        let rules = scan(&bodies.join("\n"));
-        if !rules.is_empty() && (write.public || !private(write.repo.as_deref(), write.dir.as_deref())) {
+        let joined = bodies.join("\n");
+        let rules = scan(&joined);
+        let mut public = None;
+        let mut is_public = || *public.get_or_insert_with(|| write.public || !private(write.repo.as_deref(), write.dir.as_deref()));
+        if !rules.is_empty() && is_public() {
             let rules: Vec<_> = rules.into_iter().collect();
             return Verdict::Deny(format!(
                 "No. This gh command's text matches the public deny-list rule {}, and GitHub text is public. Reword it without that detail, or record the detail privately.",
                 rules.join(", ")
             ));
+        }
+        if !joined.trim().is_empty() && is_public() {
+            match judge(&joined) {
+                Ok(found) if found.is_empty() => {}
+                Ok(found) => return Verdict::Deny(private_text::refusal(&found)),
+                Err(reason) => return Verdict::Deny(private_text::unavailable(&reason)),
+            }
         }
     }
     Verdict::Allow

@@ -2,6 +2,8 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use north_base::platform::private_text::{self, Finding};
+
 use crate::landing::denylist;
 use crate::landing::step::cancelled;
 use crate::landing::step::{Refused, Step};
@@ -37,7 +39,7 @@ impl Denylist {
     }
 
     pub fn scan(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step {
-        let verdict = self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag));
+        let verdict = self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag), || Self::private_kinds(root, base, head, tag));
         if verdict.refused {
             cancelled()?;
         }
@@ -59,6 +61,7 @@ impl Denylist {
         &self,
         visibility: impl FnOnce() -> String,
         findings: impl FnOnce() -> Result<BTreeSet<String>, String>,
+        judged: impl FnOnce() -> Result<Vec<Finding>, String>,
     ) -> DenylistVerdict {
         let configured = self.config.as_ref().is_some_and(|config| config.is_file());
         if !configured && !self.south.is_dir() {
@@ -79,7 +82,38 @@ impl Denylist {
                 self.south.display()
             )]);
         }
-        self.report(findings(), &visibility)
+        let values = self.report(findings(), &visibility);
+        if values.refused {
+            return values;
+        }
+        if !self.can_judge() {
+            return DenylistVerdict::pass(vec![format!(
+                "safe-push: ⚠ no private-kinds list and no south checkout under {}, so private kinds of text were not judged.",
+                self.south.display()
+            )]);
+        }
+        Self::report_kinds(judged(), &visibility)
+    }
+
+    fn can_judge(&self) -> bool {
+        self.south.join("main").is_dir() || private_text::kinds_override()
+    }
+
+    fn private_kinds(root: &Path, base: &str, head: &str, tag: &str) -> Result<Vec<Finding>, String> {
+        let prose = denylist::prose_range(root, base, head, Some(tag))?;
+        if prose.trim().is_empty() { Ok(Vec::new()) } else { private_text::judge(&prose) }
+    }
+
+    fn report_kinds(judged: Result<Vec<Finding>, String>, visibility: &str) -> DenylistVerdict {
+        match judged {
+            Ok(found) if found.is_empty() => DenylistVerdict::pass(Vec::new()),
+            Ok(found) => {
+                let mut lines: Vec<String> = found.iter().map(|finding| format!("privacy: {}", private_text::destination(finding))).collect();
+                lines.push(format!("safe-push: ✗ PRIVATE KIND for a {visibility} repository, the outgoing messages or docs name private detail; NOT pushed."));
+                DenylistVerdict::refuse(lines)
+            }
+            Err(reason) => DenylistVerdict::refuse(vec![format!("safe-push: ✗ {reason}, so a {visibility} push was not checked for private kinds of text; NOT pushed.")]),
+        }
     }
 
     fn findings(&self, root: &Path, base: &str, head: &str, tag: &str) -> Result<BTreeSet<String>, String> {

@@ -124,7 +124,7 @@ fn a_failed_fetch_of_the_destination_is_refused_before_any_check_runs() {
 }
 
 #[test]
-fn a_public_destination_runs_the_deny_list_scan_and_names_the_rule_and_file_without_printing_the_match() {
+fn a_public_destination_runs_the_deny_list_scan_and_the_private_kind_judge_and_names_the_rule_file_and_south_destination_without_printing_the_match() {
     let fixture = Fixture::new();
     let denylist = fixture.root.join("denylist.toml");
     write(&denylist, DENYLIST);
@@ -134,4 +134,35 @@ fn a_public_destination_runs_the_deny_list_scan_and_names_the_rule_and_file_with
     ran.expect(false, &["fake-private-term", "identity.txt"]);
     assert!(!ran.output.contains("zebra-quokka-7731"), "the deny-list refusal printed the matched value: {}", ran.output);
     assert_eq!(fixture.remote_state(), before, "the deny-list refusal mutated the remote");
+    fixture.git(&["reset", "-q", "--hard", "HEAD~1"]);
+    let (kinds, south) = (fixture.root.join("kinds.toml"), fixture.root.join("south"));
+    write(&kinds, "[[kind]]\nid = \"fixture-kind\"\ndescription = \"a fixture kind\"\n");
+    std::fs::create_dir_all(south.join("main")).unwrap();
+    shim::write_script(&fixture.bin.join("claude"), "if grep -q walnut-lantern; then echo 'fixture-kind | walnut-lantern'; else echo NONE; fi\n");
+    let (profiles, cache, north) = (fixture.root.join("profiles"), fixture.root.join("verdicts"), Path::new(env!("CARGO_BIN_EXE_north")));
+    let environment = [
+        ("SAFE_PUSH_DENYLIST", denylist.as_path()),
+        ("SAFE_PUSH_SOUTH", south.as_path()),
+        ("SAFE_PUSH_TEST_VISIBILITY", Path::new("PUBLIC")),
+        ("NORTH_PRIVATE_KINDS", kinds.as_path()),
+        ("NORTH_PROFILES", profiles.as_path()),
+        ("NORTH_PRIVACY_CACHE", cache.as_path()),
+        ("NORTH_BIN", north),
+    ];
+    fixture.commit("notes.md", "the walnut-lantern plan\n", "add notes");
+    let before = fixture.remote_state();
+    fixture.run_with(&["--dry-run"], &environment).expect(false, &["file it in south: fixture-kind", "NOT pushed"]);
+    assert_eq!(fixture.remote_state(), before, "the private-kind refusal mutated the remote");
+
+    fixture.git(&["reset", "-q", "--hard", "HEAD~1"]);
+    fixture.commit("notes.md", "the plan, stated generically\n", "add generic notes");
+    fixture.run_with(&["--dry-run"], &environment).expect(true, &[]);
+
+    fixture.commit("more.md", "another plan\n", "add another note");
+    shim::write_script(&fixture.bin.join("claude"), "exit 1\n");
+    fixture.run_with(&["--dry-run"], &environment).expect(false, &["private-text judge could not run", "NOT pushed"]);
+
+    fixture.commit("blank.md", "a third plan\n", "add a third note");
+    shim::write_script(&fixture.bin.join("claude"), "echo\n");
+    fixture.run_with(&["--dry-run"], &environment).expect(false, &["unreadable form", "NOT pushed"]);
 }

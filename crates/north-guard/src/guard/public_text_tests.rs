@@ -2,6 +2,7 @@ use super::*;
 use serde_json::json;
 
 const TERM: &str = "orange-bicycle";
+const KIND_TEXT: &str = "walnut-lantern";
 
 fn input(command: &str, cwd: &str) -> HookInput {
     let payload = json!({"tool_name": "Bash", "cwd": cwd, "tool_input": {"command": command}});
@@ -18,6 +19,11 @@ fn decide(command: &str, cwd: &str, private: bool) -> Verdict {
                 .collect()
         },
         |_, _| private,
+        |text| match text {
+            text if text.contains("judge-down") => Err("no claude account answered".to_owned()),
+            text if text.contains(KIND_TEXT) => Ok(vec![Finding { kind: "fixture-kind".into(), span: KIND_TEXT.into() }]),
+            _ => Ok(Vec::new()),
+        },
     )
 }
 
@@ -41,7 +47,7 @@ fn scratch() -> tempfile::TempDir {
 }
 
 #[test]
-fn refuses_a_deny_listed_term_in_every_place_a_gh_write_carries_text() {
+fn refuses_a_deny_listed_term_and_a_private_kind_in_every_place_a_gh_write_carries_text() {
     let dir = scratch();
     let cwd = dir.path().to_str().unwrap();
     for command in [
@@ -66,5 +72,10 @@ fn refuses_a_deny_listed_term_in_every_place_a_gh_write_carries_text() {
     ] {
         assert!(refused(&command, cwd), "{command}");
     }
+    let Verdict::Deny(reason) = decide(&format!("gh issue comment 5 --body 'the {KIND_TEXT} plan'"), cwd, false) else { panic!("a private kind passed") };
+    assert!(reason.contains("file it in south: fixture-kind"), "{reason}");
+    assert!(matches!(decide("gh issue comment 5 --body 'the sandbox keeps the lane writable'", cwd, false), Verdict::Allow));
+    assert!(matches!(decide(&format!("gh issue comment 5 --body 'the {KIND_TEXT} plan'"), cwd, true), Verdict::Allow));
+    let Verdict::Deny(reason) = decide("gh issue comment 5 --body 'judge-down'", cwd, false) else { panic!("an unjudged text passed") };
+    assert!(reason.contains("could not check"), "{reason}");
 }
-

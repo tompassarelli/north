@@ -309,6 +309,21 @@ pub fn south_denylist(south: &Path) -> Result<tempfile::NamedTempFile, String> {
     Ok(file)
 }
 
+const PROSE_PATHS: [&str; 4] = ["*.md", "*.txt", "*.rst", "*.adoc"];
+
+pub fn prose_range(root: &Path, base: &str, head: &str, ref_name: Option<&str>) -> Result<String, String> {
+    let head = commit(root, head)?;
+    let base = if base.is_empty() { String::new() } else { commit(root, base)? };
+    let range = if base.is_empty() { head } else { format!("{base}..{head}") };
+    let mut prose = git(root, &["log", "--format=%B", &range, "--"])?;
+    let mut diff = vec!["log", "-p", "-U0", "--no-merges", "--no-renames", "--format=", range.as_str(), "--"];
+    diff.extend(PROSE_PATHS);
+    let added = git(root, &diff)?;
+    prose.extend(added.lines().filter(|line| line.starts_with('+') && !line.starts_with("+++ ")).map(|line| format!("{}\n", &line[1..])));
+    prose.extend(ref_name.into_iter().flat_map(|name| ref_segments(root, name)).map(|segment| format!("{}\n", segment.text)));
+    Ok(prose)
+}
+
 pub fn scan_range(root: &Path, config: &Path, base: &str, head: &str, ref_name: Option<&str>) -> Result<BTreeSet<String>, String> {
     let request = Request {
         config: Source::Config(config.to_string_lossy().into_owned()),
