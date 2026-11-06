@@ -240,10 +240,21 @@ fn hosts(cfg: &DocumentMut) -> Vec<String> {
 pub fn reached(cfg: &DocumentMut, here: &str, command: &[&str], limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
     let laptop = laptop(cfg, here);
     let machines = gate::machines(cfg);
+    let targets: Vec<(String, String)> = hosts(cfg)
+        .into_iter()
+        .filter(|name| name != here && laptop.as_deref() != Some(name.as_str()))
+        .map(|host| {
+            let ssh = machines.iter().find(|machine| machine.name == host).map_or_else(|| host.clone(), |machine| machine.ssh.clone());
+            (host, ssh)
+        })
+        .collect();
+    let reads: Vec<(String, Result<Value, String>)> = std::thread::scope(|scope| {
+        let jobs: Vec<_> = targets.iter().map(|(host, ssh)| (host, scope.spawn(move || remote_json_within(Some(ssh), command, limit)))).collect();
+        jobs.into_iter().map(|(host, job)| (host.clone(), job.join().unwrap_or_else(|_| Err("listing read panicked".into())))).collect()
+    });
     let mut found = Vec::new();
-    for host in hosts(cfg).into_iter().filter(|name| name != here && laptop.as_deref() != Some(name.as_str())) {
-        let ssh = machines.iter().find(|machine| machine.name == host).map_or_else(|| host.clone(), |machine| machine.ssh.clone());
-        match remote_json_within(Some(&ssh), command, limit) {
+    for (host, read) in reads {
+        match read {
             Ok(listing) => found.push((host, listing)),
             Err(why) => notes.push(format!("{host} north {} unread: {why}", command[..2].join(" "))),
         }
