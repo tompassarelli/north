@@ -162,7 +162,9 @@ fn defer_writes_the_entry_into_the_registry_and_marks_and_closes_the_issue() {
         .collect();
     let done = defer(&arguments, Day::parse("2026-11-06").unwrap(), &issues).unwrap();
     assert!(done.contains("closes until the check misses"), "{done}");
-    let written = registry::parse(&std::fs::read_to_string(root.path().join(registry::PATH)).unwrap()).unwrap();
+    let text = std::fs::read_to_string(root.path().join(registry::PATH)).unwrap();
+    assert!(text.contains("\n\n[[check]]\n"), "a blank line sets the entry apart");
+    let written = registry::parse(&text).unwrap();
     assert_eq!(written.experiments.len(), 1);
     let [entry] = written.checks.as_slice() else { panic!("{written:?}") };
     assert_eq!((entry.command.as_str(), entry.expect.as_deref(), entry.review.text().as_str()), ("journalctl -c | rg -c 'timed out' || echo 0", Some("0"), "2026-11-07".to_owned().as_str()));

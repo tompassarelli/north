@@ -496,3 +496,11 @@ min_n = 20
 after = ["2026-11-07", "2026-11-21"]
 review = "2026-11-23"
 owner = "tompassarelli/north#641"
+
+[[check]]
+id = "n637-day-without-timeouts"
+box = "shows no start timeout for a day after it lands"
+command = "journalctl --user -u fleet-tick.service --since -24h | rg -c 'start operation timed out' || echo 0"
+expect = "0"
+review = "2026-11-07"
+owner = "tompassarelli/north#637"

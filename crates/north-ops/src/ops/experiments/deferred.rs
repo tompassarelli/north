@@ -224,7 +224,7 @@ fn deferral(arguments: &[String], today: Day) -> Result<Deferral, String> {
 fn entry_text(check: &Check) -> String {
     let quoted = |text: &str| serde_json::to_string(text).unwrap_or_default();
     let expect = check.expect.as_deref().map_or_else(String::new, |expect| format!("expect = {}\n", quoted(expect)));
-    format!("\n[[check]]\nid = {}\nbox = {}\ncommand = {}\n{expect}review = {}\nowner = {}\n", quoted(&check.id), quoted(&check.text), quoted(&check.command), quoted(&check.review.text()), quoted(&check.owner.text()))
+    format!("\n\n[[check]]\nid = {}\nbox = {}\ncommand = {}\n{expect}review = {}\nowner = {}\n", quoted(&check.id), quoted(&check.text), quoted(&check.command), quoted(&check.review.text()), quoted(&check.owner.text()))
 }
 
 /// `north experiments defer`: writes the entry into the registry under `--root` (the lane that will
