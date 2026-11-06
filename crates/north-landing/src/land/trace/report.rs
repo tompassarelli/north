@@ -8,7 +8,7 @@ use crate::foundation::clock::Timestamp;
 use crate::land::lander::state_home;
 use crate::land::telemetry::epoch;
 
-const USAGE: &str = "usage: north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--metric landing-p50|landing-p90|verification-p50|verification-p90]";
+const USAGE: &str = "usage: north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|verification-p50|verification-p90]";
 const TOP: usize = 10;
 
 pub fn duration_seconds(text: &str) -> Option<f64> {
@@ -157,6 +157,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut only = None;
     let mut metric = None;
     let mut repo = None;
+    let mut last = None;
     let mut rest = arguments.iter();
     while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next()) {
@@ -164,6 +165,7 @@ pub fn run(arguments: &[String]) -> u8 {
             ("--spans", Some(value)) => files.push(PathBuf::from(value)),
             ("--landing", Some(value)) => only = Some(value.clone()),
             ("--repo", Some(value)) => repo = Some(value.clone()),
+            ("--last", Some(value)) if value.parse::<usize>().is_ok_and(|count| count > 0) => last = value.parse().ok(),
             ("--metric", Some(value)) if Metric::parse(value).is_some() => metric = Metric::parse(value),
             _ => {
                 eprintln!("{USAGE}");
@@ -180,7 +182,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let spans: Vec<Span> = files.iter().flat_map(|file| Spans::at(file).read()).collect();
     let trace = Trace::of(&spans);
     let from = epoch() - since;
-    let profiles: Vec<Profile<'_>> = trace.landings(from).into_iter().filter(|landing| only.as_deref().is_none_or(|only| landing.name == only)).map(|landing| trace.profile(landing)).collect();
+    let profiles: Vec<Profile<'_>> = trace.latest(from, last).into_iter().filter(|landing| only.as_deref().is_none_or(|only| landing.name == only)).map(|landing| trace.profile(landing)).collect();
     if let Some(metric) = metric {
         metric.print(&profiles);
         return 0;
@@ -190,13 +192,13 @@ pub fn run(arguments: &[String]) -> u8 {
 }
 
 #[derive(Clone, Copy)]
-enum Metric {
+pub enum Metric {
     Landing(f64),
     Verification(f64),
 }
 
 impl Metric {
-    fn parse(name: &str) -> Option<Self> {
+    pub fn parse(name: &str) -> Option<Self> {
         match name {
             "landing-p50" => Some(Self::Landing(0.5)),
             "landing-p90" => Some(Self::Landing(0.9)),
@@ -207,11 +209,15 @@ impl Metric {
     }
 
     fn print(self, profiles: &[Profile<'_>]) {
+        println!("{:.0}", self.value(profiles));
+    }
+
+    pub fn value(self, profiles: &[Profile<'_>]) -> f64 {
         let values: Vec<f64> = match self {
             Self::Landing(_) => profiles.iter().map(Profile::wall).collect(),
             Self::Verification(_) => profiles.iter().map(|profile| profile.after_wall).filter(|wall| *wall > 0.0).collect(),
         };
         let (Self::Landing(fraction) | Self::Verification(fraction)) = self;
-        println!("{:.0}", percentile(&values, fraction));
+        percentile(&values, fraction)
     }
 }

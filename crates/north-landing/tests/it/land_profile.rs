@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use north_landing::land::trace::profile::Trace;
+use north_landing::land::trace::report::Metric;
 use north_landing::land::trace::{Category, Spans, report};
 
 fn near(actual: f64, expected: f64) -> bool {
@@ -8,6 +9,11 @@ fn near(actual: f64, expected: f64) -> bool {
 }
 
 #[test]
+fn the_profile_splits_a_trace_by_category_and_an_old_slow_backlog_outside_the_last_twenty_landings_does_not_refuse_a_lane() {
+    a_fixture_trace_splits_queued_at_to_push_by_category_and_reports_verification_after_the_push();
+    an_old_slow_backlog_outside_the_last_twenty_landings_does_not_refuse_a_lane();
+}
+
 fn a_fixture_trace_splits_queued_at_to_push_by_category_and_reports_verification_after_the_push() {
     let spans = Spans::at(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures/land_profile_spans.jsonl")).read();
     assert_eq!(spans.len(), 20);
@@ -51,4 +57,27 @@ fn a_fixture_trace_splits_queued_at_to_push_by_category_and_reports_verification
         assert!(text.contains(line), "missing {line:?} in\n{text}");
     }
     assert_eq!(text.lines().filter(|line| line.starts_with(|first: char| first.is_ascii_digit()) && line.contains(". ")).count(), 10, "{text}");
+}
+
+fn an_old_slow_backlog_outside_the_last_twenty_landings_does_not_refuse_a_lane() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("spans.jsonl");
+    let lines: Vec<String> = (0..45)
+        .flat_map(|index| {
+            let start = 1000.0 * f64::from(index);
+            let verification = if index < 25 { 700.0 } else { 60.0 };
+            [
+                format!(r#"{{"trace":"t{index}","id":"landing:{index}","name":"lane-{index}","category":"landing","start":{start},"end":{},"attributes":{{"landed":"c{index}"}}}}"#, start + 10.0),
+                format!(r#"{{"trace":"c{index}","id":"after:{index}","name":"post-land checks","category":"lander","start":{},"end":{},"attributes":{{"phase":"after"}}}}"#, start + 10.0, start + 10.0 + verification),
+            ]
+        })
+        .collect();
+    std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+    let spans = Spans::at(&path).read();
+    let trace = Trace::of(&spans);
+    let median = |landings: Vec<_>| Metric::parse("verification-p50").unwrap().value(&landings.into_iter().map(|landing| trace.profile(landing)).collect::<Vec<_>>());
+    let ceiling = 300.0;
+    assert!(median(trace.latest(0.0, None)) > ceiling, "the whole day reads the backlog");
+    assert_eq!(trace.latest(0.0, Some(20)).len(), 20);
+    assert!(near(median(trace.latest(0.0, Some(20))), 60.0), "the last twenty landings read only the recent runs");
 }

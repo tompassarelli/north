@@ -68,6 +68,14 @@ impl<'a> Trace<'a> {
         landings
     }
 
+    pub fn latest(&self, since: f64, last: Option<usize>) -> Vec<&'a Span> {
+        let mut landings = self.landings(since);
+        if let Some(last) = last {
+            landings.drain(..landings.len().saturating_sub(last));
+        }
+        landings
+    }
+
     fn descend(&self, span: &'a Span, window: (f64, f64), into: &mut Vec<&'a Span>) {
         for child in self.children.get(span.id.as_str()).into_iter().flatten() {
             if child.start >= window.0 - 1.0 && child.start <= window.1 + 1.0 {

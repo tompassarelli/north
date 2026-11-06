@@ -13,7 +13,7 @@ pub fn unpaid(root: &Path, registry: &str, changed: &[String]) -> Result<Vec<Str
     let owed: Vec<_> = goals.iter().filter(|goal| goal.class == Class::Debt && goal.debt.as_ref().is_some_and(|debt| !debt.pays.is_empty() && !changed.iter().any(|file| debt.pays.iter().any(|path| file.starts_with(path.as_str()))))).collect();
     let oracles: Vec<(&Path, &str)> = owed.iter().map(|goal| (root, goal.oracle.as_str())).collect();
     Ok(owed.iter().zip(oracle::measure_all(&oracles)).filter_map(|(goal, reading)| match judge(goal, reading) {
-        Verdict::RedOverCeiling(value) => goal.debt.as_ref().map(|debt| format!("{} reads {value} {}, over its ceiling {} {}; this landing touches none of {}", goal.name, goal.unit, debt.ceiling, goal.unit, debt.pays.join(", "))),
+        Verdict::RedOverCeiling(value) => goal.debt.as_ref().map(|debt| format!("{} reads {value} {}, over its ceiling {} {}, read by `{}`; this landing touches none of {}", goal.name, goal.unit, debt.ceiling, goal.unit, goal.oracle, debt.pays.join(", "))),
         _ => None,
     }).collect())
 }
