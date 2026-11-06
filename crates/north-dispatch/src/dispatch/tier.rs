@@ -16,7 +16,7 @@ use toml_edit::DocumentMut;
 /// arms' whole trial, because a week held 14 closed boxes per arm at most (north#242, 2026-11-05).
 pub const ARM_WINDOW: &str = "30d";
 /// Categories whose Sonnet and Opus arms dispatch compares.
-pub const ARMED: [&str; 5] = ["feature", "tooling", "native-check", "balance-tuning", "bug-known-cause"];
+pub const ARMED: [&str; 6] = ["feature", "tooling", "native-check", "balance-tuning", "bug-known-cause", "performance"];
 const ART: [&str; 3] = ["anim", "animation", "art"];
 
 /// Categories whose ledger evidence dispatch and the tune tick read: every category but mechanical
