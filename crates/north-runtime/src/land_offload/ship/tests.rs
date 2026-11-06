@@ -329,3 +329,28 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     let slot = home.path().join(".cache/land-offload/code-p-main");
     assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0}", slot.display()));
 }
+
+fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, String) {
+    let slot = tempfile::tempdir().unwrap();
+    let script = format!("set -eu\nslot={} command={} limit=10 ran={}\n{}", shell(slot.path()), super::quote(command), super::quote(marker), run_part());
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let output = Command::new("sh").args(["-c", &script]).env("HOME", slot.path()).env("PATH", path).output().unwrap();
+    let mut shown = Vec::new();
+    let ran = super::relay(output.stdout.as_slice(), &mut shown, marker);
+    (output.status.code().and_then(|code| u8::try_from(code).ok()), ran, String::from_utf8(shown).unwrap())
+}
+
+#[test]
+fn an_offload_passes_only_when_the_remote_reports_its_command_ran_and_succeeded() {
+    let marker = "north-offload-ran:job-1";
+    let (exited, ran, shown) = remote_reports("printf partial; true", marker);
+    assert_eq!((super::verdict(exited, ran), shown.as_str()), (Ok(0), "partial\n"));
+    let (exited, ran, _) = remote_reports("false", marker);
+    assert_eq!(super::verdict(exited, ran), Ok(1));
+    let mut shown = Vec::new();
+    let never_ran = super::relay(b"bash: --: invalid option\nUsage: bash [option] ...\n".as_slice(), &mut shown, marker);
+    assert!(super::verdict(Some(0), never_ran).is_err(), "a remote that exits 0 without reporting its command passed");
+    assert_eq!(String::from_utf8(shown).unwrap(), "bash: --: invalid option\nUsage: bash [option] ...\n");
+}

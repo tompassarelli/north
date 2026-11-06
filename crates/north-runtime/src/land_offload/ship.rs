@@ -32,7 +32,7 @@ echo "$free"
 "#;
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0} red_fix=${12:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0} red_fix=${12:-} ran=${13:-}
 root=@ROOT@
 mkdir -p "$root"
 bundle=$(mktemp "$root/$name.bundle.XXXXXX")
@@ -170,11 +170,14 @@ if [ -n "${carried:-}" ]; then eval "export $carried"; fi
 limited() {
   if command -v north >/dev/null 2>&1; then north capacity deadline - "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
+rc=0
 if [ "${command#nix develop}" = "$command" ] && command -v north >/dev/null 2>&1; then
-  limited north dev-shell run --dir "$slot" -- bash -euo pipefail -c "$command" 9>&-
+  limited north dev-shell run --dir "$slot" -- bash -euo pipefail -c "$command" 9>&- || rc=$?
 else
-  limited bash -euo pipefail -c "$command" 9>&-
+  limited bash -euo pipefail -c "$command" 9>&- || rc=$?
 fi
+[ -z "${ran:-}" ] || printf "%s %s\n" "$ran" "$rc"
+exit "$rc"
 "#;
 
 /// ```compile_fail
@@ -336,15 +339,58 @@ pub(super) fn run(land: &Land) -> u8 {
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
     let cpus = (crate::capacity::host::land_check_cpus().ceil() as u32).to_string();
     let red_fix = std::env::var(RED_FIX_ENV).unwrap_or_default();
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix].map(quote);
+    let marker = ran_marker(&reference);
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker].map(quote);
     let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
-    let sent = Command::new("ssh")
+    let spawned = Command::new("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])
         .stdin(Stdio::from(bundle))
-        .status();
-    match sent {
-        Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(TRANSPORT_FAILED),
-        Err(error) => fail(&format!("ssh: {error}")),
+        .stdout(Stdio::piped())
+        .spawn();
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(error) => return fail(&format!("ssh: {error}")),
+    };
+    let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker));
+    let exited = match child.wait() {
+        Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()),
+        Err(error) => return fail(&format!("ssh: {error}")),
+    };
+    verdict(exited, ran).unwrap_or_else(|why| fail(&why))
+}
+
+fn ran_marker(reference: &str) -> String {
+    format!("north-offload-ran:{}", reference.rsplit('/').next().unwrap_or(reference))
+}
+
+/// Copies the remote's stdout through to `out` without the status line the remote script prints after the command it ran, and returns that status.
+fn relay(remote: impl std::io::BufRead, out: &mut impl std::io::Write, marker: &str) -> Option<u8> {
+    let tag = format!("{marker} ");
+    let mut ran = None;
+    for line in remote.split(b'\n') {
+        let Ok(line) = line else { break };
+        let reported = String::from_utf8_lossy(&line).rfind(&tag).and_then(|at| std::str::from_utf8(&line[at + tag.len()..]).ok()?.parse::<u8>().ok().map(|code| (at, code)));
+        let shown = match reported {
+            Some((at, code)) => {
+                ran = Some(code);
+                &line[..at]
+            }
+            None => &line[..],
+        };
+        if reported.is_none() || !shown.is_empty() {
+            let _ = out.write_all(shown).and_then(|()| out.write_all(b"\n")).and_then(|()| out.flush());
+        }
+    }
+    ran
+}
+
+/// The run's exit code: the status the remote script reported for the command it ran, or ssh's own when that is a failure; a run whose remote never reported running its command fails, even when ssh exited 0.
+fn verdict(exited: Option<u8>, ran: Option<u8>) -> Result<u8, String> {
+    match (exited, ran) {
+        (Some(0), Some(code)) => Ok(code),
+        (Some(code), _) if code != 0 => Ok(code),
+        (None, Some(code)) if code != 0 => Ok(code),
+        _ => Err("the remote host never reported finishing the command, so the run fails".to_owned()),
     }
 }
 
