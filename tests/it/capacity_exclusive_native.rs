@@ -40,7 +40,9 @@ fn native(host: &Host) -> Wrapper {
 }
 
 fn settle(wrapper: &mut Wrapper) -> Vec<Value> {
+    let deadline = std::time::Instant::now() + capacity_host::BOUND;
     while wrapper.exited().is_none() {
+        assert!(std::time::Instant::now() < deadline, "an admission helper ran past {:?}", capacity_host::BOUND);
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     wrapper.stderr().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).collect()

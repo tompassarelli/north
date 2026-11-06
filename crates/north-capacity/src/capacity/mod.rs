@@ -15,7 +15,7 @@ pub mod native_hold;
 mod client_reserve;
 mod run_queue;
 mod queued_ahead;
-mod pressure_target;
+pub mod pressure_target;
 mod gpu_admission;
 pub mod deadline;
 mod process_tree;

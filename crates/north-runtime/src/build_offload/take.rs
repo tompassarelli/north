@@ -41,6 +41,9 @@ const RELEASE: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/curren
 /// Why a target takes no pulled run now: fewer free slots than a heavy run needs once its interactive reserve is kept (its admission limit already excludes it) and the runs sent to it that have not yet started are counted, a land check waiting, CPU pressure, memory or disk; None when it can take one.
 pub(super) fn refusal(room: Option<&Room>, starting: usize) -> Option<String> {
     let Some(room) = room else { return Some("its room is unreadable".to_owned()) };
+    if room.admission.heavy_settling_seconds > 0.0 {
+        return Some(format!("a heavy build started there settles for {:.0} s more before its admission starts another", room.admission.heavy_settling_seconds));
+    }
     room::build_shortfall_reserving(room, starting as f64 * offload_room().0)
 }
 

@@ -4,6 +4,7 @@ use north_core::foundation::shim;
 use serde_json::Value;
 use std::fs;
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Output};
 use std::sync::{Mutex, MutexGuard};
@@ -21,6 +22,9 @@ pub trait Exclusive {
     fn output_exclusive(&mut self) -> std::io::Result<Output>;
 }
 
+/// The longest a command a capacity test runs may take, its output included: no test waits on a lease service or a build host, so one past it is hung, and its whole process group is ended so no child it left holds the test's output open.
+pub const BOUND: Duration = Duration::from_secs(120);
+
 impl Exclusive for Command {
     fn spawn_exclusive(&mut self) -> std::io::Result<Child> {
         let _forking = exclusive();
@@ -28,13 +32,59 @@ impl Exclusive for Command {
     }
 
     fn status_exclusive(&mut self) -> std::io::Result<ExitStatus> {
-        let mut child = self.spawn_exclusive()?;
-        child.wait()
+        let deadline = Instant::now() + BOUND;
+        let mut child = self.process_group(0).spawn_exclusive()?;
+        bounded_wait(&mut child, deadline, &format!("{self:?}"))
     }
 
     fn output_exclusive(&mut self) -> std::io::Result<Output> {
+        let deadline = Instant::now() + BOUND;
         self.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
-        self.spawn_exclusive()?.wait_with_output()
+        let mut child = self.process_group(0).spawn_exclusive()?;
+        let what = format!("{self:?}");
+        let stdout = drain(child.stdout.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>));
+        let stderr = drain(child.stderr.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>));
+        let status = bounded_wait(&mut child, deadline, &what)?;
+        let collect = |pipe: std::sync::mpsc::Receiver<Vec<u8>>| match pipe.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                end_group(&child);
+                panic!("{what} exited but a child it left held its output open past {BOUND:?}");
+            }
+        };
+        Ok(Output { status, stdout: collect(stdout), stderr: collect(stderr) })
+    }
+}
+
+fn drain(pipe: Option<Box<dyn Read + Send>>) -> std::sync::mpsc::Receiver<Vec<u8>> {
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_end(&mut bytes);
+        }
+        let _ = send.send(bytes);
+    });
+    receive
+}
+
+fn bounded_wait(child: &mut Child, deadline: Instant, what: &str) -> std::io::Result<ExitStatus> {
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        if Instant::now() >= deadline {
+            end_group(child);
+            let _ = child.wait();
+            panic!("{what} ran past {BOUND:?}: a capacity test never waits on a lease service or a build host");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn end_group(child: &Child) {
+    if let Some(group) = rustix::process::Pid::from_raw(child.id() as i32) {
+        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::Kill);
     }
 }
 
