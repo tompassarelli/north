@@ -9,8 +9,9 @@ use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
 use north_goals::registry::{self, Bound, Class, Goal};
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
+use super::priority::{Noted, note};
 use super::{Sources, Window, duration, landing, open, state_root, tom, workers};
 use crate::foundation::clock::Timestamp;
 use crate::land::trace::profile::{Trace, percentile};
@@ -22,11 +23,10 @@ pub const REPOS: [&str; 2] = ["north", "makgora"];
 const DAYS: usize = 7;
 const DAY_S: i64 = 86_400;
 const NEEDED_DAYS: usize = 3;
-const PRIORITY: &str = "priority:now";
-const PRIORITY_LOG: &str = "north/scoreboard/ready-priority.jsonl";
 const PACE_HISTORY: &str = "agents/pace-control.jsonl";
 const PACE_GAP_S: f64 = 600.0;
-const NOTE_EVERY_S: i64 = 1_800;
+const MORNING_TOLD: &str = "north/scoreboard/ready-told.txt";
+const MORNING_EVERY_S: i64 = 20 * 3_600;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Bar {
@@ -187,46 +187,6 @@ impl Idle {
     fn longest_minutes(&self, window: Window) -> f64 {
         self.stretches.iter().filter(|&&(from, to)| to >= window.start && from < window.end).map(|&(from, to)| (to.min(window.end - 1) - from.max(window.start)).max(0)).max().unwrap_or(0) as f64 / 60.0
     }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct Noted {
-    at: i64,
-    repo: String,
-    count: usize,
-}
-
-fn priority_count(repo: &str) -> Option<usize> {
-    let copy = north_github_mirror::store::Mirror::local().read(&north_github_mirror::store::key(repo, north_github_mirror::store::OPEN_ISSUES))?;
-    Some(copy.body.as_array()?.iter().filter(|issue| issue["labels"]["nodes"].as_array().is_some_and(|labels| labels.iter().any(|label| label["name"] == PRIORITY))).count())
-}
-
-fn noted() -> Vec<Noted> {
-    fs::read_to_string(state_root().join(PRIORITY_LOG)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
-}
-
-/// Records the open priority:now counts for the history the ready table reads.
-pub fn record(now: i64) {
-    note(now);
-}
-
-/// Appends the open priority:now counts to the daily history, at most every half hour, since GitHub keeps no past count.
-fn note(now: i64) -> Vec<Noted> {
-    let mut history = noted();
-    if history.iter().any(|entry| now - entry.at < NOTE_EVERY_S) {
-        return history;
-    }
-    let fresh: Vec<Noted> = REPOS.iter().filter_map(|repo| Some(Noted { at: now, repo: (*repo).into(), count: priority_count(repo)? })).collect();
-    let path = state_root().join(PRIORITY_LOG);
-    let text: String = fresh.iter().filter_map(|entry| serde_json::to_string(entry).ok()).map(|line| line + "\n").collect();
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let written = fs::OpenOptions::new().create(true).append(true).open(&path).and_then(|mut file| std::io::Write::write_all(&mut file, text.as_bytes()));
-    if written.is_ok() {
-        history.extend(fresh);
-    }
-    history
 }
 
 struct Records {
@@ -425,17 +385,21 @@ fn mark(text: &str, color: bool) -> String {
     }
 }
 
+/// The first line of a repository's table: its verdict, how many bars fail on the last 24 h and the days in a row.
+fn headline(repo: &Repo) -> String {
+    let failing = Bar::ALL.iter().zip(&repo.bars).filter(|(bar, cells)| !counts(cells.day.1, **bar)).count();
+    let verdict = if repo.days_in_a_row >= NEEDED_DAYS { "ready" } else { "not ready" };
+    format!("{}: {verdict}, {failing} of {} bars fail on the last 24 h, {} of {NEEDED_DAYS} days", repo.name, Bar::ALL.len(), repo.days_in_a_row)
+}
+
 fn table(out: &mut String, repo: &Repo, goals: &Goals, view: View) {
     let mut rows: Vec<Vec<String>> = vec![["bar", "target", "24 h", "", "12 h", "7 d"].map(String::from).to_vec()];
-    let mut failing = 0;
     for (bar, cells) in Bar::ALL.iter().zip(&repo.bars) {
         let goal = goals.of(*bar);
         let passed = counts(cells.day.1, *bar);
-        failing += usize::from(!passed);
         rows.push(vec![bar.label().into(), threshold(goal), cell(goal, cells.day.0, view.explain), if passed { "pass" } else { "FAIL" }.into(), cell(goal, cells.half_day, view.explain), cell(goal, cells.week, view.explain)]);
     }
-    let ready = repo.days_in_a_row >= NEEDED_DAYS;
-    let _ = writeln!(out, "{}: {}, {failing} of {} bars fail on the last 24 h, {} of {NEEDED_DAYS} days", repo.name, if ready { "ready" } else { "not ready" }, Bar::ALL.len(), repo.days_in_a_row);
+    let _ = writeln!(out, "{}", headline(repo));
     let widths: Vec<usize> = (0..rows[0].len()).map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0)).collect();
     for row in &rows {
         let line: Vec<String> = row.iter().zip(&widths).enumerate().map(|(column, (text, width))| {
@@ -467,6 +431,26 @@ fn render(repos: &[Repo], goals: &Goals, now: i64, view: View) -> String {
 fn shown(all: bool) -> Vec<&'static str> {
     let paused = if all { Vec::new() } else { crate::platform::orchestration::read().map(|cfg| crate::platform::orchestration::set_aside_repos(&cfg)).unwrap_or_default() };
     REPOS.into_iter().filter(|repo| !paused.iter().any(|name| name == repo)).collect()
+}
+
+/// The morning line: every active repository's verdict, told by the fleet tick when the last telling is 20 hours old.
+pub fn morning(now: i64) -> Vec<String> {
+    let told = state_root().join(MORNING_TOLD);
+    let last = fs::read_to_string(&told).ok().and_then(|text| text.trim().parse::<i64>().ok());
+    if last.is_some_and(|at| (0..MORNING_EVERY_S).contains(&(now - at))) {
+        return Vec::new();
+    }
+    let read = Goals::read().and_then(|goals| Ok((Records::read(&Sources::live(), now)?, goals)));
+    let (records, goals) = match read {
+        Ok(read) => read,
+        Err(why) => return vec![format!("ready bar not read: {why}")],
+    };
+    let lines: Vec<String> = shown(false).into_iter().map(|repo| headline(&assess(|bar, window| records.reading(bar, repo, window), &goals, repo, now))).collect();
+    if let Some(parent) = told.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&told, now.to_string());
+    if lines.is_empty() { Vec::new() } else { vec![format!("ready bar (`north scoreboard --ready` prints the table): {}", lines.join("; "))] }
 }
 
 pub fn run(now: i64, view: View) -> Result<String, String> {

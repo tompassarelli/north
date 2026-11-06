@@ -15,6 +15,7 @@ use crate::ledger::outcome::read::Places;
 mod audit;
 mod cause;
 mod landing;
+mod priority;
 mod ready;
 mod tom;
 mod weekly;
@@ -151,9 +152,9 @@ fn measure(sources: &Sources, now: i64) -> Result<Vec<Measure>, String> {
 }
 
 pub fn tick(now: i64) -> Vec<String> {
-    ready::record(now);
+    priority::record(now);
     audit::tick(now);
-    weekly::tick(now)
+    ready::morning(now).into_iter().chain(weekly::tick(now)).collect()
 }
 
 fn rework(request: &cause::Request) -> u8 {
