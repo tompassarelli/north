@@ -54,37 +54,14 @@ fn row(input: &HookInput, now: f64) -> Option<serde_json::Value> {
     }))
 }
 
-fn confirm(input: &HookInput, env: &Env) -> Result<(), String> {
-    let Some(confirm) = env.confirm else {
-        return Ok(());
-    };
-    let data = &input.data;
-    let state = std::env::var_os("SPAWN_CAPACITY_HOME")
-        .filter(|home| !home.is_empty())
-        .map(|home| std::path::PathBuf::from(home).join(".local/state"))
-        .or_else(|| std::env::var_os("XDG_STATE_HOME").filter(|dir| !dir.is_empty()).map(Into::into))
-        .unwrap_or_else(|| env.home_dir().join(".local/state"));
-    confirm(&json!({
-        "op": "confirm", "directory": state.join("agents"), "session": plain(&data["session_id"]),
-        "tool_use_id": plain(&data["tool_use_id"]), "launched": true,
-    }))
-}
-
 pub(super) fn record(input: &HookInput, env: &Env) -> Option<String> {
-    let confirming = input.data["tool_response"].is_object() && truthy(&input.data["tool_response"]["agentId"]);
-    let row = row(input, env.now);
-    if !confirming && row.is_none() {
-        return None;
-    }
+    let row = row(input, env.now)?;
     if (env.off)() {
         return None;
     }
     let data = &input.data;
     let lead = py_str(if truthy(&data["agent_id"]) { &data["agent_id"] } else { &data["session_id"] });
-    if confirming && let Err(error) = confirm(input, env) {
-        return Some(format!("spawn reservation confirmation failed for lead {lead}: {error}"));
-    }
-    if let Err(miss) = ingest(&format!("{}\n", row?)) {
+    if let Err(miss) = ingest(&format!("{row}\n")) {
         eprintln!("spawn recording boundary miss for lead {lead}: {miss}");
     }
     None

@@ -49,12 +49,3 @@ pub(super) fn burn_window_seconds() -> f64 {
     default("pace_burn_window_min") * 60.0
 }
 
-pub fn reservation_ttl_seconds() -> f64 {
-    default("spawn_reservation_ttl_s")
-}
-pub fn grant_hold_seconds() -> f64 {
-    default("grant_reservation_hold_s")
-}
-pub fn placement_drain_margin() -> f64 {
-    default("placement_drain_margin")
-}

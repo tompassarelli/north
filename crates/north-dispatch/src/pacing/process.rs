@@ -75,23 +75,8 @@ pub(super) fn run_env(
         err: err.join().unwrap_or_default(),
     })
 }
-pub(super) fn fleet() -> Vec<Value> {
-    run(&binary(), &["fleet", "list", "--json"], None, 5.0)
-        .ok()
-        .filter(|r| r.code == 0)
-        .and_then(|r| serde_json::from_str::<Vec<Value>>(&r.out).ok())
-        .unwrap_or_default()
-}
 pub(super) fn binary() -> String {
     std::env::var("NORTH_BIN").unwrap_or_else(|_| "north".into())
-}
-pub(super) fn send(name: &str, line: &str) -> Result<(), String> {
-    let output = run(&binary(), &["fleet", "send", "--from", "service:north-pacing", name, line], None, 10.0)?;
-    if output.code == 0 {
-        Ok(())
-    } else {
-        Err(format!("Fleet notification failed for {name}"))
-    }
 }
 pub(super) fn adapter(program: &str, args: &[&str]) -> (Vec<Value>, Value) {
     let start = Instant::now();

@@ -54,7 +54,7 @@ fn the_scope_guard_refuses_every_guarded_path_and_every_defaults_key_that_the_ev
     let bar = scope::key_refusals(&before, &changed(&before, "replay_outcome_shift_ratio"));
     assert_eq!(bar, [format!("{DEFAULTS} key replay_outcome_shift_ratio is read by crates/north-replay/src/bounds.rs (the evaluator), which a candidate may not change")]);
     let touches = [DEFAULTS.to_owned()];
-    assert_eq!(scope::refusals(&touches, Some((&before, &changed(&before, "placement_drain_margin")))), Vec::<String>::new(), "a placement key in the same file stays open");
+    assert_eq!(scope::refusals(&touches, Some((&before, &changed(&before, "laptop_idle_reopen_sec")))), Vec::<String>::new(), "a placement key in the same file stays open");
     assert_eq!(scope::refusals(&touches, None).len(), 1, "a defaults change with no contents is refused whole");
 
     let refused = scope::refusals(&["crates/north-pace/src/router/settle.rs".to_owned(), "crates/north-dispatch/src/tune/cells.rs".to_owned(), "crates/north-dispatch/src/dispatch/tier.rs".to_owned()], None);

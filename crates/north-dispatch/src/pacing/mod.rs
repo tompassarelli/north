@@ -1,19 +1,15 @@
+use crate::pace::{admission, control, target, window};
 use crate::error::NorthResult;
 use crate::fleet::roster::Roster;
-use crate::pace::{admission, control, target, window};
 use std::collections::BTreeMap;
 use std::io::Write;
 
 mod command;
-#[cfg(test)]
-mod grant_tests;
-mod grants;
 pub mod placement;
 #[cfg(test)]
 mod placement_gate_tests;
 mod process;
 mod readout;
-mod reservation;
 mod sampling;
 #[cfg(test)]
 mod sampling_tests;
@@ -21,10 +17,6 @@ pub mod spawn_gate;
 mod storage;
 
 pub use sampling::TokenUsage;
-
-pub fn confirm_spawn(request: &serde_json::Value) -> Result<(), String> {
-    command::operation(request).map(|_| ())
-}
 
 #[derive(Clone, Copy)]
 pub struct FleetFacts {
@@ -41,7 +33,6 @@ pub fn run(arguments: &[String], fleet: FleetFacts, token_usage: TokenUsage) -> 
     match arguments.first().map(String::as_str) {
         Some("place") => finish(placement::cli(&arguments[1..], fleet), "north place"),
         Some("sample") => finish(command::cli(&arguments[1..]), "north pace"),
-        Some("grant") => finish(command::cli(arguments), "north pace"),
         _ => request(),
     }
 }
@@ -72,9 +63,6 @@ fn gate(provider: &str) -> u8 {
 }
 pub fn answer(value: &serde_json::Value) -> Result<serde_json::Value, String> {
     if let Some(answer) = command::operation(value)? {
-        return Ok(answer);
-    }
-    if let Some(answer) = placement::operation(value)? {
         return Ok(answer);
     }
     if let Some(answer) = crate::router::ops::answer(value) {

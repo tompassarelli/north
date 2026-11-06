@@ -106,8 +106,6 @@ pub struct Defaults {
     pub codex_tier: BTreeMap<String, Vec<String>>,
     pub codex_eta_max_min: u64,
     pub codex_files_max: u64,
-    pub placement_drain_margin: f64,
-    pub reservation_fallback_points: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -211,8 +209,6 @@ pub fn parse_defaults(defaults: &str) -> Result<Defaults, String> {
         codex_tier,
         codex_eta_max_min: field(&defaults_json, "codex_eta_max_min")?,
         codex_files_max: field(&defaults_json, "codex_files_max")?,
-        placement_drain_margin: field(&defaults_json, "placement_drain_margin")?,
-        reservation_fallback_points: field(&defaults_json, "reservation_fallback_points")?,
     })
 }
 

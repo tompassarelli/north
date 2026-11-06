@@ -587,7 +587,6 @@ defaults = [
   "codex_files_max",
   "land_check_claim_seconds",
   "priority_lease_cap",
-  "reservation_fallback_points",
   "staffing_drain_minutes",
   "staffing_lanes_per_session",
   "staffing_launch_to_queued_minutes",

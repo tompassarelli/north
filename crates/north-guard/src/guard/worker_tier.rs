@@ -96,15 +96,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     }
     match decision {
         Decision::Rewrite(updated, note) => Verdict::Rewrite(updated, note),
-        Decision::Deny(reason) => {
-            if let (Some(session), Some(tool_use_id)) = (
-                input.data["session_id"].as_str().filter(|id| !id.is_empty()),
-                input.data["tool_use_id"].as_str().filter(|id| !id.is_empty()),
-            ) {
-                super::spawn_state::release_pending_use(session, tool_use_id);
-            }
-            Verdict::Deny(reason)
-        }
+        Decision::Deny(reason) => Verdict::Deny(reason),
     }
 }
 

@@ -80,6 +80,3 @@ pub(super) fn rows(value: &Value) -> &[Value] {
 pub(super) fn number(value: &Value, fallback: f64) -> f64 {
     value.as_f64().unwrap_or(fallback)
 }
-pub(super) fn default(name: &str) -> f64 {
-    crate::pace::limits::default(name)
-}

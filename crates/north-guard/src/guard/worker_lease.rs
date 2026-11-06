@@ -3,31 +3,21 @@ mod transcript;
 
 use crate::hook::{HookInput, Verdict};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const LEASH_STEP_MIN: i64 = 10;
-
-pub type Confirm = fn(&serde_json::Value) -> Result<(), String>;
-
-static CONFIRM: OnceLock<Confirm> = OnceLock::new();
-
-pub fn install_confirm(confirm: Confirm) {
-    let _ = CONFIRM.set(confirm);
-}
 
 pub(super) struct Env<'a> {
     pub home: PathBuf,
     pub now: f64,
     pub off: &'a dyn Fn() -> bool,
-    pub confirm: Option<Confirm>,
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     let off = || crate::guard::activation::authoring_guards_off("north-hook");
     let home = std::env::home_dir().unwrap_or_default();
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64());
-    let env = Env { home, now, off: &off, confirm: CONFIRM.get().copied() };
+    let env = Env { home, now, off: &off };
     decide(input, &env).map_or(Verdict::Allow, Verdict::Advise)
 }
 
