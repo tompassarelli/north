@@ -40,7 +40,8 @@ One JSON query (argument, `--file PATH` or `-` for stdin), Beagle's structured q
 - `orderBy: [{column, direction: asc|desc}]`, `limit` (1 to 100000, applied after ordering) and `timeoutMs`.
 
 Relations: `triple(t1,t2,t3)` has one row per distinct live proposition; `occurrence(coordinate, action, proposition)`
-is the signed history with `:assert` and `:retract`; `withdrawal(retraction, assertion)` has a row per successful
+is the signed history with `:assert` and `:retract`; `assertion(writer, t1, t2, t3)` has a row per live assertion and the String that wrote it;
+`quoted(term, t1, t2, t3)` has a row per triple term, asserted or only nested; `withdrawal(retraction, assertion)` has a row per successful
 retraction. Clauses run in order; negation needs bound variables and a relation from an earlier stratum or SQLite;
 arithmetic that overflows, divides by zero or yields a non-finite number drops the row and may not appear in a recursive
 rule. Budgets are 10,000,000 steps and a 5 s timeout (60 s cap). Text relations and as-of or since views are not built.
@@ -53,3 +54,52 @@ Output is one tab-separated row per line in the term syntax above, or with `--js
 `cargo run --release -p north-graph --example ask_scale` generates 1,000,000 occurrences (950,000
 assertions and 50,000 retractions over 190,000 nodes), validates the store, checks a 3-hop `ask` anchored at one node against an independent
 computation, and exits non-zero unless the median of 20 runs is under 50 ms.
+
+## Ingest
+
+`north graph ingest [--db PATH] [SOURCE...]` loads what north already records (`crates/north-graph-ingest`). Each run is one
+short command for a timer or hook: it reads the local copies (never the GitHub API), compares them with the live assertions
+and tells only the difference, so a rerun over unchanged sources asserts and retracts nothing. A source that cannot be read
+is skipped with its reason and the exit code is 1; the others still load.
+
+Facts are told by the writer that would know them. A worker's Done claim is a quoted triple asserted by that worker, never a
+bare fact; a checker's observation is an assertion by `checker`. `assertion(writer, t1, t2, t3)` has a row per live
+assertion with its writer and `quoted(term, t1, t2, t3)` gives the parts of any triple term, asserted or only nested, so a
+query can join a claim to the checks of the commit it names.
+
+- `mirror` (writer `mirror`): `(north#634 :title|:state|:label|:blocked-by|:has-box ...)` and, per task-list box,
+  `(box:north#634:HASH :text|:ticked|:owner ...)`. A ticked box that names `owner: SESSION` is the session's claim
+  `(SESSION :claims (box:... :done-at SHA))`, written by SESSION, one per commit named after `landed` (short ids expand
+  to the full commit id when the ledger or push log knows it) or `:none` when the box names no commit. `:title`, `:state`,
+  `:label`, `:blocked-by`, `:has-box`, `:text`, `:ticked`, `:owner` and `:claims` are replaced from the mirror: a box
+  unticked or an issue closed retracts what no longer holds.
+- `ledger` (writers `checker` and `ledger`): `(SHA :check-passed|:check-failed COMMAND)` and `(SHA :checked-for north#634)`
+  by `checker`, from the ledger's checks; `(SESSION :works-on north#634)` and `(north#634 :landed-as SHA)` by `ledger`.
+- `pushes` (writer `push-log`): per pushed commit `:repo`, `:branch`, `:pushed-at`, `(SESSION :pushed SHA)`, and for a
+  commit that reached main `:landed-as`, `:landed-by` and `:landed-at`.
+- `decisions` (writer `decision-log`): per decision `(decision:ID :decision-kind|:at|:host|:follows|...)` with the branch,
+  commit, lane, session, account and outcome the kind's case names. The log keeps 14 days; the graph keeps what it read.
+- `corrections` (writer `corrections`): `(correction:ID :class|:at|:paraphrase|:in-session|:superseded-by ...)` from the
+  grounding ledger and `(class:NAME :class-paraphrase|:class-owner|:class-guard|:class-guarded-at ...)` from
+  harness/corrections.toml. The ledger holds Tom's corrections as neutral paraphrases and so does the graph.
+- `coverage` (writer `coverage`): `(test:BINARY::NAME :reaches fn:FILE:START-END)`, `:in-binary`, `:in-file` and
+  `(coverage:REPO :commit SHA)` from the coverage map, replaced whole by each map.
+
+A predicate belongs to one source: a run refuses a source that replaces a predicate another source of the run replaces.
+
+Which Done claims on north#634 have no checker observation, as one `ask` (`claim` joins each worker's quoted claim to the boxes
+of the issue; `observed` is a commit `checker` passed):
+
+```
+{"find": "unobserved", "strata": [
+  [{"head": {"rel": "claim", "args": [{"var": "who"}, {"var": "box"}, {"var": "sha"}]}, "body": [
+     {"rel": "assertion", "args": [{"var": "who"}, {"var": "speaker"}, ["keyword", "claims"], {"var": "q"}]},
+     {"pred": "eq", "args": [{"var": "who"}, {"var": "speaker"}]},
+     {"rel": "quoted", "args": [{"var": "q"}, {"var": "box"}, ["keyword", "done-at"], {"var": "sha"}]},
+     {"rel": "triple", "args": ["north#634", ["keyword", "has-box"], {"var": "box"}]}]},
+   {"head": {"rel": "observed", "args": [{"var": "sha"}]}, "body": [
+     {"rel": "assertion", "args": ["checker", {"var": "sha"}, ["keyword", "check-passed"], {"var": "command"}]}]}],
+  [{"head": {"rel": "unobserved", "args": [{"var": "who"}, {"var": "box"}, {"var": "sha"}]}, "body": [
+     {"rel": "claim", "args": [{"var": "who"}, {"var": "box"}, {"var": "sha"}]},
+     {"rel": "observed", "args": [{"var": "sha"}], "neg": true}]}]]}
+```

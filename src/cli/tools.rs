@@ -61,7 +61,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("experiments", crate::ops::experiments::run),
     ("goals", north_goals::run),
     ("coverage", north_coverage::run),
-    ("graph", north_graph::run),
+    ("graph", north_graph_ingest::run),
     ("tempo", crate::ops::tempo::run),
     ("report", crate::ops::report::run),
     ("agents", super::agents::run),

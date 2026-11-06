@@ -11,6 +11,8 @@ pub enum BaseRelation {
     Triple,
     Occurrence,
     Withdrawal,
+    Assertion,
+    Quoted,
 }
 
 impl BaseRelation {
@@ -19,6 +21,8 @@ impl BaseRelation {
             "triple" => Some(Self::Triple),
             "occurrence" => Some(Self::Occurrence),
             "withdrawal" => Some(Self::Withdrawal),
+            "assertion" => Some(Self::Assertion),
+            "quoted" => Some(Self::Quoted),
             _ => None,
         }
     }
@@ -27,6 +31,7 @@ impl BaseRelation {
         match self {
             Self::Triple | Self::Occurrence => 3,
             Self::Withdrawal => 2,
+            Self::Assertion | Self::Quoted => 4,
         }
     }
 }

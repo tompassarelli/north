@@ -3,7 +3,7 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use super::resolve::Terms;
 use super::Graph;
 use crate::error::{GraphError, Result};
-use crate::key::{atom_key, triple_key};
+use crate::key::{Key, atom_key, decode_key, triple_key};
 use crate::term::{MAX_TERM_DEPTH, Term, Triple};
 
 const SPACE: &str = "graph";
@@ -70,6 +70,9 @@ impl Terms<'_> {
     fn insert_key(&mut self, key: &[u8]) -> Result<i64> {
         self.connection.prepare_cached("INSERT INTO terms (key) VALUES (?1)")?.execute([key])?;
         let id = self.connection.last_insert_rowid();
+        if let Ok(Key::Triple([t1, t2, t3])) = decode_key(key) {
+            self.connection.prepare_cached("INSERT INTO quoted (id, t1, t2, t3) VALUES (?1, ?2, ?3, ?4)")?.execute(params![id, t1, t2, t3])?;
+        }
         self.found.insert(key.to_vec(), id);
         Ok(id)
     }
@@ -85,11 +88,19 @@ impl Graph {
     }
 
     pub fn apply(&mut self, writer: &str, actions: &[Action]) -> Result<Vec<Receipt>> {
-        if let Some(depth) = actions.iter().map(|action| action.triple.depth()).find(|depth| *depth > MAX_TERM_DEPTH) {
-            return Err(GraphError::Invalid(format!("a term nests {depth} deep; the limit is {MAX_TERM_DEPTH}")));
+        Ok(self.apply_batches(&[(writer, actions)])?.remove(0))
+    }
+
+    pub fn apply_batches(&mut self, batches: &[(&str, &[Action])]) -> Result<Vec<Vec<Receipt>>> {
+        let deepest = batches.iter().flat_map(|(_, actions)| actions.iter()).map(|action| action.triple.depth()).max().unwrap_or(0);
+        if deepest > MAX_TERM_DEPTH {
+            return Err(GraphError::Invalid(format!("a term nests {deepest} deep; the limit is {MAX_TERM_DEPTH}")));
         }
         let transaction = self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let receipts = Writer::new(&transaction, writer)?.run(actions)?;
+        let mut receipts = Vec::with_capacity(batches.len());
+        for (writer, actions) in batches {
+            receipts.push(if actions.is_empty() { Vec::new() } else { Writer::new(&transaction, writer)?.run(actions)? });
+        }
         transaction.commit()?;
         Ok(receipts)
     }
@@ -98,10 +109,10 @@ impl Graph {
 struct Writer<'t> {
     connection: &'t Transaction<'t>,
     terms: Terms<'t>,
-    writer: &'t str,
     assert_id: i64,
     retract_id: i64,
     op_ordinal_id: i64,
+    writer_id: i64,
     transaction_coordinate: (Term, i64),
 }
 
@@ -114,7 +125,7 @@ impl<'t> Writer<'t> {
         let coordinate_id = terms.intern(&coordinate)?;
         Ok(Self {
             connection,
-            writer,
+            writer_id: terms.intern(&Term::string(writer))?,
             assert_id: terms.intern(&Term::keyword(ActionKind::Assert.keyword()))?,
             retract_id: terms.intern(&Term::keyword(ActionKind::Retract.keyword()))?,
             op_ordinal_id: terms.intern(&Term::keyword(OP_ORDINAL))?,
@@ -143,7 +154,7 @@ impl<'t> Writer<'t> {
     fn record(&self, coordinate: i64, action: i64, proposition: i64, live: bool) -> Result<i64> {
         self.connection
             .prepare_cached("INSERT INTO occurrences (coord, action, prop, writer, live) VALUES (?1, ?2, ?3, ?4, ?5)")?
-            .execute(params![coordinate, action, proposition, self.writer, live])?;
+            .execute(params![coordinate, action, proposition, self.writer_id, live])?;
         Ok(self.connection.last_insert_rowid())
     }
 

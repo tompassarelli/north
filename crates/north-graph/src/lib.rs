@@ -6,6 +6,7 @@ mod json;
 mod key;
 mod query;
 mod store;
+mod sync;
 mod term;
 mod text;
 
@@ -22,7 +23,8 @@ pub use cli::run;
 pub use error::{GraphError, QueryError};
 pub use json::{term_from_json, term_to_json};
 pub use query::{Answer, Budget, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS, Query, STEP_BUDGET, parse_query};
-pub use store::{Action, ActionKind, Graph, Live, Receipt, Report, default_path};
+pub use store::{Action, ActionKind, Graph, Live, Receipt, Report, Told, default_path};
+pub use sync::{Synced, Telling};
 pub use term::{Atom, Float, Instant, Term, TermError, Triple};
 pub use text::parse_arg;
 

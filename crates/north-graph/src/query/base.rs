@@ -12,6 +12,8 @@ fn layout(relation: BaseRelation) -> (&'static str, &'static [&'static str]) {
         BaseRelation::Triple => ("live_props", &["t1", "t2", "t3"]),
         BaseRelation::Occurrence => ("occurrences", &["coord", "action", "prop"]),
         BaseRelation::Withdrawal => ("withdrawals", &["retraction", "assertion"]),
+        BaseRelation::Assertion => ("assertions", &["writer", "t1", "t2", "t3"]),
+        BaseRelation::Quoted => ("quoted", &["id", "t1", "t2", "t3"]),
     }
 }
 

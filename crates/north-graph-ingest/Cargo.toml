@@ -1,0 +1,28 @@
+[package]
+name = "north-graph-ingest"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-coverage = { path = "../north-coverage" }
+north-fleet = { path = "../north-fleet" }
+north-github-mirror = { path = "../north-github-mirror" }
+north-graph = { path = "../north-graph" }
+north-threads = { path = "../north-threads" }
+regex.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -73,6 +73,11 @@ paths = ["crates/north-graph/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
+name = "north-graph-ingest"
+paths = ["crates/north-graph-ingest/src/**"]
+may_use = ["north-base", "north-coverage", "north-fleet", "north-github-mirror", "north-graph", "north-threads"]
+
+[[crate_dag.crate]]
 name = "north-dispatch"
 paths = ["crates/north-dispatch/src/**"]
 may_use = ["north-capacity", "north-fleet", "north-providers", "north-threads", "north-github-mirror"]
@@ -131,7 +136,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "graph", "verdict_cache"]
+may_use = ["strategy_types", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest"]
 
 [[module]]
 name = "strategy_types"
@@ -332,6 +337,12 @@ responsibility = "The fact graph: interned Atom and Triple terms, assertion occu
 may_use = ["crate-roots"]
 
 [[module]]
+name = "graph_ingest"
+paths = ["crates/north-graph-ingest/src/**"]
+responsibility = "Loading what north already records into the fact graph: the GitHub mirror, ledger, push log, decision log, corrections and coverage map, each told as a set by its own writer."
+may_use = ["coverage", "crate-roots", "fleet", "foundation", "github_mirror", "graph", "platform", "threads"]
+
+[[module]]
 name = "ops"
 paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-core/src/health.rs", "crates/north-core/src/health/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
@@ -384,7 +395,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "replay"]
+may_use = ["strategy_types", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay"]
 
 [[module]]
 name = "verify"

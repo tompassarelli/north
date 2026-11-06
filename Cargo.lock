@@ -863,7 +863,7 @@ dependencies = [
  "north-dispatch",
  "north-github-mirror",
  "north-goals",
- "north-graph",
+ "north-graph-ingest",
  "north-guard",
  "north-landing",
  "north-ops",
@@ -1046,6 +1046,23 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "north-graph-ingest"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-coverage",
+ "north-fleet",
+ "north-github-mirror",
+ "north-graph",
+ "north-threads",
+ "regex",
+ "rusqlite",
+ "serde_json",
+ "sha2",
  "tempfile",
 ]
 
