@@ -39,8 +39,8 @@ const OPEN: &[&str] = &[
 const DECISION: &[&str] = &[r"\b(needs (tom|your)|need your call|waiting (on|for) (tom|your))\b"];
 const STOP_OPEN: &[&str] = &[r"(?m)^\W*stop\W*:[^\n]*\b(not (done|landed)|nothing landed|unfinished)\b"];
 const STOP_DONE: &[&str] = &[r"(?m)^\W*stop\W*:[^\n]{0,40}\b(done|goal met|landed)\b"];
-const MAIN: &str = r"\bon (origin/)?main\b";
-const CLOSED: &str = r"(#\d+\W{0,3}(is |was |now )?closed|\bclosed #\d|\bissue\b[^.\n]{0,40}\bclosed\b|\b(is|are|now|all|been|boxes) ticked\b)";
+const MAIN: &str = r"\b(on|ancestor of) `?(origin/)?main\b";
+const FINISHED: &str = r"(#\d+\W{0,3}(is |was |now )?closed|\bclosed #\d|\bissue\b[^.\n]{0,40}\bclosed\b|\b(is|are|now|all|been|boxes) ticked\b|\bticked (its|the|every|all|both|each)\b|\b(is|are) (now )?(closed|done|fixed)\b)";
 const FAILED: &[&str] = &[r"\b(fail(ed|s|ure)?|refused|error)\b"];
 const WAITING: &[&str] = &[
     r"^\W*(waiting|still (running|deferred|waiting|queued)|i.ll (wait|pick|act|replace|start|score|run))",
@@ -54,7 +54,7 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
         pattern: Regex::new(&format!("(?i){}", patterns.join("|"))).unwrap(),
         outcome,
     };
-    let landed = format!("(?s){MAIN}.*{CLOSED}|{CLOSED}.*{MAIN}");
+    let landed = format!("(?s){MAIN}.*{FINISHED}|{FINISHED}.*{MAIN}");
     vec![
         rule(Scope::Head, false, STOP, "idle"),
         rule(Scope::Head, false, &["(?-i:HANDOFF)"], "handoff"),
@@ -102,9 +102,9 @@ mod tests {
     }
 
     #[test]
-    fn at_least_eighteen_of_twenty_real_reports_from_2026_10_26_are_labelled_right() {
+    fn at_most_two_of_twenty_four_real_reports_from_2026_10_26_and_2026_11_06_are_labelled_wrong() {
         let reports: Vec<Labelled> = serde_json::from_str(include_str!("reports.json")).unwrap();
-        assert_eq!(reports.len(), 20);
+        assert_eq!(reports.len(), 24);
         let wrong: Vec<(&str, &str)> =
             reports.iter().map(|labelled| (classify(&labelled.report, labelled.quiet), labelled.outcome.as_str())).filter(|(got, want)| got != want).collect();
         assert!(wrong.len() <= 2, "{wrong:?}");

@@ -17,6 +17,8 @@ const ORDERS_SLOT: &str = "{standing_orders}";
 const CAP_SLOT: &str = "{foreground_cap_secs}";
 const SESSION_SLOT: &str = "{session}";
 const REACH_SLOT: &str = "{reach}";
+const REPORT_SLOT: &str = "{report_lead}";
+const MEMBER_REPORT_LEAD: &str = " Begin it `Done:`, `Not done:`, `Split:` or `Blocked:`, since the ledger scores your run by that word, and end a Not done or Blocked report with one `Stop:` line: `Stop: decision`, `Stop: host NAME` when only another host or need (laptop, native) can finish the box, `Stop: wait until YYYY-MM-DDTHH:MMZ` when it cannot go on before that UTC time, else `Stop: landing`, `capacity`, `client`, `leash` or `reasoning`.";
 const PROXY_REACH: &str = "As Tom's proxy you hear Tom directly, typed in the fleet TUI; every message from anyone else starts with `[from NAME]`.";
 const MEMBER_REACH: &str = "Tom and the proxy reach you only through fleet messages.";
 const ORDERS_FILE: &str = "standing-orders.md";
@@ -88,6 +90,7 @@ pub fn render(inputs: &PromptInputs) -> String {
                 .replace(CAP_SLOT, &inputs.foreground_cap_secs.to_string())
                 .replace(SESSION_SLOT, inputs.session)
                 .replace(REACH_SLOT, reach(inputs.role))
+                .replace(REPORT_SLOT, report_lead(inputs.role))
                 .replace(ORDERS_SLOT, inputs.orders.trim_end()),
         ),
         PromptMode::Vanilla => None,
@@ -105,6 +108,13 @@ fn reach(role: Role) -> &'static str {
     match role {
         Role::Proxy => PROXY_REACH,
         Role::Lead | Role::Worker => MEMBER_REACH,
+    }
+}
+
+fn report_lead(role: Role) -> &'static str {
+    match role {
+        Role::Proxy => "",
+        Role::Lead | Role::Worker => MEMBER_REPORT_LEAD,
     }
 }
 

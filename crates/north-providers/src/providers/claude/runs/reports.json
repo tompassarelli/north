@@ -98,5 +98,25 @@
     "report": "Done: the Shadow Hunter issue (#604) is finished. The weapon trace now flags none of his moves, the change is on origin/main, the box is ticked and the issue is closed.\n\n**Evidence**\n- The landed commit 8b9cb6c0f9 is on main: `git merge-base --is-ancestor 8b9cb6c0f9 origin/main` exited 0.\n- On that tree, `bun tools/animations/weapon-trace.ts --fighter shadow-hunter` exited 0 with \"17 weapon moves ",
     "outcome": "done",
     "quiet": false
+  },
+  {
+    "report": "The repeat-runs box on north#636 is done and ticked. The fix landed as 43826c86c, and `git merge-base --is-ancestor` confirms it is on origin/main. **What \"attempts\" counted.** The ledger chained worker runs by issue only. So the next box on the same issue counted as a second attempt, and it also marked the earlier run \"not ok\". That is why \"ok\" sat at 9% to 40% while \"success\" was 54% to 73%. The column is also the average position of each run in its chain, so issues with many boxes push it up. **Top three causes, over the week from 2026-10-30.** 357 runs counted as repeats have a known box",
+    "quiet": false,
+    "outcome": "done"
+  },
+  {
+    "report": "`n634-import` landed as `a577d2e83`, so the unused-import clippy failure is fixed on origin/main. Main as a whole is still red from the two `capacity_agent_compile` integration tests, which belong to `north#671`. I haven't seen a post-land verdict for `a577d2e83` yet. Nothing else is open on this box. I left a comment on `north#671` with the cause and the re-land it needs. Nothing here needs Tom.",
+    "quiet": false,
+    "outcome": "done"
+  },
+  {
+    "report": "The false all-clear is fixed and landed on `origin/main` as ab9cc4ef7. Issue north#679 is closed with all five boxes ticked. **What changed:** before, any green after-landing run ended a red-main episode. Now the red-main marker saves the red head, the packages its Rust checks covered, and the tests and steps that failed. A later green run ends the episode only in one of these cases: - Its log shows every named failing test or harness passing. - No test was named, and every failing step reran over at least the packages the red run covered. - A commit that landed after the red head carries the",
+    "quiet": false,
+    "outcome": "done"
+  },
+  {
+    "report": "Both issues are fixed. On whiterabbit, `north agent-config-check --local` exits 0 (\"all green\") and `systemctl --user --failed` lists no units. I ticked the Done-when box on both issues and commented with the evidence. Every SHA below is an ancestor of origin/main. **Agent configuration check (north#627)** had four separate failures: - **Prompt-grounding hook wiring:** north's policy-owners file still named `prompt-grounding.sh`, but the nixos-config hooks file already runs `north hook prompt-grounding`. Fixed in north 7e6eff2df, which includes a test that fails on the old file. South d719adf",
+    "quiet": false,
+    "outcome": "done"
   }
 ]
