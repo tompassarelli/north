@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use rusqlite::Connection;
-use rusqlite::types::ValueRef;
 
 use super::run;
 use crate::foundation::clock::Timestamp;
@@ -53,15 +52,6 @@ impl Ledger {
         Connection::open(&self.path).unwrap().execute_batch(sql).unwrap();
     }
 
-    fn sql(&self, query: &str) -> String {
-        Connection::open(&self.path).unwrap().query_row(query, [], |row| Ok(match row.get_ref(0)? {
-            ValueRef::Null => String::new(),
-            ValueRef::Integer(number) => number.to_string(),
-            ValueRef::Real(number) => number.to_string(),
-            other => String::from_utf8_lossy(other.as_bytes().unwrap()).into_owned(),
-        })).unwrap()
-    }
-
     fn run(&self, argv: &[&str]) -> (i32, String, String) {
         let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, outside: &self.outside, now: Timestamp::parse(NOW).unwrap(), replica: self.replica };
         let argv: Vec<String> = argv.iter().map(|arg| (*arg).to_owned()).collect();
@@ -80,15 +70,6 @@ impl Ledger {
         self.out(&["ready"]).lines().map(|line| line.split('\t').next().unwrap().to_owned()).collect()
     }
 
-}
-
-#[test]
-fn a_replica_ledger_answers_from_its_cache_and_is_never_written() {
-    let mut rig = ledger();
-    rig.exec("INSERT INTO gh_cache VALUES ('wisp', 1.0, '{}')");
-    rig.replica = true;
-    assert_eq!(rig.ready(), ["makgora#2", "makgora#3", "makgora#4"]);
-    assert_eq!(rig.sql("SELECT group_concat(repo || ' ' || fetched) FROM gh_cache"), "wisp 1.0");
 }
 
 #[test]

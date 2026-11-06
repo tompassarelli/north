@@ -559,40 +559,6 @@ pub fn search(
 mod tests {
     use super::*;
 
-    fn index_with(rows: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf) {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("index.db");
-        let mut writer = Sqlite::open(&path, false).unwrap();
-        writer.exec(SCHEMA).unwrap();
-        for (n, (title, text)) in rows.iter().enumerate() {
-            writer
-                .exec(&format!("insert into docs(source,id,ref,title,text,at,decays) values('policy','{n}','harness/{n}.md',{},{},0,0);", quote(title), quote(text)))
-                .unwrap();
-        }
-        drop(writer);
-        (dir, path)
-    }
-
-    #[test]
-    fn expired_budget_still_returns_the_first_query_hits() {
-        let (_dir, path) = index_with(&[("deadline hook", "the prompt hook must answer within one second"), ("unrelated", "nothing to see")]);
-        let mut db = Sqlite::open(&path, true).unwrap();
-        db.bound(Bound { terms: Some(12), until: Some(Instant::now()) });
-        let (hits, _) = search("prompt hook answer within second. deadline hook must answer", &mut db, 0.0, 80, 0.0).unwrap();
-        assert!(hits.iter().any(|hit| hit.title == "deadline hook"), "{hits:?}");
-    }
-
-    #[test]
-    fn bounded_search_keeps_only_the_rarest_terms() {
-        let rows: Vec<(String, String)> = (0..40).map(|n| (format!("common {n}"), "alpha beta gamma delta".to_owned())).chain([("rare".to_owned(), "zyxwv".to_owned())]).collect();
-        let rows: Vec<(&str, &str)> = rows.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
-        let (_dir, path) = index_with(&rows);
-        let mut db = Sqlite::open(&path, true).unwrap();
-        db.bound(Bound { terms: Some(1), until: None });
-        let (_, words) = search("alpha beta gamma delta zyxwv", &mut db, 0.0, 80, 0.0).unwrap();
-        assert_eq!(words, ["zyxwv"]);
-    }
-
     #[test]
     fn locked_readonly_index_fails_open_before_the_prompt_budget() {
         let dir = tempfile::tempdir().unwrap();

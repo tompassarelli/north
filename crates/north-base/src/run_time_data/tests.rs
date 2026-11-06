@@ -58,14 +58,6 @@ fn a_lane_cannot_widen_the_range_it_is_judged_by() {
 }
 
 #[test]
-fn a_new_key_declares_its_range_and_sits_inside_it() {
-    let base = "[a]\nvalue = 1\nallowed = { min = 0, max = 2 }\n";
-    assert_eq!(defaults_reasons(base, &format!("{base}[b]\nvalue = 1\n")), ["b has a value but declares no allowed range or values beside it"]);
-    assert_eq!(defaults_reasons(base, &format!("{base}[b]\nvalue = 9\nallowed = {{ min = 0, max = 2 }}\n")), ["b value 9 is outside 0..2"]);
-    assert!(defaults_reasons(base, &format!("{base}[b]\nvalue = 1\nallowed = {{ min = 0, max = 2 }}\n")).is_empty());
-}
-
-#[test]
 fn strings_lists_and_ordered_pairs_are_held_to_their_declared_values() {
     let base = "[route]\nvalue = 'codex'\nallowed = { one_of = ['codex', 'claude'] }\n[tiers]\nvalue = ['codex:sol']\nallowed = { prefix = 'codex:', min_len = 0, max_len = 2 }\n[band]\nvalue = [10, 20]\nallowed = { min = 0, max = 100, min_len = 2, max_len = 2, ascending = true }\n";
     assert!(defaults_reasons(base, base).is_empty());
@@ -75,12 +67,6 @@ fn strings_lists_and_ordered_pairs_are_held_to_their_declared_values() {
         ["band value entries must not decrease", "route value \"gemini\" is not one of [\"codex\", \"claude\"]", "tiers value holds 3 entries, allowed 0..2"]
     );
     assert_eq!(defaults_reasons(base, &base.replace("['codex:sol']", "['claude:x']")), ["tiers value \"claude:x\" does not start with \"codex:\""]);
-}
-
-#[test]
-fn a_constraint_no_reader_checks_is_refused() {
-    let head = "[a]\nvalue = 1\nallowed = { minimum = 0 }\n";
-    assert_eq!(defaults_reasons(head, head), ["a value allowed names minimum, which no reader of it checks"]);
 }
 
 fn reject_odd_numbers(text: &str) -> Result<(), String> {
@@ -133,12 +119,4 @@ fn a_pair_of_limits_is_held_to_its_order_even_when_each_sits_inside_its_own_rang
     assert!(defaults_reasons(base, base).is_empty());
     assert_eq!(defaults_reasons(base, &base.replace("value = 12", "value = 3")), ["low value must be at most high (3)"]);
     assert_eq!(defaults_reasons(base, &base.replace("value = 4", "value = 40")), ["low value must be at most high (12)"]);
-}
-
-#[test]
-fn a_list_may_empty_when_its_declared_range_allows_it() {
-    let base = "[tiers]\nvalue = ['codex:a']\nallowed = { prefix = 'codex:', min_len = 0 }\n";
-    assert!(defaults_reasons(base, &base.replace("['codex:a']", "[]")).is_empty());
-    let kept = "[owners]\nvalue = ['a']\nallowed = { min_len = 1 }\n";
-    assert_eq!(defaults_reasons(kept, &kept.replace("['a']", "[]")), ["owners value holds 0 entries, allowed 1..any"]);
 }

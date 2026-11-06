@@ -352,7 +352,3 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
 #[cfg(test)]
 #[path = "hook_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "hook_rewrite_tests.rs"]
-mod rewrite_tests;

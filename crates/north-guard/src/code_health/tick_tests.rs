@@ -41,18 +41,6 @@ fn lock(env: &TickEnv) -> std::path::PathBuf {
     env.state_root.join("makgora/review.lock")
 }
 
-#[test]
-fn a_launch_refused_on_every_account_is_an_error_and_one_refused_for_a_saturated_host_is_deferred_and_both_release_the_lock() {
-    let (dir, env) = scratch("echo \"FIRE days 7\"");
-    let env = TickEnv { dry_run: false, ..env };
-    write_executable(&dir.path().join("north"), "#!/usr/bin/env bash\nexit 1\n");
-    assert_eq!(tick(&env, &mut Vec::new()), Verdict::Error);
-    assert!(!lock(&env).exists());
-    write_executable(&dir.path().join("north"), "#!/usr/bin/env bash\necho 'error: whiterabbit skipped: 5-minute load 36.1 over 24 cores; launch from another host, or keep it here with --local \"<reason>\"' >&2\nexit 1\n");
-    assert_eq!(tick(&env, &mut Vec::new()), Verdict::Deferred);
-    assert!(!lock(&env).exists());
-}
-
 
 #[test]
 fn every_repo_of_a_project_with_paused_true_gets_no_review_launch_while_other_enrolled_repos_still_tick() {

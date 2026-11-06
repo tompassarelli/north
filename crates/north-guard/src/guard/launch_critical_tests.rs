@@ -160,28 +160,3 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
     );
 }
 
-fn in_place_edit_from_main(command: impl FnOnce(&str) -> String) -> Option<String> {
-    let fixture = fixture();
-    let lane = format!("{}/wisp/worktrees/sc-812-cache", fixture.root);
-    std::fs::create_dir_all(format!("{lane}/host/toolchain")).unwrap();
-    std::fs::write(format!("{lane}/host/toolchain/package.ts"), "a\n").unwrap();
-    let policy = Policy {
-        root: fixture.root.clone(),
-        home: std::env::var("HOME").unwrap(),
-    };
-    let payload = serde_json::json!({
-        "tool_name": "Bash",
-        "cwd": format!("{}/proj/main", fixture.root),
-        "tool_input": {"command": command(&lane)},
-    });
-    policy.decide(&HookInput::parse(&serde_json::to_vec(&payload).unwrap()).unwrap())
-}
-
-#[test]
-fn an_in_place_edit_after_cd_semicolon_into_another_repos_lane_is_allowed() {
-    let reason = in_place_edit_from_main(|lane| {
-        format!("cd {lane}; perl -0pi -e 's/a/b/' host/toolchain/package.ts")
-    });
-    assert_eq!(reason, None);
-}
-

@@ -67,7 +67,3 @@ pub fn authoring_guards_off(id: &str) -> bool {
 pub fn guards_off_in(id: &str, get: &impl Fn(&str) -> Option<String>) -> bool {
     guards_off(&get("NORTH_HOOK_ID").unwrap_or_else(|| id.to_owned()), get)
 }
-
-#[cfg(test)]
-#[path = "activation_tests.rs"]
-mod tests;

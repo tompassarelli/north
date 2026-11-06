@@ -961,7 +961,6 @@ dependencies = [
  "base64",
  "north-strategy-types",
  "percent-encoding",
- "proptest",
  "regex",
  "ring",
  "rusqlite",

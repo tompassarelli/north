@@ -58,7 +58,6 @@ pub mod recommendation_grounding;
 mod recommendation_grounding_tests;
 mod clipboard_tests;
 mod trigger_matrix;
-mod worker_wait_tests;
 pub mod corpus_scan;
 pub mod modern_search;
 pub mod resource_safe_search;

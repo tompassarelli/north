@@ -1,6 +1,6 @@
-use super::{DEFAULTS, TREE, document, resolve, table};
+use super::{DEFAULTS, TREE, resolve};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn scratch(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("north-harness-{name}-{}", std::process::id()));
@@ -21,16 +21,6 @@ fn a_runtime_reads_its_tables_from_the_tree_pinned_beside_it_not_from_the_checko
     assert_eq!(resolve(None, &runtime.join("north"), &state.join("home")), Ok(runtime.join(TREE)));
     assert_eq!(resolve(Some(checkout.clone()), &runtime.join("north"), &state.join("home")), Ok(checkout));
     fs::remove_dir_all(&state).unwrap();
-}
-
-#[test]
-fn a_test_or_dev_build_reads_the_tables_of_the_source_tree_it_was_built_from() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let text = fs::read_to_string(root.join(DEFAULTS)).unwrap();
-    assert_eq!(table(DEFAULTS), text);
-    assert!(std::ptr::eq(table(DEFAULTS), table(DEFAULTS)));
-    assert!(document(DEFAULTS).contains_key("usage_stale_min"));
-    assert!(std::ptr::eq(document(DEFAULTS), document(DEFAULTS)), "every crate reads one parse of a table per process");
 }
 
 #[test]

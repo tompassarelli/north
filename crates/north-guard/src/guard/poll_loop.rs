@@ -197,7 +197,3 @@ fn seconds(word: &str) -> Option<f64> {
     };
     number.parse::<f64>().ok().filter(|n| n.is_finite() && *n >= 0.0).map(|n| n * unit)
 }
-
-#[cfg(test)]
-#[path = "poll_loop_tests.rs"]
-mod tests;

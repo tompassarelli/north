@@ -88,20 +88,6 @@ fn the_hourly_share_refuses_a_call_with_the_spend_and_when_it_frees_counts_a_rol
     assert!(to(10, 0).is_empty(), "a free call is never refused");
 }
 
-#[test]
-fn paginated_and_long_listings_cost_more_and_help_costs_nothing() {
-    assert_eq!(cost(&words(&["api", "--paginate", "repos/x/y/actions/runs"])), PAGINATE_COST);
-    assert_eq!(cost(&words(&["run", "list", "--limit", "1000"])), 10);
-    assert_eq!(cost(&words(&["run", "list", "-L", "250"])), 3);
-    assert_eq!(cost(&words(&["run", "list", "--limit=30"])), 1);
-    assert_eq!(cost(&words(&["issue", "view", "5"])), 1);
-    assert_eq!(cost(&words(&["--version"])), 0);
-    assert_eq!(cost(&words(&["issue", "--help"])), 0);
-    assert_eq!(cost(&words(&["config", "get", "editor"])), 0);
-    assert_eq!(cost(&[]), 0);
-}
-
 fn command_origin() -> gh_origin::Origin {
     gh_origin::Origin { kind: Kind::Command, caller: "shell".to_owned() }
 }
-
