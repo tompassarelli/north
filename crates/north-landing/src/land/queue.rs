@@ -67,13 +67,9 @@ impl Ticket {
     }
 }
 
-pub use crate::platform::land_queue::{directory, key};
+pub use crate::platform::land_queue::{directory, key, slug};
 
 pub const OUTBOX: &str = "outbox";
-
-pub fn slug(branch: &str) -> String {
-    branch.chars().map(|character| if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') { character } else { '-' }).collect()
-}
 
 pub fn file_name(queued_micros: u128, branch: &str) -> String {
     format!("{queued_micros}-{}.json", slug(branch))

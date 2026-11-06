@@ -8,6 +8,8 @@ use regex::bytes::Regex as BytesRegex;
 
 use crate::platform::push_ledger;
 use super::test_integrity::{in_vendored, vendored_trees};
+use super::incident_guard;
+use super::test_file::is_test_file;
 use super::{Range, git};
 use crate::dep_gate::trailer_lines;
 use crate::landing::fails_first;
@@ -23,9 +25,6 @@ static TEST_MARKER: LazyLock<BytesRegex> = LazyLock::new(|| {
         .expect("test marker pattern")
 });
 static SCENARIO: LazyLock<BytesRegex> = LazyLock::new(|| BytesRegex::new(r"^[+-]\s*printf\s+'PASS:").expect("scenario pattern"));
-static TEST_FILE: LazyLock<BytesRegex> = LazyLock::new(|| {
-    BytesRegex::new(r"(^|/)tests?/|[._]tests?\.[^/]*$").expect("test file pattern")
-});
 static RECORD_FILE: LazyLock<BytesRegex> = LazyLock::new(|| {
     BytesRegex::new(r"(?i)(^|/)(golden|goldens|snapshots?|__snapshots__)/|\.(snap|golden)$|[._-](golden|snapshot)s?\.[^/]*$")
         .expect("record file pattern")
@@ -111,7 +110,7 @@ fn count(section: &Section, sign: u8) -> usize {
 }
 
 fn scenarios(section: &Section, sign: u8) -> usize {
-    let edited = !section.created && !section.deleted && section.path.ends_with(b".sh") && TEST_FILE.is_match(section.path);
+    let edited = !section.created && !section.deleted && section.path.ends_with(b".sh") && is_test_file(section.path);
     if !edited {
         return 0;
     }
@@ -181,13 +180,13 @@ fn admission(diff: &[u8], trees: &[String]) -> Admission {
     let added: usize = live.iter().filter(|section| rust(section)).map(|section| count(section, b'+')).sum();
     let removed: usize = live.iter().filter(|section| rust(section)).map(|section| count(section, b'-')).sum();
     let net = added.saturating_sub(removed);
-    let kind = |section: &Section| TEST_FILE.is_match(section.path) || RECORD_FILE.is_match(section.path);
+    let kind = |section: &Section| is_test_file(section.path) || RECORD_FILE.is_match(section.path);
     let files = |flag: fn(&Section) -> bool| live.iter().filter(|section| flag(section) && !rust(section) && kind(section)).count();
     let (created, gone) = (files(|section| section.created), files(|section| section.deleted));
     let scenario = |sign: u8| live.iter().map(|section| scenarios(section, sign)).sum::<usize>();
     let mut found = Admission { added: added + created + scenario(b'+'), deleted: removed + gone + scenario(b'-'), ..Admission::default() };
     for section in live {
-        let named = TEST_FILE.is_match(section.path);
+        let named = is_test_file(section.path);
         let whole = section.created && (named || RECORD_FILE.is_match(section.path)) && (!rust(section) || net > 0);
         let kept: Vec<Vec<Vec<u8>>> = section
             .hunks
@@ -240,7 +239,7 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
         .into_iter()
         .map(|reason| format!("safe-push: ✗ test admission: {reason}; a contract test names a category from test-admission.contract in .safe-push on main with the trailer {CONTRACT_FORMAT}, or guards a bug instead; NOT pushed.\n"))
         .collect();
-    refusals.extend(over_budget(directory, &found, contracted));
+    refusals.extend(over_budget(directory, base, head, &found, contracted, out));
     for refusal in &refusals {
         let _ = out.write_all(refusal.as_bytes());
     }
@@ -265,21 +264,31 @@ pub fn contract_tests(directory: &Path, rev: &str) -> Vec<String> {
     contracts(&history).into_iter().filter(|claim| listed.contains(&claim.category.to_ascii_lowercase())).map(|claim| claim.test).collect()
 }
 
-fn over_budget(directory: &Path, found: &Admission, contracted: usize) -> Option<String> {
+fn over_budget(directory: &Path, base: &str, head: &str, found: &Admission, contracted: usize, out: &mut impl Write) -> Option<String> {
     let added = found.added.saturating_sub(contracted);
     let origin = git::text(directory, &["remote", "get-url", "origin"]).unwrap_or_default();
     let repository = push_ledger::repository(origin.trim());
     let measured = limits::measured_seconds(&state_home(), &repository)?;
     let budget = limits::budget_seconds();
-    let plural = if added == 1 { "" } else { "s" };
-    (measured > budget && found.deleted < added).then(|| {
-        format!(
-            "safe-push: ✗ test admission: {repository}'s verification takes {measured} s (median green post-land run), over its {budget} s budget, and the lane adds {} test{plural} in {} but deletes {}; over budget a test lands only with as many deleted (one in, one out), unless it pins a listed contract; NOT pushed.\n",
-            added,
-            found.files.join(", "),
-            found.deleted
-        )
-    })
+    if measured <= budget || found.deleted >= added {
+        return None;
+    }
+    let bugs = incident_guard::fixes(directory, &git::merge_base(directory, base, head), head).bugs;
+    let files = found.files.join(", ");
+    if !bugs.is_empty() && found.deleted + bugs.len() >= added {
+        let _ = writeln!(out, "safe-push: test admission: counts the test{} in {files} as the regression test of bug {}, not as growth of the test budget", plural(added), incident_guard::named(&bugs));
+        return None;
+    }
+    let incident = if bugs.is_empty() { "a bug-labelled north issue its commit subject cites".to_owned() } else { incident_guard::named(&bugs) };
+    Some(format!(
+        "safe-push: ✗ test admission: {repository}'s verification takes {measured} s (median green post-land run), over its {budget} s budget, and the lane adds {added} test{} in {files} but deletes {}; over budget a test lands only with as many deleted (one in, one out), unless it pins a listed contract or is the one regression test of each bug the lane fixes ({incident}); NOT pushed.\n",
+        plural(added),
+        found.deleted
+    ))
+}
+
+fn plural(count: usize) -> &'static str {
+    if count == 1 { "" } else { "s" }
 }
 
 fn added_names(patch: &[u8]) -> BTreeSet<String> {

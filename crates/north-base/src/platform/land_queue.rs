@@ -4,6 +4,7 @@ use std::time::UNIX_EPOCH;
 
 use sha2::{Digest, Sha256};
 
+pub const ROUND: &str = "NORTH_LAND_ROUND";
 const GITHUB_SSH: [&str; 2] = ["git@github.com:", "ssh://git@github.com/"];
 
 /// The queue a repository's landings wait in, keyed by its GitHub identity rather than the spelling of its origin URL, so hosts that clone it over ssh and over https share one queue.
@@ -18,6 +19,10 @@ fn canonical(origin: &str) -> String {
         Some(path) => format!("https://github.com/{path}.git"),
         None => format!("{origin}.git"),
     }
+}
+
+pub fn slug(branch: &str) -> String {
+    branch.chars().map(|character| if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') { character } else { '-' }).collect()
 }
 
 pub fn directory(state_home: &Path, origin: &str) -> PathBuf {

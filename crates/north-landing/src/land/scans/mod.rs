@@ -15,6 +15,7 @@ pub mod shell_hook;
 pub mod strategy_replay;
 pub mod stale_revert;
 pub mod test_admission;
+mod test_file;
 pub mod test_integrity;
 pub mod tool_removal;
 

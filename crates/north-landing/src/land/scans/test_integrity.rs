@@ -6,14 +6,11 @@ use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 use serde_json::Value;
 
+use super::test_file::is_test_file;
 use super::{Range, git, host_paths};
 
 static MUTANT_MARKER: LazyLock<BytesRegex> =
     LazyLock::new(|| BytesRegex::new(r"MUTANT:[[:alnum:]_-]").expect("mutant pattern"));
-static TEST_PATH: LazyLock<BytesRegex> = LazyLock::new(|| {
-    BytesRegex::new(r"(^|/)tests?/|[._]tests?\.[^/]*$|(^|/)test_[^/]*\.py$")
-        .expect("test path pattern")
-});
 static SKIP_MARKER: LazyLock<BytesRegex> = LazyLock::new(|| {
     BytesRegex::new(r"(^|[^[:alnum:]_])(it|test|describe)\.(skip|only)\(|#\[ignore|pytest\.mark\.(skip|xfail)|unittest\.skip")
         .expect("skip pattern")
@@ -97,7 +94,7 @@ fn judge(diff: &[u8], trees: &[String], skip_allowed: bool, out: &mut impl Write
                 "mutants stay in scratch copies",
             );
             bad = true;
-        } else if !skip_allowed && TEST_PATH.is_match(path) && SKIP_MARKER.is_match(line) {
+        } else if !skip_allowed && is_test_file(path) && SKIP_MARKER.is_match(line) {
             refusal(
                 out,
                 path,

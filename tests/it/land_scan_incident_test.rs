@@ -104,7 +104,7 @@ fn incident_fix_needs_a_test() {
         assert_eq!(refused.status, 1, "{subject}: {}", refused.stdout);
         assert_eq!(
             refused.stdout,
-            "safe-push: ✗ this lane fixes bug north#7 but adds or changes no test; add a test that fails without the fix (a file under tests/, a *_tests.rs or tests.rs, or a #[test]); NOT pushed.\n",
+            "safe-push: ✗ this lane fixes bug north#7 but adds or changes no test; add a test that fails without the fix (a file under tests/ or test/, one named tests.*, *.test.*, *_test.* or *_tests.*, or a #[test]); NOT pushed.\n",
             "{subject}"
         );
     }
@@ -146,4 +146,32 @@ fn incident_fix_needs_a_test() {
     assert_eq!(fixture.gh_calls(), asked + 1);
     assert_eq!(fixture.scan_as("incident-test", "r2").status, 1);
     assert_eq!(fixture.gh_calls(), asked + 2);
+    a_bug_fix_over_the_test_budget_lands_with_its_one_regression_test_and_both_gates_count_the_same_test_files();
+}
+
+fn a_bug_fix_over_the_test_budget_lands_with_its_one_regression_test_and_both_gates_count_the_same_test_files() {
+    let fixture = Fixture::new("git@github.com:tompassarelli/firn.git");
+    fixture.label(671, "bug\n");
+    fixture.label(672, "enhancement\n");
+    let ledger = fixture.root.path().join("state/safe-push/post-land.tsv");
+    fs::create_dir_all(ledger.parent().unwrap()).unwrap();
+    fs::write(&ledger, "1\tfirn\tabc\tgreen\t\tlane\t75\n".repeat(3)).unwrap();
+    let unit = ("modules/land/default.nix", "{ Slice = \"agent.slice\"; }\n");
+    for test in ["modules/land/tests/unit.test.sh", "modules/land/unit.test.sh", "modules/land/unit_test.sh", "src/tests.rs", "test/unit.sh", "tests/test_unit.py"] {
+        fixture.lane("Run the lander in agent.slice (north#671)", &[unit, (test, "printf 'PASS: slice\\n'\n")]);
+        for gate in ["incident-test", "test-admission"] {
+            let scan = fixture.scan_as(gate, "");
+            assert_eq!(scan.status, 0, "{test} {gate}: {}", scan.stdout);
+        }
+    }
+    fixture.lane("Run the lander in agent.slice (north#671)", &[unit]);
+    assert_eq!(fixture.scan_as("incident-test", "").status, 1);
+    fixture.lane("Run the lander in agent.slice (north#671)", &[unit, ("tests/a.test.sh", "x\n"), ("tests/b.test.sh", "x\n")]);
+    let two = fixture.scan_as("test-admission", "");
+    assert_eq!(two.status, 1, "{}", two.stdout);
+    assert!(two.stdout.contains("unless it pins a listed contract or is the one regression test of each bug the lane fixes (north#671)"), "{}", two.stdout);
+    fixture.lane("Add a lander slice (north#672)", &[unit, ("tests/a.test.sh", "x\n")]);
+    let feature = fixture.scan_as("test-admission", "");
+    assert_eq!(feature.status, 1, "{}", feature.stdout);
+    assert!(feature.stdout.contains("(a bug-labelled north issue its commit subject cites)"), "{}", feature.stdout);
 }

@@ -910,9 +910,13 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
 - **Incident test** (north#112). `north land scan test-integrity` also runs `incident-test`, so
   every lander and per-lane check gets it with no bash change. A lane whose commit subject cites a
   north issue labelled `bug` (`north#N`, or `Fixes #N` on north) and changes no test (a path
-  under tests/, a `*_tests.rs`, a `tests.rs`, a `.test.ts`, or an added `#[test]`) is refused naming the issue.
+  the landing gates share as a test file, `scans/test_file.rs`: under tests/ or test/, or named `tests.*`,
+  `*.test.*`, `*_test.*` or `*_tests.*`; or an added `#[test]`) is refused naming the issue. Test
+  admission counts that lane's one regression test per cited bug as the incident's, not as growth of a
+  repository over its verification budget, so a bug fix never has to delete an unrelated test to land
+  (north#681).
   A lane that changes only Markdown fixes no behaviour and passes without a label read (north#649).
-  Labels are read with gh only when no test changed, cached per lander round for an hour under
+  Labels are read with gh only when no test changed or a lane adds tests over budget, cached per lander round for an hour under
   the state dir; a GitHub that does not answer passes the lane with one warning line.
   Case incident-fix-needs-a-test pins the citation formats and gh's label listing as a file-or-wire-format contract.
 
