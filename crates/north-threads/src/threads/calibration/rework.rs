@@ -20,7 +20,7 @@ static FIX_WORDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bfixes\b|
 static FIX_SUBJECT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(Fix|Repair|Restore|Correct)\b|(?i)\bfix forward\b").expect("fix subject pattern"));
 
 /// Bumped whenever a rule changes, so the verdicts an earlier judge stored are judged again.
-pub const JUDGE_VERSION: u32 = 2;
+pub const JUDGE_VERSION: u32 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Cause {
@@ -249,7 +249,7 @@ fn cause(landed: &Commit, later: &[Read], landing: &Landing, touches: Touches) -
             Rule::NamedCommit
         } else if read.fix_subject && read.names_item(landing) && shared(read.commit) > 0 && touches(landed, read.commit) {
             Rule::NamedIssue
-        } else if read.commit.subject.starts_with("Fix") && !landed.files.is_empty() && 2 * shared(read.commit) >= landed.files.len() {
+        } else if read.commit.subject.starts_with("Fix") && shared(read.commit) > 0 {
             Rule::FixOverlap
         } else {
             return None;

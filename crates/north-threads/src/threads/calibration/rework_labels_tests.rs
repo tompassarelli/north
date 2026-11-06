@@ -1,7 +1,7 @@
 use super::rework_labels::score;
 
 const PRECISION_FLOOR: f64 = 0.33;
-const RECALL_FLOOR: f64 = 0.08;
+const RECALL_FLOOR: f64 = 0.50;
 
 #[test]
 fn a_rule_change_that_lowers_the_judges_precision_or_recall_on_the_blind_labels_fails() {

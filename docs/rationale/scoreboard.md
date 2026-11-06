@@ -44,7 +44,7 @@ Each number describes north's own records, a week against the week before under 
 
 ## What the numbers rest on
 
-- Rework is the judge in `crates/north-threads/src/threads/calibration/rework.rs`. A change to its rules bumps its `JUDGE_VERSION`, which judges every stored verdict again, and the weekly record measures both weeks on the day it records them, so the two weeks always share a rule. The sample of 20 below measured the named-issue rule's false positives only; how many real reworks the current judge misses is unmeasured until a blind-labelled sample scores it (north#641), and the ready bar's 5% and the climber's kept boxes both read this judge.
+- Rework is the judge in `crates/north-threads/src/threads/calibration/rework.rs`. A change to its rules bumps its `JUDGE_VERSION`, which judges every stored verdict again, and the weekly record measures both weeks on the day it records them, so the two weeks always share a rule. The sample of 20 below measured the named-issue rule's false positives; the blind-labelled sample of 64 landings in `rework_labels.json` measures its precision and recall together (north#641, north#711), and the ready bar's 5% and the climber's kept boxes both read this judge.
 - Worker first-try success counts a worker's own Done report, and the ledger's closed box is an issue closed on GitHub, whose boxes its workers tick. `north task check --done-when` is the one tick no worker writes; a box on north#636 makes the climber's reward split each kept box into checker-verified and self-ticked, so a candidate that rewrites briefs cannot raise its own reward.
 
 ## The named-issue rule (north#657)
@@ -89,6 +89,12 @@ The rule now asks three things of the trigger besides naming the issue: its subj
 - tables: 0 of 4 both times
 
 The two named-issue reworks left are both real: 020e57e22 restores a test that 1355312d0 broke, and 6ba11bbb9 restores two client calls that 62b04d092 deleted while they still had callers. The other repositories' counts did not move (makgora 49, wisp 15, firn and south 0).
+
+## The Fix-subject rule (north#711)
+
+The blind-labelled sample (north#641) scored the judge at precision 33% and recall 8%, each landing weighted by its stratum: 24 landings the judge called reworked, all drawn, and 40 of the 405 it called clean. Of those 40, the readers labelled 9 reworked. Two have no later commit touching their files, and one only a port that moved its docs. Five have a later commit within 48 h whose subject begins with Fix and which changes a file the landing changed, though fewer than half of its files, which the Fix-subject rule then required: 3f43bd985 fixes red main in bin/safe-push after e9aaffcdf, b087fc820 fixes safe-push's detached-HEAD exit after 58df15b56 and a717bf640, 06be079f1 changes src/cli/mod.rs after 331f32b7e, and 975405806 changes docs/features.md after afae5689a.
+
+The rule now calls a landing fixed forward when a later commit's subject begins with Fix and it changes any file the landing changed. Among the 40 drawn as clean it fires on those 5 and on 2 the readers labelled clean (6ce8eea71 and e4b94f160, both through docs/features.md), and it adds nothing among the 24, which the judge already called reworked. `cargo test -p north-threads rework_labels` now reads precision 62% and recall 59%, and its floors are 33% and 50%. The 16 of the 24 the readers labelled clean, among them landings named by the stale-base restore 0908757e0, still count against precision.
 
 ## Weekly run
 
