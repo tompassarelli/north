@@ -1,3 +1,4 @@
+mod app_reads;
 mod batch;
 mod broker;
 mod calls;
@@ -24,7 +25,9 @@ const USAGE: &str = "usage: north gh-broker serve [--resident] | north gh-broker
 The one local GitHub broker every gh call on this host goes through (north#638). north gh-session,
 which bin/gh runs in a fleet session, starts the broker when its socket does not answer and runs
 the real gh with a private GH_CONFIG_DIR whose http_unix_socket points at the broker. The broker
-forwards each request with the caller's own credentials and: answers identical reads from one
+forwards each request with the caller's own credentials, except that a systemd service's REST GET or HEAD
+with a personal login is sent with the Socrates Agent App installation token (read again with the
+service's own login when the app is answered 401, 403 or 404), and: answers identical reads from one
 GitHub call (in flight, or fetched within 20 s); revalidates older reads with If-None-Match, so a
 304 serves the stored body without spending rate limit; after a 403 or 429 with Retry-After, an
 exhausted x-ratelimit-remaining or a secondary limit, makes no GitHub call until the wait passes,
@@ -92,7 +95,7 @@ fn serve(resident: bool) -> u8 {
     }
     watch(&place, Arc::clone(&activity), resident);
     drain_on_sigterm(place.socket(), Arc::clone(&activity));
-    server::serve(&listener, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls(), place.quota())));
+    server::serve(&listener, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls(), place.quota())), &Arc::new(app_reads::AppReads::from_host()));
     if !activity.finish_open_calls(DRAIN_LIMIT) {
         eprintln!("north gh-broker: {} s passed with calls still open; exiting anyway", DRAIN_LIMIT.as_secs());
     }
@@ -189,7 +192,7 @@ fn release() -> u8 {
 fn spawn_server(listener: UnixListener, broker: Broker) -> (Arc<server::Activity>, std::thread::JoinHandle<()>) {
     let (broker, activity) = (Arc::new(broker), Arc::new(server::Activity::default()));
     let served = Arc::clone(&activity);
-    (activity, std::thread::spawn(move || server::serve(&listener, &broker, &served, &Arc::new(calls::CallLog::off()))))
+    (activity, std::thread::spawn(move || server::serve(&listener, &broker, &served, &Arc::new(calls::CallLog::off()), &Arc::new(app_reads::AppReads::with(Box::new(|| None))))))
 }
 
 #[cfg(test)]

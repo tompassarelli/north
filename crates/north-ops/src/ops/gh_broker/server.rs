@@ -5,7 +5,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::broker::Broker;
-use super::calls::CallLog;
+use super::app_reads::AppReads;
+use super::calls::{self, CallLog};
 use super::http::{Response, read_request, write_response};
 
 #[derive(Default)]
@@ -45,7 +46,7 @@ fn unix_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
-pub fn serve(listener: &UnixListener, broker: &Arc<Broker>, activity: &Arc<Activity>, log: &Arc<CallLog>) {
+pub fn serve(listener: &UnixListener, broker: &Arc<Broker>, activity: &Arc<Activity>, log: &Arc<CallLog>, app: &Arc<AppReads>) {
     activity.touch();
     for stream in listener.incoming().flatten() {
         if activity.draining.load(Ordering::SeqCst) {
@@ -53,20 +54,21 @@ pub fn serve(listener: &UnixListener, broker: &Arc<Broker>, activity: &Arc<Activ
         }
         activity.open.fetch_add(1, Ordering::Relaxed);
         activity.touch();
-        let (broker, activity, log) = (Arc::clone(broker), Arc::clone(activity), Arc::clone(log));
+        let (broker, activity, log, app) = (Arc::clone(broker), Arc::clone(activity), Arc::clone(log), Arc::clone(app));
         std::thread::spawn(move || {
-            answer(stream, &broker, &log);
+            answer(stream, &broker, &log, &app);
             activity.touch();
             activity.open.fetch_sub(1, Ordering::Relaxed);
         });
     }
 }
 
-fn answer(stream: UnixStream, broker: &Broker, log: &CallLog) {
+fn answer(stream: UnixStream, broker: &Broker, log: &CallLog, app: &AppReads) {
     let (response, source) = match read_request(&stream) {
         Ok(request) => {
-            let (response, source) = broker.handle(&request);
-            log.record(&stream, &request, &response, source);
+            let caller = calls::caller(&stream);
+            let (request, response, source) = app.serve(broker, &caller, request);
+            log.record(&caller, &request, &response, source);
             (response, source.name())
         }
         Err(error) => (Response::json(400, Vec::new(), &format!("north gh-broker could not read the request: {error}")), "refused"),

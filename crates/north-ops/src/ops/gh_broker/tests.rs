@@ -31,6 +31,8 @@ fn reply(request: &Request) -> Response {
             Response { status: 200, headers: vec![header("ETag", ETAG.into())], body: format!("[{{\"from\":\"{}\"}}]", request.target).into_bytes() }
         }
         "/graphql" => Response { status: 200, headers: Vec::new(), body: b"{\"data\":{}}".to_vec() },
+        "/repos/o/uninstalled" if request.header("authorization").is_some_and(|token| token.contains("ghs_")) => Response { status: 404, headers: Vec::new(), body: Vec::new() },
+        "/whoami" | "/repos/o/uninstalled" => Response { status: 200, headers: Vec::new(), body: request.header("authorization").unwrap_or("").as_bytes().to_vec() },
         "/limited/retry-after" => Response { status: 429, headers: vec![header("Retry-After", "120".into())], body: Vec::new() },
         "/limited/secondary" => Response { status: 403, headers: Vec::new(), body: b"{\"message\":\"You have exceeded a secondary rate limit.\"}".to_vec() },
         "/limited/primary" => {
@@ -254,4 +256,20 @@ fn a_draining_broker_answers_the_call_it_holds_then_stops_accepting() {
     assert!(!held.is_finished(), "the held call is still running when the server loop has stopped");
     assert!(broker.activity.finish_open_calls(Duration::from_secs(5)));
     assert_eq!(held.join().unwrap().status, 200, "the call in flight when the drain began is answered, not cut");
+}
+
+#[test]
+fn a_services_rest_read_spends_the_app_token_and_falls_back_to_its_own_login_where_the_app_cannot_read() {
+    let (api, _github) = fake_github();
+    let broker = Broker::new(Upstream::new(&api), Settings::default());
+    let app = super::app_reads::AppReads::with(Box::new(|| Some("ghs_app".to_owned())));
+    let token = |caller: &str, method: &str, target: &str| {
+        let headers = vec![("Host".to_owned(), "api.github.com".to_owned()), ("Authorization".to_owned(), "token gho_personal".to_owned())];
+        let (sent, response, _) = app.serve(&broker, caller, Request { method: method.to_owned(), target: target.to_owned(), headers, body: Vec::new() });
+        (response.status, sent.header("authorization").unwrap_or("").to_owned())
+    };
+    assert_eq!(token("fleet-tick.service", "GET", "/whoami"), (200, "token ghs_app".to_owned()));
+    assert_eq!(token("app-niri-ghostty-1.scope", "GET", "/whoami"), (200, "token gho_personal".to_owned()), "an interactive shell keeps its own login");
+    assert_eq!(token("fleet-tick.service", "POST", "/repos/o/r/issues/1/comments"), (201, "token gho_personal".to_owned()), "a write keeps its author");
+    assert_eq!(token("fleet-tick.service", "GET", "/repos/o/uninstalled"), (200, "token gho_personal".to_owned()), "a repository the app cannot read is read with the unit's own login");
 }

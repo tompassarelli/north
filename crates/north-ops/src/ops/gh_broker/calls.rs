@@ -22,14 +22,13 @@ impl CallLog {
         Self { path: None, quota: None }
     }
 
-    pub fn record(&self, stream: &UnixStream, request: &Request, response: &Response, source: Source) {
+    pub fn record(&self, caller: &str, request: &Request, response: &Response, source: Source) {
         if let Some(directory) = &self.quota {
             keep_quota(directory, request, response);
         }
         let Some(path) = &self.path else {
             return;
         };
-        let caller = caller(stream);
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
         let line = format!("{at}\t{caller}\t{}\t{}\t{}\t{}\t{}\n", source.name(), response.status, request.method, request.target, token_kind(request));
         if std::fs::metadata(path).is_ok_and(|meta| meta.len() > ROTATE_BYTES) {
@@ -39,7 +38,7 @@ impl CallLog {
     }
 }
 
-fn caller(stream: &UnixStream) -> String {
+pub fn caller(stream: &UnixStream) -> String {
     let Ok(peer) = rustix::net::sockopt::get_socket_peercred(stream) else {
         return "unknown".to_owned();
     };
@@ -67,7 +66,7 @@ fn keep_quota(directory: &Path, request: &Request, response: &Response) {
     crate::platform::github_quota::record(directory, request.header("authorization").unwrap_or(""), resource, remaining, resets_at);
 }
 
-fn token_kind(request: &Request) -> &'static str {
+pub fn token_kind(request: &Request) -> &'static str {
     let credential = request.header("authorization").and_then(|value| value.split_whitespace().nth(1)).unwrap_or("");
     match credential {
         "" => "none",
