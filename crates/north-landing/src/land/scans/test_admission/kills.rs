@@ -157,7 +157,16 @@ fn on_this_host(directory: &Path, lane: &Lane, out: &mut impl Write) -> u8 {
     }
     let cap = limits::kill_seconds();
     let started = Instant::now();
-    let end = mutate(&top, &work, lane, &in_diff, cap);
+    let end = match beside_tests(&top, lane, &work) {
+        Some(near) => match mutate(&top, &work, lane, &near, cap) {
+            Ok(End::Exited(status)) if status.code() != Some(BASELINE_FAILED) => {
+                restore(&top);
+                mutate(&top, &work, lane, &in_diff, cap.saturating_sub(started.elapsed().as_secs()))
+            }
+            first => first,
+        },
+        None => mutate(&top, &work, lane, &in_diff, cap),
+    };
     restore(&top);
     match end {
         Ok(end) => judge(&work, lane, &end, Tally { total, cap, seconds: started.elapsed().as_secs() }, out),
@@ -240,6 +249,25 @@ fn stop(child: &mut Child) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+fn beside_tests(top: &Path, lane: &Lane, work: &Path) -> Option<[String; 2]> {
+    let near: BTreeSet<String> = lane.files.iter().flat_map(|file| {
+        let path = Path::new(file);
+        let parent = path.parent().unwrap_or(Path::new(""));
+        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        match name.strip_suffix("_tests.rs") {
+            Some(stem) => vec![parent.join(format!("{stem}.rs"))],
+            None if name == "tests.rs" => vec![parent.join("mod.rs"), parent.with_extension("rs")],
+            None => vec![path.to_path_buf()],
+        }
+    }).map(|path| path.display().to_string()).collect();
+    let sources: Vec<&str> = lane.sources.iter().map(String::as_str).collect();
+    let changed = git::text(top, &[&["diff", "--name-only", "--no-renames", &lane.base, &lane.head, "--"][..], &sources].concat())?;
+    let near: Vec<&str> = changed.lines().filter(|path| near.contains(*path)).collect();
+    let diff = git::bytes(top, &[&["diff", "--no-color", "--no-ext-diff", &lane.base, &lane.head, "--"][..], &near].concat()).filter(|diff| !near.is_empty() && !diff.is_empty())?;
+    fs::write(work.join("near.diff"), diff).ok()?;
+    Some(["--in-diff".to_owned(), work.join("near.diff").display().to_string()])
 }
 
 fn restore(top: &Path) {
