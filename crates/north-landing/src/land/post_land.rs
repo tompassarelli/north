@@ -39,10 +39,20 @@ pub struct Landed {
 
 pub struct Outcome {
     pub verdict: Verdict,
-    pub culprit: Option<usize>,
-    pub search: Option<(f64, f64)>,
+    pub search: Option<Search>,
     pub log: PathBuf,
     pub failing: BTreeSet<Failure>,
+    pub superseded: bool,
+}
+
+pub struct Search {
+    landed: Landed,
+    run: Run,
+}
+
+pub struct Found {
+    pub culprit: Option<usize>,
+    pub span: (f64, f64),
     pub superseded: bool,
 }
 
@@ -166,19 +176,27 @@ pub fn start(lander: &Lander, landed: Landed, host: Option<String>, cancel: Arc<
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
         if !matches!(verdict, Verdict::RedMain(_)) {
-            return Outcome { verdict, culprit: None, search: None, failing: BTreeSet::new(), superseded: run.superseded(), log: run.log };
+            return Outcome { verdict, search: None, failing: BTreeSet::new(), superseded: run.superseded(), log: run.log };
         }
         let failing = failing(&run.log, &run.outcome);
+        let (superseded, log) = (run.superseded(), run.log.clone());
+        Outcome { verdict, search: Some(Search { landed, run }), failing, log, superseded }
+    })
+}
+
+pub fn search(search: Search) -> std::thread::JoinHandle<Found> {
+    std::thread::spawn(move || {
+        let Search { landed, run } = search;
         let started = telemetry::epoch();
         let culprit = locate(&landed, &run);
         if run.superseded() {
             println!("north land: the culprit search of {} stopped because a later landing changed its check lines", landed.head);
-            return Outcome { verdict, culprit: None, search: Some((started, telemetry::epoch())), failing, log: run.log, superseded: true };
+            return Found { culprit: None, span: (started, telemetry::epoch()), superseded: true };
         }
         if let Some(at) = culprit {
             judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], &run.at(&landed.head, &landed.tips[at]).log);
         }
-        Outcome { verdict, culprit, search: Some((started, telemetry::epoch())), failing, log: run.log, superseded: false }
+        Found { culprit, span: (started, telemetry::epoch()), superseded: false }
     })
 }
 

@@ -248,3 +248,38 @@ fn an_after_landing_run_whose_check_line_a_later_landing_changed_is_cancelled_wi
     serve.kill().unwrap();
     let _ = serve.wait();
 }
+
+const RED_THEN_HOLD_CULPRIT_PROBES: &str = r#"#!/usr/bin/env bash
+[ "$1 $2 $3" = "land checks --after" ] || exit 0
+while [ $# -gt 0 ]; do case $1 in --head) head=$2; shift ;; --tree) tree=$2; shift ;; --outcome) outcome=$2; shift ;; esac; shift; done
+echo "$head $tree" >>"$LAND_TRACE/after-runs"
+if [ "$head" != "$tree" ]; then
+  for _ in $(seq 1200); do [ -e "$LAND_TRACE/release" ] && break; sleep 0.1; done
+fi
+if [ -e broken.txt ] && [ ! -e last.txt ]; then echo "test after_landing_probe ... FAILED"; printf 'failed-step\tafter_landing_probe\t\n' >>"$outcome"; exit 1; fi
+"#;
+
+// KEEP(bug): culprit searches of 87 to 650 s held every later landing's after-landing run and verdict on 2026-11-06 (north#634)
+#[test]
+fn a_red_runs_culprit_search_does_not_hold_the_next_landings_run() {
+    let mut fixture = Fixture::new();
+    executable(&fixture.trace.join("north-hook"), RED_THEN_HOLD_CULPRIT_PROBES);
+    let breaker = fixture.lane("breaker", "broken.txt", "breaker\n");
+    let breaker = fixture.enqueue(&breaker, None);
+    let mut serve = fixture.command().spawn().unwrap();
+    let breaker = landed(&fixture, &breaker);
+    let ledger = fixture.state.join("safe-push/post-land.tsv");
+    let trace = fixture.trace.join("after-runs");
+    let runs = || fs::read_to_string(&trace).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>();
+    until("the culprit search to hold on the base probe", || runs().iter().any(|run| run.split_once(' ').is_some_and(|(head, tree)| head != tree)));
+    let last = fixture.lane("last", "last.txt", "last\n");
+    let last = fixture.enqueue(&last, None);
+    let last = landed(&fixture, &last);
+    until("the next landing's run beside the held culprit search", || runs().contains(&format!("{last} {last}")));
+    assert!(!fixture.trace.join("release").exists(), "the search was still held when the next run started");
+    let rows = fs::read_to_string(&ledger).unwrap_or_default();
+    assert!(rows.lines().any(|row| row.split('\t').nth(2) == Some(breaker.as_str()) && row.split('\t').nth(3) == Some("red-main")), "the red verdict row is in the ledger before the search ends: {rows}");
+    fs::write(fixture.trace.join("release"), "").unwrap();
+    assert!(serve.wait().unwrap().success());
+    assert_eq!(fixture.subjects(), ["change from breaker", "change from last", "Revert change from breaker"]);
+}
