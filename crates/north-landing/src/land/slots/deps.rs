@@ -85,3 +85,41 @@ pub fn run(directory: &Path) -> u8 {
         }
     }
 }
+
+const FETCHED: &str = ".local/state/depbox/cargo-fetched";
+
+fn lock_fingerprint(lock: &Path) -> Option<String> {
+    let digest = Sha256::digest(fs::read(lock).ok()?);
+    Some(digest[..8].iter().fold(String::new(), |mut hex, byte| {
+        let _ = write!(hex, "{byte:02x}");
+        hex
+    }))
+}
+
+pub fn fetch_crates(directory: &Path) -> Result<(), String> {
+    let home = std::env::var_os("HOME").and_then(|home| fs::canonicalize(home).ok()).ok_or("safe-push: HOME is not set; cannot find the fetched-crates record")?;
+    fetch_crates_recorded(directory, &home.join(FETCHED))
+}
+
+pub fn fetch_crates_recorded(directory: &Path, fetched: &Path) -> Result<(), String> {
+    let top = PathBuf::from(git(directory, &["rev-parse", "--show-toplevel"]).ok_or("safe-push: not inside a git repository")?);
+    let depbox = top.join("bin/depbox");
+    let Some(lock) = lock_fingerprint(&top.join("Cargo.lock")).filter(|_| depbox.is_file()) else {
+        return Ok(());
+    };
+    let record = fetched.join(&lock);
+    if record.exists() {
+        return Ok(());
+    }
+    println!("safe-push: Cargo.lock {lock} was never fetched on this host — cargo fetch --locked in {}", top.display());
+    let output = Command::new(&depbox)
+        .args(["fetch", "--", "cargo", "fetch", "--locked"])
+        .current_dir(&top)
+        .output()
+        .map_err(|error| format!("safe-push: {}: {error}", depbox.display()))?;
+    eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    if !output.status.success() {
+        return Err(format!("safe-push: cargo fetch --locked failed for Cargo.lock {lock}; NOT pushed."));
+    }
+    fs::create_dir_all(fetched).and_then(|()| fs::write(&record, "")).map_err(|error| format!("safe-push: {}: {error}", record.display()))
+}

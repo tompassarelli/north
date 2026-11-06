@@ -24,6 +24,10 @@ pub fn sync_dependencies(root: &Path) -> Result<(), String> {
     north_landing::land::slots::deps::sync(root)
 }
 
+pub fn fetch_crates(root: &Path) -> Result<(), String> {
+    north_landing::land::slots::deps::fetch_crates(root)
+}
+
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Capacity {
     pub command: String,

@@ -1,7 +1,7 @@
 use north_base::foundation::step::Refused;
 
 use crate::gates::plan::Gate;
-use crate::gates::run::{Capacity, Gates, LandChecks, sync_dependencies};
+use crate::gates::run::{Capacity, Gates, LandChecks, fetch_crates, sync_dependencies};
 use crate::gates::target::Target;
 use crate::report::timeline::Timeline;
 use crate::session::cancel::watch_for_cancel;
@@ -56,6 +56,7 @@ pub struct LandCheckResult {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Reached {
     DependenciesFailed,
+    CrateFetchFailed { lock_changed: bool },
     ScansRefused,
     LandChecks(LandCheckResult),
 }
@@ -63,6 +64,8 @@ pub enum Reached {
 pub fn classify(head: &str, reached: &Reached, log: &str) -> Verdict {
     let checks = match reached {
         Reached::DependenciesFailed => return Verdict::Transient("bun install failed".to_owned()),
+        Reached::CrateFetchFailed { lock_changed: true } => return Verdict::Refused("cargo fetch --locked failed for the Cargo.lock this lane changed".to_owned()),
+        Reached::CrateFetchFailed { lock_changed: false } => return Verdict::Transient("cargo fetch --locked failed".to_owned()),
         Reached::ScansRefused => return Verdict::Refused(last_actions_run(log).unwrap_or_default()),
         Reached::LandChecks(checks) => checks,
     };
@@ -169,6 +172,11 @@ fn observe(shell: &Shell, timeline: &Timeline, root: &str, origin_url: &str, (ba
     if let Err(message) = sync_dependencies(std::path::Path::new(root)) {
         eprintln!("{message}");
         return Observed::Done(Facts { reached: Reached::DependenciesFailed, ran: false });
+    }
+    if let Err(message) = fetch_crates(std::path::Path::new(root)) {
+        eprintln!("{message}");
+        let lock_changed = crate::shell::git::quiet(std::path::Path::new(root), &["diff", "--name-only", &range, "--", "Cargo.lock"]).is_some_and(|changed| !changed.is_empty());
+        return Observed::Done(Facts { reached: Reached::CrateFetchFailed { lock_changed }, ran: false });
     }
     for gate in SCANS {
         match target.scan(gate) {
