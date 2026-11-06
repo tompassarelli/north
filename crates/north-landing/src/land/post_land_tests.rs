@@ -37,6 +37,9 @@ fn a_post_land_run_is_red_main_only_when_a_check_recorded_a_failing_verdict_what
     std::fs::write(&switched.outcome, "event\tland check\tfailed\tcargo clippy; log: /x.log\nfailed-step\tcargo clippy\t/x.log\n").unwrap();
     assert!(matches!(judged(ExitStatus::from_raw(101 << 8), &switched), Verdict::RedMain(_)), "a check that recorded its failing verdict is red main");
     assert_eq!(super::failing(&switched.log, &switched.outcome), std::collections::BTreeSet::from([Failure::Cargo("land::x".to_owned()), Failure::Step("cargo clippy".to_owned())]));
+    let red = Verdict::RedMain("exit 101".to_owned());
+    assert_eq!(super::rerun_result(&red, &switched.outcome, &["cargo clippy".to_owned()]), Some(std::collections::BTreeSet::from([Failure::Step("cargo clippy".to_owned())])), "the requested step failing is a verdict on it");
+    assert_eq!(super::rerun_result(&red, &switched.outcome, &["cargo nextest".to_owned()]), None, "a runner that ran steps the sheriff did not ask for reached no verdict on the one it asked for");
     assert_eq!(judged(ExitStatus::from_raw(0), &run()), Verdict::Green);
 }
 

@@ -154,9 +154,14 @@ pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String])
         deadline: deadline(&lander.repo),
         host: None,
     };
-    match check(&landed, tree, &run).verdict {
+    rerun_result(&check(&landed, tree, &run).verdict, &run.outcome, failing)
+}
+
+fn rerun_result(verdict: &Verdict, outcome: &Path, requested: &[String]) -> Option<BTreeSet<Failure>> {
+    let requested: BTreeSet<Failure> = requested.iter().map(|step| Failure::Step(step.clone())).collect();
+    match verdict {
         Verdict::Green => Some(BTreeSet::new()),
-        Verdict::RedMain(_) => Some(steps(&run.outcome)),
+        Verdict::RedMain(_) => Some(steps(outcome)).filter(|failed| failed.is_subset(&requested)),
         _ => None,
     }
 }
