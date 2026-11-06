@@ -18,7 +18,7 @@ prune() {
   local cutoff=$(($(date +%s) - hold))
   find "$cache" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/[0-9a-f]{40}' -printf '%T@ %f\n' | sort -rn | tail -n +$((keep + 1)) | while read -r stamp old; do
     [ "${stamp%.*}" -lt "$cutoff" ] || continue
-    rm -f "$cache/$old/north" "$cache/$old.lock"
+    flock -n "$cache/$old/lease" rm -f "$cache/$old/north" "$cache/$old.lock" "$cache/$old/lease" || continue
     rmdir "$cache/$old" 2>/dev/null || true
   done
 }
@@ -65,12 +65,15 @@ elif [ -x "$live" ] && reason=$("$live" runtime covers --head "$covered" "${code
     exec 7>&-
   fi
 elif [ "$defer" = 1 ]; then
-  printf 'head-north: not run before the push, no live runtime covers the checker code (%s); the after-landing run builds north from this tree and runs it\n' "${reason%%$'\n'*}" >&2
-  exit 0
+  printf 'head-north: refused, no live runtime covers the checker code (%s); the lander runs this check without --no-build on a build host, which builds north from the tree\n' "${reason%%$'\n'*}" >&2
+  exit 1
 else
   from_tree
 fi
 case "${1:-}" in
   --build) ;;
-  *) exec "$north" "$@" ;;
+  *)
+    exec 8>>"$(dirname "$north")/lease" && flock -s 8
+    exec "$north" "$@"
+    ;;
 esac

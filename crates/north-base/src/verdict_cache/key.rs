@@ -22,8 +22,6 @@ pub const NORTH_IGNORES: [(&str, &str); 4] = [
     ("SAFE_PUSH_LAND_CPUS", "it sizes the check's lease, never its verdict"),
 ];
 const RUNS_NORTH: [&str; 2] = ["bin/head-north", "north "];
-const NO_BUILD: &str = " --no-build ";
-pub const HEAD_NORTH_DEFERRED: &str = "head-north: not run before the push";
 
 pub struct Check<'a> {
     pub repo: &'a Path,
@@ -86,10 +84,6 @@ fn named(repo: &Path, tree: &str, command: &str) -> (BTreeSet<String>, String) {
 
 fn reads_variable(command: &str, text: &str, name: &str) -> bool {
     text.contains(name) || (RUNS_NORTH.iter().any(|marker| command.contains(marker)) && !NORTH_IGNORES.iter().any(|(ignored, _)| *ignored == name))
-}
-
-pub fn built_equivalent(command: &str) -> Option<String> {
-    command.contains(NO_BUILD).then(|| command.replacen(NO_BUILD, " ", 1))
 }
 
 fn object_specs(tree: &str, paths: &BTreeSet<String>) -> Vec<String> {

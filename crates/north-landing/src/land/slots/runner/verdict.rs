@@ -122,12 +122,4 @@ impl Shared {
     pub(super) async fn cache_record(&self, status: i32, commands: &[String]) {
         self.cache_record_as(status, commands, None).await;
     }
-
-    pub(super) async fn record_built_equivalent(&self, command: &str, log: &Path) {
-        let Some(built) = verdict_cache::built_equivalent(command).filter(|_| !self.arguments.after) else { return };
-        if std::fs::read_to_string(log).is_ok_and(|text| !text.contains(verdict_cache::HEAD_NORTH_DEFERRED)) {
-            let class = self.cache_class(command);
-            self.cache_record_as(0, &[built], Some(class.as_str())).await;
-        }
-    }
 }

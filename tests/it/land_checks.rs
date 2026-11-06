@@ -293,160 +293,82 @@ fn split_entry(entry: &str) -> (&str, &str) {
     entry.split_once(" :: ").unwrap()
 }
 
-fn verb(command: &str) -> Option<&str> {
-    let rest = command.split_once(" --code ")?.1.split_once(' ')?.1;
-    Some(rest.strip_prefix("--no-build ").unwrap_or(rest))
+fn features_check() -> String {
+    let entry = safe_push_entries("land.check").into_iter().find(|entry| entry.contains(" --no-build docs features-index --check")).expect("the features-index check runs before the push without a build");
+    split_entry(&entry).1.to_owned()
 }
 
-fn builds_on_the_remote(entry: &str) -> bool {
-    entry.split_once(" --remote-north \"").is_some_and(|(_, remote)| remote.split('"').next().is_some_and(|north| !north.contains(" --no-build")))
-}
-
-fn before_the_push() -> Vec<String> {
-    safe_push_entries("land.check").into_iter().filter(|entry| entry.contains(" --no-build ") && entry.contains("./bin/head-north --code ") && !builds_on_the_remote(entry)).collect()
-}
-
-#[test]
-fn every_check_run_before_the_push_without_a_build_has_an_after_landing_backstop() {
-    let after = safe_push_entries("land.after");
-    let early = before_the_push();
-    assert_eq!(early.len(), 11, "{early:?}");
-    for entry in early {
-        let (patterns, command) = split_entry(&entry);
-        let selected_tests = verb(command).is_some_and(|verb| verb.starts_with("coverage test "));
-        let backstop = after.iter().find(|candidate| if selected_tests { split_entry(candidate).1.contains("cargo nextest run") } else { verb(split_entry(candidate).1) == verb(command) });
-        let (after_patterns, _) = split_entry(backstop.unwrap_or_else(|| panic!("no land.after line builds and runs {command}")));
-        assert_eq!(after_patterns, patterns, "a lane the check skips for want of a covering runtime must still reach its after-landing run: {command}");
-    }
-}
-
-const LIVE_RUNTIME: &str = "if [ \"$1 $2\" = 'runtime covers' ]; then [ -z \"${STUB_UNCOVERED:-}\" ] || { echo 'runtime older than the checker code' >&2; exit 1; }; printf '%s' \"$0\"; exit 0; fi\nprintf '%s\\n' \"$*\" >>\"$STUB_TRACE\"\nexec \"$REAL_NORTH\" \"$@\"\n";
+const LEASE_CHECK: &str = "flock -n -x \"$(dirname \"$0\")/lease\" true 2>/dev/null && printf 'unleased %s\\n' \"$0\" >>\"$STUB_TRACE\"\n";
 
 fn live_runtime(fixture: &Fixture) {
     let live = fixture.path("state/north/current/north");
     fs::create_dir_all(live.parent().unwrap()).unwrap();
-    script(&live, LIVE_RUNTIME);
+    script(&live, &format!("if [ \"$1 $2\" = 'runtime covers' ]; then [ -z \"${{STUB_UNCOVERED:-}}\" ] || {{ echo 'runtime older than the checker code' >&2; exit 1; }}; printf '%s' \"$0\"; exit 0; fi\n{LEASE_CHECK}printf 'live %s\\n' \"$*\" >>\"$STUB_TRACE\"\nexec \"$REAL_NORTH\" \"$@\"\n"));
 }
 
-fn with_real_head_north(command: &str) -> String {
-    command.replace("./bin/head-north", Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/head-north").to_str().unwrap())
+fn north_from_the_tree(fixture: &Fixture) {
+    let tree = git(&fixture.repo, &["rev-parse", "HEAD^{tree}"]);
+    let built = fixture.path(&format!("cache/north/head-north/{tree}/north"));
+    fs::create_dir_all(built.parent().unwrap()).unwrap();
+    script(&built, &format!("{LEASE_CHECK}printf 'tree %s\\n' \"$*\" >>\"$STUB_TRACE\"\nexec \"$REAL_NORTH\" \"$@\"\n"));
 }
 
-fn head_north(fixture: &Fixture, command: &str, uncovered: bool) -> Command {
+fn head_north(fixture: &Fixture, command: &str, uncovered: bool) -> Output {
     let mut run = Command::new("bash");
     run.current_dir(&fixture.repo).args(["-c", command]);
-    run.env("REAL_NORTH", env!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("live-trace")).env("XDG_STATE_HOME", fixture.path("state")).env("SAFE_PUSH_LAND_HEAD", &fixture.head);
+    run.env("REAL_NORTH", env!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
+    run.env_remove("SAFE_PUSH_LAND_RUNTIME_HEAD");
     if uncovered {
         run.env("STUB_UNCOVERED", "1");
     }
-    run
+    run.output().unwrap()
+}
+
+fn render_features(fixture: &Fixture, message: &str) -> String {
+    let render = Command::new(env!("CARGO_BIN_EXE_north")).current_dir(&fixture.repo).args(["docs", "features-index"]).output().unwrap();
+    assert!(render.status.success(), "{}", text(&render));
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", message]);
+    git(&fixture.repo, &["rev-parse", "HEAD"])
 }
 
 #[test]
-fn a_features_entry_over_its_cap_is_refused_before_the_push() {
-    let entry = before_the_push().into_iter().find(|entry| entry.contains("docs features-index --check")).expect("the features-index check runs before the push");
-    let command = with_real_head_north(split_entry(&entry).1);
-    let command = command.as_str();
-    let fixture = Fixture::new(&[("land.check", &format!("docs/features/ :: {command}"))]);
+fn a_features_entry_over_its_cap_is_refused_before_the_push_even_on_a_runtime_older_than_its_checker() {
+    let command = features_check();
+    let fixture = Fixture::new(&[("land.check-local", "true"), ("land.check", &format!("docs/features/ :: {command}"))]);
     live_runtime(&fixture);
+    fs::create_dir_all(fixture.repo.join("bin")).unwrap();
+    shim::copy_executable(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/head-north"), fixture.repo.join("bin/head-north"));
     let section = fixture.repo.join("docs/features/core");
     fs::create_dir_all(&section).unwrap();
     fs::write(fixture.repo.join("docs/features/_header.md"), "# Features\n").unwrap();
     fs::write(section.join("_title.md"), "## Core\n").unwrap();
     fs::write(section.join("small.md"), "- A short entry.\n").unwrap();
-    let render = Command::new(env!("CARGO_BIN_EXE_north")).current_dir(&fixture.repo).args(["docs", "features-index"]).output().unwrap();
-    assert!(render.status.success(), "{}", text(&render));
-    git(&fixture.repo, &["add", "docs"]);
-    git(&fixture.repo, &["commit", "-qm", "features"]);
-    let clean = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    let clean = render_features(&fixture, "features");
 
-    let run_check = |uncovered: bool| head_north(&fixture, command, uncovered).output().unwrap();
-    let output = run_check(false);
+    let output = head_north(&fixture, &command, false);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-    assert!(fixture.path("live-trace").exists(), "the covering live runtime did not run the checker");
+    assert!(fixture.trace().contains("live docs features-index --check"), "the covering live runtime did not run the checker: {}", fixture.trace());
 
     fs::write(section.join("long.md"), format!("- {}\n", "x".repeat(1_300))).unwrap();
-    let render = Command::new(env!("CARGO_BIN_EXE_north")).current_dir(&fixture.repo).args(["docs", "features-index"]).output().unwrap();
-    assert!(render.status.success(), "{}", text(&render));
-    let output = run_check(false);
-    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
-    assert!(text(&output).contains("over the 1200-character entry cap"), "{}", text(&output));
+    let over = render_features(&fixture, "over the cap");
+    let output = head_north(&fixture, &command, true);
+    assert_eq!(output.status.code(), Some(1), "a --no-build check on a runtime that does not cover its checker passed without running: {}", text(&output));
+    assert!(text(&output).contains("head-north: refused, no live runtime covers the checker code"), "{}", text(&output));
 
-    fs::remove_file(fixture.path("live-trace")).unwrap();
-    let output = run_check(true);
-    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-    assert!(text(&output).contains("not run before the push"), "{}", text(&output));
-    assert!(!fixture.path("live-trace").exists(), "a runtime that does not cover the checker ran it anyway");
-
-    git(&fixture.repo, &["add", "docs"]);
-    git(&fixture.repo, &["commit", "-qm", "over the cap"]);
-    let over = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    fs::write(fixture.path("trace"), "").unwrap();
     let landed = fixture.command_between(&clean, &over).output().unwrap();
-    assert_eq!(landed.status.code(), Some(1), "the lander ran the check from the lane's own .safe-push and the cap refused the lane: {}", text(&landed));
+    assert_eq!(landed.status.code(), Some(1), "the covering live runtime let an over-cap entry through: {}", text(&landed));
     assert!(text(&landed).contains("over the 1200-character entry cap"), "{}", text(&landed));
-}
+    assert!(fixture.trace().contains("live docs features-index --check"), "{}", fixture.trace());
 
-const REUSED_CHECK: &str = "printf 'ran %s\\n' \"$*\" >>../check-runs\n[ ! -e ../defer ] || { echo 'head-north: not run before the push, no live runtime covers the checker code' >&2; exit 0; }\ngrep -q changed file.txt\n";
-
-fn reuse_fixture() -> Fixture {
-    let fixture = Fixture::new(&[("land.check", "file.txt :: bash check.sh --no-build verify"), ("land.after", "file.txt :: bash check.sh verify")]);
-    fs::write(fixture.repo.join("check.sh"), REUSED_CHECK).unwrap();
-    git(&fixture.repo, &["add", "check.sh"]);
-    git(&fixture.repo, &["commit", "-qm", "check"]);
-    Fixture { head: git(&fixture.repo, &["rev-parse", "HEAD"]), ..fixture }
-}
-
-fn checked(fixture: &Fixture, base: &str, head: &str, after: bool) -> Output {
-    let mut command = fixture.command_between(base, head);
-    if after {
-        command.args(["--after", "--dry", "1"]);
-    }
-    command.env("STUB_VERDICTS", fixture.path("verdicts")).env("NORTH_LAND_SPANS", fixture.path("spans.jsonl")).output().unwrap()
-}
-
-fn check_runs(fixture: &Fixture) -> Vec<String> {
-    fs::read_to_string(fixture.path("check-runs")).unwrap_or_default().lines().map(str::to_owned).collect()
-}
-
-fn reused_spans(fixture: &Fixture) -> Vec<String> {
-    fs::read_to_string(fixture.path("spans.jsonl")).unwrap_or_default().lines().filter(|line| line.contains("reused verdict ")).map(str::to_owned).collect()
-}
-
-#[test]
-fn an_after_landing_check_whose_inputs_passed_before_the_push_reuses_that_verdict_and_reruns_once_an_input_changes() {
-    let fixture = reuse_fixture();
-    let pushed = checked(&fixture, &fixture.base, &fixture.head, false);
-    assert_eq!(pushed.status.code(), Some(0), "{}", text(&pushed));
-    assert_eq!(check_runs(&fixture), ["ran --no-build verify"]);
-
-    git(&fixture.repo, &["commit", "-q", "--allow-empty", "-m", "the lane landed as a new commit with the tree it was checked on"]);
-    let landed = git(&fixture.repo, &["rev-parse", "HEAD"]);
-    let after = checked(&fixture, &fixture.base, &landed, true);
-    assert_eq!(after.status.code(), Some(0), "{}", text(&after));
-    assert_eq!(check_runs(&fixture), ["ran --no-build verify"], "the after-landing run re-ran a check whose inputs the pre-push run judged: {}", text(&after));
-    let spans = reused_spans(&fixture);
-    assert_eq!(spans.len(), 1, "{spans:?}");
-    assert!(spans[0].contains("bash check.sh verify") && spans[0].contains("\"cache\":\"hit\""), "{spans:?}");
-    assert!(text(&after).contains("land check: bash check.sh verify reused from the verdict cache on stubhost (reused verdict "), "{}", text(&after));
-
-    fs::write(fixture.repo.join("file.txt"), "changed again\n").unwrap();
-    git(&fixture.repo, &["commit", "-qam", "an input the check reads"]);
-    let moved = git(&fixture.repo, &["rev-parse", "HEAD"]);
-    let rerun = checked(&fixture, &landed, &moved, true);
-    assert_eq!(rerun.status.code(), Some(0), "{}", text(&rerun));
-    assert_eq!(check_runs(&fixture), ["ran --no-build verify", "ran verify"], "a changed input did not re-run the after-landing check: {}", text(&rerun));
-    assert_eq!(reused_spans(&fixture).len(), 1);
-    a_pre_push_check_that_head_north_deferred_leaves_its_after_landing_line_to_run();
-}
-
-fn a_pre_push_check_that_head_north_deferred_leaves_its_after_landing_line_to_run() {
-    let fixture = reuse_fixture();
-    fs::write(fixture.path("defer"), "").unwrap();
-    let pushed = checked(&fixture, &fixture.base, &fixture.head, false);
-    assert_eq!(pushed.status.code(), Some(0), "{}", text(&pushed));
-    fs::remove_file(fixture.path("defer")).unwrap();
-    let after = checked(&fixture, &fixture.base, &fixture.head, true);
-    assert_eq!(after.status.code(), Some(0), "{}", text(&after));
-    assert_eq!(check_runs(&fixture), ["ran --no-build verify", "ran verify"], "a deferred pre-push pass stood in for the after-landing check: {}", text(&after));
-    assert!(reused_spans(&fixture).is_empty());
+    north_from_the_tree(&fixture);
+    fs::write(fixture.path("trace"), "").unwrap();
+    let landed = fixture.command_between(&clean, &over).env("STUB_UNCOVERED", "1").output().unwrap();
+    assert_eq!(landed.status.code(), Some(1), "a lane whose checker is newer than the live runtime skipped the check before the push: {}", text(&landed));
+    assert!(text(&landed).contains("over the 1200-character entry cap"), "{}", text(&landed));
+    assert!(text(&landed).contains("the live runtime does not cover the checker code of 1 land check(s)"), "{}", text(&landed));
+    let trace = fixture.trace();
+    assert!(trace.contains("tree docs features-index --check") && !trace.contains("live docs features-index"), "the check did not run on north built from the lane's tree: {trace}");
+    assert!(!trace.contains("unleased"), "a check ran on a runtime it held no lease on: {trace}");
 }

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 const HEAD_NORTH: &str = "./bin/head-north";
 const NO_BUILD: &str = "--no-build";
 
@@ -9,6 +11,25 @@ fn builds(words: &[&str]) -> Option<usize> {
 
 pub fn runs_head_north(command: &str) -> bool {
     builds(&command.split_whitespace().collect::<Vec<_>>()).is_some()
+}
+
+pub fn lander_only_code(command: &str) -> Option<&str> {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let at = words.iter().position(|word| *word == HEAD_NORTH)?;
+    match words.get(at + 1..at + 4) {
+        Some(["--code", paths, NO_BUILD]) if !paths.is_empty() => Some(*paths),
+        _ => None,
+    }
+}
+
+pub fn built(command: &str) -> String {
+    let flag = format!(" {NO_BUILD} ");
+    command.replacen(&flag, " ", 1)
+}
+
+pub fn live_runtime() -> PathBuf {
+    let state = std::env::var_os("XDG_STATE_HOME").filter(|state| !state.is_empty()).map_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"), PathBuf::from);
+    state.join("north/current/north")
 }
 
 pub fn command(commands: &[String]) -> Option<String> {

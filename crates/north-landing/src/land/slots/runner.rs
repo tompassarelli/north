@@ -634,7 +634,6 @@ impl Shared {
         }
         let _ = timings.passed(command, &class, ran.seconds);
         self.cache_record(0, &commands).await;
-        self.record_built_equivalent(command, &ran.log).await;
         let _ = fs::remove_file(&ran.log);
         0
     }
@@ -1291,14 +1290,14 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         warn("safe-push: not in a git repo");
         return 1;
     };
-    let config = Config::load(&root, &arguments.head);
-    let local = !arguments.after && config.local_checks();
+    let loaded = Config::load(&root, &arguments.head);
+    let local = !arguments.after && loaded.local_checks();
     let config = if arguments.after {
-        config.after_set()
+        loaded.after_set()
     } else if local {
-        config.without_placement()
+        loaded.without_placement()
     } else {
-        config
+        loaded.clone()
     };
     let (cancel_sender, cancel) = watch::channel(false);
     tokio::spawn(forward_signals(cancel_sender));
@@ -1319,6 +1318,36 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     if !arguments.leased && !commands.is_empty() && commands.iter().all(|command| config.is_inferred(command)) {
         say(&format!("safe-push: no land.check lines in .safe-push; running the {} land check(s) inferred from the tree", commands.len()));
     }
+    let (commands, built) = if arguments.leased { (commands, Vec::new()) } else { lander_only(&root, &arguments, local, commands).await };
+    let lander = run_set(root.clone(), arguments.clone(), config, environment, cancel.clone(), commands);
+    if built.is_empty() {
+        return lander.await;
+    }
+    say(&format!("safe-push: the live runtime does not cover the checker code of {} land check(s), so a build host builds north from the lane's tree and runs them: {}", built.len(), built.join("; ")));
+    let (lander, built) = tokio::join!(lander, run_set(root, arguments, loaded, Environment::load(), cancel, built));
+    if lander != 0 { lander } else { built }
+}
+
+async fn lander_only(root: &Path, arguments: &Arguments, local: bool, commands: Vec<String>) -> (Vec<String>, Vec<String>) {
+    let (mut here, mut built) = (Vec::new(), Vec::new());
+    for command in commands {
+        match shared_build::lander_only_code(&command) {
+            Some(code) if local && covers(root, arguments.tree(), code).await => here.push(command),
+            Some(_) if local => built.push(shared_build::built(&command)),
+            Some(_) => here.push(shared_build::built(&command)),
+            None => here.push(command),
+        }
+    }
+    (here, built)
+}
+
+async fn covers(root: &Path, head: &str, code: &str) -> bool {
+    let mut command = Command::new(shared_build::live_runtime());
+    command.args(["runtime", "covers", "--head", head, "--code", code]).current_dir(root).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command.status().await.is_ok_and(|status| status.success())
+}
+
+async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environment: Environment, cancel: watch::Receiver<bool>, commands: Vec<String>) -> i32 {
     let scope = scope_for(&root, &arguments, &commands);
     let it = it_for(&root, &arguments, &commands);
     let trees = Trees::of(&root, &arguments.base, arguments.tree());

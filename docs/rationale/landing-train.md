@@ -1191,10 +1191,14 @@ reservation, offload, runner, Actions dispatch or publication (`land.check-local
   gate, the dropped-commit gate and the review and trailer gates,
 - the `land.check` lines that finish in seconds: the verb-table sort, the tests/it module list, and
   code-health layers, agent-config tree-policy, package, features-index, rationale-index, doctor nix,
-  citation, nix-entry and experiments (north#634). Each runs as `head-north --no-build`: the live
-  runtime when it covers the checker, else a note and exit 0, never a compile on the lander. An entry
-  over its cap is refused before the push, not found by a red main; the `land.after` line of the same
-  check stays as the backstop for the lane that skipped it.
+  citation, nix-entry and experiments (north#634). Each runs as `head-north --no-build` on the lander
+  when its live runtime covers the checker code, never a compile there. When it does not (the lane
+  or a main the runtime predates changed the checker), the lander runs the same check without
+  `--no-build` on a build host, which builds north from the lane's tree; head-north refuses a
+  `--no-build` check on an uncovering runtime instead of passing it unrun, so no lane skips one and
+  none needs an after-landing backstop. A check holds a shared lease on the runtime or tree-built
+  north it runs, and runtime collection and head-north's cache pruning skip a leased one. An entry over
+  its cap is refused before the push, not found by a red main.
 
 There is no per-lane precheck, no numbered build slot and no `landing.slots`. Every queued lane joins
 the next candidate; the push is the only wait after the scans.
@@ -1202,10 +1206,8 @@ the next candidate; the push is the only wait after the scans.
 ### What runs after the push
 
 Every other check is a `land.after` line and runs once per landed batch on main, on the build host
-(`landing.runner`) under capacity admission: owners, clippy, code-health, agent-config, package,
-features-index, rationale-index, doctor nix, citation, nix-entry, experiments, cargo test, cargo
-check and the changed-tests selection. The affected-tests pre-land selection of north#360 moved here
-with them. Each landed commit still has every check run on it, the nine checks above included; none was deleted or weakened, and the
+(`landing.runner`) under capacity admission: owners, clippy, cargo test, cargo check and the changed-tests selection. The affected-tests pre-land selection of north#360 moved here
+with them. Each landed commit still has every check run on it, the checks above before its push; none was deleted or weakened, and the
 two coverage waivers are the `Removes-check:` trailers on commit 9fe95ca5a.
 
 ### Red after landing: bisect inside the batch, revert the culprit

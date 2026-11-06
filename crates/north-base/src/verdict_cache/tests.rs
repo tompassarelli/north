@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use super::{Check, HEAD_NORTH_DEFERRED, NORTH_IGNORES, Pass, Store, built_equivalent, key};
+use super::{Check, NORTH_IGNORES, Pass, Store, key};
 use crate::foundation::clock::Timestamp;
 
 const SAFE_PUSH: &str = "[land]\n\tcheck = src/ :: bash bin/check\n\tafter = @rust-input :: cargo clippy\n\tafter = docs/ :: ./bin/head-north docs check\n\tcheck = docs/ :: ./bin/head-north --no-build docs check\n";
@@ -83,8 +83,6 @@ fn the_runtime_and_the_check_environment_are_part_of_the_key() {
     let north = "./bin/head-north docs check";
     assert_ne!(key_with(repo.path(), &head, north, "runtime-a", &at(&head)), key_with(repo.path(), &head, north, "runtime-a", &at(&other)));
     a_variable_the_check_never_reads_leaves_its_key_alone();
-    a_pre_push_no_build_line_keys_the_after_line_it_stands_for_until_an_input_changes();
-    head_north_still_defers_a_no_build_line_with_the_words_the_runner_reads();
     north_reads_none_of_the_variables_its_check_keys_ignore();
 }
 
@@ -119,29 +117,8 @@ fn a_variable_the_check_never_reads_leaves_its_key_alone() {
     assert_ne!(key_with(repo.path(), &head, north, "runtime-a", &variables(&selected)), key_with(repo.path(), &head, north, "runtime-a", &variables(&range)));
 }
 
-fn a_pre_push_no_build_line_keys_the_after_line_it_stands_for_until_an_input_changes() {
-    let (repo, head) = repository();
-    let after = built_equivalent("./bin/head-north --no-build docs check").unwrap();
-    assert_eq!(after, "./bin/head-north docs check");
-    assert_eq!(built_equivalent(&after), None);
-    let pre_push = [("SAFE_PUSH_LAND_BASE", head.as_str()), ("SAFE_PUSH_LAND_HEAD", head.as_str()), ("SAFE_PUSH_LAND_RUNTIME_HEAD", head.as_str())];
-    let recorded = key_with(repo.path(), &head, &after, "runtime-a", &variables(&pre_push));
-    let landed = commit(repo.path(), &[], "the lane landed on the tree it was checked on");
-    let after_run = [("SAFE_PUSH_LAND_BASE", head.as_str()), ("SAFE_PUSH_LAND_HEAD", landed.as_str()), ("SAFE_PUSH_LAND_RUNTIME_HEAD", landed.as_str()), ("SAFE_PUSH_LAND_PACKAGES", "--workspace"), ("SAFE_PUSH_LAND_CPUS", "6")];
-    assert_eq!(key_with(repo.path(), &landed, &after, "runtime-a", &variables(&after_run)), recorded);
-    let changed = commit(repo.path(), &[("docs/a.md", "changed")], "an input the after line reads");
-    let after_change = [after_run[0], ("SAFE_PUSH_LAND_HEAD", changed.as_str()), ("SAFE_PUSH_LAND_RUNTIME_HEAD", changed.as_str())];
-    assert_ne!(key_with(repo.path(), &changed, &after, "runtime-a", &variables(&after_change)), recorded);
-}
-
 fn workspace() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-fn head_north_still_defers_a_no_build_line_with_the_words_the_runner_reads() {
-    let script = fs::read_to_string(workspace().join("bin/head-north")).unwrap();
-    assert!(script.contains("--no-build"));
-    assert!(script.contains(HEAD_NORTH_DEFERRED), "bin/head-north no longer prints {HEAD_NORTH_DEFERRED:?} when it defers, so a deferred pre-push pass would be reused after landing");
 }
 
 fn sources(directory: &Path, into: &mut Vec<std::path::PathBuf>) {
