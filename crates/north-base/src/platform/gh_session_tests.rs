@@ -30,6 +30,17 @@ fn a_session_gh_call_runs_with_the_app_token_and_never_a_personal_one() {
     for name in SCRUBBED.iter().skip(1) {
         assert_eq!(env_of(&command, name), Some(None), "{name} must be removed");
     }
+
+    let directory = scratch("pushed").parent().unwrap().parent().unwrap().to_owned();
+    fs::create_dir_all(&directory).unwrap();
+    let pushed = directory.join("gh-write-token");
+    fs::write(&pushed, "ghs_pushed\n").unwrap();
+    let written = fs::metadata(&pushed).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let host = Host { secrets: directory, runtime: None, pushed: Some(pushed.clone()), api: String::new(), decrypt: Box::new(|_| panic!("decrypted the App key on a host the laptop pushes to")) };
+
+    let (token, note) = session_token(&host, i64::try_from(written).unwrap() + 60, None).unwrap();
+    assert_eq!(token, "ghs_pushed");
+    assert!(note.unwrap().contains(&pushed.display().to_string()));
 }
 
 #[test]

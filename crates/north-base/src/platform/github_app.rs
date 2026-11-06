@@ -132,6 +132,10 @@ impl Host {
         let pushed = var("HOME").map(|home| Path::new(&home).join(PUSHED_TOKEN));
         Self { secrets, runtime: var("XDG_RUNTIME_DIR").map(PathBuf::from), pushed, api, decrypt: Box::new(move |file| sops_decrypt(&key_file, file)) }
     }
+
+    pub fn pushed_file(&self) -> Option<&Path> {
+        self.pushed.as_deref().filter(|path| path.exists())
+    }
 }
 
 fn sops_decrypt(key_file: &str, file: &Path) -> Option<Vec<u8>> {
@@ -175,7 +179,7 @@ fn fail(message: &str) -> u8 {
 }
 
 pub fn mint(request: &Request, host: &Host, now: i64) -> Result<String, String> {
-    if let Some(pushed) = host.pushed.as_deref().filter(|path| path.exists()) {
+    if let Some(pushed) = host.pushed_file() {
         return pushed_token(request, pushed, now);
     }
     let app = request.app;

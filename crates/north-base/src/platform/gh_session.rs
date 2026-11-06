@@ -11,7 +11,8 @@ use crate::foundation::clock::Timestamp;
 const USAGE: &str = "usage: north gh-session REAL_GH [ARGS...]
 
 The gh a fleet session runs through the bin/gh shim: it calls GitHub as the Socrates Agent App
-(a fresh installation token in GH_TOKEN, never Tom's login) and spends from a per-session hourly
+(a fresh installation token in GH_TOKEN, never Tom's login; on a host the laptop pushes that token
+to, gex45 and ccx33, the pushed one while fresh, named on stderr) and spends from a per-session hourly
 budget of GitHub API units, so one session's scraping cannot exhaust a token the others share.
 A call costs 1 unit, --paginate 20, --limit N one per 100 rows; help, version and config cost none.
 A call past the budget is refused with exit 75 and a message naming the spend and when it frees.
@@ -49,12 +50,11 @@ pub fn run(arguments: &[String]) -> u8 {
     let ledger = ledger_path(&session);
     let before: u32 = fresh_spend(&ledger, Timestamp::now().unix_seconds()).iter().map(|(_, cost)| cost).sum();
     let mint = || {
-        let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
-        github_app::mint(&request, &Host::from_env(), Timestamp::now().unix_seconds()).or_else(|why| {
-            let (source, token) = git_credential::fallback_token().ok_or(why.clone())?;
-            eprintln!("north gh-session: cannot mint the Socrates Agent App token ({why}); using {source}");
-            Ok(token)
-        })
+        let (token, note) = session_token(&Host::from_env(), Timestamp::now().unix_seconds(), git_credential::fallback_token())?;
+        if let Some(note) = note {
+            eprintln!("north gh-session: {note}");
+        }
+        Ok(token)
     };
     match prepare(real, rest, &session, budget, &ledger, Timestamp::now().unix_seconds(), mint) {
         Ok(mut command) => match super::gh_broker_route::route(&mut command) {
@@ -76,6 +76,17 @@ pub fn run(arguments: &[String]) -> u8 {
         Err(Refusal::Token(message)) => {
             eprintln!("north gh-session: no Socrates Agent App token ({message}); not falling back to a personal login");
             1
+        }
+    }
+}
+
+fn session_token(host: &Host, now: i64, launched: Option<(&str, String)>) -> Result<(String, Option<String>), String> {
+    let request = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}"))?;
+    match github_app::mint(&request, host, now) {
+        Ok(token) => Ok((token, host.pushed_file().map(|pushed| format!("using the Socrates Agent App token the laptop pushed to {}", pushed.display())))),
+        Err(why) => {
+            let (source, token) = launched.ok_or(why.clone())?;
+            Ok((token, Some(format!("cannot mint the Socrates Agent App token ({why}); using {source}"))))
         }
     }
 }
