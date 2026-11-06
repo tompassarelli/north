@@ -6,10 +6,10 @@ use std::sync::LazyLock;
 use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 
+use crate::platform::push_ledger;
 use super::test_integrity::{in_vendored, vendored_trees};
 use super::{Range, git};
 use crate::dep_gate::trailer_lines;
-use crate::land::telemetry;
 use crate::landing::fails_first;
 use crate::watch::state_home;
 
@@ -258,7 +258,7 @@ pub fn contract_tests(directory: &Path, rev: &str) -> Vec<String> {
 fn over_budget(directory: &Path, found: &Admission, contracted: usize) -> Option<String> {
     let added = found.added.saturating_sub(contracted);
     let origin = git::text(directory, &["remote", "get-url", "origin"]).unwrap_or_default();
-    let repository = telemetry::repository(origin.trim());
+    let repository = push_ledger::repository(origin.trim());
     let measured = limits::measured_seconds(&state_home(), &repository)?;
     let budget = limits::budget_seconds();
     let plural = if added == 1 { "" } else { "s" };

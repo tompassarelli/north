@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 use sha2::{Digest, Sha256};
 use toml_edit::DocumentMut;
 
+use crate::platform::push_ledger;
 use super::super::{Range, git};
 use super::limits;
-use crate::land::telemetry;
 use crate::watch::state_home;
 
 pub const USAGE: &str = "usage: north land scan test-admission kills [--host NAME] [--remote-north COMMAND] BASE..HEAD\n       north land scan test-admission kills --here BASE..HEAD";
@@ -83,7 +83,7 @@ fn input_key(directory: &Path, lane: &Lane, cap: u64) -> Option<String> {
 fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, out: &mut impl Write) -> u8 {
     let cap = limits::kill_seconds();
     let origin = git::text(directory, &["remote", "get-url", "origin"]).unwrap_or_default();
-    let store = state_home().join("agents/mutants").join(telemetry::repository(origin.trim())).join("kills");
+    let store = state_home().join("agents/mutants").join(push_ledger::repository(origin.trim())).join("kills");
     let key = input_key(directory, lane, cap);
     if let Some(stored) = key.as_ref().and_then(|key| fs::read_to_string(store.join(key)).ok()) {
         let (code, verdict) = stored.split_once('\n').unwrap_or((&stored, ""));

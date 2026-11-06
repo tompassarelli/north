@@ -1,9 +1,12 @@
+use std::path::Path;
+
 use crate::landing::route;
 use crate::landing::south_ledger;
 use crate::report::terminal;
 use crate::publication::run as publication;
 use crate::request;
 use crate::restore;
+use crate::shell::Shell;
 use crate::tags::{publish, release};
 
 pub use crate::landing::south_ledger::HostFacts;
@@ -28,7 +31,7 @@ pub fn release(arguments: &[String]) -> u8 {
 pub fn land(arguments: &[String]) -> Option<u8> {
     let (verb, rest) = arguments.split_first()?;
     match verb.as_str() {
-        "push" => Some(publication::run(rest)),
+        "push" => Some(publication::run(rest, &Shell::live(Path::new(".")), &LandingChecks)),
         "route" => Some(route::run(rest)),
         "restore" => Some(restore::run(rest)),
         _ => None,
@@ -41,4 +44,16 @@ pub fn remote_land(arguments: &[String], host: &HostFacts) -> u8 {
 
 pub fn safe_push_result(arguments: &[String]) -> u8 {
     terminal::run(arguments)
+}
+
+struct LandingChecks;
+
+impl publication::Checks for LandingChecks {
+    fn scan(&self, arguments: &[String]) -> u8 {
+        north_landing::land::scans::run(arguments)
+    }
+
+    fn sync_dependencies(&self, root: &Path) -> Result<(), String> {
+        north_landing::land::slots::deps::sync(root)
+    }
 }

@@ -1204,6 +1204,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-landing",
+ "proptest",
  "rustix 0.38.44",
  "tempfile",
  "tokio",

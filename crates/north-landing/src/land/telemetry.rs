@@ -3,11 +3,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-pub fn repository(origin: &str) -> String {
-    let name = origin.trim_end_matches('/').rsplit(['/', ':']).next().unwrap_or(origin);
-    name.strip_suffix(".git").unwrap_or(name).to_owned()
-}
-
 pub fn epoch() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64())
 }
@@ -26,28 +21,6 @@ fn append(path: &Path, line: &str) -> std::io::Result<()> {
     }
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     file.write_all(format!("{line}\n").as_bytes())
-}
-
-pub struct Push<'a> {
-    pub at_secs: u64,
-    pub repository: &'a str,
-    pub branch: &'a str,
-    pub oid: &'a str,
-    pub landed: &'a str,
-    pub session: &'a str,
-}
-
-pub fn record_push(state_home: &Path, push: &Push) -> std::io::Result<bool> {
-    let path = directory(state_home).join("pushes.tsv");
-    let known = fs::read_to_string(&path).unwrap_or_default().lines().any(|line| {
-        let fields: Vec<&str> = line.split('\t').collect();
-        fields.get(1) == Some(&push.repository) && fields.get(2) == Some(&push.branch) && fields.get(3) == Some(&push.oid) && fields.get(4) == Some(&push.landed)
-    });
-    if known {
-        return Ok(false);
-    }
-    append(&path, &format!("{}\t{}\t{}\t{}\t{}\t{}", push.at_secs, push.repository, push.branch, push.oid, push.landed, push.session))?;
-    Ok(true)
 }
 
 pub struct Stages {

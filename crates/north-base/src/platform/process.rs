@@ -4,6 +4,8 @@ use std::path::Path;
 use std::process::{Command, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::foundation::step::{Refused, Step};
+
 pub fn run<S: AsRef<OsStr>>(
     program: &str,
     dir: Option<&Path>,
@@ -182,3 +184,28 @@ pub fn run_bounded<S: AsRef<OsStr>>(program: &str, dir: Option<&Path>, args: &[S
     Ok(Bounded { status, stdout, stderr, overflowed })
 }
 
+pub fn exit_code(status: ExitStatus) -> u8 {
+    use std::os::unix::process::ExitStatusExt;
+    match (status.code(), status.signal()) {
+        (Some(code), _) => u8::try_from(code).unwrap_or(1),
+        (None, Some(signal)) => u8::try_from(128 + signal).unwrap_or(1),
+        (None, None) => 1,
+    }
+}
+
+pub fn exit_status(status: std::io::Result<ExitStatus>) -> Step {
+    match status {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(Refused(exit_code(status))),
+        Err(_) => Err(Refused(127)),
+    }
+}
+
+pub fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|path| {
+        std::env::split_paths(&path).any(|dir| {
+            let candidate = dir.join(program);
+            candidate.is_file() && std::fs::metadata(&candidate).is_ok_and(|meta| std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o111 != 0)
+        })
+    })
+}

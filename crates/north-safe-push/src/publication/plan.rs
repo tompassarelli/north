@@ -1,6 +1,4 @@
-use std::path::Path;
-
-use crate::shell::git::{default_branch, symbolic_ref};
+use crate::shell::git::Git;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Publication {
@@ -18,10 +16,10 @@ pub fn source(current: &str, default: &str) -> Result<(), String> {
     ))
 }
 
-pub fn one_branch_main(repository: &Path) -> Result<(), String> {
-    let Some(head) = symbolic_ref(repository, "HEAD") else { return Ok(()) };
+pub fn one_branch_main(git: &dyn Git) -> Result<(), String> {
+    let Some(head) = git.symbolic_ref("HEAD") else { return Ok(()) };
     let Some(current) = head.strip_prefix("refs/heads/") else { return Ok(()) };
-    source(current, &default_branch(repository))
+    source(current, &git.default_branch())
 }
 
 pub fn publication(head_oid: &str, destination_ref: &str, destination_oid: &str) -> Publication {

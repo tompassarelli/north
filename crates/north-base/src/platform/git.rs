@@ -40,3 +40,16 @@ pub fn run_without_local_env(dir: &Path, args: &[&str]) -> std::io::Result<Outpu
     }
     command.output()
 }
+
+const SETTING_DEADLINE: Duration = Duration::from_secs(120);
+
+pub fn safe_push_setting(repo: &Path, remote_ref: &str, key: &str) -> String {
+    let read = |args: &[&str]| {
+        let mut command = std::process::Command::new("git");
+        command.current_dir(repo).args(args);
+        process::run_group_within(command, SETTING_DEADLINE)
+            .filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default()
+    };
+    let committed = read(&["config", "--blob", &format!("{remote_ref}:.safe-push"), "--get", key]);
+    if committed.is_empty() { read(&["config", "--get", key]) } else { committed }
+}

@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::platform::push_ledger;
 use super::queue::{self, Ticket};
 use super::{records, telemetry};
 
@@ -51,7 +52,7 @@ pub fn arguments(path: &Path, ticket: &Ticket, noticed: &Noticed, at: f64) -> Ve
         arguments.push(name.to_owned());
         arguments.push(value);
     };
-    flag("--repo", telemetry::repository(&ticket.origin));
+    flag("--repo", push_ledger::repository(&ticket.origin));
     flag("--subject", ticket.branch.clone());
     let queued = queue::queued_micros(path);
     if queued != u128::MAX {

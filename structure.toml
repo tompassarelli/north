@@ -261,7 +261,7 @@ may_use = ["foundation", "landing", "landing.safe_push.report", "landing.safe_pu
 name = "landing.safe_push.publication"
 paths = ["crates/north-safe-push/src/publication/**"]
 responsibility = "Publishing HEAD to a non-default branch: the snapshot, range, lease and fast-forward plan, then the gated push."
-may_use = ["foundation", "landing", "landing.safe_push.gates", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell"]
+may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell"]
 
 [[module]]
 name = "landing.safe_push.tags"

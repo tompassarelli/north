@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use crate::platform::push_ledger;
 use crate::land::after::follow::program;
-use crate::land::telemetry;
 
 pub struct Timeout<'a> {
     pub base: &'a str,
@@ -17,7 +17,7 @@ pub struct Timeout<'a> {
 pub fn arguments(origin: &str, timeout: &Timeout) -> Vec<String> {
     let mut words = vec!["land-train".to_owned(), "check".to_owned()];
     for (flag, value) in [
-        ("--repo", telemetry::repository(origin)),
+        ("--repo", push_ledger::repository(origin)),
         ("--candidate", timeout.candidate.to_owned()),
         ("--tree", timeout.tree.to_owned()),
         ("--base", timeout.base.to_owned()),

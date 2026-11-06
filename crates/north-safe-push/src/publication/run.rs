@@ -1,19 +1,23 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
-use north_landing::land::scans::outgoing::{exit_status, on_path};
+use north_base::foundation::clock::Timestamp;
+use north_base::foundation::step::{Refused, Step, cancelled, refuse};
+
 use crate::publication::plan;
-use crate::shell::git::default_branch;
-use crate::shell::origin::{self, Snapshot};
 use crate::request::{self, Arguments, Plan, USAGE};
 use crate::session::cancel::watch_for_cancel;
 use crate::session::identity::{Identity, state_changed};
 use crate::session::output_log::claim_output_log;
-use north_landing::landing::step::{Refused, Step, cancelled, git_quiet, refuse};
+use crate::shell::Shell;
+use crate::shell::files::Pushed;
+use crate::shell::origin::{Push, Snapshot};
 
-use north_landing::land::{setting, telemetry};
+pub trait Checks {
+    fn scan(&self, arguments: &[String]) -> u8;
+    fn sync_dependencies(&self, root: &Path) -> Result<(), String>;
+}
 
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], shell: &Shell, checks: &dyn Checks) -> u8 {
     watch_for_cancel();
     let request = match request::arguments(arguments) {
         Ok(Plan::Help) => {
@@ -26,42 +30,17 @@ pub fn run(arguments: &[String]) -> u8 {
             return refusal.exit_code();
         }
     };
-    let directory = PathBuf::from(".");
-    match destination(&directory, &request) {
-        Ok(to) => terminal(&directory, publish(&directory, &request, &to)),
+    let publisher = Publisher { directory: PathBuf::from("."), shell, checks };
+    match publisher.destination(&request) {
+        Ok(to) => publisher.terminal(publisher.publish(&request, &to)),
         Err(Refused(code)) => code,
     }
 }
 
-fn destination(directory: &Path, request: &Arguments) -> Step<String> {
-    if request.tag.is_some() {
-        eprintln!("safe-push: north land push publishes branches; push tags with north safe-push --tag");
-        return Err(Refused(2));
-    }
-    let default = default_branch(directory);
-    let to = match &request.to {
-        Some(to) => to.clone(),
-        None => {
-            plan::one_branch_main(directory).map_err(|refusal| {
-                eprint!("{refusal}");
-                Refused(1)
-            })?;
-            default.clone()
-        }
-    };
-    if to == default {
-        eprintln!("safe-push: {default} is origin's default branch; land it with safe-push --to {default}");
-        return Err(Refused(2));
-    }
-    if request.keep_lane || request.direct || request.message.is_some() || request.several_commits.is_some() {
-        eprintln!("safe-push: --keep-lane, --direct, --message and --several-commits apply only to --to {default}");
-        return Err(Refused(2));
-    }
-    if !git(directory, &["check-ref-format", &format!("refs/heads/{to}")]) {
-        eprint!("{}", request::Refusal::Usage(format!("invalid destination branch '{to}'")).stderr());
-        return Err(Refused(2));
-    }
-    Ok(to)
+struct Publisher<'a> {
+    directory: PathBuf,
+    shell: &'a Shell,
+    checks: &'a dyn Checks,
 }
 
 struct Outgoing {
@@ -72,170 +51,280 @@ struct Outgoing {
     head: String,
 }
 
-impl Outgoing {
-    fn capture(directory: &Path, to: &str) -> Step<Self> {
-        let identity = Identity::capture(directory)?;
+struct Published {
+    head: String,
+    to: String,
+    nothing: bool,
+}
+
+impl Publisher<'_> {
+    fn destination(&self, request: &Arguments) -> Step<String> {
+        if request.tag.is_some() {
+            eprintln!("safe-push: north land push publishes branches; push tags with north safe-push --tag");
+            return Err(Refused(2));
+        }
+        let git = &*self.shell.git;
+        let default = git.default_branch();
+        let to = match &request.to {
+            Some(to) => to.clone(),
+            None => {
+                plan::one_branch_main(git).map_err(|refusal| {
+                    eprint!("{refusal}");
+                    Refused(1)
+                })?;
+                default.clone()
+            }
+        };
+        if to == default {
+            eprintln!("safe-push: {default} is origin's default branch; land it with safe-push --to {default}");
+            return Err(Refused(2));
+        }
+        if request.keep_lane || request.direct || request.message.is_some() || request.several_commits.is_some() {
+            eprintln!("safe-push: --keep-lane, --direct, --message and --several-commits apply only to --to {default}");
+            return Err(Refused(2));
+        }
+        if !git.valid_branch_name(&to) {
+            eprint!("{}", request::Refusal::Usage(format!("invalid destination branch '{to}'")).stderr());
+            return Err(Refused(2));
+        }
+        Ok(to)
+    }
+
+    fn capture(&self, to: &str) -> Step<Outgoing> {
+        let git = &*self.shell.git;
+        let identity = Identity::capture(&self.directory)?;
         let destination_ref = format!("refs/heads/{to}");
-        let snapshot = remote_destination(directory, &identity.origin_url, &destination_ref)?;
+        let snapshot = self.remote_destination(&identity.origin_url, &destination_ref)?;
         let head = identity.head_oid().to_owned();
         let base = match &snapshot {
             Snapshot::Object(oid) => {
-                if !git(directory, &["cat-file", "-e", &format!("{oid}^{{commit}}")]) {
+                if !git.has_commit(oid) {
                     eprintln!("safe-push: origin {destination_ref} is not available locally at {oid} — fetch it first");
                     return Err(Refused(1));
                 }
-                if !git(directory, &["merge-base", "--is-ancestor", oid, &head]) {
-                    eprintln!(
-                        "safe-push: non-fast-forward {head} -> {destination_ref} (origin at {oid}) — refusing; rebase onto origin {to} first"
-                    );
+                if !git.is_ancestor(oid, &head) {
+                    eprintln!("safe-push: non-fast-forward {head} -> {destination_ref} (origin at {oid}) — refusing; rebase onto origin {to} first");
                     return Err(Refused(1));
                 }
                 oid.clone()
             }
-            Snapshot::Absent => git_quiet(directory, &["ls-remote", &identity.origin_url, "HEAD"])
-                .and_then(|listing| listing.lines().next().and_then(|line| line.split('\t').next()).map(str::to_owned))
-                .filter(|oid| git(directory, &["cat-file", "-e", &format!("{oid}^{{commit}}")]))
-                .unwrap_or_default(),
+            Snapshot::Absent => self.shell.origin.head(&identity.origin_url).filter(|oid| git.has_commit(oid)).unwrap_or_default(),
         };
-        Ok(Self { identity, destination_ref, snapshot, base, head })
+        Ok(Outgoing { identity, destination_ref, snapshot, base, head })
     }
 
-    fn range(&self) -> String {
-        if self.base.is_empty() { self.head.clone() } else { format!("{}..{}", self.base, self.head) }
-    }
-
-    fn revalidate(&self, directory: &Path) -> Step {
-        self.identity.revalidate(directory)?;
-        match remote_destination(directory, &self.identity.origin_url, &self.destination_ref) {
-            Ok(current) if current == self.snapshot => Ok(()),
-            Ok(_) => Err(state_changed(&format!("origin destination {} changed", self.destination_ref))),
-            Err(_) => Err(state_changed("origin destination became unavailable, symbolic, malformed, or ambiguous")),
-        }
-    }
-}
-
-fn remote_destination(directory: &Path, origin_url: &str, destination_ref: &str) -> Step<Snapshot> {
-    let Some(listing) = git_quiet(directory, &["ls-remote", "--symref", origin_url, destination_ref]) else {
-        eprintln!("safe-push: cannot read origin destination {destination_ref}");
-        return Err(Refused(1));
-    };
-    origin::snapshot(&listing, destination_ref).map_err(|refusal| {
-        eprint!("{refusal}");
-        Refused(1)
-    })
-}
-
-fn publish(directory: &Path, request: &Arguments, to: &str) -> Step<Published> {
-    let claims = claim_output_log()?;
-    println!("safe-push: {to} is not origin's default branch — pushing without the landing queue");
-    let outgoing = Outgoing::capture(directory, to)?;
-    let range = outgoing.range();
-    let mut refusals = Vec::new();
-    let safe_push = std::env::var("SAFE_PUSH_SELF").unwrap_or_default();
-    if scan(&["language", "--base", &outgoing.base, "--head", &outgoing.head, "--origin", &outgoing.identity.origin_url, "--safe-push", &safe_push]).is_err() {
-        refusals.push("language gate");
-    }
-    if !on_path("betterleaks") {
-        return Err(refuse("safe-push: betterleaks not on PATH — refusing to push without a secret scan"));
-    }
-    if refusals.is_empty() && outgoing.base == outgoing.head {
-        println!("safe-push: nothing to push ({} already at origin {})", outgoing.head, outgoing.destination_ref);
-        return Ok(Published { head: outgoing.head, to: to.to_owned(), nothing: true });
-    }
-    refusals.extend(final_scans(&outgoing, to, &range));
-    if !refusals.is_empty() {
-        let reason = format!("{} blocking check(s) failed: {}", refusals.len(), refusals.join("; "));
-        println!("safe-push: ✗ {reason}; NOT pushed.");
-        return Err(Refused(1));
-    }
-    outgoing.revalidate(directory)?;
-    let publication = plan::publication(&outgoing.head, &outgoing.destination_ref, outgoing.snapshot_oid());
-    let branch = outgoing.identity.branch();
-    if request.dry_run {
-        println!("safe-push: ✓ clean (--dry-run) — would push {branch} -> origin as {}", publication.refspec);
-        return Ok(Published { head: outgoing.head, to: to.to_owned(), nothing: true });
-    }
-    println!("safe-push: ✓ clean — pushing {branch} -> origin as {}", publication.refspec);
-    if let Some(hook) = pre_push_hook(&outgoing.identity.root) {
-        north_landing::land::slots::deps::sync(&outgoing.identity.root).map_err(|error| {
-            eprintln!("{error}");
+    fn remote_destination(&self, origin_url: &str, destination_ref: &str) -> Step<Snapshot> {
+        self.shell.origin.snapshot(origin_url, destination_ref).map_err(|refusal| {
+            eprint!("{refusal}");
             Refused(1)
-        })?;
-        run_hook(&hook, &outgoing)?;
+        })
     }
-    cancelled()?;
-    let pushed_at = telemetry::seconds();
-    let status = Command::new("git")
-        .current_dir(directory)
-        .env("SAFE_PUSH_ACTIVE", "1")
-        .env("SAFE_PUSH_OUTPUT_CLAIMED", &claims.list)
-        .args(["push", "--no-follow-tags", "--no-verify", &publication.lease, &outgoing.identity.origin_url, &publication.refspec])
-        .status();
-    exit_status(status)?;
-    let state_home = state_home();
-    let push = telemetry::Push {
-        at_secs: pushed_at,
-        repository: &telemetry::repository(&outgoing.identity.origin_url),
-        branch: to,
-        oid: &outgoing.head,
-        landed: "",
-        session: &std::env::var("NORTH_FLEET_SESSION").unwrap_or_default(),
-    };
-    if telemetry::record_push(&state_home, &push).is_err() {
-        eprintln!("safe-push: could not record push timing");
-    }
-    attest(directory, &outgoing.identity, to);
-    Ok(Published { head: outgoing.head, to: to.to_owned(), nothing: false })
-}
 
-fn final_scans(outgoing: &Outgoing, to: &str, range: &str) -> Vec<&'static str> {
-    let branch = outgoing.identity.branch();
-    let mut failed = Vec::new();
-    let checks: [(&[&str], &'static str); 11] = [
-        (&["dep-gate", &format!("{}..{}", outgoing.base, outgoing.head)], "dependency gate"),
-        (&["native-ref", "--range", range, "--", branch, to], "native item reference"),
-        (&["tool-removal", range], "tool removal"),
-        (&["test-integrity", range], "test integrity"),
-        (&["policy-sweep", range], "policy sweep"),
-        (&["denylist", &outgoing.base, &outgoing.head, to], "deny-list scan"),
-        (&["commit-email", range], "commit email"),
-        (&["shell-hook", range], "shell hook"),
-        (&["test-admission", range], "test admission"),
-        (&["docs-owners", range], "document owners"),
-        (&["doc-links", range], "document links"),
-    ];
-    for (index, (arguments, label)) in checks.into_iter().enumerate() {
-        if index == 5 {
-            println!(
-                "safe-push: scanning {range} for secrets with betterleaks ({} -> origin {}@{})…",
-                outgoing.identity.branch_ref(),
-                outgoing.destination_ref,
-                outgoing.snapshot_oid_or("absent")
-            );
-            if scan(&["secrets", range]).is_err() {
-                println!("safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed.");
-                failed.push("secret scan");
+    fn revalidate(&self, outgoing: &Outgoing, directory: &Path) -> Step {
+        outgoing.identity.revalidate(directory)?;
+        match self.shell.origin.snapshot(&outgoing.identity.origin_url, &outgoing.destination_ref) {
+            Ok(current) if current == outgoing.snapshot => Ok(()),
+            Ok(_) => Err(state_changed(&format!("origin destination {} changed", outgoing.destination_ref))),
+            Err(refusal) => {
+                eprint!("{refusal}");
+                Err(state_changed("origin destination became unavailable, symbolic, malformed, or ambiguous"))
             }
         }
-        if scan(arguments).is_err() {
-            failed.push(label);
+    }
+
+    fn publish(&self, request: &Arguments, to: &str) -> Step<Published> {
+        let claims = claim_output_log()?;
+        println!("safe-push: {to} is not origin's default branch — pushing without the landing queue");
+        let outgoing = self.capture(to)?;
+        let range = outgoing.range();
+        let mut refusals = Vec::new();
+        let language = [
+            "language",
+            "--base",
+            &outgoing.base,
+            "--head",
+            &outgoing.head,
+            "--origin",
+            &outgoing.identity.origin_url,
+            "--safe-push",
+            &self.shell.settings.safe_push,
+        ];
+        if self.scan(&language).is_err() {
+            refusals.push("language gate");
+        }
+        if !self.shell.processes.on_path("betterleaks") {
+            return Err(refuse("safe-push: betterleaks not on PATH — refusing to push without a secret scan"));
+        }
+        if refusals.is_empty() && outgoing.base == outgoing.head {
+            println!("safe-push: nothing to push ({} already at origin {})", outgoing.head, outgoing.destination_ref);
+            return Ok(Published { head: outgoing.head, to: to.to_owned(), nothing: true });
+        }
+        refusals.extend(self.final_scans(&outgoing, to, &range));
+        if !refusals.is_empty() {
+            let reason = format!("{} blocking check(s) failed: {}", refusals.len(), refusals.join("; "));
+            println!("safe-push: ✗ {reason}; NOT pushed.");
+            return Err(Refused(1));
+        }
+        self.revalidate(&outgoing, &self.directory)?;
+        let publication = plan::publication(&outgoing.head, &outgoing.destination_ref, outgoing.snapshot_oid_or(""));
+        let branch = outgoing.identity.branch();
+        if request.dry_run {
+            println!("safe-push: ✓ clean (--dry-run) — would push {branch} -> origin as {}", publication.refspec);
+            return Ok(Published { head: outgoing.head, to: to.to_owned(), nothing: true });
+        }
+        println!("safe-push: ✓ clean — pushing {branch} -> origin as {}", publication.refspec);
+        if let Some(hook) = self.shell.git.executable_hook("pre-push") {
+            self.checks.sync_dependencies(&outgoing.identity.root).map_err(|error| {
+                eprintln!("{error}");
+                Refused(1)
+            })?;
+            self.run_hook(&hook, &outgoing)?;
+        }
+        cancelled()?;
+        let pushed_at = u64::try_from(Timestamp::now().unix_seconds()).unwrap_or(0);
+        let push = Push { url: &outgoing.identity.origin_url, refspec: &publication.refspec, lease: &publication.lease, claimed: &claims.list };
+        self.shell.origin.push(&push)?;
+        let record = Pushed {
+            at_secs: pushed_at,
+            origin_url: &outgoing.identity.origin_url,
+            branch: to,
+            oid: &outgoing.head,
+            session: &self.shell.settings.fleet_session,
+        };
+        if self.shell.files.record_push(&record).is_err() {
+            eprintln!("safe-push: could not record push timing");
+        }
+        self.attest(&outgoing.identity, to);
+        Ok(Published { head: outgoing.head, to: to.to_owned(), nothing: false })
+    }
+
+    fn final_scans(&self, outgoing: &Outgoing, to: &str, range: &str) -> Vec<&'static str> {
+        let branch = outgoing.identity.branch();
+        let mut failed = Vec::new();
+        let checks: [(&[&str], &'static str); 11] = [
+            (&["dep-gate", &format!("{}..{}", outgoing.base, outgoing.head)], "dependency gate"),
+            (&["native-ref", "--range", range, "--", branch, to], "native item reference"),
+            (&["tool-removal", range], "tool removal"),
+            (&["test-integrity", range], "test integrity"),
+            (&["policy-sweep", range], "policy sweep"),
+            (&["denylist", &outgoing.base, &outgoing.head, to], "deny-list scan"),
+            (&["commit-email", range], "commit email"),
+            (&["shell-hook", range], "shell hook"),
+            (&["test-admission", range], "test admission"),
+            (&["docs-owners", range], "document owners"),
+            (&["doc-links", range], "document links"),
+        ];
+        for (index, (arguments, label)) in checks.into_iter().enumerate() {
+            if index == 5 {
+                println!(
+                    "safe-push: scanning {range} for secrets with betterleaks ({} -> origin {}@{})…",
+                    outgoing.identity.branch_ref(),
+                    outgoing.destination_ref,
+                    outgoing.snapshot_oid_or("absent")
+                );
+                if self.scan(&["secrets", range]).is_err() {
+                    println!("safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed.");
+                    failed.push("secret scan");
+                }
+            }
+            if self.scan(arguments).is_err() {
+                failed.push(label);
+            }
+        }
+        failed
+    }
+
+    fn scan(&self, arguments: &[&str]) -> Step {
+        cancelled()?;
+        let arguments: Vec<String> = arguments.iter().map(|&argument| argument.to_owned()).collect();
+        match self.checks.scan(&arguments) {
+            0 => cancelled(),
+            code => Err(Refused(code)),
         }
     }
-    failed
-}
 
-fn scan(arguments: &[&str]) -> Step {
-    cancelled()?;
-    let arguments: Vec<String> = arguments.iter().map(|&argument| argument.to_owned()).collect();
-    match north_landing::land::scans::run(&arguments) {
-        0 => cancelled(),
-        code => Err(Refused(code)),
+    fn run_hook(&self, hook: &Path, outgoing: &Outgoing) -> Step {
+        println!("safe-push: running the pre-push checks on {} before opening the push", outgoing.head);
+        let remote = outgoing.snapshot_oid_or("");
+        let remote = if remote.is_empty() { "0".repeat(outgoing.head.len()) } else { remote.to_owned() };
+        let line = format!("{} {} {} {remote}\n", outgoing.identity.branch_ref(), outgoing.head, outgoing.destination_ref);
+        let root = &outgoing.identity.root;
+        let ran = self.shell.processes.run_with_input(hook, root, &["origin", &outgoing.identity.origin_url], &line).map_err(|_| Refused(1))?;
+        if ran.is_err() {
+            cancelled()?;
+            eprintln!("safe-push: ✗ the pre-push checks failed; NOT pushed.");
+            return Err(Refused(1));
+        }
+        self.revalidate(outgoing, root)
+    }
+
+    fn attest(&self, identity: &Identity, to: &str) {
+        if !to.starts_with("claude/") {
+            return;
+        }
+        let git = &*self.shell.git;
+        if git.setting(&format!("refs/remotes/origin/{}", git.default_branch()), "landing.queue") != "autoland" {
+            return;
+        }
+        let south = &self.shell.settings.south;
+        if !self.shell.files.is_directory(south) || !self.shell.github.public(&identity.origin_url) {
+            return;
+        }
+        let slug = identity.origin_url.trim_end_matches(".git").rsplit(['/', ':']).take(2).collect::<Vec<_>>();
+        let [name, owner] = slug.as_slice() else {
+            return;
+        };
+        let arguments = ["denylist", "attest", "--south", &south.to_string_lossy(), "--repo", &format!("{owner}/{name}"), "--branch", to];
+        match self.shell.processes.exit_code("north", &arguments).unwrap_or(127) {
+            0 => {}
+            1 => println!("safe-push: ✗ the deny-list attester refused {to}, so Autoland will not test this tip; reword the deny-listed text and push again."),
+            3 => println!(
+                "safe-push: ✓ the deny-list scan of {to} is clean, but this host's GitHub token cannot post commit statuses; the nexus denylist-attest timer posts the status and dispatches Autoland within about five minutes, with nothing for you to run."
+            ),
+            status => println!(
+                "safe-push: ⚠ the deny-list attest for {to} failed (exit {status}); the push stands and the nexus denylist-attest timer retries within about five minutes."
+            ),
+        }
+    }
+
+    fn terminal(&self, outcome: Step<Published>) -> u8 {
+        let refused = match outcome {
+            Ok(published) if published.nothing || self.on_origin(&published) => {
+                if !published.nothing {
+                    println!("safe-push: pushed {} to {}", published.head, published.to);
+                }
+                return 0;
+            }
+            Ok(published) => {
+                eprintln!("safe-push: NOT landed: lane commits missing from origin/{}", published.to);
+                Refused(1)
+            }
+            Err(refused) => refused,
+        };
+        match refused {
+            Refused(code) if self.shell.settings.raw_exit => code,
+            Refused(130 | 143) => {
+                println!("safe-push: cancelled");
+                130
+            }
+            Refused(_) => {
+                println!("safe-push: refused safe-push did not land");
+                1
+            }
+        }
+    }
+
+    fn on_origin(&self, published: &Published) -> bool {
+        let Some(origin) = self.shell.git.push_url() else {
+            return false;
+        };
+        self.shell.origin.tip(&origin, &format!("refs/heads/{}", published.to)).as_deref() == Some(published.head.as_str())
     }
 }
 
 impl Outgoing {
-    fn snapshot_oid(&self) -> &str {
-        self.snapshot_oid_or("")
+    fn range(&self) -> String {
+        if self.base.is_empty() { self.head.clone() } else { format!("{}..{}", self.base, self.head) }
     }
 
     fn snapshot_oid_or<'a>(&'a self, absent: &'a str) -> &'a str {
@@ -244,110 +333,4 @@ impl Outgoing {
             Snapshot::Absent => absent,
         }
     }
-}
-
-fn pre_push_hook(root: &Path) -> Option<PathBuf> {
-    let path = root.join(git_quiet(root, &["rev-parse", "--git-path", "hooks/pre-push"])?);
-    std::fs::metadata(&path).is_ok_and(|meta| meta.is_file() && std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o111 != 0).then_some(path)
-}
-
-fn run_hook(hook: &Path, outgoing: &Outgoing) -> Step {
-    use std::io::Write;
-    println!("safe-push: running the pre-push checks on {} before opening the push", outgoing.head);
-    let remote = outgoing.snapshot_oid_or("");
-    let remote = if remote.is_empty() { "0".repeat(outgoing.head.len()) } else { remote.to_owned() };
-    let line = format!("{} {} {} {remote}\n", outgoing.identity.branch_ref(), outgoing.head, outgoing.destination_ref);
-    let mut child = Command::new(hook)
-        .current_dir(&outgoing.identity.root)
-        .args(["origin", &outgoing.identity.origin_url])
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|_| Refused(1))?;
-    let _ = child.stdin.take().map(|mut stdin| stdin.write_all(line.as_bytes()));
-    if exit_status(child.wait()).is_err() {
-        cancelled()?;
-        eprintln!("safe-push: ✗ the pre-push checks failed; NOT pushed.");
-        return Err(Refused(1));
-    }
-    outgoing.revalidate(&outgoing.identity.root)
-}
-
-fn attest(directory: &Path, identity: &Identity, to: &str) {
-    if !to.starts_with("claude/") {
-        return;
-    }
-    let default = default_branch(directory);
-    if setting::landing(directory, &format!("refs/remotes/origin/{default}"), "landing.queue") != "autoland" {
-        return;
-    }
-    let south = std::env::var_os("SAFE_PUSH_SOUTH").map_or_else(|| home().join("code/south"), PathBuf::from);
-    let public = Command::new("gh")
-        .args(["repo", "view", &identity.origin_url, "--json", "visibility", "-q", ".visibility"])
-        .output()
-        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "PUBLIC");
-    if !south.is_dir() || !public {
-        return;
-    }
-    let slug = identity.origin_url.trim_end_matches(".git").rsplit(['/', ':']).take(2).collect::<Vec<_>>();
-    let [name, owner] = slug.as_slice() else { return };
-    let status = Command::new("north").args(["denylist", "attest", "--south", &south.to_string_lossy(), "--repo", &format!("{owner}/{name}"), "--branch", to]).status();
-    match status.ok().and_then(|status| status.code()).unwrap_or(127) {
-        0 => {}
-        1 => println!("safe-push: ✗ the deny-list attester refused {to}, so Autoland will not test this tip; reword the deny-listed text and push again."),
-        3 => println!("safe-push: ✓ the deny-list scan of {to} is clean, but this host's GitHub token cannot post commit statuses; the nexus denylist-attest timer posts the status and dispatches Autoland within about five minutes, with nothing for you to run."),
-        status => println!("safe-push: ⚠ the deny-list attest for {to} failed (exit {status}); the push stands and the nexus denylist-attest timer retries within about five minutes."),
-    }
-}
-
-struct Published {
-    head: String,
-    to: String,
-    nothing: bool,
-}
-
-fn terminal(directory: &Path, outcome: Step<Published>) -> u8 {
-    let raw = std::env::var_os("NORTH_NO_AUTOREAP").is_some_and(|value| value == "1");
-    let refused = match outcome {
-        Ok(published) if published.nothing || on_origin(directory, &published) => {
-            if !published.nothing {
-                println!("safe-push: pushed {} to {}", published.head, published.to);
-            }
-            return 0;
-        }
-        Ok(published) => {
-            let reason = format!("NOT landed: lane commits missing from origin/{}", published.to);
-            eprintln!("safe-push: {reason}");
-            Refused(1)
-        }
-        Err(refused) => refused,
-    };
-    match refused {
-        Refused(code) if raw => code,
-        Refused(130 | 143) => {
-            println!("safe-push: cancelled");
-            130
-        }
-        Refused(_) => {
-            println!("safe-push: refused safe-push did not land");
-            1
-        }
-    }
-}
-
-fn on_origin(directory: &Path, published: &Published) -> bool {
-    let Some(origin) = git_quiet(directory, &["remote", "get-url", "--push", "origin"]) else { return false };
-    git_quiet(directory, &["ls-remote", &origin, &format!("refs/heads/{}", published.to)])
-        .is_some_and(|listing| listing.split('\t').next() == Some(published.head.as_str()))
-}
-
-fn git(directory: &Path, arguments: &[&str]) -> bool {
-    git_quiet(directory, arguments).is_some()
-}
-
-fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
-}
-
-fn state_home() -> PathBuf {
-    std::env::var_os("XDG_STATE_HOME").map_or_else(|| home().join(".local/state"), PathBuf::from)
 }

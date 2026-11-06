@@ -6,8 +6,6 @@ use crate::shell::git::default_branch;
 use crate::shell::origin::{self, Snapshot};
 use north_landing::landing::step::{Refused, Step, git_quiet};
 
-use north_landing::land::telemetry;
-
 const USAGE: &str = "usage: safe-push --restore [--dry-run] COMMIT BRANCH\n\
 republish a commit that is already public to a branch origin no longer has: COMMIT must be reachable from origin's default branch or from a ref in the lane-gc mirror (LANE_GC_MIRRORS, default ~/.local/state/agents/lane-gc/mirrors/REPO.git); BRANCH must be absent on origin and not the default branch. The content scans are skipped because the commits were published and scanned when first pushed.\n";
 
@@ -96,7 +94,7 @@ fn restore(directory: &Path, request: &Request) -> Step {
 
 fn public_source(directory: &Path, origin: &str, default: &str, oid: &str) -> Option<PathBuf> {
     let commit = format!("{oid}^{{commit}}");
-    let mirror = mirror(&telemetry::repository(origin));
+    let mirror = mirror(&origin::repository(origin));
     if mirror.is_dir() && git(&mirror, &["cat-file", "-e", &commit]) {
         let held = git_quiet(&mirror, &["for-each-ref", "--contains", oid, "--format=%(refname)", "refs/archive", &format!("refs/heads/{default}")]);
         if held.is_some_and(|refs| !refs.is_empty()) {

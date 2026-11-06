@@ -6,6 +6,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use crate::platform::push_ledger;
 use super::after::{deadline, follow, send};
 use super::{blame, culprit};
 use super::candidate::{change_worktrees_alone, git};
@@ -107,7 +108,7 @@ impl Run {
 
 pub fn start(lander: &Lander, hosts: &Hosts, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>) -> std::thread::JoinHandle<Outcome> {
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
-    let landed = Landed { repo: lander.repo.clone(), repository: telemetry::repository(&origin), base: base.to_owned(), head: head.to_owned(), heads, lanes, tips };
+    let landed = Landed { repo: lander.repo.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: head.to_owned(), heads, lanes, tips };
     let run = Run {
         runner: vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--dry".to_owned(), "1".to_owned()],
         worktree: lander.queue.join("post-land"),

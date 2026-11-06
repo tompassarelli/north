@@ -15,12 +15,13 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use toml_edit::DocumentMut;
 
+use crate::platform::push_ledger;
 use super::candidate::git;
 use super::setting;
 use super::queue::{self, Ticket};
 use super::lander::{Lander, state_home};
 use super::records::{self, Candidate, Decision};
-use super::telemetry::{self, Push, Stages};
+use super::telemetry::{self, Stages};
 use super::watch::LandedLane;
 use super::trace;
 
@@ -152,9 +153,9 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
         let queued = crate::platform::land_queue::rfc3339_seconds(&ticket.queued_at).unwrap_or_else(|| stages.started_at());
         let ticket_name = path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
         spans.extend(trace::landing::spans(stages, &trace::landing::Landed { ticket: &ticket_name, branch: &ticket.branch, queued, landed: head, batch: batch_size }));
-        let repository = telemetry::repository(&ticket.origin);
-        let push = Push { at_secs: telemetry::seconds(), repository: &repository, branch: &ticket.branch, oid: &ticket.head, landed: head, session: ticket.session.as_deref().unwrap_or("") };
-        if let Err(error) = telemetry::record_push(&state, &push) {
+        let repository = push_ledger::repository(&ticket.origin);
+        let push = push_ledger::Push { at_secs: telemetry::seconds(), repository: &repository, branch: &ticket.branch, oid: &ticket.head, landed: head, session: ticket.session.as_deref().unwrap_or("") };
+        if let Err(error) = push_ledger::record(&state, &push) {
             println!("north land: could not record the push of {}: {error}", ticket.branch);
         }
         if let Err(error) = stages.flush(&state, &repository, &ticket.branch) {

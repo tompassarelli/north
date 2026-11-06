@@ -2,6 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use crate::platform::push_ledger;
 use super::after::{cleanup, follow};
 use super::candidate::git;
 use super::incidents;
@@ -40,7 +41,7 @@ pub fn arguments(path: &Path, ticket: &Ticket, candidate: &Candidate, tree: &str
     }
     let lane = ticket.root.file_name()?.to_string_lossy().into_owned();
     let mut arguments = vec!["land-train".to_owned(), "record".to_owned()];
-    flag(&mut arguments, "--repo", telemetry::repository(&ticket.origin));
+    flag(&mut arguments, "--repo", push_ledger::repository(&ticket.origin));
     flag(&mut arguments, "--lane", lane);
     flag(&mut arguments, "--branch", &ticket.branch);
     flag(&mut arguments, "--tip", &ticket.head);
