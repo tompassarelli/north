@@ -35,7 +35,7 @@ lane back to its worker and why.
 - Rerunning a stopped `safe-push --to main` repeated every check even when Autoland already held
   the commit.
 - Workers launched with briefs that declare no `Surface:` stayed on the laptop, where the gaming
-  hold defers heavy and native work for as long as Tom plays.
+  hold defers heavy and native work for as long as a game runs.
 - North's own landings could not offload their land checks while Tom played: the offload needs a
   runtime newer than the one installed, and the runtime build is itself heavy work the hold defers.
 
@@ -204,8 +204,8 @@ later run whose base is red because of an earlier landing names no lane, as befo
 
 The culprit search after a red run first chose its host again for every prefix it probed, and the
 laptop often answered as the host with the most room; the probe then queued for the laptop's heavy
-capacity lease, which defers under CPU pressure while Tom is at it (232 s for the probes of
-328e9b3a9 at 10:10 AM, the largest host wait of that hour). The probes now run on the host their run
+capacity lease, which defers under CPU pressure, and that lease became the largest host wait of the hour it
+was seen. The probes now run on the host their run
 claimed, which holds the claim until the search ends and has the run's tree warm in its slots.
 
 ## Host choice by slot backlog (2026-11-06)

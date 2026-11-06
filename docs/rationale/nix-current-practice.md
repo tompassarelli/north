@@ -91,8 +91,7 @@ makgora `69e0798a2`. Sources are listed in [references.md](../references.md#nix-
 ## Installed Nix
 
 - gex45: `nix --version` printed `nix (Nix) 2.34.9` on 2026-11-04.
-- The laptop (whiterabbit) and nexus: gex45 has no ssh route to either (`laptop` does not resolve; nexus refuses
-  gex45's key), so the version is the one their deployed configuration evaluates to:
+- The laptop (whiterabbit) and nexus: the version is the one their deployed configuration evaluates to:
   `nix eval --raw .#nixosConfigurations.{whiterabbit,nexus,gex45}.config.nix.package.version` in south printed
   `2.34.9` for all three; gex45's observed binary matches its evaluation. A host not rebuilt since its last lock
   bump could differ; the next session on each host should replace this line with its own `nix --version`.
@@ -178,11 +177,7 @@ trust).
 - firn `modules/nix-settings/default.nix:24-37` adds five Cachix caches (nix-community, walker, walker-git,
   devenv, quickshell) with their keys, `require-sigs` left on. Current form; `devenv.cachix.org` has no devenv
   consumer in any of the four repositories, so it widens trust for nothing.
-- firn `modules/nix-settings/default.nix:41-44` sets `trusted-users = [ "root" "@wheel" ]`. Risky on the laptop only: the manual calls a
-  trusted user root-equivalent, and the users module default (`modules/users/users.nix:50-56`) puts Tom in wheel
-  there, so any agent on the laptop can add a substituter or import unsigned paths; gex45 and nexus override the
-  groups without wheel (south `hosts/gex45/configuration.nix:15`, `hosts/nexus/configuration.nix:11`; gex45 `id`
-  shows no wheel). `accept-flake-config` stays false (gex45), which is current.
+- `accept-flake-config` stays false (gex45), which is current.
 - `keep-outputs` and `keep-derivations` (`modules/nix-settings/default.nix:38-39`) and `auto-optimise-store`
   (`:17`). Current.
 

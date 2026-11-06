@@ -320,7 +320,7 @@ One model, one placement function, one enforcer per host.
 
 **anthropic-cloud, modelled honestly.** A cloud session (4 cores, 15 GB) has no separate charge: it counts toward
 the launching account's plan usage like a local session, so its builds are free compute and its tokens cost what a
-local worker's cost. The one-time $250 credit on claude:a was spent by 2026-10-26 and expires 2026-11-05 07:59Z,
+local worker's cost. Plan usage, not a credit, is what limits it,
 so today's rule (`place_anthropic_cloud` in `crates/north-dispatch/src/pacing/placement.rs`, which places the cloud
 only while `credit()` says the credit is usable, and harness/skills/workers/references/cloud.md) stops using cloud
 compute for the wrong reason. The corrected rule: a code-only box in a public repository may place on
@@ -328,14 +328,11 @@ anthropic-cloud under any Claude account whose headroom admits a local session b
 its predicted finish there (session start, cold clone, cold build, run) beats the best local host, or when every
 local host is at its resident cap. Cloud sessions cannot reach gex45, Nexus or laptop state; they land by pushing
 `claude/land-NAME` (Autoland in makgora and wisp, a courier for north), and their auto-mode permission prompts are
-cleared by `north cloud sweep` on the host whose login launched them. Accounts a, b and c are at their weekly limit
-today; d has headroom.
+cleared by `north cloud sweep` on the host whose login launched them. The rule reads headroom at placement time
+and names no account in advance.
 
-Launching under d: the laptop already holds claude:d's login (its profile has credentials), and Nexus holds only
-claude:a's. `north cloud launch` and `north cloud sweep` run under one login on one host, so launching d's sessions
-from the laptop needs no new sign-in; launching them from Nexus would need Tom to sign claude:d in there. Whether
-account d's claude.ai GitHub connection can push `claude/land-*` is unknown; W1-5 probes it, and if it cannot, the
-session hands back through `north cloud collect`, which needs no push access.
+Launching: `north cloud launch` and `north cloud sweep` run under one login on one host. W1-5 probes whether a cloud
+session can push `claude/land-*`; one that cannot hands back through `north cloud collect`, which needs no push access.
 
 ## Boxes
 
@@ -390,18 +387,18 @@ and Cloud credit lane sections), `[placement] cloud_credit` and `cloud_host` in 
 some Claude account's headroom admits a session by the 5h and weekly rules local sessions use; the verdict names
 that account and its launch host (the host holding its login); the credit no longer gates it, and the
 `cloud credit:` lines go. Done when: `agents plan --place BRIEF` on a code-only north brief prints `target
-anthropic-cloud claude:d` today (a, b, c at weekly limit), and with every account over its limit prints a held or
-local verdict.
+anthropic-cloud` under an account the rule admits, and with no account admitted prints a held or local
+verdict.
 
 **W1-5. Launch and sweep cloud sessions under the account that has headroom.** Category: tooling. Spec: measured.
 Scope: cross-module. Surface: rust. Verify: local-test. After: W1-4. Files:
 `crates/north-dispatch/src/dispatch/cloud.rs`, `harness/skills/workers/references/cloud.md`. Spec: `north cloud
 launch` and `north cloud sweep` take the account (default: the placement verdict's) and run under that account's
-profile on the host that holds its login (claude:d on the laptop); the trust-dialog write goes into that profile's
-`.claude.json`; a lead's tick sweeps every launch host it used. Probe once whether account d's session can push
+profile on the host that holds its login; the trust-dialog write goes into that profile's
+`.claude.json`; a lead's tick sweeps every launch host it used. Probe once whether that account's session can push
 `claude/land-NAME`; if it gets 403, the brief's landing steps switch to the `north cloud collect` handback. Done
-when: one docs-only north box launched under claude:d from the laptop reaches `Done: pushed claude/land-NAME` or a
-collected mbox that `git am -3` applies, and `north cloud sweep` from the laptop lists that session.
+when: one docs-only north box launched under that account from its login host reaches `Done: pushed claude/land-NAME` or a
+collected mbox that `git am -3` applies, and `north cloud sweep` from that host lists that session.
 
 **W1-6. Actions jobs as a capacity host.** Category: tooling. Spec: measured. Scope: single-module. Surface: rust.
 Verify: local-test. After: W1-1. Files: a `north capacity actions-pull` beside W1-1. Spec: read
@@ -590,17 +587,14 @@ Run by the lead after the boxes land, each recorded here as a dated line with it
 
 ## Decisions for Tom
 
-Only one, and only if W1-5's probe finds that account d's cloud sessions cannot push `claude/land-*`:
+Only one, and only if W1-5's probe finds that an account's cloud sessions cannot push `claude/land-*`:
 
-- Recommended: land d's cloud work through the `north cloud collect` handback (the session's commits come back as an
+- Recommended: land that account's cloud work through the `north cloud collect` handback (the session's commits come back as an
   mbox from its saved transcript and land through safe-push on the laptop). It needs no new sign-in and widens no
   access; it costs one collect step per box.
-- Alternative: Tom connects GitHub for claude.ai account d (the Claude GitHub App or `/web-setup`), so d's sessions
-  push like a's did. Pushes then land without the collect step, but a fourth account gets push access to Tom's
-  repositories.
-- Not recommended: signing claude:d in on Nexus so Nexus stays the only cloud launch host. It needs Tom at a login
-  prompt and buys nothing, because the laptop already holds d's login and the launch uses no laptop CPU worth
-  counting.
+- Not recommended: signing that account in on a second host so one host stays the only cloud launch host. It needs
+  Tom at a login prompt and buys nothing, because a host that already holds the login can launch, and a launch uses
+  no CPU worth counting.
 
 ## ETA
 

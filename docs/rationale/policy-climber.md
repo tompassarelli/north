@@ -84,8 +84,8 @@ Dispatch and `north fleet launch` draw each armed launch's arm from these shares
 
 `router::settle::settled` gives a comparison to the arm cheaper per kept box only when both arms hold `ARM_RUNS` runs and
 closed boxes, its kept share is no lower, and a seeded bootstrap over both arms' boxes puts it ahead in 90 of 100 resamples.
-Closed-box cost is heavy-tailed (the 177 closed armed boxes of the 30 days to 2026-11-06 run from $0.77 to $78.60 around a
-$4.14 median), so at 15 boxes a point difference settles a 1.5 times dearer arm in more than one draw in twenty, the winner's
+Closed-box cost is heavy-tailed (the 177 closed armed boxes of the 30 days to 2026-11-06 run from a fifth of the median to 19 times
+it), so at 15 boxes a point difference settles a 1.5 times dearer arm in more than one draw in twenty, the winner's
 curse the 2026-10-12 policy-eval review found. The test draws 1,000 trials from those committed costs and holds the bootstrap
 at or under 5%.
 
@@ -147,4 +147,4 @@ record and cadence that close `policy-climber`.
 
 ## First loss it found
 
-The dry run on 2026-11-06 (ledger 7d, API-equivalent dollars) named category tooling on sonnet as the largest loss: $995.91, of which $42.17 was repeat runs and $953.74 boxes that never closed. `Cheapest` found no cheaper tier, so its arm rule proposed routing tooling off arm `sonnet-high` (6 of 7 boxes kept at $169.15 each) onto arm `worker` (6 of 7 kept at $31.73 each), projected saving $824.48. The candidate touches only `dispatch/tier.rs`, which is inside scope, and replay reached 28 of the window's 2210 placement cases with no outcome shifted and no invariant breached. The unclosed-box dollars include umbrella issues with many runs; a later box should rank unclosed boxes by their median, as `Cell::median_box_usd` already does for closed ones.
+The first dry run named one category on one tier as the largest loss, almost all of it boxes that never closed rather than repeat runs. `Cheapest` found no cheaper tier, so its arm rule proposed moving that category from arm `sonnet-high` onto arm `worker`, which kept as many boxes at a fraction of the cost per kept box. The candidate touches only `dispatch/tier.rs`, which is inside scope, and replay reached a small share of the window's placement cases with no outcome shifted and no invariant breached. The unclosed-box dollars include umbrella issues with many runs; a later box should rank unclosed boxes by their median, as `Cell::median_box_usd` already does for closed ones.

@@ -8,9 +8,9 @@ Each design part ends with an **Enforced by** line.
 
 ## 1. Evidence: one day of the proxy
 
-Source: the terminal proxy's transcript, conversation `895929a7-6218-4168-b513-3dced3440bf6` (account d,
-laptop), copied at 3:24 AM on 2026-11-05 (laptop time, UTC+7). It covers 3:50 AM on 2026-11-04 to
-3:23 AM on 2026-11-05: 5,880 Opus 5.5 turns, 2,753 tool calls, 116 messages typed into the session and
+Source: the terminal proxy's transcript, conversation `895929a7-6218-4168-b513-3dced3440bf6` (on the
+laptop), copied on 2026-11-05. It covers about 24 hours from 2026-11-04 to
+2026-11-05: 5,880 Opus 5.5 turns, 2,753 tool calls, 116 messages typed into the session and
 11 context compactions. Its turns read 1,549 M cache tokens, about 263 k per turn, so every call the
 proxy makes re-reads a quarter of a million Opus tokens of context.
 
@@ -77,7 +77,7 @@ Work that should have been delegated, by the calls it took:
 The root cause under all ten kinds is one gap: **the harness cannot name the proxy.** The proxy runs
 outside the fleet with `NORTH_FLEET_SESSION` unset, so it cannot be a parent, a lander ticket's
 session or an alarm's recipient. Its children report to nobody (`--parent none`) or to the idle
-fleet session that is also called `proxy`, on account a: launches with no `--parent` and no caller
+fleet session that is also called `proxy`: launches with no `--parent` and no caller
 default to that name (`src/cli/fleet/lineage.rs:19`), and `north ops check`, `north ops dividend` and
 `north flow` alerts all send to it (`crates/north-dispatch/src/check/mod.rs:45`,
 `crates/north-ops/src/ops/flow/alerts.rs:68`). So the session Tom reads hears nothing, and the
@@ -122,7 +122,7 @@ Enforced by: types. A new timer cannot send without naming itself, so it cannot 
   already use (`crates/north-core/src/fleet/runtime.rs:94`). A second proxy launch is refused unless it
   passes `--take-over`. For a proxy, take-over archives the old record and hands over one digest line
   (how many messages, from which senders, the oldest age) instead of replaying the backlog into the new
-  proxy's first turn; the account-a `proxy` record and the parked `proxy-gex45` record (account c) are
+  proxy's first turn; the live `proxy` record and the parked `proxy-gex45` record are
   both archived this way by the first `north proxy`.
 - The proxy moves to another account through the same take-over when its window runs out, the
   handover the provider-reserve plan already designs for work in flight (north `d7509e4ea`). While
@@ -153,7 +153,7 @@ works in the TUI (Ctrl+V from the Wayland clipboard), as do Esc interrupt and a 
 `!` is not covered. Voice dictation does not reach the TUI: Tom dictates with Claude Code's built-in
 voice mode (`voice.enabled`, `mode: hold`, sox `rec` as a child of the interactive `claude`), which
 records and transcribes inside Claude Code's own UI, and no desktop-wide dictation service exists to
-type into the focused window. Gate 154 closed by default on a hold-to-talk local Whisper module, filed
+type into the focused window. A hold-to-talk local Whisper module was chosen instead, filed
 as box F1v on north#112. Box F1 waits on Tom's answer and on that box.
 
 Until F1 lands, Tom also types into his own interactive Claude window, and on 2026-11-06 that window
@@ -550,7 +550,7 @@ land; L2 and L3 next, because bookkeeping is the cheapest large cut; then R2, G1
 and F1 make the window Tom uses the fleet proxy; M1, M2 and T1 measure what the others changed; D1
 closes.
 
-F1 changes the window Tom types into, so it waits on a gate to him. Recommended: his proxy window
+F1 changes the window Tom types into. In the recommended design the proxy window
 opens north's fleet TUI on the `proxy` session, so every receipt, landing and alarm reaches the
 session he reads; he keeps model and effort changes through the TUI, and loses image paste and the
 `!` shell line, which he used once each in the measured day. The alternative keeps the Claude Code

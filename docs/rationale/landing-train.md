@@ -8,7 +8,7 @@ the design, the boxes that build it in waves that each land value alone, and wha
 same day after an adversarial review (table at the end). Built so far: `landing.exact = true` in north's
 .safe-push (lead commit 5c12c46f3, lane landing-exact), which is Wave 0's delivered state.
 
-## Baseline, 2026-11-04 (laptop clock, +07)
+## Baseline, 2026-11-04 (laptop clock)
 
 Sources: `~/.local/state/safe-push/stages.tsv` (one row per safe-push stage; times in ms), the
 `land-check-*.log` files beside it, `gh run list` for Harness, Cargo, Land check and Main is red,
@@ -346,9 +346,7 @@ right lane only.
   removing the older lane turns main green reverts only that lane; a failure that persists without the lane
   reverts nothing and records cause `environment`; a quarantined case triggers nothing; a second revert
   of one lane in one episode is refused; main-red.yml's job pushes only `claude/land-revert-*`.
-- **B23 Tom's PATs off the lander's reach.** Category infra; Scope cross-repo (south). Done when: on
-  Nexus each use of nexus-work and nexus-apply is replaced by a Socrates App token, no sops
-  secret Nexus decrypts holds either, and the units that used them pass their own checks.
+- **B23** Category infra; Scope cross-repo (south); recorded in south.
 - **B24 Main ruleset.** Follows B6, B16, B21, B22. Category infra; Surface GitHub settings. Done when: `gh api repos/tompassarelli/north/rulesets`
   shows the main ruleset with bypass actors the lander App and the admin role, a push to main with a
   Socrates App token and one from a workflow `GITHUB_TOKEN` are both refused, and the lander lands the
@@ -1040,11 +1038,6 @@ Only Tom can act (his GitHub session):
 
 Decisions that are Tom's (credentials, cost):
 
-- **Tom decides whether to revoke nexus-work and nexus-apply once B23 shows nothing on Nexus uses
-  them.** Recommendation: revoke, because a token acting as Tom carries his admin role's ruleset bypass
-  wherever it sits, and after B23 nothing needs them; the cost is his clicks in GitHub settings.
-  Alternative: keep them as a fallback; nothing breaks, and two long-lived tokens acting as Tom stay on
-  an always-on host.
 - **Tom decides on a larger Nexus only if B4 shows its 3 cores set p50 above 12 min after 16(d).**
   Recommendation: none until B4. Alternative: keep 3 cores and accept B4's p50.
 
@@ -1117,13 +1110,13 @@ load. The test's cleanup also stops the batch subslice. With these, `machine-cap
 
 Already measured by B6: a user-owned repository's ruleset accepts an Integration (GitHub App) and the
 RepositoryRole admin as bypass actors; north had no rulesets (`gh api repos/tompassarelli/north/rulesets
---jq length` returns 0); the north lander App (id 5603348, installation 178367738) holds
+--jq length` returns 0); the north lander App holds
 `workflows: write`, so it can push `.github/workflows` changes under the ruleset.
 
 `gh api repos/tompassarelli/north/keys --jq '.[]|{title,read_only}'` returns nothing (raw response
 `[]`): north has no deploy keys, so no deploy key can write main around the ruleset.
 
-## Incident, 2026-11-04: landing storm (7:30-8:15 AM, laptop clock, +07)
+## Incident, 2026-11-04: landing storm (7:30-8:15 AM, laptop clock)
 
 Measured:
 

@@ -438,7 +438,7 @@ with `--no-update-lock-file`, `--no-write-lock-file` in agent-config-check, pure
 Marked risky or outdated, each with its box:
 
 - Risky: firn's `trusted-users` includes `@wheel` (`modules/nix-settings/default.nix:41`), which is root-equivalent;
-  only the laptop's user is in wheel. D22.
+  which hosts that reaches is recorded privately in south. D22.
 - Risky: firn's CI pins `nix_path nixpkgs=channel:nixos-25.05`, end of life while hosts run 26.05, and
   `install-nix-action` v27 (`.github/workflows/build.yml:13,15`, `tests.yml:33`). D23.
 - Risky: makgora's shellHook exits 1 when the mdl addon is missing (`flake.nix:13`), so every `nix develop -c` fails

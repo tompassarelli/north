@@ -290,8 +290,8 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   minutes p25, median, p90 by facet cell with back-off).
 - Spend: `north fleet spend --self` (`src/cli/fleet/spend.rs:12`, `C/ledger/books.rs:12`, priced by
   `C/router/pricing.rs:64` from `C/router/prices.json`).
-- Cloud credit: `P/placement/hosts.rs:12` `credit`. The only credit, $250 on claude:a, was spent by 2026-10-26 and
-  expires 2026-11-05 7:59 AM UTC (`docs/rationale/capacity-scheduler.md`, "anthropic-cloud, modelled honestly"); cloud
+- Cloud credit: `P/placement/hosts.rs:12` `credit`. A credit, while one lasts, is spent first
+  (`docs/rationale/capacity-scheduler.md`, "anthropic-cloud, modelled honestly"); cloud
   sessions otherwise count toward the launching account's plan usage.
 
 ### 1.11 Found by the review
@@ -324,7 +324,7 @@ readings), the threads `usage` table, and session transcripts under each profile
   to 176 minutes until their reset. All but two were on claude:c on Oct 26 and 27, while its week read 5% to 91%.
 - Sessions on accounts c and d end turns with "You've hit your limit · resets 3pm" (Oct 27 11:33 AM to 1:15 PM UTC,
   five times; Oct 27 10:02 PM; Oct 28 3:26 PM; Oct 29 1:47 PM). north#259 measured runs ended by a usage limit at
-  $237, 9% of spend, cut off mid-turn.
+  the end of a window, cut off mid-turn.
 - The 95% stop did not keep those windows from filling (in-flight work overshoots), and Tom reports it stranded
   capacity at 98% (2026-11-05). So the fix for P4 is to park and revive the work a full window stops, and to fail the
   lead over, not to stop launching early. Consequence for landing order: the 95% gate is removed only after parking
@@ -341,9 +341,7 @@ soonest-reset-first rule handles.
 
 Rules 1 and 2 compare a box's expected spend, in API-equivalent dollars, with window percentages. Hours on one
 account with one window and both a usage rise and priced fleet turns (`ledger.db` runs priced at
-`C/router/prices.json`, 2026-10-24 to 2026-11-01): the week rose 324 points against $2,157 (0.15 points per dollar,
-152 hours; by account a 0.30, b 0.11, c 0.17, d 0.22), the five-hour window 1,063 points against $1,228 (0.87 per
-dollar, 84 hours). Agent-tool workers and Tom's own sessions are not in `ledger.db`, so these are upper bounds, and
+`C/router/prices.json`, 2026-10-24 to 2026-11-01): the measured factors are recorded privately in south. Agent-tool workers and Tom's own sessions are not in `ledger.db`, so these are upper bounds, and
 the spread by account is wide. The factor is therefore an input measured per account and window and recorded with its
 n and date (box 4), never a constant; a p90 box of $4.54 is then about 0.7 weekly and 4 five-hour points.
 
@@ -641,12 +639,12 @@ prints one aligned row per Claude account, one line per other provider and the w
 
 ```
 Claude       5 hours        week          week resets   outlook
-a  Max 20x   —              65%           Wed 9:00 AM   lasts to reset
-b  Max 20x   —              100% (full)   Sat 6:00 PM   out until reset
-d  Max 20x   10% (52m)      97%           Tue 2:00 PM   runs out in 4h 28m
+a  PLAN       —              W%            DAY H:MM AM   lasts to reset
+b  PLAN       —              100% (full)   DAY H:MM PM   out until reset
+c  PLAN       F% (MMm)       W%            DAY H:MM PM   runs out in Hh MMm
 
-Gemini       week 51% (Claude and GPT models), 5% (Gemini Models)   read 9 min ago
-This week    $320.07: $308.27 fixed, $11.80 metered (gex45, DigitalOcean $8.09)
+Gemini       week W% (Claude and GPT models), W% (Gemini Models)   read 9 min ago
+This week    $TOTAL: $FIXED fixed, $METERED metered (by host)
 ```
 
 A 5-hour window whose reset has passed shows `—`; a stale reading says how old it is; deleted hosts, expired
@@ -868,7 +866,7 @@ An Opus-high planner reviewed the revised doc against the code at 7c2a76350, the
    box 9a rewrites `Decision` and `Target`.
 7. Row 2 ended the cloud lane on credit expiry: the lane rule stays as today and the account under it comes from
    `place`; the credit only orders eligible boxes. This keeps Tom's "spent first" without making the lane depend on
-   a credit that expires 2026-11-05.
+   a credit that expires.
 8. Agent-tool workers had no in-flight record or spend: the hooks write and remove a launch record keyed by
    `tool_use_id`; their spend reaches the breaker through `worker-ledger` with up to a 15-minute lag, stated in 3.2.
 9. A lead with no workers tripped on a p90 of 0: an empty workstream or zero p90 is `Unestimated`; lead coordination

@@ -10,7 +10,7 @@ reads, and replay has to show when it does not.
 ## Why
 
 North's decision logic changes constantly. Of the 973 commits on main from 10:00 PM on 2026-10-30 to
-`89e7fc553` (5:21 AM on 2026-11-06, about 7 days; laptop time, UTC+7), 550 touched decision code. Sorted into areas by file
+`89e7fc553` (5:21 AM on 2026-11-06, about 7 days; laptop time), 550 touched decision code. Sorted into areas by file
 path (the script is in [Method](#method)):
 
 - landing gate verdicts: 326 commits, 56,443 lines
@@ -359,14 +359,9 @@ old 3f2a1c0 (origin/main)   new 9b04e7d (working tree)
 determinism: old reproduces 1,412 of 1,412 recorded decisions, each decided twice
 same: 1,377
 changed: 35
-   18  account claude:c -> account claude:a (machine unchanged)
-   11  held: every Claude account exhausted -> account claude:d
     6  gex45 -> here
-unreplayable: 0
-first 3 changes:
-  Nov 5 10:12 PM  n612-fix  account claude:c on gex45 -> account claude:a on gex45
-    claude:a week room 26, expiring 0.31/h; claude:c week room 81, expiring 0.12/h
   ...
+unreplayable: 0
 ```
 
 Truth rests on two checks that test different things.

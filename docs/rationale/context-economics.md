@@ -23,9 +23,9 @@ north's transcripts or its ledger.
 
 ### Re-reading cached context is two thirds of spend
 
-Over the 18 days the requests cost $13,589 at list price. Cache reads were $8,966 (66.0%), cache writes $2,697 (19.8%),
-output $1,925 (14.2%) and uncached input $2. Every cache write was a one-hour write (265,822 requests), and none was a
-five-minute write. Fleet workers spent $11,909 (87.6%) over 1,073 sessions, parent sessions 6.7% and the proxy 3.0%.
+Over the 18 days, at list price, cache reads were 66.0% of the cost, cache writes 19.8%,
+output 14.2% and uncached input under 0.1%. Every cache write was a one-hour write (265,822 requests), and none was a
+five-minute write. Fleet workers spent most of it, far ahead of parent sessions and the proxy.
 
 Each turn re-reads the whole cached context, so a turn's read cost grows linearly with context. The mean read per turn
 by context band:
@@ -75,8 +75,8 @@ lower window would save. The replay below estimates that, and the arms measure i
 ### Waits past the cache TTL cost 3% of spend
 
 After a wait of more than an hour, 339 requests rewrote at least half their context at the two-times write price:
-$426.90, 3.1% of all spend ($415 more than warm reads would have cost). Workers made 249 of these resumes ($343.70,
-2.9% of worker spend), parent sessions 61 ($53) and the proxy 24 ($18).
+3.1% of all spend (3.1 points more than warm reads would have cost). Workers made 249 of these resumes (2.9% of
+worker spend), parent sessions 61 and the proxy 24.
 
 The ledger's `idle_gap_misses` counts only 102 of the 339. It counts a resume only when the cache read is at most 5%
 of context, but the shared system and tools prefix (about 12k tokens) stays cached across sessions on an account. That
@@ -85,17 +85,17 @@ puts 218 real resumes at a 5% to 25% read share.
 ### The one-hour TTL pays for itself
 
 4,164 requests came 5 to 60 minutes after the previous one. Under a five-minute TTL they would have rewritten their
-cached context at 1.25 times input, which would have cost $3,644 more. The one-hour write premium over five-minute
-writes was $1,011. Net, the one-hour TTL (Claude Code's main-session default for north's sessions, plus north's
-`subagentPromptCacheTtl = "1h"`) saved $2,633 in 18 days. Keep it. Subagents spent 11.6% of the total, and 0.6% of
+cached context at 1.25 times input, which would have cost 26.8% of the total more. The one-hour write premium over five-minute
+writes cost much less than that. Net, the one-hour TTL (the main-session default, plus north's
+`subagentPromptCacheTtl = "1h"`) saved 19.4% of the total in 18 days. Keep it. Subagents spent 11.6% of the total, and 0.6% of
 their requests followed a 5-to-60-minute gap.
 
 ### The handoff arms did not win
 
 In the 30-day closed-box report:
 
-- handoff-150k: 38 boxes, 25 closed, 21 kept, $290.91, so $13.85 per kept box
-- no-handoff: 57 boxes, 33 closed, 30 kept, $277.00, so $9.23 per kept box
+- handoff-150k: 38 boxes, 25 closed, 21 kept
+- no-handoff: 57 boxes, 33 closed, 30 kept
 - the retired 350k arm: 27 boxes, 18 kept, $8.49 per kept box
 
 The kept shares are alike (55% and 53%). Within the noise below, handoff-150k shows no gain on any reading.
@@ -111,7 +111,7 @@ ignored.
   That tilted the Sonnet-against-Opus tier arms toward Sonnet. Corrected in this change.
 - `Prices::weight` in `crates/north-providers/src/providers/claude/runs/telemetry.rs`, which splits an account's plan dollars
   across concurrent runs, prices writes at 1.25 times input and reads at 0.1 times. Claude Code writes at 2 times, and
-  Opus 5.5 reads at 0.05 times. Over the window its formula gives $19,082 against the list price of $13,589. Now it
+  Opus 5.5 reads at 0.05 times. Over the window its formula gives 40% more than the list price. Now it
   prices five-minute and one-hour writes from `usage.cache_creation` and reads at each model's catalog rate.
 
 ## Replay: what a lower window would save mechanically
@@ -119,11 +119,11 @@ ignored.
 Each worker transcript was replayed with a lower threshold. When context minus the tokens already shed crosses it, a
 compaction happens. Its cost is one read of the context, 20k summary output tokens (an estimate, because the
 compaction call writes no usage record) and a rewrite of the 49k post-compaction prefix. Context then continues from
-49k and grows by the same turns. The read saved is the context shed. Over the 18 days, against $11,909 of worker spend:
+49k and grows by the same turns. The read saved is the context shed. Over the 18 days, as shares of worker spend:
 
-- window 200k (threshold 167k): 1,191 compactions, $3,503 of reads saved, $846 of compaction, net $2,657 (22%)
-- window 300k (threshold 267k): 336 compactions, $1,934 saved, $250 of compaction, net $1,684 (14%)
-- window 400k (threshold 367k): 186 compactions, $1,092 saved, $149 of compaction, net $943 (8%)
+- window 200k (threshold 167k): 1,191 compactions, 29.4% of reads saved, 7.1% of compaction, net 22%
+- window 300k (threshold 267k): 336 compactions, 16.2% saved, 2.1% of compaction, net 14%
+- window 400k (threshold 367k): 186 compactions, 9.2% saved, 1.3% of compaction, net 8%
 
 These are upper bounds. The replay holds the turns fixed, but a compaction that loses working state costs turns and
 rework. That loss is what the arms measure, so the replay picks no winner. 207 of the 1,073 worker sessions crossed 267k.
@@ -170,7 +170,7 @@ should compact early. Only the working agent holds the context to judge which.
   actually followed. The near-done cutoff is then set per tier and category from that score, not guessed.
 - **Idle workers.** Waits past the TTL cost workers 2.9% of their spend. The time-gated-box rule on north#636 already
   ends a worker whose only remaining check is a wait (`Stop: wait until`). No arm is opened for this: the most it could
-  recover is $344 in 18 days, less the cost of rebuilding the context.
+  recover is 2.9% of worker spend, less the cost of rebuilding the context.
 - **Retired here.** Dispatch no longer assigns `handoff-150k` or `no-handoff`; the context arms take those boxes. The
   dispatch arm code and `handoff_arm_ctx` are deleted. The checkpoint replaced the nudge for every session.
 

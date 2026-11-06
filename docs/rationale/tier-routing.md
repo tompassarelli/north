@@ -173,7 +173,7 @@ could start on high, xhigh or max effort from them. Measured with `north ledger 
 finished items: the held-out check ranks 5 of 54 off-rails items in the top decile, 9.26% against 10% chance
 (binomial p=0.64), where 357 items on 2026-10-28 had read 17.14% (p=0.13); the best leave-one-out rule (band vote over
 those facets) names the realized band for 366 of 613 items, 59.7% against 51.2% for always guessing high, and no item
-falls in the max band. The two boxes were retired on 2026-11-01 when Tom's gate on north#242 took its default.
+falls in the max band. The two boxes were retired on 2026-11-01 when north#242 was decided.
 
 Overturned by: a planning-time input (box count, files named, issue text) that lifts the held-out check above chance
 at alpha 0.05 on a later ledger.
@@ -186,7 +186,7 @@ effort no better than chance, so no category is pinned to xhigh. A run launched 
 of 100 (`dispatch::tier::XHIGH_PERCENT`); the brief and the dispatch record stamp `Arm: effort-high` or
 `Arm: effort-xhigh`. Once both arms hold 15 runs and 15 closed boxes in a category, that category runs the arm with the
 lower cost per kept box, high on a tie. Tom chose this over pinning top-band architecture, netcode-determinism and
-planning plans to xhigh (gate 163, north#636, 2026-11-06). Tom asked on 2026-11-06 for a 50-50 split between high and xhigh, so the arm fills both sides at the same rate.
+planning plans to xhigh (north#636, 2026-11-06). Tom asked on 2026-11-06 for a 50-50 split between high and xhigh, so the arm fills both sides at the same rate.
 
 Overturned by: a planning-time input that predicts effort need above chance (the section above), or an xhigh arm that
 reaches 15 closed boxes in no category within a month.
