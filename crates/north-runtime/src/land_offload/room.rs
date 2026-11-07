@@ -197,6 +197,16 @@ mod tests {
         assert!(shortfall(&reading(80 * gib, "3.00", "7.6", "40")).unwrap().contains("CPU pressure 40%"));
     }
 
+    // KEEP(bug): on 2026-11-07 gex45 held 18 queued CPUs behind the land-check claim, which left the lander no room and so renewed the claim every 20 s while the host sat idle
+    #[test]
+    fn jobs_the_land_check_claim_holds_back_leave_the_host_its_room_for_the_land_check_that_claimed_it() {
+        let gib = 1024 * 1024;
+        let held = "{\"owner\":\"heavy-command-guard\",\"class\":\"heavy\",\"requestedClass\":\"heavy\",\"requestedCpus\":6,\"reason\":\"DEFER_LAND_CHECK_WAITING\"}";
+        let waiting = parse(&PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", "1.0").replace("%PRESSURE%", "0").replace("\"cpuSomeAvg10\":0", &format!("\"cpuSomeAvg10\":0,\"queued\":[{held},{held},{held}]"))).unwrap();
+        assert_eq!(waiting.admission.queued_heavy_cpus, 0.0);
+        assert_eq!(shortfall(&waiting), None);
+    }
+
     #[test]
     fn a_host_with_heavy_jobs_or_slot_jobs_queued_loses_to_one_with_room_and_the_laptop_runs_a_land_check_only_when_no_build_host_answers() {
         let gib = 1024 * 1024;

@@ -28,7 +28,7 @@ impl Admission {
         Some(Self { limit_cpus: number("aggregateCpuLimit")?, committed_cpus: number("committedBatchCpus")?, queued_heavy_cpus: queued_heavy_cpus(status), cpu_pressure_percent: number("cpuSomeAvg10")?, pressure_high_percent: super::admission::default_mib(band), land_check_waiting: status.get("landCheckWaiting").and_then(serde_json::Value::as_bool).unwrap_or(false), heavy_settling_seconds: number("heavySettlingSeconds").unwrap_or(0.0) })
     }
 
-    /// The CPUs left once the committed ones and the heavy jobs already waiting in this host's admission queue are counted as taken.
+    /// The CPUs left once the committed ones and the heavy jobs already waiting in this host's admission queue are counted as taken; a job the land-check claim holds back is no demand for cores and does not count, because counting it leaves the lander no room, which renews the claim that holds it.
     pub fn free_cpus(&self) -> f64 {
         self.limit_cpus - self.committed_cpus - self.queued_heavy_cpus
     }
@@ -45,7 +45,8 @@ impl Admission {
 
 fn queued_heavy_cpus(status: &serde_json::Value) -> f64 {
     let queued = status.get("queued").and_then(serde_json::Value::as_array).map_or(&[][..], Vec::as_slice);
-    queued.iter().filter(|ticket| ticket.get("requestedClass").and_then(serde_json::Value::as_str) == Some("heavy")).filter_map(|ticket| ticket.get("requestedCpus")?.as_f64()).sum()
+    let held_by_claim = |ticket: &serde_json::Value| ticket.get("reason").and_then(serde_json::Value::as_str) == Some(super::land_claim::TICKET_REASON);
+    queued.iter().filter(|ticket| ticket.get("requestedClass").and_then(serde_json::Value::as_str) == Some("heavy") && !held_by_claim(ticket)).filter_map(|ticket| ticket.get("requestedCpus")?.as_f64()).sum()
 }
 
 #[derive(Clone, Copy, Debug)]

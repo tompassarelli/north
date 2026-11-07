@@ -7,6 +7,8 @@ use super::admission::{Class, default_mib};
 /// The file under the capacity state root whose modification time is the newest claim.
 pub const FILE: &str = "land-check-waiting";
 pub const REASON: &str = "land check waiting";
+/// The reason a queued ticket carries while the claim holds it.
+pub const TICKET_REASON: &str = "DEFER_LAND_CHECK_WAITING";
 
 /// Whether a lease of `class` yields to a waiting land check; one asked from inside an offload slot never does, since yielding would keep the slot from the land check.
 pub fn yields(class: Class, holds_offload_slot: bool) -> bool {
