@@ -179,6 +179,10 @@ impl Turns {
         self.threads.values().any(Thread::busy)
     }
 
+    pub fn has_tasks(&self, conversation: &str) -> bool {
+        self.threads.get(conversation).is_some_and(|thread| !thread.tasks.is_empty())
+    }
+
     pub fn turn_open(&self) -> bool {
         self.threads.values().any(|thread| thread.open.is_some())
     }

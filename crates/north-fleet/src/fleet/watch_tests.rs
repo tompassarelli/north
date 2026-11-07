@@ -172,3 +172,47 @@ fn a_finished_session_retires_at_close_or_at_its_idle_limit_though_its_cli_still
     let (_root, _host, mut monitoring) = watched("Not done: CI is still running; its monitor wakes me.");
     assert!(matches!(monitoring.rest(Duration::from_secs(3 * 600), limit), Rest::Wait), "an unfinished session's own monitor still wakes it");
 }
+
+struct Working(usize);
+
+impl Scope for Working {
+    fn detached(&self) -> Vec<Detached> {
+        Vec::new()
+    }
+
+    fn cli_work(&self) -> usize {
+        self.0
+    }
+}
+
+fn told_after(reply: &str, task: bool, cli_work: usize, close: bool) -> usize {
+    let root = tempfile::tempdir().unwrap();
+    let host = root.path().join("worker");
+    std::fs::create_dir_all(&host).unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
+    write_record(&host, &record).unwrap();
+    let held = Arc::new(crate::fleet::claims::Held::default());
+    let courier = Arc::new(Told::default());
+    let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), courier.clone(), held, root.path().to_path_buf(), host).reading_scope(Arc::new(Working(cli_work)));
+    watch.quiet.insert("s".into(), Quiet::after(1, reply.to_owned(), true, None, Duration::ZERO, Vec::new()));
+    if task {
+        watch.turns.observe(TurnSignal::TaskStarted { conversation: "s".into(), task: "landing-watch".into() }, now_ms());
+    }
+    if close {
+        watch.close();
+    } else {
+        watch.speak_up(State::Idle, Duration::from_secs(1));
+        watch.finish_probes();
+    }
+    courier.0.lock().unwrap().len()
+}
+
+#[test]
+fn a_session_that_ended_its_turn_on_its_own_background_work_is_not_reported_stalled_but_one_without_it_still_is() {
+    let waiting = "Started the landing watch; it wakes me when the lane lands.";
+    assert_eq!(told_after(waiting, false, 0, false), 1, "no background work and no report word");
+    assert_eq!(told_after(waiting, false, 2, false), 0, "its CLI still runs the loop");
+    assert_eq!(told_after(waiting, true, 0, true), 0, "its stream still holds the task when the host ends");
+    assert_eq!(told_after(waiting, false, 0, true), 1, "the host ends with nothing running");
+    assert_eq!(told_after("Done: landed abc123.", false, 2, false), 0, "a final report needs no notice");
+}

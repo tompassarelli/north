@@ -55,6 +55,9 @@ impl Detached {
 /// The detached runs of one session host.
 pub trait Scope: Send + Sync {
     fn detached(&self) -> Vec<Detached>;
+
+    /// How many processes its CLI's own background work runs.
+    fn cli_work(&self) -> usize;
 }
 
 pub struct NoScope;
@@ -62,6 +65,10 @@ pub struct NoScope;
 impl Scope for NoScope {
     fn detached(&self) -> Vec<Detached> {
         Vec::new()
+    }
+
+    fn cli_work(&self) -> usize {
+        0
     }
 }
 
@@ -122,6 +129,10 @@ impl Scope for Procfs {
             }
         }
         runs
+    }
+
+    fn cli_work(&self) -> usize {
+        cli_work(&self.proc, &self.cgroups, self.host)
     }
 }
 

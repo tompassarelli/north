@@ -21,7 +21,7 @@ use super::jobs::{HeldLeases, JobLeases};
 use super::landings::{self, push_log};
 use super::model::{Delivery, Entry, EntryKind, Machine, Phase, Phases, Role, SessionRecord, Transcript};
 use super::prompt::is_deepened;
-use super::receipts::{Courier, Report, deliver_report, retires};
+use super::receipts::{Courier, Report, deliver_report, is_final, retires};
 use super::records::{find_session, host_sessions, parents_live};
 use super::silent::{self, Quiet, Silence, State};
 use super::runtime::{Runtime, new_uuid, now_ms};
@@ -292,11 +292,13 @@ impl TurnWatch {
             return;
         }
         let waits = Waits::in_root(&self.root);
+        let cli_work = self.scope.cli_work() > 0;
         let conversations: Vec<String> = self.quiet.keys().cloned().collect();
         for conversation in conversations {
+            let background = cli_work || self.turns.has_tasks(&conversation);
             let Some(quiet) = self.quiet.get_mut(&conversation) else { continue };
             quiet.settle();
-            if quiet.checked || quiet.probe.is_some() || (state == State::Idle && (quiet.idled || !quiet.due(idle))) {
+            if quiet.checked || quiet.probe.is_some() || (state == State::Idle && (quiet.idled || !quiet.due(idle))) || background && !is_final(&quiet.reply) {
                 continue;
             }
             let record = find_session(&self.root, &self.host_dir, &conversation);
