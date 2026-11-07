@@ -30,7 +30,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 
 ## Placement
 
-- Where a box runs: a box that builds, waits or lands is a fleet session (`north fleet launch`); an Agent subagent is only for `Category: research`, and the spawn guard refuses other `worker*` Agent briefs.
+- A box that builds, waits or lands is a fleet session (`north fleet launch`); an Agent subagent is only for `Category: research`, and the spawn guard refuses other `worker*` Agent briefs.
 - `north fleet launch` places each box before it starts, cloud first for code-only work. Read [cloud.md](references/cloud.md#placement) when a box needs a local client, a GPU or the laptop, when placement holds it or you override it.
 
 ## Review
@@ -40,7 +40,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 ## Run, park and land
 
 - Read [run-and-land.md](references/run-and-land.md) when you plan a tick, wait on a long run, a report is late, you give a brief a Budget line, file a process idea, you land or own lanes, landings fail across lanes, staff native workers or get a `north ledger flow` alert; [fleet.md](references/fleet.md) when you launch a child session, message one, wait on its report, or hand a proxy or lead to a successor.
-- Run anything that may take over about 45 seconds in the background, because a foreground wait delays every message to you.
+- Run anything over about 45 seconds in the background, because a foreground wait delays every message to you.
 - Finish an issue's last unchecked box before starting new work, and after an hour with no closure start nothing new until an open box closes, because open boxes are the throughput.
 - Tell Tom only what changes his next action: a landed fix (with its build), a result, or a decision; never relay a worker's interim "still waiting".
 
@@ -48,6 +48,5 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 
 - Every report begins `Done:`, `Not done:`, `Blocked:` or `Split:`, and every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`. The last message is the report: keep no status files and never resume a worker to check on it.
 - Decide routine calls yourself. A `Stop: decision` or `Blocked: decision` report must name an open gate from `north gate open ... --recommend N --default N --default-after D`; the fleet answers the first ungated one instead of forwarding it, and forwards a later one with a warning (Tom, 2026-10-29).
-- Report a fix as landed only after fetching origin and verifying its SHA is an ancestor of `origin/main`, because queued or Autoland-green is not landed; until then report `Done: queued <worktree> <branch> <sha>`.
-- A `Split:` puts its parts as boxes on its own issue, never new issues; read [run-and-land.md](references/run-and-land.md#reports) when a worker splits or reports findings.
-- A lane that fixes an agent behavior through harness text reports its case's base and lane lines from `north policy-replay case`, failing on the base and passing on the lane ([agent-policy](../agent-policy/SKILL.md#turn-a-correction-into-policy)); an inconclusive replay counts as not shown, and its text does not land.
+- Report a fix as landed only once its SHA is an ancestor of a freshly fetched `origin/main`, because queued or Autoland-green is not landed; until then report `Done: queued <worktree> <branch> <sha>`.
+- A `Split:` puts its parts as boxes on its own issue, never new issues; read [run-and-land.md](references/run-and-land.md#reports) when a worker splits, reports findings or fixes agent behavior in harness text.
