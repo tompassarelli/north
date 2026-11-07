@@ -3,10 +3,12 @@
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
+use serde::{Deserialize, Serialize};
 use toml_edit::DocumentMut;
 
 pub mod issues;
 pub mod ledger;
+pub mod lifecycle;
 pub mod verbs;
 
 pub static OVERDUE_RATIO: LazyLock<f64> = LazyLock::new(|| {
@@ -42,6 +44,25 @@ pub enum Standing {
     /// Past its ETA by [`STALE_AFTER_S`], or past [`OVERDUE_RATIO`] times its ETA, with no newer owner event since `idle_since`.
     Stale { idle_since: i64 },
     Void(&'static str),
+}
+
+/// A standing as `threads list --json` names it, so a reader of that listing matches a variant, not a string.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Label {
+    Live,
+    Stale,
+    Void,
+}
+
+impl Standing {
+    pub fn label(&self) -> Label {
+        match self {
+            Self::Live => Label::Live,
+            Self::Stale { .. } => Label::Stale,
+            Self::Void(_) => Label::Void,
+        }
+    }
 }
 
 impl Claim {

@@ -288,7 +288,7 @@ impl Client {
             return Ok(1);
         }
         let Some(run) = ported else {
-            let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, alive: (verb != claims::verbs::HOLDER).then(|| verb::Outside::alive_owners(&outside::Live::new(&self.env, self.fleet.clone()))).flatten(), now: Timestamp::now().unix_seconds() };
+            let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, alive: (verb != claims::verbs::HOLDER).then(|| verb::Outside::alive_owners(&outside::Live::new(&self.env, self.fleet.clone()))).flatten(), now: Timestamp::now().unix_seconds(), replica };
             return Ok(claims::verbs::run(argv, &context, &mut io::stdout().lock(), &mut io::stderr()));
         };
         let live = outside::Live::new(&self.env, self.fleet.clone());

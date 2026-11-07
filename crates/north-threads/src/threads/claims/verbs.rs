@@ -7,6 +7,7 @@ use serde_json::json;
 
 use super::issues::Issues;
 use super::ledger::{self, Taken};
+use super::lifecycle::{self, Moved};
 use super::{Claim, Issue, OVERDUE_RATIO, Standing};
 use crate::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
@@ -28,6 +29,8 @@ pub struct Context<'a> {
     /// The owners of the sessions alive now, or `None` when no fleet could be read.
     pub alive: Option<BTreeSet<String>>,
     pub now: i64,
+    /// Whether `database` is this host's read-only copy of the ledger, which records no phase.
+    pub replica: bool,
 }
 
 struct Args {
@@ -98,14 +101,23 @@ fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
     let mut db = ledger::open(context.database, true)?;
     let github = context.issues.read(&github_items(std::iter::once(item.as_str())));
     let issue = issue_of(&db, &item, &github);
-    Ok(match ledger::take(&mut db, &item, &by, eta, issue, context.alive.as_ref(), context.now)? {
-        Taken::Fresh | Taken::Renewed => format!("{by} owns {item}\n"),
-        Taken::Voided { previous, why } => format!("{by} owns {item}; the claim by {} was void because {why}\n", previous.owner),
+    let taken = ledger::take(&mut db, &item, &by, eta, issue, context.alive.as_ref(), context.now)?;
+    drop(db);
+    let (printed, cause) = match taken {
+        Taken::Fresh => (format!("{by} owns {item}\n"), format!("claimed by {by}")),
+        Taken::Renewed => (format!("{by} owns {item}\n"), format!("renewed by {by}")),
+        Taken::Voided { previous, why } => (
+            format!("{by} owns {item}; the claim by {} was void because {why}\n", previous.owner),
+            format!("taken by {by}: the claim by {} was void because {why}", previous.owner),
+        ),
         Taken::Takeover { previous, idle_since } => {
-            format!("{by} owns {item}, taken over from {}: stale, no owner event since {}\n", previous.owner, Timestamp::from_unix_seconds(idle_since).iso())
+            let idle = Timestamp::from_unix_seconds(idle_since).iso();
+            (format!("{by} owns {item}, taken over from {}: stale, no owner event since {idle}\n", previous.owner), format!("taken over by {by} from {}: stale, no owner event since {idle}", previous.owner))
         }
         Taken::Refused(holder) => return Err(format!("{item} {OWNED} {}", holder.owner)),
-    })
+    };
+    lifecycle::record(context.database, &[Moved::held(&item, cause)], Timestamp::from_unix_seconds(context.now))?;
+    Ok(printed)
 }
 
 /// Every claim that still stands, with its standing; a void claim holds nothing, so none shows.
@@ -116,18 +128,21 @@ pub fn standing_claims(context: &Context) -> Result<Vec<(Claim, Standing)>, Stri
 /// Every claim row with its standing, void ones included: the rows `threads release` can still clear.
 fn every_claim(context: &Context) -> Result<Vec<(Claim, Standing)>, String> {
     let db = ledger::open(context.database, false)?;
-    let claims: Vec<Claim> = ledger::claims(&db)?
-        .into_iter()
-        .filter(|claim| context.no_native.is_none() || CATALOG.parse_ref(&claim.item).is_ok_and(|(repo, _)| !CATALOG.is_native(&repo)))
-        .collect();
+    let all = ledger::claims(&db)?;
+    let present: BTreeSet<String> = all.iter().map(|claim| claim.item.clone()).collect();
+    let claims: Vec<Claim> = all.into_iter().filter(|claim| context.no_native.is_none() || CATALOG.parse_ref(&claim.item).is_ok_and(|(repo, _)| !CATALOG.is_native(&repo))).collect();
     let github = context.issues.read(&github_items(claims.iter().map(|claim| claim.item.as_str())));
-    Ok(claims
+    let standings: Vec<(Claim, Standing)> = claims
         .into_iter()
         .map(|claim| {
             let standing = claim.standing(issue_of(&db, &claim.item, &github), context.alive.as_ref(), context.now);
             (claim, standing)
         })
-        .collect())
+        .collect();
+    if !context.replica {
+        lifecycle::settle(context.database, &standings, &present, Timestamp::from_unix_seconds(context.now))?;
+    }
+    Ok(standings)
 }
 
 /// The claim rows on the named items and those the `--owner`s hold, as JSON `{item, owner}` rows, whatever their standing.
@@ -158,12 +173,7 @@ fn list(parsed: &Args, context: &Context) -> Result<String, String> {
         let rows: Vec<_> = claims
             .iter()
             .map(|(claim, standing)| {
-                let standing = match standing {
-                    Standing::Live => "live",
-                    Standing::Stale { .. } => "stale",
-                    Standing::Void(_) => "void",
-                };
-                json!({"item": claim.item, "owner": claim.owner, "since": Timestamp::from_unix_seconds(claim.since).iso(), "clock_min": clock(claim), "eta_min": claim.eta_min, "standing": standing})
+                json!({"item": claim.item, "owner": claim.owner, "since": Timestamp::from_unix_seconds(claim.since).iso(), "clock_min": clock(claim), "eta_min": claim.eta_min, "standing": standing.label()})
             })
             .collect();
         return Ok(format!("{}\n", serde_json::Value::Array(rows)));

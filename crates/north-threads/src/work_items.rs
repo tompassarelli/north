@@ -49,7 +49,7 @@ struct Holder {
     owner: String,
     clock_min: i64,
     eta_min: Option<i64>,
-    standing: String,
+    standing: crate::threads::claims::Label,
 }
 #[derive(Deserialize, Default)]
 struct Issue {
@@ -125,7 +125,7 @@ fn holder(row: &WorkRow) -> String {
 /// The holders `threads list --json` reports as live; a void or stale claim holds nothing.
 fn live_holders(listing: &str) -> NorthResult<BTreeMap<String, Holder>> {
     let holders: Vec<Holder> = serde_json::from_str(listing)?;
-    Ok(holders.into_iter().filter(|holder| holder.standing == "live").map(|holder| (holder.item.clone(), holder)).collect())
+    Ok(holders.into_iter().filter(|holder| holder.standing == crate::threads::claims::Label::Live).map(|holder| (holder.item.clone(), holder)).collect())
 }
 
 async fn rows(query: Option<&str>) -> NorthResult<Vec<WorkRow>> {

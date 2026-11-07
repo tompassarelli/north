@@ -16,6 +16,7 @@ use super::verb::{Args, Context, Failure, Outcome, event, immediate, open, repor
 use crate::foundation::clock::Timestamp;
 use crate::platform::pyjson::Value;
 use crate::threads::catalog::CATALOG;
+use crate::threads::claims::lifecycle::{self, Moved};
 use crate::threads::withheld::withheld;
 
 pub const VERBS: [&str; 1] = ["unowned"];
@@ -98,6 +99,8 @@ fn unowned(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
         event(&tx, Some(&released.item), "release", "threads", data, context.now)?;
     }
     tx.commit()?;
+    let moved: Vec<Moved> = stale.iter().map(|released| Moved::released(&released.item, format!("its lane {} failed: {}", released.branch, released.failed.reason))).collect();
+    lifecycle::record(context.database, &moved, context.now)?;
     rows.sort_by_key(|row| (row.rank, row.repo, row.number));
     Ok(listing(&rows))
 }

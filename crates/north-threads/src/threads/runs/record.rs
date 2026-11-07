@@ -13,6 +13,7 @@ use super::row::{Row, bind, python_repr, text, truthy, value};
 use crate::platform::pyjson::Value;
 use crate::platform::run_roles;
 use crate::threads::catalog::CATALOG;
+use crate::threads::claims::lifecycle::Moved as ClaimMoved;
 use crate::threads::verb::{Context, Failure, event_as};
 
 const ROLES: [&str; 5] = ["worker", "parent", "proxy", "routine", "probe"];
@@ -107,6 +108,7 @@ fn issue_ref(item: &Value) -> Option<String> {
 /// What one ingest recorded.
 #[derive(Default)]
 pub(super) struct Tally {
+    pub claims: Vec<ClaimMoved>,
     pub added: usize,
     pub backfilled: usize,
     pub samples: usize,
@@ -339,6 +341,7 @@ impl Ingest<'_> {
         if let Some(item) = item.as_deref().filter(|_| mine) {
             self.db.execute("DELETE FROM claims WHERE item = ?", [item])?;
             self.event(item, "release", run, Value::object([("why", run.status.clone())]))?;
+            self.tally.claims.push(ClaimMoved::released(item, format!("released by {}: its run {}", run.id.as_str().unwrap_or_default(), run.status.as_str().unwrap_or_default())));
         }
         if run.status != "finished" && run.worker() {
             return Ok(());
@@ -347,15 +350,17 @@ impl Ingest<'_> {
     }
 
     /// A running worker holds its brief's issue; taking it from someone else is a handoff.
-    fn hold(&self, item: &str, run: &Run, claim: Option<&str>, follows: &Value) -> Result<(), Failure> {
+    fn hold(&mut self, item: &str, run: &Run, claim: Option<&str>, follows: &Value) -> Result<(), Failure> {
         let r = &run.r;
         let prev = claim.map_or_else(|| follows.clone(), Value::from);
         let since = bind(Some(&r.or("started", Value::from(self.context.now.iso()))))?;
         if claim.is_some() {
             self.db.execute("UPDATE claims SET owner = ?, since = ?, eta_min = ? WHERE item = ?", params![run.agent()?, since, r.rounded("eta_min")?, item])?;
+            self.tally.claims.push(ClaimMoved::held(item, format!("taken by {} for its running run", run.id.as_str().unwrap_or_default())));
         } else {
             self.db.execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?,?,?,?)", params![item, run.agent()?, since, r.rounded("eta_min")?])?;
             self.event(item, "claim", run, Value::object([("eta_min", r.get_or("eta_min", Value::Null))]))?;
+            self.tally.claims.push(ClaimMoved::held(item, format!("claimed by {} for its running run", run.id.as_str().unwrap_or_default())));
         }
         if truthy(&prev) && prev != run.id {
             self.event(item, "handoff", run, Value::object([("from", prev), ("to", run.id.clone())]))?;

@@ -54,7 +54,7 @@ impl Ledger {
     }
 
     fn run(&self, argv: &[&str]) -> (i32, String, String) {
-        let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, issues: &self.issues, alive: self.alive.clone(), now: at(NOW) };
+        let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, issues: &self.issues, alive: self.alive.clone(), now: at(NOW), replica: false };
         let argv: Vec<String> = argv.iter().map(|arg| (*arg).to_owned()).collect();
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = verbs::run(&argv, &context, &mut out, &mut err);

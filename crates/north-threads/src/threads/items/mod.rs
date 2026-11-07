@@ -10,6 +10,7 @@ use rusqlite::{OptionalExtension, params};
 use super::verb::{Args, Context, Failure, Outcome, event, immediate, item_ref, open, report};
 use crate::platform::pyjson::Value;
 use crate::threads::catalog::CATALOG;
+use crate::threads::claims::lifecycle::{self, Moved};
 
 pub const VERBS: [&str; 8] = ["release", "need", "unneed", "new", "note", "close", "reopen", "block"];
 
@@ -63,6 +64,11 @@ fn release(argv: &[String], context: &Context) -> Outcome {
         }
     };
     tx.commit()?;
+    let moved = match args.get("--to").filter(|to| !to.is_empty()) {
+        Some(to) => Moved::held(&item, format!("handed from {owner} to {to} by {by}")),
+        None => Moved::released(&item, format!("released by {by}, who held it for {owner}")),
+    };
+    lifecycle::record(context.database, &[moved], context.now)?;
     Ok(printed)
 }
 
