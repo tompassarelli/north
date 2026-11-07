@@ -2,7 +2,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::book::Book;
-use crate::facts::{Facts, LinkFacts, Place, PlaceFacts, QueueFacts};
+use crate::facts::{Facts, LinkFacts, Place, PlaceFacts, QueueFacts, SlotHold};
 use north_landing::landing::check_timings::CEILING;
 
 pub const OLDEST_QUEUED_SECS: u64 = 20 * 60;
@@ -72,6 +72,7 @@ pub fn minutes(seconds: u64) -> String {
 pub enum Remedy {
     Prune { place: Place, repo: PathBuf },
     Release { place: Place, slot: String, pgid: u32 },
+    Clear { place: Place, slot: String },
     Rerun { queue: PathBuf, ticket: PathBuf },
     Evict { place: Place },
     Restart { unit: String },
@@ -85,7 +86,7 @@ impl Remedy {
     pub fn class(&self) -> Option<&'static str> {
         match self {
             Remedy::Prune { .. } => Some("lander-stale-worktree"),
-            Remedy::Release { .. } => Some("lander-slot-overdue"),
+            Remedy::Release { .. } | Remedy::Clear { .. } => Some("lander-slot-overdue"),
             Remedy::Rerun { .. } => Some("lander-infrastructure-failure"),
             Remedy::Evict { .. } => Some("lander-disk-pressure"),
             Remedy::Restart { .. } => Some("lander-wedged"),
@@ -102,6 +103,7 @@ impl fmt::Display for Remedy {
         match self {
             Remedy::Prune { place, repo } => write!(formatter, "prune the missing worktree registrations of {} on {}", repo.display(), place.name),
             Remedy::Release { place, slot, pgid } => write!(formatter, "release slot {slot} on {} by ending its process group {pgid}", place.name),
+            Remedy::Clear { place, slot } => write!(formatter, "remove the holder files of slot {slot} on {}, whose lock is free", place.name),
             Remedy::Rerun { ticket, .. } => write!(formatter, "requeue {} once", ticket.file_name().unwrap_or_default().to_string_lossy()),
             Remedy::Evict { place } => write!(formatter, "evict unlocked offload caches on {}", place.name),
             Remedy::Restart { unit } => write!(formatter, "restart {unit}"),
@@ -317,15 +319,17 @@ fn judge_place(place: &PlaceFacts) -> Vec<Finding> {
     } else {
         Finding::over(Bound::DiskFree, subject, free, known("disk pressure", Remedy::Evict { place: place.place.clone() }))
     });
-    if probe.slots.is_empty() {
+    let held: Vec<&SlotHold> = probe.slots.iter().filter(|slot| slot.locked || slot.held > SLOT_DEADLINE_SECS).collect();
+    if held.is_empty() {
         findings.push(Finding::healthy(Bound::SlotHold, subject, "no slot held".to_owned()));
     }
-    for slot in &probe.slots {
+    for slot in held {
         let slot_subject = format!("{subject}/{}", slot.slot);
         findings.push(if slot.held <= SLOT_DEADLINE_SECS {
             Finding::healthy(Bound::SlotHold, &slot_subject, minutes(slot.held))
         } else {
             let state = match slot.pgid {
+                _ if !slot.locked => known("holder file outlives its holder", Remedy::Clear { place: place.place.clone(), slot: slot.slot.clone() }),
                 Some(pgid) => known("slot past its deadline", Remedy::Release { place: place.place.clone(), slot: slot.slot.clone(), pgid }),
                 None => State::Unknown(format!("slot {} on {subject} is held {} and names no process group to end", slot.slot, minutes(slot.held))),
             };

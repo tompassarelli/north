@@ -79,9 +79,9 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
 
 #[test]
 fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_the_report_prints_each_bound() {
-    let probe = facts::parse_probe("disk 750 250\nslot code-north-main-1 3600 991\nslot code-wisp-main 10 -\nprunable 3 /home/tom/code/north/main\n").unwrap();
+    let probe = facts::parse_probe("disk 750 250\nslot code-north-main-1 3600 991 locked\nslot code-wisp-main 10 - free\nprunable 3 /home/tom/code/north/main\n").unwrap();
     assert_eq!(probe.free_percent, 25.0);
-    assert_eq!(probe.slots, [SlotHold { slot: "code-north-main-1".to_owned(), held: 3600, pgid: Some(991) }, SlotHold { slot: "code-wisp-main".to_owned(), held: 10, pgid: None }]);
+    assert_eq!(probe.slots, [SlotHold { slot: "code-north-main-1".to_owned(), held: 3600, pgid: Some(991), locked: true }, SlotHold { slot: "code-wisp-main".to_owned(), held: 10, pgid: None, locked: false }]);
     assert_eq!(probe.prunable, [(PathBuf::from("/home/tom/code/north/main"), 3)]);
     assert!(facts::parse_probe("").is_err());
     let link = LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/a".to_owned(), lag: Some(60), ..LinkFacts::default() };
@@ -148,8 +148,8 @@ fn a_slot_past_its_deadline_is_released_by_ending_the_process_group_its_slot_fil
     for (suffix, text) in [("pgid", format!("{pgid}\n")), ("holder", "0123456789ab since 13:00:00\n".to_owned()), ("owner", "fixture-owner\n".to_owned())] {
         fs::write(root.path().join(format!("{slot}.{suffix}")), text).unwrap();
     }
-    let held = SlotHold { slot: slot.to_owned(), held: SLOT_DEADLINE_SECS + 60, pgid: Some(pgid) };
-    let fresh = SlotHold { slot: "fixture-slot".to_owned(), held: 120, pgid: Some(77) };
+    let held = SlotHold { slot: slot.to_owned(), held: SLOT_DEADLINE_SECS + 60, pgid: Some(pgid), locked: true };
+    let fresh = SlotHold { slot: "fixture-slot".to_owned(), held: 120, pgid: Some(77), locked: true };
     let hands = Fake::default();
     cure(&at(gex45(), Probe { slots: vec![held, fresh], ..roomy() }), &mut Book::default(), &hands, NOW);
     assert_eq!(*hands.applied.borrow(), vec![Remedy::Release { place: gex45(), slot: slot.to_owned(), pgid }]);
@@ -159,6 +159,47 @@ fn a_slot_past_its_deadline_is_released_by_ending_the_process_group_its_slot_fil
     assert!(!job.child.wait().unwrap().success(), "the job ended on a signal");
     assert!(release().is_err(), "a released slot is not released twice");
     assert!(!root.path().join(format!("{slot}.pgid")).exists() && !root.path().join(format!("{slot}.holder")).exists());
+}
+
+fn age_holder(root: &Path, slot: &str) {
+    let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(SLOT_DEADLINE_SECS * 60);
+    fs::File::options().write(true).open(root.join(format!("{slot}.holder"))).unwrap().set_modified(long_ago).unwrap();
+}
+
+fn probed(root: &Path) -> Probe {
+    let output = Command::new("bash").args(["-c", facts::PROBE]).env("NORTH_OFFLOAD_ROOT", root).env("HOME", root).output().unwrap();
+    let probe = facts::parse_probe(&String::from_utf8_lossy(&output.stdout)).unwrap();
+    Probe { free_percent: 60.0, free_gib: 300.0, ..probe }
+}
+
+#[test]
+fn a_holder_file_whose_lock_is_free_is_removed_under_the_lock_and_a_locked_slot_without_a_group_stays_unknown() {
+    let root = tempfile::tempdir().unwrap();
+    let stale = "code-wisp-worktrees-extract-20261005";
+    for suffix in ["holder", "pgid", "owner", "lock"] {
+        fs::write(root.path().join(format!("{stale}.{suffix}")), "left\n").unwrap();
+    }
+    age_holder(root.path(), stale);
+    let hands = Fake::default();
+    let treated = cure(&at(gex45(), probed(root.path())), &mut Book::default(), &hands, NOW);
+    assert_eq!(*hands.applied.borrow(), vec![Remedy::Clear { place: gex45(), slot: stale.to_owned() }], "{}", render(&treated));
+    assert_eq!(hands.incidents.borrow().iter().map(|(class, _)| class.as_str()).collect::<Vec<_>>(), ["lander-slot-overdue"]);
+    assert!(hands.pages.borrow().is_empty(), "the proxy heard of a slot nothing holds");
+    let clear = |slot: &str| facts::shell(&here(), hands::CLEAR, &[slot, &root.path().to_string_lossy()]);
+    assert_eq!(clear(stale).unwrap().trim(), format!("removed the holder files of slot {stale}, whose lock is free"));
+    assert!(["holder", "pgid", "owner"].iter().all(|suffix| !root.path().join(format!("{stale}.{suffix}")).exists()));
+    assert!(probed(root.path()).slots.is_empty());
+
+    let held = "code-held-main";
+    let _job = SlotJob::hold(&root.path().join(format!("{held}.lock")));
+    fs::write(root.path().join(format!("{held}.holder")), "left\n").unwrap();
+    age_holder(root.path(), held);
+    let locked = probed(root.path());
+    assert_eq!(locked.slots.iter().map(|slot| (slot.locked, slot.pgid)).collect::<Vec<_>>(), [(true, None)]);
+    assert!(clear(held).is_err(), "a held slot is never cleared");
+    let paged = Fake::default();
+    cure(&at(gex45(), locked), &mut Book::default(), &paged, NOW);
+    assert!(paged.applied.borrow().is_empty() && paged.pages.borrow().len() == 1, "{:?}", paged.pages.borrow());
 }
 
 fn ticket(branch: &str, verdict: Option<String>) -> Ticket {

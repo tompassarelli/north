@@ -102,6 +102,7 @@ pub struct SlotHold {
     pub slot: String,
     pub held: u64,
     pub pgid: Option<u32>,
+    pub locked: bool,
 }
 
 pub fn now() -> u64 {
@@ -283,9 +284,9 @@ for h in "$root"/*.holder; do
   [ -f "$h" ] || continue
   base=${h%.holder}
   case $base in *.background) continue ;; esac
-  if (exec 7>>"$base.lock"; flock -n 7) 2>/dev/null; then continue; fi
+  if (exec 7>>"$base.lock"; flock -n 7) 2>/dev/null; then state=free; else state=locked; fi
   pgid=$(cat "$base.pgid" 2>/dev/null || true)
-  echo "slot ${base##*/} $((now - $(stat -c %Y "$h"))) ${pgid:--}"
+  echo "slot ${base##*/} $((now - $(stat -c %Y "$h"))) ${pgid:--} $state"
 done
 for g in "$HOME"/code/*/main/.git; do
   [ -d "$g" ] || continue
@@ -304,7 +305,7 @@ pub fn parse_probe(text: &str) -> Result<Probe, String> {
                 let (used, available): (f64, f64) = (used.parse().map_err(|_| format!("disk line {line:?}"))?, available.parse().map_err(|_| format!("disk line {line:?}"))?);
                 disk = Some((available * 100.0 / (used + available).max(1.0), available / (1u64 << 20) as f64));
             }
-            ["slot", slot, held, pgid] => probe.slots.push(SlotHold { slot: (*slot).to_owned(), held: held.parse().map_err(|_| format!("slot line {line:?}"))?, pgid: pgid.parse().ok().filter(|pgid| *pgid > 1) }),
+            ["slot", slot, held, pgid, state @ ("locked" | "free")] => probe.slots.push(SlotHold { slot: (*slot).to_owned(), held: held.parse().map_err(|_| format!("slot line {line:?}"))?, pgid: pgid.parse().ok().filter(|pgid| *pgid > 1), locked: *state == "locked" }),
             ["prunable", count, repo] => probe.prunable.push((PathBuf::from(repo), count.parse().map_err(|_| format!("prunable line {line:?}"))?)),
             _ => {}
         }

@@ -37,6 +37,14 @@ rm -f "$base.owner" "$base.pgid" "$base.holder"
 echo "ended process group $pgid"
 "#;
 
+pub const CLEAR: &str = r#"root=${2:-${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}}
+base=$root/$1
+exec 7>>"$base.lock"
+flock -n 7 || { echo "slot $1 is held" >&2; exit 1; }
+rm -f "$base.owner" "$base.pgid" "$base.holder"
+echo "removed the holder files of slot $1, whose lock is free"
+"#;
+
 const EVICT: &str = r#"PATH=$HOME/.local/bin:$PATH
 north capacity reap-orphans >/dev/null 2>&1 || true
 df -Pk "$HOME" | awk 'NR == 2 { printf "%.0f%% free after eviction\n", $4 * 100 / ($3 + $4) }'
@@ -47,6 +55,7 @@ impl Hands for Host {
         match remedy {
             Remedy::Prune { place, repo } => shell(place, PRUNE, &[&repo.to_string_lossy()]).map(|pruned| format!("pruned {} registration(s)", pruned.trim())),
             Remedy::Release { place, slot, pgid } => shell(place, RELEASE, &[slot, &pgid.to_string()]).map(|said| said.trim().to_owned()),
+            Remedy::Clear { place, slot } => shell(place, CLEAR, &[slot]).map(|said| said.trim().to_owned()),
             Remedy::Rerun { queue, ticket } => rerun(queue, ticket),
             Remedy::Evict { place } => shell(place, EVICT, &[]).map(|said| said.trim().to_owned()),
             Remedy::Restart { unit } => watchdog::Host.restart(unit, "the lander doctor read it wedged").map(|()| format!("restarted {unit}")),

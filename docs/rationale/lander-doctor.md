@@ -11,7 +11,7 @@ Each run prints every bound with its live value and limit:
 - round silence while lanes wait: 15 minutes since the newest write of `<queue>/watchdog/rounds.json` or any file in `<queue>/logs`, which a lander writes every round and while a check streams its log;
 - lander link lag: 2 hours between the commit the lander link names and main's newest commit;
 - held minutes: 15, from `lander-held`, or from when current moved when there is none;
-- each held land-offload slot: the land-check ceiling plus 15 minutes, the grace the lander's own offload deadline adds; background slots hold mutant sweeps for hours and are left out;
+- each held land-offload slot: the land-check ceiling plus 15 minutes, the grace the lander's own offload deadline adds. A slot counts as held only while its lock is held; a holder file whose lock is free is left by a holder that ended; background slots hold mutant sweeps for hours and are left out;
 - free disk: 10% on the lander and each host `north capacity offload hosts` names;
 - stale worktree registrations: 0 under `~/code/*/main` on each of those hosts;
 - land checks refused in the last 2 hours whose verdict or check log names an infrastructure signature (a missing registered worktree, a runtime missing on the check host, a host lacking the commits, a full disk): 0;
@@ -29,6 +29,7 @@ A known state has one remedy, applied once per episode, the run of rounds a boun
 
 - missing registered worktree: `git worktree prune` in that repository on that host;
 - slot past its deadline: end the process group its `.pgid` names, only while the slot's lock is still held and `.pgid` still names that group, and remove its holder files;
+- holder file past that bound whose lock is free: remove its holder files under that lock, recorded as one `lander-slot-overdue` incident with no message to the proxy, since nothing holds the slot (on 2026-11-07 a holder file left on gex45 since 2026-11-05 read as held 3334 minutes);
 - infrastructure failure: requeue the ticket once, marked in `<queue>/doctor/reran/`, unless the lane was queued again;
 - disk pressure: `north capacity reap-orphans` on that host, which evicts unlocked offload caches;
 - round silence: restart `north-land@PROJECT.service`; still silent 5 minutes later, roll the lander link back to the newest build that landed a batch green, name the bad build in `lander-refused` so `north land promote` leaves it off until current moves on, and restart the lander units.
@@ -39,7 +40,7 @@ A build counts as good once an after-landing run that started after the lander l
 
 ## Unknown states
 
-A bound over with no remedy (rounds run but nothing is decided, the runtime stops following main, a host cannot be read, a slot names no process group), or a remedy that left its bound over 5 minutes after it ran, is an unknown state: the doctor sends the proxy one fleet message per episode and records one `lander-unknown` incident row. A held link is a known state: `north land promote` already records it and alarms the proxy once per hold, so the doctor only reports it.
+A bound over with no remedy (rounds run but nothing is decided, the runtime stops following main, a host cannot be read, a slot whose lock is held names no process group), or a remedy that left its bound over 5 minutes after it ran, is an unknown state: the doctor sends the proxy one fleet message per episode and records one `lander-unknown` incident row. A held link is a known state: `north land promote` already records it and alarms the proxy once per hold, so the doctor only reports it.
 
 ## Incidents
 
