@@ -463,7 +463,7 @@ impl Client {
         let Some(_lock) = self.spool_lock()? else { return Ok(Flush::Busy) };
         let mut spool = self.spool_records()?;
         let started = Instant::now();
-        for name in spool.queued()? {
+        for name in spool.queued((self.clock)())? {
             if budget.is_some_and(|budget| started.elapsed() >= budget) {
                 return Ok(Flush::Busy);
             }
@@ -552,7 +552,7 @@ impl Client {
         if !self.spool.is_dir() {
             return Ok(false);
         }
-        Ok(!self.spool_records()?.queued()?.is_empty())
+        Ok(!self.spool_records()?.queued((self.clock)())?.is_empty())
     }
 
     fn spool_flush_verb(&self, argv: &[String], err: &mut dyn Write) -> NorthResult<i32> {

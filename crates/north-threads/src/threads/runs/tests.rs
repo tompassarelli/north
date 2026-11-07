@@ -220,6 +220,19 @@ fn a_run_ingested_on_another_host_takes_the_landing_the_lander_hosts_push_log_na
     );
 }
 
+/// On 2026-11-07 from 06:52 UTC every whiterabbit worker-ledger batch carried about 2,050 push_join rows, each a scan of
+/// the ledger's 10,090 runs, so one ingest held nexus's ingest lock 35 s, past the caller's 20 s ssh bound, and the spool
+/// resent the same batch until nexus's CPU pressure starved every other ledger call.
+#[test]
+fn the_landing_join_probes_an_index_instead_of_scanning_the_runs() {
+    let ledger = ledger();
+    ledger.ingest(&[json!({"push_join": 1, "fleet_name": "cpx62-n757-spool", "landed_sha": "abc1234", "landed_at": "2026-10-28T08:45:00.000Z"})]);
+    let db = Connection::open(&ledger.path).unwrap();
+    let mut plan = db.prepare(&format!("EXPLAIN QUERY PLAN {}", super::record::PUSH_JOIN)).unwrap();
+    let steps: Vec<String> = plan.query_map(rusqlite::params!["", "", ""], |row| row.get(3)).unwrap().map(Result::unwrap).collect();
+    assert!(steps.iter().all(|step| !step.starts_with("SCAN")), "{steps:?}");
+}
+
 /// Two workers on two boxes of north#782 were one claim in the ledger, so the second ingest took the issue from the first.
 #[test]
 fn two_running_workers_on_two_boxes_of_one_issue_hold_one_claim_each_and_their_run_rows_name_the_issue_and_the_box() {

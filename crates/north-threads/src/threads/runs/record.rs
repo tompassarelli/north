@@ -22,6 +22,9 @@ const STAGES: [&str; 3] = ["staffed", "review_requested", "landed_at"];
 const CONTEXT: [&str; 8] = ["role", "peak_ctx", "compactions", "handoff_fires", "handoff_ignored", "input_tokens", "cache_read_tokens", "idle_gap_misses"];
 const ACTIVITY: [&str; 4] = ["turns", "tool_calls", "active_min", "wait_min"];
 const CREATED: [&str; 3] = ["codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent", CLOUD_ORIGIN];
+/// A push_join row's update: the fleet session's newest run started before the landing takes its sha and time.
+pub(super) const PUSH_JOIN: &str = "UPDATE runs SET landed = 1, expects_landing = 1, landed_sha = ?1, landed_at = ?2 WHERE role = 'worker' AND fleet_name = ?3 AND coalesce(landed_sha, '') = '' AND started <= ?2
+     AND NOT EXISTS (SELECT 1 FROM runs later WHERE later.fleet_name = runs.fleet_name AND later.started > runs.started AND later.started <= ?2)";
 /// The origin `north cloud launch` gives the running row it writes for a cloud session.
 pub const CLOUD_ORIGIN: &str = "claude.cloud";
 const LEDGER_WEEK: i64 = 7 * 24 * 3600;
@@ -161,8 +164,7 @@ impl Ingest<'_> {
     fn pushed(&self, r: &Row) -> Result<(), Failure> {
         let (name, landed_at) = (r.required("fleet_name")?, r.required("landed_at")?);
         self.db.execute(
-            "UPDATE runs SET landed = 1, expects_landing = 1, landed_sha = ?1, landed_at = ?2 WHERE role = 'worker' AND fleet_name = ?3 AND coalesce(landed_sha, '') = '' AND started <= ?2
-             AND NOT EXISTS (SELECT 1 FROM runs later WHERE later.fleet_name = runs.fleet_name AND later.started > runs.started AND later.started <= ?2)",
+            PUSH_JOIN,
             params![r.required("landed_sha")?, landed_at, name],
         )?;
         Ok(())

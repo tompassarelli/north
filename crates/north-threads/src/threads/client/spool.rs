@@ -96,9 +96,13 @@ impl Spool {
         Ok(spool)
     }
 
-    /// The names of the writes waiting to be sent, oldest name first.
-    pub(super) fn queued(&self) -> NorthResult<Vec<String>> {
-        let mut names: Vec<String> = self.store.instances::<SpooledWrite>()?.into_iter().filter(|record| record.state == Phase::Queued).map(|record| record.instance).collect();
+    /// The names of the writes waiting to be sent, oldest name first, a write whose flush died mid-send among them.
+    pub(super) fn queued(&mut self, at: Timestamp) -> NorthResult<Vec<String>> {
+        let mut names = Vec::new();
+        for record in self.store.instances::<SpooledWrite>()? {
+            let record = if record.state == Phase::Sending { self.store.settle::<SpooledWrite>(&record.instance, at)? } else { Some(record) };
+            names.extend(record.filter(|record| record.state == Phase::Queued).map(|record| record.instance));
+        }
         names.sort();
         Ok(names)
     }
@@ -192,7 +196,7 @@ mod spool_lifecycle {
         std::fs::write(directory.join("3-3.failed"), "{}").unwrap();
         std::fs::write(directory.join(".lock"), "").unwrap();
         let mut killed = Spool::adopting(store(&ledger, 10, 0), &directory, at(0)).unwrap();
-        assert_eq!(killed.queued().unwrap(), ["2-2.argv"]);
+        assert_eq!(killed.queued(at(0)).unwrap(), ["2-2.argv"]);
         assert!(killed.take("2-2.argv", at(1)).unwrap());
 
         let mut next = Spool::adopting(store(&ledger, 11, 10), &directory, at(2)).unwrap();
@@ -200,6 +204,7 @@ mod spool_lifecycle {
         assert_eq!(faults.iter().map(|fault| (fault.instance.as_str(), fault.state.as_str())).collect::<Vec<_>>(), [("3-3.failed", "refused"), ("2-2.argv", "sending")]);
         assert!(matches!(faults[0].kind, FaultKind::Overdue { .. }) && matches!(faults[1].kind, FaultKind::Orphaned { .. }));
 
+        assert_eq!(next.queued(at(3)).unwrap(), ["2-2.argv"]);
         assert!(next.take("2-2.argv", at(3)).unwrap());
         let causes: Vec<_> = next.store.history(SpooledWrite::NAME, "2-2.argv").unwrap().into_iter().map(|logged| (logged.to, logged.cause)).collect();
         assert_eq!(causes[2], ("queued".to_owned(), "the holder, pid 10 on client, is gone".to_owned()));

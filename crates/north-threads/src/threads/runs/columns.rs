@@ -1,4 +1,4 @@
-//! The runs columns the ingest writes that a ledger created before them lacks, added before the first row.
+//! The runs columns the ingest writes that a ledger created before them lacks, and the index its landing join probes, added before the first row.
 use rusqlite::Connection;
 
 use crate::threads::verb::Failure;
@@ -20,5 +20,6 @@ pub fn ensure(db: &Connection) -> Result<(), Failure> {
     for (column, declared) in ADDED.iter().filter(|(column, _)| !present.iter().any(|name| name == column)) {
         db.execute_batch(&format!("ALTER TABLE runs ADD COLUMN {column} {declared}"))?;
     }
+    db.execute_batch("CREATE INDEX IF NOT EXISTS runs_fleet_name ON runs(fleet_name, started)")?;
     Ok(())
 }
