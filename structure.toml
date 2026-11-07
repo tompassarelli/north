@@ -77,6 +77,11 @@ paths = ["crates/north-check-environment/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
+name = "north-land-probes"
+paths = ["crates/north-land-probes/src/**"]
+may_use = []
+
+[[crate_dag.crate]]
 name = "north-code-health"
 paths = ["crates/north-code-health/src/**"]
 may_use = ["north-base", "north-implicit-state"]
