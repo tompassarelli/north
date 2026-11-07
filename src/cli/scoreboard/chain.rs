@@ -60,8 +60,9 @@ fn settled(end: &End) -> bool {
 }
 
 /// `rows` with each chain folded into its first run, which takes the end of the chain; a chain not yet ended is left
-/// out. `relaunches` maps a session stopped on `Stop: host` to the end of the run that relaunched it.
-pub fn fold(mut rows: Vec<Raw>, marks: &Marks, relaunches: &BTreeMap<String, End>) -> Vec<Raw> {
+/// out. `relaunches` maps a session stopped on `Stop: host` to the end of the run that relaunched it; a `Stop: host` run
+/// not yet relaunched is a chain not yet ended while it ended after `relaunch_since`, and its own end after that.
+pub fn fold(mut rows: Vec<Raw>, marks: &Marks, relaunches: &BTreeMap<String, End>, relaunch_since: i64) -> Vec<Raw> {
     rows.sort_by_key(|row| row.started);
     let mut dropped = BTreeSet::new();
     let mut by_session: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
@@ -101,10 +102,16 @@ pub fn fold(mut rows: Vec<Raw>, marks: &Marks, relaunches: &BTreeMap<String, End
             } else {
                 dropped.insert(at);
             }
+        } else if row.ended >= relaunch_since && !ends.contains_key(&at) && stopped_for_host(&row.end.report) {
+            dropped.insert(at);
         }
     }
     rows.into_iter().enumerate().filter(|(at, _)| !dropped.contains(at)).map(|(at, row)| match ends.remove(&at) {
         Some(end) => Raw { end, ..row },
         None => row,
     }).collect()
+}
+
+fn stopped_for_host(report: &str) -> bool {
+    report.lines().any(|line| line.trim_start().starts_with("Stop: host "))
 }

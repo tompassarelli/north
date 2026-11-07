@@ -17,6 +17,8 @@ use crate::threads::attribution::{Cause, Harness, attribute, fleet_column, outco
 
 const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running, deferred, lander-queued and job-waking runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
 const ALL: &str = "all categories";
+/// How long a first try stopped on `Stop: host` waits for dispatch to relaunch it on the named host before its own end judges it.
+const RELAUNCH_WAIT_S: i64 = 24 * 3_600;
 
 pub struct Attempt {
     pub category: String,
@@ -63,7 +65,7 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
         })
         .collect();
     let relaunches = relaunches(db)?;
-    Ok(chain::fold(raws, &Marks::read(db), &relaunches)
+    Ok(chain::fold(raws, &Marks::read(db), &relaunches, pending.now.saturating_sub(RELAUNCH_WAIT_S))
         .into_iter()
         .filter_map(|Raw { agent, category, item, session, started, ended, end: End { outcome, report, compactions, recorded } }| {
             let recorded = recorded.or_else(|| (outcome != "done" && pending.queued_behind_capacity(&session, started, ended)).then(|| Cause::Harness(Harness::Capacity).label().to_owned()));
@@ -99,11 +101,13 @@ pub struct Pending {
     pub waking: BTreeSet<String>,
     /// This host's capacity database: a failed run whose session queued past the bound for admission inside its window lost to capacity, whatever its report says.
     pub capacity: Option<Connection>,
+    /// When the scorer reads: a `Stop: host` first try that ended less than `RELAUNCH_WAIT_S` before it waits on its relaunch.
+    pub now: i64,
 }
 
 impl Pending {
     pub fn read(db: &Connection, now: i64) -> Self {
-        Self { lanes: lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default(), waking: waking_sessions(db, now), capacity: capacity_database_readonly() }
+        Self { lanes: lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default(), waking: waking_sessions(db, now), capacity: capacity_database_readonly(), now }
     }
 
     fn queued_behind_capacity(&self, session: &str, from: i64, to: i64) -> bool {
