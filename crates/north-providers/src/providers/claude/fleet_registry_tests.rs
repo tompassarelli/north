@@ -218,3 +218,34 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
     assert_eq!(fleet.session("proxy").unwrap().conversation.as_deref(), Some("window-a"));
     assert!(!fleet.root().join("proxy/host.pid").exists());
 }
+
+#[test]
+fn an_interactive_window_opened_after_the_turn_leaves_a_running_first_turn_to_finish() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    let session = fleet.root().join("proxy");
+    let record = serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 5, "host_pid": std::process::id(), "conversation": "c", "host_dir": session, "role": "proxy", "stopped": false});
+    fs::create_dir_all(session.join("g1")).unwrap();
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let stream = session.join("g1/stream.jsonl");
+    let frame = |kind: &str| serde_json::json!({"type": kind, "subtype": "success", "session_id": "c", "message": {"content": [{"type": "text", "text": "first turn"}]}}).to_string() + "\n";
+    fs::write(&stream, frame("assistant")).unwrap();
+    let finisher = {
+        let stream = stream.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1200));
+            std::io::Write::write_all(&mut fs::OpenOptions::new().append(true).open(stream).unwrap(), frame("result").as_bytes()).unwrap();
+        })
+    };
+
+    let mut turn_over_at_launch = None;
+    fleet
+        .interactive("proxy", true, |_| {
+            turn_over_at_launch = Some(fs::read_to_string(&stream).unwrap().contains("\"type\":\"result\""));
+            Ok(())
+        })
+        .unwrap();
+    finisher.join().unwrap();
+
+    assert_eq!(turn_over_at_launch, Some(true), "the window took the conversation while the first turn was still running");
+}

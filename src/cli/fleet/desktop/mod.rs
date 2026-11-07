@@ -9,8 +9,8 @@ pub(super) trait Opener {
     fn open(&self, title: &str, command: &[String]) -> Result<u64, String>;
 }
 
-/// Opens the proxy a take-over or hand-over just started in its own window running `north fleet interactive`, and says what it did; None for any other role.
-pub(super) fn show_proxy(opener: &dyn Opener, record: &SessionRecord, north: &str) -> Option<String> {
+/// Opens the proxy a take-over or hand-over just started in its own window running `north fleet interactive --after-turn`, so the proxy's first turn ends before the window takes the conversation, on the same HOME as the launch so the window finds the fleet that started it, and says what it did; None for any other role.
+pub(super) fn show_proxy(opener: &dyn Opener, record: &SessionRecord, north: &str, home: &str) -> Option<String> {
     if record.role() != Role::Proxy {
         return None;
     }
@@ -19,7 +19,7 @@ pub(super) fn show_proxy(opener: &dyn Opener, record: &SessionRecord, north: &st
         return Some(format!("{name} runs on {}, so no window opened on this desktop", machine.name));
     }
     let title = format!("north {name}");
-    let command = [north.to_owned(), "fleet".to_owned(), "interactive".to_owned(), name.clone()];
+    let command = ["env".to_owned(), format!("HOME={home}"), north.to_owned(), "fleet".to_owned(), "interactive".to_owned(), name.clone(), super::interactive::AFTER_TURN.to_owned()];
     Some(match opener.open(&title, &command) {
         Ok(window) => format!("{name} opened in window {window} titled \"{title}\", resuming conversation {}", record.conversation.as_deref().unwrap_or("none")),
         Err(why) => format!("{name} runs headless and no window opened: {why}"),
@@ -29,7 +29,8 @@ pub(super) fn show_proxy(opener: &dyn Opener, record: &SessionRecord, north: &st
 /// Shows a session that just took a name over on this host's desktop when it is the proxy, and notes the outcome on stderr.
 pub(super) fn show_taken(record: &SessionRecord) {
     let north = std::env::current_exe().map_or_else(|_| "north".to_owned(), |path| path.display().to_string());
-    if let Some(line) = show_proxy(&niri::NiriGhostty, record, &north) {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if let Some(line) = show_proxy(&niri::NiriGhostty, record, &north, &home) {
         eprintln!("north fleet: {line}");
     }
 }

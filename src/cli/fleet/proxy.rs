@@ -22,7 +22,7 @@ pub(in crate::cli) fn run(arguments: &[String]) -> u8 {
     let result = match words.as_slice() {
         ["move", rest @ ..] => window_move::run(rest),
         [] => router::open_fleet().and_then(attach),
-        ["--interactive"] => router::open_fleet().and_then(|fleet| interactive::run(&fleet, PROXY)),
+        ["--interactive"] => router::open_fleet().and_then(|fleet| interactive::run(&fleet, PROXY, false)),
         _ => Err(NorthError::Usage(USAGE.into())),
     };
     match result {
