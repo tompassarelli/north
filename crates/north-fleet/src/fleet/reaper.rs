@@ -191,7 +191,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
                 reaped.kept.push(Retired { name: record.name.clone(), why });
                 continue;
             }
-            let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.chars().take(LAST_CHARS).collect::<String>());
+            let last = entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant && is_final(&entry.text)).or_else(|| entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant)).map(|entry| entry.text.chars().take(LAST_CHARS).collect::<String>());
             due.push((record, verdict.why(stale), last));
         }
         let leases = fleet.job_leases(&due.iter().map(|(record, _, _)| *record).collect::<Vec<_>>(), now_ms, budget.saturating_sub(started.elapsed()));
