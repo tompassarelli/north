@@ -13,7 +13,7 @@ const PLACEMENT_WAIT: Duration = Duration::from_secs(90);
 const PLACEMENT_BRIEF: &str = "Surface: shell\nNeeds: laptop\n";
 
 fn placed_account(listing: &str) -> Result<String, String> {
-    let target = listing.lines().find_map(|line| line.split_once(": target ").map(|(_, rest)| rest)).ok_or_else(|| format!("`north agents plan --place` printed no target: {}", listing.trim()))?;
+    let target = listing.lines().find_map(|line| line.split_once(": target ").map(|(_, rest)| rest)).ok_or_else(|| format!("`north config agents plan --place` printed no target: {}", listing.trim()))?;
     let mut words = target.split_whitespace();
     let host = words.next().unwrap_or_default();
     let account = words.next().and_then(|word| word.strip_prefix("claude:")).filter(|_| !host.ends_with(':'));

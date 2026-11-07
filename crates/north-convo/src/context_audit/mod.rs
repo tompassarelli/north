@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 pub use scan::{Audit, Kind, Role, audit_file};
 
-const USAGE: &str = "usage: north context audit [--since DURATION] [--json] [--session ID_PREFIX] [--root PROJECTS_DIR]...
+const USAGE: &str = "usage: north config context audit [--since DURATION] [--json] [--session ID_PREFIX] [--root PROJECTS_DIR]...
   DURATION is N followed by m, h or d (default 7d); roots default to ~/.local/state/north/profiles/claude-*/projects";
 const THREADS: usize = 4;
 
@@ -34,7 +34,7 @@ pub fn run(arguments: &[String], startup: Startup) -> u8 {
     let startup_tokens = match startup() {
         Ok(tokens) => tokens,
         Err(error) => {
-            eprintln!("north context audit: policy-gate measure failed: {error}");
+            eprintln!("north config context audit: policy-gate measure failed: {error}");
             return 1;
         }
     };
@@ -42,7 +42,7 @@ pub fn run(arguments: &[String], startup: Startup) -> u8 {
     let files = match session_files(&roots, args.since, args.session.as_deref()) {
         Ok(files) => files,
         Err(error) => {
-            eprintln!("north context audit: {error}");
+            eprintln!("north config context audit: {error}");
             return 1;
         }
     };
@@ -54,7 +54,7 @@ pub fn run(arguments: &[String], startup: Startup) -> u8 {
 }
 
 fn usage(message: &str) -> u8 {
-    eprintln!("north context audit: {message}\n{USAGE}");
+    eprintln!("north config context audit: {message}\n{USAGE}");
     2
 }
 
@@ -143,7 +143,7 @@ pub fn audit_all(files: &[(PathBuf, PathBuf)], startup_chars: usize) -> Vec<Audi
                 while let Some((disk, logical)) = files.get(next.fetch_add(1, Ordering::Relaxed)) {
                     match audit_file(disk, logical, startup_chars) {
                         Ok(audit) => found.lock().expect("audit results").push(audit),
-                        Err(error) => eprintln!("north context audit: skipped {}: {error}", disk.display()),
+                        Err(error) => eprintln!("north config context audit: skipped {}: {error}", disk.display()),
                     }
                 }
             });

@@ -53,11 +53,13 @@ const UNIFORM: &[(&str, Run)] = &[
     ("tool-mine", crate::tool_mine::run),
     ("policy-replay", crate::policy_replay::run),
     ("defaults-measure", crate::ops::defaults_measure::run),
-    ("context", |arguments| crate::context_audit::run(arguments, agent_config_check::startup_tokens)),
     ("spend", super::spend::run),
     ("brief", crate::guard::brief_skeleton::run),
     ("proxy", |arguments| match arguments.first().map(String::as_str) {
-        Some("calls") => crate::proxy::run(arguments, &super::verbs::VERB_KINDS),
+        Some("calls") => {
+            eprintln!("did you mean: north config proxy {}", arguments.join(" "));
+            2
+        }
         _ => super::fleet::proxy(arguments),
     }),
     ("ops", ops),
@@ -102,6 +104,7 @@ pub(super) enum Tool {
     SessionUnit,
     Dispatch,
     Report,
+    Config,
     Timer(Timer),
 }
 
@@ -142,6 +145,7 @@ impl Tool {
             }),
             Self::Dispatch => ExitCode::from(crate::dispatch::run(arguments, super::fleet::roster)),
             Self::Report => super::in_runtime(async move { Ok(ExitCode::from(crate::ops::report::run(arguments))) }),
+            Self::Config => super::in_runtime(async move { Ok(ExitCode::from(config(arguments))) }),
             Self::Pace => ExitCode::from(crate::pacing::run(arguments, crate::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load }, super::token_usage::read)),
             Self::Capacity => match arguments.split_first() {
                 Some((verb, rest)) if verb == "bounded" => ExitCode::from(crate::ops::run_bounded::run(rest)),
@@ -201,4 +205,12 @@ pub(super) fn defines(command: &str) -> bool {
 
 fn reclaim_disk() -> Option<f64> {
     crate::offload_cache::reclaim(crate::ops::reclaim::before_disk_defer_here)
+}
+
+fn config(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((noun, rest)) if noun == "context" => crate::context_audit::run(rest, agent_config_check::startup_tokens),
+        Some((noun, rest)) if noun == "proxy" => crate::proxy::run(rest, &super::verbs::VERB_KINDS),
+        _ => 2,
+    }
 }

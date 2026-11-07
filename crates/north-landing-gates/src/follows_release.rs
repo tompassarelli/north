@@ -93,7 +93,7 @@ fn plan(b: &Value) -> Option<String> {
     let mut brief = tempfile::Builder::new().prefix("follows-brief").suffix(".md").tempfile().ok()?;
     brief.write_all(field(b, "brief").as_bytes()).ok()?;
     let out = Command::new("north")
-        .args(["agents", "plan", "--place"])
+        .args(["config", "agents", "plan", "--place"])
         .arg(brief.path())
         .stdin(Stdio::null())
         .output()
@@ -142,7 +142,7 @@ fn gate(b: &Value, repo: &Path, profile: Option<&Path>) -> Result<Option<String>
 fn start(b: &Value, account: Option<&str>) -> Result<bool, String> {
     let tier = field(b, "tier");
     let route = match account {
-        Some(account) => format!(" Launch it on account {account} (`north fleet launch --account {account}`), the account `north agents plan` picked and the spawn gate admitted."),
+        Some(account) => format!(" Launch it on account {account} (`north fleet launch --account {account}`), the account `north config agents plan` picked and the spawn gate admitted."),
         None if claude_tier(tier) => " Call Claude Agent with run_in_background: true.".to_owned(),
         None => String::new(),
     };
@@ -376,7 +376,7 @@ landing on the default branch, reading each box's repository from FOLLOWS_RELEAS
 (default ~/code). A Follows naming a SHA waits for that commit, one naming an
 issue ref (optionally followed by a note) for that issue to be closed on GitHub, a leading SHA for that commit, and anything else for a commit with that exact subject. A released box
 whose own item issue is closed is done. Any other released box passes the spawn
-capacity gate, judged against the account `north agents plan --place` picks for
+capacity gate, judged against the account `north config agents plan --place` picks for
 its brief, and sends a staffing request naming that account through
 `north fleet send` to the assigned parent session. A box
 the gate denies, or one released but not started within 5 minutes

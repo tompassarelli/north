@@ -76,7 +76,7 @@ pub(super) fn caller_conversation() -> Option<String> {
 /// Why a session on `account` would start without the harness hooks: its config directory, as `present` sees it where the session runs, loads no `settings.json`.
 pub(super) fn unguarded(account: &Account, present: &dyn Fn(&Path) -> bool) -> Option<String> {
     (!at_default(account) && !present(&account.home.join("settings.json"))).then(|| {
-        format!("{} has no settings.json, so a session there would run with no hooks; run `north agents sync`", account.home.display())
+        format!("{} has no settings.json, so a session there would run with no hooks; run `north config agents sync`", account.home.display())
     })
 }
 

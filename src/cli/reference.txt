@@ -30,8 +30,7 @@ Commands:
   guard language                                PreToolUse language guard
   grounding [refresh|query|hook|distill|score]    Retrieve existing infrastructure and history
   work [list|search|show|claim|release|need|unneed|close]  Work items
-  agents [status|stale|inspect|path|on|off|sync|busy|plan|usage|routines]  Run the agent catalog, plan, usage and routines commands
-  config agents [sync|status|on|off|path|inspect|check-hook-paths|check-owners|live-refs]  Manage skills and hooks
+  config agents [status|stale|inspect|path|on|off|sync|check-hook-paths|check-owners|live-refs|busy|plan|usage|routines]  Manage skills and hooks; run the agent plan, usage, busy and routines commands
   config check [--package DIR]                 Check the agent-machinery package: catalog shape, units, assets, schemas, contracts and its portable source boundary
   config check guides [--refresh] [--guides DIR]  List the vendored agent-policy guides and fail when one is over 90 days old; --refresh re-fetches them at their upstream head
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
@@ -68,7 +67,7 @@ Commands:
   coverage select|test|miss BASE HEAD [--map FILE] | agreement --landings COUNT | record | refresh [--repo NAME] [--host NAME] [--head REVISION]  Pick the Rust tests that reach the functions a change touches, name the after-push failures they missed and refresh the map, judge the newest landings' selection share and misses, or record the test-to-function coverage map on a check host
   graph tell|retract T1 T2 T3 | show T1 | ask QUERY_JSON | ready [--query ready|held] | ingest [SOURCE...] | validate [--db PATH] [--writer NAME] [--json]  Record, withdraw and read facts in the triple graph, run a Datalog query over them, and list the ready boxes of the backlog in rank order with each held box's blocking edge
   brief new --category CATEGORY [--item REPO#N]   Print a worker brief skeleton carrying every line the brief guard requires for that category, with the fact graph neighborhood of the item when given
-  proxy calls TRANSCRIPT                         Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
+  config proxy calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
   agent-config-check [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
   agent-config-check policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses
   agent-config-check tree-policy [--tree DIR]  Check one north tree's skills against the byte and playbook limits with no other checkout or live state; the land check for harness/ and agent-machinery/
@@ -85,7 +84,7 @@ Commands:
   ops check [--dry-run]                         Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
-  context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks
+  config context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks
   ledger worker [--session ID] [--backfill] | --summary [--by LIST] | --recommend FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
   ledger scoreboard [--all] [--explain] | --weekly | --record | --rework [--since 7d] | audit [--tell] Print the readiness bars per repository, or with --weekly the weekly harness numbers for the last 7 days and the 7 days before
   policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop

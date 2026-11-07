@@ -21,7 +21,7 @@ use notes::{Note, Notes};
 const USAGE: &str = "usage: verify-north [--north PATH] [--claude-account A]
 Builds north from the checkout around the current directory, or uses --north PATH (a bare name is
 looked up on PATH), then drives the fleet TUI and CLI end to end and cleans up. Exits nonzero on
-any failure. Defaults: the Claude account `north agents plan --place` picks.";
+any failure. Defaults: the Claude account `north config agents plan --place` picks.";
 
 struct Options {
     north: Option<String>,

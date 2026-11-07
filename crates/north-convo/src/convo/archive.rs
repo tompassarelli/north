@@ -138,7 +138,7 @@ fn collect_ids(value: &serde_json::Value, out: &mut HashSet<String>) {
 
 /// Session ids the coordinator accounts for; any failure aborts the sweep.
 pub(super) fn coordinator_ids(env: &Env) -> Result<HashSet<String>> {
-    let text = env.roster_cmd.clone().unwrap_or_else(|| "north agents --json".to_owned());
+    let text = env.roster_cmd.clone().unwrap_or_else(|| "north config agents --json".to_owned());
     let words = shell_split(&text).filter(|words| !words.is_empty()).ok_or_else(|| unsafe_to_sweep("the roster command is not readable".to_owned()))?;
     let mut child = Command::new(&words[0])
         .args(&words[1..])

@@ -102,3 +102,10 @@ fn with_harness(work: impl FnOnce(&Path) -> u8) -> u8 {
         }
     }
 }
+
+pub(super) fn config(arguments: &[String]) -> std::process::ExitCode {
+    match arguments.first().map(String::as_str) {
+        Some("plan" | "busy" | "usage" | "routines") => super::in_runtime(async move { Ok(std::process::ExitCode::from(run(arguments))) }),
+        _ => super::in_runtime(async move { agent_catalog::run(arguments).map(|()| std::process::ExitCode::SUCCESS) }),
+    }
+}

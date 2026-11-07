@@ -60,9 +60,9 @@ impl Fleet {
     pub fn place(&self, brief: &str) -> Result<Placement, String> {
         let file = tempfile::Builder::new().prefix("timer-brief").suffix(".md").tempfile().map_err(|error| error.to_string())?;
         fs::write(file.path(), brief).map_err(|error| error.to_string())?;
-        let output = Command::new(north_program()).args(["agents", "plan", "--place"]).arg(file.path()).output().map_err(|error| format!("north agents plan --place: {error}"))?;
+        let output = Command::new(north_program()).args(["agents", "plan", "--place"]).arg(file.path()).output().map_err(|error| format!("north config agents plan --place: {error}"))?;
         let combined = format!("{}\n{}", text(&output), String::from_utf8_lossy(&output.stderr));
-        placement(&combined).ok_or_else(|| child_failure("north agents plan --place", output.status.code(), &output.stderr))
+        placement(&combined).ok_or_else(|| child_failure("north config agents plan --place", output.status.code(), &output.stderr))
     }
 
     pub fn worktree(&self, name: &str) -> Result<PathBuf, String> {

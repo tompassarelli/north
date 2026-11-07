@@ -42,13 +42,10 @@ Engineering and landing:
 System and telemetry:
   health                Check harness invariants
   agent-config-check  Check the shared agent harness and its budgets
-  config                Manage skills and hooks, or check the package
-  agents                Agent catalog, plan, usage and routines
+  config                Skills and hooks, agent plan and usage, context, proxy calls
   runtime               Update, deploy or check the north and agent runtimes
   capacity              Leases, modes and watchdog; bounded, nexus and dev-shell runs
   ops                   Watch work and landings; expectations, credentials, GitHub
-  context audit         Measure injected context per session by source
-  proxy calls           Count a transcript's main-thread tool calls
   strategy              Check or replay the decision log
   climb run             Print the week's largest loss and its candidate
   repo audit            List landed, unlanded and stray branches and tags

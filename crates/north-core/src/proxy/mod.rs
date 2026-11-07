@@ -8,7 +8,7 @@ pub use calls::{Kind, VerbKinds, classify};
 pub use readout::{Readout, read, render, streaks};
 pub use shape::shape;
 
-const USAGE: &str = "usage: north proxy calls TRANSCRIPT";
+const USAGE: &str = "usage: north config proxy calls TRANSCRIPT";
 
 pub fn run(arguments: &[String], verbs: &VerbKinds) -> u8 {
     let [verb, path] = arguments else {
@@ -25,7 +25,7 @@ pub fn run(arguments: &[String], verbs: &VerbKinds) -> u8 {
             0
         }
         Err(error) => {
-            eprintln!("north proxy calls: cannot read {path}: {error}");
+            eprintln!("north config proxy calls: cannot read {path}: {error}");
             1
         }
     }

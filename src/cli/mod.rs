@@ -103,6 +103,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
     if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
         return Ok(Command::Agents(arguments[2..].to_vec()));
     }
+    if arguments.len() >= 3 && arguments[0] == "config" && matches!([arguments[1].as_str(), arguments[2].as_str()], ["context", "audit"] | ["proxy", "calls"]) {
+        return Ok(Command::Tool(Tool::Config, arguments[1..].to_vec()));
+    }
     if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "check" {
         return Ok(Command::ConfigCheck(arguments[2..].to_vec()));
     }
@@ -194,9 +197,7 @@ fn dispatch(command: Command) -> ExitCode {
             print!("{CLI_REFERENCE}");
             ExitCode::SUCCESS
         }
-        Command::Agents(arguments) => in_runtime(async move {
-            agent_catalog::run(&arguments).map(|()| ExitCode::SUCCESS)
-        }),
+        Command::Agents(arguments) => agents::config(&arguments),
         Command::ConfigCheck(arguments) => in_runtime(async move { agent_catalog::config_check(&arguments).map(ExitCode::from) }),
         Command::Work(arguments) => in_runtime(async move {
             work_items::run(&arguments).await.map(|()| ExitCode::SUCCESS)

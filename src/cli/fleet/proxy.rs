@@ -14,7 +14,7 @@ use super::revive;
 use super::router;
 use super::window_move;
 
-const USAGE: &str = "usage: north proxy [--interactive] | north proxy calls TRANSCRIPT | north proxy move [--to ACCOUNT] [--auto] [--dry-run]";
+const USAGE: &str = "usage: north proxy [--interactive] | north proxy move [--to ACCOUNT] [--auto] [--dry-run]";
 const OPENING: &str = "[north: north proxy started this session as Tom's proxy]";
 
 pub(in crate::cli) fn run(arguments: &[String]) -> u8 {

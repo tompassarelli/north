@@ -1,4 +1,4 @@
-//! `north proxy calls TRANSCRIPT`: the main-thread tool calls of a Claude Code transcript, counted
+//! `north config proxy calls TRANSCRIPT`: the main-thread tool calls of a Claude Code transcript, counted
 //! by kind, with the streaks between hand-offs and the counted shapes run 20 or more times.
 use std::collections::{BTreeMap, HashSet};
 
