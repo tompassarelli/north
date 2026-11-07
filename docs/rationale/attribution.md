@@ -34,10 +34,10 @@ Order of replacement: done from the landed sha with the push-log join, then each
 `north_threads::threads::attribution::attribute` reads a finished run's outcome, the cause a boundary recorded for it (below), its final report and its compaction count, and returns one cause:
 
 - **worker**: every Done, `Stop: reasoning` or `Stop: leash` (the worker ran out of approach or budget, whatever else the report mentions), and any failure no rule below claims.
-- **tom**: halted or paused by Tom, `Stop: decision`, or a `Blocked:` report no harness class claims (a `Blocked:` that ends `Stop: host NAME` is placement). Neither side failed.
+- **tom**: halted or paused by Tom, `Stop: decision`, or a `Blocked:` report no harness class claims. Neither side failed.
 - **proxy**: a proxy-role session stopped, forgot, relaunched or interrupted the worker mid-turn; only the fleet's record names it, and `north ledger flow` counts it apart from the harness classes, so its fixes aim at the proxy rather than at workers.
 - **harness**, the first class whose rule the report matches, in this order:
-  - placement: `Stop: host`, or the report says this host or machine cannot run, push, land or reach what the box needs.
+  - placement: a session that recorded a host need with `north fleet need` inside the run (a `host-need` cause row, north#791), or the report says this host or machine cannot run, push, land or reach what the box needs.
   - access: a GitHub, ssh, token or credential call failed, expired or could not decrypt.
   - capacity: a usage or rate limit, or capacity admission deferred the run; `Stop: capacity|client|budget` no longer decides it.
   - waits: only a recorded wait (below); the report's `Stop: wait until` and its prose no longer decide it.

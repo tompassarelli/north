@@ -154,13 +154,13 @@ fn a_retired_note_keeps_the_report_not_a_later_reply_to_a_lander_notice() {
     let (fleet, paper) = fleet(home.path());
     let _lead = live(&fleet, "lead");
     let result = json!({"type": "result", "subtype": "success", "session_id": "north-725-d0351"});
-    let report = "Not done: two of the three boxes on north#725 are still open.\nStop: host ccx33";
+    let report = "Not done: two of the three boxes on north#725 are still open.\nStop: landing";
     parked(&fleet, "north-725-d0351", Some("lead"), &[said("north-725-d0351", "assistant", report), result.clone(), said("north-725-d0351", "user", "[from service:north-fleet] [north: landed] 988a0d0cef is on origin/main"), said("north-725-d0351", "assistant", "The lander's message confirms the landing I already reported."), result]);
     paper.claim_receipt("north-725-d0351", "turn:1", now_ms()).unwrap();
 
     assert_eq!(retired(&reap_after(&fleet, &Sight::default(), 24 * HOUR, now_ms(), true)), ["north-725-d0351"]);
     let note: Value = serde_json::from_slice(&std::fs::read(archived_dir(&fleet, "north-725-d0351").join("retired.json")).unwrap()).unwrap();
-    assert_eq!(note["last"], report, "dispatch reads the next launch's Stop: host from this note");
+    assert_eq!(note["last"], report, "the note keeps the report, not a later reply");
 }
 
 #[test]

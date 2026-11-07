@@ -3,6 +3,7 @@
 use crate::dispatch::{is_need, register_need};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::runtime::SESSION_ENV;
+use crate::platform::attribution::{self, Cause, Harness};
 use crate::threads::client;
 
 const USAGE: &str = "Usage: north fleet need HOST REASON [--item REPO#N] (HOST is a host or local need such as laptop or native; the session is $NORTH_FLEET_SESSION, its issue the one its launch recorded)";
@@ -24,6 +25,7 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
         Some(answer) => String::from_utf8_lossy(&answer).trim().to_owned(),
         None => register_need(&session, need, &reason, item).map_err(NorthError::Refused)?,
     };
+    attribution::record(&session, "host-need", Cause::Harness(Harness::Placement), &format!("{need}: {}", reason.trim()));
     println!("{answer}");
     Ok(())
 }

@@ -24,7 +24,7 @@ static TOM: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?im)halted by tom|\bto
 static BLOCKED: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?i)^\W*blocked:"));
 static RULES: LazyLock<Vec<(Harness, Regex)>> = LazyLock::new(|| {
     vec![
-        (Harness::Placement, pattern(r"(?im)^\W*stop:\s*host\b|\b(isn't|is not|not) on this host\b|\bthis (host|machine|session)\b[^.\n]{0,60}\b(can't|cannot|has no|lacks)\b|\b(can't|cannot|couldn't)\b[^.\n]{0,80}\b(from|on) (here|this (host|machine))\b|\bdispatch (put|placed|sent) this session\b|\b(checked|run|measured) on the laptop\b|\b(can't|cannot) reach\b|\bunreachable\b|\bno route to\b|\bnative capture\b|\bclient pair\b|\bcan't (be )?(push|pushed|land|landed|run|reach)\w*( it)? (from|on) \w+")),
+        (Harness::Placement, pattern(r"(?i)\b(isn't|is not|not) on this host\b|\bthis (host|machine|session)\b[^.\n]{0,60}\b(can't|cannot|has no|lacks)\b|\b(can't|cannot|couldn't)\b[^.\n]{0,80}\b(from|on) (here|this (host|machine))\b|\bdispatch (put|placed|sent) this session\b|\b(checked|run|measured) on the laptop\b|\b(can't|cannot) reach\b|\bunreachable\b|\bno route to\b|\bnative capture\b|\bclient pair\b|\bcan't (be )?(push|pushed|land|landed|run|reach)\w*( it)? (from|on) \w+")),
         (Harness::Access, pattern(r"(?i)\b(gh|github|token|ssh|credential|broker)\b[^.\n]{0,80}\b(fails?|failed|refus\w*|expired|unreachable|could not decrypt|can't decrypt)\b")),
         (Harness::Capacity, pattern(r"(?i)\bcapacity (admission )?(deferred|refused|denied)\b|\b(usage|rate) limit\b|\bout of slots\b|\bcredit balance is too low\b")),
         (Harness::FalseRevert, pattern(r"(?i)\b(lander|after-landing|red[- ]main)\b[^.\n]{0,80}\brevert|\brevert(ed)?\b[^.\n]{0,80}\b(lander|after-landing|red[- ]main)\b")),

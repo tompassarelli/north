@@ -184,14 +184,24 @@ fn a_failed_run_is_attributed_by_its_kept_stop_line_and_a_boundary_record_overri
     assert_eq!(reading.unclaimed_usd, 0.0, "{reading:?}");
 }
 
-/// north-730-d0235 opened `Blocked:` on ccx33 and ended `Stop: host gex45`, and the ready bar read it as Tom's on
-/// 2026-11-07, hiding a placement loss (north#751): a harness Stop line outranks the opener, and a Blocked report on
+/// north-730-d0235 opened `Blocked:` on ccx33 and the ready bar read it as Tom's on 2026-11-07, hiding a placement loss
+/// (north#751). Workers now record a need with `north fleet need`, which writes a `host-need` cause row for their session:
+/// a run whose session recorded one inside its window is placement whatever its report says, and a Blocked report on
 /// Tom's decision stays his.
 #[test]
-fn a_blocked_report_that_stops_on_a_host_is_placement() {
-    let read = |report: &str| crate::threads::attribution::attribute("escalated", report, 0, None);
-    assert_eq!(read("Blocked: I'm on ccx33, and the runner lane lives on gex45.\nStop: host gex45"), crate::threads::attribution::Cause::Harness(Harness::Placement));
-    assert_eq!(read("Blocked: the pilot spends money.\nStop: decision"), crate::threads::attribution::Cause::Tom);
+fn a_run_whose_session_recorded_a_host_need_is_placement_and_a_blocked_decision_stays_toms() {
+    let ledger = ledger();
+    let worker = |id: &str, report: &str| {
+        json!({"id": id, "role": "worker", "fleet_name": format!("w-{id}"), "account": "claude-b", "usage_samples": [{"request": id, "ts": "2026-10-28T08:30:00Z", "weight": 100.0}],
+               "tier": "high", "actual_min": 20, "started": "2026-10-28T08:20:00Z", "ended": "2026-10-28T08:40:00Z", "outcome": "escalated", "report": report})
+    };
+    ledger.ingest(&[worker("need", "Blocked: I'm on ccx33, and the runner lane lives on gex45."), worker("tom", "Blocked: the pilot spends money.\nStop: decision")]);
+    let context = Context { database: &ledger.path, actor: "tester".into(), no_native: None, outside: &ledger.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
+    let argv: Vec<String> = ["cause", "record", "--session", "w-need", "--source", "host-need", "--cause", "placement", "--reason", "gex45: the runner lane lives there"].map(str::to_owned).to_vec();
+    assert_eq!(causes::run(&argv, &context, &mut "".as_bytes(), &mut Vec::new(), &mut Vec::new()), 0);
+    let reading = losses(&Connection::open(&ledger.path).unwrap(), 0).unwrap();
+    let classes: Vec<(Harness, usize)> = reading.losses.iter().map(|loss| (loss.harness, loss.runs)).collect();
+    assert_eq!(classes, vec![(Harness::Placement, 1)], "{reading:?}");
 }
 
 /// north-751-d0333 found runs that ended on the API's "Credit balance is too low" charged to the worker on 2026-11-07
