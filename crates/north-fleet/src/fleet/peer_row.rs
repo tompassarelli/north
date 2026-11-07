@@ -24,11 +24,25 @@ pub fn admit(row: &FleetRow, peer: &str, ledger: &[SessionRow]) -> Result<FleetR
     if let Sender::Session(sender) = &row.sender {
         on_peer(ledger, peer, sender).map_err(|held| refusal(held, format!("row {} names sender {sender}, which is not a session on {peer}", row.id)))?;
     }
-    if row.kind != RowKind::Message {
+    if row.kind == RowKind::GateAnswer {
+        answerable(row, peer, ledger)?;
+    } else if row.kind != RowKind::Message {
         on_peer(ledger, peer, &row.to).map_err(|held| refusal(held, format!("row {} is a {} for {}, which is not a session on {peer}", row.id, row.kind.label(), row.to)))?;
     }
     let urgent = row.urgent && on_peer(ledger, peer, &row.to).is_ok();
     Ok(FleetRow { origin: Some(peer.to_owned()), urgent, ..row.clone() })
+}
+
+fn answerable(row: &FleetRow, peer: &str, ledger: &[SessionRow]) -> Result<(), Refusal> {
+    let Some(asker) = ledger.iter().find(|session| session.name == row.to) else {
+        return Err(Refusal::Unregistered(format!("row {} answers a gate of {}, which the ledger does not list", row.id, row.to)));
+    };
+    match &row.sender {
+        _ if runs_on(asker, peer) => Ok(()),
+        Sender::Tom => Ok(()),
+        Sender::Session(sender) if asker.parent.as_deref() == Some(sender.as_str()) => Ok(()),
+        sender => Err(Refusal::Spoofed(format!("row {} answers a gate of {}, which runs on {}, and its sender {sender} is neither Tom nor {}'s parent", row.id, row.to, asker.host, row.to))),
+    }
 }
 
 fn on_peer(ledger: &[SessionRow], peer: &str, name: &str) -> Result<(), bool> {

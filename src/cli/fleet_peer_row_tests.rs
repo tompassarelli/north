@@ -80,3 +80,15 @@ fn a_gex45_job_or_gate_row_for_a_laptop_session_is_refused_and_one_for_its_own_s
         assert!(admitted_put(&serde_json::to_vec(&for_own).unwrap(), Some("gex45"), || store.sessions()).is_ok(), "{id}");
     }
 }
+
+#[test]
+fn a_gex45_gate_answer_for_a_laptop_gate_is_admitted_from_tom_or_the_askers_parent_and_refused_from_anyone_else() {
+    let mut ledger = sessions();
+    ledger[0].parent = Some("gex45-worker".into());
+    let answer = |id: &str, sender: Sender| FleetRow { answer: Some(crate::fleet::store::AnswerPayload { gate: 177, number: 1 }), ..row(id, RowKind::GateAnswer, "gex45", sender, "lead", "") };
+    let admitted = crate::fleet::peer_row::admit(&answer("1794019263711-tom", Sender::Tom), "gex45", &ledger).unwrap();
+    assert_eq!((admitted.origin.as_deref(), admitted.urgent), (Some("gex45"), false));
+    assert!(crate::fleet::peer_row::admit(&answer("2-parent", Sender::Session("gex45-worker".into())), "gex45", &ledger).is_ok());
+    ledger[0].parent = Some("proxy".into());
+    assert!(matches!(crate::fleet::peer_row::admit(&answer("3-stranger", Sender::Session("gex45-worker".into())), "gex45", &ledger), Err(crate::fleet::peer_row::Refusal::Spoofed(_))));
+}
