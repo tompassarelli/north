@@ -16,6 +16,7 @@ pub mod merge_continue;
 pub mod merge_set;
 pub mod red_check;
 pub mod removed_surface;
+pub mod host_calls;
 mod rust_calls;
 pub mod results;
 pub mod stale_revert;

@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-const SOURCES: [&str; 2] = ["src", "crates"];
+pub const SOURCES: [&str; 2] = ["src", "crates"];
 const TEST_SOURCES: [&str; 3] = ["_tests.rs", "/tests.rs", "/tests/"];
 const GLUE: &str = r"(?:[\s,()\[\]&?.]|to_owned\(\)|into\(\)|to_string\(\)|display\(\)|to_string_lossy\(\)|into_owned\(\)|unwrap\(\)|unwrap_or_default\(\)|clone\(\)|arg\(|args\(|extend\(|push\(|vec!|String::from|OsString::from)*";
 
@@ -23,7 +23,7 @@ fn line_of(text: &str, at: usize) -> usize {
     text[..at].bytes().filter(|byte| *byte == b'\n').count() + 1
 }
 
-pub fn calls(text: &str) -> Vec<Call> {
+pub fn launched(text: &str) -> Vec<Call> {
     let mut found = Vec::new();
     for launcher in LAUNCHER.find_iter(text) {
         let mut words = Vec::new();
@@ -38,6 +38,11 @@ pub fn calls(text: &str) -> Vec<Call> {
             found.push(Call { line: line_of(text, launcher.start()), words });
         }
     }
+    found
+}
+
+pub fn calls(text: &str) -> Vec<Call> {
+    let mut found = launched(text);
     for line in LINE.captures_iter(text) {
         if let (Some(whole), Some(words)) = (line.get(0), line.get(1)) {
             found.push(Call { line: line_of(text, whole.start()), words: words.as_str().split(' ').map(str::to_owned).collect() });
@@ -46,7 +51,7 @@ pub fn calls(text: &str) -> Vec<Call> {
     found
 }
 
-fn is_north_code(path: &str) -> bool {
+pub fn is_north_code(path: &str) -> bool {
     path.ends_with(".rs") && SOURCES.iter().any(|root| path.starts_with(&format!("{root}/"))) && !TEST_SOURCES.iter().any(|marker| path.contains(marker))
 }
 

@@ -58,7 +58,7 @@ pub(super) fn refusal(arguments: &[String]) -> NorthError {
     NorthError::Usage(format!("unrecognized {kind} '{}'\n\nUsage: north [COMMAND]\n\nRun 'north' to open the TUI, or 'north --help' for help.", arguments.join(" ")))
 }
 
-fn hint(arguments: &[String]) -> Option<String> {
+pub(super) fn hint(arguments: &[String]) -> Option<String> {
     let (words, path, dropped) = MOVED.iter().find(|(words, ..)| arguments.starts_with(&words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>()))?;
     let kept: Vec<&str> = arguments[words.len()..].iter().map(String::as_str).filter(|word| !dropped.contains(word)).collect();
     Some(format!("did you mean: north {path}{}{}", if kept.is_empty() { "" } else { " " }, kept.join(" ")))

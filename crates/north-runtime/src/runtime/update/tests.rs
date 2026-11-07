@@ -54,3 +54,29 @@ fn a_copy_interrupted_over_an_hour_ago_leaves_no_staging_directory_while_a_fresh
     assert!(!layout.runtimes().join(&stale).exists());
     assert!(layout.runtimes().join(&fresh).exists());
 }
+
+/// Replays 2026-11-07, when runtimes that dropped `north pace sample` went live under pace-enforcement.service: the
+/// incoming runtime's own call check refuses it, current stays on the live runtime, and the refusal alarms once.
+#[test]
+fn a_runtime_whose_call_check_refuses_a_host_unit_is_held_on_the_live_runtime_with_one_alarm() {
+    use std::os::unix::fs::PermissionsExt;
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_path_buf() };
+    let (old, new) = ("a".repeat(40), "b".repeat(40));
+    for sha in [&old, &new] {
+        fs::create_dir_all(layout.runtime(sha).join(TREE)).unwrap();
+    }
+    let refusal = "north check calls: ✗ /etc/systemd/user/pace-enforcement.service:4: north pace sample: this runtime has no north pace command";
+    let north = layout.runtime(&new).join("north");
+    fs::write(&north, format!("#!/bin/sh\n[ \"$1 $2 $3\" = \"check calls --tree\" ] || exit 99\necho '{refusal}'\nexit 1\n")).unwrap();
+    fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
+    std::os::unix::fs::symlink(layout::link(&old), layout.current()).unwrap();
+    let mut alarms = Vec::new();
+    for _ in 0..2 {
+        let held = sync(&layout, Some(&layout::link(&old)), &new, &mut |text: &str| alarms.push(text.to_owned())).unwrap_err();
+        assert!(held.message.contains("pace-enforcement.service:4: north pace sample"), "{}", held.message);
+        assert_eq!(fs::read_link(layout.current()).unwrap(), layout::link(&old));
+    }
+    assert_eq!(alarms.len(), 1, "{alarms:?}");
+    assert!(alarms[0].contains(&format!("stays on {}", layout::short(&old))) && alarms[0].contains("pace-enforcement.service:4"), "{}", alarms[0]);
+}

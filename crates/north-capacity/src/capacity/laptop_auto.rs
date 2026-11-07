@@ -242,14 +242,18 @@ pub fn run(arguments: &[String]) -> u8 {
     let sample = sample(&host, idle, preparing_for_sleep(), battery);
     shed(&host, on_battery(applied.effects, battery), &processes);
     let mut laptop = match std::env::var_os("LAPTOP_AUTO_LAPTOP") {
-        Some(program) => Command::new(program),
+        Some(program) => {
+            let mut stub = Command::new(program);
+            stub.arg("observe");
+            stub
+        }
         None => {
             let mut north = Command::new(north_base::platform::north_binary::north_binary());
-            north.args(["fleet", "laptop"]);
+            north.args(["fleet", "laptop", "observe"]);
             north
         }
     };
-    let observed = observe(laptop.arg("observe").arg(sample.to_string()), OBSERVE_WAIT);
+    let observed = observe(laptop.arg(sample.to_string()), OBSERVE_WAIT);
     let busctl = std::env::var_os("LAPTOP_AUTO_BUSCTL").unwrap_or_else(|| "busctl".into());
     let level = battery.and_then(|_| warning_level(&mut Command::new(busctl)));
     alert_battery(&host.capacity.join(BATTERY_ALERTED), battery, level, &mut Command::new(notify), NOTIFY_WAIT);

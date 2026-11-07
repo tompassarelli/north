@@ -24,9 +24,10 @@ pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-pub(super) fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String, Failure> {
+pub(super) fn sync(layout: &Layout, previous: Option<&Path>, target: &str, notify: &mut dyn FnMut(&str)) -> Result<String, Failure> {
+    let checked = super::preswap::check(layout, target, previous, notify)?;
     let steps = vec![("health check", health_check(layout)), (AGENTS_SYNC, agents_sync(&layout.runtime(target).join("north")))];
-    settle(layout, previous, target, steps, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))
+    settle(layout, previous, target, steps, notify).map(|synced| checked + &synced)
 }
 
 pub(super) fn republish_if_unpublished(layout: &Layout, target: &str) {

@@ -31,6 +31,7 @@ const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 const UPDATE_LOCK: &str = "runtime-update.lock";
 
 pub(super) mod hold;
+mod preswap;
 mod sync;
 
 use hold::Verdict;
@@ -228,7 +229,7 @@ fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previ
     super::entry_links::link(runtime)?;
     store::root(runtime)?;
     super::deploy::stage_for_lander(layout, target, runtime);
-    sync(layout, previous, target)
+    sync(layout, previous, target, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))
 }
 
 pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<File>, Failure> {

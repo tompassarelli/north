@@ -7,6 +7,7 @@ use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, h
 mod abandon_witness;
 mod mutant_issues;
 mod agents;
+mod call_check;
 mod cloud;
 mod cloud_handback;
 pub(crate) mod concern_history;

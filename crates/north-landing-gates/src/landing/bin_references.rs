@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::host_calls::{Scope, units};
 use super::removed_surface::{Kind, Removed, invocation, removed_in, removed_surface};
 use super::rust_calls;
 
@@ -121,38 +122,9 @@ pub fn host_references(units: &str, removed: &Removed) -> Vec<Reference> {
             unit = path.trim().to_owned();
             continue;
         }
-        found.extend(matching(removed, "this host's systemctl --user cat", &unit, line, &PREFIXES));
+        found.extend(matching(removed, "this host's systemctl cat", &unit, line, &PREFIXES));
     }
     found
-}
-
-fn host_units() -> Result<String, String> {
-    let systemctl = |args: &[&str]| {
-        Command::new("systemctl")
-            .arg("--user")
-            .args(args)
-            .output()
-            .map_err(|error| format!("systemctl: {error}"))
-            .and_then(|output| {
-                if output.status.success() {
-                    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-                } else {
-                    Err(format!("systemctl --user {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim()))
-                }
-            })
-    };
-    let listing = systemctl(&["list-unit-files", "--no-legend", "--no-pager"])?;
-    let units: Vec<&str> = listing
-        .lines()
-        .filter_map(|line| line.split_whitespace().next())
-        .filter(|name| [".service", ".timer", ".path", ".socket"].iter().any(|suffix| name.ends_with(suffix)) && !name.ends_with("@.service"))
-        .collect();
-    if units.is_empty() {
-        return Ok(String::new());
-    }
-    let mut arguments = vec!["cat", "--no-pager", "--"];
-    arguments.extend(units);
-    systemctl(&arguments)
 }
 
 pub fn refusal(found: &[Reference]) -> String {
@@ -200,9 +172,11 @@ fn collect(repo: &Path, base: &str, head: &str, nixos_config: PathBuf, south: Pa
         found.extend(source_references(&source, &removed)?);
     }
     found.extend(rust_references(repo, head, &removed)?);
-    match host_units() {
-        Ok(units) => found.extend(host_references(&units, &removed)),
-        Err(error) => warnings.push(format!("safe-push: ⚠ cannot read this host's user units ({error}), so they were not checked for bin/ entries, subcommands or flags this landing removes.")),
+    for scope in [Scope::System, Scope::User] {
+        match units(scope) {
+            Ok(units) => found.extend(host_references(&units, &removed)),
+            Err(error) => warnings.push(format!("safe-push: ⚠ cannot read this host's units ({error}), so they were not checked for bin/ entries, subcommands or flags this landing removes.")),
+        }
     }
     let distinct: BTreeSet<Reference> = found.into_iter().collect();
     Ok((distinct.into_iter().collect(), warnings))

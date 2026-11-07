@@ -168,6 +168,7 @@ fn citation_check(arguments: &[String]) -> u8 {
 }
 
 const CHECK: &[(&str, Run)] = &[
+    ("calls", super::call_check::run),
     ("citations", citation_check),
     ("harness", agent_config_check::run),
     ("privacy", |arguments| crate::privacy::run(arguments, &super::agents::claude_access())),
