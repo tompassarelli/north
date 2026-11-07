@@ -1,10 +1,10 @@
 //! Keeps a host's land-check slots warm between landings: a build host's, and the lander host's own, which its after-landing runs use when no
-//! build host has room. While at most `BUSY_SLOTS` land checks hold slots here, the lease reaper (the laptop-auto tick on the laptop) starts
+//! build host has room. While at most `BUSY_SLOTS` land checks hold slots here and none waits in the slot queue, the lease reaper (the laptop-auto tick on the laptop) starts
 //! one warm job: it takes the unlocked slot whose last warm build is furthest behind its repository's origin/main (a land check that left a
 //! slot at the head may not have built what the next one needs), a slot that has never built while the disk keeps its eviction line with one
 //! more of the largest target here, never the lander's reserved one, checks it out at
 //! that head and runs the repository's `landing.warm` command there under a heavy lease at the lowest CPU priority, so the next check on any
-//! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since.
+//! slot, whichever package set it builds and whether or not the last after-landing run passed, compiles only what changed since. A land check that queues for a slot stops the warm job, which holds a slot the check could take.
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
@@ -27,6 +27,8 @@ const SETTING: &str = "landing.warm";
 const DEADLINE: Duration = Duration::from_secs(1800);
 const POLL: Duration = Duration::from_millis(500);
 const BUSY_SLOTS: usize = 2;
+const QUEUE: &str = "queue";
+const BACKGROUND_TICKET: &str = "3-";
 const GIB: f64 = (1u64 << 30) as f64;
 
 struct Slot {
@@ -52,11 +54,15 @@ fn too_busy(root: &Path) -> bool {
         let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
         name.ends_with(".lock") && name != LOCK && !name.ends_with(".background.lock") && held(path)
     });
-    held_slots.count() > BUSY_SLOTS
+    held_slots.count() > BUSY_SLOTS || checks_waiting(root)
 }
 
-/// The lease reaper's step: starts the warm job as its own transient user unit when none is in flight and at most `BUSY_SLOTS` land checks
-/// hold slots here. The reaper is a oneshot unit, and systemd ends every process left in its cgroup when it exits, so a child of the reaper
+fn checks_waiting(root: &Path) -> bool {
+    fs::read_dir(root.join(QUEUE)).into_iter().flatten().flatten().any(|entry| !entry.file_name().to_string_lossy().starts_with(BACKGROUND_TICKET) && held(&entry.path()))
+}
+
+/// The lease reaper's step: starts the warm job as its own transient user unit when none is in flight, at most `BUSY_SLOTS` land checks
+/// hold slots here and none waits for one. The reaper is a oneshot unit, and systemd ends every process left in its cgroup when it exits, so a child of the reaper
 /// would die with it; the fixed unit name also keeps a second warm job from starting beside a running one.
 pub fn tend() {
     let Some(root) = offload::root().filter(|root| root.is_dir()) else { return };
@@ -179,12 +185,19 @@ fn warm(root: &Path, slot: &Slot, head: &str) -> u8 {
             if let Ok(Some(status)) = running.try_wait() {
                 break status.code().map_or_else(|| "a signal".to_owned(), |code| format!("exit {code}"));
             }
-            if started.elapsed() > DEADLINE {
+            let ended = if started.elapsed() > DEADLINE {
+                Some(format!("killed after {} s", DEADLINE.as_secs()))
+            } else if checks_waiting(root) {
+                Some("stopped for a queued land check".to_owned())
+            } else {
+                None
+            };
+            if let Some(ended) = ended {
                 if let Some(pid) = rustix::process::Pid::from_raw(running.id().cast_signed()) {
                     let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::Kill);
                 }
                 let _ = running.wait();
-                break format!("killed after {} s", DEADLINE.as_secs());
+                break ended;
             }
             std::thread::sleep(POLL);
         },
