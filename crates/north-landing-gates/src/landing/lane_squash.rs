@@ -82,16 +82,11 @@ fn message(commits: &[&LaneCommit], supplied: Option<&str>) -> String {
     let mut text = match supplied {
         Some(supplied) => split_trailers(supplied).0,
         None => {
-            let first = commits[0];
-            let mut text = first.subject.clone();
-            if !first.body.is_empty() {
+            let last = commits[commits.len() - 1];
+            let mut text = last.subject.clone();
+            if !last.body.is_empty() {
                 text.push_str("\n\n");
-                text.push_str(&first.body);
-            }
-            let others: Vec<String> = commits[1..].iter().map(|commit| format!("- {}", commit.subject)).collect();
-            if !others.is_empty() {
-                text.push_str("\n\n");
-                text.push_str(&others.join("\n"));
+                text.push_str(&last.body);
             }
             text
         }
@@ -109,6 +104,21 @@ fn message(commits: &[&LaneCommit], supplied: Option<&str>) -> String {
     }
     text.push('\n');
     text
+}
+
+/// A landing subject that calls the work unfinished: it starts with the word WIP or says the work is not written.
+pub fn unfinished_subject(subject: &str) -> bool {
+    let lower = subject.trim().to_lowercase();
+    let wip = lower.strip_prefix("wip").is_some_and(|rest| rest.chars().next().is_none_or(|next| !next.is_alphanumeric()));
+    wip || lower.contains("not written") || lower.contains("not yet written")
+}
+
+pub fn refuse_unfinished_subject(repo: &Path, branch: &str) -> Result<(), String> {
+    let subject = git(repo, &["show", "-s", "--format=%s", "HEAD"])?.trim().to_owned();
+    if unfinished_subject(&subject) {
+        return Err(format!("lane {branch} would land under the subject \"{subject}\", which calls the work unfinished; reword the lane's last commit or pass --message FILE with the landing message"));
+    }
+    Ok(())
 }
 
 fn published_tips(repo: &Path, destination: &str) -> Result<Vec<String>, String> {

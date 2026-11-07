@@ -25,7 +25,7 @@ fn a_lane_that_carries_a_landed_lane_is_rebased_by_the_lander_and_only_a_conflic
 }
 
 #[test]
-fn a_lane_the_lander_rebased_over_a_neighbouring_edit_is_told_it_landed() {
+fn a_lane_the_lander_rebased_over_a_neighbouring_edit_is_told_it_landed_and_has_its_worktree_removed() {
     let world = World::new();
     let north = world.repository("north");
     north.lane_with("seed", "origin/main", ("f.txt", "a\nb\nc\nd\ne\n"), ("seed", None));
@@ -42,5 +42,9 @@ fn a_lane_the_lander_rebased_over_a_neighbouring_edit_is_told_it_landed() {
     for session in ["session-upper", "session-lower"] {
         let told: Vec<&str> = calls.lines().filter(|call| call.contains(session) && call.contains(" landed ")).collect();
         assert!(told.len() == 1, "{session} was told {told:?}\n{calls}\n{}", report(&landed));
+    }
+    for lane in ["upper", "lower"] {
+        let worktree = north.checkout.parent().unwrap().join("worktrees").join(lane);
+        assert!(!worktree.exists(), "lane {lane} landed but its worktree was kept\n{}", report(&landed));
     }
 }

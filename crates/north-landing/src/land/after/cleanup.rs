@@ -106,7 +106,7 @@ pub fn origin_branches(lander: &Lander, ticket: &Ticket, holder: &str) {
     }
 }
 
-fn judge(lander: &Lander, path: &Path, ticket: &Ticket, landed: &str) -> Result<PathBuf, String> {
+fn judge(lander: &Lander, path: &Path, ticket: &Ticket) -> Result<PathBuf, String> {
     let root = fs::canonicalize(&ticket.root).map_err(|_| "its worktree is not on this host".to_owned())?;
     if !lane_layout(lander, &root) {
         return Err("it is not a lane worktree of this repository".to_owned());
@@ -118,9 +118,6 @@ fn judge(lander: &Lander, path: &Path, ticket: &Ticket, landed: &str) -> Result<
     let branch_tip = git(&lander.repo, &["rev-parse", "--verify", &format!("refs/heads/{}^{{commit}}", ticket.branch)])?;
     if head != ticket.head || branch_tip != ticket.head {
         return Err("the lane moved since it was queued".to_owned());
-    }
-    if !on_main(&lander.repo, landed, &ticket.head) {
-        return Err("its commits are not all on main".to_owned());
     }
     if ticket.keep_lane {
         return Err("--keep-lane".to_owned());
@@ -139,8 +136,8 @@ fn judge(lander: &Lander, path: &Path, ticket: &Ticket, landed: &str) -> Result<
     Ok(root)
 }
 
-pub fn clean(lander: &Lander, path: &Path, ticket: &Ticket, landed: &str) -> Outcome {
-    let root = match judge(lander, path, ticket, landed) {
+pub fn clean(lander: &Lander, path: &Path, ticket: &Ticket) -> Outcome {
+    let root = match judge(lander, path, ticket) {
         Ok(root) => root,
         Err(reason) => return Outcome::Kept(reason),
     };
@@ -154,8 +151,8 @@ pub fn clean(lander: &Lander, path: &Path, ticket: &Ticket, landed: &str) -> Out
     }
 }
 
-pub fn report(lander: &Lander, path: &Path, ticket: &Ticket, landed: &str) {
-    match clean(lander, path, ticket, landed) {
+pub fn report(lander: &Lander, path: &Path, ticket: &Ticket) {
+    match clean(lander, path, ticket) {
         Outcome::Removed => println!("north land: lane {} landed; removed its worktree {} and branch", ticket.branch, ticket.root.display()),
         Outcome::Kept(reason) => println!("north land: lane {} landed; kept {}: {reason}", ticket.branch, ticket.root.display()),
     }

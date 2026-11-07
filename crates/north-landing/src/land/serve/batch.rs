@@ -166,8 +166,8 @@ impl Lander {
             match pick {
                 Pick::Included => included.push((path, ticket)),
                 Pick::Decided(verdict) => {
-                    if let Some(sha) = verdict.strip_prefix("landed ") {
-                        after::cleanup::report(self, path, ticket, sha);
+                    if verdict.starts_with("landed ") {
+                        after::cleanup::report(self, path, ticket);
                     }
                     records::write(self, path, ticket, &Candidate { head: "", batch_size: 0, stages: &Stages::empty() }, &Decision::Refused { verdict });
                     bisect::decide(path, ticket, verdict.clone(), None, attempt.base)?;

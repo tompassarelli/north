@@ -214,6 +214,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         Shape::SeveralCommits { reason } => (Squash::Kept(format!("--several-commits: {reason}")), Some(reason.to_owned())),
     };
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+    lane_squash::refuse_unfinished_subject(&root, &branch)?;
     let lander_host = setting::landing(&root, &remote_ref, "landing.lander-host");
     let queue = queue::directory(environment.state_home, &origin);
     if let Err((gates, detail)) = refuse_lane_gates(&root, &base, &head, environment.state_home, lander_ledger_at(&lander_host, &queue, environment))? {

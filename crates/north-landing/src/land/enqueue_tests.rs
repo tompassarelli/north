@@ -101,7 +101,7 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     let queued = lane.enqueue(super::Shape::OneCommit { message: None });
     assert_eq!((queued.ticket.head, run(&lane.repo, &["rev-parse", "HEAD^"]), run(&lane.repo, &["rev-parse", "HEAD^{tree}"])), (run(&lane.repo, &["rev-parse", "HEAD"]), lane.base.clone(), tree));
     let message = run(&lane.repo, &["show", "-s", "--format=%B", "HEAD"]);
-    assert!(message.starts_with("outgoing\n") && message.lines().any(|line| line == "- add the second lane line"), "{message}");
+    assert_eq!(message.lines().next(), Some("add the second lane line"), "{message}");
     assert_eq!(run(&lane.repo, &["show", "-s", "--format=%(trailers:only,unfold)", "HEAD"]), "Refs: #7\nLane-note: first\nLane-note: second");
 
     let lane = Lane::new();
@@ -183,4 +183,21 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     lane.commit("grow harness text", &[]);
     let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
     assert!(refused.contains("a check before queueing exited 1"), "{refused}");
+}
+
+// KEEP(bug): on 2026-11-07 the landing resume pass landed as 7c7aaa37c under the subject of its first commit, "WIP: ... not written yet", though the lane's last commit held the module and tests (north#795)
+#[test]
+fn a_lane_that_began_with_a_wip_commit_lands_under_its_last_commit_and_a_lane_ending_on_one_is_refused() {
+    let lane = Lane::new();
+    run(&lane.repo, &["commit", "--amend", "--allow-empty", "-q", "-m", "WIP: resume module, reaper keep and tests not written yet"]);
+    lane.commit("Resume a landing the lander stopped on", &[]);
+    lane.enqueue(super::Shape::OneCommit { message: None });
+    assert_eq!(run(&lane.repo, &["show", "-s", "--format=%B", "HEAD"]), "Resume a landing the lander stopped on");
+
+    let lane = Lane::new();
+    run(&lane.repo, &["commit", "--amend", "--allow-empty", "-q", "-m", "Add the resume module"]);
+    lane.commit("wip: reaper keep", &[]);
+    let refusal = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
+    assert!(refusal.contains("lane lane") && refusal.contains("--message"), "{refusal}");
+    lane.enqueue(super::Shape::OneCommit { message: Some("Resume a landing the lander stopped on\n") });
 }
