@@ -1,15 +1,12 @@
-use std::fs;
 use std::path::Path;
 use std::process::Command;
 
 use north_base::foundation::clock::Timestamp;
 use north_base::lifecycle::{Record, Store};
-use serde::Deserialize;
 
 use super::after_landing_lifecycle::{self as lifecycle, BaseBroken, Pause};
 use north_check_environment::instance;
 
-const FILE: &str = "base-broken";
 const ALERT_TITLE: &str = "Lander paused";
 
 fn alert(detail: &str) -> bool {
@@ -25,41 +22,24 @@ fn waiting(record: &Record<Pause>, now: Timestamp) -> String {
     format!("{}; new candidates are paused and the base check is retried in {} s", record.cause, (retry_at(record).unix_seconds() - now.unix_seconds()).max(0))
 }
 
-/// The pause a lander older than the lifecycle store left as `Q/base-broken`, adopted once into the record.
-fn adopt(store: &mut Store, queue: &Path) {
-    #[derive(Deserialize)]
-    struct Left {
-        detail: String,
-        alerted: bool,
-    }
-    let path = queue.join(FILE);
-    let Some(left) = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Left>(&text).ok()) else { return };
-    let cause = format!("adopted from {FILE}: {}", left.detail);
-    if lifecycle::moved::<BaseBroken>(store, &instance(queue), Pause::Paused, &cause).is_some() && left.alerted {
-        lifecycle::moved::<BaseBroken>(store, &instance(queue), Pause::Alerted, &cause);
-    }
-    let _ = fs::remove_file(path);
-}
-
-fn with_store<T>(queue: &Path, act: impl FnOnce(&mut Store) -> T) -> Result<T, String> {
+fn with_store<T>(act: impl FnOnce(&mut Store) -> T) -> Result<T, String> {
     let mut store = lifecycle::host()?;
-    adopt(&mut store, queue);
     Ok(act(&mut store))
 }
 
 pub fn held(queue: &Path) -> Option<String> {
-    with_store(queue, |store| held_in(store, &instance(queue), Timestamp::now())).unwrap_or_else(|error| {
+    with_store(|store| held_in(store, &instance(queue), Timestamp::now())).unwrap_or_else(|error| {
         println!("{error}");
         None
     })
 }
 
 pub fn raise(queue: &Path, detail: &str) -> Result<String, String> {
-    with_store(queue, |store| raise_in(store, &instance(queue), detail, Timestamp::now(), alert))?
+    with_store(|store| raise_in(store, &instance(queue), detail, Timestamp::now(), alert))?
 }
 
 pub fn resume(queue: &Path) {
-    if let Err(error) = with_store(queue, |store| resume_in(store, &instance(queue))) {
+    if let Err(error) = with_store(|store| resume_in(store, &instance(queue))) {
         println!("{error}");
     }
 }
