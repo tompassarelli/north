@@ -22,8 +22,9 @@ const LANDER_LIFETIME: Duration = Duration::from_secs(120);
 
 const CHECKER: &str = r#"plan="$1/plan"; calls="$1/calls"
 shift
-n=$(($(cat "$calls" 2>/dev/null || echo 0) + 1))
-echo "$n" > "$calls"
+mkdir -p "$calls"
+n=1
+while ! mkdir "$calls/$n" 2>/dev/null; do n=$((n + 1)); done
 step=$(sed -n "${n}p" "$plan" 2>/dev/null)
 case "$step" in
 lost) echo "ssh: connect to host gex45 port 22: Connection reset by peer" >&2; exit 255 ;;
@@ -112,7 +113,7 @@ impl World {
     }
 
     fn plan(&self, steps: &[&str]) {
-        let _ = fs::remove_file(self.plan.join("calls"));
+        let _ = fs::remove_dir_all(self.plan.join("calls"));
         fs::write(self.plan.join("plan"), steps.iter().map(|step| format!("{step}\n")).collect::<String>()).unwrap();
     }
 
