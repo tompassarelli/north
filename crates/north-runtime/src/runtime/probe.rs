@@ -230,6 +230,12 @@ pub(super) fn installing(facts: &Facts) -> bool {
     facts.unreachable.is_none() && facts.runtime.is_none()
 }
 
+const RESTARTING_AFTER_CLEAN_EXIT: &str = "activating auto-restart success";
+
+fn healthy(state: &str) -> bool {
+    state == "active" || state == RESTARTING_AFTER_CLEAN_EXIT
+}
+
 pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String> {
     if let Some(why) = &facts.unreachable {
         return vec![format!("unreachable: {why}")];
@@ -243,7 +249,7 @@ pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String
     }
     for unit in UNITS {
         let state = facts.units.get(unit).map_or("unknown", String::as_str);
-        if state != "active" {
+        if !healthy(state) {
             problems.push(format!("{unit} is {state}"));
         }
     }
@@ -282,7 +288,8 @@ fn facts_script() -> String {
          mark runtime; readlink \"$state/current\"\n\
          mark swapped; stat -c %Y \"$state/current\"\n\
          mark swaps; tail -n {SWAPS_KEPT} \"$state/runtime-swaps.jsonl\" 2>/dev/null || true\n\
-         mark units; systemctl --user is-active {} || true\n\
+         mark units; for unit in {}; do unit_state=$(systemctl --user is-active \"$unit\"); \
+         [ \"$unit_state\" = activating ] && unit_state=\"$unit_state $(systemctl --user show -p SubState --value \"$unit\") $(systemctl --user show -p Result --value \"$unit\")\"; echo \"$unit_state\"; done\n\
          mark pressure; cat \"$proc/pressure/cpu\"\n\
          mark load; cat \"$proc/loadavg\"; nproc\n\
          mark north; for pid in \"$proc\"/[0-9]*; do read -r name <\"$pid/comm\" 2>/dev/null && [ \"$name\" = north ] || continue; \
@@ -425,5 +432,51 @@ mod tests {
         proc.spawn("north", &[&north(LIVE), "fleet", "watchdog", "worker-1"]);
         let (problems, _) = proc.problems();
         assert_eq!(problems, vec!["2 fleet watchdog processes of the live runtime for live session worker-1".to_owned()]);
+    }
+
+    const TIMER: (&str, &str, &str, &str) = ("north-runtime-follow.timer", "active", "waiting", "success");
+
+    fn unit_problems(watchdog: (&str, &str, &str)) -> Vec<String> {
+        let dir = tempfile::tempdir().unwrap();
+        let systemctl = dir.path().join("systemctl");
+        std::fs::write(&systemctl, "#!/usr/bin/env bash\nunit=\"${@: -1}\"\ncase \"$2\" in\nis-active) cat \"$FAKE_UNITS/$unit.active\"; exit 3;;\nshow) cat \"$FAKE_UNITS/$unit.$4\";;\nesac\n").unwrap();
+        std::fs::set_permissions(&systemctl, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        for (unit, active, sub, result) in [("capacity-watchdog.service", watchdog.0, watchdog.1, watchdog.2), TIMER] {
+            std::fs::write(dir.path().join(format!("{unit}.active")), format!("{active}\n")).unwrap();
+            std::fs::write(dir.path().join(format!("{unit}.SubState")), format!("{sub}\n")).unwrap();
+            std::fs::write(dir.path().join(format!("{unit}.Result")), format!("{result}\n")).unwrap();
+        }
+        let output = Command::new("bash")
+            .arg("-c")
+            .arg(facts_script())
+            .env("PATH", format!("{}:{}", dir.path().display(), std::env::var("PATH").unwrap()))
+            .env("FAKE_UNITS", dir.path())
+            .env("NORTH_SETTLE_PROC", dir.path())
+            .env("HOME", dir.path())
+            .env("XDG_STATE_HOME", dir.path())
+            .output()
+            .unwrap();
+        let units = sections(&String::from_utf8_lossy(&output.stdout)).remove("units").unwrap();
+        let facts = Facts {
+            host: "gex45".to_owned(),
+            runtime: Some(LIVE.to_owned()),
+            units: UNITS.iter().zip(units.lines()).map(|(unit, state)| ((*unit).to_owned(), state.to_owned())).collect(),
+            settings: vec!["settings.json".to_owned()],
+            north: Some(NorthProcesses::default()),
+            ..Facts::default()
+        };
+        problems(&facts, |_| true)
+    }
+
+    #[test]
+    fn a_watchdog_waiting_to_restart_after_the_promoted_runtime_moved_is_healthy() {
+        assert_eq!(unit_problems(("activating", "auto-restart", "success")), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_watchdog_waiting_to_restart_after_a_crash_or_stopped_is_a_fault() {
+        assert_eq!(unit_problems(("activating", "auto-restart", "exit-code")), vec!["capacity-watchdog.service is activating auto-restart exit-code".to_owned()]);
+        assert_eq!(unit_problems(("activating", "start", "success")), vec!["capacity-watchdog.service is activating start success".to_owned()]);
+        assert_eq!(unit_problems(("failed", "failed", "exit-code")), vec!["capacity-watchdog.service is failed".to_owned()]);
     }
 }
