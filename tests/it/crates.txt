@@ -9,8 +9,6 @@ capacity_exclusive_native north-capacity
 capacity_host north-capacity-host
 capacity_live north-capacity-host
 carry_matrix north-capacity north-runtime
-fleet_launch north-fleet north-dispatch
-fleet_spool north-fleet
 golden_path north-fleet north-landing
 land_checks north-landing
 land_checks_script north-landing north
@@ -23,12 +21,9 @@ land_scan_incident_test north-landing
 land_serve north-landing
 landing_targets north-landing
 lane_gc_journeys north-guard
-policy_replay_case north-convo
-policy_replay_login north-convo
 release north-landing north-safe-push north
 run_bounded north-ops north-capacity-host
 runtime_update north-runtime
-safe_push north-landing north-safe-push
 safe_push_entry north-base north-safe-push north
 safe_push_remote_land north north-safe-push
 safe_push_tag north-landing north-safe-push
@@ -36,9 +31,14 @@ stdio north-fleet
 support north
 threads_ingest_lock north-threads
 threads_ledger north-threads
-threads_resume north-threads
 threads_snapshot north-threads
 ssh_attribution north-capacity-host north-base north
 capacity_agent_compile north-capacity north-capacity-host north-runtime
 session_start_measurement north-guard north-core north-fleet
 cargo_config north
+fleet_launch north-core north-fleet north-dispatch
+fleet_spool north-core north-fleet
+policy_replay_case north-convo
+policy_replay_login north-convo
+safe_push north-capacity north-capacity-host north-landing north-safe-push
+threads_resume north-core north-threads

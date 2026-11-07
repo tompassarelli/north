@@ -69,7 +69,7 @@ impl Plan {
         self.names().find(|name| *name == directory)
     }
 
-    fn closure(&self, changed: BTreeSet<String>) -> BTreeSet<String> {
+    pub fn closure(&self, changed: BTreeSet<String>) -> BTreeSet<String> {
         let mut affected = changed.clone();
         let mut pending: Vec<String> = changed.into_iter().collect();
         while let Some(name) = pending.pop() {
