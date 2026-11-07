@@ -12,7 +12,6 @@ doctest = false
 [dependencies]
 north-claude-stream = { path = "../north-claude-stream" }
 north-base = { path = "../north-base" }
-north-fleet-store = { path = "../north-fleet-store" }
 north-pace = { path = "../north-pace" }
 north-session-host = { path = "../north-session-host" }
 regex.workspace = true

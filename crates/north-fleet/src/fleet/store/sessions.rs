@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{NorthError, NorthResult};
 
-use crate::status::Status;
-use crate::runtime::PROXY;
+use super::super::model::Status;
+use super::super::runtime::PROXY;
 use super::schema::sql;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

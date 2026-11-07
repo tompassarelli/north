@@ -64,7 +64,7 @@ pub fn cached_leases(root: &Path) -> NorthResult<Option<LeaseTable>> {
 }
 
 fn write<T: Serialize + ?Sized>(root: &Path, name: &str, rows: &T) -> NorthResult<()> {
-    let staged = root.join(format!("{name}.{}.{}.tmp", std::process::id(), crate::runtime::now_ms()));
+    let staged = root.join(format!("{name}.{}.{}.tmp", std::process::id(), super::super::runtime::now_ms()));
     fs::write(&staged, serde_json::to_vec(rows)?)?;
     fs::rename(staged, root.join(name))?;
     Ok(())

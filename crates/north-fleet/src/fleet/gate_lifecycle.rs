@@ -4,7 +4,7 @@ use north_base::lifecycle::{Lifecycle, State};
 
 use crate::foundation::clock::Timestamp;
 
-use crate::gates::{Answerer, GateRequest};
+use super::gates::{Answerer, GateRequest};
 
 const DELIVERY_DWELL: Duration = Duration::from_secs(5 * 60);
 const REDELIVERY_DWELL: Duration = Duration::from_secs(10 * 60);

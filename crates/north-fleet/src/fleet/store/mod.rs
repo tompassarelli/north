@@ -89,7 +89,7 @@ impl Store {
     pub fn publish_over(&mut self, host: &str, rows: &[SessionRow], outranks: &[String]) -> NorthResult<Vec<String>> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
         let held_elsewhere = sessions::publish(&tx, rows, outranks)?;
-        let launching_since = Timestamp::from_unix_millis(i64::try_from(crate::runtime::now_ms().saturating_sub(LAUNCH_GRACE_MS)).unwrap_or(i64::MAX)).iso();
+        let launching_since = Timestamp::from_unix_millis(i64::try_from(super::runtime::now_ms().saturating_sub(LAUNCH_GRACE_MS)).unwrap_or(i64::MAX)).iso();
         sessions::retire_vanished(&tx, host, rows, &launching_since)?;
         tx.commit().map_err(sql)?;
         Ok(held_elsewhere)
