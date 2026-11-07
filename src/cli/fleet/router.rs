@@ -57,7 +57,7 @@ pub fn run(arguments: &[String]) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {}", error.user_message());
-            ExitCode::FAILURE
+            ExitCode::from(error.exit_code())
         }
     }
 }

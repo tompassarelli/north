@@ -241,11 +241,5 @@ async fn in_runtime(work: impl Future<Output = NorthResult<ExitCode>>) -> ExitCo
 
 fn failure(error: NorthError) -> ExitCode {
     eprintln!("error: {}", error.user_message());
-    if matches!(error, NorthError::Usage(_)) {
-        ExitCode::from(2)
-    } else if matches!(error, NorthError::Saturated(_)) {
-        ExitCode::from(75)
-    } else {
-        ExitCode::FAILURE
-    }
+    ExitCode::from(error.exit_code())
 }

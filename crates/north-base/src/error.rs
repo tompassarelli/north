@@ -18,6 +18,14 @@ pub enum NorthError {
 }
 
 impl NorthError {
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            Self::Usage(_) => 2,
+            Self::Saturated(_) => 75,
+            _ => 1,
+        }
+    }
+
     pub fn user_message(&self) -> String {
         match self {
             Self::Protocol(message) if message.contains("401 Unauthorized") => {
