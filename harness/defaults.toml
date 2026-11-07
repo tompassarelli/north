@@ -1069,10 +1069,10 @@ fallback = "none: the mode tick always sets the quota"
 consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_away_agent_cpu_quota_percent]
-value = 2400
+value = 2200
 allowed = { min = 100, max = 25600 }
-unit = "agent.slice CPUQuota in percent of one CPU while the seat is idle, which is every thread of the 24-thread laptop"
-source = "tom: while he is away the laptop is a full build and check host, and the cap returns within a minute of his return (2026-11-06)"
+unit = "agent.slice CPUQuota in percent of one CPU while the seat is idle: 22 of the 24-thread laptop's threads, which is also the CPUs its away admission leases out"
+source = "tom: while he is away the laptop is a full build and check host, and the cap returns within a minute of his return (2026-11-06); Tom set the away fill to a 15-minute load of 22 of 24 threads on 2026-11-07, leaving two outside agent.slice for the landers (app.slice) and the fleet TUI, after the idle laptop sat at load 3.5 while the GPU host ran at 52"
 fallback = "none: the mode tick always sets the quota"
 consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 

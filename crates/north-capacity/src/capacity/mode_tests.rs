@@ -7,7 +7,7 @@ use super::agent_load::Host;
 use super::game_reserve_tests::settings;
 use super::mode::{self, Limits, Mode, State};
 
-const AWAY_QUOTA: &str = "systemctl --user set-property --runtime agent.slice CPUQuota=2400%";
+const AWAY_QUOTA: &str = "systemctl --user set-property --runtime agent.slice CPUQuota=2200%";
 const ATTENDED_QUOTA: &str = "systemctl --user set-property --runtime agent.slice CPUQuota=1800%";
 
 fn host(root: &Path) -> Host {

@@ -32,7 +32,7 @@ pays = ["crates/north-landing/", "crates/north-safe-push/", "crates/north-capaci
 
 [[goal]]
 name = "laptop-load-15m"
-source = "AGENTS.md: builds and suites run under capacity admission; harness/defaults.toml: admission defers on run-queue load against the thread count"
+source = "AGENTS.md: builds and suites run under capacity admission; harness/defaults.toml: admission defers on run-queue load against the thread count. This is the attended bound; while the laptop is away its admission fills to a 15-minute load of 22 of 24 threads (capacity_away_agent_cpu_quota_percent). Tom set both bounds on 2026-11-07"
 oracle = "cut -d' ' -f3 /proc/loadavg"
 unit = "load"
 max = 12

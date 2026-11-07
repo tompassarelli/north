@@ -1,5 +1,5 @@
 use super::json::Obj;
-use super::offering::{deferred_session_build, session_build_refusal};
+use super::offering::{deferred_session_build, offers_before_deciding, session_build_refusal};
 use super::request::Create;
 use crate::capacity::build_offload::{Candidate, Declined, Job};
 use crate::capacity::effects::Host;
@@ -56,4 +56,14 @@ fn a_session_compile_this_host_took_is_refused_at_once_when_its_admission_defers
     let admitted = Obj::new().put("decision", "RESERVED").put("reason", "RUN");
     assert!(deferred_session_build(&laptop(|| None), &cargo, Some(&full), &create, &admitted).is_none(), "admitted now: it runs here");
     assert!(deferred_session_build(&laptop(|| None), &cargo, None, &create, &deferred).is_none(), "not taken for want of a build host: it queues as before");
+}
+
+// KEEP(bug): with two rented build hosts gone on 2026-11-07, every fleet session's build on the laptop went to the GPU host first (load 52 on 20 cores) while the away laptop, which leases its own builds, sat at load 3.5 of 24; a host that leases its own builds now decides on its sessions' builds before offering them; north#740
+#[test]
+fn a_session_build_is_offered_away_before_deciding_only_on_a_host_that_does_not_lease_its_own_builds() {
+    let attended = laptop(|| None);
+    let away = Host { lease_builds: || true, ..laptop(|| None) };
+    assert!(offers_before_deciding(&attended, true), "the attended laptop sends its sessions' builds to a build host first");
+    assert!(!offers_before_deciding(&away, true), "the away laptop decides on them here first");
+    assert!(!offers_before_deciding(&attended, false), "a build outside a fleet session is decided here first");
 }
