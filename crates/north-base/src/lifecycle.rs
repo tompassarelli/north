@@ -47,6 +47,13 @@ pub trait Lifecycle {
         let _ = state;
         None
     }
+
+    /// Whether a move to `to` may replace a live process holding `from`, as an operator's stop replaces a running
+    /// host; no move does unless the machine says so.
+    fn preempts(from: Self::State, to: Self::State) -> bool {
+        let _ = (from, to);
+        false
+    }
 }
 
 /// The one record of an instance.

@@ -59,7 +59,7 @@ may_use = ["north-providers"]
 [[crate_dag.crate]]
 name = "north-guard"
 paths = ["crates/north-guard/src/**", "crates/*/src/lanes.rs", "crates/*/src/lanes/**"]
-may_use = ["north-code-health", "north-dispatch", "north-providers", "north-github-mirror", "north-graph-ground"]
+may_use = ["north-dispatch", "north-providers", "north-github-mirror", "north-graph-ground", "north-code-health"]
 
 [[crate_dag.crate]]
 name = "north-code-health"
@@ -268,7 +268,7 @@ may_use = ["foundation", "crate-roots", "lifecycle"]
 
 [[module]]
 name = "fleet"
-paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/row_delivery.rs", "crates/north-session-host/src/held.rs"]
+paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/row_delivery.rs", "crates/north-session-host/src/held.rs", "crates/north-session-host/src/session_lifecycle.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
 may_use = ["domain", "platform", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket"]
 

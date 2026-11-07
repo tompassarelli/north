@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::fleet::session_host::{FrameWatch, Rest, SentLog};
 
+use north_base::lifecycle::State as _;
 use north_base::platform::attribution::{self, Cause, Harness};
 
 use super::books::WatchBooks;
@@ -18,10 +19,10 @@ use super::checkpoint::{self, Checkpoints};
 use super::idle::{self, Step};
 use super::jobs::{HeldLeases, JobLeases};
 use super::landings::{self, push_log};
-use super::model::{Delivery, Ending, Entry, EntryKind, Machine, Role, SessionRecord, Transcript};
+use super::model::{Delivery, Entry, EntryKind, Machine, Phase, Phases, Role, SessionRecord, Transcript};
 use super::prompt::is_deepened;
 use super::receipts::{Courier, Report, deliver_report, retires};
-use super::records::{find_session, host_sessions, parents_live, write_record};
+use super::records::{find_session, host_sessions, parents_live};
 use super::silent::{self, Quiet, Silence, State};
 use super::runtime::{Runtime, new_uuid, now_ms};
 use super::stranded::{Checkout, Lane, Lanes, Worktree};
@@ -299,7 +300,7 @@ impl TurnWatch {
                 continue;
             }
             let record = find_session(&self.root, &self.host_dir, &conversation);
-            let Some(record) = record.filter(|record| record.ended != Some(Ending::Stopped) && !(record.task_ref.is_some() && quiet.completed && wait::ended_on_a_wait(&quiet.reply)) && waits.of(&record.name).is_empty()) else { continue };
+            let Some(record) = record.filter(|record| record.phase() != Some(Phase::Stopped) && !(record.task_ref.is_some() && quiet.completed && wait::ended_on_a_wait(&quiet.reply)) && waits.of(&record.name).is_empty()) else { continue };
             let Some(parent) = record.parent.clone() else {
                 quiet.checked = true;
                 continue;
@@ -318,19 +319,16 @@ impl TurnWatch {
         }
     }
 
-    fn retire(&mut self, ending: Ending) -> bool {
+    fn retire(&mut self, ending: Phase) -> bool {
         let sessions = host_sessions(&self.root, &self.host_dir);
         let retirable = !sessions.is_empty() && sessions.iter().all(|record| (record.parent.is_some() || record.task_ref.is_some()) && !parents_live(&self.root, &record.name) && self.landed_all(&record.name));
         if !retirable {
             self.finished.clear();
             return false;
         }
-        for mut record in sessions {
-            record.stopped = true;
-            record.ended.get_or_insert(ending);
-            if let Err(error) = write_record(&self.root.join(&record.name), &record) {
-                eprintln!("north session-host: {} not marked exited: {}", record.name, error.user_message());
-            }
+        let moved = Phases::open(&self.root).and_then(|mut phases| sessions.iter().filter(|record| record.live()).try_for_each(|record| phases.moved(record.launch(), ending, "its host ended after its final report").map(drop)));
+        if let Err(error) = moved {
+            eprintln!("north session-host: its sessions were not marked {}: {}", ending.name(), error.user_message());
         }
         true
     }
@@ -466,7 +464,7 @@ impl FrameWatch for TurnWatch {
                 self.rolled_over = true;
                 self.runtime.compact(None).map_or(Rest::Wait, |frame| Rest::Send(vec![frame]))
             }
-            Step::Exit if self.retire(Ending::IdleExit) => {
+            Step::Exit if self.retire(Phase::IdleExited) => {
                 self.speak_up(State::Exited, idle);
                 Rest::End
             }
@@ -479,9 +477,9 @@ impl FrameWatch for TurnWatch {
         for turn in self.turns.abandon(now_ms()) {
             self.record(turn);
         }
-        let retired = !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.journal().is_empty() && self.retire(Ending::HostEnded);
+        let retired = !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.journal().is_empty() && self.retire(Phase::HostEnded);
         let waits = Waits::in_root(&self.root);
-        for record in host_sessions(&self.root, &self.host_dir).into_iter().filter(|record| record.stopped || waits.of(&record.name).is_empty()) {
+        for record in host_sessions(&self.root, &self.host_dir).into_iter().filter(|record| record.ended() || waits.of(&record.name).is_empty()) {
             claims::release_for(self.claims.as_ref(), &record);
         }
         self.finish_probes();

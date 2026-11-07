@@ -9,8 +9,8 @@ use super::super::builds;
 use super::super::claims;
 use super::super::forget::{self, Forgotten};
 use super::super::host::Host;
-use super::super::model::{Ending, Role, Status};
-use super::super::records::{ARCHIVE, write_record};
+use super::super::model::{Phase, Role, Status};
+use super::super::records::{ARCHIVE, read_record};
 use super::super::runtime::{PROXY, now_ms};
 use super::super::unaccepted::Unaccepted;
 use super::super::store::ControlVerb;
@@ -38,6 +38,11 @@ impl Halt {
         attribution::record(name, "fleet", cause, reason);
     }
 
+    /// What stopped the session, as its lifecycle record says.
+    pub(super) fn label(self) -> &'static str {
+        self.cause().1.trim_end_matches(" mid-turn")
+    }
+
     fn cause(self) -> (Cause, &'static str) {
         match self {
             Self::Ordered => (Cause::Harness(Harness::Halted), "north fleet stop or forget ended the turn"),
@@ -58,7 +63,7 @@ impl Fleet {
 
     /// Why a stop ordered on `name` waits: a build it started is still queued or running in capacity admission, and its result wakes the session. `forget` ends the session regardless.
     pub(super) fn stop_refusal(&self, name: &str) -> NorthResult<Option<String>> {
-        if self.record(name)?.stopped {
+        if self.record(name)?.ended() {
             return Ok(None);
         }
         let held = builds::held(&self.admission, &self.proc, name);
@@ -73,11 +78,10 @@ impl Fleet {
 
     /// Stops `name` as `halt` does and says whether the stop cut a running turn short.
     pub(super) fn halt_cut_short(&self, name: &str, why: Halt) -> NorthResult<bool> {
-        let mut record = self.record(name)?;
+        let record = self.record(name)?;
+        let mut phases = self.phases()?;
         if record.adopted() {
-            record.stopped = true;
-            record.ended = Some(Ending::Stopped);
-            write_record(&self.root.join(name), &record)?;
+            phases.moved(record.launch(), Phase::Stopped, why.label())?;
             return Ok(false);
         }
         let _start = self.start_lock(name)?;
@@ -90,14 +94,11 @@ impl Fleet {
             let _ = host.send(&runtime.close(&transcript));
         }
         let terminate = !self.host_in_use(&record)?;
-        let (was_stopped, was_ended) = (record.stopped, record.ended);
-        record.stopped = true;
-        record.ended = Some(Ending::Stopped);
-        write_record(&self.root.join(name), &record)?;
+        phases.moved(record.launch(), Phase::Stopped, why.label())?;
         if terminate && let Err(error) = host.terminate() {
-            record.stopped = was_stopped;
-            record.ended = was_ended;
-            write_record(&self.root.join(name), &record)?;
+            if record.live() {
+                phases.live(record.launch(), record.host_pid, &format!("its host did not stop: {}", error.user_message()))?;
+            }
             return Err(error);
         }
         if terminate {
@@ -125,17 +126,19 @@ impl Fleet {
     }
 
     pub(super) fn forget_for(&self, name: &str, why: Halt) -> NorthResult<()> {
-        self.archive(name, why)?;
+        self.archive(name, why, why.label())?;
         self.uncache_session(name)
     }
 
-    /// Stops the session and moves its directory out of the registry, returning where it now lies.
-    pub(super) fn archive(&self, name: &str, why: Halt) -> NorthResult<PathBuf> {
+    /// Stops the session, moves its directory out of the registry and retires its launch for `cause`, returning
+    /// where it now lies.
+    pub(super) fn archive(&self, name: &str, why: Halt, cause: &str) -> NorthResult<PathBuf> {
         self.halt(name, why)?;
         let archive = self.root.join(ARCHIVE);
         fs::create_dir_all(&archive)?;
         let archived = archive.join(format!("{name}-{}", now_ms()));
         fs::rename(self.root.join(name), &archived)?;
+        self.phases()?.moved(read_record(&archived)?.launch(), Phase::Retired, cause)?;
         Ok(archived)
     }
 }
@@ -190,12 +193,12 @@ mod tests {
 
         assert!(why.contains("queued in admission, running under an admission lease"), "{why}");
         assert_eq!(fleet.apply_control(&row).unwrap(), HandedIn::Delivered);
-        assert!(!fleet.record("n757-leases").unwrap().stopped, "a stop row held the session too");
+        assert!(!fleet.record("n757-leases").unwrap().ended(), "a stop row held the session too");
         assert!(worker.frames.lock().unwrap().is_empty(), "the held stop still closed the session's turn");
 
         fs::remove_file(clippy).unwrap();
         fs::remove_file(tests).unwrap();
         fleet.run_control(ControlVerb::Stop, "n757-leases", None).unwrap();
-        assert!(fleet.record("n757-leases").unwrap().stopped, "the stop never ran once the builds had");
+        assert!(fleet.record("n757-leases").unwrap().ended(), "the stop never ran once the builds had");
     }
 }

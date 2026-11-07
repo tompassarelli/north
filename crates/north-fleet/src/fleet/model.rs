@@ -9,6 +9,7 @@ use super::prompt::PromptMode;
 use super::store::Slots;
 use super::sender::Sender;
 use super::turns::{Turn, Turns};
+pub use north_session_host::session_lifecycle::{Launch, Phase, Phases};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -246,8 +247,6 @@ pub struct SessionRecord {
     #[serde(default)]
     pub stream_offset: u64,
     #[serde(default)]
-    pub stopped: bool,
-    #[serde(default)]
     pub system_prompt: Option<PathBuf>,
     #[serde(default)]
     pub foreground_cap_secs: Option<u64>,
@@ -276,8 +275,6 @@ pub struct SessionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eta_min: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ended: Option<Ending>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addressed_since_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<Role>,
@@ -291,26 +288,9 @@ pub struct SessionRecord {
     pub adopted_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revived_mid_task_ms: Option<u64>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Ending {
-    IdleExit,
-    HostEnded,
-    Stopped,
-    Retired,
-}
-
-impl Ending {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::IdleExit => "idle-exit",
-            Self::HostEnded => "host-ended",
-            Self::Stopped => "stopped",
-            Self::Retired => "retired",
-        }
-    }
+    /// The phase this host's lifecycle store gave the launch when the record was read; session.json never holds it.
+    #[serde(skip)]
+    pub(crate) phase: Option<Phase>,
 }
 
 impl SessionRecord {
@@ -333,8 +313,6 @@ impl SessionRecord {
             conversation,
             host_dir: PathBuf::new(),
             stream_offset: 0,
-            stopped: false,
-            ended: None,
             system_prompt: request.system_prompt.clone(),
             foreground_cap_secs: request.foreground_cap_secs,
             idle_exit_minutes: request.idle_exit_minutes,
@@ -356,7 +334,28 @@ impl SessionRecord {
             box_name: request.box_name(),
             adopted_ms: None,
             revived_mid_task_ms: None,
+            phase: None,
         }
+    }
+
+    pub fn launch(&self) -> Launch<'_> {
+        Launch { name: &self.name, created_ms: self.created_ms, adopted: self.adopted(), host_pid: self.host_pid }
+    }
+
+    /// The phase this host's lifecycle store gave the launch when the record was read; `None` for a record built in
+    /// memory and never read back.
+    pub fn phase(&self) -> Option<Phase> {
+        self.phase
+    }
+
+    /// The session ended: stopped, ended by its host or retired.
+    pub fn ended(&self) -> bool {
+        self.phase.is_some_and(Phase::ended)
+    }
+
+    /// A live host serves the session.
+    pub fn live(&self) -> bool {
+        self.phase == Some(Phase::Live)
     }
 
     pub fn role(&self) -> Role {

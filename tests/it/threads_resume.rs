@@ -2,6 +2,7 @@
 //! here and through the ledger host.
 use std::fs;
 use north_core::foundation::shim;
+use north_core::fleet::model::{Launch, Phase, Phases};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -40,10 +41,15 @@ impl Rig {
     }
 
     fn holder(&self, stopped: bool) {
-        let directory = self.home.join(".local/state/north/fleet/holder");
+        let root = self.home.join(".local/state/north/fleet");
+        let directory = root.join("holder");
         fs::create_dir_all(&directory).unwrap();
-        let session = serde_json::json!({"name": "holder", "provider": "codex", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "fixture-session", "stopped": stopped});
+        let session = serde_json::json!({"name": "holder", "provider": "codex", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "fixture-session"});
         fs::write(directory.join("session.json"), format!("{session}\n")).unwrap();
+        let launch = Launch { name: "holder", created_ms: 1, adopted: false, host_pid: Some(std::process::id()) };
+        let mut phases = Phases::open(&root).unwrap();
+        let moved = if stopped { phases.moved(launch, Phase::Stopped, "the fixture stopped its holder") } else { phases.live(launch, Some(std::process::id()), "the fixture started its holder") };
+        moved.unwrap();
     }
 
     fn threads(&self, args: &[&str], local: bool) -> String {

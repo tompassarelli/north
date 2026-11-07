@@ -74,14 +74,14 @@ impl Fleet {
 
     pub(super) fn window_status(&self, record: &SessionRecord) -> Status {
         match record.conversation.as_deref().and_then(|conversation| self.window_of(conversation)) {
-            Some(_) if !record.stopped => Status::Idle,
+            Some(_) if !record.ended() => Status::Idle,
             _ => Status::Exited,
         }
     }
 
     pub(super) fn tell_window(&self, record: &SessionRecord, text: &str) -> NorthResult<()> {
         let gone = || NorthError::State(format!("{} is adopted by an interactive window that is no longer running; run north fleet adopt --name {} from the window that should hold it", record.name, record.name));
-        if record.stopped {
+        if record.ended() {
             return Err(gone());
         }
         let (runtime, inbox) = record.conversation.as_deref().and_then(|conversation| self.window_of(conversation)).ok_or_else(gone)?;

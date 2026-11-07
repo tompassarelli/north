@@ -10,8 +10,8 @@ use serde_json::json;
 use crate::error::NorthResult;
 use crate::fleet::forget;
 use crate::fleet::jobs::Lease;
-use crate::fleet::model::{Ending, Role, SessionRecord, Status};
-use crate::fleet::records::{ARCHIVE, RETIRED_NOTE as NOTE, read_record, write_record};
+use crate::fleet::model::{Role, SessionRecord, Status};
+use crate::fleet::records::{ARCHIVE, RETIRED_NOTE as NOTE, read_record};
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::{FleetRow, LeaseTable, cache_leases, cached_leases};
 
@@ -30,10 +30,9 @@ impl Fleet {
     pub fn retire(&self, name: &str, why: &str, last: Option<&str>) -> NorthResult<PathBuf> {
         let note = json!({"why": why, "at_ms": now_ms(), "last": last});
         fs::write(self.session_dir(name)?.join(NOTE), serde_json::to_vec_pretty(&note)?)?;
-        let archived = self.archive(name, Halt::Retired)?;
-        let mut record = read_record(&archived)?;
-        record.ended = Some(Ending::Retired);
-        write_record(&archived, &record)?;
+        let stop = last.and_then(|last| last.lines().rev().map(str::trim).find(|line| line.starts_with("Stop:")));
+        let cause = stop.map_or_else(|| why.to_owned(), |stop| format!("{why}; {stop}"));
+        let archived = self.archive(name, Halt::Retired, &cause)?;
         self.uncache_session(name)?;
         Ok(archived)
     }
@@ -65,7 +64,7 @@ impl Fleet {
                 None => break,
             }
         }
-        Ok(self.sessions()?.into_iter().find(|session| session.role() == Role::Proxy && !session.stopped).map(|proxy| proxy.name))
+        Ok(self.sessions()?.into_iter().find(|session| session.role() == Role::Proxy && !session.ended()).map(|proxy| proxy.name))
     }
 
     pub(super) fn dead_letter(&self, name: &str, heir: &str, text: &str) -> String {

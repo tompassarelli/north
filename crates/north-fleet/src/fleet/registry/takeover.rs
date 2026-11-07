@@ -31,7 +31,7 @@ impl Fleet {
             return Ok(None);
         }
         let record = self.record(name)?;
-        let archived = self.archive(name, Halt::TakenOver)?;
+        let archived = self.archive(name, Halt::TakenOver, Halt::TakenOver.label())?;
         eprintln!("north fleet: {name} was held by conversation {}; it is stopped and archived at {}, and the name and its messages now go to the new session", record.conversation.as_deref().unwrap_or("none"), archived.display());
         Ok(Some(Predecessor { record }))
     }
@@ -49,12 +49,12 @@ impl Fleet {
     }
 
     pub fn retire_proxy(&self, name: &str) -> NorthResult<PathBuf> {
-        self.archive(name, Halt::Retired)
+        self.archive(name, Halt::Retired, "a proxy take-over retired it")
     }
 
     pub fn addressee(&self, record: &SessionRecord, floor: u64) -> NorthResult<Addressee> {
         let taken = self.delivered(&record.name)?.into_iter().filter(|id| sent_at(id).is_none_or(|ms| ms >= floor)).collect();
-        Ok(Addressee { name: record.name.clone(), stopped: record.stopped, control_since_ms: Some(record.created_ms.max(floor)), since_ms: record.addressed_since().max(floor), taken })
+        Ok(Addressee { name: record.name.clone(), stopped: record.ended(), control_since_ms: Some(record.created_ms.max(floor)), since_ms: record.addressed_since().max(floor), taken })
     }
 }
 

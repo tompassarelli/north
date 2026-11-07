@@ -20,6 +20,11 @@ impl Owner {
         let pid = std::process::id();
         Self { host: host::name(), pid, started: started(pid).unwrap_or(0), booted_ms: host::booted_ms().unwrap_or(0) }
     }
+
+    /// The process `pid` on this host, `None` once it is gone.
+    pub fn of(pid: u32) -> Option<Self> {
+        Some(Self { host: host::name(), pid, started: started(pid)?, booted_ms: host::booted_ms().unwrap_or(0) })
+    }
 }
 
 impl fmt::Display for Owner {

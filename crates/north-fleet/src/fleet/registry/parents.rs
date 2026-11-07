@@ -76,7 +76,7 @@ impl Fleet {
 
     pub fn tell(&self, parent: &str, text: &str, delivery: Delivery) {
         let told = match self.record(parent) {
-            Ok(record) if record.stopped => Ok(()),
+            Ok(record) if record.ended() => Ok(()),
             _ => self.send_message(&Sender::fleet(), parent, text, delivery).map(drop),
         };
         if let Err(error) = told {

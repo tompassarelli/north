@@ -22,7 +22,7 @@ pub(crate) fn fixture(root: &Path, trace: &str) {
 fn reader(root: &Path) {
     let session = root.join(".local/state/north/fleet/reader");
     fs::create_dir_all(&session).unwrap();
-    let record = serde_json::json!({"name": "reader", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "role": "lead", "stopped": false});
+    let record = serde_json::json!({"name": "reader", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "role": "lead"});
     fs::write(session.join("session.json"), record.to_string()).unwrap();
 }
 

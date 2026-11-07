@@ -11,9 +11,8 @@ use serde::Serialize;
 use toml_edit::DocumentMut;
 
 use super::detached::{self, Prior, Scope};
-use super::host::alive;
 use super::jobs::Lease;
-use super::model::{Ending, Entry, EntryKind, Role, SessionRecord, Status};
+use super::model::{Entry, EntryKind, Phase, Role, SessionRecord, Status};
 use super::receipts::is_final;
 use super::registry::Fleet;
 use super::runtime::binary;
@@ -169,7 +168,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
     let started = Instant::now();
     let mut reaped = Reaped { at_ms: now_ms, stale_hours: stale.as_secs() / 3600, ..Reaped::default() };
     let records = fleet.sessions().unwrap_or_default();
-    let mut candidates: Vec<(&SessionRecord, Status, Duration)> = records.iter().filter(|record| record.role() != Role::Proxy && !record.adopted() && !record.verification).map(|record| (record, fleet.status(record), quiet(record))).filter(|(record, status, _)| ended_by_host(record) || !record.stopped && matches!(status, Status::Idle | Status::Parked)).collect();
+    let mut candidates: Vec<(&SessionRecord, Status, Duration)> = records.iter().filter(|record| record.role() != Role::Proxy && !record.adopted() && !record.verification).map(|record| (record, fleet.status(record), quiet(record))).filter(|(record, status, _)| ended_by_host(record) || !record.ended() && matches!(status, Status::Idle | Status::Parked)).collect();
     candidates.sort_by_key(|(_, _, quiet)| std::cmp::Reverse(*quiet));
     let running = evidence.running(&candidates.iter().map(|(record, _, _)| *record).collect::<Vec<_>>());
     let gated = fleet.open_gate_sessions();
@@ -225,7 +224,7 @@ fn retire_unleased(fleet: &Fleet, reaped: &mut Reaped, apply: bool, (record, why
 }
 
 fn ended_by_host(record: &SessionRecord) -> bool {
-    record.stopped && record.ended == Some(Ending::IdleExit)
+    record.phase() == Some(Phase::IdleExited)
 }
 
 fn quiet(record: &SessionRecord) -> Duration {
@@ -247,11 +246,11 @@ impl Evidence for Here {
         let mut units: Vec<(String, String)> = Vec::new();
         let mut placed: BTreeMap<&str, BTreeMap<String, String>> = BTreeMap::new();
         for record in records {
-            if let Some(machine) = record.machine.as_ref().filter(|_| !record.stopped) {
+            if let Some(machine) = record.machine.as_ref().filter(|_| !record.ended()) {
                 placed.entry(machine.ssh.as_str()).or_default().insert(unit(&record.name), record.name.clone());
                 continue;
             }
-            if let Some(host) = record.host_pid.filter(|pid| !record.stopped && alive(*pid)) {
+            if let Some(host) = record.host_pid.filter(|_| record.live()) {
                 let detached = detached::Procfs::new(proc.into(), cgroups.into(), host).after(Prior::all(&record.host_dir)).detached();
                 if !detached.is_empty() {
                     running.insert(record.name.clone(), Work::Detached);

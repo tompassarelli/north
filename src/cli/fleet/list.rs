@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
-use crate::fleet::model::{Effort, Ending, SessionRecord, Status};
+use crate::fleet::model::{Effort, Phase, SessionRecord, Status};
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::SessionRow;
@@ -152,7 +152,7 @@ pub(super) fn session_json(record: &SessionRecord, status: Status, waits: &Waits
         "tasks": record.tasks().collect::<Vec<_>>(),
         "created_ms": record.created_ms,
         "host_pid": record.host_pid,
-        "ended": record.ended.map(Ending::label),
+        "ended": record.phase().and_then(Phase::ending),
         "placement": record.placement,
         "machine": record.machine.as_ref().map(|machine| &machine.name),
         "waiting": waits.of(&record.name).iter().map(|wait| wait.run.to_string()).collect::<Vec<_>>(),

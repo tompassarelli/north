@@ -4,6 +4,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::books::{Books, Landing, SessionSpend};
 use crate::fleet::gate_lifecycle::GatePhase;
 use crate::fleet::gates::{Closure, Gate, GateBook, GateRequest};
+use crate::fleet::records::write_record;
 use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::RunSink;
 
@@ -126,7 +127,7 @@ fn closed_after(reply: &str, unlanded: Vec<&'static str>) -> bool {
     let root = tempfile::tempdir().unwrap();
     let host = root.path().join("worker");
     std::fs::create_dir_all(&host).unwrap();
-    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
     write_record(&host, &record).unwrap();
     let held = Arc::new(crate::fleet::claims::Held::default());
     let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), held, root.path().to_path_buf(), host.clone()).reading_tickets(Arc::new(Unlanded(unlanded)));
@@ -134,15 +135,14 @@ fn closed_after(reply: &str, unlanded: Vec<&'static str>) -> bool {
     watch.follow(&TurnSignal::Ended { conversation: "s".into(), exit: TurnExit::Completed, totals: Default::default() });
     watch.close();
     let record = crate::fleet::records::read_record(&host).unwrap();
-    assert_eq!(record.ended.is_some(), record.stopped, "{reply}");
-    record.stopped
+    record.ended()
 }
 
 fn watched(reply: &str) -> (tempfile::TempDir, PathBuf, TurnWatch) {
     let root = tempfile::tempdir().unwrap();
     let host = root.path().join("worker");
     std::fs::create_dir_all(&host).unwrap();
-    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
     write_record(&host, &record).unwrap();
     let held = Arc::new(crate::fleet::claims::Held::default());
     let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), held, root.path().to_path_buf(), host.clone()).reading_tickets(Arc::new(Unlanded(Vec::new())));
@@ -163,7 +163,7 @@ fn a_finished_session_retires_at_close_or_at_its_idle_limit_though_its_cli_still
     assert!(matches!(finished.rest(Duration::from_secs(599), limit), Rest::Wait));
     assert!(matches!(finished.rest(Duration::from_secs(601), limit), Rest::End), "the landing loop a finished worker left running does not hold its host past --idle-exit");
     let record = crate::fleet::records::read_record(&host).unwrap();
-    assert!(record.stopped && record.ended == Some(Ending::IdleExit), "{record:?}");
+    assert_eq!(record.phase(), Some(Phase::IdleExited), "{record:?}");
 
     let (_root, _host, mut answering) = watched("Done: landed abc123.\nNext: none");
     answering.turns.observe(TurnSignal::Started { conversation: "s".into() }, now_ms());

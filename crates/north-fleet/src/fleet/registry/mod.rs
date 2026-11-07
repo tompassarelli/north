@@ -17,7 +17,8 @@ use super::landings::{self, push_log};
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
-use super::records::{CLAIMS_RELEASED, PLACED, read_record, write_record};
+use super::records::{CLAIMS_RELEASED, PLACED, read_phased, read_record, write_record};
+use super::model::Phases;
 use super::remote;
 use super::roster::Roster;
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime};
@@ -129,6 +130,11 @@ impl Fleet {
         Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).writing_usage(self.usage.clone()).reading_tickets(Arc::new(tickets::LandQueue::here())).reading_jobs(Arc::new(SpooledLeases::new(self.leases.clone(), Spool::at(&self.root)).reading_far(Arc::new(OverSsh::default())))).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
     }
 
+    /// Every phase move of this host's sessions, in the lifecycle store beside the fleet root.
+    pub fn phases(&self) -> NorthResult<Phases> {
+        Phases::open(&self.root)
+    }
+
     pub fn waits(&self) -> Waits {
         Waits::in_root(&self.root)
     }
@@ -150,10 +156,11 @@ impl Fleet {
     }
 
     pub fn sessions(&self) -> NorthResult<Vec<SessionRecord>> {
+        let mut phases = Phases::reading(&self.root);
         let mut sessions: Vec<SessionRecord> = fs::read_dir(&self.root)?
             .flatten()
             .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
-            .filter_map(|entry| read_record(&entry.path()).ok())
+            .filter_map(|entry| read_phased(phases.as_mut(), &entry.path()).ok())
             .collect();
         sessions.sort_by_key(|record| record.created_ms);
         Ok(sessions)
@@ -236,7 +243,7 @@ impl Fleet {
         if record.host_dir.as_os_str().is_empty() {
             return status::settled(record, Status::Starting);
         }
-        self.status_from_index(record).unwrap_or(Status::Exited)
+        self.status_from_index(record).unwrap_or_else(|_| status::settled(record, Status::Starting))
     }
 
     pub fn follow(&self, name: &str) -> NorthResult<Follower> {
@@ -315,9 +322,10 @@ impl Fleet {
             record.host_dir = host_dir.clone();
         }
         record.host_pid = host.pid();
-        record.stopped = false;
-        record.ended = None;
         write_record(&self.root.join(&record.name), record)?;
+        let cause = if started { "a session host started for it" } else { "it joined its running session host" };
+        let phase = self.phases()?.live(record.launch(), record.host_pid, cause)?;
+        record.phase = Some(phase);
         match fs::remove_file(self.root.join(&record.name).join(CLAIMS_RELEASED)) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),
             _ => {}
@@ -397,7 +405,7 @@ fn idle_exit(record: &SessionRecord) -> Option<Duration> {
 }
 
 fn session_running(record: &SessionRecord) -> bool {
-    !record.stopped && record.host_pid.is_some_and(alive)
+    record.live()
 }
 
 fn seeded(record: &SessionRecord) -> Transcript {

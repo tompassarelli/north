@@ -22,7 +22,7 @@ impl Fleet {
 }
 
 pub(super) fn settled(record: &SessionRecord, observed: Status) -> Status {
-    match (session_running(record), record.stopped) {
+    match (session_running(record), record.ended()) {
         (true, _) if Unaccepted::outstanding(&record.host_dir) => Status::Working,
         (true, _) if matches!(observed, Status::Exited | Status::Parked) => Status::Idle,
         (true, _) => observed,

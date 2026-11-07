@@ -134,7 +134,7 @@ pub(super) fn cache_far(pulls: &Pulls, taken: &[Taken], table: &FleetTable, tick
 }
 
 pub(super) fn far_hosts(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls) -> Vec<FarHost> {
-    let placed = records.iter().filter(|record| !record.stopped).filter_map(|record| record.machine.as_ref()).map(|machine| FarHost { name: machine.name.clone(), ssh: machine.ssh.clone() });
+    let placed = records.iter().filter(|record| !record.ended()).filter_map(|record| record.machine.as_ref()).map(|machine| FarHost { name: machine.name.clone(), ssh: machine.ssh.clone() });
     let mut hosts: Vec<FarHost> = Vec::new();
     for host in placed.chain(pulls.always.iter().cloned()).filter(|host| host.name != fleet.host()) {
         if !hosts.iter().any(|seen| seen.name == host.name || seen.ssh == host.ssh) {

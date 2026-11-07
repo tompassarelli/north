@@ -6,7 +6,7 @@ use super::*;
 use serde_json::json;
 use crate::fleet::claims::Held;
 use crate::fleet::books::{Books, Landing, SessionSpend};
-use crate::fleet::model::{Delivery, Ending};
+use crate::fleet::model::{Delivery, Phase};
 use crate::fleet::gate_lifecycle::GatePhase;
 use crate::fleet::gates::{Closure, Gate, GateBook, GateRequest};
 use crate::fleet::registry::TurnWatch;
@@ -134,7 +134,7 @@ fn claude_turn(root: &Path, context: u64, reply: &str) -> (HostConfig, PathBuf) 
 fn session_record(root: &Path, parent: Option<&str>) {
     let session = root.join("worker");
     std::fs::create_dir_all(&session).unwrap();
-    let record = json!({"name": "worker", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0, "host_pid": null, "conversation": "s", "host_dir": session, "parent": parent});
+    let record = json!({"name": "worker", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0, "host_pid": std::process::id(), "conversation": "s", "host_dir": session, "parent": parent});
     std::fs::write(session.join("session.json"), record.to_string()).unwrap();
 }
 
@@ -153,6 +153,6 @@ async fn a_host_told_to_end_leaves_a_finished_worker_stopped_and_an_unfinished_o
         let code = tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
         assert_eq!(code, 143);
         let record = crate::fleet::records::read_record(&root.path().join("worker")).unwrap();
-        assert_eq!((record.stopped, record.ended), (stopped, stopped.then_some(Ending::HostEnded)), "{reply}");
+        assert_eq!(record.phase().and_then(Phase::ending), stopped.then_some("host-ended"), "{reply}");
     }
 }

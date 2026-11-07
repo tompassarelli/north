@@ -141,7 +141,7 @@ pub fn move_spent(fleet: &Fleet, runtime: &dyn Runtime, policy: &Path, home: &Pa
     let next_credits = crate::credit::next_credits(policy);
     let dir = state.join("api-exhausted");
     let mut lines = Vec::new();
-    for record in fleet.sessions().unwrap_or_default().into_iter().filter(|record| !record.stopped && recent(record)) {
+    for record in fleet.sessions().unwrap_or_default().into_iter().filter(|record| !record.ended() && recent(record)) {
         let Some((_, name)) = record.account.split_once(':') else { continue };
         let machine = record.machine.as_ref().map_or_else(crate::platform::host::name, |machine| machine.name.clone());
         let orgs = declared(&document, &grants, home, &machine);

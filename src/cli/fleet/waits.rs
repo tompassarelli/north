@@ -11,7 +11,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::detached;
 use crate::fleet::handover::{AccountReadings, Observed, hand_over};
 use crate::fleet::limit::{UsageWait, park_limited};
-use crate::fleet::model::{Delivery, Ending};
+use crate::fleet::model::{Delivery, Phase};
 use crate::fleet::registry::{Fleet, Waiting};
 use crate::fleet::runtime::{SESSION_ENV, now_ms};
 use crate::fleet::sender::Sender;
@@ -166,7 +166,7 @@ fn settle_waits(fleet: &Fleet) -> Probed {
     let usage_parked = |name: &str| fleet.waits().of(name).iter().any(|wait| matches!(wait.run, Run::Usage { .. }));
     let tell = |name: &str, text: &str| -> NorthResult<()> {
         let Ok(record) = fleet.session(name) else { return Ok(()) };
-        if record.ended == Some(Ending::Stopped) || (record.stopped && !usage_parked(name)) {
+        if record.phase() == Some(Phase::Stopped) || (record.ended() && !usage_parked(name)) {
             return Ok(());
         }
         revive::revive(fleet, name, None, None, Overrides::default())?;

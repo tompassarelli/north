@@ -3,12 +3,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use north_session_host::session_lifecycle::Phases;
+use serde_json::Value;
+
 use crate::error::NorthResult;
 
 use super::model::SessionRecord;
 
 const RECORD: &str = "session.json";
-pub const ARCHIVE: &str = ".archive";
+pub use north_session_host::session_lifecycle::ARCHIVE;
 pub const PLACED: &str = ".placed";
 /// The note a retired session's archive keeps: why, when, and its last assistant text.
 pub const RETIRED_NOTE: &str = "retired.json";
@@ -24,7 +27,15 @@ pub fn record_file(session_dir: &Path) -> PathBuf {
 }
 
 pub fn read_record(session_dir: &Path) -> NorthResult<SessionRecord> {
-    Ok(serde_json::from_str(&fs::read_to_string(session_dir.join(RECORD))?)?)
+    read_phased(Phases::beside(session_dir).as_mut(), session_dir)
+}
+
+/// A session record with the phase this host's lifecycle store holds for its launch, unread when the store is.
+pub fn read_phased(phases: Option<&mut Phases>, session_dir: &Path) -> NorthResult<SessionRecord> {
+    let legacy: Value = serde_json::from_str(&fs::read_to_string(session_dir.join(RECORD))?)?;
+    let mut record: SessionRecord = serde_json::from_value(legacy.clone())?;
+    record.phase = phases.and_then(|phases| phases.read(record.launch(), &legacy));
+    Ok(record)
 }
 
 pub fn write_record(session_dir: &Path, record: &SessionRecord) -> NorthResult<()> {
@@ -34,30 +45,29 @@ pub fn write_record(session_dir: &Path, record: &SessionRecord) -> NorthResult<(
     Ok(())
 }
 
+/// Every session record in `directories` of the fleet at `root`, phased from one open lifecycle store.
+fn records_in<const N: usize>(root: &Path, directories: [PathBuf; N]) -> impl Iterator<Item = SessionRecord> {
+    let mut phases = Phases::reading(root);
+    directories.into_iter().flat_map(|directory| fs::read_dir(directory).into_iter().flatten().flatten()).filter_map(move |entry| read_phased(phases.as_mut(), &entry.path()).ok())
+}
+
 pub fn find_session(root: &Path, host_dir: &Path, conversation: &str) -> Option<SessionRecord> {
-    let listed = |directory: PathBuf| fs::read_dir(directory).into_iter().flatten().flatten().map(|entry| entry.path());
-    listed(root.to_path_buf())
-        .chain(listed(root.join(ARCHIVE)))
-        .filter_map(|session_dir| read_record(&session_dir).ok())
-        .find(|record| record.host_dir == host_dir && record.conversation.as_deref() == Some(conversation))
+    records_in(root, [root.to_path_buf(), root.join(ARCHIVE)]).find(|record| record.host_dir == host_dir && record.conversation.as_deref() == Some(conversation))
 }
 
 pub fn past_records(root: &Path) -> Vec<SessionRecord> {
-    let mut records: Vec<SessionRecord> = [ARCHIVE, PLACED]
-        .into_iter()
-        .flat_map(|directory| fs::read_dir(root.join(directory)).into_iter().flatten().flatten())
-        .filter_map(|entry| read_record(&entry.path()).ok())
-        .collect();
+    let placed = fs::read_dir(root.join(PLACED)).into_iter().flatten().flatten().filter_map(|entry| read_phased(None, &entry.path()).ok());
+    let mut records: Vec<SessionRecord> = records_in(root, [root.join(ARCHIVE)]).chain(placed).collect();
     records.sort_by_key(|record| record.created_ms);
     records
 }
 
 pub fn host_sessions(root: &Path, host_dir: &Path) -> Vec<SessionRecord> {
-    fs::read_dir(root).into_iter().flatten().flatten().filter_map(|entry| read_record(&entry.path()).ok()).filter(|record| record.host_dir == host_dir).collect()
+    records_in(root, [root.to_path_buf()]).filter(|record| record.host_dir == host_dir).collect()
 }
 
 pub fn parents_live(root: &Path, name: &str) -> bool {
-    fs::read_dir(root).into_iter().flatten().flatten().filter_map(|entry| read_record(&entry.path()).ok()).any(|record| record.parent.as_deref() == Some(name) && !record.stopped)
+    records_in(root, [root.to_path_buf()]).any(|record| record.parent.as_deref() == Some(name) && !record.ended())
 }
 
 /// What a retired session left behind: its last assistant text and when it was retired.
@@ -81,7 +91,7 @@ pub fn retired_report(root: &Path, name: &str) -> Option<RetiredReport> {
 }
 
 pub fn recorded_names(root: &Path) -> BTreeSet<String> {
-    let current = fs::read_dir(root).into_iter().flatten().flatten().filter_map(|entry| read_record(&entry.path()).ok());
+    let current = records_in(root, [root.to_path_buf()]);
     current.chain(past_records(root)).map(|record| record.name).collect()
 }
 

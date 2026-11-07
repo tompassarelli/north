@@ -23,6 +23,14 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
    after its report, before dispatch reads it (0c54814b5, 952e8132c). `host.pid` is never removed and liveness has no
    start time. Shapes: lifecycle-bools, pid-liveness, status-string (`fleet_sessions.status TEXT`,
    `fleet/store/schema.rs:23`).
+   Converted (`crates/north-session-host/src/session_lifecycle.rs`): `fleet-session` keeps one record per launch
+   (`NAME@CREATED_MS`; live, parked, idle-exited, host-ended, stopped, adopted, retired) in the host's `ledger.db` and
+   replaces `stopped` and `ended`. Live is held by the session host's process with its start time, so a dead host
+   orphans to parked and a reused pid never reads as live; a stop or a new host preempts a live hold; retired is
+   final and its cause carries the report's `Stop:` line. Status is derived from the record, and from the stream only
+   for a live session. Not converted: `host.pid`, which stays the handle `Host::terminate` signals, and
+   `fleet_sessions.status`, the cross-host projection of derived status; a revival that follows a stop is a legal
+   move, so the two still race in the order they commit.
 2. **Land ticket lifecycle** (330: 110 x 3). A ticket's phase is its queue directory (`Q/`, `outbox/`, `done/`,
    `withdrawn/`, `quarantine/`, remote `outbox/taken/`) plus the first word of its `verdict` string, read by value in
    fifteen places (`crates/north-landing/src/land/{bisect,records,incidents,reservation,replay,promote,sheriff}.rs`,

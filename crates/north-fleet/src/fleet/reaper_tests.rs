@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::*;
 use crate::fleet::fakes::{Paper, Stream};
 use crate::fleet::gates::{GateBook, GateRequest};
-use crate::fleet::model::{Delivery, Ending};
+use crate::fleet::model::{Delivery, Phase};
 use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::registry::fixtures::live;
 use crate::fleet::registry::Sent;
@@ -88,7 +88,7 @@ fn a_done_report_retires_its_session_only_once_its_parent_took_it_and_each_sha_i
     assert!(fleet.session("worker").is_err(), "a retired session leaves the registry");
     let archive = archived_dir(&fleet, "worker");
     let record = crate::fleet::records::read_record(&archive).unwrap();
-    assert!(record.stopped && record.ended == Some(Ending::Retired), "{record:?}");
+    assert_eq!(record.phase(), Some(Phase::Retired), "{record:?}");
     assert!(std::fs::read_to_string(archive.join("g1/stream.jsonl")).unwrap().contains("1af7168df"), "the transcript is archived with it");
     let note: Value = serde_json::from_slice(&std::fs::read(archive.join("retired.json")).unwrap()).unwrap();
     assert!(note["last"].as_str().unwrap().starts_with("Done: the reaper landed"), "{note}");
@@ -191,10 +191,10 @@ fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_w
         paper.claim_receipt(name, "turn:1", now_ms()).unwrap();
     }
     let dir = fleet.root.join("ended");
-    let mut record = crate::fleet::records::read_record(&dir).unwrap();
-    record.stopped = true;
-    record.ended = Some(Ending::IdleExit);
-    crate::fleet::records::write_record(&dir, &record).unwrap();
+    let mut legacy: Value = serde_json::from_slice(&std::fs::read(dir.join("session.json")).unwrap()).unwrap();
+    legacy["stopped"] = json!(true);
+    legacy["ended"] = json!("idle-exit");
+    std::fs::write(dir.join("session.json"), legacy.to_string()).unwrap();
     fleet.waits().register("ended", Run::Process { pid: 1, started: 1 }, Path::new("/tmp"), Some("sh -c d=$0 u=$1 limit=$2")).unwrap();
     let running = ["finished", "monitoring", "queued"].map(|name| (name.to_owned(), Work::Cli)).into();
     let evidence = Sight { landed: ["1af7168df".to_owned()].into(), running };

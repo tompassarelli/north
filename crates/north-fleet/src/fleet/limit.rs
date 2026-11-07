@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use north_base::platform::attribution::{self, Cause, Harness};
 use regex::Regex;
 
-use super::model::{Ending, EntryKind, SessionRecord, Status, UsageLimit};
+use super::model::{EntryKind, Phase, SessionRecord, Status, UsageLimit};
 use super::registry::Fleet;
 use super::transcript::stream_path;
 use super::waits::{Registered, Run, Waits};
@@ -68,7 +68,7 @@ pub fn park_limited(fleet: &Fleet, resets: &dyn AccountResets, now_ms: u64) -> V
     let waits = fleet.waits();
     let mut parked = Vec::new();
     for record in fleet.sessions().unwrap_or_default() {
-        if record.ended == Some(Ending::Stopped) || !recent(&record) || waits.of(&record.name).iter().any(|wait| matches!(wait.run, Run::Usage { .. })) {
+        if record.phase() == Some(Phase::Stopped) || !recent(&record) || waits.of(&record.name).iter().any(|wait| matches!(wait.run, Run::Usage { .. })) {
             continue;
         }
         let Ok(follower) = fleet.follow_recent(&record.name) else { continue };

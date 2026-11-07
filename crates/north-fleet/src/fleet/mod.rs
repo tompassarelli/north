@@ -44,6 +44,8 @@ mod wait;
 pub mod waits;
 mod silent;
 mod watch;
+#[cfg(test)]
+mod session_lifecycle_tests;
 pub mod budget;
 pub mod fakes;
 pub mod forget;

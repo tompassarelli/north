@@ -162,7 +162,7 @@ pub struct HostDeath<'a> {
 }
 
 pub fn still_watched(child: Option<&SessionRecord>, host_pid: u32) -> bool {
-    child.is_some_and(|child| !child.stopped && child.host_pid == Some(host_pid))
+    child.is_some_and(|child| !child.ended() && child.host_pid == Some(host_pid))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -175,7 +175,7 @@ pub enum Aftermath {
 pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &HostDeath, now_ms: u64) -> NorthResult<Aftermath> {
     let child = death.child;
     let restarted = child.host_pid != Some(death.host_pid);
-    if child.stopped || restarted || !death.mid_task {
+    if child.ended() || restarted || !death.mid_task {
         return Ok(Aftermath::Quiet);
     }
     if child.revived_mid_task_ms.is_none_or(|at| now_ms.saturating_sub(at) >= MID_TASK_REVIVE_WINDOW_MS) {
@@ -210,7 +210,7 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Mutex;
 
-    use crate::fleet::model::EntryKind;
+    use crate::fleet::model::{EntryKind, Phase};
 
     use super::*;
 
@@ -245,11 +245,13 @@ mod tests {
     }
 
     fn child(stopped: bool, host_pid: Option<u32>, revived_mid_task_ms: Option<u64>) -> SessionRecord {
-        serde_json::from_value(serde_json::json!({
+        let mut child: SessionRecord = serde_json::from_value(serde_json::json!({
             "name": "kid", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0,
-            "host_pid": host_pid, "conversation": "s", "parent": "boss", "stopped": stopped, "revived_mid_task_ms": revived_mid_task_ms
+            "host_pid": host_pid, "conversation": "s", "parent": "boss", "revived_mid_task_ms": revived_mid_task_ms
         }))
-        .unwrap()
+        .unwrap();
+        child.phase = Some(if stopped { Phase::Stopped } else { Phase::Live });
+        child
     }
 
     #[test]

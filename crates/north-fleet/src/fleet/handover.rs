@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use north_base::platform::attribution::{self, Cause, Harness};
 
 use super::limit::{UsageWait, park, recent, unknown_reset_ms};
-use super::model::{Ending, LaunchRequest, Role, SessionRecord};
+use super::model::{LaunchRequest, Phase, Role, SessionRecord};
 use super::registry::Fleet;
 use super::waits::Run;
 use crate::error::NorthResult;
@@ -129,7 +129,7 @@ fn candidates(fleet: &Fleet) -> Vec<SessionRecord> {
         .unwrap_or_default()
         .into_iter()
         .filter(|record| record.provider.label() == "claude" && !record.verification)
-        .filter(|record| !matches!(record.ended, Some(Ending::Stopped | Ending::IdleExit)))
+        .filter(|record| !matches!(record.phase(), Some(Phase::Stopped | Phase::IdleExited)))
         .filter(|record| recent(record) && (fleet.running(record) || parked(&record.name)))
         .collect()
 }
