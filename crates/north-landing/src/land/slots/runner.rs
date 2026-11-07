@@ -49,6 +49,8 @@ const RED_MAIN: i32 = 3;
 const CANCELLED: i32 = 130;
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
 const ACTIONS_CLASS: &str = "actions";
+const OFF_HOST_PATIENCE: Duration = Duration::from_secs(10 * 60);
+const OFF_HOST_RETRY: Duration = Duration::from_secs(20);
 
 
 #[derive(Clone)]
@@ -100,9 +102,24 @@ async fn resolve_runner_host(value: &str) -> String {
     })
 }
 
+async fn off_host_runner() -> Option<String> {
+    let here = north_base::platform::host::name();
+    let deadline = tokio::time::Instant::now() + OFF_HOST_PATIENCE;
+    loop {
+        if let Some(host) = build_host::chosen(&program(), "build-host", Some(&here)).await {
+            return Some(host);
+        }
+        if tokio::time::Instant::now() + OFF_HOST_RETRY > deadline {
+            return None;
+        }
+        say(&format!("safe-push: no build host has room yet; asking again in {} s", OFF_HOST_RETRY.as_secs()));
+        tokio::time::sleep(OFF_HOST_RETRY).await;
+    }
+}
+
 async fn runner_host(environment: &Environment, config: &Config) -> Option<String> {
     if environment.off_host {
-        return build_host::chosen(&program(), "build-host", Some(&north_base::platform::host::name())).await;
+        return off_host_runner().await;
     }
     let land_runner = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
     Some(if land_runner.is_empty() { String::new() } else { resolve_runner_host(&land_runner).await })
@@ -299,7 +316,7 @@ async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environmen
         return 0;
     }
     let Some(host) = runner_host(&shared.environment, &shared.config).await else {
-        warn("safe-push: no build host answered and these checks never run on this host, so they reach no verdict");
+        warn("safe-push: no build host had room for 10 minutes and these checks never run on this host, so they reach no verdict");
         return NO_VERDICT_STATUS;
     };
     shared.arguments.runner_host = host;

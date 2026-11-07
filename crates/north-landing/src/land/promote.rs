@@ -198,7 +198,7 @@ fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker:
         let outcome = run_replay(binary, &repository.checkout, &base, checker, &round.tickets()).unwrap_or_else(|error| replay::Replayed { verdict: format!("error {error}"), failures: Default::default() });
         let verdict = outcome.verdict.clone();
         let shown = verdict.split_whitespace().next().unwrap_or_default();
-        if shown == "transient" && !replay::same(&round.verdict, &verdict) {
+        if matches!(shown, "transient" | "deferred") && !replay::same(&round.verdict, &verdict) {
             println!("north land promote: round {lanes} on {} recorded {class} but the candidate's replay reached no verdict: {verdict}", &base[..base.len().min(12)]);
             unreached.push(format!("round {lanes}: {verdict}"));
             continue;
