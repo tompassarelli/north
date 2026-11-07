@@ -203,14 +203,15 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     };
-    let state = north_landing::land::lander::state_home();
+    let records = north_base::platform::records_mirror::read("north land gate-stats");
+    let state = records.home();
     let now = SystemTime::now();
     let since = now - std::time::Duration::from_secs(seconds);
     let since_micros = since.duration_since(UNIX_EPOCH).map_or(0, |elapsed| u64::try_from(elapsed.as_micros()).unwrap_or(0));
     let (mut rows, mut after): (BTreeMap<String, Row>, BTreeMap<String, usize>) = (BTreeMap::new(), BTreeMap::new());
-    for queue in queues(&state) {
+    for queue in queues(state) {
         let found = tickets(&queue);
-        let log_line = |path: &str| first_refusal_line(&std::fs::read_to_string(path).ok()?);
+        let log_line = |path: &str| first_refusal_line(&std::fs::read_to_string(records.local(Path::new(path))).ok()?);
         let same = |refused: &Ticket, landed: &Ticket| {
             let repository = repository(&refused.root);
             patch_id(&repository, &refused.head).is_some_and(|id| patch_id(&repository, &landed.head).is_some_and(|other| other == id))
@@ -224,6 +225,6 @@ pub fn run(arguments: &[String]) -> u8 {
         }
         after_failures(&queue, since, &mut after);
     }
-    print!("{}", render(&label, &rows, &after, &enqueue_refusals(&state, since_micros)));
+    print!("{}", render(&label, &rows, &after, &enqueue_refusals(state, since_micros)));
     0
 }

@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::path::Path;
 
 use north_goals::registry::{self, Bound, Class, Goal};
 use rusqlite::Connection;
@@ -260,9 +261,9 @@ fn landed(db: &Connection, since: i64) -> Result<HashMap<String, Vec<(i64, f64)>
     Ok(found)
 }
 
-fn verified(since: i64) -> HashMap<String, Vec<(i64, f64)>> {
+fn verified(records: &Path, since: i64) -> HashMap<String, Vec<(i64, f64)>> {
     let mut found: HashMap<String, Vec<(i64, f64)>> = HashMap::new();
-    for file in every_queue() {
+    for file in every_queue(records) {
         let Some(repo) = queue_repo(&file).and_then(|name| REPOS.iter().find(|repo| **repo == name)) else { continue };
         let spans = Spans::at(&file).read();
         let trace = Trace::of(&spans);
@@ -280,14 +281,14 @@ impl Records {
         let rework: &ReworkSources = &sources.places.rework;
         Ok(Self {
             landings: landed(&threads, since)?,
-            verification: verified(since),
+            verification: verified(&sources.records, since),
             reworked: landing::judged_landings(&threads, rework)?,
             attempts: workers::attempts(&threads, since, &workers::missed_checks(&north_github_mirror::store::Mirror::local())).map_err(failed)?,
             firsts: landing::first_landings(&threads).map_err(failed)?,
             tom: tom::Tom::read(&sources.places, &sources.home, since, now)?,
             priority: note(now),
             idle: Idle::read(since),
-            live: HashMap::from([("north".to_owned(), north_runtime::runtime::live::everywhere(&north_runtime::runtime::live::read(&state_root().join("north"))))]),
+            live: HashMap::from([("north".to_owned(), north_runtime::runtime::live::everywhere(&north_runtime::runtime::live::read(&sources.records.join("north"))))]),
         })
     }
 

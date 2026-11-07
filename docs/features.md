@@ -197,6 +197,7 @@ CPU offload: [`north nexus-run`](nexus-run.md) sends an owned working tree over 
 - Fleet ssh scope: `bin/ssh` is a PATH shim that sends a fleet session's ssh through `north ssh-session`, which runs a remote command on the far host inside the user scope `north-ssh-SESSION-XXXXXXXX.scope` (unscoped when that host has no user bus or `systemd-run`), so the far host's capacity watchdog lists the session behind the load instead of "no fleet session (ssh)" and caps that scope rather than a smaller fleet unit. [more](features/08-machines-capacity-and-scheduled-jobs/0020-fleet-ssh-scope.md)
 - Credentials registry: `north credentials check [--json]` lists every credential the fleet uses: south's sops files (each declared in south `agents/credentials.toml`; an undeclared file fails), the Claude setup-token files and `.credentials.json` logins that `agents/orchestration.toml` places on this host, and the declared sites of the automation-chrome cookie store. [more](features/08-machines-capacity-and-scheduled-jobs/0021-credentials-registry.md)
 - Pull hand-over: gex45 declares no `reaches`, so it pushes nothing; each queued agent heavy toolchain run (`cargo`, `rustc`, `cargo-nextest`, `bun`, `nix`) opens a socket beside its admission ticket. [more](features/08-machines-capacity-and-scheduled-jobs/0021-pull-hand-over.md)
+- Records mirror: sessions on hosts that cannot reach the laptop read its lander and runtime records without stopping for it. [more](features/08-machines-capacity-and-scheduled-jobs/0022-records-mirror.md)
 
 ## Watches and alerts
 

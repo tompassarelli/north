@@ -13,6 +13,7 @@ mod peers;
 mod pull;
 mod probe;
 mod remote;
+pub mod mirror;
 mod reuse;
 mod settle;
 mod store;
@@ -23,7 +24,7 @@ pub(crate) use update::collect;
 use crate::land_offload;
 use std::path::Path;
 
-const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime follow --repo-dir DIR | north runtime agents|claude|agy [VERSION] | north runtime covers [--head REV] [--code PATH,...]
+const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime follow --repo-dir DIR | north runtime agents|claude|agy [VERSION] | north runtime covers [--head REV] [--code PATH,...]
 
 update [--sha SHA]     bring this host's current runtime to origin/main (or SHA): pull it from a peer, reuse the live binaries when no Rust build input changed, else build it under a runtime capacity lease; swap back when health fails; an agents sync failure keeps the code, alerts the proxy and retries each tick
 settle                 on the host that settles the fleet: update here, deploy where current differs, probe every host, run one offloaded canary land check per promoted runtime per host and roll a host back when it fails, and judge each landing once by landing_live_deadline_sec
@@ -32,6 +33,7 @@ health                 check the live runtime
 rollback --from SHA    relink current to the previous runtime and hold SHA back for an hour, when current is SHA; settle runs it on a host whose canary land check failed
 promote                after a landing: wait for any running update, bring this host to origin/main in one pass, then ship the runtime now live here to every declared host; when this host runs the lander, also run north land promote against the new current so the lander link follows it, or log the named reason it is held
 follow --repo-dir DIR  after a landing: start promote in the background when DIR's origin is north
+mirror                 on the host that settles the fleet: copy its lander and runtime records into north/records-mirror on every host it ships runtimes to, as each fleet tick does in the background
 agents [VERSION]       update this host's north runtime, then the Claude and Agy runtimes, as the twice-daily timer does
 claude|agy [VERSION]   install a checksum-verified Claude or Agy runtime and select it
 covers [--head REV] [--code PATH,...]
@@ -96,6 +98,7 @@ fn dispatch(layout: &layout::Layout, arguments: &[String]) -> Option<Result<(), 
         (command, [flag, sha]) if command == "rollback" && flag == "--from" && layout::is_sha(sha) => Some(update::roll_back(layout, sha).map(|_| ())),
         (command, []) if command == "health" => Some(health::health(layout)),
         (command, []) if command == "promote" => Some(follow::promote(layout)),
+        (command, []) if command == "mirror" => Some(mirror::run()),
         (command, flags) if command == "covers" => covers(layout, flags),
         (command, [flag, repo]) if command == "follow" && flag == "--repo-dir" => Some(follow::follow(layout, Path::new(repo))),
         (command, hosts) if command == "deploy" => Some(match hosts.iter().find(|host| host.starts_with('-')) {

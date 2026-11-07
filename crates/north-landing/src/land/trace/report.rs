@@ -1,11 +1,11 @@
 use std::fmt::Write;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::profile::{Profile, Split, Trace, percentile};
 use super::{Category, Span, Spans};
 use crate::foundation::clock::Timestamp;
-use crate::land::lander::state_home;
+use crate::platform::records_mirror;
 use crate::land::telemetry::epoch;
 
 const USAGE: &str = "usage: north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]";
@@ -24,8 +24,8 @@ pub fn duration_seconds(text: &str) -> Option<f64> {
     Some(value.parse::<f64>().ok()? * scale)
 }
 
-pub fn every_queue() -> Vec<PathBuf> {
-    let root = state_home().join("north/land-queue");
+pub fn every_queue(home: &Path) -> Vec<PathBuf> {
+    let root = home.join("north/land-queue");
     let mut files: Vec<PathBuf> = fs::read_dir(root).into_iter().flatten().filter_map(Result::ok).map(|entry| Spans::beside(&entry.path().join("logs")).path().to_owned()).filter(|path| path.is_file()).collect();
     files.sort();
     files
@@ -186,7 +186,7 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let mut pending = 0;
     if files.is_empty() {
-        files = every_queue();
+        files = every_queue(records_mirror::read("north land profile").home());
         if let Some(repo) = &repo {
             files.retain(|file| serves(file, repo));
         }

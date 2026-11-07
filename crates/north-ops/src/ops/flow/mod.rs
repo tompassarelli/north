@@ -173,6 +173,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
+    crate::platform::records_mirror::Records::here().announce("north ledger flow");
     let places = Places::from_env();
     let machine = Machine::default();
     let targets = project_targets(&crate::platform::orchestration::path());

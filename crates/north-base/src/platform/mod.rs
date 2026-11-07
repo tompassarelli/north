@@ -1,6 +1,7 @@
 pub mod attribution;
 pub mod follows;
 pub mod reader_stamp;
+pub mod records_mirror;
 pub mod run_roles;
 pub mod repo_names;
 pub mod git;

@@ -117,6 +117,7 @@ struct Sources {
     threads: PathBuf,
     places: Places,
     home: PathBuf,
+    records: PathBuf,
 }
 
 pub(super) fn state_root() -> PathBuf {
@@ -129,7 +130,7 @@ impl Sources {
         let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
         let state = state_root();
         let threads = crate::ledger::threads_database();
-        Self { places: Places::live(&threads, &state), threads, home }
+        Self { places: Places::live(&threads, &state), threads, home, records: crate::platform::records_mirror::read("north ledger scoreboard").home().to_owned() }
     }
 }
 
@@ -145,7 +146,7 @@ fn measure(sources: &Sources, now: i64) -> Result<Vec<Measure>, String> {
     let firsts = landing::first_landings(&threads).map_err(failed)?;
     let mut measures = vec![tom.corrections(weeks), tom.asks(weeks, &firsts)];
     measures.push(landing::queue_to_main(&threads, weeks).map_err(failed)?);
-    measures.push(landing::verification(weeks));
+    measures.push(landing::verification(&sources.records, weeks));
     measures.push(landing::rework(&threads, &sources.places.rework, weeks, now)?);
     measures.extend(workers::first_try(&threads, weeks).map_err(failed)?);
     measures.push(tom.recommendations(weeks));

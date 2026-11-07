@@ -37,8 +37,8 @@ pub fn queue_to_main(db: &Connection, weeks: [Window; 2]) -> rusqlite::Result<Me
     Ok(Measure { name: "landing queue to main".into(), better: Better::Lower, source: "the lander's landings ledger, queued_at to landed_at of each landed lane (threads landings)", weeks: weeks.map(figure) })
 }
 
-pub fn verification(weeks: [Window; 2]) -> Measure {
-    let spans: Vec<_> = every_queue().iter().flat_map(|file| Spans::at(file).read()).collect();
+pub fn verification(records: &std::path::Path, weeks: [Window; 2]) -> Measure {
+    let spans: Vec<_> = every_queue(records).iter().flat_map(|file| Spans::at(file).read()).collect();
     let trace = Trace::of(&spans);
     let profiles: Vec<(f64, f64)> = trace.landings(weeks[1].start as f64).into_iter().map(|landing| (landing.end, trace.profile(landing).after_wall)).filter(|(_, wall)| *wall > 0.0).collect();
     let figure = |window: Window| Figure::Spread { seconds: profiles.iter().filter(|(end, _)| window.holds(*end as i64)).map(|(_, wall)| *wall).collect(), open: 0, open_label: "" };

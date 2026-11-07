@@ -30,7 +30,7 @@ pub(super) fn follow(layout: &Layout, repo: &Path) -> Result<(), Failure> {
 }
 
 /// The lander's unit runs `north land follow` and systemd kills its whole control group when the lander restarts on a new runtime, so the promote runs in a scope of its own.
-fn own_scope(north: PathBuf) -> Command {
+pub(super) fn own_scope(north: PathBuf) -> Command {
     let scopes = Command::new(SYSTEMD_RUN).args(SCOPE).arg("true").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success());
     if !scopes {
         return Command::new(north);

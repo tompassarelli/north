@@ -111,6 +111,7 @@ impl WaitProbes for Probes {
                 }),
             },
             ProbeJob { name: "probes.settle.reap", own: Some(2 * reaper::BUDGET), run: Box::new(|fleet| said(reaper::reap(&fleet, &reaper::Here, now_ms(), true).lines())) },
+            ProbeJob { name: "probes.records_mirror", own: None, run: Box::new(|_| said(crate::runtime::mirror::publish())) },
         ]
     }
 }

@@ -28,7 +28,14 @@ pub fn root() -> Option<PathBuf> {
         return (!chosen.is_empty()).then(|| PathBuf::from(chosen));
     }
     let state = std::env::var_os("XDG_STATE_HOME").filter(|dir| !dir.is_empty()).map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))?;
-    Some(state.join("north/decisions"))
+    root_in(&state)
+}
+
+pub fn root_in(state: &Path) -> Option<PathBuf> {
+    match std::env::var_os("NORTH_DECISION_LOG") {
+        Some(chosen) => (!chosen.is_empty()).then(|| PathBuf::from(chosen)),
+        None => Some(state.join("north/decisions")),
+    }
 }
 
 /// The file a line decided at `at` goes to: `KIND/YYYY-MM-DD/HH.SUFFIX` in UTC.

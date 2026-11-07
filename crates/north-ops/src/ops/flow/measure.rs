@@ -150,7 +150,8 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
         row.insert("wisp".into(), json!(wisp_row(env.host, &env.places.home, &slug, now)));
     }
     let origin = env.host.run(&["git", "remote", "get-url", "--push", "origin"], Some(&path), None);
-    let queue = origin.map(|origin| crate::platform::land_queue::directory(&env.places.state, origin.trim()));
+    let records = crate::platform::records_mirror::Records::of(&env.places.state, &crate::platform::host::name());
+    let queue = origin.map(|origin| crate::platform::land_queue::directory(records.home(), origin.trim()));
     let lander = queue.as_deref().map_or_else(lander::Reading::default, |queue| lander::judge(&lander::read(queue, now)));
     row.insert("lander".into(), json!(lander));
     let mut source = Source { env, repo, path, slug, now, autoland: false };

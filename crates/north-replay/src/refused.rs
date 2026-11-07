@@ -36,7 +36,8 @@ pub fn run(arguments: &[String]) -> u8 {
         },
         _ => return usage(),
     };
-    let Some(root) = decision_log::root() else {
+    let records = north_base::platform::records_mirror::read("north strategy refusals");
+    let Some(root) = decision_log::root_in(records.home()) else {
         eprintln!("north strategy refusals: the decision log is off (NORTH_DECISION_LOG is empty)");
         return 2;
     };
