@@ -42,3 +42,17 @@ fn agent_slice_quota_stays_at_the_build_host_quota_at_the_desk_and_drops_only_un
     mode::write(&dir, &mode::release(&mode::read(&dir), 1_080)).unwrap();
     assert_eq!(quotas(&tick(root.path(), Some(false), 1_090)), [BUILD_HOST_QUOTA]);
 }
+
+// KEEP(bug): with the seat in use the laptop counted as a land-check peer and ran the lander's candidate checks beside gex45, at load 87 on 2026-11-08; only an idle seat makes it one; north#833
+#[test]
+fn only_an_away_laptop_takes_land_checks_beside_the_build_hosts() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("mode");
+    let limits = Limits::bundled();
+    tick(root.path(), Some(true), 1_000);
+    assert!(mode::takes_land_checks_at(&mode::read(&dir), &limits, 1_010));
+    tick(root.path(), Some(false), 1_020);
+    let desk = mode::read(&dir);
+    assert!(mode::builds_here_at(&desk, &limits, 1_030), "the desk still builds its own sessions' compiles");
+    assert!(!mode::takes_land_checks_at(&desk, &limits, 1_030));
+}

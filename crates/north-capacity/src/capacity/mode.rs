@@ -292,8 +292,12 @@ pub fn builds_here_at(state: &State, limits: &Limits, now: u64) -> bool {
     limits.effects(state.mode).build_host && now.saturating_sub(state.ticked) <= limits.build_host_fresh_seconds
 }
 
-pub fn builds_here() -> bool {
-    builds_here_at(&read(&state_dir()), &Limits::bundled(), now())
+pub fn takes_land_checks_at(state: &State, limits: &Limits, now: u64) -> bool {
+    state.mode == Mode::Away && builds_here_at(state, limits, now)
+}
+
+pub fn takes_land_checks() -> bool {
+    takes_land_checks_at(&read(&state_dir()), &Limits::bundled(), now())
 }
 
 pub fn leases_own_builds_at(checking: bool, state: &State, limits: &Limits, now: u64) -> bool {

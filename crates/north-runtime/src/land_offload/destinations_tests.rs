@@ -16,7 +16,13 @@ fn a_host_sends_builds_only_to_the_hosts_it_reaches_and_one_that_reaches_none_is
     let cfg: DocumentMut = HOSTS.parse().expect("fixture");
     assert_eq!(build_hosts(&cfg, "whiterabbit"), [("gex45".to_owned(), "tom@gex45".to_owned())]);
     assert!(build_hosts(&cfg, "gex45").is_empty());
-    assert_eq!(crate::land_offload::standing(false, true), crate::land_offload::room::Standing::Peer, "an away laptop counts beside the build hosts");
-    assert_eq!(crate::land_offload::standing(false, false), crate::land_offload::room::Standing::Fallback);
-    assert_eq!(crate::land_offload::standing(true, true), crate::land_offload::room::Standing::Reserved);
+    assert_eq!(crate::land_offload::standing(false, false, true), crate::land_offload::room::Standing::Peer, "an away laptop counts beside the build hosts");
+    assert_eq!(crate::land_offload::standing(false, false, false), crate::land_offload::room::Standing::Fallback);
+    assert_eq!(crate::land_offload::standing(true, false, true), crate::land_offload::room::Standing::Reserved);
+}
+
+// KEEP(bug): the lander ran 48 compilers of its candidate checks on the laptop, on battery at 81 °C, beside gex45 on 2026-11-08, because an away laptop counted as a land-check peer whatever its power; north#833
+#[test]
+fn a_laptop_on_battery_takes_no_land_check_even_when_away() {
+    assert_eq!(crate::land_offload::standing(false, true, true), crate::land_offload::room::Standing::Reserved);
 }

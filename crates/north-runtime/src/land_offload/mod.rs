@@ -1,4 +1,4 @@
-use crate::capacity::agent_load;
+use crate::capacity::{agent_load, laptop_auto, mode};
 use crate::pacing::placement::{config, gate};
 use ship::CommitId;
 use std::path::Path;
@@ -187,15 +187,19 @@ impl Placement {
     }
 }
 
-/// A reserved host takes no land check; one that offloads builds, or is away and so a full build host, competes with the others for room; any other takes one only when no build host answers.
-fn standing(reserved: bool, builds: bool) -> room::Standing {
-    if reserved {
+/// A reserved host or a laptop on battery takes no land check; one that offloads builds, or is away and so a full build host, competes with the others for room; any other, such as a laptop whose seat is in use, takes one only when no build host answers.
+fn standing(reserved: bool, on_battery: bool, builds: bool) -> room::Standing {
+    if reserved || on_battery {
         room::Standing::Reserved
     } else if builds {
         room::Standing::Peer
     } else {
         room::Standing::Fallback
     }
+}
+
+fn on_battery() -> bool {
+    laptop_auto::settled_battery(&laptop_auto::power_supply(), &laptop_auto::discharging_since(&agent_load::Host::from_env()), mode::now()).is_some()
 }
 
 fn choose(any: bool, placement: &Placement) -> u8 {
@@ -211,7 +215,7 @@ fn choose(any: bool, placement: &Placement) -> u8 {
     let here = crate::platform::host::name();
     let reserved = in_reserve || checks_confined_here() || !placement.admits(&here);
     let builds = |name: &str| config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, name));
-    let standing = standing(reserved, builds(&here) || crate::capacity::mode::builds_here());
+    let standing = standing(reserved, on_battery(), builds(&here) || mode::takes_land_checks());
     let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && placement.admits(&machine.name) && (standing != room::Standing::Fallback || builds(&machine.name))).collect();
     let remotes = std::thread::scope(|scope| {
         let reads: Vec<_> = others.iter().map(|machine| scope.spawn(|| (machine.name.clone(), room::read(&machine.ssh)))).collect();
