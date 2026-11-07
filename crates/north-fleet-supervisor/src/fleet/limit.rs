@@ -1,6 +1,7 @@
 //! A session whose last turn ended on its account's usage limit parks on `usage:ACCOUNT@TIME`;
 //! `north fleet waits` revives it once the reset has passed or a reading of that window newer than
 //! the park shows room.
+pub use super::waits::resume_message;
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
@@ -127,10 +128,3 @@ pub fn recent(record: &SessionRecord) -> bool {
     std::fs::metadata(stream_path(&record.host_dir)).and_then(|stream| stream.modified()).is_ok_and(|at| SystemTime::now().duration_since(at).is_ok_and(|age| age < RECENT))
 }
 
-pub fn resume_message(account: &str) -> String {
-    format!(
-        "[north: account {account}'s usage limit has reset] Your last turn stopped on the limit. Run `git fetch origin`, then check whether your lane is on origin/main. \
-         If it is not, rebase it onto origin/main, re-run the targeted checks and re-enqueue it with `safe-push --to main`. \
-         If it is, report `Done:` with the landed sha."
-    )
-}

@@ -77,12 +77,12 @@ lines = 1
 kind = "verdict"
 
 [[read]]
-file = "crates/north-fleet/src/fleet/reaper.rs"
+file = "crates/north-fleet-supervisor/src/fleet/reaper.rs"
 lines = 1
 kind = "hint"
 
 [[read]]
-file = "crates/north-fleet/src/fleet/registry/retiring.rs"
+file = "crates/north-fleet-supervisor/src/fleet/registry/retiring.rs"
 lines = 1
 kind = "hint"
 

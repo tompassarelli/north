@@ -14,7 +14,7 @@ north-capacity-host = { path = "../north-capacity-host" }
 north-github-mirror = { path = "../north-github-mirror" }
 north-graph-ground = { path = "../north-graph-ground" }
 north-base = { path = "../north-base" }
-north-fleet = { path = "../north-fleet" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-pace = { path = "../north-pace" }
 north-providers = { path = "../north-providers" }
 north-threads = { path = "../north-threads", features = ["test-support"] }

@@ -190,7 +190,7 @@ pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &Host
     Ok(Aftermath::Reported)
 }
 
-pub(super) fn is_final(reply: &str) -> bool {
+pub fn is_final(reply: &str) -> bool {
     FINAL_OPENINGS.iter().any(|word| opens(reply, word))
 }
 

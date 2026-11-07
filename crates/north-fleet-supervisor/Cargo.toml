@@ -1,0 +1,28 @@
+[package]
+name = "north-fleet-supervisor"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-fleet = { path = "../north-fleet" }
+north-resume = { path = "../north-resume" }
+north-session-host = { path = "../north-session-host" }
+regex.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+toml_edit.workspace = true
+
+[features]
+test-support = ["north-fleet/test-support"]
+
+[lints]
+workspace = true

@@ -139,7 +139,7 @@ may_use = ["north-base", "north-graph"]
 [[crate_dag.crate]]
 name = "north-dispatch"
 paths = ["crates/north-dispatch/src/**"]
-may_use = ["north-capacity", "north-fleet", "north-providers", "north-threads", "north-github-mirror", "north-graph-ground"]
+may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-threads", "north-github-mirror", "north-graph-ground"]
 
 [[crate_dag.crate]]
 name = "north-replay"
@@ -198,18 +198,23 @@ may_use = ["north-base", "north-pace"]
 
 [[crate_dag.crate]]
 name = "north-fleet"
-paths = ["crates/*/src/fleet.rs", "crates/*/src/fleet/**"]
+paths = ["crates/north-fleet/src/**"]
 may_use = ["north-claude-stream", "north-fleet-store", "north-pace", "north-resume", "north-session-host"]
+
+[[crate_dag.crate]]
+name = "north-fleet-supervisor"
+paths = ["crates/north-fleet-supervisor/src/**"]
+may_use = ["north-fleet", "north-resume", "north-session-host"]
 
 [[crate_dag.crate]]
 name = "north-providers"
 paths = ["crates/*/src/providers.rs", "crates/*/src/providers/**", "crates/*/src/codex.rs", "crates/*/src/codex/**", "crates/*/src/ledger.rs", "crates/*/src/ledger/**"]
-may_use = ["north-claude-stream", "north-fleet", "north-threads"]
+may_use = ["north-claude-stream", "north-fleet-supervisor", "north-threads"]
 
 [[crate_dag.crate]]
 name = "north-core"
 paths = ["crates/north-core/src/**"]
-may_use = ["north-claude-stream", "north-fleet", "north-graph-ground", "north-threads"]
+may_use = ["north-claude-stream", "north-fleet-supervisor", "north-graph-ground", "north-threads"]
 
 [[crate_dag.crate]]
 name = "north-flow"
@@ -714,7 +719,7 @@ checks = ["shared-mutability", "single-impl-trait"]
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
-path = "crates/north-fleet/src/fleet/registry/fixtures.rs"
+path = "crates/north-fleet-supervisor/src/fleet/registry/fixtures.rs"
 reason = "Test fixture, doc(hidden) and public since 895bb0e6f so north-tui's tests reach it; a fake session's frames are shared between its reader thread and the test."
 
 [[rust_habits.allow]]
@@ -762,7 +767,7 @@ reason = "Keeps the process host free of the turn watcher's parsing; candidate t
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
-path = "crates/north-fleet/src/fleet/test_support.rs"
+path = "crates/north-fleet-supervisor/src/fleet/test_support.rs"
 item = "Internals"
 reason = "Test seam behind the test-support feature: north-core's Claude-runtime fleet tests reach Fleet's crate-private accessors through it, so they stay crate-private in production."
 
@@ -780,7 +785,7 @@ reason = "The desktop port north#733 asked for: the take-over decides when to sh
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
-path = "crates/north-fleet/src/fleet/limit.rs"
+path = "crates/north-fleet-supervisor/src/fleet/limit.rs"
 item = "AccountResets"
 reason = "a north-fleet seam the north binary implements; the crate cannot depend on the binary."
 

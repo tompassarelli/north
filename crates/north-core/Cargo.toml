@@ -11,7 +11,7 @@ north-claude-stream = { path = "../north-claude-stream" }
 north-base = { path = "../north-base" }
 north-pace = { path = "../north-pace" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
-north-fleet = { path = "../north-fleet" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-graph-ground = { path = "../north-graph-ground" }
 fancy-regex.workspace = true
 regex.workspace = true
@@ -26,7 +26,7 @@ tokio.workspace = true
 
 [dev-dependencies]
 rusqlite.workspace = true
-north-fleet = { path = "../north-fleet", features = ["test-support"] }
+north-fleet-supervisor = { path = "../north-fleet-supervisor", features = ["test-support"] }
 
 [lints]
 workspace = true

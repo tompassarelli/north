@@ -13,7 +13,7 @@ doctest = false
 north-strategy-types = { path = "../north-strategy-types" }
 north-base = { path = "../north-base" }
 north-capacity = { path = "../north-capacity" }
-north-fleet = { path = "../north-fleet" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-pace = { path = "../north-pace" }
 north-providers = { path = "../north-providers" }
 north-threads = { path = "../north-threads", features = ["test-support"] }

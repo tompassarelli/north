@@ -34,7 +34,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
 2. **Land ticket lifecycle** (330: 110 x 3). A ticket's phase is its queue directory (`Q/`, `outbox/`, `done/`,
    `withdrawn/`, `quarantine/`, remote `outbox/taken/`) plus the first word of its `verdict` string, read by value in
    fifteen places (`crates/north-landing/src/land/{bisect,records,incidents,reservation,replay,promote,sheriff}.rs`,
-   `crates/north-lander-doctor/src/facts.rs:129`, `crates/north-fleet/src/fleet/tickets.rs:60`). `settle` writes
+   `crates/north-lander-doctor/src/facts.rs:129`, `crates/north-fleet-supervisor/src/fleet/tickets.rs:60`). `settle` writes
    `done/` then removes the pending file (`land/queue.rs:175-186`), so a crash leaves both; `quarantine/` has no
    exit; `replace_older` deletes a ticket with no record (`land/enqueue.rs:148-165`). The landing intent
    (`Q/landing/intent.json`, `recovering.json`) keeps its tickets out of every candidate while recovery fails
@@ -67,7 +67,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
    `current`. Not converted: the `SHA.staging` copies shipped to other hosts (written over ssh by `deploy.rs`) and
    the `agents-sync-unpublished` marker, which belongs to policy publication.
 6. **Fleet message delivery** (111: 37 x 3). Spool file, ledger event, `delivered/ID`, a `.handing` marker and a
-   flock (`crates/north-fleet/src/fleet/registry/hand_in.rs:16-121`, `fleet/store/spool.rs`); a crash leaves
+   flock (`crates/north-fleet-supervisor/src/fleet/registry/hand_in.rs:16-121`, `fleet/store/spool.rs`); a crash leaves
    `.handing`, resolved only by searching the stream; rows to a stopped session wait while a local send revives it
    (`fleet/store/exchange.rs:74`). Shapes: presence-flag.
    **Converted (north#757):** the machine `row-delivery`, one instance per `SESSION/ROW` in the host `ledger.db`
@@ -112,7 +112,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
     `.owner` and `.pgid`, and a reused pid whose cmdline says "offload" can be killed. Shapes: lock-flag,
     pid-liveness.
 13. **Window adoption and interactive hand-off** (66: 22 x 3). An adopted name is `adopted_ms` plus `stopped` plus
-    `host.sock` created as a directory (`crates/north-fleet/src/fleet/registry/adopting.rs:17-159`); two detectors
+    `host.sock` created as a directory (`crates/north-fleet-supervisor/src/fleet/registry/adopting.rs:17-159`); two detectors
     disagree about the window (`window_inbox.rs:18-48`, `interactive.rs:58-66`), so a live window reads exited and
     the name moves to another window; an interactive hand-off is on disk identical to a stop. Shapes: lifecycle-bools,
     pid-liveness.

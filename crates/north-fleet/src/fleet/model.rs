@@ -308,7 +308,7 @@ pub struct SessionRecord {
     pub revived_mid_task_ms: Option<u64>,
     /// The phase this host's lifecycle store gave the launch when the record was read; session.json never holds it.
     #[serde(skip)]
-    pub(crate) phase: Option<Phase>,
+    pub phase: Option<Phase>,
 }
 
 impl SessionRecord {

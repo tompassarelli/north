@@ -223,9 +223,17 @@ impl Waits {
 
 fn revival(wait: &Registered, result: &str) -> String {
     if let Run::Usage { account, .. } = &wait.run {
-        return super::limit::resume_message(account);
+        return resume_message(account);
     }
     let named = wait.label.as_ref().map_or_else(|| wait.run.to_string(), |label| format!("{} `{label}`", wait.run));
     format!("{OVER} {named}: {result}. Read its output and continue to a final report.")
 }
 
+
+pub fn resume_message(account: &str) -> String {
+    format!(
+        "[north: account {account}'s usage limit has reset] Your last turn stopped on the limit. Run `git fetch origin`, then check whether your lane is on origin/main. \
+         If it is not, rebase it onto origin/main, re-run the targeted checks and re-enqueue it with `safe-push --to main`. \
+         If it is, report `Done:` with the landed sha."
+    )
+}

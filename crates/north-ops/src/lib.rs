@@ -1,6 +1,6 @@
 pub use north_base::{error, foundation, platform, shell};
 pub use north_capacity_host::capacity;
-pub use north_fleet::fleet;
+pub use north_fleet_supervisor::fleet;
 pub use north_health::health;
 pub use north_pace::{router, usage};
 pub use north_providers::{ledger, providers};

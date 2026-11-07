@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-capacity-host = { path = "../north-capacity-host" }
-north-fleet = { path = "../north-fleet" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-health = { path = "../north-health" }
 north-pace = { path = "../north-pace" }
 north-providers = { path = "../north-providers" }

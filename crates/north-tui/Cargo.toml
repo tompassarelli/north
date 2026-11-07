@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 north-base = { path = "../north-base" }
-north-fleet = { path = "../north-fleet" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-providers = { path = "../north-providers" }
 crossterm.workspace = true
 ratatui.workspace = true

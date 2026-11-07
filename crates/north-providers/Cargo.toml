@@ -11,7 +11,7 @@ north-claude-stream = { path = "../north-claude-stream" }
 north-base = { path = "../north-base" }
 north-pace = { path = "../north-pace" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
-north-fleet = { path = "../north-fleet" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 regex.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
@@ -20,7 +20,7 @@ sha2.workspace = true
 toml_edit.workspace = true
 
 [dev-dependencies]
-north-fleet = { path = "../north-fleet", features = ["test-support"] }
+north-fleet-supervisor = { path = "../north-fleet-supervisor", features = ["test-support"] }
 tempfile.workspace = true
 
 [lints]
