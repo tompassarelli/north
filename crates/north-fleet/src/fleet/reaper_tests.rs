@@ -102,6 +102,7 @@ fn a_not_done_or_split_retires_only_when_it_names_a_stop_its_parent_took_and_new
     let _lead = live(&fleet, "lead");
     reported(&fleet, "stopped", Some("lead"), "Split: boxes 1 and 2 landed; box 3 is its own item.\nStop: budget");
     reported(&fleet, "unstopped", Some("lead"), "Not done: the suite is red on main.");
+    reported(&fleet, "north-669-d1955", None, "Not done: the guards commit bf636ba82 is in the lander queue but not on origin/main, so no box of north#669 is ticked yet.\nStop: landing");
     let result = json!({"type": "result", "subtype": "success", "session_id": "rehired"});
     parked(&fleet, "rehired", Some("lead"), &[said("rehired", "assistant", "Done: nothing to land."), result.clone(), said("rehired", "user", "[from lead] also port the shell test"), said("rehired", "assistant", "Porting it now."), result]);
     for name in ["stopped", "unstopped", "rehired"] {
@@ -112,6 +113,7 @@ fn a_not_done_or_split_retires_only_when_it_names_a_stop_its_parent_took_and_new
 
     assert_eq!(retired(&reaped), ["stopped"]);
     assert!(fleet.session("unstopped").is_ok() && fleet.session("rehired").is_ok());
+    assert!(reaped.kept.iter().any(|kept| kept.name == "north-669-d1955" && kept.why.contains("lander")), "a dispatched session waiting on its queued lane stays to hear the verdict: {reaped:?}");
 }
 
 #[test]
