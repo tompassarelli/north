@@ -32,12 +32,16 @@ pub struct GhWrite {
     pub closes_issue: Option<String>,
     pub opaque: bool,
     pub edits: Option<(String, String)>,
+    pub reason: Option<String>,
+    pub files: Vec<PathBuf>,
+    pub unread: bool,
 }
 
 pub fn writes(command_text: &str, cwd: Option<&str>) -> Vec<GhWrite> {
     let Ok(tokens) = operator_tokens(&strip_heredocs(command_text).replace('`', " ")) else {
         return Vec::new();
     };
+    let openers = tokens.iter().filter(|token| matches!(token, ShellToken::Operator(op) if op == "<<")).count();
     let mut walk = Walk {
         dir: cwd.map(str::to_owned),
         heredocs: heredoc_bodies(command_text)
@@ -45,6 +49,7 @@ pub fn writes(command_text: &str, cwd: Option<&str>) -> Vec<GhWrite> {
             .map(|range| command_text[range].to_owned())
             .collect(),
         backticks: command_text.contains('`'),
+        reliable: openers == heredoc_bodies(command_text).len(),
         ..Walk::default()
     };
     for token in tokens.into_iter().chain([ShellToken::Operator(";".into())]) {
@@ -71,11 +76,21 @@ struct Walk {
     inputs: Vec<String>,
     piped: Vec<String>,
     input_next: bool,
+    reliable: bool,
+    openers: usize,
+    last: String,
+    pending: Option<usize>,
+    written: Vec<(PathBuf, usize)>,
 }
 
 impl Walk {
     fn finish(&mut self, operator: &str) {
         self.input_next = false;
+        let preceded = std::mem::replace(&mut self.last, operator.to_owned());
+        let heredoc = (operator == "<<").then(|| {
+            self.openers += 1;
+            self.openers - 1
+        });
         let segment = std::mem::take(&mut self.segment);
         let start = command(&segment, PREFIXES);
         let args = segment.get(start..).unwrap_or_default();
@@ -91,7 +106,9 @@ impl Walk {
             .iter()
             .find_map(|word| word.strip_prefix("GH_REPO="))
             .map(str::to_owned);
-        let Some(mut write) = parse(args, self.dir.as_deref()) else {
+        let parsed = parse(args, self.dir.as_deref());
+        self.note_written(args, &preceded, operator, heredoc, parsed.is_some());
+        let Some(mut write) = parsed else {
             return;
         };
         write.repo = write.repo.or(environment);
@@ -101,8 +118,41 @@ impl Walk {
             push_file(&mut write, file, self.dir.as_deref());
         }
         write.bodies.extend(inputs);
-        write.bodies.extend(self.heredocs.iter().cloned());
+        if self.reliable {
+            write.bodies.extend(heredoc.map(|index| self.heredocs[index].clone()));
+            for file in write.files.clone() {
+                match self.written.iter().find(|(path, _)| *path == file) {
+                    Some((_, index)) => write.bodies.push(self.heredocs[*index].clone()),
+                    None => write.unread |= read_bounded(&file).is_none(),
+                }
+            }
+        } else {
+            write.bodies.extend(self.heredocs.iter().cloned());
+        }
         self.out.push(write);
+    }
+
+    fn note_written(&mut self, args: &[String], preceded: &str, operator: &str, heredoc: Option<usize>, is_gh: bool) {
+        let redirected = matches!(preceded, ">" | ">>");
+        let owner = heredoc.filter(|_| !is_gh).or(self.pending.filter(|_| redirected));
+        if let Some(index) = owner {
+            let file = if redirected {
+                args.first()
+            } else {
+                args.first().filter(|word| basename(word) == "tee").and_then(|_| args.iter().skip(1).rfind(|word| !word.starts_with('-')))
+            };
+            match file {
+                Some(file) => {
+                    let path = resolve(file, self.dir.as_deref());
+                    self.written.push((path, index));
+                    self.pending = None;
+                }
+                None => self.pending = Some(index),
+            }
+        }
+        if !matches!(operator, ">" | ">>" | "<<") {
+            self.pending = None;
+        }
     }
 }
 
@@ -196,6 +246,9 @@ fn writes_with(group: &str, verb: Option<&str>) -> bool {
 }
 
 fn takes_value(group: Option<&str>, verb: Option<&str>, flag: &str) -> bool {
+    if matches!(flag, "-r" | "--reason") {
+        return group == Some("issue") && verb == Some("close");
+    }
     if matches!(flag, "-c" | "--comment") {
         return verb == Some("close");
     }
@@ -219,6 +272,8 @@ fn collect(write: &mut GhWrite, group: Option<&str>, flag: &str, value: &str, cw
                 _ => push_text(write, field, cwd),
             }
         }
+    } else if matches!(flag, "-r" | "--reason") {
+        write.reason = Some(value.to_owned());
     } else if group == Some("issue") && LABEL_FLAGS.contains(&flag) {
         write.labels.extend(value.split(',').map(str::trim).filter(|label| !label.is_empty()).map(str::to_owned));
     } else if FILE_FLAGS.contains(&flag) {
@@ -248,8 +303,12 @@ fn push_file(write: &mut GhWrite, path: &str, cwd: Option<&str>) {
     }
     if path == "-" {
         write.opaque = true;
-    } else if let Some(text) = read_bounded(&resolve(path, cwd)) {
-        write.bodies.push(text);
+    } else {
+        let resolved = resolve(path, cwd);
+        write.files.push(resolved.clone());
+        if let Some(text) = read_bounded(&resolved) {
+            write.bodies.push(text);
+        }
     }
 }
 

@@ -14,3 +14,10 @@ fn marks_text_it_cannot_see_opaque() {
     assert!(!only("gh issue comment 5 --body plain", None).opaque);
 }
 
+
+#[test]
+fn reads_a_close_reason_and_the_files_it_reads() {
+    assert_eq!(only("gh issue close 7 -R a/b -r \"not planned\"", None).reason.as_deref(), Some("not planned"));
+    assert_eq!(only("gh issue close 7 --reason=\"not planned\"", None).closes_issue.as_deref(), Some("7"));
+    assert!(only("gh issue create --body-file /tmp/n706-missing/body.md", None).unread);
+}

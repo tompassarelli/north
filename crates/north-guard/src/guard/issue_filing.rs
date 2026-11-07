@@ -239,8 +239,11 @@ pub(super) fn decide_with(input: &HookInput, world: &mut impl World) -> Verdict 
     let Some(text) = input.command() else {
         return Verdict::Allow;
     };
-    for write in gh_write::writes(&text.lossy(), input.cwd()).iter().filter(|write| write.creates_issue) {
-        if let Some(reason) = refusal(write, world) {
+    for mut write in gh_write::writes(&text.lossy(), input.cwd()).into_iter().filter(|write| write.creates_issue) {
+        if write.opaque || write.unread {
+            write.bodies.push(text.lossy().replace("\\n", "\n"));
+        }
+        if let Some(reason) = refusal(&write, world) {
             return Verdict::Deny(reason);
         }
     }

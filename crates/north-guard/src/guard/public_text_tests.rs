@@ -84,3 +84,12 @@ fn refuses_a_deny_listed_term_and_a_private_kind_in_every_place_a_gh_write_carri
     assert!(matches!(decide("gh issue edit 5 --body-file ticked.md", cwd, false), Verdict::Allow));
     assert!(matches!(decide("gh issue edit 5 --body-file grown.md", cwd, false), Verdict::Deny(_)));
 }
+
+#[test]
+fn judges_only_the_heredoc_that_feeds_the_gh_command() {
+    let script = "cat > /tmp/helper.sh <<'EOF'\necho orange-bicycle\nEOF\n";
+    assert!(!refused(&format!("{script}gh issue comment 5 --body fine"), "/tmp"));
+    let body = "cat > /tmp/body-n706.md <<'EOF'\nthe orange-bicycle plan\nEOF\n";
+    assert!(refused(&format!("{body}gh issue comment 5 --body-file /tmp/body-n706.md"), "/tmp"));
+    assert!(refused("gh issue comment 5 --body-file - <<'EOF'\nthe orange-bicycle plan\nEOF\n", "/tmp"));
+}
