@@ -9,7 +9,7 @@ pub mod tripwire;
 
 use std::fmt;
 
-pub use read::{Size, TRIPS, keyed, plan_week, view};
+pub use read::{TRIPS, keyed, view_from_config};
 pub use tripwire::Trip;
 
 /// The rule's knobs, from harness/defaults.toml.

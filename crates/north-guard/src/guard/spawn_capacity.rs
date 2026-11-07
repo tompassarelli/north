@@ -82,8 +82,7 @@ fn spawn(world: &impl World, event: &Event) -> Result<Vec<String>, String> {
 fn spend_view(world: &impl World) -> (View, Rules) {
     let cfg = std::fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse::<DocumentMut>().ok()).unwrap_or_default();
     let rules = Rules::configured();
-    let catalog = crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG);
-    (spend::view(&state_dir(world).join("agents"), &rules, 0, world.now(), |name| spend::Size { plan_week: spend::plan_week(&cfg, catalog, name), turn: None }, |_| true, spend::keyed(&cfg)), rules)
+    (spend::view_from_config(&cfg, &state_dir(world).join("agents"), &rules, 0, world.now(), |_| None, |_| true), rules)
 }
 
 fn flow_refusal(world: &impl World, event: &Event) -> Option<String> {

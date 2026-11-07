@@ -28,6 +28,11 @@ pub fn view(agents: &Path, rules: &Rules, working: usize, at: f64, size: impl Fn
     View { at, accounts, working, trips: trips(&read(&agents.join(TRIPS)), rules, at), keyed }
 }
 
+pub fn view_from_config(cfg: &DocumentMut, agents: &Path, rules: &Rules, working: usize, at: f64, turn: impl Fn(&str) -> Option<Turn>, signed_in: impl Fn(&str) -> bool) -> View {
+    let catalog = crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG);
+    view(agents, rules, working, at, |name| Size { plan_week: plan_week(cfg, catalog, name), turn: turn(name) }, signed_in, keyed(cfg))
+}
+
 /// Trips the last tick confirmed within the longer burst's span; a tick that stopped confirming one
 /// lets it lapse.
 fn trips(listed: &Value, rules: &Rules, at: f64) -> Vec<Trip> {

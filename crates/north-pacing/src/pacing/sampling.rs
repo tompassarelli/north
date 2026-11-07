@@ -1,7 +1,6 @@
 use super::{process, readout, storage};
 use crate::foundation::clock::rfc3339_seconds;
-use crate::spend::{self, Placed, Rules, Size, Starter, Turn};
-use crate::platform::harness;
+use crate::spend::{self, Placed, Rules, Starter, Turn};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use storage::{load, number, rows, save};
@@ -228,9 +227,7 @@ pub(super) fn recent_history(state: &Value, fresh: &[Value], window: f64) -> Vec
 
 pub(super) fn standings(directory: &std::path::Path, cfg: &toml_edit::DocumentMut, workers: &Workers, at: f64) -> Vec<Value> {
     let rules = Rules::configured();
-    let catalog = harness::document(harness::MODEL_CATALOG);
-    let turn = worker_turns(at);
-    let view = spend::view(directory, &rules, workers.active, at, |name| Size { plan_week: spend::plan_week(cfg, catalog, name), turn: turn(name) }, |_| true, spend::keyed(cfg));
+    let view = spend::view_from_config(cfg, directory, &rules, workers.active, at, worker_turns(at), |_| true);
     view.accounts
         .iter()
         .map(|account| {
