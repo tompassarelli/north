@@ -1,8 +1,8 @@
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::ask_once;
+use crate::ask_once;
 use north_base::lifecycle::State;
 
-use crate::fleet::gate_lifecycle::GatePhase;
+use crate::gate_lifecycle::GatePhase;
 use crate::foundation::clock::Timestamp;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]

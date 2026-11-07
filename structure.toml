@@ -182,9 +182,14 @@ paths = ["crates/north-session-host/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
+name = "north-fleet-store"
+paths = ["crates/north-fleet-store/src/**"]
+may_use = ["north-base", "north-pace"]
+
+[[crate_dag.crate]]
 name = "north-fleet"
 paths = ["crates/*/src/fleet.rs", "crates/*/src/fleet/**"]
-may_use = ["north-claude-stream", "north-pace", "north-session-host"]
+may_use = ["north-claude-stream", "north-fleet-store", "north-pace", "north-session-host"]
 
 [[crate_dag.crate]]
 name = "north-providers"
@@ -296,7 +301,13 @@ may_use = ["foundation", "crate-roots", "lifecycle"]
 name = "fleet"
 paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/row_delivery.rs", "crates/north-session-host/src/held.rs", "crates/north-session-host/src/session_lifecycle.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
-may_use = ["domain", "platform", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket"]
+may_use = ["domain", "platform", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "fleet_store"]
+
+[[module]]
+name = "fleet_store"
+paths = ["crates/north-fleet-store/src/**"]
+responsibility = "The fleet's durable rows and their exchange: the sessions, messages, waits and gates in the SQLite store, the spool and ssh exchange between hosts, gate requests and their lifecycle, and the sender, status and delivery words they carry."
+may_use = ["crate-roots", "domain", "foundation", "lifecycle", "platform"]
 
 [[module]]
 name = "claude_stream"
@@ -486,7 +497,7 @@ may_use = ["crate-roots", "foundation", "graph", "lifecycle"]
 
 [[module]]
 name = "ops"
-paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/loops/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**", "crates/north-runtime/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**"]
+paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/loops/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**", "crates/north-runtime/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
 may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "cites"]
 

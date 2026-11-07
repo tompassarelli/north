@@ -18,6 +18,7 @@ use tokio::time::Instant;
 use crate::error::{NorthError, NorthResult};
 
 use super::runtime::binary;
+pub use north_fleet_store::ssh::quote;
 
 const USAGE: &str = "Usage: north session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND";
 const OPTIONS: [&str; 11] = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "-o", "ControlPath=none"];
@@ -305,10 +306,6 @@ async fn read_chunks(mut source: impl AsyncRead + Unpin, sink: mpsc::UnboundedSe
             break;
         }
     }
-}
-
-pub fn quote(word: &str) -> String {
-    format!("'{}'", word.replace('\'', r"'\''"))
 }
 
 #[cfg(test)]
