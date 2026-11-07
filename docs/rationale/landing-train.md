@@ -159,6 +159,10 @@ and run as a service.
     env inputs are diffed against the last green record. Loop breaker: at most one revert per lane per
     red episode, never a revert of a revert (kept from main-red.ts), and after two failed verifications
     the sheriff stops and escalates on the issue.
+    A red run whose log shows GitHub refusing a credential or a failed fetch of a sibling repository
+    (`north_check_environment::credential`) is an infrastructure incident, not a lane's failure: neither the
+    sheriff nor the after-landing culprit search reverts for it (north#818; the sheriff had reverted a lane for a
+    `check-owners` red whose log showed the refusal).
 12. **Main CI.** Keeps cancel-in-progress (a per-SHA run would double Actions load for trees the lander
     already tested). The lander posts a `land-train` commit status on each landed SHA linking the
     candidate's results. A scheduled main run every 6 h detects environment drift.

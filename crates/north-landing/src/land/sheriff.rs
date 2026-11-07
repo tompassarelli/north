@@ -316,6 +316,9 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
     if request.parent.is_empty() {
         return Ok(format!("malformed: {name} names no Green-parent"));
     }
+    if let Some(verdict) = north_check_environment::credential::incident(Path::new(&request.log)) {
+        return Ok(verdict);
+    }
     let lanes = lanes(worktree, &request.parent, &main)?;
     let probes = Probes { lander, worktree, request: &request, tip: &main };
     match find(&request, &main, &lanes, &reverted(lander), |lane| probes.at(lane), |lane| probes.without(lane)) {

@@ -20,6 +20,12 @@ gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
   `offload_evict_free_gib` free or 20% of a smaller disk) refuses new sessions in dispatch and in
   `north fleet launch` placement alike. A fixed 85%-used line refused the 936 GiB array at 123 GiB free while the
   reaper, at 94 GiB, slept (north#634); one line means a refused host is always one the reaper is reclaiming.
+- **A host whose GitHub token had gone stale was still given boxes.** A host without the App key trusts the token it was
+  handed for 55 minutes. Two workers launched on such a host after that trust lapsed stopped with nothing done because
+  they could not read their issue (north#818). The saturation probe now also prints the age of that token (empty on a
+  host that mints its own), and `Saturation::refusal` refuses a host whose token is at or past
+  `github_app::PUSHED_FRESH_SECONDS`, naming the host and the age, in dispatch and in `north fleet launch`
+  placement alike.
 
 `north fleet dispatch --dry-run` prints each host's line with its refusal or the builds its queue still takes, and a
 `skip ITEM: ready, not placed: ...` line naming the bound that stopped each box: the account's `allowed_workers`, the

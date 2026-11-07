@@ -388,6 +388,8 @@ fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {
     record(lander, &[Span::new(&batch.head, format!("culprit search over {} landed lanes", batch.lanes.len()), Category::Lander, from, to).with(PHASE, AFTER)]);
     if found.superseded {
         println!("north land: the after-landing run of {} is red, but a later landing changed its check lines during the culprit search, so no lane is blamed and the newest landing's run checks the current lines", batch.head);
+    } else if let Some(verdict) = north_check_environment::credential::incident(&outcome.log) {
+        println!("north land: the post-land checks of {} are red: {verdict}", batch.head);
     } else if let Verdict::RedMain(detail) = &outcome.verdict {
         blame(lander, batch, found.culprit, detail, outcome);
     }

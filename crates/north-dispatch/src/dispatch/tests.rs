@@ -139,6 +139,7 @@ fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_cont
 #[test]
 fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_native_box_waits_for_a_native_host_and_each_launch_takes_a_session_and_a_build_from_its_host() {
     super::spread_tests::a_host_whose_admission_queue_is_at_its_limit_or_whose_root_disk_is_past_the_reapers_eviction_line_takes_no_session();
+    super::spread_tests::a_host_whose_pushed_github_token_is_past_its_trust_takes_no_session_and_its_box_places_on_another_host();
     super::spread_tests::launches_earlier_in_the_run_count_against_each_hosts_sessions_and_admission_queue();
     let (mut hosts, accounts) = fleet();
     let queued = "gex45 skipped: 14.0 GiB free on the root disk, under 15";

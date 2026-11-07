@@ -1,6 +1,8 @@
 //! Where the lander's candidate checks run (north#782): the repository's own placement (a runner or build host) or this
 //! host. A candidate whose base fails in one environment is judged again in the other before any pause is raised, and
 //! the environment where a check last reached a verdict is the one new candidates use.
+pub mod credential;
+
 use std::path::Path;
 use std::time::Duration;
 

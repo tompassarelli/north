@@ -139,6 +139,8 @@ pub struct Saturation {
     #[serde(default)]
     pub disk_total_gib: f64,
     pub backlog: Option<Backlog>,
+    #[serde(default)]
+    pub token_age_s: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]

@@ -32,7 +32,7 @@ const REUSE_MARGIN: i64 = 300;
 const EXCHANGE_LIMIT: Duration = Duration::from_secs(30);
 const DECRYPT_LIMIT: Duration = Duration::from_secs(60);
 const PUSHED_TOKEN: &str = ".local/state/north/gh-write-token";
-const PUSHED_FRESH_SECONDS: i64 = 55 * 60;
+const PUSHED_FRESH_SECONDS: i64 = super::pushed_token::FRESH_SECONDS;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct App {

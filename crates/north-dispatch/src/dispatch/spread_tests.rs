@@ -11,7 +11,7 @@ fn account(name: &str, hosts: &[&str]) -> Account {
 }
 
 fn reading(disk_free_gib: f64, disk_total_gib: f64, queued: u32) -> Saturation {
-    Saturation { memory_total_mib: 65_536.0, memory_available_mib: 49_152.0, disk_free_gib, disk_total_gib, backlog: Some(Backlog { queued, load: 8.0, threads: 20 }) }
+    Saturation { memory_total_mib: 65_536.0, memory_available_mib: 49_152.0, disk_free_gib, disk_total_gib, backlog: Some(Backlog { queued, load: 8.0, threads: 20 }), token_age_s: None }
 }
 
 fn placed(hosts: Vec<Host>, accounts: Vec<Account>, boxes: u64) -> (Vec<(String, String)>, Vec<String>) {
@@ -50,4 +50,18 @@ pub(super) fn a_host_whose_admission_queue_is_at_its_limit_or_whose_root_disk_is
         assert_eq!(launched, [("nexus".to_owned(), "claude:a".to_owned())]);
         assert!(skipped[0].contains(&format!("gex45 takes nothing: {why}")), "{}", skipped[0]);
     }
+}
+
+pub(super) fn a_host_whose_pushed_github_token_is_past_its_trust_takes_no_session_and_its_box_places_on_another_host() {
+    let accounts = vec![account("claude:a", &["nexus"]), account("claude:b", &["gex45"])];
+    let aged = |minutes: u64| host("gex45", 24, Ok(0)).read(Some(&Saturation { token_age_s: Some(minutes * 60), ..reading(400.0, 936.0, 0) }));
+    assert_eq!(aged(54).free(), Ok(24), "a token inside its 55 min trust refuses nothing");
+    let stale = aged(56);
+    assert_eq!(stale.free(), Err("gex45 skipped: its GitHub token is 56 min old, past its 55 min trust, so a worker there cannot reach GitHub".to_owned()));
+    let (launched, skipped) = placed(vec![stale, host("nexus", 6, Ok(0))], accounts, 1);
+    assert_eq!(launched, [("nexus".to_owned(), "claude:a".to_owned())]);
+    assert!(skipped.is_empty(), "{skipped:?}");
+    let probed = crate::capacity::saturation::parse("65536000\n49152000\n/dev/md1 981000000 400000000 500000000 45% /\n#backlog\n0 1.0 20\n#token\n3400\n").unwrap();
+    assert_eq!(probed.token_age_s, Some(3400));
+    assert_eq!(crate::capacity::saturation::parse("65536000\n49152000\n/dev/md1 981000000 400000000 500000000 45% /\n#backlog\n#token\n").unwrap().token_age_s, None, "a host that mints its own token reports none");
 }

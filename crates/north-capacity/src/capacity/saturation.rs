@@ -5,18 +5,20 @@
 //! host idles, and alerts on a stalled fleet read the same signals through `Saturation::refusal`.
 use super::admission::{self, Class, default_mib as default};
 use super::disk_line::Line;
+use north_base::platform::pushed_token::FRESH_SECONDS;
 
 const DISK_FLOOR: &str = "build_disk_free_gib";
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
 const KIB_PER_MIB: f64 = 1024.0;
 const BACKLOG_MARK: &str = "#backlog";
+const TOKEN_MARK: &str = "#token";
 
 /// Jobs queued in machine-capacity admission at which a host takes no new session.
 pub const QUEUED_LIMIT: u32 = 4;
 
 /// Prints, one per line: `MemTotal` and `MemAvailable` in kB, then `df -Pk /`, then the backlog mark and
-/// `north capacity host backlog`, which a host on an older runtime leaves empty.
-pub const PROBE: &str = "awk '/^MemTotal:|^MemAvailable:/ {print $2}' /proc/meminfo; df -Pk / | tail -1; echo '#backlog'; \"$HOME/.local/state/north/current/tree/bin/north\" capacity host backlog 2>/dev/null; true";
+/// `north capacity host backlog`, which a host on an older runtime leaves empty, then the token mark and the seconds since the App token the laptop pushes to the host was written, which a host that mints its own token leaves empty.
+pub const PROBE: &str = "awk '/^MemTotal:|^MemAvailable:/ {print $2}' /proc/meminfo; df -Pk / | tail -1; echo '#backlog'; \"$HOME/.local/state/north/current/tree/bin/north\" capacity host backlog 2>/dev/null; echo '#token'; t=\"$HOME/.local/state/north/gh-write-token\"; [ -f \"$t\" ] && echo $(($(date +%s) - $(stat -c %Y \"$t\"))); true";
 
 /// What waits on a host: jobs queued in admission and the one-minute load average against its threads.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -56,10 +58,14 @@ pub struct Saturation {
     pub disk_total_gib: f64,
     #[serde(default)]
     pub backlog: Option<Backlog>,
+    /// Seconds since the App token pushed to the host was written, None when the host mints its own.
+    #[serde(default)]
+    pub token_age_s: Option<u64>,
 }
 
 pub fn parse(text: &str) -> Option<Saturation> {
-    let (readings, backlog) = text.split_once(BACKLOG_MARK).unwrap_or((text, ""));
+    let (readings, rest) = text.split_once(BACKLOG_MARK).unwrap_or((text, ""));
+    let (backlog, token) = rest.split_once(TOKEN_MARK).unwrap_or((rest, ""));
     let mut lines = readings.lines();
     let total_kib: f64 = lines.next()?.trim().parse().ok()?;
     let available_kib: f64 = lines.next()?.trim().parse().ok()?;
@@ -67,12 +73,16 @@ pub fn parse(text: &str) -> Option<Saturation> {
     let total: f64 = df.nth(1)?.parse().ok()?;
     let kib: f64 = df.nth(1)?.parse().ok()?;
     let backlog = backlog.lines().find_map(Backlog::parse);
-    Some(Saturation { memory_total_mib: total_kib / KIB_PER_MIB, memory_available_mib: available_kib / KIB_PER_MIB, disk_free_gib: kib / KIB_PER_GIB, disk_total_gib: total / KIB_PER_GIB, backlog })
+    let token_age_s = token.lines().find_map(|line| line.trim().parse().ok());
+    Some(Saturation { memory_total_mib: total_kib / KIB_PER_MIB, memory_available_mib: available_kib / KIB_PER_MIB, disk_free_gib: kib / KIB_PER_GIB, disk_total_gib: total / KIB_PER_GIB, backlog, token_age_s })
 }
 
 impl Saturation {
-    /// Why `host` takes no new session, the first of: too little available memory beyond a session's own request, a root disk under the build floor or past the eviction line the lease reaper reclaims under, or queued jobs at the limit or load over its threads.
+    /// Why `host` takes no new session, the first of: a GitHub token past its trust window, too little available memory beyond a session's own request, a root disk under the build floor or past the eviction line the lease reaper reclaims under, or queued jobs at the limit or load over its threads.
     pub fn refusal(&self, host: &str) -> Option<String> {
+        if let Some(age) = self.token_age_s.filter(|age| *age >= FRESH_SECONDS.unsigned_abs()) {
+            return Some(format!("{host} skipped: its GitHub token is {} min old, past its {} min trust, so a worker there cannot reach GitHub", age / 60, FRESH_SECONDS / 60));
+        }
         let request = admission::dispatch_request_mib(Class::Agent);
         if admission::memory_short(self.memory_total_mib, self.memory_available_mib, request) {
             return Some(format!("{host} skipped: {:.1} GiB of memory available, too little beside a {:.1} GiB session", self.memory_available_mib / 1024.0, request / 1024.0));
@@ -93,13 +103,13 @@ impl Saturation {
 impl From<Saturation> for north_strategy_types::placement::Saturation {
     fn from(reading: Saturation) -> Self {
         let backlog = reading.backlog.map(|backlog| north_strategy_types::placement::Backlog { queued: backlog.queued, load: backlog.load, threads: backlog.threads });
-        Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, disk_total_gib: reading.disk_total_gib, backlog }
+        Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, disk_total_gib: reading.disk_total_gib, backlog, token_age_s: reading.token_age_s }
     }
 }
 
 impl From<north_strategy_types::placement::Saturation> for Saturation {
     fn from(reading: north_strategy_types::placement::Saturation) -> Self {
         let backlog = reading.backlog.map(|backlog| Backlog { queued: backlog.queued, load: backlog.load, threads: backlog.threads });
-        Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, disk_total_gib: reading.disk_total_gib, backlog }
+        Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, disk_total_gib: reading.disk_total_gib, backlog, token_age_s: reading.token_age_s }
     }
 }
