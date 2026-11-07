@@ -2,7 +2,6 @@ mod arm;
 mod judge;
 mod source;
 mod spec;
-mod verdict;
 
 use std::fs;
 use std::io::{Read, Write};
@@ -30,7 +29,9 @@ const USAGE: &str = "usage: north policy-replay case CASE... [--arm NAME=GENERAT
   GENERATION is own (the agent generation the session ran under), current, a gen-* directory, or REPO@REV: the session's
   own generation with the skills, CLAUDE.md and agent definitions that REPO (north or south) holds at revision REV.
   The first arm is the base. Each case runs --samples per arm (default 2, and a third when the two disagree); with two
-  arms a judged case prints kept or regressed only when the arms differ at the 90% level, else inconclusive.";
+  arms a judged case prints kept or regressed only when the arms differ at the 90% level, else inconclusive. A case file
+  replayed with arms named base and lane gets its graded samples in CASE.proof.jsonl beside it, the proof
+  `north land scan detector-proof` reads.";
 
 struct Options {
     ids: Vec<String>,
@@ -240,7 +241,7 @@ fn report(prepared: &[Prepared], rows: &[Value]) -> (Vec<String>, usize) {
             (_, Some((&base, lanes))) if !lanes.is_empty() => lanes
                 .iter()
                 .zip(&entry.arms[1..])
-                .map(|(&lane, (name, ..))| format!("{name} {}", verdict::decide(base, lane, entry.spec.detector.deterministic()).map_or_else(|| "ungraded".to_owned(), |verdict| verdict.line())))
+                .map(|(&lane, (name, ..))| format!("{name} {}", crate::platform::replay_verdict::decide(base, lane, entry.spec.detector.deterministic()).map_or_else(|| "ungraded".to_owned(), |verdict| verdict.line())))
                 .collect::<Vec<_>>()
                 .join("; "),
             _ => "ungraded".to_owned(),
@@ -282,6 +283,7 @@ fn replayed(options: &Options) -> Result<u8, NorthError> {
         .collect();
     rows.extend(run_jobs(&prepared, &split, options, &out)?);
     let (lines, reproduced) = report(&prepared, &rows);
+    write_proofs(options, &prepared, &rows)?;
     for line in lines.iter().chain(&unreplayable) {
         println!("{line}");
     }
@@ -295,6 +297,28 @@ fn replayed(options: &Options) -> Result<u8, NorthError> {
         out.display()
     );
     Ok(0)
+}
+
+fn write_proofs(options: &Options, prepared: &[Prepared], rows: &[Value]) -> Result<(), NorthError> {
+    use crate::platform::replay_verdict::{BASE_ARM, LANE_ARM, PROOF_SUFFIX, proof_row};
+    let named = |arm: &str| options.arms.iter().any(|candidate| candidate.name == arm);
+    if !named(BASE_ARM) || !named(LANE_ARM) {
+        return Ok(());
+    }
+    for path in options.ids.iter().filter_map(|id| id.strip_suffix(".toml")) {
+        let id = std::path::Path::new(path).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        let Some(entry) = prepared.iter().find(|entry| entry.case.id == id) else { continue };
+        let deterministic = entry.spec.detector.deterministic();
+        let lines: String = rows
+            .iter()
+            .filter(|row| row["case"] == id.as_str() && (row["arm"] == BASE_ARM || row["arm"] == LANE_ARM))
+            .map(|row| proof_row(row["arm"].as_str().unwrap_or(""), row["generation"].as_str().unwrap_or(""), row["sample"].as_u64().unwrap_or(0) as usize, row["repeats"].as_bool(), deterministic).to_string() + "\n")
+            .collect();
+        let proof = format!("{path}{PROOF_SUFFIX}");
+        fs::write(&proof, lines).map_err(NorthError::Io)?;
+        println!("proof for {id} in {proof}; commit it beside the case");
+    }
+    Ok(())
 }
 
 pub fn run(arguments: &[String]) -> u8 {

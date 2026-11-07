@@ -56,6 +56,7 @@ pub mod terminal;
 pub mod session_scope;
 pub mod pyjson;
 pub mod pystats;
+pub mod replay_verdict;
 pub mod trials;
 pub mod twister;
 pub mod wait;

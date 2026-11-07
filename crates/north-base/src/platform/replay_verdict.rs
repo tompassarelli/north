@@ -1,4 +1,4 @@
-use crate::platform::trials::{Verdict as Shift, compare};
+use super::trials::{Verdict as Shift, compare};
 
 const MOST_SAMPLES: usize = 50;
 
@@ -49,6 +49,26 @@ pub fn decide(base: (usize, usize), lane: (usize, usize), deterministic: bool) -
             Verdict::Inconclusive((2..=MOST_SAMPLES).find(|&n| shift(at(n, base), at(n, lane)) != Shift::Same))
         }
     })
+}
+
+pub const BASE_ARM: &str = "base";
+pub const LANE_ARM: &str = "lane";
+pub const PROOF_SUFFIX: &str = ".proof.jsonl";
+
+/// One graded sample of a harness case replay, the line `north policy-replay case` writes to the case's proof file.
+pub fn proof_row(arm: &str, generation: &str, sample: usize, repeats: Option<bool>, deterministic: bool) -> serde_json::Value {
+    serde_json::json!({"arm": arm, "generation": generation, "sample": sample, "repeats": repeats, "detector": if deterministic { "pattern" } else { "judge" }})
+}
+
+/// The verdict a case's proof file reads between its `base` and `lane` arms, or `None` when either arm has no graded sample.
+pub fn proven(proof: &str) -> Option<Verdict> {
+    let rows: Vec<serde_json::Value> = proof.lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+    let count = |arm: &str| {
+        let marks: Vec<bool> = rows.iter().filter(|row| row["arm"] == arm).filter_map(|row| row["repeats"].as_bool()).collect();
+        (marks.iter().filter(|mark| **mark).count(), marks.len())
+    };
+    let deterministic = !rows.is_empty() && rows.iter().all(|row| row["detector"] == "pattern");
+    decide(count(BASE_ARM), count(LANE_ARM), deterministic)
 }
 
 #[cfg(test)]

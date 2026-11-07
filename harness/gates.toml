@@ -11,3 +11,7 @@ decisions = 58
 # A proxy launches a worker only on one of the top five issues of `north graph ready` or an issue it filed or edited in a turn answering a message Tom typed (north#734). Would-be refusals: $XDG_STATE_HOME/north/gates/proxy-launch-rank.jsonl on the launching host.
 [gate.proxy-launch-rank]
 mode = "shadow"
+
+# A lane whose Box: trailer ticks a detector-filed box lands only with its guard's proof (north#706). Would-be refusals: $XDG_STATE_HOME/north/gates/detector-proof.jsonl on the pushing host.
+[gate.detector-proof]
+mode = "shadow"

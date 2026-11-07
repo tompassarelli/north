@@ -29,7 +29,9 @@ agent behavior through harness text (a skill, `CLAUDE.md` or an agent definition
 adds its case under `harness/cases/`, cut at a turn that loaded the text it
 changes, and its report shows `north policy-replay case harness/cases/NAME.toml
 --arm base=north@origin/main --arm lane=north@HEAD` failing on the base text and
-passing on the lane's, because text a replay never saw fail may change nothing.
+passing on the lane's, and commits the `NAME.proof.jsonl` that run writes, because
+text a replay never saw fail may change nothing; a lane ticking a detector-filed
+box lands only with that proof reading kept.
 A judged case decides only at the 90% level; on an inconclusive replay the text
 stays as it is. Once an enforcer
 holds the rule, delete the prose, because it then only costs context.
