@@ -410,7 +410,7 @@ may_use = ["foundation", "platform.github", "platform.process"]
 
 [[module]]
 name = "landing"
-paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/land_model/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**", "crates/north-landing-gates/src/follows_release.rs", "crates/north-landing-gates/src/issue_box_lint.rs", "crates/north-landing-gates/src/land_abandon.rs", "crates/north-landing-gates/src/land_abandon/**", "crates/north-landing-gates/src/landing/**", "crates/north-land-scans/src/**"]
+paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**", "crates/north-landing-gates/src/follows_release.rs", "crates/north-landing-gates/src/issue_box_lint.rs", "crates/north-landing-gates/src/land_abandon.rs", "crates/north-landing-gates/src/land_abandon/**", "crates/north-landing-gates/src/landing/**", "crates/north-land-scans/src/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
 may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host"]
 

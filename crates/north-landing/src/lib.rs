@@ -3,6 +3,5 @@ pub use north_landing_gates::{autoland_status, build_cache_gate, dep_gate, error
 
 pub mod issue_body;
 pub mod land;
-pub mod land_model;
 pub mod landing;
 pub mod watch;
