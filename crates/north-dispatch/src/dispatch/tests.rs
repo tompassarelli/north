@@ -108,6 +108,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         saturated: BTreeMap::new(),
         revived: BTreeMap::new(),
         backlog: None,
+        fresh_waits: Vec::new(),
         at: 0.0,
     }
 }

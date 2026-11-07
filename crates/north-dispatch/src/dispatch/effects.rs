@@ -94,6 +94,14 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
     result
 }
 
+/// Records, for each dated stop learned this pass, that its session ended its turn on a wait for a date: a waits loss, since
+/// a session holding its own job, lane or build stays open until that ends and is never scored on this run.
+pub fn record_waits(learned: &[super::wait_stops::Learned]) {
+    for wait in learned {
+        attribution::record(&wait.session, "dispatch", Cause::Harness(Harness::Waits), &format!("{} stopped until {} on a box that was not due", wait.item, wait.until));
+    }
+}
+
 /// Stores the launched tier's shrunk success probability for the box's first run, so `north tune` scores it; a
 /// failed store is printed and leaves the launch standing.
 fn predict(launch: &Launch) {

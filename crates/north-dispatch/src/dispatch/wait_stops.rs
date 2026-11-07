@@ -25,9 +25,10 @@ pub fn read(directory: &Path) -> Vec<Learned> {
 }
 
 /// Records the `Stop: wait until T` each issue's newest launch reported while T is ahead of `at`, once per session and time,
-/// and returns every record including the new ones.
-pub fn learn(directory: &Path, issues: &[Issue], session_of: impl Fn(&Issue) -> Option<String>, at: f64) -> Result<Vec<Learned>, String> {
+/// and returns every record including the new ones, then the new ones alone.
+pub fn learn(directory: &Path, issues: &[Issue], session_of: impl Fn(&Issue) -> Option<String>, at: f64) -> Result<(Vec<Learned>, Vec<Learned>), String> {
     let mut known = read(directory);
+    let first = known.len();
     let mut fresh = String::new();
     for issue in issues {
         let (Some((until, until_at)), Some(session)) = (issue.stop.until.clone().filter(|(_, until_at)| *until_at > at), session_of(issue)) else { continue };
@@ -44,7 +45,8 @@ pub fn learn(directory: &Path, issues: &[Issue], session_of: impl Fn(&Issue) -> 
         let mut file = std::fs::OpenOptions::new().create(true).append(true).open(directory.join(FILE)).map_err(|error| error.to_string())?;
         file.write_all(fresh.as_bytes()).map_err(|error| error.to_string())?;
     }
-    Ok(known)
+    let new = known[first..].to_vec();
+    Ok((known, new))
 }
 
 /// The latest time ahead of `at` that a learned wait holds `issue` until, as written and as unix seconds: a wait counts while

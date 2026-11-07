@@ -108,8 +108,9 @@ pub fn outcome_column(db: &Connection) -> &'static str {
 }
 
 /// The SQL expression for a run's recorded cause: the latest cause a boundary recorded for the run's fleet session, else
-/// `waits` when the session registered a wait inside the run's window (a live `fleet_waits` row or a settled
-/// `fleet_wait_history` row, which `fleet_waits` drops at the wait's end), else NULL in a ledger that has neither.
+/// `waits` when the session registered a wait on something it did not run itself (a `farm` or `branch` row, live in
+/// `fleet_waits` or settled in `fleet_wait_history`) inside the run's window, else NULL in a ledger that has neither. A `job` or
+/// `capture` wait is the session's own background work: the run stays open while it holds and the session's wake judges it.
 pub fn recorded_column(db: &Connection) -> String {
     let has = |sql: &str| db.query_row(sql, [], |_| Ok(())).is_ok();
     let table = |name: &str| has(&format!("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '{name}'"));
@@ -118,7 +119,7 @@ pub fn recorded_column(db: &Connection) -> String {
     }
     let window = "session = runs.fleet_name AND created >= coalesce(runs.started, '') AND created <= coalesce(strftime('%Y-%m-%dT%H:%M:%SZ', runs.ended, '+10 minutes'), '9')";
     let boundary = table("boundary_causes").then(|| "(SELECT cause FROM boundary_causes WHERE session = runs.fleet_name AND source != 'resume' AND at >= coalesce(runs.started, '') ORDER BY at DESC, rowid DESC LIMIT 1)".to_owned());
-    let waited: Vec<String> = ["fleet_wait_history", "fleet_waits"].into_iter().filter(|name| table(name)).map(|name| format!("SELECT 'waits' AS cause FROM {name} WHERE {window}")).collect();
+    let waited: Vec<String> = ["fleet_wait_history", "fleet_waits"].into_iter().filter(|name| table(name)).map(|name| format!("SELECT 'waits' AS cause FROM {name} WHERE kind IN ('farm', 'branch') AND {window}")).collect();
     let waited = (!waited.is_empty()).then(|| format!("(SELECT cause FROM ({} LIMIT 1))", waited.join(" UNION ALL ")));
     match (boundary, waited) {
         (Some(boundary), Some(waited)) => format!("coalesce({boundary}, {waited})"),

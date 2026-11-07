@@ -67,6 +67,8 @@ pub struct Survey {
     pub revived: BTreeMap<String, u64>,
     /// The box waits and ranks in the fact graph, absent when the graph could not be read.
     pub backlog: Option<north_graph_ground::Backlog>,
+    /// The dated stops this pass learned for the first time, which `execute` records as waits causes.
+    pub fresh_waits: Vec<super::wait_stops::Learned>,
     pub at: f64,
 }
 
@@ -427,9 +429,9 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref()), crate::fleet::registry::retired_report_here, &mut notes);
     let launches = super::stops::last_launches(&records);
     let learned = super::host_needs::read(&record::directory());
-    let waits = super::wait_stops::learn(&record::directory(), &issues, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap_or_else(|why| {
+    let (waits, fresh_waits) = super::wait_stops::learn(&record::directory(), &issues, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap_or_else(|why| {
         notes.push(format!("wait-stops.jsonl unwritten, so this pass reads only the waits already in it: {why}"));
-        super::wait_stops::read(&record::directory())
+        (super::wait_stops::read(&record::directory()), Vec::new())
     });
     for issue in &mut issues {
         issue.needs = super::host_needs::of(issue, &learned, at);
@@ -453,7 +455,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         Vec::new()
     });
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, fresh_waits, at })
 }
 
 pub(super) mod github;

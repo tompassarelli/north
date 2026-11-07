@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::path::Path;
 use std::sync::LazyLock;
 
 use north_github_mirror::store::{self as mirror, Mirror};
@@ -99,6 +100,8 @@ pub struct Pending {
     pub lanes: BTreeMap<String, Vec<Lane>>,
     /// Sessions holding an unexpired wait lease in the fleet ledger (a `job-run --notify` job, farm, branch or capture), whose end wakes them.
     pub waking: BTreeSet<String>,
+    /// This host's capacity admission state: a session with a build still queued or running there is woken by its result to report again.
+    pub admission: Option<std::path::PathBuf>,
     /// This host's capacity database: a failed run whose session queued past the bound for admission inside its window lost to capacity, whatever its report says.
     pub capacity: Option<Connection>,
     /// When the scorer reads: a first try with a recorded host need that ended less than `RELAUNCH_WAIT_S` before it waits on its relaunch.
@@ -107,7 +110,7 @@ pub struct Pending {
 
 impl Pending {
     pub fn read(db: &Connection, now: i64) -> Self {
-        Self { lanes: lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default(), waking: waking_sessions(db, now), capacity: capacity_database_readonly(), now }
+        Self { lanes: lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default(), waking: waking_sessions(db, now), admission: Some(crate::platform::admission_root::here()), capacity: capacity_database_readonly(), now }
     }
 
     fn queued_behind_capacity(&self, session: &str, from: i64, to: i64) -> bool {
@@ -115,7 +118,7 @@ impl Pending {
     }
 
     fn holds(&self, session: &str) -> bool {
-        self.lanes.get(session).is_some_and(|lanes| lanes.iter().any(Lane::undecided)) || self.waking.contains(session)
+        self.lanes.get(session).is_some_and(|lanes| lanes.iter().any(Lane::undecided)) || self.waking.contains(session) || self.admission.as_ref().is_some_and(|root| !crate::fleet::builds::held(root, Path::new("/proc"), session).is_empty())
     }
 }
 

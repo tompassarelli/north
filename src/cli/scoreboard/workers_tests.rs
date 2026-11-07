@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::path::Path;
 
 use rusqlite::Connection;
 
@@ -124,18 +125,36 @@ fn a_failed_run_whose_session_queued_past_the_bound_for_capacity_is_a_capacity_l
 }
 
 /// The ten `Stop: wait until` runs of 2026-11-06 23:00 to 2026-11-07 06:14 UTC had no row in `fleet_waits`, which drops a wait
-/// at its end (north#791): `fleet_wait_history` keeps each settled wait, and a failed run whose session registered one inside
-/// its window lost to waits whatever its report says, while a wait registered after the run's window is no evidence about it.
+/// at its end (north#791): `fleet_wait_history` keeps each settled wait. A wait on an unlanded branch lost the run to waits,
+/// while a wait on the session's own job did not, since that job's end wakes the session to report again (north#706), and a
+/// wait registered after the run's window is no evidence about it.
 #[test]
-fn a_failed_run_whose_session_registered_a_wait_inside_its_window_is_a_waits_loss_after_the_wait_settled() {
+fn only_a_registered_wait_on_something_the_session_did_not_run_is_a_waits_loss_after_it_settled() {
     let db = Connection::open_in_memory().unwrap();
     db.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, follows TEXT, category TEXT, started TEXT, ended TEXT, minutes INTEGER, outcome TEXT, report TEXT, role TEXT, brief_text TEXT, compactions INTEGER, fleet_name TEXT); CREATE TABLE fleet_wait_history(session TEXT, kind TEXT, key TEXT, created TEXT, settled TEXT);").unwrap();
-    for (agent, started, ended) in [("d0351", "2026-11-07T03:52:00Z", "2026-11-07T05:41:00Z"), ("d0352", "2026-11-07T01:00:00Z", "2026-11-07T02:00:00Z")] {
+    for (agent, kind, started, ended) in [("d0351", "job", "2026-11-07T03:52:00Z", "2026-11-07T05:41:00Z"), ("d0352", "branch", "2026-11-07T01:00:00Z", "2026-11-07T05:41:00Z"), ("d0353", "branch", "2026-11-07T01:00:00Z", "2026-11-07T02:00:00Z")] {
         db.execute("INSERT INTO runs VALUES (?1, 'north#730', NULL, 'bug', ?2, ?3, 60, 'not done', 'Not done: the fix is queued.', 'worker', '', 0, ?4)", rusqlite::params![agent, started, ended, format!("north-730-{agent}")]).unwrap();
-        db.execute("INSERT INTO fleet_wait_history VALUES (?1, 'job', 'n730-poolkey-landed', '2026-11-07T05:41:48Z', '2026-11-07T06:03:39Z')", [format!("north-730-{agent}")]).unwrap();
+        db.execute("INSERT INTO fleet_wait_history VALUES (?1, ?2, 'n730-poolkey-landed', '2026-11-07T05:41:48Z', '2026-11-07T06:03:39Z')", rusqlite::params![format!("north-730-{agent}"), kind]).unwrap();
     }
     let read = attempts(&db, 0, &BTreeSet::new(), &Pending::default()).unwrap();
-    assert_eq!(read.iter().map(|attempt| attempt.cause).collect::<Vec<_>>(), [Cause::Worker, Cause::Harness(Harness::Waits)]);
+    assert_eq!(read.iter().map(|attempt| attempt.cause).collect::<Vec<_>>(), [Cause::Harness(Harness::Waits), Cause::Worker, Cause::Worker]);
+}
+
+/// north-697-d0601 ended `Stop: capacity` on 2026-11-07 while its own cargo nextest waited in admission for a heavy lease
+/// (north#706): the run stays open while the session's build is queued or running there, and counts once the build is gone.
+#[test]
+fn a_first_try_is_pending_while_the_sessions_own_build_waits_in_capacity_admission() {
+    let admission = tempfile::tempdir().unwrap();
+    let me = std::process::id();
+    let stat = fs::read_to_string(format!("/proc/{me}/stat")).unwrap();
+    let start = stat[stat.rfind(')').unwrap() + 2..].split(' ').nth(19).unwrap().to_owned();
+    fs::create_dir_all(admission.path().join("queue")).unwrap();
+    fs::write(admission.path().join("queue/ticket.json"), format!(r#"{{"owner":"gate:north-697-d0601","wrapperPid":{me},"wrapperStart":"{start}"}}"#)).unwrap();
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, follows TEXT, category TEXT, started TEXT, ended TEXT, minutes INTEGER, outcome TEXT, report TEXT, role TEXT, brief_text TEXT, compactions INTEGER, fleet_name TEXT);").unwrap();
+    db.execute("INSERT INTO runs VALUES ('d0601', 'north#697', NULL, 'bug', '2026-11-07T05:00:00Z', '2026-11-07T06:00:00Z', 60, 'not done', 'Not done: the test run is queued.\nStop: capacity', 'worker', '', 0, 'north-697-d0601')", []).unwrap();
+    let read = |root: &Path| attempts(&db, 0, &BTreeSet::new(), &Pending { admission: Some(root.to_path_buf()), ..Pending::default() }).unwrap().len();
+    assert_eq!((read(admission.path()), read(tempfile::tempdir().unwrap().path())), (0, 1));
 }
 
 /// north-750-d1226 landed its server half on gex45 and stopped for the box only the laptop can prove at 12:29 UTC on
