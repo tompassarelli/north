@@ -35,7 +35,7 @@ follow --repo-dir DIR  after a landing: start promote in the background when DIR
 agents [VERSION]       update this host's north runtime, then the Claude and Agy runtimes, as the twice-daily timer does
 claude|agy [VERSION]   install a checksum-verified Claude or Agy runtime and select it
 covers [--head REV] [--code PATH,...]
-                       print the live runtime's north when REV (default HEAD) in this checkout changes no Rust build input since it, or with --code none of those path prefixes nor Cargo.lock or rust-toolchain.toml, so a land check runs it instead of building north from the tree";
+                       print the live runtime's north when REV (default HEAD) in this checkout changes no Rust build input since it, or with --code none of those path prefixes nor rust-toolchain.toml nor any package Cargo.lock held at the live runtime (a lock that only adds packages still covers), so a land check runs it instead of building north from the tree";
 
 pub fn stage_on(host: &str, sha: &str, runtime: &Path) -> Result<(), String> {
     deploy::stage_runtime(host, sha, runtime).map_err(|failure| failure.message)

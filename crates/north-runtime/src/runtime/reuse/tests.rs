@@ -72,3 +72,22 @@ fn no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree() {
     }
 }
 
+
+#[test]
+fn a_lock_that_only_adds_a_package_still_lets_the_live_runtime_run_an_unchanged_checker() {
+    let checkout = tempfile::tempdir().unwrap();
+    let git = |args: &[&str]| assert!(std::process::Command::new("git").current_dir(checkout.path()).args(args).status().unwrap().success());
+    let commit = |lock: &str| {
+        fs::write(checkout.path().join("Cargo.lock"), lock).unwrap();
+        git(&["add", "Cargo.lock"]);
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "lock"]);
+        String::from_utf8(std::process::Command::new("git").current_dir(checkout.path()).args(["rev-parse", "HEAD"]).output().unwrap().stdout).unwrap().trim().to_owned()
+    };
+    git(&["init", "-q"]);
+    let serde = "[[package]]\nname = \"serde\"\nversion = \"1.0.1\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"aa\"\n";
+    let live = commit(&format!("version = 4\n\n[[package]]\nname = \"north\"\nversion = \"0.1.0\"\ndependencies = [\n \"serde\",\n]\n\n{serde}"));
+    let added = commit(&format!("version = 4\n\n[[package]]\nname = \"north\"\nversion = \"0.1.0\"\ndependencies = [\n \"north-frontier\",\n \"serde\",\n]\n\n[[package]]\nname = \"north-frontier\"\nversion = \"0.1.0\"\n\n{serde}"));
+    let bumped = commit(&format!("version = 4\n\n{}", serde.replace("1.0.1", "1.0.2").replace("aa", "bb")));
+    assert!(super::keeps_every_locked_package(checkout.path(), &live, &added), "laptop safe-push of the north-frontier lane built north from the tree in depbox, which reaches no build host (north#671)");
+    assert!(!super::keeps_every_locked_package(checkout.path(), &live, &bumped), "a dependency the live runtime was built with moved, so it no longer covers the checker");
+}
