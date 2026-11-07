@@ -39,6 +39,10 @@ impl Resident {
     }
 }
 
+fn promoted(program: &str) -> bool {
+    program.split('/').any(|part| part == "runtimes")
+}
+
 fn runs(program: &str, runtime: &str) -> bool {
     let mut parts = program.split('/');
     parts.any(|part| part == "runtimes") && parts.next() == Some(runtime)
@@ -59,7 +63,7 @@ impl NorthProcesses {
         let mut watchdogs: Vec<(&str, &str)> = Vec::new();
         for line in section.lines().filter(|line| !line.is_empty()) {
             let argv: Vec<&str> = line.split('\t').collect();
-            match (Resident::of(&argv[1..]), &argv[1..]) {
+            match (Resident::of(&argv[1..]).filter(|_| promoted(argv[0])), &argv[1..]) {
                 (Some(resident), _) => {
                     *processes.residents.entry(resident).or_default() += 1;
                     if let (Resident::SessionHost, Some(name)) = (resident, argv.iter().position(|word| *word == "--name").and_then(|at| argv.get(at + 1))) {
@@ -387,6 +391,17 @@ mod tests {
         let (problems, record) = proc.problems();
         assert_eq!(problems, Vec::<String>::new());
         assert_eq!(record, json!({"transient": 0, "liveSessions": 3, "residents": {"session-host": 3, "session-link": 2, "fleet watchdog": 2}, "strayWatchdogs": 0}));
+    }
+
+    #[test]
+    fn a_session_host_a_land_check_test_runs_from_its_sandbox_build_is_not_a_fleet_resident() {
+        let mut proc = FakeProc::new();
+        proc.sessions(1, 1);
+        proc.spawn("north", &["/home/tom/code/north/sandbox/target/debug/north", "session-host", "--name", "worker", "--generation", "1", "--state-dir", "/tmp/.tmpOQQkoY/.local/state/north/fleet/worker"]);
+        proc.spawn("north", &["/home/tom/code/north/sandbox/target/debug/north", "session-host", "--name", "worker-0", "--generation", "1"]);
+        let (problems, record) = proc.problems();
+        assert_eq!(problems, Vec::<String>::new());
+        assert_eq!(record["residents"]["session-host"], json!(1));
     }
 
     #[test]
