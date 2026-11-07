@@ -7,7 +7,7 @@ use toml_edit::{DocumentMut, Item};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, ApiKey, ProviderName};
-use crate::fleet::roster::{Declared, Roster};
+use crate::fleet::roster::{Declared, Roster, Spent};
 use crate::fleet::runtime::labelled_homes;
 
 use super::api_pool::{self, Org};
@@ -60,7 +60,8 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
             Some((Account { provider: provider.clone(), label: label.clone(), home: home.clone(), token_file: Some(file.clone()), api: None }, None))
         })
         .collect();
-    found.extend(api_accounts(provider, &state_root.join("api-exhausted"), profiles, readable_token));
+    let (api, spent) = api_accounts(provider, &state_root.join("api-exhausted"), profiles, readable_token);
+    found.extend(api);
     found.extend(tokens);
     found.extend(owned_elsewhere);
     let holders = profiles
@@ -69,21 +70,23 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
         .filter(|(label, _)| !found.iter().any(|(account, _)| &account.label == label))
         .filter_map(|(label, home)| Some((label.clone(), identity(home, &profiles.default_home)?)))
         .collect();
-    Roster::distinct(found, &Declared { keepers: profiles.keepers.clone(), holders, elsewhere: profiles.elsewhere.clone() })
+    Roster { spent, ..Roster::distinct(found, &Declared { keepers: profiles.keepers.clone(), holders, elsewhere: profiles.elsewhere.clone() }) }
 }
 
 /// The pooled API account `label` launches on the entry whose credit expires soonest, and one pinned account `label:ORG` per entry, so a session can be relaunched on the key it ran on.
-fn api_accounts(provider: &ProviderName, marks: &Path, profiles: &Profiles, usable: impl Fn(&Path) -> bool + Copy) -> Vec<(Account, Option<String>)> {
+fn api_accounts(provider: &ProviderName, marks: &Path, profiles: &Profiles, usable: impl Fn(&Path) -> bool + Copy) -> (Vec<(Account, Option<String>)>, Vec<Spent>) {
     let account = |label: String, home: &PathBuf, key: ApiKey| (Account { provider: provider.clone(), label, home: home.clone(), token_file: None, api: Some(key) }, None);
-    let mut accounts = Vec::new();
+    let (mut accounts, mut spent) = (Vec::new(), Vec::new());
     for (label, home) in &profiles.api {
         let pinned = |org: &Org| org.keys.iter().find(|file| usable(file)).map(|file| ApiKey { org: org.name.clone(), file: file.clone() });
         if let Some((_, key)) = api_pool::open(&profiles.orgs, &api_pool::today(), |org| api_pool::exhausted(marks, org), usable) {
             accounts.push(account(label.clone(), home, key));
+        } else if let Some(orgs) = api_pool::spent(&profiles.orgs, marks) {
+            spent.push(Spent { provider: provider.clone(), label: label.clone(), orgs });
         }
         accounts.extend(profiles.orgs.iter().filter_map(|org| Some(account(format!("{label}:{}", org.name), home, pinned(org)?))));
     }
-    accounts
+    (accounts, spent)
 }
 
 fn open_grants(policy: &Path, home: &Path) -> BTreeMap<String, Vec<Grant>> {
@@ -100,8 +103,12 @@ pub fn on_machine(provider: &ProviderName, path: &Path, home: &Path, label: &str
     let policy: DocumentMut = std::fs::read_to_string(path).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
     let keyed = profiles(&policy, &open_grants(path, home), home, machine);
     let marks = home.join(".local/state/north/api-exhausted");
-    if let Some((account, _)) = api_accounts(provider, &marks, &keyed, |_: &Path| true).into_iter().find(|(account, _)| account.label == label) {
+    let (api, spent) = api_accounts(provider, &marks, &keyed, |_: &Path| true);
+    if let Some((account, _)) = api.into_iter().find(|(account, _)| account.label == label) {
         return Ok(account);
+    }
+    if let Some(spent) = spent.iter().find(|spent| spent.label == label) {
+        return Err(NorthError::Refused(spent.to_string()));
     }
     let hosts = policy.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("profiles")).and_then(|profiles| profiles.get(label)).and_then(Item::as_table_like);
     let owners: Vec<&str> = hosts.into_iter().flat_map(|hosts| hosts.iter().map(|(host, _)| host)).collect();

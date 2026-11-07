@@ -27,6 +27,12 @@ pub fn mark(dir: &Path, id: &str, session: &str, today: &str, until: Option<&str
     Ok(true)
 }
 
+/// The day from which the mark for organization `id` under `dir` stops holding, when it names one.
+pub fn until(dir: &Path, id: &str) -> Option<String> {
+    let mark = std::fs::read_to_string(dir.join(id)).ok()?;
+    mark.split_whitespace().find_map(|word| word.strip_prefix(UNTIL)).map(str::to_owned)
+}
+
 /// Every mark under `dir` that holds on `today`, by organization id.
 pub fn all(dir: &Path, today: &str) -> BTreeMap<String, String> {
     let files = std::fs::read_dir(dir).into_iter().flatten().flatten();

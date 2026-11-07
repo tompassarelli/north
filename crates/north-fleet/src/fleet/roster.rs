@@ -10,6 +10,7 @@ pub struct Roster {
     pub accounts: Vec<Account>,
     pub duplicates: Vec<Duplicate>,
     pub foreign: Vec<Foreign>,
+    pub spent: Vec<Spent>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -24,6 +25,13 @@ pub struct Foreign {
     pub owners: Vec<String>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spent {
+    pub provider: ProviderName,
+    pub label: String,
+    pub orgs: Vec<String>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Declared {
     pub keepers: BTreeMap<String, String>,
@@ -35,6 +43,7 @@ pub enum Standing<'a> {
     Listed(&'a Account),
     Duplicate(&'a Duplicate),
     Foreign(&'a Foreign),
+    Spent(&'a Spent),
     Unknown,
 }
 
@@ -78,6 +87,7 @@ impl Roster {
         self.accounts.extend(other.accounts);
         self.duplicates.extend(other.duplicates);
         self.foreign.extend(other.foreign);
+        self.spent.extend(other.spent);
         self
     }
 
@@ -93,7 +103,10 @@ impl Roster {
         if let Some(duplicate) = self.duplicates.iter().find(|duplicate| matches(&duplicate.account)) {
             return Standing::Duplicate(duplicate);
         }
-        self.foreign.iter().find(|foreign| matches(&foreign.account)).map_or(Standing::Unknown, Standing::Foreign)
+        if let Some(foreign) = self.foreign.iter().find(|foreign| matches(&foreign.account)) {
+            return Standing::Foreign(foreign);
+        }
+        self.spent.iter().find(|spent| &spent.provider == provider && spent.label == label).map_or(Standing::Unknown, Standing::Spent)
     }
 
     pub fn account(&self, provider: &ProviderName, label: &str) -> NorthResult<Account> {
@@ -103,6 +116,7 @@ impl Roster {
                 "{duplicate}; launch on another --account or log {label} in to its own account"
             ))),
             Standing::Foreign(foreign) => Err(NorthError::Refused(format!("{foreign}; launch on {} or another --account", foreign.owners.join(" or ")))),
+            Standing::Spent(spent) => Err(NorthError::Refused(spent.to_string())),
             Standing::Unknown => Err(NorthError::Usage(format!("no {} account named {label}", provider.label()))),
         }
     }
@@ -112,6 +126,12 @@ impl fmt::Display for Duplicate {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let provider = self.account.provider.label();
         write!(formatter, "{provider}:{} is logged in to the same account as {provider}:{}", self.account.label, self.of)
+    }
+}
+
+impl fmt::Display for Spent {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "every API org is spent: {}", self.orgs.join(", "))
     }
 }
 

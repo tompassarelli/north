@@ -145,8 +145,7 @@ fn a_session_moved_between_accounts_raises_no_mid_task_exit_and_no_carry_on_and_
     ];
     std::fs::write(dir.join("g1/stream.jsonl"), turn.map(|frame| frame.to_string() + "\n").concat()).unwrap();
     let watcher = fleet.clone();
-    let watchdog = std::thread::spawn(move || watcher.guard("n-replay-case"));
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    let watchdog = std::thread::spawn(move || watcher.guard_host("n-replay-case", first));
     let moving = fleet.session("n-replay-case").unwrap();
 
     switch(&fleet, &moving, "api:gmail", |name| {

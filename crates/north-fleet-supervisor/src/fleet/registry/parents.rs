@@ -21,6 +21,11 @@ const WATCHDOG_POLL: Duration = Duration::from_secs(1);
 impl Fleet {
     pub fn guard(&self, name: &str) -> NorthResult<()> {
         let Some(host_pid) = self.record(name)?.host_pid else { return Ok(()) };
+        self.guard_host(name, host_pid)
+    }
+
+    /// Watches `host_pid` while it serves `name`, then acts on its death as `guard` does.
+    pub fn guard_host(&self, name: &str, host_pid: u32) -> NorthResult<()> {
         while alive(host_pid) && still_watched(self.record(name).ok().as_ref(), host_pid) {
             std::thread::sleep(WATCHDOG_POLL);
         }

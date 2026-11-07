@@ -86,6 +86,13 @@ pub fn exhausted(dir: &Path, org: &Org) -> bool {
     marks::held(dir, &org.id, &today())
 }
 
+/// When every entry in `orgs` holds an exhausted mark under `dir`, each entry with the day its mark lifts: why the pooled account opens none.
+pub fn spent(orgs: &[Org], dir: &Path) -> Option<Vec<String>> {
+    let today = today();
+    let marked = !orgs.is_empty() && orgs.iter().all(|org| marks::held(dir, &org.id, &today));
+    marked.then(|| orgs.iter().map(|org| marks::until(dir, &org.id).map_or_else(|| format!("{} until its next credit is declared", org.name), |day| format!("{} until {day}", org.name))).collect())
+}
+
 /// Today's UTC date as `YYYY-MM-DD`.
 pub fn today() -> String {
     Timestamp::now().iso_date()

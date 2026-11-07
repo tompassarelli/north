@@ -476,7 +476,7 @@ pub fn standings(gate: &Value, roster: &Roster) -> BTreeMap<String, record::Stan
                 Standing::Listed(_) => record::Standing::Listed,
                 Standing::Duplicate(duplicate) => record::Standing::Duplicate(duplicate.to_string()),
                 Standing::Foreign(foreign) => record::Standing::Foreign(foreign.owners.clone()),
-                Standing::Unknown => record::Standing::Unknown,
+                Standing::Spent(_) | Standing::Unknown => record::Standing::Unknown,
             };
             (name, standing)
         })

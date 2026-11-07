@@ -51,3 +51,24 @@ fn a_label_logged_into_another_labels_account_is_omitted_and_its_launch_refused_
     assert!(launched.account(&claude, "a").is_err(), "a declared token that cannot be read refuses the account instead of falling back to its login");
 }
 
+
+// KEEP(bug): on 2026-11-07 a launch on the api pool with every org marked exhausted failed "no claude account named api", which read as a config fault and was retried as transient (north#792)
+#[test]
+fn a_launch_on_the_api_pool_with_every_org_spent_is_refused_naming_each_org_and_when_it_reopens() {
+    let state = tempfile::tempdir().unwrap();
+    let key = state.path().join("keys/a");
+    fs::create_dir_all(key.parent().unwrap()).unwrap();
+    fs::write(&key, "sk-ant").unwrap();
+    let marks = state.path().join("api-exhausted");
+    fs::create_dir_all(&marks).unwrap();
+    fs::write(marks.join("o1"), "n-a 2026-11-07 until=2099-12-01\n").unwrap();
+    fs::write(marks.join("o2"), "n-b 2026-11-07\n").unwrap();
+    let org = |name: &str, id: &str| super::Org { name: name.into(), id: id.into(), emails: Vec::new(), keys: vec![key.clone()], expires: None };
+    let claude = ProviderName::new("claude");
+    let profiles = Profiles { api: vec![("api".into(), state.path().join("profiles/claude-api"))], orgs: vec![org("proton", "o1"), org("gmail", "o2")], ..Profiles::default() };
+
+    match discover(&claude, state.path(), &profiles).account(&claude, "api") {
+        Err(NorthError::Refused(why)) => assert_eq!(why, "every API org is spent: proton until 2099-12-01, gmail until its next credit is declared"),
+        other => panic!("a launch on a spent pool was not refused as spent: {other:?}"),
+    }
+}
