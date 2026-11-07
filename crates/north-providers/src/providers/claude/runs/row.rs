@@ -13,8 +13,8 @@ static ETA: LazyLock<Regex> =
 static STATED_ETA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^ETA:[ \t]*([0-9]+(?:\.[0-9]+)?)[ \t]*(hours?|hrs?|h|minutes?|mins?|m)\b").unwrap());
 pub static FLAWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\baccepted flaws?:\s*([0-9]+)").unwrap());
 pub static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
-static BACKGROUNDED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"running in background with ID: (\w+)|moved to the background \(ID: (\w+)\)").unwrap());
-static NOTIFIED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<task-id>(\w+)</task-id>").unwrap());
+static BACKGROUNDED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"running in background with ID: (\w+)|moved to the background \(ID: (\w+)\)|job-run: ([\w.-]+) runs detached").unwrap());
+static NOTIFIED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<task-id>(\w+)</task-id>|job-run: ([\w.-]+) exited").unwrap());
 const RUNNING_SECONDS: i64 = 7200;
 pub const TRANSCRIPT_ORIGIN: &str = "claude.transcript";
 const INTERRUPTED: &str = "[Request interrupted";
@@ -97,13 +97,14 @@ fn human(record: &Value) -> bool {
         }
 }
 
-/// Tracks the background commands a line starts (a tool result naming its id) and ends (a task notification), so a
+/// Tracks the background commands a line starts (a tool result naming its id, or a `north job-run --notify` that runs
+/// detached) and ends (a task notification, or the job-run exit message), so a
 /// turn that ends while one still runs is read as a wait north will wake, whatever its last line says.
 fn background(line: &Value, running: &mut BTreeSet<String>) {
     let raw = line["message"]["content"].to_string();
     running.extend(BACKGROUNDED.captures_iter(&raw).filter_map(|found| found.iter().skip(1).flatten().next().map(|id| id.as_str().to_owned())));
-    for found in NOTIFIED.captures_iter(&raw) {
-        running.remove(&found[1]);
+    for id in NOTIFIED.captures_iter(&raw).filter_map(|found| found.iter().skip(1).flatten().next()) {
+        running.remove(id.as_str());
     }
 }
 

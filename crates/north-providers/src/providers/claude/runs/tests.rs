@@ -163,3 +163,17 @@ fn a_not_done_report_written_while_a_background_command_still_runs_scores_idle_g
 
     assert_eq!(super::row::build(&transcript).unwrap()["outcome"], "idle");
 }
+
+#[test]
+fn a_report_written_while_its_own_job_run_still_runs_scores_idle_north_730_d0351() {
+    let at = |n: u32| format!("2026-11-07T12:{n:02}:00Z");
+    let text = |kind: &str, n: u32, text: &str| json!({"type": kind, "timestamp": at(n), "sessionId": "s", "message": {"role": kind, "model": "m", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 1, "output_tokens": 1}}});
+    let started = json!({"type": "user", "timestamp": at(20), "sessionId": "s", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "u1", "content": "job-run: n730-freeze-landed runs detached with its output in /tmp/n730.log; its exit arrives as a fleet message to north-730-d0351, so end your turn."}]}});
+    let mut lines = vec![text("user", 10, "Item: north#730"), started, text("assistant", 29, "Not done: the freeze commit e4df7cd08 is queued with the lander. The `n730-freeze-landed` job will message me once it is on origin/main.\nStop: wait until 2026-11-07T06:30Z")];
+    let transcript = |lines: &[serde_json::Value]| super::row::build(&super::row::Transcript { lines, id: "t", role: "worker", tier: "opus", since: "", backfill: false, now: crate::foundation::clock::Timestamp::from_unix_seconds(1_800_000_000) }).unwrap()["outcome"].clone();
+
+    assert_eq!(transcript(&lines), "idle");
+    lines.push(text("user", 40, "[from service:north-job@gex45] job-run: n730-freeze-landed exited 0; output in /tmp/n730.log"));
+    lines.push(text("assistant", 41, "Reading the job output next."));
+    assert_eq!(transcript(&lines), "not done", "once its job has exited, the Not done report stands");
+}
