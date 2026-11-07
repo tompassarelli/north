@@ -104,6 +104,14 @@ fn recommend_verb(argv: &[String], context: &Context) -> Outcome {
     recommend_with(&args, context, &fields, &mode::configuration(&home))
 }
 
+/// Whether a `recommend` call reads alone: one that names `--launched` or an Item without Follows records a prediction.
+pub fn recommend_records_nothing(argv: &[String]) -> bool {
+    let Ok(args) = Args::parse(argv, &["--since", "--launched"], &[]) else { return false };
+    let [facets] = args.positional.as_slice() else { return false };
+    let fields = Fields::read(facets);
+    args.get("--launched").is_none() && (fields.item.is_none() || fields.follows.is_some())
+}
+
 pub(super) fn recommend_with(args: &Args, context: &Context, fields: &Fields, configuration: &Path) -> Outcome {
     let mode = mode::resolve(configuration)?;
     let knobs = Knobs::registry();

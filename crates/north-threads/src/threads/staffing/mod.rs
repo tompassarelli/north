@@ -55,7 +55,7 @@ fn unowned(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
         return Err(Failure::Usage("usage: threads unowned".into()));
     }
     let claims = held(context)?;
-    let mut db = open(context.database, true)?;
+    let db = open(context.database, false)?;
     let blocks: BTreeMap<String, String> = db.prepare("SELECT item, reason FROM blocks")?.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?.collect::<Result<_, _>>()?;
     let mut scanned = Vec::new();
     for repo in STAFFED {
@@ -87,8 +87,19 @@ fn unowned(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
             rows.push(Row { rank: PRIORITIES.iter().position(|known| *known == priority).unwrap_or(1), repo: index, number, priority, state, boxes, title });
         }
     }
+    drop(db);
+    if !context.replica && !stale.is_empty() {
+        release(&stale, context)?;
+    }
+    rows.sort_by_key(|row| (row.rank, row.repo, row.number));
+    Ok(listing(&rows))
+}
+
+/// Releases each claim whose lane failed after it was made; a replica leaves them to the ledger host.
+fn release(stale: &[Stale], context: &Context) -> Result<(), Failure> {
+    let mut db = open(context.database, true)?;
     let tx = immediate(&mut db)?;
-    for released in &stale {
+    for released in stale {
         tx.execute("DELETE FROM claims WHERE item = ?1 AND owner = ?2", params![released.item, released.owner])?;
         let data = Value::object([
             ("owner", released.owner.as_str().into()),
@@ -100,9 +111,7 @@ fn unowned(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
     }
     tx.commit()?;
     let moved: Vec<Moved> = stale.iter().map(|released| Moved::released(&released.item, format!("its lane {} failed: {}", released.branch, released.failed.reason))).collect();
-    lifecycle::record(context.database, &moved, context.now)?;
-    rows.sort_by_key(|row| (row.rank, row.repo, row.number));
-    Ok(listing(&rows))
+    Ok(lifecycle::record(context.database, &moved, context.now)?)
 }
 
 fn listing(rows: &[Row]) -> String {

@@ -48,6 +48,16 @@ const SPOOL_DRAIN: Duration = Duration::from_secs(10);
 /// How old a snapshot may be before an ingest carrying usage pulls it: each pull rebuilds the whole ledger image on the ledger host, and every host ingests usage each minute.
 const USAGE_SNAPSHOT_AGE: Duration = Duration::from_secs(300);
 
+/// The reads a remote client answers from its own snapshot, never the ledger host: each fetches every staffed repo's
+/// issues from GitHub or scores every run, which on 2026-11-07 held nexus at 85% of a core per peer call.
+fn snapshot_answers(argv: &[String]) -> bool {
+    match argv.first().map(String::as_str) {
+        Some("unowned") => true,
+        Some("recommend") => calibration::recommend_records_nothing(&argv[1..]),
+        _ => false,
+    }
+}
+
 fn unanswered(code: i32) -> &'static str {
     if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host unreachable" }
 }
@@ -251,6 +261,10 @@ impl Client {
         }
         if !database && self.remote.exists() {
             let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
+            if snapshot_answers(argv) && self.snapshot.exists() {
+                self.refresh_snapshot_later(&dest, snapshot::SNAPSHOT_AGE);
+                return self.local(argv, Some(&self.snapshot), replay);
+            }
             return match self.proxy(&dest, argv, stdin, err)? {
                 Some(code) => Ok(code),
                 None => self.local(argv, Some(&self.snapshot), replay),
@@ -935,6 +949,19 @@ exit "$(cat "$ROOT/code")"
         let held: i64 = rusqlite::Connection::open(&rig.client.snapshot).unwrap().query_row("SELECT count(*) FROM claims", [], |row| row.get(0)).unwrap();
         assert_eq!(held, 0, "an unreachable host records nothing in the snapshot");
     }
+
+    /// At 1:10 PM on 2026-11-07 nexus sat at load 8.7 on 4 cores with peer-started `threads recommend` and `threads unowned` each at 85% of a core.
+    #[test]
+    fn a_peer_sends_a_recording_free_recommend_nowhere_and_only_writes_to_the_ledger_host() {
+        let rig = rig(&[]);
+        schema::ensure(&rig.client.snapshot).unwrap();
+        call(&rig, &["recommend", "Category: feature"], b"");
+        assert_eq!(call(&rig, &["recommend", "Item: north#63\nCategory: feature"], b"").0, 0);
+        assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
+        let sent: Vec<String> = log(&rig, "ssh.log").into_iter().filter(|line| !line.ends_with("snapshot-pages")).collect();
+        assert_eq!(sent.join("\n"), format!("{PREFIX} north threads recommend 'Item: north#63\nCategory: feature'\n{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'north#63'"));
+    }
+
     fn ledger_host(wait: Duration) -> (tempfile::TempDir, Client) {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
