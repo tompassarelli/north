@@ -44,7 +44,7 @@ pub(super) fn refusal(room: Option<&Room>, starting: usize) -> Option<String> {
     if room.admission.heavy_settling_seconds > 0.0 {
         return Some(format!("a heavy build started there settles for {:.0} s more before its admission starts another", room.admission.heavy_settling_seconds));
     }
-    room::build_shortfall_reserving(room, starting as f64 * offload_room().0)
+    room::build_shortfall(room, starting as f64 * offload_room().0, offload_room().0)
 }
 
 /// A host a pulled run may go to, as the taker sees it now: this host itself (no ssh) or a build host it reaches.

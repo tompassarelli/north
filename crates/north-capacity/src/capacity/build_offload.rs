@@ -54,6 +54,8 @@ pub struct Job<'a> {
     pub owner: &'a str,
     pub timeout_seconds: u64,
     pub command: &'a [String],
+    /// The cores this host sized the run at: a build host starts it at once only with that many free, so the room it is offered to is read against it.
+    pub cpus: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -101,12 +101,12 @@ pub fn shortfall_reserving(room: &Room, reserved: f64) -> Option<String> {
     shortfall_needing(room, reserved, offload_room().0)
 }
 
-/// The shortfall for a worker build, which also waits while a land check claims the host.
-pub fn build_shortfall_reserving(room: &Room, reserved: f64) -> Option<String> {
+/// The shortfall for a worker build of `cores`, which also waits while a land check claims the host.
+pub fn build_shortfall(room: &Room, reserved: f64, cores: f64) -> Option<String> {
     if room.admission.land_check_waiting {
         return Some(crate::capacity::land_claim::REASON.to_owned());
     }
-    shortfall_reserving(room, reserved)
+    shortfall_needing(room, reserved, cores)
 }
 
 fn shortfall_needing(room: &Room, reserved: f64, cores: f64) -> Option<String> {

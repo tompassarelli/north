@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::lane::{Lane, gather};
+use super::{cores, room_for};
 use super::remote::{Ran, drive, hand_over, invocation};
 use super::take::{Sender, Starting, Target, hang_up, pick, refusal, release_command, run_lane, transport};
 use crate::capacity::build_offload::{Admission, Declined, Job};
@@ -72,7 +73,7 @@ fn ran_command(hosts: &Hosts, lane: &Lane, stub_body: &str, command: &[String]) 
     let stub = hosts.remote.join("north-stub");
     crate::foundation::shim::write_script(&stub, stub_body);
     let returned = "NORTH-OFFLOAD-RETURNED-test";
-    let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command }, returned);
+    let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command, cpus: 6.0 }, returned);
     let mut transport = Command::new("sh");
     transport.args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub);
     let output = hosts.remote.join("output.log");
@@ -178,7 +179,7 @@ fn capacity_a_queued_run_handed_to_a_taker_runs_on_the_taker_and_its_output_and_
     });
     let sink = hosts.remote.join("out.txt");
     let announced = std::sync::Mutex::new(Vec::new());
-    let job = Job { owner: "t", timeout_seconds: 60, command: &command };
+    let job = Job { owner: "t", timeout_seconds: 60, command: &command, cpus: 6.0 };
     let code = hand_over(queued, &lane, &job, Some(std::fs::File::create(&sink).unwrap()), &|host| {
         announced.lock().unwrap().push(host.to_owned());
         true
@@ -211,7 +212,7 @@ fn capacity_a_run_stays_queued_when_the_taker_has_no_room_cannot_rebuild_the_lan
     let hosts = hosts();
     let lane = gather(&hosts.lane("left"), &hosts.laptop).unwrap().ship(&[]).unwrap();
     let command = ["cargo".to_owned(), "test".to_owned()];
-    let job = Job { owner: "t", timeout_seconds: 60, command: &command };
+    let job = Job { owner: "t", timeout_seconds: 60, command: &command, cpus: 6.0 };
     let (queued, peer) = std::os::unix::net::UnixStream::pair().unwrap();
     let refusing = std::thread::spawn(move || {
         let mut reader = std::io::BufReader::new(peer.try_clone().unwrap());
@@ -342,10 +343,21 @@ fn capacity_a_host_never_starts_an_offload_whose_announce_lost_to_the_gates_time
     let stub = hosts.remote.join("north-stub");
     crate::foundation::shim::write_script(&stub, &format!("touch {}\n", marker.display()));
     let command = ["true".to_owned()];
-    let (script, words) = invocation(&lane, &Job { owner: "t", timeout_seconds: 60, command: &command }, "NORTH-OFFLOAD-RETURNED-test");
+    let (script, words) = invocation(&lane, &Job { owner: "t", timeout_seconds: 60, command: &command, cpus: 6.0 }, "NORTH-OFFLOAD-RETURNED-test");
     let mut transport = Command::new("sh");
     transport.args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub);
     let ran = drive(transport, &lane, Some(std::fs::File::create(hosts.remote.join("output.log")).unwrap()), &|| false, "NORTH-OFFLOAD-RETURNED-test");
     assert!(matches!(ran, Ran::Abandoned));
     assert!(!marker.exists(), "the host started the command of an abandoned offer");
+}
+
+// KEEP(bug): a pushed build is offered to a host only when it has the cores the build itself asks for free: room read at the 4 cores an offloaded land check needs sent 6-core gates to gex45 at 4 to 5.9 free, where 10 of the 30 that waited over 30 s from 21:00 to 21:56 UTC on 2026-11-07 were deferred for CPU capacity on arrival; north#634
+#[test]
+fn capacity_a_pushed_build_needs_its_own_cores_free_on_the_host() {
+    let job = |cpus: f64| Job { owner: "t", timeout_seconds: 60, command: &[], cpus };
+    let five_free = laptop_room(9.0);
+    assert!(matches!(room_for(&five_free, 0.0, cores(&job(6.0))), crate::capacity::build_offload::Room::Short(_)), "5 free cores do not start a 6-core gate");
+    assert!(matches!(room_for(&five_free, 0.0, cores(&job(2.0))), crate::capacity::build_offload::Room::Free { .. }), "a 2-core build still needs only the 4-core floor");
+    assert!(matches!(room_for(&laptop_room(2.0), 6.0, cores(&job(6.0))), crate::capacity::build_offload::Room::Free { .. }), "12 free less one 6-core claim ahead leaves room for another");
+    assert!(matches!(room_for(&laptop_room(2.0), 7.0, cores(&job(f64::NAN))), crate::capacity::build_offload::Room::Free { .. }), "an unsized build needs the floor");
 }

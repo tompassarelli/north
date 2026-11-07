@@ -90,6 +90,7 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
     let landing = request.landing || env("SAFE_PUSH_LAND_HEAD").is_some_and(|head| !head.is_empty());
     let (class, owner, command) = (request.name.clone(), create.owner.clone(), build_offload::for_build_host(command));
     let timeout_seconds = create.timeout_seconds.unwrap_or(OFFLOAD_DEFAULT_TIMEOUT_SECONDS);
+    let cpus = request.resources().cpus;
     let need = env("AGENT_CAPACITY_NEED").filter(|need| !need.is_empty());
     let agent = agent_session();
     let offloaded_already = env(build_offload::REMOTE_MARK).is_some();
@@ -108,7 +109,7 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
             }
             true
         };
-        let job = Job { owner: &owner, timeout_seconds, command: &command };
+        let job = Job { owner: &owner, timeout_seconds, command: &command, cpus };
         match taker {
             Some(taker) => (host.hand_over)(&candidate, &job, taker, &announce),
             None => (host.build_offload)(&candidate, &job, &announce),

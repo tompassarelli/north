@@ -14,10 +14,19 @@ pub mod take;
 #[cfg(test)]
 mod tests;
 
-fn room_of(ssh: &str, claim: Option<&claims::Claim>) -> Room {
+/// The cores a build host needs free to start the job at once: its own sizing, never under what an offloaded land check needs.
+fn cores(job: &Job) -> f64 {
+    let floor = offload_room().0;
+    if job.cpus.is_finite() { job.cpus.max(floor) } else { floor }
+}
+
+fn room_for(read: &room::Room, reserved: f64, cores: f64) -> Room {
+    room::build_shortfall(read, reserved, cores).map_or(Room::Free { free_cpus: read.admission.free_cpus() - reserved }, Room::Short)
+}
+
+fn room_of(ssh: &str, claim: Option<&claims::Claim>, cores: f64) -> Room {
     let Some(read) = room::read_within(ssh, Duration::from_secs(PROBE_LIMIT_SECONDS)) else { return Room::Unreachable };
-    let reserved = claim.map_or(0.0, |claim| claim.ahead() as f64 * offload_room().0);
-    room::build_shortfall_reserving(&read, reserved).map_or(Room::Free { free_cpus: read.admission.free_cpus() - reserved }, Room::Short)
+    room_for(&read, claim.map_or(0.0, |claim| claim.ahead_cpus(offload_room().0)), cores)
 }
 
 /// Ok(exit code) when the build ran on another host, trying each host with room in turn when one cannot take the lane; Err leaves it to the local path, naming why when an offload host was configured.
@@ -32,8 +41,9 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str) -> bool
     if let Some(refused) = refusal(candidate) {
         return Err(Some(refused));
     }
-    let mut held: Vec<Option<claims::Claim>> = hosts.iter().map(|(name, _)| claims::Claim::take(name)).collect();
-    let mut rooms: Vec<(String, Room)> = hosts.iter().zip(&held).map(|((name, ssh), claim)| (name.clone(), room_of(ssh, claim.as_ref()))).collect();
+    let needs = cores(job);
+    let mut held: Vec<Option<claims::Claim>> = hosts.iter().map(|(name, _)| claims::Claim::take(name, needs)).collect();
+    let mut rooms: Vec<(String, Room)> = hosts.iter().zip(&held).map(|((name, ssh), claim)| (name.clone(), room_of(ssh, claim.as_ref(), needs))).collect();
     let mut failed = Vec::new();
     loop {
         let host = match route(candidate, || rooms.clone()) {
