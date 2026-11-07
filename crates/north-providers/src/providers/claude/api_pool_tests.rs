@@ -241,3 +241,42 @@ fn with_no_api_org_open_a_refused_session_goes_to_the_subscription_account_that_
     assert_eq!(next_subscription(["a", "b", "c", "d"], &limits, 1_000_000), Some(("d", None)));
     assert_eq!(next_subscription([], &limits, 1_000_000), None);
 }
+
+// KEEP(bug): on 2026-11-07 sessions refused for credit sat exited after their move because a restart that brought no message left them waiting, so the move now restarts the session whose host died on the next account and hands it the carry-on turn through the spool (north#792)
+#[test]
+fn a_refused_session_whose_host_died_restarts_on_the_next_account_and_is_handed_its_turn_again() {
+    use crate::fleet::registry::{Fleet, fixtures};
+    let home = tempfile::tempdir().unwrap();
+    let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
+    let child = fixtures::live(&fleet, "n-ended");
+    let dir = home.path().join(".local/state/north/fleet/n-ended");
+    let gone = {
+        let mut exited = std::process::Command::new("true").spawn().unwrap();
+        let pid = exited.id();
+        exited.wait().unwrap();
+        pid
+    };
+    let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
+    (record["host_pid"], record["account"]) = (json!(gone), json!("api:proton"));
+    std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
+    std::fs::write(dir.join("host.pid"), gone.to_string()).unwrap();
+    std::fs::write(dir.join("g1/stream.jsonl"), refusal("n-ended").iter().map(|frame| frame.to_string() + "\n").collect::<String>()).unwrap();
+    let moving = fleet.session("n-ended").unwrap();
+    assert!(!moving.live());
+
+    switch(&fleet, &moving, "api:gmail", |name| {
+        let second = host_process();
+        let mut stopped = fleet.session(name)?;
+        stopped.host_pid = Some(second);
+        crate::fleet::records::write_record(&dir, &stopped)?;
+        std::fs::write(dir.join("host.pid"), second.to_string())?;
+        fleet.phases()?.live(stopped.launch(), Some(second), "a session host started for it").map(drop)
+    })
+    .unwrap();
+    fleet.send_spooled(&crate::fleet::sender::Sender::fleet(), "n-ended", &super::resume_message("proton", "api:gmail"), crate::fleet::model::Delivery::Queued).unwrap();
+
+    let moved = fleet.session("n-ended").unwrap();
+    assert_eq!((moved.account.as_str(), moved.live()), ("api:gmail", true));
+    let handed = child.frames.lock().unwrap();
+    assert!(handed.iter().any(|frame| frame.contains("Carry on with that turn")), "{handed:?}");
+}
