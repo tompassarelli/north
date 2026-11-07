@@ -47,7 +47,7 @@ use crate::cli::{gate, orders, send};
 pub fn run(arguments: &[String]) -> ExitCode {
     let result = open_fleet_claiming(ThreadsCli::for_verb(arguments)).and_then(|fleet| {
         crate::cli::gate_orphan::close_orphaned(&fleet);
-        default_overdue_gates(&fleet);
+        sweep_gates(&fleet);
         release_exited_claims(&fleet, arguments);
         dispatch(fleet, arguments)
     });
@@ -60,10 +60,10 @@ pub fn run(arguments: &[String]) -> ExitCode {
     }
 }
 
-fn default_overdue_gates(fleet: &Fleet) {
-    let settled = match fleet.default_overdue_gates() {
+fn sweep_gates(fleet: &Fleet) {
+    let settled = match fleet.sweep_gates() {
         Ok(settled) => settled,
-        Err(error) => return eprintln!("north gate: overdue defaults not applied: {}", error.user_message()),
+        Err(error) => return eprintln!("north gate: gate sweep failed: {}", error.user_message()),
     };
     for (id, outcome) in settled {
         if let Err(error) = outcome {
