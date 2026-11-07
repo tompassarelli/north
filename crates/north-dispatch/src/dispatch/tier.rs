@@ -4,7 +4,7 @@
 //! arm until the tune tick or the ledger settles the cheaper one. A planner or reviewer run takes the
 //! high or xhigh effort arm until the ledger settles the cheaper of the two. A local box on none of
 //! those arms takes one auto-compact window of `CONTEXT_WINDOWS`. Every arm is a seeded draw from the
-//! shares `Shares` reads off the ledger, the same shares `north climb run --dry-run` prints: equal
+//! shares `Shares` reads off the ledger, the same shares `north ops climb run --dry-run` prints: equal
 //! while the arms hold no boxes, then Thompson sampling on cost per kept box with a floor per arm.
 use super::facets;
 use super::issues::Issue;

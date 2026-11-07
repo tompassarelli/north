@@ -40,7 +40,7 @@ Options:
                with --to main, land the lane's unpublished commits as they are
                instead of as one commit; REASON travels with the lane's ticket
   --tag NAME   push an existing annotated tag after scanning new content;
-               a v* tag is refused: north release publishes it with its
+               a v* tag is refused: north land release publishes it with its
                GitHub release
   --delete-tag NAME
                delete a tag from origin once its commit is on origin's default

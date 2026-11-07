@@ -1,4 +1,4 @@
-//! `north strategy refusals`: launches placement refused in a window, the oracle of the `launch-refusals-per-hour` goal.
+//! `north ops strategy refusals`: launches placement refused in a window, the oracle of the `launch-refusals-per-hour` goal.
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -6,7 +6,7 @@ use north_base::platform::decision_log;
 use north_strategy_types::placement::{Case, Decision, Outcome};
 use north_strategy_types::{Envelope, Kind};
 
-const USAGE: &str = "usage: north strategy refusals [--since 1h]";
+const USAGE: &str = "usage: north ops strategy refusals [--since 1h]";
 const DEFAULT_SINCE: f64 = 3600.0;
 
 /// Launches whose last placement in the window refused them; a launch that waited out a saturated host and was then placed is not one.
@@ -36,9 +36,9 @@ pub fn run(arguments: &[String]) -> u8 {
         },
         _ => return usage(),
     };
-    let records = north_base::platform::records_mirror::read("north strategy refusals");
+    let records = north_base::platform::records_mirror::read("north ops strategy refusals");
     let Some(root) = decision_log::root_in(records.home()) else {
-        eprintln!("north strategy refusals: the decision log is off (NORTH_DECISION_LOG is empty)");
+        eprintln!("north ops strategy refusals: the decision log is off (NORTH_DECISION_LOG is empty)");
         return 2;
     };
     let now = decision_log::now();

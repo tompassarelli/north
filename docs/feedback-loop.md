@@ -22,7 +22,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.outcome, follows, landed, expects_landing | north ledger worker | crates/north-threads/src/threads/calibration/read.rs succeeded; crates/north-pace/src/usage/ctx.rs routing success | read | 4a58f21e |
 | runs.tier | north ledger worker | crates/north-threads/src/threads/calibration/recommend.rs recommend, every provider | read | 4b71ac63 |
 | runs.category and facets | crates/north-threads/src/threads/runs/brief.rs | crates/north-threads/src/threads/calibration/recommend.rs recommend, recommend_eta | read | |
-| runs.arm | crates/north-threads/src/threads/runs | crates/north-climb/src/arms.rs: `north climb run` prints each category's live arms, their kept boxes and the share crates/north-dispatch/src/dispatch/shares.rs draws each launch from | read | lane H |
+| runs.arm | crates/north-threads/src/threads/runs | crates/north-climb/src/arms.rs: `north ops climb run` prints each category's live arms, their kept boxes and the share crates/north-dispatch/src/dispatch/shares.rs draws each launch from | read | lane H |
 | runs.lens, flaws | north ledger worker | crates/north-threads/src/threads/calibration/summary.rs lens table | read | |
 | runs.repeats | none | none | dropped | 4aecdaf9 |
 | runs.tokens | north ledger worker | crates/north-threads/src/threads/calibration/summary.rs tokens_med, tokens_per_closed | read | |

@@ -16,14 +16,14 @@ use north_github_mirror::store::{self, Mirror};
 use north_github_mirror::{read, sync};
 use north_base::foundation::clock::Timestamp;
 
-const USAGE: &str = "usage: north repo audit [--repo NAME]... [--alert]";
+const USAGE: &str = "usage: north lane audit [--repo NAME]... [--alert]";
 const LANDING: &str = "claude/land-";
 const FRESH_MS: i64 = 4 * 3_600_000;
 const OWNER: &str = "tompassarelli";
 const SINCE: &str = "2026-01-01";
 const LISTED: usize = 12;
 const REPORT: &str = ".local/state/agents/repo-audit/latest.txt";
-const OPEN: &str = "Open this report: run `north repo audit`, or read ~/.local/state/agents/repo-audit/latest.txt (rewritten each night at 3:41 AM)";
+const OPEN: &str = "Open this report: run `north lane audit`, or read ~/.local/state/agents/repo-audit/latest.txt (rewritten each night at 3:41 AM)";
 
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct Findings {

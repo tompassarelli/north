@@ -252,7 +252,7 @@ sites = [
   "structure.toml",
 ]
 signal = "median hand files touched per feature commit and the share of feature commits later reverted, since the last review, with the thresholds in force and the reasons that fired"
-updated_by = "north climb run proposes [review] threshold changes in structure.toml; code-health tick records the signal each hour through code-health signal --record"
+updated_by = "north ops climb run proposes [review] threshold changes in structure.toml; code-health tick records the signal each hour through code-health signal --record"
 cadence_hours = 24
 record = "code-health/north/loop.json"
 score = "code-health/north/loop.txt"
@@ -334,7 +334,7 @@ constants = [
 name = "policy-climber"
 decision = "which change to routing, brief generation or dispatch rules north tries next, from the ledger's largest measured loss"
 sites = ["crates/north-climb/src/lib.rs", "crates/north-climb/src/loss.rs", "crates/north-climb/src/candidate.rs", "crates/north-climb/src/score.rs"]
-updated_by = "north climb run"
+updated_by = "north ops climb run"
 cadence_hours = 24
 owner = "north#636 Policy climber: archive, live arm and selection"
 

@@ -1,4 +1,4 @@
-//! `north strategy log`: reads the decision log back into its types (`check`) and keeps it to its
+//! `north ops strategy log`: reads the decision log back into its types (`check`) and keeps it to its
 //! retention (`retain`): closed hours compressed with zstd, days past 14 deleted.
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -11,13 +11,13 @@ use serde::de::DeserializeOwned;
 use crate::foundation::clock::Timestamp;
 use crate::platform::decision_log;
 
-const USAGE: &str = "usage: north strategy log check [--since DURATION]\n       north strategy log retain [--days N]";
+const USAGE: &str = "usage: north ops strategy log check [--since DURATION]\n       north ops strategy log retain [--days N]";
 const KEEP_DAYS: i64 = 14;
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     let Some(root) = decision_log::root() else {
-        eprintln!("north strategy log: the decision log is off (NORTH_DECISION_LOG is empty)");
+        eprintln!("north ops strategy log: the decision log is off (NORTH_DECISION_LOG is empty)");
         return 2;
     };
     let now = decision_log::now();
@@ -54,7 +54,7 @@ fn check(root: &Path, since: f64, now: f64, out: &mut impl Write) -> u8 {
         Ok(failed) => u8::from(failed),
         Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => 0,
         Err(error) => {
-            eprintln!("north strategy log check: {error}");
+            eprintln!("north ops strategy log check: {error}");
             1
         }
     }
@@ -172,7 +172,7 @@ fn retain(root: &Path, now: f64, days: i64) -> u8 {
         }
     }
     let shown: Vec<String> = tally.iter().map(|(what, count)| format!("{count} {what}")).collect();
-    let _ = writeln!(std::io::stdout(), "north strategy log retain: {}", if shown.is_empty() { "nothing to do".to_owned() } else { shown.join(", ") });
+    let _ = writeln!(std::io::stdout(), "north ops strategy log retain: {}", if shown.is_empty() { "nothing to do".to_owned() } else { shown.join(", ") });
     u8::from(failed)
 }
 

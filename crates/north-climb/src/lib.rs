@@ -1,4 +1,4 @@
-//! `north climb`: north improves its own staffing policy from the worker ledger (docs/rationale/policy-climber.md).
+//! `north ops climb`: north improves its own staffing policy from the worker ledger (docs/rationale/policy-climber.md).
 //! A dry run names the week's largest measured loss, the candidate policy change a generator writes for
 //! it, and the candidate's score from strategy replay against the current policy.
 use north_base::platform::decision_log;
@@ -18,7 +18,7 @@ mod reward_tests;
 
 use candidate::Cheapest;
 
-const USAGE: &str = "usage: north climb run --dry-run [--since 7d]   the week's largest measured loss, one candidate for it, its replay score and the live arms";
+const USAGE: &str = "usage: north ops climb run --dry-run [--since 7d]   the week's largest measured loss, one candidate for it, its replay score and the live arms";
 const DEFAULT_REPLAY: &str = "7d";
 const MIN_CLOSED: usize = 5;
 
@@ -39,7 +39,7 @@ pub fn run(arguments: &[String]) -> u8 {
     match dry_run(span) {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("north climb: {error}");
+            eprintln!("north ops climb: {error}");
             1
         }
     }
@@ -47,7 +47,7 @@ pub fn run(arguments: &[String]) -> u8 {
 
 fn dry_run(span: f64) -> Result<(), String> {
     let report = ledger::closed_report(LEDGER_WINDOW).map_err(|error| error.user_message())?;
-    println!("north climb run --dry-run: ledger {LEDGER_WINDOW}, {} closed boxes, ${:.2} spent", report.closed, report.spend_usd);
+    println!("north ops climb run --dry-run: ledger {LEDGER_WINDOW}, {} closed boxes, ${:.2} spent", report.closed, report.spend_usd);
     let Some(worst) = loss::largest(&report) else {
         println!("largest loss: none, no cell spent on a repeat run or an unclosed box");
         return Ok(());

@@ -1542,10 +1542,10 @@ fallback = "a session the fleet tick does not retire stays addressable until the
 consumers = ["crates/north-fleet-supervisor/src/fleet/reaper.rs"]
 
 [help_visible_ceiling]
-value = 39
+value = 34
 allowed = { min = 1, max = 200 }
 unit = "top-level entries north --help may list; each lane that folds a hyphenated family under its domain noun lowers it to the new count"
-source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07, 66 once the lane family folded under north lane, 65 once land-abandon folded under north land, 60 once citation-check, issue-box-lint, goals check, experiments, provenance and doctor nix folded under north check, 55 once flow, tempo, scoreboard, worker-ledger and incident folded under north ledger, 54 once agent-runtime-update, claude-runtime-update and agy-runtime-update folded under north runtime, 48 once watch, credentials, github budget and gh-app-token folded under north ops, 42 once dispatch, pace, usage, orders, digest and report folded under north fleet, 39 once agents, context audit and proxy calls folded under north config; the issue's target is 24 (north#703)"
+source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07, 66 once the lane family folded under north lane, 65 once land-abandon folded under north land, 60 once citation-check, issue-box-lint, goals check, experiments, provenance and doctor nix folded under north check, 55 once flow, tempo, scoreboard, worker-ledger and incident folded under north ledger, 54 once agent-runtime-update, claude-runtime-update and agy-runtime-update folded under north runtime, 48 once watch, credentials, github budget and gh-app-token folded under north ops, 42 once dispatch, pace, usage, orders, digest and report folded under north fleet, 39 once agents, context audit and proxy calls folded under north config, 34 once release folded under north land, repo audit under north lane, split under north code-health, and strategy and climb under north ops; the issue's target is 24 (north#703)"
 fallback = "none: agent-config-check refuses a help.txt over it"
 consumers = ["crates/north-core/src/agent_config_check/help_surface.rs"]
 

@@ -186,7 +186,7 @@ class = "ready"
 [[goal]]
 name = "launch-refusals-per-hour"
 source = "north#643: a launch that placement refuses is a worker not staffed; north#641's readiness bar counts first tries lost to the harness, and a refused launch is the earliest such loss"
-oracle = "north strategy refusals --since 3h"
+oracle = "north ops strategy refusals --since 3h"
 unit = "per h"
 max = 1
 class = "debt"

@@ -17,6 +17,7 @@ pub(super) fn graph(arguments: &[String]) -> u8 {
 pub(super) fn code_health(arguments: &[String]) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("build-time") => crate::build_time::run(&arguments[1..]),
+        Some("split") => crate::split::run(&arguments[1..]),
         _ => crate::code_health::run(arguments),
     }
 }
@@ -32,6 +33,7 @@ const LAND: &[(&str, Run)] = &[
     ("clean", lane_target::run),
     ("fails-first", fails_first::run),
     ("red-check", red_check::run),
+    ("release", north_safe_push::entry::release),
     ("tests", land_test_runner::run),
     ("train", |arguments| ledger_verb("land-train", arguments)),
 ];
@@ -48,6 +50,7 @@ pub(super) fn land(arguments: &[String]) -> u8 {
 }
 
 const LANE: &[(&str, Run)] = &[
+    ("audit", |arguments| crate::lanes::repo_verb(&[vec!["audit".to_owned()], arguments.to_vec()].concat())),
     ("gc", crate::lanes::lane_gc),
     ("layout", crate::lanes::layout_check),
     ("reap", crate::lanes::wt_reap),
@@ -99,8 +102,10 @@ pub(super) fn runtime(arguments: &[String]) -> u8 {
 }
 
 const OPS: &[(&str, Run)] = &[
+    ("climb", north_climb::run),
     ("credentials", crate::ops::credentials::run),
     ("github", ops_github),
+    ("strategy", super::super::strategy::run),
     ("watch", ops_watch),
 ];
 

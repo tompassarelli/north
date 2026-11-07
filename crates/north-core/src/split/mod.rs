@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::platform::process;
 
-const USAGE: &str = "usage: north split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...";
+const USAGE: &str = "usage: north code-health split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...";
 
 pub struct Plan {
     pub root: PathBuf,
@@ -70,7 +70,7 @@ pub fn run(arguments: &[String]) -> u8 {
             0
         }
         Err(error) => {
-            eprintln!("north split move-module: {error}");
+            eprintln!("north code-health split move-module: {error}");
             1
         }
     }

@@ -27,16 +27,14 @@ Work and knowledge:
 Engineering and landing:
   check                 Check citations, goals, experiments, issue boxes, nix, provenance
   safe-push             Check and land a lane, or publish a tag
-  land                  Serve the landing queue, run its checks or abandon a branch
-  lane                  Collect, reap, rescue, seed and squash lanes
-  release               Tag and publish a release from a clean main
-  code-health           Measure structure debt, crate lines and build time
+  land                  Serve the landing queue, run its checks, abandon or release
+  lane                  Collect, reap, rescue, seed, squash and audit lanes
+  code-health           Structure debt, crate lines, build time; split modules out
   coverage              Pick the tests a change reaches; record the map
   mutant                Run a mutation sweep or verify kill claims
   frontier              Replay landed boxes under north and plain Claude Code, then grade
   privacy judge         Judge a text for private kinds
   docs                  Regenerate or check the docs indexes
-  split move-module     Move modules into a crate
   nix                   Explain a Nix footgun, or root and collect the store
 
 System and telemetry:
@@ -45,10 +43,7 @@ System and telemetry:
   config                Skills and hooks, agent plan and usage, context, proxy calls
   runtime               Update, deploy or check the north and agent runtimes
   capacity              Leases, modes and watchdog; bounded, nexus and dev-shell runs
-  ops                   Watch work and landings; expectations, credentials, GitHub
-  strategy              Check or replay the decision log
-  climb run             Print the week's largest loss and its candidate
-  repo audit            List landed, unlanded and stray branches and tags
+  ops                   Watch, expectations, credentials, GitHub, strategy log, climb
   help                  Show this help
 
 Run north COMMAND --help for its usage and contract. Run north --help-all

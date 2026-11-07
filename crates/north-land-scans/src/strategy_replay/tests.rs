@@ -14,7 +14,7 @@ fn a_lane_is_refused_only_for_what_its_build_breaks_beyond_main_s_own_replay() {
     assert_eq!(beyond(&worse, &main), ["placement account", "the replay took"]);
     let intended = declared("Keep boxes off cloud\n\nReplay-shift: placement account: the cloud lane closes while the credit is unusable\nReplay-shift: the replay took:\n");
     assert_eq!(beyond(&worse, &main).into_iter().filter(|key| !intended.contains_key(key)).collect::<Vec<_>>(), ["the replay took"], "an intended placement change had no way to land past the shift bound (north#690 on 2026-11-06); a declaration without a reason passes nothing");
-    assert_eq!(refused("north strategy replay: 2026-11-05T09:20:55Z to 2026-11-06T09:20:55Z\n"), BTreeSet::new());
+    assert_eq!(refused("north ops strategy replay: 2026-11-05T09:20:55Z to 2026-11-06T09:20:55Z\n"), BTreeSet::new());
     assert!(slower_than_main(&report("9.80", "debug"), &report("2.10", "debug")), "a planted slow lane is named");
     assert!(!slower_than_main(&report("8.35", "debug"), &report("2.25", "release")), "i643-decision-diff was refused on 2026-11-06 at 8.35 s by comparing a debug build to main's release one");
     assert!(!slower_than_main(&report("8.35", "debug"), &report("7.90", "debug")), "an unchanged lane under the same host load is not named");

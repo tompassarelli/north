@@ -25,7 +25,7 @@ pub fn run(arguments: &[String], shell: &Shell) -> u8 {
             return 0;
         }
         Ok(Plan::Push(Arguments { tag: Some(tag), .. })) if release_tag(&tag) => {
-            eprintln!("safe-push: version tag {tag} publishes only through north release, which also creates its GitHub release; NOT pushed.");
+            eprintln!("safe-push: version tag {tag} publishes only through north land release, which also creates its GitHub release; NOT pushed.");
             Err(Refused(2))
         }
         Ok(Plan::Push(Arguments { tag: Some(tag), dry_run, .. })) => match publish_tag(&TagRequest { tag: &tag, dry_run }, shell) {

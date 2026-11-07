@@ -1,4 +1,4 @@
-//! `north strategy replay`: decides the last window's logged cases again with the code this binary
+//! `north ops strategy replay`: decides the last window's logged cases again with the code this binary
 //! links, prints each decision kind's outcome counts beside the logged ones, and checks the declared
 //! invariants over the replayed decisions (docs/rationale/strategy-kernel.md, Replay).
 use std::path::Path;
@@ -19,7 +19,7 @@ pub use bounds::Bounds;
 pub use refused::run as refusals;
 use report::{Counts, Invariant, stamp};
 
-const USAGE: &str = "usage: north strategy replay [--since 24h] [--invariants] [--budget]";
+const USAGE: &str = "usage: north ops strategy replay [--since 24h] [--invariants] [--budget]";
 const DEFAULT_SINCE: f64 = 86400.0;
 
 /// Decides a request on its logged snapshot object, answering the reason and whether the snapshot held a land check's claim.
@@ -108,7 +108,7 @@ fn options(arguments: &[String]) -> Option<Options> {
 pub fn run_with(deciders: &Deciders, bounds: &Bounds, arguments: &[String]) -> u8 {
     let Some(options) = options(arguments) else { return usage() };
     let Some(root) = decision_log::root() else {
-        eprintln!("north strategy replay: the decision log is off (NORTH_DECISION_LOG is empty)");
+        eprintln!("north ops strategy replay: the decision log is off (NORTH_DECISION_LOG is empty)");
         return 2;
     };
     execute(&root, decision_log::now(), deciders, bounds, &options)
@@ -150,7 +150,7 @@ fn usage() -> u8 {
 }
 
 fn print_report(replayed: &Replayed, invariants: bool, (since, now): (f64, f64), seconds: f64, grown: f64) {
-    println!("north strategy replay: {} to {}", stamp(since), stamp(now));
+    println!("north ops strategy replay: {} to {}", stamp(since), stamp(now));
     for counts in &replayed.counts {
         println!("{}", counts.line());
         if let Some(kind) = Kind::ALL.iter().find(|kind| kind.name() == counts.kind) {
