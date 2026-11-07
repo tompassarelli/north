@@ -1,4 +1,5 @@
 use super::{GREP_LIKE, find, grep};
+use crate::guard::argument_words;
 use crate::guard::search_words::{self, Located};
 use crate::shell::{self, Piece};
 use std::collections::BTreeSet;
@@ -106,9 +107,9 @@ fn split_redirects(sources: &[String], from: usize) -> (Vec<usize>, Vec<usize>) 
     let (mut operands, mut redirects) = (Vec::new(), Vec::new());
     let mut next = from;
     while next < sources.len() {
-        if search_words::is_redirect(&sources[next]) {
+        if argument_words::is_redirect(&sources[next]) {
             redirects.push(next);
-            if search_words::is_redirect_operator(&sources[next]) && next + 1 < sources.len() {
+            if argument_words::is_redirect_operator(&sources[next]) && next + 1 < sources.len() {
                 next += 1;
                 redirects.push(next);
             }

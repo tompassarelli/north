@@ -79,5 +79,6 @@ pub mod monitor_call;
 mod modern_search_tests;
 mod native_evidence_tests;
 mod nix_activity_tests;
+mod argument_words;
 mod search_false_refusal_tests;
 mod worker_tier_tests;

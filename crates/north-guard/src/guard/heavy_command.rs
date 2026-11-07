@@ -1,9 +1,11 @@
-use super::search_words::{is_plain_argument, is_redirect_operator};
+use super::argument_words::{is_plain_argument, is_redirect_operator};
+use self::cpu::{cpu_file, cpu_throttle};
 use crate::hook::{HookInput, Verdict};
 use crate::nix_command::{self, Inner};
 use crate::{platform::pyjson::Value, shell};
 use std::path::{Path, PathBuf};
 
+mod cpu;
 mod local_write;
 
 const PREFIXES: &[&str] = &[
@@ -348,44 +350,6 @@ fn refuse(command: &str) -> Decision {
     Decision::Refuse(format!(
         "{command} requires capacity admission; use machine-capacity run --owner OWNER --timeout-seconds 1200 -- COMMAND ARG..."
     ))
-}
-
-fn cpu_property(value: &str) -> bool {
-    [
-        "CPUQuota=",
-        "CPUQuotaPeriodSec=",
-        "CPUWeight=",
-        "StartupCPUWeight=",
-        "AllowedCPUs=",
-    ]
-    .iter()
-    .any(|p| value.starts_with(p))
-}
-
-fn cpu_file(path: &str) -> bool {
-    path.starts_with("/sys/fs/cgroup/")
-        && matches!(
-            shell::basename(path),
-            "cpu.max" | "cpu.weight" | "cpu.weight.nice"
-        )
-}
-
-fn cpu_throttle(words: &[String]) -> bool {
-    let args = &words[1..];
-    match shell::basename(&words[0]) {
-        "systemctl" => {
-            args.iter()
-                .find(|s| !s.starts_with('-'))
-                .is_some_and(|s| s == "set-property")
-                && args.iter().any(|s| cpu_property(s))
-        }
-        "systemd-run" => args
-            .iter()
-            .take_while(|s| s.as_str() != "--")
-            .any(|s| cpu_property(s.trim_start_matches("--property=").trim_start_matches("-p"))),
-        "tee" => args.iter().any(|s| cpu_file(s)),
-        _ => false,
-    }
 }
 
 fn cpu_redirect(source: &str) -> bool {

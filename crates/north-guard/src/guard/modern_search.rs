@@ -2,6 +2,7 @@ mod find;
 mod grep;
 mod rewrite;
 
+use super::argument_words;
 use super::search_words::{self, Located, MAX_NESTING};
 use crate::hook::{HookInput, Verdict};
 use crate::shell;
@@ -134,8 +135,8 @@ fn without_redirects(words: &[String], quoted: &[bool]) -> Vec<String> {
     let mut kept = Vec::new();
     let mut position = 0;
     while position < words.len() {
-        let redirect = !quoted[position] && search_words::is_redirect(&words[position]);
-        if redirect && search_words::is_redirect_operator(&words[position]) {
+        let redirect = !quoted[position] && argument_words::is_redirect(&words[position]);
+        if redirect && argument_words::is_redirect_operator(&words[position]) {
             position += 1;
         }
         if !redirect {

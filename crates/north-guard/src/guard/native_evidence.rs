@@ -1,5 +1,5 @@
 use super::git_invocation::words;
-use super::search_words::is_plain_argument;
+use super::argument_words::is_plain_argument;
 use crate::hook::{HookInput, Verdict};
 use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredocs};
 
