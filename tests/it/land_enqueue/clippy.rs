@@ -43,6 +43,7 @@ fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass
     enqueue_refuses_a_lane_whose_check_before_queueing_reached_no_verdict();
     enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_and_leaves_every_after_line_to_the_lander_while_landing_refusals_is_shadow();
     enqueue_compiles_on_the_queueing_host_when_no_build_host_has_room_and_refuses_a_failure_there();
+    enqueue_runs_an_added_check_whose_checker_the_live_runtime_does_not_cover_on_north_built_from_the_lane();
 }
 
 fn enqueue_refuses_a_lane_whose_check_before_queueing_reached_no_verdict() {
@@ -126,4 +127,18 @@ fn enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_and_leaves_ev
     assert_eq!(git(&fixture.repo, &["show", "HEAD:list.txt"]), "BEGIN\na\nb\nc\nEND", "{log}");
     assert!(git(&fixture.repo, &["show", "HEAD:docs/features.md"]).contains("word word"), "the regenerated index was not folded into the lane: {log}");
     assert_eq!(runs(&unmarked), 0, "a line without the enqueue marker ran before queueing: {log}");
+}
+
+fn enqueue_runs_an_added_check_whose_checker_the_live_runtime_does_not_cover_on_north_built_from_the_lane() {
+    let fixture = Fixture::new();
+    let counter = fixture.root.join("built-runs");
+    fs::create_dir_all(fixture.repo.join("bin")).unwrap();
+    north_core::foundation::shim::write_executable(&fixture.repo.join("bin/head-north"), format!("#!/usr/bin/env bash\n[ \"$3\" = --no-build ] && {{ echo 'head-north: refused, no live runtime covers the checker code' >&2; exit 1; }}\necho ran >>{}\n", counter.display()));
+    fs::write(fixture.repo.join(".safe-push"), "[land]\n\tcheck = \"** :: ./bin/head-north --code src/checker.rs --no-build docs check\"\n").unwrap();
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "Add a check whose checker no live runtime covers"]);
+    let (output, _) = north_enqueue_with(&fixture, &[]);
+    let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success() && !log.contains("a land check this lane adds exited"), "{log}");
+    assert_eq!(runs(&counter), 1, "{log}");
 }

@@ -392,8 +392,7 @@ pub fn fails_first(root: &Path, base: &str, head: &str) -> Result<(), String> {
         return Ok(());
     }
     say(&format!("safe-push: running the {} land check(s) this lane adds before queueing it", commands.len()));
-    let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), ..Arguments::default() };
-    let status = block_on(run_added(root.to_owned(), arguments, config, commands)).map_err(|error| error.to_string())?;
+    let status = block_on(run_added(root.to_owned(), Arguments { base: base.to_owned(), head: head.to_owned(), ..Arguments::default() }, config, commands)).map_err(|error| error.to_string())?;
     match status {
         0 => Ok(()),
         NO_VERDICT_STATUS => {
@@ -416,6 +415,7 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
             None => warn("safe-push: no build host has room, so the checks before queueing run on this host under the land-check capacity lease"),
         }
     }
+    let commands = { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() };
     let (_cancel_sender, cancel) = watch::channel(false);
     let scope = scope_for(&root, &arguments, &commands);
     let it = it_for(&root, &arguments, &commands);
