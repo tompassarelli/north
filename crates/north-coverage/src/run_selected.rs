@@ -211,12 +211,15 @@ pub fn north() -> std::ffi::OsString {
 
 pub fn host() -> String {
     let here = north_base::platform::host::name();
+    let listed = git(Path::new("."), &["config", "--file", ".safe-push", "--get", "landing.remote-hosts"]).unwrap_or_default();
+    if listed.split_whitespace().any(|host| host == here) {
+        return here;
+    }
     let chosen = Command::new(north()).args(["capacity", "offload", "choose", "--any", "--avoid", &here]).output();
     let chosen = chosen.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
     if !chosen.is_empty() {
         return chosen;
     }
-    let listed = git(Path::new("."), &["config", "--file", ".safe-push", "--get", "landing.remote-hosts"]).unwrap_or_default();
     listed.split_whitespace().next().map_or(here, str::to_owned)
 }
 
