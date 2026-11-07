@@ -25,7 +25,7 @@ pub enum Class {
 }
 
 impl Class {
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Self::Moderate => "moderate",
             Self::Heavy => "heavy",

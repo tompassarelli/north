@@ -101,6 +101,10 @@ pub struct Lease {
     pub created_at: f64,
     #[serde(rename = "memoryMiB")]
     pub memory_mib: f64,
+    #[serde(default)]
+    pub cpus: f64,
+    #[serde(default)]
+    pub landing: bool,
     pub quiet_seconds: Option<f64>,
     pub usage: Option<UsageSample>,
     pub new_clients: u32,

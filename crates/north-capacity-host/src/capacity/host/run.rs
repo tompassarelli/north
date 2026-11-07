@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::decision::decision;
 use super::estimate::task_signature;
 use super::json::{Obj, field, num, round2, text};
-use super::machine::{elastic_class, env, lease_slice, now_ms, read_signals, read_text, scope_cgroup};
+use super::machine::{env, lease_slice, now_ms, read_signals, read_text, scope_cgroup};
 use super::measure::{Usage, measure_scope};
 use super::model::{Observation, Subject, censored, command_key, current_cache_state, update};
 use crate::capacity::local_machine::host_name;
@@ -217,8 +217,11 @@ pub(super) fn scope_command(root: &Path, request: &Request, admitted: &Obj, time
     arguments.extend([format!("--unit={unit}"), format!("--slice={}", lease_slice(request.admitted_class()))]);
     let scope = admitted.get("scope").cloned().unwrap_or(Value::Null);
     // A quota-throttled game client stalls for the rest of each period.
-    if let Some(cpus) = field(&scope, "cpus").filter(|cpus| cpus.is_finite() && *cpus > 0.0 && request.name != "native" && !elastic_class(request.admitted_class())) {
+    if let Some(cpus) = field(&scope, "cpus").filter(|cpus| cpus.is_finite() && *cpus > 0.0 && request.name != "native") {
         arguments.push(format!("--property=CPUQuota={}%", super::json::show(cpus * 100.0)));
+    }
+    if request.landing {
+        arguments.push(format!("--property=CPUWeight={}", crate::capacity::admission::default_mib("land_check_cpu_weight") as u32));
     }
     if request.name != "native" {
         arguments.push(format!("--property=TasksMax={}", super::policy::task_cap()));

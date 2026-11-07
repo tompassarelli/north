@@ -19,6 +19,10 @@ pub struct LeaseFact {
     #[serde(default, rename = "memoryMiB")]
     pub memory_mib: f64,
     #[serde(default)]
+    pub cpus: f64,
+    #[serde(default)]
+    pub landing: bool,
+    #[serde(default)]
     pub quiet_seconds: Option<f64>,
     #[serde(default)]
     pub usage: Option<UsageSample>,

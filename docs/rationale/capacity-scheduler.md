@@ -236,6 +236,8 @@ One model, one placement function, one enforcer per host.
    exclusive. PSI protects Tom: when protected-slice CPU some avg10 passes the band's high mark, the newest batch
    leases freeze until it falls under the low mark; their deadlines pause and their memory stays charged. Game
    reserve keeps pinning agent work off Tom's game cores.
+   Since north#784 (2026-11-07) each lease scope also carries CPUQuota equal to its charge and admission counts those
+   charges against the host again, because an uncapped lease charged 6 CPUs ran 10 on a 20-core host at load 45.
 2. **Model (Wave 0 capacity-model, corrected).** For each run: key levels, host, cache state (lane `target/`
    seeded, warm or cold; sccache hits and misses), change size (files and lines against the lane's base), wall,
    CPU-seconds, anon peak, memory stall, GPU-seconds, queue wait, ship seconds, exit. Estimates are quantiles over

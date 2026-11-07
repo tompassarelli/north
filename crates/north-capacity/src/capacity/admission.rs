@@ -329,6 +329,12 @@ pub(super) fn batch_fits(facts: &Facts, cpus: f64) -> bool {
     facts.leased_batch_cpus + facts.unleased_heavy_cores + cpus <= batch_cpus(facts)
 }
 
+/// Whether the land checks already running, with this one, charge more CPUs than the host's batch limit: a lease scope is held to its charge by CPUQuota, so a second check beside the first runs only while both fit, and a lone check always runs.
+fn landing_cpus_full(facts: &Facts) -> bool {
+    let landing = || facts.leases.iter().filter(|lease| lease.landing);
+    landing().next().is_some() && landing().map(|lease| lease.cpus).sum::<f64>() + facts.requested_cpus > batch_cpus(facts)
+}
+
 fn invalid(facts: &Facts) -> bool {
     facts.cores == 0
         || facts.memory_total_mib <= 0.0
@@ -471,6 +477,9 @@ fn batch(facts: &Facts) -> Reason {
     if facts.peer_exclusive_runs > 0 {
         return Reason::DeferExclusive;
     }
+    if facts.class == Class::Critical && landing_cpus_full(facts) {
+        return Reason::DeferCpuCapacity;
+    }
     if matches!(facts.class, Class::Critical | Class::Tom | Class::Runtime) {
         return if interactive_pressure(facts) { Reason::DeferInteractivePressure } else { Reason::Run };
     }
@@ -512,6 +521,9 @@ fn shared(facts: &Facts) -> Reason {
     }
     if batch_jobs_full(facts) {
         return Reason::DeferBatchJobs;
+    }
+    if facts.peer_batch_runs > 0 && !batch_fits(facts, facts.requested_cpus) {
+        return Reason::DeferCpuCapacity;
     }
     if facts.class == Class::Heavy {
         return super::pressure_target::deferred(facts).unwrap_or(Reason::Run);

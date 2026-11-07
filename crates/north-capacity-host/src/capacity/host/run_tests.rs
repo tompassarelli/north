@@ -47,3 +47,19 @@ fn a_unit_whose_path_lacks_systemctl_gets_the_system_profiles() {
     assert_eq!(super::systemd::program_in("systemctl", Some(&onto(own.path())), system.path()), std::path::PathBuf::from("systemctl"));
     assert_eq!(super::systemd::program_in("systemd-run", Some("/nonexistent"), system.path()), std::path::PathBuf::from("systemd-run"));
 }
+
+fn scope_properties(class: &str, landing: bool) -> Vec<String> {
+    let request = Request { name: class.to_owned(), landing, ..Request::default() };
+    let admitted = Obj::new().put("lease", "00000000-0000-4000-8000-000000000002").put("scope", serde_json::json!({ "cpus": 6, "memoryMiB": 8192 }));
+    let command = scope_command(std::path::Path::new("/nonexistent"), &request, &admitted, Some(60), &["cargo".to_owned(), "build".to_owned()]);
+    command.as_std().get_args().map(|argument| argument.to_string_lossy().into_owned()).filter(|argument| argument.starts_with("--property=CPU")).collect()
+}
+
+// KEEP(bug): a heavy lease scope ran 10 cores at CPUQuota=infinity on a 20-core host at load 45; every lease scope is held to its charge and a land check outweighs the worker scopes; north#784
+#[test]
+fn every_lease_scope_carries_a_cpu_quota_equal_to_its_charge_and_a_land_check_outweighs_workers() {
+    for class in ["heavy", "moderate", "exclusive", "tom"] {
+        assert_eq!(scope_properties(class, false), ["--property=CPUQuota=600%"], "{class}");
+    }
+    assert_eq!(scope_properties("heavy", true), ["--property=CPUQuota=600%", "--property=CPUWeight=1000"]);
+}

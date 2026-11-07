@@ -606,6 +606,14 @@ source = "measured: the newest 856 land-check heavy runs on the laptop (2026-11-
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
 consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 
+[land_check_cpu_weight]
+value = 1000
+allowed = { min = 1, max = 10000 }
+unit = "cgroup CPUWeight of a land check's lease scope and of the aggregate slice that holds it (systemd's default is 100), so on a build host the check outranks the worker session services it shares agent.slice with and the build and test scopes it shares its slice with"
+source = "prior: the maximum systemd weight the game reserve already gives Tom's play scopes (1000); the land check's wall time against the idle one under load is measured in north#784"
+fallback = "none: the scope would run at systemd's default weight of 100 beside worker builds"
+consumers = ["crates/north-capacity-host/src/capacity/host/run.rs", "crates/north-capacity-host/src/capacity/host/systemd.rs"]
+
 [land_offload_disk_free_gib]
 value = 20
 allowed = { min = 0, max = 65536 }

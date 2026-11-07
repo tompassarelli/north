@@ -174,7 +174,7 @@ Commands:
   gh-session REAL_GH [ARGS...]                  Run gh through the GitHub broker (gh's own --help passes through)
   git-credential get|store|erase                Git credential helper backed by the GitHub broker
   hook prompt-grounding|stats [--since 7d|48h]|HOOK  Run an agent hook, the prompt grounding hook, or hook statistics
-  job-run [--path DIRS] [--user USER] [--notify] NAME -- CMD...  Run a scheduled job and record its result
+  job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...  Run a scheduled job and record its result
   land fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
   land red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault
   loops check [--role ledger|lander|here]       Check the declared control loops and their scores
