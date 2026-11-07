@@ -20,6 +20,8 @@ use crate::threads::verb::names_native_ref;
 pub const MAGIC: &[u8] = b"NORTH-SNAPSHOT-PAGES 1\n";
 pub const REMOTE_COMMAND: &str = "north threads snapshot-pages";
 pub const SNAPSHOT_SECONDS: u64 = 900;
+/// How old a snapshot may be before a call that reads it pulls it again.
+pub const SNAPSHOT_AGE: Duration = Duration::from_secs(SNAPSHOT_SECONDS);
 pub const PULL_TIMEOUT: Duration = Duration::from_secs(80);
 const SQLITE_HEADER: &[u8] = b"SQLite format 3\0";
 const MAX_PAGES: u32 = 1 << 24;
@@ -48,13 +50,11 @@ pub fn serve(database: &Path, withhold_native: bool, input: &mut dyn Read, outpu
     out.flush()
 }
 
-/// Whether this caller pulls now; it marks its try first, so callers racing it do not pull again.
-pub fn take_turn(snapshot: &Path, force: bool) -> io::Result<bool> {
+/// Whether this caller pulls now, which it does once the snapshot and its last try are older than `within` (always for zero); it marks its try first, so callers racing it do not pull again.
+pub fn take_turn(snapshot: &Path, within: Duration) -> io::Result<bool> {
     let tried = suffixed(snapshot, ".tried");
     let newest = [snapshot, tried.as_path()].iter().filter_map(|path| fs::metadata(path).and_then(|meta| meta.modified()).ok()).max();
-    if !force && newest.is_some_and(|modified| {
-        SystemTime::now().duration_since(modified).map_or(true, |age| age.as_secs_f64() < SNAPSHOT_SECONDS as f64)
-    }) {
+    if !within.is_zero() && newest.is_some_and(|modified| SystemTime::now().duration_since(modified).map_or(true, |age| age < within)) {
         return Ok(false);
     }
     if let Some(parent) = snapshot.parent().filter(|parent| !parent.as_os_str().is_empty()) {
@@ -64,8 +64,8 @@ pub fn take_turn(snapshot: &Path, force: bool) -> io::Result<bool> {
     Ok(true)
 }
 
-pub fn refresh(ssh: &[OsString], snapshot: &Path, force: bool, wait: Duration) -> io::Result<bool> {
-    if !take_turn(snapshot, force)? {
+pub fn refresh(ssh: &[OsString], snapshot: &Path, within: Duration, wait: Duration) -> io::Result<bool> {
+    if !take_turn(snapshot, within)? {
         return Ok(false);
     }
     let pulling = OpenOptions::new().create(true).append(true).open(suffixed(snapshot, ".tried"))?;

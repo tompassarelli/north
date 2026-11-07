@@ -46,6 +46,8 @@ const RECORD_WAIT: Duration = Duration::from_secs(10);
 const INGEST_WAIT: Duration = Duration::from_secs(5);
 const INGEST_HOLD: Duration = Duration::from_secs(12);
 const SPOOL_DRAIN: Duration = Duration::from_secs(10);
+/// How old a snapshot may be before an ingest carrying usage pulls it: each pull rebuilds the whole ledger image on the ledger host, and every host ingests usage each minute.
+const USAGE_SNAPSHOT_AGE: Duration = Duration::from_secs(300);
 
 fn unanswered(code: i32) -> &'static str {
     if code == TIMED_OUT { "ledger host timed out" } else { "ledger host unreachable" }
@@ -97,7 +99,7 @@ pub fn run_in(arguments: &[String], env: BTreeMap<String, String>, fleet: Arc<dy
 pub fn refresh_mirrored_snapshot() {
     let Some(client) = ambient_client(unread_fleet()) else { return };
     if let Ok(destination) = fs::read_to_string(&client.remote) {
-        let _ = client.refresh_snapshot(destination.trim(), true);
+        let _ = client.refresh_snapshot(destination.trim(), Duration::ZERO);
     }
 }
 
@@ -359,7 +361,7 @@ impl Client {
                     state = "timed out";
                 } else if code != UNREACHABLE {
                     if code == 0 && has_usage(&data)? {
-                        self.refresh_snapshot_later(dest, true);
+                        self.refresh_snapshot_later(dest, USAGE_SNAPSHOT_AGE);
                     }
                     return Ok(Some(code));
                 }
@@ -398,9 +400,9 @@ impl Client {
             let calibrate_write = first == Some("calibrate") && has("--write");
             if !(code == 0 && calibrate_write && has("--goal-row")) {
                 if code == 0 && (first == Some("record-priors") || calibrate_write) {
-                    self.refresh_snapshot(dest, true)?;
+                    self.refresh_snapshot(dest, Duration::ZERO)?;
                 } else {
-                    self.refresh_snapshot_later(dest, false);
+                    self.refresh_snapshot_later(dest, snapshot::SNAPSHOT_AGE);
                 }
             }
             return Ok(Some(code));
@@ -517,17 +519,17 @@ impl Client {
         }
     }
 
-    fn refresh_snapshot(&self, dest: &str, force: bool) -> NorthResult<()> {
-        let _ = snapshot::refresh(&self.pull_argv(dest), &self.snapshot, force, snapshot::PULL_TIMEOUT);
+    fn refresh_snapshot(&self, dest: &str, within: Duration) -> NorthResult<()> {
+        let _ = snapshot::refresh(&self.pull_argv(dest), &self.snapshot, within, snapshot::PULL_TIMEOUT);
         Ok(())
     }
 
-    fn refresh_snapshot_later(&self, dest: &str, force: bool) {
+    fn refresh_snapshot_later(&self, dest: &str, within: Duration) {
         let Some(program) = &self.background else {
-            let _ = self.refresh_snapshot(dest, force);
+            let _ = self.refresh_snapshot(dest, within);
             return;
         };
-        if !snapshot::take_turn(&self.snapshot, force).unwrap_or(false) {
+        if !snapshot::take_turn(&self.snapshot, within).unwrap_or(false) {
             return;
         }
         detach(program, &["snapshot-pull".as_ref(), "--force".as_ref(), "--snapshot".as_ref(), self.snapshot.as_os_str(), dest.as_ref()]);
@@ -592,7 +594,7 @@ impl Client {
             }
         }
         let dest = dest.ok_or_else(|| NorthError::Usage("usage: north threads snapshot-pull [--force] [--snapshot PATH] DEST".into()))?;
-        match snapshot::refresh(&self.pull_argv(&dest), &path, force, snapshot::PULL_TIMEOUT) {
+        match snapshot::refresh(&self.pull_argv(&dest), &path, if force { Duration::ZERO } else { snapshot::SNAPSHOT_AGE }, snapshot::PULL_TIMEOUT) {
             Ok(_) => Ok(0),
             Err(error) => {
                 writeln!(err, "NorthThreads: snapshot pull from {dest} failed: {error}")?;
@@ -847,6 +849,17 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
         assert!(spooled(&rig).is_empty());
         assert_eq!(log(&rig, "ingest.log"), ["{\"n\": 1}"]);
+    }
+
+    /// On 2026-11-07 every usage ingest forced a snapshot pull, so whiterabbit and gex45 pulled about 3 times a minute and
+    /// nexus rebuilt its 600 MB ledger image for each at 10 to 15 s of CPU, holding its CPU pressure over 10% (north#800).
+    #[test]
+    fn a_second_usage_ingest_inside_five_minutes_pulls_no_second_snapshot() {
+        let rig = rig(&[]);
+        let usage = b"{\"type\": \"usage\", \"n\": 1}\n";
+        assert_eq!(call(&rig, &["ingest"], usage).0, 0);
+        assert_eq!(call(&rig, &["ingest"], usage).0, 0);
+        assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.ends_with("north threads snapshot-pages")).count(), 1, "{:?}", log(&rig, "ssh.log"));
     }
 
     fn stalled_rig() -> Rig {
