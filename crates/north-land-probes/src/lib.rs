@@ -1,7 +1,12 @@
 //! Which candidates the lander checks in one round and which one it lands (north#842): cumulative prefixes of the
 //! queue spaced across the free slots, then candidates that bypass each suspect of the first red stride. A landed
-//! candidate is always one probe whose own merged tree came green. The crate is pure and depends on nothing.
+//! candidate is always one probe whose own merged tree came green. Lanes whose footprints meet share one sub-queue, so
+//! lanes of different sub-queues land in the same round without a check of their union. The crate is pure and depends on nothing.
 #![forbid(unsafe_code)]
+
+mod subqueue;
+
+pub use subqueue::{Footprint, SubRound, partition, round, share};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Settled<L> {
@@ -37,6 +42,15 @@ pub fn plan<L: Clone + PartialEq>(queue: &[L], slots: usize, cap: usize, suspect
     for probe in prefixes(&clear, slots - probes.len(), cap) {
         if !probes.contains(&probe) {
             probes.push(probe);
+        }
+    }
+    for skipped in &clear {
+        if probes.len() >= slots {
+            break;
+        }
+        let bypass: Vec<L> = clear.iter().filter(|lane| *lane != skipped).take(cap).cloned().collect();
+        if !bypass.is_empty() && !probes.contains(&bypass) {
+            probes.push(bypass);
         }
     }
     probes
