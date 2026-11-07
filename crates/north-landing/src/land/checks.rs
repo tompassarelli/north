@@ -8,7 +8,6 @@ use north_base::foundation::offload::{LANDER_SLOT_ENV, LANES_ENV, LOCAL_ENV, OFF
 
 pub use crate::platform::land_queue::ROUND;
 use super::lander::Lander;
-use super::queue::Ticket;
 use north_check_environment as environment;
 use super::refusal;
 
@@ -195,8 +194,8 @@ impl Started {
     }
 }
 
-pub fn lane_names<'a>(tickets: impl Iterator<Item = &'a Ticket>) -> String {
-    tickets.map(|ticket| ticket.branch.as_str()).collect::<Vec<_>>().join(",")
+pub fn lane_names<'a>(branches: impl Iterator<Item = &'a str>) -> String {
+    branches.collect::<Vec<_>>().join(",")
 }
 
 pub fn run(lander: &Lander, worktree: &Path, base: &str, log: &Path) -> Verdict {

@@ -1,4 +1,5 @@
 use super::ambient::{self, Ambient};
+use super::finding::Finding;
 use super::rust_text::RustFile;
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
@@ -23,21 +24,6 @@ struct Allow {
     rule: String,
     path: String,
     item: Option<String>,
-}
-
-#[derive(Debug, PartialEq)]
-pub(super) struct Finding {
-    pub(super) rule: &'static str,
-    pub(super) path: String,
-    pub(super) line: usize,
-    pub(super) item: String,
-    pub(super) text: String,
-}
-
-impl Finding {
-    pub(super) fn render(&self) -> String {
-        format!("{} {}:{} {}", self.rule, self.path, self.line, self.text)
-    }
 }
 
 fn ambient_config(table: &Item, checks: &BTreeSet<String>) -> Result<Option<Ambient>, String> {

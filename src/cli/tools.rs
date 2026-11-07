@@ -163,12 +163,16 @@ fn named(table: &'static [(&'static str, Run)], command: &str) -> Option<&'stati
 }
 
 
+fn call_check(arguments: &[String]) -> u8 {
+    super::call_check::run(arguments, defines)
+}
+
 fn citation_check(arguments: &[String]) -> u8 {
     crate::ops::citation_check::run(arguments, defines)
 }
 
 const CHECK: &[(&str, Run)] = &[
-    ("calls", super::call_check::run),
+    ("calls", call_check),
     ("citations", citation_check),
     ("harness", agent_config_check::run),
     ("privacy", |arguments| crate::privacy::run(arguments, &super::agents::claude_access())),

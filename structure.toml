@@ -48,6 +48,31 @@ shape = "phase-suffix"
 path = "crates/north-threads/src/threads/runs/hook_rules.rs"
 reason = "the dotted names are guard rule ids in a classification table, labels for refusal text and never a lifecycle phase"
 
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-land-scans/src/withdrawal.rs"
+reason = "the verdict is the text a queue record stores for a decided ticket; the withdrawn-by prefix is read once per refusal from that stored record and never held as state (north#722)"
+
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-flow/src/tempo/mod.rs"
+reason = "the verdict is the text column of a queue record, counted once per reading for the failed-interaction tally and never held as state (north#722)"
+
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-lander/src/land/serve/batch.rs"
+reason = "the pick's verdict is the lander's report line, parsed here once to decide whether the lane's cleanup report runs, and never held as state (north#722)"
+
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-fleet-supervisor/src/fleet/strays.rs"
+reason = "the status is the text column of a session-table row, read once per sweep and never held as state (north#722)"
+
+[[implicit_state.allow]]
+shape = "status-string"
+path = "src/cli/scoreboard/chain.rs"
+reason = "the outcome is the text column the ledger's runs table stores, read here as rows and never held as state (north#722)"
+
 [crate_lines]
 default = 25000
 hub = 10000
@@ -103,7 +128,7 @@ may_use = ["north-base", "north-land-scans", "north-landing-gates"]
 
 [[crate_dag.crate]]
 name = "north-lander"
-paths = ["crates/north-lander/src/**"]
+paths = ["crates/north-lander/src/**", "crates/north-check-environment/src/**"]
 may_use = ["north-base", "north-check-environment", "north-goals", "north-land-probes", "north-land-scans", "north-landing", "north-strategy-types"]
 
 [[crate_dag.crate]]

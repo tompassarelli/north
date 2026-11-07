@@ -11,6 +11,7 @@ mod cli_tests;
 mod config;
 mod coupling;
 mod crate_lines;
+mod finding;
 mod functions;
 mod gate;
 mod graph;

@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::tools;
 use super::verb_help::{self, Resolution};
 use crate::landing::host_calls::{self, HostCall, Source};
 
@@ -32,7 +31,7 @@ fn summary(calls: &[HostCall]) -> String {
     format!("{} in units and the scripts they run, {} in hooks, {} in its ssh hops to other hosts", count(Source::Unit), count(Source::Hook), count(Source::Hop))
 }
 
-pub(super) fn run(arguments: &[String]) -> u8 {
+pub(super) fn run(arguments: &[String], defines: impl Fn(&str) -> bool) -> u8 {
     if matches!(arguments, [flag] if flag == "-h" || flag == "--help") {
         println!("{USAGE}");
         return 0;
@@ -58,7 +57,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let gathered = host_calls::on_this_host(&home, tree.as_deref());
     gathered.warnings.iter().for_each(|warning| println!("north check calls: ⚠ {warning}"));
-    let found = findings(&gathered.calls, |words| verb_help::resolve(verb_help::reference(), &live_table, words, tools::defines));
+    let found = findings(&gathered.calls, |words| verb_help::resolve(verb_help::reference(), &live_table, words, &defines));
     if found.is_empty() {
         let checked = gathered.calls.iter().filter(|call| call.source != Source::Rust).count();
         println!("north check calls: {checked} north calls on this host parse against this runtime ({})", summary(&gathered.calls));

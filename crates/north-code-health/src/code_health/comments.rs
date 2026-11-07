@@ -1,4 +1,4 @@
-use super::habits::Finding;
+use super::finding::Finding;
 use super::rust_text::line_comments;
 use regex::Regex;
 use std::collections::BTreeSet;

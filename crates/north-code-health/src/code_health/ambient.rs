@@ -1,4 +1,4 @@
-use super::habits::Finding;
+use super::finding::Finding;
 use super::rust_text::RustFile;
 use std::collections::BTreeMap;
 
