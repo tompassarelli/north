@@ -118,7 +118,28 @@ pub fn link(input: &HookInput) -> Verdict {
     if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
-    link_with(input, super::issue_cleanup::append, |new, blocked| {
+    link_with(
+        input,
+        &mut Live {
+            cwd: input.cwd().map(str::to_owned),
+            transcript: input.data["transcript_path"].as_str().map(PathBuf::from),
+            fleet_session: std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.is_empty()),
+        },
+    )
+}
+
+pub(super) type Ref = (String, u64);
+
+/// What the hook does after an issue is filed: link what it blocks, append its clean-up group, and claim it for the fleet session it records the brief of.
+pub(super) trait Filed {
+    fn connect(&mut self, new: &Ref, blocked: &Ref) -> Option<()>;
+    fn tidy(&mut self, new: &Ref) -> Result<bool, String>;
+    fn brief(&mut self) -> Option<String>;
+    fn claim(&mut self, new: &Ref) -> Result<String, String>;
+}
+
+impl Filed for Live {
+    fn connect(&mut self, new: &Ref, blocked: &Ref) -> Option<()> {
         let id = gh(None, &["api", &format!("repos/{}/issues/{}", new.0, new.1), "--jq", ".id"])?;
         gh(
             None,
@@ -132,12 +153,29 @@ pub fn link(input: &HookInput) -> Verdict {
             ],
         )
         .map(drop)
-    })
+    }
+
+    fn tidy(&mut self, new: &Ref) -> Result<bool, String> {
+        super::issue_cleanup::append(new)
+    }
+
+    fn brief(&mut self) -> Option<String> {
+        self.worker_brief()
+    }
+
+    fn claim(&mut self, new: &Ref) -> Result<String, String> {
+        let north = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"));
+        let ran = std::process::Command::new(north)
+            .args(["threads", "claim", &format!("{}#{}", new.0, new.1)])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|error| error.to_string())?;
+        let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).trim().to_owned();
+        if ran.status.success() { Ok(said(&ran.stdout)) } else { Err(said(&ran.stderr)) }
+    }
 }
 
-pub(super) type Ref = (String, u64);
-
-pub(super) fn link_with(input: &HookInput, mut tidy: impl FnMut(&Ref) -> Result<bool, String>, mut connect: impl FnMut(&Ref, &Ref) -> Option<()>) -> Verdict {
+pub(super) fn link_with(input: &HookInput, world: &mut impl Filed) -> Verdict {
     if !input.is_shell() || input.data["hook_event_name"] != "PostToolUse" {
         return Verdict::Allow;
     }
@@ -154,27 +192,31 @@ pub(super) fn link_with(input: &HookInput, mut tidy: impl FnMut(&Ref) -> Result<
     let new: Ref = (url[1].to_owned(), url[2].parse().unwrap_or(0));
     let mut notes = Vec::new();
     let writes = gh_write::writes(&text.lossy(), input.cwd());
-    let creates: Vec<_> = writes.iter().filter(|write| write.creates_issue).collect();
-    if creates.len() != 1 {
+    let [write] = writes.iter().filter(|write| write.creates_issue).collect::<Vec<_>>()[..] else {
         return Verdict::Allow;
+    };
+    let repo = write.repo.clone().unwrap_or_else(|| new.0.clone());
+    let body = body(write);
+    for capture in BLOCKS.captures_iter(&body) {
+        let blocked = (qualified(&capture, &repo), capture[2].parse().unwrap_or(0));
+        notes.push(match world.connect(&new, &blocked) {
+            Some(()) => format!("Linked {}#{} as blocking {}#{}.", new.0, new.1, blocked.0, blocked.1),
+            None => format!(
+                "Could not link {}#{} as blocking {}#{}; add it with `gh api -X POST repos/{}/issues/{}/dependencies/blocked_by -F issue_id=<id of the new issue>`.",
+                new.0, new.1, blocked.0, blocked.1, blocked.0, blocked.1
+            ),
+        });
     }
-    for write in creates {
-        let repo = write.repo.clone().unwrap_or_else(|| new.0.clone());
-        for capture in BLOCKS.captures_iter(&body(write)) {
-            let blocked = (qualified(&capture, &repo), capture[2].parse().unwrap_or(0));
-            notes.push(match connect(&new, &blocked) {
-                Some(()) => format!("Linked {}#{} as blocking {}#{}.", new.0, new.1, blocked.0, blocked.1),
-                None => format!(
-                    "Could not link {}#{} as blocking {}#{}; add it with `gh api -X POST repos/{}/issues/{}/dependencies/blocked_by -F issue_id=<id of the new issue>`.",
-                    new.0, new.1, blocked.0, blocked.1, blocked.0, blocked.1
-                ),
-            });
-        }
-    }
-    match tidy(&new) {
+    match world.tidy(&new) {
         Ok(true) => notes.push(format!("Appended the Clean-up group to {}#{}; tick its three boxes before closing.", new.0, new.1)),
         Ok(false) => {}
         Err(why) => notes.push(format!("Could not append the Clean-up group to {}#{}: {why}", new.0, new.1)),
+    }
+    if !BLOCKS.is_match(&body) && world.brief().is_some_and(|brief| records_brief(&brief, &body)) {
+        notes.push(match world.claim(&new) {
+            Ok(said) => format!("{said}: an issue you file for your own brief is claimed for you, so north dispatch does not staff it again."),
+            Err(why) => format!("Could not claim {}#{} for you ({why}); claim it with `north threads claim {}#{}` before north dispatch staffs it again.", new.0, new.1, new.0, new.1),
+        });
     }
     if notes.is_empty() { Verdict::Allow } else { Verdict::Advise(notes.join(" ")) }
 }
@@ -349,3 +391,7 @@ fn shape(write: &GhWrite, body: &str) -> Vec<String> {
     }
     reasons
 }
+
+#[cfg(test)]
+#[path = "issue_filing_tests.rs"]
+mod tests;

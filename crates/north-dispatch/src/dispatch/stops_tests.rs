@@ -102,9 +102,18 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     assert_eq!(gone("OPEN", "- [x] a\n- [x] b").as_deref(), Some("no unticked box on GitHub, though the mirror listed one"));
     assert_eq!(gone("OPEN", "- [x] a\n- [ ] b"), None);
     let copies = tempfile::tempdir().unwrap();
-    std::fs::write(copies.path().join("threads-whiterabbit.json"), r#"[{"item": "north#730", "owner": "n-frontier", "standing": "live"}]"#).unwrap();
+    std::fs::write(
+        copies.path().join("threads-whiterabbit.json"),
+        r#"[{"item": "north#730", "owner": "n-frontier", "standing": "live"}, {"item": "north#736", "owner": "n-remote-guard", "standing": "live"}, {"item": "north#737", "owner": "n-grant-order", "standing": "live"}, {"item": "north#739", "owner": "n-firn-follow", "standing": "live"}]"#,
+    )
+    .unwrap();
     let (host, listing) = super::survey::laptop_claims(&cfg, "nexus", copies.path(), d0216, &mut Vec::new()).expect("whiterabbit is the laptop");
-    assert_eq!(super::survey::claim_rows(&listing, &host, &BTreeSet::new()), [(IssueRef::new("north", 730), "threads claim by n-frontier on whiterabbit".to_owned())], "north-730-d0216 launched while n-frontier on the laptop held north#730");
+    let held = |number: u64, owner: &str| (IssueRef::new("north", number), format!("threads claim by {owner} on whiterabbit"));
+    assert_eq!(
+        super::survey::claim_rows(&listing, &host, &BTreeSet::new()),
+        [held(730, "n-frontier"), held(736, "n-remote-guard"), held(737, "n-grant-order"), held(739, "n-firn-follow")],
+        "north-730-d0216 launched while n-frontier on the laptop held north#730; north-736-d0226, north-737-d0241 and north-739-d0245 launched on issues the laptop sessions that filed them now claim on filing"
+    );
 
     let on = |tier: &str, effort: Option<&str>| record::Record { name: "n705-d0900".into(), tier: Some(tier.into()), effort: effort.map(str::to_owned), ..launch("north#705", "", 10.0, true) };
     let failed = |report: &str, ran: &record::Record| Issue { stop: super::stops::stop(&session(report), ran), touched: 900.0, ..issue("north", 705, "- [ ] a", &[]) };
