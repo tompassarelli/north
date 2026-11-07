@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::{Fixture, executable, git};
 
@@ -109,11 +109,7 @@ fn a_bisection_prefix_runs_with_the_red_run_selection_so_the_lane_that_carries_t
 }
 
 fn until(what: &str, done: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(120);
-    while !done() {
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    assert!(north_core::platform::wait::until(Duration::from_secs(120), done), "timed out waiting for {what}");
 }
 
 fn landed(fixture: &Fixture, ticket: &Path) -> String {

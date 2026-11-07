@@ -58,7 +58,7 @@ pub fn replay(root: &Path, since: f64, now: f64, deciders: &Deciders, bounds: &B
             if logged.at < since {
                 continue;
             }
-            let replayed = counts.timed(|| (deciders.placement)(&logged.case));
+            let replayed = counts.timed(deciders.clock, || (deciders.placement)(&logged.case));
             counts.record(label(&logged.decision.target), replayed.as_ref().map(label));
             if let Some(target) = &replayed {
                 counts.compare(logged.at, &logged.case.launch.name, &outcome(&logged.decision.target), &outcome(target));

@@ -1,7 +1,7 @@
 use std::net::TcpListener;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -20,14 +20,15 @@ struct Ledger {
     calls: AtomicUsize,
     charged: AtomicUsize,
     seen: Mutex<Vec<String>>,
+    held: AtomicBool,
 }
 
-fn reply(request: &Request) -> Response {
+fn reply(request: &Request, held: &AtomicBool) -> Response {
     let header = |name: &str, value: String| (name.to_owned(), value);
     match request.target.as_str() {
         ISSUES if request.header("if-none-match") == Some(ETAG) => Response { status: 304, headers: vec![header("ETag", ETAG.into())], body: Vec::new() },
         ISSUES | "/repos/o/r/pulls" => {
-            std::thread::sleep(Duration::from_millis(300));
+            north_base::platform::wait::until(Duration::from_secs(60), || !held.load(Ordering::SeqCst));
             Response { status: 200, headers: vec![header("ETag", ETAG.into())], body: format!("[{{\"from\":\"{}\"}}]", request.target).into_bytes() }
         }
         "/graphql" => Response { status: 200, headers: Vec::new(), body: b"{\"data\":{}}".to_vec() },
@@ -53,7 +54,7 @@ fn fake_github() -> (String, Arc<Ledger>) {
             let ledger = Arc::clone(&counted);
             std::thread::spawn(move || {
                 let request = read_request(&stream).unwrap();
-                let response = reply(&request);
+                let response = reply(&request, &ledger.held);
                 ledger.calls.fetch_add(1, Ordering::SeqCst);
                 if response.status != 304 {
                     ledger.charged.fetch_add(1, Ordering::SeqCst);
@@ -117,7 +118,10 @@ fn source(response: &Response) -> &str {
 #[test]
 fn two_sessions_identical_reads_cost_one_github_call() {
     let broker = Arc::new(Harness::start(Duration::from_secs(20)));
+    broker.github.held.store(true, Ordering::SeqCst);
     let sessions: Vec<_> = (0..2).map(|_| { let broker = Arc::clone(&broker); std::thread::spawn(move || broker.get(ISSUES)) }).collect();
+    assert!(north_base::platform::wait::until(Duration::from_secs(60), || broker.activity.open_calls() == 2), "both sessions reached the broker");
+    broker.github.held.store(false, Ordering::SeqCst);
     let answers: Vec<Response> = sessions.into_iter().map(|session| session.join().unwrap()).collect();
     for answer in &answers {
         assert_eq!((answer.status, answer.body.as_slice()), (200, b"[{\"from\":\"/repos/o/r/issues\"}]".as_slice()));
@@ -238,6 +242,7 @@ fn the_brokers_gh_config_edits_keep_the_login_and_release_only_its_own_line_whil
 #[test]
 fn a_draining_broker_answers_the_call_it_holds_then_stops_accepting() {
     let mut broker = Harness::start(Duration::from_secs(20));
+    broker.github.held.store(true, Ordering::SeqCst);
     let socket = broker.socket.clone();
     let held = {
         let socket = socket.clone();
@@ -248,12 +253,11 @@ fn a_draining_broker_answers_the_call_it_holds_then_stops_accepting() {
             read_response(&stream).unwrap()
         })
     };
-    while broker.activity.idle_for().is_some() {
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    north_base::platform::wait::until(Duration::from_secs(60), || broker.activity.idle_for().is_none());
     broker.activity.drain(&socket);
     broker.served.take().unwrap().join().unwrap();
     assert!(!held.is_finished(), "the held call is still running when the server loop has stopped");
+    broker.github.held.store(false, Ordering::SeqCst);
     assert!(broker.activity.finish_open_calls(Duration::from_secs(5)));
     assert_eq!(held.join().unwrap().status, 200, "the call in flight when the drain began is answered, not cut");
 }

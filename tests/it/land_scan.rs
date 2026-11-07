@@ -4,6 +4,7 @@ use std::process::{Command, Output, Stdio};
 
 const MUTANT_MARKER: &str = concat!("MUT", "ANT:r1");
 const SKIP: &str = concat!("it.sk", "ip(");
+const WALL_CLOCK: &str = concat!("std::thread::sl", "eep(Duration::from_millis(50));");
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git")
@@ -163,6 +164,16 @@ fn test_integrity() {
         &format!("{SKIP}\"not a test path\")\n"),
     );
     fixture.commit(&["skip outside tests"]);
+    assert_eq!(fixture.scan("test-integrity").status, 0);
+    fixture.reset();
+    write(&fixture.repo.join("tests/it/slow.rs"), &format!("{WALL_CLOCK}\n"));
+    fixture.commit(&["a test that sleeps"]);
+    let slept = fixture.scan("test-integrity");
+    assert_eq!(slept.status, 1);
+    assert!(slept.stdout.starts_with(concat!("safe-push: ✗ tests/it/slow.rs adds the wall-clock read sl", "eep(")), "{}", slept.stdout);
+    fixture.reset();
+    write(&fixture.repo.join("src/pace.rs"), &format!("{WALL_CLOCK}\n"));
+    fixture.commit(&["sleep outside tests"]);
     assert_eq!(fixture.scan("test-integrity").status, 0);
 }
 

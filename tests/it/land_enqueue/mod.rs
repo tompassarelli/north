@@ -51,13 +51,12 @@ impl Fixture {
     }
 }
 
-fn north_enqueue_with(fixture: &Fixture, environment: &[(&str, &Path)]) -> (std::process::Output, std::time::Duration) {
+fn north_enqueue_with(fixture: &Fixture, environment: &[(&str, &Path)]) -> std::process::Output {
     north_enqueue_run(fixture, &[], environment)
 }
 
-fn north_enqueue_run(fixture: &Fixture, arguments: &[&str], environment: &[(&str, &Path)]) -> (std::process::Output, std::time::Duration) {
-    let started = std::time::Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+fn north_enqueue_run(fixture: &Fixture, arguments: &[&str], environment: &[(&str, &Path)]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_north"))
         .args(["land", "enqueue", "--repo"])
         .arg(&fixture.repo)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -73,8 +72,7 @@ fn north_enqueue_run(fixture: &Fixture, arguments: &[&str], environment: &[(&str
         .env_remove("SAFE_PUSH_LAND_OFFLOAD_HOST")
         .env_remove("SAFE_PUSH_LAND_RUNNER")
         .output()
-        .unwrap();
-    (output, started.elapsed())
+        .unwrap()
 }
 
 impl Fixture {

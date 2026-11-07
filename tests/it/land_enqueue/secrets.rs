@@ -24,7 +24,7 @@ fn a_deny_listed_value_is_refused() {
     git(&fixture.repo, &["commit", "-qm", "Add identity"]);
     let list = deny_list(&fixture);
     let path = stub_gh(&fixture, "echo PUBLIC");
-    let (output, _) = north_enqueue_with(&fixture, &[("SAFE_PUSH_DENYLIST", &list), ("PATH", &path)]);
+    let output = north_enqueue_with(&fixture, &[("SAFE_PUSH_DENYLIST", &list), ("PATH", &path)]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "{stdout}{stderr}");
@@ -41,7 +41,7 @@ fn a_lane_the_secret_scan_flags_is_refused() {
     fs::create_dir_all(&stub).unwrap();
     north_core::foundation::shim::write_executable(&stub.join("betterleaks"), "#!/bin/sh\nexit 1\n");
     let path = PathBuf::from(format!("{}:{}", stub.display(), std::env::var("PATH").unwrap_or_default()));
-    let (output, _) = north_enqueue_with(&fixture, &[("PATH", &path)]);
+    let output = north_enqueue_with(&fixture, &[("PATH", &path)]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("secret scan refused the landing"), "{}", String::from_utf8_lossy(&output.stderr));
     assert!(!fixture.state.exists(), "a refused lane writes no ticket");

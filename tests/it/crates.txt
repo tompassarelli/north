@@ -6,7 +6,7 @@
 affected_modules north-landing north
 agents_plan north-ops north-pace
 automation_chrome_service north
-capacity_exclusive_native north-capacity
+capacity_exclusive_native north-capacity north-core
 capacity_host north-capacity-host
 capacity_live north-capacity-host
 carry_matrix north-capacity north-runtime

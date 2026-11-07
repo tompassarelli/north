@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::ssh::argv;
+use super::wait;
 
 pub fn which(program: &str) -> String {
     let found = Command::new("sh").args(["-c", &format!("command -v {program}")]).output().unwrap();
@@ -49,11 +50,7 @@ impl Fixture {
         std::fs::write(path.join("ssh_config"), client_config).unwrap();
         let sshd = daemon(&which("sshd")).args(["-D", "-f"]).arg(path.join("sshd_config")).spawn().unwrap();
         let fixture = Self { dir, runtime, sshd, units: Vec::new() };
-        let probe = Instant::now();
-        while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
-            assert!(probe.elapsed() < Duration::from_secs(10), "sshd did not listen");
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        assert!(wait::until(Duration::from_secs(10), || std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()), "sshd did not listen");
         fixture
     }
 
@@ -84,11 +81,7 @@ impl Fixture {
     }
 
     pub fn wait_for_socket(&self) {
-        let probe = Instant::now();
-        while !self.socket_up() {
-            assert!(probe.elapsed() < Duration::from_secs(15), "no ssh master socket appeared");
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        assert!(wait::until(Duration::from_secs(15), || self.socket_up()), "no ssh master socket appeared");
     }
 
     pub fn stop(&mut self, marker: &str) {

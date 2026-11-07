@@ -46,7 +46,7 @@ fn closing_ends_every_process_of_the_launch_and_spares_another_prefix() {
     ];
     let mut bystander = standin(&sleep, &["300"], &[("STEAM_COMPAT_DATA_PATH", root.path().join("other-compat").to_string_lossy().into_owned())]);
     let launch = launch_in(root.path(), &appid);
-    std::thread::sleep(Duration::from_millis(500));
+    north_base::platform::wait::until(Duration::from_secs(30), || launch.members().len() == 5);
     assert_eq!(launch.members().len(), 5, "the prefix in a large environment, the reaper's AppId and their descendants");
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let code = close(&launch, &quick(), &mut |line| out.push(line.to_owned()), &mut |line| err.push(line.to_owned()));

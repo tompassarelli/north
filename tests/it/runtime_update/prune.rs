@@ -27,14 +27,11 @@ fn a_runtime_a_live_session_host_runs_from_survives_pruning_until_that_host_exit
     // Another test thread's fork can hold the copied binary's write fd until its child execs.
     let mut session_host = loop {
         match command.spawn() {
-            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy => std::thread::sleep(Duration::from_millis(5)),
+            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy => std::thread::yield_now(),
             spawned => break spawned.unwrap(),
         }
     };
-    while !session.join("host.sock").exists() {
-        assert!(session_host.try_wait().unwrap().is_none(), "the fake session host exited before the prune");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    assert!(north_core::platform::wait::until(Duration::from_secs(30), || session.join("host.sock").exists() || session_host.try_wait().unwrap().is_some()) && session_host.try_wait().unwrap().is_none(), "the fake session host exited before the prune");
 
     let promoted = host.update(0, 0);
     assert!(promoted.status.success(), "{}", String::from_utf8_lossy(&promoted.stderr));

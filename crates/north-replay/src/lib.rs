@@ -30,6 +30,13 @@ pub struct Deciders<'a> {
     pub admission: &'a AdmissionDecider,
     pub judge: &'a (dyn Fn(&land::JudgeCase) -> land::Judgement + Sync),
     pub placement: &'a (dyn Fn(&placement::Case) -> Option<placement::Target> + Sync),
+    pub clock: &'a (dyn Fn() -> f64 + Sync),
+}
+
+/// Seconds since the first call, which the replay reads around each decision.
+pub fn wall_seconds() -> f64 {
+    static START: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
+    START.elapsed().as_secs_f64()
 }
 
 impl Deciders<'static> {
@@ -39,6 +46,7 @@ impl Deciders<'static> {
             admission: &north_capacity::capacity::replay::decide,
             judge: &north_landing::land::judge_case::judge,
             placement: &north_dispatch::pacing::placement::case::replayed_target,
+            clock: &wall_seconds,
         }
     }
 }

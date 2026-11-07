@@ -120,7 +120,6 @@ fn readers_never_meet_a_lock_while_a_writer_holds_a_write_transaction_for_two_se
     drop(ledger(&directory));
     let holder = Connection::open(&path).unwrap();
     holder.execute_batch("BEGIN IMMEDIATE; INSERT INTO events(session, kind, payload, recorded_ms) VALUES('s', 'k', '{}', 1)").unwrap();
-    let started = std::time::Instant::now();
     let readers: Vec<_> = (0..24)
         .map(|_| {
             let path = path.clone();
@@ -131,12 +130,11 @@ fn readers_never_meet_a_lock_while_a_writer_holds_a_write_transaction_for_two_se
             })
         })
         .collect();
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(60), || readers.iter().all(|reader| reader.is_finished())), "a reader waited on the writer's open transaction");
     holder.execute_batch("COMMIT").unwrap();
     for reader in readers {
         reader.join().unwrap().unwrap();
     }
-    assert!(started.elapsed() >= std::time::Duration::from_secs(2));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use north_core::foundation::shim;
 
@@ -102,11 +102,7 @@ fn fails_into_a_state_log_with_events_and_north_watch(fixture: &Fixture) -> Stri
     for wanted in [r#""stage":"land check","status":"failed","detail":""#, &format!("log: {log}\""), r#""stage":"exit","status":"refused""#] {
         assert!(events.contains(wanted), "no event {wanted}: {events}");
     }
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !fs::read_to_string(&watch_calls).is_ok_and(|calls| calls.lines().any(|call| call == "watch --once")) {
-        assert!(Instant::now() < deadline, "a failed landing did not start north watch at once");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    assert!(north_core::platform::wait::until(Duration::from_secs(5), || fs::read_to_string(&watch_calls).is_ok_and(|calls| calls.lines().any(|call| call == "watch --once"))), "a failed landing did not start north watch at once");
     log
 }
 

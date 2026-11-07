@@ -106,14 +106,7 @@ fn has(text: &str, pattern: &str) -> bool {
 }
 
 fn eventually(done: impl Fn() -> bool) -> bool {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while !done() {
-        if std::time::Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    true
+    north_core::platform::wait::until(std::time::Duration::from_secs(30), done)
 }
 
 #[test]

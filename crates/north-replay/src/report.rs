@@ -31,10 +31,10 @@ impl Counts {
     }
 
     /// Runs one replayed decision and keeps the longest any took, in seconds.
-    pub fn timed<T>(&mut self, call: impl FnOnce() -> T) -> T {
-        let started = std::time::Instant::now();
+    pub fn timed<T>(&mut self, clock: &dyn Fn() -> f64, call: impl FnOnce() -> T) -> T {
+        let started = clock();
         let decided = call();
-        self.slowest_call = self.slowest_call.max(started.elapsed().as_secs_f64());
+        self.slowest_call = self.slowest_call.max(clock() - started);
         decided
     }
 

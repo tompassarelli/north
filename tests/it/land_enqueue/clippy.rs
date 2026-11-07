@@ -22,7 +22,7 @@ fn runs(path: &std::path::Path) -> usize {
 fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass_for_the_same_tree() {
     let refused = Fixture::new();
     let counter = lane_with_clippy(&refused, false);
-    let (output, _) = north_enqueue_with(&refused, &[]);
+    let output = north_enqueue_with(&refused, &[]);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "{stderr}");
     assert!(stderr.contains("a check before queueing exited") && stderr.contains("to rerun clippy alone: cargo clippy --all-targets --workspace -- -D warnings"), "{stderr}");
@@ -31,11 +31,11 @@ fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass
 
     let passed = Fixture::new();
     let counter = lane_with_clippy(&passed, true);
-    let (first, _) = north_enqueue_with(&passed, &[]);
+    let first = north_enqueue_with(&passed, &[]);
     let first_log = format!("{}{}", String::from_utf8_lossy(&first.stdout), String::from_utf8_lossy(&first.stderr));
     assert!(!first_log.contains("a check before queueing exited"), "{first_log}");
     assert_eq!(runs(&counter), 1, "{first_log}");
-    let (second, _) = north_enqueue_with(&passed, &[]);
+    let second = north_enqueue_with(&passed, &[]);
     let second_log = format!("{}{}", String::from_utf8_lossy(&second.stdout), String::from_utf8_lossy(&second.stderr));
     assert!(second_log.contains("reused from the verdict cache"), "{second_log}");
     assert_eq!(runs(&counter), 1, "a cached pass for the same tree runs clippy no second time: {second_log}");
@@ -52,7 +52,7 @@ fn enqueue_refuses_a_lane_whose_check_before_queueing_reached_no_verdict() {
     fs::write(fixture.repo.join(".safe-push"), format!("[land]\n\tafter = \"** :: {command}\"\n")).unwrap();
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "Add a clippy after-landing check no host can run"]);
-    let (output, _) = north_enqueue_with(&fixture, &[]);
+    let output = north_enqueue_with(&fixture, &[]);
     let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(!output.status.success(), "{log}");
     assert!(log.contains("reached no verdict") && log.contains("not queued uncompiled"), "{log}");
@@ -68,7 +68,7 @@ fn enqueue_compiles_on_the_queueing_host_when_no_build_host_has_room_and_refuses
     fs::write(fixture.repo.join(".safe-push"), format!("[land]\n\trunner = build-host\n\tafter = \"** :: {command}\"\n")).unwrap();
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "Add a clippy after-landing check that runs on a build host"]);
-    let (output, _) = north_enqueue_with(&fixture, &[("AGENTS_ORCHESTRATION", &hostless)]);
+    let output = north_enqueue_with(&fixture, &[("AGENTS_ORCHESTRATION", &hostless)]);
     let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(!output.status.success() && log.contains("a check before queueing exited 101"), "{log}");
     assert!(log.contains("no build host has room") && log.contains("run on this host"), "{log}");
@@ -82,7 +82,7 @@ fn a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_i
         let fixture = Fixture::seeded(&[("file", "base\n"), ("goals.toml", goals)]);
         fs::create_dir_all(fixture.repo.join(path).parent().unwrap()).unwrap();
         fixture.commit(&fixture.repo, path, "Add a file");
-        let (output, _) = north_enqueue_with(&fixture, &[]);
+        let output = north_enqueue_with(&fixture, &[]);
         let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         assert!(output.status.success(), "a debt over its ceiling refuses no lane: {log}");
         let ticket = written(&fixture.state).into_iter().find(|path| path.extension().is_some_and(|extension| extension == "json")).expect("a ticket");
@@ -113,7 +113,7 @@ fn enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_and_leaves_ev
     fs::write(fixture.repo.join("docs/features/01-first/0002-long.md"), long("BROKEN")).unwrap();
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "Add a broken features entry"]);
-    let (output, _) = north_enqueue_with(&fixture, &[]);
+    let output = north_enqueue_with(&fixture, &[]);
     let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(output.status.success() && !log.contains("a check before queueing exited"), "an enqueue-marked after line refused the lane while landing_refusals is shadow: {log}");
     assert_eq!(runs(&unmarked), 0, "a line without the enqueue marker ran before queueing: {log}");
@@ -121,7 +121,7 @@ fn enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_and_leaves_ev
     fs::write(fixture.repo.join("list.txt"), "BEGIN\na\nc\nb\nEND\n").unwrap();
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "Fix the entry and add b, leaving the index stale and the list out of order"]);
-    let (output, _) = north_enqueue_with(&fixture, &[]);
+    let output = north_enqueue_with(&fixture, &[]);
     let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(output.status.success(), "a stale index or an unsorted block refused the lane: {log}");
     assert_eq!(git(&fixture.repo, &["show", "HEAD:list.txt"]), "BEGIN\na\nb\nc\nEND", "{log}");
@@ -137,7 +137,7 @@ fn enqueue_runs_an_added_check_whose_checker_the_live_runtime_does_not_cover_on_
     fs::write(fixture.repo.join(".safe-push"), "[land]\n\tcheck = \"** :: ./bin/head-north --code src/checker.rs --no-build docs check\"\n").unwrap();
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "Add a check whose checker no live runtime covers"]);
-    let (output, _) = north_enqueue_with(&fixture, &[]);
+    let output = north_enqueue_with(&fixture, &[]);
     let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(output.status.success() && !log.contains("a land check this lane adds exited"), "{log}");
     assert_eq!(runs(&counter), 1, "{log}");

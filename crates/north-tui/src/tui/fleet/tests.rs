@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
@@ -209,17 +209,13 @@ fn key(desk: &mut DeskFake, screen: &mut Screen, event: KeyEvent) {
     screen.begin(&command, desk.transcript(command.session()));
     let mut runner = Runner::new(desk.actions());
     runner.start(command);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let completions = runner.completed();
-        if !completions.is_empty() {
-            for completion in completions {
-                screen.settle(completion.command, completion.outcome);
-            }
-            return;
-        }
-        assert!(Instant::now() < deadline, "command did not complete");
-        std::thread::yield_now();
+    let mut completions = Vec::new();
+    assert!(north_base::platform::wait::until(Duration::from_secs(5), || {
+        completions = runner.completed();
+        !completions.is_empty()
+    }), "command did not complete");
+    for completion in completions {
+        screen.settle(completion.command, completion.outcome);
     }
 }
 

@@ -121,11 +121,10 @@ fn a_launch_whose_provider_exits_before_the_host_registers_leaves_no_session_dir
     let sent = north(root, &["fleet", "send", "--from", "service:fleet-test", "narrow", "answer this"]);
     let answered = |shown: &str| shown.split_once("] answer this").is_some_and(|(_, after)| after.contains("OK"));
     let mut shown = String::new();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while !answered(&shown) && std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(200));
+    north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
         shown = text(&north(root, &["fleet", "show", "narrow"]).stdout);
-    }
+        answered(&shown)
+    });
     north(root, &["fleet", "forget", "narrow"]);
 
     assert!(retried.status.success(), "{}", text(&retried.stderr));

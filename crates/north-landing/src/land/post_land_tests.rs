@@ -63,19 +63,11 @@ fn an_after_landing_run_past_its_deadline_is_killed_with_its_group_reaches_no_ve
     stuck.ledger = scratch.path().join("post-land.tsv");
     stuck.deadline = Duration::from_secs(1);
     let landed = landed(&["b", "c", "d"]);
-    let started = std::time::Instant::now();
     let checked = execute("sh", &stuck.runner[1..], &landed, "d", &stuck);
     record(&stuck, &landed, &checked.verdict, checked.expired, 1);
-    assert!(started.elapsed() < Duration::from_secs(20), "the deadline ended the run");
     assert!(checked.expired && matches!(checked.verdict, Verdict::Transient(_)), "{:?}", checked.verdict);
     let pid = rustix::process::Pid::from_raw(std::fs::read_to_string(&grandchild).unwrap().trim().parse().unwrap()).unwrap();
-    let gone = (0..100).any(|_| {
-        let dead = process_ended(pid.as_raw_nonzero().get());
-        if !dead {
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        dead
-    });
+    let gone = north_base::platform::wait::until(Duration::from_secs(5), || process_ended(pid.as_raw_nonzero().get()));
     assert!(gone, "the run's whole process group was killed");
     let rows = std::fs::read_to_string(&stuck.ledger).unwrap();
     let rows: Vec<Vec<&str>> = rows.lines().map(|row| row.split('\t').collect()).collect();
@@ -260,7 +252,7 @@ fn a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the
         command.clone_into(&mut asked.borrow_mut());
         "test drill ... ok\nland check: harness/a.test.sh passed after 0 s\n".to_owned()
     };
-    assert_eq!(super::settle::settle_from(&landed, &green, std::time::Instant::now(), Verdict::Green.into(), alarm, rerun), Verdict::Green);
+    assert_eq!(super::settle::settle_from(&landed, &green, north_base::platform::wait::after(Duration::ZERO), Verdict::Green.into(), alarm, rerun), Verdict::Green);
     assert!(asked.borrow().contains("--exact 'drill'") && asked.borrow().contains("land tests 'harness/a.test.sh'"), "{}", asked.borrow());
     assert!(!marker.exists(), "the red record outlived a green rerun of its tests: {:?}", sent.borrow());
     assert!(sent.borrow().len() == 1 && sent.borrow()[0].contains("main is green again"), "{:?}", sent.borrow());

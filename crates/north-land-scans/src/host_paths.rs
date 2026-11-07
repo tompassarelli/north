@@ -12,8 +12,12 @@ static HOST_PATH: LazyLock<Regex> = LazyLock::new(|| {
 
 const RECORDED_LOGS: [&[u8]; 1] = [b"tests/fixtures/"];
 
+pub(crate) fn is_test_code(path: &[u8]) -> bool {
+    TEST_CODE.is_match(path) && !RECORDED_LOGS.iter().any(|prefix| path.starts_with(prefix))
+}
+
 pub fn find<'a>(path: &[u8], line: &'a [u8]) -> Option<&'a [u8]> {
-    if !TEST_CODE.is_match(path) || RECORDED_LOGS.iter().any(|prefix| path.starts_with(prefix)) {
+    if !is_test_code(path) {
         return None;
     }
     HOST_PATH.find(line).map(|found| found.as_bytes())

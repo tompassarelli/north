@@ -26,6 +26,7 @@ tokio.workspace = true
 north-capacity = { path = "../north-capacity", features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

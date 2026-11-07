@@ -8,7 +8,7 @@ use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Output};
 use std::sync::{Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 static EXEC: Mutex<()> = Mutex::new(());
 
@@ -32,20 +32,18 @@ impl Exclusive for Command {
     }
 
     fn status_exclusive(&mut self) -> std::io::Result<ExitStatus> {
-        let deadline = Instant::now() + BOUND;
         let mut child = self.process_group(0).spawn_exclusive()?;
-        bounded_wait(&mut child, deadline, &format!("{self:?}"))
+        bounded_wait(&mut child, &format!("{self:?}"))
     }
 
     fn output_exclusive(&mut self) -> std::io::Result<Output> {
-        let deadline = Instant::now() + BOUND;
         self.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
         let mut child = self.process_group(0).spawn_exclusive()?;
         let what = format!("{self:?}");
         let stdout = drain(child.stdout.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>));
         let stderr = drain(child.stderr.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>));
-        let status = bounded_wait(&mut child, deadline, &what)?;
-        let collect = |pipe: std::sync::mpsc::Receiver<Vec<u8>>| match pipe.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        let status = bounded_wait(&mut child, &what)?;
+        let collect = |pipe: std::sync::mpsc::Receiver<Vec<u8>>| match pipe.recv_timeout(BOUND) {
             Ok(bytes) => bytes,
             Err(_) => {
                 end_group(&child);
@@ -68,18 +66,24 @@ fn drain(pipe: Option<Box<dyn Read + Send>>) -> std::sync::mpsc::Receiver<Vec<u8
     receive
 }
 
-fn bounded_wait(child: &mut Child, deadline: Instant, what: &str) -> std::io::Result<ExitStatus> {
-    loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(status);
+fn bounded_wait(child: &mut Child, what: &str) -> std::io::Result<ExitStatus> {
+    let mut failure = None;
+    let finished = north_core::platform::wait::until(BOUND, || match child.try_wait() {
+        Ok(status) => status.is_some(),
+        Err(error) => {
+            failure = Some(error);
+            true
         }
-        if Instant::now() >= deadline {
-            end_group(child);
-            let _ = child.wait();
-            panic!("{what} ran past {BOUND:?}: a capacity test never waits on a lease service or a build host");
-        }
-        std::thread::sleep(Duration::from_millis(20));
+    });
+    if let Some(error) = failure {
+        return Err(error);
     }
+    if !finished {
+        end_group(child);
+        let _ = child.wait();
+        panic!("{what} ran past {BOUND:?}: a capacity test never waits on a lease service or a build host");
+    }
+    child.wait()
 }
 
 fn end_group(child: &Child) {
@@ -255,13 +259,8 @@ impl Host {
         result
     }
 
-    pub fn until(&self, what: &str, mut done: impl FnMut(&Self) -> bool) -> Instant {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while !done(self) {
-            assert!(Instant::now() < deadline, "timed out waiting for {what}; helper stderr:\n{}", self.helper_stderr());
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        Instant::now()
+    pub fn until(&self, what: &str, mut done: impl FnMut(&Self) -> bool) {
+        assert!(north_core::platform::wait::until(Duration::from_secs(20), || done(self)), "timed out waiting for {what}; helper stderr:\n{}", self.helper_stderr());
     }
 }
 

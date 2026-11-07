@@ -298,7 +298,7 @@ may_use = ["strategy_types", "foundation", "platform.process", "platform", "plat
 name = "platform.ssh"
 paths = ["crates/north-base/src/platform/ssh*.rs"]
 responsibility = "The ssh adapter: sessions, the control master and its test fixture."
-may_use = ["strategy_types", "foundation", "platform.process"]
+may_use = ["strategy_types", "foundation", "platform.process", "platform"]
 
 [[module]]
 name = "platform.process"

@@ -1,6 +1,7 @@
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use super::super::wait;
 use super::super::ssh_fixture::{master_words, which, Fixture};
 use super::{probe, Health, Master, SLOW};
 
@@ -33,10 +34,9 @@ fn a_master_slower_than_three_seconds_while_a_direct_connection_answers_is_close
     let env = fixture.env();
     let program = [which("ssh").into()];
 
-    let started = Instant::now();
-    let health = probe(&program, &env, "testhost", &mut Respawned { fixture: &mut fixture, marker, words });
+    let (health, took) = wait::timed(|| probe(&program, &env, "testhost", &mut Respawned { fixture: &mut fixture, marker, words }));
 
-    assert!(started.elapsed() >= 2 * SLOW, "the stalled master was not sampled twice: {health:?}");
+    assert!(took >= 2 * SLOW, "the stalled master was not sampled twice: {health:?}");
     let Health::Recycled { direct, after: Some(after) } = health else { panic!("the stalled master was not recycled: {health:?}") };
     assert!(direct < SLOW, "{direct:?}");
     assert!(after < Duration::from_secs(1), "the recreated master took {after:?}");

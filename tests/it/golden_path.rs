@@ -5,7 +5,7 @@ use north_landing::land::queue;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -18,14 +18,13 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
 }
 
 fn eventually<T>(what: &str, mut probe: impl FnMut() -> Option<T>) -> T {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if let Some(found) = probe() {
-            return found;
-        }
-        assert!(Instant::now() < deadline, "never saw {what}");
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let mut found = None;
+    let seen = north_core::platform::wait::until(Duration::from_secs(30), || {
+        found = probe();
+        found.is_some()
+    });
+    assert!(seen, "never saw {what}");
+    found.unwrap()
 }
 
 fn host_label() -> String {

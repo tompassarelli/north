@@ -8,12 +8,8 @@ use super::{Fixture, executable, git, json_names, pushed_trees_were_checked};
 const AWAIT: &str = "await() { for ((i = 0; i < 400; i++)); do [ -e \"$LAND_TRACE/$1\" ] && return 0; sleep 0.05; done; return 1; }\n";
 fn speculate_serve(fixture: &mut Fixture, later: &[PathBuf]) -> Output {
     let tickets: Vec<(PathBuf, Ticket)> = later.iter().map(|lane| fixture.ticket(lane, None)).collect();
-    let started = std::time::Instant::now();
     let child = fixture.command().stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
-    while fixture.checks().is_empty() {
-        assert!(started.elapsed() < std::time::Duration::from_secs(30), "the first batch's check never started");
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    assert!(north_core::platform::wait::until(std::time::Duration::from_secs(30), || !fixture.checks().is_empty()), "the first batch's check never started");
     for (path, ticket) in &tickets {
         queue::write(path, ticket).unwrap();
     }

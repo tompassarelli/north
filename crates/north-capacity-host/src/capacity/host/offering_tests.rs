@@ -71,9 +71,7 @@ fn a_session_build_is_offered_away_before_deciding_only_on_a_host_that_does_not_
 static RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn stalled(_: &Candidate, _: &Job, _: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
-    while !RELEASED.load(std::sync::atomic::Ordering::SeqCst) {
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    north_base::platform::wait::until(std::time::Duration::from_secs(300), || RELEASED.load(std::sync::atomic::Ordering::SeqCst));
     Err(None)
 }
 
@@ -83,9 +81,7 @@ static PAST_TIMEOUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 fn running_until_released(_: &Candidate, _: &Job, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
     announce("gex45");
     STARTED.store(true, std::sync::atomic::Ordering::SeqCst);
-    while !PAST_TIMEOUT.load(std::sync::atomic::Ordering::SeqCst) {
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
+    north_base::platform::wait::until(std::time::Duration::from_secs(300), || PAST_TIMEOUT.load(std::sync::atomic::Ordering::SeqCst));
     Ok(7)
 }
 
@@ -100,19 +96,18 @@ async fn offer(host: &Host, queued_seconds: u64) -> Option<u8> {
 }
 
 // KEEP(bug): on 2026-11-06 a queued gate with --timeout-seconds 3600 sat at DEFER_CPU_PRESSURE for 6,498 s because its admit loop was stuck awaiting an offload offer that never answered; an offer that has not started now gives up when the gate's timeout ends, while one a host has taken runs on; north#634
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn an_offload_offer_that_never_starts_ends_with_the_gates_timeout_and_one_already_running_does_not() {
     let hung = Host { build_offload: stalled, ..laptop(|| None) };
-    let started = std::time::Instant::now();
-    assert_eq!(offer(&hung, 5).await, None, "the stalled offer ended with the gate's timeout");
-    assert!(started.elapsed() < std::time::Duration::from_secs(3), "{:?}", started.elapsed());
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(60), offer(&hung, 5)).await.expect("the stalled offer outlived the gate's timeout");
+    assert_eq!(ended, None, "the stalled offer ended with the gate's timeout");
     RELEASED.store(true, std::sync::atomic::Ordering::SeqCst);
     let running = Host { build_offload: running_until_released, ..laptop(|| None) };
     let release_once_past_the_timeout = async {
         while !STARTED.load(std::sync::atomic::Ordering::SeqCst) {
             tokio::task::yield_now().await;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        tokio::time::advance(std::time::Duration::from_secs(2)).await;
         PAST_TIMEOUT.store(true, std::sync::atomic::Ordering::SeqCst);
     };
     let (finished, ()) = tokio::join!(offer(&running, 4), release_once_past_the_timeout);

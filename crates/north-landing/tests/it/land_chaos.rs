@@ -2,20 +2,20 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use north_base::platform::wait;
 use north_landing::land::candidate::{self, git};
 use north_landing::land::jobs::Chores;
 use north_landing::land::lander::Lander;
 use north_landing::land::watch::Watch;
 use north_landing::land::queue::{self, Ticket};
-use north_landing::land::serve::Round;
 use north_landing::land::{after, checks};
 
 const CHILD: &str = "NORTH_LAND_CHAOS_HOME";
 const LANDER_ROLE: &str = "NORTH_LAND_CHAOS_LANDER";
 const STOPPED_AFTER_RUN: &str = "land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane";
-const ROUNDS: usize = 200;
+const DRAIN_LIMIT: Duration = Duration::from_secs(60);
 const SCENARIO_DEADLINE: Duration = Duration::from_secs(180);
 const LANDER_LIFETIME: Duration = Duration::from_secs(120);
 
@@ -146,7 +146,8 @@ impl World {
     }
 
     fn enqueue(&self, lander: &Lander, ticket: &Ticket) -> Lane {
-        std::thread::sleep(Duration::from_millis(2));
+        let mark = micros();
+        wait::until(Duration::from_secs(5), || micros() > mark);
         let name = queue::file_name(micros(), &ticket.branch);
         queue::write(&lander.queue.join(&name), ticket).unwrap();
         Lane { name, subject: run(&ticket.root, &["log", "-1", "--format=%s", &ticket.head]) }
@@ -182,17 +183,15 @@ impl World {
 
 fn drive(lander: &Lander, state: &mut Watch) -> Vec<String> {
     let mut rounds = Vec::new();
-    for _ in 0..ROUNDS {
+    let drained = wait::until(DRAIN_LIMIT, || {
         if queue::pending(&lander.queue).unwrap().is_empty() && state.in_flight() == 0 {
-            return rounds;
+            return true;
         }
-        let round = lander.round(state);
-        if matches!(round, Ok(Round::Checking)) {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        rounds.push(format!("{round:?}"));
-    }
-    panic!("the queue never drained: {:?}", &rounds[rounds.len().saturating_sub(5)..]);
+        rounds.push(format!("{:?}", lander.round(state)));
+        false
+    });
+    assert!(drained, "the queue never drained: {:?}", &rounds[rounds.len().saturating_sub(5)..]);
+    rounds
 }
 
 fn landed(verdicts: &[String]) {
@@ -286,12 +285,8 @@ fn remote_runner_lost_mid_check(world: &World) {
     landed(&world.settled(&lander, &[&a, &b, &c, &d]));
 }
 
-fn wait_for(what: &str, mut ready: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while !ready() {
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+fn wait_for(what: &str, ready: impl FnMut() -> bool) {
+    assert!(wait::until(Duration::from_secs(60), ready), "timed out waiting for {what}");
 }
 
 fn journaled(lander: &Lander) -> usize {
@@ -310,11 +305,10 @@ fn stopped_mid_after_run(world: &World) {
     if std::env::var_os(LANDER_ROLE).is_some() {
         let lander = world.lander();
         let mut watch = Watch::resume(&lander);
-        let started = Instant::now();
-        while started.elapsed() < LANDER_LIFETIME {
+        wait::until(LANDER_LIFETIME, || {
             let _ = lander.round(&mut watch);
-            std::thread::sleep(Duration::from_millis(20));
-        }
+            false
+        });
         return;
     }
     let lander = world.lander();
@@ -385,20 +379,19 @@ fn chaos_remote_runner_lost_mid_check_holds_then_lands() {
 }
 
 
-const STALL: Duration = Duration::from_secs(300);
 
 fn stalled_patrol(_: &Lander) -> Result<(), String> {
-    std::thread::sleep(STALL);
+    wait::hang();
     Ok(())
 }
 
 fn stalled_recovery(_: &Lander, _: &Path) -> Result<Option<after::Recovered>, String> {
-    std::thread::sleep(STALL);
+    wait::hang();
     Ok(None)
 }
 
 fn stalled_pull(_: &Lander) -> Vec<String> {
-    std::thread::sleep(STALL);
+    wait::hang();
     Vec::new()
 }
 
@@ -406,13 +399,11 @@ fn stalled_chores(world: &World) {
     let lander = Lander { chores: Chores { patrol: stalled_patrol, recover: stalled_recovery, pull: stalled_pull }, ..world.lander() };
     after::begin(&lander, "interrupted", "base", &[], &[]).unwrap();
     let a = world.enqueue(&lander, &world.lane("a"));
-    let started = Instant::now();
     let mut watch = Watch::default();
-    while !queue::pending(&lander.queue).unwrap().is_empty() {
-        assert!(started.elapsed() < Duration::from_secs(30), "the queued lane waited 30 s behind the sheriff, the recovery and the outbox pull");
+    assert!(wait::until(Duration::from_secs(30), || {
         let _ = lander.round(&mut watch);
-        std::thread::sleep(Duration::from_millis(20));
-    }
+        queue::pending(&lander.queue).unwrap().is_empty()
+    }), "the queued lane waited 30 s behind the sheriff, the recovery and the outbox pull");
     landed(&world.settled(&lander, &[&a]));
     let mut running: Vec<&str> = watch.jobs.running().into_iter().map(|(kind, _)| kind.name()).collect();
     running.sort_unstable();

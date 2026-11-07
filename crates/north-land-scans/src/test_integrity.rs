@@ -7,7 +7,7 @@ use regex::bytes::Regex as BytesRegex;
 use serde_json::Value;
 
 use super::test_file::is_test_file;
-use super::{Range, git, host_paths};
+use super::{Range, git, host_paths, wall_clock};
 
 static MUTANT_MARKER: LazyLock<BytesRegex> =
     LazyLock::new(|| BytesRegex::new(r"MUTANT:[[:alnum:]_-]").expect("mutant pattern"));
@@ -101,6 +101,15 @@ fn judge(diff: &[u8], trees: &[String], skip_allowed: bool, out: &mut impl Write
                 "a skip or focus",
                 added,
                 "name the changed requirement in a Test-change: trailer",
+            );
+            bad = true;
+        } else if let Some(found) = wall_clock::find(path, added) {
+            refusal(
+                out,
+                path,
+                &format!("the wall-clock read {}", String::from_utf8_lossy(found)),
+                added,
+                "a test waits through north_base::platform::wait::until and takes time as a value, so a loaded host cannot flip it",
             );
             bad = true;
         } else if let Some(found) = host_paths::find(path, added) {

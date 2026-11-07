@@ -415,13 +415,12 @@ fn a_working_session_whose_five_hour_window_is_spent_is_parked_by_the_tick_and_r
     assert!(waits.of("worker").is_empty(), "the wait is released once the session is told");
 }
 
-const HANG: Duration = Duration::from_secs(30);
 
 struct Sleepy;
 
 impl WaitProbes for Sleepy {
     fn placement(&self) -> Option<Box<dyn FnOnce() + Send>> {
-        Some(Box::new(|| std::thread::sleep(HANG)))
+        Some(Box::new(north_base::platform::wait::hang))
     }
 
     fn jobs(&self) -> Vec<ProbeJob> {
@@ -432,7 +431,7 @@ impl WaitProbes for Sleepy {
                 name: "probes.slow",
                 own: None,
                 run: Box::new(move |_| {
-                    std::thread::sleep(HANG);
+                    north_base::platform::wait::hang();
                     said("slow ran")
                 }),
             },
@@ -446,12 +445,12 @@ struct HungLedger;
 
 impl LedgerHost for HungLedger {
     fn exchange(&mut self, _: &Exchange) -> NorthResult<Exchanged> {
-        std::thread::sleep(HANG);
+        north_base::platform::wait::hang();
         Err(NorthError::Refused("ssh nexus: hung".into()))
     }
 
     fn settle(&mut self, _: &[WaitKey]) -> NorthResult<()> {
-        std::thread::sleep(HANG);
+        north_base::platform::wait::hang();
         Err(NorthError::Refused("ssh nexus: hung".into()))
     }
 }
@@ -460,7 +459,7 @@ struct HungTake;
 
 impl FarSpools for HungTake {
     fn take(&self, ssh: &str) -> NorthResult<Pull> {
-        std::thread::sleep(HANG);
+        north_base::platform::wait::hang();
         Nobody.take(ssh)
     }
 

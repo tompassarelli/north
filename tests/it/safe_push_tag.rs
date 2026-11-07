@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::sync::mpsc::RecvTimeoutError;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::support::template::Template;
 
@@ -158,7 +158,7 @@ fn output_unless_stalled(command: &mut Command, stall_limit: Duration) -> std::p
         let _ = exited.send(());
         status
     });
-    let (mut spent, mut idle_since) = (0, Instant::now());
+    let (mut spent, mut idle) = (0, 0u32);
     let status = loop {
         if exit.recv_timeout(STALL_SAMPLE) != Err(RecvTimeoutError::Timeout) {
             break waiter.join().unwrap();
@@ -166,12 +166,15 @@ fn output_unless_stalled(command: &mut Command, stall_limit: Duration) -> std::p
         let tree = process_tree(root);
         let ticks = tree.iter().map(|row| row.1).sum::<u64>();
         if ticks > spent {
-            (spent, idle_since) = (ticks, Instant::now());
-        } else if idle_since.elapsed() > stall_limit {
-            for (pid, _) in &tree {
-                Command::new("kill").args(["-KILL", &pid.to_string()]).status().unwrap();
+            (spent, idle) = (ticks, 0);
+        } else {
+            idle += 1;
+            if STALL_SAMPLE * idle > stall_limit {
+                for (pid, _) in &tree {
+                    Command::new("kill").args(["-KILL", &pid.to_string()]).status().unwrap();
+                }
+                panic!("the process tree used no CPU for {stall_limit:?}: it is deadlocked");
             }
-            panic!("the process tree used no CPU for {stall_limit:?}: it is deadlocked");
         }
     };
     std::process::Output { status, stdout: stdout.join().unwrap(), stderr: stderr.join().unwrap() }

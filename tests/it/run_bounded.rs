@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 fn live() -> bool {
     north().args(["10s", "--", "true"]).output().is_ok_and(|probe| probe.status.success())
@@ -30,11 +30,7 @@ fn run_bounded_reaps_the_timed_out_subtree_and_leaves_root_owned_files_root_owne
     assert!(!status.success());
     let child = fs::read_to_string(&pid_file).unwrap();
     let alive = Path::new("/proc").join(child.trim());
-    let begun = Instant::now();
-    while alive.exists() && begun.elapsed() < Duration::from_secs(2) {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert!(!alive.exists(), "the timed subtree outlived the bound");
+    assert!(north_core::platform::wait::until(Duration::from_secs(2), || !alive.exists()), "the timed subtree outlived the bound");
     let owner = bounded(&["10s", "--", "stat", "-c", "%U", "/nix/store"]);
     assert_eq!(String::from_utf8_lossy(&owner.stdout).trim(), "root");
 }

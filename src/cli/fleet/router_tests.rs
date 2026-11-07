@@ -145,10 +145,10 @@ async fn a_host_told_to_end_leaves_a_finished_worker_stopped_and_an_unfinished_o
         session_record(root.path(), Some("lead"));
         let (config, _) = claude_turn(root.path(), 100_000, reply);
         let sink = Arc::new(Recorded::default());
-        let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, Arc::new(Held::default()), root.path().to_path_buf(), root.path().join("worker"));
+        let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), root.path().join("worker"));
         let host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
         host.end_with_host_signal();
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(north_core::platform::wait::until_async(Duration::from_secs(30), || !sink.0.lock().unwrap().is_empty()).await, "the turn never recorded its run");
         rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::Term).unwrap();
         let code = tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
         assert_eq!(code, 143);

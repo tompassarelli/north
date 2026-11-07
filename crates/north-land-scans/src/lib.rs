@@ -25,6 +25,7 @@ pub mod test_admission;
 mod test_file;
 pub mod test_integrity;
 pub mod tool_removal;
+mod wall_clock;
 
 use std::path::{Path, PathBuf};
 

@@ -1,5 +1,6 @@
 use north_core::foundation::shim;
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 const NORTH_STUB: &str = r#"printf 'north %s\n' "$*" >>"$STUB_TRACE"
@@ -418,23 +419,40 @@ fn head_north_on_a_runtime_mid_build() -> (Fixture, PathBuf) {
     (fixture, lease)
 }
 
+fn run_head_north_releasing(fixture: &Fixture, command: &str, waiting_line: &str, release: impl FnOnce()) -> Output {
+    let mut run = head_north_command(fixture, command);
+    let mut child = run.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let mut seen = String::new();
+    let mut release = Some(release);
+    let mut line = String::new();
+    while stderr.read_line(&mut line).unwrap() > 0 {
+        if line.contains(waiting_line) {
+            release.take().into_iter().for_each(|release| release());
+        }
+        seen.push_str(&line);
+        line.clear();
+    }
+    let finished = child.wait_with_output().unwrap();
+    Output { stderr: seen.into_bytes(), ..finished }
+}
+
 fn run_head_north(fixture: &Fixture, command: &str) -> Output {
+    head_north_command(fixture, command).output().unwrap()
+}
+
+fn head_north_command(fixture: &Fixture, command: &str) -> Command {
     let mut run = Command::new("bash");
     run.current_dir(&fixture.repo).args(["-c", command]).env("HEAD_NORTH_SETTLE", "1");
     run.env("REAL_NORTH", env!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
-    run.output().unwrap()
+    run
 }
 
 // KEEP(bug): the lander refused lane 3e400d15d on 2026-11-07 because head-north exited 1 opening the lease file of a runtime another process was still building (north#807)
 #[test]
 fn a_land_check_waits_for_a_runtime_another_process_is_still_building_instead_of_failing() {
     let (fixture, lease) = head_north_on_a_runtime_mid_build();
-    let finishing = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(1_500));
-        fs::remove_dir(lease).unwrap();
-    });
-    let output = run_head_north(&fixture, "./bin/head-north --code docs/ docs --help");
-    finishing.join().unwrap();
+    let output = run_head_north_releasing(&fixture, "./bin/head-north --code docs/ docs --help", "is not a whole runtime yet", || fs::remove_dir(lease).unwrap());
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
     assert!(text(&output).contains("is not a whole runtime yet"), "{}", text(&output));
     assert!(fixture.trace().contains("live docs --help"), "the check did not run on the runtime once it was whole: {}", fixture.trace());

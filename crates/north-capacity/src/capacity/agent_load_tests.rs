@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 use std::process::{Child, Command};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::agent_load::{self, Host, gaming_marked, process_start};
 
@@ -26,14 +26,7 @@ fn host_pid(child: &Child) -> u32 {
 }
 
 fn exited(child: &mut Child) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        if child.try_wait().unwrap().is_some() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    false
+    north_base::platform::wait::until(Duration::from_secs(5), || child.try_wait().unwrap().is_some())
 }
 
 fn host(root: &Path, proc: &Path) -> Host {

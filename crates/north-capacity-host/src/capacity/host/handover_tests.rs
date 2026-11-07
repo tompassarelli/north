@@ -1,7 +1,9 @@
 use std::io::Read;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use north_base::platform::wait;
 
 use super::handover::{Listening, REPUBLISH_AFTER, release, socket_path};
 use super::json::Obj;
@@ -14,7 +16,8 @@ use crate::capacity::effects::Host;
 use crate::capacity::handover::{Frame, Received, receive};
 
 fn queue(root: &std::path::Path, class: &str, pullable: bool) -> String {
-    std::thread::sleep(Duration::from_millis(3));
+    let mark = super::machine::now_ms();
+    wait::until(Duration::from_secs(5), || super::machine::now_ms() > mark);
     enqueue(root, Obj::new().put("class", class).put("requestedClass", class).put("requestedCpus", 6).put_some("pullable", pullable.then_some(true)))
 }
 
@@ -87,9 +90,9 @@ async fn capacity_a_run_is_claimed_once_by_racing_peers_withdrawn_on_local_admis
     drop(Listening::open(&root, &later).unwrap());
     assert!(release(&root).is_none(), "a run admitted here first is no longer offered");
     oldest_door.give_back();
-    oldest_door.tend_at(Instant::now());
+    oldest_door.tend_at(wait::after(Duration::ZERO));
     assert!(release(&root).is_none(), "a failed run waits before it is offered again");
-    oldest_door.tend_at(Instant::now() + REPUBLISH_AFTER);
+    oldest_door.tend_at(wait::after(REPUBLISH_AFTER));
     assert_eq!(release(&root).map(|(name, _)| name), Some(oldest), "a failed run is offered again after the wait");
 }
 
@@ -165,6 +168,6 @@ async fn capacity_a_waiting_run_prints_the_takers_stream_and_exits_with_its_code
     feeding.join().unwrap();
     assert_eq!(queued(root), std::slice::from_ref(&second), "the run is back in the queue at its own place");
     door.give_back();
-    door.tend_at(Instant::now() + REPUBLISH_AFTER);
+    door.tend_at(wait::after(REPUBLISH_AFTER));
     assert_eq!(release(root).map(|(name, _)| name), Some(second));
 }

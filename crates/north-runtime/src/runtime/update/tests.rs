@@ -1,5 +1,16 @@
 use super::*;
 
+fn ticks_past(directory: &std::path::Path, mark: &std::path::Path) {
+    let probe = directory.join(".tick");
+    let modified = |path: &std::path::Path| fs::symlink_metadata(path).unwrap().modified().unwrap();
+    let past = north_base::platform::wait::until(Duration::from_secs(5), || {
+        fs::write(&probe, "").unwrap();
+        modified(&probe) > modified(mark)
+    });
+    fs::remove_file(&probe).unwrap();
+    assert!(past, "the file clock never moved past {}", mark.display());
+}
+
 #[test]
 fn republishing_onto_the_live_runtime_keeps_the_time_it_went_live() {
     let state = tempfile::tempdir().unwrap();
@@ -7,7 +18,7 @@ fn republishing_onto_the_live_runtime_keeps_the_time_it_went_live() {
     let link = layout::link(&"d".repeat(40));
     swap(&layout, &link).unwrap();
     let live_at = fs::symlink_metadata(layout.current()).unwrap().modified().unwrap();
-    std::thread::sleep(Duration::from_millis(20));
+    ticks_past(state.path(), &layout.current());
     swap(&layout, &link).unwrap();
     assert_eq!(fs::symlink_metadata(layout.current()).unwrap().modified().unwrap(), live_at);
 }
@@ -19,7 +30,7 @@ fn collecting_old_runtimes_keeps_the_runtime_the_lander_link_pins() {
     let shas: Vec<String> = (0..7).map(|digit| digit.to_string().repeat(40)).collect();
     for sha in &shas {
         fs::create_dir_all(layout.runtime(sha)).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        ticks_past(state.path(), &layout.runtime(sha));
     }
     std::os::unix::fs::symlink(layout::link(&shas[0]), layout.lander()).unwrap();
     std::os::unix::fs::symlink(layout::link(&shas[6]), layout.current()).unwrap();

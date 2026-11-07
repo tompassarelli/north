@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use north_graph::{Graph, Term, Triple};
 
@@ -42,7 +42,7 @@ fn ground(wanted: &[Seed]) -> String {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("graph.db");
     built(&path);
-    ground_with(&path, wanted, Some(Instant::now() + Duration::from_secs(5))).join("\n")
+    ground_with(&path, wanted, Some(north_base::platform::wait::after(Duration::from_secs(5)))).join("\n")
 }
 
 #[test]

@@ -231,23 +231,24 @@ fn an_interactive_window_opened_after_the_turn_leaves_a_running_first_turn_to_fi
     let stream = session.join("g1/stream.jsonl");
     let frame = |kind: &str| serde_json::json!({"type": kind, "subtype": "success", "session_id": "c", "message": {"content": [{"type": "text", "text": "first turn"}]}}).to_string() + "\n";
     fs::write(&stream, frame("assistant")).unwrap();
-    let finisher = {
-        let stream = stream.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(1200));
-            std::io::Write::write_all(&mut fs::OpenOptions::new().append(true).open(stream).unwrap(), frame("result").as_bytes()).unwrap();
-        })
-    };
-
     let mut turn_over_at_launch = None;
+    let mut looks = 0;
     fleet
-        .interactive("proxy", true, |_| {
-            turn_over_at_launch = Some(fs::read_to_string(&stream).unwrap().contains("\"type\":\"result\""));
-            Ok(())
-        })
+        .interactive_pacing(
+            "proxy",
+            true,
+            || {
+                looks += 1;
+                std::io::Write::write_all(&mut fs::OpenOptions::new().append(true).open(&stream).unwrap(), frame("result").as_bytes()).unwrap();
+            },
+            |_| {
+                turn_over_at_launch = Some(fs::read_to_string(&stream).unwrap().contains("\"type\":\"result\""));
+                Ok(())
+            },
+        )
         .unwrap();
-    finisher.join().unwrap();
 
+    assert_eq!(looks, 1, "the turn was still running at the first look and over at the second");
     assert_eq!(turn_over_at_launch, Some(true), "the window took the conversation while the first turn was still running");
 }
 

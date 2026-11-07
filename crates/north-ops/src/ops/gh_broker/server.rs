@@ -37,6 +37,11 @@ impl Activity {
         true
     }
 
+    #[cfg(test)]
+    pub fn open_calls(&self) -> usize {
+        self.open.load(Ordering::Relaxed)
+    }
+
     pub fn idle_for(&self) -> Option<Duration> {
         (self.open.load(Ordering::Relaxed) == 0).then(|| Duration::from_secs(unix_now().saturating_sub(self.last.load(Ordering::Relaxed))))
     }

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::support::template::Template;
 
@@ -105,15 +105,8 @@ pub fn write(path: &Path, content: &str) {
     std::fs::write(path, content).unwrap();
 }
 
-pub fn wait_until(limit: Duration, mut condition: impl FnMut() -> bool) -> bool {
-    let started = Instant::now();
-    while !condition() {
-        if started.elapsed() > limit {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    true
+pub fn wait_until(limit: Duration, condition: impl FnMut() -> bool) -> bool {
+    north_core::platform::wait::until(limit, condition)
 }
 
 pub struct Scratch {

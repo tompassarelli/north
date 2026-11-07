@@ -251,16 +251,12 @@ fn host_with_a_shipped_bundle() -> (tempfile::TempDir, String, std::path::PathBu
 
 /// Blocks until `jobs` of the spawned scripts have either a ticket in the host queue or a start line in the order log.
 fn wait_until_in_line(home: &Path, log: &Path, jobs: usize) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    loop {
+    let counts = || {
         let queued = fs::read_dir(home.join(".cache/land-offload/queue")).map(|entries| entries.count()).unwrap_or(0);
         let started = fs::read_to_string(log).map(|text| text.lines().filter(|line| line.starts_with("start-")).count()).unwrap_or(0);
-        if queued + started >= jobs {
-            return;
-        }
-        assert!(std::time::Instant::now() < deadline, "only {queued} queued and {started} started of {jobs} jobs");
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+        (queued, started)
+    };
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || counts().0 + counts().1 >= jobs), "only {} queued and {} started of {jobs} jobs", counts().0, counts().1);
 }
 
 #[test]
@@ -293,8 +289,8 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
                 .spawn()
                 .unwrap();
             wait_until_in_line(home.path(), &log, index + 1);
-            while index == 0 && !fs::read_to_string(&log).is_ok_and(|text| text.contains("start-a")) {
-                std::thread::sleep(std::time::Duration::from_millis(20));
+            if index == 0 {
+                assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.contains("start-a"))), "the first job never started");
             }
             child
         })
@@ -434,8 +430,9 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
             .spawn()
             .unwrap()
     };
-    let holder = job("mkdir -p target && echo built >target/marker && sleep 2".to_owned(), "");
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    let holding = home.path().join("holder-started");
+    let holder = job(format!("mkdir -p target && echo built >target/marker && touch {} && sleep 2", holding.display()), "");
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(30), || holding.exists()), "the holder never took its slot");
     let queued = job(format!("cat target/marker >>{} && printf '%s %s %s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" \"$CARGO_BUILD_JOBS $RUST_TEST_THREADS $NEXTEST_TEST_THREADS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", home.path().join("marker").display(), north_base::foundation::offload::SLOT_ENV, seen.display()), "");
     let lander_seen = home.path().join("lander-seen");
     let lander = job(format!("printf '%s' \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, lander_seen.display()), "1").wait_with_output().unwrap();
@@ -536,7 +533,6 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     let ran = home.path().join("inner-ran");
     let ran_elsewhere = home.path().join("inner-ran-elsewhere");
     let command = format!("{} && {}", nested(&head, &ran), nested(&other, &ran_elsewhere));
-    let started = std::time::Instant::now();
     let mut outer = Command::new("setsid")
         .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0"])
         .env("HOME", home.path())
@@ -549,9 +545,7 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
         .stderr(fs::File::create(home.path().join("outer.err")).unwrap())
         .spawn()
         .unwrap();
-    while outer.try_wait().unwrap().is_none() && started.elapsed() < std::time::Duration::from_secs(10) {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
+    north_base::platform::wait::until(std::time::Duration::from_secs(10), || outer.try_wait().unwrap().is_some());
     let finished = outer.try_wait().unwrap();
     if finished.is_none() {
         let _ = rustix::process::kill_process_group(rustix::process::Pid::from_raw(outer.id() as i32).unwrap(), rustix::process::Signal::Kill);

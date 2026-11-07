@@ -116,11 +116,7 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
     let work = || north_session_host::held::work(&ssh, "tom@far", &units).unwrap()[&units[0]];
     assert_eq!(work(), 0, "an idle CLI has no work below it");
     to_link.write_all(b"wait\n").await.unwrap();
-    let started = std::time::Instant::now();
-    while !waiting.exists() {
-        assert!(started.elapsed() < WAIT, "the CLI never took the wait");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    assert!(north_base::platform::wait::until_async(WAIT, || waiting.exists()).await, "the CLI never took the wait");
     assert!(work() > 0, "the reaper sees the background wait the CLI runs on its machine (north#770)");
     drop_transport(&root.path().join("shims"));
     to_link.write_all(b"two\n").await.unwrap();
@@ -134,15 +130,10 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
 
     drop(to_link);
     assert_eq!(tokio::time::timeout(WAIT, relay).await.unwrap().unwrap().unwrap(), 0);
-    let deadline = std::time::Instant::now() + WAIT;
-    while alive(&cli_pid) && std::time::Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    north_base::platform::wait::until_async(WAIT, || !alive(&cli_pid)).await;
     assert!(!alive(&cli_pid), "closing the host's input stops the held service");
     let held = root.path().join(".local/state/north/held");
-    while !holding(&held).is_empty() && std::time::Instant::now() < deadline + WAIT {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    north_base::platform::wait::until_async(WAIT, || holding(&held).is_empty()).await;
     assert_eq!(holding(&held), Vec::<String>::new(), "no process of the held service outlives its CLI, so a test run leaks none into the session that ran it");
 }
 

@@ -1,11 +1,13 @@
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use north_base::platform::wait;
 
 use super::{Clock, Lease, NO_VERDICT, TIMED_OUT, guard};
 
 fn clock(root: &Path, driven: &Path, wall: bool) -> Clock {
-    Clock { lease: Lease { file: None, root: root.to_owned() }, timeout: Duration::from_secs(2), wall, started: Instant::now(), driven: Some(driven.to_owned()), first: None, paused: Duration::ZERO, queued: Duration::ZERO, queued_since: None }
+    Clock { lease: Lease { file: None, root: root.to_owned() }, timeout: Duration::from_secs(2), wall, started: wait::after(Duration::ZERO), driven: Some(driven.to_owned()), first: None, paused: Duration::ZERO, queued: Duration::ZERO, queued_since: None }
 }
 
 fn judged(driven: &Path, milliseconds: u64) -> bool {
@@ -13,11 +15,7 @@ fn judged(driven: &Path, milliseconds: u64) -> bool {
 }
 
 fn wait_until(what: &str, ready: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while !ready() {
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    assert!(wait::until(Duration::from_secs(20), ready), "timed out waiting for {what}");
 }
 
 fn queued_job(root: &Path, wall: bool, ticketed: bool) -> (tempfile::TempDir, std::thread::JoinHandle<u8>) {
